@@ -14,6 +14,30 @@
 
 import { z } from 'zod';
 
+import {
+  AI_AZURE_API_VERSION_PATTERN,
+  AI_AZURE_DEPLOYMENT_PATTERN,
+  AI_AZURE_DEPLOYMENTS_MAX,
+  AI_AZURE_ENDPOINT_SCHEMES,
+  AI_AZURE_MODEL_ID_MAX,
+  AI_COMPATIBLE_ENDPOINT_SCHEMES,
+  AI_ENDPOINT_URL_MAX,
+  AI_KEY_POLICIES,
+  AI_LIMIT_MODEL_KEY_MAX,
+  AI_LIMIT_MODEL_KEY_PATTERN,
+  AI_LIMIT_VALUE_MAX,
+  AI_LIMITS_PER_MODEL_MAX,
+  AI_MCP_ALLOWED_HOST_PATTERN,
+  AI_MCP_ALLOWED_HOSTS_MAX,
+  AI_OPENAI_API_STYLES,
+  AI_USAGE_RETENTION_MAX_DAYS,
+  aiEndpointUrlProblem,
+  type AiKeyPolicy,
+  type AiKeyPolicyEnum,
+  type AiOpenAiApiStyleEnum,
+  type AiSecretFieldNames,
+} from './constants.js';
+
 // =============================================================================
 // User namespace `ai`
 // =============================================================================
@@ -43,14 +67,22 @@ import { z } from 'zod';
  * represent, even though nothing routes to it any more.
  */
 export const userAiSettingsSchema = z.object({
+  /** The model an AI surface pre-selects; `null` means none chosen. */
   defaultModel: z
     .object({
+      /** Provider id. */
       provider: z.string(),
+      /** Model id. */
       modelId: z.string(),
     })
     .nullable(),
 });
 
+/**
+ * The per-user `ai` settings namespace (`userAiSettingsSchema`'s output).
+ *
+ * @stability experimental
+ */
 export type UserAiSettingsValue = z.infer<typeof userAiSettingsSchema>;
 
 /**
@@ -60,87 +92,46 @@ export type UserAiSettingsValue = z.infer<typeof userAiSettingsSchema>;
  * to send at all, matching `dataTables`/`navigation` above).
  */
 export const userAiSettingsPatchSchema = z.object({
+  /** The model an AI surface pre-selects; `null` means none chosen. */
   defaultModel: z
     .object({
+      /** Provider id. */
       provider: z.string(),
+      /** Model id. */
       modelId: z.string(),
     })
     .nullable(),
 });
 
+/**
+ * A `PATCH` of the per-user `ai` namespace.
+ *
+ * @stability experimental
+ */
 export type UserAiSettingsPatchValue = z.infer<typeof userAiSettingsPatchSchema>;
 
-// =============================================================================
-// AI platform namespace (issue #423, epic #419, umbrella #418)
-// =============================================================================
-//
-// Deployment-wide AI policy — declared on the same terms as `storage` above:
-// all six places in one pass (this file's two schemas, the wire DTOs' two
-// schemas, `DEFAULT_SYSTEM_SETTINGS`, and the hand-written merge in
-// `system-settings.service.ts`), ahead of every consumer. THIS ISSUE OWNS
-// SCHEMA ONLY — nothing in this build reads `ai.enabled` to gate a route, and
-// no controller exists yet that lets a caller actually run a model (#427,
-// #428, #431, #432).
-//
-// `AI_PROVIDER_IDS` NAMES A REGISTRATION, NOT A CLOSED SET FOREVER — `as const`
-// listed `'openai'` alone through Phase 1, and Phase 3 appends to the array
-// rather than replacing it (`'anthropic'`, #446; `'gemini'`, #447;
-// `'azure-openai'` and `'openai-compatible'`, #448). A fork adding its own
-// provider extends this array; nothing about the shape below assumes a fixed
-// number of members. Append only: the order is the admin UI's order.
-export const AI_PROVIDER_IDS = ['openai', 'anthropic', 'gemini', 'azure-openai', 'openai-compatible'] as const;
 
-/** A registered AI provider id. See {@link AI_PROVIDER_IDS}. */
-export type AiProviderId = (typeof AI_PROVIDER_IDS)[number];
 
-/**
- * How this deployment sources the API key a call actually authenticates
- * with.
- *
- *  - `byok`                    — every call uses the CALLING USER's own key
- *    (`UserAiKey`). No call succeeds for a user who has not saved one.
- *  - `byok_with_org_fallback`  — a user's own key is preferred; a user with
- *    none falls back to a deployment-wide org key. What that org key is, and
- *    where it lives, is deliberately not modelled here: like the object
- *    storage secret access key, an org-wide AI key is CREDENTIAL material and
- *    belongs in the encrypted credential store, never in this JSONB blob that
- *    `GET /api/system-settings` returns wholesale — see the block comment
- *    on `systemAiSchema` below.
- */
-export const AI_KEY_POLICIES = ['byok', 'byok_with_org_fallback'] as const;
 
-/** Upper bound on `ai.usageRetentionDays` — ten years; anything longer is "forever" in practice. */
-export const AI_USAGE_RETENTION_MAX_DAYS = 3650;
 
-/**
- * One `ai.hostedTools.mcpAllowedHosts` entry: a hostname (`mcp.example.com`)
- * or a subdomain wildcard (`*.example.com`). No scheme, port or path — the
- * scheme is always `https`, and the entry is compared with the URL's host.
- */
-export const AI_MCP_ALLOWED_HOST_PATTERN =
-  /^(\*\.)?[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+// A factory, not a shared instance: every field gets its own enum, exactly as
+// when each was written inline (the generated OpenAPI document is unchanged).
+const keyPolicyEnum = (): z.ZodEnum<AiKeyPolicyEnum> => z.enum(AI_KEY_POLICIES);
 
-/** Most entries `ai.hostedTools.mcpAllowedHosts` may hold. */
-export const AI_MCP_ALLOWED_HOSTS_MAX = 100;
+
+
 
 const mcpAllowedHostSchema = z.string().max(253).regex(AI_MCP_ALLOWED_HOST_PATTERN);
 
+
+
+
+
 /**
- * One `ai.limits.perModel` key: `<provider>:<modelId>` — a lower-case
- * provider id, a colon, then the model id exactly as the catalog lists it
- * (`openai:gpt-4.1-mini`). The model id may itself contain colons.
+ * One limit value: a positive integer up to `AI_LIMIT_VALUE_MAX`.
+ *
+ * @stability experimental
  */
-export const AI_LIMIT_MODEL_KEY_PATTERN = /^[a-z0-9-]+:.+$/;
-
-/** Longest accepted `ai.limits.perModel` key. */
-export const AI_LIMIT_MODEL_KEY_MAX = 256;
-
-/** Most entries `ai.limits.perModel` may hold. */
-export const AI_LIMITS_PER_MODEL_MAX = 500;
-
-/** Upper bound on any one `ai.limits` number — a billion is "unlimited" in practice. */
-export const AI_LIMIT_VALUE_MAX = 1_000_000_000;
-
 export const aiLimitValueSchema = z.number().int().positive().max(AI_LIMIT_VALUE_MAX);
 
 /**
@@ -161,32 +152,44 @@ export const aiLimitValueSchema = z.number().int().positive().max(AI_LIMIT_VALUE
  * `docs/specs/ai-platform.md` §2.22.
  */
 export const systemAiLimitsSchema = z.object({
+  /** Limits on every call a user makes, whoever's key pays. */
   perUser: z
     .object({
+      /** Requests per minute. */
       requestsPerMinute: aiLimitValueSchema.optional(),
+      /** Requests per UTC day. */
       requestsPerDay: aiLimitValueSchema.optional(),
     })
     .optional(),
+  /** Limits on the calls an administrator-managed key pays for. */
   orgKey: z
     .object({
+      /** Requests per UTC day, per user. */
       requestsPerDayPerUser: aiLimitValueSchema.optional(),
+      /** Input plus output tokens per UTC day, per user. */
       tokensPerDayPerUser: aiLimitValueSchema.optional(),
     })
     .optional(),
   // #739: the deployment default PER ORGANIZATION (requests and output tokens
   // per UTC day, counted over every call made in that organization); absent
   // means unlimited. An organization may only lower it (its org layer).
+  /** Limits on one organization's whole daily volume, whoever's key pays (#739). */
   perOrg: z
     .object({
+      /** Requests per UTC day. */
       requestsPerDay: aiLimitValueSchema.optional(),
+      /** Output tokens per UTC day. */
       outputTokensPerDay: aiLimitValueSchema.optional(),
     })
     .optional(),
+  /** Per-model limits, keyed `<provider>:<modelId>`. */
   perModel: z
     .record(
       z.string().max(AI_LIMIT_MODEL_KEY_MAX).regex(AI_LIMIT_MODEL_KEY_PATTERN),
       z.object({
+        /** Output-token ceiling for every call to the model. */
         maxOutputTokens: aiLimitValueSchema.optional(),
+        /** Requests per minute, per user, to the model. */
         requestsPerMinutePerUser: aiLimitValueSchema.optional(),
       }),
     )
@@ -196,10 +199,13 @@ export const systemAiLimitsSchema = z.object({
     .optional(),
 });
 
+/**
+ * `ai.limits`, as stored.
+ *
+ * @stability experimental
+ */
 export type SystemAiLimitsValue = z.infer<typeof systemAiLimitsSchema>;
 
-/** How the deployment sources a call's API key. See {@link AI_KEY_POLICIES}. */
-export type AiKeyPolicy = (typeof AI_KEY_POLICIES)[number];
 
 /**
  * Deployment-wide AI platform policy (`ai`).
@@ -285,7 +291,9 @@ export type AiKeyPolicy = (typeof AI_KEY_POLICIES)[number];
  * below extend it.
  */
 export const systemAiProviderSchema = z.object({
+  /** Whether AI is switched on (the kill switch). */
   enabled: z.boolean(),
+  /** The endpoint override; absent means the provider's default. */
   baseUrl: z.string().url().optional(),
 });
 
@@ -311,29 +319,7 @@ export const systemAiProviderSchema = z.object({
 // transport follows no redirect to another origin (see
 // `ai/providers/openai/openai-redirect-guard.ts`).
 
-/** Longest accepted `baseUrl` for the #448 slots. */
-export const AI_ENDPOINT_URL_MAX = 2048;
 
-/** Why an endpoint URL is refused, or null when it is acceptable. Shared with the admin DTOs. */
-export function aiEndpointUrlProblem(value: string, schemes: readonly string[]): string | null {
-  let url: URL;
-
-  try {
-    url = new URL(value);
-  } catch {
-    return 'Must be an absolute URL';
-  }
-
-  if (!schemes.includes(url.protocol.replace(/:$/, ''))) {
-    return `The scheme must be ${schemes.join(' or ')}`;
-  }
-
-  if (url.username || url.password) return 'Credentials may not be embedded in the URL';
-  if (url.hash || value.includes('#')) return 'A fragment (#...) is not allowed';
-  if (!url.hostname) return 'A host is required';
-
-  return null;
-}
 
 /** A `baseUrl` for an admin-chosen OpenAI-family endpoint, restricted to `schemes`. */
 export function aiEndpointUrlSchema(schemes: readonly string[]) {
@@ -347,31 +333,20 @@ export function aiEndpointUrlSchema(schemes: readonly string[]) {
     });
 }
 
-/** Schemes a `providers['azure-openai'].baseUrl` may use. */
-export const AI_AZURE_ENDPOINT_SCHEMES = ['https'] as const;
 
-/** Schemes a `providers['openai-compatible'].baseUrl` may use. */
-export const AI_COMPATIBLE_ENDPOINT_SCHEMES = ['http', 'https'] as const;
 
-/** Which wire API an OpenAI-family adapter speaks. */
-export const AI_OPENAI_API_STYLES = ['responses', 'chat_completions'] as const;
-export type AiOpenAiApiStyle = (typeof AI_OPENAI_API_STYLES)[number];
+
+
+const apiStyleEnum = (): z.ZodEnum<AiOpenAiApiStyleEnum> => z.enum(AI_OPENAI_API_STYLES);
+
+
+
 
 /**
- * An Azure `api-version` query value (`2025-04-01-preview`, `2024-10-21`,
- * `preview`). A plain token: it is sent as a query parameter and nothing else.
+ * Azure OpenAI's model id to deployment name map.
+ *
+ * @stability experimental
  */
-export const AI_AZURE_API_VERSION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
-
-/** An Azure deployment name: letters, digits, `.`, `_` and `-`, at most 64. */
-export const AI_AZURE_DEPLOYMENT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
-
-/** Most entries `providers['azure-openai'].deployments` may hold. */
-export const AI_AZURE_DEPLOYMENTS_MAX = 200;
-
-/** Longest accepted model id key in `deployments`. */
-export const AI_AZURE_MODEL_ID_MAX = 256;
-
 export const aiAzureDeploymentsSchema = z
   .record(
     z.string().min(1).max(AI_AZURE_MODEL_ID_MAX),
@@ -400,9 +375,13 @@ export const aiAzureDeploymentsSchema = z
  *    is sent as its own deployment name.
  */
 export const systemAiAzureProviderSchema = systemAiProviderSchema.extend({
+  /** The endpoint override; absent means the provider's default. */
   baseUrl: aiEndpointUrlSchema(AI_AZURE_ENDPOINT_SCHEMES).optional(),
+  /** Azure OpenAI: the API version. */
   apiVersion: z.string().regex(AI_AZURE_API_VERSION_PATTERN).optional(),
-  apiStyle: z.enum(AI_OPENAI_API_STYLES).optional(),
+  /** Which API shape the server speaks (`responses` or `chat_completions`). */
+  apiStyle: apiStyleEnum().optional(),
+  /** Azure OpenAI: model id to deployment name. */
   deployments: aiAzureDeploymentsSchema.optional(),
 });
 
@@ -421,49 +400,86 @@ export const systemAiAzureProviderSchema = systemAiProviderSchema.extend({
  *    §2.24).
  */
 export const systemAiCompatibleProviderSchema = systemAiProviderSchema.extend({
+  /** The endpoint override; absent means the provider's default. */
   baseUrl: aiEndpointUrlSchema(AI_COMPATIBLE_ENDPOINT_SCHEMES).optional(),
-  apiStyle: z.enum(AI_OPENAI_API_STYLES).optional(),
+  /** Which API shape the server speaks (`responses` or `chat_completions`). */
+  apiStyle: apiStyleEnum().optional(),
+  /** OpenAI-compatible: whether the server needs a key. */
   requiresKey: z.boolean().optional(),
 });
 
+/**
+ * The stored `ai` system settings namespace: the deployment's AI policy.
+ * It carries no key (see `AI_SETTINGS_CARRIES_NO_SECRET`).
+ *
+ * @stability experimental
+ */
 export const systemAiSchema = z.object({
+  /** Whether AI is switched on (the kill switch). */
   enabled: z.boolean(),
-  keyPolicy: z.enum(AI_KEY_POLICIES),
+  /** Whose key pays: the caller's own only (`byok`), or an administrator's as a fallback. */
+  keyPolicy: keyPolicyEnum(),
+  /** Per-provider settings, by provider id. */
   providers: z.object({
+    /** The OpenAI slot. */
     openai: systemAiProviderSchema,
     // #446. Appended; a stored row written before this slot existed is
     // salvaged per provider by `SystemSettingsService`, never reset.
+    /** The Anthropic slot. */
     anthropic: systemAiProviderSchema,
     // #447. Appended, and salvaged per provider exactly like `anthropic`.
+    /** The Gemini slot. */
     gemini: systemAiProviderSchema,
     // #448. Appended, each with its own extended slot shape.
+    /** The Azure OpenAI slot. */
     'azure-openai': systemAiAzureProviderSchema,
+    /** The OpenAI-compatible server slot. */
     'openai-compatible': systemAiCompatibleProviderSchema,
   }),
+  /** Deployment-wide defaults a call cannot exceed. */
   defaults: z.object({
+    /** Output-token ceiling for every call; `null` means no cap. */
     maxOutputTokensCap: z.number().int().positive().optional(),
+    /** Whether a call may be queued as a background run. */
     allowBackgroundRuns: z.boolean(),
     // #449. Appended; see the header for how an older row reads it.
+    /** Whether realtime voice sessions may be minted. */
     allowRealtime: z.boolean(),
   }),
+  /** Whether prompt and response text is written to the logs. */
   logPromptContent: z.boolean(),
+  /** Days usage rows are kept. */
   usageRetentionDays: z.number().int().min(1).max(AI_USAGE_RETENTION_MAX_DAYS),
+  /** Which provider-hosted tools are switched on (all off by default). */
   hostedTools: z.object({
+    /** Hosted web search. */
     web_search: z.boolean(),
+    /** Hosted file search. */
     file_search: z.boolean(),
+    /** Hosted code execution. */
     code_interpreter: z.boolean(),
+    /** Hosted image generation. */
     image_generation: z.boolean(),
+    /** Remote MCP servers. */
     mcp: z.boolean(),
+    /** Hosts a remote MCP server may be on; empty means any `https://` host. */
     mcpAllowedHosts: z.array(mcpAllowedHostSchema).max(AI_MCP_ALLOWED_HOSTS_MAX),
   }),
+  /** Rate limits and output caps; every absent field is unlimited. */
   limits: systemAiLimitsSchema,
   // #739: whether the DEPLOYMENT's provider key (the `ai` credential of the
   // system tier) may serve a call made in an organization that has no key of
   // its own, under the same rule an organization key does. `true`: today's
   // behaviour, where the deployment key is the only administrator key.
+  /** Whether the deployment's keys pay for an organization that stores no key of its own (#739). */
   deploymentKeyServesOrgs: z.boolean(),
 });
 
+/**
+ * The stored `ai` namespace (`systemAiSchema`'s output).
+ *
+ * @stability experimental
+ */
 export type SystemAiValue = z.infer<typeof systemAiSchema>;
 
 /**
@@ -483,7 +499,9 @@ export type SystemAiValue = z.infer<typeof systemAiSchema>;
 // it an override, once set, could be changed but never cleared (#428).
 /** One provider's slot in a PATCH: each field optional, `baseUrl: null` removes the override. */
 const systemAiProviderPatchSchema = z.object({
+  /** Whether the provider is switched on. */
   enabled: z.boolean().optional(),
+  /** The endpoint override; `null` removes it. */
   baseUrl: z.string().url().nullable().optional(),
 });
 
@@ -493,50 +511,85 @@ const systemAiProviderPatchSchema = z.object({
  * same rule as `mcpAllowedHosts` and `limits`: a merge could never remove one.
  */
 const systemAiAzureProviderPatchSchema = z.object({
+  /** Whether the provider is switched on. */
   enabled: z.boolean().optional(),
+  /** The Azure endpoint; `null` removes it. */
   baseUrl: aiEndpointUrlSchema(AI_AZURE_ENDPOINT_SCHEMES).nullable().optional(),
+  /** The API version; `null` restores the default. */
   apiVersion: z.string().regex(AI_AZURE_API_VERSION_PATTERN).nullable().optional(),
-  apiStyle: z.enum(AI_OPENAI_API_STYLES).nullable().optional(),
+  /** The API shape; `null` restores the default. */
+  apiStyle: apiStyleEnum().nullable().optional(),
+  /** Model id to deployment name, replaced whole; `null` clears it. */
   deployments: aiAzureDeploymentsSchema.nullable().optional(),
 });
 
 const systemAiCompatibleProviderPatchSchema = z.object({
+  /** Whether the provider is switched on. */
   enabled: z.boolean().optional(),
+  /** The server's endpoint; `null` removes it. */
   baseUrl: aiEndpointUrlSchema(AI_COMPATIBLE_ENDPOINT_SCHEMES).nullable().optional(),
-  apiStyle: z.enum(AI_OPENAI_API_STYLES).nullable().optional(),
+  /** The API shape; `null` restores the default. */
+  apiStyle: apiStyleEnum().nullable().optional(),
+  /** Whether the server needs a key; `null` restores the default (yes). */
   requiresKey: z.boolean().nullable().optional(),
 });
 
+/**
+ * A `PATCH /api/system-settings` body's `ai` member: every field optional.
+ *
+ * @stability experimental
+ */
 export const systemAiPatchSchema = z.object({
+  /** Whether AI is switched on (the kill switch). */
   enabled: z.boolean().optional(),
-  keyPolicy: z.enum(AI_KEY_POLICIES).optional(),
+  /** Whose key pays: the caller's own only (`byok`), or an administrator's as a fallback. */
+  keyPolicy: keyPolicyEnum().optional(),
+  /** Per-provider settings, by provider id. */
   providers: z
     .object({
+      /** The OpenAI slot. */
       openai: systemAiProviderPatchSchema.optional(),
+      /** The Anthropic slot. */
       anthropic: systemAiProviderPatchSchema.optional(),
+      /** The Gemini slot. */
       gemini: systemAiProviderPatchSchema.optional(),
+      /** The Azure OpenAI slot. */
       'azure-openai': systemAiAzureProviderPatchSchema.optional(),
+      /** The OpenAI-compatible server slot. */
       'openai-compatible': systemAiCompatibleProviderPatchSchema.optional(),
     })
     .optional(),
+  /** Deployment-wide defaults a call cannot exceed. */
   defaults: z
     .object({
+      /** Output-token ceiling for every call; `null` means no cap. */
       maxOutputTokensCap: z.number().int().positive().nullable().optional(),
+      /** Whether a call may be queued as a background run. */
       allowBackgroundRuns: z.boolean().optional(),
+      /** Whether realtime voice sessions may be minted. */
       allowRealtime: z.boolean().optional(),
     })
     .optional(),
+  /** Whether prompt and response text is written to the logs. */
   logPromptContent: z.boolean().optional(),
+  /** Days usage rows are kept. */
   usageRetentionDays: z.number().int().min(1).max(AI_USAGE_RETENTION_MAX_DAYS).optional(),
   // Field by field; `mcpAllowedHosts` REPLACES wholesale (RFC 7396's rule
   // for arrays, and `notifications.disabledEvents`' precedent).
+  /** Which provider-hosted tools are switched on (all off by default). */
   hostedTools: z
     .object({
+      /** Hosted web search. */
       web_search: z.boolean().optional(),
+      /** Hosted file search. */
       file_search: z.boolean().optional(),
+      /** Hosted code execution. */
       code_interpreter: z.boolean().optional(),
+      /** Hosted image generation. */
       image_generation: z.boolean().optional(),
+      /** Remote MCP servers. */
       mcp: z.boolean().optional(),
+      /** Hosts a remote MCP server may be on; empty means any `https://` host. */
       mcpAllowedHosts: z.array(mcpAllowedHostSchema).max(AI_MCP_ALLOWED_HOSTS_MAX).optional(),
     })
     .optional(),
@@ -544,8 +597,10 @@ export const systemAiPatchSchema = z.object({
   // new value. A field-by-field merge could never REMOVE a limit (or a
   // per-model entry), and "absent means unlimited" is the one way to lift
   // one; the same reasoning as `mcpAllowedHosts` above.
+  /** Rate limits and output caps; every absent field is unlimited. */
   limits: systemAiLimitsSchema.optional(),
   // #739. See `systemAiSchema`.
+  /** Whether the deployment's keys pay for an organization that stores no key of its own (#739). */
   deploymentKeyServesOrgs: z.boolean().optional(),
 });
 
@@ -569,33 +624,50 @@ export const systemAiPatchSchema = z.object({
 
 // `ai.limits` (#450). Every field optional — absent means unlimited. Used by
 // the PUT body and (whole, since a PATCH replaces it wholesale) the PATCH body.
+/**
+ * The admin `PUT /api/admin/ai/config` body's `limits`.
+ *
+ * @stability experimental
+ */
 export const aiLimitsSettingsSchema = z.object({
+  /** Limits on every call a user makes, whoever's key pays. */
   perUser: z
     .object({
+      /** Requests per minute. */
       requestsPerMinute: aiLimitValueSchema.optional(),
+      /** Requests per UTC day. */
       requestsPerDay: aiLimitValueSchema.optional(),
     })
     .optional(),
+  /** Limits on the calls an administrator-managed key pays for. */
   orgKey: z
     .object({
+      /** Requests per UTC day, per user. */
       requestsPerDayPerUser: aiLimitValueSchema.optional(),
+      /** Input plus output tokens per UTC day, per user. */
       tokensPerDayPerUser: aiLimitValueSchema.optional(),
     })
     .optional(),
   // #739: the deployment default PER ORGANIZATION (requests and output tokens
   // per UTC day, counted over every call made in that organization); absent
   // means unlimited. An organization may only lower it (its org layer).
+  /** Limits on one organization's whole daily volume, whoever's key pays (#739). */
   perOrg: z
     .object({
+      /** Requests per UTC day. */
       requestsPerDay: aiLimitValueSchema.optional(),
+      /** Output tokens per UTC day. */
       outputTokensPerDay: aiLimitValueSchema.optional(),
     })
     .optional(),
+  /** Per-model limits, keyed `<provider>:<modelId>`. */
   perModel: z
     .record(
       z.string().max(AI_LIMIT_MODEL_KEY_MAX).regex(AI_LIMIT_MODEL_KEY_PATTERN),
       z.object({
+        /** Output-token ceiling for every call to the model. */
         maxOutputTokens: aiLimitValueSchema.optional(),
+        /** Requests per minute, per user, to the model. */
         requestsPerMinutePerUser: aiLimitValueSchema.optional(),
       }),
     )
@@ -605,57 +677,100 @@ export const aiLimitsSettingsSchema = z.object({
     .optional(),
 });
 
+/**
+ * The `ai` namespace on the wire of `PUT /api/system-settings`.
+ *
+ * @stability experimental
+ */
 export const aiSettingsSchema = z.object({
+  /** Whether AI is switched on (the kill switch). */
   enabled: z.boolean(),
-  keyPolicy: z.enum(AI_KEY_POLICIES),
+  /** Whose key pays: the caller's own only (`byok`), or an administrator's as a fallback. */
+  keyPolicy: keyPolicyEnum(),
+  /** Per-provider settings, by provider id. */
   providers: z.object({
+    /** The OpenAI slot. */
     openai: z.object({
+      /** Whether the provider is switched on. */
       enabled: z.boolean(),
+      /** The endpoint override; absent means the provider's default. */
       baseUrl: z.string().url().optional(),
     }),
+    /** The Anthropic slot. */
     anthropic: z.object({
+      /** Whether the provider is switched on. */
       enabled: z.boolean(),
+      /** The endpoint override; absent means the provider's default. */
       baseUrl: z.string().url().optional(),
     }),
+    /** The Gemini slot. */
     gemini: z.object({
+      /** Whether the provider is switched on. */
       enabled: z.boolean(),
+      /** The endpoint override; absent means the provider's default. */
       baseUrl: z.string().url().optional(),
     }),
     // #448 — see `systemAiAzureProviderSchema` / `systemAiCompatibleProviderSchema`.
+    /** The Azure OpenAI slot. */
     'azure-openai': z.object({
+      /** Whether the provider is switched on. */
       enabled: z.boolean(),
+      /** The endpoint override; absent means the provider's default. */
       baseUrl: aiEndpointUrlSchema(AI_AZURE_ENDPOINT_SCHEMES).optional(),
+      /** Azure OpenAI: the API version. */
       apiVersion: z.string().regex(AI_AZURE_API_VERSION_PATTERN).optional(),
-      apiStyle: z.enum(AI_OPENAI_API_STYLES).optional(),
+      /** Which API shape the server speaks (`responses` or `chat_completions`). */
+      apiStyle: apiStyleEnum().optional(),
+      /** Azure OpenAI: model id to deployment name. */
       deployments: aiAzureDeploymentsSchema.optional(),
     }),
+    /** The OpenAI-compatible server slot. */
     'openai-compatible': z.object({
+      /** Whether the provider is switched on. */
       enabled: z.boolean(),
+      /** The endpoint override; absent means the provider's default. */
       baseUrl: aiEndpointUrlSchema(AI_COMPATIBLE_ENDPOINT_SCHEMES).optional(),
-      apiStyle: z.enum(AI_OPENAI_API_STYLES).optional(),
+      /** Which API shape the server speaks (`responses` or `chat_completions`). */
+      apiStyle: apiStyleEnum().optional(),
+      /** OpenAI-compatible: whether the server needs a key. */
       requiresKey: z.boolean().optional(),
     }),
   }),
+  /** Deployment-wide defaults a call cannot exceed. */
   defaults: z.object({
+    /** Output-token ceiling for every call; `null` means no cap. */
     maxOutputTokensCap: z.number().int().positive().optional(),
+    /** Whether a call may be queued as a background run. */
     allowBackgroundRuns: z.boolean(),
+    /** Whether realtime voice sessions may be minted. */
     allowRealtime: z.boolean(),
   }),
+  /** Whether prompt and response text is written to the logs. */
   logPromptContent: z.boolean(),
+  /** Days usage rows are kept. */
   usageRetentionDays: z.number().int().min(1).max(AI_USAGE_RETENTION_MAX_DAYS),
+  /** Which provider-hosted tools are switched on (all off by default). */
   hostedTools: z.object({
+    /** Hosted web search. */
     web_search: z.boolean(),
+    /** Hosted file search. */
     file_search: z.boolean(),
+    /** Hosted code execution. */
     code_interpreter: z.boolean(),
+    /** Hosted image generation. */
     image_generation: z.boolean(),
+    /** Remote MCP servers. */
     mcp: z.boolean(),
+    /** Hosts a remote MCP server may be on; empty means any `https://` host. */
     mcpAllowedHosts: z
       .array(z.string().max(253).regex(AI_MCP_ALLOWED_HOST_PATTERN))
       .max(AI_MCP_ALLOWED_HOSTS_MAX),
   }),
+  /** Rate limits and output caps; every absent field is unlimited. */
   limits: aiLimitsSettingsSchema,
   // #739: optional on the wire, so a client that predates it still PUTs a
   // legal body; absent keeps the stored value (default `true`).
+  /** Whether the deployment's keys pay for an organization that stores no key of its own (#739). */
   deploymentKeyServesOrgs: z.boolean().optional(),
 });
 
@@ -664,69 +779,110 @@ export const aiSettingsSchema = z.object({
 // `storage` above — `{ "ai": { "enabled": true } }` must be a legal body,
 // or the admin page has to send the whole namespace to flip one switch.
 // NO API KEY FIELD — see the section header above.
+/**
+ * The `ai` namespace on the wire of `PATCH /api/system-settings`.
+ *
+ * @stability experimental
+ */
 export const aiSettingsPatchSchema = z.object({
+  /** Whether AI is switched on (the kill switch). */
   enabled: z.boolean().optional(),
-  keyPolicy: z.enum(AI_KEY_POLICIES).optional(),
+  /** Whose key pays: the caller's own only (`byok`), or an administrator's as a fallback. */
+  keyPolicy: keyPolicyEnum().optional(),
+  /** Per-provider settings, by provider id. */
   providers: z
     .object({
+      /** The OpenAI slot. */
       openai: z
         .object({
+          /** Whether the provider is switched on. */
           enabled: z.boolean().optional(),
           // Absent leaves it alone; explicit `null` removes the override.
+          /** The endpoint override; absent means the provider's default. */
           baseUrl: z.string().url().nullable().optional(),
         })
         .optional(),
+      /** The Anthropic slot. */
       anthropic: z
         .object({
+          /** Whether the provider is switched on. */
           enabled: z.boolean().optional(),
+          /** The endpoint override; absent means the provider's default. */
           baseUrl: z.string().url().nullable().optional(),
         })
         .optional(),
+      /** The Gemini slot. */
       gemini: z
         .object({
+          /** Whether the provider is switched on. */
           enabled: z.boolean().optional(),
+          /** The endpoint override; absent means the provider's default. */
           baseUrl: z.string().url().nullable().optional(),
         })
         .optional(),
       // #448. `null` removes an optional field (back to its default);
       // `deployments` replaces wholesale when present.
+      /** The Azure OpenAI slot. */
       'azure-openai': z
         .object({
+          /** Whether the provider is switched on. */
           enabled: z.boolean().optional(),
+          /** The endpoint override; absent means the provider's default. */
           baseUrl: aiEndpointUrlSchema(AI_AZURE_ENDPOINT_SCHEMES).nullable().optional(),
+          /** Azure OpenAI: the API version. */
           apiVersion: z.string().regex(AI_AZURE_API_VERSION_PATTERN).nullable().optional(),
-          apiStyle: z.enum(AI_OPENAI_API_STYLES).nullable().optional(),
+          /** Which API shape the server speaks (`responses` or `chat_completions`). */
+          apiStyle: apiStyleEnum().nullable().optional(),
+          /** Azure OpenAI: model id to deployment name. */
           deployments: aiAzureDeploymentsSchema.nullable().optional(),
         })
         .optional(),
+      /** The OpenAI-compatible server slot. */
       'openai-compatible': z
         .object({
+          /** Whether the provider is switched on. */
           enabled: z.boolean().optional(),
+          /** The endpoint override; absent means the provider's default. */
           baseUrl: aiEndpointUrlSchema(AI_COMPATIBLE_ENDPOINT_SCHEMES).nullable().optional(),
-          apiStyle: z.enum(AI_OPENAI_API_STYLES).nullable().optional(),
+          /** Which API shape the server speaks (`responses` or `chat_completions`). */
+          apiStyle: apiStyleEnum().nullable().optional(),
+          /** OpenAI-compatible: whether the server needs a key. */
           requiresKey: z.boolean().nullable().optional(),
         })
         .optional(),
     })
     .optional(),
+  /** Deployment-wide defaults a call cannot exceed. */
   defaults: z
     .object({
       // Absent leaves it alone; explicit `null` removes the cap.
+      /** Output-token ceiling for every call; `null` means no cap. */
       maxOutputTokensCap: z.number().int().positive().nullable().optional(),
+      /** Whether a call may be queued as a background run. */
       allowBackgroundRuns: z.boolean().optional(),
+      /** Whether realtime voice sessions may be minted. */
       allowRealtime: z.boolean().optional(),
     })
     .optional(),
+  /** Whether prompt and response text is written to the logs. */
   logPromptContent: z.boolean().optional(),
+  /** Days usage rows are kept. */
   usageRetentionDays: z.number().int().min(1).max(AI_USAGE_RETENTION_MAX_DAYS).optional(),
   // #442. Booleans field by field; `mcpAllowedHosts` replaces wholesale.
+  /** Which provider-hosted tools are switched on (all off by default). */
   hostedTools: z
     .object({
+      /** Hosted web search. */
       web_search: z.boolean().optional(),
+      /** Hosted file search. */
       file_search: z.boolean().optional(),
+      /** Hosted code execution. */
       code_interpreter: z.boolean().optional(),
+      /** Hosted image generation. */
       image_generation: z.boolean().optional(),
+      /** Remote MCP servers. */
       mcp: z.boolean().optional(),
+      /** Hosts a remote MCP server may be on; empty means any `https://` host. */
       mcpAllowedHosts: z
         .array(z.string().max(253).regex(AI_MCP_ALLOWED_HOST_PATTERN))
         .max(AI_MCP_ALLOWED_HOSTS_MAX)
@@ -734,7 +890,9 @@ export const aiSettingsPatchSchema = z.object({
     })
     .optional(),
   // #450. Replaces wholesale when present — see `systemAiPatchSchema`.
+  /** Rate limits and output caps; every absent field is unlimited. */
   limits: aiLimitsSettingsSchema.optional(),
+  /** Whether the deployment's keys pay for an organization that stores no key of its own (#739). */
   deploymentKeyServesOrgs: z.boolean().optional(),
 });
 
@@ -747,74 +905,135 @@ export const aiSettingsPatchSchema = z.object({
 // in the encrypted credential store. See
 // `common/schemas/settings.schema.ts` for the full argument and its
 // compile-time proof.
+/**
+ * The `ai` namespace as `GET /api/system-settings` answers it.
+ *
+ * @stability experimental
+ */
 export const aiResponseSchema = z.object({
+  /** Whether AI is switched on (the kill switch). */
   enabled: z.boolean(),
-  keyPolicy: z.enum(['byok', 'byok_with_org_fallback']),
+  /** Whose key pays: the caller's own only (`byok`), or an administrator's as a fallback. */
+  keyPolicy: keyPolicyEnum(),
+  /** Per-provider settings, by provider id. */
   providers: z.object({
+    /** The OpenAI slot. */
     openai: z.object({
+      /** Whether the provider is switched on. */
       enabled: z.boolean(),
+      /** The endpoint override; absent means the provider's default. */
       baseUrl: z.string().optional(),
     }),
+    /** The Anthropic slot. */
     anthropic: z.object({
+      /** Whether the provider is switched on. */
       enabled: z.boolean(),
+      /** The endpoint override; absent means the provider's default. */
       baseUrl: z.string().optional(),
     }),
+    /** The Gemini slot. */
     gemini: z.object({
+      /** Whether the provider is switched on. */
       enabled: z.boolean(),
+      /** The endpoint override; absent means the provider's default. */
       baseUrl: z.string().optional(),
     }),
+    /** The Azure OpenAI slot. */
     'azure-openai': z.object({
+      /** Whether the provider is switched on. */
       enabled: z.boolean(),
+      /** The endpoint override; absent means the provider's default. */
       baseUrl: z.string().optional(),
+      /** Azure OpenAI: the API version. */
       apiVersion: z.string().optional(),
-      apiStyle: z.enum(['responses', 'chat_completions']).optional(),
+      /** Which API shape the server speaks (`responses` or `chat_completions`). */
+      apiStyle: apiStyleEnum().optional(),
+      /** Azure OpenAI: model id to deployment name. */
       deployments: z.record(z.string(), z.string()).optional(),
     }),
+    /** The OpenAI-compatible server slot. */
     'openai-compatible': z.object({
+      /** Whether the provider is switched on. */
       enabled: z.boolean(),
+      /** The endpoint override; absent means the provider's default. */
       baseUrl: z.string().optional(),
-      apiStyle: z.enum(['responses', 'chat_completions']).optional(),
+      /** Which API shape the server speaks (`responses` or `chat_completions`). */
+      apiStyle: apiStyleEnum().optional(),
+      /** OpenAI-compatible: whether the server needs a key. */
       requiresKey: z.boolean().optional(),
     }),
   }),
+  /** Deployment-wide defaults a call cannot exceed. */
   defaults: z.object({
+    /** Output-token ceiling for every call; `null` means no cap. */
     maxOutputTokensCap: z.number().optional(),
+    /** Whether a call may be queued as a background run. */
     allowBackgroundRuns: z.boolean(),
+    /** Whether realtime voice sessions may be minted. */
     allowRealtime: z.boolean(),
   }),
+  /** Whether prompt and response text is written to the logs. */
   logPromptContent: z.boolean(),
+  /** Days usage rows are kept. */
   usageRetentionDays: z.number().int(),
+  /** Which provider-hosted tools are switched on (all off by default). */
   hostedTools: z.object({
+    /** Hosted web search. */
     web_search: z.boolean(),
+    /** Hosted file search. */
     file_search: z.boolean(),
+    /** Hosted code execution. */
     code_interpreter: z.boolean(),
+    /** Hosted image generation. */
     image_generation: z.boolean(),
+    /** Remote MCP servers. */
     mcp: z.boolean(),
+    /** Hosts a remote MCP server may be on; empty means any `https://` host. */
     mcpAllowedHosts: z.array(z.string()),
   }),
+  /** Rate limits and output caps; every absent field is unlimited. */
   limits: z.object({
+    /** Limits on every call a user makes, whoever's key pays. */
     perUser: z
-      .object({ requestsPerMinute: z.number().int().optional(), requestsPerDay: z.number().int().optional() })
+      .object({
+        /** Requests per minute. */
+        requestsPerMinute: z.number().int().optional(),
+        /** Requests per UTC day. */
+        requestsPerDay: z.number().int().optional(),
+      })
       .optional(),
+    /** Limits on the calls an administrator-managed key pays for. */
     orgKey: z
       .object({
+        /** Requests per UTC day, per user. */
         requestsPerDayPerUser: z.number().int().optional(),
+        /** Input plus output tokens per UTC day, per user. */
         tokensPerDayPerUser: z.number().int().optional(),
       })
       .optional(),
+    /** Limits on one organization's whole daily volume, whoever's key pays (#739). */
     perOrg: z
-      .object({ requestsPerDay: z.number().int().optional(), outputTokensPerDay: z.number().int().optional() })
+      .object({
+        /** Requests per UTC day. */
+        requestsPerDay: z.number().int().optional(),
+        /** Output tokens per UTC day. */
+        outputTokensPerDay: z.number().int().optional(),
+      })
       .optional(),
+    /** Per-model limits, keyed `<provider>:<modelId>`. */
     perModel: z
       .record(
         z.string(),
         z.object({
+          /** Output-token ceiling for every call to the model. */
           maxOutputTokens: z.number().int().optional(),
+          /** Requests per minute, per user, to the model. */
           requestsPerMinutePerUser: z.number().int().optional(),
         }),
       )
       .optional(),
   }),
+  /** Whether the deployment's keys pay for an organization that stores no key of its own (#739). */
   deploymentKeyServesOrgs: z.boolean(),
 });
 
@@ -828,7 +1047,12 @@ export const aiResponseSchema = z.object({
 // daily caps, and switch providers off. Every field optional (an org stores
 // only what it overrides), no `.default()`, no secret.
 
-const orgAiProviderSlotSchema = z.object({ enabled: z.boolean().optional() }).optional();
+const orgAiProviderSlotSchema = z
+  .object({
+    /** `false` switches the provider off for the organization's members. */
+    enabled: z.boolean().optional(),
+  })
+  .optional();
 
 /**
  * The fields of the `ai` namespace an organization may set for itself.
@@ -836,22 +1060,34 @@ const orgAiProviderSlotSchema = z.object({ enabled: z.boolean().optional() }).op
  * @stability experimental
  */
 export const orgAiSettingsSchema = z.object({
+  /** Whether AI is switched on (the kill switch). */
   enabled: z.boolean().optional(),
-  keyPolicy: z.enum(AI_KEY_POLICIES).optional(),
+  /** Whose key pays: the caller's own only (`byok`), or an administrator's as a fallback. */
+  keyPolicy: keyPolicyEnum().optional(),
+  /** Per-provider settings, by provider id. */
   providers: z
     .object({
+      /** The OpenAI slot. */
       openai: orgAiProviderSlotSchema,
+      /** The Anthropic slot. */
       anthropic: orgAiProviderSlotSchema,
+      /** The Gemini slot. */
       gemini: orgAiProviderSlotSchema,
+      /** The Azure OpenAI slot. */
       'azure-openai': orgAiProviderSlotSchema,
+      /** The OpenAI-compatible server slot. */
       'openai-compatible': orgAiProviderSlotSchema,
     })
     .optional(),
+  /** Rate limits and output caps; every absent field is unlimited. */
   limits: z
     .object({
+      /** Limits on one organization's whole daily volume, whoever's key pays (#739). */
       perOrg: z
         .object({
+          /** Requests per UTC day. */
           requestsPerDay: aiLimitValueSchema.optional(),
+          /** Output tokens per UTC day. */
           outputTokensPerDay: aiLimitValueSchema.optional(),
         })
         .optional(),
@@ -930,18 +1166,19 @@ export function tightenAiPolicy(system: SystemAiValue, org: Partial<OrgAiSetting
 // `GET /api/system-settings` returns wholesale and every settings audit row
 // copies verbatim.
 
-type AiSecretFieldNames =
-  | 'secretAccessKey'
-  | 'secretKey'
-  | 'sessionToken'
-  | 'secret'
-  | 'password'
-  | 'apiKey'
-  | 'apiKeys'
-  | 'key'
-  | 'token';
 
+/**
+ * Compile-time proof that the `ai` namespace has no secret-bearing field:
+ * `true`, or `never` (and the file stops compiling) when one is added.
+ *
+ * @stability experimental
+ */
 export type AiSettingsCarriesNoSecret =
   Extract<keyof SystemAiValue, AiSecretFieldNames> extends never ? true : never;
 
+/**
+ * The proof's witness value.
+ *
+ * @stability experimental
+ */
 export const AI_SETTINGS_CARRIES_NO_SECRET: AiSettingsCarriesNoSecret = true;

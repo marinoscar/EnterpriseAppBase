@@ -2,11 +2,11 @@
 // slice (issue #739, PP-8.6): the `ai` system and user settings namespace
 // schemas (with the compile-time `AiSettingsCarriesNoSecret` proof), the org
 // layer of the system namespace, and the org-key and feature-list routes'
-// shapes. zod only. Documented in ./README.md. Explicit named exports only.
+// shapes. Documented in ./README.md. Explicit named exports only.
+// constants.ts is zod-free.
 
+// ---- constants (zod-free) ----------------------------------------------------------------
 export {
-  orgAiSettingsSchema,
-  tightenAiPolicy,
   AI_AZURE_API_VERSION_PATTERN,
   AI_AZURE_DEPLOYMENT_PATTERN,
   AI_AZURE_DEPLOYMENTS_MAX,
@@ -23,10 +23,27 @@ export {
   AI_MCP_ALLOWED_HOSTS_MAX,
   AI_OPENAI_API_STYLES,
   AI_PROVIDER_IDS,
-  AI_SETTINGS_CARRIES_NO_SECRET,
   AI_USAGE_RETENTION_MAX_DAYS,
-  aiAzureDeploymentsSchema,
+  ORG_AI_KEY_MAX,
+  ORG_AI_KEY_MIN,
   aiEndpointUrlProblem,
+} from './constants.js';
+export type {
+  AiKeyPolicy,
+  AiKeyPolicyEnum,
+  AiOpenAiApiStyle,
+  AiOpenAiApiStyleEnum,
+  AiProviderId,
+  AiSecretFieldNames,
+  KeyMaterialFieldNames,
+} from './constants.js';
+
+// ---- the `ai` settings namespaces ---------------------------------------------------------
+export {
+  orgAiSettingsSchema,
+  tightenAiPolicy,
+  AI_SETTINGS_CARRIES_NO_SECRET,
+  aiAzureDeploymentsSchema,
   aiEndpointUrlSchema,
   aiLimitsSettingsSchema,
   aiLimitValueSchema,
@@ -41,25 +58,18 @@ export {
   systemAiSchema,
   userAiSettingsPatchSchema,
   userAiSettingsSchema,
-} from './settings.js';
+} from './schemas.js';
 export type {
   OrgAiSettingsValue,
-  AiKeyPolicy,
-  AiOpenAiApiStyle,
-  AiProviderId,
   AiSettingsCarriesNoSecret,
   SystemAiLimitsValue,
   SystemAiValue,
   UserAiSettingsPatchValue,
   UserAiSettingsValue,
-} from './settings.js';
+} from './schemas.js';
+
+// ---- the feature list and the organization keys ------------------------------------------
 export { aiFeatureViewSchema } from './features.js';
 export type { AiFeatureView } from './features.js';
-export {
-  ORG_AI_KEY_MAX,
-  ORG_AI_KEY_MIN,
-  ORG_AI_KEY_VIEW_CARRIES_NO_SECRET,
-  orgAiKeyViewSchema,
-  setOrgAiKeySchema,
-} from './org-keys.js';
+export { ORG_AI_KEY_VIEW_CARRIES_NO_SECRET, orgAiKeyViewSchema, setOrgAiKeySchema } from './org-keys.js';
 export type { OrgAiKeyView, OrgAiKeyViewCarriesNoSecret, SetOrgAiKeyInput } from './org-keys.js';

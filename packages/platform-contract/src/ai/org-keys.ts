@@ -4,10 +4,7 @@
 
 import { z } from 'zod';
 
-/** Shortest key the org-key route accepts (the deployment-key route's bound). */
-export const ORG_AI_KEY_MIN = 8;
-/** Longest key the org-key route accepts. */
-export const ORG_AI_KEY_MAX = 512;
+import { ORG_AI_KEY_MAX, ORG_AI_KEY_MIN, type KeyMaterialFieldNames } from './constants.js';
 
 /**
  * `PUT /api/admin/ai/org-keys/:provider`. The key is verified with the
@@ -16,6 +13,7 @@ export const ORG_AI_KEY_MAX = 512;
  * @stability experimental
  */
 export const setOrgAiKeySchema = z.object({
+  /** The key. Write-only: never returned. */
   apiKey: z.string().trim().min(ORG_AI_KEY_MIN).max(ORG_AI_KEY_MAX),
 });
 
@@ -33,10 +31,15 @@ export type SetOrgAiKeyInput = z.output<typeof setOrgAiKeySchema>;
  * @stability experimental
  */
 export const orgAiKeyViewSchema = z.object({
+  /** Provider id. */
   provider: z.string(),
+  /** The name the UI shows. */
   displayName: z.string(),
+  /** Whether the organization stores a key for the provider. */
   configured: z.boolean(),
+  /** The key's last four characters, or `null`. */
   hint: z.string().nullable(),
+  /** When the provider last accepted the key. */
   verifiedAt: z.iso.datetime().nullable(),
 });
 
@@ -47,8 +50,6 @@ export const orgAiKeyViewSchema = z.object({
  */
 export type OrgAiKeyView = z.infer<typeof orgAiKeyViewSchema>;
 
-/** Field names no org-key response may carry, ever. */
-type KeyMaterialFieldNames = 'apiKey' | 'key' | 'secret' | 'token' | 'ciphertext';
 
 /**
  * Compile-time proof that the org-key view carries no key material: adding

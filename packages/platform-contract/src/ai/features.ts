@@ -10,14 +10,23 @@ import { z } from 'zod';
  * @stability experimental
  */
 export const aiFeatureViewSchema = z.object({
+  /** The feature id (`registerAiFeature`). */
   id: z.string(),
+  /** Its display label. */
   label: z.string(),
+  /** Its group, for a picker. */
   group: z.string().nullable(),
+  /** The capabilities a model must declare. */
   needs: z.array(z.string()),
+  /** The input modalities a model must read. */
   inputModalities: z.array(z.string()),
+  /** The providers a model must be from; `null` means any. */
   providers: z.array(z.string()).nullable(),
+  /** The hosted tools a model must run. */
   requiresHostedTools: z.array(z.string()),
+  /** The reasoning effort the feature asks for, if any. */
   defaultEffort: z.string().nullable(),
+  /** Whether the caller has a usable model for it right now. */
   usable: z.boolean(),
 });
 
