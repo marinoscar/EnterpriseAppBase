@@ -1,6 +1,6 @@
 # Settings UI
 
-> **Status:** shipped · **Code:** `apps/web/src/config/adminSections.tsx`, `apps/web/src/config/userSettingsSections.tsx`, `packages/platform-web/src/settings/ui/SettingsHub.tsx` (`@marinoscar/platform-web/settings/ui`, since #733), `apps/web/src/components/navigation/` · **API:** none of its own (cards mirror the permissions of `/api/system-settings`, `/api/users`, `/api/admin/*`; see `/api/docs`) · **Admin UI:** `/admin/settings` · **User UI:** `/settings`
+> **Status:** shipped · **Code:** `apps/web/src/config/adminSections.tsx`, `apps/web/src/config/userSettingsSections.tsx`, `packages/platform-web/src/settings/ui/SettingsHub.tsx` (`@marinoscar/platform-web/settings/ui`, since #733), `packages/platform-web/src/shell/` (`@marinoscar/platform-web/shell`, the Layout, AppBar, rail and bottom bar, since #868; bound in `apps/web/src/components/navigation/`, `apps/web/src/components/common/Layout.tsx` and `apps/web/src/config/shell.ts`) · **API:** none of its own (cards mirror the permissions of `/api/system-settings`, `/api/users`, `/api/admin/*`; see `/api/docs`) · **Admin UI:** `/admin/settings` · **User UI:** `/settings`
 
 Every settings surface in the app, admin or per-user, is a searchable, permission-gated **hub** built from a declarative section registry. The hub, the Console navigation rail and the AppBar title resolver all read the same registry, so a settings page exists for all three or for none. This document is the *why* behind the rules in `CLAUDE.md`'s "MANDATORY: Settings UI Pattern" section; it does not restate them as rules.
 
@@ -40,8 +40,8 @@ Each registry is an ordered list of groups, each group an ordered list of cards.
 Three consumers read the registries instead of keeping their own list:
 
 1. **The hub** — `SettingsHub.tsx`, rendered by the two binding pages. A card grid at `sm` and up; a drill-down list below it.
-2. **The Console rail** — `NavigationRail.tsx`. On any `/admin/*` route the expanded rail swaps its contents for the admin sections, promoting the hub's cards into persistent navigation.
-3. **The AppBar title resolver** — `AppBar.tsx`'s `resolveDrillDown`, backed by `settingsPageTitle`. Resolves the current pathname to the compact header's title and its "up" destination. The longest matching card path wins, which is why a nested card such as `/admin/settings/jobs/insights` is titled "Job Insights" rather than "Jobs".
+2. **The Console rail** — `ShellNavigationRail` (`packages/platform-web/src/shell/ui/ShellNavigationRail.tsx`, since #868), bound by the app's `NavigationRail.tsx` with `navigation.console` (`config/shell.ts`). On any `/admin/*` route the expanded rail swaps its contents for the admin sections, promoting the hub's cards into persistent navigation.
+3. **The AppBar title resolver** — `ShellAppBar`'s `resolveDrillDown` (`packages/platform-web/src/shell/ui/ShellAppBar.tsx`, since #868) over `navigation.settingsSurfaces`, backed by `settingsPageTitle`. Resolves the current pathname to the compact header's title and its "up" destination. The longest matching card path wins, which is why a nested card such as `/admin/settings/jobs/insights` is titled "Job Insights" rather than "Jobs".
 
 Two functions, both exported from `adminSections.tsx`, do the work for every surface:
 
@@ -115,17 +115,17 @@ registerSettingsFeature('orgs', useOrgsFeature);
 
 ### Breakpoint gates
 
-Five places in the shell decide, independently, whether the viewport is "compact" (below `sm`, 600px). All five move together. `apps/web/src/components/common/Layout.tsx` carries the canonical list in a comment.
+Five places in the shell decide, independently, whether the viewport is "compact" (below `sm`, 600px). All five move together. Since #868 all five are in `@marinoscar/platform-web` (`packages/platform-web/src/`): four in the shell slice, one in the settings slice. `shell/ui/ShellLayout.tsx` carries the canonical list in a comment; the reference app's `Layout.tsx`, `AppBar.tsx`, `NavigationRail.tsx` and `BottomNav.tsx` are bindings that fill the slots and hold no gate.
 
 | # | Location | Expression | What it decides |
 |---|---|---|---|
-| 1 | `Layout.tsx` `showRail` | `useMediaQuery(theme.breakpoints.up('sm'))` | Mounts or unmounts `NavigationRail` |
-| 2 | `BottomNav.tsx` self-gate | `useMediaQuery(theme.breakpoints.down('sm'))` | Returns `null` outside compact width, even if mounted |
-| 3 | `Layout.tsx` `<main>` padding | `pb: { xs: 10, sm: 3 }` | Clears the fixed bottom bar |
-| 4 | `SettingsHub.tsx` `isCompactWindow` (`packages/platform-web/src/settings/ui/`, since #733) | `down('sm')` | Drill-down list vs. card grid |
-| 5 | `AppBar.tsx` `isCompactWindow` | `down('sm')` | Back arrow plus resolved title vs. wordmark toolbar |
+| 1 | `ShellLayout.tsx` `showRail` (`shell/ui/`) | `useMediaQuery(theme.breakpoints.up('sm'))` | Mounts or unmounts the rail |
+| 2 | `ShellBottomNav.tsx` self-gate (`shell/ui/`) | `useMediaQuery(theme.breakpoints.down('sm'))` | Returns `null` outside compact width, even if mounted |
+| 3 | `ShellLayout.tsx` `<main>` padding (`shell/ui/`) | `pb: { xs: 10, sm: 3 }` | Clears the fixed bottom bar |
+| 4 | `SettingsHub.tsx` `isCompactWindow` (`settings/ui/`, since #733) | `down('sm')` | Drill-down list vs. card grid |
+| 5 | `ShellAppBar.tsx` `isCompactWindow` (`shell/ui/`) | `down('sm')` | Back arrow plus resolved title vs. wordmark toolbar |
 
-`Layout` only mounts `BottomNav` when `!showRail`; gate 2 is belt and braces so the bar's output never appears at the wrong width.
+`ShellLayout` only mounts the bottom bar (its `bottomNav` slot, default `ShellBottomNav`) when `!showRail`; gate 2 is belt and braces so the bar's output never appears at the wrong width. An app that replaces the `rail` or `bottomNav` slot keeps gates 1 and 3, which stay in `ShellLayout`.
 
 The boundary is `sm` (600px), never `md` (900px). 600px is Material 3's compact/medium window-class boundary, and M3 specifies a permanent rail, not a bottom bar, from medium upward. Gating at 900px hands the phone treatment to an iPad in portrait (768px), an iPad Pro 11" (834px), an unfolded foldable, and a phone in landscape.
 
@@ -133,13 +133,13 @@ The boundary is `sm` (600px), never `md` (900px). 600px is Material 3's compact/
 
 - **The search field has an explicit accessible name**: `aria-label="Search settings"`. A placeholder disappears once the user types.
 - **The clear-search button renders only when there is something to clear.** A permanent clear button on an empty field is a dead tab stop.
-- **Compact vs. expanded is decided by mounting, never by CSS hiding.** `SettingsHub.tsx` (list vs. grid) and `Layout.tsx` (rail vs. bottom bar) both follow this. A hidden duplicate doubles the tab order with invisible targets and gives `aria-current` two owners.
+- **Compact vs. expanded is decided by mounting, never by CSS hiding.** `SettingsHub.tsx` (list vs. grid) and `ShellLayout.tsx` (rail vs. bottom bar) both follow this. A hidden duplicate doubles the tab order with invisible targets and gives `aria-current` two owners.
 - **An inert ("Coming soon") card is not a tab stop.** The grid renders it with no `CardActionArea`; the drill-down renders a `disabled` `ListItemButton`.
 - **The rail's landmark names its mode**: the `<nav>` `aria-label` is `"Console navigation"` in Console mode and `"Main navigation"` otherwise.
 - **`aria-current="page"` has a single source of truth**, computed from the destination/console-active-path model, so exactly one row claims it.
 - **A row's accessible name is explicit.** `RailRow`'s `accessibleName` prop carries the full name even when the visible caption is a truncated `compactLabel`; the caption is `aria-hidden`.
 - **A tooltip supplements, never substitutes.** Collapsed rows get a `Tooltip` only where the visible text is genuinely shortened, never as the only carrier of the full name.
-- **Keyboard focus is visible on every navigation control**, via an explicit `&.Mui-focusVisible` outline in `NavigationRail.tsx`.
+- **Keyboard focus is visible on every navigation control**, via an explicit `&.Mui-focusVisible` outline in `ShellNavigationRail.tsx`.
 - **The collapse toggle is a real `<button>` with `aria-expanded`.**
 
 ### The Organization settings card
@@ -191,7 +191,7 @@ The Playwright visual-regression harness has one manual coupling. `apps/web/visu
 - **Tabs rejected for hierarchical content.** The former `SystemSettingsPage` held three tabs (UI Settings, Feature Flags, Advanced JSON) that were three unrelated surfaces with different permissions (Advanced JSON needed `system_settings:write`). `<Tabs>` has no per-tab permission primitive, and tabs cannot be deep-linked, searched, or promoted into the rail. They became three cards, and were later removed as unused.
 - **One parameterised hub, not two.** A second hub built by copying the first is the navigation split-brain again, one layer down. `SettingsHub.tsx` takes `sections` as a prop for the same reason `visibleSettingsSections` does.
 - **`md` (900px) rejected as the compact boundary.** It is not what Material 3 specifies and it misclassifies the 600–899px band (§2, Breakpoint gates).
-- **No shared constant for the breakpoint gates.** Gates 1, 2, 4 and 5 are `useMediaQuery` calls taking the breakpoint as an argument, so a constant would bind them. Gate 3 is a key in an `sx` object literal (`{ xs: 10, sm: 3 }`); binding it needs a computed key nothing forces a future edit to use, and TypeScript raises no error if it drifts. A constant would bind four gates, imply the fifth is covered, and leave the most-forgotten member as free to drift as before. The checklist in `Layout.tsx` is the guard.
+- **No shared constant for the breakpoint gates.** Gates 1, 2, 4 and 5 are `useMediaQuery` calls taking the breakpoint as an argument, so a constant would bind them. Gate 3 is a key in an `sx` object literal (`{ xs: 10, sm: 3 }`); binding it needs a computed key nothing forces a future edit to use, and TypeScript raises no error if it drifts. A constant would bind four gates, imply the fifth is covered, and leave the most-forgotten member as free to drift as before. The checklist in `ShellLayout.tsx` is the guard. Moving the gates into one package (#868) did not change this: four of them now sit in one slice, still as four independent expressions.
 - **Append-only group and card order.** Readers learn where cards are; an insertion moves every card after it. Danger Zone pinned last (#743) is the single exception: moving it to the end each time a group is appended would itself be the reorder the rule forbids, so it is fixed in place and new groups land before it.
 
 ## 7. Verification
@@ -219,4 +219,5 @@ Manually:
 - #677: the API's settings namespaces became registries; §4 points UI authors at the API-side recipe.
 - #726 (PP-6.7): the `orgs` feature (multi-organization mode) and the appended Organizations group: `Organization` (`org_members:read`, Members and Invites tabs) and `Organizations` (`organizations:read`). `console` reachability gains `org_members:read`.
 - #733 (PP-8.1): `SettingsHub` and the registry helpers moved into `@marinoscar/platform-web/settings/ui` (breakpoint gate 4 with it, unchanged); the feature key became open (`SettingsFeatureRegistry`, `registerSettingsFeature`); the `Organization settings` card appended to the Organizations group.
+- #868: the app shell moved into `@marinoscar/platform-web/shell` (`ShellLayout`, `ShellAppBar`, `ShellNavigationRail`, `ShellBottomNav`, `ShellUserMenu`, the theme and `ShellProviders`, with slots for branding and navigation). Breakpoint gates 1, 2, 3 and 5 moved with it, unchanged and still at `sm` with no shared constant; the reference app's shell files became bindings (same DOM, same `sx`), and the Console rail and the AppBar read one `ShellNavigation` (`apps/web/src/config/shell.ts`).
 - #743 (PP-9.1): the `Danger Zone` group, pinned last in both registries (`Factory reset`, `system:factory_reset`; `Delete my data`, ungated), the one documented exception to append-only.
