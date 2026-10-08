@@ -10,7 +10,7 @@
 // (owner-scoped, signed, short-lived) exactly as for a file it uploaded.
 //
 // KEYS. `ai-outputs/<userId>/<runId>/<n>-<uuid>.<ext>` — under
-// `AI_OUTPUTS_KEY_PREFIX`, which is on `STORAGE_KEY_PREFIXES`, so
+// `AI_OUTPUTS_KEY_PREFIX`, which the slice registers (`AI_STORAGE_KEY_PREFIXES`), so
 // `appctl deploy uninstall --purge-storage` finds these objects too. The key
 // is built here from server-side values only; no caller string reaches it.
 // A job whose output has one fixed name (speech, #439: `speech.mp3`) passes
@@ -42,8 +42,9 @@ import { AI_OBJECT_STORE, type AiObjectStore } from '../ports';
 
 /**
  * The key prefix of every object an AI operation produced:
- * `ai-outputs/<userId>/<runId>/`. The reference app's storage key-prefix
- * registry declares it (owner `ai`), so the storage purge knows it.
+ * `ai-outputs/<userId>/<runId>/`. The slice registers it with the storage
+ * key-prefix registry (`AI_STORAGE_KEY_PREFIXES`, owner `ai`), so the
+ * storage purge knows it.
  *
  * @stability stable
  */

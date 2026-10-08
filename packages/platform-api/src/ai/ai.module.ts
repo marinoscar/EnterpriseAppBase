@@ -14,6 +14,7 @@ import { GeminiProviderModule } from './providers/gemini/gemini.module';
 import { OpenAiProviderModule } from './providers/openai/openai.module';
 import { OpenAiCompatibleProviderModule } from './providers/openai-compatible/openai-compatible.module';
 import { AiRuntimeModule } from './runtime/ai-runtime.module';
+import { registerAiStorageKeyPrefixes } from './storage/ai-storage-key-prefixes';
 import { AiUsageModule } from './usage/ai-usage.module';
 
 /**
@@ -108,6 +109,9 @@ export class AiModule {
       }
     }
     const providers = PROVIDER_MODULES.filter(([id]) => wanted.has(id)).map(([, module]) => module);
+    // The slice's own object-key prefix (`ai-outputs/`), with the storage
+    // slice's registry; a no-op when the app's manifest registered it already.
+    registerAiStorageKeyPrefixes();
     const resolved: AiResolvedOptions = Object.freeze({
       perUserDefaultModel: options.perUserDefaultModel ?? DEFAULT_AI_OPTIONS.perUserDefaultModel,
     });
