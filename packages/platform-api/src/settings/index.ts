@@ -107,6 +107,7 @@ export type {
   SettingsNamespaceOrgLayer,
   SettingsReadHelpers,
   SystemSettingsNamespace,
+  SystemSettingsNamespaceOf,
   SystemSettingsNamespaceValue,
   SystemSettingsValue,
 } from './registry/system-settings-namespace';

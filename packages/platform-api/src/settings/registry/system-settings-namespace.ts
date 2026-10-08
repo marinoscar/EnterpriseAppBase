@@ -173,6 +173,17 @@ export type SystemSettingsNamespaceValue<K extends string> = K extends keyof Sys
   : unknown;
 
 /**
+ * The stored value type a namespace declaration describes: the output of its
+ * `storedSchema`. What `SystemSettingsService.getNamespace(declaration)`
+ * returns, without any augmentation of {@link SystemSettingsNamespaces}.
+ *
+ * @typeParam D - the declaration's type (`typeof NOTES_SYSTEM_SETTINGS`).
+ *
+ * @stability experimental
+ */
+export type SystemSettingsNamespaceOf<D extends { readonly storedSchema: z.ZodType }> = z.output<D['storedSchema']>;
+
+/**
  * Top-level keys the response or the row reserve for core fields.
  *
  * @stability stable

@@ -16,6 +16,7 @@ import {
   systemSettingsNamespaceRegistry,
   type SettingsReadHelpers,
   type SystemSettingsNamespace,
+  type SystemSettingsNamespaceOf,
   type SystemSettingsNamespaceValue,
   type SystemSettingsValue,
 } from '../registry/system-settings-namespace';
@@ -1003,10 +1004,39 @@ export class SystemSettingsService {
    *
    * @stability stable
    */
-  async getNamespace<K extends keyof SystemSettingsNamespaces>(
-    key: K,
-  ): Promise<SystemSettingsNamespaces[K]> {
-    return (await this.readNamespaceValue(key)) as SystemSettingsNamespaces[K];
+  async getNamespace<K extends keyof SystemSettingsNamespaces>(key: K): Promise<SystemSettingsNamespaces[K]>;
+  /**
+   * One namespace of the stored settings, read only, typed by its own
+   * declaration (#865): the value type is the declaration's `storedSchema`
+   * output, so it needs no augmentation of `SystemSettingsNamespaces`. Same
+   * contract as the key overload. The namespace must be registered (the
+   * declaration itself, or one extended from it): reading one the registry
+   * does not hold would return nothing a caller could trust.
+   *
+   * @param declaration - the namespace's declaration, as registered.
+   * @returns the salvaged value of the namespace.
+   * @throws Error when no namespace with the declaration's key is registered.
+   *
+   * @example
+   * ```ts
+   * const notes = await systemSettings.getNamespace(NOTES_SYSTEM_SETTINGS); // NotesSettings
+   * ```
+   *
+   * @stability experimental
+   */
+  async getNamespace<D extends Pick<SystemSettingsNamespace, 'key' | 'storedSchema'>>(
+    declaration: D,
+  ): Promise<SystemSettingsNamespaceOf<D>>;
+  async getNamespace(keyOrDeclaration: string | Pick<SystemSettingsNamespace, 'key'>): Promise<unknown> {
+    if (typeof keyOrDeclaration === 'string') return this.readNamespaceValue(keyOrDeclaration);
+    const { key } = keyOrDeclaration;
+    if (!systemSettingsNamespaceRegistry.has(key)) {
+      throw new Error(
+        `SystemSettingsService.getNamespace: the system settings namespace "${key}" is not registered. ` +
+          'Register its declaration (registerSystemSettingsNamespaces, or the forRoot() of the slice that owns it) before SettingsModule.forRoot().',
+      );
+    }
+    return this.readNamespaceValue(key);
   }
 
   /**
