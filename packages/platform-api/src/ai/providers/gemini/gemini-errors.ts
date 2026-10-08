@@ -85,7 +85,7 @@ export interface GeminiErrorBody {
   retryAfterMs?: number;
 }
 
-/** `"37s"` / `"1.5s"` (a protobuf Duration in JSON) -> milliseconds. */
+/** `"37s"` / `"1.5s"` (a protobuf Duration in JSON) → milliseconds. */
 export function parseGeminiRetryDelay(value: unknown): number | undefined {
   if (typeof value !== 'string') return undefined;
 

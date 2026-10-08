@@ -59,7 +59,7 @@ export const aiAdminProviderSchema = z.object({
    * for `azure-openai`, `chat_completions` for `openai-compatible`.
    */
   apiStyle: z.enum(AI_OPENAI_API_STYLES).nullable(),
-  /** Azure OpenAI model id -> deployment name, or null when none is configured. */
+  /** Azure OpenAI model id → deployment name, or null when none is configured. */
   deployments: z.record(z.string(), z.string()).nullable(),
   /**
    * OpenAI-compatible: whether calls need a key, or null for the default

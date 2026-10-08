@@ -118,8 +118,8 @@ export function providerSettingsFields(providerId: string): AiProviderSettingsFi
 /**
  * Whether calls to this provider need a key (#448). Only the
  * OpenAI-compatible slot can say no — `requiresKey: false` is the
- * administrator's opt-in to a keyless server, resolved as `keySource:
- * 'none'` — and absent means yes, as it does for every other provider.
+ * administrator's opt-in to a keyless server, resolved as
+ * `keySource: 'none'` — and absent means yes, as it does for every other provider.
  *
  * @stability experimental
  */

@@ -162,7 +162,7 @@ interface ParsedDataUrl {
   base64: string;
 }
 
-/** `data:<type>;base64,<payload>` -> its parts, or `null` for anything else. */
+/** `data:<type>;base64,<payload>` → its parts, or `null` for anything else. */
 function parseDataUrl(url: string): ParsedDataUrl | null {
   const match = /^data:([^;,]+)(?:;[^,]*)?;base64,(.*)$/s.exec(url);
 

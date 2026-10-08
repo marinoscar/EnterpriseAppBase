@@ -82,7 +82,7 @@ export interface GeminiClassifierRule {
 const ALL_EFFORTS: AiReasoningEffort[] = ['minimal', 'low', 'medium', 'high'];
 
 /**
- * `reasoning.effort` -> `thinkingConfig.thinkingBudget`, for the 'budget'
+ * `reasoning.effort` → `thinkingConfig.thinkingBudget`, for the 'budget'
  * families (Gemini 2.5), and for an unclassified model.
  *
  * The ranges Google documents are 128-32768 (2.5 Pro), 0-24576 (2.5 Flash)

@@ -43,18 +43,18 @@ export const AI_USER_SETTINGS = {
   /**
    * Merge the `ai` namespace (#423, epic #419, umbrella #418).
    *
-   * - patch absent  -> keep the stored namespace untouched
-   * - patch is `null` -> clear the whole namespace (back to "no default
+   * - patch absent  → keep the stored namespace untouched
+   * - patch is `null` → clear the whole namespace (back to "no default
    *   model chosen", the same state an untouched account is in)
-   * - patch is an object -> REPLACES the namespace wholesale. Unlike
+   * - patch is an object → REPLACES the namespace wholesale. Unlike
    *   `dataTables`/`navigation`, there is only one field
    *   (`defaultModel`, a single (provider, modelId) pair) and
    *   `userAiSettingsPatchSchema` makes it REQUIRED-BUT-NULLABLE, not
    *   independently optional — so whenever a caller sends `ai` at all, it
    *   already states the field in full (an object, or `null` to clear just
    *   the selection while keeping the namespace present). There is no
-   *   "field omitted" case to merge field-by-field the way `navigation
-   *   .railCollapsed` has.
+   *   "field omitted" case to merge field-by-field the way
+   *   `navigation.railCollapsed` has.
    */
   merge(current: UserAiSettingsValue | undefined, patch: UserAiSettingsPatchValue | null | undefined) {
     if (patch === undefined) {

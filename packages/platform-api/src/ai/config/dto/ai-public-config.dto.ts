@@ -39,8 +39,8 @@ export const aiPublicProviderSchema = z.object({
    * (#446) — `AiProviderAdapter.supportsPreviousResponseId`. `false` for a
    * provider that stores no responses (Anthropic): a client must then send
    * the conversation so far as `input` (user and assistant messages), because
-   * a request naming `previousResponseId` is refused with `400
-   * AI_CAPABILITY_UNSUPPORTED`.
+   * a request naming `previousResponseId` is refused with
+   * `400 AI_CAPABILITY_UNSUPPORTED`.
    */
   supportsPreviousResponseId: z.boolean(),
   /**

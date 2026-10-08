@@ -147,8 +147,8 @@ export class AiConfigAdminService {
   /**
    * `PUT /api/admin/ai/config` — full replace of the `ai` namespace.
    *
-   * Order, each step load-bearing (the same order `StorageConfigAdminService
-   * .replace` follows):
+   * Order, each step load-bearing (the same order
+   * `StorageConfigAdminService.replace` follows):
    *   1. read the row; `If-Match` is refused BEFORE anything is written;
    *   2. validate the providers and the key policy against the registry and
    *      the credential store — every refusal here is a 400 that wrote nothing;

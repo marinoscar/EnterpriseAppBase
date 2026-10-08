@@ -101,7 +101,7 @@ type GeminiOperation = 'models.list' | 'verify_key' | 'generate_content' | 'gene
 
 const tracer = trace.getTracer(resolveServiceName());
 
-/** `models/gemini-2.5-flash` -> `gemini-2.5-flash`. */
+/** `models/gemini-2.5-flash` → `gemini-2.5-flash`. */
 function stripModelsPrefix(name: string): string {
   return name.startsWith('models/') ? name.slice('models/'.length) : name;
 }

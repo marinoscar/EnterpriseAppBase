@@ -57,7 +57,7 @@ export const aiProviderSettingsInputSchema = z.object({
     .nullish(),
   /** Azure OpenAI (default `responses`) and OpenAI-compatible (default `chat_completions`). */
   apiStyle: z.enum(AI_OPENAI_API_STYLES).nullish(),
-  /** Azure OpenAI: model id -> deployment name. Replaces the stored map whole; `{}` or null clears it. */
+  /** Azure OpenAI: model id → deployment name. Replaces the stored map whole; `{}` or null clears it. */
   deployments: aiAzureDeploymentsSchema.nullish(),
   /**
    * OpenAI-compatible: `false` opts in to a keyless server — calls carry no

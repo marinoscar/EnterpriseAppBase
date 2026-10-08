@@ -166,7 +166,7 @@ function invalid(message: string, details: Record<string, unknown> = {}): AiErro
 
 // ---- request: content -----------------------------------------------------------
 
-/** `data:<type>;base64,<payload>` -> its parts, or `null` for anything else. */
+/** `data:<type>;base64,<payload>` → its parts, or `null` for anything else. */
 function parseDataUrl(url: string): { mimeType: string; base64: string } | null {
   const match = /^data:([^;,]+)(?:;[^,]*)?;base64,(.*)$/s.exec(url);
 

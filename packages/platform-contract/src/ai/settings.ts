@@ -36,8 +36,8 @@ import { z } from 'zod';
  *
  * `provider`/`modelId` are plain strings, not `z.enum(AI_PROVIDER_IDS)` /
  * a foreign key into `AiModel`: this schema has no access to the database to
- * validate a model still exists, and — matching `Job.type`'s and `AiModel
- * .provider`'s own "a row must outlive the registry that produced it"
+ * validate a model still exists, and — matching `Job.type`'s and
+ * `AiModel.provider`'s own "a row must outlive the registry that produced it"
  * reasoning throughout this codebase — a user's saved preference for a model
  * later disabled or removed by an admin must remain a value this schema can
  * represent, even though nothing routes to it any more.
@@ -224,8 +224,8 @@ export type AiKeyPolicy = (typeof AI_KEY_POLICIES)[number];
  *
  * `defaults.maxOutputTokensCap` bounds every call regardless of what the
  * caller (or the model's own `maxOutputTokens`) requests, and is optional:
- * absent means "no deployment-wide cap", not zero. `defaults
- * .allowBackgroundRuns` decides whether a call may be queued as an `AiRun`
+ * absent means "no deployment-wide cap", not zero.
+ * `defaults.allowBackgroundRuns` decides whether a call may be queued as an `AiRun`
  * job at all rather than only served synchronously; ON by default, since the
  * job queue is this application's normal way of doing anything that takes a
  * while (see the "Every Long-Running Activity Is a Queue Job" rules) and a
@@ -249,8 +249,8 @@ export type AiKeyPolicy = (typeof AI_KEY_POLICIES)[number];
  * ⚠ THERE IS NO API KEY FIELD ANYWHERE IN THIS NAMESPACE, AND THERE MUST
  * NEVER BE ONE — see the compile-time proof at the bottom of this file. A
  * user's own key is `UserAiKey.secret`, ciphertext in its own table, never
- * in this JSONB blob; an org-wide fallback key (`AI_KEY_POLICIES
- * .byok_with_org_fallback`) is credential material for the same reason
+ * in this JSONB blob; an org-wide fallback key (
+ * `AI_KEY_POLICIES.byok_with_org_fallback`) is credential material for the same reason
  * `systemStorageSchema`'s own header gives for the storage secret access
  * key: this object is returned WHOLESALE by `GET /api/system-settings` and
  * copied verbatim into every settings audit row, so a secret here is one
@@ -394,7 +394,7 @@ export const aiAzureDeploymentsSchema = z
  *  - `apiStyle` — `responses` (the default: current api-versions serve the
  *    Responses API) or `chat_completions` for an older api-version or a
  *    deployment the Responses API does not cover.
- *  - `deployments` — model id -> deployment name. Azure routes by DEPLOYMENT,
+ *  - `deployments` — model id → deployment name. Azure routes by DEPLOYMENT,
  *    and a deployment may be named anything; when this map is set its keys
  *    ARE the model list the catalog discovers, and a model id missing from it
  *    is sent as its own deployment name.
@@ -469,8 +469,8 @@ export type SystemAiValue = z.infer<typeof systemAiSchema>;
 /**
  * `ai`, one level deep — matching `systemStoragePatchSchema`'s own shape one
  * level further in: `providers` and `defaults` are each optional as a whole
- * AND optional field by field inside, so `{ "ai": { "providers": { "openai":
- * { "enabled": true } } } }` is a legal body that leaves `defaults` and
+ * AND optional field by field inside, so
+ * `{ "ai": { "providers": { "openai": { "enabled": true } } } }` is a legal body that leaves `defaults` and
  * `logPromptContent` untouched. See `SystemSettingsService.patchSettings`
  * for the merge this shape is built to support.
  */

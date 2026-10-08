@@ -31,9 +31,9 @@ import type {
 /**
  * A request as a fork writes it. `model` (and `provider`) are optional:
  *
- *   - both omitted  -> the caller's `ai.defaultModel` user setting, else
+ *   - both omitted  → the caller's `ai.defaultModel` user setting, else
  *                      `AI_INVALID_REQUEST` ('No model selected');
- *   - `model` alone -> `provider` is the default model's provider, else the
+ *   - `model` alone → `provider` is the default model's provider, else the
  *                      only registered provider, else `AI_INVALID_REQUEST`.
  *
  * @stability experimental

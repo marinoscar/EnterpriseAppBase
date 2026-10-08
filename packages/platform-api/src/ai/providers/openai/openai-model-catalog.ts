@@ -107,8 +107,8 @@ const TRANSCRIPTION: AiModelCapabilities = {
 };
 
 /**
- * Every voice OpenAI's speech endpoint accepts — `OpenAiProviderAdapter
- * .audio.voices`. The `tts-1` family speaks the first nine only.
+ * Every voice OpenAI's speech endpoint accepts —
+ * `OpenAiProviderAdapter.audio.voices`. The `tts-1` family speaks the first nine only.
  */
 export const OPENAI_SPEECH_VOICES = [
   'alloy',
@@ -149,8 +149,8 @@ const EMBEDDINGS: AiModelCapabilities = {
 };
 
 /**
- * Every voice a realtime session accepts — `OpenAiProviderAdapter.realtime
- * .voices` and the `realtime` classification's `voices` (#449). Not the
+ * Every voice a realtime session accepts —
+ * `OpenAiProviderAdapter.realtime.voices` and the `realtime` classification's `voices` (#449). Not the
  * speech list: `fable`, `onyx` and `nova` are `/v1/audio/speech` only.
  * `marin` and `cedar` are the GA `gpt-realtime` voices OpenAI recommends.
  */

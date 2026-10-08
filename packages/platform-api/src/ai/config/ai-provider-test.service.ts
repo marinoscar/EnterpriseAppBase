@@ -225,8 +225,8 @@ export class AiProviderTestService {
 
   /**
    * The cheapest-looking enabled, non-deprecated text model this key can see,
-   * or null. "Cheapest-looking" is a naming heuristic (`nano` < `mini` <
-   * anything else) — the catalog carries no prices — and the tie-break is the
+   * or null. "Cheapest-looking" is a naming heuristic (`nano`, then `mini`,
+   * then anything else) — the catalog carries no prices — and the tie-break is the
    * id, so the choice is stable between runs.
    */
   private async pickSmokeModel(provider: string, visibleIds: Set<string> | null): Promise<string | null> {

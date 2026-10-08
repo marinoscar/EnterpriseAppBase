@@ -59,7 +59,7 @@ export function openAiRealtimeConnectUrl(baseUrl: string | undefined): string {
   return `${(baseUrl ?? OPENAI_DEFAULT_BASE_URL).replace(/\/+$/, '')}/realtime/calls`;
 }
 
-/** `AiRealtimeSessionRequest` -> the `client_secrets` body. */
+/** `AiRealtimeSessionRequest` → the `client_secrets` body. */
 export function toOpenAiClientSecretRequest(req: AiRealtimeSessionRequest): ClientSecretCreateParams {
   const seconds = req.expiresInSeconds ?? AI_REALTIME_CLIENT_SECRET_TTL_SECONDS;
 
@@ -104,7 +104,7 @@ export function toOpenAiClientSecretRequest(req: AiRealtimeSessionRequest): Clie
   };
 }
 
-/** The `client_secrets` answer -> `AiRealtimeSession`. */
+/** The `client_secrets` answer → `AiRealtimeSession`. */
 export function fromOpenAiClientSecretResponse(
   data: ClientSecretCreateResponse,
   context: { request: AiRealtimeSessionRequest; baseUrl?: string; providerRequestId?: string | null },

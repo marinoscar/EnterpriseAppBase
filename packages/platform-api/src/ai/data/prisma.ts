@@ -20,7 +20,6 @@ import type { AiInputJsonValue, AiJsonValue, AiModelRow, AiRunRow, UserAiKeyRow 
 export const Prisma = Object.freeze({ sql, raw, join });
 
 /** The type half of `Prisma`: JSON values, select payloads and inputs, structurally. */
-// eslint-disable-next-line @typescript-eslint/no-namespace
 export declare namespace Prisma {
   /** A JSON value a write accepts. */
   type InputJsonValue = AiInputJsonValue;

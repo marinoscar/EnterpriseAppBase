@@ -306,8 +306,8 @@ export class UserAiKeysService {
    * Re-verify one stored key and refresh its reachable models. Used by the
    * weekly `ai.keys.recheck` job.
    *
-   * A revoked key (`AI_KEY_INVALID`) is RECORDED (`lastErrorCode`, `verifiedAt:
-   * null`), never deleted — the user decides what to do about it. A rate limit
+   * A revoked key (`AI_KEY_INVALID`) is RECORDED (`lastErrorCode`,
+   * `verifiedAt: null`), never deleted — the user decides what to do about it. A rate limit
    * is rethrown so the job can defer; any other failure leaves the row as it
    * was, to be retried next time.
    */

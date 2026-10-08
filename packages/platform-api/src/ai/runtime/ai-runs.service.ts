@@ -284,7 +284,7 @@ export class AiRunsInOrg {
     });
   }
 
-  /** pending -> running. `false` when the run is no longer pending (cancelled, done). */
+  /** pending → running. `false` when the run is no longer pending (cancelled, done). */
   async claim(runId: string, jobId: string): Promise<boolean> {
     const { count } = await this.db.aiRun.updateMany({
       where: { id: runId, status: 'pending' },
@@ -294,7 +294,7 @@ export class AiRunsInOrg {
     return count > 0;
   }
 
-  /** running -> succeeded. `false` when the run was cancelled meanwhile. */
+  /** running → succeeded. `false` when the run was cancelled meanwhile. */
   async complete(runId: string, output: AiRunOutput): Promise<boolean> {
     const { count } = await this.db.aiRun.updateMany({
       where: { id: runId, status: 'running' },
@@ -310,7 +310,7 @@ export class AiRunsInOrg {
     return count > 0;
   }
 
-  /** pending|running -> failed. Messages are the safe, generic `AiError` ones. */
+  /** pending|running → failed. Messages are the safe, generic `AiError` ones. */
   async fail(runId: string, errorCode: string, errorMessage: string): Promise<boolean> {
     const { count } = await this.db.aiRun.updateMany({
       where: { id: runId, status: { in: ACTIVE } },
@@ -320,7 +320,7 @@ export class AiRunsInOrg {
     return count > 0;
   }
 
-  /** running -> pending, for a job the queue will run again (a provider throttle). */
+  /** running → pending, for a job the queue will run again (a provider throttle). */
   async release(runId: string): Promise<void> {
     await this.db.aiRun.updateMany({
       where: { id: runId, status: 'running' },

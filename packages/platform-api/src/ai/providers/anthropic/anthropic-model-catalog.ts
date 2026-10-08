@@ -61,7 +61,7 @@ export interface AnthropicClassifierRule {
 const ALL_EFFORTS: AiReasoningEffort[] = ['minimal', 'low', 'medium', 'high'];
 
 /**
- * `reasoning.effort` -> `thinking.budget_tokens`, for the 'budget' families.
+ * `reasoning.effort` → `thinking.budget_tokens`, for the 'budget' families.
  *
  * Anthropic's minimum budget is 1024 tokens. The ladder doubles-to-triples
  * per step so the four efforts are genuinely different amounts of thinking,
@@ -77,7 +77,7 @@ export const ANTHROPIC_THINKING_BUDGETS: Readonly<Record<AiReasoningEffort, numb
 };
 
 /**
- * `reasoning.effort` -> `output_config.effort`, for the 'adaptive' families.
+ * `reasoning.effort` → `output_config.effort`, for the 'adaptive' families.
  * Anthropic's ladder is `low | medium | high | xhigh | max`; ours has no
  * `xhigh`/`max` and adds `minimal`, which maps to Anthropic's lowest, `low`.
  */

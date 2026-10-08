@@ -38,7 +38,7 @@ export const AZURE_OPENAI_DEFAULT_API_STYLE: AiOpenAiApiStyle = 'responses';
 export interface AzureOpenAiSettings {
   apiVersion: string;
   apiStyle: AiOpenAiApiStyle;
-  /** Model id -> deployment name; empty when none is configured. */
+  /** Model id → deployment name; empty when none is configured. */
   deployments: Readonly<Record<string, string>>;
 }
 

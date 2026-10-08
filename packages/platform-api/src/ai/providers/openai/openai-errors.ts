@@ -50,8 +50,8 @@ export const OPENAI_PROVIDER_ID = 'openai';
  * (#448). The OpenAI adapter, the Azure OpenAI adapter and the generic
  * OpenAI-compatible adapter all speak the same wire protocol through the same
  * SDK, so they share this file's mapping and the mappers beside it; the
- * family only changes the provider id stamped on `details` / `AiResponse
- * .provider` and the name in the generic, secret-free messages. Every
+ * family only changes the provider id stamped on `details` /
+ * `AiResponse.provider` and the name in the generic, secret-free messages. Every
  * function taking one defaults to {@link OPENAI_FAMILY}, so the OpenAI
  * adapter's behaviour is exactly what it was before the extraction.
  */
