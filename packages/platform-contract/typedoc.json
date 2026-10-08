@@ -3,7 +3,7 @@
     "../../typedoc.base.json"
   ],
   "tsconfig": "tsconfig.build.json",
-  "entryPoints": ["src/index.ts", "src/doctor/index.ts", "src/telemetry/index.ts", "src/sharing/index.ts", "src/identity/index.ts", "src/settings/index.ts", "src/credentials/index.ts", "src/onboarding/index.ts", "src/email/index.ts", "src/jobs/index.ts", "src/nodes/index.ts", "src/storage/index.ts", "src/notifications/index.ts"],
+  "entryPoints": ["src/index.ts", "src/doctor/index.ts", "src/telemetry/index.ts", "src/sharing/index.ts", "src/identity/index.ts", "src/settings/index.ts", "src/credentials/index.ts", "src/onboarding/index.ts", "src/email/index.ts", "src/jobs/index.ts", "src/nodes/index.ts", "src/storage/index.ts", "src/notifications/index.ts", "src/exports/index.ts"],
   "out": "docs-api",
   "json": "docs-api/api.json"
 }
