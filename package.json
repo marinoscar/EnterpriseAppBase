@@ -29,7 +29,7 @@
     "smoke:consumer": "npm run build:packages && node tests/consumer-smoke/run.mjs --from pack",
     "platform:infra:sync": "platform-infra sync",
     "changeset": "changeset",
-    "version-packages": "changeset version && npm install --package-lock-only",
+    "version-packages": "changeset version && node scripts/sync-starter-versions.mjs && npm install --package-lock-only",
     "release": "npm run build:packages && changeset publish"
   },
   "overrides": {

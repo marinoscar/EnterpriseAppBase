@@ -691,3 +691,86 @@ jobs:
           STACK_AGENT_TOKEN=ci DEPLOY_ROOT=/srv/ci docker compose --env-file .env.example \
             -f base.compose.yml -f prod.compose.yml -f telemetry.compose.yml \
             -f vps.compose.yml -f vps.telemetry.compose.yml config -q
+
+  starter:
+    name: Starter (packed tarballs)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # starter/ is what `new-project.mjs create` copies. It depends on PUBLISHED
+    # @marinoscar/platform-* ranges, so this job simulates the published state:
+    # scripts/starter-smoke.mjs installs a copy outside the repository with root
+    # `overrides` pointing every platform package at the tarballs packed here
+    # (never a workspace link), then runs its typecheck (api, web, cli), tests
+    # (unit, runPlatformConformance, web, CLI), build, `prisma validate`, the
+    # platform db and infra lock checks, the db tier and the single-instance
+    # check. The second run does the same for a project `create` produced
+    # (after a `--dry-run` that must write nothing), and checks the new
+    # identity reached the CLI, the web shell and the worker fragment.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: starter_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      POSTGRES_HOST: 127.0.0.1
+      POSTGRES_PORT: '5432'
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: starter_test
+      POSTGRES_SSL: 'false'
+      JWT_SECRET: starter-ci-jwt-secret-not-a-real-secret-000
+      COOKIE_SECRET: starter-ci-cookie-secret-not-a-real-secret
+      GOOGLE_CLIENT_ID: starter-ci-google-client-id
+      GOOGLE_CLIENT_SECRET: starter-ci-google-client-secret
+      GOOGLE_CALLBACK_URL: http://127.0.0.1:3000/api/auth/google/callback
+      INITIAL_ADMIN_EMAIL: starter-admin@example.test
+      OTEL_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      # Row-level security is inert for a superuser: the starter runs as the
+      # same ordinary role the smoke job uses.
+      - name: Create the ordinary application role
+        run: sh infra/compose/postgres-init/10-application-role.sh
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: '5432'
+          PGPASSWORD: postgres
+          POSTGRES_DB: starter_test
+          APP_DB_USER: app
+          APP_DB_PASSWORD: postgres
+
+      - run: npm ci
+      - run: npm run build:packages
+
+      - name: The starter's platform ranges include the current version
+        run: node scripts/sync-starter-versions.mjs --check
+
+      - name: Pack the six packages
+        run: |
+          mkdir -p "$RUNNER_TEMP/tarballs"
+          for p in contract api web db cli infra; do npm pack -w "@marinoscar/platform-$p" --pack-destination "$RUNNER_TEMP/tarballs"; done
+
+      - name: Starter against the tarballs (with the db tier)
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: node scripts/starter-smoke.mjs --from tarballs "$RUNNER_TEMP/tarballs" --db
+
+      - name: new-project.mjs create, then the created project
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: node scripts/starter-smoke.mjs --from tarballs "$RUNNER_TEMP/tarballs" --create
