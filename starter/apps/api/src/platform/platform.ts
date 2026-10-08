@@ -2,10 +2,10 @@
 // configured once with `forRoot()`, and the host modules binding their ports.
 // app.module.ts imports `PLATFORM_MODULES` and nothing else of the platform.
 //
-// The settings namespaces register FIRST: `SettingsModule.forRoot()`
-// composes the system settings request bodies from the registry. The host
-// core's (the maintenance window), then the app's.
-import './maintenance.settings';
+// The app's settings namespaces register FIRST: `SettingsModule.forRoot()`
+// composes the system settings request bodies from the registry. (The host
+// core's `maintenance` namespace is registered by `PlatformHostCoreModule.forRoot()`,
+// first in PLATFORM_MODULES, so before `SettingsModule.forRoot()` too.)
 import '../notes/notes.settings';
 
 import { APP_NAME } from '@app/shared';

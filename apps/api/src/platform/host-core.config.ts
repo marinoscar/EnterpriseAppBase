@@ -10,6 +10,9 @@
 //   - the app-metric manifest runs FIRST, so the registry order stays the
 //     platform's 31, the event bus's three, the slices' and then the app's
 //     own (`APP_METRICS`), a collision naming the app;
+//   - the settings manifest runs first too, so the `maintenance` namespace
+//     keeps its place in the system settings document (`forRoot()` registers
+//     it only when nothing did);
 //   - `EVENT_BUS_ADAPTER` and `OTEL_ENABLED` are read by the package itself
 //     (the defaults), so there is nothing to pass.
 //
@@ -23,6 +26,9 @@
 // =============================================================================
 
 import '../common/otel/app-metric.manifest';
+// The settings manifest registers the `maintenance` namespace in this app's
+// namespace order; `forRoot()` would otherwise register it itself.
+import '../settings/registry';
 
 import { PlatformHostCoreModule } from '@marinoscar/platform-api/host';
 

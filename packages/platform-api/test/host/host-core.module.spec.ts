@@ -11,7 +11,7 @@ import { HttpExceptionFilter, PlatformHostModule } from '../../src/core/index';
 import { DoctorCheckRegistry } from '../../src/doctor/index';
 import { AuthModule, Public } from '../../src/identity/index';
 import { appMetricRegistry } from '../../src/otel-core/index';
-import { SystemSettingsService } from '../../src/settings/index';
+import { SystemSettingsService, systemSettingsNamespaceRegistry } from '../../src/settings/index';
 import { InMemoryAuditSink } from '../../src/testing/index';
 import {
   AppMetricsService,
@@ -107,10 +107,13 @@ describe('PlatformHostCoreModule', () => {
     const dynamic = PlatformHostCoreModule.forRoot();
     const provided = (dynamic.providers ?? []) as Array<{ provide?: unknown; useClass?: unknown; useExisting?: unknown }>;
 
-    it('is global and registers the platform app metrics first', () => {
+    it('is global and registers the platform app metrics and the maintenance namespace first', () => {
       expect(dynamic.global).toBe(true);
       expect(appMetricRegistry.has(PLATFORM_APP_METRICS[0].key)).toBe(true);
       expect(appMetricRegistry.has('eventBusPublished')).toBe(true);
+      expect(systemSettingsNamespaceRegistry.get('maintenance')).toBe(MAINTENANCE_SYSTEM_SETTINGS);
+      // A second forRoot (or an app manifest that registered it) is a no-op.
+      expect(() => PlatformHostCoreModule.forRoot()).not.toThrow();
     });
 
     it('registers MaintenanceGuard as the ONLY APP_GUARD, through useExisting', () => {

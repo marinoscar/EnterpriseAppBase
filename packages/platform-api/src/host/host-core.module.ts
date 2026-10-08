@@ -24,8 +24,9 @@
 //
 // REQUIRES core's `PlatformHostModule.forRoot()` (`AUDIT_SINK`, and
 // `PLATFORM_PRISMA` for the `postgres` bus and the gauges), the global
-// settings module (the `maintenance` namespace, registered by the app's
-// manifest from `MAINTENANCE_SYSTEM_SETTINGS`), a global `ConfigModule`
+// settings module (the `maintenance` namespace, `MAINTENANCE_SYSTEM_SETTINGS`:
+// `forRoot()` registers it unless the app's manifest did, so call it before
+// `SettingsModule.forRoot()` or register it there), a global `ConfigModule`
 // carrying `jwt.secret` (the identity slice's configuration) and, for the two
 // Doctor checks, the doctor module.
 //
@@ -49,6 +50,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { HttpExceptionFilter, PLATFORM_PRISMA } from '../core/index';
 import { requireJwtSecret } from '../identity/index';
 import { OtelMetricsModule } from '../otel-core/index';
+import { ensureSystemSettingsNamespaces, type SystemSettingsNamespace } from '../settings/index';
 import { EventBusDoctorCheck } from './event-bus/doctor/event-bus.doctor-check';
 import { EVENT_BUS_SELECTION, type EventBusSelection } from './event-bus/event-bus.config';
 import { createEventBus, selectEventBus } from './event-bus/event-bus.factory';
@@ -67,6 +69,7 @@ import { MaintenanceModeDoctorCheck } from './maintenance/doctor/maintenance-mod
 import { MaintenanceModeService } from './maintenance/maintenance-mode.service';
 import { MaintenanceController } from './maintenance/maintenance.controller';
 import { MaintenanceGuard } from './maintenance/maintenance.guard';
+import { MAINTENANCE_SYSTEM_SETTINGS } from './maintenance/maintenance.system-settings';
 import { AppMetricsService } from './metrics/app-metrics.service';
 import { registerPlatformHostAppMetrics } from './metrics/register';
 
@@ -81,14 +84,17 @@ import { registerPlatformHostAppMetrics } from './metrics/register';
 @Module({})
 export class PlatformHostCoreModule implements NestModule {
   /**
-   * The host core for one app. Registers the platform's app metrics first
-   * (idempotent), then returns the global module. Import it exactly once.
+   * The host core for one app. Registers the platform's app metrics and the
+   * `maintenance` settings namespace unless they already are (call it before
+   * `SettingsModule.forRoot()`, or register the namespace in the app's
+   * manifest), then returns the global module. Import it exactly once.
    *
    * @param options - see {@link PlatformHostCoreOptions}; all optional.
    * @returns the global dynamic module. It exports `EVENT_BUS`,
    *   `EVENT_BUS_SELECTION`, `AppMetricsService`, `MaintenanceModeService`,
    *   `MaintenanceGuard` and `PLATFORM_HOST_CORE_OPTIONS`.
-   * @throws Error when an option is invalid.
+   * @throws Error when an option is invalid, or when `SettingsModule.forRoot()`
+   *   already composed the settings bodies without the `maintenance` namespace.
    *
    * @example
    * ```ts
@@ -102,6 +108,7 @@ export class PlatformHostCoreModule implements NestModule {
   static forRoot(options: PlatformHostCoreOptions = {}): DynamicModule {
     const resolved = resolvePlatformHostCoreOptions(options);
     registerPlatformHostAppMetrics();
+    ensureSystemSettingsNamespaces([MAINTENANCE_SYSTEM_SETTINGS as SystemSettingsNamespace], 'PlatformHostCoreModule.forRoot()');
 
     return {
       global: true,

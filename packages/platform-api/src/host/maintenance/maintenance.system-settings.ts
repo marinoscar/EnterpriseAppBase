@@ -3,8 +3,9 @@
 // =============================================================================
 //
 // A declaration file: pure data, imports only leaf modules. Packaged with the
-// maintenance switch by #867; the app registers it in its system settings
-// manifest (before `SettingsModule.forRoot()` composes the request bodies).
+// maintenance switch by #867. `PlatformHostCoreModule.forRoot()` registers it
+// unless the app's system settings manifest already did (either before
+// `SettingsModule.forRoot()` composes the request bodies).
 // Recipe: packages/platform-api/src/settings/README.md.
 // =============================================================================
 
@@ -58,8 +59,9 @@ export function mergeMaintenanceSettings(
 
 /**
  * The `maintenance` system-settings namespace: the persisted maintenance
- * window. Registered by the app's system settings manifest. Inert by default:
- * the window ships closed.
+ * window. Registered by `PlatformHostCoreModule.forRoot()` unless the app's
+ * system settings manifest already did. Inert by default: the window ships
+ * closed.
  *
  * @stability experimental
  */
@@ -86,7 +88,7 @@ export const MAINTENANCE_SYSTEM_SETTINGS = {
   merge: mergeMaintenanceSettings,
 } satisfies SystemSettingsNamespace<'maintenance', SystemMaintenanceValue, z.infer<typeof maintenanceSettingsPatchSchema>>;
 
-declare module '../../settings/registry/system-settings-namespace' {
+declare module '../../settings/index' {
   interface SystemSettingsNamespaces {
     /** The maintenance window (#256, epic #254). REQUIRED for the reason `jobs` gives. */
     maintenance: SystemMaintenanceValue;
