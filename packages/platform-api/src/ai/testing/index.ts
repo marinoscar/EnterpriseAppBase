@@ -88,3 +88,15 @@ export type {
   InMemoryStorageObject,
   InMemoryAiStorage,
 } from './in-memory-ai-storage';
+export {
+  DEFAULT_BANNED_ORCHESTRATION_PACKAGES,
+  findOrchestrationViolations,
+  isBannedOrchestrationPackage,
+  orchestrationImportSpecifiers,
+  runOrchestrationBoundarySuite,
+} from './conformance/orchestration-boundary.suite';
+export type {
+  OrchestrationBoundaryOptions,
+  OrchestrationManifest,
+  OrchestrationScannedFile,
+} from './conformance/orchestration-boundary.suite';
