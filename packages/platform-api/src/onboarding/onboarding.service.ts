@@ -137,7 +137,8 @@ export class OnboardingService implements OnApplicationBootstrap {
         initialAdminEmail,
         isFeatureEnabled,
         fact: <T>(id: string) => fact(id) as Promise<T>,
-        get: <T>(token: unknown) => this.moduleRef.get(token as never, { strict: false }) as T,
+        get: <T>(token: (abstract new (...args: never[]) => T) | string | symbol) =>
+          this.moduleRef.get(token as never, { strict: false }) as T,
       }),
     });
 

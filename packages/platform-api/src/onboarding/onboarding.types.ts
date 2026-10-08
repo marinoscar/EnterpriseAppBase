@@ -140,7 +140,7 @@ export interface OnboardingRequestContext {
   /** Another fact's value (memoised: resolving it twice runs it once). */
   fact<T = unknown>(id: string): Promise<T>;
   /** An app provider by token, for an app fact (`ModuleRef.get(token, { strict: false })`). */
-  get<T = unknown>(token: unknown): T;
+  get<T = unknown>(token: (abstract new (...args: never[]) => T) | string | symbol): T;
 }
 
 /**
