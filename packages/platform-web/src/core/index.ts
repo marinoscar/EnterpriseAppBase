@@ -19,3 +19,14 @@ export {
   usePlatformViewer,
 } from './host.js';
 export type { PlatformWebHost } from './host.js';
+// The browser HTTP client (issue #727, PP-6.6): the access-token holder, the
+// one-shot refresh and the cross-page refresh lock, moved from the reference
+// app's `services/api.ts`. The identity slice's `AuthProvider` drives it.
+export { ApiError, PlatformHttpClient } from './http/client.js';
+export type {
+  PlatformHttpBlobWithHeaders,
+  PlatformHttpClientOptions,
+  PlatformHttpErrorBody,
+  PlatformHttpRequestOptions,
+  SessionExpiredListener,
+} from './http/client.js';
