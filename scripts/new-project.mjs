@@ -38,16 +38,28 @@
 // Full guide: docs/RENAMING.md
 // =============================================================================
 
-import { readFileSync, writeFileSync, existsSync, readdirSync, renameSync } from 'node:fs';
+import { cpSync, readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, renameSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const MANIFEST = join(REPO_ROOT, 'packages', 'shared', 'identity.json');
 
+const STARTER_DIR = join(REPO_ROOT, 'starter');
+
 const USAGE = `
-Prepare a fresh fork of this template as a new product.
+Start a new product from the starter (published platform packages):
+
+  node scripts/new-project.mjs create --dir ../acme-hub --name "Acme Hub" --repo acme/acme-hub
+       [--cli acmectl] [--theme "#c62828"] [--background "#ffffff"] [--tagline "..."]
+       [--license mit|proprietary --holder "Acme Inc"] [--dry-run]
+
+  Copies starter/ into --dir (which must be empty or absent), runs the copy's own
+  scripts/rename.mjs with the new identity, writes LICENSE when asked, resets the
+  CHANGELOG and the versions to 0.1.0 and runs git init. It never commits.
+
+Or prepare a fresh FORK of this template (legacy forks) as a new product:
 
   node scripts/new-project.mjs [options]
 
@@ -68,6 +80,34 @@ Full guide: docs/RENAMING.md
 function die(message) {
   console.error(`\nnew-project: ${message}\n`);
   process.exit(1);
+}
+
+/** `create` options. Exported for the tests. */
+export function parseCreateArgs(argv) {
+  const opts = { dryRun: false };
+  const takesValue = {
+    '--dir': 'dir', '--name': 'name', '--repo': 'repo', '--cli': 'cli', '--theme': 'theme',
+    '--background': 'background', '--tagline': 'tagline', '--license': 'license', '--holder': 'holder',
+  };
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === '-h' || arg === '--help') return { help: true };
+    if (arg === '--dry-run') { opts.dryRun = true; continue; }
+    const key = takesValue[arg];
+    if (!key) die(`Unknown argument for create: ${arg}\n\n${USAGE}`);
+    const value = argv[++i];
+    if (value === undefined) die(`${arg} needs a value.`);
+    opts[key] = value;
+  }
+  for (const required of ['dir', 'name', 'repo']) {
+    if (!opts[required]) die(`create needs --${required}.\n\n${USAGE}`);
+  }
+  if (opts.license && !opts.holder) die('--license also needs --holder "Your Name or Company".');
+  if (opts.license && !LICENSES[String(opts.license).toLowerCase()]) {
+    die(`unknown --license "${opts.license}". Supported: ${Object.keys(LICENSES).join(', ')}.`);
+  }
+  opts.dir = resolve(opts.dir);
+  return opts;
 }
 
 function parseArgs(argv) {
@@ -403,10 +443,152 @@ function audit() {
 }
 
 // =============================================================================
+// create: a new product from starter/  (issue #741)
+// =============================================================================
+//
+// The starter depends on PUBLISHED @marinoscar/platform-* versions, so the new
+// product owns only its composition, its domain code and its appearance. The
+// steps, in order: refuse a non-empty --dir; copy starter/ (no node_modules,
+// build output or lockfile); run the copy's OWN scripts/rename.mjs (it writes
+// identity.json, the literal targets and, with the platform-infra build of this
+// repository, re-renders infra/); LICENSE when asked; CHANGELOG to
+// [Unreleased] + [0.1.0]; versions to 0.1.0; git init. Never a commit.
+
+/** What `create` never copies out of starter/. */
+const STARTER_SKIP = new Set(['node_modules', 'dist', 'coverage', '.turbo']);
+
+/** Paths (relative to starter/) a copy carries; exported for the tests. */
+export function starterFiles(dir = STARTER_DIR, base = dir) {
+  const out = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (STARTER_SKIP.has(entry.name)) continue;
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...starterFiles(path, base));
+    else if (entry.name !== 'package-lock.json' || dir !== base) out.push(relative(base, path).split('\\').join('/'));
+  }
+  return out.sort();
+}
+
+/** The manifests whose `version` becomes 0.1.0 in a new product. */
+export const STARTER_MANIFESTS = ['package.json', 'apps/api/package.json', 'apps/web/package.json', 'apps/cli/package.json', 'packages/shared/package.json'];
+
+function freshChangelog(today) {
+  return `# Changelog
+
+All notable changes to this project are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [0.1.0] - ${today}
+
+### Added
+
+- Initial project, started from the platform starter.
+`;
+}
+
+/** The repository's built `platform-infra` CLI, if this checkout has one (`npm run build:packages`). */
+function platformInfraBin() {
+  const bin = join(REPO_ROOT, 'packages', 'platform-infra', 'bin', 'platform-infra.mjs');
+  return existsSync(join(REPO_ROOT, 'packages', 'platform-infra', 'dist', 'cli.js')) ? bin : undefined;
+}
+
+async function create(opts) {
+  if (!existsSync(join(STARTER_DIR, 'scripts', 'rename.mjs'))) die(`no starter at ${STARTER_DIR}.`);
+  if (existsSync(opts.dir) && readdirSync(opts.dir).length > 0) {
+    die(`--dir ${opts.dir} is not empty. create writes a whole new project and never merges into an existing directory.`);
+  }
+  const rel = relative(REPO_ROOT, opts.dir);
+  if (!rel.startsWith('..') && !rel.startsWith('/') && rel !== '') {
+    die(`--dir ${opts.dir} is inside this repository. Create the product beside it (for example ../${opts.dir.split(/[\\/]/).pop()}).`);
+  }
+
+  const files = starterFiles();
+  const renameArgs = {
+    name: opts.name, repo: opts.repo, cliName: opts.cli, theme: opts.theme,
+    background: opts.background, tagline: opts.tagline, force: true,
+  };
+  for (const key of Object.keys(renameArgs)) if (renameArgs[key] === undefined) delete renameArgs[key];
+  const today = new Date().toISOString().slice(0, 10);
+
+  console.log(`\n${opts.dryRun ? 'Would create' : 'Creating'} ${opts.dir} from starter/ (${files.length} files)`);
+  if (opts.dryRun) {
+    // The starter's own plan, checked against starter/ itself: every anchor
+    // must match, and nothing is written anywhere.
+    const starter = await import(pathToFileURL(join(STARTER_DIR, 'scripts', 'rename.mjs')).href);
+    const status = starter.rename({ ...renameArgs, root: STARTER_DIR, dryRun: true });
+    if (status !== 0) die('the starter rename plan does not apply to starter/; nothing was written.');
+    console.log(`\n  ~ LICENSE${opts.license ? ` (${opts.license}, ${opts.holder})` : ': none (pass --license)'}`);
+    console.log(`  ~ CHANGELOG.md -> [Unreleased] + [0.1.0] - ${today}`);
+    console.log(`  ~ ${STARTER_MANIFESTS.join(', ')} -> version 0.1.0`);
+    console.log('  ~ git init');
+    console.log('\n(--dry-run: nothing was written.)\n');
+    return;
+  }
+
+  mkdirSync(opts.dir, { recursive: true });
+  for (const file of files) cpSync(join(STARTER_DIR, file), join(opts.dir, file));
+
+  const own = await import(pathToFileURL(join(opts.dir, 'scripts', 'rename.mjs')).href);
+  const status = own.rename({ ...renameArgs, root: opts.dir }, { infraBin: platformInfraBin() });
+  if (status !== 0) die(`the rename of ${opts.dir} failed; the directory is left as it is for inspection.`);
+
+  if (opts.license) {
+    const id = String(opts.license).toLowerCase();
+    writeFileSync(join(opts.dir, 'LICENSE'), LICENSES[id](opts.holder, new Date().getFullYear()));
+    const readme = join(opts.dir, 'README.md');
+    const label = id === 'mit' ? 'MIT' : 'Proprietary';
+    writeFileSync(readme, readFileSync(readme, 'utf8').replace(/\[Your License Here\]/g, () => `${label} — see [LICENSE](LICENSE).`));
+    console.log(`  * LICENSE (${id}, ${opts.holder})`);
+  }
+  writeFileSync(join(opts.dir, 'CHANGELOG.md'), freshChangelog(today));
+  for (const manifest of STARTER_MANIFESTS) {
+    const path = join(opts.dir, manifest);
+    if (!existsSync(path)) continue;
+    writeFileSync(path, readFileSync(path, 'utf8').replace(/^(\s*"version":\s*)"[^"]*"/m, '$1"0.1.0"'));
+  }
+  console.log('  * CHANGELOG.md, versions 0.1.0');
+  try {
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: opts.dir, stdio: 'inherit' });
+    console.log('  * git init (nothing committed)');
+  } catch {
+    console.warn('  SKIPPED: git init (git is unavailable); run it yourself.');
+  }
+
+  console.log(`
+${'='.repeat(78)}
+NEXT STEPS (nothing was committed)
+${'='.repeat(78)}
+
+  cd ${opts.dir}
+  npm install                 # resolves the published @marinoscar/platform-* packages
+  npm run platform:infra:sync # if the infra step above was skipped
+  npm run setup               # builds the CLI and writes infra/compose/.env
+
+The three values nothing can generate, in infra/compose/.env:
+  INITIAL_ADMIN_EMAIL   your account: always allowed in, becomes the administrator
+  GOOGLE_CLIENT_ID      from your Google Cloud OAuth client
+  GOOGLE_CLIENT_SECRET  from the same client
+
+Then commit, create the GitHub repository ${opts.repo}, and push. README.md walks
+through running it and adding your first feature.
+`);
+}
+
+// =============================================================================
 // Main
 // =============================================================================
 
-function main() {
+async function main() {
+  if (process.argv[2] === 'create') {
+    const createOpts = parseCreateArgs(process.argv.slice(3));
+    if (createOpts.help) { console.log(USAGE); return; }
+    await create(createOpts);
+    return;
+  }
   const opts = parseArgs(process.argv.slice(2));
   if (opts.help) { console.log(USAGE); return; }
 
@@ -444,5 +626,5 @@ function main() {
 const isDirectExecution =
   process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isDirectExecution) {
-  main();
+  main().catch((error) => die(error instanceof Error ? error.message : String(error)));
 }

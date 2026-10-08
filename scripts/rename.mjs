@@ -49,7 +49,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const MANIFEST = join(REPO_ROOT, 'packages', 'shared', 'identity.json');
+
+// The repository being renamed: this one, or `--root <dir>`. Set once, in main().
+let ROOT = REPO_ROOT;
+const manifestPath = () => join(ROOT, 'packages', 'shared', 'identity.json');
 
 // -----------------------------------------------------------------------------
 // Things that must never be renamed, restated here so the script is the place
@@ -57,12 +60,48 @@ const MANIFEST = join(REPO_ROOT, 'packages', 'shared', 'identity.json');
 // consequences; `.claude/skills/rename-app/references/do-not-rename.md` carries
 // it for an agent.
 // -----------------------------------------------------------------------------
-const DO_NOT_RENAME = [
+export const DO_NOT_RENAME = [
   ['packages/platform-api/src/core/crypto/secret-cipher.ts', "the HKDF label 'enterpriseappbase:secret-cipher:v1:' — changing it makes every stored credential permanently undecryptable; and the signing label 'enterpriseappbase:signing-key:v1:', which invalidates every outstanding signed token"],
   ['packages/platform-api/src/core/errors/verbatim-error-body.exception.ts', 'a cross-realm Symbol.for() registry key'],
-  ['apps/cli/src/deploy/proxy.ts', "the '# Managed by appctl deploy' sentinel, which is written AND parsed on live servers"],
-  ['apps/cli/src/deploy/state.ts', "the '.appctl-deploy.json' filename, read from live servers"],
+  ['packages/platform-cli/src/engine/deploy/proxy.ts', "the '# Managed by appctl deploy' sentinel, which is written AND parsed on live servers"],
+  ['packages/platform-cli/src/engine/deploy/state.ts', "the '.appctl-deploy.json' filename, read from live servers"],
 ];
+
+// =============================================================================
+// Layout detection (issue #741)
+// =============================================================================
+//
+// Two kinds of repository carry this script:
+//
+//   - a TEMPLATE FORK: a full copy of the platform repository, with the
+//     platform's source under packages/platform-*. Today's plan below applies,
+//     unchanged, because existing forks still use it until they adopt packages.
+//   - a STARTER-BASED APP: created by `new-project.mjs create` from starter/,
+//     depending on the published packages. Only the starter plan applies (the
+//     few literal targets no runtime read can reach); it lives in the starter's
+//     own scripts/rename.mjs, which this script delegates to.
+
+/**
+ * `'template'` when `root` holds the platform's source (`packages/platform-api`),
+ * `'starter'` when it is an app with `packages/shared/identity.json` and no
+ * platform source, `null` otherwise.
+ */
+export function detectLayout(root) {
+  if (existsSync(join(root, 'packages', 'platform-api', 'package.json'))) return 'template';
+  if (existsSync(join(root, 'packages', 'shared', 'identity.json'))) return 'starter';
+  return null;
+}
+
+/**
+ * The starter plan's implementation for a starter-based app: the app's own
+ * scripts/rename.mjs (it matches the files it was created with), else this
+ * repository's starter/scripts/rename.mjs.
+ */
+export function starterRenameScript(root) {
+  const own = join(root, 'scripts', 'rename.mjs');
+  if (existsSync(own) && resolve(own) !== fileURLToPath(import.meta.url)) return own;
+  return join(REPO_ROOT, 'starter', 'scripts', 'rename.mjs');
+}
 
 // =============================================================================
 // The documented worked example
@@ -97,6 +136,8 @@ Options:
   --background <#rrggbb> PWA splash / first-paint colour. 6-digit hex only.
   --tagline <string>     One-line description, used as the README subtitle.
   --cli-name <name>      ALSO rename the CLI binary. Read the warning it prints first.
+  --root <dir>           The repository to rebrand (default: this one). A starter-based
+                         app gets the starter plan; a template fork gets this plan.
   --dry-run              Show every edit and its hit count; change nothing.
   --force                Proceed even with a dirty working tree.
   -h, --help             This message.
@@ -109,7 +150,7 @@ function parseArgs(argv) {
   const opts = { dryRun: false, force: false };
   const takesValue = {
     '--name': 'name', '--repo': 'repo', '--theme': 'theme',
-    '--background': 'background', '--tagline': 'tagline', '--cli-name': 'cliName',
+    '--background': 'background', '--tagline': 'tagline', '--cli-name': 'cliName', '--root': 'root',
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -304,7 +345,7 @@ function applyPlan(edits, { dryRun }) {
   const applied = [];
 
   for (const edit of edits) {
-    const path = join(REPO_ROOT, edit.file);
+    const path = join(ROOT, edit.file);
     if (!existsSync(path)) {
       problems.push(`${edit.file}: file not found`);
       continue;
@@ -340,7 +381,7 @@ function writeManifest(next, { dryRun }) {
     themeColor: next.themeColor,
     backgroundColor: next.backgroundColor,
   };
-  if (!dryRun) writeFileSync(MANIFEST, `${JSON.stringify(out, null, 2)}\n`);
+  if (!dryRun) writeFileSync(manifestPath(), `${JSON.stringify(out, null, 2)}\n`);
   return out;
 }
 
@@ -371,7 +412,7 @@ function residualScan(old, next) {
 
   let files;
   try {
-    files = execFileSync('git', ['ls-files', '-z'], { cwd: REPO_ROOT, encoding: 'utf8' })
+    files = execFileSync('git', ['ls-files', '-z'], { cwd: ROOT, encoding: 'utf8' })
       .split('\0').filter(Boolean);
   } catch {
     console.warn('rename: could not list git files, skipping the residual scan.');
@@ -402,7 +443,7 @@ function residualScan(old, next) {
     // same reason, as template-identity.test.ts and env-prefix.test.ts.
     if (/\.(test|spec)\.[cm]?[jt]sx?$/.test(file)) continue;
     let text;
-    try { text = readFileSync(join(REPO_ROOT, file), 'utf8'); } catch { continue; }
+    try { text = readFileSync(join(ROOT, file), 'utf8'); } catch { continue; }
     text.split('\n').forEach((line, i) => {
       for (const pattern of patterns) {
         if (pattern.test(line)) findings.push(`${file}:${i + 1}: ${line.trim().slice(0, 120)}`);
@@ -416,9 +457,22 @@ function residualScan(old, next) {
 // Main
 // =============================================================================
 
-function main() {
+async function main() {
   const opts = parseArgs(process.argv.slice(2));
   if (opts.help) { console.log(USAGE); return; }
+
+  ROOT = opts.root ? resolve(opts.root) : REPO_ROOT;
+  const layout = detectLayout(ROOT);
+  if (layout === 'starter') {
+    // A starter-based app: only the starter plan applies (issue #741).
+    const script = starterRenameScript(ROOT);
+    if (!existsSync(script)) die(`${ROOT} is a starter-based app, but no starter rename script was found at ${script}.`);
+    const starter = await import(pathToFileURL(script).href);
+    console.log(`rename: ${ROOT} is a starter-based app; applying the starter plan (${script}).`);
+    process.exitCode = starter.rename({ ...opts, root: ROOT });
+    return;
+  }
+  if (layout === null) die(`${ROOT} holds neither packages/platform-api (a template fork) nor packages/shared/identity.json (a starter-based app).`);
 
   const changing = ['name', 'repo', 'theme', 'background', 'tagline', 'cliName']
     .some((k) => opts[k] !== undefined);
@@ -429,7 +483,7 @@ function main() {
   if (!opts.dryRun && !opts.force) {
     let dirty = '';
     try {
-      dirty = execFileSync('git', ['status', '--porcelain'], { cwd: REPO_ROOT, encoding: 'utf8' }).trim();
+      dirty = execFileSync('git', ['status', '--porcelain'], { cwd: ROOT, encoding: 'utf8' }).trim();
     } catch {
       die('not a git repository (or git is unavailable). Re-run with --force to skip this check.');
     }
@@ -440,8 +494,8 @@ function main() {
     }
   }
 
-  if (!existsSync(MANIFEST)) die(`manifest not found at ${MANIFEST}`);
-  const current = JSON.parse(readFileSync(MANIFEST, 'utf8'));
+  if (!existsSync(manifestPath())) die(`manifest not found at ${manifestPath()}`);
+  const current = JSON.parse(readFileSync(manifestPath(), 'utf8'));
 
   const oldCliName = readCliName();
   const old = derive(current, oldCliName);
@@ -482,6 +536,7 @@ function main() {
   for (const [k, v] of Object.entries(written)) console.log(`      ${k}: ${JSON.stringify(v)}`);
 
   if (!opts.dryRun) {
+    syncInfra();
     regenerateIcons(old, next);
     const residual = residualScan(old, next);
     if (residual.length > 0) {
@@ -496,8 +551,25 @@ function main() {
   printChecklist(old, next, opts);
 }
 
+/**
+ * Re-render infra/ for the new identity (issue #714): the platform fragments
+ * carry the CLI's env prefix, the OpenTelemetry service name and the test
+ * database name, and their lock records the identity they were rendered for.
+ * Runs the workspace's built `platform-infra sync`; without a build it says
+ * which command to run instead.
+ */
+function syncInfra() {
+  const bin = join(ROOT, 'packages', 'platform-infra', 'bin', 'platform-infra.mjs');
+  if (!existsSync(join(ROOT, 'packages', 'platform-infra', 'dist', 'cli.js'))) {
+    console.warn('\n  SKIPPED: re-rendering infra/. Run `npm run build:packages && npm run platform:infra:sync`.');
+    return;
+  }
+  execFileSync(process.execPath, [bin, 'sync', '--root', ROOT], { stdio: 'inherit' });
+  console.log('\nRe-rendered infra/ (platform-infra sync).');
+}
+
 function readCliName() {
-  const path = join(REPO_ROOT, 'apps', 'cli', 'src', 'branding.ts');
+  const path = join(ROOT, 'apps', 'cli', 'src', 'branding.ts');
   if (!existsSync(path)) return null;
   const match = readFileSync(path, 'utf8').match(/^export const CLI_NAME = '([^']+)';/m);
   return match ? match[1] : null;
@@ -529,7 +601,7 @@ function regenerateIcons(old, next) {
   if (old.themeColor === next.themeColor && old.backgroundColor === next.backgroundColor) return;
   const cmd = 'python3 apps/web/scripts/generate-icons.py';
   try {
-    execFileSync('python3', ['apps/web/scripts/generate-icons.py'], { cwd: REPO_ROOT, stdio: 'inherit' });
+    execFileSync('python3', ['apps/web/scripts/generate-icons.py'], { cwd: ROOT, stdio: 'inherit' });
     console.log('\nRegenerated the brand icons.');
   } catch {
     console.warn(
@@ -592,5 +664,5 @@ function printChecklist(old, next, opts) {
 const isDirectExecution =
   process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isDirectExecution) {
-  main();
+  main().catch((error) => die(error instanceof Error ? error.message : String(error)));
 }

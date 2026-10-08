@@ -18,7 +18,7 @@
         "infra/compose/vps.compose.yml": "e09db906af528c82543d04fb8e459f7b12803a36d38df838a822c1e29a1e8384",
         "infra/compose/worker.compose.yml": "2a3483d2c514d6278db0b75dbb436ae82ff91d53549883a81a14d88dc131cf59",
         "infra/compose/worker.build.compose.yml": "8675ce8b0dfb5e8de057d9fed224bea918abfebf6c856d8c643156baf28c27d8",
-        "infra/compose/test.compose.yml": "e8df56728d963be370b94d013239f765aea8f339e0d85ec71549c9059d03d369"
+        "infra/compose/test.compose.yml": "288e69608ea0fec9df8d2662fb2f41be57859432127c9ac48dcca2d3cce00ee8"
       }
     },
     "nginx": {
