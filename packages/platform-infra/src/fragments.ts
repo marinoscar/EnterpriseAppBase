@@ -33,7 +33,10 @@ const nginx = (name: string): InfraFile => ({ from: `nginx/${name}`, to: `infra/
 
 /**
  * The platform's compose files: `base` (nginx, api, web), `dev`, `devdb`,
- * `prod`, `vps` (with the stack agent), `worker`, `worker.build` and `test`.
+ * `prod`, `vps` (with the stack agent), `worker`, `worker.build` and `test`,
+ * and `postgres-init/10-application-role.sh`, the executable init script the
+ * `devdb` and `test` databases mount at `/docker-entrypoint-initdb.d` to
+ * create the ordinary (NOSUPERUSER NOBYPASSRLS) role the API runs as.
  * An app changes them with `infra/compose/app.*.compose.yml` overlays, which
  * {@link composeFilesForMode} appends after them.
  *
@@ -60,6 +63,7 @@ export const composeInfraFragment: PlatformInfraFragment = deepFreeze({
     compose('worker.compose.yml'),
     compose('worker.build.compose.yml'),
     compose('test.compose.yml'),
+    { ...compose('postgres-init/10-application-role.sh'), executable: true },
   ],
   appOwnedFiles: [compose('app.example.compose.yml')],
 });
