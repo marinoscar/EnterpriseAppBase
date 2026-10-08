@@ -16,7 +16,7 @@ import {
 } from '../../src/android-app/headless/index.js';
 import { AndroidAppPage, AndroidUpdateBanner, androidAppSettingsPage } from '../../src/android-app/ui/index.js';
 import { createTestApiError, createTestPlatformHost } from '../../src/testing/index.js';
-import type { TestApiResponse, TestPlatformHost } from '../../src/testing/index.js';
+import type { TestApiRequest, TestApiResponse, TestPlatformHost } from '../../src/testing/index.js';
 
 const SHA = Array.from({ length: 32 }, (_, i) => ((i * 3 + 17) % 256).toString(16).toUpperCase().padStart(2, '0')).join(':');
 
@@ -145,7 +145,7 @@ describe('AndroidAppPage', () => {
       permissions,
       responses: {
         'GET /admin/android-app': view,
-        'PUT /admin/android-app': (request) => {
+        'PUT /admin/android-app': (request: TestApiRequest) => {
           trustedApps = (request.body as { trustedApps: typeof trustedApps }).trustedApps;
           return view();
         },
