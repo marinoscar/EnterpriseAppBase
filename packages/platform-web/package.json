@@ -175,6 +175,14 @@
       "types": "./dist/user-data/ui/index.d.ts",
       "default": "./dist/user-data/ui/index.js"
     },
+    "./shell/headless": {
+      "types": "./dist/shell/headless/index.d.ts",
+      "default": "./dist/shell/headless/index.js"
+    },
+    "./shell/ui": {
+      "types": "./dist/shell/ui/index.d.ts",
+      "default": "./dist/shell/ui/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
