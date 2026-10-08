@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { tightenAiPolicy } from '@marinoscar/platform-contract/ai';
 
 import type { z } from 'zod';
@@ -10,6 +10,7 @@ import {
 } from '@marinoscar/platform-contract/ai';
 import { CredentialsService } from '../../credentials/index';
 import { OrgSettingsService, SystemSettingsService } from '../../settings/index';
+import { AI_MODULE_OPTIONS, DEFAULT_AI_OPTIONS, type AiResolvedOptions } from '../ai.options';
 import { AiError } from '../core/ai-error';
 import { AiProviderRegistry } from '../core/provider-registry';
 import { AI_CREDENTIAL_PURPOSE, aiCredentialName } from './ai-credential.constants';
@@ -146,6 +147,7 @@ export class AiConfigService implements OnModuleInit {
     // #739: the org layer of the `ai` namespace. Optional so a unit test (or
     // an app that mounts no org layer) gets the deployment policy only.
     @Optional() private readonly orgSettings?: OrgSettingsService,
+    @Optional() @Inject(AI_MODULE_OPTIONS) private readonly options: AiResolvedOptions = DEFAULT_AI_OPTIONS,
   ) {}
 
   /**
@@ -308,6 +310,7 @@ export class AiConfigService implements OnModuleInit {
         keyPolicy: policy.keyPolicy,
         allowBackgroundRuns: false,
         allowRealtime: false,
+        perUserDefaultModel: this.options.perUserDefaultModel,
         hostedTools: {
           web_search: false,
           file_search: false,
@@ -340,6 +343,7 @@ export class AiConfigService implements OnModuleInit {
       keyPolicy: policy.keyPolicy,
       allowBackgroundRuns: policy.defaults.allowBackgroundRuns,
       allowRealtime: policy.defaults.allowRealtime,
+      perUserDefaultModel: this.options.perUserDefaultModel,
       // Named booleans only — never the host allowlist.
       hostedTools: {
         web_search: policy.hostedTools.web_search,

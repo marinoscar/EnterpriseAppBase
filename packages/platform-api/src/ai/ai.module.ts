@@ -1,4 +1,6 @@
-import { DynamicModule, Module, type ForwardReference, type Type } from '@nestjs/common';
+import { DynamicModule, Global, Module, type ForwardReference, type Type } from '@nestjs/common';
+
+import { AI_MODULE_OPTIONS, DEFAULT_AI_OPTIONS, type AiResolvedOptions } from './ai.options';
 
 import { AiCatalogModule } from './catalog/ai-catalog.module';
 import { AiConfigModule } from './config/ai-config.module';
@@ -49,6 +51,27 @@ export interface AiModuleOptions {
    * Each must be `@Global()`, since every sub-module injects them.
    */
   readonly imports?: ReadonlyArray<Type<unknown> | DynamicModule | Promise<DynamicModule> | ForwardReference>;
+  /**
+   * Whether users may pick their own default model (the `ai.defaultModel`
+   * user setting). Default `true`. `false` for an app whose AI features pick
+   * their model themselves (an `AI_TARGET_RESOLVER`): the default resolver
+   * then ignores the setting and `GET /api/ai/config` reports
+   * `perUserDefaultModel: false`, so the web hides the picker.
+   */
+  readonly perUserDefaultModel?: boolean;
+}
+
+/** Holds the resolved options for every AI module (global, so no import edge is needed). */
+@Global()
+@Module({})
+class AiOptionsModule {
+  static of(options: AiResolvedOptions): DynamicModule {
+    return {
+      module: AiOptionsModule,
+      providers: [{ provide: AI_MODULE_OPTIONS, useValue: options }],
+      exports: [AI_MODULE_OPTIONS],
+    };
+  }
 }
 
 /**
@@ -85,10 +108,14 @@ export class AiModule {
       }
     }
     const providers = PROVIDER_MODULES.filter(([id]) => wanted.has(id)).map(([, module]) => module);
+    const resolved: AiResolvedOptions = Object.freeze({
+      perUserDefaultModel: options.perUserDefaultModel ?? DEFAULT_AI_OPTIONS.perUserDefaultModel,
+    });
 
     return {
       module: AiModule,
       imports: [
+        AiOptionsModule.of(resolved),
         ...(options.imports ?? []),
         AiCoreModule,
         ...providers,

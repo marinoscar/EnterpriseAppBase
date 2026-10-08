@@ -19,13 +19,14 @@
 // administrator assignments (feature -> model) are such a resolver.
 // =============================================================================
 
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { userAiSettingsSchema } from '@marinoscar/platform-contract/ai';
 
 import { PLATFORM_PRISMA } from '../../core/index';
 import { AiError } from '../core/ai-error';
 import { AiProviderRegistry } from '../core/provider-registry';
 import type { AiPrisma } from '../data/ai-db';
+import { AI_MODULE_OPTIONS, DEFAULT_AI_OPTIONS, type AiResolvedOptions } from '../ai.options';
 
 /**
  * Injection token of the {@link AiTargetResolver} `AiService` uses. Optional:
@@ -99,6 +100,7 @@ export class DefaultAiTargetResolver implements AiTargetResolver {
   constructor(
     @Inject(PLATFORM_PRISMA) private readonly prisma: AiPrisma,
     private readonly registry: AiProviderRegistry,
+    @Optional() @Inject(AI_MODULE_OPTIONS) private readonly options: AiResolvedOptions = DEFAULT_AI_OPTIONS,
   ) {}
 
   /**
@@ -135,6 +137,9 @@ export class DefaultAiTargetResolver implements AiTargetResolver {
    * exists (see `NotificationsService.loadRecipient` for the full argument).
    */
   private async defaultModel(userId: string): Promise<{ provider: string; modelId: string } | null> {
+    // `AiModule.forRoot({ perUserDefaultModel: false })` (#739): not offered.
+    if (!this.options.perUserDefaultModel) return null;
+
     const row = await this.prisma.userSettings.findUnique({
       where: { userId },
       select: { value: true },

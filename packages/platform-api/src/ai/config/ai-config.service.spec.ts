@@ -267,6 +267,7 @@ describe('AiConfigService', () => {
         keyPolicy: 'byok_with_org_fallback',
         allowBackgroundRuns: false,
         allowRealtime: false,
+        perUserDefaultModel: true,
         hostedTools: { web_search: false, file_search: false, code_interpreter: false, image_generation: false, mcp: false },
         providers: [],
       });
@@ -283,6 +284,7 @@ describe('AiConfigService', () => {
         keyPolicy: 'byok',
         allowBackgroundRuns: true,
         allowRealtime: false,
+        perUserDefaultModel: true,
         hostedTools: { web_search: false, file_search: false, code_interpreter: false, image_generation: false, mcp: false },
         providers: [
           { id: 'openai', displayName: 'Fake AI', enabled: true, hasOrgKey: true, supportsPreviousResponseId: true, requiresKey: true },

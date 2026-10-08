@@ -10,7 +10,11 @@ import { DefaultAiTargetResolver, type AiTargetContext, type AiTargetResolver } 
 
 const USER = '11111111-1111-4111-8111-111111111111';
 
-function resolverWith(opts: { defaultModel?: { provider: string; modelId: string } | null; providers?: string[] }) {
+function resolverWith(opts: {
+  defaultModel?: { provider: string; modelId: string } | null;
+  providers?: string[];
+  perUserDefaultModel?: boolean;
+}) {
   const registry = new AiProviderRegistry();
   for (const id of opts.providers ?? ['openai']) registry.register(new FakeAiProvider({ id }));
   const prisma = {
@@ -20,7 +24,7 @@ function resolverWith(opts: { defaultModel?: { provider: string; modelId: string
       ),
     },
   };
-  return new DefaultAiTargetResolver(prisma as never, registry);
+  return new DefaultAiTargetResolver(prisma as never, registry, { perUserDefaultModel: opts.perUserDefaultModel ?? true });
 }
 
 const ctx = (requested: AiTargetContext['requested']): AiTargetContext => ({ userId: USER, requested });
@@ -58,6 +62,14 @@ describe('DefaultAiTargetResolver (the base behaviour, unchanged)', () => {
     await expect(resolverWith({ defaultModel: def }).resolve(ctx({ provider: 'gemini' }))).resolves.toBeNull();
     await expect(resolverWith({}).resolve(ctx({}))).resolves.toBeNull();
     await expect(resolverWith({ defaultModel: null }).resolve(ctx({}))).resolves.toBeNull();
+  });
+});
+
+describe('AiModule.forRoot({ perUserDefaultModel: false })', () => {
+  it('the default resolver ignores the ai.defaultModel user setting', async () => {
+    const off = resolverWith({ defaultModel: { provider: 'openai', modelId: 'fallback' }, perUserDefaultModel: false });
+    await expect(off.resolve(ctx({}))).resolves.toBeNull();
+    await expect(off.resolve(ctx({ model: 'm-1' }))).resolves.toEqual({ provider: 'openai', model: 'm-1' });
   });
 });
 

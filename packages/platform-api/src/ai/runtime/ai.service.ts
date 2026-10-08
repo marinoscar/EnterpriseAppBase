@@ -198,6 +198,7 @@ import { UsableModelsService } from '../keys/usable-models.service';
 import { AiOutputWriter } from '../storage/ai-output-writer';
 import { getAiFeature, type AiFeatureDefinition } from '../features/ai-feature.registry';
 import { AI_TARGET_RESOLVER, DefaultAiTargetResolver, type AiTargetResolver } from './target-resolver';
+import { AI_MODULE_OPTIONS, DEFAULT_AI_OPTIONS, type AiResolvedOptions } from '../ai.options';
 import { aiErrorFromStorage } from '../storage/ai-storage-errors';
 import { AiStorageInputResolver, type AiStorageInput } from '../storage/ai-storage-input.resolver';
 import {
@@ -569,8 +570,9 @@ export class AiService {
     // #739, rung 3: which (provider, model) a call targets. Optional: the
     // default is the base behaviour (`DefaultAiTargetResolver`).
     @Optional() @Inject(AI_TARGET_RESOLVER) targetResolver?: AiTargetResolver,
+    @Optional() @Inject(AI_MODULE_OPTIONS) options?: AiResolvedOptions,
   ) {
-    this.targets = targetResolver ?? new DefaultAiTargetResolver(prisma, registry);
+    this.targets = targetResolver ?? new DefaultAiTargetResolver(prisma, registry, options ?? DEFAULT_AI_OPTIONS);
   }
 
   private readonly targets: AiTargetResolver;

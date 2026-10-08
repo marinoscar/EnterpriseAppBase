@@ -10,6 +10,8 @@
 // ---- the module and its options (rung 1) ---------------------------------------------------
 export { AiModule } from './ai.module';
 export type { AiModuleOptions, AiProviderModuleId } from './ai.module';
+export { AI_MODULE_OPTIONS, DEFAULT_AI_OPTIONS } from './ai.options';
+export type { AiResolvedOptions } from './ai.options';
 
 // ---- the host ports (rung 3) -----------------------------------------------------------------
 export { AI_METRICS, AI_OBJECT_STORE, AI_SYSTEM_PRISMA, NOOP_AI_METRICS } from './ports';

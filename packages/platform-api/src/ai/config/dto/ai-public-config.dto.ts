@@ -67,6 +67,11 @@ export const aiPublicConfigSchema = z.object({
    */
   allowRealtime: z.boolean(),
   /**
+   * Whether users may pick their own default model (`ai.defaultModel`, #739):
+   * `AiModule.forRoot({ perUserDefaultModel })`. Hide the picker while false.
+   */
+  perUserDefaultModel: z.boolean(),
+  /**
    * Which provider-hosted tool types an administrator has switched on (#442)
    * — a client offers a tool only when its flag is true (a request naming a
    * disabled one is `403 AI_TOOL_DISABLED`). All false while `enabled` is

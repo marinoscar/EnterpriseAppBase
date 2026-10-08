@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto';
 
-import { Injectable, Logger, Inject } from '@nestjs/common';
+import { Injectable, Logger, Inject, Optional } from '@nestjs/common';
 import type { Prisma } from '../data/prisma';
 
 import { decryptSecret, encryptSecret } from '../../core/index';
 import { deriveHint } from '../../credentials/index';
+import { JobsService } from '../../jobs/index';
+import { AI_CATALOG_SUBJECT_TYPE } from '../catalog/ai-catalog.service';
 import type { AiPrisma } from '../data/ai-db';
 import { PLATFORM_PRISMA } from '../../core/index';
 import { AiConfigService, providerCallSettings, providerPolicy } from '../config/ai-config.service';
@@ -17,6 +19,7 @@ import {
   AI_KEY_RECHECK_MAX_AGE_MS,
   AI_USER_KEY_AUDIT_TARGET,
   AI_USER_KEY_PURPOSE,
+  AI_KEYS_RECHECK_TYPE,
 } from './ai-user-key.constants';
 import type {
   UserAiKeyTestCheck,
@@ -87,7 +90,71 @@ export class UserAiKeysService {
     @Inject(PLATFORM_PRISMA) private readonly prisma: AiPrisma,
     private readonly aiConfig: AiConfigService,
     private readonly registry: AiProviderRegistry,
+    // #739: `importKey` queues the provider's recheck. Optional so the
+    // service still constructs where no queue is bound (unit tests).
+    @Optional() private readonly jobs?: JobsService,
   ) {}
+
+  /**
+   * Imports a user's existing provider key from another system, for an app's
+   * one-off DATA MIGRATION (kvox, MemoriaHub). The key is encrypted through
+   * the same path as {@link set} and stored UNVERIFIED (`verifiedAt: null`,
+   * no reachable models yet), and the provider's `ai.keys.recheck` job is
+   * queued (deduplicated on the subject the recheck task uses), which
+   * verifies it and computes its reachable models. Audited
+   * `ai:user-key:import` with the `source`, never the key.
+   *
+   * Never exposed over HTTP. Replaces any key the user already stored for
+   * `provider`.
+   *
+   * @param userId - the key's owner.
+   * @param provider - a provider id (need not be enabled yet).
+   * @param plaintext - the key; never logged, returned or audited.
+   * @param opts - `source`: where it came from (`kvox`), recorded on the audit row.
+   *
+   * @stability experimental
+   */
+  async importKey(userId: string, provider: string, plaintext: string, opts: { source: string }): Promise<void> {
+    const apiKey = plaintext.trim();
+
+    if (apiKey === '') {
+      throw new AiError('AI_INVALID_REQUEST', 'An imported AI key must not be blank.', { details: { provider } });
+    }
+
+    const data = {
+      secret: encryptSecret(apiKey, AI_USER_KEY_PURPOSE),
+      hint: deriveHint(apiKey),
+      verifiedAt: null,
+      lastErrorCode: null,
+      reachableModelIds: [],
+      reachableCheckedAt: null,
+    };
+
+    await this.prisma.userAiKey.upsert({
+      where: { userId_provider: { userId, provider } },
+      create: { userId, provider, ...data },
+      update: data,
+      select: { id: true },
+    });
+
+    if (this.jobs) {
+      try {
+        await this.jobs.enqueue({
+          type: AI_KEYS_RECHECK_TYPE,
+          reason: 'backfill',
+          subjectType: AI_CATALOG_SUBJECT_TYPE,
+          subjectId: provider,
+          payload: { provider },
+        });
+      } catch (error) {
+        // The key is stored; the weekly recheck picks it up anyway
+        // (`reachableCheckedAt: null`).
+        this.logger.warn(`Could not queue the AI key recheck for "${provider}" after an import: ${errorText(error)}`);
+      }
+    }
+
+    await this.audit(userId, 'ai:user-key:import', provider, { source: opts.source });
+  }
 
   /**
    * One view per ENABLED provider (enabled in settings and registered here),
@@ -459,7 +526,7 @@ export class UserAiKeysService {
   /** Audit a key lifecycle act. `meta` carries counts and the provider — never a key. */
   private async audit(
     userId: string,
-    action: 'ai_key:set' | 'ai_key:delete',
+    action: 'ai_key:set' | 'ai_key:delete' | 'ai:user-key:import',
     provider: string,
     meta: Record<string, unknown>,
   ): Promise<void> {
@@ -538,4 +605,8 @@ function failed(
     FAILURE_DETAIL[error.code] ?? GENERIC_FAILURE,
     redact(error.message),
   );
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
