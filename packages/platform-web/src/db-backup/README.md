@@ -72,7 +72,7 @@ The page never decides a restore: the confirmation literal is the contract's, th
 
 ## Conformance suite
 
-None of its own. The hook and table suites live in `packages/platform-web/test/db-backup/`; the page suite stays in the reference app ([`DbBackupPage.test.tsx`](../../../../apps/web/src/__tests__/pages/Admin/DbBackupPage.test.tsx), saas rendering included), as the jobs page suites do, and the app's `settingsRegistry.test.ts` pins the card's permission to the controller.
+None of its own. The hook and table suites live in `packages/platform-web/test/db-backup/`; the page suite stays in the reference app ([`DbBackupPage.test.tsx`](../../../../apps/web/src/__tests__/pages/Admin/DbBackupPage.test.tsx), saas rendering included), as the jobs page suites do, and the app's `settingsCards.test.ts` pins the card's permission to the controller.
 
 ## Upgrade notes
 

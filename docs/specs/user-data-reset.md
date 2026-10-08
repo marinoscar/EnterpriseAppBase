@@ -134,7 +134,7 @@ Worked, tested examples of every extension point: `apps/api/src/examples/user-da
 - `apps/api/test/user-data/*.db.spec.ts` on a database owned by an ordinary role (row-level security live): `user-data-purge` (foreign keys hold, kept list, other users intact, both organizations), `factory-reset` (full run, re-run, resume after a partial run, backups kept), `org-offboard` (two organizations, only one purged).
 - `apps/api/test/user-data/user-data.integration.spec.ts`: 401, 403, 400 phrase, 202 and dedup, 404 foreign job, the saas gate, the single-mode 409, the exact permission on every route.
 - `apps/api/test/user-data/user-data-conformance.spec.ts`: the `user-data` suite (every owner model decided and reachable by `everything`, hints and scopes valid, an order exists).
-- `apps/web/src/__tests__/config/settingsRegistry.test.ts`: both Danger Zone groups last (`dangerZoneLastViolations`), the exact card permissions. `packages/platform-web/test/user-data/`: the dialog gates, the two pages, offboarding.
+- `apps/web/src/__tests__/config/settingsCards.test.ts`: both Danger Zone groups last (`dangerZoneLastViolations`), the exact card permissions. `packages/platform-web/test/user-data/`: the dialog gates, the two pages, offboarding.
 - `apps/api/test/jobs/job-type-snapshot.spec.ts`, `cron-enqueue-only.spec.ts` (no `@Cron` is added) and `test/tenancy/system-injection-boundary.spec.ts` (the bypass-client adapter is allowlisted).
 
 ## 6. Design decisions

@@ -77,7 +77,7 @@ None of its own: the API logs and audits every key change (`org_ai_config:set_ke
 
 ## Conformance suite
 
-None. `test/ai/OrgAiKeysPage.test.tsx` covers the page (listing, read-only mode, set, a rejected key, remove), and the reference app's `aiSettingsRegistry.test.ts` and `settingsRegistry.test.ts` pin the card's permission and feature gate.
+None. `test/ai/OrgAiKeysPage.test.tsx` covers the page (listing, read-only mode, set, a rejected key, remove), and the reference app's web conformance suites (`settings-ai-cards`, run from `apps/web/src/__tests__/conformance.test.ts`) and `settingsCards.test.ts` pin the card's permission and feature gate.
 
 ## Upgrade notes
 
