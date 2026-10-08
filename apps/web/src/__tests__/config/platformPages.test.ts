@@ -14,6 +14,7 @@ import { describe, expect, expectTypeOf, it } from 'vitest';
 import type { PlatformSettingsPage } from '@marinoscar/platform-web/core';
 import { doctorSettingsPage } from '@marinoscar/platform-web/doctor/ui';
 import { telemetryAdminCards } from '@marinoscar/platform-web/telemetry/ui';
+import { groupsSettingsPage } from '@marinoscar/platform-web/sharing/ui';
 
 import { ADMIN_SECTIONS } from '../../config/adminSections';
 import type { SettingsCardDef } from '@marinoscar/platform-web/settings/ui';
@@ -34,6 +35,15 @@ const PACKAGED_PAGES: ReadonlyArray<{
     enforcedBy: {
       file: resolve(PLATFORM_API_SRC, 'doctor/doctor.module.ts'),
       literal: "export const DEFAULT_DOCTOR_PERMISSION = 'system_settings:read';",
+    },
+  },
+  // #731: the `/api/groups` routes enforce SHARING_PERMISSIONS.GROUPS_READ,
+  // whose declaration carries the string.
+  {
+    page: groupsSettingsPage,
+    enforcedBy: {
+      file: resolve(PLATFORM_API_SRC, 'sharing/permissions.ts'),
+      literal: "id: 'groups:read',",
     },
   },
 ];

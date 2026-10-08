@@ -174,6 +174,24 @@ describe('visibleSettingsSections — works identically against USER_SETTINGS_SE
     expect(titlesOf(result).sort()).toEqual(titlesOf(USER_SETTINGS_SECTIONS).sort());
   });
 
+  it('shows the Groups card (#731) only to a holder of groups:read', () => {
+    const without = visibleSettingsSections(USER_SETTINGS_SECTIONS, (permission) => permission === 'user_settings:read');
+    expect(titlesOf(without)).not.toContain('Groups');
+    // The section collapses with its only card.
+    expect(without.map((section) => section.label)).not.toContain('Sharing');
+
+    const withRead = visibleSettingsSections(USER_SETTINGS_SECTIONS, (permission) => permission === 'groups:read');
+    expect(titlesOf(withRead)).toContain('Groups');
+    expect(withRead.map((section) => section.label).at(-1)).toBe('Sharing');
+  });
+
+  it('titles /settings/groups and a group detail page "Groups" (#731)', () => {
+    expect(settingsPageTitle(USER_SETTINGS_SECTIONS, USER_HUB_PATH, USER_HUB_TITLE, '/settings/groups')).toBe('Groups');
+    expect(
+      settingsPageTitle(USER_SETTINGS_SECTIONS, USER_HUB_PATH, USER_HUB_TITLE, '/settings/groups/7d7e9c1a-0000-4000-8000-000000000001'),
+    ).toBe('Groups');
+  });
+
   it('still matches by title only for the user registry', () => {
     // Profile's description reads "Your display name and profile image..." —
     // "display" is in no user-settings card title.

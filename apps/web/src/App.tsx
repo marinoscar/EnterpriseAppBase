@@ -128,6 +128,17 @@ const OrganizationPage = lazy(() => import('./pages/Admin/OrganizationPage'));
 const OrganizationsPage = lazy(() => import('./pages/Admin/OrganizationsPage'));
 // #733 (PP-8.1): the active organization's settings overrides.
 const OrgSettingsPage = lazy(() => import('./pages/Admin/OrgSettingsPage'));
+// The sharing slice's pages (#731): the groups settings destination and its
+// detail page, and the public link page. One lazy chunk for the slice's UI.
+const GroupsPage = lazy(() =>
+  import('@marinoscar/platform-web/sharing/ui').then((module) => ({ default: module.GroupsPage })),
+);
+const GroupDetailPage = lazy(() =>
+  import('@marinoscar/platform-web/sharing/ui').then((module) => ({ default: module.GroupDetailPage })),
+);
+const PublicLinkPage = lazy(() =>
+  import('@marinoscar/platform-web/sharing/ui').then((module) => ({ default: module.PublicLinkPage })),
+);
 
 // Test login page (development only)
 const TestLoginPage = import.meta.env.PROD
@@ -164,6 +175,16 @@ function AppRoutes() {
               {/* Public routes */}
               <Route path="/login" element={<LoginPage />} />
               <Route path="/auth/callback" element={<AuthCallbackPage />} />
+              {/* Issue #731. The public link page (`/s#lnk_…`), OUTSIDE
+                  `ProtectedRoute`: anyone holding a share link opens it,
+                  signed in or not, and no shell (no bell, no SSE stream, no
+                  host) mounts around it. The packaged page takes the app's
+                  transport directly; it reads the token from the fragment,
+                  removes it from the address bar at once and sends it only in
+                  `x-link-token`. Nothing in this app reads `location.hash` or
+                  `location.href` for telemetry, so the token is never
+                  captured; keep it that way for `/s`. */}
+              <Route path="/s" element={<PublicLinkPage apiClient={appPlatformApi} />} />
 
               {/* Test login (development only) */}
               {!import.meta.env.PROD && TestLoginPage && (
@@ -256,6 +277,35 @@ function AppRoutes() {
                       itself `@Auth()` with no permission for the same reason. */}
                   <Route path="/settings/notifications" element={<UserNotificationsPage />} />
                   <Route path="/settings/tokens" element={<UserTokensPage />} />
+                  {/* Issue #731 (PP-7.4). The `Groups` card's destination and
+                      its detail page, gated on `groups:read`: the string the
+                      card declares (`groupsSettingsPage.card`) and the
+                      `/api/groups` controller enforces, an org permission a
+                      deployment can withhold. Written as literals because
+                      `destinations.test.ts` and `platformPages.test.ts` read
+                      this file as text. A destination, not a tab. */}
+                  <Route
+                    path="/settings/groups"
+                    element={
+                      <RequirePermission
+                        permission="groups:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <GroupsPage />
+                      </RequirePermission>
+                    }
+                  />
+                  <Route
+                    path="/settings/groups/:id"
+                    element={
+                      <RequirePermission
+                        permission="groups:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <GroupDetailPage />
+                      </RequirePermission>
+                    }
+                  />
                   {/* Issue #425, epic #419. THE ONE GATED `/settings/*` ROUTE,
                       and the exception is real: `ai:use` is a grant a
                       deployment can withhold from a role, and the

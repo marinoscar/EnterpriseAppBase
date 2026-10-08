@@ -24,6 +24,7 @@ import PaletteIcon from '@mui/icons-material/Palette';
 import NotificationsIcon from '@mui/icons-material/Notifications';
 import KeyOutlinedIcon from '@mui/icons-material/KeyOutlined';
 import { identityUserSettingsSections } from '@marinoscar/platform-web/identity/ui';
+import { groupsSettingsPage } from '@marinoscar/platform-web/sharing/ui';
 import type { SettingsSectionDef } from '@marinoscar/platform-web/settings/ui';
 
 /**
@@ -104,6 +105,20 @@ export const USER_SETTINGS_SECTIONS: SettingsSectionDef[] = [
         feature: 'ai',
       },
     ],
+  },
+  {
+    // Issue #731 (PP-7.4). APPENDED as the last section. The packaged groups
+    // page (`@marinoscar/platform-web/sharing/ui`), built from its descriptor
+    // like the Doctor card is. The second gated user card: `groups:read` is
+    // the exact string the `/api/groups` controller of
+    // `@marinoscar/platform-api/sharing` enforces, an ORG permission every
+    // org role holds by default (a deployment can withhold it). ONE
+    // destination: a `groups:admin` holder gets an in-page "All groups"
+    // switch, never a second admin card (reachability versus content). The
+    // detail route `/settings/groups/:id` sits under this card's path, so the
+    // AppBar's longest-prefix title rule names it "Groups" too.
+    label: 'Sharing',
+    cards: [{ ...groupsSettingsPage.card, Icon: groupsSettingsPage.Icon }],
   },
 ];
 
