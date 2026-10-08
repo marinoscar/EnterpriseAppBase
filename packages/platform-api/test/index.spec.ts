@@ -62,6 +62,8 @@ describe('@marinoscar/platform-api', () => {
       './nodes': { types: './dist/nodes/index.d.ts', default: './dist/nodes/index.js' },
       './storage': { types: './dist/storage/index.d.ts', default: './dist/storage/index.js' },
       './storage/testing': { types: './dist/storage/testing/index.d.ts', default: './dist/storage/testing/index.js' },
+      './notifications': { types: './dist/notifications/index.d.ts', default: './dist/notifications/index.js' },
+      './notifications/testing': { types: './dist/notifications/testing/index.d.ts', default: './dist/notifications/testing/index.js' },
       './package.json': './package.json',
     });
   });

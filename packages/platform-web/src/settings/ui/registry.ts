@@ -33,8 +33,14 @@ export interface SettingsCardDef {
   path?: string;
   /** Rendered, but inert: a page that exists in the IA but is not usable yet. */
   disabled?: boolean;
-  /** API permission required to see the card at all; absent means "any signed-in user". */
-  permission?: string;
+  /**
+   * API permission required to see the card at all; absent means "any
+   * signed-in user". An ARRAY means ANY ONE of them (#738): for one page two
+   * scopes reach, each string exactly what the controller enforces (the
+   * `Broadcasts` card: `['broadcasts:read', 'org_broadcasts:read']`). Never
+   * an invented permission, never a second card for the same page.
+   */
+  permission?: string | readonly string[];
   /**
    * Show the card even when `permission` is not held: for pages that gate
    * their own CONTENT and are still worth reaching.
@@ -59,6 +65,26 @@ export interface SettingsSectionDef {
   label: string;
   /** Its cards, in order. */
   cards: SettingsCardDef[];
+}
+
+/**
+ * Whether a card's `permission` gate admits the viewer: no gate admits
+ * everyone, a string needs that permission, an array needs ANY ONE of its
+ * permissions (#738). An empty array admits nobody (fail closed).
+ *
+ * @param permission - the card's gate.
+ * @param hasPermission - the viewer's permission check.
+ * @returns whether the card is visible on permission alone.
+ *
+ * @stability stable
+ */
+export function cardPermissionGranted(
+  permission: string | readonly string[] | undefined,
+  hasPermission: (permission: string) => boolean,
+): boolean {
+  if (permission === undefined) return true;
+  if (typeof permission === 'string') return permission === '' ? true : hasPermission(permission);
+  return permission.some((candidate) => hasPermission(candidate));
 }
 
 /**
@@ -90,8 +116,7 @@ export function visibleSettingsSections(
         if (!isFeatureEnabled(card.feature, features)) return false;
         if (needle && !card.title.toLowerCase().includes(needle)) return false;
         if (card.alwaysShow) return true;
-        if (!card.permission) return true;
-        return hasPermission(card.permission);
+        return cardPermissionGranted(card.permission, hasPermission);
       }),
     }))
     .filter((section) => section.cards.length > 0);
