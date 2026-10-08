@@ -1,8 +1,8 @@
 {
   "$comment": "Slice dependency graph. A slice may import only the slices listed for it. Append-only; see docs/specs/platform-packages.md#dependency-graph.",
-  "platform-api": { "core": [], "testing": ["core"], "doctor": ["core"], "otel-core": ["core"], "telemetry": ["core", "doctor", "otel-core", "testing"], "sharing": ["core", "doctor", "otel-core"] },
+  "platform-api": { "core": [], "testing": ["core"], "doctor": ["core"], "otel-core": ["core"], "telemetry": ["core", "doctor", "otel-core", "testing"], "sharing": ["core", "doctor", "otel-core"], "identity": ["core", "doctor", "otel-core", "testing"] },
   "platform-web": { "core": [], "testing": ["core"], "doctor": ["core"], "telemetry": ["core"] },
-  "platform-contract": { "doctor": [], "telemetry": [], "sharing": [] },
+  "platform-contract": { "doctor": [], "telemetry": [], "sharing": [], "identity": [] },
   "platform-db": { "compose": [], "lock": [], "sync": ["lock"], "drift": ["lock", "sync"], "baseline": ["lock", "sync", "drift"], "bin": ["compose", "lock", "sync", "drift", "baseline"], "seed": [] },
   "platform-cli": { "core": [], "telemetry": ["core"], "engine": ["core", "telemetry"], "commands": ["engine"], "tui": ["engine"], "deploy": ["engine"], "node": ["engine"], "api-client": ["engine"], "testing": ["engine"] },
   "platform-infra": { "telemetry": [] }

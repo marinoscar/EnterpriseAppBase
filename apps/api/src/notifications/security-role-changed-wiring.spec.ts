@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { IDENTITY_APP_PORTS } from '../../test/helpers/identity-ports.helper';
 import { ConfigService } from '@nestjs/config';
 import { NotificationDeliveryStatus } from '@prisma/client';
 
@@ -13,7 +14,7 @@ import {
   createMockPrismaService,
   MockPrismaService,
 } from '../../test/mocks/prisma.mock';
-import { UsersService } from '../users/users.service';
+import { UsersService, PrincipalCache } from '@marinoscar/platform-api/identity';
 import { EmailNotificationChannel } from './channels/email-notification.channel';
 import { NotificationDeliveryService } from './notification-delivery.service';
 import { DEFAULT_NOTIFICATION_POLICY } from './notification-policy';
@@ -23,7 +24,6 @@ import {
   NOTIFICATION_CHANNEL_SENDERS,
   type NotificationChannelSender,
 } from './notification.types';
-import { PrincipalCache } from '../auth/principal-cache/principal-cache.service';
 
 const principalCacheStub = { invalidate: jest.fn(), invalidateUser: jest.fn() };
 
@@ -159,6 +159,8 @@ describe('security.role_changed: mandatory, both channels, and the before/after 
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        // The identity slice's host ports, bound to the app's adapters (#727).
+        ...IDENTITY_APP_PORTS,
         UsersService,
         NotificationsService,
         // PP-1.12 (#683): the JWT principal cache; only `invalidate` is written to.

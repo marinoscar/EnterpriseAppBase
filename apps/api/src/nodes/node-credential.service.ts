@@ -63,9 +63,11 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { createHash, randomBytes } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
-import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
-import { stampCredential } from '../auth/credential-binding';
-import { PRINCIPAL_USER_INCLUDE } from '../auth/principal.factory';
+import {
+  AuthenticatedUser,
+  stampCredential,
+  PRINCIPAL_USER_INCLUDE,
+} from '@marinoscar/platform-api/identity';
 import { CreateNodeCredentialDto } from './dto/create-node-credential.dto';
 
 /**

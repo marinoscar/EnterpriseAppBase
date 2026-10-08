@@ -20,7 +20,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 
 import { AppModule } from '../../src/app.module';
-import { Auth } from '../../src/auth/decorators/auth.decorator';
+import { Auth } from '@marinoscar/platform-api/identity';
 import { PERMISSIONS } from '../../src/common/constants/roles.constants';
 import { AiProviderRegistry } from '../../src/ai/core';
 import { AiConfigModule } from '../../src/ai/config/ai-config.module';

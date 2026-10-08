@@ -164,7 +164,7 @@ A device without a browser (the CLI, a script, a kiosk) calls `POST /api/auth/de
 - **Code:** `apps/api/src/device-auth/`
 - **UI:** `/activate`
 - **Permissions:** any signed-in user approves their own devices
-- **Read more:** [DEVICE-AUTH.md](DEVICE-AUTH.md), [device-auth README](../apps/api/src/device-auth/README.md)
+- **Read more:** [DEVICE-AUTH.md](DEVICE-AUTH.md), [device-auth README](../packages/platform-api/src/identity/device-auth/README.md)
 
 ### 5.4 Personal access tokens
 

@@ -1,19 +1,22 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { IDENTITY_APP_PORTS, IDENTITY_BUS_PORTS } from '../helpers/identity-ports.helper';
 import { NotificationsService } from '../../src/notifications/notifications.service';
-import { AuthService } from '../../src/auth/auth.service';
-import { AllowlistService } from '../../src/allowlist/allowlist.service';
+import {
+  AuthService,
+  AllowlistService,
+  AdminBootstrapService,
+  GoogleProfile,
+  PrincipalCache,
+  OrganizationsService,
+  TenancyService,
+} from '@marinoscar/platform-api/identity';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { AdminBootstrapService } from '../../src/common/services/admin-bootstrap.service';
 import { ForbiddenException } from '@nestjs/common';
 import { resetPrismaMock, prismaMock } from '../mocks/prisma.mock';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import { createMockUserWithRelations, mockRoles } from '../fixtures/test-data.factory';
-import { GoogleProfile } from '../../src/auth/strategies/google.strategy';
-import { PrincipalCache } from '../../src/auth/principal-cache/principal-cache.service';
-import { OrganizationsService } from '../../src/organizations/organizations.service';
-import { TenancyService } from '../../src/organizations/tenancy.service';
 import { EVENT_BUS } from '../../src/common/event-bus/event-bus.interface';
 import { InProcessEventBus } from '../../src/common/event-bus/in-process-event-bus';
 
@@ -47,6 +50,8 @@ describe('Auth Service - Allowlist Enforcement', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        // The identity slice's host ports, bound to the app's adapters (#727).
+        ...IDENTITY_APP_PORTS, ...IDENTITY_BUS_PORTS,
         AuthService,
         AllowlistService,
         AdminBootstrapService,

@@ -1371,7 +1371,12 @@ describe('the Observability group (#537)', () => {
  * each declaring the exact permission its controller enforces.
  */
 describe('the Organizations group (#726)', () => {
-  const API_SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../api/src');
+  // The organization controllers live in the identity slice of the platform
+  // package since #727 (`@marinoscar/platform-api/identity`).
+  const IDENTITY_SRC = resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    '../../../../../packages/platform-api/src/identity',
+  );
   const rolesConstants = readApiPermissionConstants();
   const group = ADMIN_SECTIONS.find((section) => section.label === 'Organizations');
   const cards = new Map((group?.cards ?? []).map((card) => [card.title, card]));
@@ -1401,7 +1406,7 @@ describe('the Organizations group (#726)', () => {
       feature: 'orgs',
     });
     expect(organization?.alwaysShow).toBeUndefined();
-    const controller = readFileSync(resolve(API_SRC, 'organizations/org-members.controller.ts'), 'utf8');
+    const controller = readFileSync(resolve(IDENTITY_SRC, 'organizations/org-members.controller.ts'), 'utf8');
     expect(rolesConstants).toContain("ORG_MEMBERS_READ: 'org_members:read'");
     expect(controller).toContain('PERMISSIONS.ORG_MEMBERS_READ');
   });
@@ -1412,7 +1417,7 @@ describe('the Organizations group (#726)', () => {
       permission: 'organizations:read',
       feature: 'orgs',
     });
-    const controller = readFileSync(resolve(API_SRC, 'organizations/organizations-admin.controller.ts'), 'utf8');
+    const controller = readFileSync(resolve(IDENTITY_SRC, 'organizations/organizations-admin.controller.ts'), 'utf8');
     expect(rolesConstants).toContain("ORGANIZATIONS_READ: 'organizations:read'");
     expect(controller).toContain('PERMISSIONS.ORGANIZATIONS_READ');
   });

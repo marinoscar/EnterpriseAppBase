@@ -21,6 +21,7 @@
 import { Prisma } from '@prisma/client';
 import { RLS_POLICIES } from '@marinoscar/platform-db';
 import { modelOwnershipRegistry } from '@marinoscar/platform-api/core';
+import { checkRls } from '@marinoscar/platform-api/identity/testing';
 
 import '../../src/prisma/ownership';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
@@ -60,6 +61,17 @@ describeWithDb('row-level security coverage (live catalogue)', () => {
 
   it('passes: every org model is enabled, forced and protected by a listed policy; no org_id is unexplained', async () => {
     expect(checkRlsCoverage(await input())).toEqual([]);
+  });
+
+  // The identity conformance suite's db-tier check (#727): every org table
+  // (RLS_POLICIES' tables) is enabled AND forced with one of its policies.
+  it('passes the identity conformance rls check', async () => {
+    const policies: Record<string, string[]> = {};
+    for (const policy of RLS_POLICIES) (policies[policy.table] ??= []).push(policy.name);
+    const live = await catalogue();
+    await expect(
+      checkRls({ policies, inspect: async (tables) => live.filter((entry) => tables.includes(entry.table)) }),
+    ).resolves.toEqual([]);
   });
 
   it('has exactly the listed policies in pg_policies (the allow-list is exact)', async () => {

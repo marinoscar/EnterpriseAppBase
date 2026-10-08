@@ -2,7 +2,7 @@
 // Sign-in by TENANCY_MODE, through the real AppModule (PP-6.2, #722)
 // =============================================================================
 //
-// `src/auth/auth.service.tenancy.spec.ts` proves what AuthService decides. This
+// `packages/platform-api/test/identity/auth/auth.service.tenancy.spec.ts` proves what AuthService decides. This
 // suite boots the whole application once per mode, with `TENANCY_MODE` set in
 // the environment before the config factory runs (as a deployment would), and
 // drives:

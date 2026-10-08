@@ -14,7 +14,7 @@ import { registerAppMetrics } from '@marinoscar/platform-api/otel-core';
 import { APP_METRICS } from '../../app-registrations/telemetry';
 import { EVENT_BUS_APP_METRICS } from '../event-bus/event-bus.metrics';
 import { PLATFORM_APP_METRICS } from './platform-app-metrics';
-import { ORGANIZATIONS_APP_METRICS } from '../../organizations/organizations.metrics';
+import { ORGANIZATIONS_APP_METRICS } from '@marinoscar/platform-api/identity';
 import { SHARING_APP_METRICS } from '@marinoscar/platform-api/sharing';
 
 registerAppMetrics(PLATFORM_APP_METRICS);

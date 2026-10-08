@@ -13,7 +13,7 @@ All business logic and every authorization decision live here; the web app only 
 - [docs/DEVELOPMENT.md](../../docs/DEVELOPMENT.md): Fastify, Prisma and Passport gotchas; debugging.
 - [docs/API.md](../../docs/API.md): envelope, errors, pagination, If-Match, SSE, how OpenAPI is produced.
 - [docs/SECURITY-ARCHITECTURE.md](../../docs/SECURITY-ARCHITECTURE.md): credential kinds and the auth flow.
-- The spec for the feature you touch in [docs/specs/](../../docs/specs/), and its module README when one exists: [jobs](../../apps/api/src/jobs/handlers/README.md), [ai](../../apps/api/src/ai/README.md), [notifications](../../apps/api/src/notifications/README.md), [device-auth](../../apps/api/src/device-auth/README.md).
+- The spec for the feature you touch in [docs/specs/](../../docs/specs/), and its module README when one exists: [jobs](../../apps/api/src/jobs/handlers/README.md), [ai](../../apps/api/src/ai/README.md), [notifications](../../apps/api/src/notifications/README.md), [device-auth](../../packages/platform-api/src/identity/device-auth/README.md).
 
 ## Rules that apply to this domain
 

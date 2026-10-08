@@ -36,8 +36,12 @@ import { RAW_SQL_ALLOWLIST } from './raw-sql-allowlist';
 
 const SCHEMA_PATH = join(__dirname, '..', '..', 'prisma', 'schema');
 
+// The identity slice's source is scanned too (#727): its raw SQL (the org row
+// lock in organizations/org-admin.common.ts) left this app with it.
+const IDENTITY_SLICE_SOURCE_ROOT = join(__dirname, '..', '..', '..', '..', 'packages', 'platform-api', 'src', 'identity');
+
 runPlatformConformance({
-  sourceRoots: [join(__dirname, '..', '..', 'src')],
+  sourceRoots: [join(__dirname, '..', '..', 'src'), IDENTITY_SLICE_SOURCE_ROOT],
   suites: {
     userOwnedData: {
       schemaPath: SCHEMA_PATH,

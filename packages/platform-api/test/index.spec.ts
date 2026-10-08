@@ -47,6 +47,8 @@ describe('@marinoscar/platform-api', () => {
       './telemetry': { types: './dist/telemetry/index.d.ts', default: './dist/telemetry/index.js' },
       './telemetry/testing': { types: './dist/telemetry/testing/index.d.ts', default: './dist/telemetry/testing/index.js' },
       './sharing': { types: './dist/sharing/index.d.ts', default: './dist/sharing/index.js' },
+      './identity': { types: './dist/identity/index.d.ts', default: './dist/identity/index.js' },
+      './identity/testing': { types: './dist/identity/testing/index.d.ts', default: './dist/identity/testing/index.js' },
       './package.json': './package.json',
     });
   });

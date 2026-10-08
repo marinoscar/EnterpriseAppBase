@@ -1,7 +1,6 @@
 import { buildDatabaseUrl } from '../common/database-url';
 import { resolveServiceName } from '../common/otel/telemetry-identity';
-import { parsePrincipalCacheTtlSeconds } from '../auth/principal-cache/principal-cache.config';
-import { parseTenancyMode } from '../common/deployment/tenancy-mode';
+import { identityConfiguration } from '@marinoscar/platform-api/identity';
 
 export default () => {
   const host = process.env.POSTGRES_HOST || 'localhost';
@@ -22,6 +21,11 @@ export default () => {
   // trusts — that unencoded string overwrote the encoded one the service had
   // been careful to build. See src/common/database-url.ts.
   const databaseUrl = buildDatabaseUrl();
+
+  // The identity slice's keys (#727): `jwt`, `auth`, `google`,
+  // `initialAdminEmail`, `deviceAuth` and `tenancy`, with their defaults, are
+  // built by `@marinoscar/platform-api/identity` from the same variables.
+  const identity = identityConfiguration(process.env);
 
   // Prisma reads DATABASE_URL (prisma.config.ts, and the generated client),
   // so publish the derived value for it.
@@ -45,23 +49,18 @@ export default () => {
     },
 
   // JWT
-  jwt: {
-    secret: process.env.JWT_SECRET,
-    accessTtlMinutes: parseInt(process.env.JWT_ACCESS_TTL_MINUTES || '15', 10),
-    refreshTtlDays: parseInt(process.env.JWT_REFRESH_TTL_DAYS || '14', 10),
-  },
+  // JWT_SECRET (required: the package refuses to boot without it, there is no
+  // fallback), JWT_ACCESS_TTL_MINUTES (15), JWT_REFRESH_TTL_DAYS (14).
+  jwt: identity.jwt,
 
   // JWT principal cache (PP-1.12, #683). A deployment-level performance knob,
   // not a runtime setting: seconds a validated access token's user, roles and
   // permissions may be reused (default 30; `0` disables the cache). A
   // non-numeric or negative value means 30, with one warning. Invalidation on
   // every user/role write keeps changes immediate; the TTL only bounds
-  // staleness while the event bus is down. See auth/principal-cache/.
-  auth: {
-    principalCacheTtlSeconds: parsePrincipalCacheTtlSeconds(
-      process.env.AUTH_PRINCIPAL_CACHE_TTL_SECONDS,
-    ),
-  },
+  // staleness while the event bus is down. See the identity slice's auth/principal-cache/
+  // (packages/platform-api/src/identity/auth/principal-cache/).
+  auth: identity.auth,
 
   // SECRETS_ENCRYPTION_KEY is DELIBERATELY ABSENT from this object (#116,
   // epic #108). It is read directly from process.env by
@@ -74,11 +73,7 @@ export default () => {
   // serialise wholesale than a module-private Buffer. Do not add it.
 
   // OAuth - Google
-  google: {
-    clientId: process.env.GOOGLE_CLIENT_ID,
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    callbackUrl: process.env.GOOGLE_CALLBACK_URL,
-  },
+  google: identity.google,
 
   // Web Push (VAPID) has no deploy-time env vars. Issue #635 retired the
   // `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` fallback that used
@@ -90,7 +85,7 @@ export default () => {
   // two-sources-of-truth ambiguity this fix existed to end.
 
   // Admin bootstrap
-  initialAdminEmail: process.env.INITIAL_ADMIN_EMAIL,
+  initialAdminEmail: identity.initialAdminEmail,
 
   // Device Authorization Flow (RFC 8628)
   //
@@ -109,12 +104,9 @@ export default () => {
   //     server-side: a stolen laptop is handled by deleting one row in the
   //     Access Tokens page, with nothing else to rotate. 90 days matches the
   //     epic's suggestion and MemoriaHub's reference CLI.
-  deviceAuth: {
-    expiryMinutes: parseInt(process.env.DEVICE_CODE_EXPIRY_MINUTES || '15', 10),
-    pollInterval: parseInt(process.env.DEVICE_CODE_POLL_INTERVAL || '5', 10),
-    tokenExpiryDays: parseInt(process.env.DEVICE_TOKEN_EXPIRY_DAYS || '7', 10),
-    patExpiryDays: parseInt(process.env.DEVICE_PAT_EXPIRY_DAYS || '90', 10),
-  },
+  // DEVICE_CODE_EXPIRY_MINUTES (15), DEVICE_CODE_POLL_INTERVAL (5),
+  // DEVICE_TOKEN_EXPIRY_DAYS (7), DEVICE_PAT_EXPIRY_DAYS (90).
+  deviceAuth: identity.deviceAuth,
 
   // Background job queue — the terminal state machine's budgets and backoff
   // (issue #261, epic #254).
@@ -276,11 +268,9 @@ export default () => {
   // ⚠ PARSED HERE, UNLIKE `deployment.mode`: an invalid value throws from this
   // factory, so `ConfigModule` fails the boot (and any test module or script
   // that loads this configuration) with a message naming the variable and its
-  // allowed values. `parseTenancyMode` (common/deployment/tenancy-mode.ts) is
+  // allowed values. `parseTenancyMode` (`@marinoscar/platform-api/identity`) is
   // still the single parser; `main.ts` and `TenancyService` call the same one.
-  tenancy: {
-    mode: parseTenancyMode(process.env.TENANCY_MODE),
-  },
+  tenancy: identity.tenancy,
 
   // Observability
   otel: {

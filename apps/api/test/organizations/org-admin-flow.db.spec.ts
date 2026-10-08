@@ -33,19 +33,25 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import type { PrismaClient } from '@prisma/client';
 
-import { AllowlistService } from '../../src/allowlist/allowlist.service';
-import { AuthService } from '../../src/auth/auth.service';
-import { PrincipalCache } from '../../src/auth/principal-cache/principal-cache.service';
-import { recordTenancyMode } from '../../src/auth/tenancy-mode';
+import {
+  AllowlistService,
+  AuthService,
+  PrincipalCache,
+  recordTenancyMode,
+  OrganizationsService,
+  OrganizationsAdminService,
+  OrgInvitesService,
+  OrgMembersService,
+  TenancyService,
+  PatService,
+} from '@marinoscar/platform-api/identity';
 import { InProcessEventBus } from '../../src/common/event-bus/in-process-event-bus';
-import { OrganizationsService } from '../../src/organizations/organizations.service';
-import { OrganizationsAdminService } from '../../src/organizations/organizations-admin.service';
-import { OrgInvitesService } from '../../src/organizations/org-invites.service';
-import { OrgMembersService } from '../../src/organizations/org-members.service';
-import { TenancyService } from '../../src/organizations/tenancy.service';
-import { PatService } from '../../src/pat/pat.service';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
+import { AppProfileImages, AppUserDefaults } from '../../src/platform/identity/identity-user.adapters';
+import { NotificationsIdentityNotifier } from '../../src/platform/identity/identity-notifier.adapter';
+import { asIdentityPrisma } from '../../src/platform/identity/identity-db';
+
 
 const { describeWithDb } = resolveDbSuite('org-admin-flow.db.spec');
 
@@ -97,23 +103,28 @@ describeWithDb('org administration flow (real Postgres, #726)', () => {
     jwt = new JwtService({ secret: 'org-admin-flow-db-spec' });
     cache = new PrincipalCache(new ConfigService({}), new InProcessEventBus());
     notifications = { notify: jest.fn(async () => undefined), notifyAddress: jest.fn(async () => undefined) };
+    // Identity raises notifications through IDENTITY_NOTIFIER (#727); the app's
+    // adapter turns them into the same `notify` / `notifyAddress` calls.
+    const notifier = new NotificationsIdentityNotifier(notifications as never);
     const metrics = { add: jest.fn(), authLogin: jest.fn(), authRefresh: jest.fn() };
-    const organizations = new OrganizationsService(prisma, cache);
-    invites = new OrgInvitesService(prisma, notifications as never, config, metrics as never);
-    members = new OrgMembersService(prisma, cache, notifications as never, config, metrics as never);
-    admin = new OrganizationsAdminService(prisma, tenancy, invites);
-    pats = new PatService(prisma, cache);
+    const organizations = new OrganizationsService(asIdentityPrisma(prisma), cache);
+    invites = new OrgInvitesService(asIdentityPrisma(prisma), notifier, config, metrics as never);
+    members = new OrgMembersService(asIdentityPrisma(prisma), cache, notifier, config, metrics as never);
+    admin = new OrganizationsAdminService(asIdentityPrisma(prisma), tenancy, invites);
+    pats = new PatService(asIdentityPrisma(prisma), cache);
     auth = new AuthService(
-      prisma,
+      asIdentityPrisma(prisma),
       jwt,
       config,
       { shouldGrantAdminRole: async () => false } as never,
-      new AllowlistService(prisma, notifications as never, config),
-      notifications as never,
+      new AllowlistService(asIdentityPrisma(prisma), notifier, config),
+      notifier,
       cache,
       organizations,
       tenancy,
       metrics as never,
+      new AppUserDefaults(),
+      new AppProfileImages(),
     );
 
     defaultOrgId = (await client.organization.findFirstOrThrow({ where: { isDefault: true } })).id;

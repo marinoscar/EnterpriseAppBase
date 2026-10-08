@@ -7,7 +7,7 @@
 
 import request from 'supertest';
 
-import { PERMISSIONS_KEY } from '../../src/auth/decorators/permissions.decorator';
+import { PERMISSIONS_KEY } from '@marinoscar/platform-api/identity';
 import { StorageConfigService } from '../../src/storage/config/storage-config.service';
 import { StorageStatusController } from '../../src/storage/status/storage-status.controller';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';

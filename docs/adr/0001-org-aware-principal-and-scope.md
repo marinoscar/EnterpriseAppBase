@@ -38,7 +38,7 @@ wave 4.
 The request identity has two loosely related shapes, no notion of scope and no
 marker of which credential was used.
 
-- [`auth/interfaces/authenticated-user.interface.ts`](../../apps/api/src/auth/interfaces/authenticated-user.interface.ts):
+- [`auth/interfaces/authenticated-user.interface.ts`](../../packages/platform-api/src/identity/auth/interfaces/authenticated-user.interface.ts):
   - `AuthenticatedUser extends User` (a Prisma model) with the
     `userRoles → role → rolePermissions → permission` graph. It is what
     `JwtStrategy.validate`, `PatService.validateToken` and
@@ -47,18 +47,18 @@ marker of which credential was used.
   - `RequestUser { id, email, roles, permissions, isActive }`, built by
     `toRequestUser()` in `roles.guard.ts` and `permissions.guard.ts` and stored
     on `request.requestUser`.
-- [`auth/decorators/current-user.decorator.ts`](../../apps/api/src/auth/decorators/current-user.decorator.ts):
+- [`auth/decorators/current-user.decorator.ts`](../../packages/platform-api/src/identity/auth/decorators/current-user.decorator.ts):
   `@CurrentUser()` returns `request.requestUser || request.user`. It has about
   120 call sites under `apps/api/src`.
 - **Ownership is a convention.** About 30 `where: { userId` filters under
   `apps/api/src` (the spec counts about 46 across an app) are the only thing
   that keeps one user's rows from another's.
 - **Four credential families reach the same `request.user`**
-  ([`auth/guards/jwt-auth.guard.ts`](../../apps/api/src/auth/guards/jwt-auth.guard.ts),
+  ([`auth/guards/jwt-auth.guard.ts`](../../packages/platform-api/src/identity/auth/guards/jwt-auth.guard.ts),
   [SECURITY-ARCHITECTURE §2](../SECURITY-ARCHITECTURE.md#2-credential-kinds)):
   - the browser session access JWT;
   - the device-flow access JWT, which carries a `did` claim
-    ([`auth/strategies/jwt.strategy.ts`](../../apps/api/src/auth/strategies/jwt.strategy.ts),
+    ([`auth/strategies/jwt.strategy.ts`](../../packages/platform-api/src/identity/auth/strategies/jwt.strategy.ts),
     `JwtPayload.did`);
   - a `pat_` personal access token (the guard's PAT branch);
   - a `nod_` worker-node credential (the guard's node branch, confined to

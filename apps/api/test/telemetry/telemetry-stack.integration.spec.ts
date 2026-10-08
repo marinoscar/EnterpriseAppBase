@@ -6,7 +6,7 @@ import { TestContext, createTestApp, closeTestApp } from '../helpers/test-app.he
 import { resetPrismaMock } from '../mocks/prisma.mock';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import { createMockAdminUser, createMockViewerUser, authHeader } from '../helpers/auth-mock.helper';
-import { PERMISSIONS_KEY } from '../../src/auth/decorators/permissions.decorator';
+import { PERMISSIONS_KEY } from '@marinoscar/platform-api/identity';
 import {
   TELEMETRY_STACK_DEPLOY_TYPE,
 } from '@marinoscar/platform-api/telemetry';

@@ -17,7 +17,7 @@
 // leaked worker token can pretend to be a worker" and "a leaked worker token
 // owns the deployment", and it is asserted here THROUGH THE REAL HTTP STACK —
 // real guards, real global prefix, real router — because the unit tests in
-// `src/auth/guards/jwt-auth.guard.spec.ts` can only see the guard's own view
+// `packages/platform-api/test/identity/auth/guards/jwt-auth.guard.spec.ts` can only see the guard's own view
 // of a request it was handed, not the URL Fastify actually produces.
 //
 // Every 403 case below deliberately uses an ADMIN owner. A boundary that only
@@ -33,9 +33,8 @@ import {
 } from '../helpers/test-app.helper';
 import { Reflector } from '@nestjs/core';
 import { ExecutionContext, ForbiddenException, UnauthorizedException } from '@nestjs/common';
-import { JwtAuthGuard } from '../../src/auth/guards/jwt-auth.guard';
+import { JwtAuthGuard, PatService } from '@marinoscar/platform-api/identity';
 import { NodeCredentialService } from '../../src/nodes/node-credential.service';
-import { PatService } from '../../src/pat/pat.service';
 import { resetPrismaMock } from '../mocks/prisma.mock';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import {

@@ -70,7 +70,7 @@ import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Job, Prisma, StorageObject } from '@prisma/client';
 import { createHash } from 'node:crypto';
 
-import { resolveJobOrgId } from '../../organizations/org-scope';
+import { resolveJobOrgId } from '@marinoscar/platform-api/identity';
 import { PrismaService } from '../../prisma/prisma.service';
 import { STORAGE_PROVIDER } from '../../storage/providers/storage-provider.interface';
 import type { StorageProvider } from '../../storage/providers/storage-provider.interface';

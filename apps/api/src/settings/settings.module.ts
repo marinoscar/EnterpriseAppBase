@@ -1,4 +1,4 @@
-import { PrincipalCacheModule } from '../auth/principal-cache/principal-cache.module';
+import { PrincipalCacheModule } from '@marinoscar/platform-api/identity';
 import { Module } from '@nestjs/common';
 import { UserSettingsController } from './user-settings/user-settings.controller';
 import { UserSettingsService } from './user-settings/user-settings.service';

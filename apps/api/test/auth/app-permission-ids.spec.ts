@@ -1,6 +1,4 @@
-import { Auth } from '../../src/auth/decorators/auth.decorator';
-import { Permissions, PERMISSIONS_KEY } from '../../src/auth/decorators/permissions.decorator';
-import { Roles, ROLES_KEY } from '../../src/auth/decorators/roles.decorator';
+import { Auth, Permissions, PERMISSIONS_KEY, Roles, ROLES_KEY } from '@marinoscar/platform-api/identity';
 import type { PermissionName, RoleName } from '../../src/common/constants/roles.constants';
 
 // =============================================================================

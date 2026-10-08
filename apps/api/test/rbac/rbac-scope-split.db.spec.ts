@@ -40,7 +40,7 @@ import {
   withAdminConnection,
   type AdminConnection,
 } from '../../src/db-backup/admin-connection.util';
-import { PRINCIPAL_USER_INCLUDE, resolveEffectiveAccess } from '../../src/auth/principal.factory';
+import { PRINCIPAL_USER_INCLUDE, resolveEffectiveAccess } from '@marinoscar/platform-api/identity';
 import { SEED_SNAPSHOT } from '../../prisma/seed-data';
 import { resolveDbSuite } from '../jobs/db-test-support';
 import { envFor, migrateDeploy, prismaClientFor } from '../helpers/scratch-database.helper';

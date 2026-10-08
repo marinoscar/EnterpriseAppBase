@@ -54,7 +54,7 @@ export const RAW_SQL_ALLOWLIST: ReadonlyArray<{ file: string; why: string }> = [
     why: "Backup run: reads current_setting('server_version') to record the dump's server version.",
   },
   {
-    file: 'organizations/doctor/rls-role.doctor-check.ts',
+    file: 'health/doctor/rls-role.doctor-check.ts',
     why: 'Doctor check: reads pg_roles and pg_class (the API role and the FORCEd tables). Read-only catalogue reads, no user ids.',
   },
   {
@@ -63,5 +63,9 @@ export const RAW_SQL_ALLOWLIST: ReadonlyArray<{ file: string; why: string }> = [
   },  {
     file: 'organizations/org-admin.common.ts',
     why: "Org administration (#726): SELECT ... FOR UPDATE on the caller's ACTIVE organization row, to serialize the last-admin check; Prisma has no row lock. The org id comes from the principal, never from the request.",
+  },
+  {
+    file: 'data/identity-db.ts',
+    why: "The identity slice's structural client (#727): DECLARES the `$queryRaw` / `$executeRaw` signatures the slice may call on the app's client; issues no statement itself.",
   },
 ];

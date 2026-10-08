@@ -2,7 +2,7 @@
 // The active organization, through the real AppModule (PP-6.4, #724)
 // =============================================================================
 //
-// `src/auth/auth.service.active-org.spec.ts` proves what AuthService decides.
+// `packages/platform-api/test/identity/auth/auth.service.active-org.spec.ts` proves what AuthService decides.
 // This suite boots the whole application (Prisma mocked) once per tenancy
 // mode and drives the HTTP surface:
 //
@@ -21,8 +21,7 @@
 import { JwtService } from '@nestjs/jwt';
 import request from 'supertest';
 
-import { OrganizationsService } from '../../src/organizations/organizations.service';
-import { PrincipalCache } from '../../src/auth/principal-cache/principal-cache.service';
+import { OrganizationsService, PrincipalCache } from '@marinoscar/platform-api/identity';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import { mockPermissions, mockRoles } from '../fixtures/test-data.factory';
 import { authHeader } from '../helpers/auth-mock.helper';

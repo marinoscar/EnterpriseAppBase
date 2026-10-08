@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { AUTH_ERROR_CODES, DEFAULT_AUTH_ERROR_CODE } from '@marinoscar/platform-contract/identity';
 import {
   SIGN_IN_ERROR_CODES,
   SIGN_IN_ERROR_CONTENT,
@@ -15,16 +14,10 @@ describe('signInErrorContent (#652)', () => {
     }
   });
 
-  it('mirrors the API closed set of codes', () => {
-    const source = readFileSync(
-      resolve(__dirname, '../../../../../api/src/auth/auth-error-codes.ts'),
-      'utf8',
-    );
-    const block = /AUTH_ERROR_CODES\s*=\s*\[([\s\S]*?)\]\s*as const/.exec(source);
-    expect(block).not.toBeNull();
-    const apiCodes = [...block![1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
-
-    expect([...SIGN_IN_ERROR_CODES].sort()).toEqual(apiCodes.sort());
+  it('is the contract\'s closed set of codes, the one the API redirects with (#727)', () => {
+    expect(SIGN_IN_ERROR_CODES).toBe(AUTH_ERROR_CODES);
+    expect(DEFAULT_SIGN_IN_ERROR_CODE).toBe(DEFAULT_AUTH_ERROR_CODE);
+    expect(Object.keys(SIGN_IN_ERROR_CONTENT).sort()).toEqual([...AUTH_ERROR_CODES].sort());
   });
 
   it('reserves error severity for faults', () => {

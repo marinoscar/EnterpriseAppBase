@@ -1,4 +1,5 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
+import { IDENTITY_GUARD_PORTS } from '../../test/helpers/identity-ports.helper';
 import { Test, TestingModule } from '@nestjs/testing';
 
 import { NOTIFICATION_EVENTS } from './notification-events';
@@ -7,7 +8,7 @@ import { NotificationPolicyService } from './notification-policy.service';
 import { NotificationStoreService } from './notification-store.service';
 import { NotificationStreamService } from './notification-stream.service';
 import { PushSubscriptionService } from './push-subscription.service';
-import { PatService } from '../pat/pat.service';
+import { PatService } from '@marinoscar/platform-api/identity';
 import { NodeCredentialService } from '../nodes/node-credential.service';
 
 // =============================================================================
@@ -85,6 +86,8 @@ describe('NotificationsController', () => {
         // never sends a bearer token, so neither validator is ever reached —
         // the provider exists only so the guard can be constructed.
         { provide: NodeCredentialService, useValue: { validateToken: jest.fn() } },
+        // JwtAuthGuard reaches it through the identity slice's port (#727).
+        ...IDENTITY_GUARD_PORTS,
       ],
     }).compile();
 

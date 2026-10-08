@@ -6,27 +6,26 @@ import ErrorOutlineOutlinedIcon from '@mui/icons-material/ErrorOutlineOutlined';
 import BuildCircleOutlinedIcon from '@mui/icons-material/BuildCircleOutlined';
 import GroupOffOutlinedIcon from '@mui/icons-material/GroupOffOutlined';
 import { APP_NAME } from '@app/shared';
+import {
+  AUTH_ERROR_CODES,
+  DEFAULT_AUTH_ERROR_CODE,
+  isAuthErrorCode,
+  type AuthErrorCode,
+} from '@marinoscar/platform-contract/identity';
 
 /**
- * The closed set of sign-in failure codes, MIRRORED BY HAND from
- * `apps/api/src/auth/auth-error-codes.ts` (`AUTH_ERROR_CODES`): the web app
- * cannot import from the API. Adding a code there means adding it here, with its
- * copy. The API redirects every failed Google sign-in to
- * `/auth/callback?error=<code>` (#652).
+ * The closed set of sign-in failure codes. Defined ONCE, in
+ * `@marinoscar/platform-contract/identity` (`AUTH_ERROR_CODES`, #727); the API
+ * resolves every failed sign-in to one of them and redirects to
+ * `/auth/callback?error=<code>` (#652). A code added to the contract is a type
+ * error in `SIGN_IN_ERROR_CONTENT` below until it has copy.
  */
-export const SIGN_IN_ERROR_CODES = [
-  'not_allowlisted',
-  'account_disabled',
-  'access_denied',
-  'authentication_failed',
-  'server_misconfigured',
-  'no_organization',
-] as const;
+export const SIGN_IN_ERROR_CODES = AUTH_ERROR_CODES;
 
-export type SignInErrorCode = (typeof SIGN_IN_ERROR_CODES)[number];
+export type SignInErrorCode = AuthErrorCode;
 
 /** Used for every unknown, legacy or missing value. Never echo the raw input. */
-export const DEFAULT_SIGN_IN_ERROR_CODE: SignInErrorCode = 'authentication_failed';
+export const DEFAULT_SIGN_IN_ERROR_CODE: SignInErrorCode = DEFAULT_AUTH_ERROR_CODE;
 
 /**
  * `error` is deliberately calm (`info`/`warning`) for refusals the person can
@@ -119,7 +118,5 @@ export const SIGN_IN_ERROR_CONTENT: Record<SignInErrorCode, SignInErrorContent> 
  * (including legacy free-text values and `null`) becomes the generic failure.
  */
 export function resolveSignInErrorCode(value: string | null | undefined): SignInErrorCode {
-  return (SIGN_IN_ERROR_CODES as readonly string[]).includes(value ?? '')
-    ? (value as SignInErrorCode)
-    : DEFAULT_SIGN_IN_ERROR_CODE;
+  return isAuthErrorCode(value) ? value : DEFAULT_SIGN_IN_ERROR_CODE;
 }

@@ -24,9 +24,9 @@ import request from 'supertest';
 
 import { createOpenApiDocument } from '../../src/openapi/document';
 import { forEachOperation, MutableDocument } from '../../src/openapi/types';
-import { RBAC_EXTENSION_KEY, type RbacExtension } from '../../src/auth/decorators/auth.decorator';
+import { RBAC_EXTENSION_KEY, type RbacExtension } from '@marinoscar/platform-api/identity';
 import { permissionRegistry } from '../../src/common/permissions';
-import * as tenancyMode from '../../src/auth/tenancy-mode';
+import * as tenancyMode from '@marinoscar/platform-api/identity';
 import { TestContext, createTestApp, closeTestApp } from '../helpers/test-app.helper';
 import { resetPrismaMock } from '../mocks/prisma.mock';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
@@ -217,11 +217,14 @@ describe('System roles vs org roles (Integration, #723)', () => {
     });
 
     describe('in multi-org mode', () => {
-      let modeSpy: jest.SpyInstance;
+      // The recorded mode, not a spy: the slice's own modules read it through
+      // their internal binding, which a spy on the package entry cannot reach (#727).
+      let previousMode: ReturnType<typeof tenancyMode.currentTenancyMode>;
       beforeEach(() => {
-        modeSpy = jest.spyOn(tenancyMode, 'currentTenancyMode').mockReturnValue('multi');
+        previousMode = tenancyMode.currentTenancyMode();
+        tenancyMode.recordTenancyMode('multi');
       });
-      afterEach(() => modeSpy.mockRestore());
+      afterEach(() => tenancyMode.recordTenancyMode(previousMode));
 
       it('rejects an org role name with 400 and points to the organization member endpoints', async () => {
         const res = await call(context, { method: 'PUT', path: `/api/users/${target.id}/roles` }, admin.accessToken)

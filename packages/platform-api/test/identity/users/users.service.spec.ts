@@ -1,0 +1,1272 @@
+import { Test, TestingModule } from '@nestjs/testing';
+import { identityUserPorts, NotificationsService, notifierProvider, NOTIFY_MOCK } from '../support/app-doubles';
+import { ConfigService } from '@nestjs/config';
+import { ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
+import { UsersService } from '../../../src/identity/users/users.service';
+import { PrismaService } from '../support/app-doubles';
+import { createMockPrismaService, MockPrismaService } from '../support/prisma.mock';
+import { UpdateUserDto } from '../../../src/identity/users/dto/update-user.dto';
+import { UpdateUserRolesDto } from '../../../src/identity/users/dto/update-user-roles.dto';
+import { ROLES } from '../../../src/identity/identity.constants';
+import { PrincipalCache } from '../../../src/identity/auth/principal-cache/principal-cache.service';
+import * as tenancyMode from '../../../src/identity/auth/tenancy-mode';
+
+const principalCacheStub = { invalidate: jest.fn(), invalidateUser: jest.fn() };
+
+describe('UsersService', () => {
+  let service: UsersService;
+  let mockPrisma: MockPrismaService;
+  let mockNotifications: { notify: jest.Mock; notifyAddress: jest.Mock };
+
+  const mockAdminUser = {
+    id: 'admin-user-id',
+    email: 'admin@example.com',
+    displayName: 'Admin User',
+    providerDisplayName: 'Admin from Provider',
+    profileImageUrl: null,
+    providerProfileImageUrl: 'https://example.com/admin.jpg',
+    isActive: true,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    userRoles: [
+      {
+        userId: 'admin-user-id',
+        roleId: 'admin-role-id',
+        role: {
+          id: 'admin-role-id',
+          name: 'admin',
+          description: 'Admin role',
+        },
+      },
+    ],
+  };
+
+  const mockOtherUser = {
+    id: 'other-user-id',
+    email: 'other@example.com',
+    displayName: 'Other User',
+    providerDisplayName: 'Other from Provider',
+    profileImageUrl: null,
+    providerProfileImageUrl: 'https://example.com/other.jpg',
+    isActive: true,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    userRoles: [
+      {
+        userId: 'other-user-id',
+        roleId: 'viewer-role-id',
+        role: {
+          id: 'viewer-role-id',
+          name: 'viewer',
+          description: 'Viewer role',
+        },
+      },
+    ],
+  };
+
+  // `scope` mirrors `roles.scope` (#723).
+  const mockRoles = {
+    admin: {
+      id: 'admin-role-id',
+      name: 'admin',
+      description: 'Admin role',
+      scope: 'system',
+    },
+    contributor: {
+      id: 'contributor-role-id',
+      name: 'contributor',
+      description: 'Contributor role',
+      scope: 'org',
+    },
+    viewer: {
+      id: 'viewer-role-id',
+      name: 'viewer',
+      description: 'Viewer role',
+      scope: 'org',
+    },
+    org_admin: {
+      id: 'org-admin-role-id',
+      name: 'org_admin',
+      description: 'Org admin role',
+      scope: 'org',
+    },
+  };
+
+  beforeEach(async () => {
+    mockPrisma = createMockPrismaService();
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        ...identityUserPorts, notifierProvider,
+        UsersService,
+        { provide: PrismaService, useValue: mockPrisma },
+        // PP-1.12 (#683): the JWT principal cache; only `invalidateUser` (#724) is written to.
+        { provide: PrincipalCache, useValue: principalCacheStub },
+        // #128 wired real notification triggers into this service. The
+        // dispatcher is mocked here because these tests are about the
+        // service's own behaviour, not about delivery — and because `notify`
+        // is contracted never to throw, a stub that resolves is a faithful
+        // stand-in. The containment property itself (a send failure does not
+        // roll back the triggering action) is asserted with a REAL dispatcher
+        // and a failing provider in
+        // notifications/notification-failure-containment.spec.ts.
+        {
+          provide: NOTIFY_MOCK,
+          useValue: (mockNotifications = {
+            notify: jest.fn().mockResolvedValue(undefined),
+            notifyAddress: jest.fn().mockResolvedValue(undefined),
+          }),
+        },
+        {
+          provide: ConfigService,
+          useValue: { get: jest.fn().mockReturnValue(undefined) },
+        },
+      ],
+    }).compile();
+
+    service = module.get<UsersService>(UsersService);
+
+    // #723: single-org role changes look up the implied org role and the
+    // default organization, and write the membership role.
+    mockPrisma.role.findUnique.mockImplementation(((args: any) =>
+      Promise.resolve((mockRoles as Record<string, unknown>)[args.where.name] ?? null)) as any);
+    mockPrisma.organization.findFirst.mockResolvedValue({ id: 'org-default' } as any);
+    mockPrisma.membership.upsert.mockResolvedValue({} as any);
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  describe('Self-Prevention: updateUser', () => {
+    describe('when admin tries to deactivate their own account', () => {
+      it('should throw ForbiddenException', async () => {
+        const dto: UpdateUserDto = {
+          isActive: false,
+        };
+
+        await expect(
+          service.updateUser(mockAdminUser.id, dto, mockAdminUser.id)
+        ).rejects.toThrow(ForbiddenException);
+
+        await expect(
+          service.updateUser(mockAdminUser.id, dto, mockAdminUser.id)
+        ).rejects.toThrow('Cannot deactivate your own account');
+
+        // Should not reach database
+        expect(mockPrisma.user.findUnique).not.toHaveBeenCalled();
+        expect(mockPrisma.user.update).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('when admin deactivates another user', () => {
+      it('should succeed', async () => {
+        const dto: UpdateUserDto = {
+          isActive: false,
+        };
+
+        const deactivatedUser = {
+          ...mockOtherUser,
+          isActive: false,
+        };
+
+        mockPrisma.user.findUnique.mockResolvedValue(mockOtherUser as any);
+        mockPrisma.user.update.mockResolvedValue(deactivatedUser as any);
+        mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+
+        const result = await service.updateUser(
+          mockOtherUser.id,
+          dto,
+          mockAdminUser.id
+        );
+
+        expect(result.isActive).toBe(false);
+        expect(mockPrisma.user.update).toHaveBeenCalledWith({
+          where: { id: mockOtherUser.id },
+          data: {
+            displayName: undefined,
+            isActive: false,
+          },
+          include: {
+            userRoles: {
+              include: { role: true },
+            },
+            // System roles and memberships with their org roles (#723).
+            memberships: {
+              include: {
+                org: { select: { id: true, isDefault: true } },
+                role: true,
+              },
+            },
+            // Needed to resolve `profileImageUrl` (#367) — see
+            // UsersService.updateUser.
+            userSettings: {
+              select: { value: true },
+            },
+          },
+        });
+      });
+    });
+
+    describe('when admin updates their own non-dangerous field', () => {
+      it('should succeed updating displayName', async () => {
+        const dto: UpdateUserDto = {
+          displayName: 'New Display Name',
+        };
+
+        const updatedUser = {
+          ...mockAdminUser,
+          displayName: 'New Display Name',
+        };
+
+        mockPrisma.user.findUnique.mockResolvedValue(mockAdminUser as any);
+        mockPrisma.user.update.mockResolvedValue(updatedUser as any);
+        mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+
+        const result = await service.updateUser(
+          mockAdminUser.id,
+          dto,
+          mockAdminUser.id
+        );
+
+        expect(result.displayName).toBe('New Display Name');
+        expect(mockPrisma.user.update).toHaveBeenCalledWith({
+          where: { id: mockAdminUser.id },
+          data: {
+            displayName: 'New Display Name',
+            isActive: undefined,
+          },
+          include: {
+            userRoles: {
+              include: { role: true },
+            },
+            // System roles and memberships with their org roles (#723).
+            memberships: {
+              include: {
+                org: { select: { id: true, isDefault: true } },
+                role: true,
+              },
+            },
+            // Needed to resolve `profileImageUrl` (#367) — see
+            // UsersService.updateUser.
+            userSettings: {
+              select: { value: true },
+            },
+          },
+        });
+      });
+
+      it('should succeed when isActive is not set', async () => {
+        const dto: UpdateUserDto = {
+          displayName: 'Another Name',
+        };
+
+        const updatedUser = {
+          ...mockAdminUser,
+          displayName: 'Another Name',
+        };
+
+        mockPrisma.user.findUnique.mockResolvedValue(mockAdminUser as any);
+        mockPrisma.user.update.mockResolvedValue(updatedUser as any);
+        mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+
+        await expect(
+          service.updateUser(mockAdminUser.id, dto, mockAdminUser.id)
+        ).resolves.toBeTruthy();
+      });
+
+      it('should succeed when isActive is explicitly true', async () => {
+        const dto: UpdateUserDto = {
+          displayName: 'Test Name',
+          isActive: true,
+        };
+
+        const updatedUser = {
+          ...mockAdminUser,
+          displayName: 'Test Name',
+        };
+
+        mockPrisma.user.findUnique.mockResolvedValue(mockAdminUser as any);
+        mockPrisma.user.update.mockResolvedValue(updatedUser as any);
+        mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+
+        await expect(
+          service.updateUser(mockAdminUser.id, dto, mockAdminUser.id)
+        ).resolves.toBeTruthy();
+      });
+    });
+
+    describe('error handling', () => {
+      it('should throw NotFoundException when user does not exist', async () => {
+        const dto: UpdateUserDto = {
+          displayName: 'New Name',
+        };
+
+        mockPrisma.user.findUnique.mockResolvedValue(null);
+
+        await expect(
+          service.updateUser('non-existent-id', dto, mockAdminUser.id)
+        ).rejects.toThrow(NotFoundException);
+
+        await expect(
+          service.updateUser('non-existent-id', dto, mockAdminUser.id)
+        ).rejects.toThrow('User with ID non-existent-id not found');
+      });
+    });
+  });
+
+  describe('listUsers', () => {
+    describe('when called with default parameters', () => {
+      it('should return paginated users with correct metadata', async () => {
+        const mockUsers = [mockAdminUser, mockOtherUser];
+
+        mockPrisma.user.findMany.mockResolvedValue(mockUsers as any);
+        mockPrisma.user.count.mockResolvedValue(2);
+
+        const result = await service.listUsers({
+          page: 1,
+          pageSize: 20,
+          sortBy: 'createdAt',
+          sortOrder: 'desc',
+        });
+
+        expect(result.items).toHaveLength(2);
+        expect(result.total).toBe(2);
+        expect(result.page).toBe(1);
+        expect(result.pageSize).toBe(20);
+        expect(result.totalPages).toBe(1);
+        expect(mockPrisma.user.findMany).toHaveBeenCalledWith({
+          where: {},
+          skip: 0,
+          take: 20,
+          orderBy: { createdAt: 'desc' },
+          include: {
+            userRoles: {
+              include: { role: true },
+            },
+            // System roles and memberships with their org roles (#723).
+            memberships: {
+              include: {
+                org: { select: { id: true, isDefault: true } },
+                role: true,
+              },
+            },
+            // Needed to resolve `profileImageUrl` (#367) — see
+            // UsersService.listUsers.
+            userSettings: {
+              select: { value: true },
+            },
+          },
+        });
+      });
+    });
+
+    describe('when filtering by role', () => {
+      it('should filter users by role', async () => {
+        const mockUsers = [mockAdminUser];
+
+        mockPrisma.user.findMany.mockResolvedValue(mockUsers as any);
+        mockPrisma.user.count.mockResolvedValue(1);
+
+        const result = await service.listUsers({
+          page: 1,
+          pageSize: 20,
+          role: 'admin',
+          sortBy: 'createdAt',
+          sortOrder: 'desc',
+        });
+
+        expect(result.items).toHaveLength(1);
+        expect(result.items[0].roles).toContain('admin');
+        // A system role is in `user_roles`, an org role on an active
+        // membership (#723), so the filter matches either.
+        expect(mockPrisma.user.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: {
+              AND: [
+                {
+                  OR: [
+                    { userRoles: { some: { role: { name: 'admin' } } } },
+                    { memberships: { some: { status: 'active', role: { name: 'admin' } } } },
+                  ],
+                },
+              ],
+            },
+          }),
+        );
+      });
+    });
+
+    describe('when filtering by isActive status', () => {
+      it('should filter active users', async () => {
+        const mockUsers = [mockAdminUser, mockOtherUser];
+
+        mockPrisma.user.findMany.mockResolvedValue(mockUsers as any);
+        mockPrisma.user.count.mockResolvedValue(2);
+
+        await service.listUsers({
+          page: 1,
+          pageSize: 20,
+          isActive: true,
+          sortBy: 'createdAt',
+          sortOrder: 'desc',
+        });
+
+        expect(mockPrisma.user.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { isActive: true },
+          }),
+        );
+      });
+
+      it('should filter inactive users', async () => {
+        const inactiveUser = { ...mockOtherUser, isActive: false };
+
+        mockPrisma.user.findMany.mockResolvedValue([inactiveUser] as any);
+        mockPrisma.user.count.mockResolvedValue(1);
+
+        const result = await service.listUsers({
+          page: 1,
+          pageSize: 20,
+          isActive: false,
+          sortBy: 'createdAt',
+          sortOrder: 'desc',
+        });
+
+        expect(result.items).toHaveLength(1);
+        expect(result.items[0].isActive).toBe(false);
+        expect(mockPrisma.user.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { isActive: false },
+          }),
+        );
+      });
+    });
+
+    describe('when searching by email or displayName', () => {
+      it('should search by email', async () => {
+        const mockUsers = [mockAdminUser];
+
+        mockPrisma.user.findMany.mockResolvedValue(mockUsers as any);
+        mockPrisma.user.count.mockResolvedValue(1);
+
+        await service.listUsers({
+          page: 1,
+          pageSize: 20,
+          search: 'admin',
+          sortBy: 'createdAt',
+          sortOrder: 'desc',
+        });
+
+        expect(mockPrisma.user.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: {
+              OR: [
+                { email: { contains: 'admin', mode: 'insensitive' } },
+                { displayName: { contains: 'admin', mode: 'insensitive' } },
+                { providerDisplayName: { contains: 'admin', mode: 'insensitive' } },
+              ],
+            },
+          }),
+        );
+      });
+
+      it('should search by displayName', async () => {
+        const userWithDisplayName = {
+          ...mockOtherUser,
+          displayName: 'Custom Name',
+        };
+
+        mockPrisma.user.findMany.mockResolvedValue([userWithDisplayName] as any);
+        mockPrisma.user.count.mockResolvedValue(1);
+
+        const result = await service.listUsers({
+          page: 1,
+          pageSize: 20,
+          search: 'Custom',
+          sortBy: 'createdAt',
+          sortOrder: 'desc',
+        });
+
+        expect(result.items).toHaveLength(1);
+        expect(result.items[0].displayName).toBe('Custom Name');
+      });
+    });
+
+    describe('when sorting by different fields', () => {
+      it('should sort by email ascending', async () => {
+        const mockUsers = [mockAdminUser, mockOtherUser];
+
+        mockPrisma.user.findMany.mockResolvedValue(mockUsers as any);
+        mockPrisma.user.count.mockResolvedValue(2);
+
+        await service.listUsers({
+          page: 1,
+          pageSize: 20,
+          sortBy: 'email',
+          sortOrder: 'asc',
+        });
+
+        expect(mockPrisma.user.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            orderBy: { email: 'asc' },
+          }),
+        );
+      });
+
+      it('should sort by displayName descending', async () => {
+        const mockUsers = [mockAdminUser, mockOtherUser];
+
+        mockPrisma.user.findMany.mockResolvedValue(mockUsers as any);
+        mockPrisma.user.count.mockResolvedValue(2);
+
+        await service.listUsers({
+          page: 1,
+          pageSize: 20,
+          sortBy: 'createdAt',
+          sortOrder: 'desc',
+        });
+
+        expect(mockPrisma.user.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            orderBy: { createdAt: 'desc' },
+          }),
+        );
+      });
+
+      it('should sort by updatedAt', async () => {
+        const mockUsers = [mockAdminUser, mockOtherUser];
+
+        mockPrisma.user.findMany.mockResolvedValue(mockUsers as any);
+        mockPrisma.user.count.mockResolvedValue(2);
+
+        await service.listUsers({
+          page: 1,
+          pageSize: 20,
+          sortBy: 'updatedAt',
+          sortOrder: 'asc',
+        });
+
+        expect(mockPrisma.user.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            orderBy: { updatedAt: 'asc' },
+          }),
+        );
+      });
+    });
+
+    describe('pagination', () => {
+      it('should handle pagination correctly for page 2', async () => {
+        const mockUsers = [mockAdminUser];
+
+        mockPrisma.user.findMany.mockResolvedValue(mockUsers as any);
+        mockPrisma.user.count.mockResolvedValue(25);
+
+        const result = await service.listUsers({
+          page: 2,
+          pageSize: 10,
+          sortBy: 'createdAt',
+          sortOrder: 'desc',
+        });
+
+        expect(result.page).toBe(2);
+        expect(result.pageSize).toBe(10);
+        expect(result.totalPages).toBe(3);
+        expect(mockPrisma.user.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            skip: 10,
+            take: 10,
+          }),
+        );
+      });
+
+      it('should calculate totalPages correctly', async () => {
+        mockPrisma.user.findMany.mockResolvedValue([] as any);
+        mockPrisma.user.count.mockResolvedValue(47);
+
+        const result = await service.listUsers({
+          page: 1,
+          pageSize: 20,
+          sortBy: 'createdAt',
+          sortOrder: 'desc',
+        });
+
+        expect(result.totalPages).toBe(3); // Math.ceil(47 / 20)
+      });
+    });
+  });
+
+  describe('getUserById', () => {
+    describe('when user exists', () => {
+      it('should return user with roles and identities', async () => {
+        const mockUserWithIdentities = {
+          ...mockAdminUser,
+          identities: [
+            {
+              provider: 'google',
+              providerEmail: 'admin@example.com',
+              createdAt: new Date(),
+            },
+          ],
+        };
+
+        mockPrisma.user.findUnique.mockResolvedValue(mockUserWithIdentities as any);
+
+        const result = await service.getUserById(mockAdminUser.id);
+
+        expect(result.id).toBe(mockAdminUser.id);
+        expect(result.email).toBe(mockAdminUser.email);
+        expect(result.roles).toContain('admin');
+        expect(result.identities).toHaveLength(1);
+        expect(result.identities[0].provider).toBe('google');
+        expect(mockPrisma.user.findUnique).toHaveBeenCalledWith({
+          where: { id: mockAdminUser.id },
+          include: {
+            userRoles: {
+              include: { role: true },
+            },
+            // System roles and memberships with their org roles (#723).
+            memberships: {
+              include: {
+                org: { select: { id: true, isDefault: true } },
+                role: true,
+              },
+            },
+            identities: {
+              select: {
+                provider: true,
+                providerEmail: true,
+                createdAt: true,
+              },
+            },
+            // Needed to resolve `profileImageUrl` (#367) — see
+            // UsersService.getUserById.
+            userSettings: {
+              select: { value: true },
+            },
+          },
+        });
+      });
+    });
+
+    describe('when user does not exist', () => {
+      it('should throw NotFoundException', async () => {
+        mockPrisma.user.findUnique.mockResolvedValue(null);
+
+        await expect(
+          service.getUserById('non-existent-id')
+        ).rejects.toThrow(NotFoundException);
+
+        await expect(
+          service.getUserById('non-existent-id')
+        ).rejects.toThrow('User with ID non-existent-id not found');
+      });
+    });
+  });
+
+  describe('profileImageUrl resolution (#367)', () => {
+    const avatarObjectId = '11111111-1111-4111-8111-111111111111';
+
+    function userWithProfile(profile: unknown) {
+      return {
+        ...mockAdminUser,
+        userSettings: profile === undefined ? null : { value: { profile } },
+      };
+    }
+
+    describe('getUserById', () => {
+      it('resolves to null when imageSource is "none"', async () => {
+        mockPrisma.user.findUnique.mockResolvedValue(
+          userWithProfile({ imageSource: 'none', imageObjectId: null }) as any,
+        );
+
+        const result = await service.getUserById(mockAdminUser.id);
+
+        expect(result.profileImageUrl).toBeNull();
+      });
+
+      it('resolves to the same-origin avatar URL when imageSource is "upload"', async () => {
+        mockPrisma.user.findUnique.mockResolvedValue(
+          userWithProfile({
+            imageSource: 'upload',
+            imageObjectId: avatarObjectId,
+          }) as any,
+        );
+
+        const result = await service.getUserById(mockAdminUser.id);
+
+        expect(result.profileImageUrl).toBe(
+          `/api/users/${mockAdminUser.id}/avatar/${avatarObjectId}`,
+        );
+      });
+
+      it('defaults to the provider picture when there is no settings row', async () => {
+        mockPrisma.user.findUnique.mockResolvedValue(
+          userWithProfile(undefined) as any,
+        );
+
+        const result = await service.getUserById(mockAdminUser.id);
+
+        expect(result.profileImageUrl).toBe(mockAdminUser.providerProfileImageUrl);
+      });
+
+      it('always includes providerProfileImageUrl as-is alongside the resolved picture', async () => {
+        mockPrisma.user.findUnique.mockResolvedValue(
+          userWithProfile({ imageSource: 'none', imageObjectId: null }) as any,
+        );
+
+        const result = await service.getUserById(mockAdminUser.id);
+
+        expect(result.providerProfileImageUrl).toBe(
+          mockAdminUser.providerProfileImageUrl,
+        );
+      });
+    });
+
+    describe('listUsers', () => {
+      it('resolves each item\'s profileImageUrl from its own settings row', async () => {
+        mockPrisma.user.findMany.mockResolvedValue([
+          userWithProfile({ imageSource: 'none', imageObjectId: null }),
+          {
+            ...mockOtherUser,
+            userSettings: {
+              value: {
+                profile: { imageSource: 'upload', imageObjectId: avatarObjectId },
+              },
+            },
+          },
+        ] as any);
+        mockPrisma.user.count.mockResolvedValue(2);
+
+        const result = await service.listUsers({
+          page: 1,
+          pageSize: 20,
+          sortBy: 'createdAt',
+          sortOrder: 'desc',
+        });
+
+        expect(result.items[0].profileImageUrl).toBeNull();
+        expect(result.items[1].profileImageUrl).toBe(
+          `/api/users/${mockOtherUser.id}/avatar/${avatarObjectId}`,
+        );
+      });
+    });
+
+    describe('updateUser', () => {
+      it('resolves the patched user\'s profileImageUrl from its settings row', async () => {
+        mockPrisma.user.findUnique.mockResolvedValue(mockAdminUser as any);
+        mockPrisma.user.update.mockResolvedValue(
+          userWithProfile({
+            imageSource: 'upload',
+            imageObjectId: avatarObjectId,
+          }) as any,
+        );
+        mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+
+        const result = await service.updateUser(
+          mockAdminUser.id,
+          { displayName: 'New Name' },
+          mockAdminUser.id,
+        );
+
+        expect(result.profileImageUrl).toBe(
+          `/api/users/${mockAdminUser.id}/avatar/${avatarObjectId}`,
+        );
+      });
+    });
+  });
+
+  describe('Self-Prevention: updateUserRoles', () => {
+    describe('when admin tries to remove their own admin role', () => {
+      it('should throw ForbiddenException when admin role not in new roles', async () => {
+        const dto: UpdateUserRolesDto = {
+          roleNames: ['viewer'], // Admin role removed
+        };
+
+        await expect(
+          service.updateUserRoles(mockAdminUser.id, dto, mockAdminUser.id)
+        ).rejects.toThrow(ForbiddenException);
+
+        await expect(
+          service.updateUserRoles(mockAdminUser.id, dto, mockAdminUser.id)
+        ).rejects.toThrow('Cannot remove admin role from yourself');
+
+        // Should not reach database
+        expect(mockPrisma.user.findUnique).not.toHaveBeenCalled();
+        expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+      });
+
+      it('should throw ForbiddenException when role list is empty', async () => {
+        const dto: UpdateUserRolesDto = {
+          roleNames: [], // All roles removed including admin
+        };
+
+        await expect(
+          service.updateUserRoles(mockAdminUser.id, dto, mockAdminUser.id)
+        ).rejects.toThrow(ForbiddenException);
+
+        await expect(
+          service.updateUserRoles(mockAdminUser.id, dto, mockAdminUser.id)
+        ).rejects.toThrow('Cannot remove admin role from yourself');
+      });
+    });
+
+    describe('when admin adds roles to themselves', () => {
+      it('should succeed adding contributor role while keeping admin', async () => {
+        const dto: UpdateUserRolesDto = {
+          roleNames: ['admin', 'contributor'], // Admin role still present
+        };
+
+        const roles = [mockRoles.admin, mockRoles.contributor];
+
+        // Mock getUserById for the return value - needs to be set up with proper chaining
+        const updatedUser = {
+          ...mockAdminUser,
+          userRoles: [
+            mockAdminUser.userRoles[0],
+            {
+              userId: mockAdminUser.id,
+              roleId: 'contributor-role-id',
+              role: mockRoles.contributor,
+            },
+          ],
+          identities: [],
+        };
+
+        mockPrisma.user.findUnique
+          .mockResolvedValueOnce(mockAdminUser as any) // First call for validation
+          .mockResolvedValueOnce(updatedUser as any); // Second call in getUserById
+        mockPrisma.role.findMany.mockResolvedValue(roles as any);
+        mockPrisma.$transaction.mockImplementation(async (callback) => {
+          return callback(mockPrisma);
+        });
+        mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+
+        const result = await service.updateUserRoles(
+          mockAdminUser.id,
+          dto,
+          mockAdminUser.id
+        );
+
+        expect(mockPrisma.$transaction).toHaveBeenCalled();
+        expect(result.roles).toContain('admin');
+        expect(result.roles).toContain('contributor');
+      });
+    });
+
+    describe('when admin removes admin role from another user', () => {
+      it('should succeed', async () => {
+        const otherAdminUser = {
+          ...mockOtherUser,
+          userRoles: [
+            {
+              userId: mockOtherUser.id,
+              roleId: 'admin-role-id',
+              role: mockRoles.admin,
+            },
+          ],
+        };
+
+        const dto: UpdateUserRolesDto = {
+          roleNames: ['viewer'], // Removing admin role from other user
+        };
+
+        // Mock getUserById for the return value
+        const updatedOtherUser = {
+          ...otherAdminUser,
+          userRoles: [
+            {
+              userId: otherAdminUser.id,
+              roleId: 'viewer-role-id',
+              role: mockRoles.viewer,
+            },
+          ],
+          identities: [],
+        };
+
+        mockPrisma.user.findUnique
+          .mockResolvedValueOnce(otherAdminUser as any) // First call for validation
+          .mockResolvedValueOnce(updatedOtherUser as any); // Second call in getUserById
+        mockPrisma.role.findMany.mockResolvedValue([mockRoles.viewer] as any);
+        mockPrisma.$transaction.mockImplementation(async (callback) => {
+          return callback(mockPrisma);
+        });
+        mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+
+        const result = await service.updateUserRoles(
+          mockOtherUser.id,
+          dto,
+          mockAdminUser.id
+        );
+
+        expect(mockPrisma.$transaction).toHaveBeenCalled();
+        expect(result.roles).toEqual(['viewer']);
+        expect(result.roles).not.toContain('admin');
+      });
+    });
+
+    describe('when admin changes roles for non-admin user', () => {
+      it('should succeed promoting viewer to contributor', async () => {
+        const dto: UpdateUserRolesDto = {
+          roleNames: ['contributor'],
+        };
+
+        // Mock getUserById for the return value
+        const updatedUser = {
+          ...mockOtherUser,
+          userRoles: [
+            {
+              userId: mockOtherUser.id,
+              roleId: 'contributor-role-id',
+              role: mockRoles.contributor,
+            },
+          ],
+          identities: [],
+        };
+
+        mockPrisma.user.findUnique
+          .mockResolvedValueOnce(mockOtherUser as any) // First call for validation
+          .mockResolvedValueOnce(updatedUser as any); // Second call in getUserById
+        mockPrisma.role.findMany.mockResolvedValue([mockRoles.contributor] as any);
+        mockPrisma.$transaction.mockImplementation(async (callback) => {
+          return callback(mockPrisma);
+        });
+        mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+
+        const result = await service.updateUserRoles(
+          mockOtherUser.id,
+          dto,
+          mockAdminUser.id
+        );
+
+        expect(result.roles).toEqual(['contributor']);
+      });
+    });
+
+    // ===========================================================================
+    // `security.role_changed` notification (#128, epic #109)
+    // ===========================================================================
+    //
+    // `NotificationsService` is mocked here (see the provider comment above),
+    // so this is a CALL SITE test: does `updateUserRoles` call `notify` with the
+    // right event key, the right user, and — the property specific to this
+    // event — a payload that carries the roles BEFORE the change as well as
+    // after? The mandatory-overrides-preferences and both-channels properties
+    // are dispatcher behaviour and are proven with a real dispatcher wired to
+    // the real `UsersService` trigger in
+    // notifications/security-role-changed-wiring.spec.ts, alongside the
+    // failure-containment suite this file already references.
+    // ===========================================================================
+    describe('security.role_changed notification', () => {
+      it('fires on a real role update and carries the before state as well as the after', async () => {
+        const dto: UpdateUserRolesDto = {
+          roleNames: ['contributor'],
+        };
+
+        const updatedUser = {
+          ...mockOtherUser,
+          userRoles: [
+            {
+              userId: mockOtherUser.id,
+              roleId: 'contributor-role-id',
+              role: mockRoles.contributor,
+            },
+          ],
+          identities: [],
+        };
+
+        // `mockOtherUser` (the validation-lookup return) starts as `viewer` —
+        // that is the BEFORE state the transaction is about to destroy.
+        mockPrisma.user.findUnique
+          .mockResolvedValueOnce(mockOtherUser as any)
+          .mockResolvedValueOnce(updatedUser as any);
+        mockPrisma.role.findMany.mockResolvedValue([mockRoles.contributor] as any);
+        mockPrisma.$transaction.mockImplementation(async (callback) => {
+          return callback(mockPrisma);
+        });
+        mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+
+        await service.updateUserRoles(mockOtherUser.id, dto, mockAdminUser.id);
+
+        expect(mockNotifications.notify).toHaveBeenCalledTimes(1);
+        expect(mockNotifications.notify).toHaveBeenCalledWith(
+          'security.role_changed',
+          mockOtherUser.id,
+          expect.objectContaining({
+            recipientEmail: mockOtherUser.email,
+            previousRoles: ['viewer'],
+            currentRoles: ['contributor'],
+          }),
+        );
+      });
+
+      it('does NOT fire when the role update is rejected before the transaction runs', async () => {
+        // Self-removal of the admin's own admin role — rejected up front, no
+        // database write, no notification.
+        const dto: UpdateUserRolesDto = { roleNames: ['viewer'] };
+
+        await expect(
+          service.updateUserRoles(mockAdminUser.id, dto, mockAdminUser.id),
+        ).rejects.toThrow(ForbiddenException);
+
+        expect(mockNotifications.notify).not.toHaveBeenCalled();
+      });
+
+      it('does NOT fire when the target user does not exist', async () => {
+        const dto: UpdateUserRolesDto = { roleNames: ['viewer'] };
+        mockPrisma.user.findUnique.mockResolvedValue(null);
+
+        await expect(
+          service.updateUserRoles('non-existent-id', dto, mockAdminUser.id),
+        ).rejects.toThrow(NotFoundException);
+
+        expect(mockNotifications.notify).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('error handling', () => {
+      it('should throw NotFoundException when user does not exist', async () => {
+        const dto: UpdateUserRolesDto = {
+          roleNames: ['viewer'],
+        };
+
+        mockPrisma.user.findUnique.mockResolvedValue(null);
+
+        await expect(
+          service.updateUserRoles('non-existent-id', dto, mockAdminUser.id)
+        ).rejects.toThrow(NotFoundException);
+
+        await expect(
+          service.updateUserRoles('non-existent-id', dto, mockAdminUser.id)
+        ).rejects.toThrow('User with ID non-existent-id not found');
+      });
+
+      it('should throw BadRequestException when role does not exist', async () => {
+        const dto: UpdateUserRolesDto = {
+          roleNames: ['invalid-role'],
+        };
+
+        mockPrisma.user.findUnique.mockResolvedValue(mockOtherUser as any);
+        mockPrisma.role.findMany.mockResolvedValue([]); // No roles found
+
+        await expect(
+          service.updateUserRoles(mockOtherUser.id, dto, mockAdminUser.id)
+        ).rejects.toThrow(BadRequestException);
+
+        await expect(
+          service.updateUserRoles(mockOtherUser.id, dto, mockAdminUser.id)
+        ).rejects.toThrow('Invalid roles: invalid-role');
+      });
+
+      it('should throw BadRequestException when some roles are invalid', async () => {
+        const dto: UpdateUserRolesDto = {
+          roleNames: ['admin', 'invalid-role', 'another-invalid'],
+        };
+
+        mockPrisma.user.findUnique.mockResolvedValue(mockOtherUser as any);
+        mockPrisma.role.findMany.mockResolvedValue([mockRoles.admin] as any);
+
+        await expect(
+          service.updateUserRoles(mockOtherUser.id, dto, mockAdminUser.id)
+        ).rejects.toThrow(BadRequestException);
+
+        await expect(
+          service.updateUserRoles(mockOtherUser.id, dto, mockAdminUser.id)
+        ).rejects.toThrow('Invalid roles: invalid-role, another-invalid');
+      });
+    });
+  });
+  describe('principal cache invalidation (PP-1.12, #683)', () => {
+    it('updateUser invalidates the user after the write committed', async () => {
+      const order: string[] = [];
+      mockPrisma.user.findUnique.mockResolvedValue(mockOtherUser as any);
+      mockPrisma.user.update.mockImplementation((async () => {
+        order.push('user.update');
+        return { ...mockOtherUser, isActive: false, userRoles: [] };
+      }) as any);
+      mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+      principalCacheStub.invalidateUser.mockImplementation(() => order.push('invalidate'));
+
+      await service.updateUser(mockOtherUser.id, { isActive: false }, mockAdminUser.id);
+
+      expect(principalCacheStub.invalidateUser).toHaveBeenCalledWith(mockOtherUser.id);
+      expect(order).toEqual(['user.update', 'invalidate']);
+    });
+
+    it('updateUser invalidates even for a profile-only change', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(mockOtherUser as any);
+      mockPrisma.user.update.mockResolvedValue({ ...mockOtherUser, userRoles: [] } as any);
+      mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+
+      await service.updateUser(mockOtherUser.id, { displayName: 'New' }, mockAdminUser.id);
+
+      expect(principalCacheStub.invalidateUser).toHaveBeenCalledTimes(1);
+    });
+
+    it('updateUserRoles invalidates AFTER the transaction resolved, never inside it', async () => {
+      const order: string[] = [];
+      mockPrisma.user.findUnique.mockResolvedValue({
+        ...mockOtherUser,
+        userRoles: [{ role: mockRoles.admin }],
+        identities: [],
+      } as any);
+      mockPrisma.role.findMany.mockResolvedValue([mockRoles.viewer] as any);
+      mockPrisma.$transaction.mockImplementation((async (callback: any) => {
+        order.push('transaction:start');
+        const result = await callback(mockPrisma);
+        order.push('transaction:committed');
+        return result;
+      }) as any);
+      mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+      principalCacheStub.invalidateUser.mockImplementation(() => order.push('invalidate'));
+
+      await service.updateUserRoles(mockOtherUser.id, { roleNames: ['viewer'] }, mockAdminUser.id);
+
+      expect(principalCacheStub.invalidateUser).toHaveBeenCalledWith(mockOtherUser.id);
+      expect(order).toEqual(['transaction:start', 'transaction:committed', 'invalidate']);
+    });
+
+    it('updateUserRoles does not invalidate when the change is rejected before any write', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(mockOtherUser as any);
+      mockPrisma.role.findMany.mockResolvedValue([]);
+
+      await expect(
+        service.updateUserRoles(mockOtherUser.id, { roleNames: ['invalid-role'] }, mockAdminUser.id),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(principalCacheStub.invalidateUser).not.toHaveBeenCalled();
+    });
+  });
+
+  // ===========================================================================
+  // System roles vs org roles (#723, PP-6.3)
+  // ===========================================================================
+  describe('role mapping after the system/org split (#723)', () => {
+    const splitUser = (systemRoles: string[], orgRole: string | null, overrides: Record<string, unknown> = {}) => ({
+      ...mockOtherUser,
+      userRoles: systemRoles.map((name) => ({ role: (mockRoles as Record<string, any>)[name] })),
+      memberships: orgRole
+        ? [
+            {
+              orgId: 'org-default',
+              status: 'active',
+              lastActiveAt: new Date(),
+              org: { id: 'org-default', isDefault: true },
+              role: (mockRoles as Record<string, any>)[orgRole],
+            },
+          ]
+        : [],
+      identities: [],
+      ...overrides,
+    });
+
+    function arrangeUpdate(before: unknown, found: Array<keyof typeof mockRoles>) {
+      mockPrisma.user.findUnique.mockResolvedValueOnce(before as any).mockResolvedValue(splitUser([], 'viewer') as any);
+      mockPrisma.role.findMany.mockResolvedValue(found.map((name) => mockRoles[name]) as any);
+      mockPrisma.$transaction.mockImplementation(async (cb: any) => cb(mockPrisma));
+      mockPrisma.userRole.deleteMany.mockResolvedValue({ count: 0 } as any);
+      mockPrisma.userRole.createMany.mockResolvedValue({ count: 0 } as any);
+      mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+    }
+
+    it('reports system roles plus the current org role, an administrator as admin and org_admin', async () => {
+      mockPrisma.user.findMany.mockResolvedValue([splitUser(['admin'], 'org_admin'), splitUser([], 'contributor')] as any);
+      mockPrisma.user.count.mockResolvedValue(2);
+
+      const result = await service.listUsers({ page: 1, pageSize: 20, sortBy: 'createdAt', sortOrder: 'desc' });
+
+      expect(result.items.map((item) => item.roles)).toEqual([['admin', 'org_admin'], ['contributor']]);
+    });
+
+    it('does not report the role of a suspended membership', async () => {
+      const suspended = splitUser([], 'contributor');
+      (suspended.memberships[0] as any).status = 'suspended';
+      mockPrisma.user.findUnique.mockResolvedValue(suspended as any);
+
+      expect((await service.getUserById(mockOtherUser.id)).roles).toEqual([]);
+    });
+
+    describe('PUT roles in single-org mode', () => {
+      it('admin: sets the system admin role and org_admin on the default-org membership', async () => {
+        arrangeUpdate(splitUser([], 'viewer'), ['admin']);
+
+        await service.updateUserRoles(mockOtherUser.id, { roleNames: ['admin'] }, mockAdminUser.id);
+
+        expect(mockPrisma.userRole.createMany).toHaveBeenCalledWith({
+          data: [{ userId: mockOtherUser.id, roleId: mockRoles.admin.id }],
+        });
+        expect(mockPrisma.membership.upsert).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { orgId_userId: { orgId: 'org-default', userId: mockOtherUser.id } },
+            update: { roleId: mockRoles.org_admin.id },
+          }),
+        );
+      });
+
+      it('contributor: clears the system roles and sets the membership role', async () => {
+        arrangeUpdate(splitUser(['admin'], 'org_admin'), ['contributor']);
+
+        await service.updateUserRoles(mockOtherUser.id, { roleNames: ['contributor'] }, mockAdminUser.id);
+
+        expect(mockPrisma.userRole.deleteMany).toHaveBeenCalledWith({ where: { userId: mockOtherUser.id } });
+        expect(mockPrisma.userRole.createMany).not.toHaveBeenCalled();
+        expect(mockPrisma.membership.upsert).toHaveBeenCalledWith(
+          expect.objectContaining({ update: { roleId: mockRoles.contributor.id } }),
+        );
+      });
+
+      it('contributor + viewer: the highest org role wins', async () => {
+        arrangeUpdate(splitUser([], 'viewer'), ['viewer', 'contributor']);
+
+        await service.updateUserRoles(mockOtherUser.id, { roleNames: ['viewer', 'contributor'] }, mockAdminUser.id);
+
+        expect(mockPrisma.membership.upsert).toHaveBeenCalledWith(
+          expect.objectContaining({ update: { roleId: mockRoles.contributor.id } }),
+        );
+      });
+
+      it('reports the before and after roles in security.role_changed, in the same combined terms', async () => {
+        arrangeUpdate(splitUser(['admin'], 'org_admin'), ['viewer']);
+
+        await service.updateUserRoles(mockOtherUser.id, { roleNames: ['viewer'] }, mockAdminUser.id);
+
+        expect(mockNotifications.notify).toHaveBeenCalledWith(
+          'security.role_changed',
+          mockOtherUser.id,
+          expect.objectContaining({ previousRoles: ['admin', 'org_admin'], currentRoles: ['viewer'] }),
+        );
+      });
+    });
+
+    describe('PUT roles in multi-org mode', () => {
+      let modeSpy: jest.SpyInstance;
+      beforeEach(() => {
+        modeSpy = jest.spyOn(tenancyMode, 'currentTenancyMode').mockReturnValue('multi');
+      });
+      afterEach(() => modeSpy.mockRestore());
+
+      it('rejects an org role name with 400, pointing to the organization member endpoints', async () => {
+        arrangeUpdate(splitUser([], 'viewer'), ['contributor']);
+
+        const attempt = service.updateUserRoles(mockOtherUser.id, { roleNames: ['contributor'] }, mockAdminUser.id);
+
+        await expect(attempt).rejects.toBeInstanceOf(BadRequestException);
+        await expect(
+          service.updateUserRoles(mockOtherUser.id, { roleNames: ['contributor'] }, mockAdminUser.id),
+        ).rejects.toThrow(/organization member endpoints/);
+        expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+      });
+
+      it('changes the system roles only and leaves the membership alone', async () => {
+        arrangeUpdate(splitUser([], 'contributor'), ['admin']);
+
+        await service.updateUserRoles(mockOtherUser.id, { roleNames: ['admin'] }, mockAdminUser.id);
+
+        expect(mockPrisma.userRole.createMany).toHaveBeenCalledWith({
+          data: [{ userId: mockOtherUser.id, roleId: mockRoles.admin.id }],
+        });
+        expect(mockPrisma.membership.upsert).not.toHaveBeenCalled();
+      });
+    });
+  });
+});

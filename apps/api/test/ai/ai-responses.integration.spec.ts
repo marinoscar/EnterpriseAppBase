@@ -23,7 +23,7 @@ import http from 'node:http';
 
 import request from 'supertest';
 
-import { PERMISSIONS_KEY } from '../../src/auth/decorators/permissions.decorator';
+import { PERMISSIONS_KEY } from '@marinoscar/platform-api/identity';
 import { AiEnabledGuard } from '../../src/ai/config/ai-enabled.guard';
 import { AiError } from '../../src/ai/core/ai-error';
 import type { AiStreamEvent } from '../../src/ai/core/types/responses.types';

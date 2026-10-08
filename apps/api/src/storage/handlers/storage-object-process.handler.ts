@@ -54,7 +54,7 @@ import type { Job, StorageObject } from '@prisma/client';
 import { JOB_SETTLED_EVENT, type JobSettledEvent } from '../../jobs/events/job-settled.event';
 import { JobHandler } from '../../jobs/job-handler.interface';
 import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
-import { resolveJobOrgId } from '../../organizations/org-scope';
+import { resolveJobOrgId } from '@marinoscar/platform-api/identity';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ObjectProcessingService } from '../processing/object-processing.service';
 import {

@@ -39,7 +39,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 
 import { JobsService } from '../../jobs/jobs.service';
-import { resolveJobOrgId } from '../../organizations/org-scope';
+import { resolveJobOrgId } from '@marinoscar/platform-api/identity';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { StoredAiSpeechRunRequest, StoredAiTranscriptionRunRequest } from './ai-audio-run-request';
 import type { StoredAiImageRunRequest } from './ai-image-run-request';

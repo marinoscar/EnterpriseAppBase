@@ -27,7 +27,7 @@ import request from 'supertest';
 
 import { createOpenApiDocument } from '../../src/openapi/document';
 import { forEachOperation, MutableDocument } from '../../src/openapi/types';
-import { RBAC_EXTENSION_KEY, type RbacExtension } from '../../src/auth/decorators/auth.decorator';
+import { RBAC_EXTENSION_KEY, type RbacExtension } from '@marinoscar/platform-api/identity';
 import { ROLE_PERMISSIONS } from '../../prisma/seed-data';
 import { TestContext, createTestApp, closeTestApp } from '../helpers/test-app.helper';
 import { resetPrismaMock } from '../mocks/prisma.mock';

@@ -28,16 +28,21 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import type { PrismaClient } from '@prisma/client';
 
-import { AuthService } from '../../src/auth/auth.service';
-import { PRINCIPAL_USER_INCLUDE } from '../../src/auth/principal.factory';
-import { PrincipalCache } from '../../src/auth/principal-cache/principal-cache.service';
-import { recordTenancyMode } from '../../src/auth/tenancy-mode';
+import {
+  AuthService,
+  PRINCIPAL_USER_INCLUDE,
+  PrincipalCache,
+  recordTenancyMode,
+  OrganizationsService,
+  TenancyService,
+  PatService,
+} from '@marinoscar/platform-api/identity';
 import { InProcessEventBus } from '../../src/common/event-bus/in-process-event-bus';
-import { OrganizationsService } from '../../src/organizations/organizations.service';
-import { TenancyService } from '../../src/organizations/tenancy.service';
-import { PatService } from '../../src/pat/pat.service';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
+import { AppProfileImages, AppUserDefaults } from '../../src/platform/identity/identity-user.adapters';
+import { asIdentityPrisma } from '../../src/platform/identity/identity-db';
+
 
 const { describeWithDb } = resolveDbSuite('org-bound-credentials.db.spec');
 
@@ -60,7 +65,7 @@ describeWithDb('org-bound credentials (real Postgres, #724)', () => {
       tenancy: { mode },
     });
     return new AuthService(
-      client as unknown as PrismaService,
+      asIdentityPrisma(client as unknown as PrismaService),
       jwt,
       config,
       {} as never,
@@ -69,6 +74,9 @@ describeWithDb('org-bound credentials (real Postgres, #724)', () => {
       cache,
       organizations,
       new TenancyService(config),
+      undefined,
+      new AppUserDefaults(),
+      new AppProfileImages(),
     );
   }
 
@@ -100,8 +108,8 @@ describeWithDb('org-bound credentials (real Postgres, #724)', () => {
     client = createDbClient();
     jwt = new JwtService({ secret: 'org-bound-credentials-db-spec' });
     cache = new PrincipalCache(new ConfigService({}), new InProcessEventBus());
-    organizations = new OrganizationsService(client as unknown as PrismaService, cache);
-    pats = new PatService(client as unknown as PrismaService, cache);
+    organizations = new OrganizationsService(asIdentityPrisma(client as unknown as PrismaService), cache);
+    pats = new PatService(asIdentityPrisma(client as unknown as PrismaService), cache);
     defaultOrgId = (await client.organization.findFirstOrThrow({ where: { isDefault: true } })).id;
     viewerRoleId = (await client.role.findUniqueOrThrow({ where: { name: 'viewer' } })).id;
   });
