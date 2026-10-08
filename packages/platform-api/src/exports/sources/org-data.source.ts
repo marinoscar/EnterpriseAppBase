@@ -25,7 +25,7 @@
 import { z } from 'zod';
 
 import { modelOwnershipRegistry, orgFieldOf, userOwnedModelRegistry } from '../../core/index';
-import type { ExportDatamodelModel } from '../datamodel';
+import { isDate, type ExportDatamodelModel } from '../datamodel';
 import type { ExportContext, ExportRow, ExportSource, ExportTable } from '../export.types';
 import { modelTable } from './model-table';
 
@@ -83,7 +83,7 @@ function membersTable(ctx: ExportContext): ExportTable {
           email: member.user?.email ?? null,
           role: member.role?.name ?? null,
           status: typeof member.status === 'string' ? member.status : null,
-          joined_at: member.createdAt instanceof Date ? member.createdAt.toISOString() : null,
+          joined_at: isDate(member.createdAt) ? member.createdAt.toISOString() : null,
         };
       }
       if (page.length < pageSize) return;

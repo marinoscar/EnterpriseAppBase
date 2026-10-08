@@ -90,6 +90,7 @@ export {
   datasetTitleOf,
   delegateNameOf,
   exportColumnsOf,
+  isDate,
   isRedactedExportField,
   toExportCell,
 } from './datamodel';

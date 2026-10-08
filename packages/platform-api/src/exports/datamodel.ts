@@ -191,7 +191,7 @@ export function exportColumnsOf(model: ExportDatamodelModel, omit: readonly stri
  */
 export function toExportCell(value: unknown, column: ExportColumn): ExportCell {
   if (value === null || value === undefined) return null;
-  if (value instanceof Date) return value.toISOString();
+  if (isDate(value)) return value.toISOString();
   if (typeof value === 'bigint') {
     return value <= BigInt(Number.MAX_SAFE_INTEGER) && value >= BigInt(Number.MIN_SAFE_INTEGER) ? Number(value) : value.toString();
   }
@@ -204,6 +204,18 @@ export function toExportCell(value: unknown, column: ExportColumn): ExportCell {
     return Number.isFinite(n) ? n : String(value);
   }
   return JSON.stringify(value);
+}
+
+/**
+ * Whether `value` is a `Date`, from any realm (a test sandbox, a worker).
+ *
+ * @param value - anything.
+ * @returns `true` for a date.
+ *
+ * @stability experimental
+ */
+export function isDate(value: unknown): value is Date {
+  return Object.prototype.toString.call(value) === '[object Date]';
 }
 
 /**
