@@ -19,7 +19,7 @@
 import { Injectable } from '@nestjs/common';
 import type { NormalizedProfileSettings, SettingsProfileImages } from '@marinoscar/platform-api/settings';
 
-import { isAvatarObjectFor, normalizeProfileSettings } from '../../common/profile-image/profile-image';
+import { isAvatarObjectFor, normalizeProfileSettings } from '@marinoscar/platform-api/storage';
 import { PrismaSystemService } from '../../prisma/prisma-system.service';
 
 @Injectable()

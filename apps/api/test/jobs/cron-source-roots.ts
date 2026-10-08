@@ -32,6 +32,9 @@ export const JOBS_SLICE_SOURCE_ROOT = join(REPO, 'packages', 'platform-api', 'sr
 /** The packaged nodes slice's source root (#734: the fleet crons and the secret sweep). */
 export const NODES_SLICE_SOURCE_ROOT = join(REPO, 'packages', 'platform-api', 'src', 'nodes');
 
+/** The packaged storage slice's source root (#736: the stale-upload cleanup cron). */
+export const STORAGE_SLICE_SOURCE_ROOT = join(REPO, 'packages', 'platform-api', 'src', 'storage');
+
 /** Every root the rule scans. */
 export const CRON_SOURCE_ROOTS: readonly string[] = [
   API_SOURCE_ROOT,
@@ -39,4 +42,5 @@ export const CRON_SOURCE_ROOTS: readonly string[] = [
   SHARING_SLICE_SOURCE_ROOT,
   JOBS_SLICE_SOURCE_ROOT,
   NODES_SLICE_SOURCE_ROOT,
+  STORAGE_SLICE_SOURCE_ROOT,
 ];

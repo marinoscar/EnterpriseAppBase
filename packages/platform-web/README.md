@@ -19,6 +19,7 @@ Status: pre-release (version `0.0.0`). The root export is only the package name 
 - `@marinoscar/platform-web/onboarding/headless` and `@marinoscar/platform-web/onboarding/ui`: `OnboardingProvider` and `useOnboarding`, the welcome dialog, the checklist, the Setup guide and Getting started pages, the Activation section, `FeatureUnavailableNotice` and its registry, and the "Getting started" menu item (#745). [README](src/onboarding/README.md).
 - `@marinoscar/platform-web/email/headless` and `@marinoscar/platform-web/email/ui`: the email settings hook `useEmailSettings` and the `/admin/settings/email` page `EmailSettingsPage` (#737). [README](src/email/README.md).
 - `@marinoscar/platform-web/jobs/headless` and `@marinoscar/platform-web/jobs/ui`: the job queue and worker-fleet client, hooks and adapters, and the Jobs, Job Insights and Worker Nodes pages with their registry entries (#854). [README](src/jobs/README.md).
+- `@marinoscar/platform-web/storage/headless` and `@marinoscar/platform-web/storage/ui`: the storage config hook `useStorageConfig`, the storage-config and objects clients, and the `/admin/settings/storage` page `StorageConfigPage` with its switch dialog (#736). [README](src/storage/README.md).
 
 ## Install and peer dependencies
 

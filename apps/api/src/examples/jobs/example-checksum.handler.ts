@@ -72,9 +72,9 @@ import { createHash } from 'node:crypto';
 
 import { resolveJobOrgId } from '@marinoscar/platform-api/identity';
 import { PrismaService } from '../../prisma/prisma.service';
-import { STORAGE_PROVIDER } from '../../storage/providers/storage-provider.interface';
-import type { StorageProvider } from '../../storage/providers/storage-provider.interface';
-import { resolveStorageObjectInput } from '../../storage/storage-job-input';
+import { STORAGE_PROVIDER } from '@marinoscar/platform-api/storage';
+import type { StorageProvider } from '@marinoscar/platform-api/storage';
+import { resolveStorageObjectInput } from '@marinoscar/platform-api/storage';
 import {
   ExampleChecksumResult,
   exampleChecksumResultSchema,

@@ -443,10 +443,14 @@ describe('the Storage card (#376)', () => {
     // Read off the API workspace rather than restated, so a rename on either
     // side fails here instead of in production. This is the mechanical half of
     // CLAUDE.md Settings UI Pattern rule 3.
-    const API_SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../api/src');
+    // The controller is the storage slice's since #736.
+    const PLATFORM_API_SRC = resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      '../../../../../packages/platform-api/src',
+    );
     const rolesConstants = readApiPermissionConstants();
     const storageConfigController = readFileSync(
-      resolve(API_SRC, 'storage/config/storage-config.controller.ts'),
+      resolve(PLATFORM_API_SRC, 'storage/config/storage-config.controller.ts'),
       'utf8',
     );
 

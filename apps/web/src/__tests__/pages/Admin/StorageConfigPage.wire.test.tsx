@@ -27,8 +27,8 @@ import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { render, mockAdminUser } from '../../utils/test-utils';
 import { server } from '../../mocks/server';
-import StorageConfigPage from '../../../pages/Admin/StorageConfigPage';
-import type { StorageConfigView } from '../../../services/storageConfig';
+import StorageConfigPage from '@marinoscar/platform-web/storage/ui';
+import type { StorageConfigView } from '@marinoscar/platform-web/storage/headless';
 
 const storedConfig: StorageConfigView = {
   provider: 's3compatible',

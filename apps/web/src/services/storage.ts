@@ -15,100 +15,64 @@
  *
  * ⚠ A SIGNED URL IS A BEARER CREDENTIAL for its lifetime: it is fetched when
  * needed, kept in memory only, and never logged or stored.
+ *
+ * Since #736 the calls are the storage slice's objects client
+ * (`createStorageObjectsClient` of `@marinoscar/platform-web/storage/headless`),
+ * bound here to the app's transport; this module keeps its function names so
+ * the AI components and their tests are unchanged.
  */
+import {
+  StorageObjectNotReadyError,
+  createStorageObjectsClient,
+  type StorageDownloadUrl,
+  type StorageObject,
+  type StorageObjectStatus,
+  type WaitForReadyOptions,
+} from '@marinoscar/platform-web/storage/headless';
+
 import { api } from './api';
 import type { StorageStatus } from '../types';
 
-export type StorageObjectStatus = 'pending' | 'uploading' | 'processing' | 'ready' | 'failed';
+export { StorageObjectNotReadyError };
+export type { StorageDownloadUrl, StorageObject, StorageObjectStatus, WaitForReadyOptions };
 
-/** `GET /storage/objects/:id` and the upload response. */
-export interface StorageObject {
-  id: string;
-  name: string;
-  /** Bytes, as a decimal string (64-bit on the server). */
-  size: string;
-  mimeType: string;
-  status: StorageObjectStatus;
-  metadata: Record<string, unknown> | null;
-  createdAt: string;
-  updatedAt: string;
+const objects = () => createStorageObjectsClient(api);
+
+/** `GET /storage/status`: whether the deployment has object storage at all. */
+export async function getStorageStatus(): Promise<StorageStatus> {
+  return objects().status();
 }
 
-/** `GET /storage/objects/:id/download`. */
-export interface StorageDownloadUrl {
-  /** Time-limited signed URL; fetched directly, without an Authorization header. */
-  url: string;
-  /** Seconds until the URL stops working. */
-  expiresIn: number;
+/** Upload one file (`POST /storage/objects`, multipart). Resolves with the object, usually still `processing`. */
+export async function uploadStorageObject(file: File): Promise<StorageObject> {
+  return objects().upload(file);
+}
+
+/** One of the caller's own objects. */
+export async function getStorageObject(id: string): Promise<StorageObject> {
+  return objects().get(id);
+}
+
+/** A short-lived signed URL for one of the caller's own objects. */
+export async function getStorageObjectDownloadUrl(id: string): Promise<StorageDownloadUrl> {
+  return objects().downloadUrl(id);
 }
 
 /**
- * `GET /storage/status` — `storage:read`. Whether an administrator has
- * configured object storage, and nothing else: no provider, bucket or
- * credential ever reaches the browser. Used to replace an upload control
- * that would fail with a notice; the API still refuses the upload itself.
+ * Polls until `object` is `ready`; rejects with {@link StorageObjectNotReadyError}
+ * on `failed` or after `timeoutMs`.
  */
-export async function getStorageStatus(): Promise<StorageStatus> {
-  return api.get<StorageStatus>('/storage/status');
-}
-
-/** `POST /storage/objects` — a simple (single-request) upload. */
-export async function uploadStorageObject(file: File): Promise<StorageObject> {
-  const formData = new FormData();
-  formData.append('file', file);
-  return api.postFormData<StorageObject>('/storage/objects', formData);
-}
-
-export async function getStorageObject(id: string): Promise<StorageObject> {
-  return api.get<StorageObject>(`/storage/objects/${encodeURIComponent(id)}`);
-}
-
-export async function getStorageObjectDownloadUrl(id: string): Promise<StorageDownloadUrl> {
-  return api.get<StorageDownloadUrl>(`/storage/objects/${encodeURIComponent(id)}/download`);
-}
-
-/** Thrown when an uploaded object ends `failed` or never becomes `ready`. */
-export class StorageObjectNotReadyError extends Error {
-  constructor(
-    readonly objectId: string,
-    readonly status: StorageObjectStatus | 'timeout',
-  ) {
-    super(
-      status === 'timeout'
-        ? 'The uploaded file is still being processed. Try again in a moment.'
-        : 'The uploaded file could not be processed.',
-    );
-    this.name = 'StorageObjectNotReadyError';
-  }
-}
-
-export interface WaitForReadyOptions {
-  /** Between reads; 500 ms by default. */
-  intervalMs?: number;
-  /** Give up after this long; 30 s by default. */
-  timeoutMs?: number;
-}
-
-/** Poll an object until it is `ready`; throws {@link StorageObjectNotReadyError} otherwise. */
 export async function waitForStorageObjectReady(
   object: StorageObject,
-  { intervalMs = 500, timeoutMs = 30_000 }: WaitForReadyOptions = {},
+  options: WaitForReadyOptions = {},
 ): Promise<StorageObject> {
-  const deadline = Date.now() + timeoutMs;
-  let current = object;
-  while (current.status !== 'ready') {
-    if (current.status === 'failed') throw new StorageObjectNotReadyError(current.id, 'failed');
-    if (Date.now() >= deadline) throw new StorageObjectNotReadyError(current.id, 'timeout');
-    await new Promise((resolve) => setTimeout(resolve, intervalMs));
-    current = await getStorageObject(current.id);
-  }
-  return current;
+  return objects().waitForReady(object, options);
 }
 
-/** Upload a file and resolve once it is `ready` for an AI call to read. */
+/** {@link uploadStorageObject}, then {@link waitForStorageObjectReady}: the one call a feature should make. */
 export async function uploadStorageObjectAndWait(
   file: File,
   options?: WaitForReadyOptions,
 ): Promise<StorageObject> {
-  return waitForStorageObjectReady(await uploadStorageObject(file), options);
+  return objects().uploadAndWait(file, options);
 }

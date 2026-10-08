@@ -68,30 +68,9 @@ export const maintenanceResponseSchema = z.object({
   startedById: z.string().nullable(),
 });
 
-// #373, epic #372 — the storage provider configuration, published for the
-// same reason the operations namespaces above are: a block this response
-// omits is a block no client can echo back in a PUT.
-//
-// THERE IS NO `secretAccessKey` FIELD AND THERE MUST NEVER BE ONE. The
-// secret half of the storage credential lives in the encrypted credential
-// store at `(purpose 'storage', name 'default')` and is returned by nothing.
-// `accessKeyId` is published deliberately: it is an identifier that travels
-// in the clear in every SigV4 request, and an administrator who cannot see
-// which key id is configured cannot tell a rotated key from a mistyped one.
-// See `common/schemas/settings.schema.ts` for the full argument and its
-// compile-time proof.
-export const storageResponseSchema = z.object({
-  provider: z.enum(['s3', 'r2', 's3compatible']),
-  bucket: z.string(),
-  region: z.string(),
-  endpoint: z.string(),
-  accountId: z.string(),
-  accessKeyId: z.string(),
-  // Tri-state, and `null` is published as `null` rather than coerced to
-  // `false`: an administrator reading this must be able to tell "I have not
-  // chosen" from "I chose virtual-host style". See `systemStorageSchema`.
-  forcePathStyle: z.boolean().nullable(),
-});
+// #373: the storage provider configuration's branch lives in
+// `@marinoscar/platform-contract/storage` since #736, re-exported unchanged.
+export { storageResponseSchema } from '@marinoscar/platform-contract/storage';
 
 // #423, epic #419, umbrella #418 — the AI platform policy, published for
 // the same reason the operations namespaces and `storage` above are: a

@@ -17,16 +17,21 @@ import { join, relative, sep } from 'node:path';
 const SRC = join(__dirname, '..', '..', 'src');
 
 /**
+ * The packaged storage slice (#736): it reaches the bypass client through its
+ * `STORAGE_SYSTEM_DATA` port (bound above), so its acquisitions are checked
+ * for a reason from the closed list too.
+ */
+const STORAGE_SLICE_SRC = join(__dirname, '..', '..', '..', '..', 'packages', 'platform-api', 'src', 'storage');
+
+/**
  * Files that may mention PrismaSystemService, each with why. Relative to
  * apps/api/src, forward slashes.
  */
 const ALLOWLIST: Record<string, string> = {
   'prisma/prisma-system.service.ts': 'defines it',
   'prisma/prisma.module.ts': 'provides and exports it',
-  'storage/handlers/storage-cleanup.handler.ts': 'purge: reclaims every organization\'s stale uploads',
-  'storage/config/storage-config-admin.service.ts': 'admin-aggregate: counts stranded objects across organizations',
-  'settings/profile-image/avatar.service.ts': 'admin-aggregate: public avatar route has no principal; display only, one row by id',
-  'settings/profile-image/profile-image.service.ts': 'purge: removes the user\'s own previous avatar across an org switch',
+  'platform/storage/storage-host.module.ts':
+    'purge and admin-aggregate: the storage slice\'s STORAGE_SYSTEM_DATA port (#736): the stale-upload sweep (purge), the stranded-object count (admin-aggregate), the public avatar route (admin-aggregate) and the previous avatar removed across an org switch (purge)',
   'platform/settings/settings-profile-images.adapter.ts':
     'admin-aggregate: the settings slice\'s profile-image port validates the user\'s own avatar row across an org switch',
   'ai/runtime/ai-runs-purge.handler.ts': 'retention',
@@ -87,7 +92,7 @@ describe('PrismaSystemService injection boundary', () => {
   it('gives every system acquisition a reason from the closed list', () => {
     const reasons = ['backup', 'restore', 'purge', 'doctor', 'retention', 'admin-aggregate', 'migration-tooling', 'link-resolution'];
     const bad: string[] = [];
-    for (const file of sources(SRC)) {
+    for (const file of [...sources(SRC), ...sources(STORAGE_SLICE_SRC)]) {
       for (const match of code(file).matchAll(/\.(?:asSystem|runAsSystem)\(\s*'([^']*)'/g)) {
         if (!reasons.includes(match[1]!)) bad.push(`${relative(SRC, file)}: ${match[1]}`);
       }

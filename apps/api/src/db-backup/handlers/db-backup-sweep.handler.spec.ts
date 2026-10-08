@@ -5,7 +5,7 @@ import type { Job } from '@prisma/client';
 import type { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
-import type { StorageProvider } from '../../storage/providers/storage-provider.interface';
+import type { StorageProvider } from '@marinoscar/platform-api/storage';
 import type { SystemDatabaseBackupValue } from '../../common/schemas/settings.schema';
 import type { NotificationsService } from '../../notifications/notifications.service';
 import type {

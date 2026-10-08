@@ -93,7 +93,7 @@ READMEs that live next to the code they describe.
 | [../packages/platform-cli/src/engine/node/executors/README.md](../packages/platform-cli/src/engine/node/executors/README.md) | The CLI side of a node-eligible job type |
 | [../apps/api/src/ai/README.md](../apps/api/src/ai/README.md) | Using AI from a feature; the AI module's map |
 | [../apps/api/src/notifications/README.md](../apps/api/src/notifications/README.md) | Adding a notification; the notifications module's map |
-| [../apps/api/src/storage/processing/processors/README.md](../apps/api/src/storage/processing/processors/README.md) | Post-upload storage object processors |
+| [../apps/api/src/examples/storage/README.md](../apps/api/src/examples/storage/README.md) | Post-upload storage object processors (the `ObjectProcessorRegistry` recipe) |
 | [../packages/platform-api/src/identity/device-auth/README.md](../packages/platform-api/src/identity/device-auth/README.md) | Device flow reference: schemas, fields, security rationale |
 | [../apps/api/scripts/README.md](../apps/api/scripts/README.md) | The `prisma-env.js` wrapper that builds `DATABASE_URL` |
 | [../packages/shared/README.md](../packages/shared/README.md) | Product identity: name and brand colours shared by every app |

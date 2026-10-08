@@ -10,6 +10,11 @@ import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import fastifyCookie from '@fastify/cookie';
 import multipart from '@fastify/multipart';
+import {
+  STORAGE_OPTIONS,
+  simpleUploadFileSizeLimit,
+  type ResolvedStorageModuleOptions,
+} from '@marinoscar/platform-api/storage';
 import { AppModule } from './app.module';
 import { PrismaService } from './prisma/prisma.service';
 import { verifyEncryptionKeyAtStartup } from '@marinoscar/platform-api/core';
@@ -104,14 +109,13 @@ async function bootstrap() {
   // smaller (#519), so a deployment limit below 100MB also binds this route.
   // Larger files go through the resumable upload, which `ObjectsService`
   // checks against the same `storage.maxFileSize`.
-  const simpleUploadCeiling = 100 * 1024 * 1024;
+  // The ceiling is `StorageModule.forRoot({ maxSimpleUploadBytes })` (#736;
+  // default 100MB, `DEFAULT_MAX_SIMPLE_UPLOAD_BYTES`).
+  const storageOptions = app.get<ResolvedStorageModuleOptions>(STORAGE_OPTIONS, { strict: false });
   const maxFileSize = app.get(ConfigService).get<number>('storage.maxFileSize');
   await app.register(multipart, {
     limits: {
-      fileSize:
-        typeof maxFileSize === 'number' && Number.isFinite(maxFileSize) && maxFileSize > 0
-          ? Math.min(simpleUploadCeiling, maxFileSize)
-          : simpleUploadCeiling,
+      fileSize: simpleUploadFileSizeLimit(maxFileSize, storageOptions.maxSimpleUploadBytes),
       files: 1,
     },
   });

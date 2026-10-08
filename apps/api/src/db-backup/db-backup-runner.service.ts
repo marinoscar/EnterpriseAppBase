@@ -23,9 +23,9 @@ import { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import {
   STORAGE_PROVIDER,
   type StorageProvider,
-} from '../storage/providers/storage-provider.interface';
+} from '@marinoscar/platform-api/storage';
 import type { SystemDatabaseBackupValue } from '../common/schemas/settings.schema';
-import { StorageConfigService } from '../storage/config/storage-config.service';
+import { StorageConfigService } from '@marinoscar/platform-api/storage';
 import type { StorageProviderKind } from '../common/schemas/settings.schema';
 import {
   assertUsableStorageProvider,

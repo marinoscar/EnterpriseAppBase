@@ -19,22 +19,22 @@ below. See §6 for what that looks like and how to tell it apart from other outa
 
 Source of truth for every claim below:
 
-- `apps/api/src/storage/config/storage-config.ts` — `resolveStorageConfig`,
+- `packages/platform-api/src/storage/config/storage-config.ts` — `resolveStorageConfig`,
   the single definition of "configured," and its per-provider field
   requirements.
-- `apps/api/src/storage/config/storage-config-admin.service.ts` — the read
+- `packages/platform-api/src/storage/config/storage-config-admin.service.ts` — the read
   and write path behind the admin API, including the switch gate.
-- `apps/api/src/storage/config/storage-connection-test.service.ts` — the
+- `packages/platform-api/src/storage/config/storage-connection-test.service.ts` — the
   four checks `POST /test` runs.
-- `apps/api/src/storage/config/storage-bucket-provision.service.ts` — the
+- `packages/platform-api/src/storage/config/storage-bucket-provision.service.ts` — the
   four steps `POST /bucket` runs, and the `guided` fallback.
-- `apps/api/src/storage/providers/s3/s3-storage.provider.ts` —
+- `packages/platform-api/src/storage/providers/s3/s3-storage.provider.ts` —
   `buildS3ClientConfig`, the one function that turns a resolved
   configuration into what the AWS SDK actually does per provider.
-- `apps/api/src/storage/config/storage-not-configured.error.ts` — the `503`
+- `packages/platform-api/src/storage/config/storage-not-configured.error.ts` — the `503`
   every storage call answers with while nothing is configured.
-- `apps/web/src/pages/Admin/StorageConfigPage.tsx` and
-  `apps/web/src/components/admin/StorageSwitchConfirmDialog.tsx` — the admin
+- `packages/platform-web/src/storage/ui/StorageConfigPage.tsx` and
+  `packages/platform-web/src/storage/ui/StorageSwitchConfirmDialog.tsx` — the admin
   UI.
 - `infra/compose/.env.example` — confirms there is nothing storage-specific
   to set there.

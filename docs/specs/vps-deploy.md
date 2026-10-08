@@ -348,7 +348,7 @@ typed back:
   only the running application can decrypt the runtime-configured storage
   credential. A purge that does not happen stops the uninstall. It deletes
   only objects under the registered storage key prefixes
-  (`apps/api/src/storage/storage-key-prefix.registry.ts`, platform and app).
+  (`packages/platform-api/src/storage/storage-key-prefix.registry.ts`, platform and app).
 - `--drop-database --confirm-database <name>`: after `down -v`, drops the
   database via `psql` in a throwaway `postgres:16-alpine` container
   (`--network host`, password by name, `PGSSLMODE=require` when

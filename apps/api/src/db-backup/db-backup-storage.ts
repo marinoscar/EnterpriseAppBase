@@ -101,7 +101,7 @@
 // at the exact moment nobody is reading it.
 // =============================================================================
 
-import { DATABASE_BACKUPS_KEY_PREFIX } from '../storage/storage-key-prefixes';
+import { DATABASE_BACKUPS_KEY_PREFIX } from '../platform/storage/storage-key-prefixes';
 import { APP_NAME } from '@app/shared';
 
 import { DatabaseBackupStorageProviderError } from './db-backup.errors';

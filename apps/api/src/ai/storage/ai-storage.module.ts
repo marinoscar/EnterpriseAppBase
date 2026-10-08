@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 
-import { StorageProvidersModule } from '../../storage/providers/storage-providers.module';
+import { StorageProvidersModule } from '@marinoscar/platform-api/storage';
 import { AiOutputWriter } from './ai-output-writer';
 import { AiStorageInputResolver } from './ai-storage-input.resolver';
 

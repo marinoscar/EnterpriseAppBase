@@ -24,7 +24,7 @@ import { DATABASE_BACKUP_SYSTEM_SETTINGS } from '../../db-backup/db-backup.syste
 import { JOBS_SYSTEM_SETTINGS } from '../../platform/jobs/jobs.system-settings';
 import { NODES_SYSTEM_SETTINGS } from '../../platform/jobs/nodes.system-settings';
 import { NOTIFICATIONS_SYSTEM_SETTINGS } from '../../notifications/notifications.system-settings';
-import { STORAGE_SYSTEM_SETTINGS } from '../../storage/config/storage.system-settings';
+import { STORAGE_SYSTEM_SETTINGS } from '../../platform/storage/storage.system-settings';
 import { TELEMETRY_SYSTEM_SETTINGS } from '../../platform/telemetry/telemetry.system-settings';
 import {
   extendSystemSettingsNamespace,

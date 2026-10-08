@@ -19,7 +19,6 @@ import { notificationEventKeySchema } from './user-settings-namespaces.schema';
 import {
   MAX_DISABLED_NOTIFICATION_EVENTS,
   BACKUP_TIME_OF_DAY_PATTERN,
-  STORAGE_PROVIDER_KINDS,
   AI_KEY_POLICIES,
   AI_USAGE_RETENTION_MAX_DAYS,
   AI_MCP_ALLOWED_HOST_PATTERN,
@@ -140,41 +139,10 @@ export const maintenanceSettingsSchema = z.object({
   startedById: z.string().uuid().nullable(),
 });
 
-// =============================================================================
-// Storage provider configuration on the wire (#373, epic #372)
-// =============================================================================
-//
-// Restated here rather than imported, for the reason at the top of this file:
-// these are the OpenAPI-visible request schemas. Optional in the PUT body like
-// the operations namespaces above, and for the identical reason — this block
-// ships ahead of every client that knows it exists, so requiring it would 400
-// every PUT from this repo's own settings page the moment it merges.
-//
-// NO `secretAccessKey` FIELD, ON EITHER SCHEMA, EVER. The secret access key is
-// written through the credential store (#115, epic #108) at
-// `(purpose 'storage', name 'default')`, not through this document. Accepting it
-// here would put it in the request body of an endpoint whose audit rows record
-// the full merged value, and in the response of the GET that follows. See
-// `common/schemas/settings.schema.ts`, which carries the argument and a
-// compile-time proof of the absence. `accessKeyId` is fine: it is an identifier
-// that rides in the clear in every SigV4 `Authorization` header, the counterpart
-// of `smtpUsername`.
-//
-// Bounds mirror `systemStorageSchema` exactly. No `.min(1)` on the strings:
-// empty means "not configured", which is a legal state and the one a fresh
-// deployment is in.
-
-export const storageSettingsSchema = z.object({
-  provider: z.enum(STORAGE_PROVIDER_KINDS),
-  bucket: z.string().trim().max(255),
-  region: z.string().trim().max(255),
-  endpoint: z.string().trim().max(512),
-  accountId: z.string().trim().max(255),
-  accessKeyId: z.string().trim().max(255),
-  // Tri-state, mirroring `systemStorageSchema`: `null` is "use this vendor's
-  // convention" and is what a fresh deployment holds.
-  forcePathStyle: z.boolean().nullable(),
-});
+// Storage provider configuration on the wire (#373): `storageSettingsSchema`
+// and `storageSettingsPatchSchema` live in `@marinoscar/platform-contract/storage`
+// since #736, re-exported here unchanged.
+export { storageSettingsPatchSchema, storageSettingsSchema } from '@marinoscar/platform-contract/storage';
 
 // =============================================================================
 // AI platform policy on the wire (#423, epic #419, umbrella #418)
@@ -412,29 +380,6 @@ export const maintenanceSettingsPatchSchema = z.object({
   allowAdmins: z.boolean().optional(),
   startedAt: z.iso.datetime().nullable().optional(),
   startedById: z.string().uuid().nullable().optional(),
-});
-
-// #373, epic #372. THE LINE THAT MAKES A STORAGE PATCH DO ANYTHING AT ALL.
-// Without it `PATCH { "storage": { "bucket": "my-bucket" } }` parses to `{}`
-// in the global ZodValidationPipe, the service merges nothing, the row is
-// rewritten unchanged and the endpoint answers 200 with a body that looks
-// right — no error, no log line, no audit entry. `common/schemas/settings-parity.spec.ts`
-// is what fails the build if this is ever dropped.
-//
-// An empty string here CLEARS a string field (`''` is how a string says
-// "un-configure this"); absent leaves the stored value alone. The one
-// nullable field, `forcePathStyle`, says the same thing with an explicit
-// `null` — see `systemStorageSchema` for why a boolean needs a third state.
-export const storageSettingsPatchSchema = z.object({
-  provider: z.enum(STORAGE_PROVIDER_KINDS).optional(),
-  bucket: z.string().trim().max(255).optional(),
-  region: z.string().trim().max(255).optional(),
-  endpoint: z.string().trim().max(512).optional(),
-  accountId: z.string().trim().max(255).optional(),
-  // Identifier, never the secret half — see the section header above.
-  accessKeyId: z.string().trim().max(255).optional(),
-  // Absent leaves it alone; explicit `null` restores the vendor default.
-  forcePathStyle: z.boolean().nullable().optional(),
 });
 
 // #423, epic #419. Optional at the namespace level and field by field

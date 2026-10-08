@@ -14,7 +14,7 @@ import { JobSettledEvent } from '@marinoscar/platform-api/jobs';
 import type { JobHandler } from '@marinoscar/platform-api/jobs';
 import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 import { RateLimitError } from '@marinoscar/platform-api/jobs';
-import { AI_OUTPUTS_KEY_PREFIX } from '../../storage/storage-key-prefixes';
+import { AI_OUTPUTS_KEY_PREFIX } from '../../platform/storage/storage-key-prefixes';
 import { AiError } from '../core/ai-error';
 import { aiOutputKeyPrefix } from '../storage/ai-output-writer';
 import {

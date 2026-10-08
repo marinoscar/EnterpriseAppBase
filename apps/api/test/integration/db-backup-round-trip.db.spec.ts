@@ -69,7 +69,7 @@ import {
   DatabaseBackupRunnerService,
   type DatabaseBackupEngine,
 } from '../../src/db-backup/db-backup-runner.service';
-import type { StorageConfigService } from '../../src/storage/config/storage-config.service';
+import type { StorageConfigService } from '@marinoscar/platform-api/storage';
 import { DatabaseBackupAlreadyRunningError } from '../../src/db-backup/db-backup.errors';
 import { DatabaseBackupRunHandler } from '../../src/db-backup/handlers/db-backup-run.handler';
 import { buildClaimLeases } from '@marinoscar/platform-api/jobs';

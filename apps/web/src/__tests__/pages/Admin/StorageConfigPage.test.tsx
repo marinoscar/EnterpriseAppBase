@@ -26,9 +26,12 @@ import type {
   StorageConfigView,
   StorageConnectionCheck,
   StorageConnectionTestResult,
-} from '../../../services/storageConfig';
+} from '@marinoscar/platform-web/storage/headless';
 
-vi.mock('../../../hooks/useStorageConfig', () => ({
+// The page lives in @marinoscar/platform-web/storage/ui since #736; mocking the
+// headless entry replaces the hook the page imports (and keeps its helpers).
+vi.mock('@marinoscar/platform-web/storage/headless', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@marinoscar/platform-web/storage/headless')>()),
   useStorageConfig: vi.fn(),
 }));
 
@@ -37,9 +40,9 @@ vi.mock('@marinoscar/platform-web/identity/headless', async (importOriginal) => 
   usePermissions: vi.fn(),
 }));
 
-import { useStorageConfig } from '../../../hooks/useStorageConfig';
+import { useStorageConfig } from '@marinoscar/platform-web/storage/headless';
 import { usePermissions } from '@marinoscar/platform-web/identity/headless';
-import StorageConfigPage from '../../../pages/Admin/StorageConfigPage';
+import StorageConfigPage from '@marinoscar/platform-web/storage/ui';
 
 const mockUseStorageConfig = vi.mocked(useStorageConfig);
 const mockUsePermissions = vi.mocked(usePermissions);

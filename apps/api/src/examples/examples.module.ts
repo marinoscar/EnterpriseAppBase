@@ -21,17 +21,20 @@
 
 import { Module, type OnModuleInit } from '@nestjs/common';
 
-import { StorageProvidersModule } from '../storage/providers/storage-providers.module';
+import { ObjectProcessingModule, StorageProvidersModule } from '@marinoscar/platform-api/storage';
 import { ExampleChecksumHandler } from './jobs/example-checksum.handler';
 import { ExampleEchoHandler } from './jobs/example-echo.handler';
 import { registerExampleJobTypeLabels } from './jobs/job-type-labels.example';
+import { ExampleMetadataProcessor } from './storage/example-metadata.processor';
 
 @Module({
   // `example.checksum` reads object bytes server-side when no node takes it:
   // `STORAGE_PROVIDER`, never the whole storage module.
-  imports: [StorageProvidersModule],
-  providers: [ExampleEchoHandler, ExampleChecksumHandler],
-  exports: [ExampleEchoHandler, ExampleChecksumHandler],
+  // `ObjectProcessingModule` (#736): the processor registry the example
+  // metadata processor registers itself with.
+  imports: [StorageProvidersModule, ObjectProcessingModule],
+  providers: [ExampleEchoHandler, ExampleChecksumHandler, ExampleMetadataProcessor],
+  exports: [ExampleEchoHandler, ExampleChecksumHandler, ExampleMetadataProcessor],
 })
 export class ExamplesModule implements OnModuleInit {
   onModuleInit(): void {

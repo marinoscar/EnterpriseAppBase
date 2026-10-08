@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { IdentityProfileImages, UserDefaults } from '@marinoscar/platform-api/identity';
 
-import { normalizeProfileSettings, resolveProfileImageUrl } from '../../common/profile-image/profile-image';
+import { normalizeProfileSettings, resolveProfileImageUrl } from '@marinoscar/platform-api/storage';
 import { DEFAULT_USER_SETTINGS } from '../../common/types/settings.types';
 
 // =============================================================================

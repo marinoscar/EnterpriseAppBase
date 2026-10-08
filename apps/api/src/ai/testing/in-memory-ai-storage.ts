@@ -22,8 +22,8 @@
 import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 
-import { StorageNotConfiguredError } from '../../storage/config/storage-not-configured.error';
-import type { StorageProvider } from '../../storage/providers/storage-provider.interface';
+import { StorageNotConfiguredError } from '@marinoscar/platform-api/storage';
+import type { StorageProvider } from '@marinoscar/platform-api/storage';
 
 export interface InMemoryStorageObject {
   id: string;

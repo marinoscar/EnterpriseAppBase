@@ -317,7 +317,7 @@ function audit() {
     'apps/api/src/jobs/handlers/example-echo.handler.ts',
     'apps/api/src/jobs/handlers/example-checksum.handler.ts',
     'apps/api/src/jobs/contracts/example-checksum.contract.ts',
-    'apps/api/src/storage/processing/processors/example-metadata.processor.ts',
+    'apps/api/src/examples/storage/example-metadata.processor.ts',
   ].filter((f) => existsSync(join(REPO_ROOT, f)));
 
   if (exampleFiles.length > 0) {

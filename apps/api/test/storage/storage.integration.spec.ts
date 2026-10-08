@@ -12,10 +12,10 @@ import {
   createMockViewerUser,
   authHeader,
 } from '../helpers/auth-mock.helper';
-import { STORAGE_PROVIDER } from '../../src/storage/providers/storage-provider.interface';
+import { STORAGE_PROVIDER } from '@marinoscar/platform-api/storage';
 import { createMockStorageProvider } from '../mocks/storage-provider.mock';
-import { AVATARS_KEY_PREFIX } from '../../src/storage/storage-key-prefixes';
-import { AVATAR_PURPOSE } from '../../src/common/profile-image/profile-image';
+import { AVATARS_KEY_PREFIX } from '@marinoscar/platform-api/storage';
+import { AVATAR_PURPOSE } from '@marinoscar/platform-api/storage';
 
 describe('Storage Integration', () => {
   let context: TestContext;

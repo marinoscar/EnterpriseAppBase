@@ -71,7 +71,7 @@ import {
   DatabaseBackupAlreadyRunningError,
   DatabaseBackupStorageProviderError,
 } from '../../src/db-backup/db-backup.errors';
-import { STORAGE_PROVIDER } from '../../src/storage/providers/storage-provider.interface';
+import { STORAGE_PROVIDER } from '@marinoscar/platform-api/storage';
 import {
   TestContext,
   createTestApp,

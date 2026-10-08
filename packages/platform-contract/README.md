@@ -19,6 +19,7 @@ Slices (each a subpath export with its own README):
 | `@marinoscar/platform-contract/email` | The email settings, the `PUT` body with its write-only secrets, the response with masked credential status, the test-send result and the closed transport list (#737) | [src/email/README.md](src/email/README.md) |
 | `@marinoscar/platform-contract/jobs` | The admin job routes' list query and row (with `orgId`), summary, insights and bulk-action shapes, and the status, reason and window lists (#734) | [src/jobs/README.md](src/jobs/README.md) |
 | `@marinoscar/platform-contract/nodes` | The worker-node control plane, data plane, per-job secret and node credential request shapes, and the node bounds (#734) | [src/nodes/README.md](src/nodes/README.md) |
+| `@marinoscar/platform-contract/storage` | The `storage` settings namespace (with the no-secret proof), the objects API and status shapes, and the storage-config admin bodies and results (save, connection test, bucket provisioning) (#736) | [src/storage/README.md](src/storage/README.md) |
 
 The root entry exports only `PLATFORM_PACKAGE`; schemas are reached through their slice's subpath, so a consumer loads only the slices it uses.
 
