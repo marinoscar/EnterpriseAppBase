@@ -1,5 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
+import { BrowserRouter, MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { LINK_TOKEN_HEADER } from '@marinoscar/platform-contract/sharing';
@@ -87,6 +87,27 @@ describe('PublicLinkPage (#731)', () => {
       'This link is not available.It may have expired or been revoked, or the address is incomplete. Ask the person who shared it for a new link.',
     );
     expect(window.location.hash).toBe('');
+  });
+
+  it('reads the token before the router drops the fragment, under a BrowserRouter too', async () => {
+    // A child's effect runs before its parent's: the router sync must not
+    // clear the fragment before usePublicLink read it.
+    const host = createTestPlatformHost({ responses: { 'GET /public/links/current': RESOLUTION } });
+    window.history.replaceState(null, '', `/s#${TOKEN}`);
+    render(
+      <BrowserRouter>
+        <HashProbe />
+        <Routes>
+          <Route path="/s" element={<PublicLinkPage apiClient={host.api} registry={registry} />} />
+        </Routes>
+      </BrowserRouter>,
+    );
+    expect(await screen.findByRole('heading', { name: 'Quarterly review' })).toBeTruthy();
+    expect(host.requests).toHaveLength(1);
+    expect(host.requests[0]?.headers?.[LINK_TOKEN_HEADER]).toBe(TOKEN);
+    expect(window.location.hash).toBe('');
+    await waitFor(() => expect(routerHash).toBe(''));
+    expect(window.location.pathname).toBe('/s');
   });
 
   it('lets the app frame every state with its branding', async () => {

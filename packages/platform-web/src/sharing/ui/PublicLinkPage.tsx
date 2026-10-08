@@ -88,15 +88,23 @@ function DefaultLoading(): ReactElement {
  * cleared the address bar with `history.replaceState`, which a router does not
  * observe, so a component reading `useLocation().hash` would still see the
  * token. One `replace` navigation to the same path drops it.
+ *
+ * ⚠ It acts only once the ADDRESS BAR is clear, i.e. after the hook captured
+ * the token: a child's effect runs before its parent's, so navigating at once
+ * would wipe the fragment before `usePublicLink` read it. `captured` re-runs
+ * the check when the hook's state changes.
  */
-function RouterHashSync(): null {
+function RouterHashSync({ captured }: { captured: string }): null {
   const location = useLocation();
   const navigate = useNavigate();
+  const { hash, pathname, search } = location;
   useEffect(() => {
-    if (location.hash !== '') {
-      navigate({ pathname: location.pathname, search: location.search }, { replace: true, state: location.state });
+    if (hash !== '' && window.location.hash === '') {
+      navigate({ pathname, search }, { replace: true, state: location.state as unknown });
     }
-  }, [location.hash, location.pathname, location.search, location.state, navigate]);
+    // `location.state` is passed through, not watched: a new state object on
+    // every navigation would re-run this for nothing.
+  }, [captured, hash, pathname, search, navigate]);
   return null;
 }
 
@@ -141,7 +149,7 @@ export function PublicLinkPage(props: PublicLinkPageProps): ReactElement {
   const Frame = props.slots?.Frame;
   return (
     <>
-      {inRouter && <RouterHashSync />}
+      {inRouter && <RouterHashSync captured={`${link.status}:${link.token === null ? '' : 'token'}`} />}
       {Frame ? (
         <Frame>{content}</Frame>
       ) : (
