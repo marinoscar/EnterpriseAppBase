@@ -6,6 +6,7 @@ import {
   PLATFORM_PERMISSIONS,
   PLATFORM_PERMISSION_SETS,
   PLATFORM_PERMISSION_SLICES,
+  PLATFORM_MODEL_OWNERSHIP,
   PLATFORM_ROLES,
   PLATFORM_USER_OWNED_MODELS,
   platformPermissionCatalog,
@@ -176,5 +177,39 @@ describe('PLATFORM_USER_OWNED_MODELS', () => {
     expect(() =>
       manifest.registerPlatformUserOwnedModels([{ model: 'UserRole', ownerField: 'userId', purge: 'delete', export: 'include', rationale: 'Again.' }]),
     ).toThrow(/Duplicate id "UserRole"/);
+  });
+});
+
+describe('PLATFORM_MODEL_OWNERSHIP', () => {
+  const datamodel = readSchemaDatamodel(PLATFORM_SCHEMA);
+
+  it('classifies every model of the platform fragments exactly once, and nothing else', () => {
+    const classified = PLATFORM_MODEL_OWNERSHIP.map((def) => def.model);
+    expect(new Set(classified).size).toBe(classified.length);
+    expect([...classified].sort()).toEqual(datamodel.map((model) => model.name).sort());
+  });
+
+  it('gives each org and org-optional model an org field the schema has, and no other model one', () => {
+    for (const model of datamodel) {
+      const def = PLATFORM_MODEL_OWNERSHIP.find((entry) => entry.model === model.name)!;
+      const scoped = def.kind === 'org' || def.kind === 'org-optional';
+      const field = def.orgField ?? 'orgId';
+      const has = model.fields.some((f) => f.name === field && f.type === 'String');
+      expect({ model: model.name, scoped, has: scoped ? has : false }).toEqual({ model: model.name, scoped, has: scoped });
+    }
+  });
+
+  it('registers the platform classification first and the app models after it', () => {
+    const { core, manifest } = isolated();
+    manifest.registerPlatformModelOwnership([{ model: 'Note', kind: 'user', rationale: "The user's notes." }]);
+
+    expect(core.modelOwnershipRegistry.ids()).toEqual([...PLATFORM_MODEL_OWNERSHIP.map((def) => def.model), 'Note']);
+  });
+
+  it('refuses an app model that is a platform model', () => {
+    const { manifest } = isolated();
+    expect(() => manifest.registerPlatformModelOwnership([{ model: 'User', kind: 'system', rationale: 'Again.' }])).toThrow(
+      /Duplicate id "User"/,
+    );
   });
 });

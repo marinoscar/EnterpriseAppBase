@@ -1,5 +1,5 @@
 // =============================================================================
-// Platform model ownership inventory (issue #725, PP-6.5)
+// Platform model ownership inventory (issue #725, PP-6.5; packaged by #866)
 // =============================================================================
 //
 // Every platform model is exactly one kind (see
@@ -11,17 +11,26 @@
 //   user          personal to one user; no organisation.
 //   system        deployment-wide; no organisation.
 //
-// The tripwires (test/tenancy/model-ownership.spec.ts, and
-// test/tenancy/rls-coverage.db.spec.ts against the catalogue) fail when a model
-// has no entry, when an `org` model lacks the column or the policy, and when a
-// table carries `org_id` without its model saying why. A fork classifies its
-// own models in `app-registrations/model-ownership.ts`, never here.
+// The base entries were the reference app's
+// `prisma/ownership/platform-model-ownership.ts`, moved unchanged; the sharing,
+// settings, credentials and android-app slices classify their own models and
+// are appended in the order the reference app registered them (append-only).
+// `registerPlatformModelOwnership()` registers them, then the app's own, in
+// core's `modelOwnershipRegistry`. The app's tripwires
+// (test/tenancy/model-ownership.spec.ts, rls-coverage.db.spec.ts) and this
+// package's test/manifest/ spec fail when a model has no entry, when an `org`
+// model lacks the column or the policy, or a table carries `org_id` without
+// its model saying why.
 // =============================================================================
 
-import type { ModelOwnershipDef } from '@marinoscar/platform-api/core';
-import type { Prisma } from '@prisma/client';
+import { registerModelOwnership, type ModelOwnershipDef } from '../core/index';
+import { ANDROID_APP_MODEL_OWNERSHIP } from '../android-app/index';
+import { CREDENTIALS_MODEL_OWNERSHIP } from '../credentials/index';
+import { SETTINGS_MODEL_OWNERSHIP } from '../settings/index';
+import { SHARING_MODEL_OWNERSHIP } from '../sharing/index';
 
-export const PLATFORM_MODEL_OWNERSHIP: readonly ModelOwnershipDef<Prisma.ModelName>[] = [
+/** The base, identity, notifications, jobs, AI, storage and db-backup classifications. */
+const BASE_MODEL_OWNERSHIP: readonly ModelOwnershipDef[] = [
   // ---------------------------------------------------------------------------
   // org: tenant data. Policy `<table>_org_isolation`, FORCE ROW LEVEL SECURITY.
   // ---------------------------------------------------------------------------
@@ -124,3 +133,44 @@ export const PLATFORM_MODEL_OWNERSHIP: readonly ModelOwnershipDef<Prisma.ModelNa
     rationale: 'An invitation to an organisation; read before the invitee has any scope, so no policy.',
   },
 ];
+
+/**
+ * Every platform model's ownership kind (`org`, `org-optional`, `user` or
+ * `system`), in registration order: the base inventory, then the sharing,
+ * settings, credentials and android-app slices' own classifications.
+ *
+ * @stability experimental
+ */
+export const PLATFORM_MODEL_OWNERSHIP: readonly ModelOwnershipDef[] = Object.freeze([
+  ...BASE_MODEL_OWNERSHIP,
+  // The sharing slice's org tables (#728).
+  ...SHARING_MODEL_OWNERSHIP,
+  // The settings slice's org table (#733).
+  ...SETTINGS_MODEL_OWNERSHIP,
+  // The credentials slice's three models (#735).
+  ...CREDENTIALS_MODEL_OWNERSHIP,
+  // The android-app slice's release table.
+  ...ANDROID_APP_MODEL_OWNERSHIP,
+]);
+
+/**
+ * Registers {@link PLATFORM_MODEL_OWNERSHIP} in core's
+ * `modelOwnershipRegistry`, then the app's own classifications, so a
+ * collision with a platform entry names the app. Call it once, at import
+ * time, from the app's model ownership manifest.
+ *
+ * @param appModels - the app's own classifications (typed with its own model names if it likes).
+ * @throws RegistryError `INVALID_ENTRY`, `DUPLICATE_ID` or `FROZEN`.
+ *
+ * @example
+ * ```ts
+ * registerPlatformModelOwnership(APP_MODEL_OWNERSHIP);
+ * ```
+ *
+ * @extensionPoint registry
+ * @stability experimental
+ */
+export function registerPlatformModelOwnership<TModel extends string>(appModels: readonly ModelOwnershipDef<TModel>[] = []): void {
+  registerModelOwnership(PLATFORM_MODEL_OWNERSHIP);
+  registerModelOwnership(appModels);
+}

@@ -1,10 +1,10 @@
 # @marinoscar/platform-api/manifest
 
-`@marinoscar/platform-api/manifest`: what every platform slice registers, in registration order (issue #866). The platform roles and every slice's permission sets in seed order, the inventory of platform models with a foreign key to `User`, and the functions that register them, plus an app's own, into the registries of `core`. Data and plain functions: no Nest module, no provider, no table. It depends on `core` and on every slice that declares permissions or user-owned models: `identity`, `settings`, `credentials`, `sharing`, `storage`, `jobs`, `nodes`, `notifications`, `ai`, `telemetry`, `db-backup`, `android-app` and `user-data` (`packages/platform-slices.json`); no slice depends on it.
+`@marinoscar/platform-api/manifest`: what every platform slice registers, in registration order (issue #866). The platform roles and every slice's permission sets in seed order, the inventory of platform models with a foreign key to `User`, the ownership kind of every platform model, and the functions that register them, plus an app's own, into the registries of `core`. Data and plain functions: no Nest module, no provider, no table. It depends on `core` and on every slice that declares permissions or user-owned models: `identity`, `settings`, `credentials`, `sharing`, `storage`, `jobs`, `nodes`, `notifications`, `ai`, `telemetry`, `db-backup`, `android-app` and `user-data` (`packages/platform-slices.json`); no slice depends on it.
 
 ## Purpose and scope
 
-Every slice declares its permissions beside the routes that enforce them (`<slice>.permissions.ts`, typed with core's `PermissionDeclaration`, each with a `scope` of `system` or `org` and its default grants), and the identity slice declares the four roles. Before this slice, the **order** of those declarations, which is the seed's order and the committed catalog's, and the inventory of platform models with a `User` foreign key lived in the reference app (`common/permissions/permission.manifest.ts`, `prisma/ownership/platform-user-owned-models.ts`), so every other app had to copy both. Now:
+Every slice declares its permissions beside the routes that enforce them (`<slice>.permissions.ts`, typed with core's `PermissionDeclaration`, each with a `scope` of `system` or `org` and its default grants), and the identity slice declares the four roles. Before this slice, the **order** of those declarations, which is the seed's order and the committed catalog's, and the inventory of platform models with a `User` foreign key and the platform's model ownership classification lived in the reference app (`common/permissions/permission.manifest.ts`, `prisma/ownership/platform-user-owned-models.ts`, `prisma/ownership/platform-model-ownership.ts`), so every other app had to copy them. Now:
 
 | Export | What it is |
 |---|---|
@@ -16,8 +16,10 @@ Every slice declares its permissions beside the routes that enforce them (`<slic
 | `platformPermissionCatalog(options?)`, `platformPermissionDeclarations(options?)` | The same catalog composed without touching the registries, and the batches behind both |
 | `PLATFORM_USER_OWNED_MODELS` | Every platform model with a foreign key to `User`, with its purge and export policy |
 | `registerPlatformUserOwnedModels(appModels?)` | Register the inventory, then the app's models, in core's `userOwnedModelRegistry` |
+| `PLATFORM_MODEL_OWNERSHIP` | Every platform model's ownership kind (`org`, `org-optional`, `user`, `system`) |
+| `registerPlatformModelOwnership(appModels?)` | Register the classification, then the app's, in core's `modelOwnershipRegistry` |
 
-Does not: register anything by being imported, own a table, seed (that is `seedPlatform` of `@marinoscar/platform-db/seed`, which takes the catalog), or classify models for row-level security (the model ownership inventory, `PLATFORM_MODEL_OWNERSHIP`, is still the reference app's).
+Does not: register anything by being imported, own a table, seed (that is `seedPlatform` of `@marinoscar/platform-db/seed`, which takes the catalog), or write row-level security policies (those are migrations of `@marinoscar/platform-db`).
 
 ## Install and peer dependencies
 
@@ -47,6 +49,14 @@ import { registerPlatformUserOwnedModels } from '@marinoscar/platform-api/manife
 import { APP_USER_OWNED_MODELS } from '../../app-registrations/user-owned-models';
 
 registerPlatformUserOwnedModels(APP_USER_OWNED_MODELS);
+```
+
+```ts
+// apps/api/src/prisma/ownership/model-ownership.manifest.ts
+import { registerPlatformModelOwnership } from '@marinoscar/platform-api/manifest';
+import { APP_MODEL_OWNERSHIP } from '../../app-registrations/model-ownership';
+
+registerPlatformModelOwnership(APP_MODEL_OWNERSHIP);
 ```
 
 A seed that can import its packages (an app whose production image carries `node_modules`) composes the catalog directly instead of reading a committed file:
@@ -80,7 +90,7 @@ userOwnedData: {
 | `app.roles` | `Declarations<RoleDeclaration>[]` | `[]` | Batches of the app's roles, registered after the platform roles |
 | `app.permissions` | `Declarations<PermissionDeclaration>[]` | `[]` | Batches of the app's permissions, registered after every platform permission |
 
-`registerPlatformUserOwnedModels(appModels)` takes the app's `UserOwnedModelDef[]` (default `[]`).
+`registerPlatformUserOwnedModels(appModels)` takes the app's `UserOwnedModelDef[]` and `registerPlatformModelOwnership(appModels)` its `ModelOwnershipDef[]` (both default `[]`).
 
 ## Extension-point catalog
 
@@ -88,11 +98,12 @@ userOwnedData: {
 |---|---|---|---|---|---|
 | `registerPlatformPermissions` | registry | `registerPlatformPermissions(options?: PlatformPermissionOptions): void` | Fill the role and permission registries once, from the app's permission manifest, with the platform's declarations and the app's | experimental | [example](../../../../apps/api/src/common/permissions/permission.manifest.ts) |
 | `PlatformPermissionOptions` | option | `{ slices?: PlatformPermissionSlice[]; app?: { roles?; permissions? } }` | Add the app's roles and permissions, or seed only the slices the app mounts | experimental | [example](../../../../apps/api/src/common/permissions/permission.manifest.ts) |
+| `registerPlatformModelOwnership` | registry | `registerPlatformModelOwnership(appModels?: ModelOwnershipDef[]): void` | Fill the model ownership registry once, from the app's manifest, with every platform model's kind and the app's | experimental | [example](../../../../apps/api/src/prisma/ownership/model-ownership.manifest.ts) |
 | `registerPlatformUserOwnedModels` | registry | `registerPlatformUserOwnedModels(appModels?: UserOwnedModelDef[]): void` | Fill the user-owned data registry once, from the app's manifest, with every platform model and the app's | experimental | [example](../../../../apps/api/src/prisma/ownership/user-owned-model.manifest.ts) |
 
 ## Data
 
-None owned. `PLATFORM_USER_OWNED_MODELS` describes the `User` foreign keys of the platform's fragments (`@marinoscar/platform-db`, `schema/*.prisma`): 24 base entries (identity, settings' `UserSettings` and `SystemSettings`, notifications, jobs and nodes, AI, storage, db-backup), then the sharing, settings (`OrgSettings`), credentials and android-app slices' own lists, in the order the reference app always registered them. That order is the order the user-data export lists its datasets, so it is append-only. Every app composes every platform fragment, so every app registers every entry; there is no filter.
+None owned. `PLATFORM_USER_OWNED_MODELS` describes the `User` foreign keys of the platform's fragments (`@marinoscar/platform-db`, `schema/*.prisma`): 24 base entries (identity, settings' `UserSettings` and `SystemSettings`, notifications, jobs and nodes, AI, storage, db-backup), then the sharing, settings (`OrgSettings`), credentials and android-app slices' own lists, in the order the reference app always registered them. That order is the order the user-data export lists its datasets, so it is append-only. `PLATFORM_MODEL_OWNERSHIP` classifies every model of those fragments (41: 32 base, then the sharing, settings, credentials and android-app slices'), in the reference app's registration order. Every app composes every platform fragment, so every app registers every entry of both; there is no filter.
 
 ## Permissions and settings
 
@@ -138,14 +149,14 @@ The default grants it registers are the deployment's access model: the matrix in
 
 ## Conformance suite
 
-None of its own. Two suites read what it registers: the identity suite (`@marinoscar/platform-api/identity/testing`; pass `permissionRegistry.list()`, `roleRegistry.list()` and `catalogGrants(buildPermissionCatalog())`) and `userOwnedData` (`@marinoscar/platform-api/testing`; pass `userOwnedModelRegistry.list()` and the composed schema). `test/manifest/manifest.spec.ts` checks the inventory against the platform's own fragments.
+None of its own. Two suites read what it registers: the identity suite (`@marinoscar/platform-api/identity/testing`; pass `permissionRegistry.list()`, `roleRegistry.list()` and `catalogGrants(buildPermissionCatalog())`) and `userOwnedData` (`@marinoscar/platform-api/testing`; pass `userOwnedModelRegistry.list()` and the composed schema). `test/manifest/manifest.spec.ts` checks both inventories against the platform's own fragments; the reference app's `test/tenancy/model-ownership.spec.ts` and `rls-coverage.db.spec.ts` check the classification against its schema and database.
 
 ## Upgrade notes
 
 New in this release. For an app that kept its own copies:
 
 - Replace a hand-written permission manifest with `registerPlatformPermissions({ app: { roles: [APP_ROLES], permissions: [APP_PERMISSIONS] } })`; the registries, ids, order and catalog are unchanged, so a committed catalog regenerates byte-identical. Derive `PERMISSIONS` with `permissionIds(PLATFORM_PERMISSIONS)` and `ROLES` with `roleIds(PLATFORM_ROLES)` (both from `core`).
-- Replace a local platform user-owned list with `registerPlatformUserOwnedModels(APP_USER_OWNED_MODELS)`.
+- Replace a local platform user-owned list with `registerPlatformUserOwnedModels(APP_USER_OWNED_MODELS)`, and a local platform model ownership list with `registerPlatformModelOwnership(APP_MODEL_OWNERSHIP)`.
 
 ### Starter follow-up
 
