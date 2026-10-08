@@ -87,6 +87,7 @@ Registered events:
 | `db_backup.restore_completed` | email, browser | yes |
 | `org.invitation` | email | no |
 | `groups.invitation` | email, browser | no |
+| `sharing.shared_with_you` | email, browser | no |
 
 The two broadcast events are specified in
 [notification-broadcasts.md](notification-broadcasts.md). The four
