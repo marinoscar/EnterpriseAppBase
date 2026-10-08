@@ -111,7 +111,7 @@ describe('the role name', () => {
   it('is appjob_<job fragment>_<random>, and the fragment identifies the job', () => {
     const name = buildJobRoleName(JOB.id);
 
-    expect(name).toMatch(/^appjob_1234abcd_[0-9a-f]{6}$/);
+    expect(name).toMatch(/^appjob_1234abcd_[0-9a-f]{16}$/);
     expect(name.startsWith(JOB_ROLE_PREFIX)).toBe(true);
     // Comfortably inside NAMEDATALEN-1, which is what stops the server
     // silently truncating two names into one.
@@ -450,7 +450,7 @@ describe('issue()', () => {
 
     const issued = await broker.issue(JOB, LEASE_END);
 
-    expect(issued.handle).toMatch(/^appjob_[0-9a-f]{8}_[0-9a-f]{6}$/);
+    expect(issued.handle).toMatch(/^appjob_[0-9a-f]{8}_[0-9a-f]{16}$/);
     expect(issued.handle).not.toContain(issued.material.password as string);
   });
 

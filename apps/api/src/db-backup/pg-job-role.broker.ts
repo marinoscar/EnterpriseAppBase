@@ -245,8 +245,13 @@ export const JOB_ROLE_PREFIX = 'appjob_';
  */
 export const JOB_ROLE_ID_CHARS = 8;
 
-/** Bytes of randomness in the role-name suffix, rendered as hex. */
-const ROLE_SUFFIX_BYTES = 3;
+/**
+ * Bytes of randomness in the role-name suffix, rendered as hex.
+ *
+ * Eight bytes (64 bits): a re-issue must never collide with a live role, and
+ * three bytes collided often enough to fail a 200-draw test about once in 800 runs.
+ */
+const ROLE_SUFFIX_BYTES = 8;
 
 /**
  * How many simultaneous connections one job's role may hold.

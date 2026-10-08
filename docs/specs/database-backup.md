@@ -329,7 +329,7 @@ With any gate closed, the in-process worker takes the backup, including under
 `db-backup/pg-job-role.broker.ts` mints one PostgreSQL login role per job,
 through `POST /api/nodes/{id}/jobs/{jobId}/secret`:
 
-- Name `appjob_<first 8 of job id>_<6 random hex>`.
+- Name `appjob_<first 8 of job id>_<16 random hex>`.
 - `CONNECT` on the database, `USAGE` on the schema, `SELECT` on its tables,
   nothing else. `CONNECTION LIMIT 4`.
 - `VALID UNTIL` the job's lease expiry + 60 s clock-skew allowance.
