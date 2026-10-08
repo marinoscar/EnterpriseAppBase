@@ -43,7 +43,7 @@
 
 import { z } from 'zod';
 
-import { NODE_CREDENTIAL_PREFLIGHT_OUTCOMES } from './constants.js';
+import { NODE_CREDENTIAL_PREFLIGHT_OUTCOMES, type DbBackupEnum } from './constants.js';
 
 /**
  * The SQL block (and runbook) that makes a node credential mintable.
@@ -80,7 +80,7 @@ export const nodeCredentialPreflightSchema = z.object({
    *
    * ⚠ NEITHER IS AN ERROR. See this file's header.
    */
-  outcome: z.enum(NODE_CREDENTIAL_PREFLIGHT_OUTCOMES),
+  outcome: (z.enum(NODE_CREDENTIAL_PREFLIGHT_OUTCOMES) as z.ZodEnum<DbBackupEnum<typeof NODE_CREDENTIAL_PREFLIGHT_OUTCOMES>>),
 
   /**
    * The credential kind this deployment would issue, e.g. `postgres.readonly`.

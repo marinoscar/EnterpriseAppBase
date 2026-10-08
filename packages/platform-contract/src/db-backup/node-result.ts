@@ -169,6 +169,7 @@ export const dbBackupRunResultSchema = z.object({
    * interesting happens in between.
    */
   startedAt: z.iso.datetime(),
+  /** Finished at. */
   finishedAt: z.iso.datetime(),
 });
 

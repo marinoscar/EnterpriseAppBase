@@ -42,7 +42,7 @@
 
 import { z } from 'zod';
 
-import { CANCEL_OUTCOMES } from './constants.js';
+import { CANCEL_OUTCOMES, type DbBackupEnum } from './constants.js';
 
 // ---------------------------------------------------------------------------
 // DELETE runs/:id
@@ -99,7 +99,7 @@ export const cancelBackupResultSchema = z.object({
    *    another replica is executing it, or it settled between the read and the
    *    cancel. Nothing was stopped, and the response says so.
    */
-  outcome: z.enum(CANCEL_OUTCOMES),
+  outcome: (z.enum(CANCEL_OUTCOMES) as z.ZodEnum<DbBackupEnum<typeof CANCEL_OUTCOMES>>),
 
   /**
    * One sentence an operator can act on, matched to `outcome`.

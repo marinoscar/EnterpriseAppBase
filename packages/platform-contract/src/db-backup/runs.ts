@@ -76,7 +76,7 @@
 
 import { z } from 'zod';
 
-import { BACKUP_STATUSES, BACKUP_TRIGGERS, RESTORE_STATUSES } from './constants.js';
+import { BACKUP_STATUSES, BACKUP_TRIGGERS, RESTORE_STATUSES, type DbBackupEnum } from './constants.js';
 
 /**
  * One `database_backup_runs` row as the admin API publishes it (both `BigInt` columns as decimal strings).
@@ -84,12 +84,14 @@ import { BACKUP_STATUSES, BACKUP_TRIGGERS, RESTORE_STATUSES } from './constants.
  * @stability stable
  */
 export const backupRunSchema = z.object({
+  /** Id. */
   id: z.uuid(),
 
-  status: z.enum(BACKUP_STATUSES),
+  /** Status. */
+  status: (z.enum(BACKUP_STATUSES) as z.ZodEnum<DbBackupEnum<typeof BACKUP_STATUSES>>),
 
   /** Why this run exists. `pre_restore` runs are taken by #285, not by a person. */
-  trigger: z.enum(BACKUP_TRIGGERS),
+  trigger: (z.enum(BACKUP_TRIGGERS) as z.ZodEnum<DbBackupEnum<typeof BACKUP_TRIGGERS>>),
 
   /**
    * Live progress, rewritten by the heartbeat roughly every 20 seconds while a
@@ -116,7 +118,9 @@ export const backupRunSchema = z.object({
    * archive unlocatable.
    */
   storageProvider: z.string(),
+  /** Storage key. */
   storageKey: z.string(),
+  /** Bucket. */
   bucket: z.string(),
 
   /** Always `custom` today: `pg_dump -Fc`, the only format `pg_restore` can list and filter. */
@@ -137,6 +141,7 @@ export const backupRunSchema = z.object({
 
   /** Provenance, all best-effort: none of the four may fail a backup. */
   dbVersion: z.string().nullable(),
+  /** App version. */
   appVersion: z.string().nullable(),
   /**
    * The newest applied migration — which SCHEMA this archive contains, and so
@@ -158,7 +163,9 @@ export const backupRunSchema = z.object({
   /** Why the run failed, verbatim. `null` on a run that has not failed. */
   lastError: z.string().nullable(),
 
+  /** Started at. */
   startedAt: z.iso.datetime().nullable(),
+  /** Finished at. */
   finishedAt: z.iso.datetime().nullable(),
 
   /**
@@ -198,7 +205,7 @@ export const backupRunSchema = z.object({
    * supervisor has restarted the process. That is success, not failure — see
    * `docs/specs/database-restore.md`, "Migration roll-forward and exit".
    */
-  restoreStatus: z.enum(RESTORE_STATUSES).nullable(),
+  restoreStatus: (z.enum(RESTORE_STATUSES) as z.ZodEnum<DbBackupEnum<typeof RESTORE_STATUSES>>).nullable(),
 
   /** Why a restore failed, verbatim. `null` on a restore that has not failed. */
   restoreError: z.string().nullable(),
@@ -240,7 +247,9 @@ export const backupRunSchema = z.object({
    */
   preRestoreBackupId: z.uuid().nullable(),
 
+  /** Created at. */
   createdAt: z.iso.datetime(),
+  /** Updated at. */
   updatedAt: z.iso.datetime(),
 });
 

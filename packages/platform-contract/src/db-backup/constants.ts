@@ -67,7 +67,7 @@ export type BackupTriggerName = (typeof BACKUP_TRIGGERS)[number];
  *
  * Re-derived rather than imported from `database-restore.service.ts` so that a
  * DTO file does not depend on a service — the same discipline
- * {@link ACTIVE_BACKUP_STATUSES} follows — and `db-backup-restore.dto.spec.ts`
+ * `ACTIVE_BACKUP_STATUSES` follows — and `db-backup-restore.dto.spec.ts`
  * asserts the two lists agree, so they cannot drift apart in silence.
  *
  * @stability stable
@@ -237,3 +237,14 @@ export const BACKUP_FREQUENCIES = ['daily', 'weekly', 'monthly'] as const;
  * @stability stable
  */
 export const RESTORE_ROLLBACK_MODES = ['retain_database', 'drop_database'] as const;
+
+/**
+ * The entries of a zod enum built from a value list (`{ manual: 'manual', ... }`):
+ * the schemas cast `z.enum(list)` to `z.ZodEnum<DbBackupEnum<typeof list>>`
+ * so the declarations name the list instead of spelling every entry.
+ *
+ * @typeParam T - the value list.
+ *
+ * @stability experimental
+ */
+export type DbBackupEnum<T extends readonly string[]> = { [K in T[number]]: K };

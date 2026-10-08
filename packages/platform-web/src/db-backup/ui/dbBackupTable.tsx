@@ -86,11 +86,18 @@ import { formatDateTime, formatDuration, shortId } from '../../jobs/headless/ind
 /**
  * Persistence key for `user_settings.dataTables`. A constant, never derived
  * from the route or the heading: it is a storage key and must survive a rename.
+ *
+ * @stability experimental
  */
 export const TABLE_ID = 'admin-db-backup-runs';
 
-/** Column ids the page reads filters out of. Named so a typo cannot drift. */
+/**
+ * Column ids the page reads filters out of. Named so a typo cannot drift.
+ *
+ * @stability experimental
+ */
 export const STATUS_COLUMN_ID = 'status';
+/** @stability experimental */
 export const TRIGGER_COLUMN_ID = 'trigger';
 
 const STATUS_ENUM_VALUES = [
@@ -127,6 +134,8 @@ interface ChipSpec {
  * "nobody knows how this ended" and "this ended badly" never read as the same
  * row — see the module header for why that distinction is load-bearing rather
  * than decorative.
+ *
+ * @stability experimental
  */
 export const RUN_STATUS_CHIPS: Record<DbBackupRunStatus, ChipSpec> = {
   pending: {
@@ -168,6 +177,8 @@ export const RUN_STATUS_CHIPS: Record<DbBackupRunStatus, ChipSpec> = {
  * value: it is the safety dump the restore path took on its own initiative, it
  * is the archive a rollback falls back to, and an operator deciding what to
  * delete must not read it as a backup somebody scheduled.
+ *
+ * @stability experimental
  */
 export const TRIGGER_LABELS: Record<DbBackupTrigger, string> = {
   manual: 'Manual',
@@ -175,7 +186,11 @@ export const TRIGGER_LABELS: Record<DbBackupTrigger, string> = {
   pre_restore: 'Before a restore',
 };
 
-/** The restore audit's own vocabulary, for the runs that carry one. */
+/**
+ * The restore audit's own vocabulary, for the runs that carry one.
+ *
+ * @stability experimental
+ */
 export const RESTORE_STATUS_LABELS: Record<RestoreStatus, string> = {
   restoring: 'Restoring',
   verifying: 'Verifying',
@@ -230,6 +245,8 @@ const BYTE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB'] as const;
  * An unreadable or absent value renders as an em dash rather than "0 B",
  * because `freeDiskBytes` is genuinely `null` on many hosts and a confident
  * zero there would read as "the disk is full".
+ *
+ * @stability experimental
  */
 export function formatBytes(value: string | null | undefined): string {
   const bytes = parseByteCount(value);
@@ -257,6 +274,8 @@ export function formatBytes(value: string | null | undefined): string {
  * A run that never started has no duration — an em dash, not a zero, because
  * zero would state a measurement that was never taken. `formatDuration` is the
  * jobs page's own formatter, reused rather than copied.
+ *
+ * @stability experimental
  */
 export function formatRunDuration(
   run: Pick<DbBackupRun, 'startedAt' | 'finishedAt'>,
@@ -276,6 +295,8 @@ export function formatRunDuration(
  * closed — so its LIVE `bytesWritten` is what says something. Printing "0 B"
  * for a dump that is forty minutes in and has streamed eleven gigabytes is the
  * single most misleading thing this table could do.
+ *
+ * @stability experimental
  */
 export function formatRunSize(
   run: Pick<DbBackupRun, 'status' | 'sizeBytes' | 'bytesWritten'>,
@@ -284,7 +305,11 @@ export function formatRunSize(
   return formatBytes(run.sizeBytes);
 }
 
-/** The first 12 characters of a sha256 — enough to compare against a storage console by eye. */
+/**
+ * The first 12 characters of a sha256 — enough to compare against a storage console by eye.
+ *
+ * @stability experimental
+ */
 export function shortChecksum(checksum: string | null): string {
   return checksum ? `${checksum.slice(0, 12)}…` : '—';
 }
@@ -301,6 +326,8 @@ export function shortChecksum(checksum: string | null): string {
  * forever, since the array is rebuilt on every change. Lifted from
  * `jobsTable.ts` in shape; kept local rather than imported so this table's
  * column ids and that one's cannot be crossed.
+ *
+ * @stability experimental
  */
 export function readIsFilter(
   filters: DataTableFilterModel,
@@ -312,12 +339,20 @@ export function readIsFilter(
   return typeof found?.value === 'string' && found.value ? found.value : undefined;
 }
 
-/** Narrow a stored/URL-supplied filter value to a status the endpoint accepts. */
+/**
+ * Narrow a stored/URL-supplied filter value to a status the endpoint accepts.
+ *
+ * @stability experimental
+ */
 export function asRunStatus(value: string | undefined): DbBackupRunStatus | undefined {
   return DB_BACKUP_RUN_STATUSES.find((candidate) => candidate === value);
 }
 
-/** Narrow a filter value to a trigger the endpoint accepts. */
+/**
+ * Narrow a filter value to a trigger the endpoint accepts.
+ *
+ * @stability experimental
+ */
 export function asRunTrigger(value: string | undefined): DbBackupTrigger | undefined {
   return DB_BACKUP_TRIGGERS.find((candidate) => candidate === value);
 }
@@ -329,6 +364,8 @@ export function asRunTrigger(value: string | undefined): DbBackupTrigger | undef
 /**
  * @param now the instant every relative measurement is taken against — see
  * `formatRunDuration`.
+ *
+ * @stability experimental
  */
 export function buildBackupRunColumns(now: Date): DataTableColumn<DbBackupRun>[] {
   return [

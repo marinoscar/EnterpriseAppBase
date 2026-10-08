@@ -126,10 +126,14 @@ import type {
 } from '../headless/index.js';
 import { formatBytes } from './dbBackupTable.js';
 
+/** @stability experimental */
 export type RestoreDialogIntent = 'restore' | 'rollback';
 
+/** @stability experimental */
 export interface DbBackupRestoreDialogProps {
+  /** Open. */
   open: boolean;
+  /** Intent. */
   intent: RestoreDialogIntent;
   /** The archive being restored from, or whose restore is being undone. */
   run: DbBackupRun | null;
@@ -139,13 +143,18 @@ export interface DbBackupRestoreDialogProps {
    * is unknown rather than assuming the cheap one.
    */
   config: DbBackupConfig | null;
+  /** Is working. */
   isWorking: boolean;
   /** The last transport or API failure from the actions hook, or `null`. */
   error: string | null;
+  /** On restore. */
   onRestore: (
+    /** Options. */
     options: { overrideSchemaCheck?: boolean },
   ) => Promise<StartRestoreResult | null>;
+  /** On rollback. */
   onRollback: () => Promise<RollbackRestoreResult | null>;
+  /** On close. */
   onClose: () => void;
 }
 
@@ -320,6 +329,7 @@ function CopyableBlock({
   );
 }
 
+/** @stability experimental */
 export function DbBackupRestoreDialog({
   open,
   intent,

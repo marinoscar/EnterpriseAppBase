@@ -135,16 +135,23 @@ function toForm(config: DbBackupConfig): ConfigForm {
   };
 }
 
+/** @stability experimental */
 export interface DbBackupConfigPanelProps {
+  /** Config. */
   config: DbBackupConfig;
+  /** Can write. */
   canWrite: boolean;
+  /** Is saving. */
   isSaving: boolean;
   /** The API's own message when a save was refused — rendered verbatim. */
   saveError: string | null;
+  /** On save. */
   onSave: (input: UpdateDbBackupConfigInput) => Promise<boolean>;
+  /** On saved. */
   onSaved: (message: string) => void;
 }
 
+/** @stability experimental */
 export function DbBackupConfigPanel({
   config,
   canWrite,

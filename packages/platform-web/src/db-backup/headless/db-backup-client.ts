@@ -90,20 +90,31 @@ import type { PlatformApiClient } from '../../core/index.js';
  *                 NOT the same as `failed`: nobody knows how it ended, and its
  *                 archive may or may not exist. See the table module for why
  *                 that difference is drawn on screen and not just in the enum.
+ *
+ * @stability experimental
  */
 export const DB_BACKUP_RUN_STATUSES = BACKUP_STATUSES;
+/** @stability experimental */
 export type DbBackupRunStatus = (typeof DB_BACKUP_RUN_STATUSES)[number];
 
 /**
  * What caused a run. `pre_restore` is the safety dump the restore path takes
  * immediately before a swap, and an operator must be able to tell it from a
  * backup they asked for — it is the archive a rollback falls back to.
+ *
+ * @stability experimental
  */
 export const DB_BACKUP_TRIGGERS = BACKUP_TRIGGERS;
+/** @stability experimental */
 export type DbBackupTrigger = (typeof DB_BACKUP_TRIGGERS)[number];
 
-/** `databaseBackup.frequency`. */
+/**
+ * `databaseBackup.frequency`.
+ *
+ * @stability experimental
+ */
 export const DB_BACKUP_FREQUENCIES = BACKUP_FREQUENCIES;
+/** @stability experimental */
 export type DbBackupFrequency = (typeof DB_BACKUP_FREQUENCIES)[number];
 
 /**
@@ -117,12 +128,15 @@ export type DbBackupFrequency = (typeof DB_BACKUP_FREQUENCIES)[number];
  *                       dump: HOURS.
  */
 export { RESTORE_ROLLBACK_MODES };
+/** @stability experimental */
 export type RestoreRollbackMode = (typeof RESTORE_ROLLBACK_MODES)[number];
 
 /**
  * What the rollback route will ACTUALLY be able to do, which is not always what
  * was configured — `pre_restore_dump` is the downgrade the disk gate forces.
  * See `RestoreRollbackPlan.downgraded`.
+ *
+ * @stability experimental
  */
 export type EffectiveRollbackMode = 'retain_database' | 'pre_restore_dump';
 
@@ -135,6 +149,7 @@ export type EffectiveRollbackMode = 'retain_database' | 'pre_restore_dump';
  * 400 rather than a no-op.
  */
 export { RESTORE_STATUSES };
+/** @stability experimental */
 export type RestoreStatus = (typeof RESTORE_STATUSES)[number];
 
 /**
@@ -143,12 +158,21 @@ export type RestoreStatus = (typeof RESTORE_STATUSES)[number];
  * `RestorePreflight.gates`.
  */
 export { RESTORE_GATE_IDS };
+/** @stability experimental */
 export type RestoreGateId = (typeof RESTORE_GATE_IDS)[number];
 
-/** What KIND of thing a gate checks; it decides what a failure can be answered with. */
+/**
+ * What KIND of thing a gate checks; it decides what a failure can be answered with.
+ *
+ * @stability experimental
+ */
 export type RestoreGateKind = 'capability' | 'disk' | 'replicas' | 'overridable';
 
-/** One gate's answer. `warning` is a real verdict, not a soft failure. */
+/**
+ * One gate's answer. `warning` is a real verdict, not a soft failure.
+ *
+ * @stability experimental
+ */
 export type RestoreGateVerdict = 'pass' | 'warning' | 'block';
 
 /**
@@ -165,6 +189,8 @@ export { RESTORE_CONFIRMATION, ROLLBACK_CONFIRMATION };
  * ELSE: no amount of accepting a mismatch makes a role without `CREATEDB` able
  * to create a database. The dialog therefore offers the override only when the
  * block names this parameter, never as a general "force" switch.
+ *
+ * @stability experimental
  */
 export const OVERRIDE_SCHEMA_CHECK_PARAMETER: typeof RESTORE_SCHEMA_OVERRIDE_FIELD = RESTORE_SCHEMA_OVERRIDE_FIELD;
 
@@ -183,9 +209,13 @@ export const OVERRIDE_SCHEMA_CHECK_PARAMETER: typeof RESTORE_SCHEMA_OVERRIDE_FIE
  * on every save, so the number on screen is never the client's arithmetic.
  * `null` means nothing is scheduled (the policy is disabled, or the projection
  * could not be made).
+ *
+ * @stability experimental
  */
 export interface DbBackupConfig {
+  /** Enabled. */
   enabled: boolean;
+  /** Frequency. */
   frequency: DbBackupFrequency;
   /** 0 = Sunday … 6 = Saturday. Read only when `frequency` is `weekly`. */
   dayOfWeek: number;
@@ -203,6 +233,7 @@ export interface DbBackupConfig {
   runStaleMinutes: number;
   /** 0–9, `pg_dump`'s own scale. 0 is "no compression", not "default". */
   compressionLevel: number;
+  /** Restore rollback mode. */
   restoreRollbackMode: RestoreRollbackMode;
   /** How long a retained pre-restore database is kept before it is dropped. */
   oldDatabaseRetentionHours: number;
@@ -219,11 +250,20 @@ export interface DbBackupConfig {
   restore: DbBackupRestoreAvailability;
 }
 
-/** Why in-app restore is unavailable. One reason today. */
+/**
+ * Why in-app restore is unavailable. One reason today.
+ *
+ * @stability experimental
+ */
 export type DbBackupRestoreUnavailableReason = 'deployment_mode_saas';
 
-/** `DbBackupConfig.restore`. */
+/**
+ * `DbBackupConfig.restore`.
+ *
+ * @stability experimental
+ */
 export interface DbBackupRestoreAvailability {
+  /** Available. */
   available: boolean;
   /** `null` when `available` is true. */
   reason: DbBackupRestoreUnavailableReason | null;
@@ -232,6 +272,8 @@ export interface DbBackupRestoreAvailability {
 /**
  * The body `PUT config` accepts (`UpdateDatabaseBackupConfigDto`) — every field
  * optional, and the computed ones absent because they are not settable.
+ *
+ * @stability experimental
  */
 export type UpdateDbBackupConfigInput = Partial<
   Omit<DbBackupConfig, 'nextRunAt' | 'activeRunId' | 'restore'>
@@ -245,67 +287,111 @@ export type UpdateDbBackupConfigInput = Partial<
  * at this time, by this person, and here is what happened" is a property of the
  * archive. `preRestoreBackupId` points at the safety dump taken just before the
  * swap — the archive a `drop_database` rollback restores from.
+ *
+ * @stability experimental
  */
 export interface DbBackupRun {
+  /** Id. */
   id: string;
+  /** Status. */
   status: DbBackupRunStatus;
+  /** Trigger. */
   trigger: DbBackupTrigger;
   /** Decimal string — see the module header. Live during the dump. */
   bytesWritten: string;
   /** Decimal string. The final archive size; `'0'` until the dump finishes. */
   sizeBytes: string;
+  /** Storage provider. */
   storageProvider: string;
+  /** Storage key. */
   storageKey: string;
+  /** Bucket. */
   bucket: string;
+  /** Format. */
   format: string;
   /** `null` until the archive has been read back and checksummed. */
   checksumSha256: string | null;
   /** When the archive was read back from storage and verified. `null` if it never was. */
   verifiedAt: string | null;
+  /** Db version. */
   dbVersion: string | null;
+  /** App version. */
   appVersion: string | null;
   /** The migration the schema was on when the dump was taken. */
   migrationName: string | null;
+  /** Last error. */
   lastError: string | null;
+  /** Started at. */
   startedAt: string | null;
+  /** Finished at. */
   finishedAt: string | null;
+  /** Last heartbeat at. */
   lastHeartbeatAt: string | null;
+  /** Created by id. */
   createdById: string | null;
+  /** Restore status. */
   restoreStatus: RestoreStatus | null;
+  /** Restore error. */
   restoreError: string | null;
+  /** Restored at. */
   restoredAt: string | null;
+  /** Restored by id. */
   restoredById: string | null;
   /** The scratch database the archive was restored into before the swap. */
   restoreScratchDb: string | null;
   /** The database the swap displaced, if it was retained. */
   restoreOldDb: string | null;
+  /** Swapped at. */
   swappedAt: string | null;
+  /** Pre restore backup id. */
   preRestoreBackupId: string | null;
+  /** Created at. */
   createdAt: string;
+  /** Updated at. */
   updatedAt: string;
 }
 
-/** `GET runs` — server-side pagination, one-based, `pageSize` capped at 100. */
+/**
+ * `GET runs` — server-side pagination, one-based, `pageSize` capped at 100.
+ *
+ * @stability experimental
+ */
 export interface DbBackupRunListResponse {
+  /** Items. */
   items: DbBackupRun[];
+  /** Total. */
   total: number;
+  /** Page. */
   page: number;
+  /** Page size. */
   pageSize: number;
+  /** Total pages. */
   totalPages: number;
 }
 
-/** The query `GET runs` honours, and nothing more — see `dbBackupTable.tsx`. */
+/**
+ * The query `GET runs` honours, and nothing more — see `dbBackupTable.tsx`.
+ *
+ * @stability experimental
+ */
 export interface DbBackupRunListParams {
   /** One-based. */
   page?: number;
   /** Max 100. */
   pageSize?: number;
+  /** Status. */
   status?: DbBackupRunStatus;
+  /** Trigger. */
   trigger?: DbBackupTrigger;
 }
 
-/** A signed, expiring URL for one archive (`BackupDownloadUrlDto`). */
+/**
+ * A signed, expiring URL for one archive (`BackupDownloadUrlDto`).
+ *
+ * @stability experimental
+ */
 export interface BackupDownloadUrl {
+  /** Url. */
   url: string;
   /** Seconds. */
   expiresIn: number;
@@ -318,15 +404,25 @@ export interface BackupDownloadUrl {
  * child process, and only the API instance holding that handle can do it, so a
  * run executing elsewhere answers 200 with `not_running_here` and changes
  * nothing. That is not an error and retrying does not help.
+ *
+ * @stability experimental
  */
 export interface CancelBackupResult {
+  /** Run id. */
   runId: string;
+  /** Outcome. */
   outcome: 'signalled' | 'not_running_here';
+  /** Detail. */
   detail: string;
 }
 
-/** What a delete managed (`DeleteBackupResultDto`). */
+/**
+ * What a delete managed (`DeleteBackupResultDto`).
+ *
+ * @stability experimental
+ */
 export interface DeleteBackupResult {
+  /** Id. */
   id: string;
   /** `false` when the row went but the stored object could not be removed. */
   objectDeleted: boolean;
@@ -336,12 +432,21 @@ export interface DeleteBackupResult {
 // The pre-flight
 // =============================================================================
 
-/** One gate's verdict, with the action item that goes with it. */
+/**
+ * One gate's verdict, with the action item that goes with it.
+ *
+ * @stability experimental
+ */
 export interface RestoreGate {
+  /** Id. */
   id: RestoreGateId;
+  /** Kind. */
   kind: RestoreGateKind;
+  /** Verdict. */
   verdict: RestoreGateVerdict;
+  /** Title. */
   title: string;
+  /** Detail. */
   detail: string;
   /** What to do about it. `null` when there is nothing to do — typically a pass. */
   action: string | null;
@@ -355,11 +460,17 @@ export interface RestoreGate {
  * back is a full restore of the pre-restore dump — HOURS instead of SECONDS.
  * That changes the recovery guarantee the operator is deciding against, so the
  * dialog surfaces it before the confirmation rather than after.
+ *
+ * @stability experimental
  */
 export interface RestoreRollbackPlan {
+  /** Configured. */
   configured: RestoreRollbackMode;
+  /** Effective. */
   effective: EffectiveRollbackMode;
+  /** Downgraded. */
   downgraded: boolean;
+  /** Reason. */
   reason: string | null;
 }
 
@@ -370,14 +481,23 @@ export interface RestoreRollbackPlan {
  * which one won. `gates` carries the PASSES too, deliberately: an operator
  * about to replace a production database should be able to see what was
  * checked, not only what objected.
+ *
+ * @stability experimental
  */
 export interface RestorePreflight {
+  /** Outcome. */
   outcome: 'ok' | 'guided' | 'blocked';
+  /** Run id. */
   runId: string;
+  /** Target database. */
   targetDatabase: string;
+  /** Scratch database. */
   scratchDatabase: string;
+  /** Old database. */
   oldDatabase: string;
+  /** Gates. */
   gates: RestoreGate[];
+  /** Rollback. */
   rollback: RestoreRollbackPlan;
   /** The migration the ARCHIVE was taken on. `null` when it could not be read. */
   archiveMigration: string | null;
@@ -389,8 +509,13 @@ export interface RestorePreflight {
   freeDiskBytes: string | null;
 }
 
-/** The paste-ready answer the `guided` outcome exists to deliver. */
+/**
+ * The paste-ready answer the `guided` outcome exists to deliver.
+ *
+ * @stability experimental
+ */
 export interface GuidedRestoreInstructions {
+  /** Reason. */
   reason: string;
   /** A multi-line shell block with real names, hosts and ports. Rendered monospace, copied whole. */
   commands: string;
@@ -398,10 +523,17 @@ export interface GuidedRestoreInstructions {
   runbook: string;
 }
 
-/** Why the schema gate refused, and what (if anything) unblocks it. */
+/**
+ * Why the schema gate refused, and what (if anything) unblocks it.
+ *
+ * @stability experimental
+ */
 export interface RestoreBlock {
+  /** Gate id. */
   gateId: RestoreGateId;
+  /** Message. */
   message: string;
+  /** Overridable. */
   overridable: boolean;
   /** `'overrideSchemaCheck'`, or `null` when nothing unblocks this gate. */
   overrideParameter: string | null;
@@ -419,25 +551,40 @@ export interface RestoreBlock {
  *
  * `guidance` and `block` are HOISTED to the top level and are not duplicated
  * inside `preflight`, so a renderer reads each exactly once.
+ *
+ * @stability experimental
  */
 export type StartRestoreResult =
   | {
+      /** Mode. */
       mode: 'running';
+      /** Run id. */
       runId: string;
+      /** Scratch database. */
       scratchDatabase: string;
+      /** Old database. */
       oldDatabase: string;
+      /** Preflight. */
       preflight: RestorePreflight;
     }
   | {
+      /** Mode. */
       mode: 'guided';
+      /** Run id. */
       runId: string;
+      /** Guidance. */
       guidance: GuidedRestoreInstructions;
+      /** Preflight. */
       preflight: RestorePreflight;
     }
   | {
+      /** Mode. */
       mode: 'blocked';
+      /** Run id. */
       runId: string;
+      /** Block. */
       block: RestoreBlock;
+      /** Preflight. */
       preflight: RestorePreflight;
     };
 
@@ -457,11 +604,40 @@ export type StartRestoreResult =
  *
  * There is deliberately NO `preflight` on any of them: a rollback runs no
  * gates.
+ *
+ * @stability experimental
  */
 export type RollbackRestoreResult =
-  | { mode: 'renamed'; runId: string; promoted: string; parked: string; detail: string }
-  | { mode: 'restore_started'; runId: string; preRestoreRunId: string; detail: string }
-  | { mode: 'unavailable'; runId: string; detail: string };
+  | {
+      /** Mode. */
+      mode: 'renamed';
+      /** Run id. */
+      runId: string;
+      /** Promoted. */
+      promoted: string;
+      /** Parked. */
+      parked: string;
+      /** Detail. */
+      detail: string;
+    }
+  | {
+      /** Mode. */
+      mode: 'restore_started';
+      /** Run id. */
+      runId: string;
+      /** Pre restore run id. */
+      preRestoreRunId: string;
+      /** Detail. */
+      detail: string;
+    }
+  | {
+      /** Mode. */
+      mode: 'unavailable';
+      /** Run id. */
+      runId: string;
+      /** Detail. */
+      detail: string;
+    };
 
 // =============================================================================
 // Requests
@@ -585,7 +761,11 @@ export function createDbBackupApi(api: PlatformApiClient): DbBackupApi {
 // Shared predicates — mirrors of the API's own refusals
 // =============================================================================
 
-/** Holding the single active slot: `pending` or `running`. */
+/**
+ * Holding the single active slot: `pending` or `running`.
+ *
+ * @stability experimental
+ */
 export function isBackupRunActive(run: Pick<DbBackupRun, 'status'>): boolean {
   return run.status === 'pending' || run.status === 'running';
 }
@@ -596,22 +776,36 @@ export function isBackupRunActive(run: Pick<DbBackupRun, 'status'>): boolean {
  * `completed` and nothing else — the same rule `getDownloadUrl` and
  * `requireRunForRestore` both enforce. A `stale` run is deliberately NOT
  * downloadable: nobody knows how it ended, so its archive may be truncated.
+ *
+ * @stability experimental
  */
 export function isBackupDownloadable(run: Pick<DbBackupRun, 'status'>): boolean {
   return run.status === 'completed';
 }
 
-/** Restoring has the same `completed`-only precondition the download does. */
+/**
+ * Restoring has the same `completed`-only precondition the download does.
+ *
+ * @stability experimental
+ */
 export function isBackupRestorable(run: Pick<DbBackupRun, 'status'>): boolean {
   return run.status === 'completed';
 }
 
-/** The API refuses to delete a run that is still active — its archive is mid-upload. */
+/**
+ * The API refuses to delete a run that is still active — its archive is mid-upload.
+ *
+ * @stability experimental
+ */
 export function isBackupDeletable(run: Pick<DbBackupRun, 'status'>): boolean {
   return !isBackupRunActive(run);
 }
 
-/** Only an active run can be cancelled; one that has finished is a 400. */
+/**
+ * Only an active run can be cancelled; one that has finished is a 400.
+ *
+ * @stability experimental
+ */
 export function isBackupCancelable(run: Pick<DbBackupRun, 'status'>): boolean {
   return isBackupRunActive(run);
 }
@@ -621,6 +815,8 @@ export function isBackupCancelable(run: Pick<DbBackupRun, 'status'>): boolean {
  *
  * The three non-terminal states, and what the page watches to know a restart is
  * expected.
+ *
+ * @stability experimental
  */
 export function isRestoreInFlight(run: Pick<DbBackupRun, 'restoreStatus'>): boolean {
   return (
@@ -637,6 +833,8 @@ export function isRestoreInFlight(run: Pick<DbBackupRun, 'restoreStatus'>): bool
  * `rollbackRestore` checks before it refuses with `restore_never_ran`. Note it
  * is deliberately NOT narrowed to `restoreStatus === 'completed'`: a restore
  * that failed mid-swap is precisely the case an operator most needs to undo.
+ *
+ * @stability experimental
  */
 export function isRollbackAvailable(
   run: Pick<DbBackupRun, 'status' | 'restoreStatus'>,
@@ -652,6 +850,8 @@ export function isRollbackAvailable(
  * "unknown" rather than a confident wrong number. `null` in means `null` out:
  * `freeDiskBytes` is genuinely absent on many hosts, and that is a different
  * fact from "zero bytes free".
+ *
+ * @stability experimental
  */
 export function parseByteCount(value: string | null | undefined): number | null {
   if (value === null || value === undefined) return null;

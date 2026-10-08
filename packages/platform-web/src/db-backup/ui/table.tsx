@@ -30,7 +30,11 @@ import {
 import { useJobsWebAdapters } from '../../jobs/headless/index.js';
 import type { JobsDataTableProps, JobsTableRowAction } from '../../jobs/headless/index.js';
 
-/** The app's table, or the fallback. */
+/**
+ * The app's table, or the fallback.
+ *
+ * @stability experimental
+ */
 export function DbBackupTable<Row>(props: JobsDataTableProps<Row>): ReactElement | null {
   const { DataTable } = useJobsWebAdapters();
   if (DataTable) return <DataTable<Row> {...props} />;

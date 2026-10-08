@@ -45,7 +45,7 @@
 
 import { z } from 'zod';
 
-import { RESTORE_UNAVAILABLE_REASONS } from './constants.js';
+import { RESTORE_UNAVAILABLE_REASONS, type DbBackupEnum } from './constants.js';
 
 import { systemDatabaseBackupPatchSchema, systemDatabaseBackupSchema } from './settings-schemas.js';
 
@@ -117,8 +117,10 @@ export const databaseBackupConfigSchema = systemDatabaseBackupSchema.extend({
    * token those 403s carry in `details.reason`. Backups are unaffected.
    */
   restore: z.object({
+    /** Available. */
     available: z.boolean(),
-    reason: z.enum(RESTORE_UNAVAILABLE_REASONS).nullable(),
+    /** Reason. */
+    reason: (z.enum(RESTORE_UNAVAILABLE_REASONS) as z.ZodEnum<DbBackupEnum<typeof RESTORE_UNAVAILABLE_REASONS>>).nullable(),
   }),
 });
 

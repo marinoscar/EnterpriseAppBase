@@ -15,7 +15,7 @@
 
 import { z } from 'zod';
 
-import { BACKUP_TIME_OF_DAY_PATTERN } from './constants.js';
+import { BACKUP_TIME_OF_DAY_PATTERN, type DbBackupEnum } from './constants.js';
 
 /**
  * Database backup and restore policy (`databaseBackup`).
@@ -79,22 +79,36 @@ import { BACKUP_TIME_OF_DAY_PATTERN } from './constants.js';
  * @stability stable
  */
 export const systemDatabaseBackupSchema = z.object({
+  /** Enabled. */
   enabled: z.boolean(),
-  frequency: z.enum(['daily', 'weekly', 'monthly']),
+  /** Frequency. */
+  frequency: (z.enum(['daily', 'weekly', 'monthly']) as z.ZodEnum<DbBackupEnum<['daily', 'weekly', 'monthly']>>),
+  /** Day of week. */
   dayOfWeek: z.number().int().min(0).max(6),
+  /** Day of month. */
   dayOfMonth: z.number().int().min(1).max(28),
+  /** Time of day: 24-hour `HH:MM`, zero-padded. */
   timeOfDay: z
     .string()
     .regex(BACKUP_TIME_OF_DAY_PATTERN, 'Expected a 24-hour HH:MM time'),
+  /** Timezone. */
   timezone: z.string().min(1).max(64),
+  /** Retention count. */
   retentionCount: z.number().int().min(1).max(365),
-  // NO `.min(1)`: the empty string is the one spelling of "unset", and it is
-  // the SHIPPED DEFAULT. See the block comment above.
+  /**
+   * NO `.min(1)`: the empty string is the one spelling of "unset", and it is
+   * the SHIPPED DEFAULT. See the block comment above.
+   */
   storageProvider: z.string().max(64),
+  /** Run stale minutes. */
   runStaleMinutes: z.number().int().min(1).max(10080),
+  /** Compression level. */
   compressionLevel: z.number().int().min(0).max(9),
-  restoreRollbackMode: z.enum(['retain_database', 'drop_database']),
+  /** Restore rollback mode. */
+  restoreRollbackMode: (z.enum(['retain_database', 'drop_database']) as z.ZodEnum<DbBackupEnum<['retain_database', 'drop_database']>>),
+  /** Old database retention hours. */
   oldDatabaseRetentionHours: z.number().int().min(1).max(8760),
+  /** Node offload enabled. */
   nodeOffloadEnabled: z.boolean(),
 });
 
@@ -114,28 +128,40 @@ export type SystemDatabaseBackupValue = z.infer<
  * @stability stable
  */
 export const systemDatabaseBackupPatchSchema = z.object({
+  /** Enabled. */
   enabled: z.boolean().optional(),
-  frequency: z.enum(['daily', 'weekly', 'monthly']).optional(),
+  /** Frequency. */
+  frequency: (z.enum(['daily', 'weekly', 'monthly']) as z.ZodEnum<DbBackupEnum<['daily', 'weekly', 'monthly']>>).optional(),
+  /** Day of week. */
   dayOfWeek: z.number().int().min(0).max(6).optional(),
+  /** Day of month. */
   dayOfMonth: z.number().int().min(1).max(28).optional(),
+  /** Time of day: 24-hour `HH:MM`, zero-padded. */
   timeOfDay: z
     .string()
     .regex(BACKUP_TIME_OF_DAY_PATTERN, 'Expected a 24-hour HH:MM time')
     .optional(),
+  /** Timezone. */
   timezone: z.string().min(1).max(64).optional(),
+  /** Retention count. */
   retentionCount: z.number().int().min(1).max(365).optional(),
-  // No `.min(1)`, matching `systemDatabaseBackupSchema`: `""` CLEARS the pin
-  // back to "whatever provider is active" (absent is how a caller says "leave
-  // it alone"), which is the only way an operator can un-pin through the API.
-  // Rejecting `""` here would make the shipped default unreachable by the very
-  // endpoint that edits it.
+  /**
+   * No `.min(1)`, matching `systemDatabaseBackupSchema`: `""` CLEARS the pin
+   * back to "whatever provider is active" (absent is how a caller says "leave
+   * it alone"), which is the only way an operator can un-pin through the API.
+   * Rejecting `""` here would make the shipped default unreachable by the very
+   * endpoint that edits it.
+   */
   storageProvider: z.string().max(64).optional(),
+  /** Run stale minutes. */
   runStaleMinutes: z.number().int().min(1).max(10080).optional(),
+  /** Compression level. */
   compressionLevel: z.number().int().min(0).max(9).optional(),
-  restoreRollbackMode: z
-    .enum(['retain_database', 'drop_database'])
-    .optional(),
+  /** What a restore does with the database it displaced. */
+  restoreRollbackMode: (z.enum(['retain_database', 'drop_database']) as z.ZodEnum<DbBackupEnum<['retain_database', 'drop_database']>>).optional(),
+  /** Old database retention hours. */
   oldDatabaseRetentionHours: z.number().int().min(1).max(8760).optional(),
+  /** Node offload enabled. */
   nodeOffloadEnabled: z.boolean().optional(),
 });
 
@@ -146,27 +172,41 @@ export const systemDatabaseBackupPatchSchema = z.object({
  * @stability stable
  */
 export const databaseBackupSettingsSchema = z.object({
+  /** Enabled. */
   enabled: z.boolean(),
-  frequency: z.enum(['daily', 'weekly', 'monthly']),
+  /** Frequency. */
+  frequency: (z.enum(['daily', 'weekly', 'monthly']) as z.ZodEnum<DbBackupEnum<['daily', 'weekly', 'monthly']>>),
+  /** Day of week. */
   dayOfWeek: z.number().int().min(0).max(6),
+  /** Day of month. */
   dayOfMonth: z.number().int().min(1).max(28),
+  /** Time of day: 24-hour `HH:MM`, zero-padded. */
   timeOfDay: z
     .string()
     .regex(BACKUP_TIME_OF_DAY_PATTERN, 'Expected a 24-hour HH:MM time'),
+  /** Timezone. */
   timezone: z.string().min(1).max(64),
+  /** Retention count. */
   retentionCount: z.number().int().min(1).max(365),
-  // No `.min(1)`: `""` is the one spelling of "unset" and is the SHIPPED
-  // DEFAULT — it means "whatever provider `storage.provider` names right now".
-  // A non-empty value must equal the active provider or the write is a loud
-  // 400 (`DatabaseBackupRunnerService.assertStorageProviderUsable`); that check
-  // is unchanged. Only the default moved, because a provider id the operator
-  // never chose must not be able to redirect or block their backups. See
-  // `common/schemas/settings.schema.ts` for the full argument.
+  /**
+   * No `.min(1)`: `""` is the one spelling of "unset" and is the SHIPPED
+   * DEFAULT — it means "whatever provider `storage.provider` names right now".
+   * A non-empty value must equal the active provider or the write is a loud
+   * 400 (`DatabaseBackupRunnerService.assertStorageProviderUsable`); that check
+   * is unchanged. Only the default moved, because a provider id the operator
+   * never chose must not be able to redirect or block their backups. See
+   * `common/schemas/settings.schema.ts` for the full argument.
+   */
   storageProvider: z.string().max(64),
+  /** Run stale minutes. */
   runStaleMinutes: z.number().int().min(1).max(10080),
+  /** Compression level. */
   compressionLevel: z.number().int().min(0).max(9),
-  restoreRollbackMode: z.enum(['retain_database', 'drop_database']),
+  /** Restore rollback mode. */
+  restoreRollbackMode: (z.enum(['retain_database', 'drop_database']) as z.ZodEnum<DbBackupEnum<['retain_database', 'drop_database']>>),
+  /** Old database retention hours. */
   oldDatabaseRetentionHours: z.number().int().min(1).max(8760),
+  /** Node offload enabled. */
   nodeOffloadEnabled: z.boolean(),
 });
 
@@ -176,27 +216,39 @@ export const databaseBackupSettingsSchema = z.object({
  * @stability stable
  */
 export const databaseBackupSettingsPatchSchema = z.object({
+  /** Enabled. */
   enabled: z.boolean().optional(),
-  frequency: z.enum(['daily', 'weekly', 'monthly']).optional(),
+  /** Frequency. */
+  frequency: (z.enum(['daily', 'weekly', 'monthly']) as z.ZodEnum<DbBackupEnum<['daily', 'weekly', 'monthly']>>).optional(),
+  /** Day of week. */
   dayOfWeek: z.number().int().min(0).max(6).optional(),
+  /** Day of month. */
   dayOfMonth: z.number().int().min(1).max(28).optional(),
+  /** Time of day: 24-hour `HH:MM`, zero-padded. */
   timeOfDay: z
     .string()
     .regex(BACKUP_TIME_OF_DAY_PATTERN, 'Expected a 24-hour HH:MM time')
     .optional(),
+  /** Timezone. */
   timezone: z.string().min(1).max(64).optional(),
+  /** Retention count. */
   retentionCount: z.number().int().min(1).max(365).optional(),
-  // No `.min(1)`, matching the PUT schema above: `""` CLEARS the pin back
-  // to "whatever provider is active", absent leaves it alone. Rejecting
-  // `""` would make the shipped default unreachable by the endpoint that
-  // edits it.
+  /**
+   * No `.min(1)`, matching the PUT schema above: `""` CLEARS the pin back
+   * to "whatever provider is active", absent leaves it alone. Rejecting
+   * `""` would make the shipped default unreachable by the endpoint that
+   * edits it.
+   */
   storageProvider: z.string().max(64).optional(),
+  /** Run stale minutes. */
   runStaleMinutes: z.number().int().min(1).max(10080).optional(),
+  /** Compression level. */
   compressionLevel: z.number().int().min(0).max(9).optional(),
-  restoreRollbackMode: z
-    .enum(['retain_database', 'drop_database'])
-    .optional(),
+  /** What a restore does with the database it displaced. */
+  restoreRollbackMode: (z.enum(['retain_database', 'drop_database']) as z.ZodEnum<DbBackupEnum<['retain_database', 'drop_database']>>).optional(),
+  /** Old database retention hours. */
   oldDatabaseRetentionHours: z.number().int().min(1).max(8760).optional(),
+  /** Node offload enabled. */
   nodeOffloadEnabled: z.boolean().optional(),
 });
 
@@ -206,18 +258,31 @@ export const databaseBackupSettingsPatchSchema = z.object({
  * @stability stable
  */
 export const databaseBackupResponseSchema = z.object({
+  /** Enabled. */
   enabled: z.boolean(),
-  frequency: z.enum(['daily', 'weekly', 'monthly']),
+  /** Frequency. */
+  frequency: (z.enum(['daily', 'weekly', 'monthly']) as z.ZodEnum<DbBackupEnum<['daily', 'weekly', 'monthly']>>),
+  /** Day of week. */
   dayOfWeek: z.number(),
+  /** Day of month. */
   dayOfMonth: z.number(),
+  /** Time of day. */
   timeOfDay: z.string(),
+  /** Timezone. */
   timezone: z.string(),
+  /** Retention count. */
   retentionCount: z.number(),
+  /** Storage provider. */
   storageProvider: z.string(),
+  /** Run stale minutes. */
   runStaleMinutes: z.number(),
+  /** Compression level. */
   compressionLevel: z.number(),
-  restoreRollbackMode: z.enum(['retain_database', 'drop_database']),
+  /** Restore rollback mode. */
+  restoreRollbackMode: (z.enum(['retain_database', 'drop_database']) as z.ZodEnum<DbBackupEnum<['retain_database', 'drop_database']>>),
+  /** Old database retention hours. */
   oldDatabaseRetentionHours: z.number(),
+  /** Node offload enabled. */
   nodeOffloadEnabled: z.boolean(),
 });
 

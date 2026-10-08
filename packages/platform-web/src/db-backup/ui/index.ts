@@ -8,9 +8,12 @@
 
 export { default, default as DbBackupPage } from './DbBackupPage.js';
 export { DbBackupConfigPanel } from './DbBackupConfigPanel.js';
+/** @stability experimental */
 export type { DbBackupConfigPanelProps } from './DbBackupConfigPanel.js';
 export { DbBackupRestoreDialog } from './DbBackupRestoreDialog.js';
+/** @stability experimental */
 export type { DbBackupRestoreDialogProps, RestoreDialogIntent } from './DbBackupRestoreDialog.js';
 export { dbBackupAdminSections } from './settings.js';
+/** @stability experimental */
 export type { DbBackupSettingsCard } from './settings.js';
 export { DB_BACKUP_PAGE_DESCRIPTION, DB_BACKUP_PAGE_TITLE } from './copy.js';

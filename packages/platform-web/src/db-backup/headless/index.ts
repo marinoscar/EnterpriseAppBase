@@ -24,6 +24,7 @@ export {
   isRollbackAvailable,
   parseByteCount,
 } from './db-backup-client.js';
+/** @stability experimental */
 export type {
   BackupDownloadUrl,
   CancelBackupResult,
@@ -61,6 +62,7 @@ export {
   useDbBackupRuns,
   useVisiblePolling,
 } from './use-db-backup.js';
+/** @stability experimental */
 export type {
   UseDbBackupActionsResult,
   UseDbBackupConfigResult,

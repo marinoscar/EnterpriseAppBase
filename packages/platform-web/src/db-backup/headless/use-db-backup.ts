@@ -113,6 +113,8 @@ export function useDbBackupApi(explicit?: DbBackupApi): DbBackupApi {
  * running dump's `bytesWritten` moves continuously, so a progress bar that
  * advances every ten seconds reads as live, while a shorter poll would re-read
  * a paginated list for a bar that moves a pixel.
+ *
+ * @stability experimental
  */
 export const DB_BACKUP_POLL_INTERVAL_MS = 10_000;
 
@@ -152,14 +154,19 @@ function messageFor(err: unknown, fallback: string): string {
 // The policy
 // =============================================================================
 
+/** @stability experimental */
 export interface UseDbBackupConfigResult {
+  /** Config. */
   config: DbBackupConfig | null;
+  /** Is loading. */
   isLoading: boolean;
   /** Failure to LOAD. Distinct from `saveError`: "nothing to show" versus "your change did not stick". */
   loadError: string | null;
   /** True when the last load failed with no response at all — see the file header. */
   isUnreachable: boolean;
+  /** Is saving. */
   isSaving: boolean;
+  /** Save error. */
   saveError: string | null;
   /** Resolves `true` when the write landed, `false` when it did not — never throws. */
   save: (input: UpdateDbBackupConfigInput) => Promise<boolean>;
@@ -167,6 +174,7 @@ export interface UseDbBackupConfigResult {
   refresh: () => Promise<void>;
 }
 
+/** @stability experimental */
 export function useDbBackupConfig(options: UseDbBackupOptions = {}): UseDbBackupConfigResult {
   const client = useDbBackupApi(options.api);
   const [config, setConfig] = useState<DbBackupConfig | null>(null);
@@ -260,10 +268,15 @@ export function useDbBackupConfig(options: UseDbBackupOptions = {}): UseDbBackup
 // The run history
 // =============================================================================
 
+/** @stability experimental */
 export interface UseDbBackupRunsResult {
+  /** Runs. */
   runs: DbBackupRun[];
+  /** Total. */
   total: number;
+  /** Is loading. */
   isLoading: boolean;
+  /** Error. */
   error: string | null;
   /** True when the last read failed with no response at all — see the file header. */
   isUnreachable: boolean;
@@ -273,6 +286,7 @@ export interface UseDbBackupRunsResult {
   refresh: () => Promise<void>;
 }
 
+/** @stability experimental */
 export function useDbBackupRuns(options: UseDbBackupOptions = {}): UseDbBackupRunsResult {
   const client = useDbBackupApi(options.api);
   const [runs, setRuns] = useState<DbBackupRun[]>([]);
@@ -343,11 +357,13 @@ export function useDbBackupRuns(options: UseDbBackupOptions = {}): UseDbBackupRu
 // The writes
 // =============================================================================
 
+/** @stability experimental */
 export interface UseDbBackupActionsResult {
   /** True while any write is in flight. */
   isWorking: boolean;
   /** The last failure, or `null`. Cleared when a write starts. */
   error: string | null;
+  /** Clear error. */
   clearError: () => void;
   /** The claimed run, or `null` when the start failed (409 while one is already going). */
   startBackup: () => Promise<DbBackupRun | null>;
@@ -359,7 +375,9 @@ export interface UseDbBackupActionsResult {
   downloadUrlFor: (id: string) => Promise<BackupDownloadUrl | null>;
   /** ⚠ Read `mode`: all three outcomes are a 200 and only one of them started anything. */
   restore: (
+    /** Id. */
     id: string,
+    /** Options. */
     options?: { overrideSchemaCheck?: boolean },
   ) => Promise<StartRestoreResult | null>;
   /** ⚠ Read `mode`: the two routes back differ by hours. */
@@ -385,6 +403,8 @@ export interface UseDbBackupActionsResult {
  * is a 200 that started nothing and must not be reported as "restore under
  * way"; an `unavailable` rollback is a 200 that means the window closed. The
  * page renders the mode; this hook only reports the failure to get one.
+ *
+ * @stability experimental
  */
 export function useDbBackupActions(onChanged?: () => void, options: UseDbBackupOptions = {}): UseDbBackupActionsResult {
   const client = useDbBackupApi(options.api);

@@ -6,6 +6,8 @@ import { useCallback, useEffect, useRef } from 'react';
  * rather than the ref, so callers can list it in a `useCallback` dependency
  * array without invalidating on every render. Copied from the reference app's
  * `hooks/useIsMounted.ts` (a slice-private helper, not exported).
+ *
+ * @stability experimental
  */
 export function useIsMounted(): () => boolean {
   const mounted = useRef(true);

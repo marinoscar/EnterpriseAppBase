@@ -96,7 +96,7 @@
 
 import { z } from 'zod';
 
-import { RESTORE_CONFIRMATION, RESTORE_GATE_IDS, ROLLBACK_CONFIRMATION } from './constants.js';
+import { RESTORE_CONFIRMATION, RESTORE_GATE_IDS, ROLLBACK_CONFIRMATION, type DbBackupEnum } from './constants.js';
 
 
 // ---------------------------------------------------------------------------
@@ -178,17 +178,18 @@ export type RollbackRestoreRequest = z.output<typeof rollbackRestoreRequestSchem
  * @stability stable
  */
 export const restoreGateSchema = z.object({
-  id: z.enum(RESTORE_GATE_IDS),
+  /** Id. */
+  id: (z.enum(RESTORE_GATE_IDS) as z.ZodEnum<DbBackupEnum<typeof RESTORE_GATE_IDS>>),
 
   /**
    * What kind of problem this gate reports, which is what decides how a failure
    * is handled — and therefore whether `overrideSchemaCheck` can do anything
    * about it. Only `overridable` can.
    */
-  kind: z.enum(['capability', 'disk', 'replicas', 'overridable']),
+  kind: (z.enum(['capability', 'disk', 'replicas', 'overridable']) as z.ZodEnum<DbBackupEnum<['capability', 'disk', 'replicas', 'overridable']>>),
 
   /** `warning` is a pass that says something; it does not stop a restore. */
-  verdict: z.enum(['pass', 'warning', 'block']),
+  verdict: (z.enum(['pass', 'warning', 'block']) as z.ZodEnum<DbBackupEnum<['pass', 'warning', 'block']>>),
 
   /** Short label, safe to render as a row heading. */
   title: z.string(),
@@ -214,7 +215,7 @@ export const restoreGateSchema = z.object({
  */
 export const restoreRollbackPlanSchema = z.object({
   /** What `databaseBackup.restoreRollbackMode` stores. */
-  configured: z.enum(['retain_database', 'drop_database']),
+  configured: (z.enum(['retain_database', 'drop_database']) as z.ZodEnum<DbBackupEnum<['retain_database', 'drop_database']>>),
 
   /**
    * What will actually happen, which is what the rollback route's `mode` will
@@ -225,7 +226,7 @@ export const restoreRollbackPlanSchema = z.object({
    * than the thing that is destroyed is what makes the downgrade message
    * honest.
    */
-  effective: z.enum(['retain_database', 'pre_restore_dump']),
+  effective: (z.enum(['retain_database', 'pre_restore_dump']) as z.ZodEnum<DbBackupEnum<['retain_database', 'pre_restore_dump']>>),
 
   /** `true` when disk pressure changed the answer. */
   downgraded: z.boolean(),
@@ -253,7 +254,7 @@ export const restorePreflightSchema = z.object({
    * also the thing a future read-only pre-flight route would return on its own,
    * and a verdict that does not say what it decided is not a verdict.
    */
-  outcome: z.enum(['ok', 'guided', 'blocked']),
+  outcome: (z.enum(['ok', 'guided', 'blocked']) as z.ZodEnum<DbBackupEnum<['ok', 'guided', 'blocked']>>),
 
   /** The backup this verdict is about. */
   runId: z.uuid(),
@@ -267,12 +268,15 @@ export const restorePreflightSchema = z.object({
   /** The name the live database is renamed to during the swap. */
   oldDatabase: z.string(),
 
+  /** Gates. */
   gates: z.array(restoreGateSchema),
 
+  /** Rollback. */
   rollback: restoreRollbackPlanSchema,
 
   /** The migration recorded on the archive, and the one live right now. */
   archiveMigration: z.string().nullable(),
+  /** Live migration. */
   liveMigration: z.string().nullable(),
 
   /**
@@ -340,6 +344,7 @@ export const startRestoreRunningSchema = z.object({
    */
   oldDatabase: z.string(),
 
+  /** Preflight. */
   preflight: restorePreflightSchema,
 });
 
@@ -358,8 +363,10 @@ export const startRestoreGuidedSchema = z.object({
    */
   mode: z.literal('guided'),
 
+  /** Run id. */
   runId: z.uuid(),
 
+  /** Guidance. */
   guidance: z.object({
     /** Which gate(s) sent the operator here, in one sentence. */
     reason: z.string(),
@@ -377,6 +384,7 @@ export const startRestoreGuidedSchema = z.object({
     runbook: z.string(),
   }),
 
+  /** Preflight. */
   preflight: restorePreflightSchema,
 });
 
@@ -395,11 +403,13 @@ export const startRestoreBlockedSchema = z.object({
    */
   mode: z.literal('blocked'),
 
+  /** Run id. */
   runId: z.uuid(),
 
+  /** Block. */
   block: z.object({
     /** Which gate refused. */
-    gateId: z.enum(RESTORE_GATE_IDS),
+    gateId: (z.enum(RESTORE_GATE_IDS) as z.ZodEnum<DbBackupEnum<typeof RESTORE_GATE_IDS>>),
 
     /** What it found, in one or two sentences. */
     message: z.string(),
@@ -422,6 +432,7 @@ export const startRestoreBlockedSchema = z.object({
     overrideParameter: z.string().nullable(),
   }),
 
+  /** Preflight. */
   preflight: restorePreflightSchema,
 });
 
@@ -477,6 +488,7 @@ export const rollbackRenamedSchema = z.object({
    */
   mode: z.literal('renamed'),
 
+  /** Run id. */
   runId: z.uuid(),
 
   /** The database that is now live — the one the restore had displaced. */
@@ -512,11 +524,13 @@ export const rollbackRestoreStartedSchema = z.object({
    */
   mode: z.literal('restore_started'),
 
+  /** Run id. */
   runId: z.uuid(),
 
   /** The `pre_restore` backup now being restored. The row to poll. */
   preRestoreRunId: z.uuid(),
 
+  /** Detail. */
   detail: z.string(),
 });
 
@@ -538,6 +552,7 @@ export const rollbackUnavailableSchema = z.object({
    */
   mode: z.literal('unavailable'),
 
+  /** Run id. */
   runId: z.uuid(),
 
   /**

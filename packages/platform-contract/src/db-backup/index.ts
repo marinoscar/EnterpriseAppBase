@@ -24,7 +24,7 @@ export {
   ROLLBACK_CONFIRMATION,
   ROLLBACK_MODES,
 } from './constants.js';
-export type { BackupStatusName, BackupTriggerName, RestoreGateId, RestoreMode, RestoreStatusName, RollbackMode } from './constants.js';
+export type { BackupStatusName, BackupTriggerName, DbBackupEnum, RestoreGateId, RestoreMode, RestoreStatusName, RollbackMode } from './constants.js';
 
 // ---- ./settings-schemas.ts
 export { databaseBackupResponseSchema, databaseBackupSettingsPatchSchema, databaseBackupSettingsSchema, systemDatabaseBackupPatchSchema, systemDatabaseBackupSchema } from './schemas.js';

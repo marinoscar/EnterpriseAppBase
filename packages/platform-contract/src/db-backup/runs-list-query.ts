@@ -33,7 +33,7 @@
 
 import { z } from 'zod';
 
-import { BACKUP_STATUSES, BACKUP_TRIGGERS } from './constants.js';
+import { BACKUP_STATUSES, BACKUP_TRIGGERS, type DbBackupEnum } from './constants.js';
 
 
 /**
@@ -42,14 +42,16 @@ import { BACKUP_STATUSES, BACKUP_TRIGGERS } from './constants.js';
  * @stability stable
  */
 export const backupRunListQuerySchema = z.object({
+  /** Page. */
   page: z.coerce.number().int().min(1).default(1),
+  /** Page size. */
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
 
   /** Exactly one status, matched for equality. Omitted, every run is listed. */
-  status: z.enum(BACKUP_STATUSES).optional(),
+  status: (z.enum(BACKUP_STATUSES) as z.ZodEnum<DbBackupEnum<typeof BACKUP_STATUSES>>).optional(),
 
   /** Exactly one trigger, matched for equality. Omitted, every run is listed. */
-  trigger: z.enum(BACKUP_TRIGGERS).optional(),
+  trigger: (z.enum(BACKUP_TRIGGERS) as z.ZodEnum<DbBackupEnum<typeof BACKUP_TRIGGERS>>).optional(),
 });
 
 /**
