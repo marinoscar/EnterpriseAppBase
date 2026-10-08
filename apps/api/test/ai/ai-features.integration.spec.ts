@@ -68,7 +68,10 @@ describe('GET /api/ai/features (#739)', () => {
       const res = await request(context.app.getHttpServer()).get('/api/ai/features').set(authHeader(user.accessToken));
 
       expect(res.status).toBe(200);
-      expect(res.body.data).toEqual([
+      // The reference app also registers its example feature (`example_summary`).
+      const mine = res.body.data.filter((f: { id: string }) => f.id.startsWith('spec_http_'));
+      expect(res.body.data.map((f: { id: string }) => f.id)).toContain('example_summary');
+      expect(mine).toEqual([
         {
           id: 'spec_http_summary',
           label: 'Summaries',

@@ -4,7 +4,11 @@
 // =============================================================================
 //
 // Code that exists to SHOW an extension point, wired exactly as a fork's own
-// would be. Today: the job-handler registry seam (`registry.register(this)`
+// would be. The AI slice's (#739): a registered feature (`example_summary`,
+// `ai/example-summary.feature.ts`) and the service that calls AI for it
+// (`ai/example-summary.service.ts`); a custom `AI_TARGET_RESOLVER` is shown in
+// `ai/example-target-resolver.ts` and bound by a test module only. The
+// jobs slice's: the job-handler registry seam (`registry.register(this)`
 // from `onModuleInit`), with one server-only handler (`example.echo`) and one
 // node-eligible handler (`example.checksum`: `nodeResultSchema` +
 // `persistNodeResult`, the only way a type becomes node-eligible), and a label
@@ -22,6 +26,9 @@
 import { Module, type OnModuleInit } from '@nestjs/common';
 
 import { ObjectProcessingModule, StorageProvidersModule } from '@marinoscar/platform-api/storage';
+import { AiModule } from '../platform/ai/ai.config';
+import './ai/example-summary.feature';
+import { ExampleSummaryService } from './ai/example-summary.service';
 import { ExampleChecksumHandler } from './jobs/example-checksum.handler';
 import { ExampleEchoHandler } from './jobs/example-echo.handler';
 import { registerExampleJobTypeLabels } from './jobs/job-type-labels.example';
@@ -35,6 +42,9 @@ import { ExampleMetadataProcessor } from './storage/example-metadata.processor';
   imports: [StorageProvidersModule, ObjectProcessingModule],
   providers: [ExampleEchoHandler, ExampleChecksumHandler, ExampleMetadataProcessor],
   exports: [ExampleEchoHandler, ExampleChecksumHandler, ExampleMetadataProcessor],
+import { AiModule } from '../platform/ai/ai.config';
+import './ai/example-summary.feature';
+import { ExampleSummaryService } from './ai/example-summary.service';
 })
 export class ExamplesModule implements OnModuleInit {
   onModuleInit(): void {
