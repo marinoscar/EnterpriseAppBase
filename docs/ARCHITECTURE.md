@@ -844,6 +844,7 @@ Health endpoints (public, reachable during maintenance):
 | An OpenAPI tag (`@ApiTags`) from a slice or module | [core README](../packages/platform-api/src/core/README.md) (`openApiTags`) |
 | A sign-in provider, identity notifications or user defaults, an app side table keyed on a new user or a membership (`registerAuthProvider`, `IDENTITY_NOTIFIER`, `USER_DEFAULTS`, `identity.user.created` / `identity.membership.changed` / `identity.org.switched`) | [identity README](../packages/platform-api/src/identity/README.md#extension-point-catalog); examples in `apps/api/src/identity-extensions/` |
 | The login page's logo, title, footer or buttons, a sign-in button look, the identity pages' spinner, table or client (`LoginPage` slots, web `registerAuthProvider`, `IdentityWebAdapters`) | [web identity README](../packages/platform-web/src/identity/README.md#extension-point-catalog); examples in `apps/web/src/identity/` |
+| A shareable resource type, a group-owned table, a list of what a caller may see, or a public link route | [sharing README, extension-point catalog](../packages/platform-api/src/sharing/README.md#extension-point-catalog) (examples in `apps/api/test/examples/sharing/`; UI: [web sharing README](../packages/platform-web/src/sharing/README.md#extension-point-catalog)) |
 | A secret stored encrypted (a new cipher purpose) | [core README](../packages/platform-api/src/core/README.md) (crypto), [specs/user-credentials.md](specs/user-credentials.md) |
 
 ---

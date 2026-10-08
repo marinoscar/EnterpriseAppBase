@@ -467,6 +467,8 @@ runPlatformConformance({
 
 The telemetry slice ships the `telemetry` suite: importing `@marinoscar/platform-api/telemetry/testing` registers it, `apps/api/test/telemetry/telemetry-conformance.spec.ts` runs it, and each check is proved against a deliberately broken fixture in `packages/platform-api/test/telemetry/conformance.spec.ts`. The checks and how to run them are in the [slice README](../packages/platform-api/src/telemetry/README.md#conformance-suite); its web half is `apps/web/src/__tests__/config/telemetryParity.test.ts`.
 
+The sharing slice ships the `sharing` suite the same way: importing `@marinoscar/platform-api/sharing/testing` registers it, `apps/api/test/sharing/sharing-conformance.spec.ts` runs it against the reference app, `apps/api/test/examples/sharing/conformance.example.spec.ts` runs it over the worked examples, and `packages/platform-api/test/sharing/conformance.spec.ts` proves each check against a planted violation. The examples themselves (`apps/api/test/examples/sharing/`, `*.db.spec.ts` where row-level security is involved, and `apps/web/src/__tests__/examples/sharing/`) are the compiled, tested reference uses the [slice README](../packages/platform-api/src/sharing/README.md#extension-point-catalog) links; they share records of test-only tables created in `beforeAll`, never a migration.
+
 Further suites (the AI invariants, the settings registry) join the same entry point as their slices are extracted.
 
 The migration guards (`db:check`, `db:check:database`, `db:drift`) are npm scripts
