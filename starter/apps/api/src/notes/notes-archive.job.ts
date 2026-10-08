@@ -4,7 +4,6 @@ import { JobHandlerRegistry, JobsService, enqueueHousekeepingJob, type Job, type
 import { SystemSettingsService } from '@marinoscar/platform-api/settings';
 
 import { PrismaService } from '../prisma/prisma.service';
-import { readNotesSettings } from './notes.settings';
 
 /** The job type. Permanent once jobs of this type exist: never rename it. */
 export const NOTES_ARCHIVE_JOB = 'notes.archive';
@@ -35,7 +34,7 @@ export class NotesArchiveHandler implements JobHandler, OnModuleInit {
   }
 
   async process(job: Job): Promise<void> {
-    const days = (await readNotesSettings(this.settings)).archiveAfterDays;
+    const days = (await this.settings.getNamespace('notes')).archiveAfterDays;
     if (days === 0) return;
     const cutoff = new Date(Date.now() - days * 86_400_000);
     const { count } = await this.prisma.note.updateMany({
