@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,6 +10,7 @@ import {
   INFRA_FRAGMENTS,
   generatedHeader,
   LOCK_PATH,
+  materialise,
   splitGenerated,
   syncInfra,
   type InfraLock,
@@ -292,6 +293,155 @@ describe('checkInfra() (`sync --check`)', () => {
   });
 });
 
+describe('executable scripts (`file.executable`)', () => {
+  const SCRIPT_TO = 'infra/compose/init/10-role.sh';
+  const SCRIPT_BODY = '#!/bin/sh\n# Creates the role.\nset -eu\necho one\necho two\necho three\necho four\necho five\necho six\necho seven\necho eight\n';
+  const SCRIPTS: InfraFragment = {
+    ...telemetryInfraFragment,
+    id: 'telemetry',
+    files: [...telemetryInfraFragment.files, { from: 'scripts/10-role.sh', to: SCRIPT_TO, executable: true }],
+  };
+  /** Mode bits are POSIX: on Windows sync neither sets nor checks them. */
+  const posix = process.platform !== 'win32';
+  const mode = (to: string): number => statSync(join(app, to)).mode & 0o777;
+
+  let pkg: string;
+  beforeEach(() => {
+    pkg = fakePackage();
+    mkdirSync(join(pkg, 'scripts'));
+    // Shipped WITHOUT the executable bit: sync sets the mode from the
+    // manifest, never from whatever mode an npm extraction left behind.
+    writeFileSync(join(pkg, 'scripts', '10-role.sh'), SCRIPT_BODY, { mode: 0o644 });
+  });
+  const opts = (): { root: string; packageRoot: string; fragments: InfraFragment[] } => ({ root: app, packageRoot: pkg, fragments: [SCRIPTS] });
+
+  it('keeps the shebang on line 1 and puts the generated header after it', () => {
+    syncInfra(opts());
+    const lines = read(SCRIPT_TO).split('\n');
+    expect(lines[0]).toBe('#!/bin/sh');
+    expect(lines[1]).toMatch(/^# GENERATED from @marinoscar\/platform-infra@/);
+    expect(lines[2]).toBe('# Source of truth: @marinoscar/platform-infra/scripts/10-role.sh; re-materialise with `npx platform-infra sync`');
+    expect(lines.slice(3).join('\n')).toBe(SCRIPT_BODY.slice('#!/bin/sh\n'.length));
+    // The body (shebang included, header excluded) is the package file.
+    expect(splitGenerated(read(SCRIPT_TO)).body).toBe(SCRIPT_BODY);
+  });
+
+  it.runIf(posix)('writes the script with mode 0755', () => {
+    syncInfra(opts());
+    expect(mode(SCRIPT_TO)).toBe(0o755);
+  });
+
+  it('records the script as executable in the lock, with the checksum of its body', () => {
+    syncInfra(opts());
+    const entry = readLock().fragments['telemetry']!;
+    expect(entry.executable).toEqual([SCRIPT_TO]);
+    expect(entry.files[SCRIPT_TO]).toBe(sha256(SCRIPT_BODY));
+  });
+
+  it('writes no `executable` key for a fragment without a script', () => {
+    syncInfra({ ...TELEMETRY_ONLY, root: app });
+    expect(readLock().fragments['telemetry']).not.toHaveProperty('executable');
+  });
+
+  it('is idempotent for a script, mode included', () => {
+    syncInfra(opts());
+    const again = syncInfra(opts());
+    expect(again.written).toEqual([]);
+    expect(again.lockWritten).toBe(false);
+  });
+
+  it.runIf(posix)('restores a lost executable bit even when the content is unchanged', () => {
+    syncInfra(opts());
+    chmodSync(join(app, SCRIPT_TO), 0o644);
+
+    const result = syncInfra(opts());
+
+    expect(result.written).toEqual([SCRIPT_TO]);
+    expect(mode(SCRIPT_TO)).toBe(0o755);
+    expect(checkInfra(opts()).problems).toEqual([]);
+  });
+
+  it('passes `--check` right after a sync', () => {
+    syncInfra(opts());
+    const result = checkInfra(opts());
+    expect(result.problems).toEqual([]);
+    expect(result.checked).toContain(SCRIPT_TO);
+  });
+
+  it.runIf(posix)('fails `--check` on a chmod -x, naming the file and the fix', () => {
+    syncInfra(opts());
+    chmodSync(join(app, SCRIPT_TO), 0o644);
+
+    const result = checkInfra(opts());
+
+    expect(result.problems).toEqual([{ file: SCRIPT_TO, message: expect.stringContaining('is not executable') }]);
+    expect(result.problems[0]!.message).toContain('run `npx platform-infra sync` to restore it');
+    expect(result.problems[0]!.message).toContain('git update-index --chmod=+x');
+    expect(result.checked).not.toContain(SCRIPT_TO);
+  });
+
+  it.runIf(posix)('fails `--check` when only the owner execute bit is gone (the bit git records)', () => {
+    syncInfra(opts());
+    chmodSync(join(app, SCRIPT_TO), 0o655);
+    expect(checkInfra(opts()).problems.map((p) => p.file)).toEqual([SCRIPT_TO]);
+  });
+
+  it('fails `--check` when the lock does not record the script as executable', () => {
+    syncInfra(opts());
+    const lock = readLock();
+    delete lock.fragments['telemetry']!.executable;
+    write(LOCK_PATH, JSON.stringify(lock));
+
+    expect(checkInfra(opts()).problems).toEqual([
+      { file: LOCK_PATH, message: expect.stringContaining(`does not record ${SCRIPT_TO} as executable`) },
+    ]);
+  });
+
+  it('fails `--check` when the lock records a file as executable that is not generated as one', () => {
+    syncInfra({ ...TELEMETRY_ONLY, root: app });
+    const lock = readLock();
+    lock.fragments['telemetry']!.executable = ['infra/compose/telemetry.compose.yml'];
+    write(LOCK_PATH, JSON.stringify(lock));
+
+    expect(checkInfra({ ...TELEMETRY_ONLY, root: app }).problems).toEqual([
+      { file: LOCK_PATH, message: expect.stringContaining('records infra/compose/telemetry.compose.yml as executable') },
+    ]);
+  });
+
+  it('reports a hand edit of a script with its line in the file (shebang first, header after)', () => {
+    syncInfra(opts());
+    const original = read(SCRIPT_TO);
+
+    write(SCRIPT_TO, original.replace('#!/bin/sh', '#!/bin/bash'));
+    expect(checkInfra(opts()).problems.map((p) => p.file)).toEqual([`${SCRIPT_TO}:1`]);
+
+    const lines = original.split('\n');
+    lines.splice(10, 0, 'echo local');
+    write(SCRIPT_TO, lines.join('\n'));
+    expect(checkInfra(opts()).problems.map((p) => p.file)).toEqual([`${SCRIPT_TO}:11`]);
+  });
+
+  it('fails `--check` when the header after the shebang was removed', () => {
+    syncInfra(opts());
+    write(SCRIPT_TO, SCRIPT_BODY);
+    expect(checkInfra(opts()).problems).toEqual([{ file: SCRIPT_TO, message: expect.stringMatching(/no generated header/) }]);
+  });
+
+  it('refuses an executable file without a shebang, before writing anything', () => {
+    writeFileSync(join(pkg, 'scripts', '10-role.sh'), 'set -eu\n');
+    expect(() => syncInfra(opts())).toThrow(/first line must be a #! shebang/);
+    expect(existsSync(join(app, 'infra'))).toBe(false);
+  });
+
+  it('refuses an app-owned file marked executable', () => {
+    const bad: InfraFragment = {
+      ...telemetryInfraFragment,
+      appOwnedFiles: [{ from: 'scripts/10-role.sh', to: 'infra/compose/init/20-app.sh', executable: true }],
+    };
+    expect(() => syncInfra({ root: app, packageRoot: pkg, fragments: [bad] })).toThrow(/only a generated file can be/);
+  });
+});
+
 describe('header helpers', () => {
   it('round-trips a header through splitGenerated()', () => {
     const file = telemetryInfraFragment.files[0]!;
@@ -300,6 +450,19 @@ describe('header helpers', () => {
     expect(split.header).toBe(header);
     expect(split.version).toBe('1.2.3');
     expect(split.body).toBe('services: {}\n');
+  });
+
+  it('round-trips a header after a shebang, keeping the shebang in the body', () => {
+    const file = { from: 'compose/postgres-init/x.sh', to: 'infra/compose/postgres-init/x.sh', executable: true };
+    const header = generatedHeader(telemetryInfraFragment, file, '1.2.3');
+    const text = materialise(header, '#!/bin/sh\nset -eu\n');
+    expect(text.startsWith(`#!/bin/sh\n${header}set -eu\n`)).toBe(true);
+    const split = splitGenerated(text);
+    expect(split.header).toBe(header);
+    expect(split.version).toBe('1.2.3');
+    expect(split.body).toBe('#!/bin/sh\nset -eu\n');
+    // A body without a shebang keeps the header on line 1.
+    expect(materialise(header, 'services: {}\n')).toBe(`${header}services: {}\n`);
   });
 
   it('hashes bodies independently of line endings', () => {

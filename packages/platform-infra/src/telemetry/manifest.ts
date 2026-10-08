@@ -23,6 +23,15 @@ export interface InfraFile {
    * an app that has put real files in the directory may delete it.
    */
   readonly keep?: boolean;
+  /**
+   * Generated files only: an executable script (for example a
+   * `/docker-entrypoint-initdb.d` script). Its first line must be a `#!`
+   * shebang, which stays the first line: the generated header goes after it.
+   * Sync writes the file with mode `0755` and records it in the lock's
+   * `executable` list, and `sync --check` fails when the executable bit is
+   * lost (a `chmod -x`, or a commit that recorded mode `100644`).
+   */
+  readonly executable?: boolean;
 }
 
 /**
