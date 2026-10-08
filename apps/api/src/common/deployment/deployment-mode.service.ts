@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import { DatabaseRestoreDisabledError } from '../../db-backup/db-backup.errors';
+import { DatabaseRestoreDisabledError } from '@marinoscar/platform-api/db-backup';
 import {
   capabilitiesFor,
   parseDeploymentMode,

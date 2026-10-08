@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import { MIN_PG_CLIENT_MAJOR } from '../src/db-backup/pg-version.util';
+import { MIN_PG_CLIENT_MAJOR } from '@marinoscar/platform-api/db-backup/testing';
 
 // =============================================================================
 // The PostgreSQL client major is ONE decision written in TWO files

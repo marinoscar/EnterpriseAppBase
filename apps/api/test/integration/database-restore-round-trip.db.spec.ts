@@ -58,31 +58,16 @@ import { ConfigService } from '@nestjs/config';
 import { DatabaseBackupRun, PrismaClient } from '@prisma/client';
 
 import { DEFAULT_SYSTEM_SETTINGS } from '../../src/common/types/settings.types';
-import {
-  createDatabase,
-  databaseExists,
-  dropDatabase,
-  buildScratchDatabaseName,
-  resolveAdminConnection,
-  withAdminConnection,
-  type AdminConnection,
-} from '../../src/db-backup/admin-connection.util';
-import { DatabaseBackupRunnerService } from '../../src/db-backup/db-backup-runner.service';
+import { createDatabase, databaseExists, dropDatabase, buildScratchDatabaseName, resolveAdminConnection, withAdminConnection, type AdminConnection } from '@marinoscar/platform-api/db-backup/testing';
+import { DatabaseBackupRunnerService } from '@marinoscar/platform-api/db-backup';
 import type { StorageConfigService } from '@marinoscar/platform-api/storage';
 import { JobsService } from '@marinoscar/platform-api/jobs';
-import { DB_RESTORE_RUN_TYPE } from '../../src/db-backup/database-restore.service';
-import { BACKUP_ARCHIVE_FORMAT } from '../../src/db-backup/db-backup-storage';
-import {
-  DatabaseRestoreService,
-  defaultDatabaseRestoreSeam,
-  type DatabaseRestoreSeam,
-} from '../../src/db-backup/database-restore.service';
-import { spawnPgDump } from '../../src/db-backup/pg-dump.util';
-import { readTocEntryCount } from '../../src/db-backup/pg-restore.util';
-import {
-  DatabaseRestorePreflightService,
-  defaultRestorePreflightSeam,
-} from '../../src/db-backup/restore-preflight.service';
+import { DB_RESTORE_RUN_TYPE } from '@marinoscar/platform-api/db-backup';
+import { BACKUP_ARCHIVE_FORMAT } from '@marinoscar/platform-api/db-backup/testing';
+import { DatabaseRestoreService, defaultDatabaseRestoreSeam, type DatabaseRestoreSeam } from '@marinoscar/platform-api/db-backup/testing';
+import { spawnPgDump } from '@marinoscar/platform-api/db-backup/testing';
+import { readTocEntryCount } from '@marinoscar/platform-api/db-backup/testing';
+import { DatabaseRestorePreflightService, defaultRestorePreflightSeam } from '@marinoscar/platform-api/db-backup/testing';
 import { MaintenanceModeService } from '../../src/common/maintenance/maintenance-mode.service';
 import type { NotificationsService } from '../notifications/support/notifications';
 import type { PrismaService } from '../../src/prisma/prisma.service';

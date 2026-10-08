@@ -63,14 +63,11 @@
 import request from 'supertest';
 
 import { PERMISSIONS_KEY, ROLES_KEY } from '@marinoscar/platform-api/identity';
-import { DatabaseBackupController } from '../../src/db-backup/db-backup.controller';
-import { BACKUP_DOWNLOAD_URL_EXPIRY_SECONDS } from '../../src/db-backup/db-backup-admin.service';
-import { DatabaseBackupRunnerService } from '../../src/db-backup/db-backup-runner.service';
-import { PgJobRoleBroker } from '../../src/db-backup/pg-job-role.broker';
-import {
-  DatabaseBackupAlreadyRunningError,
-  DatabaseBackupStorageProviderError,
-} from '../../src/db-backup/db-backup.errors';
+import { DatabaseBackupController } from '@marinoscar/platform-api/db-backup/testing';
+import { BACKUP_DOWNLOAD_URL_EXPIRY_SECONDS } from '@marinoscar/platform-api/db-backup/testing';
+import { DatabaseBackupRunnerService } from '@marinoscar/platform-api/db-backup';
+import { PgJobRoleBroker } from '@marinoscar/platform-api/db-backup/testing';
+import { DatabaseBackupAlreadyRunningError, DatabaseBackupStorageProviderError } from '@marinoscar/platform-api/db-backup';
 import { STORAGE_PROVIDER } from '@marinoscar/platform-api/storage';
 import {
   TestContext,

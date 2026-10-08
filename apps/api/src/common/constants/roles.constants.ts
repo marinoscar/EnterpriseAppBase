@@ -13,7 +13,7 @@
 // the index runs the manifest (a side effect), and this file is imported by
 // ~55 modules under `emitDecoratorMetadata`, where an import cycle bites. The
 // declaration files and `permission-ids.ts` import nothing but types, so this
-// stays a leaf (the same rule as `storage/storage-key-prefixes.ts`).
+// stays a leaf.
 //
 // An app adds its own ids in `app-registrations/permissions.ts`, including the
 // `AppPermissionIds` / `AppRoleIds` augmentation that widens `PermissionName`
@@ -26,7 +26,7 @@ import {
   USERS_PERMISSIONS,
   ORGANIZATIONS_PERMISSIONS,
 } from '@marinoscar/platform-api/identity';
-import { DB_BACKUP_PERMISSIONS } from '../../db-backup/db-backup.permissions';
+import { DB_BACKUP_PERMISSIONS } from '@marinoscar/platform-api/db-backup';
 import { JOBS_PERMISSIONS } from '@marinoscar/platform-api/jobs';
 import { NODES_PERMISSIONS } from '@marinoscar/platform-api/nodes';
 import {

@@ -21,7 +21,7 @@ import {
   USERS_PERMISSIONS,
   ORGANIZATIONS_PERMISSIONS,
 } from '@marinoscar/platform-api/identity';
-import { DB_BACKUP_PERMISSIONS } from '../../db-backup/db-backup.permissions';
+import { DB_BACKUP_PERMISSIONS } from '@marinoscar/platform-api/db-backup';
 import { JOBS_PERMISSIONS } from '@marinoscar/platform-api/jobs';
 import { NODES_PERMISSIONS } from '@marinoscar/platform-api/nodes';
 import {

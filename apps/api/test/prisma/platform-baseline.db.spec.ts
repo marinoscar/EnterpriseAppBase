@@ -31,13 +31,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { buildDatabaseUrl } from '../../src/common/database-url';
-import {
-  createDatabase,
-  dropDatabase,
-  resolveAdminConnection,
-  withAdminConnection,
-  type AdminConnection,
-} from '../../src/db-backup/admin-connection.util';
+import { createDatabase, dropDatabase, resolveAdminConnection, withAdminConnection, type AdminConnection } from '@marinoscar/platform-api/db-backup/testing';
 import { resolveDbSuite } from '../jobs/db-test-support';
 import { envFor, prismaClientFor } from '../helpers/scratch-database.helper';
 

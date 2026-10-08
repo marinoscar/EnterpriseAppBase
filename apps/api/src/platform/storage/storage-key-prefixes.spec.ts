@@ -19,11 +19,11 @@ import {
   type StorageKeyPrefixDef,
 } from '@marinoscar/platform-api/storage';
 
-import { BACKUP_KEY_PREFIX } from '../../db-backup/db-backup-storage';
+import { DATABASE_BACKUPS_KEY_PREFIX } from '@marinoscar/platform-api/db-backup';
+import { BACKUP_KEY_PREFIX } from '@marinoscar/platform-api/db-backup/testing';
 import { aiOutputKeyPrefix } from '@marinoscar/platform-api/ai';
 import { STORAGE_KEY_PREFIXES } from './storage-key-prefix.view';
 import { AI_OUTPUTS_KEY_PREFIX } from '@marinoscar/platform-api/ai';
-import { DATABASE_BACKUPS_KEY_PREFIX } from './storage-key-prefixes';
 
 /**
  * These assertions exist because of one concrete failure, recorded in the
@@ -219,7 +219,7 @@ describe('STORAGE_KEY_PREFIXES', () => {
         expect.arrayContaining([
           'platform-api/storage/storage-key-prefixes.ts:UPLOADS_KEY_PREFIX',
           'platform-api/storage/storage-key-prefixes.ts:AVATARS_KEY_PREFIX',
-          'platform/storage/storage-key-prefixes.ts:DATABASE_BACKUPS_KEY_PREFIX',
+          'platform-api/db-backup/db-backup-key-prefix.ts:DATABASE_BACKUPS_KEY_PREFIX',
           'platform-api/nodes/node-data-plane.service.ts:NODE_OUTPUT_KEY_PREFIX',
           'platform-api/ai/storage/ai-output-writer.ts:AI_OUTPUTS_KEY_PREFIX',
           'platform-api/storage/storage-key-prefixes.ts:STORAGE_TEST_KEY_PREFIX',
@@ -295,44 +295,6 @@ describe('STORAGE_KEY_PREFIXES', () => {
           'NEAR_MISS_KEY_PREFIX',
         ]);
       });
-    });
-  });
-});
-
-describe("the app's storage-key-prefixes.ts stays a no-import leaf", () => {
-  const LEAF = join(__dirname, 'storage-key-prefixes.ts');
-
-  it('evaluates with a require that is never called', () => {
-    // Loaded the way Node would, with a recording `require`: any import,
-    // including a type-only one that survives compilation, shows up here.
-    const { outputText } = ts.transpileModule(readFileSync(LEAF, 'utf8'), {
-      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-    });
-    const required: string[] = [];
-    const fakeModule = { exports: {} as Record<string, unknown> };
-    new Function('require', 'module', 'exports', outputText)(
-      (specifier: string) => {
-        required.push(specifier);
-        return {};
-      },
-      fakeModule,
-      fakeModule.exports,
-    );
-
-    expect(required).toEqual([]);
-    expect(fakeModule.exports).toEqual({
-      DATABASE_BACKUPS_KEY_PREFIX: 'database-backups/',
-    });
-  });
-
-  it('loaded alone (jest.isolateModules), it pulls in neither the manifest nor the registry', () => {
-    jest.isolateModules(() => {
-      require('./storage-key-prefixes');
-      const { listDefinedRegistries } = require('@marinoscar/platform-api/core') as typeof import('@marinoscar/platform-api/core');
-
-      // Had the leaf loaded the manifest, this isolated copy of the primitive
-      // would already have the storage-key-prefixes registry defined.
-      expect(listDefinedRegistries().map((r) => r.name)).not.toContain('storage-key-prefixes');
     });
   });
 });
