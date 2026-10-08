@@ -40,7 +40,7 @@ describe('the shipped package', () => {
     }
   });
 
-  it('lists the six indexes of CLAUDE.md, each pointing at a document that exists', () => {
+  it('lists the eight indexes of CLAUDE.md, each pointing at a document that exists', () => {
     expect(RAW_SQL_INDEXES.map((i) => [i.name, i.unique])).toEqual([
       ['jobs_active_dedup_uniq_idx', true],
       ['jobs_attempts_gt1_idx', false],
@@ -48,6 +48,8 @@ describe('the shipped package', () => {
       ['database_backup_runs_active_uniq_idx', true],
       ['organizations_default_uniq_idx', true],
       ['group_invites_pending_uniq_idx', true],
+      ['grants_active_user_uniq_idx', true],
+      ['grants_active_group_uniq_idx', true],
     ]);
     for (const index of RAW_SQL_INDEXES) {
       expect(['docs/specs/job-queue.md', 'docs/specs/database-backup.md', 'docs/specs/platform-packages.md']).toContain(index.doc);

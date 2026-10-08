@@ -88,6 +88,9 @@ model User {
   groupMembersAdded   GroupMember[] @relation("GroupMemberAddedBy")
   groupInvitesSent    GroupInvite[] @relation("GroupInviteInvitedBy")
   groupInvitesClaimed GroupInvite[] @relation("GroupInviteAcceptedBy")
+  grantsReceived      Grant[]       @relation("GrantGranteeUser")
+  grantsRevoked       Grant[]       @relation("GrantRevokedBy")
+  grantsGiven         Grant[]       @relation("GrantGrantedBy")
 
   // composed from package:storage.prisma
   storageObjects         StorageObject[]         @relation("UserStorageObjects")
@@ -432,6 +435,7 @@ model Organization {
   groups       Group[]
   groupMembers GroupMember[]
   groupInvites GroupInvite[]
+  grants       Grant[]
 
   // composed from package:storage.prisma
   storageObjects      StorageObject[]

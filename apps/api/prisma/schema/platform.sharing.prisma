@@ -2,7 +2,7 @@
 // source: package:sharing.prisma
 
 // =============================================================================
-// Sharing: groups (PP-7.1, issue #728)
+// Sharing: groups (PP-7.1, issue #728) and grants (PP-7.2, issue #729)
 // =============================================================================
 //
 // A GROUP is a set of users INSIDE ONE ORGANIZATION that can own and share
@@ -51,6 +51,7 @@ model Group {
   createdBy User?         @relation("GroupCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   members   GroupMember[]
   invites   GroupInvite[]
+  grants    Grant[]
 
   // The target of the members' and invites' composite foreign keys.
   @@unique([id, orgId])
@@ -113,4 +114,77 @@ model GroupInvite {
   @@index([groupId])
   @@index([orgId])
   @@map("group_invites")
+}
+
+// =============================================================================
+// Sharing: grants (PP-7.2, issue #729)
+// =============================================================================
+//
+// A GRANT shares ONE record of a registered resource type with a user, a
+// group of the same organization or (#730) a link, with a role and an
+// optional expiry. The resource is POLYMORPHIC, `(resource_type,
+// resource_id)`, with no foreign key: the platform cannot know app tables.
+// Integrity comes from `GrantsService.deleteForResources()` (called inside the
+// app's delete transaction) and the `sharing.grants.prune` job.
+//
+// Revocation is SOFT (`revoked_at`, `revoked_by_id`) so the audit trail
+// survives; the prune job deletes revoked and expired rows after the
+// retention period.
+//
+// Raw SQL only (migration `0027_add_grants`, intentional schema drift):
+//   grants_active_user_uniq_idx   one ACTIVE grant per (resource, user)
+//   grants_active_group_uniq_idx  one ACTIVE grant per (resource, group)
+//   grants_grantee_consistency_check  the grantee columns match grantee_kind
+// Never "fix" the drift with `@@unique`, and never replace the indexes with a
+// `findFirst` pre-check: the service upserts on them.
+//
+// The group grantee reaches its group through the COMPOSITE key
+// `(grantee_group_id, org_id)` -> `groups (id, org_id)`, so a grant can never
+// point at another organization's group (a foreign-key check bypasses
+// row-level security).
+// =============================================================================
+
+enum GrantGranteeKind {
+  user // one user of the resource's organization
+  group // one group of the resource's organization
+  link // anyone holding the link token (#730)
+}
+
+model Grant {
+  id                  String           @id @default(uuid()) @db.Uuid
+  orgId               String           @map("org_id") @db.Uuid
+  /// Registered resource type id. Permanent once rows exist, like a job type string.
+  resourceType        String           @map("resource_type")
+  resourceId          String           @map("resource_id") @db.Uuid
+  granteeKind         GrantGranteeKind @map("grantee_kind")
+  granteeUserId       String?          @map("grantee_user_id") @db.Uuid
+  granteeGroupId      String?          @map("grantee_group_id") @db.Uuid
+  /// One of the resource type's registered roles. A plain string: a row must outlive the registry that produced it.
+  role                String
+  /// Link grants only (#730): SHA-256 of the token, and the token encrypted with the platform secret cipher.
+  linkTokenHash       String?          @unique @map("link_token_hash")
+  linkTokenCiphertext String?          @map("link_token_ciphertext") @db.Text
+  linkLabel           String?          @map("link_label")
+  expiresAt           DateTime?        @map("expires_at") @db.Timestamptz
+  revokedAt           DateTime?        @map("revoked_at") @db.Timestamptz
+  revokedById         String?          @map("revoked_by_id") @db.Uuid
+  grantedById         String?          @map("granted_by_id") @db.Uuid
+  /// Apps keep extra fields here (spec: never add columns to package-owned tables).
+  metadata            Json?            @db.JsonB
+  createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt           DateTime         @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  org          Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  granteeUser  User?        @relation("GrantGranteeUser", fields: [granteeUserId], references: [id], onDelete: Cascade)
+  // Composite: (grantee_group_id, org_id) -> groups (id, org_id).
+  granteeGroup Group?       @relation(fields: [granteeGroupId, orgId], references: [id, orgId], onDelete: Cascade)
+  revokedBy    User?        @relation("GrantRevokedBy", fields: [revokedById], references: [id], onDelete: SetNull)
+  grantedBy    User?        @relation("GrantGrantedBy", fields: [grantedById], references: [id], onDelete: SetNull)
+
+  @@index([resourceType, resourceId])
+  @@index([granteeUserId])
+  @@index([granteeGroupId])
+  @@index([orgId])
+  @@map("grants")
 }

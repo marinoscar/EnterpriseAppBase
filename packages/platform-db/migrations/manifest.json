@@ -263,5 +263,17 @@
     "sha256": "93e97e6b72578a89bf5232a036ecfe6a067c883c7f3c9f091bfdc00475c6e714",
     "since": "1.0.0",
     "slice": "sharing"
+  },
+  {
+    "dir": "0027_add_grants",
+    "id": "0027_add_grants",
+    "requires": [
+      "identity",
+      "sharing"
+    ],
+    "rls": true,
+    "sha256": "2e2d5515f131c104ee7f4e5b2ee4d76fbf5409e500da0b412edd4bad0b71c6da",
+    "since": "1.0.0",
+    "slice": "sharing"
   }
 ]
