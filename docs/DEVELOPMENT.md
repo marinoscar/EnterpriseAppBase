@@ -309,7 +309,9 @@ await this.prisma.runInOrg(orgId, async (tx) => {
   `test/tenancy/system-injection-boundary.spec.ts`.
 - **The database role must be ordinary.** A superuser ignores every policy.
   `devdb.compose.yml` and `test.compose.yml` create `app` for you
-  (`infra/compose/postgres-init/10-application-role.sh`); `.env` says
+  (`infra/compose/postgres-init/10-application-role.sh`, an executable script
+  generated from `@marinoscar/platform-infra` by `npm run platform:infra:sync`;
+  `sync --check` fails if it loses its mode bit); `.env` says
   `POSTGRES_USER=app`. If the Doctor reports `db.rls_role`, see
   [SECURITY-ARCHITECTURE.md §18](SECURITY-ARCHITECTURE.md#the-application-role).
 - A migration that backfills or fixes rows in these tables wraps the statements

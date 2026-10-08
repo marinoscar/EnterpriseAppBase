@@ -1730,7 +1730,10 @@ the job roles it creates).
   (`test.compose.yml`): the image's bootstrap login stays `postgres`
   (administration only); `postgres-init/10-application-role.sh` creates the
   role from `POSTGRES_USER` (default `app`) on the first start of an empty
-  volume and makes it the database owner. `.env.example` and the compose
+  volume and makes it the database owner. The script ships in
+  `@marinoscar/platform-infra` (the compose fragment) and `platform-infra sync`
+  writes it, executable, into every app's `infra/compose/postgres-init/`
+  (the reference app and the starter alike). `.env.example` and the compose
   defaults say `app`.
 - **An existing development volume** keeps its old superuser, and the Doctor
   reports it. The clean path: take a backup in the admin UI (or `pg_dump`),

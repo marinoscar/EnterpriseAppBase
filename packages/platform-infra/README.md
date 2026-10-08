@@ -7,6 +7,7 @@ Deployment configuration shipped as files, plus the small ESM API that orders an
 What the package owns:
 
 - the Compose files `base`, `dev`, `devdb`, `prod`, `vps` (with the stack agent), `worker`, `worker.build` and `test`, and the order Compose applies them in per mode (`composeFilesForMode()`), with the app's overlays last;
+- `postgres-init/10-application-role.sh`, the executable init script `devdb` and `test` mount at `/docker-entrypoint-initdb.d`: it creates the ordinary (`NOSUPERUSER NOBYPASSRLS`) role the API runs as, so row-level security applies to it;
 - `nginx.conf` with four include points, the two CSP maps and the `platform/` snippets (`security-headers.conf`, `sse-proxy.conf`);
 - the platform's environment variables (`env/base.env.example`) and the worker's (`env/worker.env.example`);
 - identity rendering: the app's CLI name, env prefix, service name, worker image and test database names written into those files (`deriveInfraIdentity()`, `renderInfraText()`);
@@ -115,7 +116,7 @@ The identity the reference app was rendered with is recorded in [`infra/platform
 
 ### `platform-infra sync` and the lock
 
-Materialises the generated files, creates each app-owned file once, and writes `infra/platform-infra.lock.json` (version, identity, sha256 of each generated body). The reference app runs `npm run platform:infra:sync` and CI fails on drift with `npm run platform:infra:sync -- --check` (the `Build & Test` job of `.github/workflows/ci.yml`). It is a command of the package's bin, not an export.
+Materialises the generated files, creates each app-owned file once, and writes `infra/platform-infra.lock.json` (version, identity, sha256 of each generated body, and per fragment the generated files that are `executable`). The reference app runs `npm run platform:infra:sync` and CI fails on drift with `npm run platform:infra:sync -- --check` (the `Build & Test` job of `.github/workflows/ci.yml`). It is a command of the package's bin, not an export.
 
 ## Data
 
@@ -150,12 +151,25 @@ The VPS files come after every file whose `ports:` they override (`ports: !overr
 | Package | App (generated) | App-owned, created once |
 |---|---|---|
 | `compose/*.compose.yml` | `infra/compose/*.compose.yml` | `infra/compose/app.example.compose.yml` |
+| `compose/postgres-init/10-application-role.sh` (executable) | `infra/compose/postgres-init/10-application-role.sh`, mode `0755` | |
 | `nginx/nginx.conf`, `csp.conf`, `csp.dev.conf`, `platform/*` | `infra/nginx/…` | `infra/nginx/app.d/` (`permissions-policy.conf`, `http/`, `server/`, `locations/`) |
 | `env/base.env.example` + the app's `app.env.example` | `infra/compose/.env.example` | `infra/compose/app.env.example` |
 | `env/worker.env.example` | `infra/compose/.env.worker.example` | |
 | `telemetry/**` | see the [telemetry slice](src/telemetry/README.md#infra) | `infra/otel/app-collector.yaml` |
 
 Generated files start with a `# GENERATED from @marinoscar/platform-infra@<version> (<fragment>)` header and are never edited in the app. They are committed, because a VPS deploy runs Compose in a git checkout with no `node_modules`; Compose keeps resolving `context: ../..` and `../nginx/…` against `infra/compose`, as before.
+
+### Executable scripts
+
+A generated file marked `executable` in its fragment (`InfraFile.executable`; today `postgres-init/10-application-role.sh`) is a script a container runs by path, so the copy keeps what running it needs:
+
+- **the shebang stays on line 1.** The two-line generated header goes after it, and the lock's checksum covers the body with its shebang and without the header. An executable package file without a `#!` line is refused before anything is written.
+- **the mode is `0755`.** Sync writes the file with that mode and restores it when only the mode was lost (it then reports the file as written). The lock lists the file under its fragment's `executable` key, so the mode is part of what a reviewer sees in a lock diff.
+- **`--check` fails on a lost executable bit**: a `chmod -x`, or a checkout of a commit that recorded the file as `100644`. It reads the owner's execute bit, the one git records. A lock whose `executable` list does not match the manifest fails as well.
+
+Commit the mode with the file (`git add` records it; on a checkout without mode bits, such as Windows, `git update-index --chmod=+x <file>`). Windows has no executable bit, so there sync neither sets nor checks it. The package's own copy is `100755` too, and npm keeps the mode when it packs and installs, but sync does not rely on it: the manifest decides.
+
+The `postgres-init/` directory is mounted whole, and sync removes nothing it does not generate, so an app adds its own first-start step as another script beside the platform's (`infra/compose/postgres-init/20-<name>.sh`, run in file-name order after `10-application-role.sh`). That file is the app's: sync never lists it in the lock nor checks it.
 
 ### Env fragments
 
@@ -185,6 +199,7 @@ From the files an app copied by hand (before #714): run `npx platform-infra sync
 ## Troubleshooting
 
 - **`sync --check`: `differs from @marinoscar/platform-infra@…`.** A generated file was edited. Run `npm run platform:infra:sync`, then make the change in the overlay the message names.
+- **`is not executable`.** A generated script lost its mode bit (a `chmod -x`, an editor that rewrote it, or a commit that recorded `100644`). Run `npm run platform:infra:sync`, then commit the mode change; on Windows use `git update-index --chmod=+x <file>`. Why it matters: the postgres image runs an executable `.sh` in `/docker-entrypoint-initdb.d` but *sources* one that is not, so the script's `set -eu` and `exit` act on the image's entrypoint itself. If a volume was initialised that way, check the Doctor's `db.rls_role` and recreate the volume if the role is wrong.
 - **`records a different checksum`.** The lock was edited or not rewritten (for example after `scripts/rename.mjs` changed a rendered value): run the sync.
 - **`is rendered with the app identity, and none was found`.** Add `packages/shared/identity.json` with `productName` and `cliName`, or pass `--identity <file>`.
 - **nginx: `open() "/etc/nginx/app.d/permissions-policy.conf" failed`.** The app-owned file is missing; the sync recreates it from the platform default.
