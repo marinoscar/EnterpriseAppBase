@@ -1,3 +1,6 @@
+// Moved from the reference app (apps/web/src/__tests__, issue #727): the
+// app's mocked `services/organizations` is now a fake identity client, handed
+// in through the identity adapters.
 /**
  * `pages/Admin/OrganizationPage` (#726): the current organization's members
  * and invitations, as two parallel tabs. Write controls are disabled without
@@ -8,37 +11,25 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { render, mockUser, type MockUser } from '../../utils/test-utils';
-import OrganizationPage from '../../../pages/Admin/OrganizationPage';
-import * as service from '../../../services/organizations';
+import { userEvent } from '@testing-library/user-event';
+import { render, mockUser, type MockUser } from './render.js';
+import { OrganizationPage } from '../../src/identity/ui/index.js';
+import type { OrgInvite, OrgMember } from '../../src/identity/headless/index.js';
+import { fakeIdentityApi } from './harness.js';
 
-vi.mock('../../../services/organizations', async () => {
-  const actual = await vi.importActual<typeof import('../../../services/organizations')>(
-    '../../../services/organizations',
-  );
-  return {
-    ...actual,
-    getOrgMembers: vi.fn(),
-    updateOrgMember: vi.fn(),
-    removeOrgMember: vi.fn(),
-    getOrgInvites: vi.fn(),
-    createOrgInvite: vi.fn(),
-    revokeOrgInvite: vi.fn(),
-  };
-});
+const service = fakeIdentityApi();
 
 const page = <T,>(items: T[]) => ({ items, total: items.length, page: 1, pageSize: 100, totalPages: 1 });
 
-const SELF = 'test-user-id';
+const SELF = mockUser.id;
 const OTHER = 'user-other';
 
-const members: service.OrgMember[] = [
+const members: OrgMember[] = [
   { userId: SELF, email: 'test@example.com', displayName: 'Test User', role: 'org_admin', status: 'active', lastActiveAt: null, joinedAt: '2026-01-01T00:00:00Z' },
   { userId: OTHER, email: 'other@example.com', displayName: 'Other Person', role: 'contributor', status: 'active', lastActiveAt: null, joinedAt: '2026-01-01T00:00:00Z' },
 ];
 
-const invite: service.OrgInvite = {
+const invite: OrgInvite = {
   id: 'invite-1',
   email: 'pending@example.com',
   role: 'viewer',
@@ -66,7 +57,7 @@ const ALL = ['org_members:read', 'org_members:write', 'org_invites:read', 'org_i
 
 function renderPage(permissions: string[]) {
   return render(<OrganizationPage />, {
-    wrapperOptions: { route: '/admin/settings/organization', user: orgAdmin(permissions) },
+    wrapperOptions: { route: '/admin/settings/organization', user: orgAdmin(permissions), adapters: { api: service } },
   });
 }
 

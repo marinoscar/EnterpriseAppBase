@@ -1,8 +1,9 @@
-import { describe, it, expect, vi } from 'vitest';
+// Moved from the reference app (apps/web/src/__tests__, issue #727).
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { render } from '../../utils/test-utils';
-import { OAuthButton } from '../../../components/auth/OAuthButton';
+import { userEvent } from '@testing-library/user-event';
+import { render } from './render.js';
+import { OAuthButton } from '../../src/identity/ui/index.js';
 
 describe('OAuthButton', () => {
   const mockOnClick = vi.fn();

@@ -1,3 +1,6 @@
+// Moved from the reference app (apps/web/src/__tests__, issue #727): the
+// app's mocked `services/organizations` is now a fake identity client, handed
+// in through the identity adapters.
 /**
  * `pages/Admin/OrganizationsPage` (#726): the deployment's organizations.
  * Create and rename are disabled without `organizations:write`; creating
@@ -5,19 +8,15 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { render, mockAdminUser, type MockUser } from '../../utils/test-utils';
-import OrganizationsPage from '../../../pages/Admin/OrganizationsPage';
-import * as service from '../../../services/organizations';
+import { userEvent } from '@testing-library/user-event';
+import { render, mockAdminUser, type MockUser } from './render.js';
+import { OrganizationsPage } from '../../src/identity/ui/index.js';
+import type { Organization } from '../../src/identity/headless/index.js';
+import { fakeIdentityApi } from './harness.js';
 
-vi.mock('../../../services/organizations', async () => {
-  const actual = await vi.importActual<typeof import('../../../services/organizations')>(
-    '../../../services/organizations',
-  );
-  return { ...actual, getOrganizations: vi.fn(), createOrganization: vi.fn(), renameOrganization: vi.fn() };
-});
+const service = fakeIdentityApi();
 
-const orgs: service.Organization[] = [
+const orgs: Organization[] = [
   { id: 'org-default', name: 'Default organization', slug: 'default', isDefault: true, memberCount: 3, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
   { id: 'org-b', name: 'Beta', slug: 'beta', isDefault: false, memberCount: 1, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
 ];
@@ -35,7 +34,7 @@ describe('OrganizationsPage (#726)', () => {
   });
 
   it('lists organizations with member counts and the default marked', async () => {
-    render(<OrganizationsPage />, { wrapperOptions: { user: operator(['organizations:read', 'organizations:write']) } });
+    render(<OrganizationsPage />, { wrapperOptions: { adapters: { api: service }, user: operator(['organizations:read', 'organizations:write']) } });
 
     const row = await screen.findByTestId('org-org-default');
     expect(within(row).getByText('Default')).toBeInTheDocument();
@@ -45,7 +44,7 @@ describe('OrganizationsPage (#726)', () => {
 
   it('creates an organization, suggesting the slug from the name', async () => {
     const user = userEvent.setup();
-    render(<OrganizationsPage />, { wrapperOptions: { user: operator(['organizations:read', 'organizations:write']) } });
+    render(<OrganizationsPage />, { wrapperOptions: { adapters: { api: service }, user: operator(['organizations:read', 'organizations:write']) } });
 
     await user.click(await screen.findByRole('button', { name: 'Create organization' }));
     const dialog = await screen.findByRole('dialog');
@@ -65,7 +64,7 @@ describe('OrganizationsPage (#726)', () => {
 
   it('renames an organization', async () => {
     const user = userEvent.setup();
-    render(<OrganizationsPage />, { wrapperOptions: { user: operator(['organizations:read', 'organizations:write']) } });
+    render(<OrganizationsPage />, { wrapperOptions: { adapters: { api: service }, user: operator(['organizations:read', 'organizations:write']) } });
 
     await user.click(within(await screen.findByTestId('org-org-b')).getByRole('button', { name: 'Rename' }));
     const dialog = await screen.findByRole('dialog');
@@ -78,7 +77,7 @@ describe('OrganizationsPage (#726)', () => {
   });
 
   it('disables create and rename without organizations:write', async () => {
-    render(<OrganizationsPage />, { wrapperOptions: { user: operator(['organizations:read']) } });
+    render(<OrganizationsPage />, { wrapperOptions: { adapters: { api: service }, user: operator(['organizations:read']) } });
 
     const row = await screen.findByTestId('org-org-b');
     expect(screen.getByRole('button', { name: 'Create organization' })).toBeDisabled();
@@ -88,7 +87,7 @@ describe('OrganizationsPage (#726)', () => {
   it("shows the API's refusal in the create dialog", async () => {
     const user = userEvent.setup();
     vi.mocked(service.createOrganization).mockRejectedValue(new Error('An organization with the slug "beta" already exists'));
-    render(<OrganizationsPage />, { wrapperOptions: { user: operator(['organizations:read', 'organizations:write']) } });
+    render(<OrganizationsPage />, { wrapperOptions: { adapters: { api: service }, user: operator(['organizations:read', 'organizations:write']) } });
 
     await user.click(await screen.findByRole('button', { name: 'Create organization' }));
     const dialog = await screen.findByRole('dialog');

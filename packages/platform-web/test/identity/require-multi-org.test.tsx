@@ -1,3 +1,4 @@
+// Moved from the reference app (apps/web/src/__tests__, issue #727).
 /**
  * `RequireMultiOrg` (#726): the feature half of an org-administration route's
  * gate. Multi-org mode renders the page; single-org mode (or no user) falls
@@ -6,8 +7,8 @@
 import { describe, it, expect } from 'vitest';
 import { screen } from '@testing-library/react';
 import { Route, Routes } from 'react-router-dom';
-import { render, mockAdminUser } from '../../utils/test-utils';
-import { RequireMultiOrg } from '../../../components/common/RequireMultiOrg';
+import { render, mockAdminUser } from './render.js';
+import { RequireMultiOrg } from '../../src/identity/headless/index.js';
 
 function tree() {
   return (
