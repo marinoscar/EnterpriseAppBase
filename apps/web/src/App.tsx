@@ -143,6 +143,9 @@ const AiConfigPage = lazy(() => import('./pages/Admin/AiConfigPage'));
 const AiModelsPage = lazy(() => import('./pages/Admin/AiModelsPage'));
 // Issue #444, epic #420 — AI usage aggregates.
 const AiUsagePage = lazy(() => import('./pages/Admin/AiUsagePage'));
+// Issue #739 (PP-8.6) — the active organization's own AI keys, the AI slice's
+// packaged page (`@marinoscar/platform-web/ai/ui`).
+const OrgAiKeysPage = lazy(() => import('@marinoscar/platform-web/ai/ui'));
 const UserAiKeysPage = lazy(() => import('./pages/UserAiKeysPage'));
 const AiPlaygroundPage = lazy(() => import('./pages/AiPlaygroundPage'));
 // Issue #537, epic #528 — the telemetry policy page and the SQL explorer. Lazy
@@ -807,6 +810,25 @@ function AppRoutes() {
                       >
                         <RequireAiEnabled>
                           <AiUsagePage />
+                        </RequireAiEnabled>
+                      </RequirePermission>
+                    }
+                  />
+                  {/* Issue #739 (PP-8.6). The `Organization AI keys` card's
+                      route: `org_ai_config:read`, the ORG permission the AI
+                      slice's `org-keys.controller.ts` enforces on
+                      `GET /api/admin/ai/org-keys`, and the string the card
+                      declares. Behind `RequireAiEnabled` like AI Models and
+                      AI Usage. Writes are gated inside the page. */}
+                  <Route
+                    path="/admin/settings/ai/organization-keys"
+                    element={
+                      <RequirePermission
+                        permission="org_ai_config:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <RequireAiEnabled>
+                          <OrgAiKeysPage />
                         </RequireAiEnabled>
                       </RequirePermission>
                     }

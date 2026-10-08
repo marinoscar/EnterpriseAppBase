@@ -1,10 +1,10 @@
 /**
- * Admin → Settings → Organization AI keys (`/admin/settings/organization/ai`).
+ * Admin → Settings → Organization AI keys (`/admin/settings/ai/organization-keys`).
  *
  * Issue #739 (PP-8.6). The active organization's OWN AI provider keys: one
  * row per registered provider with its masked status and set / remove
  * actions, plus the organization's effective AI policy (read-only). A
- * registry card of its own, appended last in the Organizations section
+ * registry card of its own, appended last in the AI section
  * (`permission: 'org_ai_config:read'`, `feature: 'ai'`), never a tab on the
  * deployment's AI page: "which key does MY organization pay with" is a
  * different question from "how is AI configured for the deployment".
