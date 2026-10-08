@@ -23,7 +23,7 @@ Source of truth for every claim below:
 - `packages/platform-api/src/telemetry/connection/` (the runtime connection: resolver, admin service, test service, controller)
 - `packages/platform-api/src/telemetry/stack/` (stack-agent client, `telemetry.stack.deploy` job, controller)
 - `apps/stack-agent/` (the sidecar)
-- `apps/cli/src/deploy/compose-files.ts`, `env-metadata.ts` (`effectiveGroups`, `STACK_AGENT_TOKEN`)
+- `packages/platform-cli/src/engine/deploy/compose-files.ts`, `env-metadata.ts` (`effectiveGroups`, `STACK_AGENT_TOKEN`)
 - `packages/platform-cli/src/telemetry/` (`telemetryEnvSpecFragment`: the `OTEL_*`, `GREPTIME_*` and monitor-login wizard metadata; the worker's span relay)
 
 **Telemetry ships off, but the containers ship on.** A fresh VPS deployment
@@ -105,7 +105,7 @@ opt into:
 appctl deploy install --domain app.example.com
 ```
 
-`effectiveGroups()` (`apps/cli/src/deploy/compose-files.ts`) always includes
+`effectiveGroups()` (`packages/platform-cli/src/engine/deploy/compose-files.ts`) always includes
 `observability`, so `telemetry.compose.yml` and `vps.telemetry.compose.yml`
 are always in the compose file list, the `GREPTIME_*_PASSWORD` values and
 `STACK_AGENT_TOKEN` are generated as random hex with no prompt, and

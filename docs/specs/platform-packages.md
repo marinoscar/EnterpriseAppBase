@@ -257,7 +257,7 @@ Publish about **six layer packages**, released in lockstep under **one platform 
 | `@marinoscar/platform-api` | NestJS dynamic modules |
 | `@marinoscar/platform-web` | React pages, components and hooks |
 | `@marinoscar/platform-db` | Prisma schema fragments, SQL migrations, seed functions |
-| `@marinoscar/platform-cli` | CLI commands and TUI building blocks |
+| `@marinoscar/platform-cli` | CLI commands and TUI building blocks (`createCli`; the command, TUI-screen, deploy-step and node-executor registries; #715) |
 | `@marinoscar/platform-infra` | Compose fragments, nginx and OTel collector config; Helm later |
 
 **Slices** (telemetry, identity, jobs, storage, notifications, ai, settings, email, doctor, db-backup and so on) are internal modules exposed as **subpath exports**, for example `@marinoscar/platform-api/telemetry`. Lint rules enforce the boundaries between slices.
@@ -524,10 +524,22 @@ Because a VPS deploy runs compose from the cloned app repository, where no `node
 
 #### CLI
 
+The app's `src/cli.ts` is one `createCli` call (`@marinoscar/platform-cli`, #715); its identity (executable name, env prefix, config directory) is configuration, not a codemod. Its rung-2 registries take the same entries as `createCli`'s options:
+
 ```ts
-// Rung 2: add a command to the platform CLI from the app's own entry point
-registerCliCommand((program) => program.command('coach-seed').action(seedCoachData));
+// Rung 2: commands, TUI screens, deploy steps and node executors from the app
+const cli = createCli({
+  identity: { name: 'evopathcli', displayName: 'EvoPath CLI', repoSlug: 'marinoscar/evopath' },
+  version: APP_VERSION,
+  extraCommands: [(program) => program.command('coach-seed').action(seedCoachData)], // registerCliCommand
+  tuiScreens: [{ route: 'android', label: 'Android release', order: 70, load: loadAndroidScreen }], // registerTuiScreen
+  deploySteps: [{ pipeline: 'install', id: 'android-apk', after: 'verify', step: androidApkStep }], // registerDeployStep
+  nodeExecutors: [new TranscodeExecutor()], // registerNodeExecutor
+});
+process.exitCode = await cli.run(process.argv.slice(2));
 ```
+
+Two strings never follow the identity, because live servers parse them: the deploy state file `.appctl-deploy.json` and the `# Managed by appctl deploy` proxy sentinel. The built-in deploy step ids are part of the stable surface ([platform-cli README](../../packages/platform-cli/README.md#extension-point-catalog)).
 
 ### What an extension may and may not rely on
 

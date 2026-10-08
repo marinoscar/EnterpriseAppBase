@@ -17,9 +17,9 @@ Source of truth for every claim below:
 - `apps/api/src/about/deploy-info.ts` — reads and validates the document.
 - `apps/api/src/about/dto/about-response.dto.ts` — the full response shape.
 - `apps/web/src/pages/Admin/AboutPage.tsx` — the page itself.
-- `apps/cli/src/deploy/deploy-info.ts` — builds and atomically writes the
+- `packages/platform-cli/src/engine/deploy/deploy-info.ts` — builds and atomically writes the
   document.
-- `apps/cli/src/deploy/about.ts` — `appctl deploy about`, which reads the same
+- `packages/platform-cli/src/engine/deploy/about.ts` — `appctl deploy about`, which reads the same
   file from the host side.
 - `infra/compose/vps.compose.yml` — the bind mount that carries the document
   into the API container.
@@ -67,7 +67,7 @@ environment:
 
 `DEPLOY_ROOT` is written into `.env` by the CLI and is deliberately absent
 from `.env.example`: the CLI uses it as the marker for an `.env` it wrote
-(`apps/cli/src/deploy/deployment-evidence.ts`). The `./.deploy` default only
+(`packages/platform-cli/src/engine/deploy/deployment-evidence.ts`). The `./.deploy` default only
 keeps `docker compose config` valid in a checkout that was never deployed.
 
 1. **Move the directory, if you are moving the root.** Nothing moves it for

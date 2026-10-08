@@ -1627,7 +1627,7 @@ COMMIT;
 **without** the `app.rls_bypass` option exits 0 and writes a valid archive with
 the schema and **no rows**; the option without the flag is refused by
 `pg_dump`. So every dump and restore path (`buildPgDumpArgs`,
-`buildPgRestoreArgs`, the node-side dump in `apps/cli/src/node/pg-dump.ts`)
+`buildPgRestoreArgs`, the node-side dump in `packages/platform-cli/src/engine/node/pg-dump.ts`)
 carries both: the flag in argv and `PGOPTIONS=-c app.rls_bypass=on` in the
 child's environment (never argv). The API merges the option into any `PGOPTIONS` already set; the node's CLI clears every inherited libpq variable and sets exactly this one. The
 SELECT-only role minted for a worker node stays SELECT-only and is created

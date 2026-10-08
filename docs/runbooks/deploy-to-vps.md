@@ -7,7 +7,7 @@ runs **on the VPS**. Design and rationale:
 [`docs/specs/vps-deploy.md`](../specs/vps-deploy.md). Flags and exit codes:
 [`apps/cli/README.md`, "Deploying to a server"](../../apps/cli/README.md#deploying-to-a-server).
 
-Source of truth: `apps/cli/src/deploy/` (`install.ts`, `update.ts`,
+Source of truth: `packages/platform-cli/src/engine/deploy/` (`install.ts`, `update.ts`,
 `checks/`, `proxy.ts`, `layout.ts`, `journal.ts`, `uninstall.ts`),
 `infra/compose/vps.compose.yml`, and `apps/api/prisma/seed.ts`.
 
@@ -453,7 +453,7 @@ rebuild the sidecar from source.
 
 ### 6.2 Change the stack with an overlay
 
-The deploy's file list (`apps/cli/src/deploy/compose-files.ts`) is the
+The deploy's file list (`packages/platform-cli/src/engine/deploy/compose-files.ts`) is the
 platform's files in their fixed order, then **your overlays** found in the
 checkout's `infra/compose/`, sorted by file name, so an overlay always wins:
 
@@ -555,7 +555,7 @@ certbot and Let's Encrypt are covered by unit tests only.
 
 ## 9. Running more than one application on this box
 
-`apps/cli/src/deploy/layout.ts` lays out every deployment at
+`packages/platform-cli/src/engine/deploy/layout.ts` lays out every deployment at
 `<apps-root>/<app-name>/`, with the apps root defaulting to
 `/opt/infra/apps`, because the shared-proxy design expects a box to host more
 than one application. `--root` has no default: passing neither `--root` nor

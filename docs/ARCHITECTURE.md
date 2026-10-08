@@ -216,14 +216,14 @@ A worker node is an `appctl node` process on another machine that executes node-
 
 Whether a structurally eligible type is actually offered to nodes is a runtime decision made at claim time (a deployment-wide broker switch, the feature's own setting, and the broker's capability probe). `JOBS_WORKER_MODE=system` claims exactly the complement, so the API and the fleet partition the queue. Health is derived from `lastHeartbeatAt`; `nodes.fleet.sweep` marks silent nodes offline and `nodes.fleet.prune` forgets old ones.
 
-- **Code:** `apps/api/src/nodes/`, `apps/cli/src/node/`, `infra/compose/worker.compose.yml`
+- **Code:** `apps/api/src/nodes/`, `packages/platform-cli/src/engine/node/`, `infra/compose/worker.compose.yml`
 - **UI:** `/admin/settings/workers`
 - **Permissions:** `nodes:read`, `nodes:write`
 - **Read more:** [specs/worker-nodes.md](specs/worker-nodes.md), [runbooks/run-worker-nodes.md](runbooks/run-worker-nodes.md), [runbooks/node-job-secrets.md](runbooks/node-job-secrets.md)
 
 ### 5.9 `appctl` CLI
 
-`apps/cli` is the first-party command-line client, built from this monorepo. It has five command groups:
+The first-party command-line client is [`@marinoscar/platform-cli`](../packages/platform-cli/README.md) (the commands, the ink TUI, the deploy pipeline and the worker-node engine), composed by `apps/cli` with the app's identity in one `createCli({ identity, version, ... })` call. An app adds its own commands, TUI screens, deploy steps and node executors through the package's registries rather than forking the CLI ([apps/cli/README.md § Extending the CLI from an app](../apps/cli/README.md#extending-the-cli-from-an-app)). It has five command groups:
 
 | Command | Purpose |
 |---|---|
@@ -235,7 +235,7 @@ Whether a structurally eligible type is actually offered to nodes is a runtime d
 
 In a real terminal with no arguments it opens an interactive ink menu. `appctl deploy` writes a state document the API reads for the About page ([§5.15](#515-about-and-deployment-info)).
 
-- **Code:** `apps/cli/src/` (`commands/`, `deploy/`, `node/`, `tui/`)
+- **Code:** `packages/platform-cli/src/` (the `engine` slice: `commands/`, `deploy/`, `node/`, `tui/`; public entry points `/commands`, `/tui`, `/deploy`, `/node`, `/api-client`, `/testing`); `apps/cli/src/` (`cli.ts`, `app.ts`, `branding.ts`, `examples/`)
 - **Read more:** [apps/cli/README.md](../apps/cli/README.md), [specs/vps-deploy.md](specs/vps-deploy.md), [runbooks/deploy-to-vps.md](runbooks/deploy-to-vps.md)
 
 ### 5.10 AI platform
@@ -807,7 +807,7 @@ Health endpoints (public, reachable during maintenance):
 | A Doctor check | [specs/doctor.md §4](specs/doctor.md#4-extending-it-in-a-fork) |
 | A packaged slice's access to the app (auth, audit, settings, Prisma; web transport and viewer) | [platform-api core README, Host ports](../packages/platform-api/src/core/README.md#host-ports), [platform-web core README](../packages/platform-web/src/core/README.md) |
 | A post-upload storage processor | [processors/README.md](../apps/api/src/storage/processing/processors/README.md) |
-| A worker node executor | [executors/README.md](../apps/cli/src/node/executors/README.md) |
+| A worker node executor | [executors/README.md](../packages/platform-cli/src/engine/node/executors/README.md) |
 | A registry entry (permission, setting, …) | [registry/README.md](../packages/platform-api/src/core/registry/README.md) |
 | A permission or role (platform module or app) | [permissions/README.md](../apps/api/src/common/permissions/README.md) |
 | An object-storage key prefix | [specs/storage-providers.md §4](specs/storage-providers.md#4-extending-it-in-a-fork) |

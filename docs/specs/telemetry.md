@@ -1115,7 +1115,7 @@ against it.
 
 **The telemetry stack ships with every VPS deployment.** `observability` used
 to be an opt-in group; `effectiveGroups()`
-(`apps/cli/src/deploy/compose-files.ts`) now unions it into every install,
+(`packages/platform-cli/src/engine/deploy/compose-files.ts`) now unions it into every install,
 update, uninstall and health run, so `telemetry.compose.yml` and
 `vps.telemetry.compose.yml` are always in the compose file list and the
 `GREPTIME_*` keys are always in scope for the environment wizard. A
@@ -1269,7 +1269,7 @@ capabilities, no ports) stays as `vps.compose.yml` declares it.
 ### `STACK_AGENT_TOKEN`
 
 Generated as 32 hex bytes, without a prompt, on every VPS install and update
-(`apps/cli/src/deploy/env-metadata.ts`) — it carries no `group`, so it is
+(`packages/platform-cli/src/engine/deploy/env-metadata.ts`) — it carries no `group`, so it is
 generated whether or not `--group observability` was ever passed. Only
 `stack-agent` and the API read it; a hand-set real value is kept, never
 overwritten. `vps.compose.yml` refuses to start `stack-agent` or `api`
@@ -2541,7 +2541,7 @@ change every fork: the example verdict policy
 (`platform-extensions/telemetry/examples/activity-verdict-policy.ts`), the
 `MetricGroupRegistry.register` call from `onModuleInit` (shown in
 `apps/api/test/telemetry/telemetry-extension-points.integration.spec.ts`) and
-the `registerCliCommand` example (`apps/cli/src/platform-host/examples/hello.command.ts`).
+the `registerCliCommand` example (`apps/cli/src/examples/hello.command.ts`).
 
 ### 12.3 Decisions
 
