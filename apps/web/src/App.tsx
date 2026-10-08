@@ -126,6 +126,8 @@ const DoctorPage = lazy(() => import('./pages/Admin/DoctorPage'));
 // Organization administration (#726, PP-6.7): multi-org deployments only.
 const OrganizationPage = lazy(() => import('./pages/Admin/OrganizationPage'));
 const OrganizationsPage = lazy(() => import('./pages/Admin/OrganizationsPage'));
+// #733 (PP-8.1): the active organization's settings overrides.
+const OrgSettingsPage = lazy(() => import('./pages/Admin/OrgSettingsPage'));
 
 // Test login page (development only)
 const TestLoginPage = import.meta.env.PROD
@@ -816,6 +818,24 @@ function AppRoutes() {
                       >
                         <RequireMultiOrg>
                           <OrganizationsPage />
+                        </RequireMultiOrg>
+                      </RequirePermission>
+                    }
+                  />
+                  {/* Issue #733 (PP-8.1). The `Organization settings` card's
+                      route: `org_settings:read`, the ORG permission the
+                      settings slice's `org-settings.controller.ts` enforces
+                      on `GET /api/org-settings`, and the same multi-org gate.
+                      Writes are gated inside the page (`org_settings:write`). */}
+                  <Route
+                    path="/admin/settings/organization-settings"
+                    element={
+                      <RequirePermission
+                        permission="org_settings:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <RequireMultiOrg>
+                          <OrgSettingsPage />
                         </RequireMultiOrg>
                       </RequirePermission>
                     }

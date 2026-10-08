@@ -78,7 +78,10 @@ function requestOptions(options: PlatformRequestOptions | undefined) {
 
 /** The app's transport as a `PlatformApiClient`. Stable identity: a module constant. */
 export const appPlatformApi: PlatformApiClient = Object.freeze({
-  get: <T,>(path: string, options?: PlatformRequestOptions) => mapped(() => api.get<T>(path, requestOptions(options))),
+  // No options, no second argument: the call reaches the app transport
+  // exactly as the app's own hooks always made it.
+  get: <T,>(path: string, options?: PlatformRequestOptions) =>
+    mapped(() => (options === undefined ? api.get<T>(path) : api.get<T>(path, requestOptions(options)))),
   post: <T,>(path: string, body?: unknown, options?: PlatformRequestOptions) =>
     mapped(() => api.post<T>(path, body, requestOptions(options))),
   put: <T,>(path: string, body?: unknown, options?: PlatformRequestOptions) =>
