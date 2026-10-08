@@ -84,7 +84,7 @@ describe('PrismaSystemService injection boundary', () => {
   });
 
   it('gives every system acquisition a reason from the closed list', () => {
-    const reasons = ['backup', 'restore', 'purge', 'doctor', 'retention', 'admin-aggregate', 'migration-tooling'];
+    const reasons = ['backup', 'restore', 'purge', 'doctor', 'retention', 'admin-aggregate', 'migration-tooling', 'link-resolution'];
     const bad: string[] = [];
     for (const file of sources(SRC)) {
       for (const match of code(file).matchAll(/\.(?:asSystem|runAsSystem)\(\s*'([^']*)'/g)) {

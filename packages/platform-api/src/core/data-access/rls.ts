@@ -78,6 +78,8 @@ export const RLS_SETTINGS = Object.freeze({
  * - `admin-aggregate`: deployment-wide administrator views and aggregates, and
  *   display-only reads such as another user's avatar.
  * - `migration-tooling`: seeds and migration helpers.
+ * - `link-resolution`: resolving a link-share token (issue #730): ONE row of
+ *   `grants`, by its unique token hash, before any organization is known.
  *
  * @stability experimental
  */
@@ -88,7 +90,8 @@ export type SystemAccessReason =
   | 'doctor'
   | 'retention'
   | 'admin-aggregate'
-  | 'migration-tooling';
+  | 'migration-tooling'
+  | 'link-resolution';
 
 /**
  * Every {@link SystemAccessReason}, for validation and tests.
@@ -103,6 +106,7 @@ export const SYSTEM_ACCESS_REASONS: readonly SystemAccessReason[] = Object.freez
   'retention',
   'admin-aggregate',
   'migration-tooling',
+  'link-resolution',
 ]);
 
 /**

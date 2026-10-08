@@ -34,6 +34,15 @@ export interface PlatformAccessPort {
   requirePermissions(permissions: readonly string[]): MethodDecorator & ClassDecorator;
   /** Decorators that authenticate the caller with no specific permission. */
   requireAuthenticated(): MethodDecorator & ClassDecorator;
+  /**
+   * Optional: the app's marker for a DELIBERATELY public route (the reference
+   * app binds its `@Public()`), so its route inventory and conformance checks
+   * see the route as public on purpose rather than unguarded by accident. A
+   * slice applies it only to a route its README documents as public (the
+   * sharing slice's link resolution, #730) and authenticates that route by
+   * other means. A slice that needs it and finds it absent leaves the route out.
+   */
+  allowPublic?(): MethodDecorator & ClassDecorator;
 }
 
 /**
@@ -80,8 +89,8 @@ function assertPermissions(permissions: unknown): readonly string[] {
  * Validates and freezes the app's platform host.
  *
  * Checks that `access.requirePermissions` and `access.requireAuthenticated`
- * are functions and that each returns a decorator (both are called once, with
- * a probe permission, to find out). The returned host wraps them so a later
+ * (and the optional `access.allowPublic`) are functions and that each returns
+ * a decorator (each is called once, with a probe permission, to find out). The returned host wraps them so a later
  * call that returns something else, or `requirePermissions([])`, throws too.
  * Passing an already-defined host returns it unchanged.
  *
@@ -117,6 +126,9 @@ export function definePlatformHost(host: PlatformHost): PlatformHost {
 
   assertDecorator(requirePermissions([PROBE_PERMISSION]), 'requirePermissions');
   assertDecorator(requireAuthenticated(), 'requireAuthenticated');
+  if (access.allowPublic !== undefined && typeof access.allowPublic !== 'function') fail('`access.allowPublic` is not a function');
+  const allowPublic = access.allowPublic?.bind(access);
+  if (allowPublic) assertDecorator(allowPublic(), 'allowPublic');
 
   const defined: PlatformHost = Object.freeze({
     access: Object.freeze({
@@ -130,6 +142,15 @@ export function definePlatformHost(host: PlatformHost): PlatformHost {
         assertDecorator(decorator, 'requireAuthenticated');
         return decorator;
       },
+      ...(allowPublic
+        ? {
+            allowPublic() {
+              const decorator = allowPublic();
+              assertDecorator(decorator, 'allowPublic');
+              return decorator;
+            },
+          }
+        : {}),
     }),
   });
   definedHosts.add(defined);
