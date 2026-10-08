@@ -274,7 +274,7 @@ describe('the system (bypass) shapes', () => {
 
   it('accepts exactly the documented reasons and refuses anything else', async () => {
     expect([...SYSTEM_ACCESS_REASONS].sort()).toEqual(
-      ['admin-aggregate', 'backup', 'doctor', 'link-resolution', 'migration-tooling', 'purge', 'restore', 'retention'].sort(),
+      ['admin-aggregate', 'backup', 'doctor', 'link-resolution', 'migration-tooling', 'purge', 'restore', 'retention', 'export'].sort(),
     );
     const { client } = fakeClient(newRecorder());
     for (const reason of SYSTEM_ACCESS_REASONS) expect(() => forSystem(client as never, reason)).not.toThrow();

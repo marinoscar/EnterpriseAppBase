@@ -52,6 +52,7 @@ import { SLICE_EMAIL_TEMPLATES } from '../email/templates';
 import { USERS_NOTIFICATIONS } from '../../identity-extensions/notifications/users.notifications';
 import { ORGANIZATIONS_NOTIFICATIONS } from '../../identity-extensions/notifications/organizations.notifications';
 import { SHARING_NOTIFICATIONS } from '../sharing/sharing.notifications';
+import { EXPORTS_NOTIFICATIONS } from '../exports/exports.notifications';
 import {
   BROADCASTS_NOTIFICATIONS,
   NODES_NOTIFICATIONS,
@@ -85,6 +86,7 @@ registerNotifications(NODES_NOTIFICATIONS);
 registerNotifications(DB_BACKUP_NOTIFICATIONS);
 registerNotifications(ORGANIZATIONS_NOTIFICATIONS);
 registerNotifications(SHARING_NOTIFICATIONS);
+registerNotifications(EXPORTS_NOTIFICATIONS);
 
 // 6. App notifications, last.
 registerNotifications(APP_NOTIFICATIONS);

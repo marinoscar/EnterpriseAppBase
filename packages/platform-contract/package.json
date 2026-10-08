@@ -150,6 +150,16 @@
         "default": "./dist/cjs/notifications/index.js"
       }
     },
+    "./exports": {
+      "import": {
+        "types": "./dist/esm/exports/index.d.ts",
+        "default": "./dist/esm/exports/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/exports/index.d.ts",
+        "default": "./dist/cjs/exports/index.js"
+      }
+    },
     "./package.json": "./package.json"
   },
   "files": [

@@ -1660,7 +1660,7 @@ the tenant pool, no new variable). Because the two pools share no backend, the
 bypass flag cannot reach a tenant request's connection whatever a bug does. Each
 acquisition names a **closed reason** (`SystemAccessReason`: `backup`, `restore`,
 `purge`, `doctor`, `retention`, `admin-aggregate`, `migration-tooling`,
-`link-resolution`), which is
+`link-resolution`, `export`), which is
 put on the active span (`db.access.reason`, plus a `db.rls_bypass` event) and
 logged at debug, never used as a metric label. **Only an allowlist of modules
 may inject it**: `apps/api/test/tenancy/system-injection-boundary.spec.ts`

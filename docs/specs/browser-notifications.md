@@ -92,9 +92,12 @@ Registered events:
 | `org.invitation` | email | no |
 | `groups.invitation` | email, browser | no |
 | `sharing.shared_with_you` | email, browser | no |
+| `export.ready` | browser, push | no |
+| `export.failed` | browser, push | no |
 
 The two broadcast events are specified in
-[notification-broadcasts.md](notification-broadcasts.md). The four
+[notification-broadcasts.md](notification-broadcasts.md); the two export
+events in [data-export.md](data-export.md). The four
 operational events are in §2.9.
 
 ### 2.2 Dispatch and the delivery model

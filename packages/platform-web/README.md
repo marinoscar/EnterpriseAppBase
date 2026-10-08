@@ -20,6 +20,7 @@ Status: pre-release (version `0.0.0`). The root export is only the package name 
 - `@marinoscar/platform-web/email/headless` and `@marinoscar/platform-web/email/ui`: the email settings hook `useEmailSettings` and the `/admin/settings/email` page `EmailSettingsPage` (#737). [README](src/email/README.md).
 - `@marinoscar/platform-web/jobs/headless` and `@marinoscar/platform-web/jobs/ui`: the job queue and worker-fleet client, hooks and adapters, and the Jobs, Job Insights and Worker Nodes pages with their registry entries (#854). [README](src/jobs/README.md).
 - `@marinoscar/platform-web/storage/headless` and `@marinoscar/platform-web/storage/ui`: the storage config hook `useStorageConfig`, the storage-config and objects clients, and the `/admin/settings/storage` page `StorageConfigPage` with its switch dialog (#736). [README](src/storage/README.md).
+- `@marinoscar/platform-web/exports/headless` and `@marinoscar/platform-web/exports/ui`: the exports client and hooks (`useExportSources`, `useExports`, `useCreateExport`, `useExport` with polling), `ExportDialog` (fields from the source's descriptor, `slots.form`), `ExportsList`, `DataExportPage` and the "Download your data" card descriptor (#744). [README](src/exports/README.md).
 
 ## Install and peer dependencies
 

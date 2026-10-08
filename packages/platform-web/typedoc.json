@@ -31,7 +31,9 @@
     "src/storage/headless/index.ts",
     "src/storage/ui/index.ts",
     "src/notifications/headless/index.ts",
-    "src/notifications/ui/index.ts"
+    "src/notifications/ui/index.ts",
+    "src/exports/headless/index.ts",
+    "src/exports/ui/index.ts"
   ],
   "out": "docs-api",
   "json": "docs-api/api.json"

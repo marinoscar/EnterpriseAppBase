@@ -38,6 +38,9 @@ export const STORAGE_SLICE_SOURCE_ROOT = join(REPO, 'packages', 'platform-api', 
 /** The packaged notifications slice's source root (#738: the `job.settled` and `nodes.node.offline` listeners). */
 export const NOTIFICATIONS_SLICE_SOURCE_ROOT = join(REPO, 'packages', 'platform-api', 'src', 'notifications');
 
+/** The packaged exports slice's source root (#744: the export expiry cron). */
+export const EXPORTS_SLICE_SOURCE_ROOT = join(REPO, 'packages', 'platform-api', 'src', 'exports');
+
 /** Every root the rule scans. */
 export const CRON_SOURCE_ROOTS: readonly string[] = [
   API_SOURCE_ROOT,
@@ -47,4 +50,5 @@ export const CRON_SOURCE_ROOTS: readonly string[] = [
   NODES_SLICE_SOURCE_ROOT,
   STORAGE_SLICE_SOURCE_ROOT,
   NOTIFICATIONS_SLICE_SOURCE_ROOT,
+  EXPORTS_SLICE_SOURCE_ROOT,
 ];

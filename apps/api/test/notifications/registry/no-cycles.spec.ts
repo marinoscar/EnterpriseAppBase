@@ -34,7 +34,7 @@ describe('notification registry: no import cycles', () => {
     const mod = loadFirst<typeof import('../../../src/platform/notifications')>('../../../src/platform/notifications');
 
     expect(mod.NOTIFICATION_CHANNELS).toEqual(['email', 'browser', 'push']);
-    expect(mod.NOTIFICATION_EVENTS.length).toBe(12);
+    expect(mod.NOTIFICATION_EVENTS.length).toBe(14);
     expect(mod.NOTIFICATION_EVENTS.find((event) => event.key === 'user.welcome')?.label).toBe('Welcome');
   });
 
@@ -70,16 +70,16 @@ describe('notification registry: no import cycles', () => {
     const mod = loadFirst<typeof import('../support/notifications')>('../support/notifications');
 
     expect(mod.notificationChannelRegistry.ids()).toEqual(['email', 'browser', 'push']);
-    expect(mod.notificationEventRegistry.size).toBe(12);
+    expect(mod.notificationEventRegistry.size).toBe(14);
     expect(mod.emailTemplateRegistry.size).toBe(12);
     expect(mod.eventEmailTemplateRegistry.size).toBe(12);
-    expect(mod.eventBrowserTemplateRegistry.size).toBe(8);
+    expect(mod.eventBrowserTemplateRegistry.size).toBe(10);
   });
 
   it('the browser channel loads first with its exports defined', () => {
     const mod = loadFirst<typeof import('../support/notifications')>('../support/notifications');
 
-    expect(Object.keys(mod.EVENT_BROWSER_TEMPLATES)).toHaveLength(8);
+    expect(Object.keys(mod.EVENT_BROWSER_TEMPLATES)).toHaveLength(10);
     expect(typeof mod.sanitizeLink).toBe('function');
     expect(typeof mod.BrowserNotificationChannel).toBe('function');
   });

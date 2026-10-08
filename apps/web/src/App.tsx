@@ -180,6 +180,9 @@ const PublicLinkPage = lazy(() =>
 const SetupGuidePage = lazy(() =>
   import('@marinoscar/platform-web/onboarding/ui').then((m) => ({ default: m.SetupGuidePage })),
 );
+const DataExportPage = lazy(() =>
+  import('@marinoscar/platform-web/exports/ui').then((m) => ({ default: m.DataExportPage })),
+);
 const GettingStartedPage = lazy(() =>
   import('@marinoscar/platform-web/onboarding/ui').then((m) => ({ default: m.GettingStartedPage })),
 );
@@ -970,6 +973,10 @@ function AppRoutes() {
                       the caller's own checklist (`user_settings:read`, which
                       every role holds). */}
                   <Route path="/settings/getting-started" element={<GettingStartedPage />} />
+                  {/* Issue #744. Ungated like its `/settings/*` siblings:
+                      the caller's own data (`user_settings:read`, which every
+                      role holds); an org admin also sees `org-data`. */}
+                  <Route path="/settings/data-export" element={<DataExportPage />} />
                 </Route>
               </Route>
 

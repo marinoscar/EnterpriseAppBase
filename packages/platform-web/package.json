@@ -131,6 +131,14 @@
       "types": "./dist/notifications/ui/index.d.ts",
       "default": "./dist/notifications/ui/index.js"
     },
+    "./exports/headless": {
+      "types": "./dist/exports/headless/index.d.ts",
+      "default": "./dist/exports/headless/index.js"
+    },
+    "./exports/ui": {
+      "types": "./dist/exports/ui/index.d.ts",
+      "default": "./dist/exports/ui/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

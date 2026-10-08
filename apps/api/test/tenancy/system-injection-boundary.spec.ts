@@ -40,6 +40,8 @@ const ALLOWLIST: Record<string, string> = {
   'ai/catalog/ai-catalog.service.ts': 'admin-aggregate: the catalogue sync\'s organization-less usage row',
   'health/doctor/rls-role.doctor-check.ts': 'doctor: read-only catalogue reads',
   'db-backup/doctor/backup-rls.doctor-check.ts': 'doctor: read-only row counts',
+  'platform/exports/exports-host.module.ts':
+    'export and purge: the exports slice\'s EXPORTS_SYSTEM_DATA port (#744): the user-data and org-data sources read one user\'s or one organization\'s rows with an explicit filter (export), the status and download routes find the file\'s row (export), and export.purge deletes expired export files (purge)',
   'platform/sharing/sharing-data.adapter.ts':
     'purge and doctor: the sharing slice\'s user purge (GroupMembershipPurge) and its read-only orphaned-groups check',
 };
@@ -90,7 +92,7 @@ describe('PrismaSystemService injection boundary', () => {
   });
 
   it('gives every system acquisition a reason from the closed list', () => {
-    const reasons = ['backup', 'restore', 'purge', 'doctor', 'retention', 'admin-aggregate', 'migration-tooling', 'link-resolution'];
+    const reasons = ['backup', 'restore', 'purge', 'doctor', 'retention', 'admin-aggregate', 'migration-tooling', 'link-resolution', 'export'];
     const bad: string[] = [];
     for (const file of [...sources(SRC), ...sources(STORAGE_SLICE_SRC)]) {
       for (const match of code(file).matchAll(/\.(?:asSystem|runAsSystem)\(\s*'([^']*)'/g)) {

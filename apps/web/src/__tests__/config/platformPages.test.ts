@@ -16,6 +16,7 @@ import { doctorSettingsPage } from '@marinoscar/platform-web/doctor/ui';
 import { gettingStartedSettingsPage, setupGuideSettingsPage } from '@marinoscar/platform-web/onboarding/ui';
 import { telemetryAdminCards } from '@marinoscar/platform-web/telemetry/ui';
 import { groupsSettingsPage } from '@marinoscar/platform-web/sharing/ui';
+import { dataExportSettingsPage } from '@marinoscar/platform-web/exports/ui';
 
 import { ADMIN_SECTIONS } from '../../config/adminSections';
 import type { SettingsCardDef } from '@marinoscar/platform-web/settings/ui';
@@ -58,7 +59,7 @@ const PACKAGED_PAGES: ReadonlyArray<{
 ];
 
 /** Packaged USER pages this app binds: one card, one route, no permission (every role holds `user_settings:read`). */
-const PACKAGED_USER_PAGES: ReadonlyArray<PlatformSettingsPage<never>> = [gettingStartedSettingsPage];
+const PACKAGED_USER_PAGES: ReadonlyArray<PlatformSettingsPage<never>> = [gettingStartedSettingsPage, dataExportSettingsPage];
 
 /** Every `<Route>` in App.tsx as `path` -> the `permission` it wraps (same parser as destinations.test.ts). */
 function declaredRouteGates(): Array<{ path: string; permission: string | null }> {

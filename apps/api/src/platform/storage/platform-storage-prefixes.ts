@@ -14,6 +14,7 @@
 // =============================================================================
 
 import { STORAGE_SLICE_KEY_PREFIXES, type StorageKeyPrefixDef } from '@marinoscar/platform-api/storage';
+import { EXPORTS_KEY_PREFIXES } from '@marinoscar/platform-api/exports';
 
 import { AI_OUTPUTS_KEY_PREFIX, DATABASE_BACKUPS_KEY_PREFIX } from './storage-key-prefixes';
 
@@ -23,7 +24,7 @@ function slice(id: string): StorageKeyPrefixDef {
   return def;
 }
 
-/** The six prefixes the platform writes, in purge order. */
+/** The eight prefixes the platform writes, in purge order. */
 export const PLATFORM_STORAGE_KEY_PREFIXES: readonly StorageKeyPrefixDef[] = Object.freeze([
   slice('uploads'),
   slice('avatars'),
@@ -43,4 +44,6 @@ export const PLATFORM_STORAGE_KEY_PREFIXES: readonly StorageKeyPrefixDef[] = Obj
     description: 'Files an AI operation produced for a user, under ai-outputs/<userId>/<runId>/.',
   }),
   slice('storage-config-test'),
+  // Data exports (#744): exports/users/<userId>/ and exports/orgs/<orgId>/.
+  ...EXPORTS_KEY_PREFIXES,
 ]);

@@ -16,6 +16,8 @@ const PLATFORM_PREFIXES = [
   'node-outputs/',
   'ai-outputs/',
   'storage-config-test/',
+  'exports/users/',
+  'exports/orgs/',
 ];
 
 /** Runs the entry point once with `argv` and returns its stdout and S3 traffic. */
@@ -89,7 +91,7 @@ async function runPurge(argv: string[]): Promise<{ stdout: string; sent: SentCom
 }
 
 describe('storage-purge.main', () => {
-  it('a dry run (--json) reports the six registered prefixes, in order, and deletes nothing', async () => {
+  it('a dry run (--json) reports the eight registered prefixes, in order, and deletes nothing', async () => {
     const { stdout, sent } = await runPurge(['--json']);
     const report = JSON.parse(stdout);
 
@@ -109,7 +111,7 @@ describe('storage-purge.main', () => {
       provider: 's3',
       endpoint: null,
       versioning: 'unversioned',
-      totals: { objects: 6, bytes: 60 },
+      totals: { objects: 8, bytes: 80 },
       deleted: 0,
       dryRun: true,
     });
@@ -121,7 +123,7 @@ describe('storage-purge.main', () => {
     const { stdout, sent } = await runPurge(['--confirm', '--bucket', 'the-bucket']);
     const report = JSON.parse(stdout);
 
-    expect(report).toMatchObject({ dryRun: false, deleted: 6 });
+    expect(report).toMatchObject({ dryRun: false, deleted: 8 });
     expect(
       sent
         .filter((c) => c.name === 'DeleteObjects')

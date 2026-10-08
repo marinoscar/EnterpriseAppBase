@@ -39,12 +39,14 @@ import { TmpDirStorageProvider } from '../helpers/tmp-storage-provider.helper';
 
 const ORG = '11111111-1111-4111-8111-111111111111';
 
-const EXPORTS: StorageKeyPrefixDef = {
-  id: 'exports',
-  prefix: 'exports/',
-  owner: 'health-export',
+// An app's own org-scoped prefix (the platform's data exports own `exports/`
+// since #744, so the sample is a reports writer).
+const REPORTS: StorageKeyPrefixDef = {
+  id: 'reports',
+  prefix: 'reports/',
+  owner: 'reports',
   scope: 'org',
-  description: 'User data exports, purged after seven days.',
+  description: 'Generated monthly reports, under reports/<orgId>/.',
 };
 
 describe('the storage extension points in the reference app', () => {
@@ -72,16 +74,16 @@ describe('the storage extension points in the reference app', () => {
 
   it('registerKeyPrefix: an org-scoped app prefix builds org keys and joins both purge lists', async () => {
     await withTemporaryEntries(storageKeyPrefixRegistry, [], () => {
-      registerKeyPrefix(EXPORTS);
+      registerKeyPrefix(REPORTS);
 
-      expect(buildObjectKey('exports', { orgId: ORG }, 'export.zip')).toBe(`exports/${ORG}/export.zip`);
-      expect(allKeyPrefixes()).toEqual(expect.arrayContaining(['uploads/', 'database-backups/', 'exports/']));
-      expect(orgKeyPrefixes(ORG)).toEqual([`uploads/${ORG}/`, `exports/${ORG}/`]);
+      expect(buildObjectKey('reports', { orgId: ORG }, 'report.pdf')).toBe(`reports/${ORG}/report.pdf`);
+      expect(allKeyPrefixes()).toEqual(expect.arrayContaining(['uploads/', 'database-backups/', 'reports/']));
+      expect(orgKeyPrefixes(ORG)).toEqual([`uploads/${ORG}/`, `exports/orgs/${ORG}/`, `reports/${ORG}/`]);
     });
   });
 
   it('runStoragePurge: a dry run of the booted registry lists the app prefix too', async () => {
-    await withTemporaryEntries(storageKeyPrefixRegistry, [EXPORTS], async () => {
+    await withTemporaryEntries(storageKeyPrefixRegistry, [REPORTS], async () => {
       const listed: string[] = [];
       const client: StoragePurgeClient = {
         async send(command: { constructor: { name: string }; input: { Prefix?: string } }) {
@@ -95,7 +97,7 @@ describe('the storage extension points in the reference app', () => {
 
       expect(outcome.kind).toBe('report');
       expect(listed).toEqual([...allKeyPrefixes()]);
-      expect(listed).toContain('exports/');
+      expect(listed).toContain('reports/');
     });
   });
 });

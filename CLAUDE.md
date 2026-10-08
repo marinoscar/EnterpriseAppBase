@@ -71,6 +71,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 | Spec: database backup | [docs/specs/database-backup.md](docs/specs/database-backup.md) |
 | Spec: database restore | [docs/specs/database-restore.md](docs/specs/database-restore.md) |
 | Spec: admin Doctor (check contract, read-only rule, check inventory) | [docs/specs/doctor.md](docs/specs/doctor.md) |
+| Spec: data export (export sources and writers, `user-data` / `org-data` exports, signed downloads, expiry, redaction, secret egress) | [docs/specs/data-export.md](docs/specs/data-export.md), [packages/platform-api/src/exports/README.md](packages/platform-api/src/exports/README.md) |
 | Spec: first-run onboarding (welcome dialog, Setup guide, Get started, step and fact registries, activation metrics, feature notices) | [docs/specs/onboarding.md](docs/specs/onboarding.md), [packages/platform-api/src/onboarding/README.md](packages/platform-api/src/onboarding/README.md) |
 | Spec: background job queue | [docs/specs/job-queue.md](docs/specs/job-queue.md) |
 | Spec: maintenance mode | [docs/specs/maintenance-mode.md](docs/specs/maintenance-mode.md) |

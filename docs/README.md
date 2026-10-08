@@ -43,6 +43,7 @@ In this order:
 | [specs/database-restore.md](specs/database-restore.md) | Restore and rollback from a backup | you change restore gates or outcomes |
 | [specs/maintenance-mode.md](specs/maintenance-mode.md) | The 503 maintenance window | you change maintenance behaviour or its layers |
 | [specs/doctor.md](specs/doctor.md) | The admin Doctor: read-only configuration and health checks, and the redacted support bundle | you add a check or a support-bundle section, or read the Doctor's report |
+| [specs/data-export.md](specs/data-export.md) | Data export: export sources and writers, the `user-data` and `org-data` exports, signed downloads, expiry, redaction and the secret-egress proof | you add an export source or format, or change what a user or organization export contains |
 | [specs/onboarding.md](specs/onboarding.md) | First-run onboarding: the welcome dialog, the derived Setup guide and Get started checklists, the step and fact registries, activation metrics and feature notices | you add an onboarding step, a fact, an activation milestone or a feature notice |
 | [specs/telemetry.md](specs/telemetry.md) | GreptimeDB-backed telemetry, the Telemetry Explorer and the Telemetry Dashboard | you change telemetry ingest, storage, querying or the dashboard |
 | [specs/user-credentials.md](specs/user-credentials.md) | Encrypted per-user credentials | you add a bring-your-own-key credential type |

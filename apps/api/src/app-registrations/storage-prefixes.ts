@@ -12,5 +12,5 @@ import type { StorageKeyPrefixDef } from '@marinoscar/platform-api/storage';
  * end with exactly one `/` and must not overlap another registered prefix.
  */
 export const APP_STORAGE_KEY_PREFIXES: readonly StorageKeyPrefixDef[] = [
-  // { id: 'exports', prefix: 'exports/', owner: 'health-export', description: 'User data exports, purged after seven days' },
+  // { id: 'reports', prefix: 'reports/', owner: 'reports', scope: 'org', description: 'Generated monthly reports, under reports/<orgId>/' },
 ];

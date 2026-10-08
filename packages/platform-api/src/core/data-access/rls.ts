@@ -91,7 +91,8 @@ export type SystemAccessReason =
   | 'retention'
   | 'admin-aggregate'
   | 'migration-tooling'
-  | 'link-resolution';
+  | 'link-resolution'
+  | 'export';
 
 /**
  * Every {@link SystemAccessReason}, for validation and tests.
@@ -107,6 +108,7 @@ export const SYSTEM_ACCESS_REASONS: readonly SystemAccessReason[] = Object.freez
   'admin-aggregate',
   'migration-tooling',
   'link-resolution',
+  'export',
 ]);
 
 /**
