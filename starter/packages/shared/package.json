@@ -1,0 +1,21 @@
+{
+  "name": "@app/shared",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The app's identity: the one file every runtime reads its name, repository, CLI name and colours from.",
+  "type": "commonjs",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./identity.json": "./identity.json"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "identity.json"
+  ]
+}

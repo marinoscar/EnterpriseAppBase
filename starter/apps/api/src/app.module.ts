@@ -1,0 +1,36 @@
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { APP_FILTER, APP_PIPE } from '@nestjs/core';
+import { EventEmitterModule } from '@nestjs/event-emitter';
+import { ScheduleModule } from '@nestjs/schedule';
+import { ZodValidationPipe } from 'nestjs-zod';
+import { HttpExceptionFilter, RegistryFreezeService } from '@marinoscar/platform-api/core';
+
+import configuration from './config/configuration';
+import { NotesModule } from './notes/notes.module';
+import { PLATFORM_MODULES } from './platform/platform';
+import { PrismaModule } from './prisma/prisma.service';
+
+/**
+ * The root module: framework modules, the platform (src/platform/platform.ts)
+ * and the app's own feature modules. Never edit platform behaviour here;
+ * configure it through the slices' `forRoot()` options and host ports.
+ */
+@Module({
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true, load: [configuration] }),
+    ScheduleModule.forRoot(),
+    EventEmitterModule.forRoot(),
+    PrismaModule,
+    ...PLATFORM_MODULES,
+    // The app's features.
+    NotesModule,
+  ],
+  providers: [
+    { provide: APP_PIPE, useClass: ZodValidationPipe },
+    { provide: APP_FILTER, useClass: HttpExceptionFilter },
+    // Freezes every platform registry once the graph is built.
+    RegistryFreezeService,
+  ],
+})
+export class AppModule {}
