@@ -25,7 +25,7 @@ function client(url: string, focused = false): FakeClient {
 }
 
 function scope(clients: FakeClient[] = []) {
-  const listeners = new Map<string, (event: never) => void>();
+  const listeners = new Map<string, (event: unknown) => void>();
   const fake = {
     registration: {
       showNotification: vi.fn().mockResolvedValue(undefined),
@@ -35,7 +35,7 @@ function scope(clients: FakeClient[] = []) {
       matchAll: vi.fn().mockResolvedValue(clients),
       openWindow: vi.fn().mockResolvedValue(null),
     },
-    addEventListener: vi.fn((type: string, listener: (event: never) => void) => listeners.set(type, listener)),
+    addEventListener: vi.fn((type: string, listener: (event: unknown) => void) => listeners.set(type, listener)),
   };
   return { fake, scope: fake as unknown as NotificationsServiceWorkerScope, listeners };
 }

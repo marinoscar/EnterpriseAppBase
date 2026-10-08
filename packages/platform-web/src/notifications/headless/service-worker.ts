@@ -105,8 +105,12 @@ export interface NotificationsServiceWorkerScope {
     /** Opens a new window at a URL. */
     openWindow(url: string): Promise<unknown>;
   };
-  /** Adds an event listener. */
-  addEventListener(type: string, listener: (event: never) => void): void;
+  /**
+   * Adds an event listener. The event is untyped here: the worker's own
+   * overloads type it per event name, which a structural shape cannot repeat.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  addEventListener(type: string, listener: (event: any) => void): void;
 }
 
 /**
@@ -362,13 +366,13 @@ export function registerNotificationServiceWorkerHandlers(
   scope: NotificationsServiceWorkerScope,
   options?: NotificationServiceWorkerOptions,
 ): void {
-  scope.addEventListener('notificationclick', ((event: NotificationsClickEvent) => {
+  scope.addEventListener('notificationclick', (event: NotificationsClickEvent) => {
     handleNotificationClick(scope, event);
-  }) as (event: never) => void);
-  scope.addEventListener('push', ((event: NotificationsPushEvent) => {
+  });
+  scope.addEventListener('push', (event: NotificationsPushEvent) => {
     event.waitUntil(handlePushEvent(scope, event, options));
-  }) as (event: never) => void);
-  scope.addEventListener('pushsubscriptionchange', ((event: NotificationsPushSubscriptionChangeEvent) => {
+  });
+  scope.addEventListener('pushsubscriptionchange', (event: NotificationsPushSubscriptionChangeEvent) => {
     event.waitUntil(handlePushSubscriptionChange(scope, event));
-  }) as (event: never) => void);
+  });
 }
