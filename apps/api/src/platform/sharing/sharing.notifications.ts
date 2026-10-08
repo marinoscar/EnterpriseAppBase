@@ -22,8 +22,8 @@ import {
   sharedWithYouBrowserTemplate,
 } from '@marinoscar/platform-api/sharing';
 
-import type { BrowserNotificationTemplate } from '../../notifications/channels/browser-templates';
-import type { NotificationRegistration } from '../../notifications/registry/bindings.registry';
+import type { BrowserNotificationTemplate } from '@marinoscar/platform-api/notifications';
+import type { NotificationRegistration } from '@marinoscar/platform-api/notifications';
 
 export const SHARING_NOTIFICATIONS: readonly NotificationRegistration[] = [
   {

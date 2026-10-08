@@ -27,7 +27,9 @@
     "src/jobs/index.ts",
     "src/nodes/index.ts",
     "src/storage/index.ts",
-    "src/storage/testing/index.ts"
+    "src/storage/testing/index.ts",
+    "src/notifications/index.ts",
+    "src/notifications/testing/index.ts"
   ],
   "out": "docs-api",
   "json": "docs-api/api.json"

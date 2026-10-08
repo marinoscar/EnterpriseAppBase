@@ -5,7 +5,7 @@ import '@marinoscar/platform-api/email/testing';
 import { API_SOURCE_ROOT } from '../jobs/cron-source-roots';
 // The notification manifest configures rendering and registers every
 // template, so the suite sees exactly what the application registers.
-import '../../src/notifications/registry';
+import '../../src/platform/notifications';
 
 // =============================================================================
 // The email slice's conformance suite, run in the reference app (PP-8.4)

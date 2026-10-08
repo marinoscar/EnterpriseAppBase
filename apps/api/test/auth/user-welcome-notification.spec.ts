@@ -1,3 +1,4 @@
+import { PLATFORM_PRISMA } from '@marinoscar/platform-api/core';
 import { Test, TestingModule } from '@nestjs/testing';
 import { IDENTITY_APP_PORTS, IDENTITY_BUS_PORTS } from '../helpers/identity-ports.helper';
 import { ConfigService } from '@nestjs/config';
@@ -16,16 +17,16 @@ import {
   createMockPrismaService,
   MockPrismaService,
 } from '../mocks/prisma.mock';
-import { NotificationDeliveryService } from '../../src/notifications/notification-delivery.service';
-import { DEFAULT_NOTIFICATION_POLICY } from '../../src/notifications/notification-policy';
-import { NotificationPolicyService } from '../../src/notifications/notification-policy.service';
-import { NotificationsService } from '../../src/notifications/notifications.service';
+import { NotificationDeliveryService } from '../notifications/support/notifications';
+import { DEFAULT_NOTIFICATION_POLICY } from '../notifications/support/notifications';
+import { NotificationPolicyService } from '../notifications/support/notifications';
+import { NotificationsService } from '../notifications/support/notifications';
 import {
   NOTIFICATION_CHANNEL_SENDERS,
   type ChannelDeliveryResult,
   type NotificationChannelSender,
   type NotificationRecipient,
-} from '../../src/notifications/notification.types';
+} from '../notifications/support/notifications';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { EVENT_BUS } from '../../src/common/event-bus/event-bus.interface';
 import { InProcessEventBus } from '../../src/common/event-bus/in-process-event-bus';
@@ -133,6 +134,8 @@ describe('user.welcome: fires after commit, and the dispatcher reads the recipie
         TenancyService,
         { provide: EVENT_BUS, useValue: new InProcessEventBus() },
         { provide: PrismaService, useValue: prisma },
+        // The notifications slice injects the core port since #738.
+        { provide: PLATFORM_PRISMA, useValue: prisma },
         // #226. The dispatcher now reads the deployment-wide notification
         // policy; this suite is not about that policy, so it gets the
         // permissive default every untouched deployment has.

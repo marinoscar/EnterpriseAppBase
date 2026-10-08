@@ -16,7 +16,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { APP_NAME } from '@app/shared';
 import { useThemeContext } from '../../contexts/ThemeContext';
 import { UserMenu } from './UserMenu';
-import { NotificationBell } from './NotificationBell';
+import { NotificationBell } from '@marinoscar/platform-web/notifications/ui';
 import { OrgSwitcher } from '@marinoscar/platform-web/identity/ui';
 import {
   ADMIN_SECTIONS,

@@ -73,5 +73,11 @@ describe('SystemSettingsRowStore', () => {
     const s = store();
     await expect(s.rows.read('global', schema, DEFAULTS)).rejects.toThrow(/main settings row/);
     await expect(s.rows.read('Bad Key', schema, DEFAULTS)).rejects.toThrow(/not a row key/);
+    await expect(s.rows.read('WebPush', schema, DEFAULTS)).rejects.toThrow(/not a row key/);
+  });
+
+  it('accepts a lower camelCase key (the persisted `webPush` row, #738)', async () => {
+    const s = store();
+    await expect(s.rows.read('webPush', schema, DEFAULTS)).resolves.toMatchObject({ version: 0 });
   });
 });

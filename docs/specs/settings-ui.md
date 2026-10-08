@@ -26,7 +26,7 @@ What it is not:
 
 Each registry is an ordered list of groups, each group an ordered list of cards. A card declares at least a `title`, a `path`, and optionally:
 
-- `permission` — the API permission string required to see the card. Absent means any authenticated user.
+- `permission` — the API permission string required to see the card, or a list of strings of which the viewer must hold ANY ONE (#738; `cardPermissionGranted`, an empty list admits nobody). Absent means any authenticated user. A list exists for one destination served by one controller that accepts either of two permissions (the `Broadcasts` card: the system `broadcasts:read` and the org-scoped `org_broadcasts:read`); it is never a way to merge two pages, and never a reason for a second card.
 - `feature` — a deployment feature the card depends on: `'ai'` (AI switched on), `'telemetry'` (a telemetry store deployed and collecting) or `'orgs'` (multi-organization mode: `/api/auth/me` reports `tenancyMode: 'multi'`, #726). The card is hidden unless the caller's feature map says `features[feature] === true`. `permission` asks "may this user see it?"; `feature` asks "does it exist in this deployment right now?". The feature gate is applied before `alwaysShow`.
 - `alwaysShow` — an escape hatch that shows the card even when `permission` is not held. Reserved; no current card relies on it.
 - `disabled` — together with no `path`, declares an inert "Coming soon" card for a page that is planned but not built.
@@ -68,19 +68,19 @@ The test for tabs: are these the same subject, with independent permission stori
 
 ### Permissions are mirrored
 
-A card's `permission` is the literal string the API controller enforces. The hub, rail and title resolver decide what to show purely from `hasPermission(card.permission)`, with no API round trip. If the string drifted, the registry would either hide a page the API would serve, or show a card whose click leads straight into a 403. Both sides read the same names from `apps/api/src/common/constants/roles.constants.ts` (`PERMISSIONS.*`), which makes the mirror checkable.
+A card's `permission` is the literal string the API controller enforces. The hub, rail and title resolver decide what to show purely from the viewer's permissions (`cardPermissionGranted(card.permission, hasPermission)`: the one string, or any one of a list), with no API round trip. If the string drifted, the registry would either hide a page the API would serve, or show a card whose click leads straight into a 403. Both sides read the same names from `apps/api/src/common/constants/roles.constants.ts` (`PERMISSIONS.*`), which makes the mirror checkable.
 
 | Card permission | Enforced by |
 |---|---|
 | `system_settings:read` | `packages/platform-api/src/settings/system-settings/system-settings.controller.ts` (Notifications card); `packages/platform-api/src/email/email-settings.controller.ts`, `apps/api/src/common/maintenance/maintenance.controller.ts`, `apps/api/src/about/about.controller.ts` (Email, Maintenance, About) |
 | `users:read` | `packages/platform-api/src/identity/users/users.controller.ts` |
 | `allowlist:read` | `packages/platform-api/src/identity/allowlist/allowlist.controller.ts` (gates the Allowlist **tab**, not the route) |
-| `push:read` | `apps/api/src/notifications/push-config.controller.ts` |
+| `push:read` | `packages/platform-api/src/notifications/push-config.controller.ts` |
 | `storage_config:read` | `packages/platform-api/src/storage/config/storage-config.controller.ts` |
 | `jobs:read` | `apps/api/src/jobs/job-admin.controller.ts` |
 | `nodes:read` | `apps/api/src/nodes/nodes-admin.controller.ts` |
 | `db_backup:read` | `apps/api/src/db-backup/db-backup.controller.ts` |
-| `broadcasts:read` | `apps/api/src/notifications/broadcasts/broadcasts.controller.ts` |
+| `['broadcasts:read', 'org_broadcasts:read']` | `packages/platform-api/src/notifications/broadcasts/broadcasts.controller.ts` (Broadcasts card; ANY OF the two: the controller declares `@Auth({ anyPermissions })` with the system and the org pair, #738) |
 | `ai_config:read` | `apps/api/src/ai/config/ai-admin.controller.ts` (AI, AI Models, AI Usage) |
 | `ai:use` | `apps/api/src/ai/keys/user-ai-keys.controller.ts` (user `AI Keys` card) |
 | `groups:read` | `packages/platform-api/src/sharing/groups/groups.controller.ts` (user `Groups` card; an ORG permission, `SHARING_PERMISSIONS.GROUPS_READ`) |
@@ -90,6 +90,7 @@ A card's `permission` is the literal string the API controller enforces. The hub
 Two consequences:
 
 - **Only the read permission is a card's `permission`.** Every write a card leads to (saving settings, retrying a job, revoking a node credential, restoring a backup) is gated inside the page by disabling controls.
+- **A list is the controller's own any-of, never a widening.** The `Broadcasts` card lists exactly the two strings `broadcasts.controller.ts` passes to `@Auth({ anyPermissions })`, and the route's `RequirePermission permissions={[...]}` the same list (`destinations.test.ts` compares them). A second `Org broadcasts` card for the same page was rejected: one destination, one card.
 - **A permission split at the API is never re-merged in the registry.** `nodes:read` is not `jobs:read`; `db_backup:read` is not `system_settings:read`. A deployment can grant one without the other, and a card gated on the wrong one would silently offer or withhold access the API disagrees about.
 
 ### One hub component

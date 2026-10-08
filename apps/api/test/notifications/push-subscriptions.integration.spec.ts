@@ -10,7 +10,7 @@ import {
 import { prismaMock, resetPrismaMock } from '../mocks/prisma.mock';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import { authHeader, createMockViewerUser } from '../helpers/auth-mock.helper';
-import { PushSubscriptionService } from '../../src/notifications/push-subscription.service';
+import { PushSubscriptionService } from './support/notifications';
 
 // =============================================================================
 // Push subscription endpoints, over HTTP (issue #229, epic #215)

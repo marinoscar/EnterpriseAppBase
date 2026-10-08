@@ -13,9 +13,9 @@ import {
   createMockAdminUser,
   createMockViewerUser,
 } from '../helpers/auth-mock.helper';
-import { NOTIFICATION_EVENTS } from '../../src/notifications/notification-events';
-import { policyChannels } from '../../src/notifications/notification-policy';
-import { resolveChannels } from '../../src/notifications/notification-preferences';
+import { NOTIFICATION_EVENTS } from './support/notifications';
+import { policyChannels } from './support/notifications';
+import { resolveChannels } from './support/notifications';
 
 // =============================================================================
 // Admin notification policy, over HTTP (issue #226, epic #215)

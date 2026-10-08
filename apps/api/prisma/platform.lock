@@ -186,6 +186,12 @@
       "originId": "platform:0031_add_jobs_org_id_status_index",
       "sha256": "434d69d4112bcb429de609942a851e08c49793212a538adcc5a2481d1f8b0bb0",
       "since": "1.0.0"
+    },
+    {
+      "localDir": "20261008080749_add_broadcast_target_org",
+      "originId": "platform:0032_add_broadcast_target_org",
+      "sha256": "9f266799b1e3769233ea72873ce55394340da9f8ef1312a7e0b7b2ae410152e2",
+      "since": "1.0.0"
     }
   ],
   "platformVersion": "1.0.0"

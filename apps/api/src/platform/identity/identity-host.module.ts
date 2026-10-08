@@ -15,7 +15,7 @@ import { EVENT_BUS } from '../../common/event-bus/event-bus.interface';
 import { AppMetricsService } from '../../common/otel/app-metrics.service';
 import { JobsModule } from '../jobs/jobs.config';
 import { NodeCredentialService } from '@marinoscar/platform-api/nodes';
-import { NotificationsModule } from '../../notifications/notifications.module';
+import { NotificationsModule } from '../notifications/notifications.config';
 import { IdentityJobsAdapter } from './identity-jobs.adapter';
 import { NotificationsIdentityNotifier } from './identity-notifier.adapter';
 import { AppProfileImages, AppUserDefaults } from './identity-user.adapters';

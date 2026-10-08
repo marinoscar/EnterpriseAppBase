@@ -479,7 +479,7 @@ Two things never leave the facade, both handled by
 4. Response headers include `X-Accel-Buffering: no` (`AI_SSE_HEADERS`, the
    header nginx respects to disable buffering for this one response),
    following the precedent
-   `apps/api/src/notifications/notifications.controller.ts` already set for
+   `packages/platform-api/src/notifications/notifications.controller.ts` already set for
    `/api/notifications/stream`.
 5. `infra/nginx/nginx.conf` carries a dedicated, longest-prefix-wins
    `location /api/ai/responses/stream` block, placed before the general

@@ -4,10 +4,6 @@ import {
   telemetrySettingsSchema,
 } from '@marinoscar/platform-contract/telemetry';
 import { z } from 'zod';
-import {
-  notificationEventKeySchema,
-  NOTIFICATION_MAX_EVENTS_PER_CHANNEL,
-} from './user-settings-namespaces.schema';
 
 // =============================================================================
 // User Settings Schema
@@ -90,81 +86,18 @@ export type UserAiSettingsPatchValue = z.infer<typeof userAiSettingsPatchSchema>
 // System Settings Schema
 // =============================================================================
 
-/**
- * Upper bound on `notifications.disabledEvents` (#225, epic #215).
- *
- * Reuses the user-preferences bound rather than inventing a second number:
- * both lists are indexed by the SAME registry (`NOTIFICATION_EVENTS`), so
- * whatever count is considered a sane ceiling for one event-keyed collection is
- * the ceiling for the other. A cap is required at all because this array is
- * caller-supplied and lands in JSONB — unbounded growth in a row every request
- * reads is the failure `notificationChannelPreferencesSchema` already bounds on
- * its own axis.
- */
-export const MAX_DISABLED_NOTIFICATION_EVENTS =
-  NOTIFICATION_MAX_EVENTS_PER_CHANNEL;
-
-/**
- * Deployment-wide browser-notification policy.
- *
- * WHY THIS IS A MODELLED BLOCK (#225). This gate is framework-level and
- * security-adjacent (an operator turning off a delivery channel for everyone,
- * or silencing one noisy event), so it gets a real type, a real default, and
- * somewhere for its semantics to live — not an untyped flag in an open map.
- *
- * WHAT ENFORCES IT (#226). Three consumers, all reading through
- * `notifications/notification-policy.ts`, which is the only place these two
- * fields are interpreted:
- *
- *   * `resolveChannels` — the dispatcher's gate. A `browser` channel this
- *     policy disallows is not delivered over.
- *   * `GET /api/notifications/events` — the same filter on `channels`, so the
- *     preferences matrix cannot offer a channel the dispatcher would refuse.
- *     (`declaredChannels` there is deliberately unfiltered, #521, so the admin
- *     page can still list — and un-suppress — a suppressed event.)
- *   * the SSE payload's `toast` flag, and `GET /api/notifications/config`,
- *     which is how a non-admin client learns the capability is off without
- *     being granted `system_settings:read`.
- *
- * WHAT IT DELIBERATELY DOES NOT SWITCH OFF: the `notifications` row itself for
- * a `mandatory` event. Muting a toast must not mute an audit-relevant inbox
- * entry — see notification-policy.ts, which carries the full argument.
- *
- * Web Push (#229/#230) will read the same block when it lands.
- *
- * `disabledEvents` holds `NOTIFICATION_EVENTS` keys and is validated with
- * `notificationEventKeySchema` — the same syntactic bound the per-user
- * preference keys use. A second, hand-rolled pattern here would be a second
- * place for the `<area>.<event>` convention to be wrong, and the wrong direction
- * is an event key an operator cannot suppress because the admin page 400s.
- * It is a syntactic bound, NOT a registry check: an entry naming an event this
- * build does not declare is stored and simply never matches, which is what keeps
- * a rollback across the addition of an event uneventful.
- */
-export const systemNotificationsSchema = z.object({
-  browserEnabled: z.boolean(),
-  disabledEvents: z
-    .array(notificationEventKeySchema)
-    .max(MAX_DISABLED_NOTIFICATION_EVENTS),
-});
-
-export type SystemNotificationsValue = z.infer<typeof systemNotificationsSchema>;
-
-/**
- * `notifications`, PATCH counterpart.
- *
- * `disabledEvents` REPLACES wholesale rather than merging, which is both RFC
- * 7396's rule for arrays and the only sane one here: a merge has no way to
- * express "re-enable this event", so a patch that could only ever add would
- * make the admin page's uncheck a no-op.
- */
-export const systemNotificationsPatchSchema = z.object({
-  browserEnabled: z.boolean().optional(),
-  disabledEvents: z
-    .array(notificationEventKeySchema)
-    .max(MAX_DISABLED_NOTIFICATION_EVENTS)
-    .optional(),
-});
+// The `notifications` system namespace's schemas (`systemNotificationsSchema`,
+// its PATCH form and `MAX_DISABLED_NOTIFICATION_EVENTS`) are the wire contract
+// of the notifications slice since #738 (`@marinoscar/platform-contract/notifications`);
+// re-exported here under their old names. The declaration, including the
+// org layer that may only tighten them, is `NOTIFICATIONS_SYSTEM_SETTINGS` of
+// `@marinoscar/platform-api/notifications`.
+export {
+  MAX_DISABLED_NOTIFICATION_EVENTS,
+  systemNotificationsPatchSchema,
+  systemNotificationsSchema,
+} from '@marinoscar/platform-contract/notifications';
+export type { SystemNotificationsValue } from '@marinoscar/platform-contract/notifications';
 
 // =============================================================================
 // Operations namespaces (epic #254, issue #256)

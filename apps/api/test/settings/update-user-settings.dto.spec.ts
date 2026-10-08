@@ -1,3 +1,6 @@
+// The app's notification registrations: the PATCH body checks channel ids
+// against the channel registry at run time (#738).
+import '../../src/platform/notifications';
 import {
   updateUserSettingsSchema,
   patchUserSettingsSchema,
@@ -975,14 +978,23 @@ describe('notifications namespace (PUT)', () => {
     });
   });
 
-  it('rejects an unknown channel - the outer level is closed, unlike the event level below', () => {
+  // OPEN CHANNEL KEYS (#738). Until #738 the outer level was a closed enum;
+  // now it is any well-formed channel id, so a preference stored for a channel
+  // that was later unregistered round-trips through the read-modify-write PUT
+  // instead of making the whole document unsavable.
+  it('accepts a well-formed channel the registry does not declare - the outer level is open (#738)', () => {
+    const result = updateUserSettingsSchema.parse({
+      ...baseValid,
+      notifications: { sms: { 'user.welcome': true } },
+    });
+    expect(result.notifications).toEqual({ sms: { 'user.welcome': true } });
+  });
+
+  it('rejects a malformed channel id', () => {
     expect(() =>
       updateUserSettingsSchema.parse({
         ...baseValid,
-        // 'sms' rather than 'push': #228 (epic #215) widened
-        // NOTIFICATION_CHANNELS to include 'push', so 'push' is no longer a
-        // usable stand-in for "a channel the registry does not declare".
-        notifications: { sms: { 'user.welcome': true } },
+        notifications: { 'SMS!': { 'user.welcome': true } },
       }),
     ).toThrow();
   });

@@ -1,6 +1,6 @@
 # Notifications, Browser Notifications and Web Push
 
-> **Status:** shipped · **Code:** `apps/api/src/notifications/`, `apps/web/src/sw.ts`, `apps/web/pwa/`, `apps/web/src/contexts/NotificationContext.tsx`, `apps/web/src/services/{browserNotifications,pushSubscription}.ts`, `apps/web/src/hooks/{useNotificationCapability,usePushSubscriptionSync}.ts` · **API:** `/api/notifications/*`, `/api/admin/push-config` (see `/api/docs`) · **Admin UI:** `/admin/settings/notifications`, `/admin/settings/push` · **User UI:** `/settings/notifications` · **Runbook:** [VAPID keys](../runbooks/vapid-keys.md) · **Recipe:** [notifications module README](../../apps/api/src/notifications/README.md)
+> **Status:** shipped · **Code:** `packages/platform-api/src/notifications/` (`@marinoscar/platform-api/notifications`, wired in `apps/api/src/platform/notifications/`), `packages/platform-web/src/notifications/{headless,ui}/` (`@marinoscar/platform-web/notifications`, configured in `apps/web/src/platform/notifications.ts`), `packages/platform-contract/src/notifications/`, `apps/web/src/sw.ts`, `apps/web/pwa/` · **API:** `/api/notifications/*`, `/api/admin/push-config` (see `/api/docs`) · **Admin UI:** `/admin/settings/notifications`, `/admin/settings/push` · **User UI:** `/settings/notifications` · **Runbook:** [VAPID keys](../runbooks/vapid-keys.md) · **Recipe:** [notifications module README](../../packages/platform-api/src/notifications/README.md)
 
 The notification framework raises events from a single registry and delivers
 them over three channels: email, an in-app inbox with OS toasts, and Web Push.
@@ -41,8 +41,12 @@ runtime.
 ### 2.1 The event registry
 
 Events, channels and their renderers are registries
-(`apps/api/src/notifications/registry/`, issue #678), filled at import time by
-`registry/notification.manifest.ts`:
+(`packages/platform-api/src/notifications/registry/`, issue #678), filled at
+import time by the app's manifest (`apps/api/src/platform/notifications/notification.manifest.ts`).
+Channel ids are OPEN since #738: an app registers its own with
+`registerNotificationChannel`, and a preference or a broadcast naming a channel
+is checked against the registry at run time (the wire contract carries only the
+id pattern):
 
 | What | Declared in | Registry |
 |---|---|---|
@@ -60,7 +64,7 @@ key, an unregistered or empty channel list, `mandatory` without
 former closed lists (`NOTIFICATION_EVENTS`, `NOTIFICATION_CHANNELS`,
 `EMAIL_TEMPLATES`, `EVENT_EMAIL_TEMPLATES`, `EVENT_BROWSER_TEMPLATES`) remain
 as read-only views. API and recipe:
-[`registry/README.md`](../../apps/api/src/notifications/registry/README.md).
+[`registry/README.md`](../../packages/platform-api/src/notifications/README.md).
 
 Each event has:
 
@@ -168,6 +172,18 @@ stored and never match. `notification-policy.ts` holds two pure functions:
 
 `email` has no policy gate. `push` is not gated by this policy; it is gated by
 whether a VAPID key pair is active (§2.7).
+
+**The org layer (#738).** The namespace declares an org layer
+(`orgNotificationsSchema`, through `/api/org-settings`, `org_settings:read` /
+`org_settings:write`) that may only TIGHTEN the deployment's policy: the
+effective `browserEnabled` is system AND organization, the effective
+`disabledEvents` the union of both lists (`tightenNotificationsPolicy`). The
+dispatcher resolves the policy for the recipient's organization (the
+`NotifyOptions.orgId` the caller passes, else the recipient's most recently
+active membership) through the settings resolver, and `GET
+/api/notifications/config` and `/events` answer with the policy of the caller's
+active organization. An organization cannot turn on what the deployment turned
+off.
 
 The `toast` flag is computed server-side, at publish time, per frame. A
 long-lived tab with a stale config cannot re-enable a toast the administrator
@@ -336,7 +352,7 @@ request, browser checklist, stepwise test with a step log and device receipt
 
 ### 2.8 Client subscription flow
 
-`apps/web/src/services/pushSubscription.ts` is the one module every caller
+`pushSubscription.ts` of `@marinoscar/platform-web/notifications/headless` is the one module every caller
 uses. Nothing in it throws; failures are logged and swallowed.
 
 | Export | Role |
@@ -375,7 +391,7 @@ the Permissions API `change` event, `visibilitychange`, and the same-page
    whose permission is still `granted`.
 
 **Banner.** `NotificationPermissionBanner`
-(`apps/web/src/components/notifications/`) mounts under `MaintenanceBanner` in
+(`NotificationPermissionBanner` of `@marinoscar/platform-web/notifications/ui`, placed in the app's `Layout.tsx`) mounts under `MaintenanceBanner` in
 `Layout`. It shows only when the deployment offers push or browser
 notifications, the capability is `default`, `denied` or `ios-needs-install`,
 the route is not `/settings/notifications`, and that state was not dismissed
@@ -603,6 +619,7 @@ Delivery semantics:
 | Namespace / store | Keys | Edited at |
 |---|---|---|
 | `system_settings.notifications` | `browserEnabled`, `disabledEvents` | `/admin/settings/notifications` |
+| `org_settings.notifications` (#738) | `browserEnabled`, `disabledEvents` (tighten only) | `/admin/settings/org-settings` |
 | `system_settings.webPush` | `enabled`, `publicKey`, `subject` | `/admin/settings/push` |
 | `credentials` (`push_vapid` / `default`) | VAPID private key, encrypted with `SECRETS_ENCRYPTION_KEY` | `/admin/settings/push` |
 | `user_settings.notifications` | Per-user, per-event, per-channel preferences | `/settings/notifications` |
@@ -649,7 +666,7 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) for the full permission matrix.
 ## 4. Extending it in a fork
 
 Adding an event, its templates and its call site is the recipe in
-[`apps/api/src/notifications/README.md`](../../apps/api/src/notifications/README.md).
+[`packages/platform-api/src/notifications/README.md`](../../packages/platform-api/src/notifications/README.md).
 Three steps, no migration, and no platform file edited: a fork declares its
 channels, email templates and notifications in
 `apps/api/src/app-registrations/notifications.ts`, and a channel's transport is
@@ -676,7 +693,7 @@ Rebranding (`APP_NAME`, colours) flows into the manifest automatically through
 
 ## 5. Guardrails
 
-API (`apps/api/src/notifications/`, `apps/api/test/`):
+API (`packages/platform-api/test/notifications/`, `apps/api/test/notifications/`, `apps/api/test/broadcasts/`; the web suites in `packages/platform-web/test/notifications/`):
 
 - `notification-events.spec.ts`: registry invariants (unique keys, key shape,
   non-empty channels, `mandatory` implies `defaultEnabled`).
@@ -813,3 +830,10 @@ the app closed; iOS Safari in a tab (install panel) and installed (push).
   become registries; platform events are declared beside their modules, apps
   add theirs in `app-registrations/notifications.ts`, and app channel senders
   self-register (§2.1).
+- Issue #738 (PP-8.5): the slice is `@marinoscar/platform-api/notifications`,
+  `@marinoscar/platform-web/notifications` (`/headless`, `/ui`) and
+  `@marinoscar/platform-contract/notifications`; channel ids are open; the
+  `notifications` policy has an org layer that only tightens; the email
+  channel forwards the template's inline `attachments`; the app's `sw.ts`
+  registers the package's handlers (`registerNotificationServiceWorkerHandlers`);
+  the `NotificationBell` has slots.

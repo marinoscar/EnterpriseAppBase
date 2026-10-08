@@ -9,7 +9,7 @@ import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 import { RolesGuard } from '../guards/roles.guard';
 import { PermissionsGuard } from '../guards/permissions.guard';
 import { Roles } from './roles.decorator';
-import { Permissions } from './permissions.decorator';
+import { AnyPermissions, Permissions } from './permissions.decorator';
 import { ErrorDto } from '../../../core/index';
 import { RoleName, PermissionName } from '../../identity.constants';
 
@@ -28,6 +28,14 @@ export interface AuthOptions {
   roles?: RoleName[];
   /** Permissions, all of which the caller must hold in their effective set (system ∪ current-org grants). */
   permissions?: PermissionName[];
+  /**
+   * Permissions, AT LEAST ONE of which the caller must hold (#738), checked
+   * after `permissions`. For one route two scopes may reach: a system
+   * permission (`broadcasts:read`) and its org counterpart
+   * (`org_broadcasts:read`); the handler then narrows what the caller sees by
+   * which one they hold. Never use it to loosen a single-scope route.
+   */
+  anyPermissions?: PermissionName[];
 }
 
 /**
@@ -50,6 +58,8 @@ export interface RbacExtension {
   roles: string[];
   /** The guard requires ALL of these permissions. */
   permissions: string[];
+  /** The guard requires AT LEAST ONE of these permissions; present only when the route declares some (#738). */
+  anyPermissions?: string[];
 }
 
 /** Name of the session bearer scheme declared in `src/openapi/document.ts`. */
@@ -90,10 +100,15 @@ const SESSION_SCHEME = 'JWT-auth';
  *   // Combined
  *   @Auth({ roles: ['admin'], permissions: ['system_settings:write'] })
  *   configure() {}
+ *
+ *   // Any one of two scopes (the handler narrows by which one is held)
+ *   @Auth({ anyPermissions: ['broadcasts:read', 'org_broadcasts:read'] })
+ *   listBroadcasts() {}
  * }
  * ```
  *
- * @param options - the system roles (any of) and permissions (all of) required.
+ * @param options - the system roles (any of), permissions (all of) and
+ *   `anyPermissions` (at least one of) required.
  * @returns the composed guards, metadata and OpenAPI decorators.
  *
  * @stability stable
@@ -101,11 +116,13 @@ const SESSION_SCHEME = 'JWT-auth';
 export function Auth(options: AuthOptions = {}) {
   const roles = options.roles ?? [];
   const permissions = options.permissions ?? [];
+  const anyPermissions = options.anyPermissions ?? [];
 
   const rbac: RbacExtension = {
     authenticated: true,
     roles: [...roles],
     permissions: [...permissions],
+    ...(anyPermissions.length > 0 ? { anyPermissions: [...anyPermissions] } : {}),
   };
 
   const decorators = [
@@ -128,6 +145,10 @@ export function Auth(options: AuthOptions = {}) {
 
   if (permissions.length > 0) {
     decorators.push(Permissions(...permissions));
+  }
+
+  if (anyPermissions.length > 0) {
+    decorators.push(AnyPermissions(...anyPermissions));
   }
 
   return applyDecorators(...decorators);

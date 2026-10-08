@@ -35,6 +35,9 @@ export const NODES_SLICE_SOURCE_ROOT = join(REPO, 'packages', 'platform-api', 's
 /** The packaged storage slice's source root (#736: the stale-upload cleanup cron). */
 export const STORAGE_SLICE_SOURCE_ROOT = join(REPO, 'packages', 'platform-api', 'src', 'storage');
 
+/** The packaged notifications slice's source root (#738: the `job.settled` and `nodes.node.offline` listeners). */
+export const NOTIFICATIONS_SLICE_SOURCE_ROOT = join(REPO, 'packages', 'platform-api', 'src', 'notifications');
+
 /** Every root the rule scans. */
 export const CRON_SOURCE_ROOTS: readonly string[] = [
   API_SOURCE_ROOT,
@@ -43,4 +46,5 @@ export const CRON_SOURCE_ROOTS: readonly string[] = [
   JOBS_SLICE_SOURCE_ROOT,
   NODES_SLICE_SOURCE_ROOT,
   STORAGE_SLICE_SOURCE_ROOT,
+  NOTIFICATIONS_SLICE_SOURCE_ROOT,
 ];

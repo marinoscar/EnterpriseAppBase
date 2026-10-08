@@ -9,7 +9,7 @@ import {
 import { resetPrismaMock } from '../mocks/prisma.mock';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import { createMockAdminUser, authHeader } from '../helpers/auth-mock.helper';
-import { NOTIFICATION_EVENTS } from '../../src/notifications/notification-events';
+import { NOTIFICATION_EVENTS } from '../notifications/support/notifications';
 
 // =============================================================================
 // GET /api/notifications/events Integration (issue #124, epic #109)

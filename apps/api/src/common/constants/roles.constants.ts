@@ -29,8 +29,11 @@ import {
 import { DB_BACKUP_PERMISSIONS } from '../../db-backup/db-backup.permissions';
 import { JOBS_PERMISSIONS } from '@marinoscar/platform-api/jobs';
 import { NODES_PERMISSIONS } from '@marinoscar/platform-api/nodes';
-import { BROADCASTS_PERMISSIONS } from '../../notifications/broadcasts/broadcasts.permissions';
-import { PUSH_PERMISSIONS } from '../../notifications/push.permissions';
+import {
+  BROADCASTS_PERMISSIONS,
+  ORG_BROADCASTS_PERMISSIONS,
+  PUSH_PERMISSIONS,
+} from '@marinoscar/platform-api/notifications';
 import { ORG_SETTINGS_PERMISSIONS, SETTINGS_PERMISSIONS } from '@marinoscar/platform-api/settings';
 import { STORAGE_CONFIG_PERMISSIONS } from '@marinoscar/platform-api/storage';
 import { STORAGE_PERMISSIONS } from '@marinoscar/platform-api/storage';
@@ -77,6 +80,7 @@ export const PERMISSIONS = {
   ...permissionIds(ORGANIZATIONS_PERMISSIONS),
   ...permissionIds(SHARING_PERMISSION_DECLARATIONS),
   ...permissionIds(ORG_SETTINGS_PERMISSIONS),
+  ...permissionIds(ORG_BROADCASTS_PERMISSIONS),
 } as const;
 
 /** A platform permission id, or an app permission id added to `AppPermissionIds` by augmentation. */

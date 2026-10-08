@@ -15,8 +15,8 @@ import {
 } from '../helpers/auth-mock.helper';
 import { PERMISSIONS_KEY } from '@marinoscar/platform-api/identity';
 import { CredentialsService } from '@marinoscar/platform-api/credentials';
-import { PushConfigController } from '../../src/notifications/push-config.controller';
-import { PushConfigService } from '../../src/notifications/push-config.service';
+import { PushConfigController } from '../notifications/support/notifications';
+import { PushConfigService } from '../notifications/support/notifications';
 
 // =============================================================================
 // Push Configuration Integration (issue #355)

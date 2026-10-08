@@ -2,8 +2,8 @@ import { Box, useMediaQuery, useTheme } from '@mui/material';
 import { Outlet } from 'react-router-dom';
 import { AppBar } from '../navigation/AppBar';
 import { MaintenanceBanner } from './MaintenanceBanner';
-import { NotificationPermissionBanner } from '../notifications/NotificationPermissionBanner';
-import { usePushSubscriptionSync } from '../../hooks/usePushSubscriptionSync';
+import { NotificationPermissionBanner } from '@marinoscar/platform-web/notifications/ui';
+import { usePushSubscriptionSync } from '@marinoscar/platform-web/notifications/headless';
 import { NavigationRail } from '../navigation/NavigationRail';
 import { BottomNav } from '../navigation/BottomNav';
 // The one-time welcome (#745): renders nothing until it should open.

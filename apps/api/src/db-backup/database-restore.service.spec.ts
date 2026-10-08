@@ -39,7 +39,7 @@ import type { ConfigService } from '@nestjs/config';
 import type { MaintenanceModeService } from '../common/maintenance/maintenance-mode.service';
 import type { SystemDatabaseBackupValue } from '../common/schemas/settings.schema';
 import { JOB_TEMP_PREFIX } from '@marinoscar/platform-api/jobs';
-import type { NotificationsService } from '../notifications/notifications.service';
+import type { NotificationsService } from '@marinoscar/platform-api/notifications';
 import type { JobsService } from '@marinoscar/platform-api/jobs';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { SystemSettingsService } from '@marinoscar/platform-api/settings';

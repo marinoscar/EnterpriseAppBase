@@ -17,7 +17,7 @@ import {
   APP_USER_SETTINGS_NAMESPACES,
 } from '../../app-registrations/settings';
 import { AI_USER_SETTINGS } from '../../ai/ai.user-settings';
-import { NOTIFICATIONS_USER_SETTINGS } from '../../notifications/notifications.user-settings';
+import { NOTIFICATIONS_USER_SETTINGS } from '@marinoscar/platform-api/notifications';
 import { ONBOARDING_USER_SETTINGS } from '@marinoscar/platform-api/onboarding';
 import {
   DATA_TABLES_USER_SETTINGS,

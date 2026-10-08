@@ -19,10 +19,10 @@ import { EmailSettingsService } from '@marinoscar/platform-api/email';
 import { SmtpEmailProvider } from '@marinoscar/platform-api/email';
 import type { EmailTemplate } from '@marinoscar/platform-api/email';
 import { JobWorker } from '@marinoscar/platform-api/jobs';
-import { NotificationsModule } from '../../src/notifications/notifications.module';
-import { NotificationsService } from '../../src/notifications/notifications.service';
-import type { NotificationChannel } from '../../src/notifications/notification-events';
-import type { NotificationChannelSender } from '../../src/notifications/notification.types';
+import { NotificationsModule } from './support/notifications';
+import { NotificationsService } from './support/notifications';
+import type { NotificationChannel } from './support/notifications';
+import type { NotificationChannelSender } from './support/notifications';
 import {
   emailTemplateRegistry,
   eventBrowserTemplateRegistry,
@@ -31,8 +31,8 @@ import {
   notificationEventRegistry,
   registerNotification,
   type NotificationRegistration,
-} from '../../src/notifications/registry';
-import { NotificationChannelSenderRegistry } from '../../src/notifications/registry/channel-sender.registry';
+} from './support/notifications';
+import { NotificationChannelSenderRegistry } from './support/notifications';
 import { PrismaService } from '../../src/prisma/prisma.service';
 
 // =============================================================================

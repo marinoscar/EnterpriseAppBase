@@ -1,6 +1,6 @@
 # Admin Notification Broadcasts
 
-> **Status:** shipped · **Code:** `apps/api/src/notifications/broadcasts/`, `apps/web/src/pages/Admin/BroadcastsPage.tsx`, `apps/web/src/components/admin/{BroadcastComposer,BroadcastDetailDialog}.tsx`, `apps/web/src/services/broadcasts.ts` · **API:** `/api/admin/broadcasts/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/broadcasts` · **Recipe:** [notifications module README](../../apps/api/src/notifications/README.md)
+> **Status:** shipped · **Code:** `packages/platform-api/src/notifications/broadcasts/` (`@marinoscar/platform-api/notifications`), `packages/platform-web/src/notifications/ui/{BroadcastsPage,BroadcastComposer,BroadcastDetailDialog}.tsx`, `packages/platform-web/src/notifications/headless/broadcasts.ts` (`@marinoscar/platform-web/notifications`), the wire shapes in `@marinoscar/platform-contract/notifications` · **API:** `/api/admin/broadcasts/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/broadcasts` · **Recipe:** [notifications module README](../../packages/platform-api/src/notifications/README.md)
 
 A broadcast is one plain-text message an administrator composes in the app and
 sends to every active user, now or at a scheduled time, over the channels the
@@ -32,7 +32,7 @@ job types, one table. It is not a second notification system.
 
 ### 2.1 Two registry events
 
-`apps/api/src/notifications/broadcasts/broadcasts.notifications.ts` declares
+`packages/platform-api/src/notifications/broadcasts/broadcasts.notifications.ts` declares
 (registered into the notification event registry; see
 [browser-notifications.md §2.1](browser-notifications.md#21-the-event-registry)):
 
@@ -113,9 +113,13 @@ needs a third registration.
 One function defines it, used by every reader:
 
 ```ts
-// apps/api/src/notifications/broadcasts/broadcast-audience.ts
-export function audienceWhere(cutoff: Date): Prisma.UserWhereInput {
-  return { isActive: true, createdAt: { lte: cutoff } };
+// packages/platform-api/src/notifications/broadcasts/broadcast-audience.ts
+export function audienceWhere(cutoff: Date, targetOrgId?: string | null): NotificationsWhere {
+  return {
+    isActive: true,
+    createdAt: { lte: cutoff },
+    ...(targetOrgId ? { memberships: { some: { orgId: targetOrgId, status: 'active' } } } : {}),
+  };
 }
 ```
 
@@ -132,6 +136,12 @@ lie.
   this?" becomes unanswerable.
 - A user created between create and start **is included**. A user created
   after start **is excluded**.
+- **`targetOrgId` (#738) narrows it to one organization's ACTIVE members.**
+  `null` is a system broadcast (every active user). The start and chunk
+  handlers re-read the column, never the payload, and each chunk dispatches
+  with `orgId: targetOrgId`, so the organization's notification policy (its
+  org layer) applies. A member removed mid-fan-out stops receiving from the
+  next chunk, like a deactivated user.
 
 ### 2.5 Lifecycle
 
@@ -385,17 +395,27 @@ and `GET /api/notifications` are the source of truth.
 
 ### Permissions
 
-- `broadcasts:read`: list, get, audience count.
-- `broadcasts:write`: create, test-send, cancel, resume, delete.
-- Every route also requires the Admin role. Both permissions are seeded to
-  Admin only. See [ARCHITECTURE.md](../ARCHITECTURE.md) for the matrix.
+- `broadcasts:read`: list, get, audience count. System scope, seeded to Admin.
+- `broadcasts:write`: create, test-send, cancel, resume, delete. System scope,
+  seeded to Admin. A holder may target any organization, or none.
+- `org_broadcasts:read`, `org_broadcasts:write` (#738): the same routes for
+  the caller's ACTIVE organization only. Org scope, held through the
+  `org_admin` membership role. The list shows that organization's broadcasts,
+  another organization's broadcast is a 404, and the target is forced to the
+  active organization (naming another, or an unknown one, is a 422).
+- Every route declares `@Auth({ anyPermissions: [system, org] })`: either
+  string admits, and the service scopes by which one the caller holds (the
+  system one wins). The Admin role requirement of the first version is gone:
+  the permission is the gate. See [ARCHITECTURE.md](../ARCHITECTURE.md) for
+  the matrix.
 
 ### Admin UI
 
 The **Broadcasts** card in the Operations group of `ADMIN_SECTIONS`
 (`apps/web/src/config/adminSections.tsx`), path `/admin/settings/broadcasts`,
-`permission: 'broadcasts:read'`. Write controls inside the page are disabled
-without `broadcasts:write`. The page lists broadcasts, composes (with a native
+`permission: ['broadcasts:read', 'org_broadcasts:read']` (any of, #738; one
+card for one destination, never a second `Org broadcasts` card). Write
+controls inside the page are disabled without the matching `:write`. The page lists broadcasts, composes (with a native
 `datetime-local` schedule field), shows detail with approximate delivery
 counts, and offers cancel and resume (resume only on `failed`).
 
@@ -441,7 +461,7 @@ an audit event with identifiers and shape, never the composed body.
   `skipDedup: true`, as the chunk handler does. The general recipe is
   [`packages/platform-api/src/jobs/handlers/README.md`](../../packages/platform-api/src/jobs/handlers/README.md).
 - Adding a channel to the broadcast events is a registry edit plus a template;
-  see the [notifications README](../../apps/api/src/notifications/README.md).
+  see the [notifications README](../../packages/platform-api/src/notifications/README.md).
 
 ## 5. Guardrails
 
@@ -564,6 +584,10 @@ Manual:
 - Later issues: #456 email rate limits; #459 `failed`, resume and the cursor
   CAS; #468 reaper give-up emits `job.settled`; #469 idempotent start; #480
   `canDelete` guard.
+- #738 (PP-8.5): the slice moved to `@marinoscar/platform-api/notifications`
+  and `@marinoscar/platform-web/notifications`; `notification_broadcasts.target_org_id`
+  (platform migration `0032_add_broadcast_target_org`), the `org_broadcasts:*`
+  pair, `?targetOrgId` on the audience count, open channel ids.
 - #521: corrected this doc's account of the create-time browser-kill-switch
   warning — a non-critical broadcast gets no in-app row while browser
   notifications are disabled, unless `push` is also selected and the

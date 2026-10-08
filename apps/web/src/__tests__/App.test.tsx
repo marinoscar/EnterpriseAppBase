@@ -32,8 +32,12 @@ vi.mock('../pages/Admin/SettingsHubPage', () => ({
   default: () => <h1>Admin Settings Hub</h1>,
 }));
 
-vi.mock('../pages/Admin/NotificationSettingsPage', () => ({
-  default: () => <h1>Admin Notifications</h1>,
+// The notifications pages are the packaged slice's since #738: stand in for
+// the two the route assertions below name, keeping the bell and the banner.
+vi.mock('@marinoscar/platform-web/notifications/ui', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@marinoscar/platform-web/notifications/ui')>()),
+  NotificationSettingsPage: () => <h1>Admin Notifications</h1>,
+  UserNotificationsPage: () => <h1>User Notifications Page</h1>,
 }));
 
 vi.mock('../pages/Admin/MaintenancePage', () => ({
@@ -98,13 +102,9 @@ vi.mock('../pages/UserAppearancePage', () => ({
   default: () => <h1>User Appearance Page</h1>,
 }));
 
-// Issue #126, epic #109. Same rationale as the four stand-ins above: the real
-// page's own suite (`UserNotificationsPage.test.tsx`) already proves it
-// renders correctly, so this stand-in makes the assertions below about
-// `App.tsx`'s route wiring specifically.
-vi.mock('../pages/UserNotificationsPage', () => ({
-  default: () => <h1>User Notifications Page</h1>,
-}));
+// Issue #126, epic #109: `UserNotificationsPage` is stood in for above, with
+// the packaged notifications pages (#738); its own suite, in
+// packages/platform-web/test/notifications, proves it renders correctly.
 
 const API_BASE = '*/api';
 

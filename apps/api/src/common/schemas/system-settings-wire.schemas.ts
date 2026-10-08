@@ -15,9 +15,7 @@
 // =============================================================================
 
 import { z } from 'zod';
-import { notificationEventKeySchema } from './user-settings-namespaces.schema';
 import {
-  MAX_DISABLED_NOTIFICATION_EVENTS,
   BACKUP_TIME_OF_DAY_PATTERN,
   AI_KEY_POLICIES,
   AI_USAGE_RETENTION_MAX_DAYS,
@@ -43,20 +41,8 @@ import {
 // against the shared schema again on the way in. Both copies must move together
 // — `notifications` (#225) is the block that most recently did.
 
-/**
- * Deployment-wide browser-notification policy (#225, epic #215).
- *
- * A MODELLED block: a framework-level, security-adjacent gate needs a real
- * type, a real default and somewhere to document its semantics. Nothing enforces it yet — the browser
- * channel reading these values is issue #226 — so it is stored and editable and
- * no delivery path consults it. See `systemNotificationsSchema`.
- */
-export const notificationsSettingsSchema = z.object({
-  browserEnabled: z.boolean(),
-  disabledEvents: z
-    .array(notificationEventKeySchema)
-    .max(MAX_DISABLED_NOTIFICATION_EVENTS),
-});
+// `notificationsSettingsSchema` (the PUT branch) and its PATCH form are the
+// notifications slice's wire contract since #738; re-exported below.
 
 // =============================================================================
 // Operations namespaces on the wire (#256, epic #254)
@@ -311,17 +297,6 @@ export const retentionPolicyPatchSettingsSchema = z.object({
 // Optional at the namespace level (the composed PATCH body adds `.optional()`
 // to each) and field by field inside.
 
-// `disabledEvents` REPLACES rather than merges — RFC 7396's rule for arrays,
-// and the only workable one here: a merging list could never express
-// "re-enable this event", so unchecking a box on the admin page would be a
-// no-op.
-export const notificationsSettingsPatchSchema = z.object({
-  browserEnabled: z.boolean().optional(),
-  disabledEvents: z
-    .array(notificationEventKeySchema)
-    .max(MAX_DISABLED_NOTIFICATION_EVENTS)
-    .optional(),
-});
 
 // Optional at the namespace level and field by field inside, so that
 // `{ "databaseBackup": { "enabled": true } }` is a legal body. If this line
@@ -497,3 +472,10 @@ export const retentionSettingsPatchSchema = z.object({
   auditEvents: retentionPolicyPatchSettingsSchema.optional(),
   aiRuns: retentionPolicyPatchSettingsSchema.optional(),
 });
+
+// The `notifications` branches of the PUT and PATCH bodies (#225), the wire
+// contract of the notifications slice since #738.
+export {
+  notificationsSettingsPatchSchema,
+  notificationsSettingsSchema,
+} from '@marinoscar/platform-contract/notifications';

@@ -115,7 +115,7 @@ export { Auth, RBAC_EXTENSION_KEY } from './auth/decorators/auth.decorator';
 export type { AuthOptions, RbacExtension } from './auth/decorators/auth.decorator';
 export { IS_PUBLIC_KEY, Public } from './auth/decorators/public.decorator';
 export { ROLES_KEY, Roles } from './auth/decorators/roles.decorator';
-export { PERMISSIONS_KEY, Permissions } from './auth/decorators/permissions.decorator';
+export { ANY_PERMISSIONS_KEY, AnyPermissions, PERMISSIONS_KEY, Permissions } from './auth/decorators/permissions.decorator';
 export { CurrentUser } from './auth/decorators/current-user.decorator';
 export { CurrentPrincipal, principalOf } from './auth/decorators/current-principal.decorator';
 export type { RequestWithPrincipal } from './auth/decorators/current-principal.decorator';

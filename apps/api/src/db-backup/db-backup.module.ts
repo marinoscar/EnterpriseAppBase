@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { MaintenanceModule } from '../common/maintenance/maintenance.module';
 import { JobsModule } from '../platform/jobs/jobs.config';
-import { NotificationsModule } from '../notifications/notifications.module';
+import { NotificationsModule } from '../platform/notifications/notifications.config';
 import { SettingsModule } from '../platform/settings/settings.config';
 import { StorageProvidersModule } from '@marinoscar/platform-api/storage';
 import { DatabaseRestoreService } from './database-restore.service';

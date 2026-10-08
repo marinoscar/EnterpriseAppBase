@@ -24,8 +24,11 @@ import {
 import { DB_BACKUP_PERMISSIONS } from '../../db-backup/db-backup.permissions';
 import { JOBS_PERMISSIONS } from '@marinoscar/platform-api/jobs';
 import { NODES_PERMISSIONS } from '@marinoscar/platform-api/nodes';
-import { BROADCASTS_PERMISSIONS } from '../../notifications/broadcasts/broadcasts.permissions';
-import { PUSH_PERMISSIONS } from '../../notifications/push.permissions';
+import {
+  BROADCASTS_PERMISSIONS,
+  ORG_BROADCASTS_PERMISSIONS,
+  PUSH_PERMISSIONS,
+} from '@marinoscar/platform-api/notifications';
 import { ORG_SETTINGS_PERMISSIONS, SETTINGS_PERMISSIONS } from '@marinoscar/platform-api/settings';
 import { STORAGE_CONFIG_PERMISSIONS } from '@marinoscar/platform-api/storage';
 import { STORAGE_PERMISSIONS } from '@marinoscar/platform-api/storage';
@@ -54,6 +57,8 @@ registerPermissions(TELEMETRY_PERMISSION_DECLARATIONS);
 registerPermissions(ORGANIZATIONS_PERMISSIONS);
 registerPermissions(SHARING_PERMISSION_DECLARATIONS);
 registerPermissions(ORG_SETTINGS_PERMISSIONS);
+// #738: org-scoped broadcasts, appended after every existing declaration.
+registerPermissions(ORG_BROADCASTS_PERMISSIONS);
 
 // 4. App-owned permissions last, so a collision with a platform id names the app.
 registerPermissions(APP_PERMISSIONS);

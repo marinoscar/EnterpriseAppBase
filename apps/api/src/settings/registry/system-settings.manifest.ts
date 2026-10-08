@@ -23,7 +23,7 @@ import { RETENTION_SYSTEM_SETTINGS } from '../../common/retention/retention.syst
 import { DATABASE_BACKUP_SYSTEM_SETTINGS } from '../../db-backup/db-backup.system-settings';
 import { JOBS_SYSTEM_SETTINGS } from '../../platform/jobs/jobs.system-settings';
 import { NODES_SYSTEM_SETTINGS } from '../../platform/jobs/nodes.system-settings';
-import { NOTIFICATIONS_SYSTEM_SETTINGS } from '../../notifications/notifications.system-settings';
+import { NOTIFICATIONS_SYSTEM_SETTINGS } from '@marinoscar/platform-api/notifications';
 import { STORAGE_SYSTEM_SETTINGS } from '../../platform/storage/storage.system-settings';
 import { TELEMETRY_SYSTEM_SETTINGS } from '../../platform/telemetry/telemetry.system-settings';
 import {
@@ -34,7 +34,7 @@ import {
 } from '@marinoscar/platform-api/settings';
 
 const PLATFORM_NAMESPACES: readonly SystemSettingsNamespace[] = [
-  NOTIFICATIONS_SYSTEM_SETTINGS,
+  NOTIFICATIONS_SYSTEM_SETTINGS as SystemSettingsNamespace,
   JOBS_SYSTEM_SETTINGS,
   NODES_SYSTEM_SETTINGS,
   DATABASE_BACKUP_SYSTEM_SETTINGS,

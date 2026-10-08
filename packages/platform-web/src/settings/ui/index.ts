@@ -5,7 +5,7 @@
 
 export { SettingsHub } from './SettingsHub.js';
 export type { SettingsHubProps } from './SettingsHub.js';
-export { settingsPageTitle, visibleSettingsSections } from './registry.js';
+export { cardPermissionGranted, settingsPageTitle, visibleSettingsSections } from './registry.js';
 export type { SettingsCardDef, SettingsSectionDef } from './registry.js';
 export { isFeatureEnabled } from '../headless/features.js';
 export type { SettingsFeatureKey, SettingsFeatureRegistry, SettingsFeatures } from '../headless/features.js';

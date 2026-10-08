@@ -114,6 +114,14 @@
       "types": "./dist/storage/testing/index.d.ts",
       "default": "./dist/storage/testing/index.js"
     },
+    "./notifications": {
+      "types": "./dist/notifications/index.d.ts",
+      "default": "./dist/notifications/index.js"
+    },
+    "./notifications/testing": {
+      "types": "./dist/notifications/testing/index.d.ts",
+      "default": "./dist/notifications/testing/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -155,7 +163,8 @@
     "nodemailer": "^9.0.6",
     "passport-google-oauth20": "^2.0.0",
     "passport-jwt": "^4.0.1",
-    "pg": "^8.23.0"
+    "pg": "^8.23.0",
+    "web-push": "3.6.7"
   },
   "peerDependencies": {
     "@nestjs/common": "^11.1.12",
@@ -203,6 +212,7 @@
     "@types/passport-jwt": "^4.0.1",
     "@types/pg": "^8.23.1",
     "@types/supertest": "^7.2.0",
+    "@types/web-push": "3.6.4",
     "fastify": "^5",
     "hyparquet": "^1.31.2",
     "jest": "^30.4.2",

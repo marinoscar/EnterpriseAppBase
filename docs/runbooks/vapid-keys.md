@@ -23,21 +23,21 @@ upgrade note below if this deployment predates that.
 
 Source of truth for every claim below:
 
-- `apps/api/src/notifications/push-config.service.ts` — `PushConfigService`,
+- `packages/platform-api/src/notifications/push-config.service.ts` — `PushConfigService`,
   and specifically `resolveActiveVapidConfig()`, the one place both callers
   below ask "what VAPID key pair, if any, is active right now."
-- `apps/api/src/notifications/push-config.controller.ts` — the five
+- `packages/platform-api/src/notifications/push-config.controller.ts` — the five
   `/api/admin/push-config` routes the admin UI (and any other client) calls.
-- `apps/api/src/notifications/push-config.schema.ts` — the `webPush`
+- `packages/platform-api/src/notifications/push-config.schema.ts` — the `webPush`
   `system_settings` row's shape (`enabled`, `publicKey`, `subject`).
-- `apps/api/src/notifications/push-vapid-credential.constants.ts` — where the
+- `packages/platform-api/src/notifications/push-vapid-credential.constants.ts` — where the
   private key actually lives (`CredentialsService`, `purpose: 'push_vapid'`).
-- `apps/api/src/notifications/push-subscription.service.ts` — `isEnabled()`,
+- `packages/platform-api/src/notifications/push-subscription.service.ts` — `isEnabled()`,
   the predicate that decides whether this deployment accepts push
   subscriptions at all; delegates to `resolveActiveVapidConfig()`.
-- `apps/api/src/notifications/channels/push-notification.channel.ts` — the
+- `packages/platform-api/src/notifications/channels/push-notification.channel.ts` — the
   sender, including what happens when a send fails.
-- `apps/api/src/notifications/notifications.module.ts` — registers the push
+- `packages/platform-api/src/notifications/notifications.module.ts` — registers the push
   channel unconditionally (like email/browser); see its header comment for
   why.
 - `apps/web/src/pages/Admin/PushConfigPage.tsx` and

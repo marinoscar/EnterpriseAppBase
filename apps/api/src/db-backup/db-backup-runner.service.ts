@@ -35,7 +35,7 @@ import {
 } from './db-backup-storage';
 import { PERMISSIONS } from '../common/constants/roles.constants';
 import type { BackupFailedEmailData } from '@marinoscar/platform-api/email';
-import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationsService } from '@marinoscar/platform-api/notifications';
 import {
   DatabaseBackupAlreadyRunningError,
   DatabaseBackupCancelledError,

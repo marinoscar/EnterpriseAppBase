@@ -181,9 +181,9 @@ describe('permission registry', () => {
       expect(permissionRegistry.ids()).toEqual(Object.values(PERMISSIONS));
     });
 
-    it('declares 45 permissions and 4 roles, each exactly once', () => {
-      expect(permissionRegistry.size).toBe(45);
-      expect(new Set(Object.values(PERMISSIONS)).size).toBe(45);
+    it('declares 47 permissions and 4 roles, each exactly once', () => {
+      expect(permissionRegistry.size).toBe(47);
+      expect(new Set(Object.values(PERMISSIONS)).size).toBe(47);
       expect(roleRegistry.size).toBe(4);
     });
   });
@@ -248,6 +248,9 @@ describe('permission registry', () => {
         // The settings slice's org layer (#733).
         'org_settings:read',
         'org_settings:write',
+        // Org-targeted broadcasts (#738).
+        'org_broadcasts:read',
+        'org_broadcasts:write',
       ]);
     });
 

@@ -24,7 +24,7 @@ import request from 'supertest';
 import { registerResourceType, type ResourceOwnerInfo } from '@marinoscar/platform-api/sharing';
 
 import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
-import { NotificationsService } from '../../src/notifications/notifications.service';
+import { NotificationsService } from '../notifications/support/notifications';
 import { authHeader, createMockTestUser, type TestUser } from '../helpers/auth-mock.helper';
 import { TestContext, closeTestApp, createTestApp } from '../helpers/test-app.helper';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';

@@ -94,7 +94,15 @@ describe('Organization settings (/api/org-settings)', () => {
           version: 0,
           effective: { exportPolicy: { enabled: true, maxRows: 10_000 }, workspaceLabel: { label: 'Workspace', accent: 'blue' } },
         });
-        expect(response.body.data.namespaces.map((n: { key: string }) => n.key)).toEqual(['exportPolicy', 'workspaceLabel']);
+        // `notifications` is the reference app's own org-overridable namespace
+        // since #738 (an org may only tighten the browser policy); the two
+        // examples follow it.
+        expect(response.body.data.namespaces.map((n: { key: string }) => n.key)).toEqual([
+          'notifications',
+          'exportPolicy',
+          'workspaceLabel',
+        ]);
+        expect(response.body.data.effective.notifications).toEqual({ browserEnabled: true, disabledEvents: [] });
       }),
     );
   });

@@ -55,8 +55,8 @@
 //   ];
 // =============================================================================
 
-import type { NotificationRegistration } from '../notifications/registry/bindings.registry';
-import type { NotificationChannelDef } from '../notifications/registry/channel.registry';
+import type { NotificationRegistration } from '@marinoscar/platform-api/notifications';
+import type { NotificationChannelDef } from '@marinoscar/platform-api/notifications';
 import type { EmailTemplateEntry } from '@marinoscar/platform-api/email';
 
 /** This app's own delivery channels, registered after the platform's. */

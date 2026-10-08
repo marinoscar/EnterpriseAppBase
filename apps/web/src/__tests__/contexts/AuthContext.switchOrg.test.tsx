@@ -11,9 +11,10 @@ import { MemoryRouter } from 'react-router-dom';
 import { server } from '../mocks/server';
 import { AuthProvider, useAuth } from '@marinoscar/platform-web/identity/headless';
 import { api } from '../../services/api';
-import { removePushSubscription } from '../../services/pushSubscription';
+import { removePushSubscription } from '@marinoscar/platform-web/notifications/headless';
 
-vi.mock('../../services/pushSubscription', () => ({
+vi.mock('@marinoscar/platform-web/notifications/headless', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@marinoscar/platform-web/notifications/headless')>()),
   removePushSubscription: vi.fn().mockResolvedValue(undefined),
 }));
 

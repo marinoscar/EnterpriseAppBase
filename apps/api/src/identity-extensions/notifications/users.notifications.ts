@@ -13,8 +13,8 @@
 // `NOTIFICATION_EVENTS` array in notifications/notification-events.ts (#128).
 // =============================================================================
 
-import { roleChangedBrowserTemplate } from '../../notifications/channels/browser-templates';
-import type { NotificationRegistration } from '../../notifications/registry/bindings.registry';
+import { roleChangedBrowserTemplate } from '@marinoscar/platform-api/notifications';
+import type { NotificationRegistration } from '@marinoscar/platform-api/notifications';
 
 export const USERS_NOTIFICATIONS: readonly NotificationRegistration[] = [
   {
