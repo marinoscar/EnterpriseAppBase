@@ -90,14 +90,13 @@ describe('USER_SETTINGS_SECTIONS - Notifications card (issue #126)', () => {
  * controller enforces (rule 3), with no `feature`.
  */
 describe('USER_SETTINGS_SECTIONS - Groups card (issue #731)', () => {
-  it('is the only card of a Sharing section that is the last section', () => {
-    const last = USER_SETTINGS_SECTIONS[USER_SETTINGS_SECTIONS.length - 1];
-    expect(last?.label).toBe('Sharing');
-    expect(last?.cards.map((card) => card.title)).toEqual(['Groups']);
+  it('is the only card of a Sharing section, appended after the existing ones', () => {
+    const sharing = USER_SETTINGS_SECTIONS.find((section) => section.label === 'Sharing');
+    expect(sharing?.cards.map((card) => card.title)).toEqual(['Groups']);
   });
 
-  it('leaves the existing sections, in order, untouched', () => {
-    expect(USER_SETTINGS_SECTIONS.map((section) => section.label)).toEqual(['Account', 'Security', 'Sharing']);
+  it('leaves the existing sections, in order, untouched; later groups (#744 "Your data") append after it', () => {
+    expect(USER_SETTINGS_SECTIONS.map((section) => section.label)).toEqual(['Account', 'Security', 'Sharing', 'Your data']);
   });
 
   it('points at /settings/groups and declares groups:read and no feature', () => {
@@ -105,5 +104,21 @@ describe('USER_SETTINGS_SECTIONS - Groups card (issue #731)', () => {
     expect(card?.path).toBe('/settings/groups');
     expect(card?.permission).toBe('groups:read');
     expect(card?.feature).toBeUndefined();
+  });
+});
+
+/**
+ * Issue #744 (PP-9.2). "Download your data" is ONE card in a `Your data`
+ * section appended after every existing one, with no permission (the API
+ * grants the `user-data` source to every role through `user_settings:read`)
+ * and no feature.
+ */
+describe('USER_SETTINGS_SECTIONS - Download your data (issue #744)', () => {
+  it('is the only card of the Your data section, ungated, at /settings/data-export', () => {
+    const section = USER_SETTINGS_SECTIONS.find((s) => s.label === 'Your data');
+    expect(section?.cards.map((card) => card.title)).toEqual(['Download your data']);
+    expect(section?.cards[0]?.path).toBe('/settings/data-export');
+    expect(section?.cards[0]?.permission).toBeUndefined();
+    expect(section?.cards[0]?.feature).toBeUndefined();
   });
 });

@@ -27,6 +27,7 @@ import { identityUserSettingsSections } from '@marinoscar/platform-web/identity/
 import { groupsSettingsPage } from '@marinoscar/platform-web/sharing/ui';
 // Getting started (#745; a packaged page: card and icon from its descriptor).
 import { gettingStartedSettingsPage } from '@marinoscar/platform-web/onboarding/ui';
+import { dataExportSettingsPage } from '@marinoscar/platform-web/exports/ui';
 import type { SettingsSectionDef } from '@marinoscar/platform-web/settings/ui';
 
 /**
@@ -125,6 +126,13 @@ export const USER_SETTINGS_SECTIONS: SettingsSectionDef[] = [
     // AppBar's longest-prefix title rule names it "Groups" too.
     label: 'Sharing',
     cards: [{ ...groupsSettingsPage.card, Icon: groupsSettingsPage.Icon }],
+  },
+  // #744: "Download your data". No permission: the API grants the `user-data`
+  // source to every role through `user_settings:read`. The Danger Zone group
+  // (#743), when present, stays last: this group goes immediately before it.
+  {
+    label: 'Your data',
+    cards: [{ ...dataExportSettingsPage.card, Icon: dataExportSettingsPage.Icon }],
   },
 ];
 

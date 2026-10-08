@@ -182,7 +182,7 @@ describe('visibleSettingsSections — works identically against USER_SETTINGS_SE
 
     const withRead = visibleSettingsSections(USER_SETTINGS_SECTIONS, (permission) => permission === 'groups:read');
     expect(titlesOf(withRead)).toContain('Groups');
-    expect(withRead.map((section) => section.label).at(-1)).toBe('Sharing');
+    expect(withRead.map((section) => section.label)).toContain('Sharing');
   });
 
   it('titles /settings/groups and a group detail page "Groups" (#731)', () => {
