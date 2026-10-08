@@ -29,7 +29,9 @@
  * — is filtered per card by that same helper, not by a route gate here.
  */
 
-import { SettingsHub } from '../components/settings/SettingsHub';
+import { SettingsHub } from '@marinoscar/platform-web/settings/ui';
+import { usePermissions } from '../hooks/usePermissions';
+import { useScrollRestoration } from '../hooks/useScrollRestoration';
 import { USER_SETTINGS_SECTIONS, USER_HUB_TITLE } from '../config/userSettingsSections';
 import { useAiConfig } from '../hooks/useAiConfig';
 import { useOrgsFeature } from '../hooks/useOrgsFeature';
@@ -44,6 +46,7 @@ export default function UserSettingsHubPage() {
   // #726: no per-user card is org-gated today; the map is passed whole so
   // every hub reads the same features.
   const orgs = useOrgsFeature();
+  const { hasPermission } = usePermissions();
   return (
     <SettingsHub
       sections={USER_SETTINGS_SECTIONS}
@@ -58,6 +61,8 @@ export default function UserSettingsHubPage() {
       // preferences, not the deployment's.
       subtitle="Manage your account preferences"
       features={{ ai: aiConfig.enabled, telemetry: isTelemetryOn(telemetryConfig), orgs }}
+      hasPermission={hasPermission}
+      useScrollRestoration={useScrollRestoration}
     />
   );
 }

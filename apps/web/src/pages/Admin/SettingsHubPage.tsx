@@ -24,7 +24,9 @@
  * file would be a third answer to a question that already has two owners.
  */
 
-import { SettingsHub } from '../../components/settings/SettingsHub';
+import { SettingsHub } from '@marinoscar/platform-web/settings/ui';
+import { usePermissions } from '../../hooks/usePermissions';
+import { useScrollRestoration } from '../../hooks/useScrollRestoration';
 import { ADMIN_SECTIONS, ADMIN_HUB_TITLE } from '../../config/adminSections';
 import { useAiConfig } from '../../hooks/useAiConfig';
 import { useOrgsFeature } from '../../hooks/useOrgsFeature';
@@ -39,6 +41,7 @@ export default function SettingsHubPage() {
   const { config: telemetryConfig } = useTelemetryConfig();
   // The Organization and Organizations cards (#726) carry `feature: 'orgs'`.
   const orgs = useOrgsFeature();
+  const { hasPermission } = usePermissions();
   return (
     <SettingsHub
       sections={ADMIN_SECTIONS}
@@ -49,6 +52,8 @@ export default function SettingsHubPage() {
       title={ADMIN_HUB_TITLE}
       subtitle="Manage system configuration, providers, and operational settings."
       features={{ ai: aiConfig.enabled, telemetry: isTelemetryOn(telemetryConfig), orgs }}
+      hasPermission={hasPermission}
+      useScrollRestoration={useScrollRestoration}
     />
   );
 }

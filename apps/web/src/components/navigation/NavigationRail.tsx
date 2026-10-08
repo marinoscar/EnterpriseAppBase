@@ -81,7 +81,8 @@ import {
   owns,
   resolveActiveDestination,
 } from '../../config/destinations';
-import { ADMIN_SECTIONS, visibleSettingsSections } from '../../config/adminSections';
+import { ADMIN_SECTIONS } from '../../config/adminSections';
+import { visibleSettingsSections } from '@marinoscar/platform-web/settings/ui';
 
 /**
  * 56px — Material 3's collapsed-rail width, and a 24px icon centred in it still

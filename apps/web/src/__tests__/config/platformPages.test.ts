@@ -16,7 +16,7 @@ import { doctorSettingsPage } from '@marinoscar/platform-web/doctor/ui';
 import { telemetryAdminCards } from '@marinoscar/platform-web/telemetry/ui';
 
 import { ADMIN_SECTIONS } from '../../config/adminSections';
-import type { SettingsCardDef } from '../../config/adminSections';
+import type { SettingsCardDef } from '@marinoscar/platform-web/settings/ui';
 import { USER_SETTINGS_SECTIONS } from '../../config/userSettingsSections';
 
 const HERE = dirname(fileURLToPath(import.meta.url));

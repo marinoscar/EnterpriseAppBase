@@ -10,7 +10,7 @@ import {
   visibleSettingsSections,
   settingsPageTitle,
 } from '../../config/adminSections';
-import type { SettingsSectionDef } from '../../config/adminSections';
+import type { SettingsSectionDef } from '@marinoscar/platform-web/settings/ui';
 import { readApiPermissionConstants } from '../utils/apiPermissions';
 import {
   USER_SETTINGS_SECTIONS,

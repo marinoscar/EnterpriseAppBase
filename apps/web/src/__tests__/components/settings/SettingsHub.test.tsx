@@ -8,9 +8,8 @@ import DataObjectIcon from '@mui/icons-material/DataObject';
 
 import { render } from '../../utils/test-utils';
 import { setViewportWidth } from '../../setup';
-import { SettingsHub } from '../../../components/settings/SettingsHub';
-import type { SettingsHubProps } from '../../../components/settings/SettingsHub';
-import type { SettingsSectionDef } from '../../../config/adminSections';
+import { SettingsHub } from '@marinoscar/platform-web/settings/ui';
+import type { SettingsHubProps, SettingsSectionDef } from '@marinoscar/platform-web/settings/ui';
 
 /**
  * Issue #93, epic #90. `SettingsHub` is the shared component both the admin
