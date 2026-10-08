@@ -455,7 +455,7 @@ A tripwire that stays in the platform repository stops checking an app the momen
 | `ai-key-policy` | `@marinoscar/platform-api/ai/testing` | The BYOK / org-key resolution rule holds on every inference route, checked on the key the fake provider actually received |
 | `ai-jobs-server-only` | `@marinoscar/platform-api/ai/testing` | No `ai.*` job type is node-eligible (AI rule 3) |
 | `ai-no-sdk-leak` | `@marinoscar/platform-api/ai/testing` | No provider SDK import outside its adapter directory, none in the app, the web or the contract (AI rule 1) |
-| `ai-orchestration-boundary` | `@marinoscar/platform-api/ai/testing` | An orchestration library only under the roots an app allows (AI rule 6) |
+| `ai-orchestration-boundary` | `@marinoscar/platform-api/ai/testing` | An orchestration library only under the roots an app allows (the base allows none; a fork that adopts one passes its allowed roots) |
 | `settings-registry-gates`, `settings-registry-shape`, `settings-ai-cards`, `settings-card-routes`, `settings-route-ownership` | `@marinoscar/platform-web/settings/testing` | The settings registries' shared gate, card shape and permission parity with the API's catalog, AI cards (AI rule 5), card-to-route parity, route ownership (Settings UI Pattern rules 1 and 3) |
 
 A slice's own suites (`identity`, `settings`, `storage`, ...) are listed in the same README table. To add the harness to an app:
