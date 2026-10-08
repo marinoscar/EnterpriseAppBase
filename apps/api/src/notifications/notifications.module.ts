@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { CredentialsModule } from '@marinoscar/platform-api/credentials';
 import { JobsModule } from '../jobs/jobs.module';
-import { EmailModule } from '../email/email.module';
+import { EmailModule } from '../platform/email/email.config';
 import { PrismaModule } from '../prisma/prisma.module';
 import { SettingsModule } from '../platform/settings/settings.config';
 import { BrowserNotificationChannel } from './channels/browser-notification.channel';

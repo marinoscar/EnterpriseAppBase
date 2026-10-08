@@ -14,8 +14,8 @@ import {
   authHeader,
 } from '../helpers/auth-mock.helper';
 import { CredentialsService } from '@marinoscar/platform-api/credentials';
-import { SesEmailProvider } from '../../src/email/providers/ses-email.provider';
-import { SmtpEmailProvider } from '../../src/email/providers/smtp-email.provider';
+import { SesEmailProvider } from '@marinoscar/platform-api/email';
+import { SmtpEmailProvider } from '@marinoscar/platform-api/email';
 
 // =============================================================================
 // Email Settings Integration (issue #124, epic #109)

@@ -28,9 +28,17 @@
 //     interface NotificationChannelIds { android_app: true }
 //   }
 //
+//   declare module '@marinoscar/platform-api/email' {
+//     interface EmailTemplateDataMap { 'coach-weekly-review': CoachWeeklyReviewEmailData }
+//   }
+//
 //   export const APP_EMAIL_TEMPLATES: readonly EmailTemplateEntry[] = [
 //     { name: 'coach-weekly-review', render: coachWeeklyReviewEmail as EmailTemplate<never> },
 //   ];
+//
+//   (Or `registerEmailTemplate('coach-weekly-review', coachWeeklyReviewEmail)`,
+//   typed by the augmentation; `{ override: true }` replaces a platform
+//   template, e.g. a restyled `broadcast`. See apps/api/src/examples/email/.)
 //
 //   export const APP_NOTIFICATIONS: readonly NotificationRegistration[] = [
 //     {
@@ -49,7 +57,7 @@
 
 import type { NotificationRegistration } from '../notifications/registry/bindings.registry';
 import type { NotificationChannelDef } from '../notifications/registry/channel.registry';
-import type { EmailTemplateEntry } from '../notifications/registry/email-template.registry';
+import type { EmailTemplateEntry } from '@marinoscar/platform-api/email';
 
 /** This app's own delivery channels, registered after the platform's. */
 export const APP_NOTIFICATION_CHANNELS: readonly NotificationChannelDef[] = [];

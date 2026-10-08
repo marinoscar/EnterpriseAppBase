@@ -52,7 +52,7 @@ import { NotificationBroadcast, Prisma } from '@prisma/client';
 import { JobsService } from '../../jobs/jobs.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SystemSettingsService } from '@marinoscar/platform-api/settings';
-import type { BroadcastEmailData } from '../../email/templates/broadcast.email';
+import type { BroadcastEmailData } from '@marinoscar/platform-api/email';
 import { describeThrown } from '../describe-thrown';
 import type { NotificationChannel } from '../notification-events';
 import { NotificationsService } from '../notifications.service';

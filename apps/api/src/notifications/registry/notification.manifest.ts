@@ -8,7 +8,8 @@
 //
 //   1. platform channels           (platform-channels.ts)
 //   2. app channels                (app-registrations/notifications.ts)
-//   3. platform email templates    (email/templates/platform-email-templates.ts)
+//   3. platform email templates    (@marinoscar/platform-api/email, then the
+//                                   slice-owned ones in platform/email/templates)
 //   4. app email templates         (app-registrations/notifications.ts)
 //   5. platform notifications      (one file per owning module, in the order
 //                                   the old `NOTIFICATION_EVENTS` array held them)
@@ -36,8 +37,13 @@ import {
 } from '../../app-registrations/notifications';
 import { AUTH_NOTIFICATIONS } from '../../identity-extensions/notifications/auth.notifications';
 import { DB_BACKUP_NOTIFICATIONS } from '../../db-backup/db-backup.notifications';
-import type { EmailTemplate } from '../../email/templates/email-template.types';
-import { PLATFORM_EMAIL_TEMPLATES } from '../../email/templates/platform-email-templates';
+import {
+  configureEmailRendering,
+  registerEmailTemplates,
+  registerPlatformEmailTemplates,
+} from '@marinoscar/platform-api/email';
+import { EMAIL_MODULE_OPTIONS } from '../../platform/email/email.options';
+import { SLICE_EMAIL_TEMPLATES } from '../../platform/email/templates';
 import { NODES_NOTIFICATIONS } from '../../nodes/nodes.notifications';
 import { USERS_NOTIFICATIONS } from '../../identity-extensions/notifications/users.notifications';
 import { ORGANIZATIONS_NOTIFICATIONS } from '../../identity-extensions/notifications/organizations.notifications';
@@ -46,20 +52,20 @@ import { BROADCASTS_NOTIFICATIONS } from '../broadcasts/broadcasts.notifications
 import { OPS_NOTIFICATIONS } from '../ops/ops.notifications';
 import { registerNotifications } from './bindings.registry';
 import { registerNotificationChannels } from './channel.registry';
-import { registerEmailTemplates } from './email-template.registry';
 import { PLATFORM_NOTIFICATION_CHANNELS } from './platform-channels';
 
 // 1-2. Channels.
 registerNotificationChannels(PLATFORM_NOTIFICATION_CHANNELS);
 registerNotificationChannels(APP_NOTIFICATION_CHANNELS);
 
-// 3-4. Email templates.
-registerEmailTemplates(
-  Object.entries(PLATFORM_EMAIL_TEMPLATES).map(([name, render]) => ({
-    name,
-    render: render as EmailTemplate<never>,
-  })),
-);
+// 3-4. Email templates (the registry lives in @marinoscar/platform-api/email
+// since #737). The render context first, with the options EmailModule.forRoot
+// receives, so a template rendered before Nest composes anything names the
+// product. Then the platform's nine (idempotent; forRoot's call is then a
+// no-op), the slice-owned three, the app's own.
+configureEmailRendering(EMAIL_MODULE_OPTIONS);
+registerPlatformEmailTemplates();
+registerEmailTemplates(SLICE_EMAIL_TEMPLATES);
 registerEmailTemplates(APP_EMAIL_TEMPLATES);
 
 // 5. Platform notifications, in the order the preferences matrix shows them.

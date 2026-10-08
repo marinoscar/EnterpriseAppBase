@@ -8,7 +8,7 @@ import {
   SesEmailProvider,
   SmtpEmailProvider,
   type EmailSettings,
-} from '../email';
+} from '@marinoscar/platform-api/email';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   createMockPrismaService,

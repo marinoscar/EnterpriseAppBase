@@ -28,7 +28,7 @@
 
 import { RegistryError, defineRegistry } from '@marinoscar/platform-api/core';
 import type { BrowserNotificationTemplate } from '../channels/browser-templates';
-import { emailTemplateRegistry } from './email-template.registry';
+import { emailTemplateRegistry } from '@marinoscar/platform-api/email';
 import {
   NOTIFICATION_EVENT_KEY_PATTERN,
   assertValidNotificationEvent,

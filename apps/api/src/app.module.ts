@@ -17,7 +17,7 @@ import { StorageConfigModule } from './storage/config/storage-config.module';
 import { NodeCredentialModule } from './nodes/node-credential.module';
 import { NodesModule } from './nodes/nodes.module';
 import { credentialsModules } from './platform/credentials/credentials.config';
-import { EmailModule } from './email/email.module';
+import { EmailModule } from './platform/email/email.config';
 import { BroadcastsModule } from './notifications/broadcasts/broadcasts.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { JobsModule } from './jobs/jobs.module';

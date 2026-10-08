@@ -9,10 +9,11 @@ import type {
 
 import type {
   AllowlistInvitationEmailData,
-  OrgInvitationEmailData,
   RoleChangedEmailData,
   UserWelcomeEmailData,
-} from '../../email';
+} from '@marinoscar/platform-api/email';
+
+import type { OrgInvitationEmailData } from '../email/templates';
 import { NotificationsService } from '../../notifications/notifications.service';
 
 // =============================================================================
