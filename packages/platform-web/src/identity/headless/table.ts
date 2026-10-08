@@ -223,6 +223,8 @@ export interface IdentityDataTableProps<Row> {
   };
   /** Persisted layout key (column visibility, density). */
   tableId?: string;
+  /** Row density. */
+  density?: 'compact' | 'standard' | 'comfortable';
   /** Accessible name of the table. */
   ariaLabel?: string;
   /** Test id. */

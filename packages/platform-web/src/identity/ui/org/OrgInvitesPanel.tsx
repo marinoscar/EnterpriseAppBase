@@ -4,6 +4,7 @@
  * by the page; the Invite and Revoke actions are disabled without
  * `org_invites:write` (the API enforces both).
  */
+import type { ReactElement } from 'react';
 import { useEffect, useState } from 'react';
 import {
   Alert,
@@ -19,15 +20,24 @@ import {
   Typography,
 } from '@mui/material';
 import { Add as AddIcon } from '@mui/icons-material';
-import { usePermissions } from '../../../hooks/usePermissions';
-import { useOrgInvites } from '../../../hooks/useOrgInvites';
-import type { OrgInviteStatus } from '../../../services/organizations';
-import { INVITE_STATUS_COLOR, formatDate, orgRoleLabel } from './orgLabels';
-import { InviteMemberDialog } from './InviteMemberDialog';
+import { usePermissions } from '../../headless/index.js';
+import { useOrgInvites } from '../../headless/index.js';
+import type { OrgInviteStatus } from '../../headless/index.js';
+import { INVITE_STATUS_COLOR, formatDate, orgRoleLabel } from './orgLabels.js';
+import { InviteMemberDialog } from './InviteMemberDialog.js';
 
 type StatusFilter = 'all' | OrgInviteStatus;
 
-export function OrgInvitesPanel() {
+/**
+ * The current organization's invitations: invite and revoke
+ * (`org_invites:write`). The Invites tab of {@link OrganizationPage}.
+ *
+ * @returns the component.
+ *
+ * @extensionPoint component
+ * @stability stable
+ */
+export function OrgInvitesPanel(): ReactElement {
   const { hasPermission } = usePermissions();
   const canWrite = hasPermission('org_invites:write');
   const { invites, isLoading, error, fetchInvites, inviteMember, revokeInvite } = useOrgInvites();

@@ -41,15 +41,15 @@ import {
   LocationOn as LocationIcon,
   VpnKey as VpnKeyIcon,
 } from '@mui/icons-material';
-import type { DeviceActivationInfo } from '../../types';
-import { CredentialGrantNotice } from './CredentialGrantNotice';
+import type { DeviceActivationInfo } from '../../headless/index.js';
+import { CredentialGrantNotice } from './CredentialGrantNotice.js';
 import {
   DEVICE_NAME_MAX_DISPLAY,
   IP_ADDRESS_MAX_DISPLAY,
   USER_AGENT_MAX_DISPLAY,
   readCredentialKind,
   sanitizeDeviceText,
-} from './credential';
+} from '../../headless/index.js';
 
 interface DeviceInfoCardProps {
   deviceInfo: DeviceActivationInfo;

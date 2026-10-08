@@ -11,7 +11,7 @@ import {
   MenuItem,
   Typography,
 } from '@mui/material';
-import type { PatCreatedResponse, PatDurationUnit } from '../../types';
+import type { PatCreatedResponse, PatDurationUnit } from '../../headless/index.js';
 
 interface CreatePatDialogProps {
   open: boolean;

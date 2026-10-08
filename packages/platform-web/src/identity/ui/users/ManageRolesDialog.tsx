@@ -39,8 +39,8 @@ import {
   FormGroup,
   Stack,
 } from '@mui/material';
-import type { UserListItem } from '../../types';
-import { AVAILABLE_ROLES } from './userListColumns';
+import type { UserListItem } from '../../headless/index.js';
+import { AVAILABLE_ROLES } from './userListColumns.js';
 
 export interface ManageRolesDialogProps {
   /** The user being edited, or `null` when the dialog is closed. */

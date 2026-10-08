@@ -47,7 +47,8 @@ import { appTelemetryAdapters } from './platform/telemetryAdapters';
 import { Suspense, lazy } from 'react';
 import { LoadingSpinner } from './components/common/LoadingSpinner';
 
-const LoginPage = lazy(() => import('./pages/LoginPage'));
+// The packaged login page with this app's slots (#727, `identity/LoginPage.tsx`).
+const LoginPage = lazy(() => import('./identity/LoginPage'));
 const AuthCallbackPage = lazy(() => import('./pages/AuthCallbackPage'));
 const ActivateDevicePage = lazy(() => import('./pages/ActivateDevicePage'));
 const HomePage = lazy(() => import('./pages/HomePage'));

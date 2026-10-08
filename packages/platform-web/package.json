@@ -63,6 +63,10 @@
       "types": "./dist/identity/headless/index.d.ts",
       "default": "./dist/identity/headless/index.js"
     },
+    "./identity/ui": {
+      "types": "./dist/identity/ui/index.d.ts",
+      "default": "./dist/identity/ui/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

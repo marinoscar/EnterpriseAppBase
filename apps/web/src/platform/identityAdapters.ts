@@ -5,6 +5,10 @@
  *
  *   - `appName`: the product name the sign-in error copy names.
  *   - `Spinner`: `LoadingSpinner`, so loading states look like the rest of the app.
+ *   - `DataTable`: the app's responsive `DataTable` (`components/datatable`),
+ *     which the users, allowlist and token lists render through, so they keep
+ *     the app's table on every breakpoint (the package's fallback is a plain
+ *     MUI table).
  *   - `api`: the identity calls, bound to this app's existing service
  *     functions (`services/api.ts`, `services/organizations.ts`), so their
  *     callers and tests keep one code path. The package's default,
@@ -18,6 +22,7 @@ import { APP_NAME } from '@app/shared';
 import type { IdentityApi, IdentityWebAdapters } from '@marinoscar/platform-web/identity/headless';
 
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
+import { DataTable } from '../components/datatable';
 import {
   addToAllowlist,
   authorizeDevice,
@@ -75,5 +80,6 @@ export const appIdentityApi: IdentityApi = Object.freeze<IdentityApi>({
 export const appIdentityAdapters: IdentityWebAdapters = Object.freeze<IdentityWebAdapters>({
   appName: APP_NAME,
   Spinner: LoadingSpinner,
+  DataTable,
   api: appIdentityApi,
 });

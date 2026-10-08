@@ -19,8 +19,8 @@ import {
   Stack,
   TextField,
 } from '@mui/material';
-import { ORG_ROLES, type OrgRole } from '../../../services/organizations';
-import { orgRoleLabel } from './orgLabels';
+import { ORG_ROLES, type OrgRole } from '../../headless/index.js';
+import { orgRoleLabel } from './orgLabels.js';
 
 interface InviteMemberDialogProps {
   open: boolean;

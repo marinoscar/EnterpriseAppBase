@@ -34,7 +34,7 @@ import { VpnKey as VpnKeyIcon } from '@mui/icons-material';
 import {
   DEVICE_PAT_APPROX_DAYS,
   type DeviceCredentialKind,
-} from './credential';
+} from '../../headless/index.js';
 
 interface CredentialGrantNoticeProps {
   kind: DeviceCredentialKind;

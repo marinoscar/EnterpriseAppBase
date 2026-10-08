@@ -54,8 +54,8 @@
  */
 
 import { Chip, Typography } from '@mui/material';
-import type { DataTableColumn } from '../datatable';
-import type { PersonalAccessToken } from '../../types';
+import type { IdentityTableColumn as DataTableColumn } from '../../headless/index.js';
+import type { PersonalAccessToken } from '../../headless/index.js';
 
 /** Persistence key for `user_settings.dataTables`. */
 export const TABLE_ID = 'settings-pats';

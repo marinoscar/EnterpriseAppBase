@@ -2,7 +2,7 @@
  * Display labels for org roles and statuses (#726). Presentation only: the
  * API decides which roles exist and who may assign them.
  */
-import type { OrgInviteStatus, OrgMemberStatus } from '../../../services/organizations';
+import type { OrgInviteStatus, OrgMemberStatus } from '../../headless/index.js';
 
 const ROLE_LABELS: Record<string, string> = {
   org_admin: 'Administrator',

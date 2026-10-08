@@ -37,9 +37,8 @@
  */
 
 import { Chip, Typography } from '@mui/material';
-import type { DataTableColumn } from '../datatable';
-import type { AllowlistSortField } from '../../services/api';
-import type { AllowedEmailEntry } from '../../types';
+import type { AllowlistSortField, IdentityTableColumn as DataTableColumn } from '../../headless/index.js';
+import type { AllowedEmailEntry } from '../../headless/index.js';
 
 /** Persistence key for `user_settings.dataTables`. */
 export const TABLE_ID = 'admin-allowlist';

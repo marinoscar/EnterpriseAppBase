@@ -11,6 +11,7 @@
  * Laid out as a list of rows that wrap, not a wide table, so it works at
  * phone width without horizontal scrolling.
  */
+import type { ReactElement } from 'react';
 import { useEffect, useState } from 'react';
 import {
   Alert,
@@ -31,13 +32,22 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { useAuth } from '../../../contexts/AuthContext';
-import { usePermissions } from '../../../hooks/usePermissions';
-import { useOrgMembers } from '../../../hooks/useOrgMembers';
-import { ORG_ROLES, type OrgMember, type OrgRole } from '../../../services/organizations';
-import { MEMBER_STATUS_COLOR, formatDate, orgRoleLabel } from './orgLabels';
+import { useAuth } from '../../headless/index.js';
+import { usePermissions } from '../../headless/index.js';
+import { useOrgMembers } from '../../headless/index.js';
+import { ORG_ROLES, type OrgMember, type OrgRole } from '../../headless/index.js';
+import { MEMBER_STATUS_COLOR, formatDate, orgRoleLabel } from './orgLabels.js';
 
-export function OrgMembersPanel() {
+/**
+ * The current organization's members: role and status changes and removal
+ * (`org_members:write`). The Members tab of {@link OrganizationPage}.
+ *
+ * @returns the component.
+ *
+ * @extensionPoint component
+ * @stability stable
+ */
+export function OrgMembersPanel(): ReactElement {
   const { user } = useAuth();
   const { hasPermission } = usePermissions();
   const canWrite = hasPermission('org_members:write');

@@ -22,8 +22,8 @@
 import PersonIcon from '@mui/icons-material/Person';
 import PaletteIcon from '@mui/icons-material/Palette';
 import NotificationsIcon from '@mui/icons-material/Notifications';
-import VpnKeyIcon from '@mui/icons-material/VpnKey';
 import KeyOutlinedIcon from '@mui/icons-material/KeyOutlined';
+import { identityUserSettingsSections } from '@marinoscar/platform-web/identity/ui';
 import type { SettingsSectionDef } from './adminSections';
 
 /**
@@ -83,12 +83,8 @@ export const USER_SETTINGS_SECTIONS: SettingsSectionDef[] = [
   {
     label: 'Security',
     cards: [
-      {
-        title: 'Access Tokens',
-        description: 'Create and revoke personal access tokens for API and CLI access.',
-        Icon: VpnKeyIcon,
-        path: '/settings/tokens',
-      },
+      // The identity slice's card (#727), as data: `Access Tokens`, `/settings/tokens`.
+      ...identityUserSettingsSections.security,
       {
         // Issue #425, epic #419. THE FIRST USER CARD WITH A PERMISSION, and
         // deliberately so. Every other card here edits something the API grants
