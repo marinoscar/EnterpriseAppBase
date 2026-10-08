@@ -16,8 +16,8 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import type { SystemSettingsSnapshot, SystemSettingsStore } from '@marinoscar/platform-api/core';
 
-import { patchSystemSettingsSchema } from '../settings/dto/update-system-settings.dto';
-import { SystemSettingsService } from '../settings/system-settings/system-settings.service';
+import { patchSystemSettingsSchema } from '../settings/registry/composed';
+import { SystemSettingsService } from '@marinoscar/platform-api/settings';
 
 /** The projection `getSettings()`/`patchSettings()` return, seen namespace by namespace. */
 type SettingsDocument = Record<string, unknown> & { version: number };

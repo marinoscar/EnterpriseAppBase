@@ -3,7 +3,7 @@ import { Module } from '@nestjs/common';
 import { MaintenanceModule } from '../common/maintenance/maintenance.module';
 import { JobsModule } from '../jobs/jobs.module';
 import { NotificationsModule } from '../notifications/notifications.module';
-import { SettingsModule } from '../settings/settings.module';
+import { SettingsModule } from '../platform/settings/settings.config';
 import { StorageProvidersModule } from '../storage/providers/storage-providers.module';
 import { DatabaseRestoreService } from './database-restore.service';
 import { DatabaseBackupAdminService } from './db-backup-admin.service';

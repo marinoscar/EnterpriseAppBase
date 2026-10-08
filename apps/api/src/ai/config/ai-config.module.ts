@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { CredentialsModule } from '../../credentials/credentials.module';
-import { SettingsModule } from '../../settings/settings.module';
+import { SettingsModule } from '../../platform/settings/settings.config';
 import { AiCatalogModule } from '../catalog/ai-catalog.module';
 import { AiCoreModule } from '../core/ai-core.module';
 import { AiAdminController } from './ai-admin.controller';

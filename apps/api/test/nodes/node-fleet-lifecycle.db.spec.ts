@@ -39,7 +39,7 @@ import { NodeFleetPruneHandler } from '../../src/nodes/handlers/node-fleet-prune
 import { NodeFleetSweepHandler } from '../../src/nodes/handlers/node-fleet-sweep.handler';
 import type { NotificationsService } from '../../src/notifications/notifications.service';
 import type { PrismaService } from '../../src/prisma/prisma.service';
-import type { SystemSettingsService } from '../../src/settings/system-settings/system-settings.service';
+import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
 
 const { describeWithDb } = resolveDbSuite('node-fleet-lifecycle.db.spec');

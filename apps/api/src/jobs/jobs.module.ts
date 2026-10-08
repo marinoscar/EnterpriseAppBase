@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 
-import { SettingsModule } from '../settings/settings.module';
+import { SettingsModule } from '../platform/settings/settings.config';
 import { StorageProvidersModule } from '../storage/providers/storage-providers.module';
 import { ExampleChecksumHandler } from './handlers/example-checksum.handler';
 import { ExampleEchoHandler } from './handlers/example-echo.handler';

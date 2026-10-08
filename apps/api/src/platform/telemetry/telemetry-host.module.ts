@@ -15,7 +15,7 @@ import { AiModule } from '../../ai/ai.module';
 import { CredentialsModule } from '../../credentials/credentials.module';
 import { CredentialsService } from '../../credentials/credentials.service';
 import { JobsModule } from '../../jobs/jobs.module';
-import { SettingsModule } from '../../settings/settings.module';
+import { SettingsModule } from '../settings/settings.config';
 import {
   TELEMETRY_AI,
   TELEMETRY_APP_INFO,

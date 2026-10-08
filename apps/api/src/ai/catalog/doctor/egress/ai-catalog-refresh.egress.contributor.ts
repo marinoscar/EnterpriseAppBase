@@ -7,7 +7,7 @@ import {
   egressDependency,
 } from '@marinoscar/platform-api/doctor';
 
-import { SystemSettingsService } from '../../../../settings/system-settings/system-settings.service';
+import { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import { aiProviderEndpoint, aiProviderName } from '../../../config/doctor/egress/ai-provider-endpoint';
 import { AiProviderRegistry } from '../../../core/provider-registry';
 import { AiCatalogRefreshTask } from '../../ai-catalog-refresh.task';

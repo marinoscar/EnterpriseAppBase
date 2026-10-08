@@ -17,9 +17,9 @@ import {
 import {
   retentionSettingsPatchSchema,
   retentionSettingsSchema,
-} from '../../settings/dto/system-settings-wire.schemas';
-import { retentionResponseSchema } from '../../settings/dto/system-settings-response.schemas';
-import type { SystemSettingsNamespace } from '../../settings/registry/system-settings-namespace';
+} from '../schemas/system-settings-wire.schemas';
+import { retentionResponseSchema } from '../schemas/system-settings-response.schemas';
+import type { SystemSettingsNamespace } from '@marinoscar/platform-api/settings';
 
 // ⚠ ENABLED BY DEFAULT for three of the four, and that is a behaviour change
 // on upgrade: the first 01:00 run after deploying deletes every existing row
@@ -74,7 +74,7 @@ export const RETENTION_SYSTEM_SETTINGS = {
   },
 } satisfies SystemSettingsNamespace<'retention', SystemRetentionValue, RetentionPatch>;
 
-declare module '../../settings/registry/system-settings-namespace' {
+declare module '@marinoscar/platform-api/settings' {
   interface SystemSettingsNamespaces {
     /**
      * Retention policy (#681): one `{ enabled, days }` per table that grows with

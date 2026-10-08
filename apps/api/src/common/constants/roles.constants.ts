@@ -31,7 +31,7 @@ import { JOBS_PERMISSIONS } from '../../jobs/jobs.permissions';
 import { NODES_PERMISSIONS } from '../../nodes/nodes.permissions';
 import { BROADCASTS_PERMISSIONS } from '../../notifications/broadcasts/broadcasts.permissions';
 import { PUSH_PERMISSIONS } from '../../notifications/push.permissions';
-import { SETTINGS_PERMISSIONS } from '../../settings/settings.permissions';
+import { ORG_SETTINGS_PERMISSIONS, SETTINGS_PERMISSIONS } from '@marinoscar/platform-api/settings';
 import { STORAGE_CONFIG_PERMISSIONS } from '../../storage/config/storage-config.permissions';
 import { STORAGE_PERMISSIONS } from '../../storage/storage.permissions';
 import { TELEMETRY_PERMISSION_DECLARATIONS } from '@marinoscar/platform-api/telemetry';
@@ -76,6 +76,7 @@ export const PERMISSIONS = {
   ...permissionIds(TELEMETRY_PERMISSION_DECLARATIONS),
   ...permissionIds(ORGANIZATIONS_PERMISSIONS),
   ...permissionIds(SHARING_PERMISSION_DECLARATIONS),
+  ...permissionIds(ORG_SETTINGS_PERMISSIONS),
 } as const;
 
 /** A platform permission id, or an app permission id added to `AppPermissionIds` by augmentation. */

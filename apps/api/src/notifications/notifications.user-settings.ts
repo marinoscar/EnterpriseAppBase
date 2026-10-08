@@ -19,7 +19,7 @@ import {
   type NotificationsValue,
 } from '../common/schemas/user-settings-namespaces.schema';
 import type { NotificationChannel } from './notification-events';
-import type { UserSettingsNamespace } from '../settings/registry/user-settings-namespace';
+import type { UserSettingsNamespace } from '@marinoscar/platform-api/settings';
 
 export const NOTIFICATIONS_USER_SETTINGS = {
   key: 'notifications',
@@ -164,7 +164,7 @@ export const NOTIFICATIONS_USER_SETTINGS = {
   },
 } satisfies UserSettingsNamespace<'notifications', NotificationsValue, NotificationsPatchValue>;
 
-declare module '../settings/registry/user-settings-namespace' {
+declare module '@marinoscar/platform-api/settings' {
   interface UserSettingsNamespaces {
     /**
      * Per-channel, per-event notification preferences (#126), channel-outer:

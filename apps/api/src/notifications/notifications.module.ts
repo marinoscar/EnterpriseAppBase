@@ -4,7 +4,7 @@ import { CredentialsModule } from '../credentials/credentials.module';
 import { JobsModule } from '../jobs/jobs.module';
 import { EmailModule } from '../email/email.module';
 import { PrismaModule } from '../prisma/prisma.module';
-import { SettingsModule } from '../settings/settings.module';
+import { SettingsModule } from '../platform/settings/settings.config';
 import { BrowserNotificationChannel } from './channels/browser-notification.channel';
 import { EmailNotificationChannel } from './channels/email-notification.channel';
 import { PushNotificationChannel } from './channels/push-notification.channel';

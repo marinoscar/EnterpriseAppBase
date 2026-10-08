@@ -16,7 +16,7 @@ import { CredentialsService } from '../../credentials/credentials.service';
 import { JobsService } from '../../jobs/jobs.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PrismaSystemService } from '../../prisma/prisma-system.service';
-import { SystemSettingsService } from '../../settings/system-settings/system-settings.service';
+import { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import { AiError } from '../core/ai-error';
 import { AiModelCapabilities, aiModelCapabilitiesSchema } from '../core/capabilities';
 import {

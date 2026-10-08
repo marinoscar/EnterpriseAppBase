@@ -13,9 +13,9 @@ import {
   systemJobsSchema,
   type SystemJobsValue,
 } from '../common/schemas/settings.schema';
-import { jobsSettingsPatchSchema, jobsSettingsSchema } from '../settings/dto/system-settings-wire.schemas';
-import { jobsResponseSchema } from '../settings/dto/system-settings-response.schemas';
-import type { SystemSettingsNamespace } from '../settings/registry/system-settings-namespace';
+import { jobsSettingsPatchSchema, jobsSettingsSchema } from '../common/schemas/system-settings-wire.schemas';
+import { jobsResponseSchema } from '../common/schemas/system-settings-response.schemas';
+import type { SystemSettingsNamespace } from '@marinoscar/platform-api/settings';
 
 // THE ONE PLACE THESE NUMBERS LIVE (the operations namespaces, #256). None of
 // the schemas carries a `.default()`, deliberately: a default in zod is applied
@@ -64,7 +64,7 @@ export const JOBS_SYSTEM_SETTINGS = {
   },
 } satisfies SystemSettingsNamespace<'jobs', SystemJobsValue, z.infer<typeof jobsSettingsPatchSchema>>;
 
-declare module '../settings/registry/system-settings-namespace' {
+declare module '@marinoscar/platform-api/settings' {
   interface SystemSettingsNamespaces {
     /**
      * Job-queue policy (#256, epic #254).

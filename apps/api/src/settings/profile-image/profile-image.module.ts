@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { SettingsModule } from '../settings.module';
+import { SettingsModule } from '../../platform/settings/settings.config';
 import { StorageProvidersModule } from '../../storage/providers/storage-providers.module';
 import { ProfileImageController } from './profile-image.controller';
 import { ProfileImageService } from './profile-image.service';

@@ -33,8 +33,8 @@ import {
 import {
   telemetrySettingsPatchSchema,
   telemetrySettingsSchema,
-} from '../../settings/dto/system-settings-wire.schemas';
-import type { SystemSettingsNamespace } from '../../settings/registry/system-settings-namespace';
+} from '../../common/schemas/system-settings-wire.schemas';
+import type { SystemSettingsNamespace } from '@marinoscar/platform-api/settings';
 
 export const TELEMETRY_SYSTEM_SETTINGS = {
   key: TELEMETRY_SETTINGS_NAMESPACE,
@@ -61,7 +61,7 @@ export const TELEMETRY_SYSTEM_SETTINGS = {
   z.infer<typeof telemetrySettingsPatchSchema>
 >;
 
-declare module '../../settings/registry/system-settings-namespace' {
+declare module '@marinoscar/platform-api/settings' {
   interface SystemSettingsNamespaces {
     /**
      * Telemetry policy (epic #528, story #533): collection, retention, query

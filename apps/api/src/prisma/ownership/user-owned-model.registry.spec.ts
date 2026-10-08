@@ -1,3 +1,4 @@
+import { SETTINGS_USER_OWNED_MODELS } from '@marinoscar/platform-api/settings';
 import { SHARING_USER_OWNED_MODELS } from '@marinoscar/platform-api/sharing';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -20,15 +21,15 @@ import { APP_USER_OWNED_MODELS } from '../../app-registrations/user-owned-models
 describe('the app fills userOwnedModelRegistry', () => {
   it('registers the platform inventory, then the sharing slice\'s, then the (empty) app list', () => {
     expect(APP_USER_OWNED_MODELS).toEqual([]);
-    expect(userOwnedModelRegistry.ids()).toEqual([...PLATFORM_USER_OWNED_MODELS, ...SHARING_USER_OWNED_MODELS].map((def) => def.model));
+    expect(userOwnedModelRegistry.ids()).toEqual([...PLATFORM_USER_OWNED_MODELS, ...SHARING_USER_OWNED_MODELS, ...SETTINGS_USER_OWNED_MODELS].map((def) => def.model));
   });
 
-  it('holds 30 models and 37 User foreign keys (the sharing slice adds 4 and 8: groups #728, grants #729)', () => {
+  it('holds 31 models and 38 User foreign keys (the sharing slice adds 4 and 8: groups #728, grants #729; settings 1 and 1, #733)', () => {
     const fields = userOwnedModelRegistry
       .list()
       .flatMap((def) => [...(def.ownerField ? [def.ownerField] : []), ...(def.actorFields ?? [])]);
-    expect(userOwnedModelRegistry.size).toBe(30);
-    expect(fields).toHaveLength(37);
+    expect(userOwnedModelRegistry.size).toBe(31);
+    expect(fields).toHaveLength(38);
   });
 
   it('gives every entry a non-empty rationale', () => {

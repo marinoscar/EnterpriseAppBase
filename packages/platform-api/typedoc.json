@@ -12,7 +12,9 @@
     "src/telemetry/testing/index.ts",
     "src/sharing/index.ts",
     "src/identity/index.ts",
-    "src/identity/testing/index.ts"
+    "src/identity/testing/index.ts",
+    "src/settings/index.ts",
+    "src/settings/testing/index.ts"
   ],
   "out": "docs-api",
   "json": "docs-api/api.json"

@@ -2,7 +2,7 @@ import { Global, Module } from '@nestjs/common';
 
 import { DEPLOYMENT_NETWORK_SOURCE, NetworkEgressDoctorCheck } from '@marinoscar/platform-api/doctor';
 
-import { SettingsModule } from '../../settings/settings.module';
+import { SettingsModule } from '../../platform/settings/settings.config';
 import { DeploymentModeDoctorCheck } from './doctor/deployment-mode.doctor-check';
 import { DeploymentModeService } from './deployment-mode.service';
 import { DeploymentNetworkService } from './deployment-network.service';

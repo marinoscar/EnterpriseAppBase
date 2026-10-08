@@ -89,6 +89,9 @@ describe('MaintenanceModule', () => {
       // principal invalidation. A leaf with no imports of its own (one
       // in-memory map), so it does not widen the graph.
       'PrincipalCacheModule',
+      // #733: the settings slice's host ports (SETTINGS_DATA, the profile
+      // images), bound by the app; a leaf that imports nothing.
+      'SettingsHostModule',
       'SettingsModule',
     ]);
   });

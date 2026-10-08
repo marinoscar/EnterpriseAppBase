@@ -49,17 +49,13 @@ const ENTRY_POINTS: Array<[string, string, (mod: Exports) => void]> = [
     },
   ],
   [
-    'settings/dto/update-system-settings.dto.ts',
-    '../dto/update-system-settings.dto',
+    // The request bodies and responses, composed in the app's snapshot since
+    // #733 (the routes' DTOs are composed by `SettingsModule.forRoot()`).
+    'settings/registry/composed.ts (request bodies and responses)',
+    './composed',
     (mod) => {
       expect(keysOf(mod.updateSystemSettingsSchema)).toEqual(SYSTEM_KEYS);
       expect(keysOf(mod.patchSystemSettingsSchema)).toEqual(SYSTEM_KEYS);
-    },
-  ],
-  [
-    'settings/dto/system-settings-response.dto.ts',
-    '../dto/system-settings-response.dto',
-    (mod) => {
       expect(keysOf(mod.systemSettingsResponseSchema)).toEqual([
         'security',
         ...SYSTEM_KEYS.filter((key) => key !== 'telemetry'),
@@ -67,20 +63,8 @@ const ENTRY_POINTS: Array<[string, string, (mod: Exports) => void]> = [
         'updatedBy',
         'version',
       ]);
-    },
-  ],
-  [
-    'settings/dto/update-user-settings.dto.ts',
-    '../dto/update-user-settings.dto',
-    (mod) => {
       expect(keysOf(mod.updateUserSettingsSchema)).toEqual(['theme', 'profile', ...USER_KEYS]);
       expect(keysOf(mod.patchUserSettingsSchema)).toEqual(['theme', 'profile', ...USER_KEYS]);
-    },
-  ],
-  [
-    'settings/dto/user-settings-response.dto.ts',
-    '../dto/user-settings-response.dto',
-    (mod) => {
       expect(keysOf(mod.userSettingsResponseSchema)).toEqual([
         'theme',
         'profile',
@@ -88,6 +72,15 @@ const ENTRY_POINTS: Array<[string, string, (mod: Exports) => void]> = [
         'updatedAt',
         'version',
       ]);
+    },
+  ],
+  [
+    // `SettingsModule.forRoot()` composes the routes' DTOs when this loads:
+    // loaded first, it must still see every namespace.
+    'platform/settings/settings.config.ts',
+    '../../platform/settings/settings.config',
+    (mod) => {
+      expect(mod.SettingsModule).toBeDefined();
     },
   ],
   [
@@ -121,7 +114,6 @@ describe('settings registry import graph has no load-order cycle (#677)', () => 
     '../../ai/ai.system-settings',
     '../../platform/telemetry/telemetry.system-settings',
     '../../common/retention/retention.system-settings',
-    '../user-settings/core.user-settings',
     '../../notifications/notifications.user-settings',
     '../../ai/ai.user-settings',
   ])('the declaration file %s is a leaf: loaded first, every schema it names is defined', (path) => {

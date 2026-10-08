@@ -10,6 +10,7 @@
 // =============================================================================
 
 import { registerModelOwnership } from '@marinoscar/platform-api/core';
+import { SETTINGS_MODEL_OWNERSHIP } from '@marinoscar/platform-api/settings';
 import { SHARING_MODEL_OWNERSHIP } from '@marinoscar/platform-api/sharing';
 
 import { APP_MODEL_OWNERSHIP } from '../../app-registrations/model-ownership';
@@ -18,6 +19,8 @@ import { PLATFORM_MODEL_OWNERSHIP } from './platform-model-ownership';
 registerModelOwnership(PLATFORM_MODEL_OWNERSHIP);
 // The sharing slice's org tables (#728), declared by the package.
 registerModelOwnership(SHARING_MODEL_OWNERSHIP);
+// The settings slice's org table (#733), declared by the package.
+registerModelOwnership(SETTINGS_MODEL_OWNERSHIP);
 
 // App-owned entries last.
 registerModelOwnership(APP_MODEL_OWNERSHIP);

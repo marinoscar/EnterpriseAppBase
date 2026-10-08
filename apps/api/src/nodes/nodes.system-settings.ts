@@ -13,9 +13,9 @@ import {
   systemNodesSchema,
   type SystemNodesValue,
 } from '../common/schemas/settings.schema';
-import { nodesSettingsPatchSchema, nodesSettingsSchema } from '../settings/dto/system-settings-wire.schemas';
-import { nodesResponseSchema } from '../settings/dto/system-settings-response.schemas';
-import type { SystemSettingsNamespace } from '../settings/registry/system-settings-namespace';
+import { nodesSettingsPatchSchema, nodesSettingsSchema } from '../common/schemas/system-settings-wire.schemas';
+import { nodesResponseSchema } from '../common/schemas/system-settings-response.schemas';
+import type { SystemSettingsNamespace } from '@marinoscar/platform-api/settings';
 
 const NODES_SYSTEM_DEFAULTS: SystemNodesValue = {
   staleHeartbeatSeconds: 90,
@@ -52,7 +52,7 @@ export const NODES_SYSTEM_SETTINGS = {
   },
 } satisfies SystemSettingsNamespace<'nodes', SystemNodesValue, z.infer<typeof nodesSettingsPatchSchema>>;
 
-declare module '../settings/registry/system-settings-namespace' {
+declare module '@marinoscar/platform-api/settings' {
   interface SystemSettingsNamespaces {
     /** Worker-fleet policy (#256, epic #254). REQUIRED for the reason `jobs` gives. */
     nodes: SystemNodesValue;

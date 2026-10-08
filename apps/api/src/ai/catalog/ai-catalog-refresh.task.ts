@@ -19,7 +19,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 
 import { JobsService } from '../../jobs/jobs.service';
-import { SystemSettingsService } from '../../settings/system-settings/system-settings.service';
+import { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import { AI_CATALOG_REFRESH_TYPE, AI_CATALOG_SUBJECT_TYPE } from './ai-catalog.service';
 
 /** Low priority (ascending is more urgent): a background refresh never outranks user work. */

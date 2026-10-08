@@ -14,7 +14,7 @@ import { PrismaSystemService } from '../../prisma/prisma-system.service';
 import { STORAGE_PROVIDER } from '../../storage/providers/storage-provider.interface';
 import type { StorageProvider } from '../../storage/providers/storage-provider.interface';
 import { StorageConfigService } from '../../storage/config/storage-config.service';
-import { UserSettingsService } from '../user-settings/user-settings.service';
+import { UserSettingsService } from '@marinoscar/platform-api/settings';
 import {
   AVATAR_MAX_BYTES,
   AVATAR_PURPOSE,

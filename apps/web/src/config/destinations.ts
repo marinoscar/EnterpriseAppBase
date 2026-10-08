@@ -41,8 +41,8 @@ import HomeIcon from '@mui/icons-material/Home';
 import SettingsIcon from '@mui/icons-material/Settings';
 import AdminIcon from '@mui/icons-material/AdminPanelSettings';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
-import type { SettingsFeatureKey, SettingsFeatures } from './adminSections';
-import { isFeatureEnabled } from './adminSections';
+import type { SettingsFeatureKey, SettingsFeatures } from '@marinoscar/platform-web/settings/ui';
+import { isFeatureEnabled } from '@marinoscar/platform-web/settings/ui';
 
 export type DestinationKey = 'home' | 'settings' | 'console' | 'ai';
 

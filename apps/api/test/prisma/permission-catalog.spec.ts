@@ -88,6 +88,9 @@ const BASELINE_PERMISSIONS = [
   { name: 'sharing:read', description: 'View what is shared with you and who a record you can share is shared with, and remove your own access', scope: 'org' },
   { name: 'sharing:write', description: 'Share records you are allowed to share with people and groups of the organization, and change or revoke those shares', scope: 'org' },
   { name: 'sharing:admin', description: 'Manage the shares of every record of the organization, including records you do not own', scope: 'org' },
+  // The settings slice's org layer (#733, PP-8.1).
+  { name: 'org_settings:read', description: "Read the active organization's settings overrides", scope: 'org' },
+  { name: 'org_settings:write', description: "Modify the active organization's settings overrides", scope: 'org' },
 ];
 
 const BASELINE_ROLE_GRANTS: Record<string, string[]> = {
@@ -155,6 +158,8 @@ const BASELINE_ROLE_GRANTS: Record<string, string[]> = {
     'sharing:read',
     'sharing:write',
     'sharing:admin',
+    'org_settings:read',
+    'org_settings:write',
   ],
 };
 

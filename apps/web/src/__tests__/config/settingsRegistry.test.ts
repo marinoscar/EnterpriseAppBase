@@ -7,10 +7,9 @@ import {
   ADMIN_SECTIONS,
   ADMIN_HUB_PATH,
   ADMIN_HUB_TITLE,
-  visibleSettingsSections,
-  settingsPageTitle,
 } from '../../config/adminSections';
-import type { SettingsSectionDef } from '../../config/adminSections';
+import { settingsPageTitle, visibleSettingsSections } from '@marinoscar/platform-web/settings/ui';
+import type { SettingsSectionDef } from '@marinoscar/platform-web/settings/ui';
 import { readApiPermissionConstants } from '../utils/apiPermissions';
 import {
   USER_SETTINGS_SECTIONS,
@@ -1378,6 +1377,7 @@ describe('the Organizations group (#726)', () => {
     '../../../../../packages/platform-api/src/identity',
   );
   const rolesConstants = readApiPermissionConstants();
+  const SETTINGS_SRC = resolve(IDENTITY_SRC, '..', 'settings');
   const group = ADMIN_SECTIONS.find((section) => section.label === 'Organizations');
   const cards = new Map((group?.cards ?? []).map((card) => [card.title, card]));
   const organization = cards.get('Organization');
@@ -1394,9 +1394,31 @@ describe('the Organizations group (#726)', () => {
   const titles = (held: string[], features = {}) =>
     titlesOf(visibleSettingsSections(ADMIN_SECTIONS, (p) => held.includes(p), '', features));
 
-  it('is APPENDED as the last group, its two cards in declaration order', () => {
+  it('is APPENDED as the last group, its cards in declaration order (#733 appended the third)', () => {
     expect(ADMIN_SECTIONS[ADMIN_SECTIONS.length - 1]).toBe(group);
-    expect(group?.cards.map((card) => card.title)).toEqual(['Organization', 'Organizations']);
+    expect(group?.cards.map((card) => card.title)).toEqual(['Organization', 'Organizations', 'Organization settings']);
+  });
+
+  it('declares Organization settings on org_settings:read, the settings slice controller string, feature orgs (#733)', () => {
+    const orgSettings = cards.get('Organization settings');
+    expect(orgSettings).toMatchObject({
+      path: '/admin/settings/organization-settings',
+      permission: 'org_settings:read',
+      feature: 'orgs',
+    });
+    expect(orgSettings?.alwaysShow).toBeUndefined();
+    const controller = readFileSync(resolve(SETTINGS_SRC, 'org-settings/org-settings.controller.ts'), 'utf8');
+    expect(rolesConstants).toContain("ORG_SETTINGS_READ: 'org_settings:read'");
+    expect(controller).toContain('ORG_SETTINGS_PERMISSIONS.ORG_SETTINGS_READ.id');
+  });
+
+  it('shows Organization settings only in multi-org mode, and only to a holder of org_settings:read (#733)', () => {
+    expect(titles(['org_settings:read'])).not.toContain('Organization settings');
+    expect(titles(['org_members:read'], ORGS_ON)).not.toContain('Organization settings');
+    expect(titles(['org_settings:read'], ORGS_ON)).toEqual(['Organization settings']);
+    expect(
+      settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, '/admin/settings/organization-settings', ORGS_ON),
+    ).toBe('Organization settings');
   });
 
   it('declares Organization on org_members:read, the org members controller string, feature orgs', () => {

@@ -76,7 +76,7 @@ import { JobsService } from '../../src/jobs/jobs.service';
 import type { NotificationsService } from '../../src/notifications/notifications.service';
 import type { NotifyOptions } from '../../src/notifications/notification.types';
 import type { PrismaService } from '../../src/prisma/prisma.service';
-import type { SystemSettingsService } from '../../src/settings/system-settings/system-settings.service';
+import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
 
 const { describeWithDb } = resolveDbSuite('broadcast-fanout.db.spec');

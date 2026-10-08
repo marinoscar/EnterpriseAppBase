@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 
 import { CredentialsService } from '../../credentials/credentials.service';
-import { SystemSettingsService } from '../../settings/system-settings/system-settings.service';
+import { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import type {
   StorageProviderKind,
   SystemStorageValue,

@@ -238,10 +238,13 @@ nothing is changed. Reload, re-apply, and retry. Omit the header to overwrite
 unconditionally. An unparseable value is treated as absent.
 
 Routes that read it: `PATCH /api/system-settings`, `PATCH /api/user-settings`,
+`PATCH /api/org-settings`,
 and `PUT` on `/api/email-settings`, `/api/admin/storage-config`,
 `/api/admin/push-config` and `/api/admin/ai/config`. The admin configuration
 routes share the version of the single system-settings row, so a concurrent
-save of an unrelated setting can also cause a `409`.
+save of an unrelated setting can also cause a `409`. `/api/org-settings` has a
+version of its own per organization (`0` while the organization has no row,
+so `If-Match: 0` creates it), independent of the system row.
 
 ## Server-Sent Events
 
@@ -359,6 +362,7 @@ Every group below is under `/api`. Exact routes are in `/api/docs`.
 | `user-settings` | Current user's settings | `user_settings:*` | [settings-ui](specs/settings-ui.md) |
 | `user-settings/profile-image` | Upload, preview, remove profile picture | `user_settings:*` | [storage-providers](specs/storage-providers.md) |
 | `system-settings` | Global settings (JSONB namespaces) | `system_settings:*` | [settings-ui](specs/settings-ui.md) |
+| `org-settings` | The active organization's overrides of the org-overridable system namespaces, with each namespace's effective value; `PATCH` takes `If-Match`, `null` clears a namespace or a field, an unknown or non-overridable namespace is `400`; each namespace's own permissions filter `GET` and refuse `PATCH` (`403`) | `org_settings:read`, `org_settings:write` (org) | [settings README](../packages/platform-api/src/settings/README.md) |
 | `email-settings` | Outbound email transport configuration | `system_settings:*` | [browser-notifications](specs/browser-notifications.md) |
 | `pat` | Personal access tokens | authenticated (own) | [personal-access-tokens](personal-access-tokens.md) |
 | `storage/objects` | File uploads (simple and resumable) and downloads | authenticated (owner) | [storage-providers](specs/storage-providers.md) |

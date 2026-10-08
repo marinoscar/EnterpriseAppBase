@@ -67,6 +67,14 @@
       "types": "./dist/identity/ui/index.d.ts",
       "default": "./dist/identity/ui/index.js"
     },
+    "./settings/headless": {
+      "types": "./dist/settings/headless/index.d.ts",
+      "default": "./dist/settings/headless/index.js"
+    },
+    "./settings/ui": {
+      "types": "./dist/settings/ui/index.d.ts",
+      "default": "./dist/settings/ui/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

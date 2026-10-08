@@ -44,127 +44,35 @@ import type { NotificationPreferences } from '../../notifications/notification-p
 //
 // =============================================================================
 
-/**
- * Maximum number of per-table entries a single user may persist.
- *
- * NOTE: this cap CANNOT be expressed in `z.record()` — zod has no "max number
- * of keys" refinement that survives the record type. It is enforced in
- * UserSettingsService after the merge instead. See that service for why
- * enforcing it here would produce a 500 rather than a 400.
- */
-export const DATA_TABLE_MAX_TABLES = 40;
-
-/** Allowed shape of a table identifier (lowercase slug). */
-export const DATA_TABLE_ID_PATTERN = /^[a-z0-9][a-z0-9_-]*$/;
-
-/** Maximum length of a table identifier and of a column identifier. */
-export const DATA_TABLE_MAX_ID_LENGTH = 64;
-
-/** Maximum number of column ids that may be persisted for a single table. */
-export const DATA_TABLE_MAX_VISIBLE_COLUMNS = 60;
-
-/** Maximum persisted page size for a single table. */
-export const DATA_TABLE_MAX_PAGE_SIZE = 500;
-
-/** Row density options exposed by the data table component. */
-export const dataTableDensitySchema = z.enum([
-  'compact',
-  'standard',
-  'comfortable',
-]);
-
-/** Sort direction options. */
-export const dataTableSortDirectionSchema = z.enum(['asc', 'desc']);
-
-/** Persisted sort state for a single table. */
-export const dataTableSortSchema = z
-  .object({
-    field: z.string().min(1).max(DATA_TABLE_MAX_ID_LENGTH),
-    direction: dataTableSortDirectionSchema,
-  })
-  .strict();
-
-/**
- * Persisted preferences for a single data table.
- *
- * Every key is optional and NONE has a `.default()` — see the file header.
- */
-export const dataTableEntrySchema = z
-  .object({
-    visibleColumns: z
-      .array(z.string().min(1).max(DATA_TABLE_MAX_ID_LENGTH))
-      .max(DATA_TABLE_MAX_VISIBLE_COLUMNS)
-      .optional(),
-    density: dataTableDensitySchema.optional(),
-    sort: dataTableSortSchema.optional(),
-    pageSize: z.number().int().min(1).max(DATA_TABLE_MAX_PAGE_SIZE).optional(),
-  })
-  .strict();
-
-/** Table identifier key schema, shared by the full and patch record schemas. */
-export const dataTableIdSchema = z
-  .string()
-  .min(1)
-  .max(DATA_TABLE_MAX_ID_LENGTH)
-  .regex(DATA_TABLE_ID_PATTERN);
-
-/**
- * Full `dataTables` namespace: a map of table id -> preferences.
- *
- * zod v4 requires BOTH a key and a value schema for `z.record`.
- */
-export const dataTablesSchema = z.record(
-  dataTableIdSchema,
+// The `dataTables` and `navigation` namespaces are the settings slice's UI
+// preferences: since #733 their schemas and bounds live in
+// `@marinoscar/platform-contract/settings` (their declarations in
+// `@marinoscar/platform-api/settings`) and are re-exported here, unchanged.
+export {
+  DATA_TABLE_ID_PATTERN,
+  DATA_TABLE_MAX_ID_LENGTH,
+  DATA_TABLE_MAX_PAGE_SIZE,
+  DATA_TABLE_MAX_TABLES,
+  DATA_TABLE_MAX_VISIBLE_COLUMNS,
+  dataTableDensitySchema,
   dataTableEntrySchema,
-);
-
-/**
- * PATCH form of the `dataTables` namespace.
- *
- * The value is nullable because JSON Merge Patch uses `null` to mean "delete":
- * `{ dataTables: { jobs: null } }` removes the `jobs` entry. A non-null entry
- * REPLACES the stored entry for that table wholesale (it is not deep-merged) —
- * see UserSettingsService.mergeDataTables.
- */
-export const dataTablesPatchSchema = z.record(
   dataTableIdSchema,
-  dataTableEntrySchema.nullable(),
-);
-
-/**
- * Full `navigation` namespace.
- *
- * `railCollapsed` absent means "use the built-in default" — deliberately NOT
- * `.default(false)`, so that a future change to the default rail state reaches
- * users who never expressed a preference.
- */
-export const navigationSchema = z
-  .object({
-    railCollapsed: z.boolean().optional(),
-  })
-  .strict();
-
-/**
- * PATCH form of the `navigation` namespace: each field may additionally be
- * `null`, meaning "delete this field and fall back to the built-in default".
- */
-export const navigationPatchSchema = z
-  .object({
-    railCollapsed: z.boolean().nullable().optional(),
-  })
-  .strict();
-
-// =============================================================================
-// Inferred types — derived from the schemas above so they can never drift.
-// =============================================================================
-
-export type DataTableDensity = z.infer<typeof dataTableDensitySchema>;
-export type DataTableSort = z.infer<typeof dataTableSortSchema>;
-export type DataTableEntry = z.infer<typeof dataTableEntrySchema>;
-export type DataTablesValue = z.infer<typeof dataTablesSchema>;
-export type DataTablesPatchValue = z.infer<typeof dataTablesPatchSchema>;
-export type NavigationValue = z.infer<typeof navigationSchema>;
-export type NavigationPatchValue = z.infer<typeof navigationPatchSchema>;
+  dataTableSortDirectionSchema,
+  dataTableSortSchema,
+  dataTablesPatchSchema,
+  dataTablesSchema,
+  navigationPatchSchema,
+  navigationSchema,
+} from '@marinoscar/platform-contract/settings';
+export type {
+  DataTableDensity,
+  DataTableEntry,
+  DataTableSort,
+  DataTablesPatchValue,
+  DataTablesValue,
+  NavigationPatchValue,
+  NavigationValue,
+} from '@marinoscar/platform-contract/settings';
 
 // =============================================================================
 // User Settings Namespace: `notifications` (issue #126, epic #109)

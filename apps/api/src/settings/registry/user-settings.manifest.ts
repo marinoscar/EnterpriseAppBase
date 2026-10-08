@@ -18,9 +18,14 @@ import {
 } from '../../app-registrations/settings';
 import { AI_USER_SETTINGS } from '../../ai/ai.user-settings';
 import { NOTIFICATIONS_USER_SETTINGS } from '../../notifications/notifications.user-settings';
-import { DATA_TABLES_USER_SETTINGS, NAVIGATION_USER_SETTINGS } from '../user-settings/core.user-settings';
-import { extendUserSettingsNamespace, foldSettingsExtensions } from './extend';
-import { registerUserSettingsNamespaces, type UserSettingsNamespace } from './user-settings-namespace';
+import {
+  DATA_TABLES_USER_SETTINGS,
+  NAVIGATION_USER_SETTINGS,
+  extendUserSettingsNamespace,
+  foldSettingsExtensions,
+  registerUserSettingsNamespaces,
+  type UserSettingsNamespace,
+} from '@marinoscar/platform-api/settings';
 
 const PLATFORM_NAMESPACES: readonly UserSettingsNamespace[] = [
   DATA_TABLES_USER_SETTINGS,

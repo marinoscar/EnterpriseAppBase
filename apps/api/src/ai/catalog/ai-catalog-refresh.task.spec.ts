@@ -8,7 +8,7 @@
 // =============================================================================
 
 import type { JobsService } from '../../jobs/jobs.service';
-import type { SystemSettingsService } from '../../settings/system-settings/system-settings.service';
+import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import { AiCatalogRefreshTask } from './ai-catalog-refresh.task';
 
 function makeTask(policy: {

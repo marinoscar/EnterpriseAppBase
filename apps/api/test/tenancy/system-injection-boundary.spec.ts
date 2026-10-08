@@ -27,7 +27,8 @@ const ALLOWLIST: Record<string, string> = {
   'storage/config/storage-config-admin.service.ts': 'admin-aggregate: counts stranded objects across organizations',
   'settings/profile-image/avatar.service.ts': 'admin-aggregate: public avatar route has no principal; display only, one row by id',
   'settings/profile-image/profile-image.service.ts': 'purge: removes the user\'s own previous avatar across an org switch',
-  'settings/user-settings/user-settings.service.ts': 'admin-aggregate: validates the user\'s own avatar row across an org switch',
+  'platform/settings/settings-profile-images.adapter.ts':
+    'admin-aggregate: the settings slice\'s profile-image port validates the user\'s own avatar row across an org switch',
   'ai/runtime/ai-runs-purge.handler.ts': 'retention',
   'ai/usage/ai-usage-purge.handler.ts': 'retention',
   'ai/usage/ai-usage.service.ts': 'admin-aggregate: deployment-wide usage report',

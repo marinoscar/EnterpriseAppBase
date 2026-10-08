@@ -1,5 +1,5 @@
 import type { PrismaService } from '../../prisma/prisma.service';
-import type { SystemSettingsService } from '../../settings/system-settings/system-settings.service';
+import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import { DEFAULT_SYSTEM_SETTINGS } from '../types/settings.types';
 import type { SystemMaintenanceValue } from '../schemas/settings.schema';
 import {

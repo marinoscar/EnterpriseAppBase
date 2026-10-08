@@ -6,7 +6,7 @@ The data layer of the platform: Prisma schema fragments (`schema/`), SQL migrati
 
 Schema fragments, migrations and seeds of the platform's data slices, and the **composer** that turns the fragments into the Prisma schema an app generates its client from.
 
-What ships today: the schema fragments (`schema/`, 38 models and 15 enums in nine slices), `platform db compose`, and the migration tooling (`platform db sync|check|promote|drift`, the `platform.lock` and `manifest.json` formats, the raw-SQL index list). The package also ships platform history v1: the base's 22 migrations as `migrations/0001_initial` to `0022_add_retention_created_at_indexes`, with a filled manifest, the raw-SQL index list `RAW_SQL_INDEXES` and its tripwire, and the offline `runDbConformance()` suite. The platform seed is shipped too: `seedPlatform` (the [`seed` slice](src/seed/README.md), `@marinoscar/platform-db/seed`). The package does not run migrations against a database itself; the app's `prisma:*` scripts do.
+What ships today: the schema fragments (`schema/`, 39 models and 15 enums in nine slices), `platform db compose`, and the migration tooling (`platform db sync|check|promote|drift`, the `platform.lock` and `manifest.json` formats, the raw-SQL index list). The package also ships platform history v1: the base's 22 migrations as `migrations/0001_initial` to `0022_add_retention_created_at_indexes`, with a filled manifest, the raw-SQL index list `RAW_SQL_INDEXES` and its tripwire, and the offline `runDbConformance()` suite. The platform seed is shipped too: `seedPlatform` (the [`seed` slice](src/seed/README.md), `@marinoscar/platform-db/seed`). The package does not run migrations against a database itself; the app's `prisma:*` scripts do.
 
 Status: pre-release (version `0.0.0`). The `extend model` seam is `experimental` until the extension contract is frozen.
 
@@ -151,7 +151,7 @@ The migration tooling adds no row to the catalog. How an app extends the migrati
 |---|---|
 | `base.prisma` | `generator client`, `datasource db` |
 | `identity.prisma` | `User` (`@extensible`), `UserIdentity`, `Role`, `Permission`, `RolePermission`, `UserRole`, `RefreshToken`, `PersonalAccessToken`, `DeviceCode`, `AllowedEmail`, `AuditEvent`, `Organization`, `Membership`, `Invite` |
-| `settings.prisma` | `SystemSettings`, `UserSettings` |
+| `settings.prisma` | `SystemSettings`, `UserSettings`, `OrgSettings` |
 | `storage.prisma` | `StorageObject` (`@extensible`), `StorageObjectChunk` |
 | `credentials.prisma` | `Credential`, `UserCredential` |
 | `notifications.prisma` | `Notification`, `NotificationDelivery`, `PushSubscription`, `NotificationBroadcast` |
@@ -175,6 +175,8 @@ A slice declares the back-relations that point **into** another slice as `extend
 **Groups (`0026_add_groups`, #728).** The `sharing` fragment owns `Group`, `GroupMember` and `GroupInvite` (tables `groups`, `group_members`, `group_invites`) and the enum `GroupRole` (`admin`, `editor`, `viewer`). A group is a set of users inside one organization, never a tenant. All three carry a NOT NULL `org_id` (foreign key `Cascade`), `ENABLE` and `FORCE ROW LEVEL SECURITY` and a `<table>_org_isolation` policy; a member and an invite reach their group through the composite `(group_id, org_id)` -> `groups (id, org_id)` (the target of `@@unique([id, orgId])`). `group_invites_pending_uniq_idx` is the one raw-SQL index. `Group` is `// @extensible`, so an app table owned by a group adds its back-relation with `extend model Group`. New tables, so no backfill.
 
 **Grants (`0027_add_grants`, #729).** The `sharing` fragment also owns `Grant` (table `grants`) and the enum `GrantGranteeKind` (`user`, `group`, `link`). A grant shares one record of an app's registered resource type, named polymorphically by `(resource_type, resource_id)` with no foreign key (the platform cannot know app tables; apps delete a record's grants in the same transaction and the `sharing.grants.prune` job catches the rest), with a role, an optional `expires_at` and a soft `revoked_at`. `org_id` is NOT NULL under a forced `grants_org_isolation` policy, and a group grantee reaches its group through the composite key `(grantee_group_id, org_id)`, so a grant cannot name another organization's group. The raw-SQL partial unique indexes `grants_active_user_uniq_idx` and `grants_active_group_uniq_idx` allow one active grant per resource and grantee, and the `CHECK` constraint `grants_grantee_consistency_check` keeps the grantee columns consistent with `grantee_kind` (a link grant has neither grantee and a `link_token_hash`). The link columns (`link_token_hash`, unique; `link_token_ciphertext`; `link_label`) are created now for #730.
+
+**Organization settings (`0028_add_org_settings`, #733).** The `settings` fragment owns `OrgSettings` (table `org_settings`): one row per organization (`org_id` unique, foreign key to `organizations`, `Cascade`; `updated_by_user_id` `SetNull`) holding that organization's overrides of the org-overridable system settings namespaces, with a `version` of its own. NOT NULL `org_id`, `ENABLE` and `FORCE ROW LEVEL SECURITY` and the `org_settings_org_isolation` policy. A new table, so no backfill; `system_settings` and `user_settings` are unchanged.
 
 **System and org roles.** Migration `0024_split_system_org_roles` (#723) adds the `RoleScope` enum (`system`, `org`), `roles.scope` and `permissions.scope` (default `system`), the required `memberships.role_id` (the member's org role, `onDelete: Restrict`) and the nullable `org_invites.role_id` (NULL means the default org role). Its data step creates `org_admin`, scopes `contributor`, `viewer` and the org permissions to `org`, moves `admin`'s org-permission grants to `org_admin`, sets each membership's role from the user's global roles (`admin` to `org_admin`, otherwise `contributor` over `viewer`, otherwise `viewer`) and deletes the `user_roles` rows of org roles; `user_roles` keeps its shape. `seedPlatform` writes the scope of every role and permission entry that carries one.
 
@@ -261,7 +263,7 @@ An app's own raw-SQL indexes go in its `platform.lock` under `rawSqlIndexes`; th
 
 ### Row-level security policies
 
-Prisma's schema language cannot express a policy either, and `prisma migrate diff` does not see one, so the tenant-isolation policies of `0025_org_scoped_rls`, `0026_add_groups` and `0027_add_grants` exist only in migration SQL, like the raw-SQL indexes. They are intentional drift too: never remove one to "fix" a diff.
+Prisma's schema language cannot express a policy either, and `prisma migrate diff` does not see one, so the tenant-isolation policies of `0025_org_scoped_rls`, `0026_add_groups`, `0027_add_grants` and `0028_add_org_settings` exist only in migration SQL, like the raw-SQL indexes. They are intentional drift too: never remove one to "fix" a diff.
 
 | Policy | Table | Created in |
 |---|---|---|
@@ -273,6 +275,7 @@ Prisma's schema language cannot express a policy either, and `prisma migrate dif
 | `group_members_org_isolation` | `group_members` | `0026_add_groups` |
 | `group_invites_org_isolation` | `group_invites` | `0026_add_groups` |
 | `grants_org_isolation` | `grants` | `0027_add_grants` |
+| `org_settings_org_isolation` | `org_settings` | `0028_add_org_settings` |
 
 `rls-policies.json` is the one list (`name`, `table`, `reason`, `doc`, `createdIn`), exported as `RLS_POLICIES` beside `RAW_SQL_INDEXES`. `platform db drift` reads `pg_policies` and `pg_class` and reports `POLICY_MISSING` (a listed policy is not in the database), `POLICY_UNLISTED` (the database has one nobody listed), `RLS_NOT_ENABLED`, `RLS_NOT_FORCED` (the table does not `FORCE` it, so the owner, which is the application role, bypasses the policy) and `RLS_FORCED_WITHOUT_POLICY` (everything would be denied). `assertRlsPolicies` is the offline tripwire (`runDbConformance` runs it as `rls-policies`): it scans the manifest migrations and fails on `UNLISTED_POLICY`, `LISTED_POLICY_NOT_FOUND`, `LISTED_POLICY_MISMATCH` (`createdIn` disagrees) and a policy whose table the migrations never `ENABLE` / `FORCE`. The policy text and the settings it reads (`app.org_id`, `app.user_id`, `app.rls_bypass`, always `set_config(..., true)`) are specified in [SECURITY-ARCHITECTURE.md §18](../../docs/SECURITY-ARCHITECTURE.md#18-tenant-isolation-rls); the clients that set them are `PrismaService.forOrg` / `runInOrg` and `PrismaSystemService` in the reference app, built on the row-level-security helpers of `@marinoscar/platform-api/core` ([core README](../platform-api/src/core/README.md)).
 

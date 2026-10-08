@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
-import { ADMIN_SECTIONS, visibleSettingsSections } from '../../config/adminSections';
+import { ADMIN_SECTIONS } from '../../config/adminSections';
+import { visibleSettingsSections } from '@marinoscar/platform-web/settings/ui';
 import { USER_SETTINGS_SECTIONS } from '../../config/userSettingsSections';
 import { readApiPermissionConstants } from '../utils/apiPermissions';
 

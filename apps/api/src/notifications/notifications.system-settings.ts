@@ -10,6 +10,7 @@
 
 import type { z } from 'zod';
 import {
+  MAX_DISABLED_NOTIFICATION_EVENTS,
   systemNotificationsPatchSchema,
   systemNotificationsSchema,
   type SystemNotificationsValue,
@@ -17,9 +18,9 @@ import {
 import {
   notificationsSettingsPatchSchema,
   notificationsSettingsSchema,
-} from '../settings/dto/system-settings-wire.schemas';
-import { notificationsResponseSchema } from '../settings/dto/system-settings-response.schemas';
-import type { SystemSettingsNamespace } from '../settings/registry/system-settings-namespace';
+} from '../common/schemas/system-settings-wire.schemas';
+import { notificationsResponseSchema } from '../common/schemas/system-settings-response.schemas';
+import type { SystemSettingsNamespace } from '@marinoscar/platform-api/settings';
 
 /**
  * ON by default, suppressing nothing. The opposite default would mean a fresh
@@ -47,7 +48,7 @@ export const NOTIFICATIONS_SYSTEM_SETTINGS = {
   requiredOnPut: true,
   // The hand ladder `readKnownSettings` has always used for this namespace:
   // two fields, and `disabledEvents` is salvaged entry by entry rather than as
-  // a unit (see `SystemSettingsService.readDisabledEvents`).
+  // a unit (the service's `readStringArray` helper, #733).
   read(stored, helpers) {
     const storedNotifications = helpers.asPlainObject(stored);
 
@@ -56,7 +57,11 @@ export const NOTIFICATIONS_SYSTEM_SETTINGS = {
         typeof storedNotifications?.browserEnabled === 'boolean'
           ? storedNotifications.browserEnabled
           : NOTIFICATIONS_SYSTEM_DEFAULTS.browserEnabled,
-      disabledEvents: helpers.readDisabledEvents(storedNotifications?.disabledEvents),
+      disabledEvents: helpers.readStringArray(
+        storedNotifications?.disabledEvents,
+        systemNotificationsSchema.shape.disabledEvents.element,
+        MAX_DISABLED_NOTIFICATION_EVENTS,
+      ),
     };
   },
   merge(current, patch) {
@@ -75,7 +80,7 @@ export const NOTIFICATIONS_SYSTEM_SETTINGS = {
   z.infer<typeof notificationsSettingsPatchSchema>
 >;
 
-declare module '../settings/registry/system-settings-namespace' {
+declare module '@marinoscar/platform-api/settings' {
   interface SystemSettingsNamespaces {
     /**
      * Deployment-wide browser-notification policy (#225, epic #215).

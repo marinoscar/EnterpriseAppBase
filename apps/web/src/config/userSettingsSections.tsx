@@ -24,7 +24,7 @@ import PaletteIcon from '@mui/icons-material/Palette';
 import NotificationsIcon from '@mui/icons-material/Notifications';
 import KeyOutlinedIcon from '@mui/icons-material/KeyOutlined';
 import { identityUserSettingsSections } from '@marinoscar/platform-web/identity/ui';
-import type { SettingsSectionDef } from './adminSections';
+import type { SettingsSectionDef } from '@marinoscar/platform-web/settings/ui';
 
 /**
  * The user settings sections, in hub order.

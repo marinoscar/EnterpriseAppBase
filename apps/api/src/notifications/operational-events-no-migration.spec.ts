@@ -95,6 +95,7 @@ const MIGRATIONS_AT_288 = [
   // #729 (PP-7.2): grants with row-level security and partial unique indexes.
   // About sharing, not the operational notification events.
   '20261008000859_add_grants',
+  '20261008012052_add_org_settings',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

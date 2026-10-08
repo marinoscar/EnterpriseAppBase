@@ -13,7 +13,7 @@ import type { SystemAiValue } from '../../common/schemas/settings.schema';
 import type { CredentialInfo } from '../../credentials/interfaces/credential-info.interface';
 import { CredentialsService } from '../../credentials/credentials.service';
 import { PrismaService } from '../../prisma/prisma.service';
-import { SystemSettingsService } from '../../settings/system-settings/system-settings.service';
+import { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import { AiError, isAiErrorCode } from '../core/ai-error';
 import type { AiProviderAdapter } from '../core/provider-adapter.interface';
 import { AiProviderRegistry } from '../core/provider-registry';

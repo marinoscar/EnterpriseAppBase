@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { JobsModule } from '../../jobs/jobs.module';
-import { SettingsModule } from '../../settings/settings.module';
+import { SettingsModule } from '../../platform/settings/settings.config';
 import { AuditEventsPurgeHandler } from './audit-events-purge.handler';
 import { RetentionPurgeTask } from './retention-purge.task';
 

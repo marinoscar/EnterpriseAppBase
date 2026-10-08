@@ -21,9 +21,9 @@ import {
 import {
   storageSettingsPatchSchema,
   storageSettingsSchema,
-} from '../../settings/dto/system-settings-wire.schemas';
-import { storageResponseSchema } from '../../settings/dto/system-settings-response.schemas';
-import type { SystemSettingsNamespace } from '../../settings/registry/system-settings-namespace';
+} from '../../common/schemas/system-settings-wire.schemas';
+import { storageResponseSchema } from '../../common/schemas/system-settings-response.schemas';
+import type { SystemSettingsNamespace } from '@marinoscar/platform-api/settings';
 
 // UNCONFIGURED: `provider: 's3'` names the shape the empty fields would be
 // filled in for, and every field that would actually make a request go
@@ -104,7 +104,7 @@ export const STORAGE_SYSTEM_SETTINGS = {
   },
 } satisfies SystemSettingsNamespace<'storage', SystemStorageValue, z.infer<typeof storageSettingsPatchSchema>>;
 
-declare module '../../settings/registry/system-settings-namespace' {
+declare module '@marinoscar/platform-api/settings' {
   interface SystemSettingsNamespaces {
     /**
      * Object-storage provider configuration (#373, epic #372): which provider,

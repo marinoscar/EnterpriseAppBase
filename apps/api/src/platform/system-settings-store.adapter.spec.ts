@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 
 import { SystemSettingsStoreAdapter } from './system-settings-store.adapter';
-import type { SystemSettingsService } from '../settings/system-settings/system-settings.service';
+import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
 
 describe('SystemSettingsStoreAdapter (SYSTEM_SETTINGS_STORE adapter)', () => {
   const document = (version: number, jobs: Record<string, unknown>) => ({

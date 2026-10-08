@@ -30,7 +30,7 @@ import type { DatabaseBackupRun } from '@prisma/client';
 
 import type { SystemDatabaseBackupValue } from '../common/schemas/settings.schema';
 import type { PrismaService } from '../prisma/prisma.service';
-import type { SystemSettingsService } from '../settings/system-settings/system-settings.service';
+import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import * as adminConnection from './admin-connection.util';
 import type { AdminConnection, AdminQueryClient } from './admin-connection.util';
 import {

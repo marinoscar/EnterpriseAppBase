@@ -55,6 +55,13 @@
       "reason": "Organization isolation of grants (PP-7.2): a grant shares one record inside its organization and can never name another organization's user or group.",
       "doc": "docs/SECURITY-ARCHITECTURE.md",
       "createdIn": "0027_add_grants"
+    },
+    {
+      "name": "org_settings_org_isolation",
+      "table": "org_settings",
+      "reason": "Organization isolation of an organization's settings overrides (PP-8.1): one row per organization, read and written only inside runInOrg.",
+      "doc": "docs/SECURITY-ARCHITECTURE.md",
+      "createdIn": "0028_add_org_settings"
     }
   ]
 }

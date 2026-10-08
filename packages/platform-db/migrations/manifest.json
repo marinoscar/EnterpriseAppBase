@@ -275,5 +275,16 @@
     "sha256": "2e2d5515f131c104ee7f4e5b2ee4d76fbf5409e500da0b412edd4bad0b71c6da",
     "since": "1.0.0",
     "slice": "sharing"
+  },
+  {
+    "dir": "0028_add_org_settings",
+    "id": "0028_add_org_settings",
+    "requires": [
+      "identity"
+    ],
+    "rls": true,
+    "sha256": "e4d811ab7c5446d905e5e4fbb3ce2b94e06d82488f916352a2a413cdc55f94a4",
+    "since": "1.0.0",
+    "slice": "settings"
   }
 ]

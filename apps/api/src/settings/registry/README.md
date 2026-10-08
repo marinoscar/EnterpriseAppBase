@@ -1,4 +1,13 @@
-# Settings namespace registries
+# Settings namespace registries: the reference app's composition
+
+Since #733 the registries, the compose functions, the services and the routes
+are the settings slice of the platform package
+([`@marinoscar/platform-api/settings`](../../../../../packages/platform-api/src/settings/README.md));
+this folder holds what the APP decides: its manifests (which namespaces, in
+which order), the import-time snapshot of what they compose to
+(`composed.ts`), the seed catalog's path and the import-cycle guard.
+`platform/settings/settings.config.ts` imports this folder before it calls
+`SettingsModule.forRoot()`.
 
 The system settings document (`system_settings.value`, the `global` row) and
 each user's settings document (`user_settings.value`) are built from
@@ -15,14 +24,18 @@ Spec: [platform-packages.md](../../../../../docs/specs/platform-packages.md),
 
 | File | What it holds |
 |---|---|
-| `system-settings-namespace.ts` | `SystemSettingsNamespace`, `systemSettingsNamespaceRegistry` (`'system-settings-namespaces'`), the `SystemSettingsNamespaces` / `SystemSettingsNamespaceDeclarations` augmentation targets, `SystemSettingsValue` |
-| `user-settings-namespace.ts` | The same for the optional user namespaces (`'user-settings-namespaces'`) |
 | `system-settings.manifest.ts`, `user-settings.manifest.ts` | The explicit lists: platform declarations in today's key order, then the app file |
-| `compose.ts` | Pure functions of the registries: the composed schemas, the defaults, and the per-request `current*` variants the services use |
-| `composed.ts` | Imports the manifests and builds every composed object once, at module load |
-| `extend.ts` | Folding an app's extra fields into a registered namespace |
-| `settings-catalog.ts` | Renders the seed catalog (`prisma/catalog/system-settings-defaults.json`) and checks it for staleness |
-| `schema-walk.ts`, `merge-helpers.ts` | Registration checks (secret names, `.default()`), `mergeOptional` |
+| `composed.ts` | Imports the manifests and builds every composed object once, at module load (the stored schemas, the request bodies, the responses, the defaults) |
+| `settings-catalog.ts` | The seed catalog's path (`prisma/catalog/system-settings-defaults.json`) and its staleness message, over the package's render and check |
+| `registry.spec.ts`, `no-cycles.spec.ts` | The registries over this app's namespaces; the import-cycle guard |
+
+In the package (`packages/platform-api/src/settings/registry/`): the registry
+declarations (`system-settings-namespace.ts`, `user-settings-namespace.ts`),
+`compose.ts`, `extend.ts`, `schema-walk.ts`, `merge-helpers.ts`, the secret
+deny-list and the platform's `dataTables` and `navigation` user namespaces.
+The per-namespace PUT, PATCH and response branches of the app's namespaces
+are leaves in `common/schemas/system-settings-wire.schemas.ts` and
+`common/schemas/system-settings-response.schemas.ts`.
 
 The declaration files:
 
@@ -37,7 +50,7 @@ The declaration files:
 | system `ai` | `ai/ai.system-settings.ts` |
 | system `telemetry` | `platform/telemetry/telemetry.system-settings.ts` (data from `@marinoscar/platform-api/telemetry`) |
 | system `retention` | `common/retention/retention.system-settings.ts` |
-| user `dataTables`, `navigation` | `settings/user-settings/core.user-settings.ts` |
+| user `dataTables`, `navigation` | `@marinoscar/platform-api/settings` (`DATA_TABLES_USER_SETTINGS`, `NAVIGATION_USER_SETTINGS`) |
 | user `notifications` | `notifications/notifications.user-settings.ts` |
 | user `ai` | `ai/ai.user-settings.ts` |
 
@@ -64,9 +77,10 @@ The registry refuses, when the manifest registers it (so at import time): a key
 already registered, a malformed or reserved key, a missing part, defaults that
 fail `storedSchema`, a non-object `storedSchema` without its own `read`, and
 **any field named `secret`, `password`, `apiKey`, `token`, `secretAccessKey`,
-`secretKey` or `sessionToken`** (any depth, any case) in the stored, PUT,
-PATCH or response schema. The list is `SETTINGS_SECRET_FIELD_NAMES` in
-`common/schemas/settings.schema.ts`. Secrets go in the encrypted credential
+`secretKey`, `sessionToken` or `privateKey`** (any depth, any case) in the
+stored, PUT, PATCH or response schema (or the org schema). The list is
+`SETTINGS_SECRET_FIELD_NAMES` of `@marinoscar/platform-api/settings`
+(re-exported by `common/schemas/settings.schema.ts`). Secrets go in the encrypted credential
 store (`CredentialsService`), never in a document `GET /api/system-settings`
 returns wholesale and every audit row copies.
 
@@ -91,15 +105,15 @@ User namespaces are always optional: absent means "use the built-in defaults".
    `common/schemas/settings.schema.ts` (system) or
    `common/schemas/user-settings-namespaces.schema.ts` (user). No `.default()`.
 2. For a system namespace, add its PUT and PATCH branches to
-   `settings/dto/system-settings-wire.schemas.ts` and its response branch to
-   `settings/dto/system-settings-response.schemas.ts`.
+   `common/schemas/system-settings-wire.schemas.ts` and its response branch to
+   `common/schemas/system-settings-response.schemas.ts`.
 3. Create `<module>/<module>.system-settings.ts` (or `.user-settings.ts`)
    exporting the declaration with `satisfies SystemSettingsNamespace<...>`, and
    augment `SystemSettingsNamespaces` (key → value type) and
    `SystemSettingsNamespaceDeclarations` (key → `typeof` the declaration):
 
    ```typescript
-   declare module '../settings/registry/system-settings-namespace' {
+   declare module '@marinoscar/platform-api/settings' {
      interface SystemSettingsNamespaces { retention: SystemRetentionValue }
      interface SystemSettingsNamespaceDeclarations { retention: typeof RETENTION_SYSTEM_SETTINGS }
    }

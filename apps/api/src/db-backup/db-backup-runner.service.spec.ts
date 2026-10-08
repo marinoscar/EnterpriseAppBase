@@ -10,7 +10,7 @@ import type { DbBackupRunResult } from '../jobs/contracts/db-backup-run.contract
 import { ACTIVE_DEDUP_INDEX_NAME, type JobsService } from '../jobs/jobs.service';
 import type { NotificationsService } from '../notifications/notifications.service';
 import type { PrismaService } from '../prisma/prisma.service';
-import type { SystemSettingsService } from '../settings/system-settings/system-settings.service';
+import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import type { StorageProvider } from '../storage/providers/storage-provider.interface';
 import type { StorageConfigService } from '../storage/config/storage-config.service';
 import type {

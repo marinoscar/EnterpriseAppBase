@@ -17,7 +17,7 @@ import {
   type UserAiSettingsPatchValue,
   type UserAiSettingsValue,
 } from '../common/schemas/settings.schema';
-import type { UserSettingsNamespace } from '../settings/registry/user-settings-namespace';
+import type { UserSettingsNamespace } from '@marinoscar/platform-api/settings';
 
 export const AI_USER_SETTINGS = {
   key: 'ai',
@@ -63,7 +63,7 @@ export const AI_USER_SETTINGS = {
   },
 } satisfies UserSettingsNamespace<'ai', UserAiSettingsValue, UserAiSettingsPatchValue>;
 
-declare module '../settings/registry/user-settings-namespace' {
+declare module '@marinoscar/platform-api/settings' {
   interface UserSettingsNamespaces {
     /**
      * AI preferences (#423, epic #419, umbrella #418): which (provider, model)

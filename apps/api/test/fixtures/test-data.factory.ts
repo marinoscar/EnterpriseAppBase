@@ -285,6 +285,17 @@ export const mockPermissions = {
     name: 'sharing:admin',
     description: 'Manage the shares of every record of the organization, including records you do not own',
   },
+  // The settings slice's org layer (#733, PP-8.1). ORG scope, org_admin only.
+  orgSettingsRead: {
+    id: randomUUID(),
+    name: 'org_settings:read',
+    description: "Read the active organization's settings overrides",
+  },
+  orgSettingsWrite: {
+    id: randomUUID(),
+    name: 'org_settings:write',
+    description: "Modify the active organization's settings overrides",
+  },
 };
 
 // `scope` mirrors `roles.scope` (#723, PP-6.3): `admin` is the system role,
@@ -645,6 +656,8 @@ export const rolePermissionsMap = {
     mockPermissions.sharingRead,
     mockPermissions.sharingWrite,
     mockPermissions.sharingAdmin,
+    mockPermissions.orgSettingsRead,
+    mockPermissions.orgSettingsWrite,
   ],
   contributor: [
     mockPermissions.userSettingsRead,
@@ -694,6 +707,8 @@ const ORG_SCOPED_PERMISSIONS = new Set([
   'sharing:read',
   'sharing:write',
   'sharing:admin',
+  'org_settings:read',
+  'org_settings:write',
 ]);
 
 /**

@@ -1,5 +1,5 @@
 import type { PrismaService } from '../prisma/prisma.service';
-import type { SystemSettingsService } from '../settings/system-settings/system-settings.service';
+import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import type { StorageProvider } from '../storage/providers/storage-provider.interface';
 import type { SystemDatabaseBackupValue } from '../common/schemas/settings.schema';
 import { DatabaseBackupRetentionService } from './db-backup-retention.service';

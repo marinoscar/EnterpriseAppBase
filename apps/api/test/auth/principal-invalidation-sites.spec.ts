@@ -39,6 +39,9 @@ const SRC = join(__dirname, '..', '..', 'src');
 /** The identity slice's source (#727): the user, role and membership writers moved there. */
 const IDENTITY_SRC = join(__dirname, '..', '..', '..', '..', 'packages', 'platform-api', 'src', 'identity');
 
+/** The settings slice's source (#733): `UserSettingsService`'s display-name sync moved there. */
+const SETTINGS_SRC = join(__dirname, '..', '..', '..', '..', 'packages', 'platform-api', 'src', 'settings');
+
 /** Files under `src/` that may write without invalidating. Each entry says why. */
 // Empty since PP-6.4 (#724): `organizations/organizations.service.ts` now
 // invalidates after its own committed membership writes.
@@ -92,6 +95,11 @@ const files = [
   // Labelled `identity/<path>` so they cannot collide with an app path.
   ...sourceFiles(IDENTITY_SRC).map((full) => ({
     file: `identity/${relative(IDENTITY_SRC, full).split('\\').join('/')}`,
+    source: readFileSync(full, 'utf8'),
+  })),
+  // Labelled `settings/<path>`: the package's paths match the app's old ones.
+  ...sourceFiles(SETTINGS_SRC).map((full) => ({
+    file: `settings/${relative(SETTINGS_SRC, full).split('\\').join('/')}`,
     source: readFileSync(full, 'utf8'),
   })),
 ];

@@ -8,7 +8,7 @@ import {
   type SystemAiValue,
 } from '../../common/schemas/settings.schema';
 import { CredentialsService } from '../../credentials/credentials.service';
-import { SystemSettingsService } from '../../settings/system-settings/system-settings.service';
+import { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import { AiError } from '../core/ai-error';
 import { AiProviderRegistry } from '../core/provider-registry';
 import { AI_CREDENTIAL_PURPOSE, aiCredentialName } from './ai-credential.constants';

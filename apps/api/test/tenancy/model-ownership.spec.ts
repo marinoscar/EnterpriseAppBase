@@ -31,6 +31,7 @@ describe('model ownership vs prisma/schema/', () => {
       'Group',
       'GroupInvite',
       'GroupMember',
+      'OrgSettings',
       'StorageObject',
       'StorageObjectChunk',
     ]);

@@ -26,8 +26,12 @@ import { NODES_SYSTEM_SETTINGS } from '../../nodes/nodes.system-settings';
 import { NOTIFICATIONS_SYSTEM_SETTINGS } from '../../notifications/notifications.system-settings';
 import { STORAGE_SYSTEM_SETTINGS } from '../../storage/config/storage.system-settings';
 import { TELEMETRY_SYSTEM_SETTINGS } from '../../platform/telemetry/telemetry.system-settings';
-import { extendSystemSettingsNamespace, foldSettingsExtensions } from './extend';
-import { registerSystemSettingsNamespaces, type SystemSettingsNamespace } from './system-settings-namespace';
+import {
+  extendSystemSettingsNamespace,
+  foldSettingsExtensions,
+  registerSystemSettingsNamespaces,
+  type SystemSettingsNamespace,
+} from '@marinoscar/platform-api/settings';
 
 const PLATFORM_NAMESPACES: readonly SystemSettingsNamespace[] = [
   NOTIFICATIONS_SYSTEM_SETTINGS,

@@ -19,7 +19,7 @@ import { isActiveDedupConflict, JobsService } from '../jobs/jobs.service';
 import { resolveApiVersion } from '../openapi/version';
 import { PrismaService } from '../prisma/prisma.service';
 import { AppMetricsService, fallbackAppMetrics } from '../common/otel/app-metrics.service';
-import { SystemSettingsService } from '../settings/system-settings/system-settings.service';
+import { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import {
   STORAGE_PROVIDER,
   type StorageProvider,

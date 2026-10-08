@@ -70,6 +70,16 @@
         "default": "./dist/cjs/identity/index.js"
       }
     },
+    "./settings": {
+      "import": {
+        "types": "./dist/esm/settings/index.d.ts",
+        "default": "./dist/esm/settings/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/settings/index.d.ts",
+        "default": "./dist/cjs/settings/index.js"
+      }
+    },
     "./package.json": "./package.json"
   },
   "files": [

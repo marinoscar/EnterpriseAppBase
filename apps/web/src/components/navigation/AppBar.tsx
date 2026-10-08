@@ -22,9 +22,9 @@ import {
   ADMIN_SECTIONS,
   ADMIN_HUB_PATH,
   ADMIN_HUB_TITLE,
-  settingsPageTitle,
 } from '../../config/adminSections';
-import type { SettingsFeatures, SettingsSectionDef } from '../../config/adminSections';
+import { settingsPageTitle } from '@marinoscar/platform-web/settings/ui';
+import type { SettingsFeatures, SettingsSectionDef } from '@marinoscar/platform-web/settings/ui';
 import { useSettingsFeatures } from '../../hooks/useSettingsFeatures';
 import {
   USER_SETTINGS_SECTIONS,

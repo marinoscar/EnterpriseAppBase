@@ -23,7 +23,7 @@ import { JobHandlerRegistry } from './job-handler.registry';
 import { JobStuckService, stuckRunningWhere } from './job-stuck.service';
 import { DEFAULT_SYSTEM_SETTINGS } from '../common/types/settings.types';
 import type { PrismaService } from '../prisma/prisma.service';
-import type { SystemSettingsService } from '../settings/system-settings/system-settings.service';
+import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
 
 const THRESHOLD = new Date('2026-01-01T12:00:00.000Z');
 const NOW = new Date('2026-01-01T12:30:00.000Z');

@@ -76,7 +76,7 @@ import { ConfigModule } from '@nestjs/config';
 
 import { JobsModule } from '../../jobs/jobs.module';
 import { PrismaModule } from '../../prisma/prisma.module';
-import { SettingsModule } from '../../settings/settings.module';
+import { SettingsModule } from '../../platform/settings/settings.config';
 import { NotificationsModule } from '../notifications.module';
 import { BroadcastsController } from './broadcasts.controller';
 import { BroadcastFailureListener } from './broadcast-failure.listener';
