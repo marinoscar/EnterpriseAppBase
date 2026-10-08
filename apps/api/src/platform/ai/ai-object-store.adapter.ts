@@ -5,8 +5,8 @@
 // `@marinoscar/platform-api/ai` reaches object storage only through its
 // `AI_OBJECT_STORE` port: the four provider calls its output writer and input
 // resolver make, plus the configuration questions they ask. This adapter
-// answers them with the reference app's `STORAGE_PROVIDER` and
-// `StorageConfigService`, exactly as the AI code called them before the move.
+// answers them with the storage slice's `STORAGE_PROVIDER` and
+// `StorageConfigService` (`@marinoscar/platform-api/storage`), exactly as the AI code called them before the move.
 // =============================================================================
 
 import type { Readable } from 'node:stream';
@@ -14,9 +14,13 @@ import type { Readable } from 'node:stream';
 import { Inject, Injectable } from '@nestjs/common';
 import type { AiObjectStore } from '@marinoscar/platform-api/ai';
 
-import { StorageConfigService } from '../../storage/config/storage-config.service';
-import { STORAGE_SETTINGS_PATH, StorageNotConfiguredError } from '../../storage/config/storage-not-configured.error';
-import { STORAGE_PROVIDER, type StorageProvider } from '../../storage/providers/storage-provider.interface';
+import {
+  STORAGE_PROVIDER,
+  STORAGE_SETTINGS_PATH,
+  StorageConfigService,
+  StorageNotConfiguredError,
+  type StorageProvider,
+} from '@marinoscar/platform-api/storage';
 
 @Injectable()
 export class AiObjectStoreAdapter implements AiObjectStore {

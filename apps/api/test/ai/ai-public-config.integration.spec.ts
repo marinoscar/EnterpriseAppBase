@@ -174,6 +174,8 @@ describe('Public AI config and kill switch', () => {
         allowBackgroundRuns: false,
         allowRealtime: false,
         hostedTools: { web_search: false, file_search: false, code_interpreter: false, image_generation: false, mcp: false },
+        // #739: the deployment's `AiModule.forRoot` leaves the per-user picker on.
+        perUserDefaultModel: true,
         providers: [],
       });
     });
@@ -208,6 +210,8 @@ describe('Public AI config and kill switch', () => {
         allowBackgroundRuns: true,
         allowRealtime: false,
         hostedTools: { web_search: false, file_search: false, code_interpreter: false, image_generation: false, mcp: false },
+        // #739: the deployment's `AiModule.forRoot` leaves the per-user picker on.
+        perUserDefaultModel: true,
         providers: [
           { id: 'openai', displayName: 'Fake AI', enabled: true, hasOrgKey: true, supportsPreviousResponseId: true, requiresKey: true },
           // Registered (#446) but switched off; this test's credential store

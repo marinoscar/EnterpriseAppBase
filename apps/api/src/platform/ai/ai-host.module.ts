@@ -14,10 +14,10 @@
 
 import { Global, Module } from '@nestjs/common';
 import { AI_METRICS, AI_OBJECT_STORE, AI_SYSTEM_PRISMA, type AiMetrics } from '@marinoscar/platform-api/ai';
+import { StorageProvidersModule } from '@marinoscar/platform-api/storage';
 
 import { AppMetricsService } from '../../common/otel/app-metrics.service';
 import { PrismaSystemService } from '../../prisma/prisma-system.service';
-import { StorageProvidersModule } from '../../storage/providers/storage-providers.module';
 import { AiObjectStoreAdapter } from './ai-object-store.adapter';
 
 /** Compile-time proof that the app's metrics satisfy the AI slice's port. */

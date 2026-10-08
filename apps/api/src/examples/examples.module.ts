@@ -38,13 +38,11 @@ import { ExampleMetadataProcessor } from './storage/example-metadata.processor';
   // `example.checksum` reads object bytes server-side when no node takes it:
   // `STORAGE_PROVIDER`, never the whole storage module.
   // `ObjectProcessingModule` (#736): the processor registry the example
-  // metadata processor registers itself with.
-  imports: [StorageProvidersModule, ObjectProcessingModule],
-  providers: [ExampleEchoHandler, ExampleChecksumHandler, ExampleMetadataProcessor],
-  exports: [ExampleEchoHandler, ExampleChecksumHandler, ExampleMetadataProcessor],
-import { AiModule } from '../platform/ai/ai.config';
-import './ai/example-summary.feature';
-import { ExampleSummaryService } from './ai/example-summary.service';
+  // metadata processor registers itself with. `AiModule` (#739): the example
+  // feature service injects `AiService`.
+  imports: [StorageProvidersModule, ObjectProcessingModule, AiModule],
+  providers: [ExampleEchoHandler, ExampleChecksumHandler, ExampleMetadataProcessor, ExampleSummaryService],
+  exports: [ExampleEchoHandler, ExampleChecksumHandler, ExampleMetadataProcessor, ExampleSummaryService],
 })
 export class ExamplesModule implements OnModuleInit {
   onModuleInit(): void {

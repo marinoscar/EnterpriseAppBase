@@ -64,7 +64,9 @@ describe('PrismaSystemService injection boundary', () => {
     .sort();
 
   it('finds the injections (guards against a scan that matches nothing)', () => {
-    expect(mentions.length).toBeGreaterThanOrEqual(10);
+    // Fewer since the storage (#736) and AI (#739) slices moved their
+    // bypass-client users into the packages (each binds its own port).
+    expect(mentions.length).toBeGreaterThanOrEqual(8);
   });
 
   it('is mentioned only by allowlisted files', () => {
