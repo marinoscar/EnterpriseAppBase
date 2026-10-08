@@ -47,6 +47,10 @@ import {
   TelemetryWebAdaptersProvider,
 } from '@marinoscar/platform-web/telemetry/headless';
 import { appTelemetryAdapters } from './platform/telemetryAdapters';
+// The jobs slice (#854): the Jobs, Job Insights and Worker Nodes pages take the
+// app's table, spinner and client through these adapters.
+import { JobsWebAdaptersProvider } from '@marinoscar/platform-web/jobs/headless';
+import { appJobsAdapters } from './platform/jobsAdapters';
 
 // Pages (lazy loaded)
 import { Suspense, lazy } from 'react';
@@ -97,15 +101,20 @@ const StorageConfigPage = lazy(() => import('./pages/Admin/StorageConfigPage'));
 // which is the screen a BLOCKED user sees rather than the page that opens and
 // closes the window.
 const AdminMaintenancePage = lazy(() => import('./pages/Admin/MaintenancePage'));
-// Issue #266, epic #254 — the background queue's two Operations pages. Lazy
-// like every other admin page: both pull in the shared DataTable, and neither
-// is on the path of a user who never opens the Console.
-const JobsPage = lazy(() => import('./pages/Admin/JobsPage'));
-const JobInsightsPage = lazy(() => import('./pages/Admin/JobInsightsPage'));
-// Issue #271, epic #254 — the fleet page, and with it the node credentials it
-// hosts as a section. Lazy for the same reason: two DataTables and two dialogs
-// that nobody who never opens the Console will ever mount.
-const WorkersPage = lazy(() => import('./pages/Admin/WorkersPage'));
+// Issue #266, epic #254 — the background queue's two Operations pages, and
+// (#271) the fleet page with the node credentials it hosts as a section;
+// packaged in `@marinoscar/platform-web/jobs/ui` since #854. Lazy like every
+// other admin page: they pull in the shared DataTable, and none is on the path
+// of a user who never opens the Console.
+const JobsPage = lazy(() =>
+  import('@marinoscar/platform-web/jobs/ui').then((m) => ({ default: m.JobsPage })),
+);
+const JobInsightsPage = lazy(() =>
+  import('@marinoscar/platform-web/jobs/ui').then((m) => ({ default: m.JobInsightsPage })),
+);
+const WorkersPage = lazy(() =>
+  import('@marinoscar/platform-web/jobs/ui').then((m) => ({ default: m.WorkersPage })),
+);
 // Issue #287, epic #254 — the backup policy, the run history and the restore
 // dialog. Lazy for the same reason: a DataTable, a policy form and the restore
 // dialog that nobody who never opens the Console will ever mount.
@@ -254,7 +263,9 @@ function AppRoutes() {
                     platform host (which reads the feature it answers).
                     `TelemetryWebAdaptersProvider` (#704) hands the packaged
                     telemetry pages the app's AI hooks and spinner
-                    (`platform/telemetryAdapters.ts`). */}
+                    (`platform/telemetryAdapters.ts`); `JobsWebAdaptersProvider`
+                    (#854) hands the packaged jobs pages the app's table,
+                    spinner and client (`platform/jobsAdapters.ts`). */}
                 {/* `AppPlatformHostProvider` (#696) is the platform host every
                     packaged page reads (`@marinoscar/platform-web`): the app's
                     transport, the viewer's permissions and the feature map.
@@ -268,11 +279,13 @@ function AppRoutes() {
                       <AiConfigProvider>
                         <TelemetryConfigProvider api={appPlatformApi}>
                           <TelemetryWebAdaptersProvider adapters={appTelemetryAdapters}>
-                            <AppPlatformHostProvider>
-                              <OnboardingProvider appName={APP_NAME}>
-                                <Layout />
-                              </OnboardingProvider>
-                            </AppPlatformHostProvider>
+                            <JobsWebAdaptersProvider adapters={appJobsAdapters}>
+                              <AppPlatformHostProvider>
+                                <OnboardingProvider appName={APP_NAME}>
+                                  <Layout />
+                                </OnboardingProvider>
+                              </AppPlatformHostProvider>
+                            </JobsWebAdaptersProvider>
                           </TelemetryWebAdaptersProvider>
                         </TelemetryConfigProvider>
                       </AiConfigProvider>
@@ -627,8 +640,8 @@ function AppRoutes() {
                       own, because revoking a leaked worker token is an
                       incident-response action and a second card would put two
                       clicks in front of it. See `WorkersPage.tsx` and
-                      `components/admin/NodeCredentials.tsx` for the full
-                      argument and the alternatives rejected. */}
+                      `NodeCredentials.tsx` (`packages/platform-web/src/jobs/ui/`)
+                      for the full argument and the alternatives rejected. */}
                   <Route
                     path="/admin/settings/workers"
                     element={

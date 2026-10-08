@@ -36,12 +36,8 @@ import NotificationsActiveOutlinedIcon from '@mui/icons-material/NotificationsAc
 import BuildCircleOutlinedIcon from '@mui/icons-material/BuildCircleOutlined';
 import VpnKeyOutlinedIcon from '@mui/icons-material/VpnKeyOutlined';
 import CloudOutlinedIcon from '@mui/icons-material/CloudOutlined';
-// Operations (#266, epic #254). One icon per card, including the two cards
-// whose pages land in later issues — the card is declared now, so its icon is
-// declared now; see the `Operations` section's own header.
-import WorkHistoryOutlinedIcon from '@mui/icons-material/WorkHistoryOutlined';
-import QueryStatsIcon from '@mui/icons-material/QueryStats';
-import DnsOutlinedIcon from '@mui/icons-material/DnsOutlined';
+// Operations (#266, epic #254). One icon per card; the Jobs, Job Insights and
+// Worker Nodes cards bring their own from the packaged jobs slice (#854).
 import BackupOutlinedIcon from '@mui/icons-material/BackupOutlined';
 // Broadcasts (#325, epic #319) — the one Operations card that is not a view
 // onto machinery, but an action taken through it.
@@ -59,6 +55,8 @@ import { telemetryAdminCards } from '@marinoscar/platform-web/telemetry/ui';
 import { doctorSettingsPage } from '@marinoscar/platform-web/doctor/ui';
 // Access and Organizations (#727): the identity slice's cards, as data.
 import { identityAdminSections } from '@marinoscar/platform-web/identity/ui';
+// The jobs slice's Operations cards (#854): Jobs, Job Insights, Worker Nodes.
+import { jobsAdminSections } from '@marinoscar/platform-web/jobs/ui';
 // Setup guide (#745; a packaged page: card and icon from its descriptor).
 import { setupGuideSettingsPage } from '@marinoscar/platform-web/onboarding/ui';
 
@@ -322,51 +320,17 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
   {
     label: 'Operations',
     cards: [
-      {
-        title: 'Jobs',
-        description:
-          'Inspect the background queue, retry or remove individual jobs, and recover work that stalled.',
-        Icon: WorkHistoryOutlinedIcon,
-        path: '/admin/settings/jobs',
-        permission: 'jobs:read',
-      },
-      {
-        // Nested UNDER the Jobs route, which `settingsPageTitle`'s
-        // longest-prefix rule resolves correctly: a bare `startsWith` would let
-        // `Jobs` claim this path and title the page "Jobs" in the compact
-        // AppBar. That is the case the rule was written for, and it is asserted
-        // in `settingsRegistry.test.ts` rather than left to the comment.
-        title: 'Job Insights',
-        description:
-          'See how long the queue takes, how fast it is moving, and when the outstanding work will be done.',
-        Icon: QueryStatsIcon,
-        path: '/admin/settings/jobs/insights',
-        permission: 'jobs:read',
-      },
-      {
-        // Declared inert by #266 alongside the whole group; ROUTED by #271,
-        // which ships the page. Flipping a card is exactly the two-field edit
-        // the section header describes — a `path` appears and `disabled`
-        // disappears — and both consumers pick it up from that alone: the hub
-        // swaps its "Coming soon" chip for a real `CardActionArea`, and the
-        // Console rail, which skipped the row entirely, starts drawing it.
-        //
-        // `permission` is UNCHANGED and was already right: `nodes:read` is the
-        // literal string `nodes-admin.controller.ts` enforces on its fleet
-        // list, its detail read and its credential list
-        // (`PERMISSIONS.NODES_READ`). Creating and revoking credentials, and
-        // deleting a node, need `nodes:write`, which the PAGE gates internally
-        // by omitting the row actions and the create button — the card gate is
-        // about REACHABILITY, and "which machines are attached and are they
-        // alive" is worth reading for anyone answering "why is nothing being
-        // processed".
-        title: 'Worker Nodes',
-        description:
-          'See which machines are attached to this deployment, what they are running, and whether they are healthy.',
-        Icon: DnsOutlinedIcon,
-        path: '/admin/settings/workers',
-        permission: 'nodes:read',
-      },
+      // Jobs, Job Insights and Worker Nodes ship as data from the packaged jobs
+      // slice since #854 (`jobsAdminSections.operations`, in this order), with
+      // the permissions above unchanged: `jobs:read` on both Jobs cards,
+      // `nodes:read` on Worker Nodes (the `nodes-admin.controller.ts` string,
+      // deliberately not `jobs:read`). Job Insights nests UNDER the Jobs route,
+      // which `settingsPageTitle`'s longest-prefix rule resolves correctly (a
+      // bare `startsWith` would let `Jobs` claim it and title the page "Jobs"
+      // in the compact AppBar); asserted in `settingsRegistry.test.ts`.
+      // Writes (`jobs:write`, `nodes:write`) are gated inside the pages: the
+      // card gate is about REACHABILITY.
+      ...jobsAdminSections.operations,
       {
         // Declared inert by #266 alongside the whole group; ROUTED by #287,
         // the last issue of the epic, which ships the page. Flipping a card is

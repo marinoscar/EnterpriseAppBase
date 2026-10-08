@@ -25,7 +25,9 @@
     "src/onboarding/headless/index.ts",
     "src/onboarding/ui/index.ts",
     "src/email/headless/index.ts",
-    "src/email/ui/index.ts"
+    "src/email/ui/index.ts",
+    "src/jobs/headless/index.ts",
+    "src/jobs/ui/index.ts"
   ],
   "out": "docs-api",
   "json": "docs-api/api.json"

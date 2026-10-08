@@ -57,8 +57,6 @@ import {
 import type { DbBackupConfig, DbBackupRun } from '../../services/dbBackup';
 import { ApiError } from '../../services/api';
 import { useVisiblePolling as sharedUseVisiblePolling } from '../../hooks/useVisiblePolling';
-import { useVisiblePolling as jobsUseVisiblePolling } from '../../hooks/useJobs';
-import { useVisiblePolling as nodesUseVisiblePolling } from '../../hooks/useWorkerNodes';
 import {
   useDbBackupActions,
   useDbBackupConfig,
@@ -146,11 +144,11 @@ function setTabHidden(hidden: boolean) {
 }
 
 describe('the backup poll', () => {
-  it('is the ONE `useVisiblePolling`, shared with the jobs and workers pages', () => {
-    // Identity, not behaviour — see the file header.
+  it('is the app\'s ONE `useVisiblePolling`, not a copy', () => {
+    // Identity, not behaviour — see the file header. (The jobs and workers
+    // pages moved into @marinoscar/platform-web/jobs with that slice's own
+    // copy, #854; a package cannot import the app.)
     expect(useVisiblePolling).toBe(sharedUseVisiblePolling);
-    expect(useVisiblePolling).toBe(jobsUseVisiblePolling);
-    expect(useVisiblePolling).toBe(nodesUseVisiblePolling);
   });
 
   describe('pausing', () => {
