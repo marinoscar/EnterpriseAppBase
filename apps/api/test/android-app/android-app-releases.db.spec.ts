@@ -22,9 +22,62 @@ const PACKAGE = `test.androiddb.p${process.pid}`;
 const SHA = Array.from({ length: 32 }, (_, i) => ((i * 7 + 1) % 256).toString(16).toUpperCase().padStart(2, '0')).join(':');
 const ENDPOINT = `https://fcm.googleapis.com/fcm/send/androiddb-${process.pid}`;
 
+/**
+ * A view of `client` whose interactive transactions wait at a barrier before
+ * their first `androidAppRelease.updateMany` until `parties` transactions have
+ * reached it, so concurrent make-current calls really overlap.
+ */
+function barrierClient(client: PrismaClient, parties: number): PrismaClient {
+  let arrived = 0;
+  let open!: () => void;
+  const gate = new Promise<void>((resolve) => (open = resolve));
+  const arrive = async (): Promise<void> => {
+    arrived += 1;
+    if (arrived >= parties) open();
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error('the concurrent transactions never met at the barrier')), 15_000);
+    });
+    try {
+      await Promise.race([gate, timeout]);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  const bind = <T extends object>(target: T, prop: string | symbol): unknown => {
+    const value = Reflect.get(target, prop) as unknown;
+    return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+  };
+  const wrapTx = (tx: object): object =>
+    new Proxy(tx, {
+      get(target, prop) {
+        if (prop !== 'androidAppRelease') return bind(target, prop);
+        const delegate = Reflect.get(target, prop) as object;
+        return new Proxy(delegate, {
+          get(d, method) {
+            if (method !== 'updateMany') return bind(d, method);
+            return async (args: unknown) => {
+              await arrive();
+              return (Reflect.get(d, method) as (a: unknown) => unknown).call(d, args);
+            };
+          },
+        });
+      },
+    });
+  return new Proxy(client, {
+    get(target, prop) {
+      if (prop !== '$transaction') return bind(target, prop);
+      return (fn: (tx: object) => unknown, options?: unknown) =>
+        (target.$transaction as (f: (tx: object) => unknown, o?: unknown) => unknown)((tx) => fn(wrapTx(tx)), options);
+    },
+  });
+}
+
 describeWithDb('android-app on real Postgres (#746)', () => {
   let client: PrismaClient;
   let releases: AndroidReleaseService;
+  /** The same service over a client whose make-current transactions meet at a barrier. */
+  let racing: AndroidReleaseService;
   let userId: string;
 
   async function seedRelease(versionCode: number, isCurrent = false, sizeBytes = 1000n) {
@@ -53,14 +106,17 @@ describeWithDb('android-app on real Postgres (#746)', () => {
     const androidApp = new AndroidAppService(client as never, rows);
     const storage = { upload: jest.fn(), delete: jest.fn(), download: jest.fn(async () => Readable.from([])) };
     const storageConfig = { resolve: jest.fn(async () => ({ configured: true, config: { provider: 's3', bucket: 'b' } })) };
-    releases = new AndroidReleaseService(
-      client as never,
-      storage as never,
-      storageConfig as never,
-      androidApp,
-      new InMemoryAuditSink(),
-      resolveAndroidAppModuleOptions({ appName: 'Db Test', apkStem: 'db-test-android' }),
-    );
+    const service = (prisma: unknown) =>
+      new AndroidReleaseService(
+        prisma as never,
+        storage as never,
+        storageConfig as never,
+        androidApp,
+        new InMemoryAuditSink(),
+        resolveAndroidAppModuleOptions({ appName: 'Db Test', apkStem: 'db-test-android' }),
+      );
+    releases = service(client);
+    racing = service(barrierClient(client, 2));
   });
 
   afterAll(async () => {
@@ -89,7 +145,11 @@ describeWithDb('android-app on real Postgres (#746)', () => {
     await seedRelease(1, true);
     const b = await seedRelease(2);
     const c = await seedRelease(3);
-    const outcomes = await Promise.allSettled([releases.makeCurrent(b.id, userId), releases.makeCurrent(c.id, userId)]);
+    // Force the overlap: both transactions are open and past their reads
+    // before either unsets the current release (barrierClient). Without it the
+    // two calls may simply run one after the other, and both succeed (the
+    // later one wins), which proves nothing about the index.
+    const outcomes = await Promise.allSettled([racing.makeCurrent(b.id, userId), racing.makeCurrent(c.id, userId)]);
     const current = await client.androidAppRelease.findMany({ where: { packageName: PACKAGE, isCurrent: true } });
     expect(current).toHaveLength(1);
     const fulfilled = outcomes.filter((o) => o.status === 'fulfilled');
