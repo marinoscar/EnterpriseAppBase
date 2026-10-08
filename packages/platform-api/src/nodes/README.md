@@ -57,7 +57,7 @@ The fleet policy (staleness, the offline multiplier, retention) is the `nodes` s
 | `NODE_JOB_INPUTS` | token | `unique symbol` -> `NodeJobInputs` (`resolve(job)`) | Bind how a held job's input object is found (the app's storage subject) | experimental | [example](../../../../apps/api/src/platform/jobs/node-job-inputs.adapter.ts) |
 | `NodeOfflineEvent` | event | `@OnEvent(NODE_OFFLINE_EVENT) (event: NodeOfflineEvent)` | React to a node the fleet sweep marked offline (emitted after the write committed) | stable | [example](../../../../apps/api/test/nodes/node-offline-event.integration.spec.ts) |
 
-Supporting exports (experimental unless noted): `NodeCredentialModule`, the services (`NodesService`, `NodeCredentialService`, `NodeLifecycleService`, `NodeDataPlaneService`, `NodeSecretBrokerService`, `NodesAdminService`), the two fleet handlers and their type strings, `NODE_OFFLINE_EVENT` (stable), `NODE_TOKEN_PREFIX`, `NODE_OUTPUT_KEY_PREFIX`, `SECRET_CLOCK_SKEW_ALLOWANCE_MS`, `NodeJobInputError`, the port option types (`SignedUrlOptions`, `SignedPutUrlOptions`, structurally the storage slice's), the request DTO classes and the response DTO types, `NODES_APP_METRICS` and the label lists (stable), `NODES_PERMISSIONS` (stable), `OWNER_SELECT` and `CREDENTIAL_OWNER_SELECT`.
+Supporting exports (experimental unless noted): `NodeCredentialModule`, the services (`NodesService`, `NodeCredentialService`, `NodeLifecycleService`, `NodeDataPlaneService`, `NodeSecretBrokerService`, `NodesAdminService`), the two fleet handlers and their type strings, `NODE_OFFLINE_EVENT` (stable), `NODE_TOKEN_PREFIX`, `NODE_OUTPUT_KEY_PREFIX`, `SECRET_CLOCK_SKEW_ALLOWANCE_MS`, `NodeJobInputError`, the port option types (`SignedUrlOptions`, `SignedPutUrlOptions`, structurally the storage slice's), the request DTO classes and the response DTO types, `NODES_APP_METRICS` and the label lists (stable), `NODES_PERMISSIONS` (stable), `OWNER_SELECT` and `CREDENTIAL_OWNER_SELECT`, and the `nodes` settings namespace `NODES_SYSTEM_SETTINGS` with its merge `mergeNodesSettings`.
 
 The app-side proof that its `StorageProvider` satisfies `NodeObjectStore` is a compile-time assertion in [`jobs-host.module.ts`](../../../../apps/api/src/platform/jobs/jobs-host.module.ts); the port contract is `src/nodes/node-object-store.spec.ts`.
 
@@ -67,7 +67,7 @@ The `jobs` fragment of `@marinoscar/platform-db` holds the slice's tables: `Work
 
 ## Permissions and settings
 
-Declares `nodes:read` and `nodes:write` (`NODES_PERMISSIONS`, system scope, granted to `admin`); every route enforces one with `@Auth`, and the `/api/admin/nodes` routes also require `ROLES.ADMIN`. Reads the `nodes` system-settings namespace (`getNodesPolicy`) and the `jobs` node-offload switches.
+Declares `nodes:read` and `nodes:write` (`NODES_PERMISSIONS`, system scope, granted to `admin`); every route enforces one with `@Auth`, and the `/api/admin/nodes` routes also require `ROLES.ADMIN`. Owns the `nodes` system-settings namespace: `NODES_SYSTEM_SETTINGS` (the stale and offline windows, the offline retention, the credential-broker switch, off by default; defaults `DEFAULT_NODES_POLICY`; schemas in `@marinoscar/platform-contract/nodes`). `NodesModule.forRoot()` registers it unless the app's manifest already did, so call it before `SettingsModule.forRoot()`. Reads it through `getNamespace('nodes')` (or the deprecated `getNodesPolicy`), plus the `jobs` node-offload switches.
 
 ## UI
 
@@ -100,6 +100,7 @@ New as a package subpath in this version (the code moved from `apps/api/src/node
 - Import from `@marinoscar/platform-api/nodes`; mount `NodeCredentialModule` and `NodesModule.forRoot({ imports: [<host module>] })`, and bind `NODE_OBJECT_STORE` and `NODE_JOB_INPUTS`.
 - The fleet sweep no longer calls `NotificationsService`: it emits `nodes.node.offline`. An app that wants the `nodes.node_offline` notification adds a listener (the reference app's `NodeOfflineNotifier`); the event key and template are unchanged.
 - The request schemas moved to `@marinoscar/platform-contract/nodes`; the HTTP contract is unchanged.
+- #865: the `nodes` namespace declaration is the slice's (`NODES_SYSTEM_SETTINGS`), and `NodesModule.forRoot()` registers it. An app that copied the reference app's `platform/jobs/nodes.system-settings.ts` deletes its copy and imports the packaged one into its manifest; `forRoot()` must run before `SettingsModule.forRoot()`.
 
 ## Troubleshooting
 
@@ -108,6 +109,7 @@ New as a package subpath in this version (the code moved from `apps/api/src/node
 | Boot fails: `Nest can't resolve dependencies of NodeDataPlaneService (…, NODE_OBJECT_STORE, …)` | The host module binding the port is not in `forRoot({ imports })` | Bind `NODE_OBJECT_STORE` in a `@Global()` host module and pass it to `imports` |
 | Nodes go offline but nobody is told | No `nodes.node.offline` listener in the app | Add one that calls the notifier (dispatch only; no I/O in the listener) |
 | A node's secret request is a 409 | The job is no longer held by that claim | The node lost the lease; it must stop and not retry the secret |
+| `NodesModule.forRoot() registers the system settings namespace(s) "nodes", but SettingsModule.forRoot() already composed ...` | `NodesModule.forRoot()` ran after `SettingsModule.forRoot()`, without the app's manifest registering `nodes` | Call it first, or register `NODES_SYSTEM_SETTINGS` in the app's manifest |
 
 ## Links
 

@@ -15,6 +15,8 @@
 // lost.
 
 // ---- the module and its options (rung 1) ----------------------------------------------
+import type { PlatformEmailTemplateDataMap } from './templates/platform-email-templates';
+
 export { EmailModule, EmailTemplateOverrideReporter } from './email.module';
 export { EMAIL_OPTIONS, resolveEmailModuleOptions } from './email.options';
 export type { EmailModuleOptions, ResolvedEmailModuleOptions } from './email.options';
@@ -123,7 +125,6 @@ export type {
   EmailRenderContext,
   EmailRenderingOptions,
   EmailTemplate,
-  EmailTemplateDataMap,
   EmailTemplateEntry,
   EmailTemplateName,
   EmailTemplateOverride,
@@ -146,3 +147,22 @@ export type {
   TestEmailData,
   UserWelcomeEmailData,
 } from './templates/index';
+
+// ---- `EmailTemplateDataMap`: an augmentation target, declared here, never re-exported (#865) ----
+
+/**
+ * Every template, mapped to the data it renders from: the platform's nine,
+ * plus whatever an app declares by module augmentation, next to its
+ * registration:
+ *
+ * ```ts
+ * declare module '@marinoscar/platform-api/email' {
+ *   interface EmailTemplateDataMap { 'coach-weekly-review': CoachWeeklyReviewEmailData }
+ * }
+ * registerEmailTemplate('coach-weekly-review', coachWeeklyReviewEmail);
+ * ```
+ *
+ * @extensionPoint schema
+ * @stability experimental
+ */
+export interface EmailTemplateDataMap extends PlatformEmailTemplateDataMap {}

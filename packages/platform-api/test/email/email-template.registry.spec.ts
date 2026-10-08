@@ -30,7 +30,7 @@ interface RegistryDigestData {
   items: string[];
 }
 
-declare module '../../src/email/templates/email-template.registry' {
+declare module '../../src/email/index' {
   interface EmailTemplateDataMap {
     'registry-spec-digest': RegistryDigestData;
   }

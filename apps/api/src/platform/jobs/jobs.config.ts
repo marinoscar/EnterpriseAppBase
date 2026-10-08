@@ -8,7 +8,14 @@
 // there is exactly one queue (the module is also global). The environment
 // (`JOBS_*`, `NODE_*_ENABLED`) stays the deployment's configuration: no
 // option is passed that it already decides.
+//
+// The app's namespace manifests FIRST (#865): each `forRoot()` below registers
+// its slice's settings namespace (`jobs`, `nodes`) unless the manifest already
+// did, and the manifest lists both in its pinned key order. Loading it first
+// keeps that order whichever of this file and `settings.config.ts` loads first.
 // =============================================================================
+
+import '../../settings/registry';
 
 import { APP_NAME } from '@app/shared';
 import { JobsModule as PlatformJobsModule } from '@marinoscar/platform-api/jobs';

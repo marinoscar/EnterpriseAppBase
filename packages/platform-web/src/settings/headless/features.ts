@@ -17,28 +17,10 @@
 // =============================================================================
 
 import { useMemo } from 'react';
+import type { SettingsFeatureRegistry } from './index.js';
 
-/**
- * The known deployment feature keys, as an augmentation target. The platform
- * declares `ai` and `telemetry`; an app adds a key with module augmentation
- * and registers its resolver with {@link registerSettingsFeature}.
- *
- * @example
- * ```ts
- * declare module '@marinoscar/platform-web/settings/headless' {
- *   interface SettingsFeatureRegistry { orgs: true }
- * }
- * registerSettingsFeature('orgs', useOrgsFeature);
- * ```
- *
- * @stability experimental
- */
-export interface SettingsFeatureRegistry {
-  /** AI is switched on for this deployment. */
-  ai: true;
-  /** A telemetry store is deployed and collection is on. */
-  telemetry: true;
-}
+// `SettingsFeatureRegistry` is DECLARED in the slice's entry module (./index.js), so an app's
+// augmentation of the public specifier merges in any file order (#865).
 
 /**
  * One deployment feature key a settings card may be gated on.

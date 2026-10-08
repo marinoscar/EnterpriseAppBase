@@ -149,7 +149,7 @@ export const NOTIFICATIONS_SYSTEM_SETTINGS = {
   z.infer<typeof notificationsSettingsPatchSchema>
 >;
 
-declare module '../settings/registry/system-settings-namespace' {
+declare module '../settings/index' {
   interface SystemSettingsNamespaces {
     /**
      * Deployment-wide browser-notification policy (#225, epic #215).

@@ -53,7 +53,15 @@ const PORTS = [
 @Module({ providers: PORTS, exports: PORTS.map((port) => port.provide) })
 export class AppHostModule {}
 
-/** The background queue: `jobs` and its admin routes, the worker and the hygiene crons. */
+/**
+ * The background queue: `jobs` and its admin routes, the worker and the
+ * hygiene crons. Configured HERE, above `PLATFORM_MODULES`, on purpose:
+ * `JobsModule.forRoot()` registers the `jobs` settings namespace (the
+ * job-history purge's policy), and `SettingsModule.forRoot()` below composes
+ * the `/api/system-settings` request bodies from the registry once. Moved
+ * after it, `forRoot()` throws. A `NodesModule.forRoot()` (`nodes`) goes up
+ * here too.
+ */
 export const jobsModule = JobsModule.forRoot({ appName: APP_NAME, imports: [AppHostModule] });
 
 export const PLATFORM_MODULES = [

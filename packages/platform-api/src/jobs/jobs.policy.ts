@@ -7,9 +7,12 @@
 // `nodes` namespaces, and are read through the settings slice's narrow
 // accessors (`SystemSettingsService.getJobsPolicy()` / `getNodesPolicy()`),
 // which never create the row. The namespaces themselves (schemas, merge,
-// defaults) are declared by the app's settings manifest (the reference app:
-// `apps/api/src/platform/jobs/`), which builds its defaults from the two
-// constants below, so the shipped numbers live in exactly one place.
+// defaults) are the slices' own declarations since #865
+// (`JOBS_SYSTEM_SETTINGS` in ./jobs.system-settings.ts, `NODES_SYSTEM_SETTINGS`
+// in ../nodes/nodes.system-settings.ts), registered by `JobsModule.forRoot()`
+// and `NodesModule.forRoot()` unless the app's manifest already did; their
+// defaults are the two constants below, so the shipped numbers live in
+// exactly one place.
 //
 // The accessors return whatever the stored row holds; every reader below
 // validates field by field and falls back on these defaults.

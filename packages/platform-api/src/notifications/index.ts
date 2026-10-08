@@ -82,7 +82,6 @@ export type {
   EventEmailTemplateBinding,
   NotificationChannel,
   NotificationChannelDef,
-  NotificationChannelIds,
   NotificationEventDef,
   NotificationRegistration,
 } from './registry/index';
@@ -183,3 +182,32 @@ export type {
   NotificationsWhere,
   PushSubscriptionRow,
 } from './data/notifications-db';
+
+// ---- `NotificationChannelIds`: an augmentation target, declared here, never re-exported (#865) ----
+
+/**
+ * The channel ids the TYPE SYSTEM knows about, for editor completion.
+ *
+ * Module augmentation lets an app name its own ids in completions next to its
+ * registration:
+ *
+ * ```ts
+ * declare module '@marinoscar/platform-api/notifications' {
+ *   interface NotificationChannelIds { android_app: true }
+ * }
+ * ```
+ *
+ * Since #738 the type is OPEN ({@link NotificationChannel} accepts any
+ * string): the runtime registry is the only authority on which channels
+ * exist, and an app's channel needs no augmentation to compile.
+ *
+ * @stability stable
+ */
+export interface NotificationChannelIds {
+  /** The platform's email channel. */
+  email: true;
+  /** The in-app inbox and stream. */
+  browser: true;
+  /** Web Push. */
+  push: true;
+}

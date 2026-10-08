@@ -16,6 +16,8 @@ import { JobTerminalService } from './job-terminal.service';
 import { JobWorker } from './job.worker';
 import { JOBS_OPTIONS, jobsConfigOverlay, resolveJobsModuleOptions, type JobsModuleOptions } from './jobs.options';
 import { JobsService } from './jobs.service';
+import { JOBS_SYSTEM_SETTINGS } from './jobs.system-settings';
+import { ensureSystemSettingsNamespaces, type SystemSettingsNamespace } from '../settings/index';
 import { JobScope } from './job-scope';
 import { NodeOffloadService } from './node-offload.service';
 import { ProviderThrottleService } from './provider-throttle.service';
@@ -208,7 +210,9 @@ const INTERNAL = [
 @Module({})
 export class JobsModule {
   /**
-   * The slice for one app. Call once.
+   * The slice for one app. Call once, before `SettingsModule.forRoot()`: it
+   * registers the `jobs` system-settings namespace (`JOBS_SYSTEM_SETTINGS`)
+   * unless the app's settings manifest already did.
    *
    * @param options - see {@link JobsModuleOptions}.
    * @returns the dynamic module (global). It provides and exports
@@ -216,7 +220,8 @@ export class JobsModule {
    *   `JobLeaseService`, `JobTerminalService`, `JobStuckService`,
    *   `ProviderThrottleService`, `NodeOffloadService`,
    *   `JobHistoryPurgeHandler` and `JOBS_OPTIONS`.
-   * @throws Error when an option is invalid.
+   * @throws Error when an option is invalid, or when `SettingsModule.forRoot()`
+   *   already composed the settings request bodies without `jobs`.
    *
    * @example
    * ```ts
@@ -229,6 +234,10 @@ export class JobsModule {
   static forRoot(options: JobsModuleOptions = {}): DynamicModule {
     const resolved = resolveJobsModuleOptions(options);
     if (resolved.appName !== undefined) configureJobTempPrefix(resolved.appName);
+    // The `jobs` settings namespace is this slice's (#865): registered here
+    // unless the app's manifest already did, before SettingsModule.forRoot()
+    // composes the request bodies.
+    ensureSystemSettingsNamespaces([JOBS_SYSTEM_SETTINGS as SystemSettingsNamespace], 'JobsModule.forRoot()');
 
     // Only when something is overridden: `forRoot({})` reads the app's own
     // global `ConfigService`, exactly as before the move.

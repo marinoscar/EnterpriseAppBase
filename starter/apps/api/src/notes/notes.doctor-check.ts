@@ -2,7 +2,6 @@ import { Injectable, type OnModuleInit } from '@nestjs/common';
 import { DoctorCheckRegistry, type DoctorCheck, type DoctorCheckOutcome } from '@marinoscar/platform-api/doctor';
 import { SystemSettingsService } from '@marinoscar/platform-api/settings';
 
-import { readNotesSettings } from './notes.settings';
 
 /**
  * `notes.archive` in the admin Doctor (`GET /api/admin/doctor`): is archiving
@@ -25,7 +24,7 @@ export class NotesArchiveDoctorCheck implements DoctorCheck, OnModuleInit {
   }
 
   async run(): Promise<DoctorCheckOutcome> {
-    const days = (await readNotesSettings(this.settings)).archiveAfterDays;
+    const days = (await this.settings.getNamespace('notes')).archiveAfterDays;
     if (days === 0) {
       return { status: 'skip', detail: 'Archiving is off (notes.archiveAfterDays is 0).' };
     }

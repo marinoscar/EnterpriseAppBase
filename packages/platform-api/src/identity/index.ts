@@ -96,11 +96,9 @@ export {
 export type {
   IdentityPermissionDeclaration,
   IdentityPermissionDeclarationMap,
-  IdentityPermissionIds,
   IdentityPermissionScope,
   IdentityRoleDeclaration,
   IdentityRoleDeclarationMap,
-  IdentityRoleIds,
   PermissionName,
   RoleName,
 } from './identity.permissions';
@@ -224,3 +222,30 @@ export { OrganizationsAdminService } from './organizations/organizations-admin.s
 // ---- the job types (permanent strings; both server-only) --------------------------------
 export { AUTH_TOKEN_CLEANUP_TYPE } from './auth/handlers/token-cleanup.handler';
 export { DEVICE_CODE_CLEANUP_TYPE } from './device-auth/handlers/device-code-cleanup.handler';
+
+// ---- `IdentityPermissionIds`, `IdentityRoleIds`: augmentation targets, declared here, never re-exported (#865) ----
+
+/**
+ * The permission ids `@Auth({ permissions })` and `@Permissions(...)` accept.
+ * Empty here; an app widens it by module augmentation so its own registry's ids
+ * type-check (and a typo does not):
+ *
+ * ```ts
+ * declare module '@marinoscar/platform-api/identity' {
+ *   interface IdentityPermissionIds extends Record<PermissionName, true> {}
+ * }
+ * ```
+ *
+ * While nobody augments it, any string is accepted.
+ *
+ * @stability experimental
+ */
+export interface IdentityPermissionIds {}
+
+/**
+ * The role ids `@Auth({ roles })` and `@Roles(...)` accept; widened by the app
+ * like {@link IdentityPermissionIds}.
+ *
+ * @stability experimental
+ */
+export interface IdentityRoleIds {}

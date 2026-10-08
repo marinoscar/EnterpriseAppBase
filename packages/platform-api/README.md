@@ -53,7 +53,11 @@ Install these in the app; the package never bundles its own copy (a second copy 
 | `reflect-metadata` | `^0.2.2` |
 | `rxjs` | `^7.8.1` |
 | `supertest` | `^7.2.2` (optional; only the AI conformance suites, `@marinoscar/platform-api/ai/testing`) |
+| `@types/supertest` | `^7.2.0` (optional; with `supertest`, for the same suites' declarations) |
+| `@nestjs/platform-fastify` | `^11.1.12` (optional; the telemetry conformance suite, `@marinoscar/platform-api/telemetry/testing`) |
 | `zod` | `^4.4.3` |
+
+The type packages the published declarations need whatever an app imports (`@types/passport`, `@types/passport-jwt`, `@types/passport-google-oauth20` for the identity slice, `@types/pg` for telemetry) are dependencies, so an app that type-checks its libraries (`skipLibCheck: false`) installs nothing extra. `test/declaration-type-deps.spec.ts` fails on a declaration import the manifest does not cover (#865).
 
 The OpenTelemetry SDK packages the `otel-core` slice installs (`@opentelemetry/sdk-node`, the auto-instrumentations, the OTLP/HTTP exporters and their SDK siblings) are regular dependencies, not peers: only `@opentelemetry/api`, which holds the process-wide providers, must be a single shared copy.
 

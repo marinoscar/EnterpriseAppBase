@@ -22,6 +22,7 @@ import { z } from 'zod';
 import { defineRegistry } from '../../core/index';
 import { SETTINGS_SECRET_FIELD_NAMES, secretFieldMessage } from './secret-fields';
 import { findDefaultPaths, findSecretFieldPaths, isZodSchema } from './schema-walk';
+import type { SystemSettingsNamespaces } from '../index';
 
 /**
  * Helpers `SystemSettingsService` lends to a namespace's {@link SystemSettingsNamespace.read}.
@@ -145,32 +146,9 @@ export interface SettingsNamespaceOrgLayer<V> {
   readonly writePermission: string;
 }
 
-/**
- * Key → stored value type of every registered system namespace. Each platform
- * declaration file adds its key by module augmentation; an app adds its own
- * the same way (see `app-registrations/settings.ts`).
- *
- * @example
- * ```ts
- * declare module '@marinoscar/platform-api/settings' {
- *   interface SystemSettingsNamespaces { coach: CoachSettings }
- * }
- * ```
- *
- * @stability experimental
- */
-export interface SystemSettingsNamespaces {}
-
-/**
- * Key → `typeof` the declaration, for the precise static types of the composed
- * schemas (`updateSystemSettingsSchema.parse(...)` returning typed branches).
- * Optional for an app: a namespace augmented only in
- * {@link SystemSettingsNamespaces} is still validated, stored and returned;
- * its request-body branch is just not statically typed.
- *
- * @stability experimental
- */
-export interface SystemSettingsNamespaceDeclarations {}
+// `SystemSettingsNamespaces` and `SystemSettingsNamespaceDeclarations`, the
+// two interfaces a slice or an app augments, are DECLARED in the slice's entry
+// module (`../index.ts`), not here: see the note there (#865).
 
 /**
  * The stored system settings document, one property per registered namespace.
@@ -193,6 +171,17 @@ export type SystemSettingsValue = {
 export type SystemSettingsNamespaceValue<K extends string> = K extends keyof SystemSettingsNamespaces
   ? SystemSettingsNamespaces[K]
   : unknown;
+
+/**
+ * The stored value type a namespace declaration describes: the output of its
+ * `storedSchema`. What `SystemSettingsService.getNamespace(declaration)`
+ * returns, without any augmentation of {@link SystemSettingsNamespaces}.
+ *
+ * @typeParam D - the declaration's type (`typeof NOTES_SYSTEM_SETTINGS`).
+ *
+ * @stability experimental
+ */
+export type SystemSettingsNamespaceOf<D extends Pick<SystemSettingsNamespace, 'storedSchema'>> = z.output<D['storedSchema']>;
 
 /**
  * Top-level keys the response or the row reserve for core fields.
@@ -317,4 +306,63 @@ export const systemSettingsNamespaceRegistry = defineRegistry<SystemSettingsName
  */
 export function registerSystemSettingsNamespaces(namespaces: readonly SystemSettingsNamespace[]): void {
   systemSettingsNamespaceRegistry.registerAll(namespaces);
+}
+
+// Set once `createSystemSettingsController()` (`SettingsModule.forRoot()`) has
+// built the request-body DTOs from the registry: a namespace registered later
+// would be stored and returned, but every PUT and PATCH of it would be
+// stripped by the validation pipe before the service saw it.
+let requestBodiesComposed = false;
+
+/**
+ * Records that `SettingsModule.forRoot()` composed the request bodies from the
+ * registry as it is now. Called by `createSystemSettingsController()`.
+ *
+ * @internal
+ */
+export function markSystemSettingsRequestBodiesComposed(): void {
+  requestBodiesComposed = true;
+}
+
+/**
+ * Registers each of a slice's own namespaces that the app has not registered
+ * itself, in order, all or nothing (#865). For a slice's `forRoot()`
+ * (`JobsModule`, `NodesModule`): a slice that owns a namespace registers it,
+ * so an app wires the slice without copying its declaration. A key already
+ * registered (by the app's manifest, possibly extended) is left alone, so an
+ * app that pins the stored key order lists the declaration in its manifest
+ * and this is a no-op.
+ *
+ * Call it before `SettingsModule.forRoot()`: the request bodies are composed
+ * there, once.
+ *
+ * @param namespaces - the slice's declarations, in order.
+ * @param owner - who registers them, for the error message (`'JobsModule.forRoot()'`).
+ * @returns the keys it registered (empty when every key was already registered,
+ *   or when the registries are frozen: an application already bootstrapped in
+ *   this process, as in a test file that builds several).
+ * @throws Error naming the owner, the keys and the remedy when
+ *   `SettingsModule.forRoot()` already composed the request bodies without them.
+ * @throws RegistryError when a declaration is invalid.
+ *
+ * @example
+ * ```ts
+ * ensureSystemSettingsNamespaces([JOBS_SYSTEM_SETTINGS], 'JobsModule.forRoot()');
+ * ```
+ *
+ * @stability experimental
+ */
+export function ensureSystemSettingsNamespaces(namespaces: readonly SystemSettingsNamespace[], owner: string): string[] {
+  const missing = namespaces.filter((ns) => !systemSettingsNamespaceRegistry.has(ns.key));
+  if (missing.length === 0 || systemSettingsNamespaceRegistry.frozen) return [];
+  const keys = missing.map((ns) => ns.key);
+  if (requestBodiesComposed) {
+    throw new Error(
+      `${owner} registers the system settings namespace(s) ${keys.map((k) => `"${k}"`).join(', ')}, but SettingsModule.forRoot() ` +
+        'already composed the request bodies without them, so PUT and PATCH /api/system-settings would drop them. ' +
+        `Call ${owner} before SettingsModule.forRoot(), or register the declaration(s) in the app's settings manifest.`,
+    );
+  }
+  systemSettingsNamespaceRegistry.registerAll(missing);
+  return keys;
 }

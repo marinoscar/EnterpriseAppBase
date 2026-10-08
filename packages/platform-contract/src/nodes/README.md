@@ -38,7 +38,7 @@ None. Schemas and constants take no options.
 
 None. The node protocol is the platform's; a node that learns a new vital needs a contract change first, which is the review that surface should get.
 
-Supporting exports (experimental): the constants above, every `*Schema` of `schemas.ts`, `claimTokenField`, the inferred types `NodeVitals` and `NodeVitalsCounters`, and the enum entry type `NodeReportedStatusEnum`.
+Supporting exports (experimental unless tagged stable): the constants above, every `*Schema` of `schemas.ts` and of `settings-schemas.ts` (stable), `claimTokenField`, the inferred types `NodeVitals` and `NodeVitalsCounters`, and the enum entry type `NodeReportedStatusEnum`.
 
 ## Data
 
@@ -46,7 +46,7 @@ No tables. The vitals are stored verbatim in `worker_nodes.last_vitals` (the `jo
 
 ## Permissions and settings
 
-None declared here. The control plane authenticates the node's `nod_` credential; the credential mint requires `nodes:write` (`@marinoscar/platform-api/nodes`).
+None declared here. The control plane authenticates the node's `nod_` credential; the credential mint requires `nodes:write` (`@marinoscar/platform-api/nodes`). The `nodes` system-settings namespace's schemas are here (`settings-schemas.ts`, #865): `systemNodesSchema`, `systemNodesPatchSchema`, `nodesSettingsSchema`, `nodesSettingsPatchSchema`, `nodesResponseSchema`, with `SystemNodesValue` and `NodesSettingsPatchInput`; its declaration is `NODES_SYSTEM_SETTINGS` of `@marinoscar/platform-api/nodes`.
 
 ## UI
 
@@ -71,6 +71,8 @@ None of its own. `test/jobs-nodes.test.ts` parses representative bodies; the API
 ## Upgrade notes
 
 New in this version: the request schemas moved here from `@marinoscar/platform-api/nodes`'s `dto/` files, unchanged. The API still re-exports them under the same names.
+
+#865: the `nodes` settings namespace's five schemas moved here from the reference app's `common/schemas/` files, unchanged (the app re-exports them under the same names).
 
 ## Troubleshooting
 

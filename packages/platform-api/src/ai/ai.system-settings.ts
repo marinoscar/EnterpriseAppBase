@@ -280,7 +280,7 @@ export const AI_SYSTEM_SETTINGS = {
   },
 } satisfies SystemSettingsNamespace<'ai', SystemAiValue, z.infer<typeof aiSettingsPatchSchema>>;
 
-declare module '../settings/registry/system-settings-namespace' {
+declare module '../settings/index' {
   interface SystemSettingsNamespaces {
     /**
      * Deployment-wide AI platform policy (#423, epic #419, umbrella #418):

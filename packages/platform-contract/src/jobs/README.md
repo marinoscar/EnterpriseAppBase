@@ -38,7 +38,7 @@ None. Schemas and constants take no options.
 
 None. The schemas describe the platform's own routes; an app that adds a field to its own job route extends a schema with `.extend()` in app code.
 
-Supporting exports (experimental): the constants above, every `*Schema` of `schemas.ts` the inferred types `JobListQuery`, `JobInsightsQuery`, `JobDurationStats`, `JobStatusCounts`, `JobStatusName`, `ProcessedWithin`, `JobEtaBasis`, and the enum entry types `JobStatusEnum`, `JobReasonEnum`, `ProcessedWithinEnum`, `JobEtaBasisEnum`, `JobBooleanFlagEnum`.
+Supporting exports (experimental unless tagged stable): the constants above, every `*Schema` of `schemas.ts` and of `settings-schemas.ts` (stable) the inferred types `JobListQuery`, `JobInsightsQuery`, `JobDurationStats`, `JobStatusCounts`, `JobStatusName`, `ProcessedWithin`, `JobEtaBasis`, and the enum entry types `JobStatusEnum`, `JobReasonEnum`, `ProcessedWithinEnum`, `JobEtaBasisEnum`, `JobBooleanFlagEnum`.
 
 ## Data
 
@@ -46,7 +46,7 @@ No tables. `jobSchema` mirrors the public columns of `jobs` (the `jobs` fragment
 
 ## Permissions and settings
 
-None declared here. The routes these shapes describe require `jobs:read` / `jobs:write` (`@marinoscar/platform-api/jobs`).
+None declared here. The routes these shapes describe require `jobs:read` / `jobs:write` (`@marinoscar/platform-api/jobs`). The `jobs` system-settings namespace's schemas are here (`settings-schemas.ts`, #865): `systemJobsSchema`, `systemJobsPatchSchema`, `jobsSettingsSchema`, `jobsSettingsPatchSchema`, `jobsResponseSchema`, with `SystemJobsValue` and `JobsSettingsPatchInput`; its declaration is `JOBS_SYSTEM_SETTINGS` of `@marinoscar/platform-api/jobs`.
 
 ## UI
 
@@ -71,6 +71,8 @@ None of its own. `test/jobs-nodes.test.ts` parses representative rows and querie
 ## Upgrade notes
 
 New in this version: the schemas moved here from `@marinoscar/platform-api/jobs`'s `dto/` files, unchanged except for the additive `orgId` (row) and `orgId` (list filter). The API still re-exports them under the same names.
+
+#865: the `jobs` settings namespace's five schemas moved here from the reference app's `common/schemas/` files, unchanged (the app re-exports them under the same names).
 
 ## Troubleshooting
 

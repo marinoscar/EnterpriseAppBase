@@ -98,58 +98,15 @@ export type { SystemNotificationsValue } from '@marinoscar/platform-contract/not
 // default below lives in `settings.types.ts` and nowhere else.
 // =============================================================================
 
-/**
- * Job-queue policy (`jobs`).
- *
- * `history` is nested rather than flattened to `historyRetentionDays` because
- * retention and the purge switch are one decision — an operator who turns the
- * purge off does not care what the retention number says — and grouping them
- * is what lets a later UI render them as one control without inventing a
- * grouping the API does not have.
- *
- * `stuckThresholdMinutes` is how long a claimed job may go without progress
- * before the queue treats it as abandoned. Bounded at a week: a threshold
- * longer than that is indistinguishable from "never reap", which is what
- * disabling the reaper is for.
- */
-export const systemJobsSchema = z.object({
-  history: z.object({
-    retentionDays: z.number().int().min(1).max(3650),
-    purgeEnabled: z.boolean(),
-  }),
-  stuckThresholdMinutes: z.number().int().min(1).max(10080),
-});
-
-export type SystemJobsValue = z.infer<typeof systemJobsSchema>;
-
-/**
- * Worker-fleet policy (`nodes`).
- *
- * `staleHeartbeatSeconds` is when a node stops counting as healthy;
- * `offlineStaleMultiplier` is how many stale intervals it takes before it is
- * declared offline rather than merely late (a multiplier, not a second
- * duration, so the two cannot be configured into contradicting each other);
- * `offlineRetentionDays` is how long an offline node's record is kept before
- * it is forgotten.
- *
- * `jobSecretBrokerEnabled` (#349, epic #345) is the trust-boundary switch: may
- * a node in this deployment be handed a short-lived credential for the job it
- * is running? DEFAULT FALSE, and it is a SYSTEM SETTING rather than an
- * environment variable on purpose — whether a machine the deployment may not
- * own may hold a credential to this deployment's database is a decision an
- * administrator makes on the page where the fleet is managed, not one that
- * hides in a container's env file where nobody reviewing the fleet can see it.
- * Off means the endpoint refuses with a named reason AND every type carrying a
- * broker is filtered out of the node claim, so a node never sees the job.
- */
-export const systemNodesSchema = z.object({
-  staleHeartbeatSeconds: z.number().int().min(5).max(86400),
-  offlineStaleMultiplier: z.number().int().min(1).max(100),
-  offlineRetentionDays: z.number().int().min(1).max(3650),
-  jobSecretBrokerEnabled: z.boolean(),
-});
-
-export type SystemNodesValue = z.infer<typeof systemNodesSchema>;
+// `jobs` and `nodes` (#256, epic #254): moved to
+// `@marinoscar/platform-contract/jobs` and `/nodes` (#865) with the rest of the
+// two namespaces' wire shapes, design comments included; re-exported here
+// unchanged. The declarations are `JOBS_SYSTEM_SETTINGS` and
+// `NODES_SYSTEM_SETTINGS` of `@marinoscar/platform-api/jobs` and `/nodes`.
+export { systemJobsPatchSchema, systemJobsSchema } from '@marinoscar/platform-contract/jobs';
+export type { SystemJobsValue } from '@marinoscar/platform-contract/jobs';
+export { systemNodesPatchSchema, systemNodesSchema } from '@marinoscar/platform-contract/nodes';
+export type { SystemNodesValue } from '@marinoscar/platform-contract/nodes';
 
 // `databaseBackup` (#256, epic #254): moved to
 // `@marinoscar/platform-contract/db-backup` (#740) with the rest of the
@@ -276,22 +233,7 @@ export type {
 // different things (`null` clears the window's start, absent leaves it alone)
 // and the service's merge distinguishes them with `!== undefined`, never `??`.
 
-export const systemJobsPatchSchema = z.object({
-  history: z
-    .object({
-      retentionDays: z.number().int().min(1).max(3650).optional(),
-      purgeEnabled: z.boolean().optional(),
-    })
-    .optional(),
-  stuckThresholdMinutes: z.number().int().min(1).max(10080).optional(),
-});
-
-export const systemNodesPatchSchema = z.object({
-  staleHeartbeatSeconds: z.number().int().min(5).max(86400).optional(),
-  offlineStaleMultiplier: z.number().int().min(1).max(100).optional(),
-  offlineRetentionDays: z.number().int().min(1).max(3650).optional(),
-  jobSecretBrokerEnabled: z.boolean().optional(),
-});
+// `systemJobsPatchSchema`, `systemNodesPatchSchema`: re-exported above from the contract (#865).
 
 // `systemDatabaseBackupPatchSchema`: re-exported above from the contract (#740).
 

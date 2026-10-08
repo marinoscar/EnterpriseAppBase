@@ -87,12 +87,10 @@ The starter mounts identity, settings, worker-node credentials, jobs and the Doc
 
 Some plumbing the platform's reference app has is still app code there, not a package seam, so the starter does without it rather than copy it. Each is a seam request upstream; enable it here when the package ships it:
 
-- the `jobs` and `nodes` settings namespaces (until then the nightly job-history purge logs that its policy is missing and skips);
 - a packaged role and permission registry and the platform's user-owned model inventory (the starter lists its seeded permissions in `src/platform/permissions.ts`, and its conformance run checks only its own models);
 - the cross-replica event bus, maintenance mode, the `{ data }` response envelope, request ids and the OpenAPI document at `/api/docs`;
 - the cross-replica event bus, maintenance mode, the `{ data }` response envelope, request ids, the OpenAPI document at `/api/docs`, and the web app shell (navigation rail, bottom navigation);
 - the `postgres-init` script `devdb.compose.yml` mounts to create the ordinary database role (CI creates it inline);
-- typed `getNamespace()` for an app's own settings namespace (the sample parses `readNamespaceValue('notes')` instead).
 
 ## Rename
 

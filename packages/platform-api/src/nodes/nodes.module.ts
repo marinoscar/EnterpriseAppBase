@@ -195,6 +195,8 @@ import { NodesAdminService } from './nodes-admin.service';
 import { NodesController } from './nodes.controller';
 import { NODES_OPTIONS, resolveNodesModuleOptions, type NodesModuleOptions } from './nodes.options';
 import { NodesService } from './nodes.service';
+import { NODES_SYSTEM_SETTINGS } from './nodes.system-settings';
+import { ensureSystemSettingsNamespaces, type SystemSettingsNamespace } from '../settings/index';
 import { NodeSecretRevoker } from './ops/node-secret-revoker';
 import { NodeOfflinePruneTask } from './tasks/node-offline-prune.task';
 import { NodeSecretSweepTask } from './tasks/node-secret-sweep.task';
@@ -213,11 +215,15 @@ import { NodeStaleOfflineTask } from './tasks/node-stale-offline.task';
 @Module({})
 export class NodesModule {
   /**
-   * The slice for one app. Call once, next to `JobsModule.forRoot()`.
+   * The slice for one app. Call once, next to `JobsModule.forRoot()` and
+   * before `SettingsModule.forRoot()`: it registers the `nodes`
+   * system-settings namespace (`NODES_SYSTEM_SETTINGS`) unless the app's
+   * settings manifest already did.
    *
    * @param options - see {@link NodesModuleOptions}.
    * @returns the dynamic module. It provides `NODES_OPTIONS`.
-   * @throws Error when an option is invalid.
+   * @throws Error when an option is invalid, or when `SettingsModule.forRoot()`
+   *   already composed the settings request bodies without `nodes`.
    *
    * @example
    * ```ts
@@ -229,6 +235,9 @@ export class NodesModule {
    */
   static forRoot(options: NodesModuleOptions = {}): DynamicModule {
     const resolved = resolveNodesModuleOptions(options);
+    // The `nodes` settings namespace is this slice's (#865): registered here
+    // unless the app's manifest already did.
+    ensureSystemSettingsNamespaces([NODES_SYSTEM_SETTINGS as SystemSettingsNamespace], 'NodesModule.forRoot()');
     return {
       module: NodesModule,
       imports: [...resolved.imports],

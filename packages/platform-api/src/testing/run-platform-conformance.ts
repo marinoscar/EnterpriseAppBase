@@ -6,34 +6,10 @@ import type {
   ConformanceTestApi,
 } from './conformance-suite';
 import { conformanceSuites } from './conformance-suites';
-import type { CronEnqueueOnlyOptions } from './suites/cron-enqueue-only';
-import type { UserOwnedDataOptions } from './suites/user-owned-data';
+import type { PlatformConformanceSuiteOptions } from './index';
 
-/**
- * The suites {@link runPlatformConformance} can run, by option key: each
- * entry is the suite's options (the app passes them, or `{ skip: 'reason' }`
- * to opt out; see {@link PlatformConformanceOptions.suites}). An interface so a slice
- * that ships a suite adds its key by module augmentation (the telemetry slice's
- * `telemetry`, declared in `@marinoscar/platform-api/telemetry/testing`) and
- * the runner is not edited.
- *
- * @example
- * ```ts
- * declare module '@marinoscar/platform-api/testing' {
- *   interface PlatformConformanceSuiteOptions {
- *     myFeature?: MyFeatureOptions;
- *   }
- * }
- * ```
- *
- * @stability experimental
- */
-export interface PlatformConformanceSuiteOptions {
-  /** The `cron-enqueue-only` suite: its options, or `{ skip: 'reason' }` to opt out. */
-  cronEnqueueOnly?: CronEnqueueOnlyOptions;
-  /** The `user-owned-data` suite: its options, or `{ skip: 'reason' }` to opt out. */
-  userOwnedData?: UserOwnedDataOptions;
-}
+// `PlatformConformanceSuiteOptions` is DECLARED in the slice's entry module (./index), so an app's
+// augmentation of the public specifier merges in any file order (#865).
 
 /**
  * What an app passes to {@link runPlatformConformance}.

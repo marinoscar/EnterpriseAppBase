@@ -27,6 +27,7 @@ import {
   type ComposedPatchBody,
   type ComposedUpdateBody,
 } from '../registry/compose';
+import { markSystemSettingsRequestBodiesComposed } from '../registry/system-settings-namespace';
 import { SETTINGS_PERMISSIONS } from '../settings.permissions';
 import { SystemSettingsService } from './system-settings.service';
 
@@ -40,6 +41,7 @@ import { SystemSettingsService } from './system-settings.service';
  * @stability experimental
  */
 export function createSystemSettingsController(): Type<unknown> {
+  markSystemSettingsRequestBodiesComposed();
   // Full replacement (PUT). A namespace with `requiredOnPut: false` may be
   // omitted: `SystemSettingsService.replaceSettings` carries it forward from
   // the stored value, never resetting it to the defaults.

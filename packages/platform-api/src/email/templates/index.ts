@@ -26,7 +26,6 @@ export {
   withLayoutAttachments,
 } from './email-template.registry';
 export type {
-  EmailTemplateDataMap,
   EmailTemplateEntry,
   EmailTemplateName,
   EmailTemplateOverride,

@@ -69,7 +69,6 @@ export {
   registerMetricGroups,
   type MetricGroup,
   type MetricGroupDef,
-  type MetricGroupIds,
 } from './metric-group.registry';
 
 /**

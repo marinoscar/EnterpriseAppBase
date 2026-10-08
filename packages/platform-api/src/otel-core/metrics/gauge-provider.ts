@@ -14,7 +14,8 @@
 
 import type { Meter, ObservableGauge } from '@opentelemetry/api';
 
-import { appMetricRegistry, type AppMetricKeys } from './metric-name.registry';
+import type { AppMetricKeys } from '../index';
+import { appMetricRegistry } from './metric-name.registry';
 
 /**
  * A registered metric's code key: one an app typed by augmenting

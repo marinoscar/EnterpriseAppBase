@@ -31,25 +31,12 @@
 
 import { defineRegistry } from '../../core/index';
 import type { EmailTemplate, RenderedEmail } from './email-template.types';
-import { PLATFORM_EMAIL_TEMPLATES, type PlatformEmailTemplateDataMap } from './platform-email-templates';
+import { PLATFORM_EMAIL_TEMPLATES } from './platform-email-templates';
 import { resolveEmailRenderContext, type EmailRenderContext } from './render-context';
+import type { EmailTemplateDataMap } from '../index';
 
-/**
- * Every template, mapped to the data it renders from: the platform's nine,
- * plus whatever an app declares by module augmentation, next to its
- * registration:
- *
- * ```ts
- * declare module '@marinoscar/platform-api/email' {
- *   interface EmailTemplateDataMap { 'coach-weekly-review': CoachWeeklyReviewEmailData }
- * }
- * registerEmailTemplate('coach-weekly-review', coachWeeklyReviewEmail);
- * ```
- *
- * @extensionPoint schema
- * @stability experimental
- */
-export interface EmailTemplateDataMap extends PlatformEmailTemplateDataMap {}
+// `EmailTemplateDataMap` is DECLARED in the slice's entry module (../index), so an app's
+// augmentation of the public specifier merges in any file order (#865).
 
 /**
  * A template name declared in {@link EmailTemplateDataMap}. Kebab-case,

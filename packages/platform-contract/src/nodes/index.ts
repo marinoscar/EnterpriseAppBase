@@ -28,3 +28,13 @@ export type {
   NodeVitals,
   NodeVitalsCounters,
 } from './schemas.js';
+
+// ---- ./settings-schemas.ts: the `nodes` system-settings namespace (#865)
+export {
+  nodesResponseSchema,
+  nodesSettingsPatchSchema,
+  nodesSettingsSchema,
+  systemNodesPatchSchema,
+  systemNodesSchema,
+} from './settings-schemas.js';
+export type { NodesSettingsPatchInput, SystemNodesValue } from './settings-schemas.js';

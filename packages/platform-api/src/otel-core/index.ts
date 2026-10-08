@@ -17,7 +17,6 @@ export {
   registerAppMetrics,
   type AppMetricAttribute,
   type AppMetricDef,
-  type AppMetricKeys,
   type AppMetricKind,
 } from './metrics/metric-name.registry';
 export {
@@ -52,3 +51,20 @@ export {
   requestSpanAttributesHook,
 } from './spans/request-span-attributes';
 export { Trace, type TraceOptions } from './spans/trace.decorator';
+
+// ---- `AppMetricKeys`: an augmentation target, declared here, never re-exported (#865) ----
+
+/**
+ * The augmentable set of app metric keys, so `add`/`record` and
+ * `createRegisteredGauge` type-check an app's own keys. An app widens it next
+ * to its declarations:
+ *
+ * ```ts
+ * declare module '@marinoscar/platform-api/otel-core' {
+ *   interface AppMetricKeys { coachNudgesSent: true }
+ * }
+ * ```
+ *
+ * @stability experimental
+ */
+export interface AppMetricKeys {}

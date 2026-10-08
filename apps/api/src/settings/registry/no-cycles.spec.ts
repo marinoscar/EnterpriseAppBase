@@ -105,8 +105,6 @@ describe('settings registry import graph has no load-order cycle (#677)', () => 
   });
 
   it.each([
-    '../../platform/jobs/jobs.system-settings',
-    '../../platform/jobs/nodes.system-settings',
     '../../common/maintenance/maintenance.system-settings',
     '../../platform/storage/storage.system-settings',
     '../../platform/telemetry/telemetry.system-settings',
@@ -124,12 +122,16 @@ describe('settings registry import graph has no load-order cycle (#677)', () => 
     });
   });
 
-  // The notifications declarations are the package's since #738: loaded first
-  // on its own, every schema they name is defined.
-  it('the packaged notifications declarations are leaves: loaded first, every schema they name is defined', () => {
+  // The notifications declarations are the package's since #738, jobs and
+  // nodes since #865: loaded first on their own, every schema they name is defined.
+  it.each([
+    ['@marinoscar/platform-api/notifications', ['NOTIFICATIONS_SYSTEM_SETTINGS', 'NOTIFICATIONS_USER_SETTINGS']],
+    ['@marinoscar/platform-api/jobs', ['JOBS_SYSTEM_SETTINGS']],
+    ['@marinoscar/platform-api/nodes', ['NODES_SYSTEM_SETTINGS']],
+  ])('the packaged declarations of %s are leaves: loaded first, every schema they name is defined', (specifier, names) => {
     jest.isolateModules(() => {
-      const mod = require('@marinoscar/platform-api/notifications') as Record<string, Record<string, unknown>>;
-      for (const declaration of [mod.NOTIFICATIONS_SYSTEM_SETTINGS, mod.NOTIFICATIONS_USER_SETTINGS]) {
+      const mod = require(specifier) as Record<string, Record<string, unknown>>;
+      for (const declaration of names.map((name) => mod[name])) {
         expect(declaration).toBeDefined();
         for (const field of ['storedSchema', 'schema', 'patchSchema', 'putSchema', 'wirePatchSchema']) {
           if (field in declaration!) expect({ field, defined: declaration![field] !== undefined }).toEqual({ field, defined: true });

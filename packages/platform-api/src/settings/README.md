@@ -48,7 +48,13 @@ declare module '@marinoscar/platform-api/settings' {
 }
 registerSystemSettingsNamespaces([COACH_SYSTEM_SETTINGS]);
 // later, in any service: await systemSettings.getNamespace('coach')
+// or, typed by the declaration alone (no augmentation needed):
+//   await systemSettings.getNamespace(COACH_SYSTEM_SETTINGS)
 ```
+
+Augment `@marinoscar/platform-api/settings` itself, never a deeper path: the four augmentable interfaces (`SystemSettingsNamespaces`, `SystemSettingsNamespaceDeclarations`, `UserSettingsNamespaces`, `UserSettingsNamespaceDeclarations`) are declared in the slice's entry module, so an app's augmentation and every slice's merge into one interface in whatever order the compiler meets them (#865).
+
+A slice that owns a namespace registers it from its own `forRoot()` with `ensureSystemSettingsNamespaces(declarations, owner)` (`JobsModule` registers `jobs`, `NodesModule` registers `nodes`): a key the app's manifest already registered is left alone, so an app that pins the stored key order lists the declaration in its manifest, and an app that does not still gets the slice's defaults. Call those `forRoot()`s before `SettingsModule.forRoot()`.
 
 An org layer is one more block on the declaration ([`org-overridable.namespaces.ts`](../../../../apps/api/src/platform-extensions/settings/examples/org-overridable.namespaces.ts)):
 
@@ -88,7 +94,7 @@ Call `forRoot` once, after the app's manifests ran: the request bodies of the sy
 | `SystemSettingsRowStore` | token | `read<T>(key, schema, defaults)`, `write<T>(key, value, { actorId, ifMatch?, schema })` | Keep a slice's own `system_settings` row (its own version, audited) | experimental | [example](../../../../apps/api/src/platform-extensions/settings/examples/row-store.example.ts) |
 | `settingsConformanceSuite` | registry | `ConformanceSuite<SettingsConformanceOptions>` | Run the slice's invariants in the app through `runPlatformConformance({ suites: { settings } })` | experimental | [example](../../../../apps/api/test/settings/settings-conformance.spec.ts) |
 
-Supporting exports (experimental unless noted): the declaration types (`SystemSettingsNamespace`, `UserSettingsNamespace`, `SettingsNamespaceOrgLayer`, `SettingsReadHelpers`) and the augmentation targets `SystemSettingsNamespaces`, `SystemSettingsNamespaceDeclarations`, `UserSettingsNamespaces`, `UserSettingsNamespaceDeclarations`; the extension folding (`extendSystemSettingsNamespace`, `extendUserSettingsNamespace`, `foldSettingsExtensions`); the platform's user namespaces `DATA_TABLES_USER_SETTINGS` and `NAVIGATION_USER_SETTINGS` (stable); the compose functions and the `current*` per-request variants; the deny-list `SETTINGS_SECRET_FIELD_NAMES` (stable) and the schema walkers; the catalog render and check; the services `SystemSettingsService` and `UserSettingsService` (stable), `OrgSettingsService`; the composed body types (`UpdateSystemSettingsDto`, `PatchSystemSettingsDto`, `UpdateUserSettingsDto`, `PatchUserSettingsDto`); the permission declarations `SETTINGS_PERMISSIONS` (stable) and `ORG_SETTINGS_PERMISSIONS`; the data declarations `SETTINGS_MODEL_OWNERSHIP` and `SETTINGS_USER_OWNED_MODELS`; the structural row types (`SettingsPrisma`, `SettingsOrgTx`, ...).
+Supporting exports (experimental unless noted): the declaration types (`SystemSettingsNamespace`, `UserSettingsNamespace`, `SettingsNamespaceOrgLayer`, `SettingsReadHelpers`, `SystemSettingsNamespaceOf`), `ensureSystemSettingsNamespaces` (a slice registering its own namespaces from its `forRoot()`) and the augmentation targets `SystemSettingsNamespaces`, `SystemSettingsNamespaceDeclarations`, `UserSettingsNamespaces`, `UserSettingsNamespaceDeclarations`; the extension folding (`extendSystemSettingsNamespace`, `extendUserSettingsNamespace`, `foldSettingsExtensions`); the platform's user namespaces `DATA_TABLES_USER_SETTINGS` and `NAVIGATION_USER_SETTINGS` (stable); the compose functions and the `current*` per-request variants; the deny-list `SETTINGS_SECRET_FIELD_NAMES` (stable) and the schema walkers; the catalog render and check; the services `SystemSettingsService` and `UserSettingsService` (stable), `OrgSettingsService`; the composed body types (`UpdateSystemSettingsDto`, `PatchSystemSettingsDto`, `UpdateUserSettingsDto`, `PatchUserSettingsDto`); the permission declarations `SETTINGS_PERMISSIONS` (stable) and `ORG_SETTINGS_PERMISSIONS`; the data declarations `SETTINGS_MODEL_OWNERSHIP` and `SETTINGS_USER_OWNED_MODELS`; the structural row types (`SettingsPrisma`, `SettingsOrgTx`, ...).
 
 ### Merge modes of an org layer
 
@@ -159,12 +165,15 @@ From the reference app's local settings module (#733):
 - The services inject `PLATFORM_PRISMA`, not `PrismaService`; a unit test provides `{ provide: PLATFORM_PRISMA, useValue: mock }`. `UserSettingsService` reaches object storage through `SETTINGS_PROFILE_IMAGES`.
 - `SettingsReadHelpers.readDisabledEvents` is replaced by the generic `readStringArray(stored, element, max)`.
 - `getJobsPolicy` and the other per-namespace getters are deprecated aliases of `getNamespace(key)`.
+- #865: the augmentable interfaces are declared in the entry module; a slice's own `declare module` names `'../settings/index'` (an app keeps naming `@marinoscar/platform-api/settings`). `getNamespace(declaration)` reads a namespace typed by its declaration (`SystemSettingsNamespaceOf<D>`) and throws when the key is not registered. `ensureSystemSettingsNamespaces` registers a slice's own namespaces unless already registered.
 - The secret deny-list gained `privateKey`.
 - The OpenAPI document of `/api/system-settings` and `/api/user-settings` is unchanged; `/api/org-settings` and the `Organization Settings` tag are new.
 
 ## Troubleshooting
 
 - **A namespace is missing from the PATCH body (a silent no-op).** It was registered after `SettingsModule.forRoot()` ran. Import the app's manifests before calling `forRoot` (the reference app imports `settings/registry` at the top of `settings.config.ts`).
+- **`<Slice>Module.forRoot() registers the system settings namespace(s) ... but SettingsModule.forRoot() already composed the request bodies`.** A slice that registers its own namespace (`JobsModule`, `NodesModule`) was configured after `SettingsModule.forRoot()`. Call it first, or list its declaration (`JOBS_SYSTEM_SETTINGS`, `NODES_SYSTEM_SETTINGS`) in the app's manifest.
+- **`getNamespace('myKey')` does not compile from an installed package (`not assignable to parameter of type ...`).** The augmentation names a path other than `@marinoscar/platform-api/settings`, or the file holding it is not part of the program. Or read it as `getNamespace(MY_DECLARATION)`, which needs no augmentation.
 - **`Nest can't resolve dependencies of the SystemSettingsService (?, ...)`.** `PLATFORM_PRISMA` is not bound in the graph. Bind it in the module you pass as `imports` (the reference app's `SettingsHostModule` does, as the same client the platform host binds).
 - **`PATCH /api/org-settings` answers 400 "cannot be overridden per organization".** The namespace has no `org` block, or the field is not in its org schema.
 - **An organization's value seems ignored.** It no longer validates against the org schema (it is skipped field by field), or a tighten merge clamps it, or `orgLayer` is `false`.

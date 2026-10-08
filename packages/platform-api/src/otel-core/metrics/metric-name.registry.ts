@@ -84,20 +84,8 @@ export interface AppMetricDef {
   attributes?: Readonly<Record<string, AppMetricAttribute>>;
 }
 
-/**
- * The augmentable set of app metric keys, so `add`/`record` and
- * `createRegisteredGauge` type-check an app's own keys. An app widens it next
- * to its declarations:
- *
- * ```ts
- * declare module '@marinoscar/platform-api/otel-core' {
- *   interface AppMetricKeys { coachNudgesSent: true }
- * }
- * ```
- *
- * @stability experimental
- */
-export interface AppMetricKeys {}
+// `AppMetricKeys` is DECLARED in the slice's entry module (../index), so an app's
+// augmentation of the public specifier merges in any file order (#865).
 
 /**
  * `app.` then one or more dot-separated snake_case segments.
