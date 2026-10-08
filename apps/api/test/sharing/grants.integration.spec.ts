@@ -23,6 +23,7 @@
 import request from 'supertest';
 import { registerResourceType, type ResourceOwnerInfo } from '@marinoscar/platform-api/sharing';
 
+import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
 import { NotificationsService } from '../../src/notifications/notifications.service';
 import { authHeader, createMockTestUser, type TestUser } from '../helpers/auth-mock.helper';
 import { TestContext, closeTestApp, createTestApp } from '../helpers/test-app.helper';
@@ -186,6 +187,11 @@ describe('/api/grants (#729)', () => {
     const throttled = await http().post('/api/grants').set(authHeader(sharer.accessToken)).send(createBody({ kind: 'user', email: 'one-more@example.com' })).expect(429);
     expect(throttled.body.details).toMatchObject({ reason: 'LOOKUP_THROTTLED', retryAfterMs: expect.any(Number) });
     expect(Number(throttled.headers['retry-after'])).toBeGreaterThan(0);
+  });
+
+  it('registers sharing.grants.prune with the queue as a server-only type', () => {
+    const registry = context.app.get(JobHandlerRegistry);
+    expect(registry.serverOnlyTypes()).toContain('sharing.grants.prune');
   });
 
   it("lists what is shared with me in my active organization only", async () => {
