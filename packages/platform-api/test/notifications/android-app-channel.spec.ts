@@ -123,6 +123,6 @@ describe('PushSubscriptionService platform rules', () => {
     const { service, upsert } = build();
     await service.subscribe('u1', { endpoint: ENDPOINT, keys: KEYS, platform: 'browser' }, undefined);
     expect(Object.keys(upsert.mock.calls[0]![0] as object)).toContain('update');
-    expect((upsert.mock.calls[0]![0] as { update: Record<string, unknown> }).update).not.toHaveProperty('platform');
+    expect((upsert.mock.calls[0]![0] as unknown as { update: Record<string, unknown> }).update).not.toHaveProperty('platform');
   });
 });
