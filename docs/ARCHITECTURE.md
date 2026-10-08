@@ -610,6 +610,8 @@ This is the single home for the matrix. Source: each permission's `defaultGrants
 | `org_settings:write` | org | | ✓ | | | `PATCH /api/org-settings` (`If-Match`): change the active organization's overrides; each namespace's own write permission then gates its fields (#733) |
 | `org_broadcasts:read` | org | | ✓ | | | `GET /api/admin/broadcasts` (and its audience and detail) for the caller's ACTIVE organization only; the system `broadcasts:read` sees every broadcast (`@marinoscar/platform-api/notifications`, #738) |
 | `org_broadcasts:write` | org | | ✓ | | | Compose, schedule, test, cancel, resume and delete broadcasts to the caller's active organization's members; the target is forced, any other `targetOrgId` is a 422 (#738) |
+| `system:factory_reset` | system | ✓ | | | | `/api/admin/factory-reset/*` and `/admin/settings/factory-reset`: erase every other user and all application data (`@marinoscar/platform-api/user-data`, #743). Never granted for holding `system_settings:write` |
+| `orgs:offboard` | system | ✓ | | | | `/api/admin/orgs/:orgId/offboarding/*`: delete an organization with its data, members and invitations (multi-org mode, #743) |
 
 **Note on `storage:*`.** Every `/api/storage/objects` route requires `storage:read` (list, get, download) or `storage:write` (uploads, metadata updates, delete). Ownership is enforced on top: a caller may act only on their own objects unless they also hold `storage:delete_any`, which lifts the ownership check for delete on every object except another user's profile image (removed only via `DELETE /api/user-settings/profile-image` by its owner).
 
@@ -625,7 +627,7 @@ Separate permission families (`push:*`, `nodes:*`, `storage_config:*`, `ai_confi
 
 ### 8.1 Job-type inventory
 
-All 31 registered job types (pinned by `apps/api/test/jobs/job-type-snapshot.spec.ts`: a type string is permanent). Handler paths are relative to `apps/api/src/` unless they name a package. A type is node-eligible when its handler carries both `nodeResultSchema` and `persistNodeResult`. The label is the handler's own `readonly label` (#734; it replaced the closed `JOB_TYPE_LABELS` map) and is what `GET /api/admin/jobs` serves as `typeLabel`; an unlabelled type shows its type string.
+All 34 registered job types (pinned by `apps/api/test/jobs/job-type-snapshot.spec.ts`: a type string is permanent). Handler paths are relative to `apps/api/src/` unless they name a package. A type is node-eligible when its handler carries both `nodeResultSchema` and `persistNodeResult`. The label is the handler's own `readonly label` (#734; it replaced the closed `JOB_TYPE_LABELS` map) and is what `GET /api/admin/jobs` serves as `typeLabel`; an unlabelled type shows its type string.
 
 | Type | Label | Handler | What it does | Node-eligible |
 |---|---|---|---|:-:|
@@ -657,6 +659,9 @@ All 31 registered job types (pinned by `apps/api/test/jobs/job-type-snapshot.spe
 | `device-auth.code.cleanup` | Device code cleanup | `packages/platform-api/src/identity/device-auth/handlers/device-code-cleanup.handler.ts` (the identity slice) | Deletes expired device codes | No |
 | `telemetry.retention.apply` | Telemetry retention | `packages/platform-api/src/telemetry/handlers/telemetry-retention.handler.ts` (the telemetry slice) | Sets GreptimeDB's database-level TTL to `telemetry.retentionDays`; daily and on policy change | No |
 | `telemetry.stack.deploy` | Telemetry services deploy | `packages/platform-api/src/telemetry/stack/telemetry-stack-deploy.handler.ts` (the telemetry slice) | Starts GreptimeDB and the collector through `stack-agent`, on admin request | No |
+| `user.data.purge` | User data deletion | `packages/platform-api/src/user-data/handlers/user-data-purge.handler.ts` (the user-data slice) | Deletes one user's data for one scope (registry-driven, delete order from the schema), then their storage objects; subject `user:<userId>` | No |
+| `admin.factory_reset` | Factory reset | `packages/platform-api/src/user-data/handlers/factory-reset.handler.ts` (the user-data slice) | Returns the deployment to a fresh install, keeping the actor, configuration and backups; one per deployment | No |
+| `org.offboard` | Organization offboarding | `packages/platform-api/src/user-data/handlers/org-offboard.handler.ts` (the user-data slice) | Deletes one organization's rows, objects, invites, memberships and the organization (multi-org); subject `organization:<orgId>` | No |
 | `sharing.grants.prune` | (none) | `packages/platform-api/src/sharing/jobs/grants-prune.handler.ts` (the sharing slice) | Deletes grants revoked or expired more than `grants.retentionDays` ago and grants whose record no longer exists (each type's `loadOwners`), in chunks; daily at 03:00 | No |
 | `export.run` | Data export | `packages/platform-api/src/exports/handlers/export-run.handler.ts` (the exports slice) | Streams one user's or one organization's export file into object storage and records the result on the job; subject `user` or `organization`, at most 3 in flight per subject | No |
 | `export.purge` | Export expiry | `packages/platform-api/src/exports/handlers/export-purge.handler.ts` (the exports slice) | Deletes export files older than the retention period (7 days), bytes then row; daily at 03:00 | No |
@@ -706,7 +711,7 @@ Routes are declared in `apps/web/src/App.tsx`.
 
 ### 9.2 Settings pages
 
-Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/src/config/userSettingsSections.tsx`. Groups and cards are append-only: the hub and rail render them in declaration order.
+Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/src/config/userSettingsSections.tsx`. Groups and cards are append-only: the hub and rail render them in declaration order. The one exception is the **Danger Zone** group of each registry, pinned last: a group added later is inserted before it ([settings-ui.md](specs/settings-ui.md)).
 
 | Route | Title | Group | Permission | Feature gate |
 |---|---|---|---|---|
@@ -735,6 +740,7 @@ Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/
 | `/admin/settings/organization` | Organization | Organizations | `org_members:read` (org) | `orgs` (multi-org mode) |
 | `/admin/settings/organizations` | Organizations | Organizations | `organizations:read` (system) | `orgs` (multi-org mode) |
 | `/admin/settings/organization-settings` | Organizations | Organization settings | `org_settings:read` (org; writes `org_settings:write`) | `orgs` (multi-org mode) |
+| `/admin/settings/factory-reset` | Factory reset | Danger Zone (last) | `system:factory_reset` (system) | none (shows why it is off in `DEPLOYMENT_MODE=saas`) |
 | `/settings/profile` | Profile | Account | | |
 | `/settings/appearance` | Appearance | Account | | |
 | `/settings/notifications` | Notifications | Account | | |
@@ -743,6 +749,7 @@ Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/
 | `/settings/ai` | AI Keys | Security | `ai:use` | `ai` |
 | `/settings/groups` | Groups (and `/settings/groups/:id`, the group's page) | Sharing | `groups:read` (org) | |
 | `/settings/data-export` | Download your data | Your data | | |
+| `/settings/danger-zone` | Delete my data | Danger Zone (last) | | none (stays reachable while AI is off: the deletion also removes AI keys and runs) |
 
 Cards gate reachability; pages gate their own write controls (for example, a `jobs:read` holder without `jobs:write` sees disabled retry buttons). The Users & Allowlist page keeps two tabs because they are parallel views of one question; `allowlist:read` gates the Allowlist tab's content. The Organization page (#726) follows the same precedent: Members and Invites are parallel views of "who belongs to this organization", and `org_invites:read` gates the Invites tab. Both organization cards exist only when `/api/auth/me` reports `tenancyMode: 'multi'` (the `orgs` feature); an organization's own administrator, who holds no system permission, reaches the Console through `org_members:read` and sees only the Organization card. The AppBar's organization switcher (`OrgSwitcher` of `@marinoscar/platform-web/identity/ui`) appears in multi-org mode for a user with two or more active memberships.
 

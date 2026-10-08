@@ -20,7 +20,8 @@
     "src/exports/index.ts",
     "src/ai/index.ts",
     "src/db-backup/index.ts",
-    "src/android-app/index.ts"
+    "src/android-app/index.ts",
+    "src/user-data/index.ts"
   ],
   "out": "docs-api",
   "json": "docs-api/api.json"

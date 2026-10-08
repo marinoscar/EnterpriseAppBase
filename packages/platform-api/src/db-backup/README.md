@@ -73,7 +73,7 @@ Supporting exports (experimental unless noted): the options (`DB_BACKUP_OPTIONS`
 
 ## Data
 
-The `db-backup` fragment of `@marinoscar/platform-db` owns `DatabaseBackupRun` (`database_backup_runs`; enums `DatabaseBackupStatus`, `DatabaseBackupTrigger`) and extends `Job` with its back-relation; no migration in this version. `database_backup_runs_active_uniq_idx` is intentional raw-SQL drift (`RAW_SQL_INDEXES`). The slice reads the table, `jobs`, `users` and `audit_events` through the core `PLATFORM_PRISMA` port (none carries row-level security); the org-owned tables are reached only by `pg_dump`/`pg_restore` and the Doctor check. Archives live under `database-backups/<slug>/YYYY/MM/` (deployment scope).
+The `db-backup` fragment of `@marinoscar/platform-db` owns `DatabaseBackupRun` (`database_backup_runs`; enums `DatabaseBackupStatus`, `DatabaseBackupTrigger`) and extends `Job` with its back-relation; no migration in this version. `database_backup_runs_active_uniq_idx` is intentional raw-SQL drift (`RAW_SQL_INDEXES`). The slice reads the table, `jobs`, `users` and `audit_events` through the core `PLATFORM_PRISMA` port (none carries row-level security); the org-owned tables are reached only by `pg_dump`/`pg_restore` and the Doctor check. Archives live under `database-backups/<slug>/YYYY/MM/` (deployment scope). `DB_BACKUP_KEY_PREFIX` is marked `survivesFactoryReset: true` (#743): the admin factory reset of `@marinoscar/platform-api/user-data` keeps the archives, their `database_backup_runs` rows and the jobs those rows link to, so a backup taken first is the reset's undo.
 
 ### Restore carry-over
 

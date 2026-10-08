@@ -47,6 +47,9 @@ export const AI_SLICE_SOURCE_ROOT = join(REPO, 'packages', 'platform-api', 'src'
 /** The packaged db-backup slice's source root (#740: the backup schedule tick). */
 export const DB_BACKUP_SLICE_SOURCE_ROOT = join(REPO, 'packages', 'platform-api', 'src', 'db-backup');
 
+/** The packaged user-data slice's source root (#743: three jobs, no cron). */
+export const USER_DATA_SLICE_SOURCE_ROOT = join(REPO, 'packages', 'platform-api', 'src', 'user-data');
+
 /** Every root the rule scans. */
 export const CRON_SOURCE_ROOTS: readonly string[] = [
   API_SOURCE_ROOT,
@@ -59,4 +62,5 @@ export const CRON_SOURCE_ROOTS: readonly string[] = [
   EXPORTS_SLICE_SOURCE_ROOT,
   AI_SLICE_SOURCE_ROOT,
   DB_BACKUP_SLICE_SOURCE_ROOT,
+  USER_DATA_SLICE_SOURCE_ROOT,
 ];

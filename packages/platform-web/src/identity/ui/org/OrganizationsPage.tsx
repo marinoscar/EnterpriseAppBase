@@ -9,7 +9,7 @@
  * enforces it, refuses a taken slug, and keeps the slug immutable after
  * creation. Deleting an organization is not offered (out of scope).
  */
-import type { ReactElement } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import { useEffect, useState, type FormEvent } from 'react';
 import {
   Alert,
@@ -194,15 +194,30 @@ function RenameOrganizationDialog({
 }
 
 /**
+ * Props of {@link OrganizationsPage}.
+ *
+ * @stability experimental
+ */
+export interface OrganizationsPageProps {
+  /**
+   * Extra actions of one organization row, rendered after Rename: the slot
+   * another slice registers an action through (the user-data slice's
+   * `OffboardOrganizationButton`, #743). `refresh` reloads the list.
+   */
+  renderActions?(organization: Organization, helpers: { refresh(): void }): ReactNode;
+}
+
+/**
  * The `Organizations` page (`/admin/settings/organizations`): the
  * deployment's organizations, for operators holding `organizations:read`.
  *
+ * @param props - see {@link OrganizationsPageProps}.
  * @returns the page.
  *
  * @extensionPoint component
  * @stability stable
  */
-export function OrganizationsPage(): ReactElement {
+export function OrganizationsPage(props: OrganizationsPageProps = {}): ReactElement {
   const { hasPermission } = usePermissions();
   const canWrite = hasPermission('organizations:write');
   const { organizations, total, isLoading, error, fetchOrganizations, createOrg, renameOrg } = useOrganizations();
@@ -268,6 +283,9 @@ export function OrganizationsPage(): ReactElement {
                 <Button size="small" variant="outlined" disabled={!canWrite} onClick={() => setRenaming(organization)}>
                   Rename
                 </Button>
+                {props.renderActions?.(organization, {
+                  refresh: () => void fetchOrganizations({ page: 1, pageSize: 100, search: search.trim() || undefined }),
+                })}
               </Stack>
             </Paper>
           ))}

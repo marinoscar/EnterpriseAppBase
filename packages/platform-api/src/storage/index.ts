@@ -117,6 +117,7 @@ export {
   registerKeyPrefix,
   registerStorageKeyPrefixes,
   storageKeyPrefixRegistry,
+  survivingKeyPrefixes,
 } from './storage-key-prefix.registry';
 export type { KeyPrefixDef, KeyPrefixScope, ObjectKeyContext, StorageKeyPrefixDef } from './storage-key-prefix.registry';
 export {

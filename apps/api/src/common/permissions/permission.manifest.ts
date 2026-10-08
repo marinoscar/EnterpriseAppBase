@@ -34,6 +34,7 @@ import { STORAGE_CONFIG_PERMISSIONS } from '@marinoscar/platform-api/storage';
 import { STORAGE_PERMISSIONS } from '@marinoscar/platform-api/storage';
 import { TELEMETRY_PERMISSION_DECLARATIONS } from '@marinoscar/platform-api/telemetry';
 import { SHARING_PERMISSION_DECLARATIONS } from '@marinoscar/platform-api/sharing';
+import { USER_DATA_PERMISSIONS } from '@marinoscar/platform-api/user-data';
 import { registerPermissions, registerRoles } from './permission.registry';
 import { PLATFORM_ROLES } from './platform-roles';
 
@@ -59,6 +60,8 @@ registerPermissions(SHARING_PERMISSION_DECLARATIONS);
 registerPermissions(ORG_SETTINGS_PERMISSIONS);
 // #738: org-scoped broadcasts, appended after every existing declaration.
 registerPermissions(ORG_BROADCASTS_PERMISSIONS);
+// The user-data slice's two Admin-only system permissions (#743).
+registerPermissions(USER_DATA_PERMISSIONS);
 
 // 4. App-owned permissions last, so a collision with a platform id names the app.
 registerPermissions(APP_PERMISSIONS);

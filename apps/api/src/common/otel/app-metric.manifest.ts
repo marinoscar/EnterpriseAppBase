@@ -17,6 +17,7 @@ import { PLATFORM_APP_METRICS } from './platform-app-metrics';
 import { ORGANIZATIONS_APP_METRICS } from '@marinoscar/platform-api/identity';
 import { SHARING_APP_METRICS } from '@marinoscar/platform-api/sharing';
 import { EXPORTS_APP_METRICS } from '@marinoscar/platform-api/exports';
+import { USER_DATA_APP_METRICS } from '@marinoscar/platform-api/user-data';
 
 registerAppMetrics(PLATFORM_APP_METRICS);
 registerAppMetrics(EVENT_BUS_APP_METRICS);
@@ -24,6 +25,7 @@ registerAppMetrics(EVENT_BUS_APP_METRICS);
 registerAppMetrics(ORGANIZATIONS_APP_METRICS);
 registerAppMetrics(SHARING_APP_METRICS);
 registerAppMetrics(EXPORTS_APP_METRICS);
+registerAppMetrics(USER_DATA_APP_METRICS);
 
 // App-owned metrics last.
 registerAppMetrics(APP_METRICS);

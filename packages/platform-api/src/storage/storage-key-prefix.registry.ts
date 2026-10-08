@@ -257,6 +257,23 @@ export function allKeyPrefixes(): readonly string[] {
 }
 
 /**
+ * Every registered root prefix marked `survivesFactoryReset: true`, in
+ * registration order: what the admin factory reset keeps (#743).
+ *
+ * @returns a frozen array.
+ *
+ * @stability experimental
+ */
+export function survivingKeyPrefixes(): readonly string[] {
+  return Object.freeze(
+    storageKeyPrefixRegistry
+      .list()
+      .filter((d) => d.survivesFactoryReset === true)
+      .map((d) => d.prefix),
+  );
+}
+
+/**
  * Every `<prefix><orgId>/` of the org-scoped prefixes: what org offboarding
  * enumerates. ⚠ Not sufficient alone: objects written before #736 have no org
  * segment (`uploads/<timestamp>/…`), so offboarding ALSO deletes the stored

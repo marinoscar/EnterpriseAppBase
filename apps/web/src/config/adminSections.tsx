@@ -68,6 +68,8 @@ import { androidAppSettingsPage } from '@marinoscar/platform-web/android-app/ui'
 // registry itself stays here, in the app. `orgs` is this app's own feature key
 // (#726), added to the open `SettingsFeatureRegistry` in
 // `hooks/useSettingsFeatures.ts`.
+import { DANGER_ZONE_GROUP_LABEL } from '@marinoscar/platform-web/user-data/headless';
+import { factoryResetSettingsPage } from '@marinoscar/platform-web/user-data/ui';
 import type { SettingsSectionDef } from '@marinoscar/platform-web/settings/ui';
 import SettingsSuggestOutlinedIcon from '@mui/icons-material/SettingsSuggestOutlined';
 
@@ -605,6 +607,18 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
         feature: 'orgs',
       },
     ],
+  },
+  // Issue #743 (PP-9.1). `Danger Zone`, PINNED LAST: the one documented
+  // exception to append-only (docs/specs/settings-ui.md). A group added later
+  // is inserted BEFORE this one, never after; the settings registry test
+  // asserts it (`dangerZoneLastViolations`). The packaged factory reset page
+  // (`@marinoscar/platform-web/user-data/ui`): `system:factory_reset`, the
+  // exact SYSTEM permission the user-data slice's controller enforces (Admin
+  // only; never implied by `system_settings:write`). No `feature`. The group
+  // sits alone and is never folded into Operations.
+  {
+    label: DANGER_ZONE_GROUP_LABEL,
+    cards: [{ ...factoryResetSettingsPage.card, Icon: factoryResetSettingsPage.Icon }],
   },
 ];
 

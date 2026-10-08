@@ -181,9 +181,9 @@ describe('permission registry', () => {
       expect(permissionRegistry.ids()).toEqual(Object.values(PERMISSIONS));
     });
 
-    it('declares 49 permissions and 4 roles, each exactly once', () => {
-      expect(permissionRegistry.size).toBe(49);
-      expect(new Set(Object.values(PERMISSIONS)).size).toBe(49);
+    it('declares 51 permissions and 4 roles, each exactly once', () => {
+      expect(permissionRegistry.size).toBe(51);
+      expect(new Set(Object.values(PERMISSIONS)).size).toBe(51);
       expect(roleRegistry.size).toBe(4);
     });
   });

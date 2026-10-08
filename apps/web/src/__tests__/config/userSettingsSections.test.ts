@@ -95,8 +95,8 @@ describe('USER_SETTINGS_SECTIONS - Groups card (issue #731)', () => {
     expect(sharing?.cards.map((card) => card.title)).toEqual(['Groups']);
   });
 
-  it('leaves the existing sections, in order, untouched; later groups (#744 "Your data") append after it', () => {
-    expect(USER_SETTINGS_SECTIONS.map((section) => section.label)).toEqual(['Account', 'Security', 'Sharing', 'Your data']);
+  it('leaves the existing sections, in order, untouched; later groups (#744 "Your data") go before the pinned Danger Zone (#743)', () => {
+    expect(USER_SETTINGS_SECTIONS.map((section) => section.label)).toEqual(['Account', 'Security', 'Sharing', 'Your data', 'Danger Zone']);
   });
 
   it('points at /settings/groups and declares groups:read and no feature', () => {

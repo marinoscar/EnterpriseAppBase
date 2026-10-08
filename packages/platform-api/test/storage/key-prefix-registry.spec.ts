@@ -13,6 +13,7 @@ import {
   registerKeyPrefix,
   registerStorageKeyPrefixes,
   storageKeyPrefixRegistry,
+  survivingKeyPrefixes,
   type StorageKeyPrefixDef,
 } from '../../src/storage/storage-key-prefix.registry';
 import { STORAGE_SLICE_KEY_PREFIXES, ensureStorageSliceKeyPrefixes } from '../../src/storage/storage-key-prefixes';
@@ -154,5 +155,21 @@ describe('the purge and offboarding lists', () => {
     // is why offboarding also deletes `storage_objects WHERE org_id = $1` by key.
     expect(orgKeyPrefixes(ORG).some((prefix) => current.startsWith(prefix))).toBe(true);
     expect(orgKeyPrefixes(ORG).some((prefix) => legacy.startsWith(prefix))).toBe(false);
+  });
+});
+
+describe('survivesFactoryReset (#743)', () => {
+  it('lists only the prefixes marked to survive a factory reset', async () => {
+    const backups: StorageKeyPrefixDef = { id: 'backups-test', prefix: 'backups-test/', owner: 'db-backup', description: 'b', survivesFactoryReset: true };
+    await withTemporaryEntries(storageKeyPrefixRegistry, [backups, exportsDef], () => {
+      expect(survivingKeyPrefixes()).toEqual(['backups-test/']);
+    });
+    expect(survivingKeyPrefixes()).toEqual([]);
+  });
+
+  it('refuses a non-boolean marker', () => {
+    expect(() =>
+      registerKeyPrefix({ id: 'bad-marker', prefix: 'bad-marker/', owner: 'x', description: 'x', survivesFactoryReset: 'yes' as unknown as boolean }),
+    ).toThrow(RegistryError);
   });
 });

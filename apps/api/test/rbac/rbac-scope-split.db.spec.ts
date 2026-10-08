@@ -50,7 +50,7 @@ const FRESH = `rbac_split_fresh_${process.pid}`;
 
 const ORG_PERMISSIONS = ['org_members:read', 'org_members:write', 'org_invites:read', 'org_invites:write'];
 /** Declared after the split (#726, PP-6.7), so absent from the pre-split catalog too. */
-const LATER_PERMISSIONS = ['organizations:read', 'organizations:write'];
+const LATER_PERMISSIONS = ['organizations:read', 'organizations:write', 'system:factory_reset', 'orgs:offboard'];
 /** The sharing slice's org permissions (#728 groups, #729 grants): declared after the split too. */
 const SHARING_PERMISSIONS = ['groups:read', 'groups:write', 'groups:admin', 'sharing:read', 'sharing:write', 'sharing:admin'];
 /** The settings slice's org permissions (#733), granted to org_admin: declared after the split too. */

@@ -37,7 +37,9 @@
     "src/db-backup/index.ts",
     "src/db-backup/testing/index.ts",
     "src/android-app/index.ts",
-    "src/android-app/testing/index.ts"
+    "src/android-app/testing/index.ts",
+    "src/user-data/index.ts",
+    "src/user-data/testing/index.ts"
   ],
   "out": "docs-api",
   "json": "docs-api/api.json"

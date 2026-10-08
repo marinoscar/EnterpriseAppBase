@@ -165,9 +165,12 @@ const DoctorPage = lazy(() => import('./pages/Admin/DoctorPage'));
 const OrganizationPage = lazy(() =>
   import('@marinoscar/platform-web/identity/ui').then((m) => ({ default: m.OrganizationPage })),
 );
-const OrganizationsPage = lazy(() =>
-  import('@marinoscar/platform-web/identity/ui').then((m) => ({ default: m.OrganizationsPage })),
-);
+// With the user-data slice's "Offboard" row action (#743).
+const OrganizationsPage = lazy(() => import('./pages/UserDataPages').then((m) => ({ default: m.OrganizationsRoute })));
+// The user-data slice's pages (#743): the user Danger Zone and the admin
+// factory reset, bound to the app in ./pages/UserDataPages.tsx.
+const DangerZonePage = lazy(() => import('./pages/UserDataPages').then((m) => ({ default: m.DangerZoneRoute })));
+const FactoryResetPage = lazy(() => import('./pages/UserDataPages').then((m) => ({ default: m.FactoryResetRoute })));
 // #733 (PP-8.1): the active organization's settings overrides.
 const OrgSettingsPage = lazy(() => import('./pages/Admin/OrgSettingsPage'));
 // The sharing slice's pages (#731): the groups settings destination and its
@@ -1024,6 +1027,22 @@ function AppRoutes() {
                         fallback={<Navigate to="/" replace />}
                       >
                         <AndroidAppPage />
+                      </RequirePermission>
+                    }
+                  />
+                  {/* Issue #743. The user Danger Zone: ungated like its
+                      `/settings/*` siblings (`user_settings:write`, which
+                      every role holds) and with no feature gate, so it stays
+                      reachable while AI is off. */}
+                  <Route path="/settings/danger-zone" element={<DangerZonePage />} />
+                  {/* Issue #743. The factory reset: `system:factory_reset`,
+                      the exact SYSTEM permission the user-data slice's
+                      factory reset controller enforces (Admin only). */}
+                  <Route
+                    path="/admin/settings/factory-reset"
+                    element={
+                      <RequirePermission permission="system:factory_reset" fallback={<Navigate to="/" replace />}>
+                        <FactoryResetPage />
                       </RequirePermission>
                     }
                   />

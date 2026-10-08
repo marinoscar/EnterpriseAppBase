@@ -35,6 +35,9 @@ export const DB_BACKUP_KEY_PREFIX: StorageKeyPrefixDef = Object.freeze({
   owner: 'db-backup',
   scope: 'deployment' as const,
   description: 'Database backup archives.',
+  // The admin factory reset's undo (`@marinoscar/platform-api/user-data`,
+  // #743): it keeps the archives under this prefix.
+  survivesFactoryReset: true,
 });
 
 /**

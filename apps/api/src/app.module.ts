@@ -38,6 +38,7 @@ import { identityModule } from './platform/identity/identity.config';
 import { sharingModule } from './platform/sharing/sharing.config';
 import { onboardingModule } from './platform/onboarding/onboarding.config';
 import { exportsModule } from './platform/exports/exports.config';
+import { userDataModule } from './platform/user-data/user-data.config';
 import { IdentityExtensionsModule } from './identity-extensions/identity-extensions.module';
 import { androidAppModule } from './platform/android-app/android-app.config';
 
@@ -269,6 +270,14 @@ import configuration from './config/configuration';
 
     // The Android companion (#746): trusted apps, assetlinks, APK releases.
     androidAppModule,
+
+    // User data (#743, epic #668): the per-user deletion with scopes
+    // (`/api/user-data/*`, `user.data.purge`), the admin factory reset
+    // (`/api/admin/factory-reset/*`, `admin.factory_reset`) and organization
+    // offboarding (`/api/admin/orgs/:orgId/offboarding/*`, `org.offboard`),
+    // from `@marinoscar/platform-api/user-data`. The app's binding (the
+    // manifest and the host ports) is `platform/user-data/user-data.config.ts`.
+    userDataModule,
 
     // The platform host ports (#696): binds AUDIT_SINK, SYSTEM_SETTINGS_STORE
     // and PLATFORM_PRISMA to the app's adapters, once, globally, so every

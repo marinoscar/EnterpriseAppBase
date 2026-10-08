@@ -163,8 +163,9 @@ describeWithDb('platform seed against a migrated scratch database (real Postgres
     // the six org groups:* and sharing:* permissions, 12 grants in all. #733:
     // the two org_settings:* permissions, granted to org_admin. #738: the two
     // org_broadcasts:* permissions, granted to org_admin. #739: the two
-    // org_ai_config:* permissions, granted to org_admin.
-    for (const line of ['✓ Seeded 4 roles', '✓ Seeded 49 permissions', '✓ Seeded 63 role-permission mappings', '✓ Seeded default system settings', `✓ Added ${INITIAL_ADMIN} to allowlist`]) {
+    // org_ai_config:* permissions, granted to org_admin. #743: the two system
+    // permissions system:factory_reset and orgs:offboard, granted to admin.
+    for (const line of ['✓ Seeded 4 roles', '✓ Seeded 51 permissions', '✓ Seeded 65 role-permission mappings', '✓ Seeded default system settings', `✓ Added ${INITIAL_ADMIN} to allowlist`]) {
       expect(firstRun).toContain(line);
     }
   });

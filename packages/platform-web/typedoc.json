@@ -39,7 +39,9 @@
     "src/db-backup/headless/index.ts",
     "src/db-backup/ui/index.ts",
     "src/android-app/headless/index.ts",
-    "src/android-app/ui/index.ts"
+    "src/android-app/ui/index.ts",
+    "src/user-data/headless/index.ts",
+    "src/user-data/ui/index.ts"
   ],
   "out": "docs-api",
   "json": "docs-api/api.json"

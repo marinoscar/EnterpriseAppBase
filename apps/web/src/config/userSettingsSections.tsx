@@ -29,6 +29,8 @@ import { groupsSettingsPage } from '@marinoscar/platform-web/sharing/ui';
 import { gettingStartedSettingsPage } from '@marinoscar/platform-web/onboarding/ui';
 import { dataExportSettingsPage } from '@marinoscar/platform-web/exports/ui';
 import type { SettingsSectionDef } from '@marinoscar/platform-web/settings/ui';
+import { DANGER_ZONE_GROUP_LABEL } from '@marinoscar/platform-web/user-data/headless';
+import { dangerZoneSettingsPage } from '@marinoscar/platform-web/user-data/ui';
 
 /**
  * The user settings sections, in hub order.
@@ -133,6 +135,17 @@ export const USER_SETTINGS_SECTIONS: SettingsSectionDef[] = [
   {
     label: 'Your data',
     cards: [{ ...dataExportSettingsPage.card, Icon: dataExportSettingsPage.Icon }],
+  },
+  {
+    // Issue #743 (PP-9.1). `Danger Zone`, PINNED LAST: the one documented
+    // exception to append-only (docs/specs/settings-ui.md); a group added
+    // later goes BEFORE it. The packaged user Danger Zone page
+    // (`@marinoscar/platform-web/user-data/ui`). No `permission` (the routes
+    // require `user_settings:write`, held by every role) and no `feature`: it
+    // stays reachable while AI is off, since the deletion also removes AI keys
+    // and runs.
+    label: DANGER_ZONE_GROUP_LABEL,
+    cards: [{ ...dangerZoneSettingsPage.card, Icon: dangerZoneSettingsPage.Icon }],
   },
 ];
 

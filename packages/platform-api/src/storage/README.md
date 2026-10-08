@@ -152,6 +152,8 @@ The cron rule (`cron-enqueue-only`) scans this slice's root too; the reference a
 
 ## Upgrade notes
 
+#743 adds the optional `survivesFactoryReset` to `StorageKeyPrefixDef` and `survivingKeyPrefixes()`: a prefix marked `true` is kept by the admin factory reset of `@marinoscar/platform-api/user-data` (the db-backup slice marks `database-backups/` in `DB_BACKUP_KEY_PREFIX`). Unmarked prefixes behave as before.
+
 New subpath in this version. From the reference app's local `src/storage/` (#736):
 
 - Import from `@marinoscar/platform-api/storage`; mount `StorageModule.forRoot({ imports: [YourStorageHostModule] })` and `ProfileImageModule.forRoot()` once, and bind `STORAGE_SYSTEM_DATA`.
