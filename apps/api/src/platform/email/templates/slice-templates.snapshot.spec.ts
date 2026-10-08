@@ -5,7 +5,7 @@ import { createEmailRenderContext, findEmailTemplate } from '@marinoscar/platfor
 
 // Importing the registry barrel runs the notification manifest, which
 // registers these three templates.
-import '../../../../test/notifications/support/notifications';
+import '../../notifications';
 
 // =============================================================================
 // The slice-owned templates, byte for byte (issue #737)

@@ -91,6 +91,9 @@ const BASELINE_PERMISSIONS = [
   // The settings slice's org layer (#733, PP-8.1).
   { name: 'org_settings:read', description: "Read the active organization's settings overrides", scope: 'org' },
   { name: 'org_settings:write', description: "Modify the active organization's settings overrides", scope: 'org' },
+  // Org-targeted broadcasts (#738, PP-8.5).
+  { name: 'org_broadcasts:read', description: "View the active organization's notification broadcasts", scope: 'org' },
+  { name: 'org_broadcasts:write', description: 'Compose, schedule, cancel and send notification broadcasts to the active organization', scope: 'org' },
 ];
 
 const BASELINE_ROLE_GRANTS: Record<string, string[]> = {
@@ -160,6 +163,8 @@ const BASELINE_ROLE_GRANTS: Record<string, string[]> = {
     'sharing:admin',
     'org_settings:read',
     'org_settings:write',
+    'org_broadcasts:read',
+    'org_broadcasts:write',
   ],
 };
 

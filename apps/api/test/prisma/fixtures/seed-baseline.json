@@ -1,11 +1,11 @@
 {
-  "$comment": "Captured from the database the PRE-change prisma/seed.ts produced (issue #712, PP-5.5): roles, permissions and role_permissions by name, the global system_settings row, and the row counts. seed-platform.db.spec.ts proves the registry-driven seed writes exactly this. Do not regenerate it to make a test pass: when seeded data changes on purpose, edit it here in the same commit so the change shows in review. Edited on purpose by issue #723 (PP-6.3): the org_admin role, the four org_* permissions, admin's org grants moved to org_admin, and the scoped role descriptions. Edited on purpose by issue #726 (PP-6.7): the two system permissions organizations:read and organizations:write, granted to admin. Edited on purpose by issue #728 (PP-7.1): the three org permissions groups:read (every org role), groups:write (org_admin, contributor) and groups:admin (org_admin). Edited on purpose by issue #729 (PP-7.2): the three org permissions sharing:read (every org role), sharing:write (org_admin, contributor) and sharing:admin (org_admin). Edited on purpose by issue #733 (PP-8.1): the two org permissions org_settings:read and org_settings:write, granted to org_admin.",
+  "$comment": "Captured from the database the PRE-change prisma/seed.ts produced (issue #712, PP-5.5): roles, permissions and role_permissions by name, the global system_settings row, and the row counts. seed-platform.db.spec.ts proves the registry-driven seed writes exactly this. Do not regenerate it to make a test pass: when seeded data changes on purpose, edit it here in the same commit so the change shows in review. Edited on purpose by issue #723 (PP-6.3): the org_admin role, the four org_* permissions, admin's org grants moved to org_admin, and the scoped role descriptions. Edited on purpose by issue #726 (PP-6.7): the two system permissions organizations:read and organizations:write, granted to admin. Edited on purpose by issue #728 (PP-7.1): the three org permissions groups:read (every org role), groups:write (org_admin, contributor) and groups:admin (org_admin). Edited on purpose by issue #729 (PP-7.2): the three org permissions sharing:read (every org role), sharing:write (org_admin, contributor) and sharing:admin (org_admin). Edited on purpose by issue #733 (PP-8.1): the two org permissions org_settings:read and org_settings:write, granted to org_admin. Edited on purpose by issue #738 (PP-8.5): the two org permissions org_broadcasts:read and org_broadcasts:write, granted to org_admin.",
   "counts": {
     "roles": 4,
-    "permissions": 45,
+    "permissions": 47,
     "allowedEmails": 1,
     "systemSettings": 1,
-    "rolePermissions": 59
+    "rolePermissions": 61
   },
   "roles": [
     {
@@ -93,6 +93,14 @@
     {
       "name": "nodes:write",
       "description": "Register, drain and remove worker nodes"
+    },
+    {
+      "name": "org_broadcasts:read",
+      "description": "View the active organization's notification broadcasts"
+    },
+    {
+      "name": "org_broadcasts:write",
+      "description": "Compose, schedule, cancel and send notification broadcasts to the active organization"
     },
     {
       "name": "org_invites:read",
@@ -254,6 +262,8 @@
       "groups:admin",
       "groups:read",
       "groups:write",
+      "org_broadcasts:read",
+      "org_broadcasts:write",
       "org_invites:read",
       "org_invites:write",
       "org_members:read",

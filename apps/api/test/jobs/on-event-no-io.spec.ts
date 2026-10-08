@@ -163,15 +163,18 @@ describe('no @OnEvent body does storage I/O', () => {
     expect(files.flatMap((file) => onEventBodies(file.source)).length).toBeGreaterThanOrEqual(5);
   });
 
-  it("scans the packaged jobs and nodes slices' listeners, not only the app's (#734)", () => {
+  it("scans the packaged jobs, nodes and notifications slices' listeners, not only the app's (#734, #738)", () => {
     const scanned = files.map((file) => file.rel);
 
     expect(scanned).toEqual(
       expect.arrayContaining([
         'packages/platform-api/src/nodes/ops/node-secret-revoker.ts',
-        // The app-side listener for the slice's `nodes.node.offline` event:
-        // notification dispatch, the documented exception, and no storage I/O.
-        'apps/api/src/notifications/ops/node-offline-notifier.ts',
+        // The listener for the nodes slice's `nodes.node.offline` event, in the
+        // notifications slice since #738: notification dispatch, the
+        // documented exception, and no storage I/O.
+        'packages/platform-api/src/notifications/ops/node-offline-notifier.ts',
+        'packages/platform-api/src/notifications/ops/job-failure-notifier.ts',
+        'packages/platform-api/src/notifications/broadcasts/broadcast-failure.listener.ts',
       ]),
     );
   });
