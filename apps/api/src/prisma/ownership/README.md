@@ -18,8 +18,10 @@ folder holds the **app side**:
    service.
 
 **Model ownership kinds and row-level security (#725).** Beside the user-owned
-registry this folder holds the **model ownership** registrations
-(`platform-model-ownership.ts`, `model-ownership.manifest.ts`): every Prisma
+registry this folder holds the **model ownership** registration
+(`model-ownership.manifest.ts`, which calls `registerPlatformModelOwnership()`
+of `@marinoscar/platform-api/manifest` with the app's own; the platform's
+classification is `PLATFORM_MODEL_OWNERSHIP` there, #866): every Prisma
 model is `org` (NOT NULL `org_id`, row-level security forced), `org-optional`
 (nullable `org_id`), `user` or `system`, with `orgReference` for an identity
 table that merely names an organization. An app adds its own in

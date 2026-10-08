@@ -1584,8 +1584,8 @@ or a raw query cannot leak another tenant's data. Row-level security (RLS) is a
 second line behind `@Auth(...)` and the service's checks, never a replacement.
 
 **What is isolated.** The models registered `org` in the model ownership
-registry (`apps/api/src/prisma/ownership/platform-model-ownership.ts`, a
-`@marinoscar/platform-api/core` registry): `StorageObject`,
+registry (`PLATFORM_MODEL_OWNERSHIP` of `@marinoscar/platform-api/manifest`,
+#866, registered into a `@marinoscar/platform-api/core` registry): `StorageObject`,
 `StorageObjectChunk`, `AiRun`, `AiUsageEvent`, the sharing slice's `Group`,
 `GroupMember`, `GroupInvite` (#728) and `Grant` (#729), declared by
 `@marinoscar/platform-api/sharing`, the settings slice's `OrgSettings`
