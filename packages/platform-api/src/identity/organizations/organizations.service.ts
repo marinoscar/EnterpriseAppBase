@@ -1,5 +1,4 @@
 import { Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
-import type { Membership, MembershipStatus, Organization, Prisma } from '@prisma/client';
 import { PLATFORM_PRISMA } from '../../core/index';
 import type { IdentityPrisma } from '../ports';
 import { PrincipalCache } from '../auth/principal-cache/principal-cache.service';
@@ -13,6 +12,13 @@ import { orgRoleRank } from './org-admin.common';
 /** The audit action an invitation claimed at sign-in writes (#726). */
 export const ORG_INVITE_ACCEPTED_AUDIT = 'org:invite_accepted';
 import type { TenancyMode } from '../../core/index';
+import type {
+  IdentityInviteRow,
+  IdentityMembershipRow as Membership,
+  IdentityOrganizationRow as Organization,
+  IdentityTx,
+} from '../data/identity-db';
+import type { OrgMemberStatus as MembershipStatus } from '@marinoscar/platform-contract/identity';
 
 /**
  * Organizations, the tenancy foundation (PP-6.1, ADR 0001).
@@ -97,7 +103,7 @@ export class OrganizationsService {
    *   initial administrator.
    */
   async ensureMembership(
-    tx: Prisma.TransactionClient,
+    tx: IdentityTx,
     orgId: string,
     userId: string,
     roleId: string,
@@ -314,7 +320,7 @@ export class OrganizationsService {
   async claimPendingInvites(userId: string, email: string): Promise<number> {
     const now = new Date();
     const pending =
-      (await this.prisma.invite.findMany({
+      (await this.prisma.invite.findMany<IdentityInviteRow & { role: { id: string; name: string } | null }>({
         where: { email: email.toLowerCase(), status: 'pending' },
         include: { role: { select: { id: true, name: true } } },
         orderBy: { createdAt: 'asc' },
@@ -354,7 +360,7 @@ export class OrganizationsService {
         });
         if (marked.count !== 1) return null;
 
-        const existing = await tx.membership.findUnique({
+        const existing = await tx.membership.findUnique<Membership & { role: { name: string } }>({
           where: { orgId_userId: { orgId: invite.orgId, userId } },
           include: { role: { select: { name: true } } },
         });

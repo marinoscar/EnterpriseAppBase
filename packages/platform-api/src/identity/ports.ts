@@ -10,9 +10,9 @@
 // exact calls identity makes; nothing wider.
 //
 // The database is the core port `PLATFORM_PRISMA` (`@marinoscar/platform-api/core`),
-// typed here as the generated client: identity owns its models (the identity
-// fragment of `@marinoscar/platform-db`), so it compiles against their Prisma
-// TYPES and never bundles a client.
+// seen as the structural `IdentityPrisma` (`data/identity-db.ts`): identity
+// owns its models (the identity fragment of `@marinoscar/platform-db`) but
+// never depends on a generated client, not even its types.
 //
 // DIRECTION. Identity sits under every other slice (docs/specs/platform-packages.md,
 // "Dependency graph"), so it cannot import notifications, jobs or nodes. Each
@@ -23,21 +23,12 @@
 // =============================================================================
 
 import type { Logger } from '@nestjs/common';
-import type { PrismaClient } from '@prisma/client';
 
 import type { AuthenticatedUser } from './auth/interfaces/authenticated-user.interface';
 
 // ---- database -----------------------------------------------------------------------
 
-/**
- * The app's generated Prisma client, as identity sees it. Identity owns the
- * identity fragment's models (`User`, `Role`, `RefreshToken`, `Organization`,
- * ...), so it is typed against the generated client; the value is the app's
- * own client, injected through the core port `PLATFORM_PRISMA`.
- *
- * @stability experimental
- */
-export type IdentityPrisma = PrismaClient;
+export type { IdentityPrisma } from './data/identity-db';
 
 // ---- notifications (the IDENTITY_NOTIFIER seam) -------------------------------------
 

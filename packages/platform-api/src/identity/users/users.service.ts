@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PLATFORM_PRISMA } from '../../core/index';
+import type { IdentityMembershipRow, IdentityRoleRow, IdentityUserRow } from '../data/identity-db';
 import type { IdentityPrisma } from '../ports';
 import { UserListQueryDto } from './dto/user-list-query.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -45,6 +46,15 @@ const USER_ROLES_INCLUDE = {
     },
   },
 } as const;
+
+/** A user loaded with {@link USER_ROLES_INCLUDE}. */
+type UserRolesGraph = IdentityUserRow & {
+  userRoles: Array<{ role: IdentityRoleRow }>;
+  memberships: Array<IdentityMembershipRow & { org: { id: string; isDefault: boolean }; role: IdentityRoleRow }>;
+};
+
+/** A {@link UserRolesGraph} with the user's settings value. */
+type UserWithSettings = UserRolesGraph & { userSettings: { value: unknown } | null };
 
 /**
  * Precedence among org roles when a request names several, highest first.
@@ -121,7 +131,7 @@ export class UsersService {
 
     // Execute query
     const [items, total] = await Promise.all([
-      this.prisma.user.findMany({
+      this.prisma.user.findMany<UserWithSettings>({
         where,
         skip,
         take: pageSize,
@@ -164,7 +174,9 @@ export class UsersService {
    * Get user by ID
    */
   async getUserById(id: string) {
-    const user = await this.prisma.user.findUnique({
+    const user = await this.prisma.user.findUnique<
+      UserWithSettings & { identities: Array<{ provider: string; providerEmail: string | null; createdAt: Date }> }
+    >({
       where: { id },
       include: {
         ...USER_ROLES_INCLUDE,
@@ -219,7 +231,7 @@ export class UsersService {
       throw new NotFoundException(`User with ID ${id} not found`);
     }
 
-    const updated = await this.prisma.user.update({
+    const updated = await this.prisma.user.update<UserWithSettings>({
       where: { id },
       data: {
         displayName: dto.displayName,
@@ -291,7 +303,7 @@ export class UsersService {
     // `security.role_changed` reports a DELTA (see role-changed.email.ts: "you
     // are now a Viewer" cannot tell the reader whether they gained access or
     // lost it), so the before-state has to be captured on this side of it.
-    const user = await this.prisma.user.findUnique({
+    const user = await this.prisma.user.findUnique<UserRolesGraph>({
       where: { id },
       include: USER_ROLES_INCLUDE,
     });

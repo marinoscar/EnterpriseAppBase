@@ -50,6 +50,7 @@ import type { PrismaService } from '../../src/prisma/prisma.service';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
 import { AppProfileImages, AppUserDefaults } from '../../src/platform/identity/identity-user.adapters';
 import { NotificationsIdentityNotifier } from '../../src/platform/identity/identity-notifier.adapter';
+import { asIdentityPrisma } from '../../src/platform/identity/identity-db';
 
 
 const { describeWithDb } = resolveDbSuite('org-admin-flow.db.spec');
@@ -106,17 +107,17 @@ describeWithDb('org administration flow (real Postgres, #726)', () => {
     // adapter turns them into the same `notify` / `notifyAddress` calls.
     const notifier = new NotificationsIdentityNotifier(notifications as never);
     const metrics = { add: jest.fn(), authLogin: jest.fn(), authRefresh: jest.fn() };
-    const organizations = new OrganizationsService(prisma, cache);
-    invites = new OrgInvitesService(prisma, notifier, config, metrics as never);
-    members = new OrgMembersService(prisma, cache, notifier, config, metrics as never);
-    admin = new OrganizationsAdminService(prisma, tenancy, invites);
-    pats = new PatService(prisma, cache);
+    const organizations = new OrganizationsService(asIdentityPrisma(prisma), cache);
+    invites = new OrgInvitesService(asIdentityPrisma(prisma), notifier, config, metrics as never);
+    members = new OrgMembersService(asIdentityPrisma(prisma), cache, notifier, config, metrics as never);
+    admin = new OrganizationsAdminService(asIdentityPrisma(prisma), tenancy, invites);
+    pats = new PatService(asIdentityPrisma(prisma), cache);
     auth = new AuthService(
-      prisma,
+      asIdentityPrisma(prisma),
       jwt,
       config,
       { shouldGrantAdminRole: async () => false } as never,
-      new AllowlistService(prisma, notifier, config),
+      new AllowlistService(asIdentityPrisma(prisma), notifier, config),
       notifier,
       cache,
       organizations,

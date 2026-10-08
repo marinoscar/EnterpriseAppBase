@@ -46,6 +46,31 @@ export type {
   UserWelcomeNotice,
 } from './ports';
 
+// ---- the data identity reads and writes (structural; no generated client) -------------
+export { DEVICE_CODE_STATUS, isPrismaErrorCode } from './data/identity-db';
+export type {
+  IdentityAllowedEmailRow,
+  IdentityAuditEventRow,
+  IdentityBatchResult,
+  IdentityDelegate,
+  IdentityDeviceCodeRow,
+  IdentityInviteRow,
+  IdentityJsonValue,
+  IdentityMembershipRow,
+  IdentityOrganizationRow,
+  IdentityPermissionRow,
+  IdentityPersonalAccessTokenRow,
+  IdentityPrismaError,
+  IdentityQueryArgs,
+  IdentityRefreshTokenRow,
+  IdentityRoleRow,
+  IdentityRoleScope,
+  IdentityTx,
+  IdentityUserIdentityRow,
+  IdentityUserRoleRow,
+  IdentityUserRow,
+} from './data/identity-db';
+
 // ---- domain events (rung 4) -----------------------------------------------------------
 export { IDENTITY_EVENTS } from './identity.events';
 export type {
@@ -174,6 +199,7 @@ export type { TenancyCapabilities } from './organizations/tenancy-mode';
 export { currentTenancyMode, recordTenancyMode } from './auth/tenancy-mode';
 export { TenancyService } from './organizations/tenancy.service';
 export { MissingOrgScopeError, orgIdFromPayload, resolveJobOrgId, resolveOrgId } from './organizations/org-scope';
+export type { DefaultOrgReader } from './organizations/org-scope';
 export { DefaultOrganizationMissingException } from './organizations/organizations.errors';
 
 // ---- the modules and the services they export -----------------------------------------

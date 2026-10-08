@@ -7,7 +7,6 @@ import {
   Optional, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { trace } from '@opentelemetry/api';
-import type { MembershipStatus, Prisma } from '@prisma/client';
 
 import { PLATFORM_PRISMA } from '../../core/index';
 import type { IdentityPrisma } from '../ports';
@@ -25,6 +24,8 @@ import { IDENTITY_EVENTS, emitIdentityEvent } from '../identity.events';
 import { ORG_ADMIN_ROLE } from '../identity.constants';
 import { lastOrgAdminConflict, lockOrganization, writeAudit } from './org-admin.common';
 import type { OrgMemberListQueryDto, UpdateOrgMemberDto } from './dto/org-member.dto';
+import type { IdentityMembershipRow, IdentityQueryArgs, IdentityTx } from '../data/identity-db';
+import type { OrgMemberStatus as MembershipStatus } from '@marinoscar/platform-contract/identity';
 
 /** Audit actions this service writes. */
 export const ORG_MEMBER_AUDIT = {
@@ -35,9 +36,12 @@ export const ORG_MEMBER_AUDIT = {
 const MEMBER_INCLUDE = {
   user: { select: { id: true, email: true, displayName: true, providerDisplayName: true } },
   role: { select: { id: true, name: true } },
-} satisfies Prisma.MembershipInclude;
+} as const;
 
-type MemberRow = Prisma.MembershipGetPayload<{ include: typeof MEMBER_INCLUDE }>;
+type MemberRow = IdentityMembershipRow & {
+  user: { id: string; email: string; displayName: string | null; providerDisplayName: string | null };
+  role: { id: string; name: string };
+};
 
 /** One member as the API returns it. */
 export interface OrgMemberView {
@@ -102,7 +106,7 @@ export class OrgMembersService {
     trace.getActiveSpan()?.setAttribute('org.id', orgId);
 
     const search = query.search?.trim();
-    const where: Prisma.MembershipWhereInput = {
+    const where: IdentityQueryArgs = {
       orgId,
       ...(query.status !== 'all' ? { status: query.status } : {}),
       ...(search
@@ -118,7 +122,7 @@ export class OrgMembersService {
         : {}),
     };
     const [rows, total] = await Promise.all([
-      this.prisma.membership.findMany({
+      this.prisma.membership.findMany<MemberRow>({
         where,
         include: MEMBER_INCLUDE,
         orderBy: { user: { email: 'asc' } },
@@ -180,7 +184,7 @@ export class OrgMembersService {
         return { member, previousRole: member.role.name, roleChanged: false, statusChanged: false };
       }
 
-      const updated = await tx.membership.update({
+      const updated = await tx.membership.update<MemberRow>({
         where: { id: member.id },
         data: {
           ...(roleChanges ? { roleId: newRole.id } : {}),
@@ -296,8 +300,8 @@ export class OrgMembersService {
   }
 
   /** The membership of `userId` in `orgId`, or a 404. */
-  private async findMember(tx: Prisma.TransactionClient, orgId: string, userId: string): Promise<MemberRow> {
-    const member = await tx.membership.findUnique({
+  private async findMember(tx: IdentityTx, orgId: string, userId: string): Promise<MemberRow> {
+    const member = await tx.membership.findUnique<MemberRow>({
       where: { orgId_userId: { orgId, userId } },
       include: MEMBER_INCLUDE,
     });
@@ -309,7 +313,7 @@ export class OrgMembersService {
 
   /** 409 unless another ACTIVE `org_admin` remains in the organization. */
   private async assertAnotherActiveAdmin(
-    tx: Prisma.TransactionClient,
+    tx: IdentityTx,
     orgId: string,
     userId: string,
   ): Promise<void> {

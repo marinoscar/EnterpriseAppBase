@@ -1,22 +1,23 @@
 // A copy of apps/api/test/mocks/prisma.mock.ts (#727): the identity specs moved
 // into this package with the code they test, and a package never imports an
-// app. A deep mock of the generated client; the org-scope entry points and the
+// app. A deep mock of the slice's structural client (`IdentityPrisma`; a
+// package never depends on a generated client); the org-scope entry points and the
 // default organization behave exactly as in the app's copy.
 
 import { DeepMockProxy, mockDeep, mockReset } from 'jest-mock-extended';
-import { PrismaClient } from '@prisma/client';
+import type { IdentityPrisma } from '../../../src/identity/data/identity-db';
 
 /**
  * Type-safe Prisma mock for testing
  */
-export type MockPrismaClient = DeepMockProxy<PrismaClient>;
-export type MockPrismaService = DeepMockProxy<PrismaClient>;
+export type MockPrismaClient = DeepMockProxy<IdentityPrisma>;
+export type MockPrismaService = DeepMockProxy<IdentityPrisma>;
 
 /**
  * Global Prisma mock instance
  * Use this in tests with jest-mock-extended
  */
-const _prismaMock: MockPrismaClient = mockDeep<PrismaClient>();
+const _prismaMock: MockPrismaClient = mockDeep<IdentityPrisma>();
 
 /**
  * Gives a mock the org-scope entry points of `PrismaService` (issue #725):
@@ -111,5 +112,5 @@ export function mockPrismaTransaction(): void {
  * Creates a fresh mock PrismaService for unit tests
  */
 export function createMockPrismaService(): MockPrismaService {
-  return withOrgScope(withDefaultOrg(mockDeep<PrismaClient>()));
+  return withOrgScope(withDefaultOrg(mockDeep<IdentityPrisma>()));
 }

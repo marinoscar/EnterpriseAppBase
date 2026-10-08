@@ -12,7 +12,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
-import { DeviceCodeStatus } from '@prisma/client';
+import { DEVICE_CODE_STATUS as DeviceCodeStatus } from '../../../src/identity/data/identity-db';
 
 import { createMockPrismaService, MockPrismaService } from '../support/prisma.mock';
 import { AuthService } from '../../../src/identity/auth/auth.service';

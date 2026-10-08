@@ -10,8 +10,12 @@ import { ConfigService } from '@nestjs/config';
 import { trace } from '@opentelemetry/api';
 import { JwtService } from '@nestjs/jwt';
 import { createHash, randomBytes } from 'node:crypto';
-import type { Prisma } from '@prisma/client';
 import { PLATFORM_PRISMA } from '../../core/index';
+import type {
+  IdentityDeviceCodeRow,
+  IdentityRefreshTokenRow,
+  IdentityUserIdentityRow,
+} from '../data/identity-db';
 import type { IdentityPrisma } from '../ports';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
@@ -39,7 +43,7 @@ import {
 import { AuthLoginDeniedException } from './auth-error-codes';
 import { GoogleProfile } from './strategies/google.strategy';
 import { JwtPayload } from './strategies/jwt.strategy';
-import { AuthenticatedUser } from './interfaces/authenticated-user.interface';
+import type { AuthenticatedRole, AuthenticatedUser } from './interfaces/authenticated-user.interface';
 import {
   PRINCIPAL_USER_INCLUDE,
   principalFactory,
@@ -163,7 +167,7 @@ export class AuthService {
     }
 
     // Check if identity already exists
-    let identity = await this.prisma.userIdentity.findUnique({
+    let identity = await this.prisma.userIdentity.findUnique<IdentityUserIdentityRow & { user: AuthenticatedUser }>({
       where: {
         provider_providerSubject: {
           provider: 'google',
@@ -186,7 +190,7 @@ export class AuthService {
 
     if (!user) {
       // Check if user exists by email (identity linking case)
-      const existingUser = await this.prisma.user.findUnique({
+      const existingUser = await this.prisma.user.findUnique<AuthenticatedUser>({
         where: { email: profile.email },
         include: PRINCIPAL_USER_INCLUDE,
       });
@@ -246,7 +250,7 @@ export class AuthService {
     if (claimed > 0) {
       this.logger.log(`User ${user.id} accepted ${claimed} organization invitation(s) at sign-in`);
       user =
-        (await this.prisma.user.findUnique({
+        (await this.prisma.user.findUnique<AuthenticatedUser>({
           where: { id: user.id },
           include: PRINCIPAL_USER_INCLUDE,
         })) ?? user;
@@ -410,7 +414,7 @@ export class AuthService {
    * initial administrator gets the system `admin` role in `user_roles` plus
    * `ORG_ADMIN_ROLE` on the default-org membership.
    */
-  private async createNewUser(profile: GoogleProfile, isInitialAdmin: boolean) {
+  private async createNewUser(profile: GoogleProfile, isInitialAdmin: boolean): Promise<AuthenticatedUser> {
     // Check if this should be the initial admin
     const shouldGrantAdmin =
       await this.adminBootstrapService.shouldGrantAdminRole(profile.email);
@@ -419,7 +423,7 @@ export class AuthService {
     // carries them). Resolved before the transaction: a missing row is a seed
     // problem and must fail before anything is written.
     const membershipRoleName = shouldGrantAdmin ? ORG_ADMIN_ROLE : this.identityOptions.defaultOrgRole;
-    const membershipRole = await this.prisma.role.findUnique({
+    const membershipRole = await this.prisma.role.findUnique<AuthenticatedRole>({
       where: { name: membershipRoleName },
       include: {
         rolePermissions: {
@@ -454,7 +458,7 @@ export class AuthService {
     const user = await this.prisma.$transaction(async (tx) => {
       // Create user. No system role: an ordinary member holds only the
       // membership role below.
-      const newUser = await tx.user.create({
+      const newUser = await tx.user.create<AuthenticatedUser>({
         data: {
           email: profile.email,
           providerDisplayName: profile.displayName,
@@ -471,7 +475,7 @@ export class AuthService {
           // Create default user settings
           userSettings: {
             create: {
-              value: this.userDefaults.userSettings() as Prisma.InputJsonValue,
+              value: this.userDefaults.userSettings(),
             },
           },
         },
@@ -518,7 +522,7 @@ export class AuthService {
         this.logger.log(`Admin role assigned to user: ${newUser.id}`);
 
         // Reload with the principal graph: the system role and the membership.
-        const userWithAdmin = await tx.user.findUnique({
+        const userWithAdmin = await tx.user.findUnique<AuthenticatedUser>({
           where: { id: newUser.id },
           include: PRINCIPAL_USER_INCLUDE,
         });
@@ -812,7 +816,12 @@ export class AuthService {
 
     // Find valid refresh token. The user is loaded with the principal graph
     // (memberships included) so the org membership can be checked.
-    const storedToken = await this.prisma.refreshToken.findUnique({
+    const storedToken = await this.prisma.refreshToken.findUnique<
+      IdentityRefreshTokenRow & {
+        user: AuthenticatedUser;
+        deviceCode: Pick<IdentityDeviceCodeRow, 'id' | 'userId' | 'revokedAt' | 'credentialExpiresAt' | 'orgId'> | null;
+      }
+    >({
       where: { tokenHash },
       include: {
         user: { include: PRINCIPAL_USER_INCLUDE },
@@ -1110,7 +1119,7 @@ export class AuthService {
       // System roles plus memberships with their org roles (PP-6.3, #723):
       // the shared graph every credential path loads; `PrincipalFactory`
       // derives the effective permissions from it.
-      const user = await this.prisma.user.findUnique({
+      const user = await this.prisma.user.findUnique<AuthenticatedUser>({
         where: { id: payload.sub },
         include: PRINCIPAL_USER_INCLUDE,
       });
@@ -1205,7 +1214,7 @@ export class AuthService {
       throw new UnauthorizedException('No refresh token provided');
     }
 
-    const storedToken = await this.prisma.refreshToken.findUnique({
+    const storedToken = await this.prisma.refreshToken.findUnique<IdentityRefreshTokenRow & { user: AuthenticatedUser }>({
       where: { tokenHash: this.hashToken(refreshToken) },
       include: { user: { include: PRINCIPAL_USER_INCLUDE } },
     });
@@ -1316,7 +1325,7 @@ export class AuthService {
    * sign-in rule picks the org.
    */
   async getCurrentUser(userId: string, activeOrgId?: string | null) {
-    const user = await this.prisma.user.findUnique({
+    const user = await this.prisma.user.findUnique<AuthenticatedUser & { userSettings: { value: unknown } | null }>({
       where: { id: userId },
       include: CURRENT_USER_INCLUDE,
     });

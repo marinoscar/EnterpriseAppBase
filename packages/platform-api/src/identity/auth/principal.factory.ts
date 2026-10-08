@@ -40,7 +40,6 @@
 // =============================================================================
 
 import { Injectable } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
 import type {
   CredentialKind,
   NodePrincipal,
@@ -55,7 +54,7 @@ import { currentTenancyMode } from './tenancy-mode';
 /** The role graph a principal needs: the role and the names of its permissions. */
 const PRINCIPAL_ROLE_INCLUDE = {
   rolePermissions: { include: { permission: true } },
-} satisfies Prisma.RoleInclude;
+} as const;
 
 /**
  * What every credential path loads with the user: system roles with their
@@ -75,7 +74,7 @@ export const PRINCIPAL_USER_INCLUDE = {
       role: { include: PRINCIPAL_ROLE_INCLUDE },
     },
   },
-} satisfies Prisma.UserInclude;
+} as const;
 
 /**
  * A role as the factory reads it. `rolePermissions` may be absent where only names are loaded.

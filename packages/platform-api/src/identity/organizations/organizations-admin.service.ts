@@ -1,6 +1,5 @@
 import { ConflictException, Injectable, Logger, NotFoundException, Inject } from '@nestjs/common';
 import { trace } from '@opentelemetry/api';
-import { Prisma } from '@prisma/client';
 
 import { PLATFORM_PRISMA } from '../../core/index';
 import type { IdentityPrisma } from '../ports';
@@ -13,6 +12,7 @@ import type {
   OrganizationListQueryDto,
   RenameOrganizationDto,
 } from './dto/organization.dto';
+import { isPrismaErrorCode, type IdentityOrganizationRow, type IdentityQueryArgs } from '../data/identity-db';
 
 /** Audit actions this service writes. */
 export const ORGANIZATION_AUDIT = {
@@ -22,9 +22,9 @@ export const ORGANIZATION_AUDIT = {
 
 const ORG_WITH_COUNT = {
   _count: { select: { memberships: { where: { status: 'active' } } } },
-} satisfies Prisma.OrganizationInclude;
+} as const;
 
-type OrgRow = Prisma.OrganizationGetPayload<{ include: typeof ORG_WITH_COUNT }>;
+type OrgRow = IdentityOrganizationRow & { _count: { memberships: number } };
 
 /** One organization as the admin API returns it. */
 export interface OrganizationView {
@@ -66,7 +66,7 @@ export class OrganizationsAdminService {
   /** Every organization, default first then by name, with its active member count. */
   async list(query: OrganizationListQueryDto) {
     const search = query.search?.trim();
-    const where: Prisma.OrganizationWhereInput = search
+    const where: IdentityQueryArgs = search
       ? {
           OR: [
             { name: { contains: search, mode: 'insensitive' } },
@@ -75,7 +75,7 @@ export class OrganizationsAdminService {
         }
       : {};
     const [rows, total] = await Promise.all([
-      this.prisma.organization.findMany({
+      this.prisma.organization.findMany<OrgRow>({
         where,
         include: ORG_WITH_COUNT,
         orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
@@ -124,7 +124,7 @@ export class OrganizationsAdminService {
         return { orgId: org.id, pending };
       });
     } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      if (isPrismaErrorCode(error, 'P2002')) {
         throw new ConflictException({
           message: `An organization with the slug "${dto.slug}" already exists`,
           details: { reason: 'SLUG_TAKEN' },
@@ -165,7 +165,7 @@ export class OrganizationsAdminService {
   }
 
   private async get(orgId: string): Promise<OrganizationView> {
-    const org = await this.prisma.organization.findUnique({
+    const org = await this.prisma.organization.findUnique<OrgRow>({
       where: { id: orgId },
       include: ORG_WITH_COUNT,
     });

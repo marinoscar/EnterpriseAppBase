@@ -6,7 +6,6 @@ import {
   Optional, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { trace } from '@opentelemetry/api';
-import type { Invite, InviteStatus, Prisma } from '@prisma/client';
 
 import { PLATFORM_PRISMA } from '../../core/index';
 import type { IdentityPrisma } from '../ports';
@@ -22,6 +21,8 @@ import { DatabaseSeedException } from '../../core/index';
 import { DEFAULT_ORG_ROLE } from '../identity.constants';
 import { signInUrlFrom, writeAudit } from './org-admin.common';
 import type { CreateOrgInviteDto, OrgInviteListQueryDto } from './dto/org-invite.dto';
+import type { IdentityInviteRow, IdentityQueryArgs, IdentityTx } from '../data/identity-db';
+import type { OrgInviteStatus } from '@marinoscar/platform-contract/identity';
 
 /** How long an invitation stays claimable; re-inviting renews it. */
 export const ORG_INVITE_TTL_DAYS = 14;
@@ -39,16 +40,20 @@ const INVITE_INCLUDE = {
   role: { select: { name: true } },
   invitedBy: { select: { id: true, email: true } },
   acceptedBy: { select: { id: true, email: true } },
-} satisfies Prisma.InviteInclude;
+} as const;
 
-type InviteWithRelations = Prisma.InviteGetPayload<{ include: typeof INVITE_INCLUDE }>;
+type InviteWithRelations = IdentityInviteRow & {
+  role: { name: string } | null;
+  invitedBy: { id: string; email: string } | null;
+  acceptedBy: { id: string; email: string } | null;
+};
 
 /** One invitation as the API returns it. */
 export interface OrgInviteView {
   id: string;
   email: string;
   role: string;
-  status: InviteStatus;
+  status: OrgInviteStatus;
   notes: string | null;
   expiresAt: Date | null;
   createdAt: Date;
@@ -68,7 +73,7 @@ export interface WriteInviteInput {
 
 /** The email to send once the transaction that wrote an invite has committed. */
 export interface PendingInvitation {
-  invite: Invite;
+  invite: IdentityInviteRow;
   payload: OrgInvitationNotice;
 }
 
@@ -107,12 +112,12 @@ export class OrgInvitesService {
     trace.getActiveSpan()?.setAttribute('org.id', orgId);
     await this.expireLapsed(orgId);
 
-    const where: Prisma.InviteWhereInput = {
+    const where: IdentityQueryArgs = {
       orgId,
       ...(query.status !== 'all' ? { status: query.status } : {}),
     };
     const [rows, total] = await Promise.all([
-      this.prisma.invite.findMany({
+      this.prisma.invite.findMany<InviteWithRelations>({
         where,
         include: INVITE_INCLUDE,
         orderBy: { createdAt: 'desc' },
@@ -158,7 +163,7 @@ export class OrgInvitesService {
     // email can promise a sign-in that works.
     await this.dispatchInvitation(pending);
 
-    const invite = await this.prisma.invite.findUniqueOrThrow({
+    const invite = await this.prisma.invite.findUniqueOrThrow<InviteWithRelations>({
       where: { id: pending.invite.id },
       include: INVITE_INCLUDE,
     });
@@ -170,7 +175,7 @@ export class OrgInvitesService {
    * caller's transaction, with their audit rows. Sends nothing: the caller
    * passes the result to {@link dispatchInvitation} after the commit.
    */
-  async writeInvite(tx: Prisma.TransactionClient, input: WriteInviteInput): Promise<PendingInvitation> {
+  async writeInvite(tx: IdentityTx, input: WriteInviteInput): Promise<PendingInvitation> {
     const { orgId, email, roleName, invitedById } = input;
 
     const [org, role, inviter] = await Promise.all([

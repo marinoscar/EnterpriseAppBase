@@ -1,5 +1,4 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 
 import { createMockPrismaService, MockPrismaService } from '../support/prisma.mock';
 import type { PrismaService } from '../support/app-doubles';
@@ -94,7 +93,7 @@ describe('OrganizationsAdminService (#726)', () => {
 
     it('maps a taken slug to 409 SLUG_TAKEN and sends nothing', async () => {
       prisma.$transaction.mockRejectedValue(
-        new Prisma.PrismaClientKnownRequestError('Unique constraint failed', { code: 'P2002', clientVersion: 'x' }) as never,
+        Object.assign(new Error('Unique constraint failed'), { code: 'P2002' }) as never,
       );
 
       const error = await service.create(ACTOR, dto).catch((e: unknown) => e);

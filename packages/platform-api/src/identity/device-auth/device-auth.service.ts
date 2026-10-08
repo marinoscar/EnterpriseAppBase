@@ -13,7 +13,6 @@ import { PatService } from '../pat/pat.service';
 import { PrincipalCache } from '../auth/principal-cache/principal-cache.service';
 import { PRINCIPAL_USER_INCLUDE } from '../auth/principal.factory';
 import { hasActiveMembership } from '../auth/credential-binding';
-import { DeviceCodeStatus, Prisma } from '@prisma/client';
 import { DeviceTokenType } from './dto/device-code-request.dto';
 import { DeviceTokenResponseDto } from './dto/device-token-response.dto';
 // Every failure of the token endpoint goes through this factory, never through
@@ -22,6 +21,13 @@ import { DeviceTokenResponseDto } from './dto/device-token-response.dto';
 // is destroyed — which is exactly what #153 was. The factory brands the
 // exception so the filter sends `{ error, error_description }` verbatim.
 import { deviceTokenError } from './exceptions/device-token-error.exception';
+import {
+  DEVICE_CODE_STATUS,
+  type IdentityDeviceCodeRow,
+  type IdentityJsonValue,
+  type IdentityQueryArgs,
+} from '../data/identity-db';
+import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
 
 /**
  * Service for handling Device Authorization Flow (RFC 8628)
@@ -102,7 +108,7 @@ export class DeviceAuthService {
       data: {
         deviceCode: deviceCodeHash,
         userCode,
-        status: DeviceCodeStatus.pending,
+        status: DEVICE_CODE_STATUS.pending,
         clientInfo: clientInfo || {},
         scopes: [], // Future extension for scoped permissions
         expiresAt,
@@ -152,7 +158,7 @@ export class DeviceAuthService {
     // Find device code
     // The user with the principal graph (#724): the org the session is bound
     // to must still be an active membership when the credential is minted.
-    const record = await this.prisma.deviceCode.findUnique({
+    const record = await this.prisma.deviceCode.findUnique<IdentityDeviceCodeRow & { user: AuthenticatedUser | null }>({
       where: { deviceCode: deviceCodeHash },
       include: {
         user: { include: PRINCIPAL_USER_INCLUDE },
@@ -167,7 +173,7 @@ export class DeviceAuthService {
     if (record.expiresAt < new Date()) {
       await this.prisma.deviceCode.update({
         where: { id: record.id },
-        data: { status: DeviceCodeStatus.expired },
+        data: { status: DEVICE_CODE_STATUS.expired },
       });
 
       throw deviceTokenError('expired_token', 'The device code has expired');
@@ -175,22 +181,22 @@ export class DeviceAuthService {
 
     // Check status
     switch (record.status) {
-      case DeviceCodeStatus.pending:
+      case DEVICE_CODE_STATUS.pending:
         throw deviceTokenError(
           'authorization_pending',
           'User has not yet authorized this device',
         );
 
-      case DeviceCodeStatus.denied:
+      case DEVICE_CODE_STATUS.denied:
         throw deviceTokenError(
           'access_denied',
           'User denied the authorization request',
         );
 
-      case DeviceCodeStatus.expired:
+      case DEVICE_CODE_STATUS.expired:
         throw deviceTokenError('expired_token', 'The device code has expired');
 
-      case DeviceCodeStatus.approved: {
+      case DEVICE_CODE_STATUS.approved: {
         if (!record.user) {
           throw deviceTokenError(
             'invalid_grant',
@@ -251,11 +257,11 @@ export class DeviceAuthService {
         const claim = await this.prisma.deviceCode.updateMany({
           where: {
             id: record.id,
-            status: DeviceCodeStatus.approved,
+            status: DEVICE_CODE_STATUS.approved,
             revokedAt: null,
           },
           data: {
-            status: DeviceCodeStatus.expired,
+            status: DEVICE_CODE_STATUS.expired,
             collectedAt,
             credentialExpiresAt,
             // A row approved without an org gets the resolved one with the
@@ -332,8 +338,8 @@ export class DeviceAuthService {
 
     // Check if already processed
     if (
-      record.status === DeviceCodeStatus.approved ||
-      record.status === DeviceCodeStatus.denied
+      record.status === DEVICE_CODE_STATUS.approved ||
+      record.status === DEVICE_CODE_STATUS.denied
     ) {
       throw new BadRequestException('This code has already been processed');
     }
@@ -380,16 +386,16 @@ export class DeviceAuthService {
 
     // Check if already processed
     if (
-      record.status === DeviceCodeStatus.approved ||
-      record.status === DeviceCodeStatus.denied
+      record.status === DEVICE_CODE_STATUS.approved ||
+      record.status === DEVICE_CODE_STATUS.denied
     ) {
       throw new BadRequestException('This code has already been processed');
     }
 
     // Update status
     const newStatus = approve
-      ? DeviceCodeStatus.approved
-      : DeviceCodeStatus.denied;
+      ? DEVICE_CODE_STATUS.approved
+      : DEVICE_CODE_STATUS.denied;
 
     await this.prisma.deviceCode.update({
       where: { id: record.id },
@@ -424,12 +430,12 @@ export class DeviceAuthService {
     limit: number = 10,
   ) {
     const skip = (page - 1) * limit;
-    const where: Prisma.DeviceCodeWhereInput = {
+    const where: IdentityQueryArgs = {
       userId,
       revokedAt: null,
       OR: [
         // Approved, waiting for the device to poll.
-        { status: DeviceCodeStatus.approved, collectedAt: null },
+        { status: DEVICE_CODE_STATUS.approved, collectedAt: null },
         // Collected, and the credential it received is still valid.
         {
           collectedAt: { not: null },
@@ -507,7 +513,7 @@ export class DeviceAuthService {
         data: {
           revokedAt: session.revokedAt ?? now,
           ...(session.collectedAt === null
-            ? { status: DeviceCodeStatus.denied }
+            ? { status: DEVICE_CODE_STATUS.denied }
             : {}),
         },
       });
@@ -558,7 +564,7 @@ export class DeviceAuthService {
           // Never collected, marked expired more than a day ago.
           {
             collectedAt: null,
-            status: DeviceCodeStatus.expired,
+            status: DEVICE_CODE_STATUS.expired,
             updatedAt: { lt: oneDayAgo },
           },
           // Collected: once the credential it issued has expired.
@@ -581,7 +587,7 @@ export class DeviceAuthService {
   /**
    * Read the credential kind a device asked for out of its stored `clientInfo`.
    *
-   * `clientInfo` is a JSONB column, so what comes back is `Prisma.JsonValue` —
+   * `clientInfo` is a JSONB column, so what comes back is `IdentityJsonValue` —
    * it is NOT guaranteed to still match ClientInfoSchema. Rows written before
    * #141 have no `tokenType` at all, and the column is writable by anything
    * with database access. Anything that is not literally `'pat'` therefore
@@ -589,7 +595,7 @@ export class DeviceAuthService {
    * refreshable credential), so a corrupt or legacy row degrades to the old
    * behaviour rather than silently minting a 90-day token.
    */
-  private readTokenType(clientInfo: Prisma.JsonValue | null): DeviceTokenType {
+  private readTokenType(clientInfo: IdentityJsonValue | null): DeviceTokenType {
     if (
       clientInfo &&
       typeof clientInfo === 'object' &&
@@ -646,7 +652,7 @@ export class DeviceAuthService {
     deviceCodeId: string,
     userId: string,
     userEmail: string,
-    clientInfo: Prisma.JsonValue | null,
+    clientInfo: IdentityJsonValue | null,
     deviceCodeHash: string,
     orgId: string,
     /** The row has no org yet (approved before #724): record `orgId` with the claim. */
@@ -673,11 +679,11 @@ export class DeviceAuthService {
     const claim = await this.prisma.deviceCode.updateMany({
       where: {
         id: deviceCodeId,
-        status: DeviceCodeStatus.approved,
+        status: DEVICE_CODE_STATUS.approved,
         revokedAt: null,
       },
       data: {
-        status: DeviceCodeStatus.expired,
+        status: DEVICE_CODE_STATUS.expired,
         collectedAt: new Date(),
         ...(recordOrg ? { orgId } : {}),
       },
@@ -838,7 +844,7 @@ export class DeviceAuthService {
    * The prefix is applied AFTER sanitising and truncating, so it can never be
    * displaced: however hostile the input, the row still starts with "Device: ".
    */
-  private buildPatName(clientInfo: Prisma.JsonValue | null): string {
+  private buildPatName(clientInfo: IdentityJsonValue | null): string {
     const raw =
       clientInfo &&
       typeof clientInfo === 'object' &&

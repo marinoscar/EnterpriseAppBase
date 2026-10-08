@@ -20,7 +20,24 @@
 // =============================================================================
 
 import { currentTenancyMode } from '../auth/tenancy-mode';
-import type { IdentityPrisma as PrismaService } from '../ports';
+/**
+ * The one read the org-scope helpers make: the default organization's id.
+ * Narrow on purpose, so the app's own generated client satisfies it as is
+ * (no cast at the call site) while the package depends on no generated
+ * client.
+ *
+ * @stability experimental
+ */
+export interface DefaultOrgReader {
+  /** The `organizations` table, read for its default row. */
+  organization: {
+    /** The first organization matching `args`, or `null`. */
+    findFirst(args: { where: { isDefault: true }; select: { id: true } }): PromiseLike<{
+      /** The default organization's id. */
+      id: string;
+    } | null>;
+  };
+}
 
 /**
  * The work has no organization and the deployment is multi-tenant. A
@@ -63,7 +80,7 @@ export function orgIdFromPayload(payload: unknown): string | undefined {
  * @stability experimental
  */
 export async function resolveOrgId(
-  prisma: Pick<PrismaService, 'organization'>,
+  prisma: DefaultOrgReader,
   orgId: string | null | undefined,
   context: string,
 ): Promise<string> {
@@ -82,7 +99,7 @@ export async function resolveOrgId(
  * @stability experimental
  */
 export function resolveJobOrgId(
-  prisma: Pick<PrismaService, 'organization'>,
+  prisma: DefaultOrgReader,
   job: { id: string; type: string; payload: unknown },
 ): Promise<string> {
   return resolveOrgId(prisma, orgIdFromPayload(job.payload), `Job ${job.id} (${job.type})`);

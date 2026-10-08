@@ -1,5 +1,6 @@
-import { User, MembershipStatus } from '@prisma/client';
+import type { OrgMemberStatus } from '@marinoscar/platform-contract/identity';
 import type { CredentialKind } from '../../../core/index';
+import type { IdentityUserRow } from '../../data/identity-db';
 import { principalFactory } from '../principal.factory';
 
 /**
@@ -48,7 +49,7 @@ export interface AuthenticatedMembership {
   /** The organization. */
   orgId: string;
   /** `active` or `suspended`. */
-  status: MembershipStatus;
+  status: OrgMemberStatus;
   /** When the user last acted in the organization. */
   lastActiveAt: Date | null;
   /** When the membership was created. */
@@ -74,7 +75,7 @@ export interface AuthenticatedMembership {
  *
  * @stability stable
  */
-export interface AuthenticatedUser extends User {
+export interface AuthenticatedUser extends IdentityUserRow {
   /** The user's SYSTEM roles (`user_roles`). */
   userRoles: Array<{
     /** The role. */

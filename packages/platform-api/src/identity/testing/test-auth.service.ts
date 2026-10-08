@@ -1,12 +1,12 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import type { Prisma } from '@prisma/client';
 import { DEFAULT_IDENTITY_OPTIONS, IDENTITY_OPTIONS, type ResolvedIdentityModuleOptions } from '../identity.options';
 import { IDENTITY_EVENTS, emitIdentityEvent } from '../identity.events';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { createHash, randomBytes } from 'node:crypto';
 import { PLATFORM_PRISMA } from '../../core/index';
+import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
 import type { IdentityPrisma } from '../ports';
 import { TestLoginDto } from './dto/test-login.dto';
 import { JwtPayload } from '../auth/strategies/jwt.strategy';
@@ -122,7 +122,7 @@ export class TestAuthService {
             // Create default user settings
             userSettings: {
               create: {
-                value: this.userDefaults.userSettings() as Prisma.InputJsonValue,
+                value: this.userDefaults.userSettings(),
               },
             },
           },
@@ -189,7 +189,7 @@ export class TestAuthService {
     this.principalCache.invalidate({ userId });
 
     // Reload user with updated roles
-    const reloaded = await this.prisma.user.findUnique({
+    const reloaded = await this.prisma.user.findUnique<AuthenticatedUser>({
       where: { id: userId },
       include: PRINCIPAL_USER_INCLUDE,
     });

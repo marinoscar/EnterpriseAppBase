@@ -9,6 +9,7 @@ import type { IdentityPrisma } from '../ports';
 import { createHash, randomBytes } from 'node:crypto';
 import { CreatePatDto } from './dto/create-pat.dto';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
+import type { IdentityPersonalAccessTokenRow } from '../data/identity-db';
 import { PRINCIPAL_USER_INCLUDE } from '../auth/principal.factory';
 import { hasActiveMembership, stampCredential } from '../auth/credential-binding';
 import { currentTenancyMode } from '../auth/tenancy-mode';
@@ -254,7 +255,7 @@ export class PatService {
   async resolveToken(rawToken: string): Promise<{ user: AuthenticatedUser; tokenId: string } | null> {
     const tokenHash = createHash('sha256').update(rawToken).digest('hex');
 
-    const pat = await this.prisma.personalAccessToken.findUnique({
+    const pat = await this.prisma.personalAccessToken.findUnique<IdentityPersonalAccessTokenRow & { user: AuthenticatedUser }>({
       where: { tokenHash },
       include: {
         // System roles and memberships with their org roles (PP-6.3, #723):

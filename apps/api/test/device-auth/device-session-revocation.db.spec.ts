@@ -38,6 +38,7 @@ import { InProcessEventBus } from '../../src/common/event-bus/in-process-event-b
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
 import { AppProfileImages, AppUserDefaults } from '../../src/platform/identity/identity-user.adapters';
+import { asIdentityPrisma } from '../../src/platform/identity/identity-db';
 
 
 const { describeWithDb } = resolveDbSuite('device-session-revocation.db.spec');
@@ -99,7 +100,7 @@ describeWithDb('device session revocation (real Postgres, #518)', () => {
     });
     jwt = new JwtService({ secret: 'device-session-revocation-db-spec' });
     auth = new AuthService(
-      prisma,
+      asIdentityPrisma(prisma),
       jwt,
       config,
       {} as never,
@@ -110,17 +111,17 @@ describeWithDb('device session revocation (real Postgres, #518)', () => {
       (principalCache = new PrincipalCache(config, new InProcessEventBus())),
       // PP-6.4 (#724): a device session is bound to the approver's org, chosen
       // by the sign-in rule (single mode: the default org).
-      new OrganizationsService(prisma, principalCache),
+      new OrganizationsService(asIdentityPrisma(prisma), principalCache),
       new TenancyService(config),
       undefined,
       new AppUserDefaults(),
       new AppProfileImages(),
     );
     deviceAuth = new DeviceAuthService(
-      prisma,
+      asIdentityPrisma(prisma),
       auth,
       config,
-      new PatService(prisma),
+      new PatService(asIdentityPrisma(prisma)),
     );
   });
 
@@ -203,7 +204,7 @@ describeWithDb('device session revocation (real Postgres, #518)', () => {
       expect.objectContaining({ id, credentialType: 'pat' }),
     ]);
 
-    const pats = new PatService(client as unknown as PrismaService);
+    const pats = new PatService(asIdentityPrisma(client as unknown as PrismaService));
     await expect(pats.validateToken(issued.accessToken)).resolves.not.toBeNull();
 
     await deviceAuth.revokeDeviceSession(userId, id);

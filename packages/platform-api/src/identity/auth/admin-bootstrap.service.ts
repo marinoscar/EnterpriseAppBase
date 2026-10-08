@@ -64,7 +64,7 @@ export class AdminBootstrapService implements OnModuleInit {
     }
 
     // Check if any admin already exists
-    const adminRole = await this.prisma.role.findUnique({
+    const adminRole = await this.prisma.role.findUnique<{ userRoles: Array<{ user: { isActive: boolean } }> }>({
       where: { name: 'admin' },
       include: {
         userRoles: {

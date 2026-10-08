@@ -1,8 +1,8 @@
 import { ConflictException, ForbiddenException } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
 import type { Principal } from '../../core/index';
 
 import { ORG_ADMIN_ROLE } from '../identity.constants';
+import type { IdentityTx } from '../data/identity-db';
 
 // =============================================================================
 // Shared rules of the org administration API (#726, PP-6.7)
@@ -63,13 +63,13 @@ export function lastOrgAdminConflict(): ConflictException {
  * administrators demoting each other at once cannot both pass the last-admin
  * check. The lock is released when the transaction ends.
  */
-export async function lockOrganization(tx: Prisma.TransactionClient, orgId: string): Promise<void> {
+export async function lockOrganization(tx: IdentityTx, orgId: string): Promise<void> {
   await tx.$queryRaw`SELECT id FROM organizations WHERE id = ${orgId}::uuid FOR UPDATE`;
 }
 
 /** Writes one audit row inside the caller's transaction. */
 export async function writeAudit(
-  tx: Prisma.TransactionClient,
+  tx: IdentityTx,
   actorUserId: string | null,
   action: string,
   targetType: string,
@@ -77,7 +77,7 @@ export async function writeAudit(
   meta: Record<string, unknown>,
 ): Promise<void> {
   await tx.auditEvent.create({
-    data: { actorUserId, action, targetType, targetId, meta: meta as Prisma.InputJsonValue },
+    data: { actorUserId, action, targetType, targetId, meta: meta },
   });
 }
 

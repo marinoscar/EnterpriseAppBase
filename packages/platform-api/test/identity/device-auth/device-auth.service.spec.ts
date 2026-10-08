@@ -13,7 +13,7 @@ import {
   createMockPrismaService,
   MockPrismaService,
 } from '../support/prisma.mock';
-import { DeviceCodeStatus } from '@prisma/client';
+import { DEVICE_CODE_STATUS as DeviceCodeStatus } from '../../../src/identity/data/identity-db';
 
 describe('DeviceAuthService', () => {
   let service: DeviceAuthService;
@@ -140,7 +140,7 @@ describe('DeviceAuthService', () => {
       });
 
       // Verify the stored device code is hashed (64 chars hex)
-      const call = mockPrisma.deviceCode.create.mock.calls[0][0];
+      const call = mockPrisma.deviceCode.create.mock.calls[0][0] as { data: { deviceCode: string; expiresAt: Date } };
       expect(call.data.deviceCode).toHaveLength(64);
     });
 
@@ -173,7 +173,7 @@ describe('DeviceAuthService', () => {
       const afterTime = new Date();
       afterTime.setMinutes(afterTime.getMinutes() + 15);
 
-      const call = mockPrisma.deviceCode.create.mock.calls[0][0];
+      const call = mockPrisma.deviceCode.create.mock.calls[0][0] as { data: { deviceCode: string; expiresAt: Date } };
       const expiresAt = call.data.expiresAt;
 
       expect(new Date(expiresAt).getTime()).toBeGreaterThanOrEqual(beforeTime.getTime());

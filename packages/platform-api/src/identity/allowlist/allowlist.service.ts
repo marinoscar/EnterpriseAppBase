@@ -6,6 +6,7 @@ import {
   ConflictException, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PLATFORM_PRISMA } from '../../core/index';
+import type { IdentityAllowedEmailRow } from '../data/identity-db';
 import type { IdentityPrisma } from '../ports';
 import { AddEmailDto } from './dto/add-email.dto';
 import { AllowlistQueryDto } from './dto/allowlist-query.dto';
@@ -98,7 +99,9 @@ export class AllowlistService {
     }
 
     // Create entry
-    const entry = await this.prisma.allowedEmail.create({
+    const entry = await this.prisma.allowedEmail.create<
+      IdentityAllowedEmailRow & { addedBy: { id: string; email: string } | null }
+    >({
       data: {
         email,
         notes: dto.notes,
