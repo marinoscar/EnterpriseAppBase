@@ -1,6 +1,6 @@
 # Database Backup
 
-> **Status:** shipped · **Code:** `apps/api/src/db-backup/`, `apps/web/src/pages/Admin/DbBackupPage.tsx`, `packages/platform-cli/src/engine/node/executors/db-backup-run.ts` · **API:** `/api/admin/db-backup/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/db-backup` · **Runbooks:** [postgres-client-version.md](../runbooks/postgres-client-version.md), [node-job-secrets.md](../runbooks/node-job-secrets.md) · **Related spec:** [database-restore.md](database-restore.md)
+> **Status:** shipped · **Code:** `packages/platform-api/src/db-backup/`, `packages/platform-web/src/db-backup/ui/DbBackupPage.tsx`, `packages/platform-cli/src/engine/node/executors/db-backup-run.ts` · **API:** `/api/admin/db-backup/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/db-backup` · **Runbooks:** [postgres-client-version.md](../runbooks/postgres-client-version.md), [node-job-secrets.md](../runbooks/node-job-secrets.md) · **Related spec:** [database-restore.md](database-restore.md)
 
 The application takes logical backups of its own PostgreSQL database with
 `pg_dump`, streams each archive straight into the deployment's object storage,
@@ -204,13 +204,18 @@ A run that is already terminal is a `400`.
   ```
   database-backups/<slug>/<YYYY>/<MM>/<slug>-<YYYYMMDDTHHMMSSZ>-<runId>.dump
   ```
-  `<slug>` is `APP_NAME` slugified, so two apps can share a bucket. Month
+  `<slug>` is the `appName` option of `DbBackupModule.forRoot()` slugified
+  (the reference app passes `APP_NAME`), so two apps can share a bucket. Month
   partitions keep listings cheap; the UTC timestamp sorts in time order; the
   run id makes the key unique.
 - `databaseBackup.storageProvider` is a pin: empty (the default) means
   "whatever provider is active"; a non-empty value must equal the active
   provider or the request is a `400`. The same helper
   (`db-backup-storage.ts`) checks it on `PUT config` and in the runner.
+- **The `database-backups/` prefix is registered** in the storage slice's
+  key-prefix registry as `DB_BACKUP_KEY_PREFIX` (owner `db-backup`, scope
+  `deployment`), by `DbBackupModule.forRoot()` (#740). The registry is how the
+  storage slice and the data-reset purge know the prefix is not a user's.
 
 ### Scheduling
 
@@ -316,7 +321,7 @@ With any gate closed, the in-process worker takes the backup, including under
   `sha256` is recorded as its claim. Both executors write through one private
   `completeRun`.
 - **`bytes` is a decimal string** in the result contract
-  (`apps/api/src/jobs/contracts/db-backup-run.contract.ts`, `^\d{1,20}$`),
+  (`packages/platform-contract/src/db-backup/node-result.ts`, `^\d{1,20}$`),
   converted once with `BigInt()`. A JSON number is exact only below 2^53.
 - **Node requirements.** `pg_dump` is a required capability (a node without it
   never declares the type). `psql` is degradable (without it, `db_version` and
@@ -378,8 +383,10 @@ through `POST /api/nodes/{id}/jobs/{jobId}/secret`:
 ### Settings: `databaseBackup` namespace
 
 Schema: `systemDatabaseBackupSchema` in
-`apps/api/src/common/schemas/settings.schema.ts`; defaults in
-`apps/api/src/common/types/settings.types.ts`.
+`packages/platform-contract/src/db-backup/settings-schemas.ts` (re-exported by
+the reference app's `apps/api/src/common/schemas/settings.schema.ts`); the
+namespace declaration and defaults in
+`packages/platform-api/src/db-backup/db-backup.system-settings.ts`.
 
 | Key | Type / range | Default |
 |---|---|---|
@@ -405,6 +412,35 @@ Related: `nodes.jobSecretBrokerEnabled` (default `false`).
   scheduler. On unless the literal `false`. Independent of `JOBS_WORKER_MODE`:
   a control plane with `JOBS_WORKER_MODE=off` still queues backups.
 - `NODE_SECRET_SWEEP_ENABLED` — the cron that revokes expired brokered roles.
+
+### Module options and host ports
+
+The slice is `DbBackupModule.forRoot(options)` from
+`@marinoscar/platform-api/db-backup` (#740); the reference app composes it in
+`apps/api/src/platform/db-backup/db-backup.config.ts`.
+
+| Option | Meaning | Default |
+|---|---|---|
+| `appName` | The archive key's slug | `'app'` |
+| `appVersion` | Recorded on each run (a string or a function) | `APP_VERSION`, else `npm_package_version`, else `0.0.0` |
+| `deploymentMode` | `self-hosted` or `saas`; `saas` turns in-app restore off | the `DB_BACKUP_DEPLOYMENT_MODE` port, else `self-hosted` |
+| `restoreEnabled` | Overrides the mode for restore | derived from the mode |
+| `scheduleEnabled` | This process runs the scheduler | `DB_BACKUP_SCHEDULE_ENABLED !== 'false'` |
+| `extraCarryOver` | `RestoreCarryOver` entries (see [database-restore.md](database-restore.md#catalog-carry-over)) | none |
+| `imports` | The app's module binding the host ports | `[]` |
+
+Host ports, bound by the app (`apps/api/src/platform/db-backup/db-backup-host.module.ts`):
+`DB_BACKUP_NOTIFIER` (the two `db_backup.*` notifications),
+`DB_BACKUP_MAINTENANCE` (the swap's in-memory maintenance gate),
+`DB_BACKUP_METRICS` (the `app.backup.*` instruments; a no-op when unbound),
+`DB_BACKUP_DEPLOYMENT_MODE` and `DB_BACKUP_SYSTEM_DATA` (the Doctor's
+cross-organization counts). The tenant client is the core `PLATFORM_PRISMA`
+port.
+
+| Deployment mode | Backups | In-app restore and rollback |
+|---|---|---|
+| `self-hosted` (default) | Scheduled and manual, server or node | Available |
+| `saas` | Unchanged | Refused at the service, HTTP (`403`, `details.reason: deployment_mode_saas`) and queue layers; `GET /config` reports `restore.available: false` |
 
 ### Permissions
 
@@ -462,30 +498,42 @@ All three are seeded Admin-only, and every route also requires the Admin role.
   as `20260907120000_add_database_backup_runs` and
   `20260907140000_add_backup_run_job_link`. Prisma cannot express it; it is
   intentional drift, asserted by `platform db drift` against `pg_indexes`.
-- **Operator UI.** The card is registered in
+- **Operator UI.** The page is `@marinoscar/platform-web/db-backup/ui`
+  (`DbBackupPage`); its card is the package's
+  `dbBackupAdminSections.operations`, spread into
   `apps/web/src/config/adminSections.tsx`; follow
-  [settings-ui.md](settings-ui.md).
+  [settings-ui.md](settings-ui.md). The page's table is swappable through
+  `DbBackupWebAdaptersProvider` (`DataTable`).
+- **Tables that must survive a restore**: a `RestoreCarryOver`; see
+  [database-restore.md §4](database-restore.md#4-extending-it-in-a-fork).
+- **Conformance.** `runPlatformConformance({ suites: { dbBackup: {} } })` from
+  `@marinoscar/platform-api/db-backup/testing` checks the RLS pair on the
+  dump and restore argv, the job types and their node eligibility, the
+  system-scope permissions, the key prefix and every registered carry.
 
 ## 5. Guardrails
 
 | Test | Enforces |
 |---|---|
-| `apps/api/src/db-backup/db-backup-active-index.db.spec.ts` | The active-run index exists, is unique, and arbitrates concurrent inserts (real Postgres) |
-| `apps/api/src/db-backup/db-backup-run-job-link.db.spec.ts` | `job_id` is unique, nullable, and `SetNull` on job delete (real Postgres) |
-| `apps/api/src/db-backup/db-backup-runner.service.spec.ts` | Streaming (never buffered), both halves awaited, read-back verification, failure ordering, heartbeat, cancel, version guard, prune only after success |
-| `apps/api/src/db-backup/db-backup-storage.spec.ts` | Key layout and the `storageProvider` pin |
-| `apps/api/src/db-backup/db-backup-retention.service.spec.ts` | Two retention clocks, oldest first, object-then-row, failed/stale never pruned |
-| `apps/api/src/db-backup/tasks/db-backup-schedule.task.spec.ts` | Boundary rule, late tick, restart, timezone, DST, `DB_BACKUP_SCHEDULE_ENABLED`, never reads the worker mode |
-| `apps/api/src/db-backup/handlers/db-backup-sweep.handler.spec.ts` | Three sweep arms, live-lease skip, conditional transition |
-| `apps/api/src/db-backup/handlers/db-backup-run.handler.spec.ts` | Profile, `deriveOutputKey` idempotence, server-side verification of node results |
-| `apps/api/src/db-backup/db-backup-admin.service.spec.ts` | Timezone refused even while `enabled` is false |
-| `apps/api/src/db-backup/pg-job-role.broker.spec.ts`, `pg-job-role.broker.db.spec.ts` | Role name, grants, `VALID UNTIL`, revocation |
-| `apps/api/src/db-backup/pg-dump.util.spec.ts`, `pg-version.util.spec.ts`, `schedule.util.spec.ts` | `pg_dump` argv, version guard, schedule arithmetic |
+| `apps/api/test/db-backup/db-backup-active-index.db.spec.ts` | The active-run index exists, is unique, and arbitrates concurrent inserts (real Postgres) |
+| `apps/api/test/db-backup/db-backup-run-job-link.db.spec.ts` | `job_id` is unique, nullable, and `SetNull` on job delete (real Postgres) |
+| `packages/platform-api/test/db-backup/db-backup-runner.service.spec.ts` | Streaming (never buffered), both halves awaited, read-back verification, failure ordering, heartbeat, cancel, version guard, prune only after success |
+| `packages/platform-api/test/db-backup/db-backup-storage.spec.ts` | Key layout and the `storageProvider` pin |
+| `packages/platform-api/test/db-backup/db-backup-retention.service.spec.ts` | Two retention clocks, oldest first, object-then-row, failed/stale never pruned |
+| `packages/platform-api/test/db-backup/tasks/db-backup-schedule.task.spec.ts` | Boundary rule, late tick, restart, timezone, DST, `DB_BACKUP_SCHEDULE_ENABLED`, never reads the worker mode |
+| `packages/platform-api/test/db-backup/handlers/db-backup-sweep.handler.spec.ts` | Three sweep arms, live-lease skip, conditional transition |
+| `packages/platform-api/test/db-backup/handlers/db-backup-run.handler.spec.ts` | Profile, `deriveOutputKey` idempotence, server-side verification of node results |
+| `packages/platform-api/test/db-backup/db-backup-admin.service.spec.ts` | Timezone refused even while `enabled` is false |
+| `packages/platform-api/test/db-backup/pg-job-role.broker.spec.ts`, `apps/api/test/db-backup/pg-job-role.broker.db.spec.ts` | Role name, grants, `VALID UNTIL`, revocation |
+| `packages/platform-api/test/db-backup/pg-dump.util.spec.ts`, `pg-version.util.spec.ts`, `schedule.util.spec.ts` | `pg_dump` argv, version guard, schedule arithmetic |
 | `apps/api/test/db-backup/db-backup-rls.db.spec.ts` | With row-level security forced and an ordinary role: the dump restores with every row of every organization (exact per-organization counts), the restored database still enforces isolation, the minted role and the CLI's node-side dump carry every row too, and both negative controls (flag without option: empty tables; option without flag: refused) |
 | `apps/api/test/db-backup/db-backup-admin.integration.spec.ts` | Every route through the real router and `HttpExceptionFilter`: `409` details, BigInt as decimal strings, permission split, route order |
 | `apps/api/test/db-backup/db-backup-node-offload.integration.spec.ts` | The three gates and the node result path |
 | `packages/platform-cli/src/engine/node/executors/db-backup-run.test.ts` | The node never persists or logs its credential |
 | `apps/api/test/jobs/cron-enqueue-only.spec.ts` | The scheduler only enqueues |
+| `packages/platform-api/test/db-backup/slice.spec.ts` | `forRoot()` defaults and refusals, the deployment-mode gate (option, port, neither), the `RestoreCarryOver` registry (order, duplicates, `$1`, frozen), the key prefix's registration, the conformance suite on a good and a broken slice |
+| `apps/api/test/db-backup/db-backup-conformance.spec.ts` | The reference app's composition passes the `dbBackup` conformance suite |
+| `apps/api/test/db-backup/db-backup-restore-saas-mode.integration.spec.ts` | `DEPLOYMENT_MODE=saas`: both restore routes `403` with `details.reason`, `restore.available: false` |
 
 The runner's unit suite uses the engine seam; `test/integration/db-backup-round-trip.db.spec.ts`,
 `db-backup-rls.db.spec.ts` and the restore suites run real `pg_dump` and
@@ -568,3 +616,9 @@ The runner's unit suite uses the engine seam; `test/integration/db-backup-round-
   `app.rls_bypass` startup option; the `backup.rls-bypass` Doctor check; the
   broker creates job roles `NOBYPASSRLS` and re-issues from a non-superuser
   `CREATEROLE` role.
+- #740 (platform-packages PP-8.7): the slice moved into
+  `@marinoscar/platform-api/db-backup` (engine, routes, jobs, Doctor checks),
+  `@marinoscar/platform-web/db-backup` (page, hooks, client) and
+  `@marinoscar/platform-contract/db-backup` (wire shapes); the
+  `database-backups/` prefix is registered through the storage registry; the
+  module options and host ports above.

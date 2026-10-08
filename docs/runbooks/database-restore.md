@@ -7,15 +7,15 @@ and the PostgreSQL client tools.
 
 Source of truth for every claim below:
 
-- `apps/api/src/db-backup/restore-preflight.service.ts` — the seven gates, the
+- `packages/platform-api/src/db-backup/restore-preflight.service.ts` — the eight gates, the
   three outcomes, and the command block the `guided` outcome produces.
-- `apps/api/src/db-backup/database-restore.service.ts` — the automated restore:
+- `packages/platform-api/src/db-backup/database-restore.service.ts` — the automated restore:
   the scratch-database replay, the swap, the catalog carry-over and rollback.
-- `apps/api/src/db-backup/admin-connection.util.ts` — the maintenance
+- `packages/platform-api/src/db-backup/admin-connection.util.ts` — the maintenance
   connection, the identifier rules and the scratch/old name builders.
-- `apps/api/src/db-backup/pg-restore.util.ts` — the `pg_restore` flags, and why
+- `packages/platform-api/src/db-backup/pg-restore.util.ts` — the `pg_restore` flags, and why
   `--exit-on-error` is load-bearing.
-- `apps/api/src/db-backup/db-backup-admin.service.ts` — the backup list and the
+- `packages/platform-api/src/db-backup/db-backup-admin.service.ts` — the backup list and the
   five-minute signed download URL.
 
 The design, and the rejected alternatives, are in
@@ -66,7 +66,7 @@ and a *successful* restore leaves the application down.
 The pre-flight is side-effect free: it creates nothing, drops nothing, renames
 nothing. Run it as often as you like.
 
-It reports **seven gates**, each with a verdict and, when there is something to
+It reports **eight gates**, each with a verdict and, when there is something to
 do, an action:
 
 | Gate | What it means when it is unhappy |
@@ -75,6 +75,7 @@ do, an action:
 | Cluster admin connection | The API cannot open a session on the `postgres` maintenance database. It cannot automate a restore; you still can. |
 | `CREATE DATABASE` privilege | The application's role may not create databases. **Normal on managed PostgreSQL.** You still can, with a superuser. |
 | Required extensions | The server does not offer an extension the database uses. `pg_restore` would stop on that line. Install the package on the server. |
+| Row-level security bypass | The restore's startup option (`PGOPTIONS=-c app.rls_bypass=on`) did not reach the server and the role does not bypass row-level security, so the tenant tables would come back without their rows. Usually a transaction-mode pooler between the API and the database: connect directly. Otherwise restore by hand (section 4) with a role that bypasses it. |
 | Free disk space | There is not room for a full copy (twice over, if the displaced database is being kept). **Never a refusal** — see section 3. |
 | Connected clients | More than one client address is attached. Usually a second API replica, sometimes just a `psql` window. **A hint, not a verdict.** |
 | Schema compatibility | The archive's migration and the live one differ, in either direction. **Blocks** until you accept it — see section 6. |
@@ -217,11 +218,21 @@ Nothing here touches the live database.
 ```bash
 createdb --host=<db host> --port=<db port> --username=<admin role> <scratch>
 
+PGOPTIONS='-c app.rls_bypass=on' \
 pg_restore --host=<db host> --port=<db port> --username=<admin role> \
   --dbname=<scratch> \
-  --no-owner --no-acl --exit-on-error --jobs=4 \
+  --no-owner --no-acl --exit-on-error --enable-row-security --jobs=4 \
   /tmp/<archive>.dump
 ```
+
+**`--enable-row-security` and `PGOPTIONS=-c app.rls_bypass=on` go
+together, always.** The tenant tables force row-level security (#725). The
+flag alone writes the tables without their organization-owned rows and still
+exits 0; the option alone is refused. A superuser, or a dedicated restore role
+created with `BYPASSRLS` (`ALTER ROLE <admin role> BYPASSRLS;`, run as a
+superuser), bypasses the policies outright and the pair is then harmless.
+Never grant `BYPASSRLS` to the API role itself: it must stay `NOBYPASSRLS`.
+Connect directly: a transaction-mode pooler drops the startup option.
 
 **`--exit-on-error` is load-bearing.** Without it `pg_restore` logs each
 failure, carries on, and **exits 0** — so a database missing half its tables is

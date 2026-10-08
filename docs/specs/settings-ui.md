@@ -79,7 +79,7 @@ A card's `permission` is the literal string the API controller enforces. The hub
 | `storage_config:read` | `packages/platform-api/src/storage/config/storage-config.controller.ts` |
 | `jobs:read` | `apps/api/src/jobs/job-admin.controller.ts` |
 | `nodes:read` | `apps/api/src/nodes/nodes-admin.controller.ts` |
-| `db_backup:read` | `apps/api/src/db-backup/db-backup.controller.ts` |
+| `db_backup:read` | `packages/platform-api/src/db-backup/db-backup.controller.ts` |
 | `['broadcasts:read', 'org_broadcasts:read']` | `packages/platform-api/src/notifications/broadcasts/broadcasts.controller.ts` (Broadcasts card; ANY OF the two: the controller declares `@Auth({ anyPermissions })` with the system and the org pair, #738) |
 | `ai_config:read` | `packages/platform-api/src/ai/config/ai-admin.controller.ts` (AI, AI Models, AI Usage) |
 | `org_ai_config:read` | `packages/platform-api/src/ai/keys/org-keys.controller.ts` (Organization AI keys) |
