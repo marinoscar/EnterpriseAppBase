@@ -135,10 +135,11 @@ export async function fetchProfileImagePreview(): Promise<Blob> {
 
 // Allowlist API
 /**
- * Sort keys `GET /api/allowlist` accepts, mirroring
- * `allowlistQuerySchema.sortBy` (`apps/api/src/allowlist/dto/allowlist-query.dto.ts`).
+ * Sort keys `GET /api/allowlist` accepts (`allowlistQuerySchema.sortBy`);
+ * defined in `@marinoscar/platform-web/identity/headless` (#727).
  */
-export type AllowlistSortField = 'email' | 'addedAt' | 'claimedAt';
+export type { AllowlistSortField } from '@marinoscar/platform-web/identity/headless';
+import type { AllowlistSortField, UserSortField } from '@marinoscar/platform-web/identity/headless';
 
 export async function getAllowlist(params?: {
   page?: number;
@@ -172,12 +173,10 @@ export async function removeFromAllowlist(id: string): Promise<void> {
 
 // Users API
 /**
- * Sort keys `GET /api/users` accepts, mirroring `userListQuerySchema.sortBy`
- * (`apps/api/src/users/dto/user-list-query.dto.ts`). Typed rather than
- * `string` so a DataTable column declaring `sortable` against a field the
- * endpoint would reject is a compile error, not a 400 at runtime.
+ * Sort keys `GET /api/users` accepts (`userListQuerySchema.sortBy`); defined
+ * in `@marinoscar/platform-web/identity/headless` (#727).
  */
-export type UserSortField = 'email' | 'createdAt' | 'updatedAt';
+export type { UserSortField } from '@marinoscar/platform-web/identity/headless';
 
 export async function getUsers(params?: {
   page?: number;

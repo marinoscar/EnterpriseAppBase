@@ -16,76 +16,32 @@
  */
 import { api } from './api';
 
-/** The org roles an org administrator may assign, highest first (`ASSIGNABLE_ORG_ROLES`). */
-export const ORG_ROLES = ['org_admin', 'contributor', 'viewer'] as const;
-export type OrgRole = (typeof ORG_ROLES)[number];
-
-export type OrgMemberStatus = 'active' | 'suspended';
-export type OrgInviteStatus = 'pending' | 'accepted' | 'revoked' | 'expired';
-
-/** `orgMemberResponseSchema`. */
-export interface OrgMember {
-  userId: string;
-  email: string;
-  displayName: string | null;
-  role: string;
-  status: OrgMemberStatus;
-  lastActiveAt: string | null;
-  joinedAt: string;
-}
-
-/** `orgInviteResponseSchema`. */
-export interface OrgInvite {
-  id: string;
-  email: string;
-  role: string;
-  status: OrgInviteStatus;
-  notes: string | null;
-  expiresAt: string | null;
-  createdAt: string;
-  acceptedAt: string | null;
-  invitedBy: { id: string; email: string } | null;
-  acceptedBy: { id: string; email: string } | null;
-}
-
-/** `organizationResponseSchema`. */
-export interface Organization {
-  id: string;
-  name: string;
-  slug: string;
-  isDefault: boolean;
-  memberCount: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-/** The flat pagination shape every list here returns (docs/API.md). */
-export interface Paginated<T> {
-  items: T[];
-  total: number;
-  page: number;
-  pageSize: number;
-  totalPages: number;
-}
-
-export interface OrgMemberListParams {
-  page?: number;
-  pageSize?: number;
-  search?: string;
-  status?: 'all' | OrgMemberStatus;
-}
-
-export interface OrgInviteListParams {
-  page?: number;
-  pageSize?: number;
-  status?: 'all' | OrgInviteStatus;
-}
-
-export interface OrganizationListParams {
-  page?: number;
-  pageSize?: number;
-  search?: string;
-}
+// The shapes are defined ONCE, in `@marinoscar/platform-web/identity/headless`
+// (#727, PP-6.6), which also holds the packaged client these functions mirror.
+export { ORG_ROLES } from '@marinoscar/platform-web/identity/headless';
+export type {
+  OrgInvite,
+  OrgInviteListParams,
+  OrgInviteStatus,
+  OrgMember,
+  OrgMemberListParams,
+  OrgMemberStatus,
+  OrgRole,
+  Organization,
+  OrganizationListParams,
+  Paginated,
+} from '@marinoscar/platform-web/identity/headless';
+import type {
+  OrgInvite,
+  OrgInviteListParams,
+  OrgMember,
+  OrgMemberListParams,
+  OrgMemberStatus,
+  OrgRole,
+  Organization,
+  OrganizationListParams,
+  Paginated,
+} from '@marinoscar/platform-web/identity/headless';
 
 function query(params: object | undefined): string {
   const search = new URLSearchParams();
