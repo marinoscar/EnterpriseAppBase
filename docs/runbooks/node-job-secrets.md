@@ -33,7 +33,7 @@ Source of truth for every claim below:
 
 | | |
 |---|---|
-| Role name | `appjob_<first 8 of the job id>_<6 random hex>` |
+| Role name | `appjob_<first 8 of the job id>_<16 random hex>` |
 | Privileges | `CONNECT` on the application database, `USAGE` on `public`, `SELECT` on its tables and sequences |
 | Attributes | `LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS CONNECTION LIMIT 4` |
 | Lifetime | `VALID UNTIL` = the job's lease expiry + 60 seconds |
@@ -170,10 +170,10 @@ but roles accumulate, so clear them:
 -- 1. In the APPLICATION database. Without this the DROP below fails with
 --    "role ... cannot be dropped because some objects depend on it": granted
 --    privileges are dependencies, and this is the documented way to clear them.
-DROP OWNED BY "appjob_1234abcd_a1b2c3";
+DROP OWNED BY "appjob_1234abcd_a1b2c3d4e5f60718";
 
 -- 2. In any database (roles are cluster-wide).
-DROP ROLE IF EXISTS "appjob_1234abcd_a1b2c3";
+DROP ROLE IF EXISTS "appjob_1234abcd_a1b2c3d4e5f60718";
 ```
 
 To disconnect a session the role currently holds *before* dropping it — `DROP
@@ -182,7 +182,7 @@ ROLE` does **not** disconnect an established session:
 ```sql
 SELECT pg_terminate_backend(pid)
 FROM pg_stat_activity
-WHERE usename = 'appjob_1234abcd_a1b2c3';
+WHERE usename = 'appjob_1234abcd_a1b2c3d4e5f60718';
 ```
 
 To clear every expired grant at once, after confirming with the query in §3:

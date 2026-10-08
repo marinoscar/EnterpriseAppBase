@@ -66,6 +66,8 @@ describe('USER_SETTINGS_SECTIONS - Notifications card (issue #126)', () => {
    */
   const PERMISSION_GATED_USER_CARDS: Record<string, string> = {
     '/settings/ai': 'ai:use',
+    // #731: the org permission the `/api/groups` controller enforces.
+    '/settings/groups': 'groups:read',
   };
 
   it('only cards listed in PERMISSION_GATED_USER_CARDS declare a permission', () => {
@@ -78,5 +80,30 @@ describe('USER_SETTINGS_SECTIONS - Notifications card (issue #126)', () => {
     for (const path of Object.keys(PERMISSION_GATED_USER_CARDS)) {
       expect(allCards.some((card) => card.path === path), `${path} is registered`).toBe(true);
     }
+  });
+});
+
+/**
+ * Issue #731 (PP-7.4). The packaged groups page is ONE card in a new `Sharing`
+ * section APPENDED after every existing one (Settings UI Pattern rule 1:
+ * append, never insert), gated on the exact string the `/api/groups`
+ * controller enforces (rule 3), with no `feature`.
+ */
+describe('USER_SETTINGS_SECTIONS - Groups card (issue #731)', () => {
+  it('is the only card of a Sharing section that is the last section', () => {
+    const last = USER_SETTINGS_SECTIONS[USER_SETTINGS_SECTIONS.length - 1];
+    expect(last?.label).toBe('Sharing');
+    expect(last?.cards.map((card) => card.title)).toEqual(['Groups']);
+  });
+
+  it('leaves the existing sections, in order, untouched', () => {
+    expect(USER_SETTINGS_SECTIONS.map((section) => section.label)).toEqual(['Account', 'Security', 'Sharing']);
+  });
+
+  it('points at /settings/groups and declares groups:read and no feature', () => {
+    const card = USER_SETTINGS_SECTIONS.flatMap((section) => section.cards).find((c) => c.title === 'Groups');
+    expect(card?.path).toBe('/settings/groups');
+    expect(card?.permission).toBe('groups:read');
+    expect(card?.feature).toBeUndefined();
   });
 });

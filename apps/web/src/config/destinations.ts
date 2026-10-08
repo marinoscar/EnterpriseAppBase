@@ -94,6 +94,9 @@ export const UNOWNED_ROUTES: readonly string[] = [
   '/auth/callback',
   '/activate',
   '/testing/login',
+  // Issue #731. The public link page (`/s#lnk_…`): anyone holding a share
+  // link, signed in or not, outside the shell.
+  '/s',
 ];
 
 /**

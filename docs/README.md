@@ -103,6 +103,7 @@ READMEs that live next to the code they describe.
 | [../packages/platform-web/src/telemetry/README.md](../packages/platform-web/src/telemetry/README.md) | Telemetry UI slice: `/headless`, `/ui`, `telemetryAdminCards`, the adapters and the theme tokens |
 | [../packages/platform-cli/src/telemetry/README.md](../packages/platform-cli/src/telemetry/README.md) | Telemetry CLI slice: the worker span relay and the deploy wizard's env metadata |
 | [../packages/platform-infra/src/telemetry/README.md](../packages/platform-infra/src/telemetry/README.md) | Telemetry infra slice: the compose files, the collector configuration, its app overlay and `platform-infra sync` |
+| [../packages/platform-web/src/sharing/README.md](../packages/platform-web/src/sharing/README.md) | Sharing UI slice: the hooks, the share dialog, the group pages, the public `/s` page and `registerLinkRenderer`; the fragment-token rules |
 | [../packages/](../packages/) (`platform-*/README.md`) | The `@marinoscar/platform-*` packages: one README per package; layout and commands in [DEVELOPMENT.md § Platform packages](DEVELOPMENT.md#platform-packages) |
 
 ## Agent rules

@@ -67,12 +67,20 @@ async function mapped<T>(call: () => Promise<T>): Promise<T> {
   }
 }
 
-/** `PlatformRequestOptions` as the app transport's request options. */
-function requestOptions(options: PlatformRequestOptions | undefined) {
+/**
+ * `PlatformRequestOptions` as the app transport's request options. Extra
+ * `headers` (the link-share token's `x-link-token`, #731) go first, so
+ * `If-Match` and the transport's own `Authorization` and `Content-Type` win.
+ */
+export function requestOptions(options: PlatformRequestOptions | undefined) {
   if (options === undefined) return undefined;
+  const headers: Record<string, string> = {
+    ...(options.headers ?? {}),
+    ...(options.ifMatch === undefined ? {} : { 'If-Match': options.ifMatch }),
+  };
   return {
     ...(options.signal === undefined ? {} : { signal: options.signal }),
-    ...(options.ifMatch === undefined ? {} : { headers: { 'If-Match': options.ifMatch } }),
+    ...(Object.keys(headers).length === 0 ? {} : { headers }),
   };
 }
 

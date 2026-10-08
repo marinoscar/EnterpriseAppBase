@@ -65,6 +65,44 @@ describe('appPlatformApi (the app transport)', () => {
   });
 });
 
+describe('appPlatformApi extra headers (#731)', () => {
+  it('sends a packaged page\'s extra headers, with If-Match and Authorization winning', async () => {
+    let seen: { token: string | null; ifMatch: string | null; authorization: string | null } | null = null;
+    server.use(
+      http.patch('*/api/thing', ({ request }) => {
+        seen = {
+          token: request.headers.get('x-link-token'),
+          ifMatch: request.headers.get('If-Match'),
+          authorization: request.headers.get('Authorization'),
+        };
+        return HttpResponse.json({ data: { ok: true } });
+      }),
+    );
+    api.setAccessToken('access-token');
+    try {
+      await appPlatformApi.patch('/thing', {}, {
+        ifMatch: '7',
+        headers: { 'x-link-token': 'lnk_test', 'If-Match': 'ignored', Authorization: 'Bearer forged' },
+      });
+    } finally {
+      api.setAccessToken(null);
+    }
+    expect(seen).toEqual({ token: 'lnk_test', ifMatch: '7', authorization: 'Bearer access-token' });
+  });
+
+  it('sends extra headers on a GET', async () => {
+    let token: string | null = null;
+    server.use(
+      http.get('*/api/public/links/current', ({ request }) => {
+        token = request.headers.get('x-link-token');
+        return HttpResponse.json({ data: { resourceType: 'note' } });
+      }),
+    );
+    await appPlatformApi.get('/public/links/current', { headers: { 'x-link-token': 'lnk_abc' } });
+    expect(token).toBe('lnk_abc');
+  });
+});
+
 describe('appPlatformApi.getBlob (downloads, #772)', () => {
   it('returns the raw body and the headers, not the envelope', async () => {
     server.use(

@@ -238,7 +238,7 @@ describeWithDb('PgJobRoleBroker against a real PostgreSQL', () => {
     const issued = await mint(job(), new Date(Date.now() + 10 * 60_000));
     const password = issued.material.password as string;
 
-    expect(issued.handle).toMatch(/^appjob_[0-9a-f]{8}_[0-9a-f]{6}$/);
+    expect(issued.handle).toMatch(/^appjob_[0-9a-f]{8}_[0-9a-f]{16}$/);
 
     const tables = await live((client) =>
       client.query("SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename")

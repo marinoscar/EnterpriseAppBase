@@ -64,6 +64,15 @@ vi.mock('@marinoscar/platform-web/telemetry/ui/dashboard-page', () => ({
   default: () => <h1>Admin Telemetry Dashboard</h1>,
 }));
 
+// Issue #731: the two packaged group pages, stood in for the same reason; the
+// public link page stays REAL, because what is under test on `/s` is that it
+// renders outside the auth guard and handles the fragment token.
+vi.mock('@marinoscar/platform-web/sharing/ui', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@marinoscar/platform-web/sharing/ui')>()),
+  GroupsPage: () => <h1>Groups Page</h1>,
+  GroupDetailPage: () => <h1>Group Detail Page</h1>,
+}));
+
 /**
  * The four `/settings/*` routes from issue #96, epic #90. Same rationale as
  * the admin stand-ins above: the real pages already render correctly (their
@@ -702,5 +711,99 @@ describe('App', () => {
         timeout: 5000,
       });
     });
+  });
+});
+
+/**
+ * Issue #731 (PP-7.4). `/s` is a PUBLIC route, next to `/login`: a signed-out
+ * visitor holding a share link reaches the packaged `PublicLinkPage` without
+ * being sent to `/login`, while the `/settings/groups` routes sit inside
+ * `ProtectedRoute` and behind `groups:read`.
+ */
+describe('Sharing routes (#731)', () => {
+  const TOKEN = 'lnk_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_abcde';
+
+  function signedOut() {
+    server.use(
+      http.post(`${API_BASE}/auth/refresh`, () => HttpResponse.json({ message: 'No session' }, { status: 401 })),
+      http.get(`${API_BASE}/auth/me`, () => HttpResponse.json({ message: 'Unauthorized' }, { status: 401 })),
+    );
+  }
+
+  it('renders /s for a signed-out visitor, outside the auth guard, with the token only in x-link-token', async () => {
+    signedOut();
+    const seen: Array<{ url: string; token: string | null }> = [];
+    server.use(
+      http.get(`${API_BASE}/public/links/current`, ({ request }) => {
+        seen.push({ url: request.url, token: request.headers.get('x-link-token') });
+        return HttpResponse.json({ message: 'Link not found' }, { status: 404 });
+      }),
+    );
+    // `setup.ts` replaces `window.location` with a plain object, so the
+    // address bar is that object here: the fragment goes in, and the page's
+    // `history.replaceState` (spied) is what takes it out.
+    const location = window.location as unknown as Record<string, string>;
+    Object.assign(location, { pathname: '/s', hash: `#${TOKEN}`, href: `http://localhost:3000/s#${TOKEN}` });
+    const replaceState = vi.spyOn(window.history, 'replaceState').mockImplementation((_state, _title, url) => {
+      Object.assign(location, { hash: '', href: `http://localhost:3000${String(url)}` });
+    });
+
+    try {
+      render(
+        <MemoryRouter initialEntries={['/s']}>
+          <App />
+        </MemoryRouter>,
+      );
+
+      // Not the login page: the public route rendered for a signed-out visitor.
+      expect(await screen.findByText('This link is not available.', {}, { timeout: 5000 })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /google/i })).not.toBeInTheDocument();
+
+      // The fragment left the address bar, and the token travelled only in the header.
+      expect(replaceState).toHaveBeenCalled();
+      expect(replaceState.mock.calls.every((call) => !String(call[2]).includes(TOKEN))).toBe(true);
+      expect(location.hash).toBe('');
+      expect(seen).toHaveLength(1);
+      expect(seen[0]?.token).toBe(TOKEN);
+      expect(seen[0]?.url).not.toContain(TOKEN);
+    } finally {
+      replaceState.mockRestore();
+      Object.assign(location, { pathname: '/', hash: '', href: 'http://localhost:3000' });
+    }
+  });
+
+  it('sends a signed-out visitor of /settings/groups to the login page', async () => {
+    signedOut();
+    render(
+      <MemoryRouter initialEntries={['/settings/groups']}>
+        <App />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Groups Page' })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('button', { name: /google/i })).toBeInTheDocument(), { timeout: 5000 });
+  });
+
+  it.each([
+    ['/settings/groups', 'Groups Page'],
+    ['/settings/groups/7d7e9c1a-0000-4000-8000-000000000001', 'Group Detail Page'],
+  ])('renders %s inside the shell for a holder of groups:read', async (path, heading) => {
+    signInAs(['user_settings:read', 'groups:read']);
+    render(
+      <MemoryRouter initialEntries={[path]}>
+        <App />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByRole('heading', { name: heading }, { timeout: 5000 })).toBeInTheDocument();
+  });
+
+  it('redirects /settings/groups for a user without groups:read', async () => {
+    signInAs(['user_settings:read']);
+    render(
+      <MemoryRouter initialEntries={['/settings/groups']}>
+        <App />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(screen.getByText(/welcome back/i)).toBeInTheDocument(), { timeout: 5000 });
+    expect(screen.queryByRole('heading', { name: 'Groups Page' })).not.toBeInTheDocument();
   });
 });

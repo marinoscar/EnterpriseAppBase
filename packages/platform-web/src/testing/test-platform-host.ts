@@ -24,6 +24,8 @@ export interface TestApiRequest {
   body?: unknown;
   /** The `ifMatch` option of a PUT, PATCH or DELETE. */
   ifMatch?: string;
+  /** The `headers` option, when the page passed one. */
+  headers?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -87,12 +89,23 @@ export interface TestPlatformHost extends PlatformWebHost {
  * @param status - the HTTP status.
  * @param message - the API's message.
  * @param code - the API's error code.
+ * @param details - the error envelope's `details` (e.g. `{ reason: 'LAST_GROUP_ADMIN' }`).
  * @returns an `Error` that is also a {@link PlatformApiError}.
  *
  * @stability experimental
  */
-export function createTestApiError(status: number, message: string, code?: string): Error & PlatformApiError {
-  return Object.assign(new Error(message), { name: 'PlatformApiError', status, ...(code === undefined ? {} : { code }) });
+export function createTestApiError(
+  status: number,
+  message: string,
+  code?: string,
+  details?: unknown,
+): Error & PlatformApiError {
+  return Object.assign(new Error(message), {
+    name: 'PlatformApiError',
+    status,
+    ...(code === undefined ? {} : { code }),
+    ...(details === undefined ? {} : { details }),
+  });
 }
 
 /**
@@ -148,12 +161,16 @@ export function createTestPlatformHost(options: TestPlatformHostOptions = {}): T
     return (await (typeof response === 'function' ? (response as (r: TestApiRequest) => unknown)(request) : response)) as T;
   };
 
-  const withIfMatch = (options: PlatformRequestOptions | undefined) =>
-    options?.ifMatch === undefined ? {} : { ifMatch: options.ifMatch };
+  const withIfMatch = (options: PlatformRequestOptions | undefined) => ({
+    ...(options?.ifMatch === undefined ? {} : { ifMatch: options.ifMatch }),
+    ...withHeaders(options),
+  });
+  const withHeaders = (options: PlatformRequestOptions | undefined) =>
+    options?.headers === undefined ? {} : { headers: options.headers };
 
   const api: PlatformApiClient = {
-    get: (path) => call({ method: 'GET', path }),
-    post: (path, body) => call({ method: 'POST', path, body }),
+    get: (path, getOptions) => call({ method: 'GET', path, ...withHeaders(getOptions) }),
+    post: (path, body, postOptions) => call({ method: 'POST', path, body, ...withHeaders(postOptions) }),
     put: (path, body, putOptions) => call({ method: 'PUT', path, body, ...withIfMatch(putOptions) }),
     patch: (path, body, patchOptions) => call({ method: 'PATCH', path, body, ...withIfMatch(patchOptions) }),
     delete: (path, deleteOptions) => call({ method: 'DELETE', path, ...withIfMatch(deleteOptions) }),

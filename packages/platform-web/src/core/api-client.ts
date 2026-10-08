@@ -59,6 +59,13 @@ export interface PlatformRequestOptions {
   signal?: AbortSignal;
   /** Sent as the `If-Match` header (optimistic concurrency, `docs/API.md`). */
   ifMatch?: string;
+  /**
+   * Extra request headers, e.g. a link-share token in `x-link-token` (#731).
+   * The transport keeps its own (`Authorization`, `Content-Type`, `If-Match`
+   * from {@link PlatformRequestOptions.ifMatch}); a transport that cannot
+   * send custom headers ignores them, so a page that needs one says so.
+   */
+  headers?: Readonly<Record<string, string>>;
 }
 
 /**
