@@ -55,7 +55,7 @@ export function AppPlatformHostProvider({ children }: { children: ReactNode }) {
 
 | Port | What it is for | How the reference app binds it |
 |---|---|---|
-| `PlatformApiClient` | Every API call of a packaged page | The app's `services/api.ts` (auth header, token refresh, maintenance handling stay in the app); `ApiError` mapped onto `PlatformApiError`; a network failure passes through and is *not* a `PlatformApiError`. The optional `getBlob(path)` (#772) returns a download's raw body and headers (`PlatformBlobResponse`); the reference app maps it onto `responseType: 'blobWithHeaders'` |
+| `PlatformApiClient` | Every API call of a packaged page | The app's `services/api.ts` (auth header, token refresh, maintenance handling stay in the app); `ApiError` mapped onto `PlatformApiError`; a network failure passes through and is *not* a `PlatformApiError`. The optional `getBlob(path)` (#772) returns a download's raw body and headers (`PlatformBlobResponse`); the reference app maps it onto `responseType: 'blobWithHeaders'`. Every method takes `PlatformRequestOptions`: `signal`, `ifMatch` (the `If-Match` header) and `headers` (#731: a page's extra request headers, such as the link token's `x-link-token`); the reference app sends `headers` first, so `If-Match` and its own `Authorization` and `Content-Type` win |
 | `PlatformViewer` | Permission and feature questions a page asks of content (never of reachability: the route gate does that) | `usePermissions().hasPermission`, the auth context's user id, the shell's AI and telemetry flags |
 | `formatRelativeTime` | Consistent dates | `utils/relativeTime` |
 

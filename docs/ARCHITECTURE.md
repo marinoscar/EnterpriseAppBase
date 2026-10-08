@@ -653,7 +653,7 @@ Routes are declared in `apps/web/src/App.tsx`.
 
 | Access | Routes |
 |---|---|
-| Public | `/login`, `/auth/callback`, `/testing/login` (development builds only) |
+| Public | `/login`, `/auth/callback`, `/testing/login` (development builds only), `/s` (a link share, `/s#lnk_…`: the packaged `PublicLinkPage`, #731) |
 | Signed in | `/` (home), `/activate` (device approval), `/settings` hub and its pages |
 | Admin | `/admin/settings` hub (`system_settings:read`, `users:read` or `org_members:read`) and its pages; `/ai` (AI Playground: `ai:use` and `ai_config:read`, AI enabled) |
 | Redirects | `/admin` → `/admin/settings`, `/admin/users` → `/admin/settings/users`, `/admin/settings/deployment` → `/admin/settings/about`; unknown paths → `/` |
@@ -693,6 +693,7 @@ Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/
 | `/settings/notifications` | Notifications | Account | | |
 | `/settings/tokens` | Access Tokens | Security | | |
 | `/settings/ai` | AI Keys | Security | `ai:use` | `ai` |
+| `/settings/groups` | Groups (and `/settings/groups/:id`, the group's page) | Sharing | `groups:read` (org) | |
 
 Cards gate reachability; pages gate their own write controls (for example, a `jobs:read` holder without `jobs:write` sees disabled retry buttons). The Users & Allowlist page keeps two tabs because they are parallel views of one question; `allowlist:read` gates the Allowlist tab's content. The Organization page (#726) follows the same precedent: Members and Invites are parallel views of "who belongs to this organization", and `org_invites:read` gates the Invites tab. Both organization cards exist only when `/api/auth/me` reports `tenancyMode: 'multi'` (the `orgs` feature); an organization's own administrator, who holds no system permission, reaches the Console through `org_members:read` and sees only the Organization card. The AppBar's organization switcher (`components/navigation/OrgSwitcher.tsx`) appears in multi-org mode for a user with two or more active memberships.
 
