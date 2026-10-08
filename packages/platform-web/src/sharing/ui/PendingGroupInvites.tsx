@@ -21,7 +21,12 @@ import { groupRoleLabel } from './copy.js';
  */
 export interface PendingGroupInvitesSlots {
   /** Wraps the list. Default an outlined MUI `Card` with a "Group invitations" heading. */
-  Container?: ComponentType<{ children: ReactElement; count: number }>;
+  Container?: ComponentType<{
+    /** The list (or the empty and error states). */
+    children: ReactElement;
+    /** How many invitations are pending. */
+    count: number;
+  }>;
 }
 
 /**

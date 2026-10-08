@@ -59,7 +59,25 @@ export interface SharingPageQuery {
  *
  * @stability experimental
  */
-export type ShareTarget = { kind: 'user'; email: string } | { kind: 'user'; userId: string } | { kind: 'group'; groupId: string };
+export type ShareTarget =
+  | {
+      /** A person. */
+      kind: 'user';
+      /** Their e-mail, looked up among the organization's members. */
+      email: string;
+    }
+  | {
+      /** A person. */
+      kind: 'user';
+      /** Their user id. */
+      userId: string;
+    }
+  | {
+      /** A group of the organization. */
+      kind: 'group';
+      /** The group. */
+      groupId: string;
+    };
 
 /**
  * What creating a link grant returns: the grant, its share URL and the token,

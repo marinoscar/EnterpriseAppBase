@@ -17,7 +17,14 @@ import { expiryText, humanizeType } from '../internal/format.js';
  */
 export interface SharedWithMeListSlots {
   /** One item. Default a list row linking to its path, with the role and the expiry. */
-  Item?: ComponentType<{ item: SharedWithMeItem; path: string | null; title: string }>;
+  Item?: ComponentType<{
+    /** The shared record, as the API returned it. */
+    item: SharedWithMeItem;
+    /** Where it opens (`resolvePath`, else the API's `path`), or `null`. */
+    path: string | null;
+    /** Its title, or a fallback built from its type and id. */
+    title: string;
+  }>;
 }
 
 /**

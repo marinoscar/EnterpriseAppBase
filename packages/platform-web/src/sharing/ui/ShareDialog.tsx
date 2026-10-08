@@ -67,7 +67,10 @@ import { DEFAULT_LINK_EXPIRY_PRESETS } from './copy.js';
  */
 export interface ShareDialogSlots {
   /** The dialog title. Default "Share" / "Share <resourceTitle>". Rendered inside `DialogTitle`. */
-  Title?: ComponentType<{ resourceTitle?: string }>;
+  Title?: ComponentType<{
+    /** The record's name, when the dialog was given one. */
+    resourceTitle?: string;
+  }>;
 }
 
 /**
@@ -93,7 +96,12 @@ export interface ShareDialogProps {
   /** The roles a link may grant. Default the first of `roles` only. */
   linkRoles?: readonly SharingRoleOption[];
   /** The link lifetimes offered, first is the default. Default 1, 7, 30 days and never. */
-  linkExpiryPresets?: ReadonlyArray<{ label: string; days: number | null }>;
+  linkExpiryPresets?: ReadonlyArray<{
+    /** What the select shows ("7 days"). */
+    label: string;
+    /** The lifetime in days, or `null` for a link that never expires. */
+    days: number | null;
+  }>;
   /** Called after every successful change (a share, a role change, a revoke, a link). */
   onChanged?: () => void;
   /** Permission check for hiding controls; default the host viewer's. Writes need `sharing:write`. */

@@ -68,7 +68,12 @@ import { GROUP_ROLE_OPTIONS, groupRoleLabel } from './copy.js';
  */
 export interface GroupDetailPageSlots {
   /** The page header. Default a back link, an `h1` with the name and the description. */
-  Header?: ComponentType<{ group: GroupDto; backPath: string }>;
+  Header?: ComponentType<{
+    /** The loaded group. */
+    group: GroupDto;
+    /** Where "back" goes. */
+    backPath: string;
+  }>;
 }
 
 /**

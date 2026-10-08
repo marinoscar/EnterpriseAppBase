@@ -52,7 +52,12 @@ import { PendingGroupInvites } from './PendingGroupInvites.js';
  */
 export interface GroupsPageSlots {
   /** The page header. Default an `h1` with the title and the description. */
-  Header?: ComponentType<{ title: string; description: string }>;
+  Header?: ComponentType<{
+    /** The page title (the card's). */
+    title: string;
+    /** The page subtitle (the card's description). */
+    description: string;
+  }>;
 }
 
 /**

@@ -35,7 +35,10 @@ import { LINK_NOT_AVAILABLE, LINK_NOT_AVAILABLE_HINT } from './copy.js';
  */
 export interface PublicLinkPageSlots {
   /** Wraps every state of the page: the app's branding. Default a centred container. */
-  Frame?: ComponentType<{ children: ReactNode }>;
+  Frame?: ComponentType<{
+    /** The page's current state: the renderer, the spinner or the neutral message. */
+    children: ReactNode;
+  }>;
   /** The neutral message for every failure. Default "This link is not available." */
   NotAvailable?: ComponentType;
   /** While the token resolves. Default a spinner. */
