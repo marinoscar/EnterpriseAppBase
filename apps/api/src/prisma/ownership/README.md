@@ -129,6 +129,15 @@ Fields:
 | `exportOmit` | no | Only with `export: 'include'`. |
 | `rationale` | yes | One or two sentences. |
 
+**Then decide what a data reset does with it (#743).** A model with an
+`ownerField` also needs a user-data hint, or the `user-data` conformance suite
+(`test/user-data/user-data-conformance.spec.ts`) fails: `{ model, category }`
+(deleted with the user's data, in a registered category) or
+`{ model, keep: '<why>' }`, in
+[`app-registrations/user-data.ts`](../../app-registrations/user-data.ts). The
+purge order is computed from the schema; see
+[docs/specs/user-data-reset.md §4](../../../../../docs/specs/user-data-reset.md#4-extending-it-in-an-app).
+
 ## Scoped access
 
 ### `forUser` and `forScope`

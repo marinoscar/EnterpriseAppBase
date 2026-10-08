@@ -56,6 +56,7 @@ registry:
 |---|---|---|
 | `user-owned-models.ts` | `userOwnedModelRegistry` (`@marinoscar/platform-api/core`): every model with a foreign key to `User` | [prisma/ownership/README.md](../prisma/ownership/README.md) |
 | `model-ownership.ts` | `modelOwnershipRegistry` (`@marinoscar/platform-api/core`): the ownership kind of every model (`org`, `org-optional`, `user`, `system`); an `org` model also needs `org_id`, a policy and a migration (#725) | [prisma/ownership/README.md](../prisma/ownership/README.md), [SECURITY-ARCHITECTURE.md §18](../../../../docs/SECURITY-ARCHITECTURE.md#18-tenant-isolation-rls) |
+| `user-data.ts` | The user-data slice's registries (`@marinoscar/platform-api/user-data`, #743): a keep-or-delete hint per owner model, categories, scopes, factory reset steps, offboarding preconditions | [docs/specs/user-data-reset.md §4](../../../../docs/specs/user-data-reset.md#4-extending-it-in-an-app) |
 
 | File | Registries it feeds | Recipe |
 |---|---|---|
