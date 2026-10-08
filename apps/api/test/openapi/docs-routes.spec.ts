@@ -1,11 +1,7 @@
 import { APP_NAME } from '@app/shared';
 import { createTestApp, closeTestApp, TestContext } from '../helpers/test-app.helper';
 import { createOpenApiDocument } from '../../src/openapi/document';
-import {
-  DOCS_PATH,
-  OPENAPI_JSON_PATH,
-  registerDocsRoutes,
-} from '../../src/openapi/register-docs-routes';
+import { DOCS_PATH, OPENAPI_JSON_PATH, registerDocsRoutes } from '@marinoscar/platform-api/host';
 
 /**
  * Exercises the two routes end to end, over the same Fastify instance `main.ts`
@@ -22,7 +18,7 @@ describe('documentation routes', () => {
     context = await createTestApp({
       // Registered before init(), the same point in the boot sequence main.ts
       // uses — Fastify refuses new routes once its root plugin has booted.
-      registerRoutes: (app) => registerDocsRoutes(app, createOpenApiDocument(app), '9.9.9'),
+      registerRoutes: (app) => registerDocsRoutes(app, createOpenApiDocument(app), { appName: APP_NAME, version: '9.9.9' }),
     });
   }, 60000);
 

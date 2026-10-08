@@ -119,44 +119,17 @@ export {
 } from '@marinoscar/platform-contract/db-backup';
 export type { SystemDatabaseBackupValue } from '@marinoscar/platform-contract/db-backup';
 
-/**
- * The maintenance banner's default text.
- *
- * Deliberately names no product, no company and no repository: this is a
- * template repo, and a hard-coded name here would be a string a fork has to
- * find and change in a place nobody thinks to look. Anything that genuinely
- * needs the application's name reads `APP_NAME` from `@app/shared`; this copy
- * does not need it, so it does not take the dependency.
- */
-export const DEFAULT_MAINTENANCE_MESSAGE =
-  'This service is temporarily unavailable for scheduled maintenance. Please try again shortly.';
-
-/**
- * Maintenance-window state (`maintenance`).
- *
- * Half policy, half live state, in one block on purpose: `enabled` +
- * `message` + `allowAdmins` are what an operator sets, and `startedAt` +
- * `startedById` are what the act of enabling records. Splitting them across
- * two rows would let the flag and the provenance of the flag disagree.
- *
- * `startedAt`/`startedById` are NULLABLE rather than absent when no window is
- * open, so the key set of this namespace is the same whether maintenance is on
- * or off — a shape that changes with the value is a shape every consumer has
- * to special-case, and it is what `settings-parity.spec.ts` would have no way
- * to check.
- *
- * `allowAdmins` defaults to true because the person most likely to need the
- * application during maintenance is the person who turned maintenance on.
- */
-export const systemMaintenanceSchema = z.object({
-  enabled: z.boolean(),
-  message: z.string().min(1).max(1000),
-  allowAdmins: z.boolean(),
-  startedAt: z.iso.datetime().nullable(),
-  startedById: z.string().uuid().nullable(),
-});
-
-export type SystemMaintenanceValue = z.infer<typeof systemMaintenanceSchema>;
+// The `maintenance` namespace's schemas (the maintenance window: `enabled`,
+// `message`, `allowAdmins`, and the provenance `startedAt`/`startedById`) are
+// the host slice's since #867 (`@marinoscar/platform-api/host`, with the
+// namespace declaration `MAINTENANCE_SYSTEM_SETTINGS`); re-exported here
+// under their old names. The PATCH form is re-exported below.
+export {
+  DEFAULT_MAINTENANCE_MESSAGE,
+  systemMaintenancePatchSchema,
+  systemMaintenanceSchema,
+} from '@marinoscar/platform-api/host';
+export type { SystemMaintenanceValue } from '@marinoscar/platform-api/host';
 
 // =============================================================================
 // Storage provider namespace (issue #373, epic #372)
@@ -237,14 +210,7 @@ export type {
 
 // `systemDatabaseBackupPatchSchema`: re-exported above from the contract (#740).
 
-
-export const systemMaintenancePatchSchema = z.object({
-  enabled: z.boolean().optional(),
-  message: z.string().min(1).max(1000).optional(),
-  allowAdmins: z.boolean().optional(),
-  startedAt: z.iso.datetime().nullable().optional(),
-  startedById: z.string().uuid().nullable().optional(),
-});
+// `systemMaintenancePatchSchema`: re-exported above from the host slice (#867).
 
 // =============================================================================
 // AI platform namespace (issue #423, epic #419; packaged by #739)

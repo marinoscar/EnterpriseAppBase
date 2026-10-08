@@ -237,13 +237,13 @@ export class PrincipalCache implements OnModuleInit, OnModuleDestroy {
 
   private unsubscribe: (() => void) | null = null;
 
-  /** The process's bus; a private in-process one only in a graph without `EventBusModule`. */
+  /** The process's bus; a private in-process one only in a graph without the host core's `EVENT_BUS`. */
   private readonly bus: EventBus;
 
   constructor(
     config: ConfigService,
     // Optional for the same reason as in `NotificationStreamService`: a test
-    // graph built from one feature module has no `EventBusModule`. There the
+    // graph built from one feature module has no host core (`EVENT_BUS`). There the
     // cache still invalidates locally (single process); the app always has
     // the global bus, and the Doctor reports which one this cache uses.
     @Optional() @Inject(IDENTITY_EVENT_BUS) bus?: EventBus,

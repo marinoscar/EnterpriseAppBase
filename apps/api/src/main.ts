@@ -21,8 +21,8 @@ import { verifyEncryptionKeyAtStartup } from '@marinoscar/platform-api/core';
 import { verifyTenancyModeAtStartup } from '@marinoscar/platform-api/identity';
 import { verifyDeploymentModeAtStartup } from './common/deployment/deployment-mode';
 import { verifyDeploymentNetworkAtStartup } from './common/deployment/deployment-network';
-import { createOpenApiDocument } from './openapi/document';
-import { registerDocsRoutesOrDegrade } from './openapi/register-docs-routes';
+import { APP_OPENAPI } from './openapi/document';
+import { registerPlatformDocs } from '@marinoscar/platform-api/host';
 import { buildCorsOptions, isSameOriginOnly } from './common/cors/cors-options';
 import { registerRequestSpanAttributes } from '@marinoscar/platform-api/otel-core';
 
@@ -134,10 +134,11 @@ async function bootstrap() {
       : `CORS: allowlist of ${corsOptions.origin.length} origin(s) with credentials: ${corsOptions.origin.join(', ')}`,
   );
 
-  // OpenAPI: the document and the two routes that serve it. Everything that
-  // shapes them lives in `src/openapi/` rather than here, so the same pure
-  // functions are callable from the test suite and from `scripts/dump-openapi.ts`
-  // — which is what makes the document CI lints the document users get.
+  // OpenAPI: the document and the two routes that serve it, from the host
+  // slice (`@marinoscar/platform-api/host`, #867). The app's identity and tag
+  // taxonomy live in `src/openapi/`, so the same document is what the test
+  // suite and `scripts/dump-openapi.ts` build — which is what makes the
+  // document CI lints the document users get.
   //
   // Registered AFTER `setGlobalPrefix('api')` above, because the introspection
   // reads the prefix off the application; the dump script sets the same prefix
@@ -149,11 +150,7 @@ async function bootstrap() {
   // `error` and serves 503s on both docs paths instead. See the function's own
   // comment for why that is not gated on NODE_ENV, and note that `openapi:dump`
   // in CI still fails the build on a document that cannot be generated.
-  const docsReady = registerDocsRoutesOrDegrade(
-    app,
-    () => createOpenApiDocument(app),
-    logger,
-  );
+  const docsReady = registerPlatformDocs(app, APP_OPENAPI, logger);
 
   const port = process.env.PORT || 3000;
   await app.listen(port, '0.0.0.0');

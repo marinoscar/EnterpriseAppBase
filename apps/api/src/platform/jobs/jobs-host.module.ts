@@ -21,8 +21,7 @@ import { Global, Module } from '@nestjs/common';
 import { JOBS_EVENT_BUS, JOBS_METRICS } from '@marinoscar/platform-api/jobs';
 import { NODE_JOB_INPUTS } from '@marinoscar/platform-api/nodes';
 
-import { EVENT_BUS } from '../../common/event-bus/event-bus.interface';
-import { AppMetricsService } from '../../common/otel/app-metrics.service';
+import { AppMetricsService, EVENT_BUS } from '@marinoscar/platform-api/host';
 import { StorageProvidersModule, nodeObjectStoreBinding } from '@marinoscar/platform-api/storage';
 import { NodeJobInputsAdapter } from './node-job-inputs.adapter';
 

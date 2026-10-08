@@ -171,6 +171,9 @@ import { BackupScheduleDoctorCheck } from './doctor/backup-schedule.doctor-check
 // (unlike `PrismaModule`), it exports `MaintenanceModeService` explicitly, and
 // the dependency direction stays acyclic — maintenance depends on settings and
 // JWT, and on nothing here.
+// (The history of the app module. The packaged slice reaches the switch
+// through its `DB_BACKUP_MAINTENANCE` port; the reference app binds it to the
+// host core's global `MaintenanceModeService`, #867.)
 //
 // `DATABASE_RESTORE_SEAM` joins the list of OPTIONAL tokens deliberately left
 // unbound, and it is the most important member of that list: it carries

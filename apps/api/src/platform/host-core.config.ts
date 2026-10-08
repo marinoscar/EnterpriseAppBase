@@ -1,0 +1,29 @@
+// =============================================================================
+// The reference app's binding of the host core (issue #867)
+// =============================================================================
+//
+// `@marinoscar/platform-api/host` owns what used to be this app's own
+// plumbing: the event bus, the platform's app metrics, maintenance mode (the
+// only APP_GUARD), the `{ data }` envelope, the request log line, the
+// exception filter and request ids. The app configures it here, once:
+//
+//   - the app-metric manifest runs FIRST, so the registry order stays the
+//     platform's 31, the event bus's three, the slices' and then the app's
+//     own (`APP_METRICS`), a collision naming the app;
+//   - `EVENT_BUS_ADAPTER` and `OTEL_ENABLED` are read by the package itself
+//     (the defaults), so there is nothing to pass.
+//
+// `app.module.ts` places `hostCoreModule` right after `HealthModule`: the
+// generated OpenAPI document lists paths in module order, and
+// `/api/admin/maintenance` has always followed `/api/health`.
+//
+// The OpenAPI identity (`APP_OPENAPI`) is bootstrap-time: `main.ts` passes it
+// to `registerPlatformDocs`, the dump script and the tests to
+// `createOpenApiDocument` (`../openapi/document.ts`).
+// =============================================================================
+
+import '../common/otel/app-metric.manifest';
+
+import { PlatformHostCoreModule } from '@marinoscar/platform-api/host';
+
+export const hostCoreModule = PlatformHostCoreModule.forRoot();

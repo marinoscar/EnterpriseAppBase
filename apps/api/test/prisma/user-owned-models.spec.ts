@@ -44,8 +44,11 @@ const IDENTITY_SLICE_SOURCE_ROOT = join(__dirname, '..', '..', '..', '..', 'pack
 // migration state, the pre-flight's catalogue reads) left this app with it.
 const DB_BACKUP_SLICE_SOURCE_ROOT = join(__dirname, '..', '..', '..', '..', 'packages', 'platform-api', 'src', 'db-backup');
 
+// The host slice's source too (#867): the event bus's pg_notify left this app with it.
+const HOST_SLICE_SOURCE_ROOT = join(__dirname, '..', '..', '..', '..', 'packages', 'platform-api', 'src', 'host');
+
 runPlatformConformance({
-  sourceRoots: [join(__dirname, '..', '..', 'src'), IDENTITY_SLICE_SOURCE_ROOT, DB_BACKUP_SLICE_SOURCE_ROOT],
+  sourceRoots: [join(__dirname, '..', '..', 'src'), IDENTITY_SLICE_SOURCE_ROOT, DB_BACKUP_SLICE_SOURCE_ROOT, HOST_SLICE_SOURCE_ROOT],
   suites: {
     userOwnedData: {
       schemaPath: SCHEMA_PATH,

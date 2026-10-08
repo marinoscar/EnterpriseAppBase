@@ -4,11 +4,11 @@ import { createOpenApiDocument } from '../../src/openapi/document';
 import {
   DOCS_PATH,
   DOCS_UNAVAILABLE_MESSAGE,
-  DocsLogger,
   OPENAPI_JSON_PATH,
   OPENAPI_UNAVAILABLE_CODE,
   registerDocsRoutesOrDegrade,
-} from '../../src/openapi/register-docs-routes';
+  type DocsLogger,
+} from '@marinoscar/platform-api/host';
 
 /**
  * The degraded documentation path (issue #69).
@@ -42,6 +42,7 @@ describe('documentation routes when generation fails', () => {
           () => {
             throw GENERATION_ERROR;
           },
+          { appName: APP_NAME, version: '9.9.9' },
           logger,
         );
       },
@@ -188,8 +189,8 @@ describe('documentation routes when generation succeeds', () => {
         returned = registerDocsRoutesOrDegrade(
           app,
           () => createOpenApiDocument(app),
+          { appName: APP_NAME, version: '9.9.9' },
           logger,
-          '9.9.9',
         );
       },
     });

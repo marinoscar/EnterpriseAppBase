@@ -14,8 +14,7 @@ import { Logger } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 
 import { buildDatabaseUrl } from '../../src/common/database-url';
-import { EVENT_BUS_MAX_PAYLOAD_BYTES, EventBusMeta } from '../../src/common/event-bus/event-bus.interface';
-import { PostgresEventBus } from '../../src/common/event-bus/postgres-event-bus';
+import { EVENT_BUS_MAX_PAYLOAD_BYTES, EventBusMeta, PostgresEventBus } from '@marinoscar/platform-api/host';
 import { ConfigService } from '@nestjs/config';
 import { Job } from '@prisma/client';
 

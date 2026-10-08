@@ -1,24 +1,24 @@
 import { RegistryError, withTemporaryEntries } from '@marinoscar/platform-api/core';
-import {
-  APP_METRIC_NAMES,
-  appMetricRegistry,
-  registerAppMetrics,
-  type AppMetricDef,
-} from './app-metrics.service';
-import { EVENT_BUS_APP_METRICS } from '../event-bus/event-bus.metrics';
+import { EVENT_BUS_APP_METRICS, PLATFORM_APP_METRICS } from '@marinoscar/platform-api/host';
+import { appMetricRegistry, registerAppMetrics, type AppMetricDef } from '@marinoscar/platform-api/otel-core';
 import { ORGANIZATIONS_APP_METRICS } from '@marinoscar/platform-api/identity';
 import { SHARING_APP_METRICS } from '@marinoscar/platform-api/sharing';
 import { EXPORTS_APP_METRICS } from '@marinoscar/platform-api/exports';
 import { USER_DATA_APP_METRICS } from '@marinoscar/platform-api/user-data';
-import { PLATFORM_APP_METRICS } from './platform-app-metrics';
+
+// The manifest fills the registry, as `platform/host-core.config.ts` does
+// before `PlatformHostCoreModule.forRoot()`.
+import './app-metric.manifest';
+
 
 // =============================================================================
 // The app-metric registry (issue #680)
 // =============================================================================
 //
-// Read through `app-metrics.service.ts` (which imports the manifest), as
-// production code reads it. Every rule runs at registration, so a malformed
-// declaration fails at import time.
+// Read after the app's manifest (./app-metric.manifest.ts) ran, as production
+// code reads it: the host slice's platform metrics (#867), the slices' and the
+// app's. Every rule runs at registration, so a malformed declaration fails at
+// import time.
 // =============================================================================
 
 function def(overrides: Partial<AppMetricDef> = {}): AppMetricDef {
@@ -53,11 +53,6 @@ describe('app-metric registry', () => {
     );
     expect(PLATFORM_APP_METRICS).toHaveLength(31);
     expect(appMetricRegistry.size).toBe(45);
-  });
-
-  it('derives APP_METRIC_NAMES from the registry', () => {
-    expect(APP_METRIC_NAMES).toEqual(Object.fromEntries(appMetricRegistry.list().map((d) => [d.key, d.name])));
-    expect(Object.isFrozen(APP_METRIC_NAMES)).toBe(true);
   });
 
   it('declares every platform attribute key in snake_case and buckets only on histograms', () => {
@@ -143,17 +138,14 @@ describe('app-metric registry', () => {
     jest.dontMock('../../app-registrations/telemetry');
   });
 
-  it.each(['./platform-app-metrics', '../../app-registrations/telemetry'])(
-    '%s loads without app-metrics.service.ts (framework-free leaf)',
-    (path) => {
-      jest.isolateModules(() => {
-        jest.doMock('./app-metrics.service', () => {
-          throw new Error(`${path} loaded app-metrics.service.ts`);
-        });
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        expect(() => require(path)).not.toThrow();
+  it('../../app-registrations/telemetry loads without the host slice (framework-free leaf)', () => {
+    jest.isolateModules(() => {
+      jest.doMock('@marinoscar/platform-api/host', () => {
+        throw new Error('app-registrations/telemetry loaded @marinoscar/platform-api/host');
       });
-      jest.dontMock('./app-metrics.service');
-    },
-  );
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      expect(() => require('../../app-registrations/telemetry')).not.toThrow();
+    });
+    jest.dontMock('@marinoscar/platform-api/host');
+  });
 });

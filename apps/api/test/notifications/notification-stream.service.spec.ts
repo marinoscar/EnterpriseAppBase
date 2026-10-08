@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
 
-import type { EventBus, EventBusHandler, EventBusMeta } from '../../src/common/event-bus/event-bus.interface';
+import type { EventBus, EventBusHandler, EventBusMeta } from '@marinoscar/platform-api/host';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import {
   HEARTBEAT_INTERVAL_MS,

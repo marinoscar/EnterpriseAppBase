@@ -28,8 +28,7 @@ import {
   type NotificationRecipient,
 } from '../notifications/support/notifications';
 import { PrismaService } from '../../src/prisma/prisma.service';
-import { EVENT_BUS } from '../../src/common/event-bus/event-bus.interface';
-import { InProcessEventBus } from '../../src/common/event-bus/in-process-event-bus';
+import { EVENT_BUS, InProcessEventBus } from '@marinoscar/platform-api/host';
 
 // =============================================================================
 // `user.welcome` fires only after the creating transaction has committed

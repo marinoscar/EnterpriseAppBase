@@ -3,7 +3,7 @@
 // =============================================================================
 //
 //   SHARING_DATA           SharingDataAdapter (PrismaService.runInOrg, PrismaSystemService.runAsSystem)
-//   SHARING_EVENT_BUS      the process's EVENT_BUS (global EventBusModule)
+//   SHARING_EVENT_BUS      the process's EVENT_BUS (the global host core, #867)
 //   SHARING_EVENT_EMITTER  EventEmitter2 (EventEmitterModule.forRoot in app.module.ts)
 //   SHARING_NOTIFIER       SharingNotifierAdapter (NotificationsService)
 //   SHARING_TENANCY        TenancyService (the identity slice's OrganizationsModule)
@@ -22,7 +22,7 @@ import {
 } from '@marinoscar/platform-api/sharing';
 import { OrganizationsModule, TenancyService } from '@marinoscar/platform-api/identity';
 
-import { EVENT_BUS } from '../../common/event-bus/event-bus.interface';
+import { EVENT_BUS } from '@marinoscar/platform-api/host';
 import { JobsModule } from '../jobs/jobs.config';
 import { NotificationsModule } from '../notifications/notifications.config';
 import { SharingDataAdapter } from './sharing-data.adapter';

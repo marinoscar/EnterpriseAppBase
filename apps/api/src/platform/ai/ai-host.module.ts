@@ -16,7 +16,7 @@ import { Global, Module } from '@nestjs/common';
 import { AI_METRICS, AI_OBJECT_STORE, AI_SYSTEM_PRISMA, type AiMetrics } from '@marinoscar/platform-api/ai';
 import { StorageProvidersModule } from '@marinoscar/platform-api/storage';
 
-import { AppMetricsService } from '../../common/otel/app-metrics.service';
+import { AppMetricsService } from '@marinoscar/platform-api/host';
 import { PrismaSystemService } from '../../prisma/prisma-system.service';
 import { AiObjectStoreAdapter } from './ai-object-store.adapter';
 

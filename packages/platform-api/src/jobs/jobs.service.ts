@@ -316,11 +316,11 @@ export class JobsService {
   constructor(
     @Inject(PLATFORM_PRISMA) private readonly prisma: JobsPrisma,
     // #600. Optional so hand-built instances in tests need no stub; the global
-    // `AppMetricsModule` always provides it in the application.
+    // host core (`AppMetricsService`) always provides it in the application.
     @Optional() @Inject(JOBS_METRICS) private readonly metrics: JobsMetrics = NOOP_JOBS_METRICS,
     // PP-1.11 (#682): wakes idle workers, on this replica and others, when a
     // job is due now. Optional for the same reason as `metrics`; the global
-    // `EventBusModule` always provides it in the application. Without it,
+    // host core (`EVENT_BUS`) always provides it in the application. Without it,
     // workers simply find the job on their next poll.
     @Optional() @Inject(JOBS_EVENT_BUS) private readonly bus?: JobsEventBus,
     @Optional() @Inject(JOBS_ORG_SCOPE) private readonly orgScope?: JobsOrgScope,

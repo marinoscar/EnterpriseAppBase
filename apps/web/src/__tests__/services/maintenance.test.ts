@@ -5,7 +5,7 @@
  *
  *   1. THE MIRROR DOES NOT DRIFT. `MAINTENANCE_ERROR_MARKER` and
  *      `MAINTENANCE_RETRY_AFTER_SECONDS` are copies of constants declared in
- *      `apps/api`, and there is no shared type surface between the two packages
+ *      the API's host slice, and there is no shared type surface between the two packages
  *      to keep them honest (`packages/shared` is deliberately plain JS
  *      constants — see its header). So this suite reads the API's own
  *      `maintenance.guard.ts` OFF DISK and compares, the same technique
@@ -40,7 +40,8 @@ import { ADMIN_SECTIONS } from '../../config/adminSections';
 import type { MaintenanceStatus } from '../../types';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../..');
-const GUARD_PATH = 'apps/api/src/common/maintenance/maintenance.guard.ts';
+// The guard is the host slice's since #867 (`@marinoscar/platform-api/host`).
+const GUARD_PATH = 'packages/platform-api/src/host/maintenance/maintenance.guard.ts';
 
 /** A well-formed maintenance 503 body, as the API's exception filter emits it. */
 function maintenanceBody(overrides: Record<string, unknown> = {}) {

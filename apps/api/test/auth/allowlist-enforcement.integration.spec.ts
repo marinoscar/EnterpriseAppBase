@@ -17,8 +17,7 @@ import { ForbiddenException } from '@nestjs/common';
 import { resetPrismaMock, prismaMock } from '../mocks/prisma.mock';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import { createMockUserWithRelations, mockRoles } from '../fixtures/test-data.factory';
-import { EVENT_BUS } from '../../src/common/event-bus/event-bus.interface';
-import { InProcessEventBus } from '../../src/common/event-bus/in-process-event-bus';
+import { EVENT_BUS, InProcessEventBus } from '@marinoscar/platform-api/host';
 
 describe('Auth Service - Allowlist Enforcement', () => {
   let authService: AuthService;

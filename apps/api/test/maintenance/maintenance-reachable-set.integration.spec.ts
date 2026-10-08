@@ -1,17 +1,17 @@
 import request from 'supertest';
 import type { OpenAPIObject } from '@nestjs/swagger';
+import { APP_NAME } from '@app/shared';
 import { createOpenApiDocument } from '../../src/openapi/document';
 import {
   DOCS_PATH,
-  OPENAPI_JSON_PATH,
-  registerDocsRoutes,
-} from '../../src/openapi/register-docs-routes';
-import { forEachOperation, MutableDocument } from '../../src/openapi/types';
-import {
   MAINTENANCE_ERROR_MARKER,
   MAINTENANCE_RETRY_AFTER_SECONDS,
-} from '../../src/common/maintenance/maintenance.guard';
-import { MaintenanceModeService } from '../../src/common/maintenance/maintenance-mode.service';
+  MaintenanceModeService,
+  OPENAPI_JSON_PATH,
+  forEachOperation,
+  registerDocsRoutes,
+  type MutableDocument,
+} from '@marinoscar/platform-api/host';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import { resetPrismaMock } from '../mocks/prisma.mock';
 import {
@@ -115,7 +115,7 @@ describe('Maintenance mode: the reachable set', () => {
       // the real registration rather than asserted in prose.
       registerRoutes: (app) => {
         document = createOpenApiDocument(app);
-        registerDocsRoutes(app, document);
+        registerDocsRoutes(app, document, { appName: APP_NAME, version: '9.9.9' });
       },
     });
     maintenance = context.module.get(MaintenanceModeService);
@@ -206,7 +206,7 @@ describe('Maintenance mode: the reachable set', () => {
   });
 
   it('does NOT cover /api/docs or /api/openapi.json — documented, not discovered', async () => {
-    // `openapi/register-docs-routes.ts` mounts both directly on the Fastify
+    // the host slice's `registerDocsRoutes` mounts both directly on the Fastify
     // instance, OUTSIDE Nest's router, so no Nest guard — global or otherwise —
     // ever sees them. That is intentional: a maintenance window is exactly when
     // an operator wants the API reference. It is written down here, in

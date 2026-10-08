@@ -23,7 +23,7 @@
 import request from 'supertest';
 
 import { createOpenApiDocument } from '../../src/openapi/document';
-import { forEachOperation, MutableDocument } from '../../src/openapi/types';
+import { forEachOperation, type MutableDocument } from '@marinoscar/platform-api/host';
 import { RBAC_EXTENSION_KEY, type RbacExtension } from '@marinoscar/platform-api/identity';
 import { permissionRegistry } from '../../src/common/permissions';
 import * as tenancyMode from '@marinoscar/platform-api/identity';

@@ -1,12 +1,11 @@
-import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { EventEmitterModule } from '@nestjs/event-emitter';
-import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
+import { APP_PIPE } from '@nestjs/core';
 import { ZodValidationPipe } from 'nestjs-zod';
 
 import { PrismaModule } from './prisma/prisma.module';
-import { EventBusModule } from './common/event-bus/event-bus.module';
 import { CommonModule } from './common/common.module';
 import { SettingsModule } from './platform/settings/settings.config';
 import { ProfileImageModule } from './platform/storage/storage.config';
@@ -24,9 +23,7 @@ import { JobsModule } from './platform/jobs/jobs.config';
 import { ExamplesModule } from './examples/examples.module';
 import { DbBackupModule } from './platform/db-backup/db-backup.config';
 import { LoggerModule } from './common/logger/logger.module';
-import { AppMetricsModule } from './common/otel/app-metrics.module';
-import { MaintenanceModule } from './common/maintenance/maintenance.module';
-import { MaintenanceGuard } from './common/maintenance/maintenance.guard';
+import { hostCoreModule } from './platform/host-core.config';
 import { DeploymentModule } from './common/deployment/deployment.module';
 import { DocsEgressContributor } from './openapi/docs-egress.contributor';
 import { AiModule } from './platform/ai/ai.config';
@@ -42,10 +39,6 @@ import { userDataModule } from './platform/user-data/user-data.config';
 import { IdentityExtensionsModule } from './identity-extensions/identity-extensions.module';
 import { androidAppModule } from './platform/android-app/android-app.config';
 
-import { HttpExceptionFilter } from '@marinoscar/platform-api/core';
-import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
-import { TransformInterceptor } from './common/interceptors/transform.interceptor';
-import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 
 import configuration from './config/configuration';
 
@@ -66,17 +59,8 @@ import configuration from './config/configuration';
     // Database
     PrismaModule,
 
-    // Cross-replica event bus (PP-1.11, #682). Global, like the database: the
-    // SSE stream and the job worker inject `EVENT_BUS` without an import edge.
-    // `EVENT_BUS_ADAPTER` picks the adapter; see common/event-bus/.
-    EventBusModule,
-
     // Logger
     LoggerModule,
-
-    // Application metrics (#600): the one `app` meter every feature records
-    // into. Global; a no-op unless OTEL_ENABLED installed the SDK.
-    AppMetricsModule,
 
     // Feature modules
     CommonModule,
@@ -96,6 +80,16 @@ import configuration from './config/configuration';
     // storage provider and SettingsModule must not (see the module).
     ProfileImageModule,
     HealthModule,
+    // The host core (#867, `@marinoscar/platform-api/host`): the cross-replica
+    // event bus (`EVENT_BUS`, PP-1.11), the platform's app metrics (#600), the
+    // maintenance switch (#257) with its admin endpoints and the global guard,
+    // the `{ data }` envelope, the request log line, the exception filter and
+    // request ids. Global. HERE, right after `HealthModule`, because the
+    // generated OpenAPI document lists paths in module order and
+    // `/api/admin/maintenance` has always followed `/api/health` (it was
+    // discovered through `HealthModule`'s import of the old MaintenanceModule).
+    // The app's binding is `platform/host-core.config.ts`.
+    hostCoreModule,
     StorageModule,
     // #375, epic #372 — the ADMIN surface for object-storage configuration
     // (`/api/admin/storage-config`), deliberately a module of its own rather
@@ -200,13 +194,6 @@ import configuration from './config/configuration';
     // holding the single active backup slot forever.
     DbBackupModule,
 
-    // Maintenance mode (#257, epic #254): the three-layer switch, its admin
-    // endpoints, and the global guard registered below. Imported here — rather
-    // than left to whichever module happened to need it — because the guard it
-    // provides runs in front of every route in this application, and that
-    // belongs in the module that owns the application.
-    MaintenanceModule,
-
     // Deployment mode (#685): the parsed `DEPLOYMENT_MODE` and its capability
     // predicates (`DeploymentModeService`), plus the `core.deployment-mode`
     // doctor check. `@Global()`, so the restore path and the about report
@@ -293,62 +280,24 @@ import configuration from './config/configuration';
   ],
   providers: [
     // ------------------------------------------------------------------------
-    // The application's ONLY global guard (#257, epic #254)
+    // NO global guard here. The application's ONLY `APP_GUARD` is the
+    // maintenance guard, registered by `hostCoreModule` (#257, #867); there
+    // is no global JWT guard, so a route without `@Auth()` is public. The
+    // exception filter, the request log line, the `{ data }` envelope and
+    // request ids are the host core's too. The `host` conformance suite
+    // (test/platform/host-conformance.spec.ts) fails a second APP_GUARD
+    // anywhere in the module graph.
     // ------------------------------------------------------------------------
-    //
-    // It runs on every Nest route, before any route-level `UseGuards`, and
-    // answers exactly one question: is this deployment deliberately out of
-    // service? Routes carrying `@AllowDuringMaintenance()` are exempt — health,
-    // sign-in, token refresh, device activation, the test-auth routes, and the
-    // maintenance endpoints themselves. Everything else is a 503 while a window
-    // is open.
-    //
-    // `useExisting`, not `useClass`: the instance is constructed in
-    // `MaintenanceModule`, which is where its `JwtService` lives (that module
-    // registers its own rather than importing `AuthModule` — see the module for
-    // why). `useClass` here would try to construct the guard in THIS context
-    // and would need the whole auth graph exported into it.
-    //
-    // NOT COVERED, and documented rather than discovered: `/api/docs` and
-    // `/api/openapi.json` are mounted directly on the Fastify instance by
-    // `openapi/register-docs-routes.ts`, outside Nest's router, so they never
-    // reach this guard and stay readable during a window. See
-    // docs/specs/maintenance-mode.md.
-    {
-      provide: APP_GUARD,
-      useExisting: MaintenanceGuard,
-    },
     // Global validation pipe (Zod)
     {
       provide: APP_PIPE,
       useClass: ZodValidationPipe,
     },
-    // Global exception filter
-    {
-      provide: APP_FILTER,
-      useClass: HttpExceptionFilter,
-    },
-    // Global logging interceptor
-    {
-      provide: APP_INTERCEPTOR,
-      useClass: LoggingInterceptor,
-    },
-    // Global response transform interceptor
-    {
-      provide: APP_INTERCEPTOR,
-      useClass: TransformInterceptor,
-    },
     // Egress inventory (#773): `/api/docs`' CDN. Here because the docs routes
-    // are mounted on Fastify directly (`openapi/register-docs-routes.ts`) and
-    // have no module of their own; the catalog example of registering an
+    // are mounted on Fastify directly (`registerPlatformDocs` in `main.ts`)
+    // and have no module of their own; the catalog example of registering an
     // outbound dependency from app code.
     DocsEgressContributor,
   ],
 })
-export class AppModule implements NestModule {
-  configure(consumer: MiddlewareConsumer) {
-    consumer
-      .apply(RequestIdMiddleware)
-      .forRoutes('*');
-  }
-}
+export class AppModule {}

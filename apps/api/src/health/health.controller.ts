@@ -12,11 +12,11 @@ import {
 import { Public } from '@marinoscar/platform-api/identity';
 import { DatabaseHealthIndicator } from './indicators/database.indicator';
 import { AllowDuringMaintenance } from '../common/maintenance/allow-during-maintenance.decorator';
-import { MaintenanceModeService } from '../common/maintenance/maintenance-mode.service';
 import {
   MAINTENANCE_ERROR_MARKER,
   MAINTENANCE_RETRY_AFTER_SECONDS,
-} from '../common/maintenance/maintenance.guard';
+  MaintenanceModeService,
+} from '@marinoscar/platform-api/host';
 
 /**
  * DELIBERATELY ASYMMETRIC UNDER MAINTENANCE (#257, epic #254).

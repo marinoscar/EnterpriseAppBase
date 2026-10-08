@@ -32,13 +32,8 @@ export { nodesResponseSchema } from '@marinoscar/platform-contract/nodes';
 // `databaseBackup` (#740): `@marinoscar/platform-contract/db-backup`, re-exported unchanged.
 export { databaseBackupResponseSchema } from '@marinoscar/platform-contract/db-backup';
 
-export const maintenanceResponseSchema = z.object({
-  enabled: z.boolean(),
-  message: z.string(),
-  allowAdmins: z.boolean(),
-  startedAt: z.string().nullable(),
-  startedById: z.string().nullable(),
-});
+// `maintenance` (#867): `@marinoscar/platform-api/host`, re-exported unchanged.
+export { maintenanceResponseSchema } from '@marinoscar/platform-api/host';
 
 // #373: the storage provider configuration's branch lives in
 // `@marinoscar/platform-contract/storage` since #736, re-exported unchanged.
