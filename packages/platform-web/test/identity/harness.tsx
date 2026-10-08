@@ -1,9 +1,9 @@
 // Shared helpers for the identity slice's package tests (issue #727): a fake
-// session client and an auth-context value builder.
+// session client, a fake identity client and an auth-context value builder.
 
 import { vi } from 'vitest';
 
-import type { AuthContextValue, AuthSessionClient, AuthUser } from '../../src/identity/headless/index.js';
+import type { AuthContextValue, AuthSessionClient, AuthUser, IdentityApi } from '../../src/identity/headless/index.js';
 
 export const USER: AuthUser = {
   id: 'u1',
@@ -71,4 +71,40 @@ export function authValue(overrides: Partial<AuthContextValue> = {}): AuthContex
     switchOrg: vi.fn(async () => undefined),
     ...overrides,
   };
+}
+
+/** An {@link IdentityApi} whose every member is a `vi.fn()` (resolving `undefined` until a test says otherwise). */
+export type FakeIdentityApi = { [K in keyof IdentityApi]: ReturnType<typeof vi.fn> & IdentityApi[K] };
+
+const IDENTITY_API_MEMBERS: readonly (keyof IdentityApi)[] = [
+  'getUsers',
+  'updateUser',
+  'updateUserRoles',
+  'getAllowlist',
+  'addToAllowlist',
+  'removeFromAllowlist',
+  'getDeviceActivationInfo',
+  'authorizeDevice',
+  'getPersonalAccessTokens',
+  'createPersonalAccessToken',
+  'revokePersonalAccessToken',
+  'getOrgMembers',
+  'updateOrgMember',
+  'removeOrgMember',
+  'getOrgInvites',
+  'createOrgInvite',
+  'revokeOrgInvite',
+  'getOrganizations',
+  'createOrganization',
+  'renameOrganization',
+];
+
+/**
+ * A fake identity client: the stand-in for the reference app's mocked
+ * service modules (`services/api.ts`, `services/organizations.ts`) the moved
+ * suites used to mock. Hand it to a hook directly or to the render helper's
+ * `adapters`.
+ */
+export function fakeIdentityApi(): FakeIdentityApi {
+  return Object.fromEntries(IDENTITY_API_MEMBERS.map((name) => [name, vi.fn()])) as unknown as FakeIdentityApi;
 }

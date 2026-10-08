@@ -1,15 +1,13 @@
+// Moved from the reference app (apps/web/src/__tests__, issue #727): the
+// app's mocked service module is now a fake identity client handed to the hook.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
-import { usePersonalAccessTokens } from '../../hooks/usePersonalAccessTokens';
-import * as api from '../../services/api';
-import type { PersonalAccessToken, PatCreatedResponse } from '../../types';
+import { usePersonalAccessTokens } from '../../src/identity/headless/index.js';
+import type { PersonalAccessToken, PatCreatedResponse } from '../../src/identity/headless/index.js';
+import { fakeIdentityApi } from './harness.js';
 
-// Mock the API module
-vi.mock('../../services/api', () => ({
-  getPersonalAccessTokens: vi.fn(),
-  createPersonalAccessToken: vi.fn(),
-  revokePersonalAccessToken: vi.fn(),
-}));
+
+const api = fakeIdentityApi();
 
 // Mock data
 const mockToken1: PersonalAccessToken = {
@@ -58,7 +56,7 @@ describe('usePersonalAccessTokens', () => {
     it('should start with empty tokens', () => {
       vi.mocked(api.getPersonalAccessTokens).mockResolvedValue([mockToken1]);
 
-      const { result } = renderHook(() => usePersonalAccessTokens());
+      const { result } = renderHook(() => usePersonalAccessTokens(api));
 
       // Before initial fetch resolves
       expect(result.current.tokens).toEqual([]);
@@ -70,7 +68,7 @@ describe('usePersonalAccessTokens', () => {
 
       vi.mocked(api.getPersonalAccessTokens).mockReturnValue(promise);
 
-      const { result } = renderHook(() => usePersonalAccessTokens());
+      const { result } = renderHook(() => usePersonalAccessTokens(api));
 
       expect(result.current.isLoading).toBe(true);
 
@@ -85,7 +83,7 @@ describe('usePersonalAccessTokens', () => {
     it('should start with null error', () => {
       vi.mocked(api.getPersonalAccessTokens).mockResolvedValue([]);
 
-      const { result } = renderHook(() => usePersonalAccessTokens());
+      const { result } = renderHook(() => usePersonalAccessTokens(api));
 
       expect(result.current.error).toBeNull();
     });
@@ -93,7 +91,7 @@ describe('usePersonalAccessTokens', () => {
     it('should provide fetchTokens, createToken, and revokeToken functions', () => {
       vi.mocked(api.getPersonalAccessTokens).mockResolvedValue([]);
 
-      const { result } = renderHook(() => usePersonalAccessTokens());
+      const { result } = renderHook(() => usePersonalAccessTokens(api));
 
       expect(typeof result.current.fetchTokens).toBe('function');
       expect(typeof result.current.createToken).toBe('function');
@@ -109,7 +107,7 @@ describe('usePersonalAccessTokens', () => {
     it('should fetch and set tokens on success', async () => {
       vi.mocked(api.getPersonalAccessTokens).mockResolvedValue([mockToken1, mockToken2]);
 
-      const { result } = renderHook(() => usePersonalAccessTokens());
+      const { result } = renderHook(() => usePersonalAccessTokens(api));
 
       await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -120,7 +118,7 @@ describe('usePersonalAccessTokens', () => {
     it('should automatically fetch tokens on mount', async () => {
       vi.mocked(api.getPersonalAccessTokens).mockResolvedValue([mockToken1]);
 
-      const { result } = renderHook(() => usePersonalAccessTokens());
+      const { result } = renderHook(() => usePersonalAccessTokens(api));
 
       await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -131,7 +129,7 @@ describe('usePersonalAccessTokens', () => {
     it('should set isLoading to false when fetch completes', async () => {
       vi.mocked(api.getPersonalAccessTokens).mockResolvedValue([]);
 
-      const { result } = renderHook(() => usePersonalAccessTokens());
+      const { result } = renderHook(() => usePersonalAccessTokens(api));
 
       await waitFor(() => expect(result.current.isLoading).toBe(false));
     });
@@ -139,7 +137,7 @@ describe('usePersonalAccessTokens', () => {
     it('should set error and empty tokens when fetch fails', async () => {
       vi.mocked(api.getPersonalAccessTokens).mockRejectedValue(new Error('Network error'));
 
-      const { result } = renderHook(() => usePersonalAccessTokens());
+      const { result } = renderHook(() => usePersonalAccessTokens(api));
 
       await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -150,7 +148,7 @@ describe('usePersonalAccessTokens', () => {
     it('should use a generic error message for non-Error failures', async () => {
       vi.mocked(api.getPersonalAccessTokens).mockRejectedValue('some string error');
 
-      const { result } = renderHook(() => usePersonalAccessTokens());
+      const { result } = renderHook(() => usePersonalAccessTokens(api));
 
       await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -162,7 +160,7 @@ describe('usePersonalAccessTokens', () => {
         .mockRejectedValueOnce(new Error('First failure'))
         .mockResolvedValueOnce([mockToken1]);
 
-      const { result } = renderHook(() => usePersonalAccessTokens());
+      const { result } = renderHook(() => usePersonalAccessTokens(api));
 
       await waitFor(() => expect(result.current.error).toBe('First failure'));
 
@@ -177,7 +175,7 @@ describe('usePersonalAccessTokens', () => {
     it('should handle empty token list', async () => {
       vi.mocked(api.getPersonalAccessTokens).mockResolvedValue([]);
 
-      const { result } = renderHook(() => usePersonalAccessTokens());
+      const { result } = renderHook(() => usePersonalAccessTokens(api));
 
       await waitFor(() => expect(result.current.isLoading).toBe(false));
 
@@ -199,7 +197,7 @@ describe('usePersonalAccessTokens', () => {
 
       vi.mocked(api.createPersonalAccessToken).mockResolvedValue(mockCreatedResponse);
 
-      const { result } = renderHook(() => usePersonalAccessTokens());
+      const { result } = renderHook(() => usePersonalAccessTokens(api));
       await waitFor(() => expect(result.current.isLoading).toBe(false));
 
       let response!: PatCreatedResponse;
@@ -219,7 +217,7 @@ describe('usePersonalAccessTokens', () => {
       vi.mocked(api.getPersonalAccessTokens).mockResolvedValue([]);
       vi.mocked(api.createPersonalAccessToken).mockResolvedValue(mockCreatedResponse);
 
-      const { result } = renderHook(() => usePersonalAccessTokens());
+      const { result } = renderHook(() => usePersonalAccessTokens(api));
       await waitFor(() => expect(result.current.isLoading).toBe(false));
 
       await act(async () => {
@@ -256,7 +254,7 @@ describe('usePersonalAccessTokens', () => {
 
       vi.mocked(api.createPersonalAccessToken).mockResolvedValue(mockCreatedResponse);
 
-      const { result } = renderHook(() => usePersonalAccessTokens());
+      const { result } = renderHook(() => usePersonalAccessTokens(api));
       await waitFor(() => expect(result.current.tokens).toEqual([]));
 
       await act(async () => {
@@ -275,7 +273,7 @@ describe('usePersonalAccessTokens', () => {
       vi.mocked(api.getPersonalAccessTokens).mockResolvedValue([]);
       vi.mocked(api.createPersonalAccessToken).mockRejectedValue(new Error('Create failed'));
 
-      const { result } = renderHook(() => usePersonalAccessTokens());
+      const { result } = renderHook(() => usePersonalAccessTokens(api));
       await waitFor(() => expect(result.current.isLoading).toBe(false));
 
       let caughtError: Error | null = null;
@@ -303,7 +301,7 @@ describe('usePersonalAccessTokens', () => {
 
       vi.mocked(api.createPersonalAccessToken).mockResolvedValue(mockCreatedResponse);
 
-      const { result } = renderHook(() => usePersonalAccessTokens());
+      const { result } = renderHook(() => usePersonalAccessTokens(api));
       await waitFor(() => expect(result.current.error).toBe('Initial error'));
 
       await act(async () => {
@@ -327,7 +325,7 @@ describe('usePersonalAccessTokens', () => {
       vi.mocked(api.getPersonalAccessTokens).mockResolvedValue([mockToken1, mockToken2]);
       vi.mocked(api.revokePersonalAccessToken).mockResolvedValue(undefined);
 
-      const { result } = renderHook(() => usePersonalAccessTokens());
+      const { result } = renderHook(() => usePersonalAccessTokens(api));
       await waitFor(() => expect(result.current.tokens).toHaveLength(2));
 
       await act(async () => {
@@ -344,7 +342,7 @@ describe('usePersonalAccessTokens', () => {
 
       vi.mocked(api.revokePersonalAccessToken).mockResolvedValue(undefined);
 
-      const { result } = renderHook(() => usePersonalAccessTokens());
+      const { result } = renderHook(() => usePersonalAccessTokens(api));
       await waitFor(() => expect(result.current.tokens).toHaveLength(2));
 
       await act(async () => {
@@ -359,7 +357,7 @@ describe('usePersonalAccessTokens', () => {
       vi.mocked(api.getPersonalAccessTokens).mockResolvedValue([mockToken1]);
       vi.mocked(api.revokePersonalAccessToken).mockRejectedValue(new Error('Revoke failed'));
 
-      const { result } = renderHook(() => usePersonalAccessTokens());
+      const { result } = renderHook(() => usePersonalAccessTokens(api));
       await waitFor(() => expect(result.current.isLoading).toBe(false));
 
       let caughtError: Error | null = null;
@@ -380,7 +378,7 @@ describe('usePersonalAccessTokens', () => {
       vi.mocked(api.getPersonalAccessTokens).mockResolvedValue([mockToken1]);
       vi.mocked(api.revokePersonalAccessToken).mockRejectedValue('unknown failure');
 
-      const { result } = renderHook(() => usePersonalAccessTokens());
+      const { result } = renderHook(() => usePersonalAccessTokens(api));
       await waitFor(() => expect(result.current.isLoading).toBe(false));
 
       await act(async () => {
@@ -401,7 +399,7 @@ describe('usePersonalAccessTokens', () => {
 
       vi.mocked(api.revokePersonalAccessToken).mockResolvedValue(undefined);
 
-      const { result } = renderHook(() => usePersonalAccessTokens());
+      const { result } = renderHook(() => usePersonalAccessTokens(api));
       await waitFor(() => expect(result.current.error).toBe('Initial fetch error'));
 
       await act(async () => {
