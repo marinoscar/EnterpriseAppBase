@@ -1,6 +1,6 @@
 # @marinoscar/platform-api/core
 
-`@marinoscar/platform-api/core`: the bottom of the slice graph. Code only, no tables: the typed **registry primitive**, the org-aware **principal and scope contract**, the application-wide **exception filter** with its exceptions and error DTO, the **secret cipher** under every runtime-configured credential with its bootstrap check, the **OpenAPI tag registry**, **scoped data access** (the user-owned data registry, `forUser()` and `asSystem()`, issue #699), and the **host ports** (issue #696) through which a packaged slice reaches app-owned capabilities without importing app code. Every other slice imports it; it imports no other slice (`packages/platform-slices.json`: `"core": []`).
+`@marinoscar/platform-api/core`: the bottom of the slice graph. Code only, no tables: the typed **registry primitive**, the org-aware **principal and scope contract**, the application-wide **exception filter** with its exceptions and error DTO, the **secret cipher** under every runtime-configured credential with its bootstrap check, the **OpenAPI tag registry**, the **role and permission registries** (issue #866), **scoped data access** (the user-owned data registry, `forUser()` and `asSystem()`, issue #699), and the **host ports** (issue #696) through which a packaged slice reaches app-owned capabilities without importing app code. Every other slice imports it; it imports no other slice (`packages/platform-slices.json`: `"core": []`).
 
 ## Purpose and scope
 
@@ -9,6 +9,7 @@ Each primitive used to live in the app (`apps/api/src/common/`) and every fork c
 | Part | Source | What it is |
 |---|---|---|
 | Registry | `registry/` | Closed lists (permissions, settings namespaces, doctor checks, conformance suites, OpenAPI tags) become registries with string ids: additive, typed, ordered, validated and frozen once the application has bootstrapped. Recipe: [registry/README.md](./registry/README.md). |
+| Roles and permissions | `permissions/` | The static `roleRegistry` and `permissionRegistry` every slice declares into (`RoleDeclaration`, `PermissionDeclaration`, each with a `scope` of `system` or `org` and default grants), `registerRoles` / `registerPermissions`, `permissionIds` / `roleIds`, and the seed catalog built from them (`buildPermissionCatalog`, the detached `composePermissionCatalog`, `catalogGrants`). Framework-free. Moved from the reference app's `common/permissions/` by #866 (origin #676). The platform's own declarations, in seed order, are [`@marinoscar/platform-api/manifest`](../manifest/README.md). See [Roles and permissions](#roles-and-permissions). |
 | Principal and scope | `principal/` | Types only (ADR 0001): who is calling (`Principal`), the data boundary one operation runs in (`Scope`), and the named escape from scoping (`SystemActor`). No runtime code. |
 | Errors | `errors/` | `HttpExceptionFilter`, which turns every thrown value into the one error envelope, the `ErrorDto` that documents that envelope in OpenAPI, the verbatim-body opt-out for externally specified bodies, and `DatabaseSeedException`. |
 | Crypto | `crypto/` | AES-256-GCM with a per-purpose sub-key (HMAC-SHA256 over a fixed, versioned label), the owner-bound domain builder for per-user secrets, and `verifyEncryptionKeyAtStartup`. |
@@ -27,7 +28,7 @@ Ships inside `@marinoscar/platform-api`; import it by its subpath:
 import { HttpExceptionFilter, defineRegistry, encryptSecret } from '@marinoscar/platform-api/core';
 ```
 
-Peers are those of the package ([README](../../README.md#install-and-peer-dependencies)). Within the slice: `registry/`, `principal/`, `openapi/` and `crypto/secret-cipher.ts` import nothing outside Node built-ins; `RegistryFreezeService`, the host ports, the errors and the startup check need `@nestjs/common`, `ErrorDto` needs `@nestjs/swagger`, `HttpExceptionFilter` needs `nestjs-zod` (it names the failing fields of a `ZodValidationException`), and `data-access/` needs `@prisma/client` (its `@prisma/client/extension` entry only, which does not depend on a generated client) and `@opentelemetry/api` (the `asSystem` span attributes). `test/core/core-imports.spec.ts` pins that set (no `from '@prisma/client'`, `@prisma/client/extension` only from `data-access/`, no other slice).
+Peers are those of the package ([README](../../README.md#install-and-peer-dependencies)). Within the slice: `registry/`, `permissions/`, `principal/`, `openapi/` and `crypto/secret-cipher.ts` import nothing outside Node built-ins; `RegistryFreezeService`, the host ports, the errors and the startup check need `@nestjs/common`, `ErrorDto` needs `@nestjs/swagger`, `HttpExceptionFilter` needs `nestjs-zod` (it names the failing fields of a `ZodValidationException`), and `data-access/` needs `@prisma/client` (its `@prisma/client/extension` entry only, which does not depend on a generated client) and `@opentelemetry/api` (the `asSystem` span attributes). `test/core/core-imports.spec.ts` pins that set (no `from '@prisma/client'`, `@prisma/client/extension` only from `data-access/`, no other slice).
 
 ## Quick start
 
@@ -161,6 +162,24 @@ export function createWidgetController(options: ResolvedWidgetOptions): Type<unk
 
 Rules: name the class as the app's controller was named and keep decorator order, so the app's OpenAPI `operationId` and document do not change; inject with an explicit `@Inject(Token)` (no reliance on the metadata of a class declared in a closure); throw from `forRoot` when `host` is missing. The Doctor's [`doctor.controller.factory.ts`](../doctor/doctor.controller.factory.ts) is the reference.
 
+### Roles and permissions
+
+A slice or an app declares each role and permission once, as data typed with `RoleDeclaration` / `PermissionDeclaration` (a map keyed by the constant name, so `permissionIds(map)` keeps literal ids), beside the module that enforces it. Nothing registers at import: one manifest per app fills the two static registries, in this order, which is the catalog's and the seed's order:
+
+1. platform roles, 2. app roles, 3. platform permissions, 4. app permissions.
+
+`registerPlatformPermissions({ appRoles, appPermissions })` of [`@marinoscar/platform-api/manifest`](../manifest/README.md) does all four. The rules every entry must satisfy (a refusal is a `RegistryError` naming the registry, `roles` or `permissions`, and the id):
+
+| Rule | Detail |
+|---|---|
+| Ids | A permission id is `<resource>:<action>` (`/^[a-z][a-z0-9_]*:[a-z][a-z0-9_]*$/`); a role id `/^[a-z][a-z0-9_-]*$/`. Otherwise `INVALID_ID`. |
+| Description | Required and non-blank. Otherwise `INVALID_ENTRY`. |
+| Scope | `'system'` or `'org'`, no default. Otherwise `INVALID_ENTRY`. |
+| Grants | Every `defaultGrants` id is a role registered **earlier**, of the permission's own scope, at most once. Otherwise `INVALID_ENTRY`. `[]` is allowed. |
+| Duplicates | An id registered twice (an app id equal to a platform id included) is `DUPLICATE_ID`. |
+
+`buildPermissionCatalog()` reads the registries into `{ roles, permissions, rolePermissions }`, the shape `platformSeedInputFrom()` of `@marinoscar/platform-db/seed` takes. `composePermissionCatalog({ roles, permissions })` builds the same catalog from batches of declarations on detached registries (same validation, static registries untouched), for a seed that imports its packages directly. `catalogGrants(catalog)` turns the grants into the `{ role, permission }` pairs the identity conformance suite takes.
+
 ### Scoped data access
 
 Five parts, all `@stability experimental`: the user-owned registry, `forUser`, `asSystem`, and (since #725) organisation scoping with row-level security and the model ownership registry.
@@ -216,12 +235,12 @@ No port. Packaged code logs with `new Logger(Context)` from `@nestjs/common`, wh
 
 ## Extension-point catalog
 
-Eleven symbols are extension points; the other exports are the contracts, functions, types and constants that go with them (listed below the table).
+Thirteen symbols are extension points; the other exports are the contracts, functions, types and constants that go with them (listed below the table).
 
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
-| `defineRegistry` | registry | `defineRegistry<T>(options: RegistryOptions<T>): Registry<T>` | Declare a module-level registry that `RegistryFreezeService` freezes on bootstrap (permissions, settings namespaces, suites) | stable | [example](../../../../apps/api/src/common/permissions/permission.registry.ts) |
-| `Registry` | registry | `new Registry<T>(options: RegistryOptions<T>)` | Hold an instance registry inside a provider, frozen by its owner (the packaged `DoctorCheckRegistry` is one; the storage slice's key-prefix registry is another) | stable | [example](../../../../apps/api/src/common/permissions/permission.registry.ts) |
+| `defineRegistry` | registry | `defineRegistry<T>(options: RegistryOptions<T>): Registry<T>` | Declare a module-level registry that `RegistryFreezeService` freezes on bootstrap (permissions, settings namespaces, suites) | stable | [example](../../../../apps/api/src/common/permissions/permission.manifest.ts) |
+| `Registry` | registry | `new Registry<T>(options: RegistryOptions<T>)` | Hold an instance registry inside a provider, frozen by its owner (the packaged `DoctorCheckRegistry` is one; the storage slice's key-prefix registry is another) | stable | [example](../../../../apps/api/src/common/permissions/permission.manifest.ts) |
 | `HttpExceptionFilter` | component | `@Catch() class HttpExceptionFilter implements ExceptionFilter` | Register once as the app's `APP_FILTER`, so every error leaves as the one envelope | stable | [example](../../../../apps/api/src/app.module.ts) |
 | `openApiTags` | registry | `Registry<OpenApiTag>` (`{ name, description, group }`) | Register the `@ApiTags` names a slice's or the app's controllers use, with a description and a sidebar group | experimental | [example](../../../../apps/api/src/openapi/tags.ts) |
 | `definePlatformHost` | option | `definePlatformHost(host: PlatformHost): PlatformHost` | Bind the app's access decorators once, for every packaged controller | experimental | [example](../../../../apps/api/src/platform/platform-host.ts) |
@@ -229,6 +248,8 @@ Eleven symbols are extension points; the other exports are the contracts, functi
 | `AUDIT_SINK` | token | `unique symbol` -> `AuditSink` | Record an audit event from a packaged slice | experimental | [example](../../../../apps/api/src/platform/audit-sink.adapter.ts) |
 | `SYSTEM_SETTINGS_STORE` | token | `unique symbol` -> `SystemSettingsStore` | Read or patch a settings namespace from a packaged slice | experimental | [example](../../../../apps/api/src/platform/system-settings-store.adapter.ts) |
 | `PLATFORM_PRISMA` | token | `unique symbol` -> `PrismaClientLike` | Reach the app's Prisma client from a packaged slice | experimental | [example](../../../../apps/api/src/platform/platform-host.module.ts) |
+| `roleRegistry` | registry | `Registry<RoleDeclaration>` | Register the deployment's roles (`registerRoles(declarations)`), platform roles first, before any permission | stable | [example](../../../../apps/api/src/common/permissions/permission.manifest.ts) |
+| `permissionRegistry` | registry | `Registry<PermissionDeclaration>` | Register permissions with their scope and default grants (`registerPermissions(declarations)`), after every role; the seed catalog is built from it | stable | [example](../../../../apps/api/src/common/permissions/permission.manifest.ts) |
 | `userOwnedModelRegistry` | registry | `Registry<UserOwnedModelDef>` | Register every model with a foreign key to `User`, with its role, purge and export policy (`registerUserOwnedModels(defs)`) | experimental | [example](../../../../apps/api/src/prisma/ownership/user-owned-model.manifest.ts) |
 | `modelOwnershipRegistry` | registry | `Registry<ModelOwnershipDef>` | Classify every model as `org`, `org-optional`, `user` or `system` (`registerModelOwnership(defs)`); the `org` ones get `org_id` and forced row-level security | experimental | [example](../../../../apps/api/src/prisma/ownership/model-ownership.manifest.ts) |
 
@@ -262,6 +283,17 @@ Errors, all `@stability stable`:
 | `withVerbatimErrorBody(exception)` | function | Send a body an external standard dictates (RFC 8628's `{ error, error_description }`) exactly as thrown, outside the envelope. |
 | `hasVerbatimErrorBody(exception)` | function | Ask whether an exception carries that brand (the filter's check). |
 | `DatabaseSeedException` | exception | Fail with a 500 whose `details` tells the operator to run the seed. |
+
+Roles and permissions, all `@stability stable` (#866):
+
+| Export | Kind | Use it to |
+|---|---|---|
+| `registerRoles(declarations)`, `registerPermissions(declarations)` | functions | Fill the two registries, all or nothing; an array or a map (key order). |
+| `permissionIds(map)`, `roleIds(map)` | functions | A declaration map to a frozen map of its ids, keeping literal types (`PERMISSIONS`, `ROLES`). |
+| `buildPermissionCatalog(source?)`, `PermissionCatalog`, `PermissionCatalogSource` | function, types | The seed catalog of the registries (or of any two lists). |
+| `composePermissionCatalog(declarations)`, `PermissionCatalogDeclarations` | function, type | The seed catalog of batches of declarations, on detached registries. |
+| `catalogGrants(catalog)` | function | The default grants as `{ role, permission }` pairs. |
+| `RoleDeclaration`, `PermissionDeclaration`, `RoleDeclarationMap`, `PermissionDeclarationMap`, `PermissionScope`, `Declarations` | types | Type a declaration file. |
 
 Crypto, all `@stability stable`:
 
@@ -311,7 +343,7 @@ None. The slice owns no models, migrations or seeds; the startup check counts st
 
 ## Permissions and settings
 
-None declared. The permission and settings registries are built on this slice's registry primitive by the app (and by later slices); `SECRETS_ENCRYPTION_KEY` is an environment variable (see Configuration), not a setting.
+None declared. The role and permission registries live here (see [Roles and permissions](#roles-and-permissions)) but hold nothing until an app's manifest fills them; the settings registries are built on the registry primitive by the settings slice; `SECRETS_ENCRYPTION_KEY` is an environment variable (see Configuration), not a setting.
 
 ## UI
 
@@ -357,6 +389,7 @@ First release of the full slice (the registry primitive shipped first, issue #69
 - Delete the local copies under `src/common/{registry,principal,filters/http-exception.filter.ts,exceptions,dto/error.dto.ts,crypto}` and import from `@marinoscar/platform-api/core`. Stored ciphertexts stay readable.
 - Scoped data access (#699): delete the local `user-owned-model.registry.ts`, `scoped-access.error.ts` and the extension inside `scoped-prisma.service.ts`; import `userOwnedModelRegistry`, `registerUserOwnedModels`, `ownerFieldOf`, `ownerRelationOf`, `ScopedAccessError`, `userScopeExtension` and `asSystem` from this subpath, type registrations as `UserOwnedModelDef<Prisma.ModelName>`, and keep `ScopedPrismaService` as a thin wrapper. `buildUserScopedClient(prisma, scope)` is now `prisma.$extends(userScopeExtension(scope))` (typed) or `forUser(prisma, scope)` (schema-independent). `asSystem(actor)` on the service is unchanged; the package form is `asSystem(client, actor)`. Semantics are unchanged.
 - An app that kept a local `deriveSigningKey` beside its copy of the cipher (#822): delete it and import `deriveSigningKey` from this subpath. The derivation and the label are identical, so outstanding signed tokens stay valid.
+- Roles and permissions (#866): delete a local `permission.registry.ts`, `permission-ids.ts` and the declaration types, and import `roleRegistry`, `permissionRegistry`, `registerRoles`, `registerPermissions`, `permissionIds`, `roleIds`, `buildPermissionCatalog` and the types from this subpath. The registry names (`roles`, `permissions`), the id patterns, the validation messages and the catalog shape are unchanged, so a committed catalog stays byte-identical. Register the platform's declarations with `registerPlatformPermissions()` of `@marinoscar/platform-api/manifest` instead of a hand-written list.
 - #727: delete local copies of `common/decorators/api-data-response.decorator.ts` and `common/maintenance/allow-during-maintenance.decorator.ts` (or re-export them, as the reference app does) and import `ApiDataResponse`, `AllowDuringMaintenance` and `ALLOW_DURING_MAINTENANCE_KEY` from this subpath. Same metadata, same OpenAPI output.
 - `apps/api/src/openapi/tags.ts` no longer exports `OPENAPI_TAGS`, `OPENAPI_TAG_GROUPS` or `TAG_GROUPS`: it registers into `openApiTags`; read `openApiTags.list()` and `openApiTagGroups()` instead.
 
