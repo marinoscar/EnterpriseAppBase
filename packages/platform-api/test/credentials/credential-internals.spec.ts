@@ -1,13 +1,10 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-
 import { BadRequestException } from '@nestjs/common';
 
-import * as internals from './credential-internals';
-import { deriveHint as reExportedDeriveHint } from './credentials.service';
-import { CredentialsService } from './credentials.service';
-import { UserCredentialsService } from '../user-credentials/user-credentials.service';
-import type { PrismaService } from '../prisma/prisma.service';
+import * as internals from '../../src/credentials/credential-internals';
+import { deriveHint as reExportedDeriveHint } from '../../src/credentials/index';
+import { CredentialsService } from '../../src/credentials/credentials.service';
+import { UserCredentialsService } from '../../src/credentials/user-credentials.service';
+import type { CredentialsPrisma } from '../../src/credentials/data/credentials-db';
 
 // =============================================================================
 // Shared credential-store internals — tests (issue #387)
@@ -37,17 +34,6 @@ describe('credential-internals', () => {
 
     it('is the same function everywhere it is imported from', () => {
       expect(reExportedDeriveHint).toBe(internals.deriveHint);
-    });
-
-    it('the BYOK AI key store imports it from here, not from a copy', () => {
-      const source = readFileSync(
-        join(__dirname, '..', 'ai', 'keys', 'user-ai-keys.service.ts'),
-        'utf8',
-      );
-      expect(source).toContain(
-        "import { deriveHint } from '../../credentials/credential-internals';",
-      );
-      expect(source).not.toMatch(/function deriveHint\b/);
     });
   });
 
@@ -102,7 +88,7 @@ describe('credential-internals', () => {
   describe('used by both stores', () => {
     // A Prisma stand-in returning "no row" everywhere: these tests are about
     // which validators and helpers each service routes through, not storage.
-    function fakePrisma(): PrismaService {
+    function fakePrisma(): CredentialsPrisma {
       const model = {
         findUnique: jest.fn().mockResolvedValue(null),
         findMany: jest.fn().mockResolvedValue([]),
@@ -114,7 +100,7 @@ describe('credential-internals', () => {
       // UserCredentialsService reads through the user-scoped client
       // (`$extends`); the stand-in hands back itself, unscoped.
       prisma.$extends = () => prisma;
-      return prisma as unknown as PrismaService;
+      return prisma as unknown as CredentialsPrisma;
     }
 
     const ORIGINAL_KEY = process.env.SECRETS_ENCRYPTION_KEY;

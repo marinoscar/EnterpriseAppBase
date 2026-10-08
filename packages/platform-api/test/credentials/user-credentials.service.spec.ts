@@ -1,13 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, InternalServerErrorException } from '@nestjs/common';
 
-import { UserCredentialsService } from './user-credentials.service';
-import { PrismaService } from '../prisma/prisma.service';
-import { ScopedPrismaService } from '../prisma/ownership';
-import {
-  createMockPrismaService,
-  MockPrismaService,
-} from '../../test/mocks/prisma.mock';
+import { PLATFORM_PRISMA } from '../../src/core/index';
+import { UserCredentialsService } from '../../src/credentials/user-credentials.service';
+import { createMockCredentialsPrisma, type MockCredentialsPrisma } from './fakes';
 
 // =============================================================================
 // UserCredentialsService — tests (issue #387)
@@ -68,12 +64,12 @@ function applyUpdate(row: FakeRow, data: Record<string, unknown>): FakeRow {
 
 describe('UserCredentialsService', () => {
   let service: UserCredentialsService;
-  let mockPrisma: MockPrismaService;
+  let mockPrisma: MockCredentialsPrisma;
   let store: Map<string, FakeRow>;
   let nextId: number;
 
   beforeEach(async () => {
-    mockPrisma = createMockPrismaService();
+    mockPrisma = createMockCredentialsPrisma();
     store = new Map();
     nextId = 1;
 
@@ -139,12 +135,10 @@ describe('UserCredentialsService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         UserCredentialsService,
-        { provide: PrismaService, useValue: mockPrisma },
-        // The deep mock cannot run `$extends`, so the scoped client is a
-        // double handing back the same mock: the service's own arguments
-        // reach it unchanged. The real scoped client is proven by
-        // test/prisma/scoped-access.db.spec.ts and user-credentials.db.spec.ts.
-        { provide: ScopedPrismaService, useValue: { forUser: () => mockPrisma } },
+        // `$extends` on the stand-in hands back the same mock, so the
+        // service's own arguments reach it unchanged. The real scoped client
+        // is proven by the reference app's user-credentials.db.spec.ts.
+        { provide: PLATFORM_PRISMA, useValue: mockPrisma },
       ],
     }).compile();
 

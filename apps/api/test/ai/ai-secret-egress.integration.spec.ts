@@ -58,7 +58,7 @@ import { Logger } from '@nestjs/common';
 
 import { createTestApp, closeTestApp, type TestContext } from '../helpers/test-app.helper';
 import { createMockAdminUser, createMockTestUser, authHeader } from '../helpers/auth-mock.helper';
-import { CredentialsService } from '../../src/credentials/credentials.service';
+import { CredentialsService } from '@marinoscar/platform-api/credentials';
 import { AiProviderRegistry } from '../../src/ai/core';
 import { AiConfigService } from '../../src/ai/config/ai-config.service';
 import { FAKE_REALTIME_SECRET_PREFIX, FakeAiProvider } from '../../src/ai/testing/fake-ai-provider';

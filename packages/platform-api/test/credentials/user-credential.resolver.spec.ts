@@ -1,16 +1,16 @@
 import { InternalServerErrorException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 
-import { CredentialsService } from '../credentials/credentials.service';
+import { CredentialsService } from '../../src/credentials/credentials.service';
 import {
   USER_CREDENTIAL_PURPOSE_REGISTRY,
   UserCredentialResolver,
-} from './user-credential.resolver';
+} from '../../src/credentials/user-credential.resolver';
 import {
   USER_CREDENTIAL_PURPOSES,
   type UserCredentialPurposeDef,
-} from './user-credential-purposes';
-import { UserCredentialsService } from './user-credentials.service';
+} from '../../src/credentials/user-credential-purposes';
+import { UserCredentialsService } from '../../src/credentials/user-credentials.service';
 
 // =============================================================================
 // UserCredentialResolver — tests (issue #387)

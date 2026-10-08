@@ -20,8 +20,7 @@ import { randomUUID } from 'node:crypto';
 import { InternalServerErrorException } from '@nestjs/common';
 import { Prisma, type PrismaClient } from '@prisma/client';
 
-import type { PrismaService } from '../../src/prisma/prisma.service';
-import { UserCredentialsService } from '../../src/user-credentials/user-credentials.service';
+import { UserCredentialsService } from '@marinoscar/platform-api/credentials';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
 
 const { describeWithDb } = resolveDbSuite('user-credentials.db.spec');
@@ -46,7 +45,7 @@ describeWithDb('user_credentials (real Postgres)', () => {
   beforeAll(() => {
     process.env.SECRETS_ENCRYPTION_KEY = Buffer.alloc(32, 21).toString('base64');
     client = createDbClient();
-    service = new UserCredentialsService(client as unknown as PrismaService);
+    service = new UserCredentialsService(client as never);
   });
 
   afterAll(async () => {

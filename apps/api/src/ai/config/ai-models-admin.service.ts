@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import type { AiModel, Prisma } from '@prisma/client';
 
-import { CredentialsService } from '../../credentials/credentials.service';
+import { CredentialsService } from '@marinoscar/platform-api/credentials';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AiCatalogService } from '../catalog/ai-catalog.service';
 import { aiModelCapabilitiesSchema } from '../core/capabilities';

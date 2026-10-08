@@ -76,7 +76,7 @@ import {
   authHeader,
 } from '../helpers/auth-mock.helper';
 import { PERMISSIONS_KEY } from '@marinoscar/platform-api/identity';
-import { CredentialsService } from '../../src/credentials/credentials.service';
+import { CredentialsService } from '@marinoscar/platform-api/credentials';
 import { StorageConfigController } from '../../src/storage/config/storage-config.controller';
 
 const BASE = '/api/admin/storage-config';

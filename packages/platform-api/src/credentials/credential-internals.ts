@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 
-import { isCanonicalUuid } from '@marinoscar/platform-api/core';
+import { isCanonicalUuid } from '../core/index';
 
 // =============================================================================
 // Credential store internals — shared by BOTH encrypted stores (issue #387)
@@ -16,8 +16,8 @@ import { isCanonicalUuid } from '@marinoscar/platform-api/core';
 //   3. what a valid address is     (`assertCredential*`)
 //
 // So they live here, once, and both services import them. `deriveHint` is
-// also consumed by `ai/keys/user-ai-keys.service.ts` and stays re-exported
-// from `credentials.service.ts` for existing importers.
+// also consumed by the reference app's `ai/keys/user-ai-keys.service.ts`,
+// through `@marinoscar/platform-api/credentials`.
 //
 // Every error thrown here names the FIELD, never the value — the value is a
 // code-level constant at best and a caller's mistake at worst, and neither
@@ -55,6 +55,15 @@ const HINT_MIN_LENGTH_TO_REVEAL = 8;
  * surrogate pair in half and leave a lone surrogate, which is not valid UTF-8
  * and blows up on the way into a Postgres `text` column — a passphrase with an
  * emoji in it would make saving fail with a completely unrelated error.
+ *
+ * @param plaintext - the secret being stored.
+ * @returns `'••••'` plus the last four code points, or `'••••'` alone for a
+ *   secret shorter than eight.
+ * @example
+ * ```ts
+ * deriveHint('sk-live-abcd1234'); // '••••1234'
+ * ```
+ * @stability stable
  */
 export function deriveHint(plaintext: string): string {
   const codePoints = Array.from(plaintext);

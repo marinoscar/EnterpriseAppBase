@@ -13,7 +13,7 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { Prisma } from '@prisma/client';
 
-import { CredentialsService } from '../../credentials/credentials.service';
+import { CredentialsService } from '@marinoscar/platform-api/credentials';
 import { PrismaService } from '../../prisma/prisma.service';
 import { buildS3ClientConfig } from '../providers/s3/s3-storage.provider';
 import {

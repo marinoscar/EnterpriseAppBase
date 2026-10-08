@@ -14,7 +14,8 @@
     "src/identity/index.ts",
     "src/identity/testing/index.ts",
     "src/settings/index.ts",
-    "src/settings/testing/index.ts"
+    "src/settings/testing/index.ts",
+    "src/credentials/index.ts"
   ],
   "out": "docs-api",
   "json": "docs-api/api.json"

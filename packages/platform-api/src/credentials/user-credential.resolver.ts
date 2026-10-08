@@ -3,8 +3,8 @@ import { Inject, Injectable, InternalServerErrorException } from '@nestjs/common
 import {
   assertCredentialAddress,
   assertCredentialPurpose,
-} from '../credentials/credential-internals';
-import { CredentialsService } from '../credentials/credentials.service';
+} from './credential-internals';
+import { CredentialsService } from './credentials.service';
 import {
   DEFAULT_USER_CREDENTIAL_NAME,
   findUserCredentialPurpose,
@@ -36,23 +36,39 @@ import { UserCredentialsService } from './user-credentials.service';
 // failure both stores refuse to produce.
 // =============================================================================
 
-/** DI token for the purpose registry the resolver consults. */
-export const USER_CREDENTIAL_PURPOSE_REGISTRY = Symbol(
-  'USER_CREDENTIAL_PURPOSE_REGISTRY',
+/**
+ * DI token for the purpose registry the resolver consults.
+ *
+ * @stability experimental
+ */
+export const USER_CREDENTIAL_PURPOSE_REGISTRY: unique symbol = Symbol.for(
+  '@marinoscar/platform/credentials/USER_CREDENTIAL_PURPOSE_REGISTRY',
 );
 
 /**
  * The outcome of a resolution. SERVER-SIDE ONLY — the `user`/`system` arms
  * carry plaintext; never return one from a controller.
+ *
+ * @stability experimental
  */
 export type ResolvedCredential =
   | { readonly source: 'user'; readonly purpose: string; readonly secret: string }
   | { readonly source: 'system'; readonly purpose: string; readonly secret: string }
   | { readonly source: 'none'; readonly purpose: string };
 
-/** Which source answered, without the secret — safe to log or return. */
+/**
+ * Which source answered, without the secret — safe to log or return.
+ *
+ * @stability experimental
+ */
 export type ResolvedCredentialSource = ResolvedCredential['source'];
 
+/**
+ * Answers "whose key does this user's request use?" for a declared user
+ * credential purpose.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class UserCredentialResolver {
   constructor(

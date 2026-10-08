@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 
-import { CredentialsModule } from '../credentials/credentials.module';
-import { PrismaModule } from '../prisma/prisma.module';
+import { CredentialsModule } from './credentials.module';
 import {
   USER_CREDENTIAL_PURPOSE_REGISTRY,
   UserCredentialResolver,
@@ -23,8 +22,21 @@ import { UserCredentialsService } from './user-credentials.service';
 // own list without editing the production one.
 // =============================================================================
 
+/**
+ * Provides and exports {@link UserCredentialsService} and
+ * {@link UserCredentialResolver}. Import it where a user's own key is read or
+ * resolved; it is deliberately not global.
+ *
+ * @example
+ * ```ts
+ * @Module({ imports: [UserCredentialsModule], providers: [WebhookSigner] })
+ * export class WebhooksModule {}
+ * ```
+ *
+ * @stability experimental
+ */
 @Module({
-  imports: [PrismaModule, CredentialsModule],
+  imports: [CredentialsModule],
   providers: [
     UserCredentialsService,
     UserCredentialResolver,

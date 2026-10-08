@@ -1,26 +1,26 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   InternalServerErrorException,
   Logger,
-  Optional,
 } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
 
 import {
+  PLATFORM_PRISMA,
   decryptSecret,
   encryptSecret,
+  forUser,
   userCredentialPurpose,
-} from '@marinoscar/platform-api/core';
+} from '../core/index';
 import {
   assertCredentialAddress,
   assertCredentialOwner,
   assertCredentialPurpose,
   deriveHint,
   isBlankSecret,
-} from '../credentials/credential-internals';
-import { ScopedPrismaService } from '../prisma/ownership';
-import { PrismaService } from '../prisma/prisma.service';
+} from './credential-internals';
+import type { CredentialsDelegate, CredentialsPrisma, CredentialsQueryArgs, UserCredentialRow } from './data/credentials-db';
 import type {
   UserCredentialInfo,
   UserCredentialMeta,
@@ -40,8 +40,9 @@ import type {
 // path here can reach another user's row.
 //
 // AND THE DATABASE CLIENT ENFORCES IT (#688): every query goes through
-// `ScopedPrismaService.forUser(userId)`, the user-scoped client
-// (prisma/ownership/README.md), which confines `user_credentials` queries to
+// `forUser(prisma, { userId })` from `@marinoscar/platform-api/core`, the
+// user-scoped client (it needs `UserCredential` in the app's user-owned-model
+// registry: `CREDENTIALS_USER_OWNED_MODELS`), which confines `user_credentials` queries to
 // that user whatever the `where` says. The explicit `userId` filters stay:
 // they are the address, and the scoped client is the guarantee.
 //
@@ -86,23 +87,30 @@ const USER_CREDENTIAL_INFO_SELECT: Record<keyof UserCredentialInfo, true> = {
   updatedAt: true,
 };
 
+/**
+ * A user's own encrypted credentials (bring your own key), addressed by
+ * `(userId, purpose, name)` and encrypted under the owner-bound sub-key
+ * `user:<userId>:<purpose>`. Every query runs on the user-scoped client.
+ *
+ * @example
+ * ```ts
+ * await userCredentials.setSecret(userId, 'webhook_signing_key', 'default', typed);
+ * ```
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class UserCredentialsService {
   private readonly logger = new Logger(UserCredentialsService.name);
 
-  private readonly scoped: ScopedPrismaService;
-
   /**
-   * @param prisma - used only when `scoped` is not injected (a test or script
-   *        constructing the service by hand); Nest injects both.
+   * @param prisma - the app's Prisma client, through the core `PLATFORM_PRISMA` port.
    */
-  constructor(prisma: PrismaService, @Optional() scoped?: ScopedPrismaService) {
-    this.scoped = scoped ?? new ScopedPrismaService(prisma);
-  }
+  constructor(@Inject(PLATFORM_PRISMA) private readonly prisma: CredentialsPrisma) {}
 
   /** This user's credentials, through the user-scoped client. */
-  private credentialsOf(userId: string) {
-    return this.scoped.forUser(userId).userCredential;
+  private credentialsOf(userId: string): CredentialsDelegate<UserCredentialRow> {
+    return (forUser(this.prisma, { userId }) as CredentialsPrisma).userCredential;
   }
 
   // ---------------------------------------------------------------------------
@@ -130,7 +138,7 @@ export class UserCredentialsService {
   ): Promise<string | null> {
     this.assertAddress(userId, purpose, name);
 
-    const row = await this.credentialsOf(userId).findUnique({
+    const row = await this.credentialsOf(userId).findUnique<{ secret: string }>({
       where: { userId_purpose_name: { userId, purpose, name } },
       select: { secret: true },
     });
@@ -169,7 +177,7 @@ export class UserCredentialsService {
   ): Promise<UserCredentialInfo | null> {
     this.assertAddress(userId, purpose, name);
 
-    const row = await this.credentialsOf(userId).findUnique({
+    const row = await this.credentialsOf(userId).findUnique<UserCredentialInfo>({
       where: { userId_purpose_name: { userId, purpose, name } },
       select: USER_CREDENTIAL_INFO_SELECT,
     });
@@ -191,7 +199,7 @@ export class UserCredentialsService {
       assertCredentialPurpose(purpose);
     }
 
-    const rows = await this.credentialsOf(userId).findMany({
+    const rows = await this.credentialsOf(userId).findMany<UserCredentialInfo>({
       where: purpose === undefined ? { userId } : { userId, purpose },
       select: USER_CREDENTIAL_INFO_SELECT,
       orderBy: [{ purpose: 'asc' }, { name: 'asc' }],
@@ -224,7 +232,7 @@ export class UserCredentialsService {
 
     // Only the metadata keys the caller actually passed — `undefined` means
     // "leave it", `null` means "clear it".
-    const metaUpdate: Prisma.UserCredentialUpdateInput = {};
+    const metaUpdate: CredentialsQueryArgs = {};
     if (meta.label !== undefined) metaUpdate.label = meta.label;
 
     if (isBlankSecret(secret)) {
@@ -285,9 +293,9 @@ export class UserCredentialsService {
     userId: string,
     purpose: string,
     name: string,
-    metaUpdate: Prisma.UserCredentialUpdateInput,
+    metaUpdate: CredentialsQueryArgs,
   ): Promise<void> {
-    const existing = await this.credentialsOf(userId).findUnique({
+    const existing = await this.credentialsOf(userId).findUnique<{ id: string }>({
       where: { userId_purpose_name: { userId, purpose, name } },
       select: { id: true },
     });

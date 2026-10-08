@@ -46,7 +46,7 @@ import {
   SES_CREDENTIAL_NAME,
   SES_CREDENTIAL_PURPOSE,
 } from '../ses-credential.constants';
-import type { CredentialsService } from '../../credentials/credentials.service';
+import type { CredentialsService } from '@marinoscar/platform-api/credentials';
 import type { EmailSettingsService } from '../email-settings.service';
 import type { EmailSettings } from '../email-settings.schema';
 import type { EmailMessage } from '../email.types';

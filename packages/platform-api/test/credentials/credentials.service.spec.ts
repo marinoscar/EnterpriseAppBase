@@ -1,12 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, InternalServerErrorException } from '@nestjs/common';
 
-import { CredentialsService } from './credentials.service';
-import { PrismaService } from '../prisma/prisma.service';
-import {
-  createMockPrismaService,
-  MockPrismaService,
-} from '../../test/mocks/prisma.mock';
+import { PLATFORM_PRISMA } from '../../src/core/index';
+import { CredentialsService } from '../../src/credentials/credentials.service';
+import { createMockCredentialsPrisma, type MockCredentialsPrisma } from './fakes';
 
 // =============================================================================
 // CredentialsService — tests (issue #115, epic #108)
@@ -111,12 +108,12 @@ function corruptCiphertext(payload: string): string {
 
 describe('CredentialsService', () => {
   let service: CredentialsService;
-  let mockPrisma: MockPrismaService;
+  let mockPrisma: MockCredentialsPrisma;
   let store: Map<string, FakeRow>;
   let nextId: number;
 
   beforeEach(async () => {
-    mockPrisma = createMockPrismaService();
+    mockPrisma = createMockCredentialsPrisma();
     store = new Map();
     nextId = 1;
 
@@ -197,7 +194,7 @@ describe('CredentialsService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CredentialsService,
-        { provide: PrismaService, useValue: mockPrisma },
+        { provide: PLATFORM_PRISMA, useValue: mockPrisma },
       ],
     }).compile();
 

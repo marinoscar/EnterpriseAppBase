@@ -1,4 +1,4 @@
-import type { CredentialsService } from '../../credentials/credentials.service';
+import type { CredentialsService } from '@marinoscar/platform-api/credentials';
 import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import type { SystemStorageValue } from '../../common/schemas/settings.schema';
 import {

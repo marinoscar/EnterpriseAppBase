@@ -1,13 +1,13 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
 
-import { PrismaService } from '../prisma/prisma.service';
-import { decryptSecret, encryptSecret } from '@marinoscar/platform-api/core';
+import { PLATFORM_PRISMA, decryptSecret, encryptSecret } from '../core/index';
+import type { CredentialsPrisma, CredentialsQueryArgs } from './data/credentials-db';
 import {
   assertCredentialAddress,
   assertCredentialPurpose,
@@ -89,14 +89,29 @@ const CREDENTIAL_INFO_SELECT: Record<keyof CredentialInfo, true> = {
 
 // Hint derivation, blank detection and address validation are shared with
 // `UserCredentialsService` (issue #387) and live in `credential-internals.ts`.
-// `deriveHint` is re-exported here for existing importers.
-export { deriveHint };
 
+/**
+ * The deployment's encrypted credential store, addressed by `(purpose, name)`
+ * and encrypted under the purpose's own sub-key. `getSecret` is the only
+ * method that returns plaintext; `describe` and `list` return a type that
+ * cannot hold a secret.
+ *
+ * @example
+ * ```ts
+ * constructor(private readonly credentials: CredentialsService) {}
+ * const password = await this.credentials.getSecret('smtp', 'default');
+ * ```
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class CredentialsService {
   private readonly logger = new Logger(CredentialsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  /**
+   * @param prisma - the app's Prisma client, through the core `PLATFORM_PRISMA` port.
+   */
+  constructor(@Inject(PLATFORM_PRISMA) private readonly prisma: CredentialsPrisma) {}
 
   // ---------------------------------------------------------------------------
   // Reads
@@ -119,7 +134,7 @@ export class CredentialsService {
   async getSecret(purpose: string, name: string): Promise<string | null> {
     this.assertAddress(purpose, name);
 
-    const row = await this.prisma.credential.findUnique({
+    const row = await this.prisma.credential.findUnique<{ secret: string }>({
       where: { purpose_name: { purpose, name } },
       select: { secret: true },
     });
@@ -182,7 +197,7 @@ export class CredentialsService {
   async describe(purpose: string, name: string): Promise<CredentialInfo | null> {
     this.assertAddress(purpose, name);
 
-    const row = await this.prisma.credential.findUnique({
+    const row = await this.prisma.credential.findUnique<CredentialInfo>({
       where: { purpose_name: { purpose, name } },
       select: CREDENTIAL_INFO_SELECT,
     });
@@ -201,7 +216,7 @@ export class CredentialsService {
   async list(purpose: string): Promise<CredentialInfo[]> {
     assertCredentialPurpose(purpose);
 
-    const rows = await this.prisma.credential.findMany({
+    const rows = await this.prisma.credential.findMany<CredentialInfo>({
       where: { purpose },
       select: CREDENTIAL_INFO_SELECT,
       orderBy: { name: 'asc' },
@@ -244,7 +259,7 @@ export class CredentialsService {
     // rather than spreading `meta` keeps an unknown property on the incoming
     // object out of the Prisma `data` — and keeps `undefined` (meaning "leave
     // it alone") from being confused with `null` (meaning "clear it").
-    const metaUpdate: Prisma.CredentialUpdateInput = {};
+    const metaUpdate: CredentialsQueryArgs = {};
     if (meta.label !== undefined) metaUpdate.label = meta.label;
     if (meta.updatedByUserId !== undefined) {
       metaUpdate.updatedByUser = meta.updatedByUserId
@@ -325,7 +340,7 @@ export class CredentialsService {
   private async applyMetadataOnly(
     purpose: string,
     name: string,
-    metaUpdate: Prisma.CredentialUpdateInput,
+    metaUpdate: CredentialsQueryArgs,
   ): Promise<void> {
     // FIRST-WRITE CASE — blank secret, no existing row. This is an ERROR, not
     // a no-op and not an empty credential.
@@ -344,7 +359,7 @@ export class CredentialsService {
     // with nothing stored there is nothing to preserve, and the only honest
     // answer is that a new credential needs a secret. BadRequestException
     // because this is a caller/operator input problem (400), not a fault.
-    const existing = await this.prisma.credential.findUnique({
+    const existing = await this.prisma.credential.findUnique<{ id: string }>({
       where: { purpose_name: { purpose, name } },
       select: { id: true },
     });

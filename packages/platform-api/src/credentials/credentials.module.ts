@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 
-import { PrismaModule } from '../prisma/prisma.module';
 import { CredentialsService } from './credentials.service';
 
 // =============================================================================
@@ -19,10 +18,25 @@ import { CredentialsService } from './credentials.service';
 // can read. Requiring `imports: [CredentialsModule]` makes every new consumer
 // a visible line in a diff; @Global would make injecting it invisible and
 // available everywhere by default, which is the wrong default for this.
+//
+// The database is the core `PLATFORM_PRISMA` port, bound once and globally by
+// the app's `PlatformHostModule.forRoot({ prisma })`, so this module imports
+// nothing (issue #735).
 // =============================================================================
 
+/**
+ * Provides and exports {@link CredentialsService}. Import it in every module
+ * that reads or writes a deployment credential; it is deliberately not global.
+ *
+ * @example
+ * ```ts
+ * @Module({ imports: [CredentialsModule], providers: [SmtpEmailProvider] })
+ * export class EmailModule {}
+ * ```
+ *
+ * @stability experimental
+ */
 @Module({
-  imports: [PrismaModule],
   providers: [CredentialsService],
   exports: [CredentialsService],
 })

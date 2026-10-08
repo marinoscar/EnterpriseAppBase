@@ -12,8 +12,7 @@
 import { Module } from '@nestjs/common';
 
 import { AiModule } from '../../ai/ai.module';
-import { CredentialsModule } from '../../credentials/credentials.module';
-import { CredentialsService } from '../../credentials/credentials.service';
+import { CredentialsModule, CredentialsService } from '@marinoscar/platform-api/credentials';
 import { JobsModule } from '../../jobs/jobs.module';
 import { SettingsModule } from '../settings/settings.config';
 import {
