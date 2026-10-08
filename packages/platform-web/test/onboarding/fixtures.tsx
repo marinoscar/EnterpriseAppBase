@@ -6,7 +6,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { PlatformHostProvider } from '../../src/core/index.js';
 import { OnboardingProvider } from '../../src/onboarding/headless/index.js';
 import { createTestPlatformHost } from '../../src/testing/index.js';
-import type { TestApiResponse, TestPlatformHost } from '../../src/testing/index.js';
+import type { TestApiRequest, TestApiResponse, TestPlatformHost } from '../../src/testing/index.js';
 
 export function step(id: string, extra: Partial<OnboardingStep> = {}): OnboardingStep {
   return {
@@ -78,7 +78,7 @@ export function stateful(base: OnboardingResponse): Record<string, TestApiRespon
     'GET /onboarding': current,
     'GET /onboarding?refresh=true': current,
     'GET /user-settings': { version: 1 },
-    'PATCH /user-settings': (request) => {
+    'PATCH /user-settings': (request: TestApiRequest) => {
       const patch = (request.body as { onboarding: Record<string, unknown> }).onboarding;
       settings = { ...settings };
       for (const [key, value] of Object.entries(patch)) settings[key] = value === null ? (key === 'skipped' ? [] : null) : value;
