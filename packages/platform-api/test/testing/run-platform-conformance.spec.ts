@@ -1,4 +1,4 @@
-import { runPlatformConformance, conformanceSuites } from '../../src/testing';
+import { conformanceSuites, formatConformanceSummary, runPlatformConformance } from '../../src/testing';
 import type { CronEnqueueOnlyOptions } from '../../src/testing';
 import {
   emptySourceRoot,
@@ -29,10 +29,11 @@ describe('runPlatformConformance', () => {
       testApi: api,
     });
 
-    expect(titles).toEqual(['every @Cron enqueues rather than working']);
+    expect(titles).toEqual(['every @Cron enqueues rather than working', 'platform conformance: suites run and skipped']);
     expect(tests.map((t) => t.name)).toEqual([
       'every @Cron enqueues rather than working > finds the crons at all, so a broken scan cannot pass vacuously',
       'every @Cron enqueues rather than working > queues its work instead of doing it, in every non-exempt cron',
+      'platform conformance: suites run and skipped > prints the summary table',
     ]);
   });
 
@@ -118,20 +119,71 @@ describe('runPlatformConformance', () => {
     ).toThrow('unknown conformance suite "cronEnqueueOnlyy"');
   });
 
-  it('makes an opt-out visible: a passing "<id>: disabled by the app" test replaces the suite', async () => {
+  it('makes an opt-out visible: a passing "<id>: skipped by the app (<reason>)" test replaces the suite', async () => {
     const { api, tests, titles } = recordingTestApi();
 
     runPlatformConformance({
       sourceRoots: [compliantRoot()],
-      suites: { cronEnqueueOnly: false },
+      suites: { cronEnqueueOnly: { skip: 'This fixture app has no crons.' } },
       testApi: api,
     });
 
-    expect(titles).toEqual(['every @Cron enqueues rather than working']);
+    expect(titles).toEqual(['every @Cron enqueues rather than working', 'platform conformance: suites run and skipped']);
     expect(tests.map((t) => t.name)).toEqual([
-      'every @Cron enqueues rather than working > cron-enqueue-only: disabled by the app',
+      'every @Cron enqueues rather than working > cron-enqueue-only: skipped by the app (This fixture app has no crons.)',
+      'platform conformance: suites run and skipped > prints the summary table',
     ]);
     expect(await outcome(tests[0])).toBeNull();
+  });
+
+  it('throws when a skip has no reason, or is spelled false', () => {
+    const { api } = recordingTestApi();
+    const run = (value: unknown) => () =>
+      runPlatformConformance({ sourceRoots: [compliantRoot()], suites: { cronEnqueueOnly: value } as never, testApi: api });
+
+    expect(run({ skip: '' })).toThrow('skipped without a reason');
+    expect(run({ skip: '   ' })).toThrow('skipped without a reason');
+    expect(run({})).not.toThrow('skipped without a reason');
+    expect(run({ skip: undefined })).toThrow('skipped without a reason');
+    expect(run(false)).toThrow("An opt-out needs a reason: `cronEnqueueOnly: { skip: 'why this app does not run it' }`");
+  });
+
+  it('prints a summary of the suites run and skipped, with the reasons', async () => {
+    const { api, tests } = recordingTestApi();
+    const written: string[] = [];
+    const write = jest.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
+      written.push(String(chunk));
+      return true;
+    });
+
+    try {
+      runPlatformConformance({
+        sourceRoots: [compliantRoot()],
+        suites: {
+          cronEnqueueOnly: { exempt: [], minCronFiles: 1 },
+          userOwnedData: { skip: 'No Prisma schema in this fixture.' } as never,
+        },
+        testApi: api,
+      });
+      const summary = tests.find((t) => t.name.endsWith('prints the summary table'))!;
+      expect(await outcome(summary)).toBeNull();
+    } finally {
+      write.mockRestore();
+    }
+
+    const table = written.join('');
+    expect(table).toContain('cron-enqueue-only  run');
+    expect(table).toContain('user-owned-data    skipped: No Prisma schema in this fixture.');
+    expect(table).toContain('1 run, 1 skipped');
+  });
+
+  it('formats the summary table', () => {
+    expect(
+      formatConformanceSummary([
+        { id: 'a', status: 'run' },
+        { id: 'long-id', status: 'skipped', reason: 'why' },
+      ]),
+    ).toBe(['suite    status', 'a        run', 'long-id  skipped: why', '1 run, 1 skipped'].join('\n'));
   });
 
   it('registers nothing for a suite the app leaves out', () => {

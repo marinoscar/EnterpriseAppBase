@@ -114,3 +114,47 @@ export interface ConformanceSuite<TOptions> {
   /** The tests to register, in order. Each receives the one report `check` produced. */
   cases(options: TOptions): ReadonlyArray<ConformanceCase>;
 }
+
+/**
+ * A suite that registers its own test tree instead of scanning once and
+ * asserting on a report. It exists for the invariants that have to boot the
+ * app (the AI kill switch, the RBAC matrix, secret egress, key policy, jobs
+ * server-only): they need runner lifecycle hooks (`beforeAll`, `afterAll`) and
+ * the runner's full matcher set, so they register through the globals of the
+ * runner they run under. Such a suite lives in a runner-specific entry (the
+ * Jest-only `@marinoscar/platform-api/ai/testing`), never in `src/testing`.
+ *
+ * Register one in {@link conformanceSuites}; `runPlatformConformance` calls
+ * `register` when the app enables it, and records it in the run summary like
+ * any other suite.
+ *
+ * @typeParam TOptions - what the app passes to configure the suite.
+ *
+ * @extensionPoint registry
+ * @stability experimental
+ */
+export interface ConformanceAppSuite<TOptions> {
+  /** Stable id, for example `'ai-kill-switch'`. The app's option key is its camelCase form. */
+  readonly id: string;
+  /** The `describe` title; part of every generated test's full name. */
+  readonly title: string;
+  /** One sentence: the invariant this enforces. */
+  readonly description: string;
+  /**
+   * Registers the suite's `describe` tree. Called once, at the top level of the
+   * app's spec file. Throws only on misconfiguration (a missing option).
+   */
+  register(api: ConformanceTestApi, context: ConformanceContext, options: TOptions): void;
+}
+
+/**
+ * An explicit, argued opt-out: `suites: { aiKillSwitch: { skip: 'reason' } }`.
+ * The reason is required (an empty one throws) and is printed in the run
+ * summary, so a skipped invariant stays visible in the test output.
+ *
+ * @stability experimental
+ */
+export interface ConformanceSkip {
+  /** Why this app does not run the suite; at least a few words, shown in the summary. */
+  skip: string;
+}
