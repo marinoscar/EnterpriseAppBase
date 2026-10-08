@@ -572,6 +572,10 @@ describe('AppMetricsService baseline (#680)', () => {
       sharingAccessDecisions: 'app.sharing.access_decisions',
       // The public link-resolution counter (#730, PP-7.3).
       sharingLinkResolutions: 'app.sharing.link_resolutions',
+      // The exports slice's run counter, duration and size (#744, PP-9.2).
+      exportsRuns: 'app.exports',
+      exportDuration: 'app.export.duration',
+      exportSize: 'app.export.size',
     });
     expect(Object.keys(APP_METRIC_NAMES).slice(0, 31)).toEqual(Object.keys(BASELINE_APP_METRIC_NAMES));
   });
@@ -669,6 +673,26 @@ describe('AppMetricsService baseline (#680)', () => {
         kind: 'counter',
         name: 'app.sharing.link_resolutions',
         options: { description: 'Public link-share resolutions, by outcome and resource type. Resolutions are counted, never audited.', unit: '{resolution}' },
+      },
+      // Added by the exports slice (#744).
+      { kind: 'counter', name: 'app.exports', options: { description: 'Settled export attempts, by source, format and outcome.', unit: '{export}' } },
+      {
+        kind: 'histogram',
+        name: 'app.export.duration',
+        options: {
+          description: 'How long one export attempt took, from collecting the first row to the committed file.',
+          unit: 's',
+          advice: { explicitBucketBoundaries: [0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 900] },
+        },
+      },
+      {
+        kind: 'histogram',
+        name: 'app.export.size',
+        options: {
+          description: 'The size of each produced export file.',
+          unit: 'By',
+          advice: { explicitBucketBoundaries: [1_024, 16_384, 131_072, 1_048_576, 8_388_608, 67_108_864, 536_870_912] },
+        },
       },
       { kind: 'gauge', name: 'app.jobs.queue.depth', options: { description: 'Jobs currently pending or running, by type and status.', unit: '{job}' } },
       { kind: 'gauge', name: 'app.jobs.oldest_pending.age', options: { description: 'Age of the oldest runnable pending job, by type.', unit: 's' } },

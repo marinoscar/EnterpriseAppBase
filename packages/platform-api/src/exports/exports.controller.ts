@@ -9,7 +9,7 @@
 // body and the query are zod DTOs built from `@marinoscar/platform-contract/exports`.
 // =============================================================================
 
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post } from '@nestjs/common';
 import { ApiBody, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import {
   EXPORT_LIST_LIMIT,
@@ -25,7 +25,8 @@ import {
 import { createZodDto } from 'nestjs-zod';
 
 import { ApiDataResponse } from '../core/index';
-import { Auth, CurrentUser, type RequestUser } from '../identity/index';
+import type { Principal } from '../core/index';
+import { Auth, CurrentPrincipal } from '../identity/index';
 import { ExportsService, type ExportPrincipal } from './exports.service';
 
 /**
@@ -56,8 +57,11 @@ export class ExportListResponseDto extends createZodDto(exportListResponseSchema
  */
 export class ExportSourcesResponseDto extends createZodDto(exportSourcesResponseSchema) {}
 
-function principalOf(user: RequestUser): ExportPrincipal {
-  return { id: user.id, permissions: user.permissions, activeOrgId: user.activeOrgId ?? null };
+/** The caller, from the request's principal (#724): its permissions are the active organization's. */
+function principalOf(principal: Principal | undefined): ExportPrincipal {
+  // A worker node's credential exports nothing.
+  if (!principal || principal.kind !== 'user') throw new ForbiddenException('Exports are for signed-in users');
+  return { id: principal.userId, permissions: principal.permissions, activeOrgId: principal.activeOrgId ?? null };
 }
 
 /**
@@ -86,7 +90,7 @@ export class ExportsController {
       'organization for an `org` source.',
   })
   @ApiDataResponse(ExportSourcesResponseDto, { description: 'The sources.' })
-  sources(@CurrentUser() user: RequestUser): ExportSourcesResponse {
+  sources(@CurrentPrincipal() user: Principal | undefined): ExportSourcesResponse {
     return this.exports.sources(principalOf(user));
   }
 
@@ -114,7 +118,7 @@ export class ExportsController {
   @ApiResponse({ status: 403, description: "Missing the source's permission" })
   @ApiResponse({ status: 404, description: 'Unknown organization (cross-organization export)' })
   @ApiResponse({ status: 429, description: 'Too many exports in progress for this account or organization' })
-  create(@CurrentUser() user: RequestUser, @Body() body: CreateExportDto): Promise<ExportView> {
+  create(@CurrentPrincipal() user: Principal | undefined, @Body() body: CreateExportDto): Promise<ExportView> {
     return this.exports.create(principalOf(user), body as unknown as CreateExport);
   }
 
@@ -131,7 +135,7 @@ export class ExportsController {
     description: `The ${EXPORT_LIST_LIMIT} most recent exports the caller asked for (or of the caller's own data), newest first, with derived status and \`download: null\`.`,
   })
   @ApiDataResponse(ExportListResponseDto, { description: 'The exports.' })
-  list(@CurrentUser() user: RequestUser): Promise<ExportListResponse> {
+  list(@CurrentPrincipal() user: Principal | undefined): Promise<ExportListResponse> {
     return this.exports.list(principalOf(user));
   }
 
@@ -154,7 +158,7 @@ export class ExportsController {
   @ApiParam({ name: 'id', type: String, format: 'uuid', description: 'Export (job) id' })
   @ApiDataResponse(ExportResponseDto, { description: 'The export.' })
   @ApiResponse({ status: 404, description: 'Export not found' })
-  get(@CurrentUser() user: RequestUser, @Param('id', ParseUUIDPipe) id: string): Promise<ExportView> {
+  get(@CurrentPrincipal() user: Principal | undefined, @Param('id', ParseUUIDPipe) id: string): Promise<ExportView> {
     return this.exports.get(principalOf(user), id);
   }
 }

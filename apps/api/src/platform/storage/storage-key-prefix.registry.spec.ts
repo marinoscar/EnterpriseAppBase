@@ -46,7 +46,7 @@ async function attempt(defs: StorageKeyPrefixDef[]): Promise<RegistryError | und
 }
 
 describe('storageKeyPrefixRegistry', () => {
-  it('is the registry named storage-key-prefixes and holds the platform six in purge order', () => {
+  it('is the registry named storage-key-prefixes and holds the platform eight in purge order', () => {
     expect(storageKeyPrefixRegistry.name).toBe('storage-key-prefixes');
     expect(storageKeyPrefixRegistry.ids()).toEqual([
       'uploads',
@@ -55,28 +55,30 @@ describe('storageKeyPrefixRegistry', () => {
       'node-outputs',
       'ai-outputs',
       'storage-config-test',
+      'exports-users',
+      'exports-orgs',
     ]);
   });
 
   describe('a bad prefix cannot be registered', () => {
     it.each([
-      ['lacks the trailing slash', 'exports'],
-      ['contains //', 'exports//'],
-      ['contains // mid-way', 'exports//daily/'],
-      ['starts with /', '/exports/'],
+      ['lacks the trailing slash', 'reports'],
+      ['contains //', 'reports//'],
+      ['contains // mid-way', 'reports//daily/'],
+      ['starts with /', '/reports/'],
       ['is only a slash', '/'],
       ['is empty', ''],
-      ['ends in a segment without its slash', 'exports/daily'],
-      ['has upper case', 'Exports/'],
-      ['has a space', 'my exports/'],
-      ['has a dot segment', '../../src/storage/exports'],
+      ['ends in a segment without its slash', 'reports/daily'],
+      ['has upper case', 'Reports/'],
+      ['has a space', 'my reports/'],
+      ['has a dot segment', '../../src/storage/reports'],
     ])('rejects a prefix that %s with INVALID_ENTRY', async (_why, prefix) => {
-      const err = await attempt([def('exports', prefix)]);
+      const err = await attempt([def('reports', prefix)]);
 
       expect(err).toBeInstanceOf(RegistryError);
       expect(err?.code).toBe('INVALID_ENTRY');
       expect(err?.registry).toBe('storage-key-prefixes');
-      expect(err?.id).toBe('exports');
+      expect(err?.id).toBe('reports');
     });
 
     it('rejects the same prefix under a second id', async () => {
@@ -121,13 +123,13 @@ describe('storageKeyPrefixRegistry', () => {
     });
 
     it('rejects a non-kebab id with INVALID_ID', async () => {
-      expect((await attempt([def('Exports', 'exports/')]))?.code).toBe('INVALID_ID');
-      expect((await attempt([def('exports:daily', 'exports/')]))?.code).toBe('INVALID_ID');
+      expect((await attempt([def('Reports', 'reports/')]))?.code).toBe('INVALID_ID');
+      expect((await attempt([def('reports:daily', 'reports/')]))?.code).toBe('INVALID_ID');
     });
 
     it('requires an owner and a description', async () => {
-      expect((await attempt([{ ...def('exports', 'exports/'), owner: ' ' }]))?.message).toContain('owner is required');
-      expect((await attempt([{ ...def('exports', 'exports/'), description: '' }]))?.message).toContain(
+      expect((await attempt([{ ...def('reports', 'reports/'), owner: ' ' }]))?.message).toContain('owner is required');
+      expect((await attempt([{ ...def('reports', 'reports/'), description: '' }]))?.message).toContain(
         'description is required',
       );
     });
@@ -142,7 +144,7 @@ describe('storageKeyPrefixRegistry', () => {
   });
 
   it('STORAGE_KEY_PREFIX_PATTERN accepts nested lowercase prefixes', () => {
-    for (const prefix of ['uploads/', 'database-backups/', 'exports/daily/', 'a1/b-2/']) {
+    for (const prefix of ['uploads/', 'database-backups/', 'reports/daily/', 'a1/b-2/']) {
       expect(STORAGE_KEY_PREFIX_PATTERN.test(prefix)).toBe(true);
     }
   });
@@ -153,21 +155,21 @@ describe('storageKeyPrefixRegistry', () => {
       expect(isRegisteredStorageKey('database-backups/2026/x.dump')).toBe(true);
       expect(isRegisteredStorageKey('uploads')).toBe(false);
       expect(isRegisteredStorageKey('uploads-archive/x')).toBe(false);
-      expect(isRegisteredStorageKey('exports/x.zip')).toBe(false);
+      expect(isRegisteredStorageKey('reports/x.zip')).toBe(false);
       expect(isRegisteredStorageKey('')).toBe(false);
     });
 
     it('sees a temporary app entry', async () => {
-      await withTemporaryEntries(storageKeyPrefixRegistry, [def('exports', 'exports/')], () => {
-        expect(isRegisteredStorageKey('exports/x.zip')).toBe(true);
+      await withTemporaryEntries(storageKeyPrefixRegistry, [def('reports', 'reports/')], () => {
+        expect(isRegisteredStorageKey('reports/x.zip')).toBe(true);
       });
-      expect(isRegisteredStorageKey('exports/x.zip')).toBe(false);
+      expect(isRegisteredStorageKey('reports/x.zip')).toBe(false);
     });
   });
 });
 
 describe('STORAGE_KEY_PREFIXES (the view)', () => {
-  it('holds the six platform values, in the order the purge has always used, and is frozen', () => {
+  it('holds the eight platform values, in the order the purge has always used, and is frozen', () => {
     expect(STORAGE_KEY_PREFIXES).toEqual([
       'uploads/',
       'avatars/',
@@ -175,6 +177,8 @@ describe('STORAGE_KEY_PREFIXES (the view)', () => {
       'node-outputs/',
       'ai-outputs/',
       'storage-config-test/',
+      'exports/users/',
+      'exports/orgs/',
     ]);
     expect(Object.isFrozen(STORAGE_KEY_PREFIXES)).toBe(true);
     expect(Object.getOwnPropertyDescriptor(STORAGE_KEY_PREFIXES, '0')).toHaveProperty('value');
@@ -194,9 +198,9 @@ describe('STORAGE_KEY_PREFIXES (the view)', () => {
     }
 
     it('appends an app prefix after the platform six', () => {
-      const view = loadViewWith([def('exports', 'exports/', 'health-export')]);
+      const view = loadViewWith([def('reports', 'reports/', 'health-export')]);
 
-      expect(view).toEqual([...STORAGE_KEY_PREFIXES, 'exports/']);
+      expect(view).toEqual([...STORAGE_KEY_PREFIXES, 'reports/']);
       expect(Object.isFrozen(view)).toBe(true);
     });
 
@@ -207,24 +211,24 @@ describe('STORAGE_KEY_PREFIXES (the view)', () => {
     });
 
     it('fails at import time for a malformed app prefix', () => {
-      for (const prefix of ['exports', 'exports//', '/exports/']) {
-        expect(() => loadViewWith([def('exports', prefix)])).toThrow(
+      for (const prefix of ['reports', 'reports//', '/reports/']) {
+        expect(() => loadViewWith([def('reports', prefix)])).toThrow(
           expect.objectContaining({ name: 'RegistryError', code: 'INVALID_ENTRY' }),
         );
       }
     });
 
     it('fails at import time when the app reuses a platform id', () => {
-      expect(() => loadViewWith([def('uploads', 'exports/')])).toThrow(
+      expect(() => loadViewWith([def('uploads', 'reports/')])).toThrow(
         expect.objectContaining({ name: 'RegistryError', code: 'DUPLICATE_ID', id: 'uploads' }),
       );
     });
   });
 
   it('a temporary entry shows up in the registry the view is built from, and is gone afterwards', async () => {
-    await withTemporaryEntries(storageKeyPrefixRegistry, [def('exports', 'exports/')], () => {
-      expect(storageKeyPrefixRegistry.list().map((d) => d.prefix)).toEqual([...STORAGE_KEY_PREFIXES, 'exports/']);
+    await withTemporaryEntries(storageKeyPrefixRegistry, [def('reports', 'reports/')], () => {
+      expect(storageKeyPrefixRegistry.list().map((d) => d.prefix)).toEqual([...STORAGE_KEY_PREFIXES, 'reports/']);
     });
-    expect(storageKeyPrefixRegistry.has('exports')).toBe(false);
+    expect(storageKeyPrefixRegistry.has('reports')).toBe(false);
   });
 });

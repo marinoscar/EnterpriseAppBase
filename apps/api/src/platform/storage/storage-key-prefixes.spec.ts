@@ -115,7 +115,7 @@ function apiSources(): Array<{ file: string; text: string }> {
 }
 
 /** Owners of the platform's own entries; anything else is an app's. */
-const PLATFORM_OWNERS = new Set(['storage', 'storage/profile-image', 'db-backup', 'nodes', 'ai', 'storage/config']);
+const PLATFORM_OWNERS = new Set(['storage', 'storage/profile-image', 'db-backup', 'nodes', 'ai', 'storage/config', 'exports']);
 
 describe('STORAGE_KEY_PREFIXES', () => {
   it('every registered prefix is well formed and no two overlap', () => {
@@ -139,7 +139,7 @@ describe('STORAGE_KEY_PREFIXES', () => {
     expect(allKeyPrefixes()).toEqual(STORAGE_KEY_PREFIXES);
   });
 
-  it('the platform baseline: the entries with a platform owner are the six the platform writes', () => {
+  it('the platform baseline: the entries with a platform owner are the eight the platform writes', () => {
     // Filtered by owner, not counted, so an app adding entries never breaks it;
     // removing or renaming a platform entry does.
     const platform = storageKeyPrefixRegistry
@@ -154,6 +154,8 @@ describe('STORAGE_KEY_PREFIXES', () => {
       { id: 'node-outputs', prefix: 'node-outputs/', owner: 'nodes', scope: 'deployment' },
       { id: 'ai-outputs', prefix: 'ai-outputs/', owner: 'ai', scope: 'user' },
       { id: 'storage-config-test', prefix: 'storage-config-test/', owner: 'storage/config', scope: 'deployment' },
+      { id: 'exports-users', prefix: 'exports/users/', owner: 'exports', scope: 'user' },
+      { id: 'exports-orgs', prefix: 'exports/orgs/', owner: 'exports', scope: 'org' },
     ]);
   });
 

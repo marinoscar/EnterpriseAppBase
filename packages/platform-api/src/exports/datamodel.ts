@@ -34,9 +34,9 @@ export interface ExportDatamodelField {
   readonly kind: string;
   /** The type name (`String`, `DateTime`, an enum or model name). */
   readonly type: string;
-  /** Whether it is a list. */
-  readonly isList: boolean;
-  /** Whether it is the model's single-field id. */
+  /** Whether it is a list (absent in Prisma 7's trimmed runtime datamodel). */
+  readonly isList?: boolean;
+  /** Whether it is the model's single-field id (absent in Prisma 7's runtime datamodel; a field named `id` is assumed to be it). */
   readonly isId?: boolean;
 }
 
@@ -50,7 +50,7 @@ export interface ExportDatamodelModel {
   readonly name: string;
   /** Its fields, in schema order. */
   readonly fields: readonly ExportDatamodelField[];
-  /** A composite primary key, when the model has one. */
+  /** A composite primary key, when the datamodel records one (Prisma 7's runtime datamodel does not). */
   readonly primaryKey?: { readonly fields: readonly string[] } | null;
 }
 

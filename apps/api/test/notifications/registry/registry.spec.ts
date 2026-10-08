@@ -1,4 +1,5 @@
 import { groupInvitationBrowserTemplate, sharedWithYouBrowserTemplate } from '@marinoscar/platform-api/sharing';
+import { exportFailedBrowserTemplate, exportReadyBrowserTemplate } from '@marinoscar/platform-api/exports';
 import { RegistryError, withTemporaryEntries } from '@marinoscar/platform-api/core';
 import { NOTIFICATION_MAX_EVENT_KEY_LENGTH } from '../../../src/common/schemas/user-settings-namespaces.schema';
 import {
@@ -66,6 +67,9 @@ const PLATFORM_EVENT_KEYS = [
   'groups.invitation',
   // #729 (PP-7.2), a record shared with the user.
   'sharing.shared_with_you',
+  // The exports slice (#744).
+  'export.ready',
+  'export.failed',
 ];
 
 /** A valid app event; tests spread it and break one field. */
@@ -116,7 +120,7 @@ describe('notification registries (#678)', () => {
       expect(notificationChannelRegistry.ids()).toEqual(['email', 'browser', 'push']);
     });
 
-    it('registers the nine platform events in the old array order, then org.invitation (#726), groups.invitation (#728) and sharing.shared_with_you (#729)', () => {
+    it('registers the nine platform events in the old array order, then org.invitation (#726), groups.invitation (#728), sharing.shared_with_you (#729) and export.ready / export.failed (#744)', () => {
       expect(notificationEventRegistry.ids()).toEqual(PLATFORM_EVENT_KEYS);
     });
 
@@ -157,7 +161,7 @@ describe('notification registries (#678)', () => {
       });
     });
 
-    it('binds a browser renderer exactly where main had one (six keys), plus groups.invitation (#728) and sharing.shared_with_you (#729)', () => {
+    it('binds a browser renderer exactly where main had one (six keys), plus groups.invitation (#728), sharing.shared_with_you (#729) and the two export events (#744)', () => {
       expect(Object.fromEntries(eventBrowserTemplateRegistry.list().map((b) => [b.eventKey, b.render]))).toEqual({
         'security.role_changed': roleChangedBrowserTemplate,
         'admin.broadcast': broadcastBrowserTemplate,
@@ -167,6 +171,8 @@ describe('notification registries (#678)', () => {
         'db_backup.restore_completed': restoreCompletedBrowserTemplate,
         'groups.invitation': groupInvitationBrowserTemplate,
         'sharing.shared_with_you': sharedWithYouBrowserTemplate,
+        'export.ready': exportReadyBrowserTemplate,
+        'export.failed': exportFailedBrowserTemplate,
       });
     });
 

@@ -65,9 +65,18 @@ async function* pagedRows(
   columns: readonly ExportColumn[],
   pageSize: number,
 ): AsyncGenerator<ExportRow> {
-  const idField = spec.model.fields.find((field) => field.isId)?.name;
-  const keyFields = idField ? [idField] : [...(spec.model.primaryKey?.fields ?? [])];
-  if (keyFields.length === 0) throw new Error(`Model "${spec.model.name}" has no id or primary key to page by`);
+  const idField =
+    spec.model.fields.find((field) => field.isId)?.name ??
+    spec.model.fields.find((field) => field.name === 'id' && field.kind === 'scalar')?.name;
+  // No single id: page by offset over the composite key when the datamodel
+  // records it, else over every orderable exported column (the key is among
+  // them, so the order is total).
+  const keyFields = idField
+    ? [idField]
+    : spec.model.primaryKey?.fields?.length
+      ? [...spec.model.primaryKey.fields]
+      : columns.filter((column) => isOrderable(spec.model, column.key)).map((column) => column.key);
+  if (keyFields.length === 0) throw new Error(`Model "${spec.model.name}" has no id or orderable column to page by`);
 
   const select: Record<string, true> = {};
   for (const column of columns) select[column.key] = true;
@@ -94,4 +103,10 @@ async function* pagedRows(
     if (idField) after = page[page.length - 1]![idField];
     else offset += page.length;
   }
+}
+
+/** Prisma cannot order by a JSON or a list column. */
+function isOrderable(model: ModelTableSpec['model'], key: string): boolean {
+  const field = model.fields.find((candidate) => candidate.name === key);
+  return field !== undefined && field.type !== 'Json' && field.isList !== true;
 }

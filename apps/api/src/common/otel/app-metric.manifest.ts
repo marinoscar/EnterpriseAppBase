@@ -16,12 +16,14 @@ import { EVENT_BUS_APP_METRICS } from '../event-bus/event-bus.metrics';
 import { PLATFORM_APP_METRICS } from './platform-app-metrics';
 import { ORGANIZATIONS_APP_METRICS } from '@marinoscar/platform-api/identity';
 import { SHARING_APP_METRICS } from '@marinoscar/platform-api/sharing';
+import { EXPORTS_APP_METRICS } from '@marinoscar/platform-api/exports';
 
 registerAppMetrics(PLATFORM_APP_METRICS);
 registerAppMetrics(EVENT_BUS_APP_METRICS);
 // Organization administration (#726, PP-6.7).
 registerAppMetrics(ORGANIZATIONS_APP_METRICS);
 registerAppMetrics(SHARING_APP_METRICS);
+registerAppMetrics(EXPORTS_APP_METRICS);
 
 // App-owned metrics last.
 registerAppMetrics(APP_METRICS);

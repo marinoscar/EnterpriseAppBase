@@ -60,6 +60,8 @@ const REGISTERED_JOB_TYPES: Readonly<Record<string, string>> = {
   'notifications.deliveries.purge': 'Delivery log purge',
   'audit.events.purge': 'Audit log purge',
   'ai.runs.purge': 'AI run purge',
+  'export.run': 'Data export',
+  'export.purge': 'Export expiry',
 };
 
 /**
