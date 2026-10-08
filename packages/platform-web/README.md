@@ -12,6 +12,7 @@ Status: pre-release (version `0.0.0`). The root export is only the package name 
 - `@marinoscar/platform-web/testing`: test doubles for those ports (`createTestPlatformHost`). [README](src/testing/README.md).
 - `@marinoscar/platform-web/doctor/headless` and `@marinoscar/platform-web/doctor/ui`: the admin Doctor page, its hook and client, and its settings-page descriptor (#696). [README](src/doctor/README.md).
 - `@marinoscar/platform-web/telemetry/headless` and `@marinoscar/platform-web/telemetry/ui` (plus `/telemetry/ui/settings-page`, `/explorer-page`, `/dashboard-page`): the telemetry settings page, explorer and dashboard, their client, hooks, app adapters, admin cards and theme-token contract (#704). [README](src/telemetry/README.md).
+- `@marinoscar/platform-web/identity/headless` and `@marinoscar/platform-web/identity/ui`: the auth context and route guards, the identity client and data hooks, the sign-in provider registry, and the login, callback, device-activation, Access Tokens, Users & Allowlist and organization pages with their registry entries (#727). [README](src/identity/README.md).
 
 ## Install and peer dependencies
 

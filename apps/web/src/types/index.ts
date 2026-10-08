@@ -1,60 +1,38 @@
-export interface Role {
-  name: string;
-}
+// The identity shapes (the signed-in user, the admin lists, device
+// activation, personal access tokens) are defined ONCE, in
+// `@marinoscar/platform-web/identity/headless` (#727, PP-6.6); these aliases
+// keep the app's existing names.
+import type {
+  AllowedEmailEntry as PlatformAllowedEmailEntry,
+  AllowlistResponse as PlatformAllowlistResponse,
+  AuthProviderInfo,
+  AuthRole,
+  AuthUser,
+  DeviceActivationInfo as PlatformDeviceActivationInfo,
+  DeviceAuthorizationResponse as PlatformDeviceAuthorizationResponse,
+  OrgMembershipSummary as PlatformOrgMembershipSummary,
+  OrgSummary as PlatformOrgSummary,
+  PatCreatedResponse as PlatformPatCreatedResponse,
+  PatDurationUnit as PlatformPatDurationUnit,
+  PersonalAccessToken as PlatformPersonalAccessToken,
+  UserListItem as PlatformUserListItem,
+  UsersResponse as PlatformUsersResponse,
+} from '@marinoscar/platform-web/identity/headless';
 
-export interface User {
-  id: string;
-  email: string;
-  displayName: string | null;
-  /**
-   * The RESOLVED picture to render, per `UserSettings.profile.imageSource`:
-   * `null` for `none`, the provider URL for `provider`, and the same-origin
-   * `/api/users/:id/avatar/:objectId` URL for `upload` (#367).
-   */
-  profileImageUrl: string | null;
-  /** The sign-in provider's picture, whatever the chosen source (previews). */
-  providerProfileImageUrl?: string | null;
-  /**
-   * Whether an uploaded picture is stored, whatever the chosen source. Its
-   * bytes are previewed via the authenticated `GET /user-settings/profile-image`.
-   */
-  hasUploadedProfileImage?: boolean;
-  roles: Role[];
-  permissions: string[];
-  isActive: boolean;
-  createdAt: string;
-  /**
-   * The deployment's tenancy mode (`TENANCY_MODE`, PP-6.2), as
-   * `GET /api/auth/me` reports it. Organization UI exists only in `multi`
-   * (#726). Optional so a payload from an older server reads as single-org.
-   */
-  tenancyMode?: TenancyMode;
-  /** The organization this session acts in (#724), or `null`. */
-  activeOrg?: OrgSummary | null;
-  /** Every organization the user is an ACTIVE member of, i.e. can switch to (#724). */
-  memberships?: OrgMembershipSummary[];
-}
+export type Role = AuthRole;
+
+/** The signed-in user, as `GET /api/auth/me` reports it. */
+export type User = AuthUser;
 
 /** How the deployment isolates its users (PP-6.2). */
 export type TenancyMode = 'single' | 'multi';
 
 /** An organization as `/api/auth/me` names it. */
-export interface OrgSummary {
-  id: string;
-  name: string;
-  slug: string;
-}
+export type OrgSummary = PlatformOrgSummary;
 
 /** One of the user's active memberships, as `/api/auth/me` lists them. */
-export interface OrgMembershipSummary {
-  orgId: string;
-  name: string;
-  slug: string;
-  /** The org role held there (`org_admin`, `contributor`, `viewer`, or an app role). */
-  role: string;
-}
+export type OrgMembershipSummary = PlatformOrgMembershipSummary;
 
-/** Where the profile picture comes from (#367). */
 export type ProfileImageSource = 'none' | 'provider' | 'upload';
 
 export type DataTableDensity = 'compact' | 'standard' | 'comfortable';
@@ -556,110 +534,31 @@ export interface SystemSettings {
   version: number;
 }
 
-export interface AuthProvider {
-  name: string;
-  authUrl: string;
-}
+export type AuthProvider = AuthProviderInfo;
 
-export interface AllowedEmailEntry {
-  id: string;
-  email: string;
-  addedBy: { id: string; email: string } | null;
-  addedAt: string;
-  claimedBy: { id: string; email: string } | null;
-  claimedAt: string | null;
-  notes: string | null;
-}
+export type AllowedEmailEntry = PlatformAllowedEmailEntry;
 
-export interface AllowlistResponse {
-  items: AllowedEmailEntry[];
-  total: number;
-  page: number;
-  pageSize: number;
-  totalPages: number;
-}
+export type AllowlistResponse = PlatformAllowlistResponse;
 
-export interface UserListItem {
-  id: string;
-  email: string;
-  displayName: string | null;
-  providerDisplayName: string | null;
-  profileImageUrl: string | null;
-  providerProfileImageUrl?: string | null;
-  isActive: boolean;
-  roles: string[];
-  createdAt: string;
-  updatedAt: string;
-}
+export type UserListItem = PlatformUserListItem;
 
-export interface UsersResponse {
-  items: UserListItem[];
-  total: number;
-  page: number;
-  pageSize: number;
-  totalPages: number;
-}
+export type UsersResponse = PlatformUsersResponse;
 
 /**
  * What `GET /api/auth/device/activate?code=…` returns for a pending code.
- *
- * EVERY FIELD UNDER `clientInfo` IS ATTACKER-CHOSEN. `POST /auth/device/code`
- * is `@Public()`, its body is stored verbatim in the `device_codes.client_info`
- * JSONB column, and this endpoint hands that column back wholesale. The types
- * below describe what a WELL-BEHAVED client sends, not what will arrive — see
- * `components/device-activation/credential.ts`, which is the only place this
- * object is allowed to be interpreted.
+ * EVERY FIELD UNDER `clientInfo` IS ATTACKER-CHOSEN; see `readCredentialKind`
+ * (`@marinoscar/platform-web/identity/headless`), the only place it is read.
  */
-export interface DeviceActivationInfo {
-  userCode: string;
-  // Optional because the API declares it optional (`clientInfo?` on
-  // DeviceActivateResponseDto) and because a row written by hand or by an older
-  // build can carry `null`. It was typed as required, which let call sites do
-  // `deviceInfo.clientInfo.deviceName` and crash the whole activation page on a
-  // shape the server is allowed to send.
-  clientInfo?: {
-    deviceName?: string;
-    userAgent?: string;
-    ipAddress?: string;
-    // `string`, NOT the `'session' | 'pat'` union (#141). Two reasons, both
-    // load-bearing: rows created before #141 have no `tokenType` at all, and
-    // the column is not re-validated on read, so an unexpected value is a
-    // shape we must be able to represent in order to defend against it. Typing
-    // it as the union here would make `readCredentialKind`'s unknown-value
-    // branch look like dead code and invite someone to delete it.
-    tokenType?: string;
-  };
-  expiresAt: string;
-}
+export type DeviceActivationInfo = PlatformDeviceActivationInfo;
 
-export interface DeviceAuthorizationResponse {
-  success: boolean;
-  message: string;
-}
+export type DeviceAuthorizationResponse = PlatformDeviceAuthorizationResponse;
 
 // Personal Access Tokens
-export type PatDurationUnit = 'minutes' | 'days' | 'months';
+export type PatDurationUnit = PlatformPatDurationUnit;
 
-export interface PersonalAccessToken {
-  id: string;
-  name: string;
-  tokenPrefix: string;
-  durationValue: number;
-  durationUnit: PatDurationUnit;
-  expiresAt: string;
-  lastUsedAt: string | null;
-  createdAt: string;
-  revokedAt: string | null;
-}
+export type PersonalAccessToken = PlatformPersonalAccessToken;
 
-export interface PatCreatedResponse {
-  token: string;
-  id: string;
-  name: string;
-  tokenPrefix: string;
-  expiresAt: string;
-  createdAt: string;
-}
+export type PatCreatedResponse = PlatformPatCreatedResponse;
 
 // ---------------------------------------------------------------------------
 // Email settings — issue #124, epic #109.

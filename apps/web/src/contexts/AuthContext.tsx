@@ -1,231 +1,30 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-  useCallback,
-  useRef,
-  ReactNode,
-} from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { api, ApiError } from '../services/api';
+/**
+ * The auth context, now packaged (#727, PP-6.6): `AuthProvider`, `useAuth`
+ * and `AuthContext` live in `@marinoscar/platform-web/identity/headless`.
+ *
+ * This module is a compatibility shim so existing imports keep working until
+ * they point at the package directly (PP-6.6 part 5). Its `AuthProvider` is
+ * the package's, bound to this app's transport (`services/api.ts`) and to the
+ * push-subscription clean-up that must run while the access token is still
+ * valid (#365); `App.tsx` mounts the package's provider with the same props.
+ */
+import type { ReactElement, ReactNode } from 'react';
+import { AuthProvider as PlatformAuthProvider } from '@marinoscar/platform-web/identity/headless';
+import { api } from '../services/api';
 import { removePushSubscription } from '../services/pushSubscription';
-import type {
-  User,
-  AuthProvider as AuthProviderType,
-  OrgMembershipSummary,
-  OrgSummary,
-} from '../types';
 
-export interface LoginOptions {
-  /**
-   * Ask the provider to show its account chooser instead of silently reusing
-   * the signed-in account (Google: `prompt=select_account`). Used by the
-   * "sign in with a different account" action on the sign-in error screen.
-   */
-  selectAccount?: boolean;
-}
-
-interface AuthContextValue {
-  user: User | null;
-  isLoading: boolean;
-  isAuthenticated: boolean;
-  providers: AuthProviderType[];
-  /**
-   * True once a signed-in session was lost because the server refused to
-   * refresh it, until the next sign-in. The login page reads it to
-   * explain why the user is there; `ProtectedRoute` does the redirect.
-   */
-  sessionExpired: boolean;
-  login: (provider: string, options?: LoginOptions) => void;
-  logout: () => Promise<void>;
-  refreshUser: () => Promise<void>;
-  /** The organization this session acts in (#724, #726), from `/api/auth/me`. */
-  activeOrg: OrgSummary | null;
-  /** The organizations the user can switch to (active memberships), from `/api/auth/me`. */
-  memberships: OrgMembershipSummary[];
-  /**
-   * Re-issue the session for another organization (#726): calls
-   * `POST /api/auth/switch-org` (which rotates the refresh cookie), keeps the
-   * new access token and reloads the user, so permissions follow the org.
-   * Rejects when the API refuses; the current session is then unchanged.
-   */
-  switchOrg: (orgId: string) => Promise<void>;
-}
-
-/** What `POST /api/auth/switch-org` returns (the same shape as a refresh). */
-interface SwitchOrgResponse {
-  accessToken: string;
-  expiresIn: number;
-}
-
-const NO_MEMBERSHIPS: OrgMembershipSummary[] = [];
-
-export const AuthContext = createContext<AuthContextValue | null>(null);
+export { AuthContext, useAuth } from '@marinoscar/platform-web/identity/headless';
+export type { AuthContextValue, LoginOptions } from '@marinoscar/platform-web/identity/headless';
 
 interface AuthProviderProps {
   children: ReactNode;
 }
 
-export function AuthProvider({ children }: AuthProviderProps) {
-  const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [providers, setProviders] = useState<AuthProviderType[]>([]);
-  const [sessionExpired, setSessionExpired] = useState(false);
-  const navigate = useNavigate();
-  const location = useLocation();
-  const initRef = useRef(false);
-
-  // Fetch auth providers on mount
-  useEffect(() => {
-    const fetchProviders = async () => {
-      try {
-        const response = await api.get<{ providers: AuthProviderType[] }>('/auth/providers', {
-          skipAuth: true,
-        });
-        setProviders(response.providers);
-      } catch (error) {
-        console.error('Failed to fetch auth providers:', error);
-      }
-    };
-    fetchProviders();
-  }, []);
-
-  // When a refresh the API client attempted while holding an
-  // access token is refused (401/403), the session is gone for good: clear it
-  // so `ProtectedRoute` sends the user to /login (with `from`, so they come
-  // back) instead of every widget rendering its own "Unauthorized". The client
-  // only fires this for a page that HELD a token, so the boot-time probe on the
-  // login page or a public page never triggers it, and once the token is
-  // cleared here it cannot fire again until the next sign-in: no loop.
-  useEffect(() => {
-    return api.onSessionExpired(() => {
-      api.setAccessToken(null);
-      setUser(null);
-      setSessionExpired(true);
-    });
-  }, []);
-
-  // Check for existing session on mount (runs only once)
-  useEffect(() => {
-    // Skip if already initialized or on auth callback page
-    // (the callback page will set the token directly from URL params)
-    if (initRef.current || location.pathname === '/auth/callback') {
-      setIsLoading(false);
-      return;
-    }
-    initRef.current = true;
-
-    const initAuth = async () => {
-      try {
-        // Try to refresh token (uses httpOnly cookie)
-        const refreshed = await api.refreshToken();
-        if (refreshed) {
-          await fetchUser();
-        }
-      } catch (error) {
-        console.error('Auth initialization failed:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    initAuth();
-  }, [location.pathname]);
-
-  const fetchUser = useCallback(async () => {
-    try {
-      const userData = await api.get<User>('/auth/me');
-      setUser(userData);
-      setSessionExpired(false);
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 401) {
-        setUser(null);
-        api.setAccessToken(null);
-      }
-      throw error;
-    }
-  }, []);
-
-  const login = useCallback((provider: string, options?: LoginOptions) => {
-    // Store return URL for redirect after login (including query params)
-    const fromLocation = location.state?.from;
-    if (fromLocation) {
-      sessionStorage.setItem(
-        'auth_return_url',
-        `${fromLocation.pathname}${fromLocation.search || ''}`,
-      );
-    } else if (
-      location.pathname !== '/auth/callback' ||
-      sessionStorage.getItem('auth_return_url') === null
-    ) {
-      sessionStorage.setItem('auth_return_url', '/');
-    }
-    // else: retrying from the sign-in error screen (`/auth/callback`), which
-    // carries no `from` state. Keep the return URL stored by the original
-    // attempt instead of resetting it to '/'.
-
-    // Redirect to OAuth provider
-    const query = options?.selectAccount ? '?select_account=1' : '';
-    window.location.href = `/api/auth/${provider}${query}`;
-  }, [location.state, location.pathname]);
-
-  const logout = useCallback(async () => {
-    try {
-      // #365: drop this device's push subscription while the access token is
-      // still valid, so the signed-out account stops receiving pushes here.
-      // Best-effort, bounded to a few seconds, and never throws.
-      await removePushSubscription();
-      await api.post('/auth/logout');
-    } catch (error) {
-      console.error('Logout error:', error);
-    } finally {
-      setUser(null);
-      setSessionExpired(false);
-      api.setAccessToken(null);
-      navigate('/login');
-    }
-  }, [navigate]);
-
-  const refreshUser = useCallback(async () => {
-    await fetchUser();
-  }, [fetchUser]);
-
-  const switchOrg = useCallback(
-    async (orgId: string) => {
-      // The API decides whether the caller may act in `orgId`; the browser
-      // only carries the answer (a new token bound to it) and re-reads `me`.
-      const tokens = await api.post<SwitchOrgResponse>('/auth/switch-org', { orgId });
-      api.setAccessToken(tokens.accessToken);
-      await fetchUser();
-    },
-    [fetchUser],
-  );
-
-  const value: AuthContextValue = {
-    user,
-    isLoading,
-    isAuthenticated: !!user,
-    providers,
-    sessionExpired,
-    login,
-    logout,
-    refreshUser,
-    activeOrg: user?.activeOrg ?? null,
-    memberships: user?.memberships ?? NO_MEMBERSHIPS,
-    switchOrg,
-  };
-
+/** The package's `AuthProvider`, bound to this app's transport and logout clean-up. */
+export function AuthProvider({ children }: AuthProviderProps): ReactElement {
   return (
-    <AuthContext.Provider value={value}>
+    <PlatformAuthProvider client={api} onBeforeLogout={removePushSubscription}>
       {children}
-    </AuthContext.Provider>
+    </PlatformAuthProvider>
   );
-}
-
-export function useAuth(): AuthContextValue {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
 }

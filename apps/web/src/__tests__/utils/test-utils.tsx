@@ -24,6 +24,8 @@ import {
 } from '../mocks/fixtures/telemetry';
 import type { AuthProvider as AuthProviderType } from '../../types';
 import { AppPlatformHostProvider } from '../../platform/platformHost';
+import { IdentityWebAdaptersProvider } from '@marinoscar/platform-web/identity/headless';
+import { appIdentityAdapters } from '../../platform/identityAdapters';
 import { appTelemetryAdapters } from '../../platform/telemetryAdapters';
 
 interface WrapperOptions {
@@ -181,6 +183,8 @@ function MockAuthProvider({
     login: vi.fn(),
     logout: vi.fn().mockResolvedValue(undefined),
     refreshUser: vi.fn().mockResolvedValue(undefined),
+    // #727: the packaged callback page hands the token to the session client.
+    setAccessToken: vi.fn(),
     // #726: the org fields `AuthProvider` derives from `/api/auth/me`.
     activeOrg: (authenticated ? user?.activeOrg : null) ?? null,
     memberships: (authenticated ? user?.memberships : undefined) ?? [],
@@ -264,11 +268,14 @@ export function createWrapper(options: WrapperOptions = {}) {
             providers={providers}
             sessionExpired={sessionExpired}
           >
-            {aiValue ? (
-              <AiConfigContext.Provider value={aiValue}>{withTelemetry}</AiConfigContext.Provider>
-            ) : (
-              withTelemetry
-            )}
+            {/* The identity adapters (#727), around the routes as `App.tsx` mounts them. */}
+            <IdentityWebAdaptersProvider adapters={appIdentityAdapters}>
+              {aiValue ? (
+                <AiConfigContext.Provider value={aiValue}>{withTelemetry}</AiConfigContext.Provider>
+              ) : (
+                withTelemetry
+              )}
+            </IdentityWebAdaptersProvider>
           </MockAuthProvider>
         </ThemeContextProvider>
       </MemoryRouter>

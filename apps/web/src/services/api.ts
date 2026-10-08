@@ -16,22 +16,15 @@ import { APP_SLUG } from '@app/shared';
 // nowhere near a page — because the interception is CENTRAL: see `toError`.
 import { readMaintenanceBlock, reportMaintenanceBlock } from './maintenance';
 
-interface RequestOptions extends RequestInit {
-  skipAuth?: boolean;
-  /**
-   * How to read a successful body. `'json'` (the default) parses and unwraps
-   * the `{ data }` envelope; `'blob'` returns the raw bytes (e.g. an image);
-   * `'blobWithHeaders'` returns `{ blob, headers }` for a download whose
-   * filename or metadata travel in response headers.
-   */
-  responseType?: 'json' | 'blob' | 'blobWithHeaders';
-}
+import {
+  ApiError,
+  PlatformHttpClient,
+  type PlatformHttpBlobWithHeaders,
+  type SessionExpiredListener as PlatformSessionExpiredListener,
+} from '@marinoscar/platform-web/core';
 
 /** What `responseType: 'blobWithHeaders'` resolves with. */
-export interface BlobWithHeaders {
-  blob: Blob;
-  headers: Headers;
-}
+export type BlobWithHeaders = PlatformHttpBlobWithHeaders;
 
 /**
  * The Web Lock every page of this app on one origin takes around
@@ -41,324 +34,38 @@ export interface BlobWithHeaders {
 export const AUTH_REFRESH_LOCK_NAME = `${APP_SLUG}-auth-refresh`;
 
 /** Called when the server definitively refused to refresh a live session. */
-export type SessionExpiredListener = () => void;
+export type SessionExpiredListener = PlatformSessionExpiredListener;
 
-export class ApiService {
-  private accessToken: string | null = null;
-  private refreshPromise: Promise<boolean> | null = null;
-  private sessionExpiredListeners = new Set<SessionExpiredListener>();
-
-  setAccessToken(token: string | null) {
-    this.accessToken = token;
-  }
-
-  getAccessToken(): string | null {
-    return this.accessToken;
-  }
-
-  /**
-   * Subscribe to "the session is gone": a refresh attempted while
-   * this page HELD an access token was answered 401/403 by the server. Never
-   * fired for a page that was not signed in (the boot-time probe on the login
-   * page or any public page holds no token), nor for a network failure, so a
-   * listener can safely send the user to sign in. Returns the unsubscribe.
-   */
-  onSessionExpired(listener: SessionExpiredListener): () => void {
-    this.sessionExpiredListeners.add(listener);
-    return () => {
-      this.sessionExpiredListeners.delete(listener);
-    };
-  }
-
-  private async request<T>(
-    endpoint: string,
-    options: RequestOptions = {},
-  ): Promise<T> {
-    const { skipAuth = false, responseType = 'json', ...fetchOptions } = options;
-
-    const headers: HeadersInit = {
-      ...fetchOptions.headers,
-    };
-
-    // A FormData body must NOT carry a hand-set Content-Type: the browser has
-    // to write `multipart/form-data; boundary=…` itself, and a literal
-    // `application/json` (or a multipart type with no boundary) makes the
-    // server unable to parse the parts.
-    const isFormData =
-      typeof FormData !== 'undefined' && fetchOptions.body instanceof FormData;
-
-    // Only set Content-Type for requests with a body (Fastify 5 is strict about this)
-    if (fetchOptions.body && !isFormData) {
-      (headers as Record<string, string>)['Content-Type'] = 'application/json';
-    }
-
-    if (!skipAuth && this.accessToken) {
-      (headers as Record<string, string>)['Authorization'] = `Bearer ${this.accessToken}`;
-    }
-
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      ...fetchOptions,
-      headers,
-      credentials: 'include', // Include cookies for refresh token
-    });
-
-    if (response.status === 401 && !skipAuth) {
-      // Try to refresh token (only once, avoid infinite loops)
-      const refreshed = await this.refreshToken();
-      if (refreshed) {
-        // Update authorization header with new token and retry ONCE
-        const retryHeaders: HeadersInit = {
-          ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
-          ...fetchOptions.headers,
-          'Authorization': `Bearer ${this.accessToken}`,
-        };
-
-        const retryResponse = await fetch(`${API_BASE_URL}${endpoint}`, {
-          ...fetchOptions,
-          headers: retryHeaders,
-          credentials: 'include',
-        });
-
-        return this.readResponse<T>(retryResponse, responseType);
-      }
-      throw new ApiError('Unauthorized', 401);
-    }
-
-    return this.readResponse<T>(response, responseType);
-  }
-
-  /**
-   * Turn a settled response into the caller's value, or throw. Shared by the
-   * first attempt and the post-refresh retry so both read bodies identically.
-   * Error bodies are always JSON, whatever `responseType` the caller asked for.
-   */
-  private async readResponse<T>(
-    response: Response,
-    responseType: 'json' | 'blob' | 'blobWithHeaders',
-  ): Promise<T> {
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw this.toError(response.status, error);
-    }
-
-    // Handle 204 No Content
-    if (response.status === 204) {
-      return undefined as T;
-    }
-
-    if (responseType === 'blob') {
-      return (await response.blob()) as T;
-    }
-
-    if (responseType === 'blobWithHeaders') {
-      return { blob: await response.blob(), headers: response.headers } as T;
-    }
-
-    const data = await response.json();
-    return data.data ?? data;
-  }
-
-  /**
-   * Build the `ApiError` every call site already catches — and, on the way
-   * past, notice a maintenance window (#258, epic #254).
-   *
-   * THIS IS THE ONLY PLACE THE WEB APP LOOKS FOR THE MARKER, and that is the
-   * design rather than a convenience. Every request in this application goes
-   * through `request()`, so putting the check on its single error path means
-   * every existing caller — hooks, pages, one-off handlers, code added after
-   * this — inherits maintenance handling without a line of change. The
-   * alternative (each caller inspecting its own error) would be ~30 copies of
-   * one `if`, each free to be forgotten on the next endpoint added, in a client
-   * whose whole reason for recognising the marker is that it must not guess.
-   *
-   * ⚠️ AN ORDINARY 503 IS UNTOUCHED. `readMaintenanceBlock` returns `null`
-   * unless the status is 503 AND `details.reason` is the marker, so a crashed
-   * upstream, a full connection pool or a proxy with no backend produces
-   * EXACTLY the `ApiError` it produced before this method existed — same
-   * message, same status, same code, same details. That distinction is the
-   * feature; see `services/maintenance.ts`.
-   *
-   * The error is still THROWN in both cases. The block is a side channel for
-   * the gate, never a replacement for the rejection a caller is awaiting: a
-   * request that silently resolved during a window would leave every one of
-   * those callers holding `undefined` and rendering it.
-   */
-  private toError(
-    status: number,
-    body: { message?: string; code?: string; details?: unknown },
-  ): ApiError {
-    const block = readMaintenanceBlock(status, body);
-    if (block) {
-      reportMaintenanceBlock(block);
-    }
-
-    return new ApiError(body.message || 'Request failed', status, body.code, body.details);
-  }
-
-  async refreshToken(): Promise<boolean> {
-    // If a refresh is already in progress, wait for it
-    if (this.refreshPromise) {
-      return this.refreshPromise;
-    }
-
-    // Start a new refresh. `refreshPromise` dedupes within THIS page; the
-    // Web Lock serialises across pages (see `refreshAcrossPages`).
-    this.refreshPromise = this.refreshAcrossPages();
-
-    try {
-      return await this.refreshPromise;
-    } finally {
-      this.refreshPromise = null;
-    }
-  }
-
-  /**
-   * Run the refresh under an exclusive Web Lock shared by every page of this
-   * origin.
-   *
-   * WHY: the `refresh_token` cookie is HttpOnly, rotated on every use, and
-   * shared by every page in the browser profile: several tabs or windows, or
-   * an installed app's window plus a browser tab opened from it.
-   * Two pages refreshing at once would present the SAME cookie twice; the
-   * server treats a second presentation of a rotated token as theft and
-   * revokes every refresh token the user holds (reuse detection in
-   * `auth.service.ts`), signing out all of them. Serialised, the page that
-   * waited presents the NEWER cookie the first page's rotation left in the
-   * shared jar, so there is no reuse.
-   *
-   * Without `navigator.locks` (older browsers, jsdom) this is the plain
-   * in-page refresh it was before.
-   */
-  private refreshAcrossPages(): Promise<boolean> {
-    const locks =
-      typeof navigator !== 'undefined'
-        ? (navigator as Navigator & { locks?: LockManager }).locks
-        : undefined;
-    if (!locks || typeof locks.request !== 'function') {
-      return this.doRefreshToken();
-    }
-    return locks.request(AUTH_REFRESH_LOCK_NAME, { mode: 'exclusive' }, () =>
-      this.doRefreshToken(),
-    );
-  }
-
-  private async doRefreshToken(): Promise<boolean> {
-    // Whether this page believed it was signed in when the refresh started:
-    // only then is a refusal "your session expired" rather than "not signed in".
-    const hadSession = this.accessToken !== null;
-    try {
-      const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
-        method: 'POST',
-        credentials: 'include',
-      });
-
-      if (!response.ok) {
-        this.accessToken = null;
-        if (hadSession && (response.status === 401 || response.status === 403)) {
-          this.notifySessionExpired();
+/**
+ * The app's transport: `@marinoscar/platform-web/core`'s `PlatformHttpClient`
+ * (the token holder, the one-shot 401 -> refresh -> retry and the cross-page
+ * refresh lock, moved there by #727) bound to this app's API base, its refresh
+ * lock name and its maintenance recogniser.
+ *
+ * THE MAINTENANCE INTERCEPTION IS CENTRAL (#258, epic #254): every request in
+ * this application goes through the client's single error path, which hands
+ * each error response to `onErrorResponse` before throwing, so every caller
+ * inherits maintenance handling without a line of change. AN ORDINARY 503 IS
+ * UNTOUCHED: `readMaintenanceBlock` returns `null` unless the status is 503 AND
+ * `details.reason` is the marker (see `services/maintenance.ts`). The error is
+ * still THROWN in both cases.
+ */
+export class ApiService extends PlatformHttpClient {
+  constructor() {
+    super({
+      baseUrl: API_BASE_URL,
+      refreshLockName: AUTH_REFRESH_LOCK_NAME,
+      onErrorResponse: (status, body) => {
+        const block = readMaintenanceBlock(status, body);
+        if (block) {
+          reportMaintenanceBlock(block);
         }
-        return false;
-      }
-
-      const responseData = await response.json();
-      // Unwrap the { data: { accessToken } } structure from TransformInterceptor
-      const tokenData = responseData.data ?? responseData;
-
-      // Validate that we actually got a token
-      if (!tokenData.accessToken || typeof tokenData.accessToken !== 'string') {
-        this.accessToken = null;
-        return false;
-      }
-
-      this.accessToken = tokenData.accessToken;
-      return true;
-    } catch {
-      this.accessToken = null;
-      return false;
-    }
-  }
-
-  private notifySessionExpired() {
-    for (const listener of [...this.sessionExpiredListeners]) {
-      try {
-        listener();
-      } catch (error) {
-        console.error('Session-expired listener failed:', error);
-      }
-    }
-  }
-
-  // Generic methods
-  get<T>(endpoint: string, options?: RequestOptions) {
-    return this.request<T>(endpoint, { ...options, method: 'GET' });
-  }
-
-  /**
-   * GET a binary body (an image, a file) as a `Blob`. Same bearer token,
-   * 401 → refresh → retry and error handling as every JSON call.
-   */
-  getBlob(endpoint: string, options?: RequestOptions): Promise<Blob> {
-    return this.request<Blob>(endpoint, {
-      ...options,
-      method: 'GET',
-      responseType: 'blob',
+      },
     });
-  }
-
-  post<T>(endpoint: string, body?: unknown, options?: RequestOptions) {
-    return this.request<T>(endpoint, {
-      ...options,
-      method: 'POST',
-      body: body ? JSON.stringify(body) : undefined,
-    });
-  }
-
-  /**
-   * POST a `multipart/form-data` body. Goes through the same `request()` as
-   * every other call, so the bearer token, the one-shot 401 → refresh → retry
-   * and the maintenance interception all apply. The FormData is sent as-is
-   * (never JSON-stringified) and can be re-sent on that retry.
-   */
-  postFormData<T>(endpoint: string, formData: FormData, options?: RequestOptions) {
-    return this.request<T>(endpoint, {
-      ...options,
-      method: 'POST',
-      body: formData,
-    });
-  }
-
-  put<T>(endpoint: string, body?: unknown, options?: RequestOptions) {
-    return this.request<T>(endpoint, {
-      ...options,
-      method: 'PUT',
-      body: body ? JSON.stringify(body) : undefined,
-    });
-  }
-
-  patch<T>(endpoint: string, body?: unknown, options?: RequestOptions) {
-    return this.request<T>(endpoint, {
-      ...options,
-      method: 'PATCH',
-      body: body ? JSON.stringify(body) : undefined,
-    });
-  }
-
-  delete<T>(endpoint: string, options?: RequestOptions) {
-    return this.request<T>(endpoint, { ...options, method: 'DELETE' });
   }
 }
 
-export class ApiError extends Error {
-  constructor(
-    message: string,
-    public status: number,
-    public code?: string,
-    public details?: unknown,
-  ) {
-    super(message);
-    this.name = 'ApiError';
-  }
-}
+export { ApiError };
 
 export const api = new ApiService();
 
@@ -428,10 +135,11 @@ export async function fetchProfileImagePreview(): Promise<Blob> {
 
 // Allowlist API
 /**
- * Sort keys `GET /api/allowlist` accepts, mirroring
- * `allowlistQuerySchema.sortBy` (`apps/api/src/allowlist/dto/allowlist-query.dto.ts`).
+ * Sort keys `GET /api/allowlist` accepts (`allowlistQuerySchema.sortBy`);
+ * defined in `@marinoscar/platform-web/identity/headless` (#727).
  */
-export type AllowlistSortField = 'email' | 'addedAt' | 'claimedAt';
+export type { AllowlistSortField } from '@marinoscar/platform-web/identity/headless';
+import type { AllowlistSortField, UserSortField } from '@marinoscar/platform-web/identity/headless';
 
 export async function getAllowlist(params?: {
   page?: number;
@@ -465,12 +173,10 @@ export async function removeFromAllowlist(id: string): Promise<void> {
 
 // Users API
 /**
- * Sort keys `GET /api/users` accepts, mirroring `userListQuerySchema.sortBy`
- * (`apps/api/src/users/dto/user-list-query.dto.ts`). Typed rather than
- * `string` so a DataTable column declaring `sortable` against a field the
- * endpoint would reject is a compile error, not a 400 at runtime.
+ * Sort keys `GET /api/users` accepts (`userListQuerySchema.sortBy`); defined
+ * in `@marinoscar/platform-web/identity/headless` (#727).
  */
-export type UserSortField = 'email' | 'createdAt' | 'updatedAt';
+export type { UserSortField } from '@marinoscar/platform-web/identity/headless';
 
 export async function getUsers(params?: {
   page?: number;

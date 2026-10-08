@@ -27,11 +27,14 @@ import {
 import { api } from '../../../services/api';
 import type { AllowedEmailEntry } from '../../../types';
 
-vi.mock('../../../hooks/useAllowlist', () => ({
+// The list is packaged (#727): it reads its hook from the identity slice's
+// headless entry, so that entry is what this suite stubs.
+vi.mock('@marinoscar/platform-web/identity/headless', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@marinoscar/platform-web/identity/headless')>()),
   useAllowlist: vi.fn(),
 }));
 
-import { useAllowlist } from '../../../hooks/useAllowlist';
+import { useAllowlist } from '@marinoscar/platform-web/identity/headless';
 
 const mockUseAllowlist = vi.mocked(useAllowlist);
 

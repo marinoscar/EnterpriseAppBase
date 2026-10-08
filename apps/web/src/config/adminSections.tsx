@@ -37,7 +37,6 @@ import NotificationsActiveOutlinedIcon from '@mui/icons-material/NotificationsAc
 import BuildCircleOutlinedIcon from '@mui/icons-material/BuildCircleOutlined';
 import VpnKeyOutlinedIcon from '@mui/icons-material/VpnKeyOutlined';
 import CloudOutlinedIcon from '@mui/icons-material/CloudOutlined';
-import PeopleIcon from '@mui/icons-material/People';
 // Operations (#266, epic #254). One icon per card, including the two cards
 // whose pages land in later issues — the card is declared now, so its icon is
 // declared now; see the `Operations` section's own header.
@@ -54,13 +53,13 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import AutoAwesomeOutlinedIcon from '@mui/icons-material/AutoAwesomeOutlined';
 import ModelTrainingOutlinedIcon from '@mui/icons-material/ModelTrainingOutlined';
 import DataUsageOutlinedIcon from '@mui/icons-material/DataUsageOutlined';
-import GroupsOutlinedIcon from '@mui/icons-material/GroupsOutlined';
-import BusinessOutlinedIcon from '@mui/icons-material/BusinessOutlined';
 // Observability (#537, epic #528; #578) — the telemetry policy page, the
 // explorer and the dashboard, packaged since #704 (cards and icons from the slice).
 import { telemetryAdminCards } from '@marinoscar/platform-web/telemetry/ui';
 // Doctor (#634; a packaged page since #696: card and icon from its descriptor).
 import { doctorSettingsPage } from '@marinoscar/platform-web/doctor/ui';
+// Access and Organizations (#727): the identity slice's cards, as data.
+import { identityAdminSections } from '@marinoscar/platform-web/identity/ui';
 
 /**
  * One settings page, fully described for every surface that draws it.
@@ -280,15 +279,9 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
   },
   {
     label: 'Access',
-    cards: [
-      {
-        title: 'Users & Allowlist',
-        description: 'Manage user accounts and roles, and control who may sign in at all.',
-        Icon: PeopleIcon,
-        path: '/admin/settings/users',
-        permission: 'users:read',
-      },
-    ],
+    // The identity slice's card (#727), from `@marinoscar/platform-web/identity/ui`
+    // as data: `Users & Allowlist`, `/admin/settings/users`, `users:read`.
+    cards: [...identityAdminSections.access],
   },
   /**
    * Operations — the deployment's moving parts (issue #266, epic #254).
@@ -674,26 +667,10 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
    */
   {
     label: 'Organizations',
-    cards: [
-      {
-        title: 'Organization',
-        description:
-          'See who belongs to your current organization, change their roles, suspend or remove them, and invite new members.',
-        Icon: GroupsOutlinedIcon,
-        path: '/admin/settings/organization',
-        permission: 'org_members:read',
-        feature: 'orgs',
-      },
-      {
-        title: 'Organizations',
-        description:
-          'List every organization in this deployment, create one with its first administrator, and rename them.',
-        Icon: BusinessOutlinedIcon,
-        path: '/admin/settings/organizations',
-        permission: 'organizations:read',
-        feature: 'orgs',
-      },
-    ],
+    // The identity slice's cards (#727), as data: `Organization`
+    // (`org_members:read`) and `Organizations` (`organizations:read`), both
+    // `feature: 'orgs'`, in this order.
+    cards: [...identityAdminSections.organizations],
   },
 ];
 

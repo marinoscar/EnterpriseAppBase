@@ -1,7 +1,16 @@
 import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider } from './contexts/AuthContext';
+// The identity slice (#727, PP-6.6): the auth provider and the identity
+// pages' adapters are packaged; the app binds its transport, its logout
+// clean-up and its adapters (`platform/identityAdapters.ts`).
+import {
+  AuthProvider,
+  IdentityWebAdaptersProvider,
+} from '@marinoscar/platform-web/identity/headless';
+import { api } from './services/api';
+import { removePushSubscription } from './services/pushSubscription';
+import { appIdentityAdapters } from './platform/identityAdapters';
 import { NotificationProvider } from './contexts/NotificationContext';
 import { AiConfigProvider } from './contexts/AiConfigContext';
 import { ThemeContextProvider, useThemeContext } from './contexts/ThemeContext';
@@ -38,7 +47,8 @@ import { appTelemetryAdapters } from './platform/telemetryAdapters';
 import { Suspense, lazy } from 'react';
 import { LoadingSpinner } from './components/common/LoadingSpinner';
 
-const LoginPage = lazy(() => import('./pages/LoginPage'));
+// The packaged login page with this app's slots (#727, `identity/LoginPage.tsx`).
+const LoginPage = lazy(() => import('./identity/LoginPage'));
 const AuthCallbackPage = lazy(() => import('./pages/AuthCallbackPage'));
 const ActivateDevicePage = lazy(() => import('./pages/ActivateDevicePage'));
 const HomePage = lazy(() => import('./pages/HomePage'));
@@ -848,8 +858,15 @@ function AppRoutes() {
 export default function App() {
   return (
     <ThemeContextProvider>
-      <AuthProvider>
-        <AppRoutes />
+      {/* `client` is the app's one transport (its token holder and refresh);
+          `onBeforeLogout` drops this device's push subscription while the
+          access token is still valid (#365). The identity adapters wrap the
+          whole route tree: the login and callback pages render outside the
+          signed-in shell. */}
+      <AuthProvider client={api} onBeforeLogout={removePushSubscription}>
+        <IdentityWebAdaptersProvider adapters={appIdentityAdapters}>
+          <AppRoutes />
+        </IdentityWebAdaptersProvider>
       </AuthProvider>
     </ThemeContextProvider>
   );
