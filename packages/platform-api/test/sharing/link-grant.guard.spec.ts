@@ -24,7 +24,8 @@ import {
   type LinkGrantsService,
   type LinkResolution,
 } from '../../src/sharing/index';
-import { addressTag } from '../../src/sharing/links/link-grant.guard';
+import { LINK_GRANT_SPAN_ATTRIBUTE, addressTag } from '../../src/sharing/links/link-grant.guard';
+import { installTestTracing } from '../identity/support/otel-tracing.helper';
 
 const TOKEN = `lnk_${'Q'.repeat(43)}`;
 const IP = '203.0.113.7';
@@ -147,6 +148,25 @@ describe('LinkGrantGuard', () => {
       expect(line).not.toContain(IP);
     }
     expect(lines[0]).toContain(`address=${addressTag(IP)}`);
+  });
+
+  it('puts sharing.link.grant_id on the span on success only, and nothing else of the link', async () => {
+    const tracing = installTestTracing();
+    try {
+      for (const result of [{ ok: true, link: LINK }, fail('revoked', 'test_doc')] as LinkResolution[]) {
+        const { guard } = guardWith(result);
+        await tracing.tracer.startActiveSpan('request', async (span) => {
+          await guard.canActivate(context({ ip: IP, headers: { 'x-link-token': TOKEN } }).ctx).catch(() => undefined);
+          span.end();
+        });
+      }
+      const [ok, refused] = tracing.exporter.getFinishedSpans();
+      expect(ok!.attributes).toEqual({ [LINK_GRANT_SPAN_ATTRIBUTE]: 'g-1' });
+      expect(refused!.attributes).toEqual({});
+      expect(JSON.stringify(tracing.exporter.getFinishedSpans().map((span) => span.attributes))).not.toContain(TOKEN);
+    } finally {
+      tracing.uninstall();
+    }
   });
 
   it('fails closed on a route without @LinkGrantResource (a programming error, not a 404)', async () => {
