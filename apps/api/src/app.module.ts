@@ -35,6 +35,7 @@ import { RetentionModule } from './common/retention/retention.module';
 import { platformHostModule } from './platform/platform-host.module';
 import { identityModule } from './platform/identity/identity.config';
 import { sharingModule } from './platform/sharing/sharing.config';
+import { onboardingModule } from './platform/onboarding/onboarding.config';
 import { IdentityExtensionsModule } from './identity-extensions/identity-extensions.module';
 
 import { HttpExceptionFilter } from '@marinoscar/platform-api/core';
@@ -246,6 +247,13 @@ import configuration from './config/configuration';
     // `platform/sharing/sharing.config.ts` (`SharingModule.forRoot({ host,
     // imports: [SharingHostModule] })`).
     sharingModule,
+
+    // Onboarding (#745, epic #668): the derived Get started and Setup guide
+    // checklists (`GET /api/onboarding`) and the aggregate activation metrics
+    // (`GET /api/admin/onboarding/metrics`), from
+    // `@marinoscar/platform-api/onboarding`. The app's binding (the manifest
+    // and the host ports) is `platform/onboarding/onboarding.config.ts`.
+    onboardingModule,
 
     // The platform host ports (#696): binds AUDIT_SINK, SYSTEM_SETTINGS_STORE
     // and PLATFORM_PRISMA to the app's adapters, once, globally, so every
