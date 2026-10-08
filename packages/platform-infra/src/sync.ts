@@ -21,16 +21,27 @@
 //     `keep` file (`.gitkeep`) is created only in a missing or empty directory
 //     and is never reported missing.
 //   - The lock (`infra/platform-infra.lock.json`): the platform version, the
-//     identity the files were rendered with, and the sha256 of each generated
-//     file's body (its content after the header), so a reviewer sees an
-//     upgrade's effect as a lock diff.
+//     identity the files were rendered with, the sha256 of each generated
+//     file's body (its content without the header), and per fragment the
+//     generated files that are executable, so a reviewer sees an upgrade's
+//     effect as a lock diff.
+//
+// EXECUTABLE SCRIPTS (`file.executable`, issue #869). A script such as
+// `infra/compose/postgres-init/10-application-role.sh` is mounted into a
+// container and run by path, so two things must survive the copy: the `#!`
+// shebang on line 1 (the generated header goes AFTER it, never before) and the
+// executable mode bit. Sync writes the file with mode 0755 (also when only the
+// mode was lost), the lock lists it under `executable`, and `--check` fails
+// when the bit is gone, so a `chmod -x` or a commit recording mode 100644 is
+// caught in CI. Windows has no executable bit: there the mode is neither set
+// nor checked.
 //
 // Line endings are normalised to `\n` before hashing and comparing, so a
 // Windows checkout with `core.autocrlf` does not read as drift.
 // =============================================================================
 
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -77,8 +88,12 @@ export interface InfraLock {
   version: string;
   /** The app identity the placeholders were rendered with (absent when no file needed one). */
   identity?: InfraIdentity;
-  /** Per fragment id: app path of each generated file to the sha256 (hex) of its body. */
-  fragments: Record<string, { files: Record<string, string> }>;
+  /**
+   * Per fragment id: app path of each generated file to the sha256 (hex) of
+   * its body, and (only when there is one) the app paths of its executable
+   * files, which sync writes with mode 0755.
+   */
+  fragments: Record<string, { files: Record<string, string>; executable?: string[] }>;
 }
 
 /**
@@ -164,6 +179,35 @@ const COMMENT_PREFIX: Record<string, string> = {
 
 const HEADER_MARK = `GENERATED from ${PLATFORM_PACKAGE}@`;
 
+/** The mode sync gives an executable generated file. */
+const EXECUTABLE_MODE = 0o755;
+
+/** Whether the file system has an executable bit to set and check (Windows has none). */
+const MODE_BITS = process.platform !== 'win32';
+
+/** Whether a materialised file at `path` has lost its executable bit (the owner's, the one git records). */
+function lostExecutableBit(path: string): boolean {
+  return MODE_BITS && (statSync(path).mode & 0o100) === 0;
+}
+
+/** The `#!` line of a body, with its newline, or '' when the body does not start with one. */
+function shebangOf(body: string): string {
+  if (!body.startsWith('#!')) return '';
+  const end = body.indexOf('\n');
+  return end < 0 ? `${body}\n` : body.slice(0, end + 1);
+}
+
+/**
+ * A generated file as written: the header first, or right after the shebang
+ * when the body starts with one, so the kernel still finds the interpreter.
+ *
+ * @internal
+ */
+export function materialise(header: string, body: string): string {
+  const shebang = shebangOf(body);
+  return shebang === '' ? header + body : shebang + header + body.slice(shebang.length);
+}
+
 function normaliseEol(text: string): string {
   return text.replace(/\r\n/g, '\n');
 }
@@ -200,13 +244,17 @@ export function generatedHeader(fragment: InfraFragmentFiles, file: InfraFile, v
 
 /**
  * Splits a materialised file into its generated header (two lines) and body.
- * `header` is `undefined` when the file does not start with one.
+ * The header is the file's first two lines, or the two after a `#!` shebang
+ * (which stays part of the body). `header` is `undefined` when the file
+ * carries none.
  *
  * @internal
  */
 export function splitGenerated(text: string): { header: string | undefined; version: string | undefined; body: string } {
   const normalised = normaliseEol(text);
-  const lines = normalised.split('\n');
+  const shebang = shebangOf(normalised);
+  const rest = normalised.slice(shebang.length);
+  const lines = rest.split('\n');
   const first = lines[0] ?? '';
   const second = lines[1] ?? '';
   const at = first.indexOf(HEADER_MARK);
@@ -215,7 +263,7 @@ export function splitGenerated(text: string): { header: string | undefined; vers
   }
   const version = /^(\S+) \(/.exec(first.slice(at + HEADER_MARK.length))?.[1];
   const header = `${first}\n${second}\n`;
-  return { header, version, body: normalised.slice(header.length) };
+  return { header, version, body: shebang + rest.slice(header.length) };
 }
 
 function readPackageVersion(packageRoot: string): string {
@@ -254,7 +302,12 @@ function assertConsistent(fragments: readonly InfraFragmentFiles[]): void {
   const generated = new Map<string, string>();
   const owned = new Set<string>();
   for (const fragment of fragments) {
-    for (const file of fragment.appOwnedFiles) owned.add(file.to);
+    for (const file of fragment.appOwnedFiles) {
+      if (file.executable === true) {
+        throw new Error(`platform-infra: ${fragment.id} marks the app-owned "${file.to}" executable; only a generated file can be`);
+      }
+      owned.add(file.to);
+    }
   }
   for (const fragment of fragments) {
     for (const file of fragment.files) {
@@ -325,6 +378,9 @@ function expectedBody(context: Resolved, file: InfraFile, appended?: string): { 
     const extra = appended ?? appOwnedText(context, file.append);
     if (extra !== undefined && extra !== '') body = `${body.endsWith('\n') ? body : `${body}\n`}\n${extra}`;
   }
+  if (file.executable === true && shebangOf(body) === '') {
+    throw new Error(`platform-infra: ${PLATFORM_PACKAGE}/${file.from} is executable, so its first line must be a #! shebang`);
+  }
   return { body, rendered };
 }
 
@@ -360,16 +416,22 @@ function readLock(root: string): InfraLock | undefined {
   }
 }
 
-function writeIfChanged(path: string, content: string): boolean {
-  if (existsSync(path) && readFileSync(path, 'utf8') === content) return false;
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, content, 'utf8');
+function writeIfChanged(path: string, content: string, executable = false): boolean {
+  const same = existsSync(path) && readFileSync(path, 'utf8') === content;
+  if (same && !(executable && lostExecutableBit(path))) return false;
+  if (!same) {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, content, executable ? { encoding: 'utf8', mode: EXECUTABLE_MODE } : 'utf8');
+  }
+  // `mode` above applies only to a new file, and through the umask: set it.
+  if (executable && MODE_BITS) chmodSync(path, EXECUTABLE_MODE);
   return true;
 }
 
 /**
  * Materialises every fragment into the app: rewrites each generated file
- * (header plus the package's content), creates each app-owned file from its
+ * (header plus the package's content; after the shebang, and with mode 0755,
+ * for an executable one), creates each app-owned file from its
  * template only when absent, and writes the lock. Idempotent: a second run
  * writes nothing.
  *
@@ -398,24 +460,31 @@ export function syncInfra(options: SyncOptions): SyncResult {
       ownedText.set(file.to, content ?? (existsSync(target) ? normaliseEol(readFileSync(target, 'utf8')) : ''));
     }
   }
-  const generated: { to: string; target: string; content: string }[] = [];
+  const generated: { to: string; target: string; content: string; executable: boolean }[] = [];
   let rendered = false;
   for (const fragment of fragments) {
     const checksums: Record<string, string> = {};
+    const executable: string[] = [];
     for (const file of fragment.files) {
       const appended = file.append === undefined ? undefined : (ownedText.get(file.append) ?? appOwnedText(context, file.append));
       const expected = expectedBody(context, file, appended);
       rendered ||= expected.rendered;
-      generated.push({ to: file.to, target: appPath(root, file.to), content: generatedHeader(fragment, file, version) + expected.body });
+      generated.push({
+        to: file.to,
+        target: appPath(root, file.to),
+        content: materialise(generatedHeader(fragment, file, version), expected.body),
+        executable: file.executable === true,
+      });
       checksums[file.to] = bodyChecksum(expected.body);
+      if (file.executable === true) executable.push(file.to);
     }
-    lock.fragments[fragment.id] = { files: checksums };
+    lock.fragments[fragment.id] = executable.length === 0 ? { files: checksums } : { files: checksums, executable };
   }
   const identity = rendered ? context.identity() : undefined;
   const lockOut: InfraLock = identity === undefined ? lock : { version, identity: { ...identity }, fragments: lock.fragments };
 
   for (const file of generated) {
-    (writeIfChanged(file.target, file.content) ? result.written : result.unchanged).push(file.to);
+    (writeIfChanged(file.target, file.content, file.executable) ? result.written : result.unchanged).push(file.to);
   }
   for (const file of owned) {
     if (file.content === undefined) {
@@ -431,21 +500,32 @@ export function syncInfra(options: SyncOptions): SyncResult {
   return result;
 }
 
-/** 1-based line of the first difference between two bodies, counted in the materialised file. */
-function firstDifference(actual: string, expected: string, offset: number): number {
+/**
+ * 1-based line of the first difference between two bodies, counted in the
+ * materialised file: the two header lines come first, or right after the
+ * body's shebang line when it has one.
+ */
+function firstDifference(actual: string, expected: string): number {
   const a = actual.split('\n');
   const e = expected.split('\n');
+  const shebang = shebangOf(actual) !== '' ? 1 : 0;
   const max = Math.max(a.length, e.length);
+  let line = 0;
   for (let i = 0; i < max; i++) {
-    if (a[i] !== e[i]) return i + 1 + offset;
+    if (a[i] !== e[i]) {
+      line = i;
+      break;
+    }
   }
-  return offset + 1;
+  return line < shebang ? line + 1 : line + 3;
 }
 
 /**
  * Verifies the app's materialised files without writing anything. A problem
  * is a generated file that is missing, lacks its header, differs from the
- * package or from the lock, or a missing app-owned file. A version-only
+ * package or from the lock, an executable one that lost its executable bit
+ * (or that the lock does not record as executable), or a missing app-owned
+ * file. A version-only
  * difference (same content, older header or lock version) is a warning.
  *
  * @param options - The app root, and overrides for tests.
@@ -491,7 +571,7 @@ export function checkInfra(options: SyncOptions): CheckResult {
       } else if (body !== expected) {
         ok = false;
         result.problems.push({
-          file: `${file.to}:${firstDifference(body, expected, 2)}`,
+          file: `${file.to}:${firstDifference(body, expected)}`,
           message:
             `differs from ${PLATFORM_PACKAGE}@${version} (${fragment.id}). This file is generated: ${restore}, ` +
             `then ${overlay}`,
@@ -500,6 +580,16 @@ export function checkInfra(options: SyncOptions): CheckResult {
         result.warnings.push({
           file: file.to,
           message: `header names ${PLATFORM_PACKAGE}@${headerVersion ?? '?'}, installed is ${version}; run \`${SYNC_COMMAND}\` to refresh it`,
+        });
+      }
+
+      if (file.executable === true && lostExecutableBit(target)) {
+        ok = false;
+        result.problems.push({
+          file: file.to,
+          message:
+            `is not executable; ${PLATFORM_PACKAGE} (${fragment.id}) ships it as a script (mode 755): ${restore}, ` +
+            `then commit the mode (\`git add\` records it; \`git update-index --chmod=+x\` on a checkout without mode bits)`,
         });
       }
 
@@ -519,6 +609,20 @@ export function checkInfra(options: SyncOptions): CheckResult {
         }
       }
       if (ok) result.checked.push(file.to);
+    }
+
+    if (lock !== undefined) {
+      const expected = fragment.files.filter((file) => file.executable === true).map((file) => file.to);
+      const recorded = lock.fragments[fragment.id]?.executable ?? [];
+      const missing = expected.filter((to) => !recorded.includes(to));
+      const extra = recorded.filter((to) => !expected.includes(to));
+      if (missing.length > 0 || extra.length > 0) {
+        const what = [
+          ...missing.map((to) => `does not record ${to} as executable`),
+          ...extra.map((to) => `records ${to} as executable, which ${fragment.id} does not generate as one`),
+        ].join('; ');
+        result.problems.push({ file: LOCK_PATH, message: `${what}; run \`${SYNC_COMMAND}\` to rewrite the lock` });
+      }
     }
 
     for (const stale of Object.keys(lock?.fragments[fragment.id]?.files ?? {})) {

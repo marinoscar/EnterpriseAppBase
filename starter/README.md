@@ -91,6 +91,7 @@ Some plumbing the platform's reference app has is still app code there, not a pa
 - the cross-replica event bus, maintenance mode, the `{ data }` response envelope, request ids and the OpenAPI document at `/api/docs`;
 - the cross-replica event bus, maintenance mode, the `{ data }` response envelope, request ids, the OpenAPI document at `/api/docs`, and the web app shell (navigation rail, bottom navigation);
 - the `postgres-init` script `devdb.compose.yml` mounts to create the ordinary database role (CI creates it inline);
+- typed `getNamespace()` for an app's own settings namespace (the sample parses `readNamespaceValue('notes')` instead).
 
 ## Rename
 

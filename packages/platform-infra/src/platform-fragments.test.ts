@@ -1,8 +1,9 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
 
 import { composeInfraFragment, envInfraFragment, nginxInfraFragment } from './fragments.js';
 import { deriveInfraIdentity, renderInfraText } from './identity.js';
@@ -150,6 +151,43 @@ describe('syncInfra() with the compose, nginx and env fragments', () => {
     expect(files).not.toContain('infra/nginx/nginx.conf');
     syncInfra(renamed);
     expect(checkInfra(renamed).problems).toEqual([]);
+  });
+
+  it('ships postgres-init/10-application-role.sh as an executable script (issue #869)', () => {
+    const to = 'infra/compose/postgres-init/10-application-role.sh';
+    const from = 'compose/postgres-init/10-application-role.sh';
+    expect(composeInfraFragment.files).toContainEqual({ from, to, executable: true });
+    syncInfra(options(app));
+
+    const text = read(to);
+    expect(text.startsWith('#!/bin/sh\n# GENERATED from @marinoscar/platform-infra@')).toBe(true);
+    expect(splitGenerated(text).body).toBe(packageFile(from));
+    expect(text).toContain('NOSUPERUSER NOBYPASSRLS');
+    const lock = JSON.parse(read(LOCK_PATH)) as InfraLock;
+    expect(lock.fragments['compose']!.executable).toEqual([to]);
+    if (process.platform !== 'win32') {
+      // The package file itself is executable too, so a packed tarball and a
+      // checkout carry the mode git records (100755).
+      expect(statSync(join(PACKAGE_ROOT, from)).mode & 0o111).toBe(0o111);
+      expect(statSync(join(app, to)).mode & 0o777).toBe(0o755);
+      chmodSync(join(app, to), 0o644);
+      expect(checkInfra(options(app)).problems.map((p) => p.file)).toEqual([to]);
+    }
+  });
+
+  it.each(['devdb.compose.yml', 'test.compose.yml'])('gives every relative bind mount of %s a source the sync created', (name) => {
+    syncInfra(options(app));
+    const project = parse(read(`infra/compose/${name}`)) as { services: Record<string, { volumes?: unknown[] }> };
+    const sources = Object.values(project.services)
+      .flatMap((service) => service.volumes ?? [])
+      .filter((volume): volume is string => typeof volume === 'string' && volume.startsWith('.'))
+      .map((volume) => volume.split(':')[0]!);
+    expect(sources).toContain('./postgres-init');
+    for (const source of sources) {
+      const dir = join(app, 'infra', 'compose', source);
+      expect(existsSync(dir), `${name} mounts ${source}`).toBe(true);
+      expect(readdirSync(dir).length, `${name} mounts ${source}`).toBeGreaterThan(0);
+    }
   });
 
   it('fails the check when the lock was edited by hand', () => {
