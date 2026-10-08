@@ -18,14 +18,17 @@ import {
   countDistinctClientAddresses,
   probeCreateDatabasePrivilege,
   probePgExtensionAvailable,
+  quoteIdentifier,
   readDataDirectory,
   readDatabaseSizeBytes,
+  readRlsBypassCapability,
   resolveAdminConnection,
   withAdminConnection,
   type AdminConnection,
   type AdminQueryClient,
 } from './admin-connection.util';
 import { compareMigrationNames, readLatestAppliedMigration } from './migration-state.util';
+import { RLS_BYPASS_PGOPTIONS } from './pg-dump.util';
 import {
   checkPgClientVersion,
   readServerVersionNumWithPgClient,
@@ -187,6 +190,7 @@ const GUIDED_GATE_IDS: readonly RestoreGateId[] = [
   'admin_connection',
   'createdb_privilege',
   'extensions',
+  'rls_bypass',
 ];
 
 /**
@@ -425,6 +429,8 @@ interface ClusterProbeResult {
   databaseSizeBytes: bigint | null;
   dataDirectory: string | null;
   distinctClientAddresses: number | null;
+  /** How the session's role lifts row-level security; `null` when not read. See `readRlsBypassCapability`. */
+  rlsBypass: { superuser: boolean; bypassRls: boolean; optionApplied: boolean } | null;
 }
 
 @Injectable()
@@ -468,7 +474,10 @@ export class DatabaseRestorePreflightService {
     // inside one perceptible pause rather than two.
     const [version, cluster, liveMigration] = await Promise.all([
       this.readVersionCheck(),
-      this.probeCluster(connection),
+      // The probe session carries the dump's and the restore's startup option
+      // (#740), so the `rls_bypass` gate sees it reach the server; on the
+      // maintenance database it changes nothing else.
+      this.probeCluster({ ...connection, options: RLS_BYPASS_PGOPTIONS }),
       readLatestAppliedMigration(this.prisma),
     ]);
 
@@ -484,6 +493,7 @@ export class DatabaseRestorePreflightService {
       this.adminConnectionGate(cluster, connection),
       this.createDatabaseGate(cluster),
       this.extensionsGate(cluster),
+      this.rlsBypassGate(cluster, connection),
       ...this.diskGate(cluster, freeDiskBytes, policy),
       this.replicaGate(cluster, connection),
       this.schemaGate(comparison, run.migrationName, liveMigration, options),
@@ -635,6 +645,7 @@ export class DatabaseRestorePreflightService {
       databaseSizeBytes: null,
       dataDirectory: null,
       distinctClientAddresses: null,
+      rlsBypass: null,
     };
 
     // Read through Prisma, deliberately: `pg_extension` is PER-DATABASE, and
@@ -655,6 +666,7 @@ export class DatabaseRestorePreflightService {
 
         const missingExtensions =
           installed === null ? [] : await findMissingExtensions(client, installed);
+        const rlsBypass = await readRlsBypassCapability(client);
 
         return {
           reachable: true,
@@ -665,6 +677,7 @@ export class DatabaseRestorePreflightService {
           databaseSizeBytes,
           dataDirectory,
           distinctClientAddresses,
+          rlsBypass,
         };
       });
     } catch (error) {
@@ -860,6 +873,62 @@ export class DatabaseRestorePreflightService {
    * stop on the `CREATE EXTENSION` line, having already created a scratch
    * database.
    */
+  private rlsBypassGate(cluster: ClusterProbeResult, connection: AdminConnection): RestoreGateResult {
+    const title = 'Row-level security bypass';
+    if (!cluster.reachable) {
+      return {
+        id: 'rls_bypass',
+        kind: 'capability',
+        // NOT a second `warning`, for the reason the CREATEDB gate gives.
+        verdict: 'pass',
+        title,
+        detail: 'Not checked: the maintenance connection could not be opened.',
+        action: null,
+      };
+    }
+
+    const probe = cluster.rlsBypass;
+    if (probe !== null && (probe.superuser || probe.bypassRls)) {
+      return {
+        id: 'rls_bypass',
+        kind: 'capability',
+        verdict: 'pass',
+        title,
+        detail: `The role "${connection.user}" bypasses row-level security outright (${probe.superuser ? 'SUPERUSER' : 'BYPASSRLS'}), so pg_restore writes every organization's rows.`,
+        action: null,
+      };
+    }
+
+    if (probe !== null && probe.optionApplied) {
+      return {
+        id: 'rls_bypass',
+        kind: 'capability',
+        verdict: 'pass',
+        title,
+        detail:
+          'pg_restore lifts row-level security per session with --enable-row-security and ' +
+          `PGOPTIONS="${RLS_BYPASS_PGOPTIONS}", and this connection carried that option to the server.`,
+        action: null,
+      };
+    }
+
+    return {
+      id: 'rls_bypass',
+      kind: 'capability',
+      verdict: 'warning',
+      title,
+      detail:
+        probe === null
+          ? `The role "${connection.user}" could not be read from pg_roles, so whether a restore can write every organization's rows is unknown.`
+          : `The startup option "${RLS_BYPASS_PGOPTIONS}" did not take effect on this connection, and the role "${connection.user}" ` +
+            'does not bypass row-level security: an automated restore would write the tables without their organization-owned rows.',
+      action:
+        'Connect directly to the database (not through a transaction-mode pooler, which drops startup options), ' +
+        `or restore by hand with a role that bypasses row-level security: ALTER ROLE ${quoteIdentifier(connection.user)} BYPASSRLS; ` +
+        '(run as a superuser, for a dedicated restore role only: the API role itself must stay NOBYPASSRLS).',
+    };
+  }
+
   private extensionsGate(cluster: ClusterProbeResult): RestoreGateResult {
     if (!cluster.reachable || cluster.checkedExtensions === null) {
       return {

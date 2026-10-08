@@ -220,6 +220,13 @@ export class AdminConnectionTimeoutError extends Error {
 export interface AdminConnection extends PgConnection {
   /** The application's database — the one a restore displaces. Never connected to. */
   liveDatabase: string;
+  /**
+   * libpq startup options for this session (`-c name=value`), when set. The
+   * restore pre-flight opens its probe session with `RLS_BYPASS_PGOPTIONS`
+   * (#740), so the `rls_bypass` gate observes the option `pg_restore` will
+   * carry actually reaching the server.
+   */
+  options?: string;
 }
 
 /**
@@ -310,6 +317,7 @@ const defaultAdminClientFactory: AdminClientFactory = (config) =>
     password: config.password,
     database: config.database,
     ssl: resolveSslOption(config.sslMode),
+    ...(config.options !== undefined ? { options: config.options } : {}),
   });
 
 /**
@@ -646,6 +654,32 @@ export async function probeCreateRolePrivilege(client: AdminQueryClient): Promis
   );
 
   return result.rows[0]?.can_create === true;
+}
+
+/**
+ * How this session's role gets past row-level security (issue #740; the RLS
+ * design is #725's).
+ *
+ * `superuser` / `bypassRls`: the role ignores RLS outright (and is then not
+ * the API's own role, which must be an ordinary one). `optionApplied`:
+ * `app.rls_bypass` reads `on` in this session, i.e. the startup option the
+ * dump and the restore carry reached the server (a transaction-mode pooler
+ * refuses it and the session never opens). `null` when the role row could not
+ * be read.
+ *
+ * ⚠ A READ, like every other probe here: `pg_roles` and `current_setting`.
+ * It sets, grants and alters nothing.
+ */
+export async function readRlsBypassCapability(
+  client: AdminQueryClient
+): Promise<{ superuser: boolean; bypassRls: boolean; optionApplied: boolean } | null> {
+  const result = await client.query(
+    "SELECT rolsuper AS superuser, rolbypassrls AS bypass_rls, current_setting('app.rls_bypass', true) AS rls_bypass " +
+      'FROM pg_roles WHERE rolname = current_user'
+  );
+  const row = result.rows[0];
+  if (row === undefined) return null;
+  return { superuser: row.superuser === true, bypassRls: row.bypass_rls === true, optionApplied: row.rls_bypass === 'on' };
 }
 
 /**

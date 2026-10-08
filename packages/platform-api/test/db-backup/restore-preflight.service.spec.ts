@@ -111,6 +111,11 @@ interface HarnessOptions {
   availableExtensions?: string[];
   liveMigration?: string | null;
   freeDiskBytes?: bigint | null;
+  /**
+   * The `rls_bypass` probe's row (#740), or `null` for "no role row". Default:
+   * an ordinary NOBYPASSRLS role whose session carried `app.rls_bypass=on`.
+   */
+  rlsBypass?: { superuser?: boolean; bypass_rls?: boolean; rls_bypass?: string | null } | null;
 }
 
 function harness(options: HarnessOptions = {}) {
@@ -139,6 +144,11 @@ function harness(options: HarnessOptions = {}) {
 
       if (text.includes('COUNT(DISTINCT client_addr)')) {
         return { rows: [{ count: options.distinctClientAddresses ?? '1' }] };
+      }
+
+      if (text.includes('rolbypassrls')) {
+        if (options.rlsBypass === null) return { rows: [] };
+        return { rows: [{ superuser: false, bypass_rls: false, rls_bypass: 'on', ...options.rlsBypass }] };
       }
 
       if (text.includes('pg_available_extensions')) {
@@ -716,6 +726,9 @@ describe('DatabaseRestorePreflightService', () => {
         } as HarnessOptions,
       ],
       ['short disk', { databaseSizeBytes: '1000', freeDiskBytes: 1n } as HarnessOptions],
+      // #740: the rls_bypass gate's probe is a read on every path, its guided one included.
+      ['guided (no RLS bypass)', { rlsBypass: { rls_bypass: null } } as HarnessOptions],
+      ['rls bypass via BYPASSRLS', { rlsBypass: { bypass_rls: true, rls_bypass: null } } as HarnessOptions],
     ])('creates, drops and renames nothing on the %s path', async (_label, options) => {
       const spies = mutations.map((name) =>
         jest.spyOn(adminConnection, name).mockImplementation(() => {
@@ -733,6 +746,66 @@ describe('DatabaseRestorePreflightService', () => {
       // no statement the cluster received was a mutation.
       expect(sql.filter((text) => MUTATING_SQL.test(text))).toEqual([]);
       expect(sql.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('the rls_bypass gate (#740)', () => {
+    const gateOf = (result: Awaited<ReturnType<DatabaseRestorePreflightService['check']>>) =>
+      result.gates.find((gate) => gate.id === 'rls_bypass');
+
+    it('passes, and says so, when the session carried app.rls_bypass=on', async () => {
+      const { service } = harness();
+
+      const result = await service.check(RUN, { now: NOW });
+
+      expect(gateOf(result)).toMatchObject({ kind: 'capability', verdict: 'pass' });
+      expect(gateOf(result)?.detail).toContain('app.rls_bypass=on');
+      expect(result.outcome).toBe('ok');
+    });
+
+    it('passes when the role bypasses row-level security outright', async () => {
+      const { service } = harness({ rlsBypass: { superuser: false, bypass_rls: true, rls_bypass: null } });
+
+      const result = await service.check(RUN, { now: NOW });
+
+      expect(gateOf(result)).toMatchObject({ verdict: 'pass' });
+      expect(gateOf(result)?.detail).toContain('BYPASSRLS');
+    });
+
+    it('is guided, with the ALTER ROLE ... BYPASSRLS block, when neither holds', async () => {
+      const { service } = harness({ rlsBypass: { superuser: false, bypass_rls: false, rls_bypass: '' } });
+
+      const result = await service.check(RUN, { now: NOW });
+
+      expect(gateOf(result)).toMatchObject({ verdict: 'warning' });
+      expect(gateOf(result)?.action).toMatch(/ALTER ROLE ".+" BYPASSRLS;/);
+      expect(result.outcome).toBe('guided');
+    });
+
+    it('is guided when the role row cannot be read', async () => {
+      const { service } = harness({ rlsBypass: null });
+
+      const result = await service.check(RUN, { now: NOW });
+
+      expect(gateOf(result)).toMatchObject({ verdict: 'warning' });
+      expect(result.outcome).toBe('guided');
+    });
+
+    it('is not a second finding when the maintenance connection is down', async () => {
+      const { service } = harness({ adminError: new Error('down') });
+
+      const result = await service.check(RUN, { now: NOW });
+
+      expect(gateOf(result)).toMatchObject({ verdict: 'pass' });
+    });
+
+    it('opens the probe session with the dump\'s startup option, and still only one session', async () => {
+      const { service, seam } = harness();
+
+      await service.check(RUN, { now: NOW });
+
+      expect(seam.withAdminConnection).toHaveBeenCalledTimes(1);
+      expect((seam.withAdminConnection as jest.Mock).mock.calls[0][0]).toMatchObject({ options: '-c app.rls_bypass=on' });
     });
   });
 

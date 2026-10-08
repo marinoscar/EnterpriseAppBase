@@ -189,6 +189,8 @@ export const RESTORE_SCHEMA_OVERRIDE_FIELD = 'overrideSchemaCheck';
 
 /**
  * The restore pre-flight's gates, in the order they are evaluated and reported.
+ * `rls_bypass` (#740) reports how the restore session gets past row-level
+ * security, on pass as well as on failure.
  *
  * @stability stable
  */
@@ -197,6 +199,7 @@ export const RESTORE_GATE_IDS = [
   'admin_connection',
   'createdb_privilege',
   'extensions',
+  'rls_bypass',
   'disk_space',
   'replicas',
   'schema_compatibility',

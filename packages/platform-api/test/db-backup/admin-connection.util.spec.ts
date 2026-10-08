@@ -36,6 +36,7 @@ import {
   databaseExists,
   dropDatabase,
   probeCreateDatabasePrivilege,
+  readRlsBypassCapability,
   probeCreateRolePrivilege,
   probePgExtensionAvailable,
   quoteIdentifier,
@@ -408,6 +409,24 @@ describe('the derived database names', () => {
 });
 
 describe('the cluster reads', () => {
+  it('reads how the role gets past row-level security, from pg_roles and current_setting only (#740)', async () => {
+    const client = fakeClient(() => [{ superuser: false, bypass_rls: false, rls_bypass: 'on' }]);
+
+    await expect(readRlsBypassCapability(client)).resolves.toEqual({ superuser: false, bypassRls: false, optionApplied: true });
+    expect(client.queries[0].text).toContain('rolbypassrls');
+    expect(client.queries[0].text).toContain("current_setting('app.rls_bypass', true)");
+    expect(client.queries[0].text).not.toMatch(/\b(SET|ALTER|GRANT|CREATE)\b/);
+  });
+
+  it('reports no role row as null, and an unset option as not applied (#740)', async () => {
+    await expect(readRlsBypassCapability(fakeClient(() => []))).resolves.toBeNull();
+    await expect(readRlsBypassCapability(fakeClient(() => [{ superuser: false, bypass_rls: false, rls_bypass: null }]))).resolves.toEqual({
+      superuser: false,
+      bypassRls: false,
+      optionApplied: false,
+    });
+  });
+
   it('probes CREATEDB rather than assuming it', async () => {
     const client = fakeClient(() => [{ can_create: true }]);
 

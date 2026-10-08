@@ -5,7 +5,8 @@ import { DatabaseBackupAdminService } from '../../../src/db-backup/db-backup-adm
 import { PgVersionCheck } from '../../../src/db-backup/pg-version.util';
 import { BackupPgClientDoctorCheck, decidePgClient } from '../../../src/db-backup/doctor/backup-pg-client.doctor-check';
 import { BackupScheduleDoctorCheck, decideBackupSchedule } from '../../../src/db-backup/doctor/backup-schedule.doctor-check';
-import { decideBackupRls, type OrgTableCounts } from '../../../src/db-backup/doctor/backup-rls.doctor-check';
+import { BackupRlsDoctorCheck, decideBackupRls, type OrgTableCounts } from '../../../src/db-backup/doctor/backup-rls.doctor-check';
+import type { DbBackupSystemData } from '../../../src/db-backup/ports';
 
 function expectRemedy(outcome: DoctorCheckOutcome): void {
   expect(['warn', 'fail']).toContain(outcome.status);
@@ -163,5 +164,63 @@ describe('decideBackupRls', () => {
     expect(outcome.status).toBe('warn');
     expect(outcome.detail).toMatch(/unsupported startup parameter/);
     expect(outcome.remedy).toMatch(/direct/);
+  });
+});
+
+describe('backup.rls-bypass through the DB_BACKUP_SYSTEM_DATA port (#740)', () => {
+  /** The bypass side: one doctor-reason transaction, four read-only counts. */
+  function systemData(count: number) {
+    const sql: string[] = [];
+    const reasons: string[] = [];
+    const port: DbBackupSystemData = {
+      runAsSystem: async (reason, fn) => {
+        reasons.push(reason);
+        return fn({
+          $queryRawUnsafe: async <T>(query: string) => {
+            sql.push(query);
+            return [{ count: String(count) }] as T;
+          },
+        });
+      },
+    };
+    return { port, sql, reasons };
+  }
+
+  class TestCheck extends BackupRlsDoctorCheck {
+    constructor(port: DbBackupSystemData, startup: () => Promise<OrgTableCounts>) {
+      super(new DoctorCheckRegistry(), port);
+      this.countWithStartupOption = startup;
+    }
+  }
+
+  const same = (n: number): OrgTableCounts => ({ storage_objects: n, storage_object_chunks: n, ai_runs: n, ai_usage_events: n });
+
+  it('passes when the startup-option side sees every row the bypass client counts', async () => {
+    const { port, sql, reasons } = systemData(3);
+
+    const outcome = await new TestCheck(port, async () => same(3)).run();
+
+    expect(outcome.status).toBe('pass');
+    expect(reasons).toEqual(['doctor']);
+    expect(sql).toHaveLength(4);
+    expect(sql.every((text) => /^SELECT count\(\*\)::text AS count FROM [a-z_]+$/.test(text))).toBe(true);
+  });
+
+  it('fails when the startup option did not lift row-level security', async () => {
+    const { port } = systemData(3);
+
+    const outcome = await new TestCheck(port, async () => same(0)).run();
+
+    expect(outcome.status).toBe('fail');
+  });
+
+  it('warns when a connection with the startup option cannot be opened (a pooler)', async () => {
+    const { port } = systemData(3);
+
+    const outcome = await new TestCheck(port, async () => {
+      throw new Error('unsupported startup parameter: options');
+    }).run();
+
+    expect(outcome.status).toBe('warn');
   });
 });
