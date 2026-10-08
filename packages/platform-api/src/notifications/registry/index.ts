@@ -30,7 +30,6 @@ export {
 export type {
   NotificationChannel,
   NotificationChannelDef,
-  NotificationChannelIds,
 } from './channel.registry';
 
 export {

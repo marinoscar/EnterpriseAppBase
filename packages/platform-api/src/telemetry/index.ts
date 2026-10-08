@@ -152,7 +152,6 @@ export type {
   MetricFilterKey,
   MetricGroup,
   MetricGroupDef,
-  MetricGroupIds,
   MetricPredicate,
   MetricRatio,
   MetricRef,
@@ -167,3 +166,32 @@ export type {
 
 // ---- the dashboard ------------------------------------------------------------------
 export { LOGS_TABLE, REQUIRED_LOG_COLUMNS, REQUIRED_TRACE_COLUMNS, TRACES_TABLE } from './dashboard/telemetry-dashboard.sql';
+
+// ---- `MetricGroupIds`: an augmentation target, declared here, never re-exported (#865) ----
+
+/**
+ * The augmentable set of group ids: the platform's six here; an app adds its
+ * own by module augmentation (the reference app: `app-registrations/telemetry.ts`):
+ *
+ * ```ts
+ * declare module '@marinoscar/platform-api/telemetry' {
+ *   interface MetricGroupIds { coach: true }
+ * }
+ * ```
+  *
+  * @stability stable
+ */
+export interface MetricGroupIds {
+  /** hostmetrics: CPU, memory, load, filesystems, disk and network IO. */
+  host: true;
+  /** The postgresql receiver: connections, size, commits, cache hits. */
+  database: true;
+  /** `app.jobs.*` and `app.backup.*`: depth, age, settle rate, duration. */
+  queue: true;
+  /** `app.nodes.*`: fleet health and per-node vitals. */
+  nodes: true;
+  /** httpcheck and nginx: status per URL, latency, TLS, edge traffic. */
+  uptime: true;
+  /** The collector's and GreptimeDB's own counters, and `up`. */
+  pipeline: true;
+}

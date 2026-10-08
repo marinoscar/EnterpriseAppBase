@@ -115,7 +115,7 @@ import { notificationEventRegistry } from './registry/event.registry';
 import type { NotificationChannel } from './registry/channel.registry';
 import type { NotificationEventDef } from './registry/event.registry';
 
-export type { NotificationChannel, NotificationChannelIds } from './registry/channel.registry';
+export type { NotificationChannel } from './registry/channel.registry';
 export type { NotificationEventDef } from './registry/event.registry';
 
 /**

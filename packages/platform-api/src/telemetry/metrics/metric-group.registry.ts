@@ -1,6 +1,7 @@
 import { defineRegistry, RegistryError, type Registry } from '../../core/index';
 import type { MetricFamily, MetricFilterKey, MetricRatio, MetricTableSpec } from './metric-catalog';
 import { METRIC_FILTER_COLUMNS, METRIC_UNITS } from './metric-catalog.helpers';
+import type { MetricGroupIds } from '../index';
 
 // =============================================================================
 // The metric-group registry (issue #680, epic #660)
@@ -64,32 +65,8 @@ export interface MetricGroupDef {
   tables?: readonly MetricTableSpec[];
 }
 
-/**
- * The augmentable set of group ids: the platform's six here; an app adds its
- * own by module augmentation (the reference app: `app-registrations/telemetry.ts`):
- *
- * ```ts
- * declare module '@marinoscar/platform-api/telemetry' {
- *   interface MetricGroupIds { coach: true }
- * }
- * ```
-  *
-  * @stability stable
- */
-export interface MetricGroupIds {
-  /** hostmetrics: CPU, memory, load, filesystems, disk and network IO. */
-  host: true;
-  /** The postgresql receiver: connections, size, commits, cache hits. */
-  database: true;
-  /** `app.jobs.*` and `app.backup.*`: depth, age, settle rate, duration. */
-  queue: true;
-  /** `app.nodes.*`: fleet health and per-node vitals. */
-  nodes: true;
-  /** httpcheck and nginx: status per URL, latency, TLS, edge traffic. */
-  uptime: true;
-  /** The collector's and GreptimeDB's own counters, and `up`. */
-  pipeline: true;
-}
+// `MetricGroupIds` is DECLARED in the slice's entry module (../index), so an app's
+// augmentation of the public specifier merges in any file order (#865).
 
 /**
  * A registered metric group id.

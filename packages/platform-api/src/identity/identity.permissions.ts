@@ -27,6 +27,7 @@ import type { PermissionDeclaration, PermissionDeclarationMap, PermissionScope, 
 import { ALLOWLIST_PERMISSIONS } from './allowlist/allowlist.permissions';
 import { ORGANIZATIONS_PERMISSIONS } from './organizations/organizations.permissions';
 import { USERS_PERMISSIONS } from './users/users.permissions';
+import type { IdentityPermissionIds, IdentityRoleIds } from './index';
 
 /**
  * What a role or a permission operates: core's `PermissionScope`.
@@ -194,30 +195,9 @@ export const ORG_ADMIN_ROLE = IDENTITY_ROLE_IDS.ORG_ADMIN;
 
 // ---- typed names, widened by the app ------------------------------------------------
 
-/**
- * The permission ids `@Auth({ permissions })` and `@Permissions(...)` accept.
- * Empty here; an app widens it by module augmentation so its own registry's ids
- * type-check (and a typo does not):
- *
- * ```ts
- * declare module '@marinoscar/platform-api/identity' {
- *   interface IdentityPermissionIds extends Record<PermissionName, true> {}
- * }
- * ```
- *
- * While nobody augments it, any string is accepted.
- *
- * @stability experimental
- */
-export interface IdentityPermissionIds {}
-
-/**
- * The role ids `@Auth({ roles })` and `@Roles(...)` accept; widened by the app
- * like {@link IdentityPermissionIds}.
- *
- * @stability experimental
- */
-export interface IdentityRoleIds {}
+// `IdentityPermissionIds` and `IdentityRoleIds` are DECLARED in the slice's
+// entry module (./index), so an app's augmentation of the public specifier
+// merges in any file order (#865).
 
 /**
  * A permission id: the app's set when it augmented {@link IdentityPermissionIds}, else any string.

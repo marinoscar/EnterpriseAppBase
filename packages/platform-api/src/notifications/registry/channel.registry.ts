@@ -32,6 +32,7 @@
 
 import { defineRegistry } from '../../core/index';
 import { NOTIFICATION_CHANNEL_ID_PATTERN as WIRE_CHANNEL_ID_PATTERN } from '@marinoscar/platform-contract/notifications';
+import type { NotificationChannelIds } from '../index';
 
 /**
  * One delivery channel, described for documentation and diagnostics.
@@ -66,32 +67,8 @@ export interface NotificationChannelDef {
   readonly coveredBy?: string;
 }
 
-/**
- * The channel ids the TYPE SYSTEM knows about, for editor completion.
- *
- * Module augmentation lets an app name its own ids in completions next to its
- * registration:
- *
- * ```ts
- * declare module '@marinoscar/platform-api/notifications' {
- *   interface NotificationChannelIds { android_app: true }
- * }
- * ```
- *
- * Since #738 the type is OPEN ({@link NotificationChannel} accepts any
- * string): the runtime registry is the only authority on which channels
- * exist, and an app's channel needs no augmentation to compile.
- *
- * @stability stable
- */
-export interface NotificationChannelIds {
-  /** The platform's email channel. */
-  email: true;
-  /** The in-app inbox and stream. */
-  browser: true;
-  /** Web Push. */
-  push: true;
-}
+// `NotificationChannelIds` is DECLARED in the slice's entry module (../index), so an app's
+// augmentation of the public specifier merges in any file order (#865).
 
 /**
  * A delivery channel id: one of the known ids (for completion), or any other

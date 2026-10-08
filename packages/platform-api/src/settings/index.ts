@@ -41,7 +41,7 @@ export type {
 // installed app's `getNamespace('notes')` loses its key. Declaring them in the
 // entry module makes every augmentation, the slices' and the app's, target the
 // same file directly; slices augment `'../settings/index'`, never a deeper path.
-// `packages/platform-api/test/settings/namespace-augmentation.spec.ts` proves it
+// `packages/platform-api/test/augmentation-targets.spec.ts` proves it
 // against the built declarations, in both file orders.
 
 /**
