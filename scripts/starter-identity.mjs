@@ -31,8 +31,16 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const STARTER_DIR = join(REPO_ROOT, 'starter');
 export const IDENTITY_FILE = 'packages/shared/identity.json';
 
-/** The platform repository, which an app's docs link to (package READMEs, the seam-request template). */
-export const PLATFORM_REPO_URL = 'https://github.com/marinoscar/EnterpriseAppBase';
+/**
+ * The platform repository, which an app's docs link to (package READMEs, the
+ * seam-request template): the `repository.url` the published packages carry.
+ */
+export const PLATFORM_REPO_URL = (() => {
+  const manifest = JSON.parse(readFileSync(join(REPO_ROOT, 'packages', 'platform-api', 'package.json'), 'utf8'));
+  const match = /github\.com[/:]([\w.-]+\/[\w.-]+?)(?:\.git)?$/.exec(manifest.repository?.url ?? '');
+  if (!match) throw new Error('starter-identity: packages/platform-api/package.json has no GitHub repository.url');
+  return `https://github.com/${match[1]}`;
+})();
 
 const SKIP_DIRS = new Set(['node_modules', 'dist', 'coverage', '.git']);
 const BINARY = /\.(png|ico|jpg|jpeg|gif|woff2?|ttf|pdf|zip|tgz)$/i;
