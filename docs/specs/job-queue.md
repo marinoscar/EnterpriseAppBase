@@ -481,7 +481,7 @@ All routes are `@Auth({ roles: [ROLES.ADMIN], permissions: [...] })` in `job-adm
 
 ### Notifications raised
 
-- **`jobs.job_failed`** — raised when a job exhausts its budget, addressed to holders of `jobs:read`, by a listener on `job.settled` (`apps/api/src/notifications/ops/job-failure-notifier.ts`). `JobsModule` has no dependency on notifications. A retry or deferral raises nothing. See [browser-notifications.md](browser-notifications.md).
+- **`jobs.job_failed`** — raised when a job exhausts its budget, addressed to holders of `jobs:read`, by a listener on `job.settled` (`packages/platform-api/src/notifications/ops/job-failure-notifier.ts`). `JobsModule` has no dependency on notifications. A retry or deferral raises nothing. See [browser-notifications.md](browser-notifications.md).
 - `BroadcastFailureListener` (`notifications/broadcasts/broadcast-failure.listener.ts`) and `NodeSecretRevoker` (`nodes/ops/node-secret-revoker.ts`) are other `job.settled` listeners: the first marks a broadcast `failed` when its start or chunk job fails permanently ([notification-broadcasts.md](notification-broadcasts.md)); the second revokes a node's per-job secret on settle.
 
 ## 3. Configuration and permissions
