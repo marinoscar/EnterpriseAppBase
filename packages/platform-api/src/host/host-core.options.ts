@@ -47,7 +47,6 @@ export interface ResolvedPlatformHostCoreOptions {
 /**
  * Injection token of {@link ResolvedPlatformHostCoreOptions}.
  *
- * @extensionPoint token
  * @stability experimental
  */
 export const PLATFORM_HOST_CORE_OPTIONS: unique symbol = Symbol.for('@marinoscar/platform/host/OPTIONS');

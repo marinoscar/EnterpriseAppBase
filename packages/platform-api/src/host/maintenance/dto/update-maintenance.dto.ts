@@ -1,6 +1,6 @@
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
-import { systemMaintenanceSchema } from '../maintenance.schemas';
+import { systemMaintenanceSchema, type HostEnum } from '../maintenance.schemas';
 
 // =============================================================================
 // Wire bodies for /api/admin/maintenance (#257, epic #254)
@@ -28,7 +28,7 @@ import { systemMaintenanceSchema } from '../maintenance.schemas';
  * @stability experimental
  */
 export const updateMaintenanceSchema = z.object({
-  /** The only required field: this endpoint exists to answer on-or-off. */
+  /** Open or close the window. The only required field: this endpoint exists to answer on-or-off. */
   enabled: systemMaintenanceSchema.shape.enabled,
   /**
    * Optional: omitting it keeps whatever message is stored, so an operator can
@@ -72,29 +72,48 @@ export class UpdateMaintenanceDto extends createZodDto(
  * @stability experimental
  */
 export const maintenanceStatusSchema = z.object({
+  /** The resolved answer the guard acts on. */
   enabled: z.boolean(),
+  /** The copy a blocked caller is shown. */
   message: z.string(),
+  /** Whether an admin bearer keeps access while the window is open. */
   allowAdmins: z.boolean(),
+  /** When the persisted window was opened, or `null`. */
   startedAt: z.string().nullable(),
+  /** Who opened the persisted window, or `null`. */
   startedById: z.string().nullable(),
-  source: z.enum(['env', 'memory', 'persisted']),
+  /** Which layer decided `enabled`. */
+  source: z.enum(['env', 'memory', 'persisted']) as z.ZodEnum<HostEnum<['env', 'memory', 'persisted']>>,
+  /** Every contributing layer, separately. */
   layers: z.object({
+    /** The `MAINTENANCE_MODE` layer. */
     env: z.object({
+      /** Whether the variable holds one of the two literals. */
       present: z.boolean(),
+      /** The forced value, or `null`. */
       enabled: z.boolean().nullable(),
     }),
+    /** The in-process override layer. */
     memory: z.object({
+      /** Whether an override is installed. */
       present: z.boolean(),
+      /** The override, or `null`. */
       override: z
         .object({
+          /** Whether the window is open. */
           enabled: z.boolean(),
+          /** The banner copy, when the override sets one. */
           message: z.string().optional(),
+          /** Whether admins keep access, when the override says. */
           allowAdmins: z.boolean().optional(),
         })
         .nullable(),
     }),
+    /** The persisted `maintenance` namespace layer. */
     persisted: z.object({
+      /** Whether the row could be read. */
       readable: z.boolean(),
+      /** The value read, or the last known one. */
       value: systemMaintenanceSchema,
     }),
   }),

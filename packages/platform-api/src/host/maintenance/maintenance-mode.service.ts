@@ -125,17 +125,61 @@ export interface MaintenanceStatus {
   /** Which layer decided `enabled`. */
   source: MaintenanceSource;
   /** Every contributing layer, separately. */
-  layers: {
-    /** `enabled: null` means the variable is unset or not one of the two literals. */
-    env: { present: boolean; enabled: boolean | null };
-    memory: { present: boolean; override: MaintenanceOverride | null };
-    /**
-     * `readable: false` means the row could not be read at all (the swap
-     * window, or a database outage) and `value` is the last known state, or
-     * the seeded defaults if nothing was ever read.
-     */
-    persisted: { readable: boolean; value: SystemMaintenanceValue };
-  };
+  layers: MaintenanceLayers;
+}
+
+/**
+ * Every layer of {@link MaintenanceStatus}, separately.
+ *
+ * @stability experimental
+ */
+export interface MaintenanceLayers {
+  /** `enabled: null` means the variable is unset or not one of the two literals. */
+  env: MaintenanceEnvLayer;
+  /** The in-process override. */
+  memory: MaintenanceMemoryLayer;
+  /**
+   * `readable: false` means the row could not be read at all (the swap
+   * window, or a database outage) and `value` is the last known state, or
+   * the seeded defaults if nothing was ever read.
+   */
+  persisted: MaintenancePersistedLayer;
+}
+
+/**
+ * The `MAINTENANCE_MODE` layer.
+ *
+ * @stability experimental
+ */
+export interface MaintenanceEnvLayer {
+  /** Whether the variable holds one of the two literals. */
+  present: boolean;
+  /** The forced value, or `null`. */
+  enabled: boolean | null;
+}
+
+/**
+ * The in-process override layer.
+ *
+ * @stability experimental
+ */
+export interface MaintenanceMemoryLayer {
+  /** Whether an override is installed. */
+  present: boolean;
+  /** The override, or `null`. */
+  override: MaintenanceOverride | null;
+}
+
+/**
+ * The persisted `maintenance` namespace layer.
+ *
+ * @stability experimental
+ */
+export interface MaintenancePersistedLayer {
+  /** Whether the row could be read. */
+  readable: boolean;
+  /** The value read, or the last known one. */
+  value: SystemMaintenanceValue;
 }
 
 /**

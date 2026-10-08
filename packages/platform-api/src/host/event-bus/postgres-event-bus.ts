@@ -111,6 +111,16 @@ export interface EventBusSqlPublisher {
 }
 
 /**
+ * What one listener statement resolves to.
+ *
+ * @stability experimental
+ */
+export interface EventBusListenerQueryResult {
+  /** The result rows. */
+  rows: Array<Record<string, unknown>>;
+}
+
+/**
  * The slice of `pg.Client` the listener uses; a test substitutes a fake.
  *
  * @stability experimental
@@ -119,12 +129,14 @@ export interface EventBusListenerClient {
   /** Opens the session. */
   connect(): Promise<unknown>;
   /** Runs one statement (`LISTEN`, `SELECT pg_backend_pid()`). */
-  query(text: string): Promise<{ rows: Array<Record<string, unknown>> }>;
+  query(text: string): Promise<EventBusListenerQueryResult>;
   /** Closes the session. */
   end(): Promise<unknown>;
-  /** Subscribes to a session event. */
+  /** Subscribes to the session's notifications. */
   on(event: 'notification', listener: (message: Notification) => void): unknown;
+  /** Subscribes to the session's errors. */
   on(event: 'error', listener: (error: Error) => void): unknown;
+  /** Subscribes to the session's end. */
   on(event: 'end', listener: () => void): unknown;
   /** Drops the notification listeners before the session is replaced. */
   removeAllListeners(event: 'notification'): unknown;

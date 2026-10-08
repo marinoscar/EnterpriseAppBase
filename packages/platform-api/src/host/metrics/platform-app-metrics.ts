@@ -77,14 +77,7 @@ const AI_REQUEST_ATTRIBUTES = {
   feature: free,
 };
 
-/**
- * The platform's `app.*` metrics: the queue, backups, sign-in, AI,
- * notifications and the node fleet, in declaration order. Registered (with the
- * event bus's three) by {@link registerPlatformHostAppMetrics}.
- *
- * @stability experimental
- */
-export const PLATFORM_APP_METRICS = [
+const PLATFORM_APP_METRIC_DEFS = [
   // ---- Jobs ----
   {
     key: 'jobsEnqueued',
@@ -210,8 +203,49 @@ export const PLATFORM_APP_METRICS = [
 ] as const satisfies readonly AppMetricDef[];
 
 /**
- * A platform metric's code key.
+ * A platform metric's code key: the queue's, the backups' (declared by the
+ * db-backup slice), sign-in's, AI's, notifications' and the node fleet's
+ * (declared by the nodes slice).
  *
  * @stability experimental
  */
-export type PlatformAppMetricKey = (typeof PLATFORM_APP_METRICS)[number]['key'];
+export type PlatformAppMetricKey =
+  | 'jobsEnqueued'
+  | 'jobsClaimed'
+  | 'jobsSettled'
+  | 'jobsDuration'
+  | 'jobsReaped'
+  | 'jobsQueueDepth'
+  | 'jobsOldestPendingAge'
+  | (typeof DB_BACKUP_APP_METRICS)[number]['key']
+  | 'authLogins'
+  | 'authRefreshes'
+  | 'aiRequests'
+  | 'aiTokens'
+  | 'aiDuration'
+  | 'notificationDeliveries'
+  | (typeof NODES_APP_METRICS)[number]['key'];
+
+/**
+ * One of the platform's metric declarations.
+ *
+ * @stability experimental
+ */
+export interface PlatformAppMetricDef extends AppMetricDef {
+  /** The metric's code key. */
+  readonly key: PlatformAppMetricKey;
+}
+
+/**
+ * The platform's `app.*` metrics: the queue, backups, sign-in, AI,
+ * notifications and the node fleet, in declaration order. Registered (with the
+ * event bus's three) by {@link registerPlatformHostAppMetrics}.
+ *
+ * @stability experimental
+ */
+export const PLATFORM_APP_METRICS: readonly PlatformAppMetricDef[] = PLATFORM_APP_METRIC_DEFS;
+
+// Compile-time completeness: every key of the union is declared above.
+type MissingPlatformKey = Exclude<PlatformAppMetricKey, (typeof PLATFORM_APP_METRIC_DEFS)[number]['key']>;
+const platformKeysComplete: [MissingPlatformKey] extends [never] ? true : never = true;
+void platformKeysComplete;

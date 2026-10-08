@@ -1,4 +1,4 @@
-import type { AppMetricDef } from '../../otel-core/index';
+import type { AppMetricAttribute, AppMetricDef } from '../../otel-core/index';
 import type { EventBusAdapterName } from './event-bus.interface';
 
 // =============================================================================
@@ -28,14 +28,31 @@ export type EventBusPublishOutcome =
   /** `postgres` only: delivered locally, but the NOTIFY failed, so other replicas miss it. */
   | 'notify_failed';
 
-const ADAPTER = { kind: 'enum', values: ['in-process', 'postgres'] } as const;
+const ADAPTER: AppMetricAttribute = { kind: 'enum', values: ['in-process', 'postgres'] };
+
+/**
+ * An event bus metric's code key.
+ *
+ * @stability experimental
+ */
+export type EventBusAppMetricKey = 'eventBusPublished' | 'eventBusDelivered' | 'eventBusReconnects';
+
+/**
+ * One of the event bus's metric declarations.
+ *
+ * @stability experimental
+ */
+export interface EventBusAppMetricDef extends AppMetricDef {
+  /** The metric's code key. */
+  readonly key: EventBusAppMetricKey;
+}
 
 /**
  * The bus's three `app.event_bus.*` counters, registered with the platform's metrics.
  *
  * @stability experimental
  */
-export const EVENT_BUS_APP_METRICS = [
+export const EVENT_BUS_APP_METRICS: readonly EventBusAppMetricDef[] = [
   {
     key: 'eventBusPublished',
     name: 'app.event_bus.published',
@@ -69,7 +86,7 @@ export const EVENT_BUS_APP_METRICS = [
     description: 'Listener reconnects the event bus scheduled after losing its session, by adapter.',
     attributes: { adapter: ADAPTER },
   },
-] as const satisfies readonly AppMetricDef[];
+];
 
 /**
  * What an adapter reports. Every method is fire and forget and never throws.

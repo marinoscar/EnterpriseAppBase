@@ -33,7 +33,7 @@ export { exceedsEventBusPayloadLimit } from './event-bus/event-bus-core';
 export { DEFAULT_EVENT_BUS_ADAPTER, EVENT_BUS_SELECTION, parseEventBusAdapter } from './event-bus/event-bus.config';
 export type { EventBusSelection } from './event-bus/event-bus.config';
 export { EVENT_BUS_APP_METRICS, NOOP_EVENT_BUS_METRICS, eventBusMetricsVia } from './event-bus/event-bus.metrics';
-export type { EventBusMetrics, EventBusPublishOutcome } from './event-bus/event-bus.metrics';
+export type { EventBusAppMetricDef, EventBusAppMetricKey, EventBusMetrics, EventBusPublishOutcome } from './event-bus/event-bus.metrics';
 export { InProcessEventBus } from './event-bus/in-process-event-bus';
 export {
   DEFAULT_INITIAL_BACKOFF_MS,
@@ -45,6 +45,7 @@ export {
 } from './event-bus/postgres-event-bus';
 export type {
   EventBusListenerClient,
+  EventBusListenerQueryResult,
   EventBusSqlPublisher,
   PostgresEventBusOptions,
 } from './event-bus/postgres-event-bus';
@@ -60,7 +61,12 @@ export {
 export type {
   AiUsageMetric,
   AppMetricKey,
+  AppMetricsFindFirstDelegate,
   AppMetricsGaugeClient,
+  AppMetricsGroupByDelegate,
+  GaugeBackupLastSuccess,
+  GaugeDepthRow,
+  GaugeOldestPendingRow,
   AppMetricsOptions,
   AuthLoginOutcome,
   AuthRefreshOutcome,
@@ -71,7 +77,7 @@ export type {
   NotificationDeliveryOutcome,
 } from './metrics/app-metrics.service';
 export { PLATFORM_APP_METRICS } from './metrics/platform-app-metrics';
-export type { PlatformAppMetricKey } from './metrics/platform-app-metrics';
+export type { PlatformAppMetricDef, PlatformAppMetricKey } from './metrics/platform-app-metrics';
 export { registerPlatformHostAppMetrics } from './metrics/register';
 
 // ---- Maintenance mode (#257) --------------------------------------------------
@@ -84,6 +90,10 @@ export {
   MaintenanceModeService,
 } from './maintenance/maintenance-mode.service';
 export type {
+  MaintenanceEnvLayer,
+  MaintenanceLayers,
+  MaintenanceMemoryLayer,
+  MaintenancePersistedLayer,
   MaintenanceOverride,
   MaintenanceSource,
   MaintenanceStatus,
@@ -110,7 +120,7 @@ export {
   systemMaintenancePatchSchema,
   systemMaintenanceSchema,
 } from './maintenance/maintenance.schemas';
-export type { SystemMaintenanceValue } from './maintenance/maintenance.schemas';
+export type { HostEnum, SystemMaintenanceValue } from './maintenance/maintenance.schemas';
 
 // ---- The HTTP layer: envelope, request log line, request ids -----------------
 export { TransformInterceptor } from './http/transform.interceptor';
@@ -140,7 +150,7 @@ export {
   registerDocsRoutesOrDegrade,
   registerPlatformDocs,
 } from './openapi/register-docs-routes';
-export type { DocsHostApplication, DocsLogger, DocsRoutesOptions } from './openapi/register-docs-routes';
+export type { DocsHostApplication, DocsHttpAdapter, DocsHttpServer, DocsLogger, DocsRoutesOptions } from './openapi/register-docs-routes';
 export {
   DEFAULT_SCALAR_CDN,
   SESSION_SECURITY_SCHEME,

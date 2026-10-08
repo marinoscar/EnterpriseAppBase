@@ -48,8 +48,28 @@ export interface DocsRoutesOptions {
  */
 export type DocsHostApplication = INestApplication & {
   /** The HTTP adapter; its instance is the Fastify server. */
-  getHttpAdapter(): { getInstance(): { get(path: string, handler: (request: FastifyRequest, reply: FastifyReply) => unknown): unknown } };
+  getHttpAdapter(): DocsHttpAdapter;
 };
+
+/**
+ * The HTTP adapter of a {@link DocsHostApplication}.
+ *
+ * @stability experimental
+ */
+export interface DocsHttpAdapter {
+  /** The underlying server. */
+  getInstance(): DocsHttpServer;
+}
+
+/**
+ * The slice of the Fastify instance the docs routes use.
+ *
+ * @stability experimental
+ */
+export interface DocsHttpServer {
+  /** Registers a GET route. */
+  get(path: string, handler: (request: FastifyRequest, reply: FastifyReply) => unknown): unknown;
+}
 
 /**
  * Machine-readable code on the degraded JSON response.

@@ -27,7 +27,6 @@ export const DEFAULT_EVENT_BUS_ADAPTER: EventBusAdapterName = 'in-process';
 /**
  * DI token for the parsed selection, read by the bus factory and the Doctor check.
  *
- * @extensionPoint token
  * @stability experimental
  */
 export const EVENT_BUS_SELECTION: unique symbol = Symbol.for('@marinoscar/platform/EVENT_BUS_SELECTION');

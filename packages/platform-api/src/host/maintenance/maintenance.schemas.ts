@@ -18,6 +18,16 @@
 import { z } from 'zod';
 
 /**
+ * The entries of a zod enum built from a value list (`{ env: 'env', ... }`):
+ * a schema casts `z.enum(list)` to `z.ZodEnum<HostEnum<typeof list>>` so its
+ * declaration names the list instead of spelling every entry.
+ *
+ * @typeParam T - the value list.
+ * @stability experimental
+ */
+export type HostEnum<T extends readonly string[]> = { [K in T[number]]: K };
+
+/**
  * The maintenance banner's default text. Names no product, so a fork renaming
  * itself has nothing to find here.
  *
@@ -36,10 +46,15 @@ export const DEFAULT_MAINTENANCE_MESSAGE =
  * @stability experimental
  */
 export const systemMaintenanceSchema = z.object({
+  /** Whether the window is open. */
   enabled: z.boolean(),
+  /** The copy a blocked caller is shown. */
   message: z.string().min(1).max(1000),
+  /** Whether an admin session keeps access during the window. */
   allowAdmins: z.boolean(),
+  /** When the window was opened (ISO 8601), or `null`. */
   startedAt: z.iso.datetime().nullable(),
+  /** Who opened the window, or `null`. */
   startedById: z.string().uuid().nullable(),
 });
 
@@ -56,10 +71,15 @@ export type SystemMaintenanceValue = z.infer<typeof systemMaintenanceSchema>;
  * @stability experimental
  */
 export const systemMaintenancePatchSchema = z.object({
+  /** Whether the window is open. */
   enabled: z.boolean().optional(),
+  /** The copy a blocked caller is shown. */
   message: z.string().min(1).max(1000).optional(),
+  /** Whether an admin session keeps access during the window. */
   allowAdmins: z.boolean().optional(),
+  /** When the window was opened (ISO 8601), or `null`. */
   startedAt: z.iso.datetime().nullable().optional(),
+  /** Who opened the window, or `null`. */
   startedById: z.string().uuid().nullable().optional(),
 });
 
@@ -69,10 +89,15 @@ export const systemMaintenancePatchSchema = z.object({
  * @stability experimental
  */
 export const maintenanceSettingsSchema = z.object({
+  /** Whether the window is open. */
   enabled: z.boolean(),
+  /** The copy a blocked caller is shown. */
   message: z.string().min(1).max(1000),
+  /** Whether an admin session keeps access during the window. */
   allowAdmins: z.boolean(),
+  /** When the window was opened (ISO 8601), or `null`. */
   startedAt: z.iso.datetime().nullable(),
+  /** Who opened the window, or `null`. */
   startedById: z.string().uuid().nullable(),
 });
 
@@ -82,10 +107,15 @@ export const maintenanceSettingsSchema = z.object({
  * @stability experimental
  */
 export const maintenanceSettingsPatchSchema = z.object({
+  /** Whether the window is open. */
   enabled: z.boolean().optional(),
+  /** The copy a blocked caller is shown. */
   message: z.string().min(1).max(1000).optional(),
+  /** Whether an admin session keeps access during the window. */
   allowAdmins: z.boolean().optional(),
+  /** When the window was opened (ISO 8601), or `null`. */
   startedAt: z.iso.datetime().nullable().optional(),
+  /** Who opened the window, or `null`. */
   startedById: z.string().uuid().nullable().optional(),
 });
 
@@ -96,9 +126,14 @@ export const maintenanceSettingsPatchSchema = z.object({
  * @stability experimental
  */
 export const maintenanceResponseSchema = z.object({
+  /** Whether the window is open. */
   enabled: z.boolean(),
+  /** The copy a blocked caller is shown. */
   message: z.string(),
+  /** Whether an admin session keeps access during the window. */
   allowAdmins: z.boolean(),
+  /** When the window was opened (ISO 8601), or `null`. */
   startedAt: z.string().nullable(),
+  /** Who opened the window, or `null`. */
   startedById: z.string().nullable(),
 });

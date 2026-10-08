@@ -38,7 +38,9 @@ import { DocOperation, MutableDocument, forEachOperation } from './types';
  * @stability experimental
  */
 export const SECURITY_SCHEMES = {
+  /** The session access token scheme, named by `@Auth()`. */
   JWT_AUTH: 'JWT-auth',
+  /** The personal access token scheme. */
   PAT_AUTH: 'PAT-auth',
 } as const;
 

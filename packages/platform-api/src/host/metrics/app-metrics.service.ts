@@ -172,9 +172,67 @@ export const GAUGE_CACHE_TTL_MS = 30_000;
  */
 export interface AppMetricsGaugeClient {
   /** The `jobs` delegate: two `groupBy` aggregates. */
-  job: { groupBy(args: unknown): PromiseLike<unknown> };
+  job: AppMetricsGroupByDelegate;
   /** The `database_backup_runs` delegate, absent when the app has no db-backup fragment. */
-  databaseBackupRun?: { findFirst(args: unknown): PromiseLike<unknown> };
+  databaseBackupRun?: AppMetricsFindFirstDelegate;
+}
+
+/**
+ * A model delegate's `groupBy`, as the gauges call it.
+ *
+ * @stability experimental
+ */
+export interface AppMetricsGroupByDelegate {
+  /** Prisma's `groupBy`; the result rows are read structurally. */
+  groupBy(args: unknown): PromiseLike<unknown>;
+}
+
+/**
+ * A model delegate's `findFirst`, as the gauges call it.
+ *
+ * @stability experimental
+ */
+export interface AppMetricsFindFirstDelegate {
+  /** Prisma's `findFirst`; the row is read structurally. */
+  findFirst(args: unknown): PromiseLike<unknown>;
+}
+
+/**
+ * One queue-depth row of a {@link GaugeSnapshot}.
+ *
+ * @stability experimental
+ */
+export interface GaugeDepthRow {
+  /** The (bounded) job type. */
+  type: string;
+  /** `pending` or `running`. */
+  status: string;
+  /** How many jobs. */
+  count: number;
+}
+
+/**
+ * One oldest-pending row of a {@link GaugeSnapshot}.
+ *
+ * @stability experimental
+ */
+export interface GaugeOldestPendingRow {
+  /** The (bounded) job type. */
+  type: string;
+  /** Age of the oldest runnable pending job of that type. */
+  ageSeconds: number;
+}
+
+/**
+ * The newest completed backup, as a {@link GaugeSnapshot} reports it.
+ *
+ * @stability experimental
+ */
+export interface GaugeBackupLastSuccess {
+  /** When it finished (unix seconds). */
+  finishedAtSeconds: number;
+  /** Its archive size. */
+  sizeBytes: number;
 }
 
 // ---- Enumerated attribute values (declared in `platform-app-metrics.ts`) ----
@@ -273,11 +331,11 @@ export interface AiUsageMetric {
  */
 export interface GaugeSnapshot {
   /** Live jobs by type and status. */
-  depth: Array<{ type: string; status: string; count: number }>;
+  depth: GaugeDepthRow[];
   /** The oldest runnable pending job's age, per type. */
-  oldestPendingAgeSeconds: Array<{ type: string; ageSeconds: number }>;
+  oldestPendingAgeSeconds: GaugeOldestPendingRow[];
   /** The newest completed backup, or `null`. */
-  backupLastSuccess: { finishedAtSeconds: number; sizeBytes: number } | null;
+  backupLastSuccess: GaugeBackupLastSuccess | null;
 }
 
 /**
