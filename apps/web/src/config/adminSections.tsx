@@ -59,6 +59,8 @@ import { dbBackupAdminSections } from '@marinoscar/platform-web/db-backup/ui';
 import { jobsAdminSections } from '@marinoscar/platform-web/jobs/ui';
 // Setup guide (#745; a packaged page: card and icon from its descriptor).
 import { setupGuideSettingsPage } from '@marinoscar/platform-web/onboarding/ui';
+// Android app (#746; a packaged page: card and icon from its descriptor).
+import { androidAppSettingsPage } from '@marinoscar/platform-web/android-app/ui';
 
 // The card and section TYPES and the helpers every surface runs over this
 // registry (`visibleSettingsSections`, `settingsPageTitle`, `isFeatureEnabled`)
@@ -212,6 +214,13 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
       // serves the activation metrics; its Activation section is a section of
       // the page, not a card or a tab.
       { ...setupGuideSettingsPage.card, Icon: setupGuideSettingsPage.Icon },
+      // Issue #746. APPENDED to General after Setup guide (EvoPath's place):
+      // which Android app builds the deployment trusts, and the APKs it
+      // hosts, are configuration an administrator sets. `system_settings:read`
+      // is the exact string `GET /api/admin/android-app`
+      // (`@marinoscar/platform-api/android-app`) enforces; every write is
+      // gated inside the page on `system_settings:write`. No `feature`.
+      { ...androidAppSettingsPage.card, Icon: androidAppSettingsPage.Icon },
     ],
   },
   {

@@ -191,6 +191,10 @@ const DataExportPage = lazy(() =>
 const GettingStartedPage = lazy(() =>
   import('@marinoscar/platform-web/onboarding/ui').then((m) => ({ default: m.GettingStartedPage })),
 );
+// Android app (#746): the packaged admin page.
+const AndroidAppPage = lazy(() =>
+  import('@marinoscar/platform-web/android-app/ui').then((m) => ({ default: m.AndroidAppPage })),
+);
 
 // Test login page (development only)
 const TestLoginPage = import.meta.env.PROD
@@ -1006,6 +1010,23 @@ function AppRoutes() {
                       the caller's own data (`user_settings:read`, which every
                       role holds); an org admin also sees `org-data`. */}
                   <Route path="/settings/data-export" element={<DataExportPage />} />
+                  {/* Issue #746. The `Android app` card's route:
+                      `system_settings:read`, the string
+                      `GET /api/admin/android-app` enforces (the packaged
+                      descriptor `androidAppSettingsPage.card`, written as
+                      literals because the registry tests read this file).
+                      Writes are gated inside the page. */}
+                  <Route
+                    path="/admin/settings/android"
+                    element={
+                      <RequirePermission
+                        permission="system_settings:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <AndroidAppPage />
+                      </RequirePermission>
+                    }
+                  />
                 </Route>
               </Route>
 

@@ -2,6 +2,8 @@ import { Box, useMediaQuery, useTheme } from '@mui/material';
 import { Outlet } from 'react-router-dom';
 import { AppBar } from '../navigation/AppBar';
 import { MaintenanceBanner } from './MaintenanceBanner';
+import { AndroidUpdateBanner } from '@marinoscar/platform-web/android-app/ui';
+import { ANDROID_TWA_KEY_PREFIX } from '../../config/androidApp';
 import { NotificationPermissionBanner } from '@marinoscar/platform-web/notifications/ui';
 import { usePushSubscriptionSync } from '@marinoscar/platform-web/notifications/headless';
 import { NavigationRail } from '../navigation/NavigationRail';
@@ -117,6 +119,11 @@ export function Layout() {
               for anyone without `system_settings:read` and whenever no window
               is open, which is every viewer on every ordinary day. */}
           <MaintenanceBanner />
+          {/* Issue #746. Only inside the Android app's Trusted Web Activity,
+              and only when the installed build is older than the hosted
+              release. Renders nothing, and requests nothing, in an ordinary
+              browser tab. */}
+          <AndroidUpdateBanner keyPrefix={ANDROID_TWA_KEY_PREFIX} />
           {/* Issue #365. Fed by the shell's single `usePushSubscriptionSync`
               mount above; renders nothing unless this device still needs to
               allow (or unblock, or install for) notifications. */}
