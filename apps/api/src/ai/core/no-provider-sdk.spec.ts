@@ -8,8 +8,12 @@ import { join, relative } from 'node:path';
 
 const CORE_DIR = __dirname;
 
-/** Bare module specifiers `ai/core` may import. Everything else must be relative. */
-const ALLOWED_PACKAGES = new Set(['zod', '@nestjs/common']);
+/**
+ * Bare module specifiers `ai/core` may import. Everything else must be relative.
+ * `@marinoscar/platform-api/jobs` is the queue's public subpath since #734
+ * (`ai-error.ts` reads `RateLimitError` from it, as it read `../../jobs/` before).
+ */
+const ALLOWED_PACKAGES = new Set(['zod', '@nestjs/common', '@marinoscar/platform-api/jobs']);
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((entry) => {
