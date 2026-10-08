@@ -97,6 +97,10 @@ const MIGRATIONS_AT_288 = [
   '20261008000859_add_grants',
   '20261008012052_add_org_settings',
   '20261008041856_add_org_credentials',
+  // #734 (PP-8.2): org_id on jobs and its (org_id, status) index. About job
+  // tenancy, not the operational notification events.
+  '20261008052119_add_jobs_org_id',
+  '20261008052120_add_jobs_org_id_status_index',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

@@ -292,6 +292,25 @@ model Job {
   // never a key, never indexed, never read by the claim query's WHERE.
   traceContext String? @map("trace_context")
 
+  // The organization the work belongs to (issue #734), or NULL for a
+  // deployment-wide (system) job: housekeeping, fleet sweeps, backups. Written
+  // once at enqueue (`EnqueueJobInput.orgId`, else the app's ambient scope);
+  // never updated. `SetNull`: deleting an organization keeps its job history
+  // (offboarding cancels the org's pending jobs explicitly first, #743).
+  //
+  // ⚠ NO ROW-LEVEL SECURITY ON `jobs`, deliberately. The claim is ONE
+  // cross-organization statement (`FOR UPDATE SKIP LOCKED` over the whole
+  // queue, `job-claim.service.ts`), and a per-org policy would need the bypass
+  // connection for every claim, renewal and settle. Isolation is enforced at
+  // the API: the admin routes are system routes (`jobs:read` / `jobs:write`).
+  // A handler that touches an org table runs under `JobScope.run(job, fn)`.
+  //
+  // ⚠ NOT PART OF THE DEDUP KEY. `jobs_active_dedup_uniq_idx` is unchanged; an
+  // org-scoped job with no natural subject uses `subjectType: 'organization',
+  // subjectId: orgId`, so two organizations never collide.
+  orgId String?       @map("org_id") @db.Uuid
+  org   Organization? @relation(fields: [orgId], references: [id], onDelete: SetNull)
+
   // See the block comment above ("Prisma-expressible indexes...") for why
   // these eight are declared here and three more exist only in
   // migration.sql.
@@ -315,6 +334,10 @@ model Job {
   // this index — status, type and id are all it needs to project — so
   // Postgres never has to visit the heap for them (index-only scan).
   @@index([status, type, id])
+  // "This organization's jobs by status" (the admin list's `orgId` filter,
+  // offboarding's pending-job cancel; #734). Built CONCURRENTLY in a migration
+  // of its own (`0032_add_jobs_org_id_status_index`): `jobs` is a big table.
+  @@index([orgId, status])
   @@map("jobs")
 }
 
@@ -728,4 +751,9 @@ model JobNodeSecret {
 extend model User {
   workerNodes            WorkerNode[]            @relation("UserWorkerNodes")
   nodeCredentials        NodeCredential[]        @relation("UserNodeCredentials")
+}
+
+extend model Organization {
+  // The organization's jobs (issue #734): see `Job.orgId` for why `SetNull`.
+  jobs Job[]
 }
