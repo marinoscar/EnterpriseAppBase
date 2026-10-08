@@ -27,10 +27,13 @@ export {
   PUSH_TEST_SEND_STATUSES,
   REMOVE_CONFIRMATION,
   ROTATE_CONFIRMATION,
+  PUSH_SUBSCRIPTION_PLATFORMS,
+  ANDROID_APP_NOTIFICATION_CHANNEL_ID,
 } from './constants.js';
 export type {
   BroadcastStatusName,
   PlatformNotificationChannelId,
+  PushSubscriptionPlatform,
   PushTestConfigSource,
   PushTestOverall,
   PushTestSendStatus,

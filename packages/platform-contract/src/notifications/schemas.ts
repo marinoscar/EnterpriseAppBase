@@ -37,6 +37,7 @@ import {
   PUSH_TEST_SEND_STATUSES,
   REMOVE_CONFIRMATION,
   ROTATE_CONFIRMATION,
+  PUSH_SUBSCRIPTION_PLATFORMS,
 } from './constants.js';
 import type { BroadcastStatusName, PushTestConfigSource, PushTestOverall, PushTestSendStatus } from './constants.js';
 
@@ -460,6 +461,13 @@ export const pushSubscribeSchema = z.object({
   }),
   /** When the browser says it expires (epoch ms), or null. */
   expirationTime: z.number().nullable().optional(),
+  /**
+   * The surface subscribing (#746): `browser` (default) or `android_app` (the
+   * Android companion). An `android_app` post re-tags an existing `browser`
+   * row of the same endpoint; a `browser` post never downgrades an
+   * `android_app` row.
+   */
+  platform: z.enum(PUSH_SUBSCRIPTION_PLATFORMS).optional(),
 });
 
 /**
@@ -479,6 +487,8 @@ export const pushSubscriptionResponseSchema = z.object({
   id: z.uuid(),
   /** The registered endpoint. */
   endpoint: z.string(),
+  /** The stored platform (#746): what the row is tagged after this call. */
+  platform: z.enum(PUSH_SUBSCRIPTION_PLATFORMS),
   /** Creation time (ISO 8601). */
   createdAt: z.iso.datetime(),
 });

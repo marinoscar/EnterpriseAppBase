@@ -1,0 +1,72 @@
+// `@marinoscar/platform-contract/android-app`: the Android companion slice's
+// wire shapes (issue #746, PP-9.4): the trusted apps and assetlinks, the APK
+// releases and their download links, and the Android test notification.
+// Documented in ./README.md. Explicit named exports only. constants.ts is
+// zod-free.
+
+export {
+  ANDROID_APP_ADMIN_PATH,
+  ANDROID_APP_SETTINGS_KEY,
+  ANDROID_APP_SETTINGS_PATH,
+  ANDROID_APP_TEST_REASONS,
+  ANDROID_APP_TEST_STATUSES,
+  ANDROID_PACKAGE_NAME_PATTERN,
+  ANDROID_RELEASES_KEY_PREFIX,
+  ANDROID_RELEASE_REASONS,
+  APK_FILE_FIELD,
+  APK_MIME_TYPE,
+  ASSET_LINKS_API_PATH,
+  ASSET_LINKS_CACHE_CONTROL,
+  ASSET_LINKS_RELATION,
+  DOWNLOAD_LINK_TTL_SECONDS,
+  DOWNLOAD_ROUTE_PREFIX,
+  MAX_APK_BYTES,
+  MAX_RELEASE_NOTES_LENGTH,
+  MAX_TRUSTED_ANDROID_APPS,
+  MAX_VERSION_CODE,
+  MAX_VERSION_NAME_LENGTH,
+  MIN_VERSION_CODE,
+  SHA256_FINGERPRINT_PATTERN,
+  TRUSTED_APPS_ERROR_REASONS,
+  TWA_LAUNCH_PARAMS,
+  VERSION_NAME_PATTERN,
+  normalizeSha256Fingerprint,
+  trustedAppKey,
+} from './constants.js';
+export type { AndroidAppTestReason, AndroidAppTestStatus, AndroidReleaseReason, TrustedAppsErrorReason } from './constants.js';
+export {
+  adminReleaseSchema,
+  androidAppResponseSchema,
+  androidAppSettingsValueSchema,
+  androidAppTestNotificationRequestSchema,
+  androidAppTestNotificationResponseSchema,
+  androidAppTestResultRowSchema,
+  androidPackageNameSchema,
+  androidPushSubscriptionCountsSchema,
+  assetLinkStatementSchema,
+  dedupeTrustedApps,
+  downloadLinkSchema,
+  publicReleaseSchema,
+  releaseUploadFieldsSchema,
+  reportedAndroidAppSchema,
+  sha256FingerprintSchema,
+  trustedAndroidAppSchema,
+  trustedAndroidAppsSchema,
+  updateAndroidAppSchema,
+} from './schemas.js';
+export type {
+  AdminRelease,
+  AndroidAppResponse,
+  AndroidAppSettingsValue,
+  AndroidAppTestNotificationRequest,
+  AndroidAppTestNotificationResponse,
+  AndroidAppTestResultRow,
+  AndroidPushSubscriptionCounts,
+  AssetLinkStatement,
+  DownloadLink,
+  PublicRelease,
+  ReleaseUploadFields,
+  ReportedAndroidApp,
+  TrustedAndroidApp,
+  UpdateAndroidAppInput,
+} from './schemas.js';
