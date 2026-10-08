@@ -40,6 +40,10 @@
     "env",
     "otel",
     "telemetry",
+    "android",
+    "!android/platform-core/build",
+    "!android/platform-core/.gradle",
+    "!android/platform-core/.kotlin",
     "README.md",
     "CHANGELOG.md",
     "LICENSE"
