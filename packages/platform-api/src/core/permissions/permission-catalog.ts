@@ -21,15 +21,29 @@ import {
 import type { Declarations, PermissionDeclaration, PermissionScope, RoleDeclaration } from './permission.types';
 
 /**
+ * One role or permission as a seed writes it.
+ *
+ * @stability stable
+ */
+export interface PermissionCatalogEntry {
+  /** The unique name (`admin`, `jobs:read`). */
+  name: string;
+  /** What it is for. */
+  description: string;
+  /** `'system'` or `'org'`. */
+  scope: PermissionScope;
+}
+
+/**
  * What a seed upserts: roles, permissions and default role grants.
  *
  * @stability stable
  */
 export interface PermissionCatalog {
   /** Every registered role, in registration order, with its scope. */
-  roles: Array<{ name: string; description: string; scope: PermissionScope }>;
+  roles: PermissionCatalogEntry[];
   /** Every registered permission, in registration order, with its scope. */
-  permissions: Array<{ name: string; description: string; scope: PermissionScope }>;
+  permissions: PermissionCatalogEntry[];
   /** Role to the permission ids it is granted by default, in permission registration order. Every role has a key. */
   rolePermissions: Record<string, string[]>;
 }
@@ -42,9 +56,37 @@ export interface PermissionCatalog {
  */
 export interface PermissionCatalogSource {
   /** The roles, in registration order. */
-  readonly roles: { list(): readonly RoleDeclaration[] };
+  readonly roles: DeclarationList<RoleDeclaration>;
   /** The permissions, in registration order. */
-  readonly permissions: { list(): readonly PermissionDeclaration[] };
+  readonly permissions: DeclarationList<PermissionDeclaration>;
+}
+
+/**
+ * Anything that lists declarations in registration order (a `Registry` does).
+ *
+ * @typeParam T - the declaration type.
+ *
+ * @stability stable
+ */
+export interface DeclarationList<T> {
+  /**
+   * The declarations.
+   *
+   * @returns them in registration order.
+   */
+  list(): readonly T[];
+}
+
+/**
+ * One default grant: a role and a permission it holds.
+ *
+ * @stability stable
+ */
+export interface CatalogGrant {
+  /** The role name. */
+  role: string;
+  /** The permission name. */
+  permission: string;
 }
 
 /**
@@ -137,7 +179,7 @@ export function composePermissionCatalog(declarations: PermissionCatalogDeclarat
  *
  * @stability stable
  */
-export function catalogGrants(catalog: Pick<PermissionCatalog, 'rolePermissions'>): Array<{ role: string; permission: string }> {
+export function catalogGrants(catalog: Pick<PermissionCatalog, 'rolePermissions'>): CatalogGrant[] {
   return Object.entries(catalog.rolePermissions).flatMap(([role, permissions]) =>
     permissions.map((permission) => ({ role, permission })),
   );

@@ -46,6 +46,18 @@ export interface PlatformPermissionOptions {
 }
 
 /**
+ * The batches {@link registerPlatformPermissions} registers, in order.
+ *
+ * @stability experimental
+ */
+export interface PlatformPermissionDeclarations {
+  /** Role batches: the platform roles, then the app's. */
+  roles: ReadonlyArray<Declarations<RoleDeclaration>>;
+  /** Permission batches: the selected platform sets in seed order, then the app's. */
+  permissions: ReadonlyArray<Declarations<PermissionDeclaration>>;
+}
+
+/**
  * The role batches and permission batches, in registration order.
  *
  * @param options - see {@link PlatformPermissionOptions}.
@@ -59,10 +71,7 @@ export interface PlatformPermissionOptions {
  *
  * @stability experimental
  */
-export function platformPermissionDeclarations(options: PlatformPermissionOptions = {}): {
-  roles: ReadonlyArray<Declarations<RoleDeclaration>>;
-  permissions: ReadonlyArray<Declarations<PermissionDeclaration>>;
-} {
+export function platformPermissionDeclarations(options: PlatformPermissionOptions = {}): PlatformPermissionDeclarations {
   const selected = selectedSlices(options.slices);
   return {
     roles: [PLATFORM_ROLES, ...(options.app?.roles ?? [])],

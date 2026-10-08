@@ -32,9 +32,13 @@ export {
   roleRegistry,
 } from './permissions/index';
 export type {
+  CatalogGrant,
+  DeclarationList,
   Declarations,
+  IdentifiedDeclaration,
   PermissionCatalog,
   PermissionCatalogDeclarations,
+  PermissionCatalogEntry,
   PermissionCatalogSource,
   PermissionDeclaration,
   PermissionDeclarationMap,

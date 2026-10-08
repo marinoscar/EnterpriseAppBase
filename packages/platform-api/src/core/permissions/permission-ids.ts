@@ -8,6 +8,16 @@
 // =============================================================================
 
 /**
+ * Anything with an id: a role or a permission declaration.
+ *
+ * @stability stable
+ */
+export interface IdentifiedDeclaration {
+  /** The role or permission id. */
+  readonly id: string;
+}
+
+/**
  * Turns a declaration map into a map of its ids, keeping the literal types:
  * `permissionIds({ JOBS_READ: { id: 'jobs:read', ... } })` is
  * `{ readonly JOBS_READ: 'jobs:read' }`.
@@ -25,7 +35,7 @@
  *
  * @stability stable
  */
-export function permissionIds<M extends Readonly<Record<string, { readonly id: string }>>>(
+export function permissionIds<M extends Readonly<Record<string, IdentifiedDeclaration>>>(
   map: M,
 ): { readonly [K in keyof M]: M[K]['id'] } {
   const ids: Record<string, string> = {};

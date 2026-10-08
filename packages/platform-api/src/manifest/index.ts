@@ -17,5 +17,5 @@ export {
   platformPermissionDeclarations,
   registerPlatformPermissions,
 } from './register-permissions';
-export type { PlatformPermissionOptions } from './register-permissions';
+export type { PlatformPermissionDeclarations, PlatformPermissionOptions } from './register-permissions';
 export { PLATFORM_USER_OWNED_MODELS, registerPlatformUserOwnedModels } from './platform-user-owned-models';
