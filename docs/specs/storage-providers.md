@@ -1,6 +1,6 @@
 # Object Storage Providers
 
-> **Status:** shipped · **Code:** `apps/api/src/storage/config/`, `apps/api/src/storage/providers/`, `apps/web/src/pages/Admin/StorageConfigPage.tsx` · **API:** `/api/admin/storage-config/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/storage` · **Runbook:** [storage-configuration.md](../runbooks/storage-configuration.md)
+> **Status:** shipped · **Code:** `packages/platform-api/src/storage/` (`@marinoscar/platform-api/storage` since #736; [slice README](../../packages/platform-api/src/storage/README.md)), `packages/platform-contract/src/storage/` (the wire shapes), `packages/platform-web/src/storage/` (the page and hook) · **API:** `/api/admin/storage-config/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/storage` · **Runbook:** [storage-configuration.md](../runbooks/storage-configuration.md)
 
 Object storage (AWS S3, Cloudflare R2, or an S3-compatible endpoint) is
 configured at runtime by an administrator, with no restart. The `storage`
@@ -50,7 +50,7 @@ The `storage` namespace (`systemStorageSchema` in
   independently, so one corrupted field does not lose the others.
 - The **secret access key is not in the namespace.** It lives in
   `CredentialsService` at `(purpose: 'storage', name: 'default')`
-  (`apps/api/src/storage/storage-credential.constants.ts`).
+  (`packages/platform-api/src/storage/storage-credential.constants.ts`).
 - A compile-time proof, `StorageSettingsCarriesNoSecret`, breaks the build if
   `secretAccessKey`, `secretKey`, `password` or similar names are added to
   `systemStorageSchema`.
@@ -76,7 +76,7 @@ Caching is asymmetric:
 - **`invalidateCache()`** must run synchronously after a settings write and
   before the audit row. A credential-only rotation does not need it.
 
-`resolveStorageConfig` (`apps/api/src/storage/config/storage-config.ts`) is
+`resolveStorageConfig` (`packages/platform-api/src/storage/config/storage-config.ts`) is
 the single, pure definition of "configured". It injects nothing; the secret
 is an argument. The provider, the 503 path, the connection test and the
 bucket provisioner all ask it. It requires:
@@ -123,7 +123,7 @@ not clear it. If nothing is known, `getBucket()` throws
 ### 2.4 One driver, three provider shapes
 
 `S3StorageProvider` is one class for all three vendors.
-`buildS3ClientConfig` (`apps/api/src/storage/providers/s3/s3-storage.provider.ts`)
+`buildS3ClientConfig` (`packages/platform-api/src/storage/providers/s3/s3-storage.provider.ts`)
 turns a resolved configuration into `S3ClientConfig`. Endpoint and region are
 already resolved (§2.2); this function adds the path-style default and the
 checksum flags.
@@ -264,46 +264,71 @@ Admin only. They are distinct from `system_settings:*` and from `storage:*`
 
 ## 4. Extending it in a fork
 
-- **Use storage:** inject `STORAGE_PROVIDER` and call the `StorageProvider`
-  interface (`apps/api/src/storage/providers/storage-provider.interface.ts`).
+The slice's extension points, with a reference-app example each, are catalogued in the [storage slice README](../../packages/platform-api/src/storage/README.md#extension-point-catalog).
+
+- **Use storage:** import `StorageProvidersModule`, inject `STORAGE_PROVIDER`
+  and call the `StorageProvider` interface
+  (`packages/platform-api/src/storage/providers/storage-provider.interface.ts`).
   Handle `StorageNotConfiguredError` as the `503` it is.
 - **Add a vendor that speaks S3:** it usually needs nothing new; use
   `s3compatible` with an endpoint. If it needs a driver tweak (as R2's
   checksums did), add a modelled setting or a narrow branch in
   `buildS3ClientConfig`, and cover it in `s3-storage.provider.spec.ts`.
-- **Add a non-S3 backend:** implement `StorageProvider`, add a kind to
-  `STORAGE_PROVIDER_KINDS`, teach `resolveStorageConfig` its required fields,
-  and have `ResolvingStorageProvider` build it.
+- **Add a non-S3 backend (rung 3):** implement `StorageProvider` and override
+  the token in the app (`{ provide: STORAGE_PROVIDER, useClass: YourProvider }`).
+  There is deliberately no driver registry and no new `STORAGE_PROVIDER_KINDS`
+  member until a consumer needs one (an Azure Blob provider is deferred); file
+  a seam request rather than editing the package.
+- **Process uploads:** register an `ObjectProcessor` with
+  `ObjectProcessorRegistry` from its `onModuleInit` (the optional
+  `OBJECT_PROCESSOR` token is gone, #736). Recipe:
+  [`apps/api/src/examples/storage/README.md`](../../apps/api/src/examples/storage/README.md).
 - **Never** add an environment variable for provider, bucket, region,
   endpoint or credential.
 - **Write under a new key prefix:** declare it, or `npm run storage:purge`
   (`appctl deploy uninstall --purge-storage`) leaves its objects in the
   bucket. The purge enumerates only the prefixes registered in the storage
-  key-prefix registry (`apps/api/src/storage/storage-key-prefix.registry.ts`),
-  never a filtered listing of the whole bucket, because a filter can be
-  inverted by a later edit and a fixed enumeration cannot. A platform module
-  adds a `StorageKeyPrefixDef` (`id`, `prefix`, `owner`, `description`) to
-  `storage/platform-storage-prefixes.ts`; an app adds its own to
-  `apps/api/src/app-registrations/storage-prefixes.ts` and never edits a
-  platform file. A prefix ends with exactly one `/`, has no leading `/` and no
-  `//`, and neither repeats nor overlaps another registered prefix; anything
-  else fails at import time with a `RegistryError`. Name the writer's constant
-  `*_KEY_PREFIX`: `storage-key-prefixes.spec.ts` scans `apps/api/src` for every
-  such literal and fails on one no registered prefix covers.
+  key-prefix registry (`packages/platform-api/src/storage/storage-key-prefix.registry.ts`;
+  `allKeyPrefixes()` of the booted app), never a filtered listing of the whole
+  bucket, because a filter can be inverted by a later edit and a fixed
+  enumeration cannot. Register a `StorageKeyPrefixDef` (`id`, `prefix`,
+  `owner`, `description`, and `scope`: `org`, `user` or `deployment`) with
+  `registerKeyPrefix` from the app's manifest
+  (`apps/api/src/app-registrations/storage-prefixes.ts` is loaded by
+  `apps/api/src/platform/storage/storage-key-prefix.manifest.ts`), and build
+  keys with `buildObjectKey(id, { orgId, userId }, ...parts)`. A prefix ends
+  with exactly one `/`, has no leading `/` and no `//`, and neither repeats nor
+  overlaps another registered prefix; anything else fails at registration with
+  a `RegistryError`. Name the writer's constant `*_KEY_PREFIX`:
+  `apps/api/src/platform/storage/storage-key-prefixes.spec.ts` scans
+  `apps/api/src` and `packages/platform-api/src` for every such literal and
+  fails on one no registered prefix covers.
+- **Key layout (#736):** new objects of an org-scoped prefix are written under
+  `<prefix><orgId>/…` (uploads: `uploads/<orgId>/<timestamp>/<uuid><ext>`), so
+  an organization's objects are one listable prefix per root
+  (`orgKeyPrefixes(orgId)`). Rows written before keep their stored
+  `uploads/<timestamp>/…` key; reads, downloads and deletes use the stored key
+  and never rebuild one, and the full purge's root prefixes cover both
+  layouts. Org offboarding combines `orgKeyPrefixes(orgId)` with the stored
+  keys of `storage_objects WHERE org_id = $1`.
 
 ## 5. Guardrails
 
 | Invariant | Test |
 |---|---|
-| Required fields per provider; every missing field reported; region/endpoint fallbacks; `deriveR2Endpoint`; fingerprint changes with the secret | `apps/api/src/storage/config/storage-config.spec.ts` |
-| Settings cache TTL, `fresh: true`, `invalidateCache()`; secret never cached; `lastKnownBucket()` rules; failed read propagates | `apps/api/src/storage/config/storage-config.service.spec.ts` |
-| Never throws at construction; delegate reuse, rotation and bounded eviction; unconfigured 503; `getBucket()` never returns `''` | `apps/api/src/storage/providers/resolving-storage.provider.spec.ts` |
-| Provider table; explicit `forcePathStyle` wins; R2-only checksum flags; `CopySource` encoding | `apps/api/src/storage/providers/s3/s3-storage.provider.spec.ts` |
-| Masked secret; `If-Match`; blank-preserves rotation; switch gate; invalidation ordering | `apps/api/src/storage/config/storage-config-admin.service.spec.ts` |
-| Four checks, `skipped` vs `failed`, 404 vs 403, redaction, auditing | `apps/api/src/storage/config/storage-connection-test.service.spec.ts` |
-| CORS rule, `LocationConstraint`, all outcomes, `guided` with real values, runbook path | `apps/api/src/storage/config/storage-bucket-provision.service.spec.ts` |
+| Required fields per provider; every missing field reported; region/endpoint fallbacks; `deriveR2Endpoint`; fingerprint changes with the secret | `packages/platform-api/test/storage/config/storage-config.spec.ts` |
+| Settings cache TTL, `fresh: true`, `invalidateCache()`; secret never cached; `lastKnownBucket()` rules; failed read propagates | `packages/platform-api/test/storage/config/storage-config.service.spec.ts` |
+| Never throws at construction; delegate reuse, rotation and bounded eviction; unconfigured 503; `getBucket()` never returns `''` | `packages/platform-api/test/storage/providers/resolving-storage.provider.spec.ts` |
+| Provider table; explicit `forcePathStyle` wins; R2-only checksum flags; `CopySource` encoding | `packages/platform-api/test/storage/providers/s3/s3-storage.provider.spec.ts` |
+| Masked secret; `If-Match`; blank-preserves rotation; switch gate; invalidation ordering | `packages/platform-api/test/storage/config/storage-config-admin.service.spec.ts` |
+| Four checks, `skipped` vs `failed`, 404 vs 403, redaction, auditing | `packages/platform-api/test/storage/config/storage-connection-test.service.spec.ts` |
+| CORS rule, `LocationConstraint`, all outcomes, `guided` with real values, runbook path | `packages/platform-api/test/storage/config/storage-bucket-provision.service.spec.ts` |
 | Permissions per route; no secret in any response; probes answer `200` | `apps/api/test/settings/storage-config.integration.spec.ts` |
-| Key prefixes: well formed, no overlap, rejected at import time; every `*_KEY_PREFIX` literal in `apps/api/src` registered; writers match their entries; the purge enumerates exactly the registered prefixes | `apps/api/src/storage/storage-key-prefix.registry.spec.ts`, `apps/api/src/storage/storage-key-prefixes.spec.ts`, `apps/api/src/storage/purge/storage-purge.main.spec.ts` |
+| Key prefixes: well formed, no overlap, rejected at registration; every `*_KEY_PREFIX` literal in `apps/api/src` and `packages/platform-api/src` registered; writers match their entries; the purge enumerates exactly the registered prefixes of the booted app | `apps/api/src/platform/storage/storage-key-prefix.registry.spec.ts`, `apps/api/src/platform/storage/storage-key-prefixes.spec.ts`, `apps/api/src/storage-purge.main.spec.ts`, `packages/platform-api/test/storage/purge/run-storage-purge.spec.ts` |
+| Scopes and the key builder: org keys need an organization (the default org only in single mode), `orgKeyPrefixes` lists only org prefixes, legacy keys stay under their root | `packages/platform-api/test/storage/key-prefix-registry.spec.ts`, `apps/api/test/storage/org-keys.db.spec.ts` |
+| Processors register through the registry and run on upload | `packages/platform-api/test/storage/processing/object-processor.registry.spec.ts`, `apps/api/src/examples/storage/example-metadata.processor.spec.ts` |
+| The slice's invariants in the consuming app (prefixes, org keys, no secret) | `apps/api/test/storage/storage-conformance.spec.ts` (the `storage` conformance suite) |
+| The cleanup cron only enqueues | `apps/api/test/jobs/cron-enqueue-only.spec.ts` (scans the storage slice's root) |
 
 The unit suites mock the AWS SDK. They prove request shapes and error
 classification, not live vendor behaviour.
@@ -383,3 +408,8 @@ Against a real provider, follow the
 - #585 moved the SES AWS credential off environment variables and onto its
   own admin-configurable settings field + encrypted credential-store entry,
   exactly like the SMTP password.
+- #736 (PP-8.3) moved the slice into `@marinoscar/platform-api/storage`,
+  `@marinoscar/platform-contract/storage` and `@marinoscar/platform-web/storage`,
+  replaced `OBJECT_PROCESSOR` with `ObjectProcessorRegistry`, added scopes and
+  org-aware keys to the key-prefix registry, and split the purge into
+  `runStoragePurge` and the thin `apps/api/src/storage-purge.main.ts`.

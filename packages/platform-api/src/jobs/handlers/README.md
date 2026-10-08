@@ -544,7 +544,7 @@ disabled no-op and the summary log line). The four `retention.*` handlers
 | `../jobs.module.ts` | `JobsModule.forRoot()`: where the registry and the services are provided |
 | `apps/api/src/common/retention/batched-purge.ts` | The reference app's batched-delete helper for retention purges |
 | `apps/api/src/jobs/contracts/` | The reference app's node result schemas, published as JSON Schema by `GET /api/nodes/job-types` |
-| `apps/api/src/storage/storage-job-input.ts` | `resolveStorageObjectInput()` — a job's input, or a named failure |
+| `packages/platform-api/src/storage/storage-job-input.ts` | `resolveStorageObjectInput()` — a job's input, or a named failure |
 | `apps/api/src/examples/examples.module.ts` | Where the reference app's example handlers are provided |
 | `docs/specs/job-queue.md` | The design spec: decisions, rejected alternatives |
 | `docs/specs/worker-nodes.md` | The node planes: control and data |

@@ -76,7 +76,7 @@ A card's `permission` is the literal string the API controller enforces. The hub
 | `users:read` | `packages/platform-api/src/identity/users/users.controller.ts` |
 | `allowlist:read` | `packages/platform-api/src/identity/allowlist/allowlist.controller.ts` (gates the Allowlist **tab**, not the route) |
 | `push:read` | `apps/api/src/notifications/push-config.controller.ts` |
-| `storage_config:read` | `apps/api/src/storage/config/storage-config.controller.ts` |
+| `storage_config:read` | `packages/platform-api/src/storage/config/storage-config.controller.ts` |
 | `jobs:read` | `apps/api/src/jobs/job-admin.controller.ts` |
 | `nodes:read` | `apps/api/src/nodes/nodes-admin.controller.ts` |
 | `db_backup:read` | `apps/api/src/db-backup/db-backup.controller.ts` |

@@ -153,7 +153,7 @@ Forks edit platform files to extend them, because the extension points are close
 | Seed data (462 lines: `ROLES`, `PERMISSIONS` with 31 base permissions, `ROLE_PERMISSIONS`, `DEFAULT_SYSTEM_SETTINGS`) | `apps/api/prisma/seed-data.ts` | Every app edits the same arrays |
 | Settings schemas | `apps/api/src/common/schemas/` | Namespaces added in place |
 | Notification channels and templates | `apps/api/src/notifications/` | Added in place |
-| Storage key prefixes | `apps/api/src/storage/` | Added in place |
+| Storage key prefixes | `packages/platform-api/src/storage/` | Added in place |
 | Module list | `apps/api/src/app.module.ts` | Domain modules added beside platform modules |
 | User-data purge (hand-listed table names) | EvoPath `user-data-purge.ts`, about 25 domain tables | Must be edited with every new table |
 
