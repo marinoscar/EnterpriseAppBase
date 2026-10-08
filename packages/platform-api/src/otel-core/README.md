@@ -76,7 +76,7 @@ telemetryGate.setEnabled(policy.enabled && greptime.isConfigured());
 
 ### Worked example: register an app metric name and a gauge provider
 
-The reference app does both in [`apps/api/src/common/otel/app-metrics.service.ts`](../../../../apps/api/src/common/otel/app-metrics.service.ts) (its manifest registers the names; its `registerGauges()` is a gauge provider) and borrows the context for a gauge provider that lives in a feature module in [`apps/api/src/nodes/node-fleet-metrics.service.ts`](../../../../apps/api/src/nodes/node-fleet-metrics.service.ts). A new metric group follows the same steps:
+The reference app does both in [`apps/api/src/common/otel/app-metrics.service.ts`](../../../../apps/api/src/common/otel/app-metrics.service.ts) (its manifest registers the names; its `registerGauges()` is a gauge provider) and borrows the context for a gauge provider that lives in a feature slice in [`packages/platform-api/src/nodes/node-fleet-metrics.service.ts`](../nodes/node-fleet-metrics.service.ts). A new metric group follows the same steps:
 
 ```ts
 // 1. Declare the names at import time, from a manifest the metrics service imports.

@@ -1,7 +1,11 @@
 # Job Handlers
 
-This directory contains job handler implementations for the background job
-queue. One class per job type; the queue itself never changes.
+The recipe for adding a job type to an app built on
+`@marinoscar/platform-api/jobs` (the "add a job type" recipe). One class per job
+type; the queue itself never changes. This directory holds the slice's own
+handler (`job-history-purge.handler.ts`); an app's handlers live in the app,
+next to the feature they serve. The reference app's worked examples are in
+[`apps/api/src/examples/jobs/`](../../../../../apps/api/src/examples/jobs/).
 
 ## Overview
 
@@ -25,9 +29,7 @@ Typical job types a fork adds:
 ```typescript
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Job } from '@prisma/client';
-
-import { JobHandler } from '../job-handler.interface';
-import { JobHandlerRegistry } from '../job-handler.registry';
+import { JobHandlerRegistry, type JobHandler } from '@marinoscar/platform-api/jobs';
 
 @Injectable()
 export class MyCustomHandler implements JobHandler, OnModuleInit {
@@ -36,6 +38,9 @@ export class MyCustomHandler implements JobHandler, OnModuleInit {
   // Unique across the process, and PERMANENT once jobs of this type exist:
   // `jobs` rows outlive the handler that produced them.
   readonly type = 'my-feature.do-the-thing';
+
+  // Optional: the admin job list's display phrase. Unlike `type`, it may change.
+  readonly label = 'Do the thing';
 
   constructor(private readonly registry: JobHandlerRegistry) {}
 
@@ -78,12 +83,13 @@ warning is telling you two handlers share a `type` string.
 
 The handler needs to be a provider somewhere so that Nest constructs it and
 calls `onModuleInit()`. Put it in the module that owns the feature, and import
-`JobsModule` for the registry:
+the app's configured `JobsModule` (the one `JobsModule.forRoot()` built; in the
+reference app, `apps/api/src/platform/jobs/jobs.config.ts`) for the registry:
 
 ```typescript
 import { Module } from '@nestjs/common';
 
-import { JobsModule } from '../jobs/jobs.module';
+import { JobsModule } from '../platform/jobs/jobs.config';
 import { MyCustomHandler } from './handlers/my-custom.handler';
 
 @Module({
@@ -135,6 +141,40 @@ Two more optional fields worth knowing about:
   ahead of it.
 - `scheduledFor` — the earliest time the job may be claimed. Omit it (the
   default) for "run as soon as a worker is free".
+- `orgId` — the organization the work belongs to (#734), stored on
+  `jobs.org_id` and carried as `org.id` on the job's spans. Omitted, it comes
+  from the app's ambient scope (`JOBS_ORG_SCOPE`) when one is bound, else
+  `null` (a system job). Pass `null` explicitly for deployment-wide work.
+
+### Organization-scoped jobs
+
+**The organization is not part of the dedup key.** `buildDedupKey` stays
+`${type}:${subjectType}:${subjectId}`, and `jobs_active_dedup_uniq_idx` is
+unchanged. So two organizations' jobs of the same type and subject DO collapse
+onto each other. An org-scoped job with no natural subject uses the
+organization itself as its subject:
+
+```typescript
+await this.jobs.enqueue({
+  type: 'reports.weekly',
+  reason: 'backfill',
+  subjectType: 'organization',
+  subjectId: orgId,
+  orgId,
+});
+```
+
+Two organizations never collide; the same organization's second request
+collapses onto the first. A job whose subject is already org-owned (a storage
+object) needs nothing extra: the subject id is unique across organizations.
+
+**Inside the handler, tenant tables need the job's organization.** `jobs`
+itself has no row-level security (the claim is one cross-organization
+statement), but `storage_objects`, `ai_runs`, `org_settings` and the other org
+tables do, and a client with no scope sees no rows. Run the tenant work under
+`JobScope.run(job, fn)` (inject `JobScope`): one transaction scoped to
+`job.orgId`. A system job (`orgId: null`) keeps the bypass connection
+(`runAsSystem` with a `SystemAccessReason`); `JobScope.run` refuses it.
 
 The full reasoning — why the database decides dedup instead of a
 `findFirst` pre-check, and why `skipDedup` costs nothing — is
@@ -148,10 +188,15 @@ Enqueue, claim, settlement and duration are counted per `job_type` in the `app.j
 
 No migration, no enum, no queue wiring. `Job.type` is a plain string column
 precisely so a new handler costs zero schema change, and the admin dashboard
-lists whatever `JobHandlerRegistry.types()` reports. Add a friendly label for
-your type in `../job-type-labels.ts` if you want one — an unmapped type
-renders as its raw type string rather than blank, so the label is optional
-polish and never a requirement.
+lists whatever `JobHandlerRegistry.types()` reports. Give the handler a
+`readonly label` for a friendly phrase, or call `registerJobTypeLabel(type,
+label)` for a type whose handler is not loaded in this process. An unlabelled
+type renders as its raw type string rather than blank, so the label is
+optional polish and never a requirement.
+
+**A type string is permanent** once rows of it exist. The reference app pins
+every registered type in `apps/api/test/jobs/job-type-snapshot.spec.ts`, which
+fails with "Job type strings are permanent" when one disappears.
 
 ## Node Eligibility (Optional)
 
@@ -340,11 +385,14 @@ your own artifact, for your own job, and of nothing else.
 
 ### Publishing the result contract
 
-Put the Zod schema in `../contracts/` and import it into the handler. It is
-served as JSON Schema by `GET /api/nodes/job-types`, so a client can validate a
-result **before** posting it, against the server's own definition. See
-[`../contracts/README.md`](../contracts/README.md) — including why a shared
-`packages/job-contracts` workspace was rejected for this repository.
+Put the Zod schema next to the handler (the reference app keeps them in
+`apps/api/src/jobs/contracts/` and `apps/api/src/examples/jobs/`) and import it
+into the handler. It is served as JSON Schema by `GET /api/nodes/job-types`, so
+a client can validate a result **before** posting it, against the server's own
+definition. See
+[`apps/api/src/jobs/contracts/README.md`](../../../../../apps/api/src/jobs/contracts/README.md)
+for why result schemas stay with their handlers while the routes' HTTP shapes
+ship in `@marinoscar/platform-contract/jobs` and `/nodes`.
 
 **⚠ A byte count crosses the wire as a decimal string, never a JSON number, if
 it is backed by a `BigInt` column.** JSON has no integer type — a JSON number
@@ -454,6 +502,8 @@ for the full reasoning.
 
 ## Example Handlers
 
+In the reference app, [`apps/api/src/examples/jobs/`](../../../../../apps/api/src/examples/jobs/):
+
 See `example-echo.handler.ts` — a server-only handler that logs its payload
 and returns. It is deliberately trivial and side-effect free, and it is a live
 implementation of the contract rather than a comment about one.
@@ -464,21 +514,22 @@ in the object's `metadata`. It is deliberately generic — provider-agnostic, no
 native dependency, and useful rather than a toy — and it is the type that makes
 a worker node's claim return anything at all.
 
-For a handler that does real work, see `job-history-purge.handler.ts`:
-the queue's own housekeeping, and the same four steps applied to a settings
-read, a batched loop and a transaction. Its scheduling half lives in
-`../tasks/job-history-purge.task.ts` and shows the other end of the recipe — a
+For a handler that does real work, see this directory's
+`job-history-purge.handler.ts`: the queue's own housekeeping, and the same four
+steps applied to a settings read, a batched loop and a transaction. Its
+scheduling half lives in `../tasks/job-history-purge.task.ts` and shows the
+other end of the recipe — a
 `@Cron` that ENQUEUES rather than doing the work inline, so the run is
 observable, retried on the queue's budget, and executed on a worker slot.
 
 For a retention purge — "delete rows older than a setting, in bounded batches"
-— use `../../common/retention/batched-purge.ts` rather than writing the loop
+— use the reference app's `apps/api/src/common/retention/batched-purge.ts` rather than writing the loop
 again: `purgeInBatches` (5000 ids per batch, oldest first, delete by the exact
 ids read, a 1000-batch safety stop) and `runRetentionPolicyPurge` (the
 disabled no-op and the summary log line). The four `retention.*` handlers
 (`notifications.inbox.purge`, `notifications.deliveries.purge`,
 `audit.events.purge`, `ai.runs.purge`) are worked examples, and
-`../../common/retention/retention-purge.task.ts` enqueues them.
+`apps/api/src/common/retention/retention-purge.task.ts` enqueues them.
 
 ## Related Files
 
@@ -487,11 +538,13 @@ disabled no-op and the summary log line). The four `retention.*` handlers
 | `../job-handler.interface.ts` | The contract, and the node-eligibility rules |
 | `../job-handler.registry.ts` | The registry, and why registration is explicit |
 | `../job-keys.ts` | `buildDedupKey()` — the single definition of `Job.dedupKey` |
-| `../job-type-labels.ts` | Display labels for the admin UI |
-| `../../common/retention/batched-purge.ts` | The batched-delete helper for retention purges |
-| `../contracts/` | Node result schemas, published as JSON Schema by `GET /api/nodes/job-types` |
-| `../../storage/storage-job-input.ts` | `resolveStorageObjectInput()` — a job's input, or a named failure |
+| `../job-type-label.ts` | The label registry: a handler's `label`, `registerJobTypeLabel`, `jobTypeLabel` |
+| `../job-scope.ts` | `JobScope.run(job, fn)` — a job's tenant work under its organization |
 | `../../nodes/node-data-plane.service.ts` | The presigned download/upload routes a node uses |
-| `../jobs.module.ts` | Where the registry and the example handlers are provided |
+| `../jobs.module.ts` | `JobsModule.forRoot()`: where the registry and the services are provided |
+| `apps/api/src/common/retention/batched-purge.ts` | The reference app's batched-delete helper for retention purges |
+| `apps/api/src/jobs/contracts/` | The reference app's node result schemas, published as JSON Schema by `GET /api/nodes/job-types` |
+| `apps/api/src/storage/storage-job-input.ts` | `resolveStorageObjectInput()` — a job's input, or a named failure |
+| `apps/api/src/examples/examples.module.ts` | Where the reference app's example handlers are provided |
 | `docs/specs/job-queue.md` | The design spec: decisions, rejected alternatives |
 | `docs/specs/worker-nodes.md` | The node planes: control and data |

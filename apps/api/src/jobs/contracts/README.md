@@ -1,7 +1,9 @@
 # Job contracts
 
 The result shapes a **worker node** may post back, one file per node-eligible
-job type.
+job type of the reference app. (The queue itself is `@marinoscar/platform-api/jobs`
+since #734; `example-checksum.contract.ts` moved with its handler to
+`../../examples/jobs/`.)
 
 A node computes off-machine and POSTs a result to
 `POST /api/nodes/{id}/jobs/{jobId}/result`. The server validates that body
@@ -14,7 +16,7 @@ are the only thing standing between an arbitrary remote body and a write.
 Two readers need them and only one of them is the handler:
 
 1. The handler, which exposes one as `nodeResultSchema` (that is what makes
-   its type node-eligible — see `../job-handler.interface.ts`).
+   its type node-eligible — see `JobHandler` in `@marinoscar/platform-api/jobs`).
 2. **Clients**, through `GET /api/nodes/job-types`, which converts each one
    with `z.toJSONSchema()` and publishes it. That is how `appctl` validates a
    result *before* posting it, against the server's own definition rather than
@@ -48,7 +50,18 @@ which is the one package that *did* have to solve this problem:
 hand-written `.d.ts` — which works for a string constant and does **not** work
 for a Zod schema, whose whole value is the runtime object.
 
-So the contract crosses the boundary the way contracts between separately
+### What changed with the published platform packages (#734)
+
+That reasoning is about TypeScript **source** in a workspace. A published
+package ships compiled JavaScript plus `.d.ts`, built before anything imports
+it, so none of the three objections applies to it. That is why the routes'
+**HTTP shapes** (the admin job list, the node control plane, data plane and
+secret request bodies) now ship in `@marinoscar/platform-contract/jobs` and
+`/nodes`, compiled, and the API wraps them with `createZodDto`.
+
+Node **result** schemas do not move there: they belong to the handler that
+persists them (an app's, usually), and the argument below still holds for
+them. So the contract crosses the boundary the way contracts between separately
 deployed programs normally do: **as data, over HTTP**. `z.toJSONSchema()` on
 this directory's schemas, served by `GET /api/nodes/job-types`, gives a client
 the server's live definition with no build step, no shared package, and no
@@ -59,7 +72,7 @@ two releases ago.
 
 1. Export the schema (and its inferred type) from a new file here.
 2. Set it as `nodeResultSchema` on the handler, alongside `persistNodeResult`.
-   Both members or neither — see `../job-handler.interface.ts`.
+   Both members or neither — see `JobHandler` in `@marinoscar/platform-api/jobs`.
 3. There is no step 3. `GET /api/nodes/job-types` derives its whole answer
    from the registry, so the new type appears there with no list to edit.
 
@@ -76,6 +89,6 @@ the corruption on exactly the largest results a fork is likely to care about
 (a multi-gigabyte dump, an export). `db-backup-run.contract.ts`'s `bytes:
 z.string().regex(/^\d{1,20}$/)`, converted with `BigInt()` once in the
 handler, is the worked example — see its file header for the full argument,
-and contrast `example-checksum.contract.ts`'s plain `number`, which is correct
+and contrast `../../examples/jobs/example-checksum.contract.ts`'s plain `number`, which is correct
 there because that count is bounded by `Number.MAX_SAFE_INTEGER` and lands in
 a JSONB column rather than a `BigInt` one.
