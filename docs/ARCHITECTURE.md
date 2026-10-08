@@ -254,24 +254,24 @@ A feature uses AI by injecting `AiService` and calling `forUser(userId)`. That c
 
 ### 5.11 Notifications, email and Web Push
 
-Every notification is an event declared once, next to the module that raises it (`<module>.notifications.ts`), with its channels, default, email template and browser renderer; an application declares its own in `app-registrations/notifications.ts`. Events, channels, email templates and their bindings are registries filled at import time by `notifications/registry/notification.manifest.ts`, and an application's channel transport registers itself into `NotificationChannelSenderRegistry` from its own module. A caller raises it with `notify(eventKey, userId, payload)`. The dispatcher narrows the declared channels by admin policy (`system_settings.notifications`), then by the user's preferences, and delivers each channel through its sender. Every attempt is a `notification_deliveries` row. Mandatory events (such as a role change) ignore user preferences. The live SSE stream fans out across API replicas through the event bus ([§5.21](#521-event-bus)).
+Notifications are the `@marinoscar/platform-api/notifications` slice (issue #738), mounted with `NotificationsModule.forRoot({ imports })` in `apps/api/src/platform/notifications/`. Every notification is an event declared once, next to the module that raises it, with its channels, default, email template and browser renderer; an application declares its own in `app-registrations/notifications.ts`. Events, channels (open ids: an app registers its own with `registerNotificationChannel`, no package edit), email templates and their bindings are registries filled at import time by `apps/api/src/platform/notifications/notification.manifest.ts`, and an application's channel transport registers itself into `NotificationChannelSenderRegistry` from its own module. A caller raises it with `notify(eventKey, userId, payload)`, after the triggering write commits. The dispatcher narrows the declared channels by the policy in force for the recipient's organization (`system_settings.notifications`, then that organization's tightening through the org layer: browser off, more events suppressed), then by the user's preferences, and delivers each channel through its sender. Every attempt is a `notification_deliveries` row. Mandatory events (such as a role change) ignore user preferences. The live SSE stream fans out across API replicas through the event bus ([§5.21](#521-event-bus)).
 
-The channels are email (SMTP or SES, configured at `/admin/settings/email`), in-app (a `notifications` inbox row pushed to open tabs over an SSE stream), and Web Push (VAPID keys generated and rotated at `/admin/settings/push`). The web app ships a service worker that handles push and notification clicks.
+The channels are email (SMTP or SES, configured at `/admin/settings/email`), in-app (a `notifications` inbox row pushed to open tabs over an SSE stream), and Web Push (VAPID keys generated and rotated at `/admin/settings/push`; no environment variable). The web side is `@marinoscar/platform-web/notifications` (`/headless`, `/ui`); the app's own service worker registers the package's `push`, `notificationclick` and `pushsubscriptionchange` handlers.
 
 Email is the `@marinoscar/platform-api/email` slice (issue #737), mounted with `EmailModule.forRoot({ appName, ... })` in `apps/api/src/platform/email/`. Its templates are a registry, not a closed map: the platform's nine register by default, another slice's adapter or an app adds one with `registerEmailTemplate(name, template)` and types its data by augmenting `EmailTemplateDataMap`, and `{ override: true }` replaces a platform template on purpose (a duplicate without it fails at bootstrap; each override is logged once). Every message renders through one escaping layout whose theme, inline brand mark (a `Content-ID` part, never a remote image) and footer are `forRoot` options; with the defaults the output is byte-identical to the pre-package layout. The `email` row of `system_settings` goes through the settings slice's `SystemSettingsRowStore`; the SMTP password and the SES secret are in the credential store.
 
-- **Code:** `apps/api/src/notifications/`, `packages/platform-api/src/email/` (wiring in `apps/api/src/platform/email/`)
+- **Code:** `packages/platform-api/src/notifications/`, `packages/platform-api/src/email/` (wiring in `apps/api/src/platform/notifications/` and `apps/api/src/platform/email/`), `packages/platform-web/src/notifications/`
 - **UI:** `/admin/settings/notifications`, `/admin/settings/push`, `/admin/settings/email`; user `/settings/notifications`
 - **Permissions:** `system_settings:read/write` (email, policy), `push:read/write` (VAPID keys)
-- **Read more:** [notifications README](../apps/api/src/notifications/README.md), [notification registries](../apps/api/src/notifications/registry/README.md), [email slice README](../packages/platform-api/src/email/README.md), [specs/browser-notifications.md](specs/browser-notifications.md), [runbooks/vapid-keys.md](runbooks/vapid-keys.md)
+- **Read more:** [notifications README](../packages/platform-api/src/notifications/README.md), [web notifications README](../packages/platform-web/src/notifications/README.md), [email slice README](../packages/platform-api/src/email/README.md), [specs/browser-notifications.md](specs/browser-notifications.md), [runbooks/vapid-keys.md](runbooks/vapid-keys.md)
 
 ### 5.12 Admin broadcasts
 
-An administrator composes a message for every active user, sends it now or schedules it, and chooses channels (email, in-app, push). The `admin.broadcast.start` job freezes the audience at a cutoff and enqueues the first `admin.broadcast.chunk`; each chunk delivers one page of recipients, commits its cursor and enqueues its successor. A failed broadcast can be resumed from its committed cursor. Critical broadcasts use a mandatory event key that users cannot mute.
+An administrator composes a message for every active user (or, with `targetOrgId`, one organization's active members; an organization's administrator holding `org_broadcasts:*` always targets their own), sends it now or schedules it, and chooses channels (email, in-app, push). The `admin.broadcast.start` job freezes the audience at a cutoff and enqueues the first `admin.broadcast.chunk`; each chunk delivers one page of recipients, commits its cursor and enqueues its successor. A failed broadcast can be resumed from its committed cursor. Critical broadcasts use a mandatory event key that users cannot mute.
 
-- **Code:** `apps/api/src/notifications/broadcasts/`
+- **Code:** `packages/platform-api/src/notifications/broadcasts/`
 - **UI:** `/admin/settings/broadcasts`
-- **Permissions:** `broadcasts:read`, `broadcasts:write`
+- **Permissions:** `broadcasts:read`, `broadcasts:write` (system), or `org_broadcasts:read`, `org_broadcasts:write` (org)
 - **Read more:** [specs/notification-broadcasts.md](specs/notification-broadcasts.md)
 
 ### 5.13 Database backup and restore
@@ -447,7 +447,7 @@ The schema is composed from per-slice fragments in `packages/platform-db/schema/
 | Notifications | `Notification` | `notifications` | In-app inbox rows |
 | Notifications | `NotificationDelivery` | `notification_deliveries` | One row per channel delivery attempt |
 | Notifications | `PushSubscription` | `push_subscriptions` | Browser Web Push subscriptions |
-| Notifications | `NotificationBroadcast` | `notification_broadcasts` | Admin broadcasts, audience cutoff and cursor |
+| Notifications | `NotificationBroadcast` | `notification_broadcasts` | Admin broadcasts, audience cutoff and cursor; `target_org_id` (nullable, #738) narrows the audience to one organization |
 | Jobs | `Job` | `jobs` | The queue: type, payload, status, attempts, lease, claim token |
 | Jobs | `JobStatsRollup` | `job_stats_rollup` | Lifetime per-type counts and durations |
 | Nodes | `WorkerNode` | `worker_nodes` | Registered worker nodes, declared types and concurrency |
@@ -611,10 +611,10 @@ All 29 registered job types (pinned by `apps/api/test/jobs/job-type-snapshot.spe
 | `auth.token.cleanup` | Token cleanup | `packages/platform-api/src/identity/auth/handlers/token-cleanup.handler.ts` (the identity slice) | Deletes expired or revoked refresh tokens and expired PATs | No |
 | `nodes.fleet.sweep` | Fleet sweep | `packages/platform-api/src/nodes/handlers/node-fleet-sweep.handler.ts` (the nodes slice) | Marks nodes with stale heartbeats offline | No |
 | `nodes.fleet.prune` | Fleet prune | `packages/platform-api/src/nodes/handlers/node-fleet-prune.handler.ts` (the nodes slice) | Forgets nodes offline longer than `nodes.offlineRetentionDays` | No |
-| `admin.broadcast.start` | Broadcast start | `notifications/broadcasts/handlers/broadcast-start.handler.ts` | Starts a broadcast: freezes the audience, enqueues the first chunk | No |
-| `admin.broadcast.chunk` | Broadcast delivery | `notifications/broadcasts/handlers/broadcast-chunk.handler.ts` | Delivers one page of recipients, enqueues its successor | No |
-| `notifications.inbox.purge` | Notification inbox purge | `notifications/retention/notification-inbox-purge.handler.ts` | Deletes `notifications` inbox rows past `retention.notifications`, in batches; daily at 01:00 | No |
-| `notifications.deliveries.purge` | Delivery log purge | `notifications/retention/notification-deliveries-purge.handler.ts` | Deletes `sent`/`failed` `notification_deliveries` past `retention.notificationDeliveries` (never `queued`); daily at 01:00 | No |
+| `admin.broadcast.start` | Broadcast start | `packages/platform-api/src/notifications/broadcasts/handlers/broadcast-start.handler.ts` (the notifications slice) | Starts a broadcast: freezes the audience, enqueues the first chunk | No |
+| `admin.broadcast.chunk` | Broadcast delivery | `packages/platform-api/src/notifications/broadcasts/handlers/broadcast-chunk.handler.ts` (the notifications slice) | Delivers one page of recipients, enqueues its successor | No |
+| `notifications.inbox.purge` | Notification inbox purge | `common/retention/notification-inbox-purge.handler.ts` | Deletes `notifications` inbox rows past `retention.notifications`, in batches; daily at 01:00 | No |
+| `notifications.deliveries.purge` | Delivery log purge | `common/retention/notification-deliveries-purge.handler.ts` | Deletes `sent`/`failed` `notification_deliveries` past `retention.notificationDeliveries` (never `queued`); daily at 01:00 | No |
 | `audit.events.purge` | Audit log purge | `common/retention/audit-events-purge.handler.ts` | Deletes `audit_events` past `retention.auditEvents` (off by default); daily at 01:00 | No |
 | `storage.cleanup.stale-uploads` | Stale upload cleanup | `packages/platform-api/src/storage/handlers/storage-cleanup.handler.ts` (the storage slice) | Cleans up abandoned uploads, aborting billed multipart parts | No |
 | `storage.object.process` | Object processing | `packages/platform-api/src/storage/handlers/storage-object-process.handler.ts` (the storage slice) | Runs registered post-upload processors on one object and marks it `ready`/`failed` | No |
@@ -687,7 +687,7 @@ Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/
 | `/admin/settings/jobs/insights` | Job Insights | Operations | `jobs:read` | |
 | `/admin/settings/workers` | Worker Nodes | Operations | `nodes:read` | |
 | `/admin/settings/db-backup` | Database Backup | Operations | `db_backup:read` | |
-| `/admin/settings/broadcasts` | Broadcasts | Operations | `broadcasts:read` | |
+| `/admin/settings/broadcasts` | Broadcasts | Operations | any of `broadcasts:read`, `org_broadcasts:read` | |
 | `/admin/settings/about` | About | Operations | `system_settings:read` | |
 | `/admin/settings/ai` | AI | AI | `ai_config:read` | none (the page that turns AI on) |
 | `/admin/settings/ai/models` | AI Models | AI | `ai_config:read` | `ai` |
@@ -838,7 +838,7 @@ Health endpoints (public, reachable during maintenance):
 | An API endpoint | [DEVELOPMENT.md](DEVELOPMENT.md) |
 | A settings page or setting | [specs/settings-ui.md](specs/settings-ui.md) (UI), [settings/registry/README.md](../apps/api/src/settings/registry/README.md) (API namespace) |
 | A background job type | [jobs/handlers/README.md](../packages/platform-api/src/jobs/handlers/README.md) |
-| A notification event, email template or channel | [notifications/README.md](../apps/api/src/notifications/README.md) (app entries in `app-registrations/notifications.ts`; API in [notifications/registry/README.md](../apps/api/src/notifications/registry/README.md)) |
+| A notification event, email template or channel | [notifications/README.md](../packages/platform-api/src/notifications/README.md) (app entries in `app-registrations/notifications.ts`) |
 | AI in a feature | [ai/README.md](../apps/api/src/ai/README.md) |
 | An AI provider | [specs/ai-platform.md](specs/ai-platform.md) |
 | A user key type (bring your own key) | [specs/user-credentials.md](specs/user-credentials.md) |
