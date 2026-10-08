@@ -143,7 +143,7 @@ const SAMPLE_DATA: { [K in EmailTemplateName]: EmailTemplateDataMap[K] } = {
     resourceType: 'transcript',
     resourceId: '11111111-1111-4111-8111-111111111111',
     role: 'editor',
-    title: '"><img src=x onerror=alert(1)>',
+    title: '<script>alert(document.cookie)</script>',
     sharedBy: '"><img src=x onerror=alert(1)>',
     expiresAt: '2026-01-15T00:00:00.000Z',
     openUrl: 'https://app.example.com/transcripts/11111111-1111-4111-8111-111111111111',
