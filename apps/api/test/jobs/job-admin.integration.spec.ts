@@ -264,6 +264,27 @@ describe('Admin jobs API (Integration)', () => {
       expect(where.scheduledFor.gt).toBeInstanceOf(Date);
     });
 
+    it("filters by orgId, one organization's jobs (#734)", async () => {
+      const admin = await createMockAdminUser(context);
+      const orgId = '22222222-2222-4222-8222-bbbbbbbbbbbb';
+
+      await request(server())
+        .get(`/api/admin/jobs?orgId=${orgId}`)
+        .set(authHeader(admin.accessToken))
+        .expect(200);
+
+      expect(prisma.job.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { orgId } }));
+    });
+
+    it('rejects an orgId that is not a UUID (#734)', async () => {
+      const admin = await createMockAdminUser(context);
+
+      await request(server())
+        .get('/api/admin/jobs?orgId=not-a-uuid')
+        .set(authHeader(admin.accessToken))
+        .expect(400);
+    });
+
     it('rejects a pageSize above the 100-row ceiling', async () => {
       const admin = await createMockAdminUser(context);
 
