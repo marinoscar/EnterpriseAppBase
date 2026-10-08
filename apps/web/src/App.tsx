@@ -34,6 +34,10 @@ import { UpdatePrompt } from './components/pwa/UpdatePrompt';
 import { InstallPrompt } from './components/pwa/InstallPrompt';
 // The platform host every packaged page reads (#696).
 import { AppPlatformHostProvider, appPlatformApi } from './platform/platformHost';
+// Onboarding (#745): one GET /api/onboarding for the shell; the welcome
+// dialog (mounted in Layout), the user menu and both onboarding pages read it.
+import { OnboardingProvider } from '@marinoscar/platform-web/onboarding/headless';
+import { APP_NAME } from '@app/shared';
 // The telemetry slice (#704): its config provider, route guard and the app's
 // adapters (AI on/off, the model catalogue, the spinner).
 import {
@@ -154,6 +158,13 @@ const GroupDetailPage = lazy(() =>
 const PublicLinkPage = lazy(() =>
   import('@marinoscar/platform-web/sharing/ui').then((module) => ({ default: module.PublicLinkPage })),
 );
+// Onboarding (#745): the packaged Setup guide and Getting started pages.
+const SetupGuidePage = lazy(() =>
+  import('@marinoscar/platform-web/onboarding/ui').then((m) => ({ default: m.SetupGuidePage })),
+);
+const GettingStartedPage = lazy(() =>
+  import('@marinoscar/platform-web/onboarding/ui').then((m) => ({ default: m.GettingStartedPage })),
+);
 
 // Test login page (development only)
 const TestLoginPage = import.meta.env.PROD
@@ -257,7 +268,9 @@ function AppRoutes() {
                         <TelemetryConfigProvider api={appPlatformApi}>
                           <TelemetryWebAdaptersProvider adapters={appTelemetryAdapters}>
                             <AppPlatformHostProvider>
-                              <Layout />
+                              <OnboardingProvider appName={APP_NAME}>
+                                <Layout />
+                              </OnboardingProvider>
                             </AppPlatformHostProvider>
                           </TelemetryWebAdaptersProvider>
                         </TelemetryConfigProvider>
@@ -906,6 +919,28 @@ function AppRoutes() {
                       </RequirePermission>
                     }
                   />
+                  {/* Issue #745. The `Setup guide` card's route:
+                      `system_settings:read`, the permission under which
+                      `@marinoscar/platform-api/onboarding` adds the admin
+                      block to `GET /api/onboarding` and gates
+                      `GET /api/admin/onboarding/metrics` (the packaged
+                      descriptor `setupGuideSettingsPage.card`, written as
+                      literals because the registry tests read this file). */}
+                  <Route
+                    path="/admin/settings/setup"
+                    element={
+                      <RequirePermission
+                        permission="system_settings:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <SetupGuidePage />
+                      </RequirePermission>
+                    }
+                  />
+                  {/* Issue #745. Ungated like its `/settings/*` siblings:
+                      the caller's own checklist (`user_settings:read`, which
+                      every role holds). */}
+                  <Route path="/settings/getting-started" element={<GettingStartedPage />} />
                 </Route>
               </Route>
 

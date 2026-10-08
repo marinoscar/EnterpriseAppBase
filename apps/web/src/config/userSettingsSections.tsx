@@ -25,6 +25,8 @@ import NotificationsIcon from '@mui/icons-material/Notifications';
 import KeyOutlinedIcon from '@mui/icons-material/KeyOutlined';
 import { identityUserSettingsSections } from '@marinoscar/platform-web/identity/ui';
 import { groupsSettingsPage } from '@marinoscar/platform-web/sharing/ui';
+// Getting started (#745; a packaged page: card and icon from its descriptor).
+import { gettingStartedSettingsPage } from '@marinoscar/platform-web/onboarding/ui';
 import type { SettingsSectionDef } from '@marinoscar/platform-web/settings/ui';
 
 /**
@@ -79,6 +81,10 @@ export const USER_SETTINGS_SECTIONS: SettingsSectionDef[] = [
         Icon: NotificationsIcon,
         path: '/settings/notifications',
       },
+      // Issue #745, appended: the caller's own derived checklist. No
+      // permission, like its siblings (`GET /api/onboarding` requires
+      // `user_settings:read`, which every role holds).
+      { ...gettingStartedSettingsPage.card, Icon: gettingStartedSettingsPage.Icon },
     ],
   },
   {

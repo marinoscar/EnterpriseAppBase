@@ -6,6 +6,8 @@ import { NotificationPermissionBanner } from '../notifications/NotificationPermi
 import { usePushSubscriptionSync } from '../../hooks/usePushSubscriptionSync';
 import { NavigationRail } from '../navigation/NavigationRail';
 import { BottomNav } from '../navigation/BottomNav';
+// The one-time welcome (#745): renders nothing until it should open.
+import { WelcomeDialog } from '@marinoscar/platform-web/onboarding/ui';
 
 /**
  * The app shell — two navigation treatments, one per size class.
@@ -133,6 +135,11 @@ export function Layout() {
           complement of the rail's gate, so there is no width with two navs and
           none with zero. */}
       {!showRail && <BottomNav />}
+      {/* Issue #745. Mounted ONCE, in the shell, under the app's
+          `OnboardingProvider` (App.tsx): it opens while the caller's
+          `onboarding.welcomeSeenAt` is unset, and every way out marks it
+          seen. Outside the five breakpoint gates; it renders nothing else. */}
+      <WelcomeDialog />
     </Box>
   );
 }
