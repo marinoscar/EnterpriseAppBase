@@ -68,6 +68,8 @@ describe('Prisma.NotificationBroadcastScalarFieldEnum', () => {
       'createdById',
       'createdAt',
       'updatedAt',
+      // The audience's organization (#738), null for a system broadcast.
+      'targetOrgId',
     ].sort();
 
     const actual = Object.keys(Prisma.NotificationBroadcastScalarFieldEnum).sort();

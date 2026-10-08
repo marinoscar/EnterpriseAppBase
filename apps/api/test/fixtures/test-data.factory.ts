@@ -296,6 +296,17 @@ export const mockPermissions = {
     name: 'org_settings:write',
     description: "Modify the active organization's settings overrides",
   },
+  // Org-targeted broadcasts (#738, PP-8.5). ORG scope, org_admin only.
+  orgBroadcastsRead: {
+    id: randomUUID(),
+    name: 'org_broadcasts:read',
+    description: "View the active organization's notification broadcasts",
+  },
+  orgBroadcastsWrite: {
+    id: randomUUID(),
+    name: 'org_broadcasts:write',
+    description: 'Compose, schedule, cancel and send notification broadcasts to the active organization',
+  },
 };
 
 // `scope` mirrors `roles.scope` (#723, PP-6.3): `admin` is the system role,
@@ -658,6 +669,8 @@ export const rolePermissionsMap = {
     mockPermissions.sharingAdmin,
     mockPermissions.orgSettingsRead,
     mockPermissions.orgSettingsWrite,
+    mockPermissions.orgBroadcastsRead,
+    mockPermissions.orgBroadcastsWrite,
   ],
   contributor: [
     mockPermissions.userSettingsRead,
@@ -709,6 +722,8 @@ const ORG_SCOPED_PERMISSIONS = new Set([
   'sharing:admin',
   'org_settings:read',
   'org_settings:write',
+  'org_broadcasts:read',
+  'org_broadcasts:write',
 ]);
 
 /**
