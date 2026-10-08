@@ -8,7 +8,7 @@ import {
   UnsupportedMediaTypeException,
 } from '@nestjs/common';
 import { Readable } from 'node:stream';
-import { Prisma } from '@prisma/client';
+import { PrismaClientKnownRequestError } from '../../../src/jobs/data/prisma-runtime';
 
 import { ObjectsService } from '../../../src/storage/objects/objects.service';
 import { PrismaService } from '../support/app-doubles';
@@ -514,7 +514,7 @@ describe('ObjectsService', () => {
         status: 'processing',
       } as any);
       mockJobs.enqueueWithin.mockRejectedValue(
-        new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+        new PrismaClientKnownRequestError('Unique constraint failed', {
           code: 'P2002',
           clientVersion: 'test',
           meta: { target: ACTIVE_DEDUP_INDEX_NAME },

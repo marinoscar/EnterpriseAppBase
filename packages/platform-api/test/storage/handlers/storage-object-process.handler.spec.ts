@@ -16,7 +16,8 @@
 // =============================================================================
 
 import { Logger } from '@nestjs/common';
-import { Job, StorageObject } from '@prisma/client';
+import { type Job } from '../../../src/jobs/data/jobs-db';
+import { type StorageObject } from '../../../src/storage/data/storage-db';
 
 import { createMockPrismaService, MOCK_DEFAULT_ORG_ID, MockPrismaService } from '../support/prisma.mock';
 import { recordTenancyMode, MissingOrgScopeError } from '../../../src/identity/index';

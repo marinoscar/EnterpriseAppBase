@@ -19,7 +19,8 @@
 // exception with the wrong code would leave both consumers guessing.
 // =============================================================================
 
-import { Job, StorageObject } from '@prisma/client';
+import { type Job } from '../../src/jobs/data/jobs-db';
+import { type StorageObject } from '../../src/storage/data/storage-db';
 
 import { createMockPrismaService, MockPrismaService } from './support/prisma.mock';
 import { PrismaService } from './support/app-doubles';
