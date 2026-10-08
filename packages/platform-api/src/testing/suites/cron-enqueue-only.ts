@@ -23,7 +23,7 @@
 // =============================================================================
 
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 
 import type {
   ConformanceCase,
@@ -56,6 +56,13 @@ export interface CronEnqueueOnlyOptions {
   exempt: ReadonlyArray<{
     /** The exempt file, relative to its source root, with `/` separators. */
     file: string;
+    /**
+     * The source root the file lives under (absolute). Optional: without it, a
+     * file at that relative path under ANY root is exempt. Pin it when several
+     * roots are scanned (a packaged slice's `tasks/` next to the app's), so the
+     * exemption names exactly one file.
+     */
+    root?: string;
     /** Why the work must not be a job; more than 40 characters. */
     why: string;
   }>;
@@ -149,7 +156,10 @@ function check(context: ConformanceContext, options: CronEnqueueOnlyOptions): Co
   }
 
   const markers = [...WORK_MARKERS, ...(options.extraWorkMarkers ?? [])];
-  const exemptFiles = new Set(options.exempt.map((entry) => entry.file));
+  const isExempt = (file: { path: string; rel: string }): boolean =>
+    options.exempt.some((entry) =>
+      entry.root === undefined ? entry.file === file.rel : resolve(entry.root, entry.file) === resolve(file.path),
+    );
 
   const files = context.sourceRoots
     .flatMap((root) => {
@@ -167,7 +177,7 @@ function check(context: ConformanceContext, options: CronEnqueueOnlyOptions): Co
   const findings: ConformanceFinding[] = [];
 
   for (const file of files) {
-    if (exemptFiles.has(file.rel)) continue;
+    if (isExempt(file)) continue;
 
     for (const body of cronBodies(file.source)) {
       if (!ENQUEUES.test(body)) {
@@ -184,7 +194,11 @@ function check(context: ConformanceContext, options: CronEnqueueOnlyOptions): Co
 
   return {
     scanned: { cronFiles: files.length },
-    scannedFiles: { cronFiles: files.map((file) => file.rel) },
+    scannedFiles: {
+      cronFiles: files.map((file) => file.rel),
+      // Absolute paths, for an exemption pinned to its root.
+      cronPaths: files.map((file) => resolve(file.path)),
+    },
     findings,
   };
 }
@@ -206,7 +220,8 @@ function cases(options: CronEnqueueOnlyOptions): ReadonlyArray<ConformanceCase> 
         run: (report, expect) => {
           // The exemption is only real if the file is: a stale entry would
           // silently exempt nothing while looking like it exempted something.
-          expect(report.scannedFiles.cronFiles).toContain(entry.file);
+          if (entry.root === undefined) expect(report.scannedFiles.cronFiles).toContain(entry.file);
+          else expect(report.scannedFiles.cronPaths).toContain(resolve(entry.root, entry.file));
           expect(entry.why.length).toBeGreaterThanOrEqual(41);
         },
       }),
