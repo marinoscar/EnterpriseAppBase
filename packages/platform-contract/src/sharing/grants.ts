@@ -14,13 +14,14 @@
 //   DELETE /api/grants/:id                                             -> 204
 //   GET    /api/grants/shared-with-me           sharedWithMeQuerySchema -> sharedWithMeListSchema
 //
-//   (#730) link grants                          linkGrantCreateSchema  -> linkGrantViewSchema
-//   (#730) public resolution                                           -> publicLinkResolutionSchema
+//   POST   /api/grants/links                    linkGrantCreateSchema  -> issuedLinkGrantSchema (#730)
+//   GET    /api/grants/links?resourceType&resourceId grantListQuerySchema -> linkGrantListSchema (#730)
+//   GET    /api/public/links/current            (X-Link-Token header)  -> publicLinkResolutionSchema (#730)
 // =============================================================================
 
 import { z } from 'zod';
 
-import { GRANT_GRANTEE_KINDS, SHARED_WITH_ME_VIA, SHARING_IDENTIFIER_PATTERN, SHARING_LIMITS } from './constants.js';
+import { GRANT_GRANTEE_KINDS, LINK_TOKEN_PATTERN, SHARED_WITH_ME_VIA, SHARING_IDENTIFIER_PATTERN, SHARING_LIMITS } from './constants.js';
 import { wireEnum } from './enum.js';
 import { groupEmailSchema, pageQuerySchema } from './groups.js';
 
@@ -118,8 +119,12 @@ export const createGrantSchema = z
   })
   .strict();
 
+/** A link's label: trimmed, 1 to `linkLabelMax` characters. */
+const linkLabelSchema = z.string().trim().min(1).max(SHARING_LIMITS.linkLabelMax);
+
 /**
- * `PATCH /api/grants/:id` body: at least one field.
+ * `PATCH /api/grants/:id` body: at least one field. `label` applies to a
+ * link grant only (#730; 422 `NOT_A_LINK_GRANT` on any other kind).
  *
  * @stability experimental
  */
@@ -127,8 +132,10 @@ export const updateGrantSchema = z
   .object({
     /** A new role. */
     role: grantRoleSchema.optional(),
-    /** A new expiry; `null` removes it. */
+    /** A new expiry; `null` removes it (a link's is capped by the deployment's maximum link lifetime). */
     expiresAt: instantSchema.nullable().optional(),
+    /** A link grant's new label; `null` removes it (#730). */
+    label: linkLabelSchema.nullable().optional(),
   })
   .strict()
   .refine((body) => Object.keys(body).length > 0, 'Send at least one field');
@@ -277,8 +284,9 @@ export const sharedWithMeListSchema = z.object({
 // ---- link grants (the routes are #730) ------------------------------------------------
 
 /**
- * Creating a link grant (#730): the record, the role (one the type lists under
- * `grantable.link`), an optional expiry and label.
+ * `POST /api/grants/links` body (#730): the record, the role (one the type
+ * lists under `grantable.link`; absent: the weakest of them), an optional
+ * expiry and label, and whether to reuse the caller's active link.
  *
  * @stability experimental
  */
@@ -288,12 +296,22 @@ export const linkGrantCreateSchema = z
     resourceType: resourceTypeSchema,
     /** The record. */
     resourceId: z.uuid(),
-    /** The role anyone holding the link gets. */
-    role: grantRoleSchema,
-    /** When the link stops working; absent or `null` for never. Must be in the future. */
+    /** The role anyone holding the link gets; absent: the weakest role the type grants to links. */
+    role: grantRoleSchema.optional(),
+    /**
+     * When the link stops working: absent for the deployment's default
+     * lifetime, `null` for none; must be in the future. Either way capped by
+     * the deployment's maximum link lifetime.
+     */
     expiresAt: instantSchema.nullish(),
     /** A label for the owner's list ("Shared with the printer"). */
-    label: z.string().trim().min(1).max(SHARING_LIMITS.linkLabelMax).nullish(),
+    label: linkLabelSchema.nullish(),
+    /**
+     * Return the caller's ACTIVE link to the record with the same role
+     * instead of creating another (MemoriaHub's behaviour). Its token is
+     * returned again; expiry and label are left as they are.
+     */
+    reuseActive: z.boolean().optional(),
   })
   .strict();
 
@@ -328,6 +346,40 @@ export const linkGrantViewSchema = z.object({
   grantedById: z.uuid().nullable(),
   /** When it was created. */
   createdAt: z.iso.datetime(),
+});
+
+/**
+ * The `POST /api/grants/links` response (#730): the link, its URL and its
+ * token. The response body is the ONLY place the API returns a token in
+ * clear; the list re-derives the URL instead.
+ *
+ * @stability experimental
+ */
+export const issuedLinkGrantSchema = z.object({
+  /** The link grant. */
+  grant: linkGrantViewSchema,
+  /** The share URL (`buildLinkUrl`): the token rides in the fragment. */
+  url: z.string(),
+  /** The token (`lnk_` and 43 base64url characters), for clients that build their own URL. */
+  token: z.string().regex(LINK_TOKEN_PATTERN),
+});
+
+/**
+ * A page of a record's link grants, newest first (#730).
+ *
+ * @stability experimental
+ */
+export const linkGrantListSchema = z.object({
+  /** The links of this page. */
+  items: z.array(linkGrantViewSchema),
+  /** Links in the whole list. */
+  total: z.number().int(),
+  /** This page's number. */
+  page: z.number().int(),
+  /** The page size. */
+  pageSize: z.number().int(),
+  /** Pages in the whole list. */
+  totalPages: z.number().int(),
 });
 
 /**
@@ -434,6 +486,20 @@ export type LinkGrantCreate = z.output<typeof linkGrantCreateSchema>;
  * @stability experimental
  */
 export type LinkGrantView = z.output<typeof linkGrantViewSchema>;
+
+/**
+ * The `POST /api/grants/links` response (#730).
+ *
+ * @stability experimental
+ */
+export type IssuedLinkGrant = z.output<typeof issuedLinkGrantSchema>;
+
+/**
+ * A page of link grants (#730).
+ *
+ * @stability experimental
+ */
+export type LinkGrantList = z.output<typeof linkGrantListSchema>;
 
 /**
  * The public resolution of a link token (#730).
