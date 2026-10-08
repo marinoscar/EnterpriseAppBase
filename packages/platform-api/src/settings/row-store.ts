@@ -68,7 +68,10 @@ export interface SystemSettingsRowWriteOptions<T> {
   auditMeta?: Record<string, unknown>;
 }
 
-const ROW_KEY = /^[a-z][a-z0-9_]{0,62}$/;
+// Lower snake_case or lower camelCase: the Web Push row has been `webPush`
+// since #355, and a persisted row key is never renamed (#738 moved its writes
+// onto this store).
+const ROW_KEY = /^[a-z][a-zA-Z0-9_]{0,62}$/;
 
 /**
  * Reads and writes a slice's own `system_settings` row by key. Exported by
