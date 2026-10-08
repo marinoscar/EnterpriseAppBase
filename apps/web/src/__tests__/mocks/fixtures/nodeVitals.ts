@@ -1,7 +1,7 @@
 /**
  * Shared worker-node VITALS fixtures — issue #606 (API side #604).
  *
- * Shapes follow `NodeVitalsDto` in `apps/api/src/nodes/dto/node-admin.dto.ts`;
+ * Shapes follow `NodeVitalsDto` in `@marinoscar/platform-contract/nodes`;
  * types are the web client's own (`services/nodes.ts`). Every field of a vitals
  * snapshot is optional on the wire, so `partialVitals` exists to prove the UI
  * renders an ABSENT field as "not reported", never as zero.
