@@ -45,6 +45,13 @@ import type { EmailMessage, EmailSendResult } from '../email.types';
 // would need a restart to take effect.
 // =============================================================================
 
+/**
+ * The Amazon SES (SESv2 API) transport. Credentials from the settings (access
+ * key id) and the credential store (secret access key); region from the
+ * settings, else `sesRegionFallback`.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class SesEmailProvider extends BaseEmailProvider {
   protected readonly logger = new Logger(SesEmailProvider.name);

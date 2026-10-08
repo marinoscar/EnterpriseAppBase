@@ -32,11 +32,13 @@ import type { EmailMessage, EmailSendResult } from '../email.types';
  * one to couple a business action to a mail server.
  *
  * THIS IS NOT ENFORCED BY DOCUMENTATION. Implementations extend
- * {@link ../base-email.provider.BaseEmailProvider}, which implements `send`
+ * `BaseEmailProvider` (`../base-email.provider.ts`), which implements `send`
  * once, as a `try`/`catch` around an abstract `deliver`. A subclass has no
  * `send` to get wrong. If you are writing a provider that implements this
  * interface directly, you are about to reintroduce the bug this note exists
  * to prevent.
+ *
+ * @stability stable
  */
 export interface EmailProvider {
   /**

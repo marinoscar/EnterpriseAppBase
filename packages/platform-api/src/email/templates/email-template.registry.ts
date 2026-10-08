@@ -29,7 +29,7 @@
 // FRAMEWORK-FREE: the registry primitive, the templates and their types.
 // =============================================================================
 
-import { defineRegistry } from '../../core/registry/index';
+import { defineRegistry } from '../../core/index';
 import type { EmailTemplate, RenderedEmail } from './email-template.types';
 import { PLATFORM_EMAIL_TEMPLATES, type PlatformEmailTemplateDataMap } from './platform-email-templates';
 import { resolveEmailRenderContext, type EmailRenderContext } from './render-context';
@@ -49,12 +49,11 @@ import { resolveEmailRenderContext, type EmailRenderContext } from './render-con
  * @extensionPoint schema
  * @stability experimental
  */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface EmailTemplateDataMap extends PlatformEmailTemplateDataMap {}
 
 /**
  * A template name declared in {@link EmailTemplateDataMap}. Kebab-case,
- * matching the template's file (`test-email` -> `test-email.email.ts`), and a
+ * matching the template's file (`test-email` → `test-email.email.ts`), and a
  * STABLE ID: never rename one, add a new name.
  *
  * @stability experimental

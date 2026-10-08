@@ -1,10 +1,13 @@
 import {
+  SafeHtml,
   TRANSACTIONAL_EMAIL_HEADERS,
+  escapeHtml,
   html,
   plainText,
   renderCallout,
   renderLayout,
   resolveEmailRenderContext,
+  safeUrl,
   type EmailRenderContext,
   type EmailTemplate,
   type EmailTemplateEntry,
@@ -60,22 +63,30 @@ export function exampleDigestEmail(data: ExampleDigestEmailData, ctx?: EmailRend
       ? html`<ul style="margin:0 0 16px 20px;padding:0;">${data.items.map((item) => html`<li>${item}</li>`)}</ul>`
       : renderCallout({ tone: 'info', bodyHtml: html`Nothing new this week.` }, context);
 
+  // `safeUrl` admits only absolute http(s)/mailto links; anything else drops
+  // the button (and the text-part link) rather than rendering a dead or
+  // dangerous one.
+  const digestUrl = data.digestUrl ? (safeUrl(data.digestUrl) ?? undefined) : undefined;
+  // The escape hatch, used the only acceptable way: markup that is literal in
+  // the source, with the one dynamic value escaped by hand. Prefer `html`.
+  const weekBadge = SafeHtml.unsafeFromTrustedString(`<span style="font-weight:bold;">${escapeHtml(data.week)}</span>`);
+
   const bodyHtml = html`<p style="margin:0 0 16px 0;">${greeting}</p>
-    <p style="margin:0 0 16px 0;">Here is what happened this week.</p>
+    <p style="margin:0 0 16px 0;">Here is what happened in ${weekBadge}.</p>
     ${items}`;
 
   return {
     subject: title,
     html: renderLayout(
-      { title, previewText: `${data.items.length} updates this week`, bodyHtml, ctaLabel: data.digestUrl ? 'Open the digest' : undefined, ctaUrl: data.digestUrl },
+      { title, previewText: `${data.items.length} updates this week`, bodyHtml, ctaLabel: digestUrl ? 'Open the digest' : undefined, ctaUrl: digestUrl },
       context,
     ),
     text: plainText(
       {
         title,
         lines: [greeting, '', 'Here is what happened this week.', '', ...(data.items.length > 0 ? data.items.map((item) => `- ${item}`) : ['Nothing new this week.'])],
-        ctaLabel: data.digestUrl ? 'Open the digest' : undefined,
-        ctaUrl: data.digestUrl,
+        ctaLabel: digestUrl ? 'Open the digest' : undefined,
+        ctaUrl: digestUrl,
       },
       context,
     ),

@@ -62,7 +62,7 @@ import { SafeHtml, html, safeUrl } from './safe-html';
  *
  * Clients fill the inbox snippet to a fixed length: they take the preheader
  * and then KEEP GOING into the visible body, so a short preheader previews as
- * "Your roles changed <app name> Hello, Oscar..." — the wordmark and the
+ * "Your roles changed [app name] Hello, Oscar..." — the wordmark and the
  * greeting are the layout's chrome bleeding in behind it. These are zero-width
  * non-joiners interleaved with word joiners — invisible in every client, but consumed by
  * the snippet's character budget, so the scrape runs out before it reaches the
@@ -71,6 +71,11 @@ import { SafeHtml, html, safeUrl } from './safe-html';
  */
 const PREHEADER_PADDING = '&#847;&zwnj;&nbsp;&#8199;&#65279;&#847;'.repeat(30);
 
+/**
+ * Options of {@link renderLayout}.
+ *
+ * @stability experimental
+ */
 export interface RenderLayoutOptions {
   /** Heading shown at the top of the body card, and the document `<title>`. */
   title: string;
@@ -110,6 +115,9 @@ export interface RenderLayoutOptions {
  * Returns a plain `string` because this is the terminal step: the result goes
  * straight into `EmailMessage.html` and is never interpolated into anything
  * else, so there is nothing left for the `SafeHtml` type to protect.
+ *
+ * @extensionPoint hook
+ * @stability experimental
  */
 export function renderLayout(opts: RenderLayoutOptions, ctx?: EmailRenderContext): string {
   const { title, previewText, bodyHtml, ctaLabel, ctaUrl } = opts;
@@ -316,6 +324,11 @@ export function renderLayout(opts: RenderLayoutOptions, ctx?: EmailRenderContext
 // lines — rather than from the rendered markup, which it never sees.
 // -----------------------------------------------------------------------------
 
+/**
+ * Options of {@link plainText}.
+ *
+ * @stability experimental
+ */
 export interface PlainTextOptions {
   /** Same heading as the HTML, so the two parts say the same thing. */
   title: string;
@@ -344,6 +357,9 @@ export interface PlainTextOptions {
  * No wrapping, no reflowing, no markdown. Mail clients wrap text parts
  * themselves at the width of the reader's window, and a hard-wrapped body
  * double-wraps into a ragged mess on a phone.
+ *
+ * @extensionPoint hook
+ * @stability experimental
  */
 export function plainText(opts: PlainTextOptions, ctx?: EmailRenderContext): string {
   const context = resolveEmailRenderContext(ctx);

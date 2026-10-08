@@ -78,6 +78,12 @@ const SMTP_CONNECTION_TIMEOUT_MS = 10_000;
 const SMTP_GREETING_TIMEOUT_MS = 10_000;
 const SMTP_SOCKET_TIMEOUT_MS = 20_000;
 
+/**
+ * The SMTP transport (nodemailer). Host, port, TLS and username from the
+ * settings, the password from the credential store; port 465 is implicit TLS.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class SmtpEmailProvider extends BaseEmailProvider {
   protected readonly logger = new Logger(SmtpEmailProvider.name);

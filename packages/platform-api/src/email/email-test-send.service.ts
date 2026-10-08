@@ -85,17 +85,19 @@ const PRINTABLE_ASCII = /^[\x20-\x7E]*$/;
  *
  * Three cases, in order:
  *
- *   * no name              -> the bare address
- *   * printable-ASCII name -> an RFC 5322 quoted-string, with `"` and `\`
+ *   * no name              → the bare address
+ *   * printable-ASCII name → an RFC 5322 quoted-string, with `"` and `\`
  *                             backslash-escaped (they are the only two
  *                             characters a quoted-string cannot carry raw)
- *   * anything else        -> RFC 2047 encoded-word, base64/UTF-8
+ *   * anything else        → RFC 2047 encoded-word, base64/UTF-8
  *
  * The third case is not theoretical: a display name is admin-entered free text
  * and `fromName` accepts any 100 characters. Raw UTF-8 in a header is illegal,
  * and SES rejects it outright rather than rendering it oddly — so "Ácme" in a
  * settings field would break every send with an error that says nothing about
  * display names.
+ *
+ * @stability experimental
  */
 export function formatFromHeader(address: string, name?: string): string {
   const cleanedName = (name ?? '').replace(HEADER_UNSAFE, '').trim();
@@ -118,18 +120,26 @@ export function formatFromHeader(address: string, name?: string): string {
  * Narrower than `RequestUser` on purpose: this service has no business reading
  * roles or permissions (the guard already decided), and a narrow parameter is
  * one that a test can construct in a line.
+ *
+ * @stability experimental
  */
 export interface TestSendActor {
   id: string;
   email: string;
 }
 
+/**
+ * Sends the test message to the caller's own address and audits the attempt.
+ * Never throws for a refused send: the outcome is a `TestEmailResult`.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class EmailTestSendService {
   private readonly logger = new Logger(EmailTestSendService.name);
 
   /**
-   * Transport kind -> transport.
+   * Transport kind → transport.
    *
    * A `Record<EmailProviderKind, EmailProvider>` rather than a `switch`:
    * adding a kind to `EMAIL_PROVIDER_KINDS` makes this object fail to compile
@@ -166,7 +176,7 @@ export class EmailTestSendService {
    * fault (the database being down while writing the audit row), which is a
    * 500 and correctly so.
    *
-   * @param actor the authenticated caller. The recipient, and the only one.
+   * @param actor - the authenticated caller. The recipient, and the only one.
    */
   async sendTest(actor: TestSendActor): Promise<TestEmailResult> {
     const attemptedAt = new Date();

@@ -31,10 +31,18 @@ import {
 // No product name is hard-coded; `appName` is the only seam.
 // =============================================================================
 
-/** Which of the two give-up paths produced this message. */
+/**
+ * Which of the two give-up paths produced this message.
+ *
+ * @stability experimental
+ */
 export type BackupFailureOutcome = 'failed' | 'stale';
 
-/** Everything the backup-failure message renders. */
+/**
+ * Everything the backup-failure message renders.
+ *
+ * @stability experimental
+ */
 export interface BackupFailedEmailData {
   /** The `database_backup_runs` row id. */
   runId: string;
@@ -98,6 +106,8 @@ function detailRow(label: string, value: string): SafeHtml {
 
 /**
  * Render the backup-failure message.
+ *
+ * @stability experimental
  */
 export function backupFailedEmail(data: BackupFailedEmailData, ctx?: EmailRenderContext): RenderedEmail {
   const context = resolveEmailRenderContext(ctx);

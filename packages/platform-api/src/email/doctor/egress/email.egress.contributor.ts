@@ -23,6 +23,8 @@ const DEGRADATION = 'No email is sent: invitations, notifications by email and t
  * non-secret SES region fallback the SES provider itself uses
  * (`EmailModule.forRoot({ sesRegionFallback })`). The SES host
  * is `email.<region>.amazonaws.com`.
+ *
+ * @stability experimental
  */
 @Injectable()
 export class EmailEgressContributor implements EgressContributor, OnModuleInit {

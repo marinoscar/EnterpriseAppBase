@@ -113,6 +113,8 @@ export const EMAIL_SETTINGS_KEY = 'email';
  * store's own mask, derived on write from the plaintext by code that already
  * holds it; nothing in this module can widen it, and no other part of the
  * secret is representable in this shape.
+ *
+ * @stability experimental
  */
 export interface CredentialStatus {
   /** Is a secret stored at this credential's address? */
@@ -128,7 +130,11 @@ export interface CredentialStatus {
   updatedByUserId: string | null;
 }
 
-/** @deprecated kept as an alias — see {@link CredentialStatus}. */
+/**
+ * @deprecated kept as an alias — see {@link CredentialStatus}.
+ *
+ * @stability experimental
+ */
 export type SmtpPasswordStatus = CredentialStatus;
 
 /**
@@ -141,6 +147,8 @@ export type SmtpPasswordStatus = CredentialStatus;
  * (`./dto/email-settings-response.dto.ts`) is derived from the same schema for
  * the same reason, and carries a compile-time proof that no secret-bearing
  * field crept into the extension.
+ *
+ * @stability experimental
  */
 export interface EmailSettingsAdminView extends EmailSettings {
   smtpPasswordStatus: CredentialStatus;
@@ -235,6 +243,14 @@ function isBlankSecret(value: string | null | undefined): boolean {
   return value === undefined || value === null || value === '';
 }
 
+/**
+ * Reads and writes the `email` settings row (through `SystemSettingsRowStore`)
+ * and the two email secrets (through `CredentialsService`): `get` for the send
+ * path (throws on a corrupt row), `describeForAdmin` for the page (degrades and
+ * reports), `update` for `PUT /api/email-settings`.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class EmailSettingsService {
   private readonly logger = new Logger(EmailSettingsService.name);
@@ -397,7 +413,7 @@ export class EmailSettingsService {
    * An empty password field means "I did not retype the password", so the
    * stored one is kept. `CredentialsService` already implements exactly that
    * and this method must not reimplement, second-guess or pre-normalise it:
-   * no `.trim()`, no `''` -> `undefined` coercion, no "erase when empty"
+   * no `.trim()`, no `''` → `undefined` coercion, no "erase when empty"
    * branch. The value arrives here byte-for-byte as submitted.
    *
    * What this method DOES decide is whether to call `setSecret` at all, and it
@@ -411,8 +427,10 @@ export class EmailSettingsService {
    * Erasing a stored password is `CredentialsService.deleteSecret`, from a
    * distinct control. It is deliberately not reachable through this endpoint.
    *
-   * @param expectedVersion optional `If-Match`; a mismatch is a 409 rather
-   *                        than a silent overwrite of a colleague's save.
+   * @param input - the parsed PUT body, secrets included.
+   * @param userId - the acting administrator.
+   * @param expectedVersion - optional `If-Match`; a mismatch is a 409 rather
+   *   than a silent overwrite of a colleague's save.
    */
   async update(
     input: UpdateEmailSettingsInput,

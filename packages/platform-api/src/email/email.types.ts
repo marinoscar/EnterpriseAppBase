@@ -18,6 +18,8 @@
  * the time a message reaches a provider, every decision has been made. That
  * keeps "what did we send?" answerable from one place (#123/#125) rather than
  * from whichever transport happened to be selected.
+ *
+ * @stability stable
  */
 export interface EmailMessage {
   /** Single recipient. Fan-out is the dispatcher's job (#125), not a transport's. */
@@ -89,8 +91,10 @@ export interface EmailAttachment {
  * The outcome of a single send attempt.
  *
  * THIS TYPE IS THE ONLY WAY A PROVIDER REPORTS FAILURE. See
- * {@link ./providers/email-provider.interface.ts} for why `send` must never
+ * `./providers/email-provider.interface.ts` for why `send` must never
  * throw, and `base-email.provider.ts` for how that is enforced structurally.
+ *
+ * @stability stable
  */
 export interface EmailSendResult {
   success: boolean;

@@ -73,6 +73,9 @@
  * The apostrophe is escaped as the numeric `&#39;` rather than `&apos;`: the
  * named form is HTML5-only, and some mail clients still parse bodies with
  * HTML4/XHTML rules where it is undefined.
+ *
+ * @extensionPoint hook
+ * @stability stable
  */
 export function escapeHtml(value: string): string {
   return value
@@ -94,6 +97,9 @@ export function escapeHtml(value: string): string {
  *
  * The constructor is private so that `new SafeHtml(userInput)` is not a third,
  * unnamed escape hatch sitting next to the two documented ones.
+ *
+ * @extensionPoint hook
+ * @stability stable
  */
 export class SafeHtml {
   private constructor(private readonly value: string) {}
@@ -168,6 +174,9 @@ function renderValue(value: unknown): string {
  * Email templates contain neither — layout.ts explains why there is no
  * `<style>` block — and URLs go through {@link safeUrl}, which rejects every
  * scheme that could carry code.
+ *
+ * @extensionPoint hook
+ * @stability stable
  */
 export function html(
   strings: TemplateStringsArray,
@@ -208,6 +217,9 @@ const ALLOWED_URL_SCHEMES = new Set(['http:', 'https:', 'mailto:']);
  * Returns `null` rather than a placeholder such as `#`: callers (see the CTA
  * handling in layout.ts) drop the link entirely, because a button that
  * silently goes nowhere is harder to diagnose than a button that is not there.
+ *
+ * @extensionPoint hook
+ * @stability stable
  */
 export function safeUrl(value: string): string | null {
   try {

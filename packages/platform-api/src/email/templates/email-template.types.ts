@@ -25,6 +25,8 @@ import type { EmailRenderContext } from './render-context';
 
 /**
  * What a template returns: the rendered halves of one message.
+ *
+ * @stability experimental
  */
 export interface RenderedEmail {
   /**
@@ -72,10 +74,12 @@ export interface RenderedEmail {
  * `Auto-Submitted: auto-generated` (RFC 3834) tells conforming auto-responders
  * not to reply. Without it, a recipient's out-of-office replies to our
  * no-reply address, our bounce handling replies to theirs, and the two
- * generate mail at each other until somebody notices. `X-Auto-Response-
- * Suppress` is Microsoft's non-standard equivalent, honoured by Exchange and
+ * generate mail at each other until somebody notices.
+ * `X-Auto-Response-Suppress` is Microsoft's non-standard equivalent, honoured by Exchange and
  * Outlook, which predate and ignore RFC 3834. Both are needed to cover the
  * field.
+ *
+ * @stability stable
  */
 export const TRANSACTIONAL_EMAIL_HEADERS: Readonly<Record<string, string>> = {
   'Auto-Submitted': 'auto-generated',
@@ -91,6 +95,8 @@ export const TRANSACTIONAL_EMAIL_HEADERS: Readonly<Record<string, string>> = {
  * by rejecting, from a code path (#125's dispatcher) whose defining rule is
  * that a notification failure never fails the action that triggered it. Data
  * is gathered by the caller and passed in.
+ *
+ * @stability experimental
  */
 export type EmailTemplate<TData> = (data: TData, ctx?: EmailRenderContext) => RenderedEmail;
 
@@ -113,11 +119,26 @@ type MessageRenderedPart = Pick<
   'subject' | 'html' | 'text' | 'headers' | 'attachments'
 >;
 
+/**
+ * `true` while every {@link RenderedEmail} field fits an `EmailMessage`.
+ *
+ * @stability experimental
+ */
 export type RenderedEmailFitsMessage =
   RenderedEmail extends MessageRenderedPart ? true : never;
 
+/**
+ * `true` while the rendered part of an `EmailMessage` fits a {@link RenderedEmail}.
+ *
+ * @stability experimental
+ */
 export type MessageRenderedPartFitsRendered =
   MessageRenderedPart extends RenderedEmail ? true : never;
 
+/**
+ * The proof that `RenderedEmail` and `EmailMessage` agree (fails to compile otherwise).
+ *
+ * @stability experimental
+ */
 export const RENDERED_EMAIL_MATCHES_MESSAGE: RenderedEmailFitsMessage &
   MessageRenderedPartFitsRendered = true;

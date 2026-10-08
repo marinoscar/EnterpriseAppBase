@@ -36,6 +36,8 @@ import {
  * a template is a pure function of this object. The absolute `appUrl` is
  * supplied by the caller for the same reason — a template that built it would
  * have to know both `APP_URL` and the web app's route table.
+ *
+ * @stability experimental
  */
 export interface UserWelcomeEmailData {
   /** The address the account was created under. Stated back as the fact it is. */
@@ -86,6 +88,8 @@ function formatRoles(roles: string[]): string {
 
 /**
  * Render the welcome message.
+ *
+ * @stability experimental
  */
 export function userWelcomeEmail(data: UserWelcomeEmailData, ctx?: EmailRenderContext): RenderedEmail {
   const context = resolveEmailRenderContext(ctx);

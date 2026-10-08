@@ -79,6 +79,8 @@ import {
  * Everything a broadcast renders — and, deliberately, nothing about who it is
  * going to. This message is identical for every recipient, which is what lets
  * the fan-out in #323 render it once per chunk rather than once per person.
+ *
+ * @stability experimental
  */
 export interface BroadcastEmailData {
   /**
@@ -199,6 +201,8 @@ function truncate(value: string, max: number): string {
 
 /**
  * Render an administrator's broadcast.
+ *
+ * @stability experimental
  */
 export function broadcastEmail(data: BroadcastEmailData, ctx?: EmailRenderContext): RenderedEmail {
   const context = resolveEmailRenderContext(ctx);

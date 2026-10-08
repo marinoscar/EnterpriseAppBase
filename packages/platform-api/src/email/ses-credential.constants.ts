@@ -37,6 +37,8 @@ import type { CredentialPurposeDef } from '../credentials/index';
  * changing this string orphans every already-stored SES secret access key —
  * they remain in the table and become permanently unreadable. It is not a
  * rename.
+ *
+ * @stability stable
  */
 export const SES_CREDENTIAL_PURPOSE = 'email_ses';
 
@@ -44,6 +46,8 @@ export const SES_CREDENTIAL_PURPOSE = 'email_ses';
  * Discriminator within the purpose. 'default' because this app has one SES
  * sending identity; a future multi-account setup keys additional rows by
  * account id without touching anything above.
+ *
+ * @stability stable
  */
 export const SES_CREDENTIAL_NAME = 'default';
 
@@ -54,12 +58,16 @@ export const SES_CREDENTIAL_NAME = 'default';
  * compile-time proof that it has no secret-bearing field, and this string is
  * shown verbatim in any credential listing. It exists so a row in that listing
  * says what it is for rather than only `email_ses/default`.
+ *
+ * @stability stable
  */
 export const SES_CREDENTIAL_LABEL = 'SES secret access key';
 
 /**
  * The `email_ses` purpose's declaration for the credential purpose registry
  * (#735), registered by `platform/credentials/credential-purposes.manifest.ts`.
+ *
+ * @stability stable
  */
 export const SES_CREDENTIAL_PURPOSE_DEF = {
   purpose: SES_CREDENTIAL_PURPOSE,

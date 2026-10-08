@@ -47,6 +47,8 @@ import {
  * Note what is absent: no user id, no display name, no preferences, no notes.
  * The recipient is an email address and nothing more, which is exactly what
  * being newly allowlisted means.
+ *
+ * @stability experimental
  */
 export interface AllowlistInvitationEmailData {
   /** The address that was allowlisted, and the one they must sign in with. */
@@ -56,8 +58,8 @@ export interface AllowlistInvitationEmailData {
    * The administrator who added them — their display name or email — when
    * known.
    *
-   * Optional because `allowed_emails.added_by_id` is nullable (`onDelete:
-   * SetNull`), so an entry outlives the admin who created it.
+   * Optional because `allowed_emails.added_by_id` is nullable
+   * (`onDelete: SetNull`), so an entry outlives the admin who created it.
    *
    * DISCLOSED ON PURPOSE, and it is a deliberate trade rather than an
    * oversight. It reveals one internal address to somebody outside the system;
@@ -82,6 +84,8 @@ export interface AllowlistInvitationEmailData {
 
 /**
  * Render the invitation.
+ *
+ * @stability experimental
  */
 export function allowlistInvitationEmail(
   data: AllowlistInvitationEmailData,

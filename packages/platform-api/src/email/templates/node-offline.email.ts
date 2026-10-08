@@ -22,7 +22,11 @@ import {
 // No product name is hard-coded; `appName` is the only seam.
 // =============================================================================
 
-/** Everything the node-offline message renders. */
+/**
+ * Everything the node-offline message renders.
+ *
+ * @stability experimental
+ */
 export interface NodeOfflineEmailData {
   /** The node row's id. */
   nodeId: string;
@@ -88,6 +92,8 @@ function detailRow(label: string, value: string): SafeHtml {
 
 /**
  * Render the node-offline message.
+ *
+ * @stability experimental
  */
 export function nodeOfflineEmail(data: NodeOfflineEmailData, ctx?: EmailRenderContext): RenderedEmail {
   const context = resolveEmailRenderContext(ctx);

@@ -73,6 +73,8 @@ const MIN_REDACTABLE_SECRET_LENGTH = 4;
  * The plaintext lives in this object for the duration of one send. That is the
  * same lifetime the transport itself needs it for, so it adds no new exposure
  * window; it is dropped when the send returns.
+ *
+ * @stability stable
  */
 export class SecretRedactor {
   private readonly secrets: string[] = [];
@@ -141,6 +143,8 @@ function rateLimitFields(
  *
  * Subclasses implement {@link deliver}; they do not implement `send` and must
  * not override it.
+ *
+ * @stability stable
  */
 export abstract class BaseEmailProvider implements EmailProvider {
   /** Subclass's logger, so failures are attributed to the real transport. */
@@ -165,8 +169,9 @@ export abstract class BaseEmailProvider implements EmailProvider {
    * A subclass therefore needs no try/catch, and adding one only makes the
    * error message worse than what this class already produces.
    *
-   * @param redact register any secret obtained here, immediately, so an error
-   *               raised later cannot carry it out of the process.
+   * @param msg - the message to put on the network.
+   * @param redact - register any secret obtained here, immediately, so an
+   *   error raised later cannot carry it out of the process.
    */
   protected abstract deliver(
     msg: EmailMessage,

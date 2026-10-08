@@ -5,6 +5,11 @@ import { DoctorCheckRegistry } from '../../doctor/index';
 import { EmailSettingsAdminView, EmailSettingsService } from '../email-settings.service';
 import { DEFAULT_SMTP_PORT } from '../email-settings.schema';
 
+/**
+ * The admin page every email finding links to.
+ *
+ * @stability experimental
+ */
 export const EMAIL_SETTINGS_PATH = '/admin/settings/email';
 
 const REMEDY_OPEN = `Complete the email settings at ${EMAIL_SETTINGS_PATH}, then use "Send test email" there.`;
@@ -15,6 +20,8 @@ const REMEDY_OPEN = `Complete the email settings at ${EMAIL_SETTINGS_PATH}, then
  * The view carries credential STATUS (configured or not), never material —
  * `describeForAdmin` does not select the ciphertext — so nothing here can leak
  * a password. The access key id is not reported either.
+ *
+ * @stability experimental
  */
 export function decideEmailConfig(view: EmailSettingsAdminView): DoctorCheckOutcome {
   if (view.settingsError) {
@@ -69,7 +76,11 @@ export function decideEmailConfig(view: EmailSettingsAdminView): DoctorCheckOutc
   return { status: 'pass', detail: `${via}, from ${view.fromAddress}`, data };
 }
 
-/** `email` / `email.config` — outgoing email is configured. Never sends. */
+/**
+ * `email` / `email.config` — outgoing email is configured. Never sends.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class EmailConfigDoctorCheck implements DoctorCheck, OnModuleInit {
   readonly id = 'email.config';

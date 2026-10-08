@@ -42,6 +42,8 @@ import {
  * rule the #128 templates set: a template that reads the clock is not a pure
  * function of its input, and "what exactly did we send?" stops being
  * answerable after the fact.
+ *
+ * @stability experimental
  */
 export interface JobFailedEmailData {
   /** The job row's id, so a reader can find it in the admin list. */
@@ -111,6 +113,8 @@ function detailRow(label: string, value: string): SafeHtml {
 
 /**
  * Render the job-failure message.
+ *
+ * @stability experimental
  */
 export function jobFailedEmail(data: JobFailedEmailData, ctx?: EmailRenderContext): RenderedEmail {
   const context = resolveEmailRenderContext(ctx);

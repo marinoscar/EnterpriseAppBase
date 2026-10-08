@@ -58,7 +58,7 @@ import { type UserWelcomeEmailData, userWelcomeEmail } from './user-welcome.emai
  *
  * #128 added the three real event templates. NAMES ARE KEBAB-CASE AND MATCH
  * THE FILE, while the notification event keys that select them are dotted
- * (`user.welcome` -> `user-welcome`): the mapping between the two is the
+ * (`user.welcome` → `user-welcome`): the mapping between the two is the
  * `emailTemplate` of each `registerNotification` entry (the
  * `eventEmailTemplateRegistry`), and is deliberately explicit rather than
  * derived, so a rename on either side is a registration error or a reviewed
@@ -96,7 +96,7 @@ export interface PlatformEmailTemplateDataMap {
 export type PlatformEmailTemplateName = keyof PlatformEmailTemplateDataMap & string;
 
 /**
- * Platform name -> renderer, in the order the manifest registers them.
+ * Platform name → renderer, in the order the manifest registers them.
  *
  * The mapped type is what makes this exhaustive: every
  * `PlatformEmailTemplateName` must appear, and each entry's data parameter is

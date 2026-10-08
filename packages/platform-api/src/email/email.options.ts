@@ -111,6 +111,8 @@ export function resolveEmailModuleOptions(options: EmailModuleOptions): Resolved
  * provider by hand): no classifier, no SES fallback, no URL.
  *
  * @internal
+ *
+ * @stability experimental
  */
 export const UNCONFIGURED_EMAIL_OPTIONS: Pick<
   ResolvedEmailModuleOptions,

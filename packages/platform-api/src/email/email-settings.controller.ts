@@ -55,6 +55,12 @@ import { UpdateEmailSettingsDto } from './dto/update-email-settings.dto';
 // and it is reviewed here, in the diff that adds it.
 // =============================================================================
 
+/**
+ * `GET`/`PUT /api/email-settings` (`system_settings:read` / `:write`) and
+ * `POST /api/email-settings/test` (`system_settings:write`). No route returns a secret.
+ *
+ * @stability stable
+ */
 @ApiTags('Email Settings')
 @Controller('email-settings')
 export class EmailSettingsController {

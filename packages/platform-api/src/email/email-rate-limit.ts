@@ -103,8 +103,8 @@ const NO_GENERIC_CLASSIFIER: GenericRateLimitClassifier = () => ({ rateLimited: 
  * Gmail's and Microsoft's usual rate-limit reply; 450/451/452 are the
  * per-message transient codes several relays reuse for per-sender limits
  * (`451 4.7.500 Server busy`, `452 4.3.1 Too many messages`); 454 is what
- * SES's own SMTP interface answers (`454 Throttling failure: Maximum sending
- * rate exceeded`) — relevant because the SMTP transport can be pointed at
+ * SES's own SMTP interface answers
+ * (`454 Throttling failure: Maximum sending rate exceeded`) — relevant because the SMTP transport can be pointed at
  * `email-smtp.<region>.amazonaws.com`. Every one of them ALSO has
  * non-throttle uses (454 is also "temporary authentication failure"), which
  * is why a code in this set is only half the test.
@@ -172,6 +172,8 @@ const NOT_RATE_LIMITED: RateLimitClassification = {
  * break the never-throw contract that whole class exists to hold. Every
  * property read is inside the `try`; anything unexpected is "not a rate
  * limit".
+ *
+ * @stability experimental
  */
 export function classifyEmailRateLimit(
   err: unknown,

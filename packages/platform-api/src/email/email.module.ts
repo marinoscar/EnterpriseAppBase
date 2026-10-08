@@ -59,6 +59,8 @@ const loggedOverrides = new Set<string>();
  * than discovered in somebody's inbox.
  *
  * @internal
+ *
+ * @stability experimental
  */
 @Injectable()
 export class EmailTemplateOverrideReporter implements OnApplicationBootstrap {

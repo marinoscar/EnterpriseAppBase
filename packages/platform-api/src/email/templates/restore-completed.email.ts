@@ -40,7 +40,11 @@ import {
 // No product name is hard-coded; `appName` is the only seam.
 // =============================================================================
 
-/** Everything the restore-completed message renders. */
+/**
+ * Everything the restore-completed message renders.
+ *
+ * @stability experimental
+ */
 export interface RestoreCompletedEmailData {
   /** The `database_backup_runs` row the archive came from. */
   runId: string;
@@ -108,6 +112,8 @@ function detailRow(label: string, value: string): SafeHtml {
 
 /**
  * Render the restore-completed message.
+ *
+ * @stability experimental
  */
 export function restoreCompletedEmail(
   data: RestoreCompletedEmailData,

@@ -35,6 +35,8 @@ import type { CredentialPurposeDef } from '../credentials/index';
  * `purpose` is also the AES-GCM sub-key domain (see `CredentialsService`), so
  * changing this string orphans every already-stored SMTP password — they
  * remain in the table and become permanently unreadable. It is not a rename.
+ *
+ * @stability stable
  */
 export const SMTP_CREDENTIAL_PURPOSE = 'smtp';
 
@@ -42,6 +44,8 @@ export const SMTP_CREDENTIAL_PURPOSE = 'smtp';
  * Discriminator within the purpose. 'default' because this app has one mail
  * transport; a future multi-relay setup keys additional rows by relay id
  * without touching anything above.
+ *
+ * @stability stable
  */
 export const SMTP_CREDENTIAL_NAME = 'default';
 
@@ -52,12 +56,16 @@ export const SMTP_CREDENTIAL_NAME = 'default';
  * compile-time proof that it has no secret-bearing field, and this string is
  * shown verbatim in any credential listing. It exists so a row in that listing
  * says what it is for rather than only `smtp/default`.
+ *
+ * @stability stable
  */
 export const SMTP_CREDENTIAL_LABEL = 'SMTP password';
 
 /**
  * The `smtp` purpose's declaration for the credential purpose registry (#735),
  * registered by `platform/credentials/credential-purposes.manifest.ts`.
+ *
+ * @stability stable
  */
 export const SMTP_CREDENTIAL_PURPOSE_DEF = {
   purpose: SMTP_CREDENTIAL_PURPOSE,

@@ -58,6 +58,8 @@ import {
  * function of its input, and "what exactly did we send?" stops being
  * answerable after the fact — which for a security notification is the whole
  * value of having sent it.
+ *
+ * @stability experimental
  */
 export interface RoleChangedEmailData {
   /** The account whose roles changed. Stated so a reader with several knows which. */
@@ -123,6 +125,8 @@ function changeRow(label: string, value: string): SafeHtml {
 
 /**
  * Render the role-change message.
+ *
+ * @stability experimental
  */
 export function roleChangedEmail(data: RoleChangedEmailData, ctx?: EmailRenderContext): RenderedEmail {
   const context = resolveEmailRenderContext(ctx);

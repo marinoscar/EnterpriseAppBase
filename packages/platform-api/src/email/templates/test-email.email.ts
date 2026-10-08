@@ -31,11 +31,13 @@ import {
 /**
  * Everything the test message renders.
  *
- * NOTE THE ABSENT CLOCK: `sentAt` is passed in rather than read from `new
- * Date()` inside the template. A template that reads the clock is not a pure
+ * NOTE THE ABSENT CLOCK: `sentAt` is passed in rather than read from
+ * `new Date()` inside the template. A template that reads the clock is not a pure
  * function of its input, which makes its output untestable without freezing
  * time and makes "what exactly did we send?" unanswerable after the fact.
  * Every template in this module follows the same rule.
+ *
+ * @stability experimental
  */
 export interface TestEmailData {
   /** Address the admin typed into the test form. Echoed back as a check. */
@@ -117,6 +119,8 @@ function factRow(label: string, value: string): SafeHtml {
 
 /**
  * Render the test message.
+ *
+ * @stability experimental
  */
 export function testEmail(data: TestEmailData, ctx?: EmailRenderContext): RenderedEmail {
   const context = resolveEmailRenderContext(ctx);
