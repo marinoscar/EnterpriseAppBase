@@ -7,6 +7,7 @@ import {
 } from '@opentelemetry/sdk-metrics';
 
 import type { PrismaService } from '../../prisma/prisma.service';
+import { JobsService, type JobsPrisma } from '@marinoscar/platform-api/jobs';
 import { withTemporaryEntries } from '@marinoscar/platform-api/core';
 import {
   APP_METRIC_NAMES,
@@ -166,6 +167,32 @@ describe('AppMetricsService', () => {
           { attributes: { outcome: 'requeued' }, value: 4 },
         ]),
       );
+    });
+
+    it("never labels a queue metric with a job's organization (#734: org.id is a span attribute only)", async () => {
+      const { service, reader } = setup();
+      const ORG = '11111111-1111-4111-8111-aaaaaaaaaaaa';
+      const create = jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: 'job-1', status: 'pending', ...data }));
+      // The REAL queue, recording into the REAL recorder through the JOBS_METRICS port.
+      const jobs = new JobsService({ job: { create, findFirst: jest.fn() } } as unknown as JobsPrisma, service);
+
+      const job = await jobs.enqueue({ type: 'storage.object.process', reason: 'upload', orgId: ORG });
+      expect(job.orgId).toBe(ORG);
+      // The rest of the job's life, as the claim, terminal and reaper services record it.
+      service.jobsClaimedBy('node', [job.type]);
+      service.jobSettled(job.type, 'succeeded', 1200, 'node');
+      service.leaseReaped('requeued', 1, job.type);
+
+      const all = await collect(reader);
+      const queueMetrics = all.filter((m) => m.descriptor.name.startsWith('app.jobs.'));
+      expect(queueMetrics.length).toBeGreaterThanOrEqual(4);
+      for (const m of queueMetrics) {
+        for (const dp of m.dataPoints) {
+          expect(Object.keys(dp.attributes)).not.toContain('org.id');
+          expect(Object.keys(dp.attributes)).not.toContain('org_id');
+          expect(Object.values(dp.attributes)).not.toContain(ORG);
+        }
+      }
     });
 
     it('records backup outcomes, duration in seconds and size in bytes (completed only)', async () => {

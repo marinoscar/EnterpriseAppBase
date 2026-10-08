@@ -10,11 +10,11 @@
 import { Logger } from '@nestjs/common';
 import type { Job } from '@prisma/client';
 
-import { JobSettledEvent } from '../../jobs/events/job-settled.event';
-import type { JobHandler } from '../../jobs/job-handler.interface';
-import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
-import { JOB_TYPE_LABELS } from '../../jobs/job-type-labels';
-import { RateLimitError } from '../../jobs/rate-limit.error';
+import { JobSettledEvent } from '@marinoscar/platform-api/jobs';
+import type { JobHandler } from '@marinoscar/platform-api/jobs';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
+import { jobTypeLabel } from '@marinoscar/platform-api/jobs';
+import { RateLimitError } from '@marinoscar/platform-api/jobs';
 import { AI_OUTPUTS_KEY_PREFIX } from '../../storage/storage-key-prefixes';
 import { AiError } from '../core/ai-error';
 import { aiOutputKeyPrefix } from '../storage/ai-output-writer';
@@ -63,7 +63,7 @@ describe('AiAudioSpeechHandler', () => {
       handler.onModuleInit();
 
       expect(registry.get('ai.audio.speech')).toBe(handler);
-      expect(JOB_TYPE_LABELS['ai.audio.speech']).toBe('AI speech synthesis');
+      expect(jobTypeLabel('ai.audio.speech')).toBe('AI speech synthesis');
     });
 
     it("is server-only — a user's key must never leave the server", () => {

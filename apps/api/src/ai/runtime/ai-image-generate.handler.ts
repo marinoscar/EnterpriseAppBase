@@ -33,9 +33,9 @@
 import { Injectable } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 
-import { JOB_SETTLED_EVENT, JobSettledEvent } from '../../jobs/events/job-settled.event';
-import { JobExecutionProfile } from '../../jobs/job-execution-profile';
-import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
+import { JOB_SETTLED_EVENT, JobSettledEvent } from '@marinoscar/platform-api/jobs';
+import { JobExecutionProfile } from '@marinoscar/platform-api/jobs';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 import { AiError } from '../core/ai-error';
 import type { AiImageResult } from '../core/types/media.types';
 import { AiOutputWriter, type AiStoredOutput } from '../storage/ai-output-writer';
@@ -53,6 +53,7 @@ import type { AiImageRunOutput } from './ai-runtime.types';
 @Injectable()
 export class AiImageGenerateHandler extends AiMediaRunHandler {
   readonly type = AI_IMAGE_GENERATE_TYPE;
+  readonly label = 'AI image generation';
 
   readonly profile: JobExecutionProfile = { maxRuntimeMs: 10 * 60_000, maxAttempts: 1 };
 

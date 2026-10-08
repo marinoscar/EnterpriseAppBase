@@ -44,7 +44,7 @@ import {
 } from '@marinoscar/platform-api/email';
 import { EMAIL_MODULE_OPTIONS } from '../../platform/email/email.options';
 import { SLICE_EMAIL_TEMPLATES } from '../../platform/email/templates';
-import { NODES_NOTIFICATIONS } from '../../nodes/nodes.notifications';
+import { NODES_NOTIFICATIONS } from '../ops/nodes.notifications';
 import { USERS_NOTIFICATIONS } from '../../identity-extensions/notifications/users.notifications';
 import { ORGANIZATIONS_NOTIFICATIONS } from '../../identity-extensions/notifications/organizations.notifications';
 import { SHARING_NOTIFICATIONS } from '../../platform/sharing/sharing.notifications';

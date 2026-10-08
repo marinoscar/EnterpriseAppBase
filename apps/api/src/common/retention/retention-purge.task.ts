@@ -24,8 +24,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 
 import { AI_RUNS_PURGE_TYPE } from '../../ai/runtime/ai-runs-purge.handler';
-import { enqueueHousekeepingJob } from '../../jobs/housekeeping.enqueue';
-import { JobsService } from '../../jobs/jobs.service';
+import { enqueueHousekeepingJob } from '@marinoscar/platform-api/jobs';
+import { JobsService } from '@marinoscar/platform-api/jobs';
 import { NOTIFICATION_DELIVERIES_PURGE_TYPE } from '../../notifications/retention/notification-deliveries-purge.handler';
 import { NOTIFICATION_INBOX_PURGE_TYPE } from '../../notifications/retention/notification-inbox-purge.handler';
 import { PrismaService } from '../../prisma/prisma.service';

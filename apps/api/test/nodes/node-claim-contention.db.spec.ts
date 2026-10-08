@@ -41,16 +41,16 @@ import { ConfigService } from '@nestjs/config';
 import { Job, PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 
-import { JobClaimService } from '../../src/jobs/job-claim.service';
-import { JobLeaseService } from '../../src/jobs/job-lease.service';
-import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
-import { JobTerminalService } from '../../src/jobs/job-terminal.service';
+import { JobClaimService } from '@marinoscar/platform-api/jobs';
+import { JobLeaseService } from '@marinoscar/platform-api/jobs';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
+import { JobTerminalService } from '@marinoscar/platform-api/jobs';
 import { DEFAULT_SYSTEM_SETTINGS } from '../../src/common/types/settings.types';
-import { NodesService } from '../../src/nodes/nodes.service';
+import { NodesService } from '@marinoscar/platform-api/nodes';
 import type { PrismaService } from '../../src/prisma/prisma.service';
-import { ClaimJobsDto } from '../../src/nodes/dto/node-control-plane.dto';
+import { ClaimJobsDto } from '@marinoscar/platform-api/nodes';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';
-import { NodeOffloadService } from '../../src/jobs/node-offload.service';
+import { NodeOffloadService } from '@marinoscar/platform-api/jobs';
 import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
 
 const { describeWithDb } = resolveDbSuite('node-claim-contention.db.spec');

@@ -15,7 +15,7 @@
 import type { Job } from '@prisma/client';
 
 import type { CredentialsService } from '@marinoscar/platform-api/credentials';
-import type { JobsService } from '../../jobs/jobs.service';
+import type { JobsService } from '@marinoscar/platform-api/jobs';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import { AiError } from '../core/ai-error';

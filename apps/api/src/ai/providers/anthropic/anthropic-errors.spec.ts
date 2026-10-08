@@ -7,7 +7,7 @@ import {
 } from '@anthropic-ai/sdk';
 
 import { AiError } from '../../core/ai-error';
-import { RateLimitError } from '../../../jobs/rate-limit.error';
+import { RateLimitError } from '@marinoscar/platform-api/jobs';
 import { anthropicErrorCode, classifyAnthropicErrorType, mapAnthropicError } from './anthropic-errors';
 
 function apiError(status: number | undefined, type: string, message = 'provider text', headers: Record<string, string> = {}) {

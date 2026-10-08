@@ -18,7 +18,7 @@ import {
   RateLimitError,
   type RateLimitClassification,
   type SelfClassifyingRateLimit,
-} from '../../jobs/rate-limit.error';
+} from '@marinoscar/platform-api/jobs';
 
 export const AI_ERROR_STATUS = {
   AI_DISABLED: 403,

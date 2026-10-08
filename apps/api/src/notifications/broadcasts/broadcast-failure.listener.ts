@@ -5,7 +5,7 @@ import { Job } from '@prisma/client';
 import {
   JOB_SETTLED_EVENT,
   type JobSettledEvent,
-} from '../../jobs/events/job-settled.event';
+} from '@marinoscar/platform-api/jobs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { describeThrown } from '../describe-thrown';
 import { BROADCAST_SUBJECT_TYPE } from './broadcast-audience';

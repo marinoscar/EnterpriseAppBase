@@ -22,7 +22,7 @@
 
 import { Prisma } from '@prisma/client';
 
-import { JOB_CLAIM_COLUMNS } from '../../src/jobs/job-claim.service';
+import { JOB_CLAIM_COLUMNS } from '@marinoscar/platform-api/jobs';
 
 describe('Prisma.JobScalarFieldEnum', () => {
   it('has exactly the field names Job is documented to have', () => {
@@ -52,6 +52,8 @@ describe('Prisma.JobScalarFieldEnum', () => {
       'executor',
       // #607: the enqueuing span's W3C traceparent.
       'traceContext',
+      // #734: the organization the work belongs to (null for a system job).
+      'orgId',
     ].sort();
 
     const actual = Object.keys(Prisma.JobScalarFieldEnum).sort();

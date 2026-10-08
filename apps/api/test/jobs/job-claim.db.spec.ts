@@ -24,9 +24,9 @@
 
 import { Job, PrismaClient, Prisma } from '@prisma/client';
 
-import { JobClaimService } from '../../src/jobs/job-claim.service';
+import { JobClaimService } from '@marinoscar/platform-api/jobs';
 import type { PrismaService } from '../../src/prisma/prisma.service';
-import { createDbClient, resolveDbSuite } from './db-test-support';
+import { createDbClient, defaultOrgId, resolveDbSuite } from './db-test-support';
 
 const { describeWithDb } = resolveDbSuite('job-claim.db.spec');
 
@@ -682,6 +682,82 @@ describeWithDb('JobClaimService.claim (real Postgres)', () => {
     expect(typeof typed.id).toBe('string');
     expect(typeof typed.attempts).toBe('number');
     expect(typed.createdAt).toBeInstanceOf(Date);
+  });
+
+  // ===========================================================================
+  // org_id (#734): recorded, returned, and changing nothing about the claim
+  // ===========================================================================
+
+  describe('jobs.org_id leaves the claim as it was (#734)', () => {
+    /** A claimer that records every statement it sends, as Prisma received it. */
+    function recordingClaimer(client: PrismaClient): { claimer: JobClaimService; statements: Prisma.Sql[] } {
+      const statements: Prisma.Sql[] = [];
+      const recording = new Proxy(client, {
+        get(target, property, receiver) {
+          if (property === '$queryRaw') {
+            return (query: Prisma.Sql, ...rest: unknown[]) => {
+              statements.push(query);
+              return (target.$queryRaw as (...args: unknown[]) => unknown)(query, ...rest);
+            };
+          }
+          return Reflect.get(target, property, receiver);
+        },
+      });
+      return { claimer: new JobClaimService(recording as unknown as PrismaService), statements };
+    }
+
+    /** The node types of a JSON plan, depth first. */
+    function nodeTypes(plan: { 'Node Type': string; Plans?: unknown[] }): string[] {
+      return [plan['Node Type'], ...((plan.Plans ?? []) as Array<typeof plan>).flatMap(nodeTypes)];
+    }
+
+    it("claims across organizations in ONE statement, FOR UPDATE SKIP LOCKED, and returns each job's orgId", async () => {
+      const type = nextType();
+      const orgA = await defaultOrgId(clientA);
+      const orgB = (
+        await clientA.organization.create({ data: { name: `${TYPE_PREFIX}org-b`, slug: `claim-${process.pid}-${Date.now()}` } })
+      ).id;
+      try {
+        await seedPending(type, 1, { orgId: orgA });
+        await seedPending(type, 1, { orgId: orgB });
+        await seedPending(type, 1, { orgId: null });
+
+        const { claimer, statements } = recordingClaimer(clientA);
+        const claimed = await claimer.claim({
+          nodeId: null,
+          executor: 'server',
+          eligibleTypes: [type],
+          limit: 10,
+          leases: [{ type, leaseMs: LEASE_MS }],
+        });
+
+        // One statement claimed all three, whatever their organization: the
+        // queue is not partitioned by org (no per-org fairness yet).
+        expect(statements).toHaveLength(1);
+        expect(new Set(claimed.map((job) => job.orgId))).toEqual(new Set([orgA, orgB, null]));
+
+        // `.text` is the Postgres form (`$1` placeholders).
+        const text = statements[0].text;
+        expect(text).toContain('FOR UPDATE SKIP LOCKED');
+        expect(text).toContain('WITH picked AS MATERIALIZED');
+        // org_id is only RETURNED: no predicate, ordering or lock reads it.
+        const [beforeReturning] = text.split('RETURNING');
+        expect(beforeReturning).not.toMatch(/org_id/);
+
+        // The plan shape: an UPDATE fed by the materialized pick, which locks
+        // (SKIP LOCKED) under its LIMIT.
+        const [{ 'QUERY PLAN': plans }] = await clientA.$queryRawUnsafe<Array<{ 'QUERY PLAN': Array<{ Plan: { 'Node Type': string } }> }>>(
+          `EXPLAIN (FORMAT JSON) ${text}`,
+          ...statements[0].values,
+        );
+        const types = nodeTypes(plans[0].Plan as never);
+        expect(types[0]).toBe('ModifyTable');
+        expect(types).toEqual(expect.arrayContaining(['LockRows', 'Limit', 'CTE Scan']));
+      } finally {
+        await clientA.job.deleteMany({ where: { type } });
+        await clientA.organization.delete({ where: { id: orgB } });
+      }
+    });
   });
 
   // ===========================================================================

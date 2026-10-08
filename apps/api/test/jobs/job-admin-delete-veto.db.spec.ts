@@ -32,15 +32,15 @@ import { ConflictException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaClient } from '@prisma/client';
 
-import { JobAdminService } from '../../src/jobs/job-admin.service';
-import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
-import { JobsService } from '../../src/jobs/jobs.service';
+import { JobAdminService } from '@marinoscar/platform-api/jobs';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
+import { JobsService } from '@marinoscar/platform-api/jobs';
 import { BroadcastChunkHandler } from '../../src/notifications/broadcasts/handlers/broadcast-chunk.handler';
 import { BroadcastStartHandler } from '../../src/notifications/broadcasts/handlers/broadcast-start.handler';
 import { BROADCAST_SUBJECT_TYPE } from '../../src/notifications/broadcasts/broadcast-audience';
 import type { NotificationsService } from '../../src/notifications/notifications.service';
-import type { ProviderThrottleService } from '../../src/jobs/provider-throttle.service';
-import type { JobStuckService } from '../../src/jobs/job-stuck.service';
+import type { ProviderThrottleService } from '@marinoscar/platform-api/jobs';
+import type { JobStuckService } from '@marinoscar/platform-api/jobs';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import { createDbClient, resolveDbSuite } from './db-test-support';
 

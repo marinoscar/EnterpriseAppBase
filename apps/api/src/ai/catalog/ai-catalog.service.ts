@@ -13,7 +13,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Job, Prisma } from '@prisma/client';
 
 import { CredentialsService } from '@marinoscar/platform-api/credentials';
-import { JobsService } from '../../jobs/jobs.service';
+import { JobsService } from '@marinoscar/platform-api/jobs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PrismaSystemService } from '../../prisma/prisma-system.service';
 import { SystemSettingsService } from '@marinoscar/platform-api/settings';

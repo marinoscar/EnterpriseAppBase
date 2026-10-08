@@ -803,13 +803,18 @@ describe('the Operations group (#266)', () => {
       dirname(fileURLToPath(import.meta.url)),
       '../../../../api/src',
     );
+    // Jobs and nodes are packaged slices since #734.
+    const PLATFORM_API_SRC = resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      '../../../../../packages/platform-api/src',
+    );
     const rolesConstants = readApiPermissionConstants();
     const jobsController = readFileSync(
-      resolve(API_SRC, 'jobs/job-admin.controller.ts'),
+      resolve(PLATFORM_API_SRC, 'jobs/job-admin.controller.ts'),
       'utf8',
     );
     const nodesAdminController = readFileSync(
-      resolve(API_SRC, 'nodes/nodes-admin.controller.ts'),
+      resolve(PLATFORM_API_SRC, 'nodes/nodes-admin.controller.ts'),
       'utf8',
     );
     const broadcastsController = readFileSync(

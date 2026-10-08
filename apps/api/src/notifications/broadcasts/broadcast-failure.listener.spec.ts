@@ -16,7 +16,7 @@
 import { Job } from '@prisma/client';
 
 import { BroadcastFailureListener } from './broadcast-failure.listener';
-import { JobSettledEvent } from '../../jobs/events/job-settled.event';
+import { JobSettledEvent } from '@marinoscar/platform-api/jobs';
 import { BROADCAST_SUBJECT_TYPE } from './broadcast-audience';
 import { BROADCAST_CHUNK_TYPE } from './handlers/broadcast-chunk.handler';
 import { BROADCAST_START_TYPE } from './handlers/broadcast-start.handler';

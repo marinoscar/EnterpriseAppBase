@@ -18,8 +18,8 @@
 
 import { PrismaClient } from '@prisma/client';
 
-import { buildDedupKey } from '../../src/jobs/job-keys';
-import { JobsService } from '../../src/jobs/jobs.service';
+import { buildDedupKey } from '@marinoscar/platform-api/jobs';
+import { JobsService } from '@marinoscar/platform-api/jobs';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import { createDbClient, resolveDbSuite } from './db-test-support';
 

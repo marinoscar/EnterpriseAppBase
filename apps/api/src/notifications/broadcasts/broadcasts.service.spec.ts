@@ -19,7 +19,7 @@ import { ConflictException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NotificationBroadcast } from '@prisma/client';
 
-import type { JobsService } from '../../jobs/jobs.service';
+import type { JobsService } from '@marinoscar/platform-api/jobs';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import type { NotificationsService } from '../notifications.service';

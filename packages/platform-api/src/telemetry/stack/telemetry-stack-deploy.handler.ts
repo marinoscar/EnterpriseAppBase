@@ -94,6 +94,8 @@ export class TelemetryStackDeployHandler implements TelemetryJobHandler, OnModul
 
   readonly type = TELEMETRY_STACK_DEPLOY_TYPE;
 
+  readonly label = 'Telemetry services deploy';
+
   /** An image pull can take ten minutes; never retried automatically. */
   readonly profile: TelemetryJobExecutionProfile = { maxRuntimeMs: 15 * 60 * 1000, maxAttempts: 1 };
 

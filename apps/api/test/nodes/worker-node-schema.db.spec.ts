@@ -24,8 +24,8 @@ import { execFileSync } from 'node:child_process';
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { buildDatabaseUrl } from '../../src/common/database-url';
-import { OWNER_SELECT } from '../../src/nodes/nodes-admin.service';
-import { CREDENTIAL_OWNER_SELECT } from '../../src/nodes/node-credential.service';
+import { OWNER_SELECT } from '@marinoscar/platform-api/nodes';
+import { CREDENTIAL_OWNER_SELECT } from '@marinoscar/platform-api/nodes';
 
 const HAND_WRITTEN_INDEX_NAMES = ['worker_nodes_created_by_id_name_key'];
 

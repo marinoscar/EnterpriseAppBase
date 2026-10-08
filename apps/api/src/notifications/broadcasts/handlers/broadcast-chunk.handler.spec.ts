@@ -30,12 +30,12 @@ import {
   BROADCAST_CHUNK_TYPE,
   BROADCAST_EMAIL_PROVIDER_KEY,
 } from './broadcast-chunk.handler';
-import { RateLimitError } from '../../../jobs/rate-limit.error';
+import { RateLimitError } from '@marinoscar/platform-api/jobs';
 import type { ConfigService } from '@nestjs/config';
-import type { JobHandler } from '../../../jobs/job-handler.interface';
-import type { JobsService } from '../../../jobs/jobs.service';
-import type { JobHandlerRegistry } from '../../../jobs/job-handler.registry';
-import type { ProviderThrottleService } from '../../../jobs/provider-throttle.service';
+import type { JobHandler } from '@marinoscar/platform-api/jobs';
+import type { JobsService } from '@marinoscar/platform-api/jobs';
+import type { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
+import type { ProviderThrottleService } from '@marinoscar/platform-api/jobs';
 import type { NotificationsService } from '../../notifications.service';
 import type { PrismaService } from '../../../prisma/prisma.service';
 import { BROADCAST_CHUNK_SIZE, BROADCAST_SUBJECT_TYPE } from '../broadcast-audience';

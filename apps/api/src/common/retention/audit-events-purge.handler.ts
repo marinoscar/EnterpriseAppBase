@@ -22,9 +22,9 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import type { Job } from '@prisma/client';
 
-import { JobExecutionProfile } from '../../jobs/job-execution-profile';
-import { JobHandler } from '../../jobs/job-handler.interface';
-import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
+import { JobExecutionProfile } from '@marinoscar/platform-api/jobs';
+import { JobHandler } from '@marinoscar/platform-api/jobs';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import { runRetentionPolicyPurge } from './batched-purge';
@@ -37,6 +37,8 @@ export class AuditEventsPurgeHandler implements JobHandler, OnModuleInit {
   private readonly logger = new Logger(AuditEventsPurgeHandler.name);
 
   readonly type = AUDIT_EVENTS_PURGE_TYPE;
+
+  readonly label = 'Audit log purge';
 
   /** Deletes only; thirty minutes covers millions of rows. Retried like any housekeeping job. */
   readonly profile: JobExecutionProfile = { maxRuntimeMs: 30 * 60_000, maxAttempts: 3 };

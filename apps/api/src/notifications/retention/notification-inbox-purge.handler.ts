@@ -18,9 +18,9 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import type { Job } from '@prisma/client';
 
 import { runRetentionPolicyPurge } from '../../common/retention/batched-purge';
-import { JobExecutionProfile } from '../../jobs/job-execution-profile';
-import { JobHandler } from '../../jobs/job-handler.interface';
-import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
+import { JobExecutionProfile } from '@marinoscar/platform-api/jobs';
+import { JobHandler } from '@marinoscar/platform-api/jobs';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SystemSettingsService } from '@marinoscar/platform-api/settings';
 
@@ -32,6 +32,8 @@ export class NotificationInboxPurgeHandler implements JobHandler, OnModuleInit {
   private readonly logger = new Logger(NotificationInboxPurgeHandler.name);
 
   readonly type = NOTIFICATION_INBOX_PURGE_TYPE;
+
+  readonly label = 'Notification inbox purge';
 
   /** Deletes only; thirty minutes covers millions of rows. Retried like any housekeeping job. */
   readonly profile: JobExecutionProfile = { maxRuntimeMs: 30 * 60_000, maxAttempts: 3 };

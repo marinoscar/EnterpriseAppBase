@@ -9,7 +9,7 @@ import {
   MaintenanceGuard,
   OPAQUE_BEARER_PREFIXES,
 } from './maintenance.guard';
-import { NODE_TOKEN_PREFIX } from '../../nodes/node-credential.service';
+import { NODE_TOKEN_PREFIX } from '@marinoscar/platform-api/nodes';
 
 const SECRET = 'guard-spec-secret-guard-spec-secret';
 

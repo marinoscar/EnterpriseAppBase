@@ -8,7 +8,7 @@ import { StorageStatusController } from './status/storage-status.controller';
 import { StorageCleanupTask } from './tasks/storage-cleanup.task';
 import { StorageCleanupHandler } from './handlers/storage-cleanup.handler';
 import { StorageObjectProcessHandler } from './handlers/storage-object-process.handler';
-import { JobsModule } from '../jobs/jobs.module';
+import { JobsModule } from '../platform/jobs/jobs.config';
 
 @Module({
   imports: [

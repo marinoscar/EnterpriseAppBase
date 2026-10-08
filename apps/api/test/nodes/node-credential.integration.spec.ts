@@ -34,7 +34,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { ExecutionContext, ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { JwtAuthGuard, PatService } from '@marinoscar/platform-api/identity';
-import { NodeCredentialService } from '../../src/nodes/node-credential.service';
+import { NodeCredentialService } from '@marinoscar/platform-api/nodes';
 import { resetPrismaMock } from '../mocks/prisma.mock';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import {

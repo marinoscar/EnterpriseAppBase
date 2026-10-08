@@ -440,6 +440,10 @@ model Organization {
   // composed from package:credentials.prisma
   orgCredentials OrgCredential[]
 
+  // composed from package:jobs.prisma
+  // The organization's jobs (issue #734): see `Job.orgId` for why `SetNull`.
+  jobs Job[]
+
   // composed from package:settings.prisma
   settings OrgSettings?
 

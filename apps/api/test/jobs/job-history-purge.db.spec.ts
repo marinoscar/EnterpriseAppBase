@@ -25,8 +25,8 @@
 
 import { Job, Prisma, PrismaClient } from '@prisma/client';
 
-import { JobHistoryPurgeHandler } from '../../src/jobs/handlers/job-history-purge.handler';
-import type { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
+import { JobHistoryPurgeHandler } from '@marinoscar/platform-api/jobs';
+import type { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import { createDbClient, resolveDbSuite } from './db-test-support';

@@ -239,11 +239,11 @@ import { ConfigService } from '@nestjs/config';
 import { Job, NotificationBroadcast } from '@prisma/client';
 
 import type { BroadcastEmailData } from '@marinoscar/platform-api/email';
-import { JobHandler } from '../../../jobs/job-handler.interface';
-import { JobHandlerRegistry } from '../../../jobs/job-handler.registry';
-import { JobsService } from '../../../jobs/jobs.service';
-import { ProviderThrottleService } from '../../../jobs/provider-throttle.service';
-import { RateLimitError } from '../../../jobs/rate-limit.error';
+import { JobHandler } from '@marinoscar/platform-api/jobs';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
+import { JobsService } from '@marinoscar/platform-api/jobs';
+import { ProviderThrottleService } from '@marinoscar/platform-api/jobs';
+import { RateLimitError } from '@marinoscar/platform-api/jobs';
 import { PrismaService } from '../../../prisma/prisma.service';
 import type { NotificationChannel } from '../../notification-events';
 import type { NotifyNowResult, NotifyOptions } from '../../notification.types';
@@ -340,6 +340,8 @@ export class BroadcastChunkHandler implements JobHandler, OnModuleInit {
   private readonly logger = new Logger(BroadcastChunkHandler.name);
 
   readonly type = BROADCAST_CHUNK_TYPE;
+
+  readonly label = 'Broadcast delivery';
 
   constructor(
     private readonly prisma: PrismaService,

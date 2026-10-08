@@ -95,8 +95,8 @@ import type { DatabaseBackupStatus, DatabaseBackupTrigger, Job } from '@prisma/c
 import { PERMISSIONS } from '../../common/constants/roles.constants';
 import type { SystemDatabaseBackupValue } from '../../common/schemas/settings.schema';
 import type { BackupFailedEmailData } from '@marinoscar/platform-api/email';
-import { JobHandler } from '../../jobs/job-handler.interface';
-import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
+import { JobHandler } from '@marinoscar/platform-api/jobs';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SystemSettingsService } from '@marinoscar/platform-api/settings';
@@ -124,6 +124,8 @@ export class DatabaseBackupSweepHandler implements JobHandler, OnModuleInit {
   private readonly logger = new Logger(DatabaseBackupSweepHandler.name);
 
   readonly type = DB_BACKUP_SWEEP_TYPE;
+
+  readonly label = 'Backup sweep';
 
   constructor(
     private readonly registry: JobHandlerRegistry,

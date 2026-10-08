@@ -9,7 +9,7 @@ import { NotificationStoreService } from './notification-store.service';
 import { NotificationStreamService } from './notification-stream.service';
 import { PushSubscriptionService } from './push-subscription.service';
 import { PatService } from '@marinoscar/platform-api/identity';
-import { NodeCredentialService } from '../nodes/node-credential.service';
+import { NodeCredentialService } from '@marinoscar/platform-api/nodes';
 
 // =============================================================================
 // NotificationsController — tests (issues #226/#229, epic #215)

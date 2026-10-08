@@ -93,10 +93,10 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Job } from '@prisma/client';
 
-import { JobHandler } from '../../../jobs/job-handler.interface';
-import { buildDedupKey } from '../../../jobs/job-keys';
-import { JobHandlerRegistry } from '../../../jobs/job-handler.registry';
-import { JobsService } from '../../../jobs/jobs.service';
+import { JobHandler } from '@marinoscar/platform-api/jobs';
+import { buildDedupKey } from '@marinoscar/platform-api/jobs';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
+import { JobsService } from '@marinoscar/platform-api/jobs';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { BROADCAST_SUBJECT_TYPE, audienceWhere } from '../broadcast-audience';
 import { broadcastJobDeleteRefusal } from '../broadcast-job-delete-guard';
@@ -134,6 +134,8 @@ export class BroadcastStartHandler implements JobHandler, OnModuleInit {
   private readonly logger = new Logger(BroadcastStartHandler.name);
 
   readonly type = BROADCAST_START_TYPE;
+
+  readonly label = 'Broadcast start';
 
   constructor(
     private readonly prisma: PrismaService,

@@ -439,7 +439,7 @@ an audit event with identifiers and shape, never the composed body.
   `CreateBroadcastDto` must enforce `critical ⇒ browser` itself.
 - **New job types that chain themselves** must enqueue their successor with
   `skipDedup: true`, as the chunk handler does. The general recipe is
-  [`apps/api/src/jobs/handlers/README.md`](../../apps/api/src/jobs/handlers/README.md).
+  [`packages/platform-api/src/jobs/handlers/README.md`](../../packages/platform-api/src/jobs/handlers/README.md).
 - Adding a channel to the broadcast events is a registry edit plus a template;
   see the [notifications README](../../apps/api/src/notifications/README.md).
 

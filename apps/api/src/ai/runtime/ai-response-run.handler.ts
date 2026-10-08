@@ -48,10 +48,10 @@ import { OnEvent } from '@nestjs/event-emitter';
 import { Job } from '@prisma/client';
 import { z } from 'zod';
 
-import { JOB_SETTLED_EVENT, JobSettledEvent } from '../../jobs/events/job-settled.event';
-import { JobExecutionProfile } from '../../jobs/job-execution-profile';
-import { JobHandler } from '../../jobs/job-handler.interface';
-import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
+import { JOB_SETTLED_EVENT, JobSettledEvent } from '@marinoscar/platform-api/jobs';
+import { JobExecutionProfile } from '@marinoscar/platform-api/jobs';
+import { JobHandler } from '@marinoscar/platform-api/jobs';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 import { AiError, type AiErrorCode, aiErrorLogDetails } from '../core/ai-error';
 import type { AiResponse } from '../core/types/responses.types';
 import { AiOutputWriter } from '../storage/ai-output-writer';
@@ -101,6 +101,8 @@ export class AiResponseRunHandler implements JobHandler, OnModuleInit {
   private readonly logger = new Logger(AiResponseRunHandler.name);
 
   readonly type = AI_RESPONSE_RUN_TYPE;
+
+  readonly label = 'AI background response';
 
   readonly profile: JobExecutionProfile = { maxRuntimeMs: MAX_RUNTIME_MS, maxAttempts: 1 };
 

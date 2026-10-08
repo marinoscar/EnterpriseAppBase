@@ -49,8 +49,8 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import type { Job } from '@prisma/client';
 
-import { JobHandler } from '../../jobs/job-handler.interface';
-import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
+import { JobHandler } from '@marinoscar/platform-api/jobs';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 import { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import { DatabaseRestoreService } from '../database-restore.service';
 
@@ -66,6 +66,8 @@ export class DatabaseRestoreOldDbDropHandler implements JobHandler, OnModuleInit
   private readonly logger = new Logger(DatabaseRestoreOldDbDropHandler.name);
 
   readonly type = DB_RESTORE_OLD_DB_DROP_TYPE;
+
+  readonly label = 'Restore cleanup';
 
   constructor(
     private readonly registry: JobHandlerRegistry,

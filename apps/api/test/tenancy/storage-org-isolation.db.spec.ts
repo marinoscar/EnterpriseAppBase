@@ -22,7 +22,7 @@ import { NotFoundException } from '@nestjs/common';
 
 import { ObjectProcessingService } from '../../src/storage/processing/object-processing.service';
 import { ObjectsService } from '../../src/storage/objects/objects.service';
-import type { JobsService } from '../../src/jobs/jobs.service';
+import type { JobsService } from '@marinoscar/platform-api/jobs';
 import type { StorageConfigService } from '../../src/storage/config/storage-config.service';
 import { resolveDbSuite } from '../jobs/db-test-support';
 import { createRlsDatabase, rlsServices, seedTwoOrgs, ORG_A, ORG_B, type RlsDatabase, type TwoOrgFixture } from '../helpers/rls-database.helper';

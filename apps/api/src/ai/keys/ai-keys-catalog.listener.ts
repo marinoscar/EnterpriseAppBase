@@ -20,7 +20,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 
-import { JobsService } from '../../jobs/jobs.service';
+import { JobsService } from '@marinoscar/platform-api/jobs';
 import { AI_CATALOG_SYNCED_EVENT, type AiCatalogSyncedEvent } from '../catalog/ai-catalog.events';
 import { AI_CATALOG_SUBJECT_TYPE } from '../catalog/ai-catalog.service';
 import { AI_KEYS_RECHECK_PRIORITY } from './ai-keys-recheck.task';

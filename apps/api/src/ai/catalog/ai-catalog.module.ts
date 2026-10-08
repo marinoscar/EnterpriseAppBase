@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { CredentialsModule } from '@marinoscar/platform-api/credentials';
-import { JobsModule } from '../../jobs/jobs.module';
+import { JobsModule } from '../../platform/jobs/jobs.config';
 import { SettingsModule } from '../../platform/settings/settings.config';
 import { AiCoreModule } from '../core/ai-core.module';
 import { AiCatalogRefreshHandler } from './ai-catalog-refresh.handler';

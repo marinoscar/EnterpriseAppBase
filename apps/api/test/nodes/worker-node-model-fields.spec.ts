@@ -20,8 +20,8 @@
 
 import { NodeStatus, Prisma } from '@prisma/client';
 
-import { OWNER_SELECT } from '../../src/nodes/nodes-admin.service';
-import { CREDENTIAL_OWNER_SELECT } from '../../src/nodes/node-credential.service';
+import { OWNER_SELECT } from '@marinoscar/platform-api/nodes';
+import { CREDENTIAL_OWNER_SELECT } from '@marinoscar/platform-api/nodes';
 
 describe('Prisma.WorkerNodeScalarFieldEnum', () => {
   it('has exactly the field names WorkerNode is documented to have', () => {

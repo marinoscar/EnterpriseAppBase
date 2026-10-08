@@ -1,7 +1,7 @@
 import { APP_NAME } from '@app/shared';
 import type { EmailModuleOptions } from '@marinoscar/platform-api/email';
 
-import { classifyRateLimit } from '../../jobs/rate-limit.error';
+import { classifyRateLimit } from '@marinoscar/platform-api/jobs';
 
 // =============================================================================
 // The reference app's email options (issue #737)

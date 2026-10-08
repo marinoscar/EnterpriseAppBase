@@ -4,7 +4,7 @@ import type { ConfigService } from '@nestjs/config';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import type { SystemDatabaseBackupValue } from '../../common/schemas/settings.schema';
-import type { JobsService } from '../../jobs/jobs.service';
+import type { JobsService } from '@marinoscar/platform-api/jobs';
 import type { DatabaseBackupRunnerService } from '../db-backup-runner.service';
 import { DB_BACKUP_SWEEP_TYPE } from '../handlers/db-backup-sweep.handler';
 import { DB_RESTORE_OLD_DB_DROP_TYPE } from '../handlers/db-restore-old-db-drop.handler';

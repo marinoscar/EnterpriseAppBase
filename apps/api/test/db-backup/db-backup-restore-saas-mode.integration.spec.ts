@@ -33,7 +33,7 @@ import {
   DatabaseRestorePreflightService,
   defaultRestorePreflightSeam,
 } from '../../src/db-backup/restore-preflight.service';
-import { JobsService } from '../../src/jobs/jobs.service';
+import { JobsService } from '@marinoscar/platform-api/jobs';
 import { STORAGE_PROVIDER } from '../../src/storage/providers/storage-provider.interface';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import { authHeader, createMockAdminUser } from '../helpers/auth-mock.helper';

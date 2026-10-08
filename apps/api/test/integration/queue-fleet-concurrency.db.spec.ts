@@ -58,12 +58,12 @@ import { PrismaClient, Prisma } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
-import { JobClaimService } from '../../src/jobs/job-claim.service';
-import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
-import { JobStuckService } from '../../src/jobs/job-stuck.service';
-import { JobTerminalService } from '../../src/jobs/job-terminal.service';
-import { ProviderThrottleService } from '../../src/jobs/provider-throttle.service';
-import { JOB_SETTLED_EVENT } from '../../src/jobs/events/job-settled.event';
+import { JobClaimService } from '@marinoscar/platform-api/jobs';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
+import { JobStuckService } from '@marinoscar/platform-api/jobs';
+import { JobTerminalService } from '@marinoscar/platform-api/jobs';
+import { ProviderThrottleService } from '@marinoscar/platform-api/jobs';
+import { JOB_SETTLED_EVENT } from '@marinoscar/platform-api/jobs';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import { createDbClient, resolveDbSuite } from '../jobs/db-test-support';

@@ -4,7 +4,7 @@ import { join, relative } from 'node:path';
 import * as ts from 'typescript';
 
 import { BACKUP_KEY_PREFIX } from '../db-backup/db-backup-storage';
-import { NODE_OUTPUT_KEY_PREFIX } from '../nodes/node-data-plane.service';
+import { NODE_OUTPUT_KEY_PREFIX } from '@marinoscar/platform-api/nodes';
 import { avatarKeyPrefix } from '../common/profile-image/profile-image';
 import { aiOutputKeyPrefix } from '../ai/storage/ai-output-writer';
 import { withTemporaryEntries } from '@marinoscar/platform-api/core';

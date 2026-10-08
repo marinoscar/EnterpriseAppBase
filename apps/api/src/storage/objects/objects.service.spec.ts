@@ -17,7 +17,7 @@ import { createMockPrismaService, MockPrismaService } from '../../../test/mocks/
 import { createMockStorageProvider } from '../../../test/mocks/storage-provider.mock';
 import { StorageConfigService } from '../config/storage-config.service';
 import { ObjectProcessingService } from '../processing/object-processing.service';
-import { ACTIVE_DEDUP_INDEX_NAME, JobsService } from '../../jobs/jobs.service';
+import { ACTIVE_DEDUP_INDEX_NAME, JobsService } from '@marinoscar/platform-api/jobs';
 import { STORAGE_OBJECT_PROCESS_TYPE } from '../handlers/storage-object-process.handler';
 import { AVATARS_KEY_PREFIX } from '../storage-key-prefixes';
 import { AVATAR_PURPOSE } from '../../common/profile-image/profile-image';

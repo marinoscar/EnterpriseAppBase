@@ -20,10 +20,10 @@ import { Job, StorageObject } from '@prisma/client';
 
 import { createMockPrismaService, MOCK_DEFAULT_ORG_ID, MockPrismaService } from '../../../test/mocks/prisma.mock';
 import { recordTenancyMode, MissingOrgScopeError } from '@marinoscar/platform-api/identity';
-import type { JobSettledEvent } from '../../jobs/events/job-settled.event';
-import type { JobHandler } from '../../jobs/job-handler.interface';
-import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
-import { JOB_TYPE_LABELS } from '../../jobs/job-type-labels';
+import type { JobSettledEvent } from '@marinoscar/platform-api/jobs';
+import type { JobHandler } from '@marinoscar/platform-api/jobs';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
+import { jobTypeLabel } from '@marinoscar/platform-api/jobs';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { ObjectProcessingService } from '../processing/object-processing.service';
 import { JobInputResolutionError, STORAGE_OBJECT_SUBJECT_TYPE } from '../storage-job-input';
@@ -132,8 +132,9 @@ describe('StorageObjectProcessHandler', () => {
     });
 
     it('has a display label, so the dashboard never shows the dotted key', () => {
-      expect(JOB_TYPE_LABELS[STORAGE_OBJECT_PROCESS_TYPE]).toBeDefined();
-      expect(JOB_TYPE_LABELS[STORAGE_OBJECT_PROCESS_TYPE]).not.toBe(STORAGE_OBJECT_PROCESS_TYPE);
+      // The handler's own `label` (#734), recorded when it registers.
+      handler.onModuleInit();
+      expect(jobTypeLabel(STORAGE_OBJECT_PROCESS_TYPE)).not.toBe(STORAGE_OBJECT_PROCESS_TYPE);
     });
   });
 

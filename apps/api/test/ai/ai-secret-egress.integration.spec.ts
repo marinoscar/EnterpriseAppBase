@@ -67,7 +67,7 @@ import {
   AI_SETTINGS_CARRIES_NO_SECRET,
   systemAiSchema,
 } from '../../src/common/schemas/settings.schema';
-import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 import {
   FAKE_EMBEDDING_MODEL_CAPABILITIES,
   FAKE_IMAGE_MODEL_CAPABILITIES,

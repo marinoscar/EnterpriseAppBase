@@ -1,7 +1,7 @@
 import { Logger } from '@nestjs/common';
 
-import { HOUSEKEEPING_PRIORITY } from '../../jobs/housekeeping.enqueue';
-import { JOB_TYPE_LABELS, jobTypeLabel } from '../../jobs/job-type-labels';
+import { HOUSEKEEPING_PRIORITY } from '@marinoscar/platform-api/jobs';
+import { JobHandlerRegistry, jobTypeLabel } from '@marinoscar/platform-api/jobs';
 import { TelemetryJobsAdapter } from './telemetry-jobs.adapter';
 
 // The TELEMETRY_JOBS adapter (issue #703). The housekeeping semantics the
@@ -31,6 +31,8 @@ describe('TelemetryJobsAdapter (TELEMETRY_JOBS)', () => {
       type: 'telemetry.retention.apply',
       reason: 'backfill',
       priority: HOUSEKEEPING_PRIORITY,
+      // A system job (#734): housekeeping never takes an ambient organization.
+      orgId: null,
     });
     expect(HOUSEKEEPING_PRIORITY).toBe(100);
     expect(logger.log).toHaveBeenCalledWith('Queued telemetry retention job job-1');
@@ -93,8 +95,13 @@ describe('TelemetryJobsAdapter (TELEMETRY_JOBS)', () => {
   });
 
   it('both telemetry job types are labelled for the jobs dashboard', () => {
-    expect(JOB_TYPE_LABELS['telemetry.retention.apply']).toBe('Telemetry retention');
-    expect(JOB_TYPE_LABELS['telemetry.stack.deploy']).toBe('Telemetry services deploy');
-    expect(jobTypeLabel('telemetry.retention.apply')).not.toBe('telemetry.retention.apply');
+    // The labels are the handlers' own (`readonly label`, #734); they reach
+    // `jobTypeLabel` when the handlers register through this adapter.
+    const registry = new JobHandlerRegistry();
+    const adapter = new TelemetryJobsAdapter({} as never, registry, {} as never);
+    adapter.registerHandler({ type: 'telemetry.retention.apply', label: 'Telemetry retention', process: async () => undefined } as never);
+    adapter.registerHandler({ type: 'telemetry.stack.deploy', label: 'Telemetry services deploy', process: async () => undefined } as never);
+    expect(jobTypeLabel('telemetry.retention.apply')).toBe('Telemetry retention');
+    expect(jobTypeLabel('telemetry.stack.deploy')).toBe('Telemetry services deploy');
   });
 });

@@ -28,7 +28,7 @@ import { AI_POLICY_CACHE_MS, AiConfigService } from '../../src/ai/config/ai-conf
 import { AiEnabledGuard } from '../../src/ai/config/ai-enabled.guard';
 import { FakeAiProvider } from '../../src/ai/testing/fake-ai-provider';
 import { CredentialsService } from '@marinoscar/platform-api/credentials';
-import { JobWorker } from '../../src/jobs/job.worker';
+import { JobWorker } from '@marinoscar/platform-api/jobs';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { prismaMock, resetPrismaMock } from '../mocks/prisma.mock';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';

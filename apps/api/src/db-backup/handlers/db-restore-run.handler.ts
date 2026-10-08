@@ -109,9 +109,9 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import type { Job } from '@prisma/client';
 
-import { JobHandler } from '../../jobs/job-handler.interface';
-import type { JobExecutionProfile } from '../../jobs/job-execution-profile';
-import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
+import { JobHandler } from '@marinoscar/platform-api/jobs';
+import type { JobExecutionProfile } from '@marinoscar/platform-api/jobs';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 import { DeploymentModeService } from '../../common/deployment/deployment-mode.service';
 import { DatabaseRestoreService, DB_RESTORE_RUN_TYPE } from '../database-restore.service';
 
@@ -137,6 +137,7 @@ export class DatabaseRestoreRunHandler implements JobHandler, OnModuleInit {
    * of the two can own the definition. See `DB_RESTORE_RUN_TYPE`.
    */
   readonly type = DB_RESTORE_RUN_TYPE;
+  readonly label = 'Database restore';
 
   /**
    * The two numbers this type is unlike the rest of the queue in — and there

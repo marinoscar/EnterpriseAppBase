@@ -8,7 +8,7 @@ import {
 } from '@marinoscar/platform-api/identity';
 
 import { EVENT_BUS } from '../../src/common/event-bus/event-bus.interface';
-import { NodeCredentialService } from '../../src/nodes/node-credential.service';
+import { NodeCredentialService } from '@marinoscar/platform-api/nodes';
 import { NotificationsIdentityNotifier } from '../../src/platform/identity/identity-notifier.adapter';
 import { AppProfileImages, AppUserDefaults } from '../../src/platform/identity/identity-user.adapters';
 import { PrismaService } from '../../src/prisma/prisma.service';

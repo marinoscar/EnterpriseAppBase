@@ -23,9 +23,9 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import type { Job } from '@prisma/client';
 
-import { JobExecutionProfile } from '../../jobs/job-execution-profile';
-import { JobHandler } from '../../jobs/job-handler.interface';
-import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
+import { JobExecutionProfile } from '@marinoscar/platform-api/jobs';
+import { JobHandler } from '@marinoscar/platform-api/jobs';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 import { PrismaSystemService } from '../../prisma/prisma-system.service';
 import { SystemSettingsService } from '@marinoscar/platform-api/settings';
 
@@ -49,6 +49,8 @@ export class AiUsagePurgeHandler implements JobHandler, OnModuleInit {
   private readonly logger = new Logger(AiUsagePurgeHandler.name);
 
   readonly type = AI_USAGE_PURGE_TYPE;
+
+  readonly label = 'AI usage purge';
 
   /** Deletes only; thirty minutes covers millions of rows. Retried like any housekeeping job. */
   readonly profile: JobExecutionProfile = { maxRuntimeMs: 30 * 60_000, maxAttempts: 3 };

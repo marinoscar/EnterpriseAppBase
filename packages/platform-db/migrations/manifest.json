@@ -297,5 +297,25 @@
     "sha256": "fa5db76f0081149b5716f763166d2099b134857f27f15f36f9a4ea33e1a0806e",
     "since": "1.0.0",
     "slice": "credentials"
+  },
+  {
+    "dir": "0030_add_jobs_org_id",
+    "id": "0030_add_jobs_org_id",
+    "requires": [
+      "identity"
+    ],
+    "sha256": "26556306864283a8feb2233692d5fcb66b9f38d2671cfeb66e2e094d4c8f84bb",
+    "since": "1.0.0",
+    "slice": "jobs"
+  },
+  {
+    "dir": "0031_add_jobs_org_id_status_index",
+    "id": "0031_add_jobs_org_id_status_index",
+    "requires": [
+      "identity"
+    ],
+    "sha256": "434d69d4112bcb429de609942a851e08c49793212a538adcc5a2481d1f8b0bb0",
+    "since": "1.0.0",
+    "slice": "jobs"
   }
 ]

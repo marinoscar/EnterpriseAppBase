@@ -13,10 +13,10 @@
 import { Injectable, type Logger } from '@nestjs/common';
 import type { SharingJobHandler, SharingJobsPort } from '@marinoscar/platform-api/sharing';
 
-import { enqueueHousekeepingJob } from '../../jobs/housekeeping.enqueue';
-import type { JobHandler } from '../../jobs/job-handler.interface';
-import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
-import { JobsService } from '../../jobs/jobs.service';
+import { enqueueHousekeepingJob } from '@marinoscar/platform-api/jobs';
+import type { JobHandler } from '@marinoscar/platform-api/jobs';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
+import { JobsService } from '@marinoscar/platform-api/jobs';
 import { PrismaService } from '../../prisma/prisma.service';
 
 /** Compile-time proof that a sharing handler IS an app job handler. */

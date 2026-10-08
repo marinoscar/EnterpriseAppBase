@@ -28,9 +28,9 @@
 import { Injectable } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 
-import { JOB_SETTLED_EVENT, JobSettledEvent } from '../../jobs/events/job-settled.event';
-import { JobExecutionProfile } from '../../jobs/job-execution-profile';
-import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
+import { JOB_SETTLED_EVENT, JobSettledEvent } from '@marinoscar/platform-api/jobs';
+import { JobExecutionProfile } from '@marinoscar/platform-api/jobs';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 import type { AiTranscriptionResult } from '../core/types/media.types';
 import { AiService } from './ai.service';
 import { AI_TRANSCRIBE_OPERATION, parseStoredTranscriptionRunRequest } from './ai-audio-run-request';
@@ -41,6 +41,7 @@ import type { AiTranscriptionRunOutput } from './ai-runtime.types';
 @Injectable()
 export class AiAudioTranscribeHandler extends AiMediaRunHandler {
   readonly type = AI_AUDIO_TRANSCRIBE_TYPE;
+  readonly label = 'AI audio transcription';
 
   readonly profile: JobExecutionProfile = { maxRuntimeMs: 15 * 60_000, maxAttempts: 2 };
 

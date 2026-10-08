@@ -206,10 +206,10 @@ The `jobs` table is the queue. There is no Redis or message broker. Executors cl
 
 A job type is one `JobHandler` class that self-registers from `onModuleInit()`. `Job.type` is a plain string, so a new type needs no migration. Enqueueing the same type and subject twice is deduplicated while the first job is active. Failures retry with exponential backoff; provider rate limits defer the job on a separate budget. `job_stats_rollup` keeps lifetime counts and durations after the history purge removes old rows. The job inventory is in [§8](#8-background-work).
 
-- **Code:** `apps/api/src/jobs/`
+- **Code:** `packages/platform-api/src/jobs/` (`@marinoscar/platform-api/jobs`); the reference app's wiring in `apps/api/src/platform/jobs/`, its examples in `apps/api/src/examples/jobs/`
 - **UI:** `/admin/settings/jobs`, `/admin/settings/jobs/insights`
 - **Permissions:** `jobs:read`, `jobs:write`
-- **Read more:** [specs/job-queue.md](specs/job-queue.md), [handlers README](../apps/api/src/jobs/handlers/README.md)
+- **Read more:** [specs/job-queue.md](specs/job-queue.md), [handlers README](../packages/platform-api/src/jobs/handlers/README.md), [slice README](../packages/platform-api/src/jobs/README.md)
 
 ### 5.8 Worker nodes
 
@@ -217,7 +217,7 @@ A worker node is an `appctl node` process on another machine that executes node-
 
 Whether a structurally eligible type is actually offered to nodes is a runtime decision made at claim time (a deployment-wide broker switch, the feature's own setting, and the broker's capability probe). `JOBS_WORKER_MODE=system` claims exactly the complement, so the API and the fleet partition the queue. Health is derived from `lastHeartbeatAt`; `nodes.fleet.sweep` marks silent nodes offline and `nodes.fleet.prune` forgets old ones.
 
-- **Code:** `apps/api/src/nodes/`, `packages/platform-cli/src/engine/node/`, `infra/compose/worker.compose.yml`
+- **Code:** `packages/platform-api/src/nodes/` (`@marinoscar/platform-api/nodes`), `packages/platform-cli/src/engine/node/`, `infra/compose/worker.compose.yml`
 - **UI:** `/admin/settings/workers`
 - **Permissions:** `nodes:read`, `nodes:write`
 - **Read more:** [specs/worker-nodes.md](specs/worker-nodes.md), [runbooks/run-worker-nodes.md](runbooks/run-worker-nodes.md), [runbooks/node-job-secrets.md](runbooks/node-job-secrets.md)
@@ -465,7 +465,7 @@ Conventions: UUID primary keys, `timestamptz` timestamps, JSONB for extensible s
 
 Ownership is declared, not implied. Every model with a foreign key to `User` (32 models, 39 fields) is registered in the user-owned data registry with the key's role (owner: the row belongs to the user; actor: the row only names who acted), a purge policy that must match the relation's `onDelete`, an export policy and a rationale. A tripwire test fails when a `User` relation is unregistered or a policy contradicts the schema. `ScopedPrismaService.forUser(userId)` returns a Prisma client confined to one user's rows in owner models; `asSystem(actor)` is the named escape for system work. The mechanism lives in `@marinoscar/platform-api/core` (schema-independent, so packaged slices use it too) and the tripwires run as its `userOwnedData` conformance suite; the app keeps its registrations. See [prisma/ownership/README.md](../apps/api/src/prisma/ownership/README.md) and [SECURITY-ARCHITECTURE.md §17](SECURITY-ARCHITECTURE.md#17-user-owned-data-and-scoped-access).
 
-Every model also has an **ownership kind**, registered in the model ownership registry (`apps/api/src/prisma/ownership/platform-model-ownership.ts`; the mechanism is `modelOwnershipRegistry` in `@marinoscar/platform-api/core`): `org` (NOT NULL `org_id`, row-level security forced: `StorageObject`, `StorageObjectChunk`, `AiRun`, and the sharing slice's `Group`, `GroupMember`, `GroupInvite`, `Grant`), `org-optional` (nullable `org_id`; `AiUsageEvent` has a policy too, and a row without an organization is visible to the system client only; `AuditEvent` has none yet), `user` (personal, `forUser` scope) and `system` (deployment-wide). An identity table that merely references an organization (`Membership`, `Invite`, org-bound tokens) declares `orgReference`. `org_id` foreign keys are `Restrict` for storage and AI runs and `SetNull` for usage and audit history, and the upload-chunk link to its object is the composite `(object_id, org_id)`, as the group-member and group-invite links to their group are `(group_id, org_id)` and a group grant's link to its group is `(grantee_group_id, org_id)`. The eight policies are listed in `RLS_POLICIES` (`packages/platform-db/rls-policies.json`) and are intentional drift like the raw-SQL indexes: Prisma cannot express them, `platform db drift` asserts them, and `apps/api/test/tenancy/rls-coverage.db.spec.ts` fails on an `org` table without one or an `org_id` column nobody classified. The API must connect as an ordinary role, or none of it applies. See [SECURITY-ARCHITECTURE.md §18](SECURITY-ARCHITECTURE.md#18-tenant-isolation-rls).
+Every model also has an **ownership kind**, registered in the model ownership registry (`apps/api/src/prisma/ownership/platform-model-ownership.ts`; the mechanism is `modelOwnershipRegistry` in `@marinoscar/platform-api/core`): `org` (NOT NULL `org_id`, row-level security forced: `StorageObject`, `StorageObjectChunk`, `AiRun`, and the sharing slice's `Group`, `GroupMember`, `GroupInvite`, `Grant`), `org-optional` (nullable `org_id`; `AiUsageEvent` has a policy too, and a row without an organization is visible to the system client only; `AuditEvent` has none yet; `Job` has none by design, because the claim is one cross-organization statement, #734), `user` (personal, `forUser` scope) and `system` (deployment-wide). An identity table that merely references an organization (`Membership`, `Invite`, org-bound tokens) declares `orgReference`. `org_id` foreign keys are `Restrict` for storage and AI runs and `SetNull` for usage, audit and job history, and the upload-chunk link to its object is the composite `(object_id, org_id)`, as the group-member and group-invite links to their group are `(group_id, org_id)` and a group grant's link to its group is `(grantee_group_id, org_id)`. The eight policies are listed in `RLS_POLICIES` (`packages/platform-db/rls-policies.json`) and are intentional drift like the raw-SQL indexes: Prisma cannot express them, `platform db drift` asserts them, and `apps/api/test/tenancy/rls-coverage.db.spec.ts` fails on an `org` table without one or an `org_id` column nobody classified. The API must connect as an ordinary role, or none of it applies. See [SECURITY-ARCHITECTURE.md §18](SECURITY-ARCHITECTURE.md#18-tenant-isolation-rls).
 
 Six unique indexes exist only in hand-written migration SQL because Prisma cannot express a partial unique index: `jobs_active_dedup_uniq_idx` (job deduplication while `pending`/`running`), `database_backup_runs_active_uniq_idx` (at most one active backup run), `organizations_default_uniq_idx` (exactly one default organization), `group_invites_pending_uniq_idx` (one pending invite per group and address), `grants_active_user_uniq_idx` and `grants_active_group_uniq_idx` (one active grant per resource and user or group), plus the non-unique partial `jobs_attempts_gt1_idx` and `jobs_succeeded_duration_idx`. This is intentional schema drift. Do not add a `@@unique` to the models to "fix" it. The eight are listed in `RAW_SQL_INDEXES` in `@marinoscar/platform-db`; its tripwire fails on an unlisted partial or expression index and on a fragment that redeclares one.
 
@@ -589,43 +589,45 @@ Separate permission families (`push:*`, `nodes:*`, `storage_config:*`, `ai_confi
 
 ### 8.1 Job-type inventory
 
-All 28 registered job types. Handler paths are relative to `apps/api/src/`. A type is node-eligible when its handler carries both `nodeResultSchema` and `persistNodeResult`.
+All 29 registered job types (pinned by `apps/api/test/jobs/job-type-snapshot.spec.ts`: a type string is permanent). Handler paths are relative to `apps/api/src/` unless they name a package. A type is node-eligible when its handler carries both `nodeResultSchema` and `persistNodeResult`. The label is the handler's own `readonly label` (#734; it replaced the closed `JOB_TYPE_LABELS` map) and is what `GET /api/admin/jobs` serves as `typeLabel`; an unlabelled type shows its type string.
 
-| Type | Handler | What it does | Node-eligible |
-|---|---|---|:-:|
-| `ai.catalog.refresh` | `ai/catalog/ai-catalog-refresh.handler.ts` | Syncs one provider's model catalog with the admin key; daily and on admin request | No |
-| `ai.response.run` | `ai/runtime/ai-response-run.handler.ts` | Executes one background AI response | No |
-| `ai.image.generate` | `ai/runtime/ai-image-generate.handler.ts` | One image generation or edit; outputs become the user's storage objects | No |
-| `ai.audio.transcribe` | `ai/runtime/ai-audio-transcribe.handler.ts` | Streams a user's recording to the provider; stores the transcript on the run | No |
-| `ai.audio.speech` | `ai/runtime/ai-audio-speech.handler.ts` | Text-to-speech; the audio becomes the user's storage object | No |
-| `ai.usage.purge` | `ai/usage/ai-usage-purge.handler.ts` | Deletes `ai_usage_events` past `ai.usageRetentionDays`, in batches; daily | No |
-| `ai.runs.purge` | `ai/runtime/ai-runs-purge.handler.ts` | Deletes terminal `ai_runs` past `retention.aiRuns`, in batches; daily at 01:00; not gated on the kill switch | No |
-| `ai.keys.recheck` | `ai/keys/ai-keys-recheck.handler.ts` | Re-verifies stale user keys for one provider, refreshes reachable models | No |
-| `job.history.purge` | `jobs/handlers/job-history-purge.handler.ts` | Deletes old finished jobs after folding them into `job_stats_rollup` | No |
-| `example.echo` | `jobs/handlers/example-echo.handler.ts` | Worked server-only example: logs its payload | No |
-| `example.checksum` | `jobs/handlers/example-checksum.handler.ts` | Worked node-eligible example: hashes a storage object | Yes |
-| `auth.token.cleanup` | `auth/handlers/token-cleanup.handler.ts` | Deletes expired or revoked refresh tokens and expired PATs | No |
-| `nodes.fleet.sweep` | `nodes/handlers/node-fleet-sweep.handler.ts` | Marks nodes with stale heartbeats offline | No |
-| `nodes.fleet.prune` | `nodes/handlers/node-fleet-prune.handler.ts` | Forgets nodes offline longer than `nodes.offlineRetentionDays` | No |
-| `admin.broadcast.start` | `notifications/broadcasts/handlers/broadcast-start.handler.ts` | Starts a broadcast: freezes the audience, enqueues the first chunk | No |
-| `admin.broadcast.chunk` | `notifications/broadcasts/handlers/broadcast-chunk.handler.ts` | Delivers one page of recipients, enqueues its successor | No |
-| `notifications.inbox.purge` | `notifications/retention/notification-inbox-purge.handler.ts` | Deletes `notifications` inbox rows past `retention.notifications`, in batches; daily at 01:00 | No |
-| `notifications.deliveries.purge` | `notifications/retention/notification-deliveries-purge.handler.ts` | Deletes `sent`/`failed` `notification_deliveries` past `retention.notificationDeliveries` (never `queued`); daily at 01:00 | No |
-| `audit.events.purge` | `common/retention/audit-events-purge.handler.ts` | Deletes `audit_events` past `retention.auditEvents` (off by default); daily at 01:00 | No |
-| `storage.cleanup.stale-uploads` | `storage/handlers/storage-cleanup.handler.ts` | Cleans up abandoned uploads, aborting billed multipart parts | No |
-| `storage.object.process` | `storage/handlers/storage-object-process.handler.ts` | Runs registered post-upload processors on one object and marks it `ready`/`failed` | No |
-| `db.backup.run` | `db-backup/handlers/db-backup-run.handler.ts` | Streams `pg_dump` into object storage | Yes |
-| `db.backup.sweep` | `db-backup/handlers/db-backup-sweep.handler.ts` | Releases stale backup runs, then prunes by retention | No |
-| `db.restore.run` | `db-backup/handlers/db-restore-run.handler.ts` | Restores the database from a backup | No |
-| `db.restore.old-db-drop` | `db-backup/handlers/db-restore-old-db-drop.handler.ts` | Drops databases a restore displaced once their retention closes | No |
-| `device-auth.code.cleanup` | `device-auth/handlers/device-code-cleanup.handler.ts` | Deletes expired device codes | No |
-| `telemetry.retention.apply` | `packages/platform-api/src/telemetry/handlers/telemetry-retention.handler.ts` (the telemetry slice) | Sets GreptimeDB's database-level TTL to `telemetry.retentionDays`; daily and on policy change | No |
-| `telemetry.stack.deploy` | `packages/platform-api/src/telemetry/stack/telemetry-stack-deploy.handler.ts` (the telemetry slice) | Starts GreptimeDB and the collector through `stack-agent`, on admin request | No |
-| `sharing.grants.prune` | `packages/platform-api/src/sharing/jobs/grants-prune.handler.ts` (the sharing slice) | Deletes grants revoked or expired more than `grants.retentionDays` ago and grants whose record no longer exists (each type's `loadOwners`), in chunks; daily at 03:00 | No |
+| Type | Label | Handler | What it does | Node-eligible |
+|---|---|---|---|:-:|
+| `ai.catalog.refresh` | AI model catalog refresh | `ai/catalog/ai-catalog-refresh.handler.ts` | Syncs one provider's model catalog with the admin key; daily and on admin request | No |
+| `ai.response.run` | AI background response | `ai/runtime/ai-response-run.handler.ts` | Executes one background AI response | No |
+| `ai.image.generate` | AI image generation | `ai/runtime/ai-image-generate.handler.ts` | One image generation or edit; outputs become the user's storage objects | No |
+| `ai.audio.transcribe` | AI audio transcription | `ai/runtime/ai-audio-transcribe.handler.ts` | Streams a user's recording to the provider; stores the transcript on the run | No |
+| `ai.audio.speech` | AI speech synthesis | `ai/runtime/ai-audio-speech.handler.ts` | Text-to-speech; the audio becomes the user's storage object | No |
+| `ai.usage.purge` | AI usage purge | `ai/usage/ai-usage-purge.handler.ts` | Deletes `ai_usage_events` past `ai.usageRetentionDays`, in batches; daily | No |
+| `ai.runs.purge` | AI run purge | `ai/runtime/ai-runs-purge.handler.ts` | Deletes terminal `ai_runs` past `retention.aiRuns`, in batches; daily at 01:00; not gated on the kill switch | No |
+| `ai.keys.recheck` | AI key recheck | `ai/keys/ai-keys-recheck.handler.ts` | Re-verifies stale user keys for one provider, refreshes reachable models | No |
+| `job.history.purge` | Job history purge | `packages/platform-api/src/jobs/handlers/job-history-purge.handler.ts` (the jobs slice) | Deletes old finished jobs after folding them into `job_stats_rollup` | No |
+| `example.echo` | Example echo | `examples/jobs/example-echo.handler.ts` | Worked server-only example: logs its payload | No |
+| `example.checksum` | Example checksum | `examples/jobs/example-checksum.handler.ts` | Worked node-eligible example: hashes a storage object | Yes |
+| `auth.token.cleanup` | Token cleanup | `packages/platform-api/src/identity/auth/handlers/token-cleanup.handler.ts` (the identity slice) | Deletes expired or revoked refresh tokens and expired PATs | No |
+| `nodes.fleet.sweep` | Fleet sweep | `packages/platform-api/src/nodes/handlers/node-fleet-sweep.handler.ts` (the nodes slice) | Marks nodes with stale heartbeats offline | No |
+| `nodes.fleet.prune` | Fleet prune | `packages/platform-api/src/nodes/handlers/node-fleet-prune.handler.ts` (the nodes slice) | Forgets nodes offline longer than `nodes.offlineRetentionDays` | No |
+| `admin.broadcast.start` | Broadcast start | `notifications/broadcasts/handlers/broadcast-start.handler.ts` | Starts a broadcast: freezes the audience, enqueues the first chunk | No |
+| `admin.broadcast.chunk` | Broadcast delivery | `notifications/broadcasts/handlers/broadcast-chunk.handler.ts` | Delivers one page of recipients, enqueues its successor | No |
+| `notifications.inbox.purge` | Notification inbox purge | `notifications/retention/notification-inbox-purge.handler.ts` | Deletes `notifications` inbox rows past `retention.notifications`, in batches; daily at 01:00 | No |
+| `notifications.deliveries.purge` | Delivery log purge | `notifications/retention/notification-deliveries-purge.handler.ts` | Deletes `sent`/`failed` `notification_deliveries` past `retention.notificationDeliveries` (never `queued`); daily at 01:00 | No |
+| `audit.events.purge` | Audit log purge | `common/retention/audit-events-purge.handler.ts` | Deletes `audit_events` past `retention.auditEvents` (off by default); daily at 01:00 | No |
+| `storage.cleanup.stale-uploads` | Stale upload cleanup | `storage/handlers/storage-cleanup.handler.ts` | Cleans up abandoned uploads, aborting billed multipart parts | No |
+| `storage.object.process` | Object processing | `storage/handlers/storage-object-process.handler.ts` | Runs registered post-upload processors on one object and marks it `ready`/`failed` | No |
+| `db.backup.run` | Database backup | `db-backup/handlers/db-backup-run.handler.ts` | Streams `pg_dump` into object storage | Yes |
+| `db.backup.sweep` | Backup sweep | `db-backup/handlers/db-backup-sweep.handler.ts` | Releases stale backup runs, then prunes by retention | No |
+| `db.restore.run` | Database restore | `db-backup/handlers/db-restore-run.handler.ts` | Restores the database from a backup | No |
+| `db.restore.old-db-drop` | Restore cleanup | `db-backup/handlers/db-restore-old-db-drop.handler.ts` | Drops databases a restore displaced once their retention closes | No |
+| `device-auth.code.cleanup` | Device code cleanup | `packages/platform-api/src/identity/device-auth/handlers/device-code-cleanup.handler.ts` (the identity slice) | Deletes expired device codes | No |
+| `telemetry.retention.apply` | Telemetry retention | `packages/platform-api/src/telemetry/handlers/telemetry-retention.handler.ts` (the telemetry slice) | Sets GreptimeDB's database-level TTL to `telemetry.retentionDays`; daily and on policy change | No |
+| `telemetry.stack.deploy` | Telemetry services deploy | `packages/platform-api/src/telemetry/stack/telemetry-stack-deploy.handler.ts` (the telemetry slice) | Starts GreptimeDB and the collector through `stack-agent`, on admin request | No |
+| `sharing.grants.prune` | (none) | `packages/platform-api/src/sharing/jobs/grants-prune.handler.ts` (the sharing slice) | Deletes grants revoked or expired more than `grants.retentionDays` ago and grants whose record no longer exists (each type's `loadOwners`), in chunks; daily at 03:00 | No |
 
 Every `ai.*` type is server-only permanently: no AI key is ever brokered to a worker node. `db.backup.run` is offered to nodes only when `nodes.jobSecretBrokerEnabled` and `databaseBackup.nodeOffloadEnabled` are both on and the broker can mint a role.
 
-Scheduled types are enqueued by small `@Cron` tasks that only decide whether work is due (for example `apps/api/src/jobs/tasks/job-history-purge.task.ts`, using the shared helper `apps/api/src/jobs/housekeeping.enqueue.ts`).
+Scheduled types are enqueued by small `@Cron` tasks that only decide whether work is due (for example `packages/platform-api/src/jobs/tasks/job-history-purge.task.ts`, using the shared helper `enqueueHousekeepingJob` from `@marinoscar/platform-api/jobs`).
+
+Every job carries `orgId` (`jobs.org_id`, #734): the organization the work belongs to, or `null` for a system job (every housekeeping type above). It is the `org.id` span attribute, never a metric label; `jobs` has no row-level security, and a handler that touches org tables runs under `JobScope.run(job, fn)`. See [specs/job-queue.md](specs/job-queue.md#organizations).
 
 ### 8.2 Execution profile and lease
 
@@ -637,15 +639,15 @@ Scheduled types are enqueued by small `@Cron` tasks that only decide whether wor
 
 ### 8.3 Permanent cron exemptions
 
-Three crons do their work inline instead of enqueuing a job. The list is enforced by `apps/api/test/jobs/cron-enqueue-only.spec.ts`.
+Three crons do their work inline instead of enqueuing a job. The list is enforced by `apps/api/test/jobs/cron-enqueue-only.spec.ts`, which scans the app's and the packaged slices' sources and pins each exemption to its slice's root.
 
 | Task | Why it cannot be a job |
 |---|---|
-| `apps/api/src/jobs/tasks/job-stuck-reset.task.ts` | The lease reaper. Recovery that depends on the queue it recovers is not recovery. |
-| `apps/api/src/jobs/tasks/temp-file-janitor.task.ts` | Sweeps this process's local disk, which another replica or a node cannot reach. |
-| `apps/api/src/nodes/tasks/node-secret-sweep.task.ts` | Revokes brokered node credentials. A wedged queue must not leak live credentials. |
+| `packages/platform-api/src/jobs/tasks/job-stuck-reset.task.ts` | The lease reaper. Recovery that depends on the queue it recovers is not recovery. |
+| `packages/platform-api/src/jobs/tasks/temp-file-janitor.task.ts` | Sweeps this process's local disk, which another replica or a node cannot reach. |
+| `packages/platform-api/src/nodes/tasks/node-secret-sweep.task.ts` | Revokes brokered node credentials. A wedged queue must not leak live credentials. |
 
-Read more: [specs/job-queue.md](specs/job-queue.md), [specs/worker-nodes.md](specs/worker-nodes.md), [handlers README](../apps/api/src/jobs/handlers/README.md).
+Read more: [specs/job-queue.md](specs/job-queue.md), [specs/worker-nodes.md](specs/worker-nodes.md), [handlers README](../packages/platform-api/src/jobs/handlers/README.md), [jobs slice README](../packages/platform-api/src/jobs/README.md).
 
 ---
 
@@ -831,7 +833,7 @@ Health endpoints (public, reachable during maintenance):
 |---|---|
 | An API endpoint | [DEVELOPMENT.md](DEVELOPMENT.md) |
 | A settings page or setting | [specs/settings-ui.md](specs/settings-ui.md) (UI), [settings/registry/README.md](../apps/api/src/settings/registry/README.md) (API namespace) |
-| A background job type | [jobs/handlers/README.md](../apps/api/src/jobs/handlers/README.md) |
+| A background job type | [jobs/handlers/README.md](../packages/platform-api/src/jobs/handlers/README.md) |
 | A notification event, email template or channel | [notifications/README.md](../apps/api/src/notifications/README.md) (app entries in `app-registrations/notifications.ts`; API in [notifications/registry/README.md](../apps/api/src/notifications/registry/README.md)) |
 | AI in a feature | [ai/README.md](../apps/api/src/ai/README.md) |
 | An AI provider | [specs/ai-platform.md](specs/ai-platform.md) |

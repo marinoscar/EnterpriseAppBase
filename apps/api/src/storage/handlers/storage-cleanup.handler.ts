@@ -46,8 +46,8 @@
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import type { Job } from '@prisma/client';
 
-import { JobHandler } from '../../jobs/job-handler.interface';
-import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
+import { JobHandler } from '@marinoscar/platform-api/jobs';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 import { PrismaSystemService } from '../../prisma/prisma-system.service';
 import { STORAGE_PROVIDER, StorageProvider } from '../providers';
 
@@ -82,6 +82,8 @@ export class StorageCleanupHandler implements JobHandler, OnModuleInit {
   private readonly logger = new Logger(StorageCleanupHandler.name);
 
   readonly type = STORAGE_CLEANUP_TYPE;
+
+  readonly label = 'Stale upload cleanup';
 
   constructor(
     private readonly registry: JobHandlerRegistry,

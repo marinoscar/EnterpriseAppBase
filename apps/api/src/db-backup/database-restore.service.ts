@@ -13,8 +13,8 @@ import { DeploymentModeService } from '../common/deployment/deployment-mode.serv
 import { MaintenanceModeService } from '../common/maintenance/maintenance-mode.service';
 import type { SystemDatabaseBackupValue } from '../common/schemas/settings.schema';
 import type { RestoreCompletedEmailData } from '@marinoscar/platform-api/email';
-import { JobsService } from '../jobs/jobs.service';
-import { jobTempPath } from '../jobs/job-temp';
+import { JobsService } from '@marinoscar/platform-api/jobs';
+import { jobTempPath } from '@marinoscar/platform-api/jobs';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SystemSettingsService } from '@marinoscar/platform-api/settings';

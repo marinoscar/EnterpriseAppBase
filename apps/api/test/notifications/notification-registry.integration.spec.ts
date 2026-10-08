@@ -18,7 +18,7 @@ import { RegistryError, withTemporaryEntries } from '@marinoscar/platform-api/co
 import { EmailSettingsService } from '@marinoscar/platform-api/email';
 import { SmtpEmailProvider } from '@marinoscar/platform-api/email';
 import type { EmailTemplate } from '@marinoscar/platform-api/email';
-import { JobWorker } from '../../src/jobs/job.worker';
+import { JobWorker } from '@marinoscar/platform-api/jobs';
 import { NotificationsModule } from '../../src/notifications/notifications.module';
 import { NotificationsService } from '../../src/notifications/notifications.service';
 import type { NotificationChannel } from '../../src/notifications/notification-events';

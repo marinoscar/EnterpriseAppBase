@@ -41,7 +41,7 @@ import {
 import { ContentFilterFinishReasonError, LengthFinishReasonError } from 'openai/core/error';
 
 import { AiError, AiErrorCode } from '../../core/ai-error';
-import { parseRetryAfterMs } from '../../../jobs/rate-limit.error';
+import { parseRetryAfterMs } from '@marinoscar/platform-api/jobs';
 
 export const OPENAI_PROVIDER_ID = 'openai';
 

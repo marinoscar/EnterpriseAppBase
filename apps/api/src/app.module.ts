@@ -14,13 +14,14 @@ import { AboutModule } from './about/about.module';
 import { HealthModule } from './health/health.module';
 import { StorageModule } from './storage/storage.module';
 import { StorageConfigModule } from './storage/config/storage-config.module';
-import { NodeCredentialModule } from './nodes/node-credential.module';
-import { NodesModule } from './nodes/nodes.module';
+import { NodeCredentialModule } from '@marinoscar/platform-api/nodes';
+import { NodesModule } from './platform/jobs/jobs.config';
 import { credentialsModules } from './platform/credentials/credentials.config';
 import { EmailModule } from './platform/email/email.config';
 import { BroadcastsModule } from './notifications/broadcasts/broadcasts.module';
 import { NotificationsModule } from './notifications/notifications.module';
-import { JobsModule } from './jobs/jobs.module';
+import { JobsModule } from './platform/jobs/jobs.config';
+import { ExamplesModule } from './examples/examples.module';
 import { DbBackupModule } from './db-backup/db-backup.module';
 import { LoggerModule } from './common/logger/logger.module';
 import { AppMetricsModule } from './common/otel/app-metrics.module';
@@ -151,6 +152,12 @@ import configuration from './config/configuration';
     // costs nothing at runtime: no loop is started and no query is issued
     // until a worker exists.
     JobsModule,
+    // The reference app's worked examples (#734): the job-handler registry
+    // seam, one server-only and one node-eligible handler. They lived inside
+    // `JobsModule` until the queue moved into `@marinoscar/platform-api/jobs`
+    // (`JobsModule` and `NodesModule` above and below are the configured
+    // modules of `platform/jobs/jobs.config.ts`).
+    ExamplesModule,
     // The worker-node control plane (#268, epic #254): register/reattach,
     // heartbeat, claim, lease renewal, result and failure submission at
     // `/api/nodes`. Registered AFTER `JobsModule` for readability only — Nest

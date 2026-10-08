@@ -44,8 +44,9 @@
 //
 // It reads the BODY of every `@Cron`-decorated method under `apps/api/src`
 // and under every packaged slice the app runs whose source lives in this
-// repository (`CRON_SOURCE_ROOTS` in ./cron-source-roots.ts: today the
-// telemetry slice, `packages/platform-api/src/telemetry`, issue #703), and
+// repository (`CRON_SOURCE_ROOTS` in ./cron-source-roots.ts: the telemetry
+// slice, #703, the sharing slice, #729, and the jobs and nodes slices, #734,
+// all under `packages/platform-api/src/`), and
 // requires two things of it: that it queues something, and that it contains
 // none of the markers of doing work itself. It does not follow calls into
 // helper methods — a cron calling `this.fireDueBackup(...)` is trusted, and
@@ -63,7 +64,7 @@
 
 import { runPlatformConformance } from '@marinoscar/platform-api/testing';
 
-import { CRON_SOURCE_ROOTS } from './cron-source-roots';
+import { CRON_SOURCE_ROOTS, JOBS_SLICE_SOURCE_ROOT, NODES_SLICE_SOURCE_ROOT } from './cron-source-roots';
 
 /**
  * ⚠ THE EXEMPTION LIST. THREE ENTRIES, AND EACH ONE IS ARGUED.
@@ -71,24 +72,34 @@ import { CRON_SOURCE_ROOTS } from './cron-source-roots';
  * A fourth may be legitimate one day. Adding it means changing this array in a
  * pull request whose description says why the work must NOT be a job — which is
  * the whole reason the list is here rather than in a comment somewhere.
+ *
+ * All three live in the packaged slices since #734:
+ * `packages/platform-api/src/jobs/tasks/job-stuck-reset.task.ts`,
+ * `packages/platform-api/src/jobs/tasks/temp-file-janitor.task.ts` and
+ * `packages/platform-api/src/nodes/tasks/node-secret-sweep.task.ts`. Each entry
+ * is PINNED to its slice's root (`root`), so the same relative path under the
+ * app's own source, or another slice's, is never exempt by accident.
  */
-const EXEMPT: ReadonlyArray<{ file: string; why: string }> = [
+const EXEMPT: ReadonlyArray<{ file: string; root: string; why: string }> = [
   {
-    file: 'jobs/tasks/job-stuck-reset.task.ts',
+    file: 'tasks/job-stuck-reset.task.ts',
+    root: JOBS_SLICE_SOURCE_ROOT,
     why:
       'The lease reaper is WHAT RECOVERS ABANDONED JOBS. Recovery that depends on ' +
       'the thing it recovers is not recovery: a queue wedged badly enough to strand ' +
       'a reaper job is exactly the queue that needs reaping.',
   },
   {
-    file: 'jobs/tasks/temp-file-janitor.task.ts',
+    file: 'tasks/temp-file-janitor.task.ts',
+    root: JOBS_SLICE_SOURCE_ROOT,
     why:
       'It cleans up after a SIGKILLed worker and sweeps THIS PROCESS\'S LOCAL DISK. ' +
       'A node — or another replica — claiming that job would sweep the wrong ' +
       'filesystem and leave the full one untouched.',
   },
   {
-    file: 'nodes/tasks/node-secret-sweep.task.ts',
+    file: 'tasks/node-secret-sweep.task.ts',
+    root: NODES_SLICE_SOURCE_ROOT,
     why:
       'It destroys the short-lived PostgreSQL roles brokered to worker nodes (#349), ' +
       'and its own header lists three cases the event path structurally cannot cover ' +
@@ -101,5 +112,5 @@ const EXEMPT: ReadonlyArray<{ file: string; why: string }> = [
 
 runPlatformConformance({
   sourceRoots: CRON_SOURCE_ROOTS,
-  suites: { cronEnqueueOnly: { exempt: EXEMPT, minCronFiles: 8 } },
+  suites: { cronEnqueueOnly: { exempt: EXEMPT, minCronFiles: 14 } },
 });

@@ -58,6 +58,12 @@ export const PLATFORM_MODEL_OWNERSHIP: readonly ModelOwnershipDef<Prisma.ModelNa
     rationale:
       'Audit history outlives the organisation (onDelete SetNull) and system events (settings, backups, restores) belong to no organisation, so org_id is NULL for them. Organisation audit views come later; until then the table is read by administrators only.',
   },
+  {
+    model: 'Job',
+    kind: 'org-optional',
+    rationale:
+      'The job queue. org_id (#734) records whose work a job is, and is NULL for a system job (housekeeping, fleet sweeps, backups) and after its organisation is deleted (onDelete SetNull). No row-level security, deliberately: the claim is one cross-organisation statement; isolation is at the API (system routes), and a handler reaches tenant tables through JobScope.run.',
+  },
 
   // ---------------------------------------------------------------------------
   // user: personal data, reached with forUser; no organisation.
@@ -101,7 +107,6 @@ export const PLATFORM_MODEL_OWNERSHIP: readonly ModelOwnershipDef<Prisma.ModelNa
   { model: 'DatabaseBackupRun', kind: 'system', rationale: 'A deployment-wide database backup or restore record.' },
   { model: 'WorkerNode', kind: 'system', rationale: 'A deployment-wide worker node.' },
   { model: 'NodeCredential', kind: 'system', rationale: 'A deployment-wide worker-node credential.' },
-  { model: 'Job', kind: 'system', rationale: 'The deployment-wide job queue. A job gets org_id with #734; its payload carries orgId until then.' },
   { model: 'JobStatsRollup', kind: 'system', rationale: 'Deployment-wide queue statistics.' },
   { model: 'JobNodeSecret', kind: 'system', rationale: 'The handle of a credential brokered to a node for one job; never material.' },
   { model: 'NotificationBroadcast', kind: 'system', rationale: 'An administrator broadcast to the deployment. Organisation targeting is #738.' },

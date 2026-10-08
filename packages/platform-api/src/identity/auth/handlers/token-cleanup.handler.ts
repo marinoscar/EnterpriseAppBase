@@ -71,6 +71,8 @@ export class TokenCleanupHandler implements IdentityJobHandler, OnModuleInit {
 
   readonly type = AUTH_TOKEN_CLEANUP_TYPE;
 
+  readonly label = 'Token cleanup';
+
   constructor(
     @Inject(IDENTITY_JOBS) private readonly jobs: IdentityJobsPort,
     private readonly auth: AuthService,

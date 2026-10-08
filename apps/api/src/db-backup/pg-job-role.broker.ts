@@ -197,7 +197,7 @@ import type {
   IssuedJobSecret,
   JobSecretBroker,
   JobSecretUsability,
-} from '../jobs/job-secret-broker';
+} from '@marinoscar/platform-api/jobs';
 import {
   quoteIdentifier,
   quoteLiteral,

@@ -24,7 +24,7 @@
 // =============================================================================
 
 import { createTestApp, closeTestApp, type TestContext } from '../helpers/test-app.helper';
-import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 
 describe('AI job types are server-only, permanently (#435)', () => {
   let context: TestContext;

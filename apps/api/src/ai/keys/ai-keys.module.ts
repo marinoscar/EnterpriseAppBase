@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 
-import { JobsModule } from '../../jobs/jobs.module';
+import { JobsModule } from '../../platform/jobs/jobs.config';
 import { AiConfigModule } from '../config/ai-config.module';
 import { AiCoreModule } from '../core/ai-core.module';
 import { AiConfigWriterLookup } from './ai-config-writer.lookup';

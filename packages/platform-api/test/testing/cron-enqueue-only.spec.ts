@@ -77,6 +77,37 @@ describe('cron-enqueue-only suite: check()', () => {
     expect(files.has('jobs/tasks/exempt.task.ts')).toBe(false);
   });
 
+  it('an exemption pinned to a root exempts that file only, not the same path under another root (#734)', () => {
+    const slice = emptySourceRoot();
+    const app = emptySourceRoot();
+    writeSource(slice, 'tasks/reaper.task.ts', cron('    await this.prisma.a.updateMany({});'));
+    writeSource(app, 'tasks/reaper.task.ts', cron('    await this.prisma.a.updateMany({});'));
+
+    const report = cronEnqueueOnlySuite.check(
+      { sourceRoots: [app, slice] },
+      options({ exempt: [{ file: 'tasks/reaper.task.ts', root: slice, why: WHY }] }),
+    );
+
+    // Only the app's copy is reported: the slice's is the pinned exemption.
+    expect(report.findings).toEqual([
+      { file: 'tasks/reaper.task.ts', message: 'a @Cron body that queues nothing' },
+      { file: 'tasks/reaper.task.ts', message: 'a @Cron body containing a bulk update' },
+    ]);
+    expect(report.scannedFiles.cronPaths).toHaveLength(2);
+  });
+
+  it('a pinned exemption whose file is not under its root fails its case', async () => {
+    const slice = emptySourceRoot();
+    const other = emptySourceRoot();
+    writeSource(other, 'tasks/reaper.task.ts', cron(ENQUEUE));
+    const opts = options({ exempt: [{ file: 'tasks/reaper.task.ts', root: slice, why: WHY }] });
+    const report = cronEnqueueOnlySuite.check({ sourceRoots: [slice, other] }, opts);
+
+    const exemptCase = cronEnqueueOnlySuite.cases(opts).find((c) => c.name.startsWith('exempts '));
+
+    expect(() => exemptCase?.run(report, expect)).toThrow();
+  });
+
   it('matches braces across nested blocks and template literals, so work after them is still seen', () => {
     const root = fixtureSourceRoot();
 

@@ -16,7 +16,7 @@ import { ForbiddenException, Logger, NotFoundException } from '@nestjs/common';
 import type { Job } from '@prisma/client';
 import { z } from 'zod';
 
-import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
 import { AiError } from '../core/ai-error';
 import type { AiModelCapabilities } from '../core/capabilities';
 import { defineTool } from '../core/tools';

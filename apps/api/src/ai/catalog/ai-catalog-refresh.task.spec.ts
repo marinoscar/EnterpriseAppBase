@@ -7,7 +7,7 @@
 // each carrying the payload/subject shape the handler and #428 agree on.
 // =============================================================================
 
-import type { JobsService } from '../../jobs/jobs.service';
+import type { JobsService } from '@marinoscar/platform-api/jobs';
 import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import { AiCatalogRefreshTask } from './ai-catalog-refresh.task';
 

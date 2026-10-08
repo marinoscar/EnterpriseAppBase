@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { CredentialsModule } from '@marinoscar/platform-api/credentials';
-import { JobsModule } from '../jobs/jobs.module';
+import { JobsModule } from '../platform/jobs/jobs.config';
 import { EmailModule } from '../platform/email/email.config';
 import { PrismaModule } from '../prisma/prisma.module';
 import { SettingsModule } from '../platform/settings/settings.config';
@@ -15,6 +15,7 @@ import { NotificationStreamService } from './notification-stream.service';
 import { NotificationsController } from './notifications.controller';
 import { NotificationsService } from './notifications.service';
 import { JobFailureNotifier } from './ops/job-failure-notifier';
+import { NodeOfflineNotifier } from './ops/node-offline-notifier';
 import { PushConfigController } from './push-config.controller';
 import { PushConfigService } from './push-config.service';
 import { PushSubscriptionService } from './push-subscription.service';
@@ -206,6 +207,7 @@ import { NotificationChannelSenderRegistry } from './registry/channel-sender.reg
     // this module keeps none on the queue. See the file's own header for why a
     // listener rather than a `notify()` inside `JobTerminalService`.
     JobFailureNotifier,
+    NodeOfflineNotifier,
     PushNotificationChannel,
     // Doctor check (#634): validates the active VAPID pair, never sends.
     PushVapidDoctorCheck,

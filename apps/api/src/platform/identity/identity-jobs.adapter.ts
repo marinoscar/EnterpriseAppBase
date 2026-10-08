@@ -1,10 +1,10 @@
 import { Injectable, type Logger } from '@nestjs/common';
 import type { IdentityJobHandler, IdentityJobsPort } from '@marinoscar/platform-api/identity';
 
-import { enqueueHousekeepingJob } from '../../jobs/housekeeping.enqueue';
-import type { JobHandler } from '../../jobs/job-handler.interface';
-import { JobHandlerRegistry } from '../../jobs/job-handler.registry';
-import { JobsService } from '../../jobs/jobs.service';
+import { enqueueHousekeepingJob } from '@marinoscar/platform-api/jobs';
+import type { JobHandler } from '@marinoscar/platform-api/jobs';
+import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
+import { JobsService } from '@marinoscar/platform-api/jobs';
 import { PrismaService } from '../../prisma/prisma.service';
 
 // IDENTITY_JOBS -> the app's queue (#727). Identity's two job types

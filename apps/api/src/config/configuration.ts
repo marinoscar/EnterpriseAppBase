@@ -1,6 +1,7 @@
 import { buildDatabaseUrl } from '../common/database-url';
 import { resolveServiceName } from '../common/otel/telemetry-identity';
 import { identityConfiguration } from '@marinoscar/platform-api/identity';
+import { jobsConfiguration } from '@marinoscar/platform-api/jobs';
 
 export default () => {
   const host = process.env.POSTGRES_HOST || 'localhost';
@@ -144,39 +145,10 @@ export default () => {
   // The lease a claim is taken with is DERIVED from `jobTimeoutMs` rather
   // than configured, so it cannot be set shorter than the timeout it has to
   // outlive — see `LEASE_GRACE_MS` in `src/jobs/job.worker.ts`.
-  jobs: {
-    maxAttempts: parseInt(process.env.JOBS_MAX_ATTEMPTS || '3', 10),
-    retryBaseMs: parseInt(process.env.JOBS_RETRY_BASE_MS || '2000', 10),
-    retryMaxMs: parseInt(process.env.JOBS_RETRY_MAX_MS || '60000', 10),
-    rateLimitMaxHits: parseInt(process.env.JOBS_RATELIMIT_MAX_HITS || '10', 10),
-    rateLimitBaseMs: parseInt(process.env.JOBS_RATELIMIT_BASE_MS || '30000', 10),
-    rateLimitMaxMs: parseInt(process.env.JOBS_RATELIMIT_MAX_MS || '900000', 10),
-    workerConcurrency: parseInt(process.env.JOBS_WORKER_CONCURRENCY || '2', 10),
-    pollMs: parseInt(process.env.JOBS_POLL_MS || '5000', 10),
-    workerMode: process.env.JOBS_WORKER_MODE || 'all',
-    jobTimeoutMs: parseInt(process.env.JOBS_JOB_TIMEOUT_MS || '600000', 10),
-    // The lease reaper's ONLY switch (#263), and deliberately not the worker
-    // mode. Reaping a dead lease is a CONTROL-PLANE duty: an API running as a
-    // pure control plane (`JOBS_WORKER_MODE=off` in front of an external node
-    // fleet) claims nothing itself, and is also the deployment where dead
-    // leases are most likely — a node's laptop closing its lid is the normal
-    // case there, not an edge one. Gating the reaper on this process's
-    // willingness to RUN jobs would leave that fleet's abandoned rows to
-    // nobody. See `tasks/job-stuck-reset.task.ts`.
-    //
-    // DEFAULTS TO ON, and only the literal string turns it off, so a typo
-    // fails open into "keep reaping" rather than silently leaving every
-    // abandoned job stuck forever — the same direction `workerMode` fails in,
-    // for the same reason.
-    reaperEnabled: process.env.JOBS_REAPER_ENABLED !== 'false',
-    // Split here rather than in the worker so the shape a consumer reads is
-    // the shape it wants, and an unset variable is an empty list rather than
-    // `['']` — which would look like a job type named "" to every caller.
-    systemModeExtraTypes: (process.env.JOBS_SYSTEM_MODE_EXTRA_TYPES || '')
-      .split(',')
-      .map((type) => type.trim())
-      .filter((type) => type.length > 0),
-  },
+  // The `jobs.*` and (below) `nodes.*` keys are the jobs slice's
+  // (`jobsConfiguration()`, `@marinoscar/platform-api/jobs`, #734), spread
+  // after the next comment block; the variables and defaults are unchanged.
+
 
   // Worker-fleet lifecycle (#270). Both switches are the SAME KIND of switch as
   // `jobs.reaperEnabled` above — "does this replica run this sweep" — and not a
@@ -208,11 +180,8 @@ export default () => {
   // credentials may be issued at all: that is the `nodes.jobSecretBrokerEnabled`
   // SYSTEM SETTING, because it is a decision about the deployment's trust
   // boundary rather than about which replica runs a timer.
-  nodes: {
-    staleOfflineEnabled: process.env.NODE_STALE_OFFLINE_ENABLED !== 'false',
-    offlinePruneEnabled: process.env.NODE_OFFLINE_PRUNE_ENABLED !== 'false',
-    secretSweepEnabled: process.env.NODE_SECRET_SWEEP_ENABLED !== 'false',
-  },
+  ...jobsConfiguration(process.env),
+
 
   // Database backup scheduling (#282). ONE switch, and — like the two groups
   // above — it decides whether THIS PROCESS runs the timer, never what the

@@ -26,14 +26,6 @@ export const RAW_SQL_ALLOWLIST: ReadonlyArray<{ file: string; why: string }> = [
     why: 'Usage report: GROUPING SETS totals Prisma cannot express; filters are bound parameters from a validated query. The admin report reads through the system client; the per-user view through an organization-scoped one (#725).',
   },
   {
-    file: 'jobs/job-insights.service.ts',
-    why: 'Queue insights: GROUPING SETS and percentile aggregates; read-only SELECTs over jobs, pinned by its own spec.',
-  },
-  {
-    file: 'jobs/job-claim.service.ts',
-    why: 'The queue claim: FOR UPDATE SKIP LOCKED in a CTE, which Prisma cannot express. System work, no user ids.',
-  },
-  {
     file: 'common/event-bus/postgres-event-bus.ts',
     why: 'Event bus publish: SELECT pg_notify(...). No table access.',
   },
