@@ -67,14 +67,19 @@ import { type UserWelcomeEmailData, userWelcomeEmail } from './user-welcome.emai
  * @stability experimental
  */
 export interface PlatformEmailTemplateDataMap {
+  /** The admin's test send. */
   'test-email': TestEmailData;
+  /** A new account. */
   'user-welcome': UserWelcomeEmailData;
+  /** An address added to the allowlist. */
   'allowlist-invitation': AllowlistInvitationEmailData;
+  /** A user's roles changed. */
   'role-changed': RoleChangedEmailData;
   // #322 (epic #319). The odd one out: every entry above renders content this
   // codebase wrote, and this one renders a title and body an administrator
   // typed. Its data type carries no recipient, because a broadcast reads the
   // same for everybody — see broadcast.email.ts.
+  /** An administrator's broadcast. */
   broadcast: BroadcastEmailData;
 
   // #288 (epic #254). The four OPERATIONAL messages. What sets them apart from
@@ -82,9 +87,13 @@ export interface PlatformEmailTemplateDataMap {
   // administrative permission, not to a user something happened to — see
   // `NotificationsService.notifyPermissionHolders`. Their payloads are
   // correspondingly free of any per-recipient field.
+  /** A background job gave up. */
   'job-failed': JobFailedEmailData;
+  /** A worker node stopped responding. */
   'node-offline': NodeOfflineEmailData;
+  /** A database backup failed or went stale. */
   'backup-failed': BackupFailedEmailData;
+  /** The database was restored. */
   'restore-completed': RestoreCompletedEmailData;
 }
 

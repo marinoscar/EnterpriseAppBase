@@ -35,6 +35,7 @@ export interface EmailMessage {
    */
   from: string;
 
+  /** The subject line, plain text. */
   subject: string;
 
   /** HTML body. Always present — #123 renders both parts for every template. */
@@ -97,6 +98,7 @@ export interface EmailAttachment {
  * @stability stable
  */
 export interface EmailSendResult {
+  /** Whether the transport accepted the message (not: delivered it). */
   success: boolean;
 
   /** Transport-assigned id, present on success. Recorded by #125's delivery rows. */

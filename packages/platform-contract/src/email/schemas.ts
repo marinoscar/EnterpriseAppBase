@@ -17,6 +17,18 @@
 import { z } from 'zod';
 
 import { EMAIL_PROVIDER_KINDS } from './constants.js';
+import type { EmailProviderKind } from './constants.js';
+
+/**
+ * The entries of the transport enum, as `z.enum` types them: each kind keyed
+ * by itself. Named so the schemas' types read as a reference.
+ *
+ * @stability stable
+ */
+export type EmailProviderKindEnum = { [K in EmailProviderKind]: K };
+
+// The transport, typed through its named entries.
+const providerKindSchema: z.ZodEnum<EmailProviderKindEnum> = z.enum(EMAIL_PROVIDER_KINDS);
 
 /**
  * The admin-configurable half of email delivery: which transport, where it
@@ -32,7 +44,7 @@ export const emailSettingsSchema = z.object({
    * every fresh installation: a real, persisted state rather than an absent
    * key.
    */
-  provider: z.enum(EMAIL_PROVIDER_KINDS).nullable(),
+  provider: providerKindSchema.nullable(),
 
   /** Master switch. Nothing is sent while this is false. */
   enabled: z.boolean(),
@@ -145,7 +157,9 @@ export const emailSettingsResponseSchema = emailSettingsSchema.extend({
   /** Who last changed it. */
   updatedBy: z
     .object({
+      /** The user's id. */
       id: z.uuid(),
+      /** The user's address. */
       email: z.email(),
     })
     .nullable(),
@@ -185,13 +199,21 @@ function blankable<T extends z.ZodTypeAny>(inner: T) {
  * @stability stable
  */
 export const updateEmailSettingsSchema = emailSettingsSchema.extend({
+  /** SES region override; blank clears it. */
   sesRegion: blankable(emailSettingsSchema.shape.sesRegion),
+  /** SES access key id (not a secret); blank clears it. */
   sesAccessKeyId: blankable(emailSettingsSchema.shape.sesAccessKeyId),
+  /** SMTP server host; blank clears it. */
   smtpHost: blankable(emailSettingsSchema.shape.smtpHost),
+  /** SMTP port; blank clears it (587 applies). */
   smtpPort: blankable(emailSettingsSchema.shape.smtpPort),
+  /** Require TLS; blank clears it (on applies). */
   smtpUseTls: blankable(emailSettingsSchema.shape.smtpUseTls),
+  /** SMTP username; blank means unauthenticated submission. */
   smtpUsername: blankable(emailSettingsSchema.shape.smtpUsername),
+  /** Sender address; blank clears it. */
   fromAddress: blankable(emailSettingsSchema.shape.fromAddress),
+  /** Sender display name; blank clears it. */
   fromName: blankable(emailSettingsSchema.shape.fromName),
   /** The SMTP password. Write-only; blank preserves the stored one. */
   smtpPassword: z.string().max(MAX_SECRET_LENGTH).nullish(),
@@ -219,7 +241,7 @@ export const testEmailResultSchema = z.object({
   /** Where it went: always the caller's own address (there is no recipient parameter). */
   sentTo: z.email(),
   /** Which transport carried (or refused) it; null when none was configured. */
-  providerKind: z.enum(EMAIL_PROVIDER_KINDS).nullable(),
+  providerKind: providerKindSchema.nullable(),
   /** The transport's message id, on success. */
   messageId: z.string().nullable(),
   /** The provider's error, verbatim after redaction; null on success. */
@@ -245,7 +267,13 @@ export type TestEmailResult = z.infer<typeof testEmailResultSchema>;
 // red, you are putting a secret into a settings row or a response; store it
 // with `CredentialsService` instead.
 
-type SecretFieldNames =
+/**
+ * The field names no email settings shape may declare (the compile-time
+ * proofs below check against them).
+ *
+ * @stability stable
+ */
+export type EmailSecretFieldName =
   | 'smtpPassword'
   | 'password'
   | 'secret'
@@ -259,7 +287,7 @@ type SecretFieldNames =
  *
  * @stability stable
  */
-export type EmailSettingsCarriesNoSecret = Extract<keyof EmailSettings, SecretFieldNames> extends never ? true : never;
+export type EmailSettingsCarriesNoSecret = Extract<keyof EmailSettings, EmailSecretFieldName> extends never ? true : never;
 
 /**
  * The proof that {@link EmailSettings} carries no secret (fails to compile otherwise).
@@ -274,7 +302,7 @@ export const EMAIL_SETTINGS_CARRIES_NO_SECRET: EmailSettingsCarriesNoSecret = tr
  * @stability stable
  */
 export type EmailSettingsResponseCarriesNoSecret =
-  Extract<keyof EmailSettingsResponse, SecretFieldNames> extends never ? true : never;
+  Extract<keyof EmailSettingsResponse, EmailSecretFieldName> extends never ? true : never;
 
 /**
  * The proof that {@link EmailSettingsResponse} carries no secret (fails to compile otherwise).

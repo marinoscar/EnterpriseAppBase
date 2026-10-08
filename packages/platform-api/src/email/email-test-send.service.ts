@@ -124,7 +124,9 @@ export function formatFromHeader(address: string, name?: string): string {
  * @stability experimental
  */
 export interface TestSendActor {
+  /** The caller's user id (the audit actor). */
   id: string;
+  /** The caller's own address: the only recipient a test send can have. */
   email: string;
 }
 

@@ -93,6 +93,7 @@ export class EmailConfigDoctorCheck implements DoctorCheck, OnModuleInit {
     private readonly emailSettings: EmailSettingsService,
   ) {}
 
+  /** Registers this contributor with the doctor's registry. */
   onModuleInit(): void {
     this.registry.register(this);
   }

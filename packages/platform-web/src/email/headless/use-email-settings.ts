@@ -56,7 +56,10 @@ export type EmailSettingsInput = UpdateEmailSettingsInput;
  *
  * @stability experimental
  */
-export type EmailTestResult = Partial<Omit<TestEmailResult, 'success'>> & { success: boolean };
+export type EmailTestResult = Partial<Omit<TestEmailResult, 'success'>> & {
+  /** Whether the provider accepted the message. */
+  success: boolean;
+};
 
 /**
  * The masked status of a stored secret.
@@ -83,20 +86,29 @@ export interface UseEmailSettingsOptions {
  * @stability experimental
  */
 export interface UseEmailSettingsReturn {
+  /** The stored configuration, or `null` until loaded. */
   settings: EmailSettings | null;
+  /** Whether a load is in flight. */
   isLoading: boolean;
   /** Failure to LOAD. Distinct from `saveError`: one means "nothing to edit", the other "your edit did not stick". */
   loadError: string | null;
+  /** Whether a save is in flight. */
   isSaving: boolean;
+  /** Why the last save did not land, or `null`. */
   saveError: string | null;
+  /** Whether a test send is in flight. */
   isTesting: boolean;
   /** The last test attempt, success or failure, until the page clears it. */
   testResult: EmailTestResult | null;
   /** Resolves `true` when the save landed, `false` when it did not — never throws. */
   save: (input: EmailSettingsInput) => Promise<boolean>;
+  /** Sends the test message to the viewer; the outcome lands in `testResult`, never throws. */
   sendTest: () => Promise<void>;
+  /** Clears `testResult`. */
   clearTestResult: () => void;
+  /** Clears `saveError`. */
   clearSaveError: () => void;
+  /** Reloads the configuration. */
   refresh: () => Promise<void>;
 }
 

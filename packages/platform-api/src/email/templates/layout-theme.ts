@@ -81,7 +81,20 @@ export interface EmailLayoutTheme {
    * `@media (prefers-color-scheme: dark)` block (clients that strip `<style>`
    * keep the light palette, which is built to survive forced inversion).
    */
-  dark?: { background: string; card: string; border: string; text: string; muted: string; accent: string };
+  dark?: {
+    /** Page background. */
+    background: string;
+    /** The body card. */
+    card: string;
+    /** The card's border. */
+    border: string;
+    /** Body text. */
+    text: string;
+    /** The footer and secondary text. */
+    muted: string;
+    /** The wordmark. */
+    accent: string;
+  };
   /** The CSS font stack; families present on every mail client host. */
   fontStack?: string;
 }
@@ -113,7 +126,10 @@ export interface EmailBrandMark {
  */
 export interface EmailLayoutOptions {
   /** Merged over {@link DEFAULT_EMAIL_LAYOUT_THEME}, colour by colour. */
-  theme?: Partial<Omit<EmailLayoutTheme, 'colors'>> & { colors?: Partial<EmailLayoutTheme['colors']> };
+  theme?: Partial<Omit<EmailLayoutTheme, 'colors'>> & {
+    /** Merged over the platform colours, one by one. */
+    colors?: Partial<EmailLayoutTheme['colors']>;
+  };
   /** The inline brand mark, shown above the product name. Default: none. */
   brandMark?: EmailBrandMark;
   /** Replaces the HTML footer text. Build it with the `html` tag. Default: the platform's. */

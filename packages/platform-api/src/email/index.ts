@@ -21,7 +21,13 @@ export type { EmailModuleOptions, ResolvedEmailModuleOptions } from './email.opt
 
 // ---- settings, credentials and the admin routes -----------------------------------------
 export { EmailSettingsService, EMAIL_SETTINGS_KEY } from './email-settings.service';
-export type { CredentialStatus, EmailPrisma, EmailSettingsAdminView, SmtpPasswordStatus } from './email-settings.service';
+export type {
+  CredentialStatus,
+  EmailPrisma,
+  EmailSettingsAdminView,
+  EmailSettingsUpdatedBy,
+  SmtpPasswordStatus,
+} from './email-settings.service';
 export { EmailSettingsController } from './email-settings.controller';
 export { EmailTestSendService, formatFromHeader } from './email-test-send.service';
 export type { TestSendActor } from './email-test-send.service';
@@ -120,9 +126,11 @@ export type {
   EmailTemplateDataMap,
   EmailTemplateEntry,
   EmailTemplateName,
+  EmailTemplateOverride,
   EmailTone,
   EmailToneStyle,
   JobFailedEmailData,
+  MessageRenderedPartFitsRendered,
   NodeOfflineEmailData,
   PlainTextOptions,
   PlatformEmailTemplateDataMap,
@@ -131,6 +139,7 @@ export type {
   RenderCalloutOptions,
   RenderLayoutOptions,
   RenderedEmail,
+  RenderedEmailFitsMessage,
   ResolvedEmailLayout,
   RestoreCompletedEmailData,
   RoleChangedEmailData,

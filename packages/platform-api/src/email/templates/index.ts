@@ -29,6 +29,7 @@ export type {
   EmailTemplateDataMap,
   EmailTemplateEntry,
   EmailTemplateName,
+  EmailTemplateOverride,
   RegisterEmailTemplateOptions,
 } from './email-template.registry';
 
@@ -59,7 +60,12 @@ export type { PlainTextOptions, RenderCalloutOptions, RenderLayoutOptions } from
 export { SafeHtml, escapeHtml, html, safeUrl } from './safe-html';
 
 export { RENDERED_EMAIL_MATCHES_MESSAGE, TRANSACTIONAL_EMAIL_HEADERS } from './email-template.types';
-export type { EmailTemplate, RenderedEmail } from './email-template.types';
+export type {
+  EmailTemplate,
+  MessageRenderedPartFitsRendered,
+  RenderedEmail,
+  RenderedEmailFitsMessage,
+} from './email-template.types';
 
 export { PLATFORM_EMAIL_TEMPLATES } from './platform-email-templates';
 export type { PlatformEmailTemplateDataMap, PlatformEmailTemplateName } from './platform-email-templates';

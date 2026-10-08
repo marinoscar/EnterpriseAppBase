@@ -31,11 +31,24 @@ import type { UpdateEmailSettingsInput } from './dto/update-email-settings.dto';
 export interface EmailPrisma {
   /** The users table, read by id for `{ id, email }`. */
   user: {
+    /** One user by id, only `id` and `email` selected. */
     findUnique(args: {
       where: { id: string };
       select: { id: true; email: true };
-    }): Promise<{ id: string; email: string } | null>;
+    }): Promise<EmailSettingsUpdatedBy | null>;
   };
+}
+
+/**
+ * Who last saved the email settings.
+ *
+ * @stability experimental
+ */
+export interface EmailSettingsUpdatedBy {
+  /** The user's id. */
+  id: string;
+  /** The user's address. */
+  email: string;
 }
 
 /**
@@ -151,6 +164,7 @@ export type SmtpPasswordStatus = CredentialStatus;
  * @stability experimental
  */
 export interface EmailSettingsAdminView extends EmailSettings {
+  /** The SMTP password's masked status. */
   smtpPasswordStatus: CredentialStatus;
 
   /** Same shape as {@link CredentialStatus}, for the SES secret access key. */
@@ -165,9 +179,11 @@ export interface EmailSettingsAdminView extends EmailSettings {
   /** Bumped on every write. The optimistic-concurrency token for `If-Match`. */
   version: number;
 
+  /** When the row last changed; `null` while nothing is stored. */
   updatedAt: Date | null;
 
-  updatedBy: { id: string; email: string } | null;
+  /** Who last saved it; `null` while nothing is stored, or when the user was deleted. */
+  updatedBy: EmailSettingsUpdatedBy | null;
 }
 
 /**
@@ -586,7 +602,7 @@ export class EmailSettingsService {
   }
 
   /** `{ id, email }` of the user who last saved, or `null` (none, or deleted). */
-  private async findUpdatedBy(userId: string | null): Promise<{ id: string; email: string } | null> {
+  private async findUpdatedBy(userId: string | null): Promise<EmailSettingsUpdatedBy | null> {
     if (!userId) return null;
     const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true, email: true } });
     return user ? { id: user.id, email: user.email } : null;

@@ -68,8 +68,12 @@ export const SMTP_CREDENTIAL_LABEL = 'SMTP password';
  * @stability stable
  */
 export const SMTP_CREDENTIAL_PURPOSE_DEF = {
+  /** The purpose (and cipher sub-key domain). */
   purpose: SMTP_CREDENTIAL_PURPOSE,
+  /** The owning slice. */
   owner: 'email',
+  /** The label shown in a credential listing. */
   label: 'SMTP password',
+  /** Deployment-wide only. */
   tiers: ['system'],
 } as const satisfies CredentialPurposeDef;

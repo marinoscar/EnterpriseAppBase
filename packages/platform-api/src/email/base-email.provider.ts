@@ -97,7 +97,7 @@ export class SecretRedactor {
    *
    * Long secrets are replaced in place, keeping the rest of the message —
    * which is the whole point of showing the provider's real error. A secret
-   * too short to replace safely (see {@link MIN_REDACTABLE_SECRET_LENGTH})
+   * too short to replace safely (see `MIN_REDACTABLE_SECRET_LENGTH`)
    * costs the caller the entire message instead: an unreadable error is a bad
    * outcome, a leaked password is a worse one, and the choice is not close.
    */

@@ -310,6 +310,18 @@ export function renderEmailTemplate<K extends EmailTemplateName>(
 }
 
 /**
+ * One registered override.
+ *
+ * @stability experimental
+ */
+export interface EmailTemplateOverride {
+  /** The template name it replaces. */
+  name: string;
+  /** Who registered it (`registerEmailTemplate`'s `registrant`). */
+  registrant: string;
+}
+
+/**
  * The registered overrides, in registration order: what `EmailModule` logs at
  * bootstrap.
  *
@@ -317,7 +329,7 @@ export function renderEmailTemplate<K extends EmailTemplateName>(
  *
  * @stability experimental
  */
-export function listEmailTemplateOverrides(): Array<{ name: string; registrant: string }> {
+export function listEmailTemplateOverrides(): EmailTemplateOverride[] {
   return emailTemplateOverrideRegistry.list().map((entry) => ({ name: entry.name, registrant: entry.registrant ?? 'app' }));
 }
 

@@ -14,7 +14,7 @@
 export const EMAIL_PROVIDER_KINDS = ['ses', 'smtp'] as const;
 
 /**
- * A configured transport. See {@link EMAIL_PROVIDER_KINDS}.
+ * A configured transport: one of `EMAIL_PROVIDER_KINDS`.
  *
  * @stability stable
  */

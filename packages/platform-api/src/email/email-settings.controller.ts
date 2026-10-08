@@ -69,6 +69,11 @@ export class EmailSettingsController {
     private readonly testSend: EmailTestSendService,
   ) {}
 
+  /**
+   * `GET /api/email-settings`: the settings and the masked secret statuses.
+   *
+   * @returns the admin view.
+   */
   @Get()
   @Auth({ permissions: [SETTINGS_PERMISSIONS.SYSTEM_SETTINGS_READ.id] })
   @ApiOperation({
@@ -89,6 +94,14 @@ export class EmailSettingsController {
     return this.emailSettings.describeForAdmin();
   }
 
+  /**
+   * `PUT /api/email-settings`: replace the settings; `If-Match` guards the write.
+   *
+   * @param dto - the body, secrets write-only.
+   * @param userId - the caller.
+   * @param ifMatch - the expected version, or absent.
+   * @returns the admin view after the write.
+   */
   @Put()
   @Auth({ permissions: [SETTINGS_PERMISSIONS.SYSTEM_SETTINGS_WRITE.id] })
   @ApiOperation({
@@ -128,6 +141,12 @@ export class EmailSettingsController {
     return this.emailSettings.update(dto, userId, expectedVersion);
   }
 
+  /**
+   * `POST /api/email-settings/test`: send the test message to the caller.
+   *
+   * @param user - the caller, the only recipient.
+   * @returns the attempt's outcome (HTTP 200 either way).
+   */
   @Post('test')
   @Auth({ permissions: [SETTINGS_PERMISSIONS.SYSTEM_SETTINGS_WRITE.id] })
   @HttpCode(HttpStatus.OK)

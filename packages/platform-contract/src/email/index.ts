@@ -18,6 +18,8 @@ export {
 } from './schemas.js';
 export type {
   EmailCredentialStatusDto,
+  EmailProviderKindEnum,
+  EmailSecretFieldName,
   EmailSettings,
   EmailSettingsCarriesNoSecret,
   EmailSettingsResponse,

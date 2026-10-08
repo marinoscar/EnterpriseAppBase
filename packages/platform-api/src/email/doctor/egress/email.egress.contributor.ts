@@ -36,6 +36,7 @@ export class EmailEgressContributor implements EgressContributor, OnModuleInit {
     @Optional() @Inject(EMAIL_OPTIONS) private readonly options?: Pick<ResolvedEmailModuleOptions, 'sesRegionFallback'>,
   ) {}
 
+  /** Registers this contributor with the doctor's registry. */
   onModuleInit(): void {
     this.egress.register(this);
   }

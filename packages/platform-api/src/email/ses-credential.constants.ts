@@ -70,8 +70,12 @@ export const SES_CREDENTIAL_LABEL = 'SES secret access key';
  * @stability stable
  */
 export const SES_CREDENTIAL_PURPOSE_DEF = {
+  /** The purpose (and cipher sub-key domain). */
   purpose: SES_CREDENTIAL_PURPOSE,
+  /** The owning slice. */
   owner: 'email',
+  /** The label shown in a credential listing. */
   label: 'SES secret access key',
+  /** Deployment-wide only. */
   tiers: ['system'],
 } as const satisfies CredentialPurposeDef;

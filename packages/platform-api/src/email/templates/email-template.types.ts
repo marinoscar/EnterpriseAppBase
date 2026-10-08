@@ -114,10 +114,6 @@ export type EmailTemplate<TData> = (data: TData, ctx?: EmailRenderContext) => Re
 // MessageRenderedPart` would still hold, and the mandatory-text-part rule
 // would have quietly become advisory with nothing going red.
 
-type MessageRenderedPart = Pick<
-  EmailMessage,
-  'subject' | 'html' | 'text' | 'headers' | 'attachments'
->;
 
 /**
  * `true` while every {@link RenderedEmail} field fits an `EmailMessage`.
@@ -125,7 +121,7 @@ type MessageRenderedPart = Pick<
  * @stability experimental
  */
 export type RenderedEmailFitsMessage =
-  RenderedEmail extends MessageRenderedPart ? true : never;
+  RenderedEmail extends Pick<EmailMessage, 'subject' | 'html' | 'text' | 'headers' | 'attachments'> ? true : never;
 
 /**
  * `true` while the rendered part of an `EmailMessage` fits a {@link RenderedEmail}.
@@ -133,7 +129,7 @@ export type RenderedEmailFitsMessage =
  * @stability experimental
  */
 export type MessageRenderedPartFitsRendered =
-  MessageRenderedPart extends RenderedEmail ? true : never;
+  Pick<EmailMessage, 'subject' | 'html' | 'text' | 'headers' | 'attachments'> extends RenderedEmail ? true : never;
 
 /**
  * The proof that `RenderedEmail` and `EmailMessage` agree (fails to compile otherwise).
