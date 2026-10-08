@@ -267,6 +267,16 @@
       "name": "org_broadcasts:write",
       "description": "Compose, schedule, cancel and send notification broadcasts to the active organization",
       "scope": "org"
+    },
+    {
+      "name": "system:factory_reset",
+      "description": "Factory reset: delete every other user and all application data, keeping configuration and backups",
+      "scope": "system"
+    },
+    {
+      "name": "orgs:offboard",
+      "description": "Offboard an organization: delete it with all its data, members and invitations",
+      "scope": "system"
     }
   ],
   "rolePermissions": {
@@ -298,7 +308,9 @@
       "telemetry:write",
       "telemetry:query",
       "organizations:read",
-      "organizations:write"
+      "organizations:write",
+      "system:factory_reset",
+      "orgs:offboard"
     ],
     "contributor": [
       "user_settings:read",
