@@ -24,12 +24,12 @@
 
 import { type JobNodeSecret, type JobsPrisma } from '../../src/jobs/data/jobs-db';
 
-import { JobHandlerRegistry } from '../jobs/job-handler.registry';
-import type { JobSecretBroker } from '../jobs/job-secret-broker';
-import { createMockPrismaService, MockPrismaService } from '../../test/mocks/prisma.mock';
-import { NodeLifecycleService } from './node-lifecycle.service';
-import { NodeSecretBrokerService } from './node-secret-broker.service';
-import { NodesService } from './nodes.service';
+import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
+import type { JobSecretBroker } from '../../src/jobs/job-secret-broker';
+import { createMockPrismaService, MockPrismaService } from '../jobs/support/prisma.mock';
+import { NodeLifecycleService } from '../../src/nodes/node-lifecycle.service';
+import { NodeSecretBrokerService } from '../../src/nodes/node-secret-broker.service';
+import { NodesService } from '../../src/nodes/nodes.service';
 
 describe('NodeSecretBrokerService', () => {
   const JOB_ID = '22222222-2222-4222-8222-222222222222';

@@ -1,20 +1,15 @@
 import { Logger } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
-import { EventEmitterModule } from '@nestjs/event-emitter';
 import { Test, TestingModule } from '@nestjs/testing';
-import { type Job, type JobsPrisma } from '../../src/jobs/data/jobs-db';
+import { type Job } from '../../src/jobs/data/jobs-db';
 import { z } from 'zod';
 
-import { ExampleEchoHandler } from './handlers/example-echo.handler';
-import { JobHandler } from './job-handler.interface';
-import { JobHandlerRegistry } from './job-handler.registry';
-import { JobWorker } from './job.worker';
-import { JobsModule } from './jobs.module';
-import { JwtAuthGuard } from '@marinoscar/platform-api/identity';
-import configuration from '../config/configuration';
-import { PrismaModule } from '../prisma/prisma.module';
-import { platformHostModule } from '../platform/platform-host.module';
-import { doctorModule } from '../doctor/doctor.config';
+import { JobHandler } from '../../src/jobs/job-handler.interface';
+import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
+import { JobWorker } from '../../src/jobs/job.worker';
+import { JobsModule } from '../../src/jobs/jobs.module';
+import { JwtAuthGuard } from '../../src/identity/index';
+import { JobHistoryPurgeHandler } from '../../src/jobs/handlers/job-history-purge.handler';
+import { jobsTestImports } from './support/jobs-test-graph';
 
 // -----------------------------------------------------------------------------
 // Test doubles for the three node-eligibility shapes.
@@ -180,47 +175,24 @@ describe('JobHandlerRegistry', () => {
   });
 });
 
-describe('ExampleEchoHandler self-registration (via JobsModule)', () => {
+// The worked example's own self-registration (`example.echo`) is proven where
+// it lives since #734: apps/api/src/examples/jobs/example-echo.handler.spec.ts.
+// Here: a handler the slice itself provides registers when
+// `JobsModule.forRoot()` boots.
+describe('JobHistoryPurgeHandler self-registration (via JobsModule.forRoot)', () => {
   let moduleRef: TestingModule;
   let registry: JobHandlerRegistry;
 
   beforeEach(async () => {
-    // `PrismaModule` is imported and its `PrismaService` STUBBED because
-    // `JobsModule` gained two database-backed providers with #260
-    // (`JobsService`, `JobClaimService`). This suite is about registration
-    // and self-registration only — it never enqueues and never claims — so it
-    // needs the injection to RESOLVE, not to reach a database. Importing the
-    // (`@Global()`) module satisfies the graph; overriding the provider keeps
-    // a unit test from opening a connection in `onModuleInit`.
-    //
-    // `ConfigModule` and `EventEmitterModule` are here for the same
-    // "resolve, don't exercise" reason, added with #261: the terminal state
-    // machine reads its retry budgets from `ConfigService` and announces
-    // settled jobs through `EventEmitter2`. Both are `forRoot()`-ed exactly
-    // as `app.module.ts` does — a bare `ConfigModule` import would hand this
-    // graph a `ConfigService` with none of `configuration()` loaded, which is
-    // a subtler wrong than a missing provider.
+    // The graph must RESOLVE, not reach a database: this suite never enqueues
+    // and never claims, so the database port is an empty stub
+    // (`jobsTestImports`). The admin controller's guard is stubbed: nothing
+    // here serves a request.
     moduleRef = await Test.createTestingModule({
-      imports: [
-        ConfigModule.forRoot({ isGlobal: true, load: [configuration] }),
-        EventEmitterModule.forRoot(),
-        PrismaModule,
-        // Binds core's PLATFORM_PRISMA (and the other host ports), which the
-        // packaged credential stores reached through SettingsModule inject (#735).
-        platformHostModule,
-        // Global in the app: `JobsModule`'s doctor checks (#634) inject its
-        // registry, so a graph built without `AppModule` must supply it too.
-        doctorModule,
-        JobsModule,
-      ],
+      imports: [...jobsTestImports(), JobsModule.forRoot()],
     })
-      // See the note in `job.worker.bootstrap.spec.ts`: `JobsModule` imports
-      // `SettingsModule` since #263, which brings its controllers (and their
-      // guards) into this graph. Nothing here serves a request.
       .overrideGuard(JwtAuthGuard)
       .useValue({ canActivate: () => true })
-      .overrideProvider(JobsPrisma)
-      .useValue({})
       // `JobWorker` (#262) is the one provider in `JobsModule` that RUNS on
       // its own: `init()` below reaches `onApplicationBootstrap` and it would
       // start polling a stubbed Prisma for the life of this suite. Its own
@@ -243,42 +215,18 @@ describe('ExampleEchoHandler self-registration (via JobsModule)', () => {
   });
 
   it('registers itself, so its type appears in types()', () => {
-    expect(registry.types()).toContain('example.echo');
+    expect(registry.types()).toContain('job.history.purge');
   });
 
   it('is retrievable by type and is the module instance', () => {
-    expect(registry.get('example.echo')).toBe(moduleRef.get(ExampleEchoHandler));
+    expect(registry.get('job.history.purge')).toBe(moduleRef.get(JobHistoryPurgeHandler));
   });
 
   it('is server-only: it carries neither optional member', () => {
-    // Typed as the INTERFACE, not the class: the class does not declare the
-    // optional members at all, which is the point — server-only is the
-    // absence of them, not a value set to false anywhere.
-    const handler: JobHandler = moduleRef.get(ExampleEchoHandler);
+    const handler: JobHandler = moduleRef.get(JobHistoryPurgeHandler);
 
     expect(handler.nodeResultSchema).toBeUndefined();
     expect(handler.persistNodeResult).toBeUndefined();
-    expect(registry.serverOnlyTypes()).toContain('example.echo');
-  });
-
-  it('processes a job without throwing, and logs the payload', async () => {
-    const handler = moduleRef.get(ExampleEchoHandler);
-    const log = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
-
-    const job = {
-      id: 'job-1',
-      type: 'example.echo',
-      reason: 'rerun',
-      attempts: 1,
-      payload: { hello: 'world' },
-    } as unknown as Job;
-
-    await expect(handler.process(job)).resolves.toBeUndefined();
-
-    expect(log).toHaveBeenCalledTimes(1);
-    expect(log.mock.calls[0][0] as string).toContain('job-1');
-    expect(log.mock.calls[0][0] as string).toContain('"hello":"world"');
-
-    log.mockRestore();
+    expect(registry.serverOnlyTypes()).toContain('job.history.purge');
   });
 });

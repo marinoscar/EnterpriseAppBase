@@ -23,11 +23,11 @@ import { PrismaClientKnownRequestError } from '../../src/jobs/data/prisma-runtim
 
 import { propagation } from '@opentelemetry/api';
 
-import { installTestTracing, TestTracing } from '../../test/helpers/otel-tracing.helper';
-import { buildDedupKey } from './job-keys';
-import { isActiveDedupConflict, JobsService } from './jobs.service';
-import type { EventBus } from '../common/event-bus/event-bus.interface';
-import { JOBS_ENQUEUED_CHANNEL } from './job-wake';
+import { installTestTracing, TestTracing } from '../identity/support/otel-tracing.helper';
+import { buildDedupKey } from '../../src/jobs/job-keys';
+import { isActiveDedupConflict, JobsService } from '../../src/jobs/jobs.service';
+import type { EventBus } from './support/app-doubles';
+import { JOBS_ENQUEUED_CHANNEL } from '../../src/jobs/job-wake';
 
 /** A P2002 shaped the way `@prisma/adapter-pg` reports one. */
 function adapterConflict(constraintFields: string[], indexName: string) {

@@ -4,13 +4,13 @@
 
 import { ROOT_CONTEXT, context, propagation, trace } from '@opentelemetry/api';
 
-import { installTestTracing, TestTracing } from '../../test/helpers/otel-tracing.helper';
+import { installTestTracing, TestTracing } from '../identity/support/otel-tracing.helper';
 import {
   captureJobTraceContext,
   jobParentContext,
   MAX_TRACE_CONTEXT_LENGTH,
   normalizeTraceparent,
-} from './job-trace-context';
+} from '../../src/jobs/job-trace-context';
 
 const VALID = '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01';
 

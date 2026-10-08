@@ -12,16 +12,16 @@ import { ForbiddenException, HttpException, HttpStatus } from '@nestjs/common';
 import { SpanStatusCode, trace } from '@opentelemetry/api';
 import { type JobsPrisma, type WorkerNode } from '../../src/jobs/data/jobs-db';
 
-import { installTestTracing, TestTracing } from '../../test/helpers/otel-tracing.helper';
-import { createMockPrismaService, MockPrismaService } from '../../test/mocks/prisma.mock';
-import { NodeTelemetryDto } from './dto/node-telemetry.dto';
-import { NodeSettlementLedger } from './node-settlement-ledger';
+import { installTestTracing, TestTracing } from '../identity/support/otel-tracing.helper';
+import { createMockPrismaService, MockPrismaService } from '../jobs/support/prisma.mock';
+import { NodeTelemetryDto } from '../../src/nodes/dto/node-telemetry.dto';
+import { NodeSettlementLedger } from '../../src/nodes/node-settlement-ledger';
 import {
   NODE_TELEMETRY_REQUESTS_PER_MINUTE,
   NodeTelemetryRateLimiter,
-} from './node-telemetry-rate-limiter';
-import { NodeTelemetryService } from './node-telemetry.service';
-import { NodesService } from './nodes.service';
+} from '../../src/nodes/node-telemetry-rate-limiter';
+import { NodeTelemetryService } from '../../src/nodes/node-telemetry.service';
+import { NodesService } from '../../src/nodes/nodes.service';
 
 describe('NodeTelemetryService', () => {
   const USER = 'user-1';

@@ -11,10 +11,10 @@
 
 import { type Job, type JobsPrisma } from '../../../src/jobs/data/jobs-db';
 
-import { JobHistoryPurgeTask } from './job-history-purge.task';
-import { JOB_HISTORY_PURGE_TYPE } from '../handlers/job-history-purge.handler';
-import type { JobsService } from '../jobs.service';
-import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
+import { JobHistoryPurgeTask } from '../../../src/jobs/tasks/job-history-purge.task';
+import { JOB_HISTORY_PURGE_TYPE } from '../../../src/jobs/handlers/job-history-purge.handler';
+import type { JobsService } from '../../../src/jobs/jobs.service';
+import type { SystemSettingsService } from '../../../src/settings/index';
 
 function makeTask(options: { purgeEnabled?: boolean; active?: unknown; enqueue?: jest.Mock }) {
   const findFirst = jest.fn().mockResolvedValue(options.active ?? null);

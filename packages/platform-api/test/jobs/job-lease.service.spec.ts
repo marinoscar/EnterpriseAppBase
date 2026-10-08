@@ -21,7 +21,7 @@
 // quoted no token", which after #364 means an un-upgraded node.
 // =============================================================================
 
-import { JobLeaseService, heldClaimWhere, heldLeaseWhere } from './job-lease.service';
+import { JobLeaseService, heldClaimWhere, heldLeaseWhere } from '../../src/jobs/job-lease.service';
 import { type JobsPrisma } from '../../src/jobs/data/jobs-db';
 
 const JOB_ID = '3f1a0f4e-0000-4000-8000-000000000001';

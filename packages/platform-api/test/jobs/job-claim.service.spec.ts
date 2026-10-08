@@ -18,7 +18,7 @@
 import { type Job, type JobsPrisma } from '../../src/jobs/data/jobs-db';
 import { type Sql } from '../../src/jobs/data/prisma-runtime';
 
-import { JobClaimService, JOB_CLAIM_COLUMNS } from './job-claim.service';
+import { JobClaimService, JOB_CLAIM_COLUMNS } from '../../src/jobs/job-claim.service';
 
 describe('JobClaimService', () => {
   let queryRaw: jest.Mock;

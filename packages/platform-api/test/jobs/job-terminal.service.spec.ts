@@ -30,15 +30,15 @@ import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { type Job, type JobsPrisma, type JobsUpdateData } from '../../src/jobs/data/jobs-db';
 
-import { JobClock } from './job-clock';
-import { JobSettledEvent, JOB_SETTLED_EVENT } from './events/job-settled.event';
-import { resetJobProfileWarnings } from './job-execution-profile';
-import { JobHandlerRegistry } from './job-handler.registry';
-import { heldClaimWhere } from './job-lease.service';
-import { JobTerminalService, rowMatchesWrite } from './job-terminal.service';
-import { ProviderThrottleService } from './provider-throttle.service';
-import { CLASSIFY_RATE_LIMIT, RateLimitError, type RateLimitClassification } from './rate-limit.error';
-import type { AppMetricsService } from '../common/otel/app-metrics.service';
+import { JobClock } from '../../src/jobs/job-clock';
+import { JobSettledEvent, JOB_SETTLED_EVENT } from '../../src/jobs/events/job-settled.event';
+import { resetJobProfileWarnings } from '../../src/jobs/job-execution-profile';
+import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
+import { heldClaimWhere } from '../../src/jobs/job-lease.service';
+import { JobTerminalService, rowMatchesWrite } from '../../src/jobs/job-terminal.service';
+import { ProviderThrottleService } from '../../src/jobs/provider-throttle.service';
+import { CLASSIFY_RATE_LIMIT, RateLimitError, type RateLimitClassification } from '../../src/jobs/rate-limit.error';
+import type { AppMetricsService } from './support/app-doubles';
 
 /** Pinned "now". Every expected timestamp below is derived from it. */
 const NOW = 1_700_000_000_000;

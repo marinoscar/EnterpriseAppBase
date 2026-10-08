@@ -24,21 +24,16 @@
 // =============================================================================
 
 import { Injectable, Module, OnModuleInit } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
-import { EventEmitterModule } from '@nestjs/event-emitter';
 import { Test, TestingModule } from '@nestjs/testing';
-import { type Job, type JobsPrisma } from '../../src/jobs/data/jobs-db';
+import { type Job } from '../../src/jobs/data/jobs-db';
 
-import { ClaimOptions, JobClaimService } from './job-claim.service';
-import { JobHandler } from './job-handler.interface';
-import { JobHandlerRegistry } from './job-handler.registry';
-import { JobWorker } from './job.worker';
-import { JobsModule } from './jobs.module';
-import { JwtAuthGuard } from '@marinoscar/platform-api/identity';
-import configuration from '../config/configuration';
-import { PrismaModule } from '../prisma/prisma.module';
-import { platformHostModule } from '../platform/platform-host.module';
-import { doctorModule } from '../doctor/doctor.config';
+import { ClaimOptions, JobClaimService } from '../../src/jobs/job-claim.service';
+import { JobHandler } from '../../src/jobs/job-handler.interface';
+import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
+import { JobWorker } from '../../src/jobs/job.worker';
+import { JobsModule } from '../../src/jobs/jobs.module';
+import { JwtAuthGuard } from '../../src/identity/index';
+import { jobsTestImports } from './support/jobs-test-graph';
 
 /** How long the handler below stalls before registering itself. */
 const REGISTRATION_DELAY_MS = 40;
@@ -70,7 +65,9 @@ class SlowRegisteringHandler implements JobHandler, OnModuleInit {
 }
 
 @Module({
-  imports: [JobsModule],
+  // `JobsModule.forRoot()` is global (#734): imported here once, as an app
+  // imports it once, and the slow handler injects its registry.
+  imports: [JobsModule.forRoot()],
   providers: [SlowRegisteringHandler],
 })
 class SlowHandlerModule {}
@@ -89,34 +86,19 @@ describe('JobWorker lifecycle (real module graph)', () => {
 
     moduleRef = await Test.createTestingModule({
       imports: [
-        // `forRoot()`-ed exactly as `app.module.ts` does: a bare
-        // `ConfigModule` would hand this graph a `ConfigService` with none of
-        // `configuration()` loaded, which is a subtler wrong than a missing
-        // provider.
-        ConfigModule.forRoot({ isGlobal: true, load: [configuration] }),
-        EventEmitterModule.forRoot(),
-        PrismaModule,
-        // Binds core's PLATFORM_PRISMA (and the other host ports), which the
-        // packaged credential stores reached through SettingsModule inject (#735).
-        platformHostModule,
-        // Global in the app: `JobsModule`'s doctor checks (#634) inject its
-        // registry, so a graph built without `AppModule` must supply it too.
-        doctorModule,
+        // Configuration, the event emitter, the Doctor and a stub database
+        // port and settings reader: the graph must RESOLVE, not reach a
+        // database (this suite is about lifecycle ordering and never runs a
+        // job).
+        ...jobsTestImports(),
         SlowHandlerModule,
       ],
     })
-      // `JobsModule` imports `SettingsModule` since #263 (the reaper and the
-      // purge read the `jobs` policy through `SystemSettingsService`), which
-      // brings the settings CONTROLLERS into this graph along with the guards
-      // they are decorated with. This suite is about lifecycle ordering and
-      // has no HTTP surface, so the guard is stubbed rather than dragging the
-      // whole auth graph in behind it.
+      // The admin controller's `@Auth()` guard: this suite is about lifecycle
+      // ordering and has no HTTP surface, so the guard is stubbed rather than
+      // dragging the whole auth graph in behind it.
       .overrideGuard(JwtAuthGuard)
       .useValue({ canActivate: () => true })
-      // The graph must RESOLVE, not reach a database: this suite is about
-      // lifecycle ordering and never runs a job.
-      .overrideProvider(JobsPrisma)
-      .useValue({})
       // The claim is the observation point. Recording `eligibleTypes` is
       // recording exactly what the registry contained at the moment the
       // worker asked.
@@ -169,11 +151,12 @@ describe('JobWorker lifecycle (real module graph)', () => {
     expect(registeredAt as number).toBeLessThanOrEqual(firstClaimAt as number);
   });
 
-  it('also has the framework example handler registered by then', () => {
-    // `ExampleEchoHandler` self-registers from `JobsModule`, a DIFFERENT
+  it("also has the slice's own handler registered by then", () => {
+    // `JobHistoryPurgeHandler` self-registers from `JobsModule`, a DIFFERENT
     // module from the slow one — so this asserts the guarantee holds across
-    // module boundaries, not just within one.
-    expect(claims[0].eligibleTypes).toContain('example.echo');
+    // module boundaries, not just within one. (Until #734 this was the
+    // `example.echo` handler, which now lives in the reference app.)
+    expect(claims[0].eligibleTypes).toContain('job.history.purge');
   });
 
   it('claims as the server, one row at a time', () => {

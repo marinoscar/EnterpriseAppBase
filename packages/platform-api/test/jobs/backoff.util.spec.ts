@@ -10,7 +10,7 @@
 // WINDOW itself: half the exponential term to all of it.
 // =============================================================================
 
-import { computeBackoffMs } from './backoff.util';
+import { computeBackoffMs } from '../../src/jobs/backoff.util';
 
 /** The retry pair's shipped constants. */
 const RETRY = { baseMs: 2_000, maxMs: 60_000 };

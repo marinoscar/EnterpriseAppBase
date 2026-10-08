@@ -19,10 +19,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import { NodeCredentialService, NODE_TOKEN_PREFIX } from './node-credential.service';
-import { type JobsPrisma } from '../../src/jobs/data/jobs-db';
-import { createMockPrismaService, MockPrismaService } from '../../test/mocks/prisma.mock';
-import { CreateNodeCredentialDto } from './dto/create-node-credential.dto';
+import { NodeCredentialService, NODE_TOKEN_PREFIX } from '../../src/nodes/node-credential.service';
+import { PLATFORM_PRISMA } from '../../src/core/index';
+import { createMockPrismaService, MockPrismaService } from '../jobs/support/prisma.mock';
+import { CreateNodeCredentialDto } from '../../src/nodes/dto/create-node-credential.dto';
 
 describe('NodeCredentialService', () => {
   let service: NodeCredentialService;
@@ -67,7 +67,7 @@ describe('NodeCredentialService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         NodeCredentialService,
-        { provide: JobsPrisma, useValue: mockPrisma },
+        { provide: PLATFORM_PRISMA, useValue: mockPrisma },
       ],
     }).compile();
 

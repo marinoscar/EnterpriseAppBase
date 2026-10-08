@@ -22,23 +22,23 @@ import { SpanKind, SpanStatusCode, context, trace } from '@opentelemetry/api';
 import { type Job } from '../../src/jobs/data/jobs-db';
 import { z } from 'zod';
 
-import { installTestTracing, TestTracing } from '../../test/helpers/otel-tracing.helper';
+import { installTestTracing, TestTracing } from '../identity/support/otel-tracing.helper';
 
-import { JobClaimService, ClaimOptions } from './job-claim.service';
-import { JobClock } from './job-clock';
-import { JobHandler } from './job-handler.interface';
-import { JobHandlerRegistry } from './job-handler.registry';
-import { JobLeaseService } from './job-lease.service';
-import { JobTerminalService } from './job-terminal.service';
-import { resetJobProfileWarnings } from './job-execution-profile';
-import { JobTimeoutError, JobWorker, resetUnknownWorkerModeWarning } from './job.worker';
-import { ProviderThrottleService } from './provider-throttle.service';
-import { DEFAULT_SYSTEM_SETTINGS } from '../common/types/settings.types';
-import { NodeOffloadService } from './node-offload.service';
-import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
-import type { EventBus } from '../common/event-bus/event-bus.interface';
-import { InProcessEventBus } from '../common/event-bus/in-process-event-bus';
-import { JOBS_ENQUEUED_CHANNEL } from './job-wake';
+import { JobClaimService, ClaimOptions } from '../../src/jobs/job-claim.service';
+import { JobClock } from '../../src/jobs/job-clock';
+import { JobHandler } from '../../src/jobs/job-handler.interface';
+import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
+import { JobLeaseService } from '../../src/jobs/job-lease.service';
+import { JobTerminalService } from '../../src/jobs/job-terminal.service';
+import { resetJobProfileWarnings } from '../../src/jobs/job-execution-profile';
+import { JobTimeoutError, JobWorker, resetUnknownWorkerModeWarning } from '../../src/jobs/job.worker';
+import { ProviderThrottleService } from '../../src/jobs/provider-throttle.service';
+import { DEFAULT_SYSTEM_SETTINGS } from './support/app-doubles';
+import { NodeOffloadService } from '../../src/jobs/node-offload.service';
+import type { SystemSettingsService } from '../../src/settings/index';
+import type { EventBus } from './support/app-doubles';
+import { InProcessEventBus } from './support/app-doubles';
+import { JOBS_ENQUEUED_CHANNEL } from '../../src/jobs/job-wake';
 
 /** Every worker setting, with the shipped defaults spelled out rather than imported. */
 interface WorkerConfig {

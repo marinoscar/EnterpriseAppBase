@@ -44,23 +44,23 @@ import { ConfigService } from '@nestjs/config';
 import { type Job, type JobsPrisma, type WorkerNode } from '../../src/jobs/data/jobs-db';
 import { z } from 'zod';
 
-import { JobClaimService } from '../jobs/job-claim.service';
-import { JobHandlerRegistry } from '../jobs/job-handler.registry';
-import { JobLeaseService } from '../jobs/job-lease.service';
-import { JobTerminalService } from '../jobs/job-terminal.service';
-import { DEFAULT_SYSTEM_SETTINGS } from '../common/types/settings.types';
-import { createMockPrismaService, MockPrismaService } from '../../test/mocks/prisma.mock';
+import { JobClaimService } from '../../src/jobs/job-claim.service';
+import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
+import { JobLeaseService } from '../../src/jobs/job-lease.service';
+import { JobTerminalService } from '../../src/jobs/job-terminal.service';
+import { DEFAULT_SYSTEM_SETTINGS } from '../jobs/support/app-doubles';
+import { createMockPrismaService, MockPrismaService } from '../jobs/support/prisma.mock';
 import {
   ClaimJobsDto,
   HeartbeatNodeDto,
   NodeJobFailureDto,
   NodeJobResultDto,
   RegisterNodeDto,
-} from './dto/node-control-plane.dto';
-import { NodeOffloadService } from '../jobs/node-offload.service';
-import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
-import { NodeSettlementLedger } from './node-settlement-ledger';
-import { NodesService } from './nodes.service';
+} from '../../src/nodes/dto/node-control-plane.dto';
+import { NodeOffloadService } from '../../src/jobs/node-offload.service';
+import type { SystemSettingsService } from '../../src/settings/index';
+import { NodeSettlementLedger } from '../../src/nodes/node-settlement-ledger';
+import { NodesService } from '../../src/nodes/nodes.service';
 
 describe('NodesService', () => {
   const USER = 'user-1';

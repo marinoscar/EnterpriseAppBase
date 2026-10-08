@@ -9,7 +9,7 @@ import {
   MAX_NODE_SPANS_PER_REQUEST,
   NODE_SPAN_NAMES,
   nodeTelemetrySchema,
-} from './node-telemetry.dto';
+} from '../../../src/nodes/dto/node-telemetry.dto';
 
 describe('nodeTelemetrySchema', () => {
   const JOB_ID = '22222222-2222-4222-8222-222222222222';

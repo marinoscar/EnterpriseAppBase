@@ -23,9 +23,9 @@
 
 import { type Job, type JobsPrisma } from '../../../src/jobs/data/jobs-db';
 
-import { NodeFleetPruneHandler, prunableOfflineNodeWhere } from './node-fleet-prune.handler';
-import type { JobHandlerRegistry } from '../../jobs/job-handler.registry';
-import type { NodeLifecycleService } from '../node-lifecycle.service';
+import { NodeFleetPruneHandler, prunableOfflineNodeWhere } from '../../../src/nodes/handlers/node-fleet-prune.handler';
+import type { JobHandlerRegistry } from '../../../src/jobs/job-handler.registry';
+import type { NodeLifecycleService } from '../../../src/nodes/node-lifecycle.service';
 
 /** The row the worker hands `process`. Only `id` is read, for the log line. */
 const JOB = { id: 'job-1' } as Job;

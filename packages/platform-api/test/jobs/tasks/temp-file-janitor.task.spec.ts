@@ -21,9 +21,9 @@ import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { TempFileJanitorTask } from './temp-file-janitor.task';
-import * as jobTemp from '../job-temp';
-import { JOB_TEMP_PREFIX } from '../job-temp';
+import { TempFileJanitorTask } from '../../../src/jobs/tasks/temp-file-janitor.task';
+import * as jobTemp from '../../../src/jobs/job-temp';
+import { JOB_TEMP_PREFIX } from '../../../src/jobs/job-temp';
 import type { ConfigService } from '@nestjs/config';
 
 const SIX_HOURS_MS = 6 * 60 * 60 * 1000;

@@ -1,4 +1,4 @@
-import { buildDedupKey } from './job-keys';
+import { buildDedupKey } from '../../src/jobs/job-keys';
 
 describe('buildDedupKey', () => {
   it('joins type, subjectType and subjectId with colons', () => {

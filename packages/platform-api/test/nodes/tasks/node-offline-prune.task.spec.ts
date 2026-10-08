@@ -14,9 +14,9 @@
 
 import { ConfigService } from '@nestjs/config';
 
-import { NodeOfflinePruneTask } from './node-offline-prune.task';
-import { NODE_FLEET_PRUNE_TYPE } from '../handlers/node-fleet-prune.handler';
-import type { JobsService } from '../../jobs/jobs.service';
+import { NodeOfflinePruneTask } from '../../../src/nodes/tasks/node-offline-prune.task';
+import { NODE_FLEET_PRUNE_TYPE } from '../../../src/nodes/handlers/node-fleet-prune.handler';
+import type { JobsService } from '../../../src/jobs/jobs.service';
 import { type JobsPrisma } from '../../../src/jobs/data/jobs-db';
 
 function makeTask(config: Record<string, unknown> = {}, active: unknown = null) {

@@ -12,10 +12,10 @@
 
 import { type Job, JobStatus, type JobsPrisma } from '../../../src/jobs/data/jobs-db';
 
-import { foldDeltas, JobHistoryPurgeHandler, purgeableWhere } from './job-history-purge.handler';
-import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
-import type { JobHandler } from '../job-handler.interface';
-import type { JobHandlerRegistry } from '../job-handler.registry';
+import { foldDeltas, JobHistoryPurgeHandler, purgeableWhere } from '../../../src/jobs/handlers/job-history-purge.handler';
+import type { SystemSettingsService } from '../../../src/settings/index';
+import type { JobHandler } from '../../../src/jobs/job-handler.interface';
+import type { JobHandlerRegistry } from '../../../src/jobs/job-handler.registry';
 
 const CUTOFF = new Date('2026-01-01T00:00:00.000Z');
 

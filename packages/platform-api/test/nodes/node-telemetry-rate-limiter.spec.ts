@@ -6,12 +6,12 @@ import {
   NODE_SETTLEMENT_GRACE_MS,
   NODE_SETTLEMENT_LEDGER_MAX_ENTRIES,
   NodeSettlementLedger,
-} from './node-settlement-ledger';
+} from '../../src/nodes/node-settlement-ledger';
 import {
   NODE_TELEMETRY_REQUESTS_PER_MINUTE,
   NODE_TELEMETRY_SPANS_PER_MINUTE,
   NodeTelemetryRateLimiter,
-} from './node-telemetry-rate-limiter';
+} from '../../src/nodes/node-telemetry-rate-limiter';
 
 describe('NodeTelemetryRateLimiter', () => {
   let now: number;

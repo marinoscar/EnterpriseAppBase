@@ -16,14 +16,14 @@ import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { EventEmitter2 } from '@nestjs/event-emitter';
 
-import { JOB_SETTLED_EVENT, JobSettledEvent } from './events/job-settled.event';
-import { JobExecutionProfile, resetJobProfileWarnings } from './job-execution-profile';
-import { JobHandler } from './job-handler.interface';
-import { JobHandlerRegistry } from './job-handler.registry';
-import { JobStuckService, stuckRunningWhere } from './job-stuck.service';
-import { DEFAULT_SYSTEM_SETTINGS } from '../common/types/settings.types';
+import { JOB_SETTLED_EVENT, JobSettledEvent } from '../../src/jobs/events/job-settled.event';
+import { JobExecutionProfile, resetJobProfileWarnings } from '../../src/jobs/job-execution-profile';
+import { JobHandler } from '../../src/jobs/job-handler.interface';
+import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
+import { JobStuckService, stuckRunningWhere } from '../../src/jobs/job-stuck.service';
+import { DEFAULT_SYSTEM_SETTINGS } from './support/app-doubles';
 import { type JobsPrisma } from '../../src/jobs/data/jobs-db';
-import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
+import type { SystemSettingsService } from '../../src/settings/index';
 
 const THRESHOLD = new Date('2026-01-01T12:00:00.000Z');
 const NOW = new Date('2026-01-01T12:30:00.000Z');
@@ -144,7 +144,7 @@ describe('stuckRunningWhere', () => {
     // claimed it, and the same work ran twice — concurrently.
     const where = stuckRunningWhere(THRESHOLD, NOW, HORIZON);
     const ageClauses = (where.OR ?? []).filter(
-      (clause) => 'startedAt' in clause || 'createdAt' in clause
+      (clause: object) => 'startedAt' in clause || 'createdAt' in clause
     );
 
     expect(ageClauses).toHaveLength(2);

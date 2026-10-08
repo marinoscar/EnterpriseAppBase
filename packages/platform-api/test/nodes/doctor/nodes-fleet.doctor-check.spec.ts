@@ -1,6 +1,6 @@
-import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
-import { NodesAdminService } from '../nodes-admin.service';
-import { NodesFleetDoctorCheck, decideNodesFleet } from './nodes-fleet.doctor-check';
+import { DoctorCheckRegistry } from '../../../src/doctor/index';
+import { NodesAdminService } from '../../../src/nodes/nodes-admin.service';
+import { NodesFleetDoctorCheck, decideNodesFleet } from '../../../src/nodes/doctor/nodes-fleet.doctor-check';
 
 describe('nodes.fleet doctor check', () => {
   it('passes with no nodes enrolled', () => {

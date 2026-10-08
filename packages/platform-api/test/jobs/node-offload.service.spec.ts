@@ -1,9 +1,9 @@
 import { z } from 'zod';
 
-import { JobHandlerRegistry } from './job-handler.registry';
-import { NodeOffloadService, readJobSecretBrokerEnabled } from './node-offload.service';
-import type { JobSecretBroker } from './job-secret-broker';
-import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
+import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
+import { NodeOffloadService, readJobSecretBrokerEnabled } from '../../src/jobs/node-offload.service';
+import type { JobSecretBroker } from '../../src/jobs/job-secret-broker';
+import type { SystemSettingsService } from '../../src/settings/index';
 
 // =============================================================================
 // NodeOffloadService (issue #352, epic #345)

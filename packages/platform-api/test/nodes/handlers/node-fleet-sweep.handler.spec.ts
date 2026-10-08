@@ -17,21 +17,23 @@
 // against real Postgres in `test/nodes/node-fleet-lifecycle.db.spec.ts`.
 //
 // What is proven HERE is the statement the sweep actually sends, and that
-// `nodes.node_offline` (#288) is raised once per node it flipped in a way that
-// is incapable of affecting the sweep. The statement is `updateManyAndReturn`
+// `nodes.node.offline` (#288; an event since #734, the app's listener raises
+// the `nodes.node_offline` notification) is emitted once per node it flipped
+// in a way that is incapable of affecting the sweep. The statement is `updateManyAndReturn`
 // for that same issue — still ONE atomic statement, but one that says WHICH
 // rows it changed, which is what a per-node notification needs and an
 // `updateMany` count cannot give.
 // =============================================================================
 
-import { ConfigService } from '@nestjs/config';
 
 import { type Job, type JobsPrisma } from '../../../src/jobs/data/jobs-db';
 
-import { NodeFleetSweepHandler } from './node-fleet-sweep.handler';
-import type { JobHandlerRegistry } from '../../jobs/job-handler.registry';
-import type { NodeLifecycleService } from '../node-lifecycle.service';
-import type { NotificationsService } from '../../notifications/notifications.service';
+import { NodeFleetSweepHandler } from '../../../src/nodes/handlers/node-fleet-sweep.handler';
+import type { JobHandlerRegistry } from '../../../src/jobs/job-handler.registry';
+import type { NodeLifecycleService } from '../../../src/nodes/node-lifecycle.service';
+import type { EventEmitter2 } from '@nestjs/event-emitter';
+
+import { NODE_OFFLINE_EVENT, NodeOfflineEvent } from '../../../src/nodes/events/node-offline.event';
 
 /** The row the worker hands `process`. Only `id` is read, for the log line. */
 const JOB = { id: 'job-1' } as Job;
@@ -48,18 +50,19 @@ function makeHandler(config: Record<string, unknown> = {}, transitioned: SweptNo
     staleCutoff: (policy: typeof POLICY, now: Date) =>
       new Date(now.getTime() - policy.staleHeartbeatSeconds * policy.offlineStaleMultiplier * 1000),
   } as unknown as NodeLifecycleService;
-  const configService = {
-    get: jest.fn((key: string) => config[key]),
-  } as unknown as ConfigService;
-  const notifyPermissionHolders = jest.fn().mockResolvedValue(undefined);
-  const notifications = { notifyPermissionHolders } as unknown as NotificationsService;
+  // The handler reads no configuration at all: the kill switch gates the
+  // enqueue (see the "does not re-ask" case), and since #734 the app URL is
+  // the notification listener's. `config` stays a parameter for that case.
+  void config;
+  const emit = jest.fn().mockReturnValue(true);
+  const events = { emit } as unknown as EventEmitter2;
 
   const registry = { register: jest.fn() } as unknown as JobHandlerRegistry;
 
   return {
-    handler: new NodeFleetSweepHandler(registry, prisma, lifecycle, configService, notifications),
+    handler: new NodeFleetSweepHandler(registry, prisma, lifecycle, events),
     updateManyAndReturn,
-    notifyPermissionHolders,
+    emit,
   };
 }
 
@@ -158,107 +161,88 @@ describe('NodeFleetSweepHandler', () => {
 });
 
 // =============================================================================
-// `nodes.node_offline` (#288, epic #254)
+// `nodes.node.offline` (#288, epic #254; an event since #734)
 // =============================================================================
+//
+// The notification itself (`nodes.node_offline`, audience `nodes:read`, the
+// trimmed `appUrl`) is the app listener's: apps/api/src/notifications/ops/
+// node-offline-notifier.spec.ts and test/nodes/node-offline-event.integration.spec.ts.
 
-describe('NodeFleetSweepHandler raises nodes.node_offline', () => {
-  it('raises exactly one notification per node it actually flipped', async () => {
-    const { handler, notifyPermissionHolders } = makeHandler({}, FLIPPED);
+describe('NodeFleetSweepHandler emits nodes.node.offline', () => {
+  it('emits exactly one event per node it actually flipped', async () => {
+    const { handler, emit } = makeHandler({}, FLIPPED);
 
     await handler.process(JOB);
 
-    expect(notifyPermissionHolders).toHaveBeenCalledTimes(3);
-
-    const keys = notifyPermissionHolders.mock.calls.map((call) => call[0]);
-    expect(keys).toEqual([
-      'nodes.node_offline',
-      'nodes.node_offline',
-      'nodes.node_offline',
-    ]);
-
-    const names = notifyPermissionHolders.mock.calls.map((call) => call[2].nodeName);
-    expect(names).toEqual(['worker-a', 'worker-b', 'worker-c']);
+    expect(emit).toHaveBeenCalledTimes(3);
+    expect(emit.mock.calls.map((call) => call[0])).toEqual([NODE_OFFLINE_EVENT, NODE_OFFLINE_EVENT, NODE_OFFLINE_EVENT]);
+    expect(emit.mock.calls.map((call) => (call[1] as NodeOfflineEvent).nodeName)).toEqual(['worker-a', 'worker-b', 'worker-c']);
   });
 
-  it('addresses the audience by the exact permission the nodes controller enforces', async () => {
-    const { handler, notifyPermissionHolders } = makeHandler({}, [FLIPPED[0]]);
-
-    await handler.process(JOB);
-
-    expect(notifyPermissionHolders.mock.calls[0][1]).toBe('nodes:read');
+  it('uses the permanent event key', () => {
+    expect(NODE_OFFLINE_EVENT).toBe('nodes.node.offline');
   });
 
-  it('carries the node name, id and last-heartbeat time into the payload', async () => {
-    const { handler, notifyPermissionHolders } = makeHandler(
-      { appUrl: 'https://app.example.com/' },
-      [FLIPPED[0]],
-    );
+  it('carries the node name, id, last-heartbeat time and the stale window', async () => {
+    const { handler, emit } = makeHandler({}, [FLIPPED[0]]);
 
     await handler.process(JOB);
 
-    const payload = notifyPermissionHolders.mock.calls[0][2];
-
-    expect(payload).toMatchObject({
+    const event = emit.mock.calls[0][1] as NodeOfflineEvent;
+    expect(event).toBeInstanceOf(NodeOfflineEvent);
+    expect(event).toMatchObject({
       nodeId: 'node-1',
       nodeName: 'worker-a',
       lastHeartbeatAt: FLIPPED[0].lastHeartbeatAt,
       // 90s x 4 = 360s = 6 minutes.
       staleAfterMinutes: 6,
-      // Trailing slash trimmed, exactly as `UsersService.appUrl()` does it.
-      appUrl: 'https://app.example.com',
     });
-    expect(payload.markedOfflineAt).toBeInstanceOf(Date);
+    expect(event.markedOfflineAt).toBeInstanceOf(Date);
   });
 
   it('carries a null last-heartbeat through rather than substituting a time', async () => {
     // A node that registered and never pinged is a DIFFERENT failure from one
     // that went quiet, and the template says so in words. Substituting
     // `registeredAt` here would erase the distinction before it got there.
-    const { handler, notifyPermissionHolders } = makeHandler({}, [FLIPPED[1]]);
+    const { handler, emit } = makeHandler({}, [FLIPPED[1]]);
 
     await handler.process(JOB);
 
-    expect(notifyPermissionHolders.mock.calls[0][2].lastHeartbeatAt).toBeNull();
+    expect((emit.mock.calls[0][1] as NodeOfflineEvent).lastHeartbeatAt).toBeNull();
   });
 
-  it('raises nothing when no node flipped', async () => {
-    const { handler, notifyPermissionHolders } = makeHandler({}, []);
+  it('emits nothing when no node flipped', async () => {
+    const { handler, emit } = makeHandler({}, []);
 
     await handler.process(JOB);
 
-    expect(notifyPermissionHolders).not.toHaveBeenCalled();
+    expect(emit).not.toHaveBeenCalled();
   });
 
-  it('omits appUrl when none is configured, so the template omits its CTA', async () => {
-    const { handler, notifyPermissionHolders } = makeHandler({}, [FLIPPED[0]]);
+  it('emits only after the write returned', async () => {
+    const { handler, emit, updateManyAndReturn } = makeHandler({}, [FLIPPED[0]]);
 
     await handler.process(JOB);
 
-    expect(notifyPermissionHolders.mock.calls[0][2].appUrl).toBeUndefined();
+    expect(updateManyAndReturn.mock.invocationCallOrder[0]).toBeLessThan(emit.mock.invocationCallOrder[0]!);
   });
 
   // ---------------------------------------------------------------------------
   // FIRE-AND-FORGET CONTAINMENT (#288 acceptance criterion)
   // ---------------------------------------------------------------------------
 
-  it('a THROWING notifier does not fail the sweep, and the rows stay offline', async () => {
-    const { handler, updateManyAndReturn, notifyPermissionHolders } = makeHandler({}, FLIPPED);
-    notifyPermissionHolders.mockImplementation(() => {
-      throw new Error('the notifier exploded');
+  it('a THROWING listener does not fail the sweep, the rows stay offline, and the others still hear', async () => {
+    const { handler, updateManyAndReturn, emit } = makeHandler({}, FLIPPED);
+    emit.mockImplementationOnce(() => {
+      throw new Error('the listener exploded');
     });
 
     // 1. `sweep()` still resolves, and still reports what it transitioned.
     await expect(handler.sweep()).resolves.toBe(3);
-
     // 2. The write happened and was not rolled back or retried.
     expect(updateManyAndReturn).toHaveBeenCalledTimes(1);
     expect(updateManyAndReturn.mock.calls[0][0].data).toEqual({ status: 'offline' });
-  });
-
-  it('a notifier that REJECTS is not awaited, so it cannot fail the job either', async () => {
-    const { handler, notifyPermissionHolders } = makeHandler({}, FLIPPED);
-    notifyPermissionHolders.mockRejectedValue(new Error('dispatch blew up'));
-
-    await expect(handler.process(JOB)).resolves.toBeUndefined();
+    // 3. A throw for one node does not swallow the events for the rest.
+    expect(emit).toHaveBeenCalledTimes(3);
   });
 });

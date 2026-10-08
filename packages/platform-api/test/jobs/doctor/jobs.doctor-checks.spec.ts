@@ -1,11 +1,11 @@
 import { ConfigService } from '@nestjs/config';
 
-import { DoctorCheckOutcome } from '@marinoscar/platform-api/doctor';
-import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
+import { DoctorCheckOutcome } from '../../../src/doctor/index';
+import { DoctorCheckRegistry } from '../../../src/doctor/index';
 import { type JobsPrisma } from '../../../src/jobs/data/jobs-db';
-import { JobAdminService } from '../job-admin.service';
-import { JobsBacklogDoctorCheck, decideJobsBacklog } from './jobs-backlog.doctor-check';
-import { JobsWorkerDoctorCheck, decideJobsWorker } from './jobs-worker.doctor-check';
+import { JobAdminService } from '../../../src/jobs/job-admin.service';
+import { JobsBacklogDoctorCheck, decideJobsBacklog } from '../../../src/jobs/doctor/jobs-backlog.doctor-check';
+import { JobsWorkerDoctorCheck, decideJobsWorker } from '../../../src/jobs/doctor/jobs-worker.doctor-check';
 
 function expectRemedy(outcome: DoctorCheckOutcome): void {
   expect(['warn', 'fail']).toContain(outcome.status);

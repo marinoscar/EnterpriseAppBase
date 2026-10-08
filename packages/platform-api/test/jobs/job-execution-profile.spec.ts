@@ -34,9 +34,9 @@ import {
   resolveJobProfile,
   resolveMaxAttempts,
   resolveRenewIntervalMs,
-} from './job-execution-profile';
-import { JobHandler } from './job-handler.interface';
-import { JobHandlerRegistry } from './job-handler.registry';
+} from '../../src/jobs/job-execution-profile';
+import { JobHandler } from '../../src/jobs/job-handler.interface';
+import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
 
 /** The shipped defaults, spelled out rather than imported — see `DEFAULT_CONFIG`. */
 const SHIPPED_TIMEOUT_MS = 600_000;

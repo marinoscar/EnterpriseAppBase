@@ -15,8 +15,8 @@ import { Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { type Job } from '../../src/jobs/data/jobs-db';
 
-import { JOB_SETTLED_EVENT, JobSettledEvent } from './events/job-settled.event';
-import { emitJobSettled } from './job-settled.emit';
+import { JOB_SETTLED_EVENT, JobSettledEvent } from '../../src/jobs/events/job-settled.event';
+import { emitJobSettled } from '../../src/jobs/job-settled.emit';
 
 /** A settled job row, complete enough to satisfy the `Job` type. */
 function fakeJob(overrides: Partial<Job> = {}): Job {

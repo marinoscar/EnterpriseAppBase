@@ -9,7 +9,7 @@
 // predates vitals still parses.
 // =============================================================================
 
-import { heartbeatNodeSchema, MAX_NODE_CONCURRENCY, nodeVitalsSchema } from './node-control-plane.dto';
+import { heartbeatNodeSchema, MAX_NODE_CONCURRENCY, nodeVitalsSchema } from '../../../src/nodes/dto/node-control-plane.dto';
 
 /** A complete, realistic snapshot. */
 const FULL_VITALS = {

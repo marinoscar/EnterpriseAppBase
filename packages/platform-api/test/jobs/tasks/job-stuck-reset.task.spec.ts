@@ -13,8 +13,8 @@
 
 import { ConfigService } from '@nestjs/config';
 
-import { JobStuckResetTask } from './job-stuck-reset.task';
-import type { JobStuckService } from '../job-stuck.service';
+import { JobStuckResetTask } from '../../../src/jobs/tasks/job-stuck-reset.task';
+import type { JobStuckService } from '../../../src/jobs/job-stuck.service';
 
 function makeTask(config: Record<string, unknown>, resetStuck = jest.fn()) {
   const stuck = { resetStuck } as unknown as JobStuckService;

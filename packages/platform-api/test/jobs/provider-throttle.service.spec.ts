@@ -15,8 +15,8 @@
 
 import { ConfigService } from '@nestjs/config';
 
-import { JobClock } from './job-clock';
-import { ProviderThrottleService } from './provider-throttle.service';
+import { JobClock } from '../../src/jobs/job-clock';
+import { ProviderThrottleService } from '../../src/jobs/provider-throttle.service';
 
 const NOW = 1_700_000_000_000;
 

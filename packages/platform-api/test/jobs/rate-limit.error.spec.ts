@@ -15,7 +15,7 @@ import {
   classifyRateLimit,
   parseRetryAfterMs,
   RateLimitError,
-} from './rate-limit.error';
+} from '../../src/jobs/rate-limit.error';
 
 /** A fixed "now" so the HTTP-date cases are exact rather than approximate. */
 const NOW = Date.UTC(2026, 8, 6, 12, 0, 0);

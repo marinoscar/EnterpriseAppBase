@@ -20,8 +20,8 @@
 
 import { ConfigService } from '@nestjs/config';
 
-import { NodeSecretBrokerService } from '../node-secret-broker.service';
-import { NodeSecretSweepTask } from './node-secret-sweep.task';
+import { NodeSecretBrokerService } from '../../../src/nodes/node-secret-broker.service';
+import { NodeSecretSweepTask } from '../../../src/nodes/tasks/node-secret-sweep.task';
 
 describe('NodeSecretSweepTask', () => {
   let sweep: jest.Mock;

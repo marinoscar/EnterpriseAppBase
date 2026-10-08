@@ -36,21 +36,24 @@ export type JobsQueryArgs = any;
  *
  * @stability experimental
  */
-export type JobsWhere = Record<string, unknown>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type JobsWhere = { [field: string]: any };
 
 /**
  * The `data` of an update or `updateMany` on `jobs`, as Prisma accepts it.
  *
  * @stability experimental
  */
-export type JobsUpdateData = Record<string, unknown>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type JobsUpdateData = { [field: string]: any };
 
 /**
  * The `data` of a `create` on `jobs`, as Prisma accepts it.
  *
  * @stability experimental
  */
-export type JobsCreateData = Record<string, unknown>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type JobsCreateData = { [field: string]: any };
 
 /**
  * A JSON column's value, as Prisma reads it (`Prisma.JsonValue`).

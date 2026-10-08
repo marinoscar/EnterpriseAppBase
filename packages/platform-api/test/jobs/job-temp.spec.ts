@@ -11,25 +11,35 @@
 
 import { promises as fs } from 'node:fs';
 
-import { APP_NAME } from '@app/shared';
+import * as jobTemp from '../../src/jobs/job-temp';
+import { configureJobTempPrefix, jobTempDir, jobTempPath, jobTempPrefixFor } from '../../src/jobs/job-temp';
 
-import { JOB_TEMP_PREFIX, jobTempDir, jobTempPath } from './job-temp';
+// A live binding (#734): the app configures its name through
+// `JobsModule.forRoot({ appName })`, so read it through the module object.
+const prefix = (): string => jobTemp.JOB_TEMP_PREFIX;
 
 describe('JOB_TEMP_PREFIX', () => {
-  it('is derived from the rebrandable app name, not written out', () => {
-    const expected = `${APP_NAME.toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')}-job-`;
+  afterEach(() => configureJobTempPrefix(''));
 
-    expect(JOB_TEMP_PREFIX).toBe(expected);
+  it('is derived from the rebrandable app name, not written out', () => {
+    configureJobTempPrefix('My Fancy App');
+
+    expect(prefix()).toBe('my-fancy-app-job-');
+  });
+
+  it('is the neutral prefix before the app configures its name, and for a name that slugifies to nothing', () => {
+    expect(prefix()).toBe('app-job-');
+    expect(jobTempPrefixFor('!!!')).toBe('app-job-');
+    expect(jobTempPrefixFor(undefined)).toBe('app-job-');
   });
 
   it('is never empty, so the janitor can never match every file in the temp dir', () => {
-    expect(JOB_TEMP_PREFIX.length).toBeGreaterThan(0);
+    expect(prefix().length).toBeGreaterThan(0);
   });
 
   it('is filesystem-safe: lowercase letters, digits and dashes only', () => {
-    expect(JOB_TEMP_PREFIX).toMatch(/^[a-z0-9-]+-$/);
+    configureJobTempPrefix('Ünïcode & Spaces 2');
+    expect(prefix()).toMatch(/^[a-z0-9-]+-$/);
   });
 });
 
@@ -38,7 +48,7 @@ describe('jobTempPath', () => {
     const first = jobTempPath();
     const second = jobTempPath();
 
-    expect(first.startsWith(`${jobTempDir()}/${JOB_TEMP_PREFIX}`)).toBe(true);
+    expect(first.startsWith(`${jobTempDir()}/${prefix()}`)).toBe(true);
     expect(first).not.toBe(second);
   });
 

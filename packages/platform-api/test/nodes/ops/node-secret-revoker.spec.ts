@@ -16,9 +16,9 @@
 // until it is catastrophic, which is why they are asserted rather than assumed.
 // =============================================================================
 
-import { JobSettledEvent } from '../../jobs/events/job-settled.event';
-import { NodeSecretBrokerService } from '../node-secret-broker.service';
-import { NodeSecretRevoker } from './node-secret-revoker';
+import { JobSettledEvent } from '../../../src/jobs/events/job-settled.event';
+import { NodeSecretBrokerService } from '../../../src/nodes/node-secret-broker.service';
+import { NodeSecretRevoker } from '../../../src/nodes/ops/node-secret-revoker';
 
 describe('NodeSecretRevoker', () => {
   const JOB_ID = '22222222-2222-4222-8222-222222222222';

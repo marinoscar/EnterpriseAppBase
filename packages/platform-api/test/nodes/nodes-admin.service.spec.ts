@@ -19,9 +19,9 @@
 
 import { NotFoundException } from '@nestjs/common';
 
-import { NodesAdminService } from './nodes-admin.service';
-import type { NodeCredentialService } from './node-credential.service';
-import type { NodeLifecycleService } from './node-lifecycle.service';
+import { NodesAdminService } from '../../src/nodes/nodes-admin.service';
+import type { NodeCredentialService } from '../../src/nodes/node-credential.service';
+import type { NodeLifecycleService } from '../../src/nodes/node-lifecycle.service';
 import { type JobsPrisma } from '../../src/jobs/data/jobs-db';
 
 const POLICY = { staleHeartbeatSeconds: 90, offlineStaleMultiplier: 4, offlineRetentionDays: 30 };

@@ -1,16 +1,17 @@
-import { ConfigService } from '@nestjs/config';
 import { MeterProvider, MetricReader, type MetricData } from '@opentelemetry/sdk-metrics';
 
-import { AppMetricsService, GAUGE_CACHE_TTL_MS, OTHER_LABEL } from '../common/otel/app-metrics.service';
-import type { NodeOffloadService } from '../jobs/node-offload.service';
+import { MetricsHostService, OTHER_LABEL, appMetricRegistry, registerAppMetrics } from '../../src/otel-core/index';
+import { NODES_APP_METRICS } from '../../src/nodes/nodes.metrics';
+import type { NodeOffloadService } from '../../src/jobs/node-offload.service';
 import { type JobsPrisma } from '../../src/jobs/data/jobs-db';
 import {
+  GAUGE_CACHE_TTL_MS,
   MAX_EXPORTED_NODES,
   NodeFleetMetrics,
   exportedVitals,
   nodeNameLabel,
-} from './node-fleet-metrics.service';
-import type { NodeLifecycleService } from './node-lifecycle.service';
+} from '../../src/nodes/node-fleet-metrics.service';
+import type { NodeLifecycleService } from '../../src/nodes/node-lifecycle.service';
 
 // =============================================================================
 // NodeFleetMetrics (issue #606)
@@ -20,6 +21,10 @@ import type { NodeLifecycleService } from './node-lifecycle.service';
 // `app-metrics.service.spec.ts`: names, units and attribute sets are what the
 // OTLP exporter would send.
 // =============================================================================
+
+// The fleet gauges are the slice's own declarations (#734); the app registers
+// them with the rest of its metrics, this spec registers them itself.
+if (!appMetricRegistry.list().some((def) => def.key === 'nodesCount')) registerAppMetrics(NODES_APP_METRICS);
 
 class TestReader extends MetricReader {
   protected async onForceFlush(): Promise<void> {}
@@ -107,12 +112,13 @@ function setup(
       return opts.offered ?? ['example.checksum'];
     }),
   };
-  const config = { get: jest.fn((key: string) => (key === 'otel.enabled' ? opts.otelEnabled ?? true : undefined)) };
-
-  const appMetrics = new AppMetricsService(undefined, config as unknown as ConfigService, {
+  // The platform's metrics host (the app's `AppMetricsService` sits on the
+  // same one): gauges forced on or off as `OTEL_ENABLED` would decide.
+  const appMetrics = new MetricsHostService({
     meter: provider.getMeter('app'),
     now: () => now,
     gateOpen: () => gate,
+    gauges: opts.otelEnabled ?? true,
   });
 
   const fleet = new NodeFleetMetrics(
@@ -385,7 +391,7 @@ describe('NodeFleetMetrics gauge descriptors (#680 baseline)', () => {
     };
     const metrics = {
       gaugeContext: () => ({ meter, now: () => NOW, gateOpen: () => false }),
-    } as unknown as AppMetricsService;
+    } as unknown as MetricsHostService;
     const fleet = new NodeFleetMetrics(
       {} as unknown as JobsPrisma,
       {} as unknown as NodeLifecycleService,

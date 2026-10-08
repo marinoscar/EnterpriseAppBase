@@ -38,20 +38,58 @@ import { BadRequestException, ConflictException, UnprocessableEntityException } 
 import { ConfigService } from '@nestjs/config';
 import { type Job, type JobsPrisma } from '../../src/jobs/data/jobs-db';
 
-import { createMockPrismaService, MockPrismaService } from '../../test/mocks/prisma.mock';
-import { createMockStorageProvider } from '../../test/mocks/storage-provider.mock';
-import type { JobHandler } from '../jobs/job-handler.interface';
-import { JobHandlerRegistry } from '../jobs/job-handler.registry';
-import type { StorageProvider } from '../storage/providers/storage-provider.interface';
-import { STORAGE_OBJECT_SUBJECT_TYPE } from '../storage/storage-job-input';
-import { NodeDownloadUrlDto, NodeUploadUrlDto } from './dto/node-data-plane.dto';
+import { createMockPrismaService, MockPrismaService } from '../jobs/support/prisma.mock';
+import type { JobHandler } from '../../src/jobs/job-handler.interface';
+import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
+import { NodeJobInputError, type NodeJobInputObject, type NodeJobInputs, type NodeObjectStore } from '../../src/nodes/ports';
+import { NodeDownloadUrlDto, NodeUploadUrlDto } from '../../src/nodes/dto/node-data-plane.dto';
 import {
   NODE_OUTPUT_KEY_PREFIX,
   NODE_SIGNED_URL_MAX_TTL_SECONDS,
   NODE_SIGNED_URL_MIN_TTL_SECONDS,
   NodeDataPlaneService,
-} from './node-data-plane.service';
-import { NodesService } from './nodes.service';
+} from '../../src/nodes/node-data-plane.service';
+import { NodesService } from '../../src/nodes/nodes.service';
+
+// =============================================================================
+// The two host ports, faked (#734)
+// =============================================================================
+//
+// The data plane reaches object storage only through `NODE_OBJECT_STORE` (two
+// calls) and names a held job's input only through `NODE_JOB_INPUTS`. The
+// reference app binds the second to `resolveStorageObjectInput` in the job's
+// organization (`apps/api/src/platform/jobs/node-job-inputs.adapter.ts`, with
+// its own spec); the fake below follows the same three rules over a mocked
+// `storageObject` lookup, so every assertion this suite made before the move
+// still has the same input.
+
+/** `storage_object`: the subject type the app's storage slice gives an input object. */
+const STORAGE_OBJECT_SUBJECT_TYPE = 'storage_object';
+
+/** A stored object, as the data plane reads it (the app's `StorageObject` has more columns). */
+type StorageObject = NodeJobInputObject & Record<string, unknown>;
+
+function fakeObjectStore(): jest.Mocked<NodeObjectStore> {
+  return { getSignedDownloadUrl: jest.fn(), getSignedPutUrl: jest.fn() };
+}
+
+function fakeInputs(storageObject: { findUnique: jest.Mock }): NodeJobInputs {
+  return {
+    async resolve(job: Job): Promise<NodeJobInputObject> {
+      if (!job.subjectId) {
+        throw new NodeJobInputError('missing_subject_id', `Job ${job.id} (${job.type}) names no subjectId, so it has no input object to read.`, job.id, null);
+      }
+      const object = (await storageObject.findUnique({ where: { id: job.subjectId } })) as StorageObject | null;
+      if (!object) {
+        throw new NodeJobInputError('input_object_not_found', `Job ${job.id} (${job.type}) names storage object ${job.subjectId}, which does not exist.`, job.id, job.subjectId);
+      }
+      if (!object.storageKey || object.storageKey.trim().length === 0) {
+        throw new NodeJobInputError('input_object_has_no_storage_key', `Job ${job.id} (${job.type}) names storage object ${object.id}, which has no storageKey.`, job.id, object.id);
+      }
+      return object;
+    },
+  };
+}
 
 describe('NodeDataPlaneService', () => {
   const USER = 'user-1';
@@ -59,8 +97,8 @@ describe('NodeDataPlaneService', () => {
   const JOB_ID = '33333333-3333-4333-8333-333333333333';
   const OBJECT_ID = 'object-1';
 
-  let prisma: MockPrismaService;
-  let storage: jest.Mocked<StorageProvider>;
+  let prisma: MockPrismaService & { storageObject: { findUnique: jest.Mock; create: jest.Mock } };
+  let storage: jest.Mocked<NodeObjectStore>;
   let nodes: { assertJobHeldByNode: jest.Mock };
   let registry: JobHandlerRegistry;
   let configured: number | undefined;
@@ -127,8 +165,8 @@ describe('NodeDataPlaneService', () => {
 
   beforeEach(() => {
     configured = undefined;
-    prisma = createMockPrismaService();
-    storage = createMockStorageProvider();
+    prisma = Object.assign(createMockPrismaService(), { storageObject: { findUnique: jest.fn(), create: jest.fn() } });
+    storage = fakeObjectStore();
     nodes = { assertJobHeldByNode: jest.fn().mockResolvedValue(makeJob()) };
 
     (prisma.storageObject.findUnique as jest.Mock).mockResolvedValue(makeObject());
@@ -140,7 +178,8 @@ describe('NodeDataPlaneService', () => {
       config,
       nodes as unknown as NodesService,
       storage,
-      registry
+      registry,
+      fakeInputs(prisma.storageObject)
     );
   });
 
