@@ -140,9 +140,11 @@ export const PLATFORM_FACTORY_RESET_STEPS: readonly FactoryResetStepDef[] = Obje
       const model = delegate(tx, 'allowedEmail');
       if (!model) return {};
       const actor = await tx.user.findUnique({ where: { id: ctx.actorUserId }, select: { email: true } });
-      const keep: Record<string, unknown>[] = [{ claimedById: ctx.actorUserId }];
-      if (actor?.email) keep.push({ email: { equals: actor.email, mode: 'insensitive' } });
-      return { allowlistEntries: (await model.deleteMany({ where: { NOT: { OR: keep } } })).count };
+      // Spelled without NOT(... OR ...) over a nullable column: in SQL that is
+      // NULL for an unclaimed entry, and the entry would survive.
+      const where: Record<string, unknown> = { OR: [{ claimedById: null }, { claimedById: { not: ctx.actorUserId } }] };
+      if (actor?.email) where.NOT = { email: { equals: actor.email, mode: 'insensitive' } };
+      return { allowlistEntries: (await model.deleteMany({ where })).count };
     },
   },
 ]);
