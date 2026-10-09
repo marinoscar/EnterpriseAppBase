@@ -1,7 +1,7 @@
 /**
  * Where the API lives.
  *
- * EXPORTED as of #127. The notification SSE client (`services/sse.ts`) opens a
+ * EXPORTED as of #127. The SSE client (`@marinoscar/platform-web/core`'s `connectSse`) opens a
  * raw `fetch` outside `ApiService.request` — it has to, because that method
  * buffers a JSON body and an event stream never ends — and it must resolve its
  * URL against exactly the same base. A second literal `'/api'` there would be

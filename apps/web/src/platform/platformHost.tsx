@@ -10,8 +10,8 @@
  *     `createPlatformApiClient` (#868), so the auth header, the token refresh
  *     and the maintenance recogniser stay where they are. `getBlob`/`postBlob`
  *     use its `blobWithHeaders` response type for downloads, and `postSse` is
- *     `services/sse.ts`'s `postSse` (one POSTed request, one streamed answer)
- *     with the same bearer and refresh. The app's `ApiError` is mapped onto
+ *     `@marinoscar/platform-web/core`'s `postSse` (one POSTed
+ *     request, one streamed answer) with the same bearer and refresh. The app's `ApiError` is mapped onto
  *     `PlatformApiError`; anything else (a network failure) passes through
  *     untouched. A MODULE-LEVEL constant, so its identity never changes and a
  *     packaged hook keyed on it never refetches on a re-render.
@@ -29,7 +29,7 @@
 
 import { useCallback, useMemo, useRef } from 'react';
 import type { ReactElement, ReactNode } from 'react';
-import { PlatformHostProvider, createPlatformApiClient } from '@marinoscar/platform-web/core';
+import { PlatformHostProvider, createPlatformApiClient, postSse } from '@marinoscar/platform-web/core';
 import { useTelemetryFeatures } from '@marinoscar/platform-web/telemetry/headless';
 import type { PlatformApiClient, PlatformSseOptions, PlatformWebHost } from '@marinoscar/platform-web/core';
 
@@ -37,7 +37,7 @@ import { useAuth, usePermissions } from '@marinoscar/platform-web/identity/headl
 import { useAiFeatures } from '@marinoscar/platform-web/ai/headless';
 import { useThemeContext } from '../contexts/ThemeContext';
 import { API_BASE_URL, api } from '../services/api';
-import { postSse } from '../services/sse';
+import { readMaintenanceBlock, reportMaintenanceBlock } from '../services/maintenance';
 import { formatRelativeTime } from '../utils/relativeTime';
 
 /**
@@ -52,7 +52,7 @@ export { toPlatformApiError } from '@marinoscar/platform-web/core';
  * constant.
  *
  * `postSse` (one POSTed request, one streamed answer: the telemetry
- * assistant, #704) is `services/sse.ts`'s `postSse`, with the same bearer
+ * assistant, #704) is `@marinoscar/platform-web/core`'s `postSse`, with the same bearer
  * token and the same single refresh-and-retry as every other call. The
  * adapter maps its errors like every other call's.
  */
@@ -66,6 +66,10 @@ export const appPlatformApi: PlatformApiClient = createPlatformApiClient(api, {
         return token ? `Bearer ${token}` : null;
       },
       reauthenticate: () => api.refreshToken(),
+      onErrorResponse: (status, body) => {
+        const block = readMaintenanceBlock(status, body);
+        if (block) reportMaintenanceBlock(block);
+      },
       onFrame: (event, data) => options.onFrame(event, data),
       ...(options.signal === undefined ? {} : { signal: options.signal }),
     }),

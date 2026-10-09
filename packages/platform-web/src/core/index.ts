@@ -34,3 +34,16 @@ export type {
 // keeps ONE `PlatformHttpClient` and hands the packaged pages this view of it.
 export { createPlatformApiClient, toHttpRequestOptions, toPlatformApiError } from './http/platform-api-client.js';
 export type { PlatformApiClientOptions } from './http/platform-api-client.js';
+// The Server-Sent Events client (issue #900): the incremental parser, the
+// reconnecting GET stream and the single-shot POST stream, moved from the
+// reference app's `services/sse.ts`. The app binds `connectSse` to the
+// notifications slice and `postSse` to the transport port's `postSse`.
+export { SseParser, connectSse, postSse } from './http/sse.js';
+export type {
+  PostSseErrorBody,
+  PostSseOptions,
+  SseConnection,
+  SseFrame,
+  SseOptions,
+  SseState,
+} from './http/sse.js';
