@@ -23,6 +23,10 @@ Slices (each a subpath export with its own README):
 | `@marinoscar/platform-contract/exports` | The `/api/exports` request and responses, the cell, column and request-field shapes, and the JSON export file envelope (#744) | [src/exports/README.md](src/exports/README.md) |
 | `@marinoscar/platform-contract/ai` | The `ai` system and user settings namespaces (with the no-secret proof), the org layer and its tighten-only merge, the org-key and feature-list shapes (#739) | [src/ai/README.md](src/ai/README.md) |
 | `@marinoscar/platform-contract/db-backup` | The `databaseBackup` settings namespace, every `/api/admin/db-backup` body and response (config, runs, actions, restore, rollback, node-credential pre-flight) and the `db.backup.run` node result (#740) | [src/db-backup/README.md](src/db-backup/README.md) |
+| `@marinoscar/platform-contract/sharing` | The group, member, invite and grant request and response shapes, and the role and status lists | [src/sharing/README.md](src/sharing/README.md) |
+| `@marinoscar/platform-contract/notifications` | The inbox, events, push subscription, Web Push configuration and broadcast shapes, and the `notifications` settings namespaces | [src/notifications/README.md](src/notifications/README.md) |
+| `@marinoscar/platform-contract/android-app` | The trusted-app, Digital Asset Links, APK release and test-notification shapes | [src/android-app/README.md](src/android-app/README.md) |
+| `@marinoscar/platform-contract/user-data` | The user deletion, factory reset and organization offboarding shapes, with their confirmation phrases | [src/user-data/README.md](src/user-data/README.md) |
 
 The root entry exports only `PLATFORM_PACKAGE`; schemas are reached through their slice's subpath, so a consumer loads only the slices it uses.
 

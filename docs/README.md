@@ -16,6 +16,7 @@ In this order:
 4. [DEVELOPMENT.md](DEVELOPMENT.md): the dev loop and Fastify, Prisma and Passport gotchas.
 5. [TESTING.md](TESTING.md): test layers, helpers and how to run each suite.
 6. [RENAMING.md](RENAMING.md): starting a new product from the starter (`new-project.mjs create`), renaming an app, and the legacy flow for existing forks.
+7. [ADMIN-GUIDE.md](ADMIN-GUIDE.md): what an administrator or user can do in the application, with where each feature is and who may use it.
 
 ## Guides
 
@@ -26,6 +27,8 @@ In this order:
 | [personal-access-tokens.md](personal-access-tokens.md) | Creating and using `pat_` tokens for scripts and CI |
 | [../SECURITY.md](../SECURITY.md) | Supported versions, private vulnerability reporting, response targets and scope |
 | [../apps/cli/README.md](../apps/cli/README.md) | `appctl`: install, `login`, `api`, `config`, `deploy`, `node`, CI usage |
+| [ADMIN-GUIDE.md](ADMIN-GUIDE.md) | A task-oriented tour for administrators and users: organizations, groups and sharing, the Setup guide, data export, the Danger Zone, notifications, backup and restore, jobs and worker nodes, the Doctor, storage, email and AI, each with its route, permission and steps |
+| [ADOPTING-THE-PLATFORM.md](ADOPTING-THE-PLATFORM.md) | Moving an existing fork or app onto the `@marinoscar/platform-*` packages: the order, what each step deletes, the checks, rollback, seam requests and the pitfalls the first adoption found |
 | [PACKAGES.md](PACKAGES.md) | Documenting a `@marinoscar/platform-*` package or slice: the README template, TSDoc tags, the extension-point catalog, TypeDoc and the `check:package-docs` checks |
 
 ## Feature specs
@@ -49,7 +52,7 @@ In this order:
 | [specs/telemetry.md](specs/telemetry.md) | GreptimeDB-backed telemetry, the Telemetry Explorer and the Telemetry Dashboard | you change telemetry ingest, storage, querying or the dashboard |
 | [specs/user-credentials.md](specs/user-credentials.md) | Encrypted per-user credentials | you add a bring-your-own-key credential type |
 | [specs/vps-deploy.md](specs/vps-deploy.md) | `appctl deploy` to a single VPS | you change the deploy commands or the deployed layout |
-| [specs/platform-packages.md](specs/platform-packages.md) | Proposed: turning the template into published platform packages (extension contract, tenancy, migrations, scaling, adoption roadmap) | you plan to share platform code between apps or change how forks consume it |
+| [specs/platform-packages.md](specs/platform-packages.md) | Turning the template into published platform packages (extension contract, tenancy, migrations, scaling, adoption roadmap and status) | you plan to share platform code between apps or change how forks consume it |
 | [platform-adoption/go-no-go-evopath.md](platform-adoption/go-no-go-evopath.md) | The platform-packages go/no-go gate: what one platform change cost by package and by copy in EvoPath, the verdict, the friction log and what a re-run needs | you decide whether a later packaging wave may start, or re-run the gate |
 | [specs/native-companion-architecture.md](specs/native-companion-architecture.md) | The Android companion: the web app in a Trusted Web Activity plus an optional native module, the five coordination channels, the Kotlin `platform-core`, hosted APK releases, Digital Asset Links, the `android_app` push channel | you build or release the Android app, or add a native capability |
 

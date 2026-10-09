@@ -6,7 +6,7 @@ The React side of the platform: pages, components and hooks built on MUI, expose
 
 Pages, components, hooks and settings-page descriptors of the platform's web slices. It does not own the app's router or settings registries; the app binds the package's descriptors into its own. The app's theme is the app's: the shell slice offers one to build on (`createShellTheme`).
 
-Status: pre-release (version `0.0.0`). The root export is only the package name (`PLATFORM_PACKAGE`); the slices are subpath exports, each with its own README:
+Status: pre-release (the current channel and how to install it: the [release runbook](../../docs/runbooks/release-platform-packages.md)). The root export is only the package name (`PLATFORM_PACKAGE`); the slices are subpath exports, each with its own README:
 
 - `@marinoscar/platform-web/core`: the web host ports every packaged page reuses (`PlatformHostProvider`, `PlatformApiClient`, `PlatformViewer`, `PlatformSettingsPage`). [README](src/core/README.md).
 - `@marinoscar/platform-web/testing`: test doubles for those ports (`createTestPlatformHost`). [README](src/testing/README.md).
@@ -24,6 +24,9 @@ Status: pre-release (version `0.0.0`). The root export is only the package name 
 - `@marinoscar/platform-web/exports/headless` and `@marinoscar/platform-web/exports/ui`: the exports client and hooks (`useExportSources`, `useExports`, `useCreateExport`, `useExport` with polling), `ExportDialog` (fields from the source's descriptor, `slots.form`), `ExportsList`, `DataExportPage` and the "Download your data" card descriptor (#744). [README](src/exports/README.md).
 - `@marinoscar/platform-web/ai/headless` and `@marinoscar/platform-web/ai/ui`: the organization's own AI keys and effective AI policy hooks (`useOrgAiKeys`, `useOrgAiPolicy`) and the Organization AI keys page `OrgAiKeysPage` (#739). [README](src/ai/README.md).
 - `@marinoscar/platform-web/db-backup/headless` and `@marinoscar/platform-web/db-backup/ui`: the db-backup client `createDbBackupApi`, the hooks `useDbBackupConfig` / `useDbBackupRuns` / `useDbBackupActions`, and the `/admin/settings/db-backup` page `DbBackupPage` with its admin card `dbBackupAdminSections` (#740). [README](src/db-backup/README.md).
+- `@marinoscar/platform-web/notifications/headless` and `@marinoscar/platform-web/notifications/ui`: the notification provider and hooks, the push subscription services, the service-worker helpers, the AppBar bell, the permission banner, the preferences matrix and the user, admin policy, Web Push and Broadcasts pages. [README](src/notifications/README.md).
+- `@marinoscar/platform-web/android-app/headless` and `@marinoscar/platform-web/android-app/ui`: the Trusted Web Activity launch helpers, the Android client and hooks, the update banner and the admin Android app page. [README](src/android-app/README.md).
+- `@marinoscar/platform-web/user-data/headless` and `@marinoscar/platform-web/user-data/ui`: the user Danger Zone page, the admin factory reset page, the organization offboarding dialog, the typed-confirmation dialog and the start-and-poll hook. [README](src/user-data/README.md).
 - `@marinoscar/platform-web/shell/headless` and `@marinoscar/platform-web/shell/ui`: the app shell: `ShellLayout` (the five coupled breakpoint gates), `ShellAppBar`, `ShellNavigationRail` (with Console mode), `ShellBottomNav`, `ShellUserMenu`, the navigation model (`ShellNavigation`, `ShellDestination`), the rail's collapse preference, `createShellTheme` with `ShellThemeProvider` / `ShellRoot`, and `ShellProviders`, with slots for branding and navigation (#868). [README](src/shell/README.md).
 
 ## Install and peer dependencies

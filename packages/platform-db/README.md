@@ -8,7 +8,7 @@ Schema fragments, migrations and seeds of the platform's data slices, and the **
 
 What ships today: the schema fragments (`schema/`, 39 models and 15 enums in nine slices), `platform db compose`, and the migration tooling (`platform db sync|check|promote|drift`, the `platform.lock` and `manifest.json` formats, the raw-SQL index list). The package also ships platform history v1: the base's 22 migrations as `migrations/0001_initial` to `0022_add_retention_created_at_indexes`, with a filled manifest, the raw-SQL index list `RAW_SQL_INDEXES` and its tripwire, and the offline `runDbConformance()` suite. The platform seed is shipped too: `seedPlatform` (the [`seed` slice](src/seed/README.md), `@marinoscar/platform-db/seed`). The package does not run migrations against a database itself; the app's `prisma:*` scripts do.
 
-Status: pre-release (version `0.0.0`). The `extend model` seam is `experimental` until the extension contract is frozen.
+Status: pre-release (the current channel and how to install it: the [release runbook](../../docs/runbooks/release-platform-packages.md)). The `extend model` seam is `experimental` until the extension contract is frozen.
 
 ## Install and peer dependencies
 

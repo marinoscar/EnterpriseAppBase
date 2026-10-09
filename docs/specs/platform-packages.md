@@ -1,10 +1,10 @@
 # Platform packages: turning EnterpriseAppBase into a package-based platform
 
-> **Status:** Proposed (vision and approach agreed; implementation not started). **Date:** 2026-10-04. · **Code:** none yet; the layout in [Repository layout](#repository-layout) is the target · **API:** none · **Admin UI:** none · **Runbook:** none yet · **Recipe:** [Definition of done for a slice](#definition-of-done-for-a-slice)
+> **Status:** Shipped in the platform repository (the six packages, the slices, the starter and the reference app exist); adoption by EvoPath is in progress, kvox and MemoriaHub have not started; npm carries only the `0.1.0-next.3` bootstrap release until trusted publishing is enabled. **Date:** 2026-10-04, revised 2026-10-09 · **Code:** `packages/platform-{contract,api,web,db,cli,infra}/`, `starter/`, and the reference app in `apps/api`, `apps/web`, `apps/cli` · **API:** per slice, see `/api/docs` · **Admin UI:** per slice, see [the admin guide](../ADMIN-GUIDE.md) · **Runbook:** [release the platform packages](../runbooks/release-platform-packages.md), [database baseline](../runbooks/database-baseline.md), [platform drift report](../runbooks/platform-drift-report.md) · **Guide:** [adopting the platform](../ADOPTING-THE-PLATFORM.md) · **Recipe:** [Definition of done for a slice](#definition-of-done-for-a-slice)
 
 EnterpriseAppBase stops being a template that apps fork and becomes the platform repository: it publishes versioned packages, and each product (EvoPath, kvox, MemoriaHub) keeps only its domain code and consumes the platform. A fix or feature lands once in a package, ships in one release, and every app picks it up through a normal version bump.
 
-This spec records the vision, the decisions the owner has confirmed, and the approach that is recommended but not yet confirmed. Each decision is labelled **DECIDED** (owner confirmed) or **PROPOSED** (recommended, open to change). Nothing described here as a target exists in the code yet; everything described as "today" was verified against the repository or measured (see [Appendix A](#appendix-a-measurement-method-and-caveats)).
+This spec records the vision, the decisions the owner has confirmed, and the approach taken. Each decision is labelled **DECIDED** (owner confirmed) or **PROPOSED** (recommended; the label records owner confirmation only, not whether the code exists). The packages, slices, starter and reference app described here are built; the adopting apps are not finished ([Adoption status](#adoption-status)). Statements about the apps' state before the program were verified against the repositories or measured (see [Appendix A](#appendix-a-measurement-method-and-caveats)).
 
 ## Contents
 
@@ -77,7 +77,7 @@ The full list is in [Decision log](#decision-log).
 | 5 | Remaining slices in dependency order | Settings, jobs, storage, email, notifications, AI, db-backup, then CLI, infra, docs |
 | Track | App adoption: EvoPath (retrofit), then kvox (hybrid), then MemoriaHub (re-platform) | Each app starts after the previous app's retrospective |
 
-Details: [Roadmap](#roadmap).
+Waves 0 to 5 and the database packaging are shipped in this repository; the app adoption track is in progress ([Adoption status](#adoption-status)). Details: [Roadmap](#roadmap).
 
 ## Context
 
@@ -94,7 +94,9 @@ A system has four layers:
 
 A reusable unit, a **slice**, can span all four layers. Telemetry is the clearest example ([Slice anatomy: telemetry as the worked example](#slice-anatomy-telemetry-as-the-worked-example)). Packaging by layer alone would scatter one feature over several repositories' worth of files; packaging by slice alone would hide that all slices share the same four layers. The design in [Package granularity](#package-granularity) combines both: packages are layers, slices are modules inside them.
 
-### Today: a template that apps fork
+### Before the program: a template that apps fork
+
+This section describes the starting point of the program. The apps are still forks until each completes its adoption ([Adoption status](#adoption-status)).
 
 - EnterpriseAppBase is a template. Apps are forks created from it (`scripts/new-project.mjs`, `scripts/rename.mjs`; see [RENAMING.md](../RENAMING.md)).
 - Stack: React 19 and MUI 9 (web), NestJS 11 on Fastify, Prisma 7.8, Zod 4, PostgreSQL 16, Vite 8, TypeScript 6, Commander and ink (`appctl` CLI), Docker Compose, OpenTelemetry with GreptimeDB.
@@ -206,7 +208,7 @@ Forks edit platform files to extend them, because the extension points are close
 
 ### Repository layout
 
-**PROPOSED.** The repository is not renamed yet ([Open questions](#open-questions)).
+The layout below exists. The repository is not renamed yet ([Open questions](#open-questions)).
 
 ```text
 EnterpriseAppBase/
@@ -240,8 +242,8 @@ flowchart TB
 
 | Directory | Role |
 |---|---|
-| `packages/*` | The published platform. Today only `packages/shared` exists. |
-| `apps/api`, `apps/web`, `apps/cli` | The **reference app**. These existing apps stay in place (there is no move to an `apps/reference` directory); they are rebuilt on top of the packages as slices are extracted. The e2e and visual tests run against them, so the platform is always exercised as an app would use it. |
+| `packages/*` | The platform: `platform-contract`, `platform-api`, `platform-web`, `platform-db`, `platform-cli` and `platform-infra`, plus `packages/shared`, which carries the product identity. |
+| `apps/api`, `apps/web`, `apps/cli` | The **reference app**. These existing apps stay in place (there is no move to an `apps/reference` directory); they are built on the packages. The e2e and visual tests run against them, so the platform is always exercised as an app would use it. |
 | `starter/` | What `new-project` copies. It depends on published versions, never on workspace paths. |
 | `docs/` | Platform docs, the Extension Contract, and architecture decision records. |
 
@@ -800,15 +802,15 @@ The contract (types, credential mapping, scope derivation, `SystemActor`) is dec
 
 **Implemented so far (PP-7.3, #730).** Link shares as a grant kind, with no migration (the link columns came with `0027_add_grants`). `POST /api/grants/links` mints a token `lnk_` + 32 random bytes, returned once; the row stores its SHA-256 hash (`link_token_hash`, unique) and `encryptSecret(token, 'sharing.link:' + grantId)`, the id chosen before the insert so the cipher domain binds the row, and creation fails closed (503) without `SECRETS_ENCRYPTION_KEY`. The type must list the role under `grantable.link`, and the caller pass its `share_link` action (when declared) or `share`; `reuseActive` returns the caller's active link with the same role; `links.maxActivePerResource` (20) caps active links, `links.defaultTtlDays` (30) and `links.maxTtlDays` (365) default and cap the expiry. The share URL is `${APP_URL}/s#<token>`: the token rides in the fragment and reaches the API only in the `X-Link-Token` header. The deliberately public `GET /api/public/links/current` and the public-route pattern for an app's own routes (`LinkGrantGuard`, `@LinkGrantResource(type, { action })`, `@CurrentLinkGrant()`, `LinkGrantsService.withLinkScope()`, `PublicLinkInterceptor`) resolve it with ONE bypass read of `grants` by hash (`SystemAccessReason` `link-resolution`), then check the record and run the app's reads in the grant's organization with no user id, so row-level security still applies. Every failure is the same 404 and counts against the client address (`links.maxMissesPerIp`, 30 per 10 minutes, then 429); public responses carry `Cache-Control: no-store` and `Referrer-Policy: no-referrer`; `PATCH`/`DELETE /api/grants/:id` change (label, capped expiry) and revoke links (`grant:link:*` audit); resolutions are counted (`app.sharing.link_resolutions`), not audited; `importLegacyToken()` imports an app's existing clear token (MemoriaHub, #765) as `lnk_<token>`. Deviations: a packaged route that is public by design needs the app's `@Public()` marker, so `PlatformAccessPort` gained an optional `allowPublic()` (a host without one gets no public route, with a startup warning); the public resolution omits the sharer's `label` (the contract of #729 never exposed it publicly) and returns `title` flat rather than under `describe`; the cipher no longer caches the sub-key of a purpose containing `:` (row-bound domains like `sharing.link:<grantId>`), so its cache cannot grow with the number of links.
 
-**Today isolation is convention.** There are about 46 `where: { userId }` sites and about 153 `@CurrentUser` uses, and no central scoping.
+**Before the tenancy wave isolation was convention** (about 46 `where: { userId }` sites and about 153 `@CurrentUser` uses, no central scoping). It is now enforced in layers.
 
-**Proposed enforcement**, in layers:
+**Enforcement**, in layers:
 
 | Layer | Mechanism |
 |---|---|
 | Registry | A registry of user-owned and org-owned models |
 | Scoped data access | A Prisma client extension that applies the scope; an explicit `asSystem()` for system paths (`forUser`, `userScopeExtension`, `asSystem` in `@marinoscar/platform-api/core`, schema-independent, since #699) |
-| Lint | A rule against unscoped raw SQL (today a tripwire over an allowlist, the `userOwnedData` conformance suite run by `apps/api/test/prisma/user-owned-models.spec.ts`, since the API has no linter) |
+| Lint | A rule against unscoped raw SQL (a tripwire over an allowlist, the `userOwnedData` conformance suite run by `apps/api/test/prisma/user-owned-models.spec.ts`, since the API has no linter) |
 | Tripwire test | Fails if a model with an owner or org column is unregistered, or lacks a purge and export policy. It replaces EvoPath's hand-written purge list. |
 | Postgres row-level security (RLS) | On `org_id`, one active org per transaction ([ADR 0002](../adr/0002-database-packaging-and-rls.md) D5). A cross-tenant leak is a contractual breach, so the database enforces it. |
 | App policy | Handles owner, group and grant rules inside one org |
@@ -818,7 +820,7 @@ The contract (types, credential mapping, scope derivation, `SystemActor`) is dec
 
 - RLS settings must be **transaction-local** (`set_config(..., true)` or `SET LOCAL`) so they survive connection poolers.
 - Cross-org system work (backups, purge, doctor) uses a **separate bypass connection**, as the restore flow already does for its cluster admin connection.
-- `pg_dump` and `pg_restore` fail on RLS-protected tables with today's arguments. They succeed for a role that owns or can read the tables when given `--enable-row-security` and the `app.rls_bypass` startup option; no `BYPASSRLS` role is needed ([ADR 0002](../adr/0002-database-packaging-and-rls.md) D5). Database backup, database restore and the worker-node dump role must each carry both halves when RLS lands ([database backup spec](database-backup.md), [database restore spec](database-restore.md)).
+- `pg_dump` and `pg_restore` fail on RLS-protected tables with plain arguments. They succeed for a role that owns or can read the tables when given `--enable-row-security` and the `app.rls_bypass` startup option; no `BYPASSRLS` role is needed ([ADR 0002](../adr/0002-database-packaging-and-rls.md) D5). Database backup, database restore and the worker-node dump role must each carry both halves when RLS lands ([database backup spec](database-backup.md), [database restore spec](database-restore.md)).
 
 ### Per-slice impact
 
@@ -837,8 +839,8 @@ The contract (types, credential mapping, scope derivation, `SystemActor`) is dec
 
 | When | Work |
 |---|---|
-| Now (wave 0 and 2) | The principal and scope in the core contracts include the org |
-| Identity wave (wave 4) | `Organization`, `Membership` and `Invite` tables; tenancy mode; org-scoped roles; the active-org token; RLS on `org_id`; backfill (EvoPath's about 40 and kvox's about 35 user-owned tables go into the default org; MemoriaHub circles become groups) |
+| Waves 0 and 2 (shipped) | The principal and scope in the core contracts include the org |
+| Identity wave (wave 4, shipped) | `Organization`, `Membership` and `Invite` tables; tenancy mode; org-scoped roles; the active-org token; RLS on `org_id`; backfill (EvoPath's about 40 and kvox's about 35 user-owned tables go into the default org; MemoriaHub circles become groups) |
 | Sharing wave (epic #666, shipped) | Groups inside an organization (members, invites, group ownership), generic grants (user, group, link) with `AccessPolicy`, the list helpers, link shares and the public-route pattern, the sharing UI, a tested example per extension point and the sharing conformance suite; kvox and MemoriaHub are the consumers |
 | Later, when an app needs it | Per-org SSO (Entra, OIDC, SAML); per-org quotas and billing; an org admin console |
 
@@ -956,7 +958,7 @@ ECS, not EKS. Whether RDS Proxy pins connections when `set_config(..., true)` is
 
 ### Decisions
 
-- **DECIDED:** all packages are **public**. The licence is **MIT**. Add a root `LICENSE` file (none exists today).
+- **DECIDED:** all packages are **public**. The licence is **MIT**. The root `LICENSE` file exists.
 
 ### Release pipeline
 
@@ -1030,6 +1032,16 @@ flowchart LR
 - **Which app is the first SaaS is still undecided** ([Open questions](#open-questions)). It is independent of the adoption order.
 - The strategy per app (retrofit, hybrid, re-platform) remains **PROPOSED**; the order is **DECIDED**.
 
+### Adoption status
+
+| App | Status |
+|---|---|
+| EvoPath | In progress. It consumes the Doctor and telemetry slices and `@marinoscar/platform-db` (the migration history is installed and pinned by `platform.lock`; the production baseline waits for the owner's deploy, see the [baseline runbook](../runbooks/database-baseline.md)) from the pre-release tarballs (`0.1.0-next.1` to `0.1.0-next.3`, pinned by GitHub-release URL); the [gate report](../platform-adoption/go-no-go-evopath.md) measures that route. The remaining slices follow the order in [Adopting the platform](../ADOPTING-THE-PLATFORM.md). |
+| kvox | Not started; it waits for the EvoPath retrospective. |
+| MemoriaHub | Not started; it waits for the kvox retrospective. |
+
+The platform side is complete for the program's scope: the six packages, the slices, the starter and the reference app. npm carries only the `0.1.0-next.3` bootstrap release; the next publish waits for the owner to enable trusted publishing ([release runbook](../runbooks/release-platform-packages.md)). How an existing app moves onto the packages: [Adopting the platform](../ADOPTING-THE-PLATFORM.md).
+
 ### Harvest from the apps, not only the base
 
 | Source | Becomes |
@@ -1049,7 +1061,7 @@ flowchart LR
 
 ## Roadmap
 
-**PROPOSED.**
+**PROPOSED.** Waves 0 to 5 are shipped in this repository (epics PP-1 to PP-9 and PP-13 of the [program epic](https://github.com/marinoscar/EnterpriseAppBase/issues/659)); the app adoption track (PP-10 to PP-12) is in progress ([Adoption status](#adoption-status)).
 
 ```mermaid
 flowchart TD
@@ -1145,7 +1157,7 @@ Full method: [Appendix A](#appendix-a-measurement-method-and-caveats).
 - **E2 is not established.** On agent minutes alone the two routes cost about the same; the owner has not given review minutes.
 - **E3 fails** on its `latest` clause. The `next` part took 6 h 12 min.
 
-Waves 0 to 3 and the database spike stay. Issue 665 and later wait for a re-run after the npm prerequisites are done (report §10), or for an owner override.
+Waves 0 to 3 and the database spike stay. Waves 4 and 5 were built after the report and are shipped. The gate's re-run needs the npm prerequisites (report §10); until trusted publishing is enabled the packages reach apps through GitHub-release pins.
 
 ### Wave 4: identity with orgs
 
@@ -1259,7 +1271,9 @@ Each row is an ADR candidate. Promote it to a record in `docs/` when it is imple
 | D11 | Every package is designed and documented for extension by apps that do not exist yet |
 | D12 | Adoption order: EnterpriseAppBase first, then EvoPath, then kvox, then MemoriaHub; kvox starts after the EvoPath retrospective and MemoriaHub after the kvox retrospective |
 
-### PROPOSED (recommended, not yet confirmed)
+### PROPOSED (recommended, not yet confirmed by the owner)
+
+The code for these exists; the label records only that the owner has not confirmed them.
 
 | Id | Proposal |
 |---|---|
@@ -1281,9 +1295,7 @@ Each row is an ADR candidate. Promote it to a record in `docs/` when it is imple
 | Question | Why it matters |
 |---|---|
 | Which app is the first SaaS, and when | Decides whether wave 0 must finish before a SaaS launch |
-| Prisma spike outcomes: composed `User`, multi-file schema, RLS, RDS Proxy pinning | Gates the identity wave and the RLS design |
 | Exact MemoriaHub circle-to-group mapping | Settled when MemoriaHub is re-platformed |
-| Package scope and names (`@marinoscar/platform-*`) | Hard to change after the first publish |
 | When to rename the repository | Cosmetic, but affects links and the starter |
 
 ## Appendix A: measurement method and caveats
@@ -1328,10 +1340,11 @@ Each row is an ADR candidate. Promote it to a record in `docs/` when it is imple
 
 ## History
 
-- 2026-10-04: proposed after an architecture discussion covering drift measurement across the four code bases, package granularity, the Extension Contract, migrations, tenancy, deployment modes and scaling. No implementation has started.
+- 2026-10-04: proposed after an architecture discussion covering drift measurement across the four code bases, package granularity, the Extension Contract, migrations, tenancy, deployment modes and scaling. No implementation had started.
 - 2026-10-04 (rev 2): extensibility and documentation standard made explicit; adoption order and first SaaS left to the owner.
 - 2026-10-04 (rev 3): adoption order decided (EnterpriseAppBase, EvoPath, kvox, MemoriaHub); the existing apps are the reference app; program tracking and rollback added; corrections to the migration, telemetry and RLS facts.
 - 2026-10-06 (rev 4): single rollback tag `MonoRepo` at e872eb6; safety copy in marinoscar/appbase.
 - 2026-10-07 (rev 5): the telemetry slice completed (wave 3): slice READMEs in all five packages, a reference-app example for every extension point (the `activity` group, an example verdict policy, an example CLI command), the telemetry conformance suite in `runPlatformConformance()` and a coach-shaped readiness test; corrected the claim that EvoPath has thresholds or collector configuration of its own.
 - 2026-10-07 (rev 6): go/no-go gate measured (issue 720): method, thresholds and the computed NO-GO recorded in [Go/no-go gate (after wave 3)](#gono-go-gate-after-wave-3), with the [report](../platform-adoption/go-no-go-evopath.md); the measurement method added to Appendix A. Corrections: the EvoPath migration count (20 same-id, of which 19 byte-identical and 1 comment-only, plus 1 renamed), EvoPath's collector configuration (comment-only drift), and the interim cost of URL pins in the release pipeline and the risks table.
 - 2026-10-08 (rev 7): groups and grants shipped (epic #666): the `sharing` slice in the contract, API and web packages (groups, grants, `AccessPolicy`, link shares and the public-route pattern, the sharing UI), a reference-app example for every extension point in the reference app's test trees (the template ships no product table), the sharing conformance suite in `runPlatformConformance()` (`@marinoscar/platform-api/sharing/testing`, a slice testing entry like telemetry's, identity's and settings'), and the kvox and MemoriaHub migration recipes in the slice README. The Phasing table moves groups and grants out of "later".
+- 2026-10-09 (rev 8): status brought up to date. The platform side shipped (waves 0 to 5, the database packaging, groups and grants, the harvested features, the starter and the deployment track's early items); EvoPath's retrofit is in progress, kvox and MemoriaHub have not started; npm carries only the bootstrap release. Added the [admin guide](../ADMIN-GUIDE.md) and the [adoption guide](../ADOPTING-THE-PLATFORM.md). Removed the resolved open questions (the Prisma spike is ADR 0002; the package scope is `@marinoscar/platform-*`).
