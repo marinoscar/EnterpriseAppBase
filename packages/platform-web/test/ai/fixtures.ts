@@ -22,7 +22,7 @@
  *
  * NO FIXTURE CARRIES A KEY. Masked hints only, exactly as the API answers.
  */
-import type { StorageObject } from '../../../services/storage';
+import type { StorageObject } from '../../src/storage/index.js';
 import type {
   AiAdminConfig,
   AiEmbeddingsResponse,
@@ -42,7 +42,7 @@ import type {
   AiUsageSeriesEntry,
   UsableAiModel,
   UserAiKey,
-} from '@marinoscar/platform-web/ai/headless';
+} from '../../src/ai/headless/index.js';
 
 const T0 = '2026-09-01T12:00:00.000Z';
 

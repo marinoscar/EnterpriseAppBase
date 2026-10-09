@@ -3,8 +3,8 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { render } from '../../utils/test-utils';
+import { userEvent } from '@testing-library/user-event';
+import { render } from '../harness.js';
 import {
   attachableKinds,
   attachmentKind,
@@ -12,9 +12,9 @@ import {
   chatTurnInput,
   withAttachmentContext,
   type AiChatAttachment,
-} from '../../../components/ai/playground/chatAttachments';
-import { AiAttachmentChips } from '../../../components/ai/AiAttachmentChips';
-import type { UsableAiModel } from '../../../services/ai';
+} from '../../../src/ai/headless/chat-attachments.js';
+import { AiAttachmentChips } from '../../../src/ai/ui/shared/AiAttachmentChips.js';
+import type { UsableAiModel } from '../../../src/ai/headless/types.js';
 
 function model(capabilities: string[], inputModalities: string[]): UsableAiModel {
   return {

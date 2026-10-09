@@ -37,12 +37,13 @@ import {
   testUserAiKey,
   updateAiAdminConfig,
   updateAiModel,
-} from '../../services/ai';
-import type { AiAdminConfigInput } from '../../services/ai';
-import { ApiError } from '../../services/api';
+} from '@marinoscar/platform-web/ai/headless';
+import type { AiAdminConfigInput } from '@marinoscar/platform-web/ai/headless';
+import { isPlatformApiError } from '@marinoscar/platform-web/core';
+import { appPlatformApi } from '../../platform/platformHost';
 
 /**
- * `services/ai.ts` — issue #425, epic #419. Every call against the default MSW
+ * The packaged AI client (`@marinoscar/platform-web/ai/headless`, moved from `services/ai.ts` in #890) over the app's transport — issue #425, epic #419. Every call against the default MSW
  * handlers (`mocks/handlers.ts`, fixtures in `mocks/fixtures/ai.ts`), plus
  * request capture where the wire shape is the contract: the `If-Match`
  * header, the `REMOVE` confirmation, "blank means use the stored key", the
@@ -96,19 +97,19 @@ const adminInput: AiAdminConfigInput = {
 
 describe('AI public config', () => {
   it('reads GET /ai/config — disabled by default in the fixtures', async () => {
-    await expect(getAiConfig()).resolves.toEqual(mockAiPublicConfigDisabled);
+    await expect(getAiConfig(appPlatformApi)).resolves.toEqual(mockAiPublicConfigDisabled);
   });
 });
 
 describe('AI administration', () => {
   it('reads the admin config', async () => {
-    await expect(getAiAdminConfig()).resolves.toEqual(mockAiAdminConfig);
+    await expect(getAiAdminConfig(appPlatformApi)).resolves.toEqual(mockAiAdminConfig);
   });
 
   it('sends the expected version as If-Match on PUT', async () => {
     const spy = capture('put', '/admin/ai/config', mockAiAdminConfig);
 
-    await updateAiAdminConfig(adminInput, 3);
+    await updateAiAdminConfig(appPlatformApi, adminInput, 3);
 
     expect(spy.request().headers.get('If-Match')).toBe('3');
     expect(spy.request().body).toEqual(adminInput);
@@ -117,19 +118,19 @@ describe('AI administration', () => {
   it('omits If-Match when no version is given', async () => {
     const spy = capture('put', '/admin/ai/config', mockAiAdminConfig);
 
-    await updateAiAdminConfig(adminInput);
+    await updateAiAdminConfig(appPlatformApi, adminInput);
 
     expect(spy.request().headers.get('If-Match')).toBeNull();
   });
 
   it('surfaces a stale version as a 409 ApiError (default handler)', async () => {
-    await expect(updateAiAdminConfig(adminInput, 1)).rejects.toMatchObject({ status: 409 });
+    await expect(updateAiAdminConfig(appPlatformApi, adminInput, 1)).rejects.toMatchObject({ status: 409 });
   });
 
   it('stores an org key with PUT /admin/ai/providers/:p/key', async () => {
     const spy = capture('put', '/admin/ai/providers/:provider/key', mockAiAdminConfig);
 
-    await setAiProviderKey('openai', 'sk-test-12345678');
+    await setAiProviderKey(appPlatformApi, 'openai', 'sk-test-12345678');
 
     expect(spy.request().url.pathname).toMatch(/\/admin\/ai\/providers\/openai\/key$/);
     expect(spy.request().body).toEqual({ apiKey: 'sk-test-12345678' });
@@ -138,7 +139,7 @@ describe('AI administration', () => {
   it('deletes an org key with the REMOVE confirmation body', async () => {
     const spy = capture('delete', '/admin/ai/providers/:provider/key', mockAiAdminConfig);
 
-    await deleteAiProviderKey('openai');
+    await deleteAiProviderKey(appPlatformApi, 'openai');
 
     expect(spy.request().method).toBe('DELETE');
     expect(spy.request().body).toEqual({ confirmation: AI_KEY_REMOVE_CONFIRMATION });
@@ -148,7 +149,7 @@ describe('AI administration', () => {
   it('probes a provider with blank fields dropped, so the stored key is used', async () => {
     const spy = capture('post', '/admin/ai/providers/:provider/test', mockAiProbeResultPassed);
 
-    await expect(testAiProvider('openai', { apiKey: '   ', baseUrl: '' })).resolves.toEqual(
+    await expect(testAiProvider(appPlatformApi, 'openai', { apiKey: '   ', baseUrl: '' })).resolves.toEqual(
       mockAiProbeResultPassed,
     );
     expect(spy.request().body).toEqual({});
@@ -157,7 +158,7 @@ describe('AI administration', () => {
   it('sends a typed key and base URL when given', async () => {
     const spy = capture('post', '/admin/ai/providers/:provider/test', mockAiProbeResultPassed);
 
-    await testAiProvider('openai', { apiKey: 'sk-new-12345678', baseUrl: 'https://proxy.example' });
+    await testAiProvider(appPlatformApi, 'openai', { apiKey: 'sk-new-12345678', baseUrl: 'https://proxy.example' });
 
     expect(spy.request().body).toEqual({
       apiKey: 'sk-new-12345678',
@@ -168,14 +169,14 @@ describe('AI administration', () => {
   it('lists models with no query string by default', async () => {
     const spy = capture('get', '/admin/ai/models', mockAiModelList);
 
-    await expect(listAiModels()).resolves.toEqual(mockAiModelList);
+    await expect(listAiModels(appPlatformApi)).resolves.toEqual(mockAiModelList);
     expect(spy.request().url.search).toBe('');
   });
 
   it('builds the model-list query from the filter', async () => {
     const spy = capture('get', '/admin/ai/models', mockAiModelList);
 
-    await listAiModels({
+    await listAiModels(appPlatformApi, {
       provider: 'openai',
       capability: 'vision',
       enabled: false,
@@ -198,40 +199,40 @@ describe('AI administration', () => {
   });
 
   it('patches a model and gets the updated row back', async () => {
-    const updated = await updateAiModel('model-2', { enabled: true });
+    const updated = await updateAiModel(appPlatformApi, 'model-2', { enabled: true });
     expect(updated).toMatchObject({ id: 'model-2', enabled: true });
   });
 
   it('requests a catalogue refresh and returns the job id', async () => {
     const spy = capture('post', '/admin/ai/models/refresh', { jobId: 'job-9' });
 
-    await expect(refreshAiModels('openai')).resolves.toEqual({ jobId: 'job-9' });
+    await expect(refreshAiModels(appPlatformApi, 'openai')).resolves.toEqual({ jobId: 'job-9' });
     expect(spy.request().body).toEqual({ provider: 'openai' });
   });
 });
 
 describe('AI — the caller’s own keys and models', () => {
   it('lists the caller’s keys', async () => {
-    await expect(listUserAiKeys()).resolves.toEqual(mockUserAiKeys);
+    await expect(listUserAiKeys(appPlatformApi)).resolves.toEqual(mockUserAiKeys);
   });
 
   it('stores a key at PUT /ai/keys/:provider, URL-encoding the provider', async () => {
     const spy = capture('put', '/ai/keys/:provider', mockUserAiKeys[0]);
 
-    await setUserAiKey('my provider', 'sk-user-12345678');
+    await setUserAiKey(appPlatformApi, 'my provider', 'sk-user-12345678');
 
     expect(spy.request().url.pathname).toMatch(/\/ai\/keys\/my%20provider$/);
     expect(spy.request().body).toEqual({ apiKey: 'sk-user-12345678' });
   });
 
   it('deletes a key (204)', async () => {
-    await expect(deleteUserAiKey('openai')).resolves.toBeUndefined();
+    await expect(deleteUserAiKey(appPlatformApi, 'openai')).resolves.toBeUndefined();
   });
 
   it('tests the stored key when none is typed', async () => {
     const spy = capture('post', '/ai/keys/:provider/test', mockAiProbeResultPassed);
 
-    await testUserAiKey('openai');
+    await testUserAiKey(appPlatformApi, 'openai');
 
     expect(spy.request().body).toEqual({});
   });
@@ -239,28 +240,28 @@ describe('AI — the caller’s own keys and models', () => {
   it('tests a typed key when one is given', async () => {
     const spy = capture('post', '/ai/keys/:provider/test', mockAiProbeResultPassed);
 
-    await testUserAiKey('openai', 'sk-typed-12345678');
+    await testUserAiKey(appPlatformApi, 'openai', 'sk-typed-12345678');
 
     expect(spy.request().body).toEqual({ apiKey: 'sk-typed-12345678' });
   });
 
   it('lists the models usable right now', async () => {
-    await expect(listUsableAiModels()).resolves.toEqual(mockUsableAiModels);
+    await expect(listUsableAiModels(appPlatformApi)).resolves.toEqual(mockUsableAiModels);
   });
 });
 
 describe('AI — responses and runs', () => {
   it('creates a non-streamed response', async () => {
-    await expect(createAiResponse({ input: 'hi' })).resolves.toEqual(mockAiResponse);
+    await expect(createAiResponse(appPlatformApi, { input: 'hi' })).resolves.toEqual(mockAiResponse);
   });
 
   it('starts, reads and cancels a background run', async () => {
-    await expect(createAiRun({ input: 'hi' })).resolves.toEqual({
+    await expect(createAiRun(appPlatformApi, { input: 'hi' })).resolves.toEqual({
       runId: mockAiRun.id,
       jobId: 'job-ai-run-1',
     });
-    await expect(getAiRun('run_7')).resolves.toMatchObject({ id: 'run_7', status: 'succeeded' });
-    await expect(cancelAiRun('run_7')).resolves.toMatchObject({ id: 'run_7', status: 'cancelled' });
+    await expect(getAiRun(appPlatformApi, 'run_7')).resolves.toMatchObject({ id: 'run_7', status: 'succeeded' });
+    await expect(cancelAiRun(appPlatformApi, 'run_7')).resolves.toMatchObject({ id: 'run_7', status: 'cancelled' });
   });
 
   it('surfaces AI_DISABLED from a gated route as an ApiError with its code', async () => {
@@ -273,7 +274,7 @@ describe('AI — responses and runs', () => {
       ),
     );
 
-    await expect(createAiResponse({ input: 'hi' })).rejects.toMatchObject({
+    await expect(createAiResponse(appPlatformApi, { input: 'hi' })).rejects.toMatchObject({
       status: 403,
       code: 'AI_DISABLED',
     });
@@ -286,7 +287,7 @@ describe('streamAiResponse', () => {
     const onTextDelta = vi.fn();
     const onCompleted = vi.fn();
 
-    const result = await streamAiResponse(
+    const result = await streamAiResponse(appPlatformApi, 
       { input: 'hi', model: 'gpt-5-mini' },
       { onEvent, onTextDelta, onCompleted },
     );
@@ -314,7 +315,7 @@ describe('streamAiResponse', () => {
       }),
     );
 
-    await streamAiResponse({ input: 'hello', maxOutputTokens: 64 });
+    await streamAiResponse(appPlatformApi, { input: 'hello', maxOutputTokens: 64 });
 
     expect(body).toEqual({ input: 'hello', maxOutputTokens: 64 });
     expect(accept).toBe('text/event-stream');
@@ -336,7 +337,7 @@ describe('streamAiResponse', () => {
     );
     const onError = vi.fn();
 
-    await expect(streamAiResponse({ input: 'hi' }, { onError })).resolves.toBeNull();
+    await expect(streamAiResponse(appPlatformApi, { input: 'hi' }, { onError })).resolves.toBeNull();
     expect(onError).toHaveBeenCalledWith('AI_PROVIDER_UNAVAILABLE', 'Upstream down');
   });
 
@@ -350,8 +351,8 @@ describe('streamAiResponse', () => {
       ),
     );
 
-    const promise = streamAiResponse({ input: 'hi' });
-    await expect(promise).rejects.toBeInstanceOf(ApiError);
+    const promise = streamAiResponse(appPlatformApi, { input: 'hi' });
+    await expect(promise).rejects.toSatisfy(isPlatformApiError);
     await expect(promise).rejects.toMatchObject({ status: 403, code: 'AI_KEY_REQUIRED' });
   });
 
@@ -359,7 +360,7 @@ describe('streamAiResponse', () => {
     const controller = new AbortController();
     controller.abort();
 
-    await expect(streamAiResponse({ input: 'hi' }, {}, controller.signal)).resolves.toBeNull();
+    await expect(streamAiResponse(appPlatformApi, { input: 'hi' }, {}, controller.signal)).resolves.toBeNull();
   });
 });
 

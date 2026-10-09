@@ -4,22 +4,22 @@
  */
 import { describe, it, expect } from 'vitest';
 import { screen, within } from '@testing-library/react';
-import { http, HttpResponse } from 'msw';
-import { render } from '../../utils/test-utils';
-import { server } from '../../mocks/server';
-import { MyAiUsageSection } from '../../../components/settings/ai/MyAiUsageSection';
-import { mockAiUsageEmpty, mockAiUsageReport } from '../../mocks/fixtures/ai';
+import type { TestApiRequest } from '../../../src/testing/index.js';
+import { ApiError, render } from '../harness.js';
+import { MyAiUsageSection } from '../../../src/ai/ui/user/MyAiUsageSection.js';
+import { mockAiUsageEmpty, mockAiUsageReport } from '../fixtures.js';
 
 describe('MyAiUsageSection', () => {
   it('asks for the last 30 days by model and renders totals and a model table', async () => {
     const seen: URLSearchParams[] = [];
-    server.use(
-      http.get('*/api/ai/usage/me', ({ request }) => {
-        seen.push(new URL(request.url).searchParams);
-        return HttpResponse.json({ data: mockAiUsageReport('model') });
-      }),
-    );
-    render(<MyAiUsageSection />);
+    render(<MyAiUsageSection />, {
+      responses: {
+        'GET /ai/usage/me': (request: TestApiRequest) => {
+          seen.push(new URL(request.path, 'http://test.local').searchParams);
+          return mockAiUsageReport('model');
+        },
+      },
+    });
 
     expect(screen.getByLabelText('Loading your AI usage')).toBeInTheDocument();
     const tiles = await screen.findByRole('group', { name: 'Your AI usage totals' });
@@ -39,8 +39,7 @@ describe('MyAiUsageSection', () => {
   });
 
   it('says so when there is no usage', async () => {
-    server.use(http.get('*/api/ai/usage/me', () => HttpResponse.json({ data: mockAiUsageEmpty('model') })));
-    render(<MyAiUsageSection />);
+    render(<MyAiUsageSection />, { responses: { 'GET /ai/usage/me': mockAiUsageEmpty('model') } });
 
     expect(
       await screen.findByText("You haven't made any AI requests in the last 30 days."),
@@ -49,12 +48,13 @@ describe('MyAiUsageSection', () => {
   });
 
   it('shows a refusal as an error inside the section only', async () => {
-    server.use(
-      http.get('*/api/ai/usage/me', () =>
-        HttpResponse.json({ code: 'FORBIDDEN', message: 'AI is disabled' }, { status: 403 }),
-      ),
-    );
-    render(<MyAiUsageSection />);
+    render(<MyAiUsageSection />, {
+      responses: {
+        'GET /ai/usage/me': () => {
+          throw new ApiError('AI is disabled', 403, 'FORBIDDEN');
+        },
+      },
+    });
 
     const section = await screen.findByRole('region', { name: 'Usage' });
     expect(await within(section).findByRole('alert')).toHaveTextContent('AI is disabled');

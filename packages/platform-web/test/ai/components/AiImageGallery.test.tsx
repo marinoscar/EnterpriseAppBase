@@ -7,12 +7,10 @@
  */
 import { describe, it, expect } from 'vitest';
 import { screen, within } from '@testing-library/react';
-import { http, HttpResponse } from 'msw';
-import { render } from '../../utils/test-utils';
-import { server } from '../../mocks/server';
-import { mockAiImageRunOutput, mockSignedUrl } from '../../mocks/fixtures/ai';
-import { AiImageGallery, aiImageAltText } from '../../../components/ai/AiImageGallery';
-import { aiImageFileProblem } from '../../../components/ai/playground/AiImageMode';
+import { ApiError, downloadResponses, render } from '../harness.js';
+import { mockAiImageRunOutput, mockSignedUrl } from '../fixtures.js';
+import { AiImageGallery, aiImageAltText } from '../../../src/ai/ui/shared/AiImageGallery.js';
+import { aiImageFileProblem } from '../../../src/ai/ui/playground/AiImageMode.js';
 
 describe('aiImageAltText', () => {
   it('is the prompt, numbered when there are several images', () => {
@@ -24,7 +22,9 @@ describe('aiImageAltText', () => {
 
 describe('AiImageGallery', () => {
   it('shows every image from its signed URL with the prompt as alt text and a download link', async () => {
-    render(<AiImageGallery output={mockAiImageRunOutput} prompt="A lighthouse" />);
+    render(<AiImageGallery output={mockAiImageRunOutput} prompt="A lighthouse" />, {
+      responses: downloadResponses(mockAiImageRunOutput.images.map((image) => image.storageObjectId)),
+    });
 
     const list = screen.getByRole('list', { name: 'Generated images' });
     expect(within(list).getAllByRole('listitem')).toHaveLength(2);
@@ -43,16 +43,16 @@ describe('AiImageGallery', () => {
   });
 
   it('shows an error in place of an image whose download URL cannot be had', async () => {
-    server.use(
-      http.get('*/api/storage/objects/:id/download', () =>
-        HttpResponse.json({ code: 'NOT_FOUND', message: 'Object not found' }, { status: 404 }),
-      ),
-    );
+    const only = mockAiImageRunOutput.images[0];
     render(
-      <AiImageGallery
-        output={{ ...mockAiImageRunOutput, images: [mockAiImageRunOutput.images[0]] }}
-        prompt="A lighthouse"
-      />,
+      <AiImageGallery output={{ ...mockAiImageRunOutput, images: [only] }} prompt="A lighthouse" />,
+      {
+        responses: {
+          [`GET /storage/objects/${only.storageObjectId}/download`]: () => {
+            throw new ApiError('Object not found', 404, 'NOT_FOUND');
+          },
+        },
+      },
     );
 
     expect(await screen.findByText('Object not found')).toBeInTheDocument();

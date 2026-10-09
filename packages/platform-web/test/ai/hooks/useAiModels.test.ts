@@ -10,8 +10,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 
-vi.mock('../../services/ai', async () => {
-  const actual = await vi.importActual<typeof import('../../services/ai')>('../../services/ai');
+vi.mock('../../../src/ai/headless/client.js', async () => {
+  const actual = await vi.importActual<typeof import('../../../src/ai/headless/client.js')>('../../../src/ai/headless/client.js');
   return {
     ...actual,
     listAiModels: vi.fn(),
@@ -20,11 +20,11 @@ vi.mock('../../services/ai', async () => {
   };
 });
 
-import { listAiModels, refreshAiModels, updateAiModel } from '../../services/ai';
-import type { AiModelListFilter } from '../../services/ai';
-import { ApiError } from '../../services/api';
-import { useAiModels } from '../../hooks/useAiModels';
-import { mockAiModelList, mockAiModels } from '../mocks/fixtures/ai';
+import { listAiModels, refreshAiModels, updateAiModel } from '../../../src/ai/headless/client.js';
+import type { AiModelListFilter } from '../../../src/ai/headless/types.js';
+import { ApiError } from '../harness.js';
+import { useAiModels } from '../../../src/ai/headless/use-ai-models.js';
+import { mockAiModelList, mockAiModels } from '../fixtures.js';
 
 const mockList = vi.mocked(listAiModels);
 const mockUpdate = vi.mocked(updateAiModel);
@@ -46,7 +46,7 @@ describe('useAiModels', () => {
 
   it('loads a page for the filter it is given', async () => {
     const { result } = await renderLoaded({ provider: 'openai', page: 1, pageSize: 20 });
-    expect(mockList).toHaveBeenCalledWith({ provider: 'openai', page: 1, pageSize: 20 });
+    expect(mockList).toHaveBeenCalledWith(expect.anything(), { provider: 'openai', page: 1, pageSize: 20 });
     expect(result.current.models).toHaveLength(mockAiModels.length);
     expect(result.current.total).toBe(mockAiModels.length);
   });
@@ -60,7 +60,7 @@ describe('useAiModels', () => {
 
     hook.rerender({ filter: { page: 1, pageSize: 20, q: 'gpt' } });
     await waitFor(() => expect(mockList).toHaveBeenCalledTimes(2));
-    expect(mockList).toHaveBeenLastCalledWith({ page: 1, pageSize: 20, q: 'gpt' });
+    expect(mockList).toHaveBeenLastCalledWith(expect.anything(), { page: 1, pageSize: 20, q: 'gpt' });
   });
 
   it('reports a load failure', async () => {
@@ -90,7 +90,7 @@ describe('useAiModels', () => {
         expect(await pending).toBe(true);
       });
 
-      expect(mockUpdate).toHaveBeenCalledWith(model.id, { enabled: true });
+      expect(mockUpdate).toHaveBeenCalledWith(expect.anything(), model.id, { enabled: true });
       expect(result.current.pendingIds.has(model.id)).toBe(false);
     });
 
@@ -143,7 +143,7 @@ describe('useAiModels', () => {
     });
 
     expect(ok).toBe(true);
-    expect(mockUpdate).toHaveBeenCalledWith(model.id, { capabilities });
+    expect(mockUpdate).toHaveBeenCalledWith(expect.anything(), model.id, { capabilities });
     expect(result.current.models.find((m) => m.id === model.id)?.capabilitySource).toBe(
       'admin_override',
     );
@@ -160,7 +160,7 @@ describe('useAiModels', () => {
       });
 
       expect(jobId).toBe('job-42');
-      expect(mockRefresh).toHaveBeenCalledWith('openai');
+      expect(mockRefresh).toHaveBeenCalledWith(expect.anything(), 'openai');
     });
 
     it('explains AI_KEY_REQUIRED as a missing organization key', async () => {

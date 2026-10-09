@@ -13,7 +13,7 @@ import { http, HttpResponse } from 'msw';
 import { render } from '../utils/test-utils';
 import { server } from '../mocks/server';
 import { mockAiResponse, mockPlaygroundFileModel, mockStorageObject, toSseBody } from '../mocks/fixtures/ai';
-import AiPlaygroundPage from '../../pages/AiPlaygroundPage';
+import AiPlaygroundPage from '@marinoscar/platform-web/ai/ui/playground-page';
 import { api } from '../../services/api';
 import { readMultipartFile } from '../utils/multipart';
 

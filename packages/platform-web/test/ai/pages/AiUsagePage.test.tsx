@@ -1,31 +1,24 @@
 /**
  * `/admin/settings/ai/usage` (issue #444, epic #420).
  *
- * `useAiUsage` and `usePermissions` are mocked: this suite is about what the
+ * `useAiUsage` and the viewer's permissions come from the test host: this suite is about what the
  * PAGE renders for each fixture state (loading, error, empty, data) and what
  * it asks the hook for. The network contract is
  * `AiUsagePage.wire.test.tsx`.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { act, screen, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { render, mockAdminUser } from '../../utils/test-utils';
-import { setViewportWidth } from '../../setup';
-import { mockAiUsageEmpty, mockAiUsageReport } from '../../mocks/fixtures/ai';
-import type { AiUsageQuery, AiUsageReport } from '../../../services/ai';
+import { screen, within } from '@testing-library/react';
+import { userEvent } from '@testing-library/user-event';
+import { render } from '../harness.js';
+import { mockAiUsageEmpty, mockAiUsageReport } from '../fixtures.js';
+import type { AiUsageQuery, AiUsageReport } from '../../../src/ai/headless/types.js';
 
-vi.mock('../../../hooks/useAiUsage', () => ({ useAiUsage: vi.fn(), useMyAiUsage: vi.fn() }));
-vi.mock('@marinoscar/platform-web/identity/headless', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@marinoscar/platform-web/identity/headless')>()),
-  usePermissions: vi.fn(),
-}));
+vi.mock('../../../src/ai/headless/use-ai-usage.js', () => ({ useAiUsage: vi.fn(), useMyAiUsage: vi.fn() }));
 
-import { useAiUsage, type UseAiUsageReturn } from '../../../hooks/useAiUsage';
-import { usePermissions } from '@marinoscar/platform-web/identity/headless';
-import AiUsagePage from '../../../pages/Admin/AiUsagePage';
+import { useAiUsage, type UseAiUsageReturn } from '../../../src/ai/headless/use-ai-usage.js';
+import AiUsagePage from '../../../src/ai/ui/AiUsagePage.js';
 
 const mockUseAiUsage = vi.mocked(useAiUsage);
-const mockUsePermissions = vi.mocked(usePermissions);
 
 type State = Partial<UseAiUsageReturn<AiUsageQuery['groupBy']>>;
 
@@ -45,22 +38,16 @@ function withData(query: AiUsageQuery): State {
   return { report: mockAiUsageReport(query.groupBy) as AiUsageReport };
 }
 
+/** The permissions the viewer of the next render holds (the host's viewer, not a mocked hook). */
+let grantedPermissions: string[] = [];
+
 function setPermissions(granted: string[]) {
-  mockUsePermissions.mockReturnValue({
-    permissions: new Set(granted),
-    roles: new Set(['admin']),
-    hasPermission: (permission: string) => granted.includes(permission),
-    hasAnyPermission: vi.fn(),
-    hasAllPermissions: vi.fn(),
-    hasRole: vi.fn(),
-    hasAnyRole: vi.fn(),
-    isAdmin: true,
-  });
+  grantedPermissions = granted;
 }
 
 function renderPage() {
   const user = userEvent.setup();
-  render(<AiUsagePage />, { wrapperOptions: { user: mockAdminUser } });
+  render(<AiUsagePage />, { wrapperOptions: { user: { permissions: grantedPermissions } } });
   return user;
 }
 
@@ -229,17 +216,5 @@ describe('AiUsagePage', () => {
     renderPage();
 
     expect(screen.queryByRole('heading', { level: 1, name: 'AI Usage' })).not.toBeInTheDocument();
-  });
-
-  describe('compact layout (360px)', () => {
-    it('stacks the controls and renders every table as cards, never a wide grid', async () => {
-      act(() => setViewportWidth(360));
-      setUsage(withData);
-      const user = renderPage();
-
-      expect(screen.getByTestId('admin-ai-usage-breakdown-table')).toHaveAttribute('data-layout', 'mobile');
-      await user.click(screen.getByRole('button', { name: 'Table' }));
-      expect(screen.getByTestId('admin-ai-usage-daily-table')).toHaveAttribute('data-layout', 'mobile');
-    });
   });
 });

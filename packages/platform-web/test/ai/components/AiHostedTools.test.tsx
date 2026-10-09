@@ -3,20 +3,20 @@
  */
 import { describe, it, expect } from 'vitest';
 import { screen, within } from '@testing-library/react';
-import { render } from '../../utils/test-utils';
+import { render } from '../harness.js';
 import {
   buildHostedTools,
   offeredHostedTools,
   parseVectorStoreIds,
   INITIAL_HOSTED_TOOL_SELECTION,
-} from '../../../components/ai/AiHostedToolControls';
+} from '../../../src/ai/ui/shared/AiHostedToolControls.js';
 import {
   AiHostedToolOutputs,
   collectCitations,
   safeExternalUrl,
-} from '../../../components/ai/AiHostedToolOutputs';
-import { mockPlaygroundChatModel, mockPlaygroundHostedToolsModel } from '../../mocks/fixtures/ai';
-import type { AiOutputItem } from '../../../services/ai';
+} from '../../../src/ai/ui/shared/AiHostedToolOutputs.js';
+import { mockPlaygroundChatModel, mockPlaygroundHostedToolsModel } from '../fixtures.js';
+import type { AiOutputItem } from '../../../src/ai/headless/types.js';
 
 const ALL_ON = { web_search: true, file_search: true, code_interpreter: true, image_generation: true, mcp: true };
 

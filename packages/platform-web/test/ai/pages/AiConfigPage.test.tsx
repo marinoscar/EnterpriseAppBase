@@ -13,48 +13,36 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { render, mockAdminUser } from '../../utils/test-utils';
-import type { AiAdminConfig } from '../../../services/ai';
+import { userEvent } from '@testing-library/user-event';
+import { render } from '../harness.js';
+import type { AiAdminConfig } from '../../../src/ai/headless/types.js';
 import {
   mockAiAdminConfig,
   mockAiProbeResultFailed,
   mockAiProbeResultPassed,
-} from '../../mocks/fixtures/ai';
+} from '../fixtures.js';
 
-vi.mock('../../../hooks/useAiAdminConfig', () => ({
+vi.mock('../../../src/ai/headless/use-ai-admin-config.js', () => ({
   useAiAdminConfig: vi.fn(),
 }));
 
-vi.mock('@marinoscar/platform-web/identity/headless', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@marinoscar/platform-web/identity/headless')>()),
-  usePermissions: vi.fn(),
-}));
 
-import { useAiAdminConfig } from '../../../hooks/useAiAdminConfig';
-import type { UseAiAdminConfigReturn } from '../../../hooks/useAiAdminConfig';
-import { usePermissions } from '@marinoscar/platform-web/identity/headless';
-import AiConfigPage from '../../../pages/Admin/AiConfigPage';
+import { useAiAdminConfig } from '../../../src/ai/headless/use-ai-admin-config.js';
+import type { UseAiAdminConfigReturn } from '../../../src/ai/headless/use-ai-admin-config.js';
+import AiConfigPage from '../../../src/ai/ui/AiConfigPage.js';
 
 const mockUseAiAdminConfig = vi.mocked(useAiAdminConfig);
-const mockUsePermissions = vi.mocked(usePermissions);
 
 const WRITE = ['ai_config:read', 'ai_config:write'];
 const READ_ONLY = ['ai_config:read'];
 
 const TYPED_KEY = 'sk-THIS-IS-A-TYPED-KEY-DO-NOT-RENDER';
 
+/** The permissions the viewer of the next render holds (the host's viewer, not a mocked hook). */
+let grantedPermissions: string[] = [];
+
 function setPermissions(granted: string[]) {
-  mockUsePermissions.mockReturnValue({
-    permissions: new Set(granted),
-    roles: new Set(['admin']),
-    hasPermission: (permission: string) => granted.includes(permission),
-    hasAnyPermission: vi.fn(),
-    hasAllPermissions: vi.fn(),
-    hasRole: vi.fn(),
-    hasAnyRole: vi.fn(),
-    isAdmin: true,
-  });
+  grantedPermissions = granted;
 }
 
 const noKeyConfig: AiAdminConfig = {
@@ -99,7 +87,7 @@ function setHook(overrides: Partial<UseAiAdminConfigReturn> = {}): UseAiAdminCon
 }
 
 function renderPage() {
-  return render(<AiConfigPage />, { wrapperOptions: { user: mockAdminUser } });
+  return render(<AiConfigPage />, { wrapperOptions: { user: { permissions: grantedPermissions } } });
 }
 
 describe('AiConfigPage', () => {

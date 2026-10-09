@@ -1,7 +1,7 @@
 /**
  * `/admin/settings/ai/models` (issue #429, epic #419).
  *
- * `useAiModels`, `useAiAdminConfig` and `usePermissions` are mocked: this
+ * `useAiModels`, `useAiAdminConfig` and the viewer's permissions come from the test host: this
  * suite is about what the PAGE renders for each row and what it asks the
  * hooks to do. The optimistic toggle and its rollback are proved end to end
  * in `AiModelsPage.wire.test.tsx`.
@@ -9,28 +9,22 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { render, mockAdminUser } from '../../utils/test-utils';
-import type { AiAdminConfig, AiModel } from '../../../services/ai';
-import { mockAiAdminConfig, mockAiModels } from '../../mocks/fixtures/ai';
+import { userEvent } from '@testing-library/user-event';
+import { render } from '../harness.js';
+import type { AiAdminConfig, AiModel } from '../../../src/ai/headless/types.js';
+import { mockAiAdminConfig, mockAiModels } from '../fixtures.js';
 
-vi.mock('../../../hooks/useAiModels', () => ({ useAiModels: vi.fn() }));
-vi.mock('../../../hooks/useAiAdminConfig', () => ({ useAiAdminConfig: vi.fn() }));
-vi.mock('@marinoscar/platform-web/identity/headless', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@marinoscar/platform-web/identity/headless')>()),
-  usePermissions: vi.fn(),
-}));
+vi.mock('../../../src/ai/headless/use-ai-models.js', () => ({ useAiModels: vi.fn() }));
+vi.mock('../../../src/ai/headless/use-ai-admin-config.js', () => ({ useAiAdminConfig: vi.fn() }));
 
-import { useAiModels } from '../../../hooks/useAiModels';
-import type { UseAiModelsReturn } from '../../../hooks/useAiModels';
-import { useAiAdminConfig } from '../../../hooks/useAiAdminConfig';
-import type { UseAiAdminConfigReturn } from '../../../hooks/useAiAdminConfig';
-import { usePermissions } from '@marinoscar/platform-web/identity/headless';
-import AiModelsPage from '../../../pages/Admin/AiModelsPage';
+import { useAiModels } from '../../../src/ai/headless/use-ai-models.js';
+import type { UseAiModelsReturn } from '../../../src/ai/headless/use-ai-models.js';
+import { useAiAdminConfig } from '../../../src/ai/headless/use-ai-admin-config.js';
+import type { UseAiAdminConfigReturn } from '../../../src/ai/headless/use-ai-admin-config.js';
+import AiModelsPage from '../../../src/ai/ui/AiModelsPage.js';
 
 const mockUseAiModels = vi.mocked(useAiModels);
 const mockUseAiAdminConfig = vi.mocked(useAiAdminConfig);
-const mockUsePermissions = vi.mocked(usePermissions);
 
 const deprecatedModel: AiModel = {
   ...mockAiModels[0],
@@ -41,17 +35,11 @@ const deprecatedModel: AiModel = {
   deprecatedAt: '2026-08-01T00:00:00.000Z',
 };
 
+/** The permissions the viewer of the next render holds (the host's viewer, not a mocked hook). */
+let grantedPermissions: string[] = [];
+
 function setPermissions(granted: string[]) {
-  mockUsePermissions.mockReturnValue({
-    permissions: new Set(granted),
-    roles: new Set(['admin']),
-    hasPermission: (permission: string) => granted.includes(permission),
-    hasAnyPermission: vi.fn(),
-    hasAllPermissions: vi.fn(),
-    hasRole: vi.fn(),
-    hasAnyRole: vi.fn(),
-    isAdmin: true,
-  });
+  grantedPermissions = granted;
 }
 
 function setConfig(
@@ -96,7 +84,7 @@ function setModels(overrides: Partial<UseAiModelsReturn> = {}): UseAiModelsRetur
 }
 
 function renderPage() {
-  return render(<AiModelsPage />, { wrapperOptions: { user: mockAdminUser } });
+  return render(<AiModelsPage />, { wrapperOptions: { user: { permissions: grantedPermissions } } });
 }
 
 describe('AiModelsPage', () => {

@@ -22,10 +22,10 @@ import {
   mockPlaygroundImageGenerateOnlyModel,
   mockSignedUrl,
 } from '../mocks/fixtures/ai';
-import AiPlaygroundPage from '../../pages/AiPlaygroundPage';
-import { AiConfigContext, type UseAiConfigReturn } from '../../hooks/useAiConfig';
-import { AI_RUN_POLL_INTERVAL_MS } from '../../hooks/useAiRun';
-import type { AiRunStatus } from '../../services/ai';
+import AiPlaygroundPage from '@marinoscar/platform-web/ai/ui/playground-page';
+import { AiConfigContext, type UseAiConfigReturn } from '@marinoscar/platform-web/ai/headless';
+import { AI_RUN_POLL_INTERVAL_MS } from '@marinoscar/platform-web/ai/headless';
+import type { AiRunStatus } from '@marinoscar/platform-web/ai/headless';
 
 async function renderImageMode() {
   const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });

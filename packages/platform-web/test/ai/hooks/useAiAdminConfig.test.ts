@@ -13,8 +13,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 
-vi.mock('../../services/ai', async () => {
-  const actual = await vi.importActual<typeof import('../../services/ai')>('../../services/ai');
+vi.mock('../../../src/ai/headless/client.js', async () => {
+  const actual = await vi.importActual<typeof import('../../../src/ai/headless/client.js')>('../../../src/ai/headless/client.js');
   return {
     ...actual,
     getAiAdminConfig: vi.fn(),
@@ -31,16 +31,16 @@ import {
   setAiProviderKey,
   testAiProvider,
   updateAiAdminConfig,
-} from '../../services/ai';
-import type { AiAdminConfigInput } from '../../services/ai';
-import { ApiError } from '../../services/api';
-import { useAiAdminConfig } from '../../hooks/useAiAdminConfig';
-import { toAiErrorInfo } from '../../services/aiErrors';
+} from '../../../src/ai/headless/client.js';
+import type { AiAdminConfigInput } from '../../../src/ai/headless/types.js';
+import { ApiError } from '../harness.js';
+import { useAiAdminConfig } from '../../../src/ai/headless/use-ai-admin-config.js';
+import { toAiErrorInfo } from '../../../src/ai/headless/errors.js';
 import {
   mockAiAdminConfig,
   mockAiProbeResultFailed,
   mockAiProbeResultPassed,
-} from '../mocks/fixtures/ai';
+} from '../fixtures.js';
 
 const mockGet = vi.mocked(getAiAdminConfig);
 const mockUpdate = vi.mocked(updateAiAdminConfig);
@@ -110,7 +110,7 @@ describe('useAiAdminConfig', () => {
       });
 
       expect(ok).toBe(true);
-      expect(mockUpdate).toHaveBeenCalledWith(input, mockAiAdminConfig.version);
+      expect(mockUpdate).toHaveBeenCalledWith(expect.anything(), input, mockAiAdminConfig.version);
       expect(result.current.config).toEqual(saved);
     });
 
@@ -178,7 +178,7 @@ describe('useAiAdminConfig', () => {
       });
 
       expect(ok).toBe(true);
-      expect(mockSetKey).toHaveBeenCalledWith('openai', 'sk-test-new-key');
+      expect(mockSetKey).toHaveBeenCalledWith(expect.anything(), 'openai', 'sk-test-new-key');
       expect(result.current.config).toEqual(updated);
       expect(result.current.keyAction).toBeNull();
     });
@@ -228,7 +228,7 @@ describe('useAiAdminConfig', () => {
         await result.current.test('openai', { apiKey: 'sk-typed-key' });
       });
 
-      expect(mockTest).toHaveBeenCalledWith('openai', { apiKey: 'sk-typed-key' });
+      expect(mockTest).toHaveBeenCalledWith(expect.anything(), 'openai', { apiKey: 'sk-typed-key' });
       expect(result.current.testResults.openai).toEqual(mockAiProbeResultFailed);
       expect(result.current.probeError).toBeNull();
       expect(result.current.probingProvider).toBeNull();

@@ -2,12 +2,13 @@
  * `useAiUsage` / `useMyAiUsage` (#444) against the MSW network.
  */
 import { describe, it, expect } from 'vitest';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act, waitFor } from '@testing-library/react';
+import { renderHook } from '../utils/test-utils';
 import { delay, http, HttpResponse } from 'msw';
 import { server } from '../mocks/server';
-import { useAiUsage, useMyAiUsage } from '../../hooks/useAiUsage';
+import { useAiUsage, useMyAiUsage } from '@marinoscar/platform-web/ai/headless';
 import { mockAiUsageEmpty, mockAiUsageReport } from '../mocks/fixtures/ai';
-import type { AiUsageQuery } from '../../services/ai';
+import type { AiUsageQuery } from '@marinoscar/platform-web/ai/headless';
 
 const RANGE = { from: '2026-08-28', to: '2026-09-26' };
 

@@ -7,11 +7,11 @@ import {
   useAiConfig,
   useAiFeatures,
   type UseAiConfigReturn,
-} from '../../hooks/useAiConfig';
-import { AiConfigProvider } from '../../contexts/AiConfigContext';
-import { getAiConfig } from '../../services/ai';
-import { ApiError } from '../../services/api';
-import { mockAiPublicConfigEnabled } from '../mocks/fixtures/ai';
+} from '../../../src/ai/headless/use-ai-config.js';
+import { AiConfigProvider } from '../../../src/ai/headless/ai-config-provider.js';
+import { getAiConfig } from '../../../src/ai/headless/client.js';
+import { ApiError } from '../harness.js';
+import { mockAiPublicConfigEnabled } from '../fixtures.js';
 
 /**
  * `useAiConfig` — issue #425, epic #419. Mirrors `useNotificationConfig`'s
@@ -20,7 +20,7 @@ import { mockAiPublicConfigEnabled } from '../mocks/fixtures/ai';
  * and it reads the shell provider's single fetch when one is mounted.
  */
 
-vi.mock('../../services/ai', () => ({
+vi.mock('../../../src/ai/headless/client.js', () => ({
   getAiConfig: vi.fn(),
 }));
 

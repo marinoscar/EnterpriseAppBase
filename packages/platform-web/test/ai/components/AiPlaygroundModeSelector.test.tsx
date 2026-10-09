@@ -7,9 +7,9 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { render } from '../../utils/test-utils';
-import { AiPlaygroundModeSelector } from '../../../components/ai/playground/AiPlaygroundModeSelector';
+import { userEvent } from '@testing-library/user-event';
+import { render } from '../harness.js';
+import { AiPlaygroundModeSelector } from '../../../src/ai/ui/playground/AiPlaygroundModeSelector.js';
 import {
   AI_PLAYGROUND_MODES,
   aiPlaygroundMode,
@@ -18,8 +18,8 @@ import {
   modelsForMode,
   unavailableModes,
   type AiPlaygroundModeId,
-} from '../../../components/ai/playground/aiPlaygroundModes';
-import type { UsableAiModel } from '../../../services/ai';
+} from '../../../src/ai/ui/playground/aiPlaygroundModes.js';
+import type { UsableAiModel } from '../../../src/ai/headless/types.js';
 
 function model(modelId: string, capabilities: string[]): UsableAiModel {
   return {

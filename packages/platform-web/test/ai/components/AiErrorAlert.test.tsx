@@ -1,17 +1,17 @@
 import { describe, it, expect, vi } from 'vitest';
 import { screen } from '@testing-library/react';
-import { render } from '../../utils/test-utils';
+import { render } from '../harness.js';
 import {
   AiErrorAlert,
   AI_KEYS_PATH,
   aiErrorCopy,
   formatRetryAfter,
-} from '../../../components/ai/AiErrorAlert';
-import { AiConfigContext, type UseAiConfigReturn } from '../../../hooks/useAiConfig';
-import { mockAiPublicConfigEnabled } from '../../mocks/fixtures/ai';
-import { toAiErrorInfo } from '../../../services/aiErrors';
-import type { AiErrorInfo } from '../../../services/aiErrors';
-import { ApiError } from '../../../services/api';
+} from '../../../src/ai/ui/shared/AiErrorAlert.js';
+import { AiConfigContext, type UseAiConfigReturn } from '../../../src/ai/headless/use-ai-config.js';
+import { mockAiPublicConfigEnabled } from '../fixtures.js';
+import { toAiErrorInfo } from '../../../src/ai/headless/errors.js';
+import type { AiErrorInfo } from '../../../src/ai/headless/errors.js';
+import { ApiError } from '../harness.js';
 
 /**
  * `AiErrorAlert` — issue #434. The single code → copy mapping every AI

@@ -3,10 +3,10 @@
  */
 import { describe, it, expect } from 'vitest';
 import { screen, within } from '@testing-library/react';
-import { render } from '../../utils/test-utils';
-import { AiTranscript, formatTimestamp } from '../../../components/ai/AiTranscript';
-import { audioFileProblem } from '../../../components/ai/playground/AiTranscribeMode';
-import { mockAiTranscriptionRunOutput } from '../../mocks/fixtures/ai';
+import { render } from '../harness.js';
+import { AiTranscript, formatTimestamp } from '../../../src/ai/ui/shared/AiTranscript.js';
+import { audioFileProblem } from '../../../src/ai/ui/playground/AiTranscribeMode.js';
+import { mockAiTranscriptionRunOutput } from '../fixtures.js';
 
 describe('formatTimestamp', () => {
   it('formats m:ss and h:mm:ss', () => {

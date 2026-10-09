@@ -9,11 +9,11 @@ import {
   toProviderInput,
   validateProviderForm,
   hasProviderFormErrors,
-} from '../../../../components/admin/ai/aiProviderForm';
-import type { AiProviderFormValue } from '../../../../components/admin/ai/aiProviderForm';
-import { aiAdminConfigToInput } from '../../../../services/ai';
-import type { AiAdminProvider } from '../../../../services/ai';
-import { mockAiAdminConfig, mockAiAdminConfigWithCompatible } from '../../../mocks/fixtures/ai';
+} from '../../src/ai/ui/admin/aiProviderForm.js';
+import type { AiProviderFormValue } from '../../src/ai/ui/admin/aiProviderForm.js';
+import { aiAdminConfigToInput } from '../../src/ai/headless/types.js';
+import type { AiAdminProvider } from '../../src/ai/headless/types.js';
+import { mockAiAdminConfig, mockAiAdminConfigWithCompatible } from './fixtures.js';
 
 const [openai, azure, compatible] = mockAiAdminConfigWithCompatible.providers as [
   AiAdminProvider,

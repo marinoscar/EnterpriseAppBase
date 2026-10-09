@@ -20,7 +20,7 @@ import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { render } from '../utils/test-utils';
 import { server } from '../mocks/server';
-import UserAiKeysPage from '../../pages/UserAiKeysPage';
+import UserAiKeysPage from '@marinoscar/platform-web/ai/ui/keys-page';
 import { mockUserSettings } from '../mocks/data';
 import {
   mockAiProbeResultPassed,

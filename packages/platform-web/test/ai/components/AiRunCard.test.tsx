@@ -1,10 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { screen } from '@testing-library/react';
-import { render } from '../../utils/test-utils';
-import { AiRunCard, type AiRunCardProps } from '../../../components/ai/AiRunCard';
-import { AiConfigContext, type UseAiConfigReturn } from '../../../hooks/useAiConfig';
-import { mockAiPublicConfigEnabled, mockAiRun } from '../../mocks/fixtures/ai';
-import type { AiRun } from '../../../services/ai';
+import { render } from '../harness.js';
+import { AiRunCard, type AiRunCardProps } from '../../../src/ai/ui/shared/AiRunCard.js';
+import { AiConfigContext, type UseAiConfigReturn } from '../../../src/ai/headless/use-ai-config.js';
+import { mockAiPublicConfigEnabled, mockAiRun } from '../fixtures.js';
+import type { AiRun } from '../../../src/ai/headless/types.js';
 
 /**
  * `AiRunCard` — stale status rendering, issue #509. A failed status READ must

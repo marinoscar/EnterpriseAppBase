@@ -42,7 +42,7 @@ import type {
   AiModel,
   AiModelUpdateInput,
   AiUsageGroupBy,
-} from '../../services/ai';
+} from '@marinoscar/platform-web/ai/headless';
 
 // Use wildcard pattern to match relative URLs
 const API_BASE = '*/api';

@@ -8,9 +8,9 @@ import {
   formatFailureRate,
   formatUnits,
   formatUsageDay,
-} from '../../../components/ai/usage';
-import { aiUsageRangeForDays } from '../../../services/ai';
-import { mockAiUsageReport } from '../../mocks/fixtures/ai';
+} from '../../../src/ai/ui/usage/index.js';
+import { aiUsageRangeForDays } from '../../../src/ai/headless/types.js';
+import { mockAiUsageReport } from '../fixtures.js';
 
 describe('aiUsageRangeForDays', () => {
   it('is the last N UTC days, inclusive of today', () => {

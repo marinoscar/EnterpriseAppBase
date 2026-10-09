@@ -3,14 +3,14 @@
  */
 import { describe, it, expect } from 'vitest';
 import { screen, within } from '@testing-library/react';
-import { render } from '../../utils/test-utils';
+import { render } from '../harness.js';
 import {
   cosineSimilarity,
   parseEmbeddingInputs,
   similarityMatrix,
-} from '../../../components/ai/playground/embeddingMath';
-import { AiEmbeddingsResult } from '../../../components/ai/AiEmbeddingsResult';
-import type { AiEmbeddingsResponse } from '../../../services/ai';
+} from '../../../src/ai/ui/playground/embeddingMath.js';
+import { AiEmbeddingsResult } from '../../../src/ai/ui/shared/AiEmbeddingsResult.js';
+import type { AiEmbeddingsResponse } from '../../../src/ai/headless/types.js';
 
 describe('embeddingMath', () => {
   it('parses one trimmed input per non-blank line (LF or CRLF)', () => {
