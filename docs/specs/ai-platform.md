@@ -734,6 +734,8 @@ status-derived value (`FORBIDDEN`, …); **the AI code travels in
 | `AI_STRUCTURED_OUTPUT_INVALID` | 502 | Output did not parse against the schema. |
 | `AI_STORAGE_UNAVAILABLE` | 503 | Object storage unconfigured or unusable for a storage-backed input or output. |
 
+The admin refresh route (`POST /api/admin/ai/models/refresh`) answers `AI_DISABLED` and `AI_PROVIDER_DISABLED` as **409** `details.reason` (with `details.provider` for the latter) instead of queueing a sync that would skip; the sync keeps the same check for jobs already queued.
+
 `AiError.cause` is non-enumerable, so an SDK error echoing headers never
 reaches `JSON.stringify`. In a job, `throw err.toRateLimitError() ?? err`
 defers on a throttle instead of spending an attempt.
@@ -864,7 +866,7 @@ Usage** (both `feature: 'ai'`), all gated on `ai_config:read`, then
 | `POST /api/admin/ai/providers/{provider}/test` | `credentials`, `list_models`, `responses_smoke` (billed); always 200 | `ai_config:write` |
 | `GET /api/admin/ai/models` | Paginated catalog, filterable | `ai_config:read` |
 | `PATCH /api/admin/ai/models/{id}` | Enable/disable, override capabilities (`admin_override`); 409 for deprecated, 400 unclassified without capabilities | `ai_config:write` |
-| `POST /api/admin/ai/models/refresh` | Enqueue `ai.catalog.refresh`; 409 without admin key unless keyless | `ai_config:write` |
+| `POST /api/admin/ai/models/refresh` | Enqueue `ai.catalog.refresh`; 409 `AI_DISABLED` / `AI_PROVIDER_DISABLED` while AI or the provider is off, then 409 `AI_KEY_REQUIRED` without admin key unless keyless | `ai_config:write` |
 | `GET /api/admin/ai/usage` | Usage report, any `groupBy` (including `org`), filters `userId`/`provider`/`model`/`orgId` | `ai_config:read` |
 | `GET /api/admin/ai/org-usage` | The active organization's usage report | `org_ai_config:read` |
 | `GET /api/admin/ai/org-keys` | The active organization's keys, masked, one per registered provider | `org_ai_config:read` |

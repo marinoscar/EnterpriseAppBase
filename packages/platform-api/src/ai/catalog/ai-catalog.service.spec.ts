@@ -188,6 +188,25 @@ const OVERRIDE: AiModelCapabilities = {
 
 // ---- Tests ---------------------------------------------------------------------
 
+describe('AiCatalogService.disabledReason (#888)', () => {
+  it('is null when AI and the provider are on', async () => {
+    await expect(makeHarness().service.disabledReason('fake')).resolves.toBeNull();
+  });
+
+  it('is AI_DISABLED when the kill switch is off, whatever the provider says', async () => {
+    const h = makeHarness({ aiEnabled: false });
+
+    await expect(h.service.disabledReason('fake')).resolves.toBe('AI_DISABLED');
+  });
+
+  it('is AI_PROVIDER_DISABLED for a provider that is off or unknown to the policy', async () => {
+    await expect(
+      makeHarness({ providerEnabled: false }).service.disabledReason('fake'),
+    ).resolves.toBe('AI_PROVIDER_DISABLED');
+    await expect(makeHarness().service.disabledReason('nope')).resolves.toBe('AI_PROVIDER_DISABLED');
+  });
+});
+
 describe('AiCatalogService.sync', () => {
   describe('gates (no provider call, no rows touched)', () => {
     it('skips with AI_DISABLED when the kill switch is off', async () => {

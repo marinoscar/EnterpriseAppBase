@@ -186,6 +186,11 @@ export default function AiModelsPage() {
 
   const handleRefresh = async () => {
     const jobIds: string[] = [];
+    // Cleared once here, not per provider: with every provider selected, one
+    // provider's refusal (AI or the provider switched off, #888) is collected
+    // beside the others' queued jobs instead of replacing or aborting them.
+    clearRefreshError();
+    setQueuedJobIds(null);
     for (const target of refreshTargets) {
       const jobId = await refreshCatalog(target.id);
       if (jobId) jobIds.push(jobId);

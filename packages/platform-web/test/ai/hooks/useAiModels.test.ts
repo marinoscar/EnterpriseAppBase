@@ -178,5 +178,59 @@ describe('useAiModels', () => {
       expect(result.current.refreshError).toMatch(/no organization key/i);
       expect(result.current.isRefreshing).toBe(false);
     });
+
+    it('shows the server message for AI_DISABLED and AI_PROVIDER_DISABLED (#888)', async () => {
+      mockRefresh.mockRejectedValue(
+        new ApiError('"openai" is not enabled. Enable the provider on the AI page, then refresh.', 409, 'CONFLICT', {
+          reason: 'AI_PROVIDER_DISABLED',
+          provider: 'openai',
+        }),
+      );
+      const { result } = await renderLoaded();
+
+      await act(async () => {
+        await result.current.refreshCatalog('openai');
+      });
+
+      expect(result.current.refreshError).toBe(
+        '"openai" is not enabled. Enable the provider on the AI page, then refresh.',
+      );
+    });
+
+    it('collects the refusals of several providers and keeps the queued job (#888)', async () => {
+      mockRefresh
+        .mockRejectedValueOnce(
+          new ApiError('"openai" is not enabled.', 409, 'CONFLICT', { reason: 'AI_PROVIDER_DISABLED' }),
+        )
+        .mockResolvedValueOnce({ jobId: 'job-9', status: 'pending' })
+        .mockRejectedValueOnce(
+          new ApiError('"gemini" is not enabled.', 409, 'CONFLICT', { reason: 'AI_PROVIDER_DISABLED' }),
+        );
+      const { result } = await renderLoaded();
+
+      const jobIds: Array<string | null> = [];
+      await act(async () => {
+        for (const id of ['openai', 'anthropic', 'gemini']) {
+          jobIds.push(await result.current.refreshCatalog(id));
+        }
+      });
+
+      expect(jobIds).toEqual([null, 'job-9', null]);
+      expect(result.current.refreshError).toBe('"openai" is not enabled. "gemini" is not enabled.');
+    });
+
+    it('does not repeat an identical refusal', async () => {
+      mockRefresh.mockRejectedValue(
+        new ApiError('AI is turned off.', 409, 'CONFLICT', { reason: 'AI_DISABLED' }),
+      );
+      const { result } = await renderLoaded();
+
+      await act(async () => {
+        await result.current.refreshCatalog('openai');
+        await result.current.refreshCatalog('anthropic');
+      });
+
+      expect(result.current.refreshError).toBe('AI is turned off.');
+    });
   });
 });

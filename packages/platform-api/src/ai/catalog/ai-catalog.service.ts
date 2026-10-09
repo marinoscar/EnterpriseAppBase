@@ -110,6 +110,38 @@ export class AiCatalogService {
   ) {}
 
   /**
+   * Why a sync of `providerId` would do nothing under the current AI policy, or
+   * `null` when it may run. The one reading of the kill switch and the
+   * per-provider switch: `sync` honours it for jobs already queued, and the
+   * admin refresh route refuses up front with the same reason (#888) instead of
+   * queueing a job that would silently skip.
+   */
+  async disabledReason(
+    providerId: string,
+  ): Promise<Extract<AiCatalogSkipReason, 'AI_DISABLED' | 'AI_PROVIDER_DISABLED'> | null> {
+    return (await this.readGate(providerId)).disabled;
+  }
+
+  private async readGate(providerId: string): Promise<
+    | { disabled: 'AI_DISABLED' | 'AI_PROVIDER_DISABLED'; providerPolicy?: undefined }
+    | { disabled: null; providerPolicy: AiProviderPolicy }
+  > {
+    const policy = await this.systemSettings.getAiPolicy();
+
+    if (!policy.enabled) {
+      return { disabled: 'AI_DISABLED' };
+    }
+
+    const providerPolicy = (policy.providers as Record<string, AiProviderPolicy | undefined>)[
+      providerId
+    ];
+
+    return providerPolicy?.enabled
+      ? { disabled: null, providerPolicy }
+      : { disabled: 'AI_PROVIDER_DISABLED' };
+  }
+
+  /**
    * Queues a catalog refresh for `providerId`. Deduplicated by the queue on
    * type + subject, so asking twice while one is pending returns that job.
    */
@@ -139,18 +171,10 @@ export class AiCatalogService {
    * failed usage row and rethrown as an `AiError`.
    */
   async sync(providerId: string, options: AiCatalogSyncOptions = {}): Promise<AiCatalogSyncResult> {
-    const policy = await this.systemSettings.getAiPolicy();
+    const { disabled, providerPolicy } = await this.readGate(providerId);
 
-    if (!policy.enabled) {
-      return { skipped: 'AI_DISABLED' };
-    }
-
-    const providerPolicy = (policy.providers as Record<string, AiProviderPolicy | undefined>)[
-      providerId
-    ];
-
-    if (!providerPolicy?.enabled) {
-      return { skipped: 'AI_PROVIDER_DISABLED' };
+    if (disabled) {
+      return { skipped: disabled };
     }
 
     const adapter = this.registry.get(providerId);

@@ -66,6 +66,10 @@ function defaultAi(): StoredAi {
   };
 }
 
+function enabledAi(): StoredAi {
+  return { ...defaultAi(), enabled: true, providers: { openai: { enabled: true } } };
+}
+
 function configBody(overrides: Record<string, unknown> = {}) {
   return {
     enabled: true,
@@ -854,7 +858,40 @@ describe('AI Administration Integration', () => {
         );
       });
 
+      it('refresh is 409 AI_DISABLED while AI is off, and queues nothing (#888)', async () => {
+        storedKey = ADMIN_KEY;
+        storedAi = defaultAi();
+
+        const res = record(
+          await request(server())
+            .post(`${BASE}/models/refresh`)
+            .set(authHeader(admin.accessToken))
+            .send({ provider: 'openai' })
+            .expect(409),
+        );
+
+        expect(res.body.details).toMatchObject({ reason: 'AI_DISABLED' });
+        expect(context.prismaMock.job.create).not.toHaveBeenCalled();
+      });
+
+      it('refresh is 409 AI_PROVIDER_DISABLED while the provider is off (#888)', async () => {
+        storedKey = ADMIN_KEY;
+        storedAi = { ...defaultAi(), enabled: true };
+
+        const res = record(
+          await request(server())
+            .post(`${BASE}/models/refresh`)
+            .set(authHeader(admin.accessToken))
+            .send({ provider: 'openai' })
+            .expect(409),
+        );
+
+        expect(res.body.details).toMatchObject({ reason: 'AI_PROVIDER_DISABLED', provider: 'openai' });
+        expect(context.prismaMock.job.create).not.toHaveBeenCalled();
+      });
+
       it('refresh is 409 without an admin key', async () => {
+        storedAi = enabledAi();
         const res = record(
           await request(server())
             .post(`${BASE}/models/refresh`)
@@ -869,6 +906,7 @@ describe('AI Administration Integration', () => {
 
       it('refresh enqueues ai.catalog.refresh and returns the job id', async () => {
         storedKey = ADMIN_KEY;
+        storedAi = enabledAi();
 
         const res = record(
           await request(server())
