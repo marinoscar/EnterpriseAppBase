@@ -43,6 +43,13 @@ jobs:
 
       - run: npm run lint:packages
 
+      # Per-slice peer dependencies (issue #914; docs/PACKAGES.md): every
+      # non-test import of a slice is covered by the peers it declares in
+      # packages/platform-slice-peers.json (or its slice dependencies'), no
+      # declared peer is orphaned, and only what the universal slices need is
+      # a required peer.
+      - run: npm run check:slice-peers
+
       - run: npm run test:packages
 
       # `npm pack --dry-run` per package: every exports/main/types target and

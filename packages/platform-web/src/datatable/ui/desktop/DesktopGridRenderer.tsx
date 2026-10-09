@@ -47,7 +47,7 @@ import {
   useGridSelector,
 } from '@mui/x-data-grid';
 import { Alert, Box, Checkbox, IconButton, useMediaQuery, useTheme } from '@mui/material';
-import visuallyHidden from '@mui/utils/visuallyHidden';
+import { visuallyHidden } from '../shared/visuallyHidden.js';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
 import type { DataTableRendererProps } from '../../headless/types.js';

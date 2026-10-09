@@ -89,6 +89,11 @@
   "peerDependencies": {
     "react": "^19.2.8"
   },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@types/node": "^22.15.32",
     "@types/react": "^19.2.18",

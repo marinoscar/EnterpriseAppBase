@@ -302,6 +302,15 @@
     },
     "vitest-axe": {
       "optional": true
+    },
+    "@mui/icons-material": {
+      "optional": true
+    },
+    "react-router-dom": {
+      "optional": true
+    },
+    "zod": {
+      "optional": true
     }
   },
   "devDependencies": {

@@ -37,7 +37,7 @@ import {
 } from '@mui/material';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import CloseIcon from '@mui/icons-material/Close';
-import visuallyHidden from '@mui/utils/visuallyHidden';
+import { visuallyHidden } from '../shared/visuallyHidden.js';
 import type {
   DataTableColumn,
   DataTableFilter,
