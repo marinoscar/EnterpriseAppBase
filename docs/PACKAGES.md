@@ -14,7 +14,8 @@ Build, test and lint commands for the packages themselves are in [DEVELOPMENT.md
 6. [Adding a slice](#adding-a-slice)
 7. [Running the checks locally](#running-the-checks-locally)
 8. [What a failure means](#what-a-failure-means)
-9. [Contract conventions](#contract-conventions)
+9. [Peer dependencies per slice](#peer-dependencies-per-slice)
+10. [Contract conventions](#contract-conventions)
 
 ## What is checked, and by what
 
@@ -27,9 +28,10 @@ Build, test and lint commands for the packages themselves are in [DEVELOPMENT.md
 | Catalog completeness | `check-package-docs.mjs` | A symbol tagged `@extensionPoint` is missing from its README's catalog, a row names a symbol that is not exported or not tagged, or a row's Kind or Stability differs from the tags |
 | Catalog links | `check-package-docs.mjs` | A row has no Example link, or the link does not resolve to a file in the reference app (`apps/`, `infra/`, `tests/`), or it points into `packages/` |
 | Slice entry points | `check-package-docs.mjs` | A slice exported as a subpath is not an entry point in the package's `typedoc.json` |
+| Slice peers | [`scripts/check-slice-peers.mjs`](../scripts/check-slice-peers.mjs) (`npm run check:slice-peers`) | A non-test import is not covered by its slice's declared peers, a declared peer is stale or orphaned, or a peer's `optional` flag disagrees with the universal slices ([below](#peer-dependencies-per-slice)) |
 | Link check | [`apps/api/test/docs-links.spec.ts`](../apps/api/test/docs-links.spec.ts) (`npm test --workspace=api`) | A relative link in a package or slice README does not resolve |
 
-All of it runs in the `package-docs` job of [`.github/workflows/packages.yml`](../.github/workflows/packages.yml), which also uploads each package's generated reference as the `api-reference` artifact. The TSDoc lint runs in that workflow's `packages` job, the link check in `ci.yml`'s API tests.
+All of it runs in the `package-docs` job of [`.github/workflows/packages.yml`](../.github/workflows/packages.yml), which also uploads each package's generated reference as the `api-reference` artifact. The TSDoc lint and the slice peer check run in that workflow's `packages` job, the link check in `ci.yml`'s API tests.
 
 ## The README
 
@@ -135,6 +137,7 @@ From the repository root:
 npm run build:packages          # the packages import each other's built types
 npm run lint:packages           # boundary rules + tsdoc/syntax
 npm run check:package-docs      # docs:packages (TypeDoc), then scripts/check-package-docs.mjs
+npm run check:slice-peers       # per-slice peer dependencies (no build needed)
 npm test --workspace=api -- docs-links
 ```
 
@@ -156,8 +159,32 @@ Each checker line is `file:line problem`, and the fix is in the file named:
 | `Example ... does not resolve` / `points into packages/` / `is outside the reference app` | Link a real file in `apps/`, `infra/` or `tests/` that uses the seam |
 | `is not in entryPoints` | Append the slice's `index.ts` to `typedoc.json` |
 | `docs-api/api.json ... missing` | Run `npm run docs:packages` first (`npm run check:package-docs` does) |
+| `[coverage] ... slice 'x' <file> 'y': is imported but is not a declared peer` | Add `y` to the slice's list in `platform-slice-peers.json` and to the package's `peerDependencies` (optional unless a universal slice needs it), or make it a `dependencies` entry |
+| `[stale] ... declares 'y'` | The slice no longer imports `y`: delete it from the slice's list (a run-time-loaded peer goes in `$runtime` instead) |
+| `[orphan] ... 'y'` | No slice declares or implies `y`: remove it from `peerDependencies`, or declare it on the slice that needs it |
+| `[optionality] ... 'y'` | Mark `y` optional in `peerDependenciesMeta`, or remove the flag, as the message says |
 
 A TypeDoc failure (`does not have any documentation`, `is referenced by ... but not included in the documentation`) names the symbol: document it, or export the type it refers to. A `tsdoc/syntax` error names the line of the malformed comment.
+
+## Peer dependencies per slice
+
+A package such as `@marinoscar/platform-api` is one npm package whose slices are subpath exports, so its `peerDependencies` would be the union of what every slice needs. An app that wants only `core`, `otel-core` and `telemetry` must not install Passport, `@nestjs/jwt` and the rest. The rule (#914):
+
+1. **Each slice declares the peers it imports directly.** [`packages/platform-slice-peers.json`](../packages/platform-slice-peers.json) maps `package -> slice -> [peer, ...]`, beside the slice graph [`platform-slices.json`](../packages/platform-slices.json). It is a sibling file, not an extension of the graph, because the ESLint boundary rule reads every key of `platform-slices.json` as a slice list and the two files change for different reasons. Derive a slice's list from its sources, never from memory: `node scripts/check-slice-peers.mjs --derive` prints each slice's direct imports that are peers of the package.
+2. **A slice inherits the peers of its declared slice dependencies**, transitively. Declaring `settings -> identity` in the graph means a consumer of `settings` installs what `identity` needs. `node scripts/check-slice-peers.mjs --table` prints what each slice needs installed beyond the required set; the package READMEs carry that table.
+3. **Only what the universal slices need is required.** `$universal` names them (`core` for `platform-api` and `platform-web`; `"*"`, every slice, for `platform-contract`). Every other peer is `optional` in `peerDependenciesMeta`. npm does not install an optional peer, so the package READMEs tell the app which to add for which slice.
+4. **`$implies`** records a peer of a peer (`@nestjs/common` needs `reflect-metadata` and `rxjs`; `nestjs-zod` needs `zod`; `@nestjs/swagger` needs `@nestjs/core`; `supertest` its `@types/supertest`). Declaring the outer peer covers the inner one, so a slice does not list what it never imports, and the inner peer is not an orphan.
+5. **`$runtime`** records a peer loaded by name at run time (`createRequire(...)('pg')` in `platform-db`'s `drift`), which an import scan cannot see. It must still appear as a string literal in the slice's sources.
+6. **`<slice>/testing`** (the files under `src/<slice>/testing/`, the slice's separate `./<slice>/testing` entry point) is scanned as a sub-slice that inherits its slice. A test runner or `supertest` declared there never becomes a peer of the slice or of the slices that depend on it. A sub-slice needs an entry only when it adds a peer.
+7. **No package imports `@prisma/client`** (a guard test enforces it). `core` reaches Prisma only through `@prisma/client/extension`, which is why `@prisma/client` is a required peer of `platform-api`; every other slice is structural. `platform-db` takes the app's client as a structural type and loads `prisma` and `pg` by name, so it does not list `@prisma/client`, and `prisma` and `pg` are optional peers (the `drift` slice and the `platform db` CLI need them).
+
+`npm run check:slice-peers` enforces it (CI: the `packages` job). For every non-test source file of every slice (a test file is under `__tests__`, `__fixtures__`, `test` or `tests`, or named `*.spec.*`, `*.test.*` or `*.d.ts`; type-only imports count, because the published declarations need them) each bare specifier must be a node builtin, the package itself, one of its `dependencies`, or covered by the slice's effective peers; every declared name must be a `peerDependencies` key, imported by the slice and not stale; every `peerDependencies` key must be declared or implied by some slice; and a peer is required exactly when a universal slice needs it. A failure names the slice, the file and the specifier. The script's tests are `apps/cli/src/slice-peers-script.test.ts`.
+
+**The root export.** A slice is imported by its subpath (`@marinoscar/platform-api/telemetry`). A package's root entry (`.`) is the one place allowed to touch any slice, so an app that imports from the root needs every slice's peers; the root file is checked against the package's whole peer set. `platform-api` and `platform-web` keep only a placeholder constant there today, but a root that re-exports slices (`platform-db`'s does) pulls them all. Import from subpaths.
+
+**Proof.** [`tests/consumer-smoke/api-slim`](../tests/consumer-smoke/api-slim/) installs only the peers of `core`, `otel-core` and `telemetry` from packed tarballs, type-checks and loads the three entry points, boots a Nest application context on `OtelMetricsModule`, and asserts the other slices' peers are not installed (CI job `pack-smoke`).
+
+**Adding a slice or an import.** A new import of an uncovered package fails the check with its slice and file: add the package to the slice's list and to `peerDependencies` (and `peerDependenciesMeta` as optional unless a universal slice needs it). A new slice needs an entry in `platform-slice-peers.json` (use `[]` for none) alongside its graph entry; the package README's peer table gains its row.
 
 ## Contract conventions
 

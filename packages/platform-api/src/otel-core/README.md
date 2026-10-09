@@ -32,7 +32,7 @@ import { MetricsHostService, OtelMetricsModule, registerRequestSpanAttributes } 
 
 **Import the `sdk` subpath first, and only it, from the bootstrap file.** Auto-instrumentation patches only modules required after `sdk.start()`; the `sdk` subpath loads no `@nestjs/*` module (pinned by `test/otel-core/load-order.spec.ts`), while the Nest-facing index loads `@nestjs/common`.
 
-Peers: `@opentelemetry/api` (already a package peer: one API instance per process holds the global providers), plus `@nestjs/common`, `@nestjs/core` and `fastify` for the Nest-facing half. The SDK packages (`@opentelemetry/sdk-node`, `auto-instrumentations-node`, the three `exporter-*-otlp-http`, `sdk-metrics`, `sdk-logs`, `sdk-trace-base`, `resources`, `semantic-conventions`, `core`) are regular **dependencies** of `@marinoscar/platform-api`; an app does not install them. The bootstrap requires them lazily, only when enabled.
+Peers: `@opentelemetry/api` (already a package peer: one API instance per process holds the global providers), plus `@nestjs/common` for the Nest-facing half and, for the request-hook types, the optional peer `fastify` (all declared for the slice in `packages/platform-slice-peers.json`). The SDK packages (`@opentelemetry/sdk-node`, `auto-instrumentations-node`, the three `exporter-*-otlp-http`, `sdk-metrics`, `sdk-logs`, `sdk-trace-base`, `resources`, `semantic-conventions`, `core`) are regular **dependencies** of `@marinoscar/platform-api`; an app does not install them. The bootstrap requires them lazily, only when enabled.
 
 ## Quick start
 

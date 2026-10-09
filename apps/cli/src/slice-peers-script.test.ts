@@ -265,9 +265,9 @@ describe('checkRepository on a fixture', () => {
       ['orphan', '*', 'd'],
     ]);
 
-    const { effective } = checkRepository(root);
-    expect(effective['platform-x'].feature).not.toContain('d');
-    expect(effective['platform-x']['feature/testing']).toEqual(expect.arrayContaining(['a', 'b', 'd']));
+    const effective = checkRepository(root).effective as unknown as Record<string, Record<string, string[]>>;
+    expect(effective['platform-x']?.feature).not.toContain('d');
+    expect(effective['platform-x']?.['feature/testing']).toEqual(expect.arrayContaining(['a', 'b', 'd']));
   });
 
   it('fails a slice directory that is not in the slice graph', () => {

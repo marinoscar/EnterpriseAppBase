@@ -36,7 +36,7 @@ npm install @marinoscar/platform-cli react
 
 | Package | Range |
 |---|---|
-| `react` | `^19.2.8` |
+| `react` | `^19.2.8` (optional peer in the manifest, needed by the `engine` slice and so by every entry that renders or runs it; `ink` brings it in anyway) |
 
 An app that writes its own TUI screen also depends on `ink` (`^7.1.1`), at the same version the package resolves.
 

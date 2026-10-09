@@ -41,27 +41,40 @@ Every slice that has a `testing` entry registers its conformance suites when tha
 npm install @marinoscar/platform-api
 ```
 
-Install these in the app; the package never bundles its own copy (a second copy breaks dependency injection, hooks or theme context).
+Install these in the app; the package never bundles its own copy (a second copy breaks dependency injection, hooks or theme context). Which ones depends on the slices you import: only what `core` needs is required, everything else is an optional peer that npm does not install for you ([the rule](../../docs/PACKAGES.md#peer-dependencies-per-slice)). Import slices by their subpath (`@marinoscar/platform-api/telemetry`), never from the package root: the root entry may touch any slice and so would need every peer.
+
+Required by every slice (`core`, with the peers those packages need in turn):
 
 | Package | Range |
 |---|---|
 | `@nestjs/common` | `^11.1.12` |
 | `@nestjs/core` | `^11.1.12` |
-| `@nestjs/event-emitter` | `^3.0.1` (identity) |
-| `@nestjs/jwt` | `^11.0.2` (identity) |
-| `@nestjs/passport` | `^11.0.5` (identity) |
 | `@nestjs/swagger` | `^11.2.5` |
 | `@opentelemetry/api` | `^1.9.1` |
-| `@prisma/client` | `^7.8.0` |
-| `fastify` | `^5` |
+| `@prisma/client` | `^7.8.0` (only `@prisma/client/extension` is imported, by `core`'s scoped data access; no slice imports the generated client) |
 | `nestjs-zod` | `^5.4.0` |
-| `passport` | `^0.7.0` (identity) |
 | `reflect-metadata` | `^0.2.2` |
 | `rxjs` | `^7.8.1` |
-| `supertest` | `^7.2.2` (optional; only the AI conformance suites, `@marinoscar/platform-api/ai/testing`) |
-| `@types/supertest` | `^7.2.0` (optional; with `supertest`, for the same suites' declarations) |
-| `@nestjs/platform-fastify` | `^11.1.12` (optional; the telemetry conformance suite, `@marinoscar/platform-api/telemetry/testing`) |
 | `zod` | `^4.4.3` |
+
+Optional peers, installed for the slices that need them:
+
+| Package | Range | Needed by |
+|---|---|---|
+| `@nestjs/config` | `^4.0.2` | `telemetry`, `identity`, `settings`, `onboarding`, `jobs`, `nodes`, `storage`, `notifications`, `db-backup`, `host` |
+| `@nestjs/schedule` | `^6.1.0` | `telemetry`, `sharing`, `identity`, `jobs`, `nodes`, `storage`, `exports`, `ai`, `db-backup` |
+| `@nestjs/event-emitter` | `^3.0.1` | `identity`, `jobs`, `nodes`, `storage`, `notifications`, `ai` |
+| `@nestjs/jwt` | `^11.0.2` | `identity`, `host` |
+| `@nestjs/passport` | `^11.0.5` | `identity` |
+| `passport` | `^0.7.0` | `identity` (with `@nestjs/passport`) |
+| `@nestjs/terminus` | `^11.0.0` | `host` (the health controller) |
+| `@prisma/client-runtime-utils` | `^7.8.0` | `jobs`, `ai`, `db-backup` |
+| `fastify` | `^5` | the slices with controllers that read the request or write the reply (types: `doctor`, `otel-core`, `telemetry`, `identity`, `storage`, `ai`, `android-app`, `host`) |
+| `@nestjs/platform-fastify` | `^11.1.12` | the telemetry conformance suite, `@marinoscar/platform-api/telemetry/testing` |
+| `supertest` | `^7.2.2` | the AI conformance suites, `@marinoscar/platform-api/ai/testing` |
+| `@types/supertest` | `^7.2.0` | with `supertest`, for the same suites' declarations |
+
+A slice also needs what the slices it depends on need (`packages/platform-slices.json`): `settings` needs `identity`'s peers, `storage` needs `jobs`' and `nodes`', and so on. The exact set per slice is `packages/platform-slice-peers.json`; `node scripts/check-slice-peers.mjs --table` prints it. For example `core`, `otel-core` and `telemetry` together need the required peers above plus `@nestjs/config`, `@nestjs/schedule` and `fastify`, and nothing else; [`tests/consumer-smoke/api-slim`](../../tests/consumer-smoke/api-slim/) installs exactly that from packed tarballs.
 
 The type packages the published declarations need whatever an app imports (`@types/passport`, `@types/passport-jwt`, `@types/passport-google-oauth20` for the identity slice, `@types/pg` for telemetry) are dependencies, so an app that type-checks its libraries (`skipLibCheck: false`) installs nothing extra. `test/declaration-type-deps.spec.ts` fails on a declaration import the manifest does not cover (#865).
 

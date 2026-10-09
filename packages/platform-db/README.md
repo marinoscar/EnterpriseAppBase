@@ -18,10 +18,13 @@ npm install @marinoscar/platform-db
 
 Install these in the app; the package never bundles its own copy (a second copy breaks dependency injection, hooks or theme context).
 
-| Package | Range |
-|---|---|
-| `@prisma/client` | `^7.8.0` |
-| `prisma` | `^7.8.0` |
+| Package | Range | Required |
+|---|---|---|
+| `zod` | `^4.4.3` | yes (`lock`, and so `sync`, `drift`, `baseline` and the `platform db` CLI) |
+| `prisma` | `^7.8.0` | optional: the `drift` slice and the CLI resolve its `build/index.js` at run time |
+| `pg` | `^8.23.0` | optional: the `drift` slice loads it by name |
+
+`@prisma/client` is not a peer of this package: the seed takes the app's client as a structural type ([the rule](../../docs/PACKAGES.md#peer-dependencies-per-slice)). The app has it anyway.
 
 ## Quick start
 
