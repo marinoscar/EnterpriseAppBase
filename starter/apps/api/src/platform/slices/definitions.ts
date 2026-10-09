@@ -9,6 +9,7 @@
 // `slices.json` and nothing else.
 import { credentialsSlice } from '../credentials/credentials.slice';
 import { emailSlice } from '../email/email.slice';
+import { notificationsSlice } from '../notifications/notifications.slice';
 import { storageSlice } from '../storage/storage.slice';
 import type { ApiSlice, SliceId } from './slice';
 
@@ -17,4 +18,5 @@ export const ALL_SLICES = {
   credentials: credentialsSlice,
   storage: storageSlice,
   email: emailSlice,
+  notifications: notificationsSlice,
 } as unknown as Readonly<Record<SliceId, ApiSlice>>;

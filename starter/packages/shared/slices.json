@@ -3,6 +3,7 @@
   "enabled": [
     "credentials",
     "storage",
-    "email"
+    "email",
+    "notifications"
   ]
 }
