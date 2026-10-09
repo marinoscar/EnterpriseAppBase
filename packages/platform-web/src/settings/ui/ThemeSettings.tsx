@@ -12,12 +12,31 @@ import {
   SettingsBrightness as SystemIcon,
 } from '@mui/icons-material';
 
-interface ThemeSettingsProps {
+/**
+ * Props of {@link ThemeSettings}.
+ *
+ * @stability experimental
+ */
+export interface ThemeSettingsProps {
   currentTheme: 'light' | 'dark' | 'system';
   onThemeChange: (theme: 'light' | 'dark' | 'system') => void;
   disabled?: boolean;
 }
 
+/**
+ * The light, dark or system choice, as a card.
+ *
+ * @param props - see {@link ThemeSettingsProps}.
+ * @returns the card.
+ *
+ * @example
+ * ```tsx
+ * <ThemeSettings currentTheme="system" onThemeChange={(theme) => save({ theme })} />
+ * ```
+ *
+ * @extensionPoint component
+ * @stability experimental
+ */
 export function ThemeSettings({
   currentTheme,
   onThemeChange,

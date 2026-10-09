@@ -2,12 +2,21 @@ import { useId, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { Alert, Box, Button, LinearProgress, Typography } from '@mui/material';
 import { CloudUpload as UploadIcon } from '@mui/icons-material';
-import { ApiError, uploadProfileImage } from '../../services/api';
-import type { ProfileImageMutationResponse } from '../../types';
+import { isPlatformApiError } from '../../core/index.js';
+import { useProfileImageClient } from '../headless/profile-image.js';
+import type { ProfileImageMutationResponse } from '../headless/profile-image.js';
 
-/** Mirrors the API's limit; the server re-checks the actual bytes (#367). */
+/**
+ * Mirrors the API's limit; the server re-checks the actual bytes (#367).
+ *
+ * @stability experimental
+ */
 export const PROFILE_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
-/** Mirrors the API's allowed formats; the server validates by magic bytes. */
+/**
+ * Mirrors the API's allowed formats; the server validates by magic bytes.
+ *
+ * @stability experimental
+ */
 export const PROFILE_IMAGE_TYPES: readonly string[] = [
   'image/jpeg',
   'image/png',
@@ -15,7 +24,12 @@ export const PROFILE_IMAGE_TYPES: readonly string[] = [
   'image/webp',
 ];
 
-interface ImageUploadProps {
+/**
+ * Props of {@link ImageUpload}.
+ *
+ * @stability experimental
+ */
+export interface ImageUploadProps {
   /**
    * Called with the upload response once the server has stored the picture.
    * The response carries the new settings document (and `version`), which the
@@ -31,7 +45,7 @@ interface ImageUploadProps {
 }
 
 function describeUploadError(err: unknown): string {
-  if (err instanceof ApiError) {
+  if (isPlatformApiError(err)) {
     // `ApiService` falls back to this literal when the body carried no message
     // (e.g. a proxy's HTML 413 page), so only a real server message wins.
     if (err.message && err.message !== 'Request failed') {
@@ -47,6 +61,21 @@ function describeUploadError(err: unknown): string {
   return 'Failed to upload the picture. Please try again.';
 }
 
+/**
+ * The profile picture upload button: client-side type and size pre-checks, then
+ * the upload; the server stays authoritative.
+ *
+ * @param props - see {@link ImageUploadProps}.
+ * @returns the control.
+ *
+ * @example
+ * ```tsx
+ * <ImageUpload onUploaded={(result) => adopt(result.settings)} />
+ * ```
+ *
+ * @extensionPoint component
+ * @stability experimental
+ */
 export function ImageUpload({
   onUploaded,
   onUploadingChange,
@@ -57,6 +86,7 @@ export function ImageUpload({
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const hintId = useId();
+  const profileImage = useProfileImageClient();
 
   const setUploading = (uploading: boolean) => {
     setIsUploading(uploading);
@@ -84,7 +114,7 @@ export function ImageUpload({
 
     let result: ProfileImageMutationResponse;
     try {
-      result = await uploadProfileImage(file);
+      result = await profileImage.upload(file);
     } catch (err) {
       setError(describeUploadError(err));
       setUploading(false);

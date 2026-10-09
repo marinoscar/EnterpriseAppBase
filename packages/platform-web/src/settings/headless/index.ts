@@ -17,6 +17,10 @@ export type {
   UserSettingsDocument,
   UserSettingsUpdateBase,
 } from './use-user-settings.js';
+export { createProfileImageClient, useProfileImageClient } from './profile-image.js';
+export type { ProfileImageClient, ProfileImageMutationResponse } from './profile-image.js';
+export { useStorageStatus } from './use-storage-status.js';
+export type { UseStorageStatusResult } from './use-storage-status.js';
 export { useOrgSettings } from './use-org-settings.js';
 export type { UseOrgSettingsResult } from './use-org-settings.js';
 

@@ -27,6 +27,13 @@ export interface PlatformWebHost {
   viewer: PlatformViewer;
   /** Optional formatting hooks so packaged pages match the app's conventions. */
   formatRelativeTime?(iso: string): string;
+  /**
+   * Applies a theme preference (`light`, `dark`, `system`) to the app's theme
+   * context. The Appearance page calls it when the stored preference loads or
+   * is saved; without it the preference is stored and the app's theme is left
+   * alone. Keep its identity stable.
+   */
+  applyTheme?(theme: 'light' | 'dark' | 'system'): void;
 }
 
 const PlatformHostContext = createContext<PlatformWebHost | null>(null);

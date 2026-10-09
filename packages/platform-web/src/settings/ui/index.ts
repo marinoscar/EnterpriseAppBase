@@ -3,6 +3,21 @@
 // The app keeps its registries (`ADMIN_SECTIONS`, `USER_SETTINGS_SECTIONS`)
 // and its routes; this entry is the structure they are drawn with.
 
+export { ImageUpload, PROFILE_IMAGE_MAX_BYTES, PROFILE_IMAGE_TYPES } from './ImageUpload.js';
+export type { ImageUploadProps } from './ImageUpload.js';
+export { OrgSettingsPage } from './OrgSettingsPage.js';
+export { ProfileSettings } from './ProfileSettings.js';
+export type { ProfileSettingsProps } from './ProfileSettings.js';
+export { ThemeSettings } from './ThemeSettings.js';
+export type { ThemeSettingsProps } from './ThemeSettings.js';
+export { UserAppearancePage } from './UserAppearancePage.js';
+export { UserProfilePage } from './UserProfilePage.js';
+export { UserSettingsSection } from './UserSettingsSection.js';
+export type {
+  UserSettingsSaveMessages,
+  UserSettingsSectionProps,
+  UserSettingsSectionState,
+} from './UserSettingsSection.js';
 export { SettingsHub } from './SettingsHub.js';
 export type { SettingsHubProps } from './SettingsHub.js';
 export { cardPermissionGranted, settingsPageTitle, visibleSettingsSections } from './registry.js';

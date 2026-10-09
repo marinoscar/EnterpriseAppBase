@@ -33,10 +33,10 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { useOrgSettings } from '@marinoscar/platform-web/settings/headless';
 import type { OrgSettingsField, OrgSettingsNamespace } from '@marinoscar/platform-contract/settings';
 
-import { useAuth, usePermissions } from '@marinoscar/platform-web/identity/headless';
+import { useAuth, usePermissions } from '../../identity/index.js';
+import { useOrgSettings } from '../headless/use-org-settings.js';
 
 type Draft = Record<string, unknown>;
 
@@ -187,7 +187,21 @@ function NamespaceCard({
   );
 }
 
-export default function OrgSettingsPage() {
+/**
+ * The Organization settings page: one card per org-overridable namespace,
+ * generated from the descriptors `GET /org-settings` returns.
+ *
+ * @returns the page.
+ *
+ * @example
+ * ```tsx
+ * <Route path="/admin/settings/organization-settings" element={<OrgSettingsPage />} />
+ * ```
+ *
+ * @extensionPoint component
+ * @stability experimental
+ */
+export function OrgSettingsPage() {
   const { activeOrg } = useAuth();
   const { hasPermission } = usePermissions();
   const canWrite = hasPermission('org_settings:write');

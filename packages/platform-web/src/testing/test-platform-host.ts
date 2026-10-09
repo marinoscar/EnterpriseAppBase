@@ -71,6 +71,8 @@ export interface TestPlatformHostOptions {
   responses?: Readonly<Record<string, TestApiResponse>>;
   /** The host's relative-time formatter. Default none (the page's fallback). */
   formatRelativeTime?: (iso: string) => string;
+  /** The host's theme setter (the Appearance page). Default none. */
+  applyTheme?: (theme: 'light' | 'dark' | 'system') => void;
 }
 
 /**
@@ -178,6 +180,8 @@ export function createTestPlatformHost(options: TestPlatformHostOptions = {}): T
     // the canned value is a `PlatformBlobResponse`, e.g. from `createTestBlobResponse`.
     getBlob: (path) => call({ method: 'GET', path }),
     postBlob: (path, body) => call({ method: 'POST', path, body }),
+    // A multipart upload answers from `'POST <path>'`; the request's `body` is the FormData.
+    postFormData: (path, body) => call({ method: 'POST', path, body }),
     // A stream answers with an array of frames; anything else delivers none.
     postSse: async (path, body, sseOptions) => {
       const frames = await call<unknown>({ method: 'POST', path, body });
@@ -197,6 +201,7 @@ export function createTestPlatformHost(options: TestPlatformHostOptions = {}): T
       isFeatureEnabled: (feature) => features[feature] === true,
     },
     ...(options.formatRelativeTime ? { formatRelativeTime: options.formatRelativeTime } : {}),
+    ...(options.applyTheme ? { applyTheme: options.applyTheme } : {}),
     requests,
   };
 }

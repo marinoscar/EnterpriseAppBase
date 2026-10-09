@@ -1,37 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { render } from '../../utils/test-utils';
-import {
-  ImageUpload,
-  PROFILE_IMAGE_MAX_BYTES,
-} from '../../../components/settings/ImageUpload';
-import { uploadProfileImage } from '../../../services/api';
-import type { ProfileImageMutationResponse } from '../../../types';
+import { userEvent } from '@testing-library/user-event';
+import { render } from './test-utils.js';
+import { ImageUpload, PROFILE_IMAGE_MAX_BYTES } from '../../../src/settings/ui/ImageUpload.js';
+import type { ProfileImageMutationResponse } from '../../../src/settings/headless/profile-image.js';
+import { createTestApiError } from '../../../src/testing/index.js';
 
-// `services/api` is mocked wholesale, per the idiom already used by
-// `hooks/useUserSettings.test.ts` and `services/pushSubscription.test.ts`:
-// `ApiError` is redefined as a real class (not a plain `vi.fn()`) so
-// `err instanceof ApiError` in `ImageUpload.describeUploadError` still works.
-vi.mock('../../../services/api', () => ({
-  uploadProfileImage: vi.fn(),
-  // The app transport `platform/platformHost.tsx` adapts at module load
-  // (`createPlatformApiClient(api)`, #868); never called here.
-  api: {},
-  ApiError: class ApiError extends Error {
-    status: number;
-    code?: string;
-    details?: unknown;
-    constructor(message: string, status: number, code?: string, details?: unknown) {
-      super(message);
-      this.status = status;
-      this.code = code;
-      this.details = details;
-    }
-  },
+// The upload goes through the profile image client; stub it so the component's
+// own behaviour (pre-checks, states, error copy) is what is under test. The
+// client itself is covered in profile-image.test.ts.
+const mockUpload = vi.hoisted(() => vi.fn());
+vi.mock('../../../src/settings/headless/profile-image.js', () => ({
+  useProfileImageClient: () => ({ upload: mockUpload, remove: vi.fn(), preview: vi.fn() }),
 }));
-
-const mockUpload = vi.mocked(uploadProfileImage);
 
 function makeFile(opts: { type?: string; size?: number; name?: string } = {}): File {
   const { type = 'image/png', size = 1024, name = 'photo.png' } = opts;
@@ -142,8 +123,7 @@ describe('ImageUpload', () => {
 
   describe('server error handling', () => {
     it('surfaces the server error message on failure', async () => {
-      const { ApiError } = await import('../../../services/api');
-      mockUpload.mockRejectedValue(new ApiError('That image is not allowed', 400, 'BAD_IMAGE'));
+      mockUpload.mockRejectedValue(createTestApiError(400, 'That image is not allowed', 'BAD_IMAGE'));
       render(<ImageUpload onUploaded={vi.fn()} />);
 
       const input = screen.getByTestId('profile-image-file-input') as HTMLInputElement;
@@ -155,8 +135,7 @@ describe('ImageUpload', () => {
     });
 
     it('falls back to a size-specific message for a 413 with no server message', async () => {
-      const { ApiError } = await import('../../../services/api');
-      mockUpload.mockRejectedValue(new ApiError('Request failed', 413));
+      mockUpload.mockRejectedValue(createTestApiError(413, 'Request failed'));
       render(<ImageUpload onUploaded={vi.fn()} />);
 
       const input = screen.getByTestId('profile-image-file-input') as HTMLInputElement;
@@ -168,8 +147,7 @@ describe('ImageUpload', () => {
     });
 
     it('falls back to a format-specific message for a 400 with no server message', async () => {
-      const { ApiError } = await import('../../../services/api');
-      mockUpload.mockRejectedValue(new ApiError('Request failed', 400));
+      mockUpload.mockRejectedValue(createTestApiError(400, 'Request failed'));
       render(<ImageUpload onUploaded={vi.fn()} />);
 
       const input = screen.getByTestId('profile-image-file-input') as HTMLInputElement;
@@ -183,8 +161,7 @@ describe('ImageUpload', () => {
     });
 
     it('resets the uploading state after a failure', async () => {
-      const { ApiError } = await import('../../../services/api');
-      mockUpload.mockRejectedValue(new ApiError('Failed', 500));
+      mockUpload.mockRejectedValue(createTestApiError(500, 'Failed'));
       const onUploadingChange = vi.fn();
       render(<ImageUpload onUploaded={vi.fn()} onUploadingChange={onUploadingChange} />);
 

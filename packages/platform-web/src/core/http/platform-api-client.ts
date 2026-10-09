@@ -149,6 +149,8 @@ export function createPlatformApiClient(
           responseType: 'blobWithHeaders',
         }),
       ),
+    postFormData: <T>(path: string, body: FormData, requestOptions?: PlatformRequestOptions) =>
+      mapped(() => http.postFormData<T>(path, body, toHttpRequestOptions(requestOptions))),
     ...(postSse === undefined
       ? {}
       : {

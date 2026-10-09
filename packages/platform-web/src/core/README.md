@@ -47,13 +47,14 @@ export function AppPlatformHostProvider({ children }: { children: ReactNode }) {
 | `host.api` | `PlatformApiClient` | required | The app's transport. Paths are relative to the API base (`'/admin/doctor'`); each call resolves to the response's `data` and rejects with a `PlatformApiError` on an error status. Keep its identity stable: packaged hooks key their effects on it. |
 | `host.viewer` | `PlatformViewer` | required | `userId`, `hasPermission(permission)`, `isFeatureEnabled(feature)`. |
 | `host.formatRelativeTime` | `(iso: string) => string` | each page's own fallback | Format timestamps the way the app does. |
+| `host.applyTheme` | `(theme: 'light' \| 'dark' \| 'system') => void` | none (the preference is stored, the app's theme left alone) | Push the stored theme preference into the app's theme context (the Appearance page, #892). Keep its identity stable. |
 | `children` | `ReactNode` | required | The routed tree that may render packaged pages. |
 
 ### Host ports
 
 | Port | What it is for | How the reference app binds it |
 |---|---|---|
-| `PlatformApiClient` | Every API call of a packaged page | `createPlatformApiClient(api, { postSse })` over the app's `services/api.ts` (auth header, token refresh, maintenance handling stay in the app); `ApiError` mapped onto `PlatformApiError`; a network failure passes through and is *not* a `PlatformApiError`. The optional `getBlob(path)` (#772) returns a download's raw body and headers (`PlatformBlobResponse`); the adapter maps it (and `postBlob`) onto `responseType: 'blobWithHeaders'`. Every method takes `PlatformRequestOptions`: `signal`, `ifMatch` (the `If-Match` header) and `headers` (#731: a page's extra request headers, such as the link token's `x-link-token`); the adapter (`toHttpRequestOptions`) sends `headers` first, so `If-Match` and its own `Authorization` and `Content-Type` win |
+| `PlatformApiClient` | Every API call of a packaged page | `createPlatformApiClient(api, { postSse })` over the app's `services/api.ts` (auth header, token refresh, maintenance handling stay in the app); `ApiError` mapped onto `PlatformApiError`; a network failure passes through and is *not* a `PlatformApiError`. The optional `postFormData(path, formData)` (#892) sends a multipart body (the profile picture upload) through the same client. The optional `getBlob(path)` (#772) returns a download's raw body and headers (`PlatformBlobResponse`); the adapter maps it (and `postBlob`) onto `responseType: 'blobWithHeaders'`. Every method takes `PlatformRequestOptions`: `signal`, `ifMatch` (the `If-Match` header) and `headers` (#731: a page's extra request headers, such as the link token's `x-link-token`); the adapter (`toHttpRequestOptions`) sends `headers` first, so `If-Match` and its own `Authorization` and `Content-Type` win |
 | `PlatformViewer` | Permission and feature questions a page asks of content (never of reachability: the route gate does that) | `usePermissions().hasPermission`, the auth context's user id, the shell's AI and telemetry flags |
 | `formatRelativeTime` | Consistent dates | `utils/relativeTime` |
 

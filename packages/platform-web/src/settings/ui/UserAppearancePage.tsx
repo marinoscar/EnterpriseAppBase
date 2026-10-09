@@ -17,10 +17,24 @@
  * (#95) and the page's own `h1` all name the page identically.
  */
 
-import { ThemeSettings } from '../components/settings/ThemeSettings';
-import { UserSettingsSection } from './UserSettingsSection';
+import { ThemeSettings } from './ThemeSettings.js';
+import { UserSettingsSection } from './UserSettingsSection.js';
 
-export default function UserAppearancePage() {
+/**
+ * Settings -> Appearance (`/settings/appearance`): light, dark or system. The
+ * stored preference reaches the app's theme through the host's `applyTheme`.
+ *
+ * @returns the page.
+ *
+ * @example
+ * ```tsx
+ * <Route path="/settings/appearance" element={<UserAppearancePage />} />
+ * ```
+ *
+ * @extensionPoint component
+ * @stability experimental
+ */
+export function UserAppearancePage() {
   return (
     <UserSettingsSection
       title="Appearance"
