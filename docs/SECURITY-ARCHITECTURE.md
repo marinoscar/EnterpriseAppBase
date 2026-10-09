@@ -1052,7 +1052,7 @@ its own `add_header` must repeat the security headers.
 
 ### CORS
 
-`apps/api/src/common/cors/cors-options.ts` builds the CORS policy from
+`buildCorsOptions` (`packages/platform-api/src/host/http/cors-options.ts`, `@marinoscar/platform-api/host`) builds the CORS policy from
 `CORS_ORIGIN` at startup:
 
 - **Unset (default)**: `{ origin: false }` — no CORS headers at all, so
