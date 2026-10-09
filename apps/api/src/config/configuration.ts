@@ -216,7 +216,7 @@ export default () => {
   // Deployment mode (#685). DEPLOYMENT-LEVEL, like `jobs.workerMode`: decided
   // by whoever runs the infrastructure, never by an administrator at runtime.
   //
-  // ⚠ THE RAW STRING, NOT A PARSED UNION. `common/deployment/deployment-mode.ts`
+  // ⚠ THE RAW STRING, NOT A PARSED UNION. `@marinoscar/platform-api/host` (`deployment/deployment-mode.ts`)
   // is the single parser: `main.ts` runs it at bootstrap (an invalid value
   // stops the API before it connects to anything) and `DeploymentModeService`
   // runs it again on this value. Parsing here as well would be a second source
@@ -224,7 +224,7 @@ export default () => {
   deployment: {
     mode: process.env.DEPLOYMENT_MODE,
     // Deployment network (#773): `online` (default) or `air-gapped`. Same
-    // raw-string rule as `mode`: `common/deployment/deployment-network.ts` is
+    // raw-string rule as `mode`: `@marinoscar/platform-api/host` (`deployment/deployment-network.ts`) is
     // the single parser (bootstrap in `main.ts`, then `DeploymentNetworkService`).
     network: process.env.DEPLOYMENT_NETWORK,
   },

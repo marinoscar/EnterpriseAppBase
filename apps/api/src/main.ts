@@ -19,10 +19,12 @@ import { AppModule } from './app.module';
 import { PrismaService } from './prisma/prisma.service';
 import { verifyEncryptionKeyAtStartup } from '@marinoscar/platform-api/core';
 import { verifyTenancyModeAtStartup } from '@marinoscar/platform-api/identity';
-import { verifyDeploymentModeAtStartup } from './common/deployment/deployment-mode';
-import { verifyDeploymentNetworkAtStartup } from './common/deployment/deployment-network';
 import { APP_OPENAPI } from './openapi/document';
-import { registerPlatformDocs } from '@marinoscar/platform-api/host';
+import {
+  registerPlatformDocs,
+  verifyDeploymentModeAtStartup,
+  verifyDeploymentNetworkAtStartup,
+} from '@marinoscar/platform-api/host';
 import { buildCorsOptions, isSameOriginOnly } from './common/cors/cors-options';
 import { registerRequestSpanAttributes } from '@marinoscar/platform-api/otel-core';
 

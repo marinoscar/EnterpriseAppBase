@@ -24,7 +24,6 @@ import { ExamplesModule } from './examples/examples.module';
 import { DbBackupModule } from './platform/db-backup/db-backup.config';
 import { LoggerModule } from './common/logger/logger.module';
 import { hostCoreModule } from './platform/host-core.config';
-import { DeploymentModule } from './common/deployment/deployment.module';
 import { DocsEgressContributor } from './openapi/docs-egress.contributor';
 import { AiModule } from './platform/ai/ai.config';
 import { telemetryModule } from './platform/telemetry/telemetry.config';
@@ -193,12 +192,6 @@ import configuration from './config/configuration';
     // The stale sweep's `pending` arm is what stops those unclaimed rows
     // holding the single active backup slot forever.
     DbBackupModule,
-
-    // Deployment mode (#685): the parsed `DEPLOYMENT_MODE` and its capability
-    // predicates (`DeploymentModeService`), plus the `core.deployment-mode`
-    // doctor check. `@Global()`, so the restore path and the about report
-    // inject the service without importing this module.
-    DeploymentModule,
 
     // `GET /api/admin/about` (#401, epic #397): what is deployed here — the
     // API's resolved version, the deploy document `appctl deploy` bind-mounts

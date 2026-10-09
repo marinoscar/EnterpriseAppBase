@@ -23,14 +23,20 @@
 // PURE: no Nest, no `process.env`.
 // =============================================================================
 
-import { DEPLOYMENT_NETWORKS, type DeploymentNetwork } from '@marinoscar/platform-api/doctor';
+import { DEPLOYMENT_NETWORKS, type DeploymentNetwork } from '../../doctor/index';
 
 export { DEPLOYMENT_NETWORKS, type DeploymentNetwork };
 
-/** The environment variable this module parses. */
+/** The environment variable this module parses.
+ *
+ * @stability experimental
+ */
 export const DEPLOYMENT_NETWORK_ENV_VAR = 'DEPLOYMENT_NETWORK';
 
-/** What an unset or empty `DEPLOYMENT_NETWORK` means. */
+/** What an unset or empty `DEPLOYMENT_NETWORK` means.
+ *
+ * @stability experimental
+ */
 export const DEFAULT_DEPLOYMENT_NETWORK: DeploymentNetwork = 'online';
 
 /**
@@ -41,7 +47,9 @@ export const DEFAULT_DEPLOYMENT_NETWORK: DeploymentNetwork = 'online';
  * - ⚠ CASE-SENSITIVE, matching the CLI wizard's validator (`Air-Gapped` is refused).
  * - Anything else throws, naming the variable and the allowed values.
  *
- * @throws {Error} on any value that is not a deployment network.
+ * @throws Error on any value that is not a deployment network.
+ *
+ * @stability experimental
  */
 export function parseDeploymentNetwork(raw: string | undefined): DeploymentNetwork {
   const value = (raw ?? '').trim();
@@ -61,7 +69,10 @@ export function parseDeploymentNetwork(raw: string | undefined): DeploymentNetwo
   );
 }
 
-/** One line for the startup log. */
+/** One line for the startup log.
+ *
+ * @stability experimental
+ */
 export function describeDeploymentNetwork(network: DeploymentNetwork): string {
   return network === 'air-gapped'
     ? `Deployment network: air-gapped (${DEPLOYMENT_NETWORK_ENV_VAR}). The Doctor grades outbound dependencies (network.egress).`
@@ -72,6 +83,8 @@ export function describeDeploymentNetwork(network: DeploymentNetwork): string {
  * The bootstrap check: parse the variable, log the network once, return it.
  * Called from `main.ts` beside `verifyDeploymentModeAtStartup`, before the Nest
  * application exists, so a typo never opens a database connection.
+ *
+ * @stability experimental
  */
 export function verifyDeploymentNetworkAtStartup(
   env: Record<string, string | undefined>,

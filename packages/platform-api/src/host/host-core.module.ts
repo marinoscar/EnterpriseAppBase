@@ -17,7 +17,12 @@
 //   - the `{ data }` response envelope (`TransformInterceptor`), the request
 //     log line (`LoggingInterceptor`) and core's `HttpExceptionFilter`, as
 //     global enhancers;
-//   - request ids (`RequestIdMiddleware`, every route).
+//   - request ids (`RequestIdMiddleware`, every route);
+//   - the deployment facts (`DeploymentModeService` for `DEPLOYMENT_MODE`,
+//     `DeploymentNetworkService` for `DEPLOYMENT_NETWORK`, bound as the doctor
+//     slice's `DEPLOYMENT_NETWORK_SOURCE`) and the generic Doctor checks:
+//     `db.connection`, `db.migrations`, `db.rls_role`, `secrets.encryption-key`,
+//     `core.deployment-mode` and `network.egress` (#879).
 //
 // The OpenAPI document and `/api/docs` are bootstrap-time, because they need
 // the built application: `registerPlatformDocs(app, openApi)` in `main.ts`.
@@ -27,8 +32,11 @@
 // settings module (the `maintenance` namespace, `MAINTENANCE_SYSTEM_SETTINGS`:
 // `forRoot()` registers it unless the app's manifest did, so call it before
 // `SettingsModule.forRoot()` or register it there), a global `ConfigModule`
-// carrying `jwt.secret` (the identity slice's configuration) and, for the two
-// Doctor checks, the doctor module.
+// carrying `jwt.secret` (the identity slice's configuration; `deployment.mode`
+// and `deployment.network` too when published, else `DEPLOYMENT_MODE` and
+// `DEPLOYMENT_NETWORK` are read from the environment) and, for the Doctor
+// checks, the doctor module. The database checks read through `PLATFORM_PRISMA`
+// and report `skip` when it is unbound.
 //
 // WHERE TO IMPORT IT. Only the maintenance controller has routes, and the
 // generated OpenAPI document lists paths in module order, so the app places
@@ -51,6 +59,14 @@ import { HttpExceptionFilter, PLATFORM_PRISMA } from '../core/index';
 import { requireJwtSecret } from '../identity/index';
 import { OtelMetricsModule } from '../otel-core/index';
 import { ensureSystemSettingsNamespaces, type SystemSettingsNamespace } from '../settings/index';
+import { DEPLOYMENT_NETWORK_SOURCE, NetworkEgressDoctorCheck } from '../doctor/index';
+import { DeploymentModeService } from './deployment/deployment-mode.service';
+import { DeploymentNetworkService } from './deployment/deployment-network.service';
+import { DbConnectionDoctorCheck } from './doctor/db-connection.doctor-check';
+import { DbMigrationsDoctorCheck } from './doctor/db-migrations.doctor-check';
+import { DeploymentModeDoctorCheck } from './doctor/deployment-mode.doctor-check';
+import { EncryptionKeyDoctorCheck } from './doctor/encryption-key.doctor-check';
+import { RlsRoleDoctorCheck } from './doctor/rls-role.doctor-check';
 import { EventBusDoctorCheck } from './event-bus/doctor/event-bus.doctor-check';
 import { EVENT_BUS_SELECTION, type EventBusSelection } from './event-bus/event-bus.config';
 import { createEventBus, selectEventBus } from './event-bus/event-bus.factory';
@@ -144,7 +160,20 @@ export class PlatformHostCoreModule implements NestModule {
           useFactory: (selection: EventBusSelection, sql: EventBusSqlPublisher | undefined, metrics: AppMetricsService) =>
             createEventBus(selection, sql ?? undefined, metrics),
         },
+        // The deployment facts (`DEPLOYMENT_MODE`, `DEPLOYMENT_NETWORK`) and the
+        // generic Doctor checks, in the order the report lists them within the
+        // `core` category: the event bus, the deployment mode, then the
+        // database and secrets checks (registration order is report order).
+        DeploymentModeService,
+        DeploymentNetworkService,
+        { provide: DEPLOYMENT_NETWORK_SOURCE, useExisting: DeploymentNetworkService },
         EventBusDoctorCheck,
+        DeploymentModeDoctorCheck,
+        DbConnectionDoctorCheck,
+        DbMigrationsDoctorCheck,
+        EncryptionKeyDoctorCheck,
+        RlsRoleDoctorCheck,
+        NetworkEgressDoctorCheck,
         AppMetricsService,
         MaintenanceModeService,
         MaintenanceGuard,
@@ -164,6 +193,9 @@ export class PlatformHostCoreModule implements NestModule {
         AppMetricsService,
         MaintenanceModeService,
         MaintenanceGuard,
+        DeploymentModeService,
+        DeploymentNetworkService,
+        DEPLOYMENT_NETWORK_SOURCE,
       ],
     };
   }

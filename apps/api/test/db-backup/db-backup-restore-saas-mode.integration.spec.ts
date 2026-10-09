@@ -20,7 +20,7 @@
 
 import request from 'supertest';
 
-import { DeploymentModeService } from '../../src/common/deployment/deployment-mode.service';
+import { DeploymentModeService } from '@marinoscar/platform-api/host';
 import { DB_RESTORE_RUN_TYPE } from '@marinoscar/platform-api/db-backup';
 import { DatabaseRestoreService, defaultDatabaseRestoreSeam } from '@marinoscar/platform-api/db-backup/testing';
 import { DatabaseBackupRunnerService } from '@marinoscar/platform-api/db-backup';

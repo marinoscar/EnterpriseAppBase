@@ -18,7 +18,7 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 
-import { DeploymentModeService } from '../common/deployment/deployment-mode.service';
+import { DeploymentModeService } from '@marinoscar/platform-api/host';
 import { DatabaseHealthIndicator } from '../health/indicators/database.indicator';
 import { resolveApiVersion } from '../openapi/version';
 import { readDeployInfo, resolveDeployInfoPath } from './deploy-info';

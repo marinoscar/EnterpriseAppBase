@@ -9,9 +9,9 @@
 
 import { Injectable } from '@nestjs/common';
 import { TenancyService } from '@marinoscar/platform-api/identity';
+import { DeploymentModeService } from '@marinoscar/platform-api/host';
 import type { UserDataDbPort, UserDataEnvironment, UserDataSystemReason } from '@marinoscar/platform-api/user-data';
 
-import { DeploymentModeService } from '../../common/deployment';
 import { PrismaSystemService } from '../../prisma/prisma-system.service';
 
 /** `USER_DATA_DB`: the bypass client, by reason. */

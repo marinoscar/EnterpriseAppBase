@@ -29,7 +29,7 @@ import { SupportBundleRegistry } from '@marinoscar/platform-api/doctor';
 import type { SupportBundleSection } from '@marinoscar/platform-api/doctor';
 import { z } from 'zod';
 
-import { DEPLOYMENT_MODES } from '../common/deployment/deployment-mode';
+import { DEPLOYMENT_MODES } from '@marinoscar/platform-api/host';
 import { AboutService } from './about.service';
 import { DEPLOY_INFO_STATUSES } from './deploy-info.constants';
 

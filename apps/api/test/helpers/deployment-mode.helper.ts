@@ -1,7 +1,6 @@
 import type { ConfigService } from '@nestjs/config';
 
-import type { DeploymentMode } from '../../src/common/deployment/deployment-mode';
-import { DeploymentModeService } from '../../src/common/deployment/deployment-mode.service';
+import { DeploymentModeService, type DeploymentMode } from '@marinoscar/platform-api/host';
 
 /**
  * A real `DeploymentModeService` for a given mode (#685), built through the same

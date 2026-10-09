@@ -97,7 +97,7 @@ describe('configuration() — storage.allowedMimeTypes / storage.maxFileSize (#5
 });
 
 // =============================================================================
-// `DEPLOYMENT_MODE` (#685) — published RAW, parsed by common/deployment
+// `DEPLOYMENT_MODE` (#685) — published RAW, parsed by the host slice (@marinoscar/platform-api/host)
 // =============================================================================
 
 describe('configuration() — deployment.mode (#685)', () => {

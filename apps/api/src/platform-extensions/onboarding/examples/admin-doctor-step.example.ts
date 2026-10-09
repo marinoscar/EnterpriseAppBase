@@ -6,7 +6,7 @@
 // (its cache, its timeouts, its remedies), is `done` only when every mapped
 // check passes (a `skip` is not a pass), shows the first non-passing check's
 // remedy as its hint, and is omitted when the check is not registered. Here:
-// the reference app's `db.rls_role` check (`health/doctor/`), "the API runs as
+// the reference app's `db.rls_role` check (`@marinoscar/platform-api/host`, `doctor/`), "the API runs as
 // an ordinary database role".
 // =============================================================================
 

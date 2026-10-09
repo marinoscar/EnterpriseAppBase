@@ -1,7 +1,7 @@
-import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
-import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
-import type { DeploymentModeService } from '../deployment-mode.service';
-import { DeploymentModeDoctorCheck, decideDeploymentMode } from './deployment-mode.doctor-check';
+import { DoctorCheckRegistry } from '../../../src/doctor/index';
+import type { SystemSettingsService } from '../../../src/settings/index';
+import type { DeploymentModeService } from '../../../src/host/deployment/deployment-mode.service';
+import { DeploymentModeDoctorCheck, decideDeploymentMode } from '../../../src/host/doctor/deployment-mode.doctor-check';
 
 describe('decideDeploymentMode (#685)', () => {
   it('passes for self-hosted, whatever the backup policy says', () => {

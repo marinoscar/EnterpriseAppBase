@@ -1,13 +1,13 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, OnModuleInit, Optional } from '@nestjs/common';
 
-import {
-  DoctorCheck,
-  DoctorCheckOutcome,
-  DoctorCheckRegistry,
-} from '@marinoscar/platform-api/doctor';
-import { PrismaSystemService } from '../../prisma/prisma-system.service';
+import { PLATFORM_PRISMA, type PrismaClientLike } from '../../core/index';
+import { DoctorCheckRegistry, type DoctorCheck, type DoctorCheckOutcome } from '../../doctor/index';
 
-/** What the check reads from the catalogue. */
+/**
+ * What the check reads from the catalogue.
+ *
+ * @stability experimental
+ */
 export interface RlsRoleFacts {
   /** `current_user`: the role the API connects as. */
   role: string;
@@ -33,6 +33,11 @@ const RUNBOOK = 'docs/SECURITY-ARCHITECTURE.md (Tenant isolation (RLS), "The app
  *   row-level security.
  * - `pass`: the role is an ordinary one (isolation is enforced), or no table
  *   forces row-level security yet (nothing to bypass).
+ *
+ * @param facts - the role and the forced-table count.
+ * @returns the check outcome.
+ *
+ * @stability experimental
  */
 export function decideRlsRole(facts: RlsRoleFacts): DoctorCheckOutcome {
   const data = {
@@ -69,8 +74,11 @@ export function decideRlsRole(facts: RlsRoleFacts): DoctorCheckOutcome {
 
 /**
  * `core` / `db.rls_role` — the API's database role is subject to
- * row-level security. Read-only: two catalogue reads over the system
- * connection (reason `doctor`).
+ * row-level security. Read-only: two catalogue reads (`pg_roles`, `pg_class`)
+ * through the `PLATFORM_PRISMA` host port. Neither catalogue carries row-level
+ * security, so no bypass client is needed.
+ *
+ * @stability experimental
  */
 @Injectable()
 export class RlsRoleDoctorCheck implements DoctorCheck, OnModuleInit {
@@ -81,15 +89,20 @@ export class RlsRoleDoctorCheck implements DoctorCheck, OnModuleInit {
 
   constructor(
     private readonly registry: DoctorCheckRegistry,
-    private readonly system: PrismaSystemService,
+    @Optional() @Inject(PLATFORM_PRISMA) private readonly prisma?: PrismaClientLike,
   ) {}
 
+  /** Registers the check with the Doctor. */
   onModuleInit(): void {
     this.registry.register(this);
   }
 
   async run(): Promise<DoctorCheckOutcome> {
-    const db = this.system.asSystem('doctor');
+    const db = this.prisma;
+    if (!db) {
+      return { status: 'skip', detail: 'No database client is bound to PLATFORM_PRISMA, so the API role cannot be read' };
+    }
+
     const [roles, forced] = await Promise.all([
       db.$queryRaw<Array<{ role: string; superuser: boolean; bypassrls: boolean }>>`
         SELECT rolname AS role, rolsuper AS superuser, rolbypassrls AS bypassrls

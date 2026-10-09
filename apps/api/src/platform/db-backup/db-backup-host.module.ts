@@ -27,8 +27,7 @@ import {
   DB_BACKUP_SYSTEM_DATA,
 } from '@marinoscar/platform-api/db-backup';
 
-import { DeploymentModeService } from '../../common/deployment/deployment-mode.service';
-import { AppMetricsService, MaintenanceModeService } from '@marinoscar/platform-api/host';
+import { AppMetricsService, DeploymentModeService, MaintenanceModeService } from '@marinoscar/platform-api/host';
 import { NotificationsModule } from '../notifications/notifications.config';
 import { NotificationsService } from '@marinoscar/platform-api/notifications';
 import { PrismaSystemService } from '../../prisma/prisma-system.service';

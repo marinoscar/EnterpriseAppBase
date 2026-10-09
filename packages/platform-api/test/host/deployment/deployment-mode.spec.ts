@@ -1,6 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 
-import { DatabaseRestoreDisabledError } from '@marinoscar/platform-api/db-backup';
+import { DatabaseRestoreDisabledError } from '../../../src/db-backup/index';
 import {
   DEFAULT_DEPLOYMENT_MODE,
   DEPLOYMENT_MODES,
@@ -8,8 +8,8 @@ import {
   describeDeploymentMode,
   parseDeploymentMode,
   verifyDeploymentModeAtStartup,
-} from './deployment-mode';
-import { DeploymentModeService } from './deployment-mode.service';
+} from '../../../src/host/deployment/deployment-mode';
+import { DeploymentModeService } from '../../../src/host/deployment/deployment-mode.service';
 
 describe('parseDeploymentMode (#685)', () => {
   it.each<[string | undefined, string]>([
