@@ -15,11 +15,8 @@
  */
 
 import { Navigate } from 'react-router-dom';
-import { categoryLabel } from '@marinoscar/platform-web/doctor/headless';
 import { doctorSettingsPage } from '@marinoscar/platform-web/doctor/ui';
 import { usePermissions } from '@marinoscar/platform-web/identity/headless';
-
-export { categoryLabel };
 
 const { Page } = doctorSettingsPage;
 

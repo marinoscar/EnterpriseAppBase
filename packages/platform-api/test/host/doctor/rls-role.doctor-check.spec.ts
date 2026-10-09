@@ -1,6 +1,5 @@
-import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
-
-import { RlsRoleDoctorCheck, decideRlsRole } from './rls-role.doctor-check';
+import { DoctorCheckRegistry } from '../../../src/doctor/index';
+import { RlsRoleDoctorCheck, decideRlsRole } from '../../../src/host/doctor/rls-role.doctor-check';
 
 // =============================================================================
 // The Doctor check that row-level security is actually enforced (issue #725)
@@ -44,12 +43,11 @@ describe('RlsRoleDoctorCheck', () => {
   function build(roleRows: unknown[], forcedRows: unknown[]) {
     const registry = new DoctorCheckRegistry();
     const queryRaw = jest.fn().mockResolvedValueOnce(roleRows).mockResolvedValueOnce(forcedRows);
-    const system = { asSystem: jest.fn().mockReturnValue({ $queryRaw: queryRaw }) };
-    return { check: new RlsRoleDoctorCheck(registry, system as never), registry, system, queryRaw };
+    return { check: new RlsRoleDoctorCheck(registry, { $queryRaw: queryRaw } as never), registry, queryRaw };
   }
 
-  it('registers itself, depends on the connection check and reads the catalogue as the doctor', async () => {
-    const { check, registry, system, queryRaw } = build([{ role: 'postgres', superuser: true, bypassrls: false }], [{ count: 4 }]);
+  it('registers itself, depends on the connection check and reads the catalogue', async () => {
+    const { check, registry, queryRaw } = build([{ role: 'postgres', superuser: true, bypassrls: false }], [{ count: 4 }]);
 
     check.onModuleInit();
     expect(registry.get('db.rls_role')).toBe(check);
@@ -57,7 +55,6 @@ describe('RlsRoleDoctorCheck', () => {
 
     const outcome = await check.run();
 
-    expect(system.asSystem).toHaveBeenCalledWith('doctor');
     expect(queryRaw).toHaveBeenCalledTimes(2);
     expect(outcome.status).toBe('fail');
   });

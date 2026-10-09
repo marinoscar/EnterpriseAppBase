@@ -50,6 +50,35 @@ export type {
   PostgresEventBusOptions,
 } from './event-bus/postgres-event-bus';
 
+// ---- Deployment facts and the generic Doctor checks (#685, #773, #879) --------
+export {
+  DEFAULT_DEPLOYMENT_MODE,
+  DEPLOYMENT_MODES,
+  DEPLOYMENT_MODE_ENV_VAR,
+  capabilitiesFor,
+  describeDeploymentMode,
+  parseDeploymentMode,
+  verifyDeploymentModeAtStartup,
+} from './deployment/deployment-mode';
+export type { DeploymentCapabilities, DeploymentMode } from './deployment/deployment-mode';
+export { DEPLOYMENT_MODE_CONFIG_KEY, DeploymentModeService } from './deployment/deployment-mode.service';
+export {
+  DEFAULT_DEPLOYMENT_NETWORK,
+  DEPLOYMENT_NETWORK_ENV_VAR,
+  describeDeploymentNetwork,
+  parseDeploymentNetwork,
+  verifyDeploymentNetworkAtStartup,
+} from './deployment/deployment-network';
+export { DEPLOYMENT_NETWORK_CONFIG_KEY, DeploymentNetworkService } from './deployment/deployment-network.service';
+export { DB_SLOW_LATENCY_MS, DbConnectionDoctorCheck } from './doctor/db-connection.doctor-check';
+export { DbMigrationsDoctorCheck, decideMigrations } from './doctor/db-migrations.doctor-check';
+export type { MigrationState } from './doctor/db-migrations.doctor-check';
+export { DeploymentModeDoctorCheck, decideDeploymentMode } from './doctor/deployment-mode.doctor-check';
+export type { DeploymentModeFacts } from './doctor/deployment-mode.doctor-check';
+export { EncryptionKeyDoctorCheck } from './doctor/encryption-key.doctor-check';
+export { RlsRoleDoctorCheck, decideRlsRole } from './doctor/rls-role.doctor-check';
+export type { RlsRoleFacts } from './doctor/rls-role.doctor-check';
+
 // ---- App metrics (#600, #680) -------------------------------------------------
 export {
   APP_METRICS_OPTIONS,

@@ -8,7 +8,7 @@ import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fa
 import { Test, type TestingModule } from '@nestjs/testing';
 
 import { HttpExceptionFilter, PlatformHostModule } from '../../src/core/index';
-import { DoctorCheckRegistry } from '../../src/doctor/index';
+import { DoctorCheckRegistry, EgressRegistry, DEPLOYMENT_NETWORK_SOURCE } from '../../src/doctor/index';
 import { AuthModule, Public } from '../../src/identity/index';
 import { appMetricRegistry } from '../../src/otel-core/index';
 import { SystemSettingsService, systemSettingsNamespaceRegistry } from '../../src/settings/index';
@@ -20,6 +20,8 @@ import {
   InProcessEventBus,
   MAINTENANCE_SYSTEM_SETTINGS,
   MaintenanceGuard,
+  DeploymentModeService,
+  DeploymentNetworkService,
   MaintenanceModeService,
   PLATFORM_APP_METRICS,
   PLATFORM_HOST_CORE_OPTIONS,
@@ -59,8 +61,9 @@ const settingsState = { maintenance: { ...MAINTENANCE_SYSTEM_SETTINGS.defaults }
       },
     },
     DoctorCheckRegistry,
+    EgressRegistry,
   ],
-  exports: [SystemSettingsService, DoctorCheckRegistry],
+  exports: [SystemSettingsService, DoctorCheckRegistry, EgressRegistry],
 })
 class FakeSettingsModule {}
 
@@ -159,6 +162,32 @@ describe('PlatformHostCoreModule', () => {
       const messages = checkHostModuleGraph(discoverHostModuleGraph(TwoHosts)).map((f) => f.message);
       expect(messages.some((m) => m.includes('imported 2 time(s)'))).toBe(true);
       expect(messages.some((m) => m.includes('MaintenanceGuard is registered as APP_GUARD 2 time(s)'))).toBe(true);
+    });
+  });
+
+  describe('the generic Doctor checks (#879)', () => {
+    it('registers them in the order the report lists them, with the deployment facts bound', async () => {
+      const moduleRef = await compile();
+      await moduleRef.init();
+
+      expect(
+        moduleRef
+          .get(DoctorCheckRegistry)
+          .list()
+          .map((check) => `${check.category}/${check.id}`),
+      ).toEqual([
+        'core/core.event-bus',
+        'core/core.deployment-mode',
+        'core/db.connection',
+        'core/db.migrations',
+        'core/secrets.encryption-key',
+        'core/db.rls_role',
+        'network/network.egress',
+        'maintenance/maintenance.mode',
+      ]);
+      expect(moduleRef.get(DeploymentModeService).mode).toBe('self-hosted');
+      expect(moduleRef.get(DEPLOYMENT_NETWORK_SOURCE)).toBeInstanceOf(DeploymentNetworkService);
+      await moduleRef.close();
     });
   });
 

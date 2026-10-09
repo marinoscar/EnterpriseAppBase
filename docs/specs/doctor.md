@@ -155,13 +155,13 @@ The route is gated on `system_settings:read` and mounted under `admin/`, so it i
 
 ### 2.7 Check inventory
 
-This is the single home for the list of checks. Twenty-eight checks ship. `dependsOn` and the rules below are taken from the code; "no settings page" means the check has no `settingsPath` (the service's fallback remedy then names the API logs).
+This is the single home for the list of checks. Thirty-four checks ship. `dependsOn` and the rules below are taken from the code; "no settings page" means the check has no `settingsPath` (the service's fallback remedy then names the API logs).
 
 #### core
 
 | Id | Label | `dependsOn` | What it verifies | Rules |
 |---|---|---|---|---|
-| `db.connection` | Database connection | none | The database answers `SELECT 1`, through `DatabaseHealthIndicator`, the same definition the readiness probe and About use. | pass: connected (latency in `data`). warn: round trip over 500 ms. fail: no answer. |
+| `db.connection` | Database connection | none | The database answers `SELECT 1`, timed, through the `PLATFORM_PRISMA` host port (`skip` when none is bound). Registered by the host slice (#879). | pass: connected (latency in `data`). warn: round trip over 500 ms. fail: no answer. |
 | `db.migrations` | Database migrations | `db.connection` | One `SELECT` on `_prisma_migrations`: no migration is half-applied. | pass: at least one applied, none unfinished or rolled back. fail: a migration started and never finished (names the first), a rolled-back migration never re-applied, none applied at all, or the table unreadable. |
 | `db.rls_role` | Tenant isolation role | `db.connection` | The role the API connects as is subject to row-level security: one catalogue read of its `rolsuper` and `rolbypassrls` and a count of the tables that `FORCE` row-level security, over the system client (reason `doctor`). `data`: `role`, `superuser`, `bypassRls`, `forcedTables`. | fail: the role is a superuser or has `BYPASSRLS` while a table forces row-level security (every policy is inert; the remedy names the ordinary role to use). pass: an ordinary role, or no table forces it yet. |
 | `secrets.encryption-key` | Secrets encryption key | none | `SECRETS_ENCRYPTION_KEY` is present and a valid 32-byte key, via the assertion bootstrap uses. | pass: valid. fail: missing or malformed (the error describes the key's shape, never its bytes). |
@@ -256,11 +256,40 @@ Registered by `AndroidAppModule` (`@marinoscar/platform-api/android-app`, #746);
 | `android.assetlinks` | Android app Digital Asset Links | `db.connection` | Every (package, signing key) pair paired devices report is in the trusted list `/.well-known/assetlinks.json` serves. `data`: `trusted`, `reported`, `untrusted`. | skip: no device reported a signature. warn: a reported pair is not trusted (the app opens with a URL bar; names up to three). fail: the setting or a device source could not be read. pass: every reported pair is trusted. |
 | `android.releases` | Android app releases | `db.connection` | Paired devices have a current release to update to. `data`: `activeDevices`, `current`, `devicesBehind`. | skip: no device is paired. warn: devices are paired but no release is current. fail: the releases or a device source could not be read. pass: the current version, and how many devices run an older build. |
 
+#### user-data
+
+Registered by `UserDataModule` (`@marinoscar/platform-api/user-data`, #880); read-only and I/O-free (the registries and the parsed schema are in memory).
+
+| Id | Label | `dependsOn` | What it verifies | Rules |
+|---|---|---|---|---|
+| `user-data.registries` | Data reset registries | none | The three checks of the `user-data` conformance suite, on the running deployment: every user-owned model has a keep-or-delete decision (in a registered category when deleted), every hint and scope names a model, column and category that exist, and a delete order exists. `data`: `ownerModels`, `hints`, `categories`, `scopes`, `findings`. | pass: no finding. fail: any finding (the detail quotes the first three; the remedy names the manifest functions), or the composed schema cannot be read. Never `warn` or `skip`. |
+
 #### network
 
 | Id | Label | `dependsOn` | What it verifies | Rules |
 |---|---|---|---|---|
-| `network.egress` | Outbound dependencies (air-gap readiness) | none | The deployment's outbound dependencies, from every `EgressContributor` registered with `EgressRegistry` (#773): Google sign-in, AI providers, the AI catalog refresh, AI realtime voice, Web Push, email, object storage, GreptimeDB and the API docs CDN. Configuration only: no DNS lookup, no connection. Each host is classified `public`, `private` or `unknown` by shape alone. `data`: `network`, `enabled`, `public`, `private`, `unknown`, `required_public`, `public_ids` (comma-joined, at most 500 characters). The check lives in the package (`NetworkEgressDoctorCheck`) and the app contributes it from `DeploymentModule`. | `DEPLOYMENT_NETWORK=online` (default): always pass, an inventory ("N outbound dependencies enabled (P public, Q private): ..."). `air-gapped`: pass when every enabled dependency is private; warn when only optional ones are public (remedy names [the air-gapped runbook](../runbooks/air-gapped.md)); fail when a required one is public, such as Google as the only sign-in provider (remedy names the runbook section). `unknown` grades as public. A contributor that throws is one `unknown` entry under its id. Never `skip`. |
+| `network.egress` | Outbound dependencies (air-gap readiness) | none | The deployment's outbound dependencies, from every `EgressContributor` registered with `EgressRegistry` (#773): Google sign-in, AI providers, the AI catalog refresh, AI realtime voice, Web Push, email, object storage, GreptimeDB and the API docs CDN. Configuration only: no DNS lookup, no connection. Each host is classified `public`, `private` or `unknown` by shape alone. `data`: `network`, `enabled`, `public`, `private`, `unknown`, `required_public`, `public_ids` (comma-joined, at most 500 characters). The check lives in the package (`NetworkEgressDoctorCheck`) and the host slice's `PlatformHostCoreModule` registers it, next to `DeploymentNetworkService` (the `DEPLOYMENT_NETWORK_SOURCE`). | `DEPLOYMENT_NETWORK=online` (default): always pass, an inventory ("N outbound dependencies enabled (P public, Q private): ..."). `air-gapped`: pass when every enabled dependency is private; warn when only optional ones are public (remedy names [the air-gapped runbook](../runbooks/air-gapped.md)); fail when a required one is public, such as Google as the only sign-in provider (remedy names the runbook section). `unknown` grades as public. A contributor that throws is one `unknown` entry under its id. Never `skip`. |
+
+#### Who registers what (#879)
+
+Every check is registered by the package module that owns its capability, never by app code; `doctor.config.ts` in an app carries options only. The reference app registers no check of its own (its worked example, `apps/api/src/examples/doctor/`, is not mounted).
+
+| Slice (module) | Checks |
+|---|---|
+| host (`PlatformHostCoreModule`) | `db.connection`, `db.migrations`, `db.rls_role`, `secrets.encryption-key`, `core.deployment-mode`, `core.event-bus`, `maintenance.mode`, `network.egress` |
+| identity | `auth.*`, `tenancy.mode` |
+| storage | `storage.config`, `storage.bucket` |
+| email | `email.config` |
+| notifications | `push.vapid` |
+| ai | `ai.enabled`, `ai.providers` |
+| jobs, nodes | `jobs.worker`, `jobs.backlog`, `nodes.fleet` |
+| db-backup | `backup.schedule`, `backup.pg-client`, `backup.rls-bypass` |
+| sharing | `sharing.groups.orphaned` |
+| telemetry | the five `telemetry.*` checks |
+| android-app | `android.assetlinks`, `android.releases` |
+| user-data | `user-data.registries` (#880) |
+
+Slices with runtime configuration and no check of their own, on purpose: **credentials** (its one deployment fact, `SECRETS_ENCRYPTION_KEY`, is `secrets.encryption-key`, which needs only core's cipher; the slice does not depend on `doctor`), **settings** (the namespaces are validated at boot) and **exports** (it has no configuration of its own: its dependencies are covered by `storage.*` and `jobs.*`).
 
 ### 2.8 The web page
 
@@ -547,6 +576,7 @@ By hand, with the app running and signed in as an Admin:
 - #644 removed the `telemetry.stack` check, because the stack agent is not part of telemetry capture, and surfaced the agent's error on the Telemetry settings page instead.
 - PP-1.11 (#682) added `core.event-bus`.
 - #685 added `core.deployment-mode` (platform-packages PP-1.14).
+- #879 moved `db.connection`, `db.migrations`, `db.rls_role`, `secrets.encryption-key`, `core.deployment-mode` and `network.egress` out of the reference app into the host slice (`PlatformHostCoreModule`); ids, results and order are unchanged.
 - PP-1.12 (#683) added `auth.principal-cache`.
 - #772 (platform-packages PP-13.1) added the support bundle: `GET /api/admin/doctor/support-bundle`, `SupportBundleRegistry` with the built-in `meta`, `doctor` and `egress` sections and the app's `versions` and `telemetry` sections, redaction rules v1, the `support_bundle:download` audit event, and the **Download support bundle** button.
 - #696 (platform-packages PP-2.7) moved the framework into `@marinoscar/platform-api/doctor` and `@marinoscar/platform-web/doctor/{headless,ui}`, defined the host ports every packaged slice reuses, and left the app its binding (`doctor.config.ts`, the page binding) and its checks. `DOCTOR_CATEGORIES` became `PLATFORM_DOCTOR_CATEGORIES` (alias kept); a category is added with `categoryOrder` / `categories` instead of editing a list. No behaviour, route, permission or OpenAPI change.

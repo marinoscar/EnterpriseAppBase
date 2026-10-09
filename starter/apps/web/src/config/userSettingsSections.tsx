@@ -1,6 +1,8 @@
 import StickyNote2OutlinedIcon from '@mui/icons-material/StickyNote2Outlined';
 import { identityUserSettingsSections } from '@marinoscar/platform-web/identity/ui';
 import type { SettingsSectionDef } from '@marinoscar/platform-web/settings/ui';
+import { DANGER_ZONE_GROUP_LABEL } from '@marinoscar/platform-web/user-data/headless';
+import { dangerZoneSettingsPage } from '@marinoscar/platform-web/user-data/ui';
 
 /**
  * The per-user settings hub (`/settings`). The sample card is the app's own:
@@ -21,4 +23,6 @@ export const USER_SETTINGS_SECTIONS: SettingsSectionDef[] = [
       },
     ],
   },
+  // `Danger Zone` stays LAST (docs/specs/settings-ui.md): add new groups above it.
+  { label: DANGER_ZONE_GROUP_LABEL, cards: [{ ...dangerZoneSettingsPage.card, Icon: dangerZoneSettingsPage.Icon }] },
 ];

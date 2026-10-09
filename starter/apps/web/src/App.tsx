@@ -15,6 +15,7 @@ import { AuthCallbackPage, LoginPage, OrganizationPage, OrganizationsPage, UserT
 import { JobInsightsPage, JobsPage } from '@marinoscar/platform-web/jobs/ui';
 import { registerSettingsFeature, useSettingsFeatures } from '@marinoscar/platform-web/settings/headless';
 import { SettingsHub, type SettingsHubProps } from '@marinoscar/platform-web/settings/ui';
+import { FactoryResetPage, OffboardOrganizationButton, UserDangerZonePage, factoryResetSettingsPage } from '@marinoscar/platform-web/user-data/ui';
 import { ShellProviders, type ShellProvider } from '@marinoscar/platform-web/shell/headless';
 import { ShellLayout } from '@marinoscar/platform-web/shell/ui';
 import type { ReactElement } from 'react';
@@ -91,10 +92,21 @@ export function AppRoutes() {
           <Route path="admin/settings" element={<Hub sections={ADMIN_SECTIONS} hubKey="admin-settings-hub" title="Administration" subtitle="Users, background jobs and the health of this deployment." />} />
           <Route path="admin/settings/users" element={<Gate permission="users:read"><UsersPage /></Gate>} />
           <Route path="admin/settings/organization" element={<Gate permission="org_members:read"><OrganizationPage /></Gate>} />
-          <Route path="admin/settings/organizations" element={<Gate permission="organizations:read"><OrganizationsPage /></Gate>} />
+          <Route
+            path="admin/settings/organizations"
+            element={
+              <Gate permission="organizations:read">
+                <OrganizationsPage
+                  renderActions={(organization, { refresh }) => <OffboardOrganizationButton organization={organization} onCompleted={refresh} />}
+                />
+              </Gate>
+            }
+          />
           <Route path="admin/settings/jobs" element={<Gate permission="jobs:read"><JobsPage /></Gate>} />
           <Route path="admin/settings/jobs/insights" element={<Gate permission="jobs:read"><JobInsightsPage /></Gate>} />
           <Route path="admin/settings/doctor" element={<Gate permission="system_settings:read"><DoctorPage /></Gate>} />
+          <Route path="settings/danger-zone" element={<UserDangerZonePage />} />
+          <Route path="admin/settings/factory-reset" element={<Gate permission={factoryResetSettingsPage.card.permission!}><FactoryResetPage /></Gate>} />
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

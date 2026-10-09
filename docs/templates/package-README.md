@@ -68,7 +68,7 @@ Every registry, injection token, event, slot, theme token, overlay point, hook, 
 Sample rows (the Example link is relative to the README, so from `packages/platform-<pkg>/` it starts with `../../`; from a slice README with `../../../../`):
 
 ```markdown
-| `DoctorRegistry.register` | registry | `register(check: DoctorCheck): void` | Add a check to the report from a feature module | stable | [example](../../apps/api/src/health/doctor/db-connection.doctor-check.ts) |
+| `DoctorRegistry.register` | registry | `register(check: DoctorCheck): void` | Add a check to the report from a feature module | stable | [example](../../apps/api/src/examples/doctor/example-capability.doctor-check.ts) |
 | `DOCTOR_OPTIONS` | token | `InjectionToken<DoctorOptions>` | Read the resolved options in a custom check | experimental | [example](../../apps/api/src/doctor/doctor.config.ts) |
 ```
 

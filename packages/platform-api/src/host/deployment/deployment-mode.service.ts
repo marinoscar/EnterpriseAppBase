@@ -1,13 +1,23 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import { DatabaseRestoreDisabledError } from '@marinoscar/platform-api/db-backup';
+import { DatabaseRestoreDisabledError } from '../../db-backup/index';
 import {
+  DEPLOYMENT_MODE_ENV_VAR,
   capabilitiesFor,
   parseDeploymentMode,
   type DeploymentCapabilities,
   type DeploymentMode,
 } from './deployment-mode';
+
+/**
+ * The configuration key the app publishes the raw `DEPLOYMENT_MODE` string
+ * under (`config/configuration.ts`: `deployment.mode`). An app that publishes
+ * none is read from the environment variable directly.
+ *
+ * @stability experimental
+ */
+export const DEPLOYMENT_MODE_CONFIG_KEY = 'deployment.mode';
 
 /**
  * The parsed `DEPLOYMENT_MODE` and what it permits (#685).
@@ -21,15 +31,19 @@ import {
  *
  * Read-only for the life of the process: the mode is a fact about the
  * deployment, changed by its operator and a restart, never at runtime.
+ *
+ * @stability experimental
  */
 @Injectable()
 export class DeploymentModeService {
+  /** The parsed mode. */
   readonly mode: DeploymentMode;
 
+  /** What the mode permits. */
   readonly capabilities: Readonly<DeploymentCapabilities>;
 
   constructor(config: ConfigService) {
-    this.mode = parseDeploymentMode(config.get<string>('deployment.mode'));
+    this.mode = parseDeploymentMode(config.get<string>(DEPLOYMENT_MODE_CONFIG_KEY) ?? process.env[DEPLOYMENT_MODE_ENV_VAR]);
     this.capabilities = Object.freeze(capabilitiesFor(this.mode));
   }
 
@@ -41,7 +55,7 @@ export class DeploymentModeService {
   /**
    * The restore path's first statement.
    *
-   * @throws {DatabaseRestoreDisabledError} when this deployment's mode turns
+   * @throws DatabaseRestoreDisabledError when this deployment's mode turns
    * in-app restore off (`saas`).
    */
   assertInAppRestoreEnabled(): void {

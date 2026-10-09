@@ -1,12 +1,9 @@
-import { HealthCheckError } from '@nestjs/terminus';
-
-import { DoctorCheckOutcome } from '@marinoscar/platform-api/doctor';
-import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
-import { DatabaseHealthIndicator } from '../indicators/database.indicator';
-import { PrismaService } from '../../prisma/prisma.service';
-import { DbConnectionDoctorCheck } from './db-connection.doctor-check';
-import { DbMigrationsDoctorCheck, decideMigrations } from './db-migrations.doctor-check';
-import { EncryptionKeyDoctorCheck } from './encryption-key.doctor-check';
+import type { PrismaClientLike } from '../../../src/core/index';
+import { DoctorCheckRegistry, type DoctorCheckOutcome } from '../../../src/doctor/index';
+import { DbConnectionDoctorCheck } from '../../../src/host/doctor/db-connection.doctor-check';
+import { DbMigrationsDoctorCheck, decideMigrations } from '../../../src/host/doctor/db-migrations.doctor-check';
+import { RlsRoleDoctorCheck } from '../../../src/host/doctor/rls-role.doctor-check';
+import { EncryptionKeyDoctorCheck } from '../../../src/host/doctor/encryption-key.doctor-check';
 
 function expectRemedy(outcome: DoctorCheckOutcome): void {
   expect(['warn', 'fail']).toContain(outcome.status);
@@ -15,9 +12,9 @@ function expectRemedy(outcome: DoctorCheckOutcome): void {
 
 describe('core doctor checks', () => {
   describe('db.connection', () => {
-    const make = (isHealthy: jest.Mock) => {
+    const make = (queryRaw: jest.Mock) => {
       const registry = new DoctorCheckRegistry();
-      const check = new DbConnectionDoctorCheck(registry, { isHealthy } as unknown as DatabaseHealthIndicator);
+      const check = new DbConnectionDoctorCheck(registry, { $queryRaw: queryRaw } as unknown as PrismaClientLike);
       check.onModuleInit();
       return { check, registry };
     };
@@ -27,29 +24,37 @@ describe('core doctor checks', () => {
       expect(registry.get('db.connection')).toBe(check);
     });
 
-    it('passes with the latency', async () => {
-      const { check } = make(jest.fn().mockResolvedValue({ database: { status: 'up', responseTime: '4ms' } }));
+    it('passes with the measured latency', async () => {
+      const { check } = make(jest.fn().mockResolvedValue([{ '?column?': 1 }]));
+      const outcome = await check.run();
 
-      await expect(check.run()).resolves.toMatchObject({ status: 'pass', data: { latencyMs: 4 } });
+      expect(outcome).toMatchObject({ status: 'pass' });
+      expect(outcome.data).toEqual({ latencyMs: expect.any(Number) });
     });
 
     it('warns when SELECT 1 is slow', async () => {
-      const { check } = make(jest.fn().mockResolvedValue({ database: { status: 'up', responseTime: '900ms' } }));
+      const now = jest.spyOn(Date, 'now');
+      now.mockReturnValueOnce(1_000).mockReturnValueOnce(1_900);
+      const { check } = make(jest.fn().mockResolvedValue([]));
       const outcome = await check.run();
+      now.mockRestore();
 
-      expect(outcome.status).toBe('warn');
+      expect(outcome).toMatchObject({ status: 'warn', data: { latencyMs: 900 } });
       expectRemedy(outcome);
     });
 
-    it('fails with the indicator’s message when the database is down', async () => {
-      const error = new HealthCheckError('Database check failed', {
-        database: { status: 'down', message: 'Connection refused' },
-      });
-      const { check } = make(jest.fn().mockRejectedValue(error));
+    it('fails with the database’s own message when it is down', async () => {
+      const { check } = make(jest.fn().mockRejectedValue(new Error('Connection refused')));
       const outcome = await check.run();
 
       expect(outcome).toMatchObject({ status: 'fail', error: 'Connection refused' });
       expectRemedy(outcome);
+    });
+
+    it('skips when no database client is bound', async () => {
+      const check = new DbConnectionDoctorCheck(new DoctorCheckRegistry());
+
+      await expect(check.run()).resolves.toMatchObject({ status: 'skip' });
     });
   });
 
@@ -84,7 +89,7 @@ describe('core doctor checks', () => {
       const $queryRaw = jest.fn().mockResolvedValue([
         { applied: 10, unfinished: 0, rolled_back: 0, first_unfinished: null },
       ]);
-      const check = new DbMigrationsDoctorCheck(new DoctorCheckRegistry(), { $queryRaw } as unknown as PrismaService);
+      const check = new DbMigrationsDoctorCheck(new DoctorCheckRegistry(), { $queryRaw } as unknown as PrismaClientLike);
 
       await expect(check.run()).resolves.toMatchObject({ status: 'pass', data: { applied: 10 } });
       expect(String($queryRaw.mock.calls[0][0].join(''))).toContain('_prisma_migrations');
@@ -93,11 +98,20 @@ describe('core doctor checks', () => {
 
     it('fails when the table cannot be read', async () => {
       const $queryRaw = jest.fn().mockRejectedValue(new Error('relation "_prisma_migrations" does not exist'));
-      const check = new DbMigrationsDoctorCheck(new DoctorCheckRegistry(), { $queryRaw } as unknown as PrismaService);
+      const check = new DbMigrationsDoctorCheck(new DoctorCheckRegistry(), { $queryRaw } as unknown as PrismaClientLike);
       const outcome = await check.run();
 
       expect(outcome.error).toContain('does not exist');
       expectRemedy(outcome);
+    });
+  });
+
+  describe('without a PLATFORM_PRISMA binding', () => {
+    it('skips instead of failing the database checks', async () => {
+      const registry = new DoctorCheckRegistry();
+
+      await expect(new DbMigrationsDoctorCheck(registry).run()).resolves.toMatchObject({ status: 'skip' });
+      await expect(new RlsRoleDoctorCheck(registry).run()).resolves.toMatchObject({ status: 'skip' });
     });
   });
 

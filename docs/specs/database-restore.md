@@ -442,8 +442,8 @@ POST /api/admin/db-backup/runs/{id}/rollback   { "confirmation": "ROLLBACK" }
 ### Deployment mode
 
 `DEPLOYMENT_MODE` (`self-hosted`, the default, or `saas`) is a deployment-level
-environment variable, parsed once at startup by the reference app's
-`apps/api/src/common/deployment/deployment-mode.ts`. The packaged slice reads
+environment variable, parsed once at startup by the host slice's
+`packages/platform-api/src/host/deployment/deployment-mode.ts` (`@marinoscar/platform-api/host`). The packaged slice reads
 it through the `DB_BACKUP_DEPLOYMENT_MODE` host port, unless the app passes
 `deploymentMode` or `restoreEnabled` to `DbBackupModule.forRoot()` (#740). An invalid value stops the
 API before it connects to anything, with a message naming the variable and the

@@ -869,7 +869,7 @@ The contract (types, credential mapping, scope derivation, `SystemActor`) is dec
 | Upgrades | Customers upgrade on their own schedule | Forward-only expand/contract migrations, a supported upgrade path, the Doctor as a pre-upgrade check, release notes |
 | Supply chain | Images signed keyless with an SBOM and provenance attestation; Trivy scan reported, not blocking ([runbook](../runbooks/container-images.md)) | Make the vulnerability scan a gate once the baseline is triaged |
 | Configuration | Runtime settings in the database; environment variables only for deployment secrets | Already fits |
-| Mode switch | `DEPLOYMENT_MODE` (`self-hosted`, the default, or `saas`), a deployment-level variable that fails startup on an unknown value (#685). `saas` disables in-app restore and rollback; backups stay | Further mode-dependent behaviour joins `DeploymentCapabilities` in `apps/api/src/common/deployment/`; see [database restore spec](database-restore.md#deployment-mode) |
+| Mode switch | `DEPLOYMENT_MODE` (`self-hosted`, the default, or `saas`), a deployment-level variable that fails startup on an unknown value (#685). `saas` disables in-app restore and rollback; backups stay | Further mode-dependent behaviour joins `DeploymentCapabilities` in `packages/platform-api/src/host/deployment/` (`@marinoscar/platform-api/host`); see [database restore spec](database-restore.md#deployment-mode) |
 
 ## Scaling posture
 

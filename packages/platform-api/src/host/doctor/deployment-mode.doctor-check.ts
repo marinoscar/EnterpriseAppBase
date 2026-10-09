@@ -1,13 +1,17 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 
-import { DoctorCheck, DoctorCheckOutcome } from '@marinoscar/platform-api/doctor';
-import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
-import { SystemSettingsService } from '@marinoscar/platform-api/settings';
-import { DEPLOYMENT_MODE_ENV_VAR, capabilitiesFor, type DeploymentMode } from '../deployment-mode';
-import { DeploymentModeService } from '../deployment-mode.service';
+import { DoctorCheckRegistry, type DoctorCheck, type DoctorCheckOutcome } from '../../doctor/index';
+import { SystemSettingsService } from '../../settings/index';
+import { DEPLOYMENT_MODE_ENV_VAR, capabilitiesFor, type DeploymentMode } from '../deployment/deployment-mode';
+import { DeploymentModeService } from '../deployment/deployment-mode.service';
 
 const BACKUP_SETTINGS_PATH = '/admin/settings/db-backup';
 
+/**
+ * What the check reads besides the mode.
+ *
+ * @stability experimental
+ */
 export interface DeploymentModeFacts {
   /**
    * `databaseBackup.enabled` — whether in-app scheduled backups are on.
@@ -25,6 +29,12 @@ export interface DeploymentModeFacts {
  * chose. The only thing worth flagging is SaaS with in-app backups off: then the
  * provider's backups and PITR are the ONLY way back, and this application cannot
  * see whether they are configured.
+ *
+ * @param mode - the parsed deployment mode.
+ * @param facts - the backup policy fact.
+ * @returns the check outcome.
+ *
+ * @stability experimental
  */
 export function decideDeploymentMode(
   mode: DeploymentMode,
@@ -66,7 +76,11 @@ export function decideDeploymentMode(
   };
 }
 
-/** `core` / `core.deployment-mode` — which deployment mode is running, and what it turns off. */
+/**
+ * `core` / `core.deployment-mode` — which deployment mode is running, and what it turns off.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class DeploymentModeDoctorCheck implements DoctorCheck, OnModuleInit {
   readonly id = 'core.deployment-mode';
@@ -80,6 +94,7 @@ export class DeploymentModeDoctorCheck implements DoctorCheck, OnModuleInit {
     private readonly settings: SystemSettingsService
   ) {}
 
+  /** Registers the check with the Doctor. */
   onModuleInit(): void {
     this.registry.register(this);
   }

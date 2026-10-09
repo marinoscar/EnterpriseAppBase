@@ -195,7 +195,7 @@ New in this release (#727). The slice moved from the app with no behaviour chang
 | `common/services/admin-bootstrap.service.ts` | `AdminBootstrapService`, provided by the slice's `AuthModule` (drop it from `CommonModule`) |
 | `common/deployment/tenancy-mode.ts` | `parseTenancyMode` and friends from the slice (the reference app keeps a re-export) |
 | `*/…notifications.ts` (the four notification events) | stay in the app (`src/identity-extensions/notifications/`), raised through `IDENTITY_NOTIFIER` |
-| `organizations/doctor/rls-role.doctor-check.ts` | stays in the app (`health/doctor/`) |
+| `organizations/doctor/rls-role.doctor-check.ts` | moved to the host slice (`@marinoscar/platform-api/host`, #879) |
 
 Behaviour changes, deliberate: a missing `JWT_SECRET` now fails the boot (it used to fall back to a published key); `GET /api/auth/providers` reads the provider registry (same output for Google). A route's `@Auth` permissions are typed by the app's augmentation of `IdentityPermissionIds`.
 

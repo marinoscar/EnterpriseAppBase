@@ -14,6 +14,6 @@ import type { PlatformPermissionOptions } from '@marinoscar/platform-api/manifes
 import { NOTES_PERMISSIONS } from '../notes/notes.permissions';
 
 export const PERMISSION_OPTIONS = {
-  slices: ['identity', 'settings', 'jobs', 'nodes'],
+  slices: ['identity', 'settings', 'jobs', 'nodes', 'user-data'],
   app: { permissions: [NOTES_PERMISSIONS] },
 } satisfies PlatformPermissionOptions;

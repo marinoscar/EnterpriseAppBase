@@ -28,15 +28,29 @@
 // calls it again when the container builds, so neither can disagree with it.
 // =============================================================================
 
-/** The environment variable this module parses. */
+/** The environment variable this module parses.
+ *
+ * @stability experimental
+ */
 export const DEPLOYMENT_MODE_ENV_VAR = 'DEPLOYMENT_MODE';
 
-/** Every deployment mode, in the order they are documented. */
+/** Every deployment mode, in the order they are documented.
+ *
+ * @stability experimental
+ */
 export const DEPLOYMENT_MODES = ['self-hosted', 'saas'] as const;
 
+/**
+ * A deployment mode: `self-hosted` or `saas`.
+ *
+ * @stability experimental
+ */
 export type DeploymentMode = (typeof DEPLOYMENT_MODES)[number];
 
-/** What an unset or empty `DEPLOYMENT_MODE` means. */
+/** What an unset or empty `DEPLOYMENT_MODE` means.
+ *
+ * @stability experimental
+ */
 export const DEFAULT_DEPLOYMENT_MODE: DeploymentMode = 'self-hosted';
 
 /**
@@ -52,7 +66,9 @@ export const DEFAULT_DEPLOYMENT_MODE: DeploymentMode = 'self-hosted';
  * - Anything else throws, with a message naming the variable and the allowed
  *   values, so the deploy log says exactly what to fix.
  *
- * @throws {Error} on any value that is not a deployment mode.
+ * @throws Error on any value that is not a deployment mode.
+ *
+ * @stability experimental
  */
 export function parseDeploymentMode(raw: string | undefined): DeploymentMode {
   const value = (raw ?? '').trim();
@@ -76,6 +92,8 @@ export function parseDeploymentMode(raw: string | undefined): DeploymentMode {
  * What a deployment mode permits. One predicate today; later deployment-mode
  * behaviour adds a field here rather than a second `mode === 'saas'` check
  * somewhere else.
+ *
+ * @stability experimental
  */
 export interface DeploymentCapabilities {
   /**
@@ -86,7 +104,10 @@ export interface DeploymentCapabilities {
   inAppRestore: boolean;
 }
 
-/** Pure. The capability table, by mode. */
+/** Pure. The capability table, by mode.
+ *
+ * @stability experimental
+ */
 export function capabilitiesFor(mode: DeploymentMode): DeploymentCapabilities {
   switch (mode) {
     case 'saas':
@@ -96,7 +117,10 @@ export function capabilitiesFor(mode: DeploymentMode): DeploymentCapabilities {
   }
 }
 
-/** One line for the startup log. */
+/** One line for the startup log.
+ *
+ * @stability experimental
+ */
 export function describeDeploymentMode(mode: DeploymentMode): string {
   const capabilities = capabilitiesFor(mode);
 
@@ -117,6 +141,8 @@ export function describeDeploymentMode(mode: DeploymentMode): string {
  * port. Throws (rather than exiting) for the same reason the other bootstrap
  * checks do — `bootstrap()` is called unhandled, so the rejection exits Node
  * non-zero with the message on stderr.
+ *
+ * @stability experimental
  */
 export function verifyDeploymentModeAtStartup(
   env: Record<string, string | undefined>,

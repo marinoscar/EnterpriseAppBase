@@ -1,8 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 
-import { assertEncryptionKeyConfigured } from '@marinoscar/platform-api/core';
-import { DoctorCheck, DoctorCheckOutcome } from '@marinoscar/platform-api/doctor';
-import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
+import { assertEncryptionKeyConfigured } from '../../core/index';
+import { DoctorCheckRegistry, type DoctorCheck, type DoctorCheckOutcome } from '../../doctor/index';
 
 /**
  * `core` / `secrets.encryption-key` — `SECRETS_ENCRYPTION_KEY` is present and
@@ -11,6 +10,8 @@ import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
  * Calls the same assertion bootstrap uses. Its error message describes the
  * key's SHAPE only ("is not set", "decoded to 24 bytes") and never any of its
  * bytes — `secret-cipher.ts` guarantees that — so it is safe to report.
+ *
+ * @stability experimental
  */
 @Injectable()
 export class EncryptionKeyDoctorCheck implements DoctorCheck, OnModuleInit {
@@ -23,6 +24,7 @@ export class EncryptionKeyDoctorCheck implements DoctorCheck, OnModuleInit {
 
   constructor(private readonly registry: DoctorCheckRegistry) {}
 
+  /** Registers the check with the Doctor. */
   onModuleInit(): void {
     this.registry.register(this);
   }

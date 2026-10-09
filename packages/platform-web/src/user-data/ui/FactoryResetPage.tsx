@@ -16,7 +16,7 @@ import {
 } from '@marinoscar/platform-contract/user-data';
 
 import { usePlatformApi } from '../../core/index.js';
-import { createFactoryResetClient, useDestructiveJob } from '../headless/index.js';
+import { createFactoryResetClient, useCompletionHandler, useDestructiveJob } from '../headless/index.js';
 import { FACTORY_RESET_DELETED, FACTORY_RESET_KEPT, FACTORY_RESET_PAGE_TITLE } from './copy.js';
 import { TypedConfirmDialog } from './TypedConfirmDialog.js';
 
@@ -41,7 +41,10 @@ function resultLabel(key: string): string {
  * @stability experimental
  */
 export interface FactoryResetPageProps {
-  /** Called after the reset succeeds: clear client caches and the shell's state. */
+  /**
+   * Called after the reset succeeds: clear client caches. The viewer itself is
+   * re-read by the page (the host's `viewer.refresh`).
+   */
   onCompleted?(result: FactoryResetResult | null): void;
   /** Poll interval of the job status, in milliseconds. Default 1500. */
   pollIntervalMs?: number;
@@ -56,7 +59,7 @@ export interface FactoryResetPageProps {
  * @extensionPoint component
  * @example
  * ```tsx
- * <Route path="/admin/settings/factory-reset" element={<FactoryResetPage onCompleted={refreshSession} />} />
+ * <Route path="/admin/settings/factory-reset" element={<FactoryResetPage />} />
  * ```
  */
 export function FactoryResetPage(props: FactoryResetPageProps): ReactElement {
@@ -79,12 +82,13 @@ export function FactoryResetPage(props: FactoryResetPageProps): ReactElement {
     void load();
   }, [load]);
 
+  const completed = useCompletionHandler<FactoryResetResult>(props.onCompleted);
   const job = useDestructiveJob<FactoryResetResult>({
     start: () => client.request(FACTORY_RESET_CONFIRMATION),
     poll: (jobId) => client.status(jobId),
     intervalMs: props.pollIntervalMs,
     onSucceeded: (result) => {
-      props.onCompleted?.(result);
+      completed(result);
       void load();
     },
   });

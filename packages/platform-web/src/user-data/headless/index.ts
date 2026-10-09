@@ -4,7 +4,7 @@
 
 export { createFactoryResetClient, createOrgOffboardingClient, createUserDataClient } from './client.js';
 export type { FactoryResetClient, OrgOffboardingClient, UserDataClient } from './client.js';
-export { useDestructiveJob } from './use-destructive-job.js';
+export { useCompletionHandler, useDestructiveJob } from './use-destructive-job.js';
 export type {
   DestructiveJobPhase,
   DestructiveJobStatus,

@@ -18,7 +18,7 @@ import {
 } from '@marinoscar/platform-contract/user-data';
 
 import { usePlatformApi } from '../../core/index.js';
-import { createUserDataClient, useDestructiveJob } from '../headless/index.js';
+import { createUserDataClient, useCompletionHandler, useDestructiveJob } from '../headless/index.js';
 import { DANGER_ZONE_PAGE_DESCRIPTION, DANGER_ZONE_PAGE_TITLE, USER_DATA_KEPT } from './copy.js';
 import { TypedConfirmDialog } from './TypedConfirmDialog.js';
 
@@ -60,7 +60,11 @@ function formatBytes(bytes: number): string {
  * @stability experimental
  */
 export interface UserDangerZonePageProps {
-  /** Called after a deletion succeeds: clear client caches, refetch the profile and notifications. */
+  /**
+   * Called after a deletion succeeds: clear client caches and refetch what
+   * the app caches. The viewer itself is re-read by the page (the host's
+   * `viewer.refresh`), so an app that supplies it passes nothing here.
+   */
   onCompleted?(result: UserDataPurgeResult | null): void;
   /** Poll interval of the job status, in milliseconds. Default 1500. */
   pollIntervalMs?: number;
@@ -75,7 +79,7 @@ export interface UserDangerZonePageProps {
  * @extensionPoint component
  * @example
  * ```tsx
- * <Route path="/settings/danger-zone" element={<UserDangerZonePage onCompleted={refreshSession} />} />
+ * <Route path="/settings/danger-zone" element={<UserDangerZonePage />} />
  * ```
  */
 export function UserDangerZonePage(props: UserDangerZonePageProps): ReactElement {
@@ -98,12 +102,13 @@ export function UserDangerZonePage(props: UserDangerZonePageProps): ReactElement
     void load();
   }, [load]);
 
+  const completed = useCompletionHandler<UserDataPurgeResult>(props.onCompleted);
   const job = useDestructiveJob<UserDataPurgeResult>({
     start: () => client.requestDeletion(selected!.id, selected!.confirmation),
     poll: (jobId) => client.deletionStatus(jobId),
     intervalMs: props.pollIntervalMs,
     onSucceeded: (result) => {
-      props.onCompleted?.(result);
+      completed(result);
       void load();
     },
   });

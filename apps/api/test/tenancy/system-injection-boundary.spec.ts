@@ -36,7 +36,6 @@ const ALLOWLIST: Record<string, string> = {
     'admin-aggregate: the settings slice\'s profile-image port validates the user\'s own avatar row across an org switch',
   'platform/ai/ai-host.module.ts':
     'retention and admin-aggregate: the AI slice\'s AI_SYSTEM_PRISMA port (its two retention purges, the deployment-wide usage report and the catalogue sync\'s organization-less usage row)',
-  'health/doctor/rls-role.doctor-check.ts': 'doctor: read-only catalogue reads',
   'platform/exports/exports-host.module.ts':
     'export and purge: the exports slice\'s EXPORTS_SYSTEM_DATA port (#744): the user-data and org-data sources read one user\'s or one organization\'s rows with an explicit filter (export), the status and download routes find the file\'s row (export), and export.purge deletes expired export files (purge)',
   'platform/db-backup/db-backup-host.module.ts':

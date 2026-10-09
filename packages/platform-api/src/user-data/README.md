@@ -1,6 +1,6 @@
 # @marinoscar/platform-api/user-data
 
-The user-data slice of the API package (issue #743, PP-9.1): the per-user deletion with scopes (`user.data.purge`, `/api/user-data/*`), the admin factory reset (`admin.factory_reset`, `/api/admin/factory-reset/*`) and organization offboarding (`org.offboard`, `/api/admin/orgs/:orgId/offboarding/*`). Harvested from EvoPath's user data reset and factory reset and kvox's scoped deletion, which shared no file. It depends on `core` (the user-owned and model-ownership registries, the audit sink), `otel-core` (the metrics), `identity` (the route decorators), `jobs` (the queue), `storage` (the provider, the key-prefix registry), `sharing` (the group membership removal hook), `exports` (the recent-export offboarding precondition) and `testing` (the schema reader and the conformance harness) (`packages/platform-slices.json`).
+The user-data slice of the API package (issue #743, PP-9.1): the per-user deletion with scopes (`user.data.purge`, `/api/user-data/*`), the admin factory reset (`admin.factory_reset`, `/api/admin/factory-reset/*`) and organization offboarding (`org.offboard`, `/api/admin/orgs/:orgId/offboarding/*`). Harvested from EvoPath's user data reset and factory reset and kvox's scoped deletion, which shared no file. It depends on `core` (the user-owned and model-ownership registries, the audit sink), `doctor` (the registries check), `otel-core` (the metrics), `identity` (the route decorators), `jobs` (the queue), `storage` (the provider, the key-prefix registry), `sharing` (the group membership removal hook), `exports` (the recent-export offboarding precondition), `host` (the deployment mode) and `testing` (the schema reader and the conformance harness) (`packages/platform-slices.json`).
 
 ## Purpose and scope
 
@@ -31,7 +31,7 @@ Ships inside `@marinoscar/platform-api`; import it by its subpath:
 import { UserDataModule, registerUserDataModels } from '@marinoscar/platform-api/user-data';
 ```
 
-Peers beyond the package's own: `nestjs-zod` and `zod` (the DTOs), `@opentelemetry/api` (span attributes). The wire shapes come from `@marinoscar/platform-contract/user-data`. The app binds two host ports and passes its parsed Prisma schema.
+Peers beyond the package's own: `nestjs-zod` and `zod` (the DTOs), `@opentelemetry/api` (span attributes). The wire shapes come from `@marinoscar/platform-contract/user-data`. The app binds one host port (the bypass client, `USER_DATA_DB`) and points the slice at its composed Prisma schema folder.
 
 ## Quick start
 
@@ -40,8 +40,8 @@ The reference app fills the registries in a manifest ([`user-data.manifest.ts`](
 ```ts
 import './user-data.manifest'; // registerPlatformUserData(), then the app's entries
 export const userDataModule = UserDataModule.forRoot({
-  imports: [UserDataHostModule], // binds USER_DATA_DB (the bypass client) and USER_DATA_ENVIRONMENT
-  datamodel: () => readSchemaDatamodel(appSchemaPath()),
+  imports: [UserDataHostModule], // binds USER_DATA_DB, the bypass client: the one port an app supplies
+  datamodel: composedSchemaDatamodel(__dirname), // finds and parses prisma/schema once
   userRemovalHooks: [groupMembershipRemovalHook],
   factoryReset: { keepJobsReferencedBy: [{ model: 'DatabaseBackupRun', field: 'jobId' }] },
 });
@@ -61,20 +61,24 @@ registerUserDataScope({ id: 'transcripts', label: 'Delete my transcripts', descr
 
 | Option | Default | Meaning |
 |---|---|---|
-| `datamodel` | required | The parsed schema (`readSchemaDatamodel` of `@marinoscar/platform-api/testing`), or a function returning it, read once at bootstrap. Prisma 7's generated DMMF has no `onDelete`, so the schema file is the source |
-| `imports` | `[]` | Modules binding `USER_DATA_DB` and `USER_DATA_ENVIRONMENT` |
+| `datamodel` | required | The parsed schema: `composedSchemaDatamodel(__dirname)` (walks up to `prisma/schema`), or any `PurgeDatamodel` or function returning one, read once at bootstrap. Prisma 7's generated DMMF has no `onDelete`, so the schema file is the source |
+| `imports` | `[]` | Modules binding `USER_DATA_DB` |
+| `environment` | `DefaultUserDataEnvironment` | The class bound as `USER_DATA_ENVIRONMENT`. The default reads `DEPLOYMENT_MODE` from the host slice's `DeploymentModeService` and `TENANCY_MODE` from identity's `TenancyService`, so an app passes nothing |
 | `legacyJobTypes` | `[]` | `{ type, toPayload(old) }`: an alias handler per pre-platform job type (EvoPath's `user.data_reset`), so queued jobs still run after adoption |
 | `userRemovalHooks` | `[]` | Work run before a user ROW is deleted (factory reset, offboarding `purge`); `groupMembershipRemovalHook` is the sharing slice's last-admin rule |
 | `factoryReset.keepJobsReferencedBy` | `[]` | `{ model, field }`: jobs these rows link to survive step 1 (the backups') |
 | `txTimeoutMs` | 5 minutes | The row transaction's timeout |
 
-No environment variable and no settings namespace. `DEPLOYMENT_MODE=saas` disables the factory reset; offboarding needs `TENANCY_MODE=multi` (both read through `USER_DATA_ENVIRONMENT`).
+No environment variable and no settings namespace. `DEPLOYMENT_MODE=saas` disables the factory reset; offboarding needs `TENANCY_MODE=multi` (both read through `USER_DATA_ENVIRONMENT`, bound by default).
+
+The slice registers the `user-data.registries` Doctor check (`UserDataRegistriesDoctorCheck`, category `user-data`): the three conformance checks below, run against the live registries and schema, so a deployment that shipped an owner model without a decision shows a `fail` with the model named. It needs the Doctor module and the host core (`PlatformHostCoreModule`) in the app.
 
 ## Extension-point catalog
 
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `UserDataModule.forRoot` | option | `(options: UserDataModuleOptions) => DynamicModule` | Mount the slice once | experimental | [user-data.config.ts](../../../../apps/api/src/platform/user-data/user-data.config.ts) |
+| `composedSchemaDatamodel` | option | `(fromDir: string) => () => PurgeDatamodel` | Point `datamodel` at the app's composed `prisma/schema` folder | experimental | [user-data.config.ts](../../../../apps/api/src/platform/user-data/user-data.config.ts) |
 | `UserDataModuleOptions` | option | `{ datamodel, imports?, legacyJobTypes?, userRemovalHooks?, factoryReset?, txTimeoutMs? }` | Configure the slice | experimental | [user-data.config.ts](../../../../apps/api/src/platform/user-data/user-data.config.ts) |
 | `registerUserDataCategory` | registry | `(def: UserDataCategoryDef) => void` | Add a category the Danger Zone counts | experimental | [user-data.examples.ts](../../../../apps/api/src/examples/user-data/user-data.examples.ts) |
 | `registerUserDataScope` | registry | `(def: UserDataScopeDef) => void` | Add a narrow scope, or override a built-in explicitly | experimental | [user-data.examples.ts](../../../../apps/api/src/examples/user-data/user-data.examples.ts) |
@@ -83,7 +87,7 @@ No environment variable and no settings namespace. `DEPLOYMENT_MODE=saas` disabl
 | `registerFactoryResetStep` | registry | `(def: FactoryResetStepDef) => void` | App deployment-level work of the reset (EvoPath's custom catalog) | experimental | [user-data.examples.ts](../../../../apps/api/src/examples/user-data/user-data.examples.ts) |
 | `registerOffboardingPrecondition` | registry | `(def: OffboardingPreconditionDef) => void` | Block an offboarding until a check passes (#744: a recent export) | experimental | [user-data.examples.ts](../../../../apps/api/src/examples/user-data/user-data.examples.ts) |
 | `USER_DATA_DB` | token | `UserDataDbPort` | Bind the bypass client | experimental | [user-data-host.module.ts](../../../../apps/api/src/platform/user-data/user-data-host.module.ts) |
-| `USER_DATA_ENVIRONMENT` | token | `UserDataEnvironment` | Bind the deployment and tenancy modes | experimental | [user-data-host.module.ts](../../../../apps/api/src/platform/user-data/user-data-host.module.ts) |
+| `USER_DATA_ENVIRONMENT` | token | `UserDataEnvironment` | Replace the default deployment and tenancy modes (pass `environment` to `forRoot`) | experimental | [user-data.integration.spec.ts](../../../../apps/api/test/user-data/user-data.integration.spec.ts) |
 | `groupMembershipRemovalHook` | hook | `UserRemovalHook<GroupMembershipPurge>` | Keep groups administrable when a user row goes | experimental | [user-data.config.ts](../../../../apps/api/src/platform/user-data/user-data.config.ts) |
 | `userDataConformanceSuite` | registry | `ConformanceSuite<UserDataConformanceOptions>` | Prove every owner model is decided | experimental | [user-data-conformance.spec.ts](../../../../apps/api/test/user-data/user-data-conformance.spec.ts) |
 
@@ -136,7 +140,7 @@ None. The storage key-prefix registry's `survivesFactoryReset: true` marks prefi
 
 ## Upgrade notes
 
-First release (#743). The three job types and the built-in scope ids are permanent. An app adopting the slice with its own pre-platform job type passes it in `legacyJobTypes` (EvoPath: `user.data_reset` → `everything`); kvox's `user.data.purge` and `POST /api/user-data/deletions` already match. `StorageKeyPrefixDef` gains the optional `survivesFactoryReset`.
+The slice now depends on the `doctor` and `host` slices (#880): it provides `USER_DATA_ENVIRONMENT` itself and registers `user-data.registries`. An app that bound `USER_DATA_ENVIRONMENT` in its host module deletes that binding (or passes it as `environment`). First release (#743). The three job types and the built-in scope ids are permanent. An app adopting the slice with its own pre-platform job type passes it in `legacyJobTypes` (EvoPath: `user.data_reset` → `everything`); kvox's `user.data.purge` and `POST /api/user-data/deletions` already match. `StorageKeyPrefixDef` gains the optional `survivesFactoryReset`.
 
 ## Troubleshooting
 

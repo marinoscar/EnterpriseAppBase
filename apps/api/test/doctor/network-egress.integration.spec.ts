@@ -34,7 +34,7 @@ import {
 
 import { AiConfigService, type AiPolicy } from '@marinoscar/platform-api/ai';
 import { AuthService } from '@marinoscar/platform-api/identity';
-import { DeploymentNetworkService } from '../../src/common/deployment/deployment-network.service';
+import { DeploymentNetworkService } from '@marinoscar/platform-api/host';
 import { EmailSettingsService } from '@marinoscar/platform-api/email';
 import { PushConfigService } from '../notifications/support/notifications';
 import { SystemSettingsService } from '@marinoscar/platform-api/settings';

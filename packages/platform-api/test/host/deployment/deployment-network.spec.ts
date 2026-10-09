@@ -6,8 +6,8 @@ import {
   describeDeploymentNetwork,
   parseDeploymentNetwork,
   verifyDeploymentNetworkAtStartup,
-} from './deployment-network';
-import { DeploymentNetworkService } from './deployment-network.service';
+} from '../../../src/host/deployment/deployment-network';
+import { DeploymentNetworkService } from '../../../src/host/deployment/deployment-network.service';
 
 describe('parseDeploymentNetwork (#773)', () => {
   it.each<[string | undefined, string]>([

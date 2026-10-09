@@ -1,11 +1,15 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, OnModuleInit, Optional } from '@nestjs/common';
 
-import { DoctorCheck, DoctorCheckOutcome } from '@marinoscar/platform-api/doctor';
-import { DoctorCheckRegistry } from '@marinoscar/platform-api/doctor';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PLATFORM_PRISMA, type PrismaClientLike } from '../../core/index';
+import { DoctorCheckRegistry, type DoctorCheck, type DoctorCheckOutcome } from '../../doctor/index';
 
-/** What the one `_prisma_migrations` read returns. */
+/**
+ * What the one `_prisma_migrations` read returns.
+ *
+ * @stability experimental
+ */
 export interface MigrationState {
+  /** Finished and not rolled back. */
   applied: number;
   /** Started and never finished, not rolled back: failed or still running. */
   unfinished: number;
@@ -15,6 +19,14 @@ export interface MigrationState {
   firstUnfinished: string | null;
 }
 
+/**
+ * Pure: the verdict on the migration history.
+ *
+ * @param state - the counts one `_prisma_migrations` read returns.
+ * @returns the check outcome.
+ *
+ * @stability experimental
+ */
 export function decideMigrations(state: MigrationState): DoctorCheckOutcome {
   const data = { applied: state.applied, unfinished: state.unfinished, rolledBack: state.rolledBack };
 
@@ -56,7 +68,10 @@ export function decideMigrations(state: MigrationState): DoctorCheckOutcome {
 /**
  * `core` / `db.migrations` — no migration is half-applied.
  *
- * One read-only `SELECT` against Prisma's own bookkeeping table.
+ * One read-only `SELECT` against Prisma's own bookkeeping table, through the
+ * `PLATFORM_PRISMA` host port.
+ *
+ * @stability experimental
  */
 @Injectable()
 export class DbMigrationsDoctorCheck implements DoctorCheck, OnModuleInit {
@@ -67,16 +82,22 @@ export class DbMigrationsDoctorCheck implements DoctorCheck, OnModuleInit {
 
   constructor(
     private readonly registry: DoctorCheckRegistry,
-    private readonly prisma: PrismaService,
+    @Optional() @Inject(PLATFORM_PRISMA) private readonly prisma?: PrismaClientLike,
   ) {}
 
+  /** Registers the check with the Doctor. */
   onModuleInit(): void {
     this.registry.register(this);
   }
 
   async run(): Promise<DoctorCheckOutcome> {
+    const prisma = this.prisma;
+    if (!prisma) {
+      return { status: 'skip', detail: 'No database client is bound to PLATFORM_PRISMA, so there is no migration history to read' };
+    }
+
     try {
-      const rows = await this.prisma.$queryRaw<
+      const rows = await prisma.$queryRaw<
         Array<{ applied: unknown; unfinished: unknown; rolled_back: unknown; first_unfinished: unknown }>
       >`
         SELECT
