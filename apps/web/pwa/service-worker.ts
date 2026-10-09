@@ -74,7 +74,7 @@ import { buildManifest } from './manifest';
  * `src/sw.ts` already listens for it.
  *
  * `injectRegister: null` because THE REACT TREE NOW OWNS REGISTRATION (issue
- * #219). `src/components/pwa/UpdatePrompt.tsx` calls `useRegisterSW` from
+ * #219). `App.tsx` (through the package's `UpdatePrompt`) calls `useRegisterSW` from
  * `virtual:pwa-register/react`, which registers the worker and exposes its
  * `needRefresh` state to the UI that acts on it. The previous
  * `injectRegister: 'auto'` was the placeholder that issue replaced: it injected
@@ -93,7 +93,7 @@ export function buildServiceWorkerOptions(): Partial<VitePWAOptions> {
     srcDir: 'src',
     filename: 'sw.ts',
     registerType: 'prompt',
-    // Registration lives in `src/components/pwa/UpdatePrompt.tsx` — see above.
+    // Registration lives in `App.tsx` (through the package's `UpdatePrompt`) — see above.
     injectRegister: null,
     manifest: buildManifest(),
     injectManifest: {

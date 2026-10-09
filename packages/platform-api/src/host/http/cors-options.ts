@@ -42,6 +42,7 @@
  * @stability experimental
  */
 export interface SameOriginCorsOptions {
+  /** `false`: emit no CORS headers. */
   origin: false;
 }
 
@@ -51,7 +52,9 @@ export interface SameOriginCorsOptions {
  * @stability experimental
  */
 export interface AllowlistCorsOptions {
+  /** The exact serialized origins allowed, deduplicated in first-seen order. */
   origin: string[];
+  /** Always `true`: cookies and authorization headers are allowed for those origins. */
   credentials: true;
 }
 

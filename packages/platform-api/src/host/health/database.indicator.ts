@@ -11,7 +11,10 @@ import { PLATFORM_PRISMA, type PrismaClientLike } from '../../core/index';
  * `SELECT 1` through the `PLATFORM_PRISMA` host port. Throws
  * `HealthCheckError` on failure (right for Terminus).
  *
- * @stability experimental
+ * Exported for the reference app's wiring and tests; not a stable extension
+ * point.
+ *
+ * @internal
  */
 @Injectable()
 export class DatabaseHealthIndicator extends HealthIndicator {

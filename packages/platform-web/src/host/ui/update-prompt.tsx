@@ -1,7 +1,44 @@
 import { useCallback } from 'react';
 import { Button, IconButton, Snackbar } from '@mui/material';
 import { Close as CloseIcon } from '@mui/icons-material';
-import { useRegisterSW } from 'virtual:pwa-register/react';
+import type { Dispatch, SetStateAction } from 'react';
+
+/**
+ * What vite-plugin-pwa's `useRegisterSW` returns.
+ *
+ * @stability experimental
+ */
+export interface RegisterServiceWorkerResult {
+  /** `[true, set]` once a new worker is installed and waiting. */
+  needRefresh: [boolean, Dispatch<SetStateAction<boolean>>];
+  /** `[true, set]` once the app shell is cached for offline use. */
+  offlineReady: [boolean, Dispatch<SetStateAction<boolean>>];
+  /** Posts `SKIP_WAITING` to the waiting worker; the hook reloads the page. */
+  updateServiceWorker: (reloadPage?: boolean) => Promise<void>;
+}
+
+/**
+ * The shape of vite-plugin-pwa's `useRegisterSW` (from the virtual module
+ * `virtual:pwa-register/react`), which only the app's bundler can resolve and
+ * so is injected into {@link UpdatePrompt} rather than imported.
+ *
+ * @stability experimental
+ */
+export type UseRegisterServiceWorker = () => RegisterServiceWorkerResult;
+
+/**
+ * Props of {@link UpdatePrompt}.
+ *
+ * @stability experimental
+ */
+export interface UpdatePromptProps {
+  /**
+   * vite-plugin-pwa's `useRegisterSW`, imported by the app from
+   * `virtual:pwa-register/react`. Called on every render, so pass the same
+   * function every time.
+   */
+  useRegisterSW: UseRegisterServiceWorker;
+}
 
 /**
  * The "a new version is available" prompt, and the thing that REGISTERS the
@@ -62,8 +99,20 @@ import { useRegisterSW } from 'virtual:pwa-register/react';
  * reach the pixel suite: `apps/web/visual/vite.config.ts` deliberately omits
  * `VitePWA` and its harness mounts its own tree rather than `App.tsx`, so
  * neither the worker nor this component exists there.
+ *
+ * @param props - see {@link UpdatePromptProps}.
+ * @returns the snackbar, or `null`.
+ *
+ * @example
+ * ```tsx
+ * import { useRegisterSW } from 'virtual:pwa-register/react';
+ * <UpdatePrompt useRegisterSW={useRegisterSW} />
+ * ```
+ *
+ * @extensionPoint component
+ * @stability experimental
  */
-export function UpdatePrompt() {
+export function UpdatePrompt({ useRegisterSW }: UpdatePromptProps) {
   const {
     needRefresh: [needRefresh, setNeedRefresh],
     offlineReady: [offlineReady, setOfflineReady],
@@ -139,5 +188,3 @@ export function UpdatePrompt() {
     />
   );
 }
-
-export default UpdatePrompt;

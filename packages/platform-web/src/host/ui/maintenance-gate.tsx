@@ -33,7 +33,7 @@
  * =============================================================================
  *
  * `MAINTENANCE_ADMIN_PATH` is the client mirror of `@AllowDuringMaintenance()`
- * on `packages/platform-api/src/host/maintenance/maintenance.controller.ts`. The API
+ * on `maintenance.controller.ts` of the host slice. The API
  * exempts its own maintenance endpoints for the obvious reason — the switch
  * that ends a window has to be reachable while the window is open — and both
  * halves of that argument have to hold, or an administrator caught by an
@@ -44,15 +44,42 @@
 
 import type { ReactNode } from 'react';
 import { useLocation } from 'react-router-dom';
-import MaintenancePage from '../../pages/MaintenancePage';
-import { useMaintenanceBlock } from '../../hooks/useMaintenance';
-import { MAINTENANCE_ADMIN_PATH } from '../../services/maintenance';
+import { MAINTENANCE_ADMIN_PATH } from '../headless/maintenance-block.js';
+import { useMaintenanceBlock } from '../headless/use-maintenance.js';
+import { MaintenanceScreen } from './maintenance-screen.js';
 
+/**
+ * Props of {@link MaintenanceGate}.
+ *
+ * @stability experimental
+ */
 export interface MaintenanceGateProps {
+  /** The product name the maintenance screen's heading uses. */
+  appName: string;
+  /** The application, rendered whenever no window is blocking this viewer. */
   children: ReactNode;
 }
 
-export function MaintenanceGate({ children }: MaintenanceGateProps) {
+/**
+ * Swaps the application for the maintenance screen while the API is refusing
+ * this viewer with a maintenance `503` (the block the app's HTTP client
+ * recorded), except on `MAINTENANCE_ADMIN_PATH`. Renders its children
+ * otherwise.
+ *
+ * @param props - see {@link MaintenanceGateProps}.
+ * @returns the maintenance screen or the children.
+ *
+ * @example
+ * ```tsx
+ * <MaintenanceGate appName={APP_NAME}>
+ *   <Routes>...</Routes>
+ * </MaintenanceGate>
+ * ```
+ *
+ * @extensionPoint component
+ * @stability experimental
+ */
+export function MaintenanceGate({ appName, children }: MaintenanceGateProps) {
   const { block, clear } = useMaintenanceBlock();
   const { pathname } = useLocation();
 
@@ -64,7 +91,7 @@ export function MaintenanceGate({ children }: MaintenanceGateProps) {
     pathname === MAINTENANCE_ADMIN_PATH || pathname.startsWith(`${MAINTENANCE_ADMIN_PATH}/`);
 
   if (block && !isExemptRoute) {
-    return <MaintenancePage block={block} onRetry={clear} />;
+    return <MaintenanceScreen appName={appName} block={block} onRetry={clear} />;
   }
 
   return <>{children}</>;

@@ -35,7 +35,10 @@ import { MaintenanceModeService } from '../maintenance/maintenance-mode.service'
  *   * `ready` reports 503. Readiness means "send me traffic", which is exactly
  *     what must not happen, so a load balancer drains this instance instead.
  *
- * @stability experimental
+ * Exported for the reference app's wiring and tests; not a stable extension
+ * point (the probes are mounted by `PlatformHostCoreModule.forRoot()`).
+ *
+ * @internal
  */
 @ApiTags('Health')
 @Controller('health')

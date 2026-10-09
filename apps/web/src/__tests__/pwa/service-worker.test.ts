@@ -165,7 +165,7 @@ describe('service worker build output', () => {
 
   it('registers the worker from the React tree, not from index.html', () => {
     // Rewritten by issue #219, as the assertion it replaces said it should be.
-    // Registration moved into `components/pwa/UpdatePrompt.tsx`
+    // Registration moved into `App.tsx` and the package's `UpdatePrompt`
     // (`useRegisterSW`), so `injectRegister` is now `null` and the injected
     // `registerSW.js` is gone. Both halves are asserted: an app that never
     // registers its worker has no notifications on Android at all, and one that
@@ -205,7 +205,7 @@ describe('buildServiceWorkerOptions', () => {
     // `prompt`, not `autoUpdate`: an activation mid-session leaves the loaded
     // page requesting asset filenames the new revision has rotated away, and
     // `autoUpdate`'s reload discards every unsaved form in the app. The UI half
-    // that makes `prompt` reach the user is `components/pwa/UpdatePrompt.tsx`.
+    // that makes `prompt` reach the user is `App.tsx` and the package's `UpdatePrompt`.
     expect(buildServiceWorkerOptions().registerType).toBe('prompt');
   });
 

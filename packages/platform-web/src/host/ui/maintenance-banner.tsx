@@ -42,10 +42,30 @@
 
 import { Alert, AlertTitle, Box, Button } from '@mui/material';
 import { Link as RouterLink, useLocation } from 'react-router-dom';
-import { usePermissions } from '@marinoscar/platform-web/identity/headless';
-import { MAINTENANCE_POLL_INTERVAL_MS, useMaintenance } from '../../hooks/useMaintenance';
-import { MAINTENANCE_ADMIN_PATH } from '../../services/maintenance';
+import { usePermissions } from '../../identity/index.js';
+import { MAINTENANCE_ADMIN_PATH } from '../headless/maintenance-block.js';
+import { MAINTENANCE_POLL_INTERVAL_MS, useMaintenance } from '../headless/use-maintenance.js';
 
+/**
+ * The bypassing administrator's reminder: an `Alert` in the shell while a
+ * maintenance window is open. Renders `null` for everyone else (no
+ * `system_settings:read`, window closed, status not loaded, or the maintenance
+ * page itself), and never asks the API for a viewer who could not read the
+ * answer. Mount it inside {@link MaintenanceGate}'s children.
+ *
+ * @returns the banner element, or `null`.
+ *
+ * @example
+ * ```tsx
+ * <MaintenanceGate appName={APP_NAME}>
+ *   <MaintenanceBanner />
+ *   <Outlet />
+ * </MaintenanceGate>
+ * ```
+ *
+ * @extensionPoint component
+ * @stability experimental
+ */
 export function MaintenanceBanner() {
   const { hasPermission } = usePermissions();
   const canRead = hasPermission('system_settings:read');

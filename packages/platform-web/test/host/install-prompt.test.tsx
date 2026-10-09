@@ -1,8 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act, render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { APP_NAME } from '@app/shared';
-import { InstallPrompt } from '../../../components/pwa/InstallPrompt';
+import { userEvent } from '@testing-library/user-event';
+import { InstallPrompt } from '../../src/host/ui/index.js';
 
 /**
  * Issue #219, epic #215.
@@ -15,6 +14,7 @@ import { InstallPrompt } from '../../../components/pwa/InstallPrompt';
  */
 
 const INSTALL_DISMISSED_KEY = 'pwa_install_dismissed';
+const APP_NAME = 'Test App';
 const INSTALL_MESSAGE = `Install ${APP_NAME} for faster access and notifications`;
 
 const originalMatchMedia = window.matchMedia;
@@ -64,14 +64,14 @@ describe('InstallPrompt', () => {
     // THE LOAD-BEARING CASE — see UpdatePrompt's equivalent. Most page loads
     // never see `beforeinstallprompt` (already installed, criteria not met,
     // Safari), so this idle state is the one nearly every user gets.
-    const { container } = render(<InstallPrompt />);
+    const { container } = render(<InstallPrompt appName={APP_NAME} />);
 
     expect(container).toBeEmptyDOMElement();
     expect(screen.queryByRole('button', { name: 'Install' })).not.toBeInTheDocument();
   });
 
   it('offers installation once the browser fires beforeinstallprompt', () => {
-    render(<InstallPrompt />);
+    render(<InstallPrompt appName={APP_NAME} />);
 
     const { event } = fireBeforeInstallPrompt();
 
@@ -83,7 +83,7 @@ describe('InstallPrompt', () => {
 
   it('opens the native install dialog when Install is clicked', async () => {
     const user = userEvent.setup();
-    render(<InstallPrompt />);
+    render(<InstallPrompt appName={APP_NAME} />);
     const { prompt } = fireBeforeInstallPrompt();
 
     await user.click(screen.getByRole('button', { name: 'Install' }));
@@ -96,7 +96,7 @@ describe('InstallPrompt', () => {
 
   it('remembers a dismissal across a remount', async () => {
     const user = userEvent.setup();
-    const first = render(<InstallPrompt />);
+    const first = render(<InstallPrompt appName={APP_NAME} />);
     fireBeforeInstallPrompt();
 
     await user.click(screen.getByRole('button', { name: 'Dismiss install prompt' }));
@@ -107,7 +107,7 @@ describe('InstallPrompt', () => {
     // persisted flag the browser would re-fire the event and the user would be
     // asked again on every visit, which is how a prompt becomes wallpaper.
     first.unmount();
-    render(<InstallPrompt />);
+    render(<InstallPrompt appName={APP_NAME} />);
     fireBeforeInstallPrompt();
 
     expect(screen.queryByText(INSTALL_MESSAGE)).not.toBeInTheDocument();
@@ -124,7 +124,7 @@ describe('InstallPrompt', () => {
     vi.spyOn(window.localStorage, 'setItem').mockImplementation(denied);
 
     const user = userEvent.setup();
-    render(<InstallPrompt />);
+    render(<InstallPrompt appName={APP_NAME} />);
     fireBeforeInstallPrompt();
 
     // The read failed, so the component correctly assumes "not yet dismissed".
@@ -152,7 +152,7 @@ describe('InstallPrompt', () => {
       })),
     });
 
-    const { container } = render(<InstallPrompt />);
+    const { container } = render(<InstallPrompt appName={APP_NAME} />);
     fireBeforeInstallPrompt();
 
     expect(container).toBeEmptyDOMElement();
@@ -164,7 +164,7 @@ describe('InstallPrompt', () => {
     // media-query check alone would offer an install inside the installed app.
     (window.navigator as Navigator & { standalone?: boolean }).standalone = true;
 
-    render(<InstallPrompt />);
+    render(<InstallPrompt appName={APP_NAME} />);
     fireBeforeInstallPrompt();
 
     expect(screen.queryByText(INSTALL_MESSAGE)).not.toBeInTheDocument();
@@ -174,7 +174,7 @@ describe('InstallPrompt', () => {
     // Chromium's omnibox install button fires `appinstalled` without ever
     // telling this component. Without that listener the offer would sit on
     // screen in the tab that is still open, inviting a second install.
-    render(<InstallPrompt />);
+    render(<InstallPrompt appName={APP_NAME} />);
     fireBeforeInstallPrompt();
     expect(screen.getByText(INSTALL_MESSAGE)).toBeInTheDocument();
 
