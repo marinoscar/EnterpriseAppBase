@@ -109,8 +109,9 @@ const JobsPage = lazy(() =>
 const JobInsightsPage = lazy(() =>
   import('@marinoscar/platform-web/jobs/ui').then((m) => ({ default: m.JobInsightsPage })),
 );
+// The fleet page moved on into `@marinoscar/platform-web/nodes/ui` (#881).
 const WorkersPage = lazy(() =>
-  import('@marinoscar/platform-web/jobs/ui').then((m) => ({ default: m.WorkersPage })),
+  import('@marinoscar/platform-web/nodes/ui').then((m) => ({ default: m.WorkersPage })),
 );
 // Issue #287, epic #254 — the backup policy, the run history and the restore
 // dialog. Lazy for the same reason: a DataTable, a policy form and the restore

@@ -1,10 +1,11 @@
 // Shared helpers for the jobs slice's package tests (issue #854): a fake jobs
 // client (the stand-in for the reference app's mocked `services/jobs.ts` and
-// `services/nodes.ts` the moved suites used to mock) and row fixtures.
+// `services/nodes.ts` the moved suites used to mock) and a job row fixture. The
+// node fixtures are the nodes slice's (`../nodes/harness.ts`).
 
 import { vi } from 'vitest';
 
-import type { Job, JobsApi, NodeCredential, WorkerNode } from '../../src/jobs/headless/index.js';
+import type { Job, JobsApi } from '../../src/jobs/headless/index.js';
 
 /** A {@link JobsApi} whose every member is a `vi.fn()` (resolving `undefined` until a test says otherwise). */
 export type FakeJobsApi = { [K in keyof JobsApi]: ReturnType<typeof vi.fn> & JobsApi[K] };
@@ -55,42 +56,6 @@ export function job(overrides: Partial<Job> = {}): Job {
     leaseExpiresAt: null,
     executor: null,
     orgId: null,
-    ...overrides,
-  };
-}
-
-export function node(overrides: Partial<WorkerNode> = {}): WorkerNode {
-  return {
-    id: '11111111-1111-4111-8111-111111111111',
-    name: 'worker-a',
-    hostname: 'build-box-01',
-    platform: 'linux-x64',
-    cliVersion: '1.4.0',
-    eligibleTypes: ['image.thumbnail'],
-    concurrency: 4,
-    status: 'online',
-    health: 'healthy',
-    capabilities: null,
-    registeredAt: '2026-01-01T00:00:00.000Z',
-    lastHeartbeatAt: '2026-01-01T00:05:00.000Z',
-    owner: { id: 'u1', email: 'ops@example.com', name: 'Ops' },
-    jobCounts: { running: 1, pending: 2, succeeded: 30, failed: 1, total: 34 },
-    lastVitals: null,
-    lastVitalsAt: null,
-    ...overrides,
-  };
-}
-
-export function credential(overrides: Partial<NodeCredential> = {}): NodeCredential {
-  return {
-    id: '22222222-2222-4222-8222-222222222222',
-    name: 'build-box-01',
-    tokenPrefix: 'nod_1a2b',
-    expiresAt: null,
-    lastUsedAt: '2026-01-01T00:05:00.000Z',
-    createdAt: '2026-01-01T00:00:00.000Z',
-    revokedAt: null,
-    owner: { id: 'u1', email: 'ops@example.com', name: 'Ops' },
     ...overrides,
   };
 }

@@ -32,14 +32,14 @@ import {
   useVisiblePolling,
   useWorkerNode,
   useWorkerNodes,
-} from '../../src/jobs/headless/index.js';
-import type { NodeCredential, WorkerNode } from '../../src/jobs/headless/index.js';
-import { useVisiblePolling as internalUseVisiblePolling } from '../../src/jobs/headless/use-visible-polling.js';
-import { credential as credentialFixture, fakeJobsApi, node as nodeFixture } from './harness.js';
+} from '../../src/nodes/headless/index.js';
+import type { NodeCredential, WorkerNode } from '../../src/nodes/headless/index.js';
+import { useVisiblePolling as internalUseVisiblePolling } from '../../src/nodes/headless/use-visible-polling.js';
+import { credential as credentialFixture, fakeNodesApi, node as nodeFixture } from './harness.js';
 
-// The fake jobs client stands in for the reference app's mocked
+// The fake nodes client stands in for the reference app's mocked
 // `services/nodes.ts`; the hooks take it as their explicit client.
-const api = fakeJobsApi();
+const api = fakeNodesApi();
 const mockGetWorkerNodes = api.getWorkerNodes;
 const mockGetWorkerNode = api.getWorkerNode;
 const mockGetNodeCredentials = api.getNodeCredentials;
@@ -72,7 +72,7 @@ function setTabHidden(hidden: boolean) {
 }
 
 describe('the fleet poll', () => {
-  it('is the ONE `useVisiblePolling`, shared with the jobs page rather than reimplemented', () => {
+  it('is the ONE `useVisiblePolling`, the one the Worker Nodes page and its hook share', () => {
     // Identity, not behaviour. Two functions that behave the same today are two
     // places the `visibilitychange` teardown can diverge tomorrow — see the
     // file header, and `use-visible-polling.ts` for why it was extracted

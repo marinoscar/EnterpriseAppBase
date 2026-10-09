@@ -24,7 +24,7 @@ import {
   ratio,
   staleLabel,
   vitalsSummaryText,
-} from '../../src/jobs/ui/workerVitals.js';
+} from '../../src/nodes/ui/workerVitals.js';
 import {
   fullVitals,
   lowDiskVitals,

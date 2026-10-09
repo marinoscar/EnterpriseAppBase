@@ -1,7 +1,7 @@
 /**
  * Admin → Operations → Worker Nodes (`/admin/settings/workers`).
  *
- * Issue #271, epic #254; moved into `@marinoscar/platform-web/jobs` by #854
+ * Issue #271, epic #254; moved into `@marinoscar/platform-web/jobs` by #854, then into `@marinoscar/platform-web/nodes` by #881
  * from the reference app's `pages/Admin/WorkersPage.tsx`, same DOM and styles.
  * A REGISTRY CARD and nothing else, per CLAUDE.md's MANDATORY Settings UI
  * Pattern: one entry in the app's `ADMIN_SECTIONS` (spread from
@@ -113,17 +113,17 @@ import {
   useVisiblePolling,
   useWorkerNodes,
 } from '../headless/index.js';
-import type { JobsTableRowAction, WorkerNode } from '../headless/index.js';
+import type { NodesTableRowAction, WorkerNode } from '../headless/index.js';
 import { WORKER_NODES_PAGE_DESCRIPTION as PAGE_DESCRIPTION, WORKER_NODES_PAGE_TITLE as PAGE_TITLE } from './copy.js';
 import { NodeCredentials } from './NodeCredentials.js';
 import { NodeVitalsDialog } from './NodeVitalsDialog.js';
 import { DefaultPageHeader } from './PageHeader.js';
-import type { JobsPageHeaderProps } from './PageHeader.js';
-import { JobsTable as DataTable } from './table.js';
+import type { NodesPageHeaderProps } from './PageHeader.js';
+import { NodesTable as DataTable } from './table.js';
 import { NODES_TABLE_ID, buildWorkerNodeColumns } from './workersTable.js';
 import { countLowDisk, fleetSaturation, formatPercent } from './workerVitals.js';
 
-type DataTableRowAction<Row> = JobsTableRowAction<Row>;
+type DataTableRowAction<Row> = NodesTableRowAction<Row>;
 
 /**
  * The props of {@link WorkersPage}. Every prop is optional; the app's route
@@ -138,7 +138,7 @@ export interface WorkersPageProps {
   /** Replaceable parts of the page. */
   slots?: {
     /** Replaces the title and subtitle block. */
-    Header?: ComponentType<JobsPageHeaderProps>;
+    Header?: ComponentType<NodesPageHeaderProps>;
   };
 }
 

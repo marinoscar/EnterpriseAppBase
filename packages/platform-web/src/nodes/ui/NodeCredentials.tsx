@@ -52,8 +52,8 @@ import { useMemo, useState } from 'react';
 import { Alert, Box, Button, Card, CardContent, Typography } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import BlockIcon from '@mui/icons-material/Block';
-import type { JobsTableRowAction } from '../headless/index.js';
-import { JobsTable as DataTable } from './table.js';
+import type { NodesTableRowAction } from '../headless/index.js';
+import { NodesTable as DataTable } from './table.js';
 import {
   NODE_CREDENTIALS_TABLE_ID,
   buildNodeCredentialColumns,
@@ -67,16 +67,26 @@ import type {
 import { CreateNodeCredentialDialog } from './CreateNodeCredentialDialog.js';
 import { NodeCredentialRevealDialog } from './NodeCredentialRevealDialog.js';
 
-type DataTableRowAction<Row> = JobsTableRowAction<Row>;
+type DataTableRowAction<Row> = NodesTableRowAction<Row>;
 
+/**
+ * What {@link NodeCredentials} takes: the rows and the two writes, all supplied
+ * by the caller (the page passes `useNodeCredentials` and `useNodeActions`).
+ *
+ * @stability experimental
+ */
 export interface NodeCredentialsProps {
+  /** Every credential, revoked ones included. */
   credentials: NodeCredential[];
+  /** True while the first read is in flight. */
   isLoading: boolean;
   /** `nodes:write`. Gates the create button and the revoke action. */
   canWrite: boolean;
   /** True while any of the page's writes is in flight. */
   isWorking: boolean;
+  /** Mints a credential; resolves the create response (the only holder of the raw token) or `null` on failure. */
   onCreate: (input: CreateNodeCredentialInput) => Promise<NodeCredentialCreated | null>;
+  /** Revokes one credential; resolves whether it worked. */
   onRevoke: (id: string) => Promise<boolean>;
   /**
    * The instant expiry is judged against — the page's single render clock, so
@@ -86,6 +96,17 @@ export interface NodeCredentialsProps {
   now: Date;
 }
 
+/**
+ * The node-credential section: the credential table, the create dialog and the
+ * show-once reveal dialog. It is the Worker Nodes page's second half and is
+ * exported so another incident-response surface can embed the same section.
+ *
+ * @param props - see {@link NodeCredentialsProps}.
+ * @returns the section element.
+ *
+ * @extensionPoint component
+ * @stability experimental
+ */
 export function NodeCredentials({
   credentials,
   isLoading,

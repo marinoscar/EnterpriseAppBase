@@ -220,7 +220,7 @@ A worker node is an `appctl node` process on another machine that executes node-
 Whether a structurally eligible type is actually offered to nodes is a runtime decision made at claim time (a deployment-wide broker switch, the feature's own setting, and the broker's capability probe). `JOBS_WORKER_MODE=system` claims exactly the complement, so the API and the fleet partition the queue. Health is derived from `lastHeartbeatAt`; `nodes.fleet.sweep` marks silent nodes offline and `nodes.fleet.prune` forgets old ones.
 
 - **Code:** `packages/platform-api/src/nodes/` (`@marinoscar/platform-api/nodes`), `packages/platform-cli/src/engine/node/`, `infra/compose/worker.compose.yml`
-- **UI:** `/admin/settings/workers` (packaged page, `@marinoscar/platform-web/jobs/ui`, #854)
+- **UI:** `/admin/settings/workers` (packaged page, `@marinoscar/platform-web/nodes/ui`, #881; was `jobs/ui` since #854)
 - **Permissions:** `nodes:read`, `nodes:write`
 - **Read more:** [specs/worker-nodes.md](specs/worker-nodes.md), [runbooks/run-worker-nodes.md](runbooks/run-worker-nodes.md), [runbooks/node-job-secrets.md](runbooks/node-job-secrets.md)
 

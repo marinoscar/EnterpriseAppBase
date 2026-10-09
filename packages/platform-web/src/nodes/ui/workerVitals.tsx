@@ -1,6 +1,6 @@
 /**
  * Worker node VITALS on the Workers page (issue #606, epic B; API side #604;
- * moved into `@marinoscar/platform-web/jobs` by #854 from the reference app's
+ * moved into `@marinoscar/platform-web/jobs` by #854, then into `@marinoscar/platform-web/nodes` by #881 from the reference app's
  * `pages/Admin/workerVitals.tsx`).
  *
  * A node reports a small health snapshot on its heartbeat — CPU, memory, disk
