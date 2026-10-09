@@ -134,6 +134,34 @@ describe('createPlatformApiClient', () => {
     expect(fetchMock.mock.calls[1]![1]?.method).toBe('POST');
   });
 
+  it('sends jsonBody as the JSON body of a DELETE', async () => {
+    const client = createPlatformApiClient(http);
+    fetchMock.mockImplementation(() => Promise.resolve(json(200, { data: null })));
+
+    await client.delete('/keys/openai', { jsonBody: { confirmation: 'REMOVE' } });
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect([url, init?.method]).toEqual(['/api/keys/openai', 'DELETE']);
+    expect(init?.body).toBe(JSON.stringify({ confirmation: 'REMOVE' }));
+    expect(headersOf(init)['Content-Type']).toBe('application/json');
+  });
+
+  it('postFormData sends a multipart body and returns the data', async () => {
+    const client = createPlatformApiClient(http);
+    fetchMock.mockResolvedValueOnce(json(201, { data: { id: 'obj-1' } }));
+    const form = new FormData();
+    form.append('file', new File(['x'], 'a.txt'));
+
+    const created = await client.postFormData!<{ id: string }>('/storage/objects', form);
+
+    expect(created).toEqual({ id: 'obj-1' });
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect([url, init?.method]).toEqual(['/api/storage/objects', 'POST']);
+    expect(init?.body).toBe(form);
+    // The browser sets the multipart boundary; a hand-set Content-Type would break it.
+    expect(headersOf(init)['Content-Type']).toBeUndefined();
+  });
+
   it('maps the errors of the given postSse', async () => {
     const postSse = vi.fn().mockRejectedValue(new ApiError('Refused', 503, 'MAINTENANCE'));
     const client = createPlatformApiClient(http, { postSse });
