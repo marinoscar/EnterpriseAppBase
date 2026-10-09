@@ -185,7 +185,7 @@ function writeSpecs(projectDir, opts, specs) {
   }
   if (direct.size === 0) throw new UsageError(`${path} declares no ${PLATFORM_PREFIX}* dependency`);
   if (opts.from !== 'registry') {
-    manifest.overrides = {};
+    manifest.overrides = { ...(manifest.overrides ?? {}) };
     for (const [name, spec] of Object.entries(specs)) manifest.overrides[name] = direct.has(name) ? `$${name}` : spec;
   }
   writeFileSync(path, `${JSON.stringify(manifest, null, 2)}\n`);

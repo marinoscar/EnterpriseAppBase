@@ -62,4 +62,4 @@ When a slice ships in a package, add a minimal use of it here, the way the app i
 1. Import it in the matching project (`api/src/` for `@marinoscar/platform-api/<slice>`, `web/src/` for `@marinoscar/platform-web/<slice>`), through its public subpath only.
 2. Wire its extension points with the consumer's own code (its own registry entry, its own host binding), never a copy of the reference app's.
 3. Assert the observable result in `api/test/smoke.e2e.mjs` (`node:test`) or `web/src/App.test.tsx` (Vitest), including its fail-closed behaviour.
-4. A new peer goes in the project's `package.json` at the version the reference app uses. A new package (beyond the six) goes in `PLATFORM_PACKAGES` in `run.mjs`.
+4. A new peer goes in the project's `package.json` at the version the reference app uses. `node scripts/check-slice-peers.mjs --app tests/consumer-smoke/<project>` (part of `npm run check:slice-peers`) names every peer the imported slices need; an optional peer is not installed for you. A new package (beyond the six) goes in `PLATFORM_PACKAGES` in `run.mjs`.
