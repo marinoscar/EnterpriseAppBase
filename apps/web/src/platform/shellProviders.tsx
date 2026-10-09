@@ -43,12 +43,21 @@ import {
   TelemetryWebAdaptersProvider,
 } from '@marinoscar/platform-web/telemetry/headless';
 
-import { AiConfigProvider } from '../contexts/AiConfigContext';
+import { AiConfigProvider, AiWebAdaptersProvider } from '@marinoscar/platform-web/ai/headless';
+import { appAiAdapters } from './aiAdapters';
 import { appDbBackupAdapters } from './dbBackupAdapters';
 import { appJobsAdapters } from './jobsAdapters';
 import { appNodesAdapters } from './nodesAdapters';
 import { AppPlatformHostProvider, appPlatformApi } from './platformHost';
 import { appTelemetryAdapters } from './telemetryAdapters';
+
+function AppAiConfigProvider({ children }: { children: ReactNode }) {
+  return <AiConfigProvider api={appPlatformApi}>{children}</AiConfigProvider>;
+}
+
+function AppAiAdaptersProvider({ children }: { children: ReactNode }) {
+  return <AiWebAdaptersProvider adapters={appAiAdapters}>{children}</AiWebAdaptersProvider>;
+}
 
 function AppTelemetryConfigProvider({ children }: { children: ReactNode }) {
   return <TelemetryConfigProvider api={appPlatformApi}>{children}</TelemetryConfigProvider>;
@@ -78,7 +87,8 @@ function AppOnboardingProvider({ children }: { children: ReactNode }) {
 
 export const APP_SHELL_PROVIDERS: readonly ShellProvider[] = [
   NotificationProvider,
-  AiConfigProvider,
+  AppAiConfigProvider,
+  AppAiAdaptersProvider,
   AppTelemetryConfigProvider,
   AppTelemetryAdaptersProvider,
   AppJobsAdaptersProvider,

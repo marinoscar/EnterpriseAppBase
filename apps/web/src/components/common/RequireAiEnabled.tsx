@@ -17,7 +17,7 @@
  */
 import type { ReactNode } from 'react';
 import { Navigate } from 'react-router-dom';
-import { useAiConfig } from '../../hooks/useAiConfig';
+import { useAiConfig } from '@marinoscar/platform-web/ai/headless';
 import { LoadingSpinner } from './LoadingSpinner';
 
 interface RequireAiEnabledProps {
