@@ -70,7 +70,7 @@ export const appPlatformApi: PlatformApiClient = createPlatformApiClient(api, {
 
 /** The host for the signed-in viewer. Memoised on what it reads. */
 export function useAppPlatformHost(): PlatformWebHost {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const { hasPermission } = usePermissions();
   const { ai } = useAiFeatures();
   const { telemetry } = useTelemetryFeatures();
@@ -88,10 +88,12 @@ export function useAppPlatformHost(): PlatformWebHost {
         email,
         hasPermission,
         isFeatureEnabled: (feature) => features[feature] === true,
+        // The user-data pages re-read the user after a deletion or a factory reset.
+        refresh: refreshUser,
       },
       formatRelativeTime: (iso) => formatRelativeTime(iso),
     };
-  }, [userId, email, hasPermission, ai, telemetry, orgs]);
+  }, [userId, email, hasPermission, ai, telemetry, orgs, refreshUser]);
 }
 
 /** `PlatformHostProvider` bound to the app's host. Mount it once, inside the auth provider. */

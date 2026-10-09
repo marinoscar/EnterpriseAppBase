@@ -1,29 +1,17 @@
 /**
- * The user-data slice's pages, bound to this app (issue #743).
+ * The one user-data composition the app owns (issues #743, #880).
  *
- * `@marinoscar/platform-web/user-data/ui` ships the pages; this file only
- * hands them what the app owns: after a deletion or a factory reset succeeds,
- * the shell's cached user (display name, avatar) is re-read, and the
- * organizations page gets the "Offboard" row action through its
- * `renderActions` slot.
+ * `@marinoscar/platform-web/user-data/ui` ships the pages: the Danger Zone and
+ * the factory reset mount directly (`App.tsx`), and re-read the signed-in user
+ * themselves through the host's `viewer.refresh` (`platform/platformHost.tsx`).
+ * What stays here is the join between two slices that do not know each other:
+ * the identity slice's organizations page gets the user-data slice's "Offboard"
+ * row action through its `renderActions` slot.
  */
 
 import type { ReactElement } from 'react';
-import { useAuth } from '@marinoscar/platform-web/identity/headless';
 import { OrganizationsPage } from '@marinoscar/platform-web/identity/ui';
-import { FactoryResetPage, OffboardOrganizationButton, UserDangerZonePage } from '@marinoscar/platform-web/user-data/ui';
-
-/** `/settings/danger-zone`: the user's own deletion; refreshes the shell's user on success. */
-export function DangerZoneRoute(): ReactElement {
-  const { refreshUser } = useAuth();
-  return <UserDangerZonePage onCompleted={() => void refreshUser()} />;
-}
-
-/** `/admin/settings/factory-reset`: Admin only; refreshes the shell's user on success. */
-export function FactoryResetRoute(): ReactElement {
-  const { refreshUser } = useAuth();
-  return <FactoryResetPage onCompleted={() => void refreshUser()} />;
-}
+import { OffboardOrganizationButton } from '@marinoscar/platform-web/user-data/ui';
 
 /** `/admin/settings/organizations` with the offboarding row action (`orgs:offboard`). */
 export function OrganizationsRoute(): ReactElement {

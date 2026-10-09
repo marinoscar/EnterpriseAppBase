@@ -19,4 +19,10 @@ export interface PlatformViewer {
   hasPermission(permission: string): boolean;
   /** Feature switches the app exposes to settings surfaces (e.g. ai, telemetry). */
   isFeatureEnabled(feature: string): boolean;
+  /**
+   * Re-reads the signed-in user (display name, avatar, roles) from the API.
+   * Optional. A page that changes the viewer's own account (the user-data
+   * pages after a deletion or a factory reset) calls it when it is present.
+   */
+  refresh?(): Promise<void>;
 }

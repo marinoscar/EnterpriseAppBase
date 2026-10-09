@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { UserDataJobStarted, UserDataJobStatus } from '@marinoscar/platform-contract/user-data';
 
-import { isPlatformApiError } from '../../core/index.js';
+import { isPlatformApiError, useOptionalPlatformHost } from '../../core/index.js';
 
 /**
  * Where a destructive job is: `idle` (not started), `running` (requested,
@@ -146,4 +146,29 @@ export function useDestructiveJob<TResult>(options: UseDestructiveJobOptions<TRe
   }, []);
 
   return { phase, jobId, result, error, run, reset };
+}
+
+/**
+ * Wraps a page's `onCompleted` so the viewer is re-read afterwards. A
+ * deletion or a factory reset changes the signed-in user's own account
+ * (display name, avatar), so the page asks the host's `viewer.refresh` (when
+ * the app supplies one) after calling the app's own callback. A refresh that
+ * rejects is swallowed: the action already succeeded.
+ *
+ * @param onCompleted - the page's optional callback.
+ * @returns a stable-per-render callback to hand to {@link useDestructiveJob}.
+ *
+ * @stability experimental
+ */
+export function useCompletionHandler<TResult>(
+  onCompleted: ((result: TResult | null) => void) | undefined,
+): (result: TResult | null) => void {
+  const refresh = useOptionalPlatformHost()?.viewer.refresh;
+  return useCallback(
+    (result: TResult | null) => {
+      onCompleted?.(result);
+      if (refresh) void refresh().catch(() => undefined);
+    },
+    [onCompleted, refresh],
+  );
 }
