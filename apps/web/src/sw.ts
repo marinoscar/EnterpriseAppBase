@@ -52,7 +52,7 @@ import { NavigationRoute, registerRoute } from 'workbox-routing';
 // `/api` because the API is a different service entirely.
 // =============================================================================
 
-import { registerNotificationServiceWorkerHandlers } from '@marinoscar/platform-web/notifications/headless';
+import { registerNotificationServiceWorkerHandlers } from '@marinoscar/platform-web/notifications/service-worker';
 
 declare let self: ServiceWorkerGlobalScope;
 

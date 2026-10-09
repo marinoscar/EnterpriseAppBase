@@ -139,6 +139,10 @@
       "types": "./dist/notifications/headless/index.d.ts",
       "default": "./dist/notifications/headless/index.js"
     },
+    "./notifications/service-worker": {
+      "types": "./dist/notifications/headless/service-worker.d.ts",
+      "default": "./dist/notifications/headless/service-worker.js"
+    },
     "./notifications/ui": {
       "types": "./dist/notifications/ui/index.d.ts",
       "default": "./dist/notifications/ui/index.js"
