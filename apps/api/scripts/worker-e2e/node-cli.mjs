@@ -31,7 +31,7 @@ const executor = {
 };
 
 const cli = createCli({
-  identity: { name: 'e2e-node', displayName: 'E2E worker node', productName: 'E2E', repoSlug: 'marinoscar/EnterpriseAppBase' },
+  identity: { name: 'e2e-node', displayName: 'E2E worker node', productName: 'E2E', repoSlug: 'e2e/worker' },
   version: '0.0.0-e2e',
   nodeExecutors: [executor],
 });
