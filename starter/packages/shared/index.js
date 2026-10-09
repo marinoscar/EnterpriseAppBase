@@ -20,3 +20,10 @@ exports.REPO_URL = `https://github.com/${identity.repoSlug}`;
 exports.THEME_COLOR = identity.themeColor;
 exports.BACKGROUND_COLOR = identity.backgroundColor;
 exports.CLI_NAME = identity.cliName;
+
+// The optional platform slices this app mounts, from slices.json (the slice manifest).
+// The API and the web app validate the ids against their own slice definitions.
+const slices = require('./slices.json');
+
+/** The ids in `slices.json` `enabled`, in file order. */
+exports.ENABLED_SLICES = Object.freeze([...slices.enabled]);

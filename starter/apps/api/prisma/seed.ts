@@ -13,6 +13,10 @@ import { platformSeedInputFrom, seedPlatform } from '@marinoscar/platform-db/see
 
 import '../src/notes/notes.settings';
 import { PERMISSION_OPTIONS } from '../src/platform/permissions';
+import { registerSliceSettings } from '../src/platform/slices/register';
+
+// The enabled slices' settings namespaces, so the seeded `global` row carries their defaults.
+registerSliceSettings();
 
 async function main(): Promise<void> {
   const url = process.env.DATABASE_URL;
