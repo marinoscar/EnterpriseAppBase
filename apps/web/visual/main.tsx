@@ -89,8 +89,12 @@ import { LoadingSpinner } from '../src/components/common/LoadingSpinner';
 
 const HomePage = lazy(() => import('../src/pages/HomePage'));
 const UserSettingsHubPage = lazy(() => import('../src/pages/UserSettingsHubPage'));
-const UserProfilePage = lazy(() => import('../src/pages/UserProfilePage'));
-const UserAppearancePage = lazy(() => import('../src/pages/UserAppearancePage'));
+const UserProfilePage = lazy(() =>
+  import('@marinoscar/platform-web/settings/ui').then((m) => ({ default: m.UserProfilePage })),
+);
+const UserAppearancePage = lazy(() =>
+  import('@marinoscar/platform-web/settings/ui').then((m) => ({ default: m.UserAppearancePage })),
+);
 // The identity pages are packaged (#727): lazy from the package, as in `App.tsx`.
 const UserTokensPage = lazy(() =>
   import('@marinoscar/platform-web/identity/ui').then((m) => ({ default: m.UserTokensPage })),

@@ -23,7 +23,7 @@ None beyond the package's own peer, `zod` (`^4.4.3`). A browser that imports onl
 
 ## Quick start
 
-The reference app's organization settings page types its form with the descriptors ([`OrgSettingsPage.tsx`](../../../../apps/web/src/pages/Admin/OrgSettingsPage.tsx)):
+The reference app's organization settings page types its form with the descriptors ([`OrgSettingsPage.tsx`](../../../platform-web/src/settings/ui/OrgSettingsPage.tsx)):
 
 ```ts
 import type { OrgSettingsField, OrgSettingsNamespace } from '@marinoscar/platform-contract/settings';

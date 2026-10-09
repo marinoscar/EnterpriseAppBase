@@ -13,10 +13,25 @@
  * (#95) and the page's own `h1` all name the page identically.
  */
 
-import { ProfileSettings } from '../components/settings/ProfileSettings';
-import { UserSettingsSection } from './UserSettingsSection';
+import { ProfileSettings } from './ProfileSettings.js';
+import { UserSettingsSection } from './UserSettingsSection.js';
 
-export default function UserProfilePage() {
+/**
+ * Settings, Profile (`/settings/profile`): the display name and the profile
+ * picture. Every user edits their own; the API grants it to all roles, so the
+ * page carries no permission gate.
+ *
+ * @returns the page.
+ *
+ * @example
+ * ```tsx
+ * <Route path="/settings/profile" element={<UserProfilePage />} />
+ * ```
+ *
+ * @extensionPoint component
+ * @stability experimental
+ */
+export function UserProfilePage() {
   return (
     <UserSettingsSection
       title="Profile"

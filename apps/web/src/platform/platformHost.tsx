@@ -20,6 +20,8 @@
  *     (`useAiFeatures`, `useTelemetryFeatures`: context only, never fetched).
  *   - `formatRelativeTime`: `utils/relativeTime`, so packaged pages date
  *     things the way the rest of the app does.
+ *   - `applyTheme`: the theme context's `setMode`, so the Appearance page
+ *     (`@marinoscar/platform-web/settings/ui`) changes the app's theme.
  *
  * Mounted once, in `App.tsx`, inside the auth provider and the AI / telemetry
  * config providers (so the feature map is real), around the shell.
@@ -33,6 +35,7 @@ import type { PlatformApiClient, PlatformSseOptions, PlatformWebHost } from '@ma
 
 import { useAuth, usePermissions } from '@marinoscar/platform-web/identity/headless';
 import { useAiFeatures } from '@marinoscar/platform-web/ai/headless';
+import { useThemeContext } from '../contexts/ThemeContext';
 import { API_BASE_URL, api } from '../services/api';
 import { postSse } from '../services/sse';
 import { formatRelativeTime } from '../utils/relativeTime';
@@ -74,6 +77,7 @@ export function useAppPlatformHost(): PlatformWebHost {
   const { hasPermission } = usePermissions();
   const { ai } = useAiFeatures();
   const { telemetry } = useTelemetryFeatures();
+  const { setMode } = useThemeContext();
   // #726: org management exists only in multi-org mode.
   const orgs = user?.tenancyMode === 'multi';
   const userId = user?.id ?? null;
@@ -98,8 +102,10 @@ export function useAppPlatformHost(): PlatformWebHost {
         refresh,
       },
       formatRelativeTime: (iso) => formatRelativeTime(iso),
+      // The Appearance page pushes the stored theme into the app's theme context.
+      applyTheme: setMode,
     };
-  }, [userId, email, hasPermission, ai, telemetry, orgs, refresh]);
+  }, [userId, email, hasPermission, ai, telemetry, orgs, refresh, setMode]);
 }
 
 /** `PlatformHostProvider` bound to the app's host. Mount it once, inside the auth provider. */

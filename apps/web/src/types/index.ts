@@ -110,17 +110,6 @@ export type NavigationSettingsPatch = {
 export type DataTablesPatch = Record<string, DataTableSettings | null>;
 
 /**
- * `POST` / `DELETE /api/user-settings/profile-image` response, after the
- * client's `data` unwrap (#367). `settings` carries the new `version`, which
- * the caller MUST adopt or its next `If-Match` PATCH will 409.
- */
-export interface ProfileImageMutationResponse {
-  settings: UserSettings;
-  /** The resolved picture after the change (same meaning as `User.profileImageUrl`). */
-  profileImageUrl: string | null;
-}
-
-/**
  * Payload accepted by `PATCH /api/user-settings`.
  *
  * This deliberately is NOT `Partial<UserSettings>`: the endpoint uses JSON

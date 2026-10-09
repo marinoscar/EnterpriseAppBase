@@ -1,9 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { render, mockUser } from '../../utils/test-utils';
-import { ProfileSettings } from '../../../components/settings/ProfileSettings';
-import type { ProfileImageMutationResponse, UserSettings } from '../../../types';
+import { userEvent } from '@testing-library/user-event';
+import { render, mockUser } from './test-utils.js';
+import { ProfileSettings } from '../../../src/settings/ui/ProfileSettings.js';
+import type { ProfileImageMutationResponse } from '../../../src/settings/headless/profile-image.js';
+import type { UserSettingsResponseBase } from '@marinoscar/platform-contract/settings';
+import { createTestApiError } from '../../../src/testing/index.js';
+import { authValue } from '../../identity/harness.js';
+
+type UserSettings = UserSettingsResponseBase;
 
 /**
  * #367. `ProfileSettings` replaced the old "use Google profile image" switch
@@ -25,7 +30,7 @@ import type { ProfileImageMutationResponse, UserSettings } from '../../../types'
 // fixed successful upload result AND the picked file to the real
 // `handleUploaded` in `ProfileSettings`, exactly like `UserSettingsPages.test.tsx`
 // does for `onSettingsReplaced` one level up.
-vi.mock('../../../components/settings/ImageUpload', () => ({
+vi.mock('../../../src/settings/ui/ImageUpload.js', () => ({
   ImageUpload: ({
     onUploaded,
     disabled,
@@ -62,42 +67,31 @@ vi.mock('../../../components/settings/ImageUpload', () => ({
 }));
 
 // Mock the AuthContext - need to import original to get AuthContext
-vi.mock('@marinoscar/platform-web/identity/headless', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@marinoscar/platform-web/identity/headless')>();
+vi.mock('../../../src/identity/headless/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/identity/headless/index.js')>();
   return {
     ...actual,
     useAuth: vi.fn(),
   };
 });
 
-// `ProfileSettings` calls `deleteProfileImage`/`fetchProfileImagePreview`
-// directly (not through a prop), so both have to be mocked at the module
-// level, like `ImageUpload.test.tsx` does for `uploadProfileImage`.
-vi.mock('../../../services/api', () => ({
-  deleteProfileImage: vi.fn(),
-  // The app transport `platform/platformHost.tsx` adapts at module load
-  // (`createPlatformApiClient(api)`, #868); never called here.
-  api: {},
-  fetchProfileImagePreview: vi.fn(),
-  ApiError: class ApiError extends Error {
-    status: number;
-    code?: string;
-    details?: unknown;
-    constructor(message: string, status: number, code?: string, details?: unknown) {
-      super(message);
-      this.status = status;
-      this.code = code;
-      this.details = details;
-    }
-  },
+// `ProfileSettings` reaches the picture endpoints through the profile image
+// client (`useProfileImageClient`), so both calls it makes are mocked at that
+// module, like `ImageUpload.test.tsx` does for the upload.
+const { mockDeleteProfileImage, mockFetchProfileImagePreview, profileImageClient } = vi.hoisted(() => {
+  const remove = vi.fn();
+  const preview = vi.fn();
+  // One object for every render, like the real hook's memoised client: the
+  // preview effect depends on it.
+  return { mockDeleteProfileImage: remove, mockFetchProfileImagePreview: preview, profileImageClient: { upload: vi.fn(), remove, preview } };
+});
+vi.mock('../../../src/settings/headless/profile-image.js', () => ({
+  useProfileImageClient: () => profileImageClient,
 }));
 
-import { useAuth } from '@marinoscar/platform-web/identity/headless';
-import { ApiError, deleteProfileImage, fetchProfileImagePreview } from '../../../services/api';
+import { useAuth } from '../../../src/identity/headless/index.js';
 
 const mockUseAuth = vi.mocked(useAuth);
-const mockDeleteProfileImage = vi.mocked(deleteProfileImage);
-const mockFetchProfileImagePreview = vi.mocked(fetchProfileImagePreview);
 
 describe('ProfileSettings', () => {
   const defaultProfile: UserSettings['profile'] = {
@@ -132,16 +126,8 @@ describe('ProfileSettings', () => {
   const mockOnSettingsReplaced = vi.fn();
   const mockRefreshUser = vi.fn();
 
-  function mockAuth(user = userWithProviderImage) {
-    mockUseAuth.mockReturnValue({
-      user,
-      isLoading: false,
-      isAuthenticated: true,
-      providers: [],
-      login: vi.fn(),
-      logout: vi.fn(),
-      refreshUser: mockRefreshUser,
-    });
+  function mockAuth(user: typeof userWithProviderImage | typeof userWithoutProviderImage = userWithProviderImage) {
+    mockUseAuth.mockReturnValue(authValue({ user, refreshUser: mockRefreshUser }));
   }
 
   // Stubs `URL.createObjectURL`/`URL.revokeObjectURL` the way
@@ -168,7 +154,7 @@ describe('ProfileSettings', () => {
     // Safe default for any test that renders with `hasUploadedProfileImage:
     // true` without configuring its own resolution: a rejection falls back to
     // initials, exactly like a real 404 for "nothing stored yet".
-    mockFetchProfileImagePreview.mockRejectedValue(new ApiError('Not Found', 404));
+    mockFetchProfileImagePreview.mockRejectedValue(createTestApiError(404, 'Not Found'));
   });
 
   describe('Rendering', () => {
@@ -610,7 +596,7 @@ describe('ProfileSettings', () => {
     });
 
     it('should surface a server error message when removal fails', async () => {
-      mockDeleteProfileImage.mockRejectedValue(new ApiError('Cannot remove right now', 400));
+      mockDeleteProfileImage.mockRejectedValue(createTestApiError(400, 'Cannot remove right now'));
       const user = userEvent.setup();
       render(<ProfileSettings profile={uploadedProfile} onSave={mockOnSave} />);
 
@@ -624,7 +610,7 @@ describe('ProfileSettings', () => {
     });
 
     it('should fall back to a generic message when removal fails with no server message', async () => {
-      mockDeleteProfileImage.mockRejectedValue(new ApiError('Request failed', 500));
+      mockDeleteProfileImage.mockRejectedValue(createTestApiError(500, 'Request failed'));
       const user = userEvent.setup();
       render(<ProfileSettings profile={uploadedProfile} onSave={mockOnSave} />);
 
@@ -780,7 +766,7 @@ describe('ProfileSettings', () => {
     });
 
     it('falls back to initials with no error banner when the preview fetch fails', async () => {
-      mockFetchProfileImagePreview.mockRejectedValue(new ApiError('Not Found', 404));
+      mockFetchProfileImagePreview.mockRejectedValue(createTestApiError(404, 'Not Found'));
       mockAuth({ ...userWithProviderImage, hasUploadedProfileImage: true });
 
       const { container } = render(

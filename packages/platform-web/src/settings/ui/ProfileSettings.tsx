@@ -22,33 +22,39 @@ import {
   Typography,
 } from '@mui/material';
 import { DeleteOutlined as DeleteIcon } from '@mui/icons-material';
-import { useAuth } from '@marinoscar/platform-web/identity/headless';
-import {
-  ApiError,
-  deleteProfileImage,
-  fetchProfileImagePreview,
-} from '../../services/api';
-import type {
-  ProfileImageMutationResponse,
-  ProfileImageSource,
-  UserSettings,
-  UserSettingsUpdate,
-} from '../../types';
-import { ImageUpload } from './ImageUpload';
-import { FeatureUnavailableNotice } from '../common/FeatureUnavailableNotice';
-import { useStorageStatus } from '../../hooks/useStorageStatus';
+import type { ProfileImageSource, UserSettingsResponseBase } from '@marinoscar/platform-contract/settings';
 
-type ProfilePatch = NonNullable<UserSettingsUpdate['profile']>;
+import { isPlatformApiError } from '../../core/index.js';
+import { useAuth } from '../../identity/index.js';
+import { FeatureUnavailableNotice } from '../../onboarding/index.js';
+import { useProfileImageClient } from '../headless/profile-image.js';
+import type { ProfileImageMutationResponse } from '../headless/profile-image.js';
+import { useStorageStatus } from '../headless/use-storage-status.js';
+import { ImageUpload } from './ImageUpload.js';
 
-interface ProfileSettingsProps {
-  profile: UserSettings['profile'];
+/**
+ * The profile fields a save may change.
+ *
+ * @stability experimental
+ */
+export type ProfilePatch = Partial<UserSettingsResponseBase['profile']>;
+
+/**
+ * Props of {@link ProfileSettings}.
+ *
+ * @stability experimental
+ */
+export interface ProfileSettingsProps {
+  /** The stored profile preferences. */
+  profile: UserSettingsResponseBase['profile'];
   /** PATCH the changed profile fields (display name and/or picture source). */
   onSave: (profile: ProfilePatch) => Promise<void>;
   /**
    * Adopt the settings document the upload/remove endpoints return, so the
    * stored `version` stays current, and optionally announce success.
    */
-  onSettingsReplaced?: (settings: UserSettings, successMessage?: string) => void;
+  onSettingsReplaced?: (settings: UserSettingsResponseBase, successMessage?: string) => void;
+  /** Disables every control (a save is in flight). */
   disabled?: boolean;
 }
 
@@ -60,6 +66,20 @@ interface SourceOption {
   disabled: boolean;
 }
 
+/**
+ * The profile card: display name, picture source (none, provider, upload),
+ * preview, upload and remove.
+ *
+ * @param props - see {@link ProfileSettingsProps}.
+ * @returns the card.
+ *
+ * @example
+ * ```tsx
+ * <ProfileSettings profile={settings.profile} onSave={(profile) => save({ profile }, msgs)} />
+ * ```
+ *
+ * @stability experimental
+ */
 export function ProfileSettings({
   profile,
   onSave,
@@ -68,6 +88,7 @@ export function ProfileSettings({
 }: ProfileSettingsProps) {
   const { user, refreshUser } = useAuth();
   const baseId = useId();
+  const profileImage = useProfileImageClient();
 
   // `?? 'provider'` only guards a settings document from an older API that
   // predates `imageSource`; the current contract always sends it.
@@ -121,7 +142,8 @@ export function ProfileSettings({
       return;
     }
     let cancelled = false;
-    fetchProfileImagePreview()
+    profileImage
+      .preview()
       .then((blob) => {
         if (!cancelled) replaceUploadPreview(URL.createObjectURL(blob));
       })
@@ -133,7 +155,7 @@ export function ProfileSettings({
     return () => {
       cancelled = true;
     };
-  }, [hasUploadedImage, uploadPreviewNonce, replaceUploadPreview]);
+  }, [hasUploadedImage, uploadPreviewNonce, replaceUploadPreview, profileImage]);
 
   // Sync each field from the stored document only when THAT field changes, so
   // an upload (which replaces the document) does not discard a display name
@@ -250,7 +272,7 @@ export function ProfileSettings({
     setIsRemoving(true);
     setImageError(null);
     try {
-      const result = await deleteProfileImage();
+      const result = await profileImage.remove();
       replaceUploadPreview(null);
       setImageSource(result.settings.profile.imageSource);
       onSettingsReplaced?.(result.settings, 'Uploaded picture removed');
@@ -258,7 +280,7 @@ export function ProfileSettings({
       setUploadPreviewNonce((n) => n + 1);
     } catch (err) {
       setImageError(
-        err instanceof ApiError && err.message !== 'Request failed'
+        isPlatformApiError(err) && err.message !== 'Request failed'
           ? err.message
           : 'Failed to remove the uploaded picture. Please try again.',
       );

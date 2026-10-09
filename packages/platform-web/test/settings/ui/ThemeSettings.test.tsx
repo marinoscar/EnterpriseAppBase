@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { render } from '../../utils/test-utils';
-import { ThemeSettings } from '../../../components/settings/ThemeSettings';
+import { userEvent } from '@testing-library/user-event';
+import { render } from './test-utils.js';
+import { ThemeSettings } from '../../../src/settings/ui/ThemeSettings.js';
 
 describe('ThemeSettings', () => {
   const mockOnThemeChange = vi.fn();
@@ -403,7 +403,7 @@ describe('ThemeSettings', () => {
 
   describe('Icons', () => {
     it('should render light mode icon', () => {
-      const { container } = render(
+      render(
         <ThemeSettings currentTheme="system" onThemeChange={mockOnThemeChange} />
       );
 
@@ -414,7 +414,7 @@ describe('ThemeSettings', () => {
     });
 
     it('should render dark mode icon', () => {
-      const { container } = render(
+      render(
         <ThemeSettings currentTheme="system" onThemeChange={mockOnThemeChange} />
       );
 
@@ -424,7 +424,7 @@ describe('ThemeSettings', () => {
     });
 
     it('should render system preference icon', () => {
-      const { container } = render(
+      render(
         <ThemeSettings currentTheme="system" onThemeChange={mockOnThemeChange} />
       );
 

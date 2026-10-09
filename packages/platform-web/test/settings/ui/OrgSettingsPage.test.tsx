@@ -1,21 +1,19 @@
 /**
- * `pages/Admin/OrgSettingsPage` (#733, PP-8.1): the active organization's
+ * `OrgSettingsPage` (#733, PP-8.1): the active organization's
  * settings overrides, as a form generated from the namespace descriptors of
  * `GET /api/org-settings`. Controls are disabled without `org_settings:write`
  * (and on a namespace the caller may not write); a save PATCHes only that
  * namespace, with the loaded version as `If-Match`.
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { http, HttpResponse } from 'msw';
+import { userEvent } from '@testing-library/user-event';
 import type { OrgSettingsResponse } from '@marinoscar/platform-contract/settings';
 
-import { render, mockUser, type MockUser } from '../../utils/test-utils';
-import { server } from '../../mocks/server';
-import OrgSettingsPage from '../../../pages/Admin/OrgSettingsPage';
-
-const API_BASE = '/api';
+import { render, mockUser, type MockUser } from './test-utils.js';
+import { OrgSettingsPage } from '../../../src/settings/ui/OrgSettingsPage.js';
+import { createTestPlatformHost } from '../../../src/testing/index.js';
+import type { TestPlatformHost } from '../../../src/testing/index.js';
 
 const PAYLOAD: OrgSettingsResponse = {
   orgId: '11111111-1111-4111-8111-111111111111',
@@ -59,27 +57,31 @@ function orgAdmin(permissions: string[]): MockUser {
   };
 }
 
+let host: TestPlatformHost;
+
 function renderPage(permissions: string[]) {
+  const user = orgAdmin(permissions);
+  host = createTestPlatformHost({
+    permissions,
+    userId: user.id,
+    responses: {
+      'GET /org-settings': PAYLOAD,
+      'PATCH /org-settings': { ...PAYLOAD, version: PAYLOAD.version + 1 },
+    },
+  });
   return render(<OrgSettingsPage />, {
-    wrapperOptions: { route: '/admin/settings/organization-settings', user: orgAdmin(permissions) },
+    wrapperOptions: { route: '/admin/settings/organization-settings', user, host },
   });
 }
 
+/** The PATCHes the page sent, as `{ body, ifMatch }`. */
+function patches(): Array<{ body: unknown; ifMatch: string | undefined }> {
+  return host.requests
+    .filter((request) => request.method === 'PATCH')
+    .map((request) => ({ body: request.body, ifMatch: request.ifMatch }));
+}
+
 describe('OrgSettingsPage (#733)', () => {
-  let patches: Array<{ body: unknown; ifMatch: string | null }>;
-
-  beforeEach(() => {
-    patches = [];
-    server.use(
-      http.get(`${API_BASE}/org-settings`, () => HttpResponse.json({ data: PAYLOAD })),
-      http.patch(`${API_BASE}/org-settings`, async ({ request }) => {
-        const body = (await request.json()) as Record<string, unknown>;
-        patches.push({ body, ifMatch: request.headers.get('If-Match') });
-        return HttpResponse.json({ data: { ...PAYLOAD, version: PAYLOAD.version + 1 } });
-      }),
-    );
-  });
-
   it('renders one generated card per namespace, with the effective values', async () => {
     renderPage(['org_settings:read', 'org_settings:write']);
     expect(await screen.findByRole('heading', { name: 'exportPolicy' })).toBeInTheDocument();
@@ -113,8 +115,8 @@ describe('OrgSettingsPage (#733)', () => {
     await user.clear(maxRows);
     await user.type(maxRows, '500');
     await user.click(screen.getAllByRole('button', { name: 'Save' })[0]!);
-    await waitFor(() => expect(patches).toHaveLength(1));
-    expect(patches[0]).toEqual({ body: { exportPolicy: { maxRows: 500 } }, ifMatch: '3' });
+    await waitFor(() => expect(patches()).toHaveLength(1));
+    expect(patches()[0]).toEqual({ body: { exportPolicy: { maxRows: 500 } }, ifMatch: '3' });
   });
 
   it('clears a namespace override back to the deployment values', async () => {
@@ -122,7 +124,7 @@ describe('OrgSettingsPage (#733)', () => {
     renderPage(['org_settings:read', 'org_settings:write']);
     await screen.findByRole('heading', { name: 'exportPolicy' });
     await user.click(screen.getAllByRole('button', { name: 'Use the deployment values' })[0]!);
-    await waitFor(() => expect(patches).toHaveLength(1));
-    expect(patches[0]!.body).toEqual({ exportPolicy: null });
+    await waitFor(() => expect(patches()).toHaveLength(1));
+    expect(patches()[0]!.body).toEqual({ exportPolicy: null });
   });
 });

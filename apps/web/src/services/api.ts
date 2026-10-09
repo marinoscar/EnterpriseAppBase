@@ -78,45 +78,10 @@ import type {
   AppNotification,
   NotificationListResponse,
   UnreadCountResponse,
-  ProfileImageMutationResponse,
 } from '../types';
 
-// Profile picture API — issue #367.
-
-/**
- * Upload the caller's profile picture (one multipart `file` part).
- *
- * The server validates the bytes (JPEG/PNG/GIF/WebP, max 5 MB) and answers 400
- * or 413 with a message otherwise. On success it stores the image, switches
- * `profile.imageSource` to `'upload'` and deletes any previous upload, so the
- * caller must adopt the returned `settings` (new `version`).
- */
-export async function uploadProfileImage(file: File): Promise<ProfileImageMutationResponse> {
-  const formData = new FormData();
-  formData.append('file', file);
-  return api.postFormData<ProfileImageMutationResponse>(
-    '/user-settings/profile-image',
-    formData,
-  );
-}
-
-/**
- * Remove the caller's uploaded picture. A source of `'upload'` falls back to
- * `'provider'` server-side; the returned `settings` must be adopted.
- */
-export async function deleteProfileImage(): Promise<ProfileImageMutationResponse> {
-  return api.delete<ProfileImageMutationResponse>('/user-settings/profile-image');
-}
-
-/**
- * Fetch the caller's stored uploaded picture, whatever `profile.imageSource`
- * currently selects, for previewing it in settings. Authenticated on purpose:
- * the public `/users/:id/avatar/:objectId` route only serves a picture while
- * it is the selected source. Rejects with a 404 `ApiError` when none exists.
- */
-export async function fetchProfileImagePreview(): Promise<Blob> {
-  return api.getBlob('/user-settings/profile-image');
-}
+// Profile picture API (issue #367): in `@marinoscar/platform-web/settings/headless`
+// since #892 (`createProfileImageClient`), through the platform host's transport.
 
 // Email settings API (issue #124): in `@marinoscar/platform-web/email/headless`
 // since #737, through the platform host's transport.

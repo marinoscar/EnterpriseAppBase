@@ -46,26 +46,48 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { Alert, Box, Container, Snackbar, Typography } from '@mui/material';
-import { useUserSettings } from '../hooks/useUserSettings';
-import { LoadingSpinner } from '../components/common/LoadingSpinner';
-import type { UserSettings, UserSettingsUpdate } from '../types';
+import type { UserSettingsResponseBase } from '@marinoscar/platform-contract/settings';
+import { useOptionalPlatformHost } from '../../core/index.js';
+import { useUserSettings } from '../headless/use-user-settings.js';
+import { LoadingSpinner } from '../internal/LoadingSpinner.js';
 
-/** The strings a save raises, per call site. See `save` below. */
+/**
+ * The PATCH body the routed pages send: a theme and/or profile fields.
+ *
+ * @stability experimental
+ */
+export type UserSettingsUpdate = {
+  /** A new theme preference. */
+  theme?: UserSettingsResponseBase['theme'];
+  /** New profile fields. */
+  profile?: Partial<UserSettingsResponseBase['profile']>;
+};
+
+/**
+ * The strings a save raises, per call site. See `save` below.
+ *
+ * @stability experimental
+ */
 export interface UserSettingsSaveMessages {
   /** Shown in the success snackbar, e.g. `'Theme updated'`. */
   success: string;
   /**
    * Success-path fallback for the ERROR snackbar when the rejection is not an
-   * `Error` and therefore carries no `.message`, e.g. `'Failed to update
-   * theme'`. Carried per call site rather than hardcoded to one generic string
-   * so the two pages keep the exact copy the stacked page used.
+   * `Error` and therefore carries no `.message`, e.g. `'Failed to update theme'`.
+   * Carried per call site rather than hardcoded to one generic string so the
+   * two pages keep the exact copy the stacked page used.
    */
   failure: string;
 }
 
-/** What a settings page gets handed once the document has loaded. */
+/**
+ * What a settings page gets handed once the document has loaded.
+ *
+ * @stability experimental
+ */
 export interface UserSettingsSectionState {
-  settings: UserSettings;
+  /** The loaded document. */
+  settings: UserSettingsResponseBase;
   /** True while a PATCH is in flight. Pages pass it straight to `disabled`. */
   isSaving: boolean;
   /**
@@ -86,17 +108,40 @@ export interface UserSettingsSectionState {
    * already returned (the profile-image upload/delete responses), so the
    * stored `version` stays current, and optionally raise the success snackbar.
    */
-  replaceSettings: (settings: UserSettings, successMessage?: string) => void;
+  replaceSettings: (settings: UserSettingsResponseBase, successMessage?: string) => void;
 }
 
-interface UserSettingsSectionProps {
+/**
+ * Props of {@link UserSettingsSection}.
+ *
+ * @stability experimental
+ */
+export interface UserSettingsSectionProps {
   /** `h1` for the page. Mirrors the card title in `userSettingsSections.tsx`. */
   title: string;
   /** Secondary line under the title. Mirrors the card description. */
   description: string;
+  /** Renders the page body once the document has loaded. */
   children: (state: UserSettingsSectionState) => ReactNode;
 }
 
+/**
+ * The shared chrome of every routed `/settings/*` page that edits the user
+ * settings document (the Profile and Appearance pages): the hook, the
+ * spinner, the fetch-error alert and the success and failure snackbars.
+ *
+ * @param props - see {@link UserSettingsSectionProps}.
+ * @returns the page.
+ *
+ * @example
+ * ```tsx
+ * <UserSettingsSection title="Appearance" description="Pick a theme.">
+ *   {({ settings, save }) => <Theme value={settings.theme} onChange={(theme) => save({ theme }, msgs)} />}
+ * </UserSettingsSection>
+ * ```
+ *
+ * @stability experimental
+ */
 export function UserSettingsSection({
   title,
   description,
@@ -109,12 +154,12 @@ export function UserSettingsSection({
     isSaving,
     updateSettings,
     replaceSettings: adoptSettings,
-  } = useUserSettings();
+  } = useUserSettings<UserSettingsResponseBase, UserSettingsUpdate>({ applyTheme: useOptionalPlatformHost()?.applyTheme });
 
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
 
-  const replaceSettings = (next: UserSettings, message?: string) => {
+  const replaceSettings = (next: UserSettingsResponseBase, message?: string) => {
     adoptSettings(next);
     if (message) setSuccessMessage(message);
   };
@@ -183,4 +228,3 @@ export function UserSettingsSection({
   );
 }
 
-export default UserSettingsSection;
