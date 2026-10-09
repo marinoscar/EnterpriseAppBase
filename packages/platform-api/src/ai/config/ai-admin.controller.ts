@@ -271,13 +271,15 @@ export class AiAdminController {
       'Enqueues an `ai.catalog.refresh` background job for one provider and returns its id; ' +
       'follow it in the Jobs dashboard (`GET /api/admin/jobs`). A refresh already pending or ' +
       'running for the provider is returned instead of a second one being queued.\n\n' +
-      'Discovery runs under the admin key, so this answers **409** (`details.reason: ' +
-      '"AI_KEY_REQUIRED"`) when none is stored. A refresh never enables a model and never ' +
+      'Answers **409** instead of queueing a job that would skip: `details.reason: ' +
+      '"AI_DISABLED"` when AI is switched off, `"AI_PROVIDER_DISABLED"` (with `details.provider`) ' +
+      'when this provider is not enabled, and, because discovery runs under the admin key, ' +
+      '`"AI_KEY_REQUIRED"` when none is stored. A refresh never enables a model and never ' +
       'overwrites an `admin_override`.',
   })
   @ApiResponse({ status: 200, description: 'The queued job', type: RefreshAiCatalogResultDto })
   @ApiResponse({ status: 404, description: 'No adapter is registered for this provider', type: ErrorDto })
-  @ApiResponse({ status: 409, description: 'No admin key is stored for this provider', type: ErrorDto })
+  @ApiResponse({ status: 409, description: 'AI or the provider is disabled (AI_DISABLED, AI_PROVIDER_DISABLED), or no admin key is stored (AI_KEY_REQUIRED)', type: ErrorDto })
   async refreshModels(@Body() dto: RefreshAiCatalogDto, @CurrentUser('id') userId: string) {
     return this.models.refresh(dto.provider, userId);
   }

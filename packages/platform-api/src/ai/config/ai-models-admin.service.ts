@@ -161,9 +161,12 @@ export class AiModelsAdminService {
 
   /**
    * `POST /api/admin/ai/models/refresh` — enqueue `ai.catalog.refresh` for one
-   * provider. 409 when no admin key is stored: discovery runs under that key
-   * (§2.17), so the job could only fail — unless the provider is keyless
-   * (#448), which discovers with no key at all.
+   * provider. 409 when AI, or this provider, is switched off (`AI_DISABLED`,
+   * `AI_PROVIDER_DISABLED`): the sync would skip and nothing would happen, so
+   * the administrator is told instead of shown "queued" (#888). Then 409 when no
+   * admin key is stored: discovery runs under that key (§2.17), so the job could
+   * only fail — unless the provider is keyless (#448), which discovers with no
+   * key at all.
    *
    * Enqueued with the provider as the job's subject, so a second click while a
    * refresh is still pending or running returns that job instead of queueing a
@@ -171,6 +174,22 @@ export class AiModelsAdminService {
    */
   async refresh(provider: string, userId: string): Promise<RefreshAiCatalogResult> {
     this.admin.requireRegistered(provider);
+
+    const disabled = await this.catalog.disabledReason(provider);
+
+    if (disabled === 'AI_DISABLED') {
+      throw new ConflictException({
+        message: 'AI is turned off. Enable AI on the AI page before refreshing the model catalog.',
+        details: { reason: 'AI_DISABLED' },
+      });
+    }
+
+    if (disabled === 'AI_PROVIDER_DISABLED') {
+      throw new ConflictException({
+        message: `"${provider}" is not enabled. Enable the provider on the AI page, then refresh.`,
+        details: { reason: 'AI_PROVIDER_DISABLED', provider },
+      });
+    }
 
     const key = await this.credentials.describe(AI_CREDENTIAL_PURPOSE, aiCredentialName(provider));
 
