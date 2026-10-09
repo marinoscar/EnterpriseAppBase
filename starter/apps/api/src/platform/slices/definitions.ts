@@ -13,6 +13,7 @@ import { dbBackupSlice } from '../db-backup/db-backup.slice';
 import { emailSlice } from '../email/email.slice';
 import { exportsSlice } from '../exports/exports.slice';
 import { notificationsSlice } from '../notifications/notifications.slice';
+import { onboardingSlice } from '../onboarding/onboarding.slice';
 import { sharingSlice } from '../sharing/sharing.slice';
 import { storageSlice } from '../storage/storage.slice';
 import type { ApiSlice, SliceId } from './slice';
@@ -27,4 +28,5 @@ export const ALL_SLICES = {
   ai: aiSlice,
   'db-backup': dbBackupSlice,
   exports: exportsSlice,
+  onboarding: onboardingSlice,
 } as unknown as Readonly<Record<SliceId, ApiSlice>>;
