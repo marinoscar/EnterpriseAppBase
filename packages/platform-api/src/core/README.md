@@ -226,7 +226,7 @@ Everything else throws `ScopedAccessError` before reaching the database: an acto
 
 ### Logging, metrics and spans
 
-No port. Packaged code logs with `new Logger(Context)` from `@nestjs/common`, which the app routes to its pino logger through `app.useLogger` (`apps/api/src/common/logger/`). Metrics and spans use `@opentelemetry/api` (a peer) until `otel-core` (#700) ships.
+No port. Packaged code logs with `new Logger(Context)` from `@nestjs/common`, which the app may route to its own logger through `app.useLogger`. Metrics and spans use `@opentelemetry/api` (a peer) until `otel-core` (#700) ships.
 
 ### Test doubles
 
