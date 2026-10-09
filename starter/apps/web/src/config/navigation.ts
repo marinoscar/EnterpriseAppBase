@@ -4,6 +4,7 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import StickyNote2OutlinedIcon from '@mui/icons-material/StickyNote2Outlined';
 import type { ShellNavigation } from '@marinoscar/platform-web/shell/headless';
 
+import { sliceConsolePermissions } from '../slices/manifest';
 import { ADMIN_SECTIONS } from './adminSections';
 import { USER_SETTINGS_SECTIONS } from './userSettingsSections';
 
@@ -25,7 +26,7 @@ export const NAVIGATION: ShellNavigation<'home' | 'notes' | 'settings' | 'consol
       compactLabel: 'Admin',
       Icon: AdminPanelSettingsIcon,
       path: '/admin/settings',
-      anyPermission: ['system_settings:read', 'users:read', 'org_members:read', 'organizations:read', 'jobs:read'],
+      anyPermission: ['system_settings:read', 'users:read', 'org_members:read', 'organizations:read', 'jobs:read', ...sliceConsolePermissions],
       pinned: true,
     },
   ],

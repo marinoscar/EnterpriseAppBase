@@ -1,6 +1,7 @@
 import { APP_NAME } from '@app/shared';
 import { Box, CircularProgress, Typography } from '@mui/material';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Fragment, Suspense, type ComponentType } from 'react';
+import { Navigate, Outlet, Route, Routes } from 'react-router-dom';
 import { DoctorPage } from '@marinoscar/platform-web/doctor/ui';
 import {
   AuthProvider,
@@ -17,7 +18,7 @@ import { registerSettingsFeature, useSettingsFeatures } from '@marinoscar/platfo
 import { SettingsHub, type SettingsHubProps } from '@marinoscar/platform-web/settings/ui';
 import { FactoryResetPage, OffboardOrganizationButton, UserDangerZonePage, factoryResetSettingsPage } from '@marinoscar/platform-web/user-data/ui';
 import { ShellProviders, type ShellProvider } from '@marinoscar/platform-web/shell/headless';
-import { ShellLayout } from '@marinoscar/platform-web/shell/ui';
+import { ShellAppBar, ShellLayout, ShellUserMenu } from '@marinoscar/platform-web/shell/ui';
 import type { ReactElement } from 'react';
 
 import { api } from './api';
@@ -26,6 +27,18 @@ import { NAVIGATION } from './config/navigation';
 import { USER_SETTINGS_SECTIONS } from './config/userSettingsSections';
 import { NotesPage } from './pages/NotesPage';
 import { AppPlatformHost } from './platformHost';
+import {
+  beforeLogout,
+  sliceAppBarActions,
+  sliceBanners,
+  sliceHostedProviders,
+  slicePublicRoutes,
+  sliceOverlays,
+  sliceRoutes,
+  sliceShellProviders,
+  sliceUserMenuItems,
+} from './slices/manifest';
+import type { SliceRoute } from './slices/slice';
 
 // The `orgs` feature: the organization cards show only in multi-organization mode.
 declare module '@marinoscar/platform-web/settings/headless' {
@@ -51,17 +64,71 @@ function Gate({ permission, children }: { permission: string; children: ReactEle
 }
 
 /**
- * The providers around the signed-in shell, outermost first. Add a slice's
- * provider here (its adapters, a feature config) rather than nesting by hand.
+ * The providers around the signed-in shell, outermost first: the enabled
+ * slices' (the notification inbox, the AI config the host's feature map reads),
+ * then the platform host every packaged page reads, then the providers that
+ * need the host (the onboarding fetch). Add yours to `src/slices/<id>.tsx`.
  */
-const SHELL_PROVIDERS: readonly ShellProvider[] = [AppPlatformHost];
+const SHELL_PROVIDERS: readonly ShellProvider[] = [...sliceShellProviders, AppPlatformHost, ...sliceHostedProviders];
 
-/** The platform shell: AppBar, navigation rail or bottom bar (by width), user menu. */
+/** Renders each component of a shell slot (banners, overlays, top-bar actions). */
+function Slot({ components }: { components: readonly ComponentType[] }) {
+  return (
+    <>
+      {components.map((Component, index) => (
+        <Component key={index} />
+      ))}
+    </>
+  );
+}
+
+/** The platform shell: AppBar, navigation rail or bottom bar (by width), user menu, and what the enabled slices slot in. */
+function AppShell() {
+  return (
+    <ShellLayout
+      navigation={NAVIGATION}
+      brand={APP_NAME}
+      appBar={
+        <ShellAppBar
+          navigation={NAVIGATION}
+          brand={APP_NAME}
+          actions={<Slot components={sliceAppBarActions} />}
+          userMenu={
+            <ShellUserMenu
+              navigation={NAVIGATION}
+              items={(close) => sliceUserMenuItems.map((item, index) => <Fragment key={index}>{item(close)}</Fragment>)}
+            />
+          }
+        />
+      }
+      banners={<Slot components={sliceBanners} />}
+      overlays={<Slot components={sliceOverlays} />}
+    >
+      {/* Slice pages are lazy: the shell stays mounted while one loads. */}
+      <Suspense fallback={spinner}>
+        <Outlet />
+      </Suspense>
+    </ShellLayout>
+  );
+}
+
 const shell = (
   <ShellProviders providers={SHELL_PROVIDERS}>
-    <ShellLayout navigation={NAVIGATION} brand={APP_NAME} />
+    <AppShell />
   </ShellProviders>
 );
+
+/** A slice's route behind the permission(s) its API route enforces. */
+function guarded(route: SliceRoute): ReactElement {
+  const { permission, element } = route;
+  if (permission === undefined) return element;
+  if (typeof permission === 'string') return <Gate permission={permission}>{element}</Gate>;
+  return (
+    <RequirePermission permissions={[...permission]} fallback={<Navigate to="/" replace />}>
+      {element}
+    </RequirePermission>
+  );
+}
 
 function Home() {
   const { user } = useAuth();
@@ -83,6 +150,10 @@ export function AppRoutes() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/auth/callback" element={<AuthCallbackPage />} />
+      {/* Slice routes that need no sign-in (the sharing slice's public link page). */}
+      {slicePublicRoutes.map((route) => (
+        <Route key={route.path} path={`/${route.path}`} element={<Suspense fallback={spinner}>{route.element}</Suspense>} />
+      ))}
       <Route element={<RequireAuth loading={spinner} />}>
         <Route element={shell}>
           <Route index element={<Home />} />
@@ -107,6 +178,10 @@ export function AppRoutes() {
           <Route path="admin/settings/doctor" element={<Gate permission="system_settings:read"><DoctorPage /></Gate>} />
           <Route path="settings/danger-zone" element={<UserDangerZonePage />} />
           <Route path="admin/settings/factory-reset" element={<Gate permission={factoryResetSettingsPage.card.permission!}><FactoryResetPage /></Gate>} />
+          {/* The enabled optional slices' pages (packages/shared/slices.json; src/slices/). */}
+          {sliceRoutes.map((route) => (
+            <Route key={route.path} path={route.path} element={guarded(route)} />
+          ))}
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
@@ -122,7 +197,7 @@ function Hub(props: Omit<SettingsHubProps, 'hasPermission' | 'features'>) {
 
 export default function App() {
   return (
-    <AuthProvider client={api}>
+    <AuthProvider client={api} onBeforeLogout={beforeLogout}>
       <IdentityWebAdaptersProvider adapters={{ appName: APP_NAME }}>
         <AppRoutes />
       </IdentityWebAdaptersProvider>
