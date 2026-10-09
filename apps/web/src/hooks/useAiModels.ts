@@ -71,7 +71,12 @@ export interface UseAiModelsReturn {
   isRefreshing: boolean;
   refreshError: string | null;
   clearRefreshError: () => void;
-  /** Enqueue discovery for one provider. Resolves the job id, or `null` on failure. */
+  /**
+   * Enqueue discovery for one provider. Resolves the job id, or `null` on failure.
+   * It does not clear `refreshError` itself: a caller refreshing several
+   * providers in turn clears it once (`clearRefreshError`) and every refusal is
+   * collected, so one provider's 409 neither hides nor aborts the others.
+   */
   refreshCatalog: (provider: string) => Promise<string | null>;
 }
 
@@ -174,15 +179,18 @@ export function useAiModels(filter: AiModelListFilter): UseAiModelsReturn {
     async (provider: string): Promise<string | null> => {
       try {
         setIsRefreshing(true);
-        setRefreshError(null);
         const { jobId } = await refreshAiModels(provider);
         return jobId;
       } catch (err) {
         if (isMounted()) {
-          setRefreshError(
+          // The server's own message is actionable for AI_DISABLED and
+          // AI_PROVIDER_DISABLED (#888); only a missing key gets web wording.
+          const message =
             aiErrorReason(err) === 'AI_KEY_REQUIRED'
               ? 'This provider has no organization key, so its models cannot be discovered. Save a key on the AI page first.'
-              : messageFor(err, 'The catalogue refresh could not be queued'),
+              : messageFor(err, 'The catalogue refresh could not be queued');
+          setRefreshError((prev) =>
+            prev === null ? message : prev.includes(message) ? prev : `${prev} ${message}`,
           );
         }
         return null;

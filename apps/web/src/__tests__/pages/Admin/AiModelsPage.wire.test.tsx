@@ -221,6 +221,29 @@ describe('AiModelsPage — wire contract', () => {
     expect(await screen.findByText(/has no organization key/i)).toBeInTheDocument();
   });
 
+  it.each([
+    ['AI_DISABLED', 'AI is turned off. Enable AI on the AI page before refreshing the model catalog.'],
+    [
+      'AI_PROVIDER_DISABLED',
+      '"openai" is not enabled. Enable the provider on the AI page, then refresh.',
+    ],
+  ])('a refresh refused with %s shows the server message and no queued snackbar (#888)', async (reason, message) => {
+    server.use(
+      http.post('*/api/admin/ai/models/refresh', () =>
+        HttpResponse.json({ code: 'CONFLICT', message, details: { reason } }, { status: 409 }),
+      ),
+    );
+    const user = await renderLoaded();
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /refresh from provider/i })).toBeEnabled(),
+    );
+    await user.click(screen.getByRole('button', { name: /refresh from provider/i }));
+
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(screen.queryByText(/refresh queued/i)).not.toBeInTheDocument();
+  });
+
   it('explains an empty catalogue', async () => {
     server.use(
       http.get('*/api/admin/ai/models', () =>

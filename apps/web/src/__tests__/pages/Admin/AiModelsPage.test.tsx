@@ -200,6 +200,7 @@ describe('AiModelsPage', () => {
       await user.click(screen.getByRole('button', { name: /refresh from provider/i }));
 
       expect(hook.refreshCatalog).toHaveBeenCalledWith('openai');
+      expect(hook.clearRefreshError).toHaveBeenCalled();
       expect(await screen.findByText('Refresh queued (job job-ai-refresh-1)')).toBeInTheDocument();
       expect(screen.getByRole('link', { name: /view jobs/i })).toHaveAttribute(
         'href',
@@ -221,6 +222,16 @@ describe('AiModelsPage', () => {
       renderPage();
 
       expect(screen.getByRole('button', { name: /refresh from provider/i })).toBeDisabled();
+    });
+
+    it('shows no "Refresh queued" snackbar when nothing was queued (#888)', async () => {
+      const user = userEvent.setup();
+      setModels({ refreshCatalog: vi.fn().mockResolvedValue(null) });
+      renderPage();
+
+      await user.click(screen.getByRole('button', { name: /refresh from provider/i }));
+
+      expect(screen.queryByText(/refresh queued/i)).not.toBeInTheDocument();
     });
 
     it('renders a refresh error', () => {
