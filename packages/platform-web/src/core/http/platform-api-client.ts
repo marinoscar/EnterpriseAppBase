@@ -85,6 +85,7 @@ export function toHttpRequestOptions(options: PlatformRequestOptions | undefined
   };
   return {
     ...(options.signal === undefined ? {} : { signal: options.signal }),
+    ...(options.jsonBody === undefined ? {} : { body: JSON.stringify(options.jsonBody) }),
     ...(Object.keys(headers).length === 0 ? {} : { headers }),
   };
 }
@@ -130,6 +131,9 @@ export function createPlatformApiClient(
       mapped(() => http.patch<T>(path, body, toHttpRequestOptions(requestOptions))),
     delete: <T>(path: string, requestOptions?: PlatformRequestOptions) =>
       mapped(() => http.delete<T>(path, toHttpRequestOptions(requestOptions))),
+    // A file upload: a multipart body, the boundary set by the browser.
+    postFormData: <T>(path: string, body: FormData, requestOptions?: PlatformRequestOptions) =>
+      mapped(() => http.postFormData<T>(path, body, toHttpRequestOptions(requestOptions))),
     // Downloads: the raw body and the headers, through the same client.
     getBlob: (path: string, requestOptions?: PlatformRequestOptions) =>
       blob(() =>

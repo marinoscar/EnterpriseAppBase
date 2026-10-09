@@ -46,6 +46,14 @@ export interface PlatformApiClient {
    * needs it reports its absence.
    */
   postSse?(path: string, body: unknown, options: PlatformSseOptions): Promise<void>;
+  /**
+   * `POST path` with a `multipart/form-data` body (a file upload): resolves to
+   * the response's `data`, rejects with a {@link PlatformApiError}. The
+   * transport sets the multipart boundary itself. Optional, like
+   * {@link PlatformApiClient.getBlob}; a page that needs it reports its
+   * absence.
+   */
+  postFormData?<T>(path: string, body: FormData, options?: PlatformRequestOptions): Promise<T>;
 }
 
 /**
@@ -66,6 +74,11 @@ export interface PlatformRequestOptions {
    * send custom headers ignores them, so a page that needs one says so.
    */
   headers?: Readonly<Record<string, string>>;
+  /**
+   * A JSON body for a `DELETE` that needs one (a typed confirmation). Ignored
+   * by the other methods, which take their body as an argument.
+   */
+  jsonBody?: unknown;
 }
 
 /**
