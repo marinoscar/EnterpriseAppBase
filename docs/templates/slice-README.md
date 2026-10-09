@@ -63,7 +63,7 @@ One row per symbol exported from `src/<slice>/index.ts` and tagged `@extensionPo
 Sample rows (from `packages/platform-<pkg>/src/<slice>/` the reference app is four levels up):
 
 ```markdown
-| `DoctorRegistry.register` | registry | `register(check: DoctorCheck): void` | Add a check to the report from a feature module | stable | [example](../../../../apps/api/src/health/doctor/db-connection.doctor-check.ts) |
+| `DoctorRegistry.register` | registry | `register(check: DoctorCheck): void` | Add a check to the report from a feature module | stable | [example](../../../../apps/api/src/examples/doctor/example-capability.doctor-check.ts) |
 | `DOCTOR_OPTIONS` | token | `InjectionToken<DoctorOptions>` | Read the resolved options in a custom check | experimental | [example](../../../../apps/api/src/doctor/doctor.config.ts) |
 ```
 
