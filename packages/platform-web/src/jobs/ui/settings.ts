@@ -22,18 +22,16 @@
 // `Job Insights` nests UNDER the Jobs path; the app's `settingsPageTitle`
 // longest-prefix rule keeps the compact AppBar titling it "Job Insights".
 
-import DnsOutlinedIcon from '@mui/icons-material/DnsOutlined';
 import QueryStatsIcon from '@mui/icons-material/QueryStats';
 import WorkHistoryOutlinedIcon from '@mui/icons-material/WorkHistoryOutlined';
 
 import type { PlatformSettingsPage } from '../../core/index.js';
+import { nodesAdminSections } from '../../nodes/index.js';
 import {
   JOB_INSIGHTS_PAGE_DESCRIPTION,
   JOB_INSIGHTS_PAGE_TITLE,
   JOBS_PAGE_DESCRIPTION,
   JOBS_PAGE_TITLE,
-  WORKER_NODES_PAGE_DESCRIPTION,
-  WORKER_NODES_PAGE_TITLE,
 } from './copy.js';
 
 /**
@@ -83,12 +81,8 @@ export const jobsAdminSections: {
       path: '/admin/settings/jobs/insights',
       permission: 'jobs:read',
     },
-    {
-      title: WORKER_NODES_PAGE_TITLE,
-      description: WORKER_NODES_PAGE_DESCRIPTION,
-      Icon: DnsOutlinedIcon,
-      path: '/admin/settings/workers',
-      permission: 'nodes:read',
-    },
+    // The Worker Nodes card (`/admin/settings/workers`, `nodes:read`) is the
+    // nodes slice's (#881); it stays last so the order is unchanged.
+    ...nodesAdminSections.operations,
   ]),
 });

@@ -10,7 +10,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
-import { NodeVitalsDialog, VITALS_COUNTER_ROWS } from '../../src/jobs/ui/NodeVitalsDialog.js';
+import { NodeVitalsDialog, VITALS_COUNTER_ROWS } from '../../src/nodes/ui/NodeVitalsDialog.js';
 import {
   fullVitals,
   lowDiskVitals,

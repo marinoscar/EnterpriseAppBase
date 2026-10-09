@@ -34,6 +34,7 @@ import type { ReactNode } from 'react';
 import { APP_NAME } from '@app/shared';
 import { DbBackupWebAdaptersProvider } from '@marinoscar/platform-web/db-backup/headless';
 import { JobsWebAdaptersProvider } from '@marinoscar/platform-web/jobs/headless';
+import { NodesWebAdaptersProvider } from '@marinoscar/platform-web/nodes/headless';
 import { NotificationProvider } from '@marinoscar/platform-web/notifications/headless';
 import { OnboardingProvider } from '@marinoscar/platform-web/onboarding/headless';
 import type { ShellProvider } from '@marinoscar/platform-web/shell/headless';
@@ -45,6 +46,7 @@ import {
 import { AiConfigProvider } from '../contexts/AiConfigContext';
 import { appDbBackupAdapters } from './dbBackupAdapters';
 import { appJobsAdapters } from './jobsAdapters';
+import { appNodesAdapters } from './nodesAdapters';
 import { AppPlatformHostProvider, appPlatformApi } from './platformHost';
 import { appTelemetryAdapters } from './telemetryAdapters';
 
@@ -57,7 +59,13 @@ function AppTelemetryAdaptersProvider({ children }: { children: ReactNode }) {
 }
 
 function AppJobsAdaptersProvider({ children }: { children: ReactNode }) {
-  return <JobsWebAdaptersProvider adapters={appJobsAdapters}>{children}</JobsWebAdaptersProvider>;
+  // The nodes provider is OUTSIDE the jobs one: the jobs provider bridges its own
+  // adapters to the Worker Nodes page, and an outer nodes provider wins (#881).
+  return (
+    <NodesWebAdaptersProvider adapters={appNodesAdapters}>
+      <JobsWebAdaptersProvider adapters={appJobsAdapters}>{children}</JobsWebAdaptersProvider>
+    </NodesWebAdaptersProvider>
+  );
 }
 
 function AppDbBackupAdaptersProvider({ children }: { children: ReactNode }) {

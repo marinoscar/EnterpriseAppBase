@@ -11,7 +11,3 @@ export const JOBS_PAGE_DESCRIPTION =
 export const JOB_INSIGHTS_PAGE_TITLE = 'Job Insights';
 export const JOB_INSIGHTS_PAGE_DESCRIPTION =
   'See how long the queue takes, how fast it is moving, and when the outstanding work will be done.';
-
-export const WORKER_NODES_PAGE_TITLE = 'Worker Nodes';
-export const WORKER_NODES_PAGE_DESCRIPTION =
-  'See which machines are attached to this deployment, what they are running, and whether they are healthy.';

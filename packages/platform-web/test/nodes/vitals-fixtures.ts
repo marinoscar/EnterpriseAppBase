@@ -11,7 +11,7 @@
  * 512 MB RSS, heap 256 MB of 1 GB (25%), disk 50 GB free of 100 GB (50%),
  * slots 1/4.
  */
-import type { NodeVitals, WorkerNode } from '../../src/jobs/headless/index.js';
+import type { NodeVitals, WorkerNode } from '../../src/nodes/headless/index.js';
 
 const MB = 1024 * 1024;
 const GB = 1024 * MB;

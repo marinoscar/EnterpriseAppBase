@@ -12,11 +12,11 @@ import type { ReactElement } from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
 import { PlatformHostProvider } from '../../src/core/index.js';
-import { JobInsightsPage, JobsPage, WorkersPage } from '../../src/jobs/ui/index.js';
+import { JobInsightsPage, JobsPage } from '../../src/jobs/ui/index.js';
 import type { JobsPageHeaderProps } from '../../src/jobs/ui/index.js';
 import { createTestPlatformHost } from '../../src/testing/index.js';
 import type { TestPlatformHost } from '../../src/testing/index.js';
-import { credential, job, node } from './harness.js';
+import { job } from './harness.js';
 
 const STATS = {
   total: 2,
@@ -148,39 +148,6 @@ describe('JobInsightsPage', () => {
   it('redirects a viewer without jobs:read', async () => {
     const host = createTestPlatformHost({ permissions: [], responses: { 'GET /admin/jobs/insights': INSIGHTS } });
     renderAt(<JobInsightsPage />, host);
-    expect(await screen.findByText('home')).toBeInTheDocument();
-  });
-});
-
-describe('WorkersPage', () => {
-  const responses = {
-    'GET /admin/nodes': [node()],
-    'GET /admin/nodes/credentials': [credential()],
-  };
-
-  it('renders the fleet and the credentials', async () => {
-    const host = createTestPlatformHost({ permissions: ['nodes:read', 'nodes:write'], responses });
-    renderAt(<WorkersPage />, host);
-
-    expect(screen.getByRole('heading', { level: 1, name: 'Worker Nodes' })).toBeInTheDocument();
-    const fleet = await screen.findByRole('table', { name: 'Worker nodes' });
-    await waitFor(() => expect(within(fleet).getByText('worker-a')).toBeInTheDocument());
-    expect(await screen.findByText('nod_1a2b…')).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: 'Delete node' })).toHaveLength(1);
-  });
-
-  it('offers no write action without nodes:write', async () => {
-    const host = createTestPlatformHost({ permissions: ['nodes:read'], responses });
-    renderAt(<WorkersPage />, host);
-
-    await screen.findByRole('table', { name: 'Worker nodes' });
-    expect(screen.queryByRole('button', { name: 'Delete node' })).not.toBeInTheDocument();
-    expect(screen.getByText(/\(read-only\)/)).toBeInTheDocument();
-  });
-
-  it('redirects a viewer without nodes:read', async () => {
-    const host = createTestPlatformHost({ permissions: ['jobs:read'], responses });
-    renderAt(<WorkersPage />, host);
     expect(await screen.findByText('home')).toBeInTheDocument();
   });
 });

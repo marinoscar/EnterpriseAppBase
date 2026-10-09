@@ -472,6 +472,89 @@ jobs:
           NODE_ENV: production
           SMOKE_PORT: '3001'
 
+  worker-e2e:
+    name: Worker cycle (enrol, claim, run, settle)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # No `needs:` — runs concurrently with every other job, like `smoke`, so it
+    # adds no wall clock (issue #881). It is its own job rather than a step of
+    # `smoke` for the same reason `smoke` is not a step of `Build & Test`: it
+    # needs its own Postgres database state (a node, a credential, a job) and
+    # must not make the boot check wait on the cycle, or the reverse.
+    #
+    # WHAT IT PROVES: the compiled API (`dist/main.js`) on a real PostgreSQL,
+    # the packaged node CLI enrolling through the device-authorization flow,
+    # the packaged node daemon (`@marinoscar/platform-cli`) claiming and
+    # settling a node-eligible job with a test executor, the result persisted,
+    # and the job-scoped credential brokered to the node in memory only and
+    # revoked on settle (CLAUDE.md queue rule 3). No Docker daemon: the only
+    # container is the Postgres service, as in `smoke`. See
+    # apps/api/scripts/worker-cycle-e2e.mjs.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: appdb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      POSTGRES_HOST: 127.0.0.1
+      POSTGRES_PORT: '5432'
+      # The ordinary role (row-level security is inert for a superuser), as in `smoke`.
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: appdb
+      POSTGRES_SSL: 'false'
+      JWT_SECRET: worker-e2e-jwt-secret-not-a-real-secret-0000
+      COOKIE_SECRET: worker-e2e-cookie-secret-not-a-real-secret
+      GOOGLE_CLIENT_ID: worker-e2e-google-client-id
+      GOOGLE_CLIENT_SECRET: worker-e2e-google-client-secret
+      GOOGLE_CALLBACK_URL: http://127.0.0.1:3012/api/auth/google/callback
+      INITIAL_ADMIN_EMAIL: worker-e2e-admin@example.test
+      OTEL_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Create the ordinary application role
+        run: |
+          sh infra/compose/postgres-init/10-application-role.sh
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: '5432'
+          PGPASSWORD: postgres
+          POSTGRES_DB: appdb
+          APP_DB_USER: app
+          APP_DB_PASSWORD: postgres
+
+      - run: npm ci
+
+      # Only the packages the API and the node CLI import; the web package is
+      # the slowest to build and nothing here uses it.
+      - run: npm run build --workspace=@marinoscar/platform-contract --workspace=@marinoscar/platform-api --workspace=@marinoscar/platform-db --workspace=@marinoscar/platform-infra --workspace=@marinoscar/platform-cli
+
+      - run: npx prisma generate
+        working-directory: apps/api
+
+      - run: npm run build --workspace=api
+      - run: npm run prisma:migrate --workspace=api
+      - run: npm run prisma:seed --workspace=api
+
+      - run: npm run test:worker-e2e --workspace=api
+        env:
+          E2E_PORT: '3012'
+
   greptime-test:
     name: API Tests (GreptimeDB)
     runs-on: ubuntu-latest

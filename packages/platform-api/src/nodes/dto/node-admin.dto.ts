@@ -25,13 +25,29 @@
 // =============================================================================
 
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import type {
+  AdminNode,
+  AdminNodeCredential,
+  NodeHealth,
+  NodeJobCounts,
+  NodeOwner,
+  NodeStatus,
+  NodeVitals,
+  NodeVitalsCounters,
+} from '@marinoscar/platform-contract/nodes';
+
+// Each class below `implements` the contract type of the same name
+// (`@marinoscar/platform-contract/nodes`, `admin-schemas.ts`): the Swagger
+// decorators stay here (they are what the generated OpenAPI document is made
+// of, and it must not move), while a field added to or retyped in the schema
+// is a compile error on the class until the two agree again.
 
 /**
  * Who registered a node or minted a credential.
  *
  * @stability experimental
  */
-export class NodeOwnerDto {
+export class NodeOwnerDto implements NodeOwner {
   /** User ID (UUID) */
   @ApiProperty({ description: 'User ID (UUID)' })
   id!: string;
@@ -55,7 +71,7 @@ export class NodeOwnerDto {
  *
  * @stability experimental
  */
-export class NodeJobCountsDto {
+export class NodeJobCountsDto implements NodeJobCounts {
   /** Jobs this node holds right now */
   @ApiProperty({ description: 'Jobs this node holds right now' })
   running!: number;
@@ -83,7 +99,7 @@ export class NodeJobCountsDto {
  *
  * @stability experimental
  */
-export class NodeVitalsCountersDto {
+export class NodeVitalsCountersDto implements NodeVitalsCounters {
   /** Claim calls that returned at least one job */
   @ApiPropertyOptional({ description: 'Claim calls that returned at least one job' })
   claims?: number;
@@ -135,7 +151,7 @@ export class NodeVitalsCountersDto {
  *
  * @stability experimental
  */
-export class NodeVitalsDto {
+export class NodeVitalsDto implements NodeVitals {
   /** Process CPU over the last interval; 100 = one full core */
   @ApiPropertyOptional({
     description: 'Process CPU over the last interval; 100 = one full core',
@@ -211,7 +227,7 @@ export class NodeVitalsDto {
  *
  * @stability experimental
  */
-export class AdminNodeDto {
+export class AdminNodeDto implements AdminNode {
   /** Node ID (UUID) */
   @ApiProperty({ description: 'Node ID (UUID)' })
   id!: string;
@@ -248,7 +264,7 @@ export class AdminNodeDto {
       'either by deregistering gracefully or by being swept there after it stopped heartbeating.',
     enum: ['online', 'draining', 'offline', 'disabled'],
   })
-  status!: string;
+  status!: NodeStatus;
 
   /** DERIVED liveness, computed from `lastHeartbeatAt` at read time and never stored. */
   @ApiProperty({
@@ -260,7 +276,7 @@ export class AdminNodeDto {
       'that is still heartbeating is both disabled and healthy.',
     enum: ['healthy', 'stale', 'offline'],
   })
-  health!: string;
+  health!: NodeHealth;
 
   /** The node’s last self-reported capability summary, or `null` */
   @ApiPropertyOptional({
@@ -320,7 +336,7 @@ export class AdminNodeDto {
  *
  * @stability experimental
  */
-export class AdminNodeCredentialDto {
+export class AdminNodeCredentialDto implements AdminNodeCredential {
   /** Credential ID (UUID) */
   @ApiProperty({ description: 'Credential ID (UUID)' })
   id!: string;

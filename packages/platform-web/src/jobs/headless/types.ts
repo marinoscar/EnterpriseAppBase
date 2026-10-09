@@ -9,27 +9,15 @@
 // nullable reaches this slice as a compile error, not as a silent `undefined`
 // (`orgId` is the first field that arrived that way).
 //
-// The admin fleet shapes (`WorkerNode`, `NodeCredential`, ...) are class DTOs
-// on the API side (`nodes/dto/node-admin.dto.ts`), with no contract schema
-// yet, so they stay structural mirrors here; the vitals snapshot and the
-// create-credential body come from `@marinoscar/platform-contract/nodes`.
+// The worker-fleet shapes (`WorkerNode`, `NodeCredential`, ...) moved to the
+// nodes slice (`@marinoscar/platform-web/nodes/headless`, #881) and are
+// re-exported from this entry for compatibility.
 //
 // The nullable numbers are the ones worth being careful about. `avgMs`,
 // `p50Ms` and `p95Ms` are `number | null` because a type with no succeeded
 // jobs in the window has no average, and a UI that renders "0 ms" states a
 // measurement that was never taken. `samples` says whether the other three
 // mean anything.
-//
-// `NodeCredential` HAS NO `token` FIELD, not even an optional one: the raw
-// token exists on the create response (`NodeCredentialCreated`) and nowhere
-// else, and a `token?: string` would let the first `credential.token ?? '-'`
-// compile while asking for a value the server can never produce. Its
-// `expiresAt` is `string | null`, and `null` means "never expires", a real
-// answer for an unattended worker.
-//
-// `WorkerNode.health` is SERVER-DERIVED (`deriveNodeHealth` compares the last
-// heartbeat against the `nodes.staleHeartbeatSeconds` system setting, which
-// the browser does not read), so nothing in this slice recomputes it.
 // =============================================================================
 
 import type { z } from 'zod';
@@ -52,9 +40,8 @@ import type {
   resetStuckResultSchema,
   retryFailedResultSchema,
 } from '@marinoscar/platform-contract/jobs';
-import type { NodeVitals, NodeVitalsCounters, createNodeCredentialSchema } from '@marinoscar/platform-contract/nodes';
 
-export type { JobDurationStats, JobEtaBasis, JobStatusCounts, JobStatusName, NodeVitals, NodeVitalsCounters, ProcessedWithin };
+export type { JobDurationStats, JobEtaBasis, JobStatusCounts, JobStatusName, ProcessedWithin };
 
 // ---- Jobs --------------------------------------------------------------------
 
@@ -186,208 +173,4 @@ export type ResetHistoryResult = z.output<typeof resetHistoryResultSchema>;
  */
 export function isJobActionable(job: Pick<Job, 'status'>): boolean {
   return job.status !== 'running';
-}
-
-// ---- The worker fleet ----------------------------------------------------------
-
-/**
- * `AdminNodeDto.status`: OPERATOR state, not liveness. `online` accepts
- * claims, `draining` finishes what it holds, `offline` deregistered or swept,
- * `disabled` administratively refused.
- *
- * @stability experimental
- */
-export const NODE_STATUSES = ['online', 'draining', 'offline', 'disabled'] as const;
-
-/**
- * One node status.
- *
- * @stability experimental
- */
-export type NodeStatus = (typeof NODE_STATUSES)[number];
-
-/**
- * `AdminNodeDto.health`: DERIVED liveness, computed at read time. Read
- * alongside `status`, never instead of it.
- *
- * @stability experimental
- */
-export const NODE_HEALTHS = ['healthy', 'stale', 'offline'] as const;
-
-/**
- * One derived node health.
- *
- * @stability experimental
- */
-export type NodeHealth = (typeof NODE_HEALTHS)[number];
-
-export { MAX_NODE_CREDENTIAL_DAYS } from '@marinoscar/platform-contract/nodes';
-
-/**
- * The `name` length ceiling of `createNodeCredentialSchema`.
- *
- * @stability experimental
- */
-export const MAX_NODE_CREDENTIAL_NAME_LENGTH = 100;
-
-/**
- * Who registered a node or minted a credential (`NodeOwnerDto`).
- *
- * @stability experimental
- */
-export interface NodeOwner {
-  /** The user's id. */
-  id: string;
-  /** The user's email address. */
-  email: string;
-  /** The account's display name, when it has one. */
-  name: string | null;
-}
-
-/**
- * How many jobs a node holds in each state (`NodeJobCountsDto`). Every key is
- * always present, zero included. `pending` is what an operator calls CLAIMED:
- * assigned to this node and not yet started.
- *
- * @stability experimental
- */
-export interface NodeJobCounts {
-  /** Jobs this node is running. */
-  running: number;
-  /** Jobs claimed by this node and not yet started. */
-  pending: number;
-  /** Jobs this node finished. */
-  succeeded: number;
-  /** Jobs this node failed. */
-  failed: number;
-  /** All of the above. */
-  total: number;
-}
-
-/**
- * One node as `GET /api/admin/nodes` returns it (`AdminNodeDto`).
- *
- * @stability experimental
- */
-export interface WorkerNode {
-  /** The node id. */
-  id: string;
-  /** Operator-chosen, unique per owner. */
-  name: string;
-  /** The machine's hostname. */
-  hostname: string;
-  /** Self-reported, e.g. `linux-x64`. */
-  platform: string;
-  /** The node CLI's version. */
-  cliVersion: string;
-  /** The job types this node declared it can run. May be empty. */
-  eligibleTypes: string[];
-  /** How many jobs it runs at once. */
-  concurrency: number;
-  /** Operator state. */
-  status: NodeStatus;
-  /** Server-derived liveness; nothing here recomputes it. */
-  health: NodeHealth;
-  /** The node's last self-reported capability summary. Opaque. */
-  capabilities: unknown;
-  /** When it registered (ISO 8601). */
-  registeredAt: string;
-  /** `null` when the node has never sent one, which reads as `stale`. */
-  lastHeartbeatAt: string | null;
-  /** Who registered it. */
-  owner: NodeOwner;
-  /** The jobs it holds, per state. */
-  jobCounts: NodeJobCounts;
-  /** The last vitals snapshot, or `null` when the node has never sent one. */
-  lastVitals: NodeVitals | null;
-  /** When `lastVitals` was received, or `null` with it. */
-  lastVitalsAt: string | null;
-}
-
-/**
- * One credential as `GET /api/admin/nodes/credentials` returns it
- * (`AdminNodeCredentialDto`). No `token` and no hash; revoked credentials are
- * included, carrying `revokedAt` (the audit trail).
- *
- * @stability experimental
- */
-export interface NodeCredential {
-  /** The credential id. */
-  id: string;
-  /** Its display name. */
-  name: string;
-  /** Non-secret display prefix, e.g. `nod_1a2b`. */
-  tokenPrefix: string;
-  /** `null` means NEVER EXPIRES, a supported, expected answer. */
-  expiresAt: string | null;
-  /** `null` means it has never authenticated. */
-  lastUsedAt: string | null;
-  /** When it was minted (ISO 8601). */
-  createdAt: string;
-  /** `null` while the credential is still live. */
-  revokedAt: string | null;
-  /** Who minted it. */
-  owner: NodeOwner;
-}
-
-/**
- * The response to `POST /api/node-credentials`, the only shape that carries
- * `token`. The server stores a hash and cannot produce the raw value again.
- *
- * @stability experimental
- */
-export interface NodeCredentialCreated {
-  /** The raw `nod_` token: show it once. */
-  token: string;
-  /** The credential id. */
-  id: string;
-  /** Its display name. */
-  name: string;
-  /** Non-secret display prefix. */
-  tokenPrefix: string;
-  /** `null` means never expires. */
-  expiresAt: string | null;
-  /** When it was minted (ISO 8601). */
-  createdAt: string;
-}
-
-/**
- * The body `POST /api/node-credentials` accepts (`createNodeCredentialSchema`).
- * Omitting `expiresInDays` is a real choice meaning "never expires".
- *
- * @stability experimental
- */
-export type CreateNodeCredentialInput = z.input<typeof createNodeCredentialSchema>;
-
-/**
- * A credential's live-ness: `active`, `expired` or `revoked`.
- *
- * @stability experimental
- */
-export type NodeCredentialStatus = 'active' | 'expired' | 'revoked';
-
-/**
- * Whether a credential can still authenticate a node right now.
- *
- * A MIRROR of `validateToken`'s two checks (`node-credential.service.ts`):
- * revoked wins, then expiry, and a `null` expiry is not an expiry at all.
- *
- * @param credential - the row (its `expiresAt` and `revokedAt`).
- * @param now - the instant to judge expiry against.
- * @returns the credential's status.
- *
- * @stability experimental
- */
-export function nodeCredentialStatus(
-  credential: Pick<NodeCredential, 'expiresAt' | 'revokedAt'>,
-  now: Date = new Date(),
-): NodeCredentialStatus {
-  if (credential.revokedAt) return 'revoked';
-  // `null` is "never expires", so it must be checked BEFORE the comparison:
-  // `new Date(null)` is the epoch, which would read as expired in 1970 and
-  // mark every unattended worker credential dead.
-  if (credential.expiresAt && new Date(credential.expiresAt).getTime() <= now.getTime()) {
-    return 'expired';
-  }
-  return 'active';
 }

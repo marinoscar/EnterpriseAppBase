@@ -1,6 +1,6 @@
 /**
  * The worker fleet, its credentials, and the three writes (issue #271, epic #254;
- * moved into `@marinoscar/platform-web/jobs` by #854 from the reference app's
+ * moved into `@marinoscar/platform-web/jobs` by #854, then into `@marinoscar/platform-web/nodes` by #881 from the reference app's
  * `hooks/useWorkerNodes.ts`, behaviour unchanged; `useWorkerNode` is new).
  *
  * Three exports, one file, for the reason `useJobs.ts` gives for holding three:
@@ -48,8 +48,8 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { isPlatformApiError } from '../../core/index.js';
 import { useIsMounted } from '../internal/use-is-mounted.js';
-import { useJobsApi } from './adapters.js';
-import type { JobsApi } from './api.js';
+import { useNodesApi } from './adapters.js';
+import type { NodesApi } from './api.js';
 import type { CreateNodeCredentialInput, NodeCredential, NodeCredentialCreated, WorkerNode } from './types.js';
 
 /**
@@ -117,8 +117,8 @@ export interface UseWorkerNodesResult {
  * @extensionPoint hook
  * @stability experimental
  */
-export function useWorkerNodes(api?: JobsApi): UseWorkerNodesResult {
-  const client = useJobsApi(api);
+export function useWorkerNodes(api?: NodesApi): UseWorkerNodesResult {
+  const client = useNodesApi(api);
   const [nodes, setNodes] = useState<WorkerNode[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -205,8 +205,8 @@ export interface UseWorkerNodeResult {
  * @extensionPoint hook
  * @stability experimental
  */
-export function useWorkerNode(id: string | null, api?: JobsApi): UseWorkerNodeResult {
-  const client = useJobsApi(api);
+export function useWorkerNode(id: string | null, api?: NodesApi): UseWorkerNodeResult {
+  const client = useNodesApi(api);
   const [node, setNode] = useState<WorkerNode | null>(null);
   const [isLoading, setIsLoading] = useState(id !== null);
   const [error, setError] = useState<string | null>(null);
@@ -283,8 +283,8 @@ export interface UseNodeCredentialsResult {
  * @extensionPoint hook
  * @stability experimental
  */
-export function useNodeCredentials(api?: JobsApi): UseNodeCredentialsResult {
-  const client = useJobsApi(api);
+export function useNodeCredentials(api?: NodesApi): UseNodeCredentialsResult {
+  const client = useNodesApi(api);
   const [credentials, setCredentials] = useState<NodeCredential[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -387,8 +387,8 @@ export interface UseNodeActionsResult {
  * @extensionPoint hook
  * @stability experimental
  */
-export function useNodeActions(onChanged?: () => void, api?: JobsApi): UseNodeActionsResult {
-  const client = useJobsApi(api);
+export function useNodeActions(onChanged?: () => void, api?: NodesApi): UseNodeActionsResult {
+  const client = useNodesApi(api);
   const [isWorking, setIsWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isMounted = useIsMounted();

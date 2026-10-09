@@ -1,4 +1,11 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import type {
+  NodeCredentialCreated,
+  NodeCredentialListItem,
+} from '@marinoscar/platform-contract/nodes';
+
+// Both classes `implements` their contract type (`admin-schemas.ts`); see
+// `node-admin.dto.ts` for why the Swagger classes stay.
 
 /**
  * The response to `POST /api/node-credentials` — THE ONLY PLACE `token` EVER
@@ -16,7 +23,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
  *
  * @stability experimental
  */
-export class NodeCredentialCreatedResponseDto {
+export class NodeCredentialCreatedResponseDto implements NodeCredentialCreated {
   /** The raw `nod_…` token. */
   @ApiProperty({
     description:
@@ -69,7 +76,7 @@ export class NodeCredentialCreatedResponseDto {
  *
  * @stability experimental
  */
-export class NodeCredentialListItemDto {
+export class NodeCredentialListItemDto implements NodeCredentialListItem {
   /** Credential ID (UUID) */
   @ApiProperty({ description: 'Credential ID (UUID)' })
   id!: string;

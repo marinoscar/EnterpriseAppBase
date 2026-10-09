@@ -1,6 +1,6 @@
 /**
  * Admin → Operations → Worker Nodes: the DataTable column contracts
- * (issue #271, epic #254; moved into `@marinoscar/platform-web/jobs` by #854
+ * (issue #271, epic #254; moved into `@marinoscar/platform-web/jobs` by #854, then into `@marinoscar/platform-web/nodes` by #881
  * from the reference app's `pages/Admin/workersTable.tsx`, columns unchanged).
  *
  * A sibling module rather than columns inlined in `WorkersPage.tsx`, for the
@@ -84,7 +84,7 @@ import type { ChipProps } from '@mui/material';
 import { formatRelativeTime } from '../internal/relative-time.js';
 import { nodeCredentialStatus } from '../headless/index.js';
 import type {
-  JobsTableColumn,
+  NodesTableColumn,
   NodeCredential,
   NodeCredentialStatus,
   NodeHealth,
@@ -101,7 +101,7 @@ import type {
 import { formatDateTime, shortId } from '../headless/index.js';
 import { NodeVitalsCell, vitalsSummaryText } from './workerVitals.js';
 
-type DataTableColumn<Row> = JobsTableColumn<Row>;
+type DataTableColumn<Row> = NodesTableColumn<Row>;
 
 /**
  * Persistence keys for `user_settings.dataTables`. Constants, never derived

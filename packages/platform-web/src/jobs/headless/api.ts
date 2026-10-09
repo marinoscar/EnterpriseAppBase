@@ -2,8 +2,9 @@
 // The jobs slice's API client (issue #854)
 // =============================================================================
 //
-// Every admin route of the job queue and the worker fleet the packaged pages
-// call, over the app's transport (`PlatformApiClient` of
+// Every admin route of the job queue the packaged pages call, plus the worker
+// fleet's (the `NodesApi` of `@marinoscar/platform-web/nodes/headless`, #881,
+// which `JobsApi` extends so an app's existing wiring keeps working), over the app's transport (`PlatformApiClient` of
 // `@marinoscar/platform-web/core`), so the auth header, the token refresh and
 // the app's error handling stay the app's. Moved from the reference app's
 // `services/jobs.ts` (#266) and `services/nodes.ts` (#271); the paths and
@@ -25,19 +26,17 @@
 // =============================================================================
 
 import type { PlatformApiClient } from '../../core/index.js';
+import { createNodesApi } from '../../nodes/index.js';
+import type { NodesApi } from '../../nodes/index.js';
 import type {
-  CreateNodeCredentialInput,
   Job,
   JobInsights,
   JobListParams,
   JobListResponse,
   JobStats,
-  NodeCredential,
-  NodeCredentialCreated,
   ResetHistoryResult,
   ResetStuckResult,
   RetryFailedResult,
-  WorkerNode,
 } from './types.js';
 
 /**
@@ -47,7 +46,7 @@ import type {
  * @extensionPoint option
  * @stability experimental
  */
-export interface JobsApi {
+export interface JobsApi extends NodesApi {
   /** `GET /admin/jobs` with the filters, the activity window and the page. */
   getJobs(params?: JobListParams): Promise<JobListResponse>;
   /** `GET /admin/jobs/stats`: the queue summary (cached about 2 s by the API). */
@@ -64,18 +63,6 @@ export interface JobsApi {
   getJobInsights(windowDays?: number): Promise<JobInsights>;
   /** `POST /admin/jobs/insights/reset-history`: clears the lifetime rollup, no job. */
   resetJobInsightsHistory(): Promise<ResetHistoryResult>;
-  /** `GET /admin/nodes`: the whole fleet with derived health and job counts. */
-  getWorkerNodes(): Promise<WorkerNode[]>;
-  /** `GET /admin/nodes/:id`: one node, in the list's shape. */
-  getWorkerNode(id: string): Promise<WorkerNode>;
-  /** `DELETE /admin/nodes/:id`: forgets the node; its jobs are released, its credential is not revoked. */
-  deleteWorkerNode(id: string): Promise<void>;
-  /** `GET /admin/nodes/credentials`: every credential, newest first, revoked ones included. */
-  getNodeCredentials(): Promise<NodeCredential[]>;
-  /** `POST /node-credentials`: mints one and returns the raw token EXACTLY ONCE. */
-  createNodeCredential(input: CreateNodeCredentialInput): Promise<NodeCredentialCreated>;
-  /** `DELETE /admin/nodes/credentials/:id`: effective on the node's next request; one-way. */
-  revokeNodeCredential(id: string): Promise<void>;
 }
 
 /** `GET /admin/jobs`'s query string, in the app's order and omissions. */
@@ -115,6 +102,7 @@ function jobListQuery(params: JobListParams): URLSearchParams {
  */
 export function createJobsApi(client: PlatformApiClient): JobsApi {
   return {
+    ...createNodesApi(client),
     getJobs: (params = {}) => client.get<JobListResponse>(`/admin/jobs?${jobListQuery(params)}`),
     getJobStats: () => client.get<JobStats>('/admin/jobs/stats'),
     retryJob: (id) => client.post<Job>(`/admin/jobs/${id}/retry`),
@@ -137,21 +125,5 @@ export function createJobsApi(client: PlatformApiClient): JobsApi {
       return client.get<JobInsights>(`/admin/jobs/insights${suffix ? `?${suffix}` : ''}`);
     },
     resetJobInsightsHistory: () => client.post<ResetHistoryResult>('/admin/jobs/insights/reset-history'),
-    getWorkerNodes: () => client.get<WorkerNode[]>('/admin/nodes'),
-    getWorkerNode: (id) => client.get<WorkerNode>(`/admin/nodes/${id}`),
-    deleteWorkerNode: async (id) => {
-      await client.delete<void>(`/admin/nodes/${id}`);
-    },
-    getNodeCredentials: () => client.get<NodeCredential[]>('/admin/nodes/credentials'),
-    // `expiresInDays` is omitted when absent rather than sent as `undefined`
-    // or `null`: its ABSENCE is what the server reads as "no expiry".
-    createNodeCredential: (input) => {
-      const body: CreateNodeCredentialInput = { name: input.name };
-      if (input.expiresInDays !== undefined) body.expiresInDays = input.expiresInDays;
-      return client.post<NodeCredentialCreated>('/node-credentials', body);
-    },
-    revokeNodeCredential: async (id) => {
-      await client.delete<void>(`/admin/nodes/credentials/${id}`);
-    },
   };
 }

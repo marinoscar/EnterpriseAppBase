@@ -1,12 +1,14 @@
 # @marinoscar/platform-contract/nodes
 
-The node routes' request shapes (issue #734, PP-8.2), as zod schemas with their inferred types, plus the zod-free node bounds. `@marinoscar/platform-api/nodes` wraps every schema with `createZodDto`; the node runner of `@marinoscar/platform-cli` sends exactly these bodies. It depends on no other slice (`packages/platform-slices.json`).
+The node routes' request shapes (issue #734, PP-8.2) and the admin fleet's response shapes (issue #881), as zod schemas with their inferred types, plus the zod-free node bounds. `@marinoscar/platform-api/nodes` wraps every request schema with `createZodDto` and binds its response Swagger classes to the response schemas (`implements`, with a conformance spec); the node runner of `@marinoscar/platform-cli` sends exactly the request bodies; `@marinoscar/platform-web/nodes` derives its types from the response schemas. It depends on no other slice (`packages/platform-slices.json`).
 
 ## Purpose and scope
 
 One definition of what a worker node may send: the control plane (`registerNodeSchema`, `heartbeatNodeSchema` with its closed `nodeVitalsSchema`, `claimJobsSchema`, `renewLeaseSchema`, `nodeJobResultSchema`, `nodeJobFailureSchema`), the data plane's two URL mints (`nodeDownloadUrlSchema`, `nodeUploadUrlSchema`), the per-job secret request (`nodeJobSecretRequestSchema`), the shared `claimTokenField`, and the node credential mint (`createNodeCredentialSchema`). `constants.ts` holds `MAX_NODE_CONCURRENCY`, `MAX_NODE_ELIGIBLE_TYPES` and `MAX_NODE_CREDENTIAL_DAYS`, zod-free.
 
-Not here: the responses, which stay Swagger classes in the API slice, and the node runner.
+The admin responses (`admin-schemas.ts`, #881): `adminNodeSchema` (`GET /api/admin/nodes`), `adminNodeCredentialSchema` (`GET /api/admin/nodes/credentials`), `nodeCredentialListItemSchema` (`GET /api/node-credentials`), `nodeCredentialCreatedSchema` (`POST /api/node-credentials`, the only shape carrying `token`), with `nodeOwnerSchema` and `nodeJobCountsSchema`; the closed sets `NODE_STATUSES` and `NODE_HEALTHS` and `MAX_NODE_CREDENTIAL_NAME_LENGTH` are in `constants.ts`.
+
+Not here: the node's own view of itself (`WorkerNodeDto`, a Swagger class in the API slice: it must never carry `owner` or `jobCounts`), the claim/result responses, and the node runner. The API keeps the Swagger classes for the admin responses because the generated OpenAPI document is built from their decorators; each `implements` its schema's type and `packages/platform-api/src/nodes/dto/node-admin.dto.spec.ts` proves they document exactly the schema's keys.
 
 ## Install and peer dependencies
 
@@ -38,7 +40,7 @@ None. Schemas and constants take no options.
 
 None. The node protocol is the platform's; a node that learns a new vital needs a contract change first, which is the review that surface should get.
 
-Supporting exports (experimental unless tagged stable): the constants above, every `*Schema` of `schemas.ts` and of `settings-schemas.ts` (stable), `claimTokenField`, the inferred types `NodeVitals` and `NodeVitalsCounters`, and the enum entry type `NodeReportedStatusEnum`.
+Supporting exports (experimental unless tagged stable): the constants above, every `*Schema` of `schemas.ts` and of `settings-schemas.ts` (stable), `claimTokenField`, the inferred types `NodeVitals`, `NodeVitalsCounters`, `AdminNode`, `AdminNodeCredential`, `NodeCredentialListItem`, `NodeCredentialCreated`, `NodeOwner`, `NodeJobCounts`, `NodeStatus` and `NodeHealth`, and the enum entry type `NodeReportedStatusEnum`.
 
 ## Data
 

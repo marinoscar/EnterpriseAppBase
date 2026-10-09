@@ -29,9 +29,9 @@ import {
   formatExpiry,
   formatHeartbeat,
   formatOwner,
-} from '../../src/jobs/ui/workersTable.js';
-import { NODE_HEALTHS, NODE_STATUSES, nodeCredentialStatus } from '../../src/jobs/headless/index.js';
-import type { JobsTableColumn, NodeCredential, WorkerNode } from '../../src/jobs/headless/index.js';
+} from '../../src/nodes/ui/workersTable.js';
+import { NODE_HEALTHS, NODE_STATUSES, nodeCredentialStatus } from '../../src/nodes/headless/index.js';
+import type { NodesTableColumn, NodeCredential, WorkerNode } from '../../src/nodes/headless/index.js';
 import { fullVitals } from './vitals-fixtures.js';
 
 const NOW = new Date('2026-01-01T12:00:00.000Z');
@@ -78,7 +78,7 @@ const credentialColumns = buildNodeCredentialColumns(NOW);
 function column<Row>(columns: { id: string }[], id: string) {
   const found = columns.find((candidate) => candidate.id === id);
   expect(found, `column ${id} must exist`).toBeDefined();
-  return found as unknown as JobsTableColumn<Row>;
+  return found as unknown as NodesTableColumn<Row>;
 }
 
 describe('the table ids', () => {

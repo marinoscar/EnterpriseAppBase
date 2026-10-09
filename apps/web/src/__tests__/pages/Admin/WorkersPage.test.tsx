@@ -19,9 +19,9 @@
  *   * the permission split: `nodes:read` reaches the page, `nodes:write` is
  *     what puts any control on it;
  *   * the polling wiring (its BEHAVIOUR is asserted against a real
- *     `visibilitychange` in `packages/platform-web/test/jobs/use-worker-nodes.test.ts`).
+ *     `visibilitychange` in `packages/platform-web/test/nodes/use-worker-nodes.test.ts`).
  *
- * The page is the packaged one (`@marinoscar/platform-web/jobs/ui`, #854),
+ * The page is the packaged one (`@marinoscar/platform-web/nodes/ui`, #854, #881),
  * rendered through the app's own DataTable. The hooks are mocked, as
  * `JobsPage.test.tsx` mocks `useJobs`, by mocking the slice's headless entry:
  * the fetch layer has its own suite in the package, and driving it through msw
@@ -43,10 +43,10 @@ import type {
   NodeCredential,
   NodeCredentialCreated,
   WorkerNode,
-} from '@marinoscar/platform-web/jobs/headless';
+} from '@marinoscar/platform-web/nodes/headless';
 
-vi.mock('@marinoscar/platform-web/jobs/headless', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@marinoscar/platform-web/jobs/headless')>();
+vi.mock('@marinoscar/platform-web/nodes/headless', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@marinoscar/platform-web/nodes/headless')>();
   return {
     ...actual,
     useWorkerNodes: vi.fn(),
@@ -62,8 +62,8 @@ import {
   useNodeCredentials,
   useVisiblePolling,
   useWorkerNodes,
-} from '@marinoscar/platform-web/jobs/headless';
-import { WorkersPage } from '@marinoscar/platform-web/jobs/ui';
+} from '@marinoscar/platform-web/nodes/headless';
+import { WorkersPage } from '@marinoscar/platform-web/nodes/ui';
 import { fullVitals, lowDiskVitals } from '../../mocks/fixtures/nodeVitals';
 
 const mockUseWorkerNodes = vi.mocked(useWorkerNodes);

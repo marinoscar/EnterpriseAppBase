@@ -32,3 +32,27 @@ export const MAX_NODE_CONCURRENCY = 64;
  * @stability experimental
  */
 export const MAX_NODE_ELIGIBLE_TYPES = 100;
+
+/**
+ * Length ceiling of a node credential's display `name`.
+ *
+ * @stability experimental
+ */
+export const MAX_NODE_CREDENTIAL_NAME_LENGTH = 100;
+
+/**
+ * `AdminNode.status`: OPERATOR state, not liveness. `online` accepts claims,
+ * `draining` finishes what it holds, `offline` deregistered or was swept,
+ * `disabled` is administratively refused.
+ *
+ * @stability experimental
+ */
+export const NODE_STATUSES = ['online', 'draining', 'offline', 'disabled'] as const;
+
+/**
+ * `AdminNode.health`: DERIVED liveness, computed at read time and never
+ * stored. Read alongside `status`, never instead of it.
+ *
+ * @stability experimental
+ */
+export const NODE_HEALTHS = ['healthy', 'stale', 'offline'] as const;

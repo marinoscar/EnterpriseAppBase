@@ -15,6 +15,8 @@ import { createContext, useContext, useMemo } from 'react';
 import type { ComponentType, ReactElement, ReactNode } from 'react';
 
 import { useOptionalPlatformHost } from '../../core/index.js';
+import { NodesWebAdaptersProvider, useNodesWebAdapters } from '../../nodes/index.js';
+import type { NodesWebAdapters } from '../../nodes/index.js';
 import { createJobsApi } from './api.js';
 import type { JobsApi } from './api.js';
 import type { JobsDataTableComponent } from './table.js';
@@ -76,7 +78,26 @@ JobsWebAdaptersContext.displayName = 'JobsWebAdaptersContext';
  * @stability experimental
  */
 export function JobsWebAdaptersProvider(props: { adapters: JobsWebAdapters; children: ReactNode }): ReactElement {
-  return <JobsWebAdaptersContext.Provider value={props.adapters}>{props.children}</JobsWebAdaptersContext.Provider>;
+  const { adapters } = props;
+  // The Worker Nodes page lives in `@marinoscar/platform-web/nodes` (#881) and
+  // reads `NodesWebAdapters`. Handing it the same spinner, table and client
+  // keeps an app that only wired the jobs adapters unchanged; a
+  // `NodesWebAdaptersProvider` the app mounted above this one still wins.
+  const outer = useNodesWebAdapters();
+  const nodesAdapters = useMemo<NodesWebAdapters>(
+    () => ({
+      ...(adapters.Spinner ? { Spinner: adapters.Spinner } : {}),
+      ...(adapters.DataTable ? { DataTable: adapters.DataTable } : {}),
+      ...(adapters.api ? { api: adapters.api } : {}),
+      ...outer,
+    }),
+    [adapters, outer],
+  );
+  return (
+    <JobsWebAdaptersContext.Provider value={adapters}>
+      <NodesWebAdaptersProvider adapters={nodesAdapters}>{props.children}</NodesWebAdaptersProvider>
+    </JobsWebAdaptersContext.Provider>
+  );
 }
 
 /**
