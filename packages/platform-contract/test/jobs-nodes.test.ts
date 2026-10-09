@@ -6,14 +6,21 @@ import {
   JOB_REASONS,
   JOB_STATUSES,
   MAX_INSIGHTS_WINDOW_DAYS,
+  RETENTION_MAX_DAYS,
+  RETENTION_POLICY_KEYS,
   jobInsightsQuerySchema,
   jobListQuerySchema,
   jobSchema,
   jobsResponseSchema,
   jobsSettingsPatchSchema,
   jobsSettingsSchema,
+  retentionResponseSchema,
+  retentionSettingsPatchSchema,
+  retentionSettingsSchema,
   systemJobsPatchSchema,
   systemJobsSchema,
+  systemRetentionPatchSchema,
+  systemRetentionSchema,
 } from '../src/jobs/index.js';
 import {
   MAX_NODE_CONCURRENCY,
@@ -120,5 +127,29 @@ describe('jobs and nodes settings namespaces', () => {
     expect(systemJobsPatchSchema.parse({})).toEqual({});
     expect(nodesSettingsPatchSchema.parse({ jobSecretBrokerEnabled: true })).toEqual({ jobSecretBrokerEnabled: true });
     expect(systemNodesPatchSchema.parse({})).toEqual({});
+  });
+});
+
+describe('the retention namespace schemas (#898)', () => {
+  const policy = { enabled: true, days: 30 };
+  const retention = { notifications: policy, notificationDeliveries: policy, auditEvents: policy, aiRuns: policy };
+
+  it('names one policy per governed table, in the stored key order', () => {
+    expect(RETENTION_POLICY_KEYS).toEqual(['notifications', 'notificationDeliveries', 'auditEvents', 'aiRuns']);
+    expect(Object.keys(systemRetentionSchema.shape)).toEqual([...RETENTION_POLICY_KEYS]);
+  });
+
+  it('keeps the 1 to 3650 day bound on the stored and the PUT shapes, and none on the response', () => {
+    for (const schema of [systemRetentionSchema, retentionSettingsSchema]) {
+      expect(schema.safeParse(retention).success).toBe(true);
+      expect(schema.safeParse({ ...retention, aiRuns: { enabled: true, days: RETENTION_MAX_DAYS + 1 } }).success).toBe(false);
+      expect(schema.safeParse({ ...retention, aiRuns: { enabled: true, days: 0 } }).success).toBe(false);
+    }
+    expect(retentionResponseSchema.safeParse({ ...retention, aiRuns: { enabled: true, days: 99999 } }).success).toBe(true);
+  });
+
+  it('parses a leaf PATCH and applies no default', () => {
+    expect(retentionSettingsPatchSchema.parse({ auditEvents: { enabled: true } })).toEqual({ auditEvents: { enabled: true } });
+    expect(systemRetentionPatchSchema.parse({})).toEqual({});
   });
 });
