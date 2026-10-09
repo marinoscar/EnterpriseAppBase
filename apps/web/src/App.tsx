@@ -21,7 +21,7 @@ import { removePushSubscription } from '@marinoscar/platform-web/notifications/h
 import { ShellProviders } from '@marinoscar/platform-web/shell/headless';
 import { APP_SHELL_PROVIDERS } from './platform/shellProviders';
 import { ThemeContextProvider, useThemeContext } from './contexts/ThemeContext';
-import { RequireAiEnabled } from './components/common/RequireAiEnabled';
+import { RequireAiEnabled } from '@marinoscar/platform-web/ai/ui/require-ai-enabled';
 import { Layout } from './components/common/Layout';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 // Issue #258, epic #254. Eagerly imported, not lazy: it renders on the error

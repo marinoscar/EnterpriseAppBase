@@ -12,3 +12,5 @@ export { default as AiModelsPage } from './AiModelsPage.js';
 export { default as AiUsagePage } from './AiUsagePage.js';
 export { default as UserAiKeysPage } from './UserAiKeysPage.js';
 export { default as AiPlaygroundPage } from './AiPlaygroundPage.js';
+export { RequireAiEnabled } from './RequireAiEnabled.js';
+export type { RequireAiEnabledProps } from './RequireAiEnabled.js';

@@ -183,6 +183,10 @@
       "types": "./dist/ai/ui/playground-page.d.ts",
       "default": "./dist/ai/ui/playground-page.js"
     },
+    "./ai/ui/require-ai-enabled": {
+      "types": "./dist/ai/ui/require-ai-enabled.d.ts",
+      "default": "./dist/ai/ui/require-ai-enabled.js"
+    },
     "./db-backup/headless": {
       "types": "./dist/db-backup/headless/index.d.ts",
       "default": "./dist/db-backup/headless/index.js"

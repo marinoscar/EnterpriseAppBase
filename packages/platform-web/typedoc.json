@@ -48,6 +48,7 @@
     "src/ai/ui/usage-page.ts",
     "src/ai/ui/keys-page.ts",
     "src/ai/ui/playground-page.ts",
+    "src/ai/ui/require-ai-enabled.ts",
     "src/db-backup/headless/index.ts",
     "src/db-backup/ui/index.ts",
     "src/android-app/headless/index.ts",
