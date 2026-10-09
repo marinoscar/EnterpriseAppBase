@@ -7,6 +7,7 @@
 // core's `maintenance` namespace is registered by `PlatformHostCoreModule.forRoot()`,
 // first in PLATFORM_MODULES, so before `SettingsModule.forRoot()` too.)
 import '../notes/notes.settings';
+import './storage.settings';
 
 import { APP_NAME } from '@app/shared';
 import { Global, Module } from '@nestjs/common';
@@ -38,6 +39,7 @@ import {
   SystemSettingsStoreAdapter,
 } from './adapters';
 import { platformHost } from './host';
+import { userDataModule } from './user-data/user-data.config';
 
 const PORTS = [
   { provide: PLATFORM_PRISMA, useExisting: PrismaService },
@@ -89,6 +91,9 @@ export const PLATFORM_MODULES = [
   jobsModule,
   // `GET /api/admin/doctor`: every registered check, read-only.
   DoctorModule.forRoot({ host: platformHost }),
+  // The Danger Zone (`/api/user-data/*`), the admin factory reset and organization
+  // offboarding. The manifest in ./user-data/user-data.manifest.ts is the data.
+  userDataModule,
   // AUDIT_SINK, SYSTEM_SETTINGS_STORE and PLATFORM_PRISMA for every slice.
   PlatformHostModule.forRoot({
     audit: { useClass: PrismaAuditSink },

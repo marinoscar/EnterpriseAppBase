@@ -3,6 +3,7 @@
 // that ships with a slice registers when its testing entry is imported.
 import '@marinoscar/platform-api/identity/testing';
 import '@marinoscar/platform-api/host/testing';
+import '@marinoscar/platform-api/user-data/testing';
 
 import { join } from 'node:path';
 import {
@@ -13,7 +14,7 @@ import {
   userOwnedModelRegistry,
 } from '@marinoscar/platform-api/core';
 import { platformPermissionCatalog } from '@marinoscar/platform-api/manifest';
-import { runPlatformConformance } from '@marinoscar/platform-api/testing';
+import { readSchemaDatamodel, runPlatformConformance } from '@marinoscar/platform-api/testing';
 
 // Fills the registries: the platform's entries, then the app's.
 import '../src/platform/registrations';
@@ -49,6 +50,8 @@ runPlatformConformance({
     // (no global JWT guard), one PlatformHostCoreModule, the `{ data }`
     // envelope and the exception filter registered once.
     host: { rootModule: AppModule },
+    // Every user-owned model has a keep-or-delete decision in src/platform/user-data/user-data.manifest.ts.
+    userData: { datamodel: readSchemaDatamodel(join(__dirname, '..', 'prisma', 'schema')) },
   },
 });
 

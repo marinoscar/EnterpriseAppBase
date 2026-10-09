@@ -6,6 +6,7 @@ import { buildDatabaseUrl, runInOrg, userScopeExtension, type Scope } from '@mar
 // The registry of user-owned models fills BEFORE the first scoped client is
 // built (src/platform/registrations.ts: the platform's models, then the app's).
 import '../platform/registrations';
+import { PrismaSystemService } from './prisma-system.service';
 
 /**
  * The app's one Prisma client, generated from the composed schema
@@ -43,5 +44,5 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
 
 /** Global, like the database: every module injects `PrismaService` without importing this. */
 @Global()
-@Module({ providers: [PrismaService], exports: [PrismaService] })
+@Module({ providers: [PrismaService, PrismaSystemService], exports: [PrismaService, PrismaSystemService] })
 export class PrismaModule {}

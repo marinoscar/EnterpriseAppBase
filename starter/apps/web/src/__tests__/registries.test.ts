@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
+import { dangerZoneLastViolations } from '@marinoscar/platform-web/user-data/headless';
+
 import { ADMIN_SECTIONS } from '../config/adminSections';
 import { NAVIGATION } from '../config/navigation';
 import { USER_SETTINGS_SECTIONS } from '../config/userSettingsSections';
@@ -21,6 +23,11 @@ describe('settings registries', () => {
 
   it.each(cards.map((card) => [card.path!]))('route %s exists in App.tsx', (path) => {
     expect(appSource).toContain(`path="${path.replace(/^\//, '')}"`);
+  });
+
+  it('keep the Danger Zone group last in both hubs', () => {
+    expect(dangerZoneLastViolations(ADMIN_SECTIONS, '/admin/settings/factory-reset')).toEqual([]);
+    expect(dangerZoneLastViolations(USER_SETTINGS_SECTIONS, '/settings/danger-zone')).toEqual([]);
   });
 
   it('gate the notes card with the permission GET /api/notes enforces', () => {
