@@ -10,6 +10,7 @@
 import { credentialsSlice } from '../credentials/credentials.slice';
 import { emailSlice } from '../email/email.slice';
 import { notificationsSlice } from '../notifications/notifications.slice';
+import { sharingSlice } from '../sharing/sharing.slice';
 import { storageSlice } from '../storage/storage.slice';
 import type { ApiSlice, SliceId } from './slice';
 
@@ -19,4 +20,5 @@ export const ALL_SLICES = {
   storage: storageSlice,
   email: emailSlice,
   notifications: notificationsSlice,
+  sharing: sharingSlice,
 } as unknown as Readonly<Record<SliceId, ApiSlice>>;
