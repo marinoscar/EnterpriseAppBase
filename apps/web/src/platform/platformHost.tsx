@@ -34,8 +34,8 @@ import { useTelemetryFeatures } from '@marinoscar/platform-web/telemetry/headles
 import type { PlatformApiClient, PlatformSseOptions, PlatformWebHost } from '@marinoscar/platform-web/core';
 
 import { useAuth, usePermissions } from '@marinoscar/platform-web/identity/headless';
-import { useThemeContext } from '../contexts/ThemeContext';
 import { useAiFeatures } from '@marinoscar/platform-web/ai/headless';
+import { useThemeContext } from '../contexts/ThemeContext';
 import { API_BASE_URL, api } from '../services/api';
 import { postSse } from '../services/sse';
 import { formatRelativeTime } from '../utils/relativeTime';
