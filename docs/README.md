@@ -117,7 +117,7 @@ READMEs that live next to the code they describe.
 | [../packages/platform-api/src/sharing/README.md](../packages/platform-api/src/sharing/README.md) | Sharing, API slice: groups, grants, `AccessPolicy`, the list helpers, link shares and the public-route pattern; a tested example per extension point (`apps/api/test/examples/sharing/`), the conformance suite and the kvox and MemoriaHub migration recipes; start here to make a table shareable |
 | [../packages/platform-contract/src/sharing/README.md](../packages/platform-contract/src/sharing/README.md) | Sharing wire shapes: the group, grant and link schemas, `LINK_TOKEN_HEADER` and `buildLinkUrl` |
 | [../packages/](../packages/) (`platform-*/README.md`) | The `@marinoscar/platform-*` packages: one README per package; layout and commands in [DEVELOPMENT.md § Platform packages](DEVELOPMENT.md#platform-packages) |
-| [../starter/README.md](../starter/README.md) | The starter: what `new-project.mjs create` copies (an app on the published packages), running it, the optional slices (storage, email, notifications, sharing, AI, backup, exports, onboarding, Android: one manifest line each), adding a first feature, upgrading with Renovate, the `next` channel, seam requests; its CI proof is the `starter` job (`scripts/starter-smoke.mjs`) |
+| [../starter/README.md](../starter/README.md) | The starter: what `new-project.mjs create` copies (an app on the published packages), running it, the optional slices (storage, email, notifications, sharing, AI, backup, exports, onboarding, Android, telemetry: one manifest line each), adding a first feature, upgrading with Renovate, the `next` channel, seam requests; its CI proof is the `starter` job (`scripts/starter-smoke.mjs`) |
 
 ## Agent rules
 

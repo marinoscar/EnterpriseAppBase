@@ -17,8 +17,8 @@ Generated files are never hand-edited either: `apps/api/prisma/schema/` (`npm ru
 | What | Where |
 |---|---|
 | The platform's composition (every `forRoot()`, the host-port adapters, the seeded permissions) | `apps/api/src/platform/` |
-| Which optional platform slices are mounted (storage, email, notifications, sharing, AI, backup, exports, onboarding, Android) | `packages/shared/slices.json` `enabled` (read by the API and the web app); a slice is `apps/api/src/platform/<id>/` plus `apps/web/src/slices/<id>.tsx`; README, "Optional slices" |
-| The sample feature (model, permission, settings namespace, job, Doctor check) | `apps/api/src/notes/`, `apps/api/prisma/fragments/notes.prisma` |
+| Which optional platform slices are mounted (storage, email, notifications, sharing, AI, backup, exports, onboarding, Android, telemetry) | `packages/shared/slices.json` `enabled` (read by the API and the web app); a slice is `apps/api/src/platform/<id>/` plus `apps/web/src/slices/<id>.tsx`; README, "Optional slices" |
+| The sample feature (model, permission, settings namespace, job, Doctor check) | `apps/api/src/notes/`, `apps/api/prisma/fragments/notes.prisma` (the sharing slice's sample record: `apps/api/src/platform/sharing/documents/`, `prisma/fragments/documents.prisma`) |
 | The routes and the two settings registries | `apps/web/src/App.tsx`, `apps/web/src/config/` (the core's cards; an optional slice's cards and routes are in `apps/web/src/slices/<id>.tsx`) |
 | The CLI composition | `apps/cli/src/app.ts` |
 | The identity (name, repository, CLI name, colours) | `packages/shared/identity.json`; rename with `scripts/rename.mjs` |
