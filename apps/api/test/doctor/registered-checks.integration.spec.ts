@@ -9,7 +9,7 @@
 // from this app into `PlatformHostCoreModule`. The report sorts by category and
 // then by registration order, so the contract is: the same ids, and within
 // every category the same relative order. A new check is an intentional edit of
-// this list.
+// `ADDED`.
 // =============================================================================
 
 import { DoctorCheckRegistry, NetworkEgressDoctorCheck } from '@marinoscar/platform-api/doctor';
@@ -61,6 +61,14 @@ const BASELINE = [
   'android/android.releases',
 ];
 
+/**
+ * Checks added on purpose since the baseline. A new check is an intentional
+ * edit here, with the issue that added it.
+ */
+const ADDED = [
+  'user-data/user-data.registries', // #880: the reset registries agree with the schema.
+];
+
 /** The relative order inside each category: what the report preserves. */
 function byCategory(rows: readonly string[]): Record<string, string[]> {
   const grouped: Record<string, string[]> = {};
@@ -89,7 +97,7 @@ describe('registered Doctor checks (#879)', () => {
       .list()
       .map((check) => `${check.category}/${check.id}`);
 
-    expect([...rows].sort()).toEqual([...BASELINE].sort());
+    expect([...rows].sort()).toEqual([...BASELINE, ...ADDED].sort());
   });
 
   it('keeps the relative order inside every category, so the report reads the same', () => {
@@ -98,7 +106,7 @@ describe('registered Doctor checks (#879)', () => {
       .list()
       .map((check) => `${check.category}/${check.id}`);
 
-    expect(byCategory(rows)).toEqual(byCategory(BASELINE));
+    expect(byCategory(rows)).toEqual(byCategory([...BASELINE, ...ADDED]));
   });
 
   it('registers the generic checks from the host slice, not from app code', () => {

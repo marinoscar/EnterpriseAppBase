@@ -8,9 +8,7 @@
 // `admin-aggregate`).
 
 import { Injectable } from '@nestjs/common';
-import { TenancyService } from '@marinoscar/platform-api/identity';
-import { DeploymentModeService } from '@marinoscar/platform-api/host';
-import type { UserDataDbPort, UserDataEnvironment, UserDataSystemReason } from '@marinoscar/platform-api/user-data';
+import type { UserDataDbPort, UserDataSystemReason } from '@marinoscar/platform-api/user-data';
 
 import { PrismaSystemService } from '../../prisma/prisma-system.service';
 
@@ -25,22 +23,5 @@ export class UserDataDbAdapter implements UserDataDbPort {
 
   system(reason: UserDataSystemReason): any {
     return this.prismaSystem.asSystem(reason);
-  }
-}
-
-/** `USER_DATA_ENVIRONMENT`: `DEPLOYMENT_MODE` and `TENANCY_MODE`. */
-@Injectable()
-export class UserDataEnvironmentAdapter implements UserDataEnvironment {
-  constructor(
-    private readonly deployment: DeploymentModeService,
-    private readonly tenancy: TenancyService,
-  ) {}
-
-  deploymentMode(): 'self-hosted' | 'saas' {
-    return this.deployment.mode;
-  }
-
-  tenancyMode(): 'single' | 'multi' {
-    return this.tenancy.mode();
   }
 }

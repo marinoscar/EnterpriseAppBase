@@ -1,20 +1,15 @@
-// Binds the user-data slice's host ports (issue #743), passed to
-// `UserDataModule.forRoot({ imports })` by ./user-data.config.ts.
+// Binds the user-data slice's one host port (issues #743, #880): the bypass
+// client. Passed to `UserDataModule.forRoot({ imports })` by ./user-data.config.ts.
+// The deployment and tenancy modes need no binding: the slice reads them from
+// the host core and the identity slice.
 
 import { Module } from '@nestjs/common';
-import { OrganizationsModule } from '@marinoscar/platform-api/identity';
-import { USER_DATA_DB, USER_DATA_ENVIRONMENT } from '@marinoscar/platform-api/user-data';
+import { USER_DATA_DB } from '@marinoscar/platform-api/user-data';
 
-import { UserDataDbAdapter, UserDataEnvironmentAdapter } from './user-data-db.adapter';
+import { UserDataDbAdapter } from './user-data-db.adapter';
 
 @Module({
-  imports: [OrganizationsModule],
-  providers: [
-    UserDataDbAdapter,
-    UserDataEnvironmentAdapter,
-    { provide: USER_DATA_DB, useExisting: UserDataDbAdapter },
-    { provide: USER_DATA_ENVIRONMENT, useExisting: UserDataEnvironmentAdapter },
-  ],
-  exports: [USER_DATA_DB, USER_DATA_ENVIRONMENT],
+  providers: [UserDataDbAdapter, { provide: USER_DATA_DB, useExisting: UserDataDbAdapter }],
+  exports: [USER_DATA_DB],
 })
 export class UserDataHostModule {}
