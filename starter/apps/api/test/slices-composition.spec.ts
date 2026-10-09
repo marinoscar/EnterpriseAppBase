@@ -23,6 +23,7 @@ const PROBES: Readonly<Record<SliceId, { module: string; name: string }>> = {
   exports: { module: '@marinoscar/platform-api/exports', name: 'ExportsService' },
   onboarding: { module: '@marinoscar/platform-api/onboarding', name: 'OnboardingService' },
   'android-app': { module: '@marinoscar/platform-api/android-app', name: 'AndroidAppService' },
+  telemetry: { module: '@marinoscar/platform-api/telemetry', name: 'TelemetryQueryService' },
 };
 
 /** A permission only that slice's routes check: seeded exactly while the slice is on. */
@@ -32,6 +33,7 @@ const SEEDED_PERMISSION: Partial<Record<SliceId, string>> = {
   sharing: 'groups:read',
   ai: 'ai_config:read',
   'db-backup': 'db_backup:read',
+  telemetry: 'telemetry:read',
 };
 
 function closureOf(id: SliceId): SliceId[] {

@@ -40,7 +40,8 @@ export type SliceId =
   | 'db-backup'
   | 'exports'
   | 'onboarding'
-  | 'android-app';
+  | 'android-app'
+  | 'telemetry';
 /** Every optional slice the starter can mount, in mount order (dependencies first). */
 export declare const SLICE_IDS: readonly SliceId[];
 /** What each slice is and requires, in mount order. */

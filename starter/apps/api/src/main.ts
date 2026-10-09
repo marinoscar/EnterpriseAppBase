@@ -1,3 +1,5 @@
+// The OpenTelemetry SDK must be installed before anything that loads Nest (src/instrumentation.ts).
+import { sdk } from './instrumentation';
 import 'reflect-metadata';
 
 import fastifyCookie from '@fastify/cookie';
@@ -8,6 +10,7 @@ import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import { APP_NAME, REPO_URL } from '@app/shared';
 import { verifyEncryptionKeyAtStartup } from '@marinoscar/platform-api/core';
+import { registerRequestSpanAttributes } from '@marinoscar/platform-api/otel-core';
 import { registerPlatformDocs, resolveApiVersion, type PlatformOpenApiOptions } from '@marinoscar/platform-api/host';
 import { verifyTenancyModeAtStartup } from '@marinoscar/platform-api/identity';
 import { STORAGE_OPTIONS, simpleUploadFileSizeLimit, type ResolvedStorageModuleOptions } from '@marinoscar/platform-api/storage';
@@ -31,6 +34,9 @@ export const APP_OPENAPI: PlatformOpenApiOptions = {
  */
 export async function createApp(): Promise<NestFastifyApplication> {
   const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter(), { bufferLogs: false });
+  // Route and caller attributes on the HTTP server span (`http.route`, `app.route.matched`),
+  // first so it runs ahead of every other hook. Only when the SDK is installed.
+  registerRequestSpanAttributes(app.getHttpAdapter().getInstance(), sdk !== null);
   await app.register(fastifyCookie, { secret: process.env.COOKIE_SECRET || process.env.JWT_SECRET });
   if (isSliceEnabled('storage')) {
     // The simple (single request) upload route reads multipart bodies; its size

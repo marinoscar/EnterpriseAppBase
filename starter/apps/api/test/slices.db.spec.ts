@@ -26,6 +26,7 @@ const PROBES: readonly Probe[] = [
   { slice: 'exports', url: '/api/exports/sources' },
   { slice: 'onboarding', url: '/api/onboarding' },
   { slice: 'android-app', url: '/api/admin/android-app' },
+  { slice: 'telemetry', url: '/api/admin/telemetry/config' },
 ];
 
 let app: NestFastifyApplication;

@@ -16,6 +16,7 @@ import '@marinoscar/platform-api/db-backup/testing';
 import '@marinoscar/platform-api/exports/testing';
 import '@marinoscar/platform-api/onboarding/testing';
 import '@marinoscar/platform-api/android-app/testing';
+import '@marinoscar/platform-api/telemetry/testing';
 
 import { join } from 'node:path';
 import {
@@ -103,6 +104,10 @@ function sliceSuites() {
     ...(isSliceEnabled('android-app')
       ? { androidApp: { rawSqlIndexNames: RAW_SQL_INDEXES.map((index) => index.name) } }
       : {}),
+    // The metric groups are the registry's: the platform's six plus the app's (`activity`), registered by
+    // `TelemetryModule.forRoot` when AppModule is imported above. The slice's own cron lives in the package,
+    // outside this app's source roots, so `cronSourceRoots` is left out.
+    ...(isSliceEnabled('telemetry') ? { telemetry: {} } : {}),
   };
 }
 

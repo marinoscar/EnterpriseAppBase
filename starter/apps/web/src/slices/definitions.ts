@@ -13,6 +13,7 @@ import { notificationsWebSlice } from './notifications';
 import { onboardingWebSlice } from './onboarding';
 import { sharingWebSlice } from './sharing';
 import { storageWebSlice } from './storage';
+import { telemetryWebSlice } from './telemetry';
 import type { SliceId, WebSlice } from './slice';
 
 export const ALL_WEB_SLICES: Readonly<Record<SliceId, WebSlice>> = {
@@ -26,4 +27,5 @@ export const ALL_WEB_SLICES: Readonly<Record<SliceId, WebSlice>> = {
   exports: exportsWebSlice,
   onboarding: onboardingWebSlice,
   'android-app': androidAppWebSlice,
+  telemetry: telemetryWebSlice,
 };

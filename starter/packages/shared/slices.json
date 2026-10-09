@@ -10,7 +10,8 @@
     "db-backup",
     "exports",
     "onboarding",
-    "android-app"
+    "android-app",
+    "telemetry"
   ],
   "catalog": {
     "credentials": {
@@ -52,6 +53,10 @@
     "android-app": {
       "label": "Android companion: TWA trust, hosted APK releases, push channel",
       "requires": ["storage", "notifications"]
+    },
+    "telemetry": {
+      "label": "Telemetry: OpenTelemetry export gate, GreptimeDB explorer, dashboard, metric groups",
+      "requires": ["credentials"]
     }
   }
 }
