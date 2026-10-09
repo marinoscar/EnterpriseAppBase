@@ -19,9 +19,8 @@ import {
 } from '../../app-registrations/settings';
 import { AI_SYSTEM_SETTINGS } from '@marinoscar/platform-api/ai';
 import { MAINTENANCE_SYSTEM_SETTINGS } from '@marinoscar/platform-api/host';
-import { RETENTION_SYSTEM_SETTINGS } from '../../common/retention/retention.system-settings';
 import { DATABASE_BACKUP_SYSTEM_SETTINGS } from '@marinoscar/platform-api/db-backup';
-import { JOBS_SYSTEM_SETTINGS } from '@marinoscar/platform-api/jobs';
+import { JOBS_SYSTEM_SETTINGS, RETENTION_SYSTEM_SETTINGS } from '@marinoscar/platform-api/jobs';
 import { NODES_SYSTEM_SETTINGS } from '@marinoscar/platform-api/nodes';
 import { NOTIFICATIONS_SYSTEM_SETTINGS } from '@marinoscar/platform-api/notifications';
 import { STORAGE_SYSTEM_SETTINGS } from '../../platform/storage/storage.system-settings';

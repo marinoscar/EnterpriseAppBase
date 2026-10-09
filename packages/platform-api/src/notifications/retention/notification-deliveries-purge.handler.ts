@@ -1,5 +1,5 @@
 // =============================================================================
-// `notifications.deliveries.purge` job handler (#681, platform-packages PP-1.10)
+// `notifications.deliveries.purge` job handler (#681, platform-packages PP-1.10; notifications slice since #898)
 // =============================================================================
 //
 // Deletes `notification_deliveries` rows (the per-channel delivery log)
@@ -18,22 +18,39 @@
 // SERVER-ONLY: no `nodeResultSchema`/`persistNodeResult`.
 // =============================================================================
 
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import type { Job, NotificationDeliveryStatus } from '@prisma/client';
+import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 
-import { runRetentionPolicyPurge } from './batched-purge';
-import { JobExecutionProfile } from '@marinoscar/platform-api/jobs';
-import { JobHandler } from '@marinoscar/platform-api/jobs';
-import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
-import { PrismaService } from '../../prisma/prisma.service';
-import { SystemSettingsService } from '@marinoscar/platform-api/settings';
+import { PLATFORM_PRISMA } from '../../core/index';
+import {
+  JobHandlerRegistry,
+  RetentionPurgeRegistry,
+  runRetentionPolicyPurge,
+  type Job,
+  type JobExecutionProfile,
+  type JobHandler,
+} from '../../jobs/index';
+import { SystemSettingsService } from '../../settings/index';
+import type { NotificationDeliveryStatus, NotificationsPrisma } from '../data/notifications-db';
 
-/** The job type. PERMANENT once rows of it exist. */
+/**
+ * The job type. PERMANENT once rows of it exist.
+ *
+ * @stability experimental
+ */
 export const NOTIFICATION_DELIVERIES_PURGE_TYPE = 'notifications.deliveries.purge';
 
-/** The statuses this purge may delete. `queued` is deliberately absent. */
+/**
+ * The statuses this purge may delete. `queued` is deliberately absent.
+ *
+ * @stability experimental
+ */
 export const PURGEABLE_DELIVERY_STATUSES: readonly NotificationDeliveryStatus[] = ['sent', 'failed'];
 
+/**
+ * Deletes settled `notification_deliveries` past `retention.notificationDeliveries.days`, in batches.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class NotificationDeliveriesPurgeHandler implements JobHandler, OnModuleInit {
   private readonly logger = new Logger(NotificationDeliveriesPurgeHandler.name);
@@ -47,12 +64,15 @@ export class NotificationDeliveriesPurgeHandler implements JobHandler, OnModuleI
 
   constructor(
     private readonly registry: JobHandlerRegistry,
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: NotificationsPrisma,
     private readonly systemSettings: SystemSettingsService,
+    private readonly retention: RetentionPurgeRegistry,
   ) {}
 
+  /** Registers with the job registry and declares the retention policy. */
   onModuleInit(): void {
     this.registry.register(this);
+    this.retention.register({ policy: 'notificationDeliveries', type: this.type, what: 'delivery log purge' });
   }
 
   /** Throws to fail (a database error), so the queue's retry applies. */

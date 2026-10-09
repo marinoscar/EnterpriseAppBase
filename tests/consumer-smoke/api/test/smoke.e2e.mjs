@@ -44,12 +44,12 @@ describe('fail-closed access contract', () => {
 
 // Before any application boots: bootstrapping freezes the static registries.
 describe('packaged settings namespaces (#865)', () => {
-  it('JobsModule.forRoot() registers the jobs namespace with the shipped policy', () => {
+  it('JobsModule.forRoot() registers the jobs and retention namespaces with the shipped policy', () => {
     const check = require('../dist/settings-typing.check.js');
     const jobs = require('@marinoscar/platform-api/jobs');
     const settings = require('@marinoscar/platform-api/settings');
     assert.ok(!settings.systemSettingsNamespaceRegistry.has('jobs'));
-    assert.deepEqual(check.registerJobsSlice(), ['jobs']);
+    assert.deepEqual(check.registerJobsSlice(), ['jobs', 'retention']);
     assert.deepEqual(settings.systemSettingsNamespaceRegistry.get('jobs').defaults, jobs.DEFAULT_JOBS_POLICY);
     assert.deepEqual(check.PACKAGED_KEYS, ['jobs', 'nodes', 'storage']);
   });

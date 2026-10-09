@@ -15,7 +15,7 @@ One governed path from a feature to a model, so no feature holds a provider SDK,
 | Policy | `config/`, `ai.system-settings.ts`, `ai.user-settings.ts` | The `ai` settings namespaces (with the org layer), the kill switch (`AiEnabledGuard`, `AiOrgEnabledInterceptor`), the deployment's provider keys, `/api/admin/ai/*` |
 | Keys | `keys/` | A user's own keys (`/api/ai/keys`), an organization's own keys (`/api/admin/ai/org-keys`), `AiKeyResolver`, `UsableModelsService` |
 | Features | `features/`, `runtime/target-resolver.ts` | `registerAiFeature`, `GET /api/ai/features`, `AI_TARGET_RESOLVER` |
-| Runtime | `runtime/` | `AiService`, background runs (`ai_runs`, the `ai.*` job types), the tool loop, limits, usage recording |
+| Runtime | `runtime/` | `AiService`, background runs (`ai_runs`, the `ai.*` job types), the tool loop, limits, usage recording, the `ai.runs.purge` retention handler (`retention.aiRuns`, over the jobs slice's shared `batched-purge`, #898) |
 | HTTP | `http/` | `/api/ai/responses` (and its SSE stream), runs, embeddings, images, audio, realtime |
 | Storage | `storage/` | Storage objects in (`AiStorageInputResolver`) and out (`AiOutputWriter`, under `ai-outputs/`), over `AI_OBJECT_STORE` |
 | Usage | `usage/` | The usage report (`/api/admin/ai/usage`, `/api/admin/ai/org-usage`, `/api/ai/usage/me`) and its retention purge |

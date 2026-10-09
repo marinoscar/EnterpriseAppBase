@@ -12,8 +12,6 @@
 // .toResponse` projects every registered namespace, documented here or not.
 // =============================================================================
 
-import { z } from 'zod';
-
 // #225, epic #215: the `notifications` response branch, the notifications
 // slice's wire contract since #738.
 export { notificationsResponseSchema } from '@marinoscar/platform-contract/notifications';
@@ -44,11 +42,6 @@ export { storageResponseSchema } from '@marinoscar/platform-contract/storage';
 export { aiResponseSchema } from '@marinoscar/platform-contract/ai';
 
 
-// #681 — the retention policy, one `{ enabled, days }` per governed table.
-// Published for the same reason as every block above.
-export const retentionResponseSchema = z.object({
-  notifications: z.object({ enabled: z.boolean(), days: z.number().int() }),
-  notificationDeliveries: z.object({ enabled: z.boolean(), days: z.number().int() }),
-  auditEvents: z.object({ enabled: z.boolean(), days: z.number().int() }),
-  aiRuns: z.object({ enabled: z.boolean(), days: z.number().int() }),
-});
+// #681 — the retention policy, one `{ enabled, days }` per governed table:
+// `@marinoscar/platform-contract/jobs` since #898, re-exported unchanged.
+export { retentionResponseSchema } from '@marinoscar/platform-contract/jobs';

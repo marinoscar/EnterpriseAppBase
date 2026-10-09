@@ -523,13 +523,16 @@ other end of the recipe — a
 observable, retried on the queue's budget, and executed on a worker slot.
 
 For a retention purge — "delete rows older than a setting, in bounded batches"
-— use the reference app's `apps/api/src/common/retention/batched-purge.ts` rather than writing the loop
-again: `purgeInBatches` (5000 ids per batch, oldest first, delete by the exact
+— use the slice's `batched-purge` (`../retention/batched-purge.ts`, exported from
+`@marinoscar/platform-api/jobs`) rather than writing the loop again: `purgeInBatches` (5000 ids per batch, oldest first, delete by the exact
 ids read, a 1000-batch safety stop) and `runRetentionPolicyPurge` (the
 disabled no-op and the summary log line). The four `retention.*` handlers
 (`notifications.inbox.purge`, `notifications.deliveries.purge`,
-`audit.events.purge`, `ai.runs.purge`) are worked examples, and
-`apps/api/src/common/retention/retention-purge.task.ts` enqueues them.
+`audit.events.purge`, `ai.runs.purge`) are worked examples (the first two live in
+the notifications slice, the last in ai, `audit.events.purge` in
+`../retention/audit-events-purge.handler.ts`). Each declares its `retention.*`
+policy from `onModuleInit` with `RetentionPurgeRegistry.register({ policy, type, what })`,
+and `../retention/retention-purge.task.ts` enqueues the enabled ones at 01:00.
 
 ## Related Files
 
@@ -542,7 +545,8 @@ disabled no-op and the summary log line). The four `retention.*` handlers
 | `../job-scope.ts` | `JobScope.run(job, fn)` — a job's tenant work under its organization |
 | `../../nodes/node-data-plane.service.ts` | The presigned download/upload routes a node uses |
 | `../jobs.module.ts` | `JobsModule.forRoot()`: where the registry and the services are provided |
-| `apps/api/src/common/retention/batched-purge.ts` | The reference app's batched-delete helper for retention purges |
+| `../retention/batched-purge.ts` | The shared batched-delete helper for retention purges |
+| `../retention/retention-purge.registry.ts` | Where a purge handler declares the `retention.*` policy it enforces |
 | `apps/api/src/jobs/contracts/` | The reference app's node result schemas, published as JSON Schema by `GET /api/nodes/job-types` |
 | `packages/platform-api/src/storage/storage-job-input.ts` | `resolveStorageObjectInput()` — a job's input, or a named failure |
 | `apps/api/src/examples/examples.module.ts` | Where the reference app's example handlers are provided |

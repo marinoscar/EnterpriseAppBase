@@ -22,7 +22,7 @@ The four `retention.*` policies each take `{ "enabled": boolean, "days": 1–365
 
 ### How the `retention.*` purges run
 
-- The 01:00 task (`apps/api/src/common/retention/retention-purge.task.ts`) reads the four policies and enqueues one low-priority job for each enabled one. It deletes nothing itself.
+- The 01:00 task (`packages/platform-api/src/jobs/retention/retention-purge.task.ts`, the jobs slice) reads the four policies and enqueues one low-priority job for each enabled one whose handler is mounted. It deletes nothing itself.
 - Each job deletes in batches of at most 5000 rows, oldest first, by the exact ids it read. A run stops after 1000 batches (5 million rows) and logs a warning; the next night continues from the same cutoff.
 - Each job re-reads its policy when it runs. A job for a disabled policy (an admin rerun, say) logs that it is a no-op and deletes nothing.
 - Each run logs one summary line: rows deleted, cutoff, retention days, batches and job id.

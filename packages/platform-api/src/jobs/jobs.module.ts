@@ -17,6 +17,10 @@ import { JobWorker } from './job.worker';
 import { JOBS_OPTIONS, jobsConfigOverlay, resolveJobsModuleOptions, type JobsModuleOptions } from './jobs.options';
 import { JobsService } from './jobs.service';
 import { JOBS_SYSTEM_SETTINGS } from './jobs.system-settings';
+import { AuditEventsPurgeHandler } from './retention/audit-events-purge.handler';
+import { RetentionPurgeRegistry } from './retention/retention-purge.registry';
+import { RetentionPurgeTask } from './retention/retention-purge.task';
+import { RETENTION_SYSTEM_SETTINGS } from './retention/retention.system-settings';
 import { ensureSystemSettingsNamespaces, type SystemSettingsNamespace } from '../settings/index';
 import { JobScope } from './job-scope';
 import { NodeOffloadService } from './node-offload.service';
@@ -164,6 +168,17 @@ import { TempFileJanitorTask } from './tasks/temp-file-janitor.task';
 // (`@marinoscar/platform-api/settings`), so it needs no import here either.
 //
 // -----------------------------------------------------------------------------
+// THE RETENTION ENGINE (#898)
+// -----------------------------------------------------------------------------
+//
+// `RetentionPurgeTask` (the 01:00 enqueue-only scheduler), `RetentionPurgeRegistry`
+// (which purges are mounted), the `retention` system-settings namespace
+// (`RETENTION_SYSTEM_SETTINGS`) and the shared `batched-purge` loop are this
+// slice's. The purge handlers are their table owners': `ai.runs.purge` the ai
+// slice's, the two notification purges the notifications slice's, and
+// `AuditEventsPurgeHandler` is provided here because identity cannot import jobs.
+//
+// -----------------------------------------------------------------------------
 // PACKAGED (#734): ONE `forRoot`, GLOBAL
 // -----------------------------------------------------------------------------
 //
@@ -186,6 +201,7 @@ const EXPORTED = [
   JobTerminalService,
   JobStuckService,
   JobScope,
+  RetentionPurgeRegistry,
 ] as const;
 
 const INTERNAL = [
@@ -194,6 +210,8 @@ const INTERNAL = [
   JobWorker,
   JobStuckResetTask,
   JobHistoryPurgeTask,
+  RetentionPurgeTask,
+  AuditEventsPurgeHandler,
   TempFileJanitorTask,
   JobsWorkerDoctorCheck,
   JobsBacklogDoctorCheck,
@@ -211,15 +229,16 @@ const INTERNAL = [
 export class JobsModule {
   /**
    * The slice for one app. Call once, before `SettingsModule.forRoot()`: it
-   * registers the `jobs` system-settings namespace (`JOBS_SYSTEM_SETTINGS`)
-   * unless the app's settings manifest already did.
+   * registers the `jobs` and `retention` system-settings namespaces
+   * (`JOBS_SYSTEM_SETTINGS`, `RETENTION_SYSTEM_SETTINGS`) unless the app's
+   * settings manifest already did.
    *
    * @param options - see {@link JobsModuleOptions}.
    * @returns the dynamic module (global). It provides and exports
    *   `JobHandlerRegistry`, `JobsService`, `JobClaimService`,
    *   `JobLeaseService`, `JobTerminalService`, `JobStuckService`,
    *   `ProviderThrottleService`, `NodeOffloadService`,
-   *   `JobHistoryPurgeHandler` and `JOBS_OPTIONS`.
+   *   `JobHistoryPurgeHandler`, `RetentionPurgeRegistry` and `JOBS_OPTIONS`.
    * @throws Error when an option is invalid, or when `SettingsModule.forRoot()`
    *   already composed the settings request bodies without `jobs`.
    *
@@ -234,10 +253,13 @@ export class JobsModule {
   static forRoot(options: JobsModuleOptions = {}): DynamicModule {
     const resolved = resolveJobsModuleOptions(options);
     if (resolved.appName !== undefined) configureJobTempPrefix(resolved.appName);
-    // The `jobs` settings namespace is this slice's (#865): registered here
-    // unless the app's manifest already did, before SettingsModule.forRoot()
-    // composes the request bodies.
-    ensureSystemSettingsNamespaces([JOBS_SYSTEM_SETTINGS as SystemSettingsNamespace], 'JobsModule.forRoot()');
+    // The `jobs` settings namespace is this slice's (#865), and so is
+    // `retention` (#898): registered here unless the app's manifest already
+    // did, before SettingsModule.forRoot() composes the request bodies.
+    ensureSystemSettingsNamespaces(
+      [JOBS_SYSTEM_SETTINGS as SystemSettingsNamespace, RETENTION_SYSTEM_SETTINGS as SystemSettingsNamespace],
+      'JobsModule.forRoot()',
+    );
 
     // Only when something is overridden: `forRoot({})` reads the app's own
     // global `ConfigService`, exactly as before the move.

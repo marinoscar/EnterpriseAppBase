@@ -14,7 +14,7 @@ What it does:
 - **`SettingsResolver`**: `resolveSystem(key, { orgId })` and `resolveUser(key, userId)`, the one read every slice should use. Neither creates a row.
 - **`SystemSettingsRowStore`**: `read(key, schema, defaults)` and `write(key, value, { actorId, ifMatch, schema })` for a slice's own row (its own version, 0 while missing; validated in, degraded out; audited; the main row refused).
 
-Not here: the namespaces themselves (each lives with the slice that owns it: `jobs` and `nodes` with #734, `storage` and the profile-image routes with #736, the `email` row with #737, `notifications` with #738, `ai` with #739, `databaseBackup` with #740; `maintenance` and `retention` stay in the reference app until a slice owns them), the uploaded profile picture (object storage, reached through `SETTINGS_PROFILE_IMAGES`), and the web hub (`@marinoscar/platform-web/settings`).
+Not here: the namespaces themselves (each lives with the slice that owns it: `jobs` and `nodes` with #734, `storage` and the profile-image routes with #736, the `email` row with #737, `notifications` with #738, `ai` with #739, `databaseBackup` with #740, `retention` with #898 (the jobs slice); `maintenance` is the host slice's), the uploaded profile picture (object storage, reached through `SETTINGS_PROFILE_IMAGES`), and the web hub (`@marinoscar/platform-web/settings`).
 
 ## Install and peer dependencies
 

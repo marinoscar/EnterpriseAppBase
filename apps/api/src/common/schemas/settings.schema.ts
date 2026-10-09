@@ -406,64 +406,21 @@ export const TELEMETRY_SETTINGS_CARRIES_NO_SECRET: TelemetrySettingsCarriesNoSec
 // Retention policy (`retention`) — #681, platform-packages PP-1.10
 // =============================================================================
 //
-// One `{ enabled, days }` policy per table that grows with every user action
-// and had no retention at all: the in-app inbox (`notifications`), the
-// delivery log (`notification_deliveries`), the admin audit trail
-// (`audit_events`) and background AI runs (`ai_runs`, whose `request` column
-// holds the user's full prompt — a privacy concern, not only a size one).
-//
-// ONE NAMESPACE RATHER THAN A FIELD IN EACH OWNER'S NAMESPACE. `audit` has no
-// namespace of its own, and one block lets a later settings card render the
-// four controls together. The older retention controls (`jobs.history`,
-// `ai.usageRetentionDays`, `nodes.offlineRetentionDays`, …) stay where they
-// are: moving them would be a breaking settings change.
-//
-// `enabled` and `days` are one decision per table, grouped for the reason
-// `jobs.history` groups `retentionDays` with `purgeEnabled`. The bound matches
-// every other retention field here (1–3650 days). Defaults live in
-// `DEFAULT_SYSTEM_SETTINGS`, never in a `.default()` here.
-//
-// Enforced by four server-only, batched purge jobs and one enqueue-only cron:
-// see `common/retention/` and `docs/runbooks/data-retention.md`.
+// Moved to `@marinoscar/platform-contract/jobs` by #898 (the namespace is the
+// jobs slice's: `RETENTION_SYSTEM_SETTINGS` of `@marinoscar/platform-api/jobs`),
+// re-exported here under the historic names. See `docs/runbooks/data-retention.md`.
 
-/** Upper bound on any `retention.*.days`: ten years, as for every retention field. */
-export const RETENTION_MAX_DAYS = 3650;
-
-export const retentionPolicySchema = z.object({
-  enabled: z.boolean(),
-  days: z.number().int().min(1).max(RETENTION_MAX_DAYS),
-});
-
-export type RetentionPolicyValue = z.infer<typeof retentionPolicySchema>;
-
-export const systemRetentionSchema = z.object({
-  notifications: retentionPolicySchema,
-  notificationDeliveries: retentionPolicySchema,
-  auditEvents: retentionPolicySchema,
-  aiRuns: retentionPolicySchema,
-});
-
-export type SystemRetentionValue = z.infer<typeof systemRetentionSchema>;
-
-/** The keys of `retention`, one per governed table. */
-export type RetentionPolicyKey = keyof SystemRetentionValue;
-
-const retentionPolicyPatchSchema = z.object({
-  enabled: z.boolean().optional(),
-  days: z.number().int().min(1).max(RETENTION_MAX_DAYS).optional(),
-});
-
-/**
- * `retention`, one level deep and field by field, mirroring
- * `systemJobsPatchSchema`: `{ "retention": { "auditEvents": { "enabled": true } } }`
- * changes that one leaf.
- */
-export const systemRetentionPatchSchema = z.object({
-  notifications: retentionPolicyPatchSchema.optional(),
-  notificationDeliveries: retentionPolicyPatchSchema.optional(),
-  auditEvents: retentionPolicyPatchSchema.optional(),
-  aiRuns: retentionPolicyPatchSchema.optional(),
-});
+export {
+  RETENTION_MAX_DAYS,
+  retentionPolicySchema,
+  systemRetentionPatchSchema,
+  systemRetentionSchema,
+} from '@marinoscar/platform-contract/jobs';
+export type {
+  RetentionPolicyKey,
+  RetentionPolicyValue,
+  SystemRetentionValue,
+} from '@marinoscar/platform-contract/jobs';
 
 // `systemSettingsSchema`, `systemSettingsPatchSchema` and `SystemSettingsDto`
 // are COMPOSED from the system settings namespace registry (#677) and live in

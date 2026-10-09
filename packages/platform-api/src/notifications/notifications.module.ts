@@ -13,6 +13,8 @@ import { NotificationsService } from './notifications.service';
 import { JobFailureNotifier } from './ops/job-failure-notifier';
 import { NodeOfflineNotifier } from './ops/node-offline-notifier';
 import { PushConfigController } from './push-config.controller';
+import { NotificationDeliveriesPurgeHandler } from './retention/notification-deliveries-purge.handler';
+import { NotificationInboxPurgeHandler } from './retention/notification-inbox-purge.handler';
 import { PushConfigService } from './push-config.service';
 import { PushSubscriptionService } from './push-subscription.service';
 import { PushTestService } from './push-test.service';
@@ -188,6 +190,12 @@ const PROVIDERS = [
     // listener rather than a `notify()` inside `JobTerminalService`.
     JobFailureNotifier,
     NodeOfflineNotifier,
+    // The two retention purges for this slice's tables (#681, moved here by
+    // #898). They self-register with the jobs slice's handler registry and
+    // declare their `retention.*` policy with its `RetentionPurgeRegistry`;
+    // the jobs slice's 01:00 cron enqueues them. Providers, not exports.
+    NotificationInboxPurgeHandler,
+    NotificationDeliveriesPurgeHandler,
     PushNotificationChannel,
     // Doctor check (#634): validates the active VAPID pair, never sends.
     PushVapidDoctorCheck,

@@ -27,7 +27,6 @@ import { DocsEgressContributor } from './openapi/docs-egress.contributor';
 import { AiModule } from './platform/ai/ai.config';
 import { telemetryModule } from './platform/telemetry/telemetry.config';
 import { doctorModule } from './doctor/doctor.config';
-import { RetentionModule } from './common/retention/retention.module';
 import { platformHostModule } from './platform/platform-host.module';
 import { identityModule } from './platform/identity/identity.config';
 import { sharingModule } from './platform/sharing/sharing.config';
@@ -222,12 +221,6 @@ import configuration from './config/configuration';
     // `platform/telemetry/telemetry.config.ts` (`TelemetryModule.forRoot({
     // host, imports: [TelemetryHostModule], metricGroups })`).
     telemetryModule,
-
-    // Data retention (#681): the daily, enqueue-only cron for the `retention`
-    // settings namespace and the `audit.events.purge` handler. The inbox,
-    // delivery-log and AI-run purges live with their tables, in
-    // `NotificationsModule` and `AiRuntimeModule`.
-    RetentionModule,
 
     // Sharing (#728, epic #666): groups inside an organization, their members
     // and invites (`/api/groups`), the ownership contract for group-owned rows

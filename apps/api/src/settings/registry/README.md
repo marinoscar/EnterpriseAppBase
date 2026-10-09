@@ -49,7 +49,7 @@ The declaration files:
 | system `storage` | `storage/config/storage.system-settings.ts` |
 | system `ai` | `ai/ai.system-settings.ts` |
 | system `telemetry` | `platform/telemetry/telemetry.system-settings.ts` (data from `@marinoscar/platform-api/telemetry`) |
-| system `retention` | `common/retention/retention.system-settings.ts` |
+| system `retention` | `@marinoscar/platform-api/jobs` (`RETENTION_SYSTEM_SETTINGS`, #898; likewise registered by `JobsModule.forRoot()` unless the manifest lists it) |
 | user `dataTables`, `navigation` | `@marinoscar/platform-api/settings` (`DATA_TABLES_USER_SETTINGS`, `NAVIGATION_USER_SETTINGS`) |
 | user `notifications` | `notifications/notifications.user-settings.ts` |
 | user `ai` | `ai/ai.user-settings.ts` |
