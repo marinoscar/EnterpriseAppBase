@@ -85,11 +85,7 @@ The starter mounts the API host core (the event bus, the platform's app metrics,
 
 ### Known gaps
 
-Some plumbing the platform's reference app has is still app code there, not a package seam, so the starter does without it rather than copy it. Each is a seam request upstream; enable it here when the package ships it:
-
-- a packaged role and permission registry and the platform's user-owned model inventory (the starter lists its seeded permissions in `src/platform/permissions.ts`, and its conformance run checks only its own models);
-- the `postgres-init` script `devdb.compose.yml` mounts to create the ordinary database role (CI creates it inline);
-- typed `getNamespace()` for an app's own settings namespace (the sample parses `readNamespaceValue('notes')` instead).
+None. Every piece of plumbing the reference app has is now a package seam the starter uses: the settings namespace typing and the jobs and nodes policies (#865), the role and permission registry with the platform's model inventories (#866), the API host core (#867), the web shell (#868) and the executable infra scripts (#869).
 
 ## Rename
 
