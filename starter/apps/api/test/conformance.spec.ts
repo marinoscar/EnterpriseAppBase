@@ -66,9 +66,9 @@ function sliceSuites() {
             rootModule: AppModule,
             isPublic: (target: object) => Reflect.getMetadata(IS_PUBLIC_KEY, target) === true,
             groupOwnedModels: {},
-            // The committed snapshot of the shareable resource types (platform/sharing/resource-types.ts).
+            // The committed snapshot of the shareable resource types (platform/sharing/resource-types.ts: the sample `document`).
             // A type id is permanent once grants of it exist.
-            resourceTypeIds: [],
+            resourceTypeIds: ['document'],
           },
         }
       : {}),
