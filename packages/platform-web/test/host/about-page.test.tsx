@@ -8,7 +8,7 @@
  *   2. `absent` / `invalid` — no usable record. What is asserted here is as
  *      much about what the copy must NOT say as about what it must: the API
  *      deliberately asserts nothing about how the instance was deployed (see
- *      `apps/api/src/about/dto/about-response.dto.ts`), and a page that says
+ *      `platform-api/src/host/about/dto/about-response.dto.ts`), and a page that says
  *      "this instance was not deployed with the CLI" turns a truthful 200 into
  *      a false statement. There is a test below that fails if that sentence,
  *      or anything meaning it, appears.
@@ -21,22 +21,19 @@
  * Plus the two things that are facts rather than errors: a `null` database, and
  * the API's own version, which survives every other failure on the page.
  *
- * msw rather than a mocked hook, for the reason the Maintenance suite gives:
- * mocking the hook would hide the request shape, and the request shape is half
+ * A test platform host rather than a mocked hook, for the reason the Maintenance
+ * suite gives: mocking the hook would hide the request shape, and the request shape is half
  * of what this page is. `usePermissions` is left real and driven through the
  * auth fixture, because the redirect is one of the behaviours under test.
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { http, HttpResponse } from 'msw';
 import { screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { server } from '../../mocks/server';
-import { render, mockAdminUser, mockUser } from '../../utils/test-utils';
-import AboutPage from '../../../pages/Admin/AboutPage';
-import { api } from '../../../services/api';
-import type { AboutResponse } from '../../../types';
-import { setViewportWidth } from '../../setup';
+import { userEvent } from '@testing-library/user-event';
+import { AboutPage } from '../../src/host/ui/index.js';
+import type { AboutResponse } from '../../src/host/headless/index.js';
+import { setViewportWidth } from '../viewport.js';
+import { fail, mockAdminUser, mockUser, render, reset, serve } from './render.js';
 
 /** A complete, successful document — the baseline every state overrides. */
 function aboutResponse(overrides: Partial<AboutResponse> = {}): AboutResponse {
@@ -64,15 +61,11 @@ function aboutResponse(overrides: Partial<AboutResponse> = {}): AboutResponse {
 }
 
 function serveAbout(value: AboutResponse) {
-  server.use(http.get('*/api/admin/about', () => HttpResponse.json({ data: value })));
+  serve('GET', '/admin/about', value);
 }
 
 function serveFailure(status: number, message: string) {
-  server.use(
-    http.get('*/api/admin/about', () =>
-      HttpResponse.json({ message, code: 'FORBIDDEN' }, { status }),
-    ),
-  );
+  fail('GET', '/admin/about', status, message);
 }
 
 /** The whole rendered page as text — used by the "asserts no negative" test. */
@@ -81,7 +74,7 @@ function pageText(): string {
 }
 
 beforeEach(() => {
-  api.setAccessToken(null);
+  reset();
 });
 
 describe('AboutPage — state 1: a document was read and the run succeeded', () => {
@@ -535,19 +528,19 @@ describe('AboutPage — deployment detail (#392)', () => {
     const rows = within(table).getAllByTestId('about-history-row');
     expect(rows).toHaveLength(2);
 
-    expect(within(rows[0]).getByText('Update')).toBeInTheDocument();
-    expect(within(rows[0]).getByText('a1b2c3d')).toBeInTheDocument();
-    expect(within(rows[0]).getByText('4f21ab9')).toBeInTheDocument();
-    expect(within(rows[0]).getByText('main')).toBeInTheDocument();
-    expect(within(rows[0]).getByText('1m 35s')).toBeInTheDocument();
-    expect(within(rows[0]).getByText('1.9.0')).toBeInTheDocument();
+    expect(within(rows[0]!).getByText('Update')).toBeInTheDocument();
+    expect(within(rows[0]!).getByText('a1b2c3d')).toBeInTheDocument();
+    expect(within(rows[0]!).getByText('4f21ab9')).toBeInTheDocument();
+    expect(within(rows[0]!).getByText('main')).toBeInTheDocument();
+    expect(within(rows[0]!).getByText('1m 35s')).toBeInTheDocument();
+    expect(within(rows[0]!).getByText('1.9.0')).toBeInTheDocument();
 
     // A first install has no previous commit and an unmeasured duration.
-    expect(within(rows[1]).getByText('Install')).toBeInTheDocument();
-    expect(within(rows[1]).getByText('a1b2c3d')).toBeInTheDocument();
-    expect(within(rows[1]).queryByText('→')).not.toBeInTheDocument();
-    expect(within(rows[1]).getByText('v2.0.0')).toBeInTheDocument();
-    expect(within(rows[1]).getByText('Not recorded')).toBeInTheDocument();
+    expect(within(rows[1]!).getByText('Install')).toBeInTheDocument();
+    expect(within(rows[1]!).getByText('a1b2c3d')).toBeInTheDocument();
+    expect(within(rows[1]!).queryByText('→')).not.toBeInTheDocument();
+    expect(within(rows[1]!).getByText('v2.0.0')).toBeInTheDocument();
+    expect(within(rows[1]!).getByText('Not recorded')).toBeInTheDocument();
   });
 
   it('collapses the history into stacked cards on a phone, with no table mounted', async () => {

@@ -47,7 +47,9 @@
     "src/user-data/headless/index.ts",
     "src/user-data/ui/index.ts",
     "src/shell/headless/index.ts",
-    "src/shell/ui/index.ts"
+    "src/shell/ui/index.ts",
+    "src/host/headless/index.ts",
+    "src/host/ui/index.ts"
   ],
   "out": "docs-api",
   "json": "docs-api/api.json"

@@ -68,6 +68,7 @@ Place it where `/api/admin/maintenance` belongs in the generated document: paths
 |---|---|---|---|---|---|
 | `PlatformHostCoreModule.forRoot` | option | `forRoot(options?: PlatformHostCoreOptions): DynamicModule` | Mount the host core once, in the root module | experimental | [example](../../../../apps/api/src/platform/host-core.config.ts) |
 | `AboutModule.forRoot` | option | `forRoot(options: AboutModuleOptions): DynamicModule` | Mount `GET /api/admin/about`, passing the app's `apiVersion` | experimental | [example](../../../../apps/api/src/platform/about/about.config.ts) |
+| `AboutModuleOptions` | option | `{ apiVersion: () => string }` | Tell the about module which version the app's API is | experimental | [example](../../../../apps/api/src/platform/about/about.config.ts) |
 | `registerPlatformDocs` | option | `registerPlatformDocs(app, openApi: PlatformOpenApiOptions, logger?): boolean` | Mount `/api/openapi.json` and `/api/docs` at bootstrap | experimental | [example](../../../../apps/api/src/main.ts) |
 | `EVENT_BUS` | token | `@Inject(EVENT_BUS) bus: EventBus` | Publish or subscribe across replicas; bind a slice's bus port to it | experimental | [example](../../../../apps/api/src/platform/jobs/jobs-host.module.ts) |
 | `registerPlatformHostAppMetrics` | registry | `registerPlatformHostAppMetrics(...appMetrics: readonly AppMetricDef[][]): void` | Declare the platform's metrics, then the slices' and the app's own, in that order, before bootstrap | experimental | [example](../../../../apps/api/src/common/otel/app-metric.manifest.ts) |

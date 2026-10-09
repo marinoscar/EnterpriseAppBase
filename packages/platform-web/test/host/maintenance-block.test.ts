@@ -25,7 +25,6 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
-  MAINTENANCE_ADMIN_PATH,
   MAINTENANCE_ERROR_MARKER,
   MAINTENANCE_FALLBACK_MESSAGE,
   MAINTENANCE_RETRY_AFTER_SECONDS,
@@ -35,11 +34,10 @@ import {
   readMaintenanceBlock,
   reportMaintenanceBlock,
   subscribeToMaintenanceBlock,
-} from '../../services/maintenance';
-import { ADMIN_SECTIONS } from '../../config/adminSections';
-import type { MaintenanceStatus } from '../../types';
+} from '../../src/host/headless/index.js';
+import type { MaintenanceStatus } from '../../src/host/headless/index.js';
 
-const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../..');
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 // The guard is the host slice's since #867 (`@marinoscar/platform-api/host`).
 const GUARD_PATH = 'packages/platform-api/src/host/maintenance/maintenance.guard.ts';
 
@@ -75,20 +73,6 @@ describe('maintenance wire contract — mirrored from the API', () => {
 
     expect(match, `Could not find MAINTENANCE_RETRY_AFTER_SECONDS in ${GUARD_PATH}`).not.toBeNull();
     expect(MAINTENANCE_RETRY_AFTER_SECONDS).toBe(Number(match![1]));
-  });
-
-  it('exempts exactly the route the Maintenance card declares', () => {
-    // `MaintenanceGate` lets `MAINTENANCE_ADMIN_PATH` through, mirroring
-    // `@AllowDuringMaintenance()` on the API's controller. If the card's route
-    // ever moves and this constant does not, the exemption silently starts
-    // covering nothing — and an admin blocked by an `allowAdmins: false` window
-    // loses the only page that would undo it.
-    const card = ADMIN_SECTIONS.flatMap((section) => section.cards).find(
-      (c) => c.title === 'Maintenance',
-    );
-
-    expect(card, 'ADMIN_SECTIONS must declare a Maintenance card').toBeDefined();
-    expect(card!.path).toBe(MAINTENANCE_ADMIN_PATH);
   });
 });
 

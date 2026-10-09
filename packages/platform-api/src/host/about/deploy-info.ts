@@ -67,10 +67,20 @@ export const DEPLOY_INFO_SCHEMA_VERSION = 1;
 /**
  * Where the container's bind mount lands, and the default when
  * `DEPLOY_INFO_PATH` is unset.
+ *
+ * Exported for the reference app's wiring and tests; not a stable extension point.
+ *
+ * @internal
  */
 export const DEFAULT_DEPLOY_INFO_PATH = '/app/deploy-info/info.json';
 
-/** Resolves the path to read, per call — see `readDeployInfo`'s note on caching. */
+/**
+ * Resolves the path to read, per call — see `readDeployInfo`'s note on caching.
+ *
+ * Exported for the reference app's wiring and tests; not a stable extension point.
+ *
+ * @internal
+ */
 export function resolveDeployInfoPath(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
@@ -199,6 +209,10 @@ export interface DeployInfoReadResult {
  * ⚠ NEVER THROWS, AND NEVER PERFORMS NETWORK I/O. Every failure mode is one of
  * the three statuses. In particular `remote` is copied out of the file as-is:
  * this reader does not contact the deploy remote, run git, or refresh anything.
+ *
+ * Exported for the reference app's wiring and tests; not a stable extension point.
+ *
+ * @internal
  */
 export async function readDeployInfo(path: string): Promise<DeployInfoReadResult> {
   let raw: string;

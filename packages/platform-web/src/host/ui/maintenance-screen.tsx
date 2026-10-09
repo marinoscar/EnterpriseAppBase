@@ -3,8 +3,8 @@
  *
  * What a user sees INSTEAD of the generic error, when and only when the API has
  * answered a `503` carrying `details.reason === 'MAINTENANCE_MODE'`. That
- * condition is decided in exactly one place (`services/maintenance.ts`,
- * consumed by `services/api.ts`), and it is the whole reason this page is
+ * condition is decided in exactly one place (`maintenance-block.ts`,
+ * consumed by the app's HTTP client), and it is the whole reason this page is
  * allowed to exist: without the marker, a page saying "we will be back shortly"
  * would be an unverifiable guess that would also appear the day the API simply
  * crashed. `MaintenanceGate` is what chooses between this page and the
@@ -23,12 +23,18 @@ import { Box, Button, Card, CardContent, Chip, Stack, Typography, useTheme } fro
 import { Link as RouterLink } from 'react-router-dom';
 import BuildCircleOutlinedIcon from '@mui/icons-material/BuildCircleOutlined';
 import RefreshIcon from '@mui/icons-material/Refresh';
-import { APP_NAME } from '@app/shared';
-import { usePermissions } from '@marinoscar/platform-web/identity/headless';
-import { MAINTENANCE_ADMIN_PATH } from '../services/maintenance';
-import type { MaintenanceBlock } from '../services/maintenance';
+import { usePermissions } from '../../identity/index.js';
+import { MAINTENANCE_ADMIN_PATH } from '../headless/maintenance-block.js';
+import type { MaintenanceBlock } from '../headless/maintenance-block.js';
 
-export interface MaintenancePageProps {
+/**
+ * Props of {@link MaintenanceScreen}.
+ *
+ * @stability experimental
+ */
+export interface MaintenanceScreenProps {
+  /** The product name, as the heading says it: "<appName> is under maintenance". */
+  appName: string;
   /** What the API said when it refused the request. */
   block: MaintenanceBlock;
   /**
@@ -43,7 +49,24 @@ export interface MaintenancePageProps {
   onRetry: () => void;
 }
 
-export default function MaintenancePage({ block, onRetry }: MaintenancePageProps) {
+/**
+ * The public maintenance screen: what a blocked viewer sees instead of the
+ * application while a deliberate maintenance window is open. Not a route; the
+ * app's gate renders it in place, outside the layout.
+ *
+ * @param props - see {@link MaintenanceScreenProps}.
+ * @returns the screen element.
+ *
+ * @example
+ * ```tsx
+ * const { block, clear } = useMaintenanceBlock();
+ * if (block) return <MaintenanceScreen appName={APP_NAME} block={block} onRetry={clear} />;
+ * ```
+ *
+ * @extensionPoint component
+ * @stability experimental
+ */
+export function MaintenanceScreen({ appName, block, onRetry }: MaintenanceScreenProps) {
   const theme = useTheme();
   // The maintenance switch is gated on `system_settings:read`, so this is the
   // same question "can this person do anything about it?" — asked of the
@@ -79,7 +102,7 @@ export default function MaintenancePage({ block, onRetry }: MaintenancePageProps
                   it — and the sentence under it is the OPERATOR'S, delivered by
                   the API, never copy invented here. */}
               <Typography variant="h5" component="h1" sx={{ mt: 1 }}>
-                {APP_NAME} is under maintenance
+                {appName} is under maintenance
               </Typography>
             </Box>
 

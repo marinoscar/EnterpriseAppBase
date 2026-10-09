@@ -36,7 +36,9 @@ const PROCESS_STARTED_AT = new Date(Date.now() - process.uptime() * 1000).toISOS
 /**
  * Builds the deployment report served at `GET /api/admin/about`.
  *
- * @stability experimental
+ * Exported for the reference app's wiring and tests; not a stable extension point (reach the report through `AboutModule.forRoot`).
+ *
+ * @internal
  */
 @Injectable()
 export class AboutService {

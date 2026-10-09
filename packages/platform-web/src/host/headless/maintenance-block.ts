@@ -20,43 +20,37 @@
  *      decides whether a failed response is a maintenance window. Changing
  *      either is a wire-contract change on both sides.
  *
- *   2. A TINY MODULE-LEVEL STORE for the block, so `services/api.ts` can report
+ *   2. A TINY MODULE-LEVEL STORE for the block, so the app's HTTP client (its `onErrorResponse` hook) can report
  *      one from inside a `fetch` handler — a plain async function with no React
- *      in scope — and `components/common/MaintenanceGate.tsx` can render it.
+ *      in scope — and the app's maintenance gate can render it.
  *
  * =============================================================================
  * WHY THE STORE LIVES HERE AND NOT IN A REACT CONTEXT
  * =============================================================================
  *
  * Because the producer is not a component. The interception happens centrally
- * in `ApiService.request` (see `services/api.ts`) precisely so that every
+ * in the app's HTTP client (`onErrorResponse`) precisely so that every
  * existing call site inherits it with no change; that method is called from
  * hooks, from event handlers, and from module-scope helpers, and none of those
  * can reach a context value. A context would force each of ~30 call sites to
  * hand the error to a provider — which is the per-call-site change this design
  * exists to avoid.
  *
- * `useSyncExternalStore` (`hooks/useMaintenance.ts`) is the supported bridge
+ * `useSyncExternalStore` (`use-maintenance.ts`) is the supported bridge
  * back into React, so subscribers still re-render correctly, including under
  * concurrent rendering.
  *
  * =============================================================================
- * WHY THERE IS NO IMPORT OF `./api` IN THIS FILE
+ * WHERE THE REST CALLS ARE
  * =============================================================================
  *
- * `services/api.ts` imports THIS module, so an import back the other way would
- * be a cycle. It would technically work — both usages are deferred to call time
- * — but a cycle between the app's HTTP client and the module that classifies
- * its errors is the kind of thing that breaks silently under a bundler change
- * rather than loudly at review time.
- *
- * The consequence, and it is deliberate: the two `/admin/maintenance` REST
- * calls are NOT here. They live in `services/api.ts` with every other endpoint
- * function in this application (`getEmailSettings`, `getNotificationConfig`,
- * …), which is where a reader looks for them.
+ * The two `/admin/maintenance` REST calls are NOT here: they are in
+ * `host-client.ts` (`createHostApi`), over the platform host's transport. This
+ * module imports nothing from the transport, so the app's HTTP client can
+ * import the recogniser without a cycle.
  */
 
-import type { MaintenanceStatus } from '../types';
+import type { MaintenanceStatus } from './contract.js';
 
 /**
  * The stable marker on a maintenance `503`'s body, at `details.reason`.
@@ -67,6 +61,8 @@ import type { MaintenanceStatus } from '../types';
  * rebuilds every error body from a fixed key allowlist and would silently strip
  * a custom top-level field — so `details.reason` is not a stylistic choice on
  * either side, and reading it from anywhere else would never match.
+ *
+ * @stability experimental
  */
 export const MAINTENANCE_ERROR_MARKER = 'MAINTENANCE_MODE';
 
@@ -78,11 +74,13 @@ export const MAINTENANCE_ERROR_MARKER = 'MAINTENANCE_MODE';
  * `details.retryAfterSeconds`. The number on the wire wins whenever it is
  * there, so a future server that lengthens the delay is honoured by a client
  * built before the change.
+ *
+ * @stability experimental
  */
 export const MAINTENANCE_RETRY_AFTER_SECONDS = 30;
 
 /**
- * The admin page that closes a window (`pages/Admin/MaintenancePage.tsx`).
+ * The admin page that closes a window (`ui/maintenance-page.tsx`).
  *
  * THE CLIENT MIRROR OF `@AllowDuringMaintenance()`. On the API, the maintenance
  * controller is exempt from its own guard for the obvious reason — the switch
@@ -94,14 +92,18 @@ export const MAINTENANCE_RETRY_AFTER_SECONDS = 30;
  * The literal is repeated in `config/adminSections.tsx` and `App.tsx` (both of
  * which spell every route out, and the second of which is parsed as TEXT by
  * `__tests__/config/destinations.test.ts`), so
- * `__tests__/services/maintenance.test.ts` asserts this constant equals the
+ * `test/host/maintenance-block.test.ts` asserts this constant equals the
  * card's declared path rather than leaving the three to drift.
+ *
+ * @stability experimental
  */
 export const MAINTENANCE_ADMIN_PATH = '/admin/settings/maintenance';
 
 /**
  * What a blocked caller learned from the 503 — the whole of what the
  * maintenance screen has to work with.
+ *
+ * @stability experimental
  */
 export interface MaintenanceBlock {
   /** The operator's own copy. Rendered verbatim; it is the only thing that explains the window. */
@@ -138,6 +140,8 @@ interface FailedResponseBody {
  * should be unreachable against a healthy deployment. It exists because the
  * alternative — rendering a maintenance screen with an empty body — is the one
  * outcome that would leave a user with no information at all.
+ *
+ * @stability experimental
  */
 export const MAINTENANCE_FALLBACK_MESSAGE =
   'The application is temporarily unavailable for scheduled maintenance.';
@@ -157,6 +161,8 @@ export const MAINTENANCE_FALLBACK_MESSAGE =
  * branches on. Nothing here throws: it runs on the error path of every failed
  * request in the application, and an exception raised while classifying an
  * error would replace a useful failure with a useless one.
+ *
+ * @stability experimental
  */
 export function readMaintenanceBlock(
   status: number,
@@ -210,12 +216,18 @@ function emit(): void {
  * every render and compares with `Object.is`, so returning a freshly built
  * object here would loop forever. The stored reference is handed back as-is and
  * only replaced when the block actually changes.
+ *
+ * @stability experimental
  */
 export function getMaintenanceBlock(): MaintenanceBlock | null {
   return currentBlock;
 }
 
-/** Subscribe to block changes. Returns the unsubscribe function. */
+/**
+ * Subscribe to block changes. Returns the unsubscribe function.
+ *
+ * @stability experimental
+ */
 export function subscribeToMaintenanceBlock(listener: () => void): () => void {
   listeners.add(listener);
   return () => {
@@ -225,12 +237,14 @@ export function subscribeToMaintenanceBlock(listener: () => void): () => void {
 
 /**
  * Record that the API answered with a maintenance 503. Called from exactly one
- * place — `ApiService.request` — and not exported to pages for that reason.
+ * place — the app's HTTP client — and not meant for pages.
  *
  * A REPEAT REPORT WITH THE SAME CONTENT IS A NO-OP. Every in-flight request of
  * a blocked page reports independently (a settings page, the notification bell
  * and the rail's preferences fetch will all fail together), and re-emitting per
  * failure would re-render the maintenance screen once per request for nothing.
+ *
+ * @stability experimental
  */
 export function reportMaintenanceBlock(block: MaintenanceBlock): void {
   if (
@@ -258,6 +272,8 @@ export function reportMaintenanceBlock(block: MaintenanceBlock): void {
  * The two callers that DO know something changed are the retry button on the
  * maintenance screen and a save that turned the window off
  * (`hooks/useMaintenance.ts`).
+ *
+ * @stability experimental
  */
 export function clearMaintenanceBlock(): void {
   if (currentBlock === null) return;
@@ -273,6 +289,8 @@ export function clearMaintenanceBlock(): void {
  * single thing an operator debugging "why is it still on" is looking for, and
  * it is worth having exactly one expression of it — including one place for a
  * test to pin.
+ *
+ * @stability experimental
  */
 export function isDecidingLayer(
   status: MaintenanceStatus,

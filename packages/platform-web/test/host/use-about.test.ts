@@ -17,12 +17,10 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { http, HttpResponse } from 'msw';
 import { renderHook, waitFor, act } from '@testing-library/react';
-import { server } from '../mocks/server';
-import { useAbout } from '../../hooks/useAbout';
-import { api } from '../../services/api';
-import type { AboutResponse } from '../../types';
+import { useAbout } from '../../src/host/headless/index.js';
+import type { AboutResponse } from '../../src/host/headless/index.js';
+import { fail, makeWrapper, reset, serve } from './render.js';
 
 function aboutResponse(overrides: Partial<AboutResponse> = {}): AboutResponse {
   const base: AboutResponse = {
@@ -44,17 +42,17 @@ function aboutResponse(overrides: Partial<AboutResponse> = {}): AboutResponse {
 }
 
 function serveAbout(value: AboutResponse) {
-  server.use(http.get('*/api/admin/about', () => HttpResponse.json({ data: value })));
+  serve('GET', '/admin/about', value);
 }
 
 beforeEach(() => {
-  api.setAccessToken(null);
+  reset();
 });
 
 describe('useAbout', () => {
   it('starts loading, with no data and no error', () => {
     serveAbout(aboutResponse());
-    const { result } = renderHook(() => useAbout());
+    const { result } = renderHook(() => useAbout(), { wrapper: makeWrapper() });
 
     expect(result.current.isLoading).toBe(true);
     expect(result.current.data).toBeNull();
@@ -63,7 +61,7 @@ describe('useAbout', () => {
 
   it('resolves to the response and stops loading', async () => {
     serveAbout(aboutResponse());
-    const { result } = renderHook(() => useAbout());
+    const { result } = renderHook(() => useAbout(), { wrapper: makeWrapper() });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(result.current.data?.api.version).toBe('2.4.1');
@@ -72,12 +70,8 @@ describe('useAbout', () => {
   });
 
   it('reports a failed request as an error message, not as a throw', async () => {
-    server.use(
-      http.get('*/api/admin/about', () =>
-        HttpResponse.json({ message: 'Insufficient permissions' }, { status: 403 }),
-      ),
-    );
-    const { result } = renderHook(() => useAbout());
+    fail('GET', '/admin/about', 403, 'Insufficient permissions');
+    const { result } = renderHook(() => useAbout(), { wrapper: makeWrapper() });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(result.current.error).toBe('Insufficient permissions');
@@ -85,8 +79,11 @@ describe('useAbout', () => {
   });
 
   it('falls back to a readable message when the failure carries none', async () => {
-    server.use(http.get('*/api/admin/about', () => HttpResponse.error()));
-    const { result } = renderHook(() => useAbout());
+    // A failure that is not an API error at all: no status, nothing to relay.
+    serve('GET', '/admin/about', () => {
+      throw new TypeError('Failed to fetch');
+    });
+    const { result } = renderHook(() => useAbout(), { wrapper: makeWrapper() });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(result.current.error).toBe('Failed to load deployment information');
@@ -94,7 +91,7 @@ describe('useAbout', () => {
 
   it('re-reads on refresh and adopts the new response', async () => {
     serveAbout(aboutResponse());
-    const { result } = renderHook(() => useAbout());
+    const { result } = renderHook(() => useAbout(), { wrapper: makeWrapper() });
     await waitFor(() => expect(result.current.data).not.toBeNull());
 
     serveAbout(
@@ -108,12 +105,8 @@ describe('useAbout', () => {
   });
 
   it('clears a previous error once a refresh succeeds', async () => {
-    server.use(
-      http.get('*/api/admin/about', () =>
-        HttpResponse.json({ message: 'Boom' }, { status: 500 }),
-      ),
-    );
-    const { result } = renderHook(() => useAbout());
+    fail('GET', '/admin/about', 500, 'Boom');
+    const { result } = renderHook(() => useAbout(), { wrapper: makeWrapper() });
     await waitFor(() => expect(result.current.error).toBe('Boom'));
 
     serveAbout(aboutResponse());
@@ -136,7 +129,7 @@ describe('useAbout', () => {
           deployedBy: null,
         }),
       );
-      const { result } = renderHook(() => useAbout());
+      const { result } = renderHook(() => useAbout(), { wrapper: makeWrapper() });
 
       await waitFor(() => expect(result.current.isLoading).toBe(false));
       expect(result.current.error).toBeNull();
@@ -149,7 +142,7 @@ describe('useAbout', () => {
       serveAbout(
         aboutResponse({ deployInfoStatus: 'invalid', deployInfoError: 'bad json', app: null }),
       );
-      const { result } = renderHook(() => useAbout());
+      const { result } = renderHook(() => useAbout(), { wrapper: makeWrapper() });
 
       await waitFor(() => expect(result.current.isLoading).toBe(false));
       expect(result.current.error).toBeNull();
@@ -162,7 +155,7 @@ describe('useAbout', () => {
           run: { completed: ['pull'], failedStep: 'migrate', outcome: 'failure' },
         }),
       );
-      const { result } = renderHook(() => useAbout());
+      const { result } = renderHook(() => useAbout(), { wrapper: makeWrapper() });
 
       await waitFor(() => expect(result.current.isLoading).toBe(false));
       expect(result.current.error).toBeNull();
@@ -173,7 +166,7 @@ describe('useAbout', () => {
 
     it('treats an unreachable database as data, never as an error', async () => {
       serveAbout(aboutResponse({ database: null, databaseError: 'ECONNREFUSED' }));
-      const { result } = renderHook(() => useAbout());
+      const { result } = renderHook(() => useAbout(), { wrapper: makeWrapper() });
 
       await waitFor(() => expect(result.current.isLoading).toBe(false));
       expect(result.current.error).toBeNull();

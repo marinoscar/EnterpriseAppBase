@@ -4,7 +4,7 @@
  * They sit in one file because they are two views of one feature, but they read
  * from OPPOSITE ENDS of it and share no state:
  *
- *   * `useMaintenanceBlock()` reads the module store in `services/maintenance.ts`
+ *   * `useMaintenanceBlock()` reads the module store in `maintenance-block.ts`
  *     — what the API told a caller it had just refused. Its subscriber is
  *     `MaintenanceGate`, and it never makes a request of its own: by definition
  *     the viewer is being blocked, so asking the API anything is the one thing
@@ -21,16 +21,17 @@
  * already captured for rendering.
  */
 
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
-import { ApiError, getMaintenanceStatus, updateMaintenance } from '../services/api';
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { isPlatformApiError, usePlatformApi } from '../../core/index.js';
+import { useIsMounted } from '../internal/use-is-mounted.js';
+import type { MaintenanceStatus, UpdateMaintenanceInput } from './contract.js';
+import { createHostApi } from './host-client.js';
 import {
   clearMaintenanceBlock,
   getMaintenanceBlock,
   subscribeToMaintenanceBlock,
-} from '../services/maintenance';
-import type { MaintenanceBlock } from '../services/maintenance';
-import type { MaintenanceStatus, UpdateMaintenanceInput } from '../types';
-import { useIsMounted } from './useIsMounted';
+} from './maintenance-block.js';
+import type { MaintenanceBlock } from './maintenance-block.js';
 
 /**
  * How often `MaintenanceBanner` re-asks whether the window is still open.
@@ -42,9 +43,16 @@ import { useIsMounted } from './useIsMounted';
  * on another tab, or a colleague who did. Sixty seconds is well inside the
  * period over which forgetting matters, and it is one cheap request a minute on
  * a page only `system_settings:read` holders render at all.
+ *
+ * @stability experimental
  */
 export const MAINTENANCE_POLL_INTERVAL_MS = 60_000;
 
+/**
+ * What {@link useMaintenanceBlock} returns.
+ *
+ * @stability experimental
+ */
 export interface UseMaintenanceBlockReturn {
   /** What the API said when it refused a request, or `null` when nothing is blocked. */
   block: MaintenanceBlock | null;
@@ -53,13 +61,18 @@ export interface UseMaintenanceBlockReturn {
 }
 
 /**
- * Subscribe to the maintenance block recorded centrally by `services/api.ts`.
+ * Subscribe to the maintenance block recorded centrally by the app's HTTP client.
  *
  * `useSyncExternalStore` rather than `useState` + an effect: the store is
  * written from a `fetch` handler outside React's knowledge, and this is the
  * supported way to read one without tearing under concurrent rendering. It is
  * also why `getMaintenanceBlock` must return a stable reference between
  * changes — see its own comment.
+ *
+ * @returns the block (or `null`) and `clear`.
+ *
+ * @extensionPoint hook
+ * @stability experimental
  */
 export function useMaintenanceBlock(): UseMaintenanceBlockReturn {
   const block = useSyncExternalStore(subscribeToMaintenanceBlock, getMaintenanceBlock);
@@ -70,6 +83,11 @@ export function useMaintenanceBlock(): UseMaintenanceBlockReturn {
   };
 }
 
+/**
+ * Options of {@link useMaintenance}.
+ *
+ * @stability experimental
+ */
 export interface UseMaintenanceOptions {
   /**
    * Whether to talk to the API at all. Default `true`.
@@ -85,21 +103,48 @@ export interface UseMaintenanceOptions {
   pollIntervalMs?: number;
 }
 
+/**
+ * What {@link useMaintenance} returns.
+ *
+ * @stability experimental
+ */
 export interface UseMaintenanceReturn {
   /** The effective state and its layers, or `null` before the first successful load. */
   status: MaintenanceStatus | null;
+  /** `true` while the status is being loaded. */
   isLoading: boolean;
   /** Failure to LOAD. Distinct from `saveError`: one means "nothing to show", the other "your change did not stick". */
   loadError: string | null;
+  /** `true` while a save is in flight. */
   isSaving: boolean;
+  /** Why the last save failed, or `null`. */
   saveError: string | null;
   /** Resolves `true` when the write landed, `false` when it did not — never throws. */
   save: (input: UpdateMaintenanceInput) => Promise<boolean>;
+  /** Re-read the status. */
   refresh: () => Promise<void>;
 }
 
+/**
+ * The operator's view of the window: `GET`/`PUT /api/admin/maintenance`, with
+ * every contributing layer, an optional poll and a `save` that resolves a
+ * boolean.
+ *
+ * @param options - see {@link UseMaintenanceOptions}.
+ * @returns the status, the load and save states, `save` and `refresh`.
+ *
+ * @example
+ * ```tsx
+ * const { status, save } = useMaintenance({ enabled: canRead, pollIntervalMs: MAINTENANCE_POLL_INTERVAL_MS });
+ * ```
+ *
+ * @extensionPoint hook
+ * @stability experimental
+ */
 export function useMaintenance(options: UseMaintenanceOptions = {}): UseMaintenanceReturn {
   const { enabled = true, pollIntervalMs = 0 } = options;
+  const api = usePlatformApi();
+  const hostApi = useMemo(() => createHostApi(api), [api]);
 
   const [status, setStatus] = useState<MaintenanceStatus | null>(null);
   // Starts `false` when disabled: a hook that will never fetch must not report
@@ -122,25 +167,25 @@ export function useMaintenance(options: UseMaintenanceOptions = {}): UseMaintena
     try {
       setIsLoading(true);
       setLoadError(null);
-      const data = await getMaintenanceStatus();
+      const data = await hostApi.getMaintenanceStatus();
       if (isMounted()) setStatus(data);
     } catch (err) {
       if (isMounted()) {
         // 403 is named explicitly because it is the one failure whose remedy is
         // a permission rather than a fix — the same treatment
         // `useEmailSettings` gives it.
-        if (err instanceof ApiError && err.status === 403) {
+        if (isPlatformApiError(err) && err.status === 403) {
           setLoadError('You do not have permission to view maintenance mode');
         } else {
           setLoadError(
-            err instanceof ApiError ? err.message : 'Failed to load maintenance mode',
+            isPlatformApiError(err) ? err.message : 'Failed to load maintenance mode',
           );
         }
       }
     } finally {
       if (isMounted()) setIsLoading(false);
     }
-  }, [enabled, isMounted]);
+  }, [enabled, hostApi, isMounted]);
 
   useEffect(() => {
     void fetchStatus();
@@ -172,7 +217,7 @@ export function useMaintenance(options: UseMaintenanceOptions = {}): UseMaintena
       try {
         setIsSaving(true);
         setSaveError(null);
-        const data = await updateMaintenance(input);
+        const data = await hostApi.updateMaintenance(input);
         if (isMounted()) setStatus(data);
 
         // The one place in the app that KNOWS a window closed, so the one place
@@ -189,7 +234,7 @@ export function useMaintenance(options: UseMaintenanceOptions = {}): UseMaintena
       } catch (err) {
         if (isMounted()) {
           setSaveError(
-            err instanceof ApiError ? err.message : 'Failed to update maintenance mode',
+            isPlatformApiError(err) ? err.message : 'Failed to update maintenance mode',
           );
         }
         return false;
@@ -197,7 +242,7 @@ export function useMaintenance(options: UseMaintenanceOptions = {}): UseMaintena
         if (isMounted()) setIsSaving(false);
       }
     },
-    [isMounted],
+    [hostApi, isMounted],
   );
 
   return {

@@ -67,6 +67,13 @@ import { SETTINGS_PERMISSIONS } from '../../settings/index';
 import { AboutService } from './about.service';
 import { AboutResponseDto } from './dto/about-response.dto';
 
+/**
+ * `GET /api/admin/about`.
+ *
+ * Exported for the reference app's wiring and tests; not a stable extension point (reach the report through `AboutModule.forRoot`).
+ *
+ * @internal
+ */
 @ApiTags('About')
 // ⚠ READABLE DURING A MAINTENANCE WINDOW, deliberately.
 //

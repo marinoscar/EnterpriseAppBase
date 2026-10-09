@@ -9,21 +9,17 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { http, HttpResponse } from 'msw';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { server } from '../mocks/server';
 import {
   MAINTENANCE_POLL_INTERVAL_MS,
-  useMaintenance,
-  useMaintenanceBlock,
-} from '../../hooks/useMaintenance';
-import { api } from '../../services/api';
-import {
   clearMaintenanceBlock,
   getMaintenanceBlock,
   reportMaintenanceBlock,
-} from '../../services/maintenance';
-import type { MaintenanceStatus } from '../../types';
+  useMaintenance,
+  useMaintenanceBlock,
+} from '../../src/host/headless/index.js';
+import type { MaintenanceStatus } from '../../src/host/headless/index.js';
+import { fail, makeWrapper, reset, serve } from './render.js';
 
 function status(overrides: Partial<MaintenanceStatus> = {}): MaintenanceStatus {
   return {
@@ -74,12 +70,12 @@ describe('useMaintenanceBlock', () => {
 
 describe('useMaintenance', () => {
   beforeEach(() => {
-    api.setAccessToken(null);
+    reset();
     clearMaintenanceBlock();
   });
 
   afterEach(() => {
-    api.setAccessToken(null);
+    reset();
     clearMaintenanceBlock();
     vi.useRealTimers();
   });
@@ -90,14 +86,12 @@ describe('useMaintenance', () => {
     // reported `isLoading: true` forever would leave that component unable to
     // tell "not known yet" from "nothing to say".
     let calls = 0;
-    server.use(
-      http.get('*/api/admin/maintenance', () => {
-        calls += 1;
-        return HttpResponse.json({ data: status() });
-      }),
-    );
+    serve('GET', '/admin/maintenance', () => {
+      calls += 1;
+      return status();
+    });
 
-    const { result } = renderHook(() => useMaintenance({ enabled: false }));
+    const { result } = renderHook(() => useMaintenance({ enabled: false }), { wrapper: makeWrapper() });
 
     expect(result.current.isLoading).toBe(false);
     await waitFor(() => expect(result.current.status).toBeNull());
@@ -107,16 +101,14 @@ describe('useMaintenance', () => {
   it('polls on the interval it is given, and stops on unmount', async () => {
     vi.useFakeTimers();
     let calls = 0;
-    server.use(
-      http.get('*/api/admin/maintenance', () => {
-        calls += 1;
-        return HttpResponse.json({ data: status() });
-      }),
-    );
+    serve('GET', '/admin/maintenance', () => {
+      calls += 1;
+      return status();
+    });
 
-    const { unmount } = renderHook(() =>
-      useMaintenance({ pollIntervalMs: MAINTENANCE_POLL_INTERVAL_MS }),
-    );
+    const { unmount } = renderHook(() => useMaintenance({ pollIntervalMs: MAINTENANCE_POLL_INTERVAL_MS }), {
+      wrapper: makeWrapper(),
+    });
 
     await vi.waitFor(() => expect(calls).toBe(1));
 
@@ -135,14 +127,12 @@ describe('useMaintenance', () => {
   it('never polls when no interval is given', async () => {
     vi.useFakeTimers();
     let calls = 0;
-    server.use(
-      http.get('*/api/admin/maintenance', () => {
-        calls += 1;
-        return HttpResponse.json({ data: status() });
-      }),
-    );
+    serve('GET', '/admin/maintenance', () => {
+      calls += 1;
+      return status();
+    });
 
-    renderHook(() => useMaintenance());
+    renderHook(() => useMaintenance(), { wrapper: makeWrapper() });
 
     await vi.waitFor(() => expect(calls).toBe(1));
     await act(async () => {
@@ -155,13 +145,11 @@ describe('useMaintenance', () => {
     // The one caller entitled to clear the gate, because it is the one that
     // knows something changed. An admin who closed a window from the page the
     // gate lets through must not be left looking at the maintenance screen.
-    server.use(
-      http.get('*/api/admin/maintenance', () => HttpResponse.json({ data: status({ enabled: true }) })),
-      http.put('*/api/admin/maintenance', () => HttpResponse.json({ data: status({ enabled: false }) })),
-    );
+    serve('GET', '/admin/maintenance', status({ enabled: true }));
+    serve('PUT', '/admin/maintenance', status({ enabled: false }));
 
     reportMaintenanceBlock(BLOCK);
-    const { result } = renderHook(() => useMaintenance());
+    const { result } = renderHook(() => useMaintenance(), { wrapper: makeWrapper() });
     await waitFor(() => expect(result.current.status?.enabled).toBe(true));
 
     await act(async () => {
@@ -176,25 +164,23 @@ describe('useMaintenance', () => {
     // service. Clearing on the INPUT rather than on the server's effective
     // answer would show this operator an application that blocks them again on
     // the next request.
-    server.use(
-      http.get('*/api/admin/maintenance', () => HttpResponse.json({ data: status({ enabled: true }) })),
-      http.put('*/api/admin/maintenance', () =>
-        HttpResponse.json({
-          data: status({
-            enabled: true,
-            source: 'env',
-            layers: {
-              env: { present: true, enabled: true },
-              memory: { present: false, override: null },
-              persisted: status().layers.persisted,
-            },
-          }),
-        }),
-      ),
+    serve('GET', '/admin/maintenance', status({ enabled: true }));
+    serve(
+      'PUT',
+      '/admin/maintenance',
+      status({
+        enabled: true,
+        source: 'env',
+        layers: {
+          env: { present: true, enabled: true },
+          memory: { present: false, override: null },
+          persisted: status().layers.persisted,
+        },
+      }),
     );
 
     reportMaintenanceBlock(BLOCK);
-    const { result } = renderHook(() => useMaintenance());
+    const { result } = renderHook(() => useMaintenance(), { wrapper: makeWrapper() });
     await waitFor(() => expect(result.current.status?.enabled).toBe(true));
 
     await act(async () => {
@@ -209,14 +195,10 @@ describe('useMaintenance', () => {
     // Every caller of `save` is a click handler that needs to branch, not a
     // place to handle an exception already captured for rendering — the same
     // contract `useEmailSettings` established.
-    server.use(
-      http.get('*/api/admin/maintenance', () => HttpResponse.json({ data: status() })),
-      http.put('*/api/admin/maintenance', () =>
-        HttpResponse.json({ message: 'Nope' }, { status: 400 }),
-      ),
-    );
+    serve('GET', '/admin/maintenance', status());
+    fail('PUT', '/admin/maintenance', 400, 'Nope');
 
-    const { result } = renderHook(() => useMaintenance());
+    const { result } = renderHook(() => useMaintenance(), { wrapper: makeWrapper() });
     await waitFor(() => expect(result.current.status).not.toBeNull());
 
     let outcome: boolean | undefined;

@@ -71,11 +71,11 @@ import {
   Typography,
 } from '@mui/material';
 import { Navigate } from 'react-router-dom';
-import { usePermissions } from '@marinoscar/platform-web/identity/headless';
-import { useMaintenance } from '../../hooks/useMaintenance';
-import { LoadingSpinner } from '../../components/common/LoadingSpinner';
-import { isDecidingLayer } from '../../services/maintenance';
-import type { MaintenanceStatus, MaintenanceSource } from '../../types';
+import { usePermissions } from '../../identity/index.js';
+import type { MaintenanceSource, MaintenanceStatus } from '../headless/contract.js';
+import { isDecidingLayer } from '../headless/maintenance-block.js';
+import { useMaintenance } from '../headless/use-maintenance.js';
+import { LoadingSpinner } from './loading-spinner.js';
 
 /** Mirrors the `Maintenance` card in `config/adminSections.tsx`, word for word. */
 const PAGE_TITLE = 'Maintenance';
@@ -137,7 +137,23 @@ function LayerRow({ label, deciding, children }: LayerRowProps) {
   );
 }
 
-export default function AdminMaintenancePage() {
+/**
+ * Admin → Settings → Maintenance: open or close the maintenance window, with
+ * every contributing layer (environment, server task, saved setting) shown
+ * beside the effective state. Redirects to `/` without `system_settings:read`;
+ * the controls are disabled without `system_settings:write`.
+ *
+ * @returns the page element.
+ *
+ * @example
+ * ```tsx
+ * <Route path="/admin/settings/maintenance" element={<RequirePermission permission="system_settings:read"><MaintenancePage /></RequirePermission>} />
+ * ```
+ *
+ * @extensionPoint component
+ * @stability experimental
+ */
+export function MaintenancePage() {
   const { hasPermission } = usePermissions();
   const { status, isLoading, loadError, isSaving, saveError, save } = useMaintenance();
 

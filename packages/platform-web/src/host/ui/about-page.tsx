@@ -5,7 +5,7 @@
  * MANDATORY Settings UI Pattern: one entry in `ADMIN_SECTIONS`
  * (`config/adminSections.tsx`), one route in `App.tsx` gated on the same
  * permission string the API enforces (`system_settings:read`, the literal
- * `about/about.controller.ts` declares), and no tab anywhere. The hub, the
+ * the host slice's `about.controller.ts` declares), and no tab anywhere. The hub, the
  * Console rail and the compact AppBar title all pick this page up from that
  * single declaration.
  *
@@ -52,7 +52,7 @@
  * What this page says instead is only what is true: **no deployment record was
  * found at the path the API looked at** — and then it shows that path, which is
  * the one fact that distinguishes all three. The API's own DTO makes the same
- * argument at length (`apps/api/src/about/dto/about-response.dto.ts`); this
+ * argument at length (`platform-api/src/host/about/dto/about-response.dto.ts`); this
  * page is the half of it that has to word the sentence.
  *
  * =============================================================================
@@ -125,11 +125,17 @@ import {
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { Navigate } from 'react-router-dom';
-import { useAbout } from '../../hooks/useAbout';
-import { usePermissions } from '@marinoscar/platform-web/identity/headless';
-import { formatRelativeTime } from '../../utils/relativeTime';
-import { formatDuration } from '@marinoscar/platform-web/jobs/headless';
-import type { AboutHistoryEntry, AboutHost, AboutResponse, DeployCommand } from '../../types';
+import { useOptionalPlatformHost } from '../../core/index.js';
+import { usePermissions } from '../../identity/index.js';
+import type {
+  AboutHistoryEntry,
+  AboutHost,
+  AboutResponse,
+  DeployCommand,
+} from '../headless/contract.js';
+import { useAbout } from '../headless/use-about.js';
+import { formatDuration } from '../internal/format-duration.js';
+import { formatRelativeTime as fallbackRelativeTime } from '../internal/relative-time.js';
 
 /** Mirrors the `About` card in `config/adminSections.tsx`, word for word. */
 const PAGE_TITLE = 'About';
@@ -198,7 +204,19 @@ function Value({ value, mono = false }: { value: string | null; mono?: boolean }
  * absolute time is the one you correlate against a deploy log or an incident
  * timeline; on this page an operator routinely needs both in the same glance.
  */
+/**
+ * The app's "3 minutes ago" formatter (the platform host's
+ * `formatRelativeTime` port), else the package's own fallback, which follows the
+ * same rules.
+ */
+function useRelativeTime(): (iso: string, now?: Date) => string {
+  const host = useOptionalPlatformHost();
+  const fromHost = host?.formatRelativeTime;
+  return fromHost ? (iso) => fromHost(iso) : fallbackRelativeTime;
+}
+
 function Timestamp({ value }: { value: string | null }) {
+  const formatRelativeTime = useRelativeTime();
   if (!value) return <Value value={null} />;
 
   const parsed = new Date(value);
@@ -366,6 +384,7 @@ function CommitChange({ entry }: { entry: AboutHistoryEntry }) {
 }
 
 function HistoryWhen({ at, now }: { at: string; now: Date }) {
+  const formatRelativeTime = useRelativeTime();
   const parsed = new Date(at);
   if (Number.isNaN(parsed.getTime())) return <Value value={at} />;
   return (
@@ -534,7 +553,23 @@ function proxyModeLabel(proxy: AboutResponse['proxy']): string | null {
   return proxy.container ? `${mode} (${proxy.container})` : mode;
 }
 
-export default function AboutPage() {
+/**
+ * Admin → Operations → About: what is actually deployed here (the API version,
+ * the deploy document, the host, the history and a database liveness fact).
+ * Redirects to `/` without `system_settings:read`; the app's route gate is the
+ * primary check.
+ *
+ * @returns the page element.
+ *
+ * @example
+ * ```tsx
+ * <Route path="/admin/settings/about" element={<RequirePermission permission="system_settings:read"><AboutPage /></RequirePermission>} />
+ * ```
+ *
+ * @extensionPoint component
+ * @stability experimental
+ */
+export function AboutPage() {
   const { hasPermission } = usePermissions();
   const { data, isLoading, error, refresh } = useAbout();
 
