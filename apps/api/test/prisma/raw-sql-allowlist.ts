@@ -39,7 +39,7 @@ export const RAW_SQL_ALLOWLIST: ReadonlyArray<{ file: string; why: string }> = [
     why: 'Doctor check: reads _prisma_migrations, which has no Prisma model.',
   },
   {
-    file: 'health/indicators/database.indicator.ts',
+    file: 'health/database.indicator.ts',
     why: 'Health probe: SELECT 1.',
   },
   {

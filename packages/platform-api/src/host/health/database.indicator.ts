@@ -1,16 +1,23 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
   HealthIndicator,
   HealthIndicatorResult,
   HealthCheckError,
 } from '@nestjs/terminus';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PLATFORM_PRISMA, type PrismaClientLike } from '../../core/index';
 
+/**
+ * The Terminus indicator behind `GET /api/health` and `/ready`: a timed
+ * `SELECT 1` through the `PLATFORM_PRISMA` host port. Throws
+ * `HealthCheckError` on failure (right for Terminus).
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class DatabaseHealthIndicator extends HealthIndicator {
   private readonly logger = new Logger(DatabaseHealthIndicator.name);
 
-  constructor(private readonly prisma: PrismaService) {
+  constructor(@Inject(PLATFORM_PRISMA) private readonly prisma: PrismaClientLike) {
     super();
   }
 

@@ -36,12 +36,20 @@
 // the resulting mode.
 // =============================================================================
 
-/** No CORS headers are emitted; the browser's same-origin policy applies. */
+/**
+ * No CORS headers are emitted; the browser's same-origin policy applies.
+ *
+ * @stability experimental
+ */
 export interface SameOriginCorsOptions {
   origin: false;
 }
 
-/** Exactly these origins may call the API cross-origin, with credentials. */
+/**
+ * Exactly these origins may call the API cross-origin, with credentials.
+ *
+ * @stability experimental
+ */
 export interface AllowlistCorsOptions {
   origin: string[];
   credentials: true;
@@ -51,10 +59,16 @@ export interface AllowlistCorsOptions {
  * Structurally assignable to `FastifyCorsOptions`, which
  * `NestFastifyApplication.enableCors` takes. Declared here rather than imported
  * because `@fastify/cors` is only a transitive dependency of this workspace.
+ *
+ * @stability experimental
  */
 export type CorsOptions = SameOriginCorsOptions | AllowlistCorsOptions;
 
-/** Raised for a CORS_ORIGIN value the API refuses to start with. */
+/**
+ * Raised for a CORS_ORIGIN value the API refuses to start with.
+ *
+ * @stability experimental
+ */
 export class InvalidCorsOriginError extends Error {
   constructor(message: string) {
     super(`Invalid CORS_ORIGIN: ${message}`);
@@ -69,7 +83,16 @@ export class InvalidCorsOriginError extends Error {
  * `" https://a.example , ,https://b.example "` yields two origins. Duplicates
  * are collapsed, keeping first-seen order.
  *
+ * @param raw - the raw `CORS_ORIGIN` value (`process.env.CORS_ORIGIN`).
+ * @returns the options for `app.enableCors`.
  * @throws InvalidCorsOriginError for a wildcard or a malformed origin.
+ *
+ * @example
+ * ```ts
+ * app.enableCors(buildCorsOptions(process.env.CORS_ORIGIN));
+ * ```
+ *
+ * @stability experimental
  */
 export function buildCorsOptions(raw: string | undefined): CorsOptions {
   const entries = (raw ?? '')
@@ -88,7 +111,14 @@ export function buildCorsOptions(raw: string | undefined): CorsOptions {
   return { origin: [...new Set(entries)], credentials: true };
 }
 
-/** True when the options leave the API same-origin only. */
+/**
+ * True when the options leave the API same-origin only.
+ *
+ * @param options - the result of {@link buildCorsOptions}.
+ * @returns whether no CORS headers are emitted.
+ *
+ * @stability experimental
+ */
 export function isSameOriginOnly(
   options: CorsOptions,
 ): options is SameOriginCorsOptions {

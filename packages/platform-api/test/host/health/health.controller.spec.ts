@@ -1,9 +1,10 @@
 import { ServiceUnavailableException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { HealthCheckService, HealthCheckResult } from '@nestjs/terminus';
-import { HealthController } from './health.controller';
-import { DatabaseHealthIndicator } from './indicators/database.indicator';
-import { MAINTENANCE_ERROR_MARKER, MaintenanceModeService } from '@marinoscar/platform-api/host';
+import { HealthController } from '../../../src/host/health/health.controller';
+import { DatabaseHealthIndicator } from '../../../src/host/health/database.indicator';
+import { MAINTENANCE_ERROR_MARKER } from '../../../src/host/maintenance/maintenance.guard';
+import { MaintenanceModeService } from '../../../src/host/maintenance/maintenance-mode.service';
 
 describe('HealthController', () => {
   let controller: HealthController;

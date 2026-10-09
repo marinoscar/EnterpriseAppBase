@@ -9,7 +9,6 @@ import { PrismaModule } from './prisma/prisma.module';
 import { CommonModule } from './common/common.module';
 import { SettingsModule } from './platform/settings/settings.config';
 import { ProfileImageModule } from './platform/storage/storage.config';
-import { HealthModule } from './health/health.module';
 import { StorageModule } from './platform/storage/storage.config';
 import { StorageConfigModule } from './platform/storage/storage.config';
 import { NodeCredentialModule } from '@marinoscar/platform-api/nodes';
@@ -78,15 +77,14 @@ import configuration from './config/configuration';
     // Uploaded profile pictures (#367): its own module because it needs the
     // storage provider and SettingsModule must not (see the module).
     ProfileImageModule,
-    HealthModule,
     // The host core (#867, `@marinoscar/platform-api/host`): the cross-replica
     // event bus (`EVENT_BUS`, PP-1.11), the platform's app metrics (#600), the
     // maintenance switch (#257) with its admin endpoints and the global guard,
     // the `{ data }` envelope, the request log line, the exception filter and
-    // request ids. Global. HERE, right after `HealthModule`, because the
-    // generated OpenAPI document lists paths in module order and
-    // `/api/admin/maintenance` has always followed `/api/health` (it was
-    // discovered through `HealthModule`'s import of the old MaintenanceModule).
+    // request ids, and the health probes (`/api/health`, #901). Global. HERE,
+    // right after `ProfileImageModule`, because the generated OpenAPI document
+    // lists paths in module order and `/api/health` and
+    // `/api/admin/maintenance` have always been there.
     // The app's binding is `platform/host-core.config.ts`.
     hostCoreModule,
     StorageModule,

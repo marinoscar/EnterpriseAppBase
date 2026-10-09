@@ -156,6 +156,13 @@ export { TransformInterceptor } from './http/transform.interceptor';
 export type { ApiEnvelope } from './http/transform.interceptor';
 export { LoggingInterceptor } from './http/logging.interceptor';
 export { RequestIdMiddleware } from './http/request-id.middleware';
+export { InvalidCorsOriginError, buildCorsOptions, isSameOriginOnly } from './http/cors-options';
+export type { AllowlistCorsOptions, CorsOptions, SameOriginCorsOptions } from './http/cors-options';
+
+// ---- Health probes (#901) ----------------------------------------------------
+// Reference-app wiring and tests only; not stable extension points (`@internal`).
+export { HealthController } from './health/health.controller';
+export { DatabaseHealthIndicator } from './health/database.indicator';
 
 // ---- OpenAPI and /api/docs (#53) ---------------------------------------------
 export {
