@@ -43,9 +43,6 @@ const SOURCE_ROOT = join(__dirname, '..', 'src');
 const API_ROOT = join(__dirname, '..');
 const WEB_SOURCE_ROOT = join(API_ROOT, '..', 'web', 'src');
 const MANIFESTS = [join(API_ROOT, 'package.json'), join(API_ROOT, '..', 'web', 'package.json'), join(API_ROOT, '..', '..', 'package.json')];
-const AI_FIXTURE_SKIP =
-  'Needs a fixture that boots this app over a mocked database; the platform package runs these suites against its own reference app, ' +
-  'and this app mounts no AI route of its own.';
 
 /** The suites of the optional slices that are on. */
 function sliceSuites() {
@@ -74,11 +71,8 @@ function sliceSuites() {
       : {}),
     ...(isSliceEnabled('ai')
       ? {
-          aiKillSwitch: { skip: AI_FIXTURE_SKIP },
-          aiRbacMatrix: { skip: AI_FIXTURE_SKIP },
-          aiSecretEgress: { skip: AI_FIXTURE_SKIP },
-          aiKeyPolicy: { skip: AI_FIXTURE_SKIP },
-          aiJobsServerOnly: { skip: AI_FIXTURE_SKIP },
+          // The five suites that boot the app (kill switch, RBAC matrix, secret egress, key policy, jobs
+          // server-only) run in `ai-conformance.spec.ts`, over a mocked database; the two source scans are here.
           // No provider SDK anywhere in the app or the web (AI rule 1).
           aiNoSdkLeak: {
             apiTrees: [{ name: 'apps/api/src', root: SOURCE_ROOT, minFiles: 20 }],
