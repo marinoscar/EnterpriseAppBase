@@ -65,10 +65,14 @@ const HomePage = lazy(() => import('./pages/HomePage'));
 // `config/userSettingsSections.tsx` (#91, epic #90). These replace the single
 // stacked `UserSettingsPage`, which is deleted rather than left unrouted.
 const UserSettingsHubPage = lazy(() => import('./pages/UserSettingsHubPage'));
-const UserProfilePage = lazy(() => import('./pages/UserProfilePage'));
+const UserProfilePage = lazy(() =>
+  import('@marinoscar/platform-web/settings/ui').then((m) => ({ default: m.UserProfilePage })),
+);
 // `User`-prefixed to make explicit that it edits the signed-in user's own
 // theme, not anything under the Console.
-const UserAppearancePage = lazy(() => import('./pages/UserAppearancePage'));
+const UserAppearancePage = lazy(() =>
+  import('@marinoscar/platform-web/settings/ui').then((m) => ({ default: m.UserAppearancePage })),
+);
 // Issue #126, epic #109 — the per-user event x channel notification matrix.
 const UserNotificationsPage = lazy(() =>
   import('@marinoscar/platform-web/notifications/ui').then((m) => ({ default: m.UserNotificationsPage })),
@@ -163,7 +167,9 @@ const OrganizationsPage = lazy(() => import('./pages/UserDataPages').then((m) =>
 const DangerZonePage = lazy(() => import('@marinoscar/platform-web/user-data/ui').then((m) => ({ default: m.UserDangerZonePage })));
 const FactoryResetPage = lazy(() => import('@marinoscar/platform-web/user-data/ui').then((m) => ({ default: m.FactoryResetPage })));
 // #733 (PP-8.1): the active organization's settings overrides.
-const OrgSettingsPage = lazy(() => import('./pages/Admin/OrgSettingsPage'));
+const OrgSettingsPage = lazy(() =>
+  import('@marinoscar/platform-web/settings/ui').then((m) => ({ default: m.OrgSettingsPage })),
+);
 // The sharing slice's pages (#731): the groups settings destination and its
 // detail page, and the public link page. One lazy chunk for the slice's UI.
 const GroupsPage = lazy(() =>
