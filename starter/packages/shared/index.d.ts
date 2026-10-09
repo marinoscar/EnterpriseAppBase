@@ -14,5 +14,20 @@ export declare const THEME_COLOR: string;
 export declare const BACKGROUND_COLOR: string;
 /** The CLI binary name; seeds its config directory and `<NAME>_` environment prefix. */
 export declare const CLI_NAME: string;
+/**
+ * The fields the Android companion's identity derives from: the product name, the
+ * repository slug and the optional `android` block of `identity.json` (each field
+ * overrides one derived default).
+ */
+export declare const ANDROID_IDENTITY_SOURCE: {
+  readonly productName: string;
+  readonly repoSlug: string;
+  readonly android?: {
+    readonly applicationId?: string;
+    readonly deepLinkScheme?: string;
+    readonly storagePrefix?: string;
+    readonly apkStem?: string;
+  };
+};
 /** The optional platform slices this app mounts: the ids in `slices.json` `enabled`, in file order. */
 export declare const ENABLED_SLICES: readonly string[];

@@ -8,6 +8,7 @@
 // web side's `src/slices/<id>.tsx`. To only switch it off, remove its id from
 // `slices.json` and nothing else.
 import { aiSlice } from '../ai/ai.slice';
+import { androidAppSlice } from '../android-app/android-app.slice';
 import { credentialsSlice } from '../credentials/credentials.slice';
 import { dbBackupSlice } from '../db-backup/db-backup.slice';
 import { emailSlice } from '../email/email.slice';
@@ -18,8 +19,7 @@ import { sharingSlice } from '../sharing/sharing.slice';
 import { storageSlice } from '../storage/storage.slice';
 import type { ApiSlice, SliceId } from './slice';
 
-// (Partial while the slices are added one commit at a time.)
-export const ALL_SLICES = {
+export const ALL_SLICES: Readonly<Record<SliceId, ApiSlice>> = {
   credentials: credentialsSlice,
   storage: storageSlice,
   email: emailSlice,
@@ -29,4 +29,5 @@ export const ALL_SLICES = {
   'db-backup': dbBackupSlice,
   exports: exportsSlice,
   onboarding: onboardingSlice,
-} as unknown as Readonly<Record<SliceId, ApiSlice>>;
+  'android-app': androidAppSlice,
+};
