@@ -260,8 +260,23 @@ export function purposeOf(paragraph, maxLength = 360) {
   }
   let sentence = text.slice(0, end).trim();
   if (sentence.length > maxLength) {
-    const cut = Math.max(sentence.lastIndexOf(', ', maxLength - 20), sentence.lastIndexOf('; ', maxLength - 20), sentence.lastIndexOf(' ', maxLength - 20));
-    sentence = `${sentence.slice(0, cut > 40 ? cut : maxLength - 20).replace(/[,;:\s]+$/, '')} ...`;
+    // Cut at a clause boundary (a comma or semicolon outside code spans) so the
+    // ellipsis never lands inside a phrase; fall back to a word boundary.
+    const limit = maxLength - 20;
+    let cut = -1;
+    let code = false;
+    let depth = 0;
+    for (let i = 0; i < limit; i += 1) {
+      const char = sentence[i];
+      if (char === '`') code = !code;
+      if (code) continue;
+      if (char === '(') depth += 1;
+      else if (char === ')') depth = Math.max(0, depth - 1);
+      else if (depth === 0 && (char === ',' || char === ';' || char === ':') && sentence[i + 1] === ' ') cut = i;
+    }
+    if (cut < 40) cut = sentence.lastIndexOf(' ', limit);
+    const list = sentence[cut] !== ':';
+    sentence = `${sentence.slice(0, cut > 40 ? cut : limit).replace(/[,;:\s]+$/, '').replace(/,?\s+(?:and|or)$/, '')}${list ? ', and more.' : '.'}`;
   }
   if (sentence.endsWith(':')) sentence = `${sentence.slice(0, -1)}.`;
   return sentence ? sentence[0].toUpperCase() + sentence.slice(1) : sentence;

@@ -26,6 +26,8 @@
     "docs:packages": "npm run docs -w @marinoscar/platform-contract -w @marinoscar/platform-api -w @marinoscar/platform-web -w @marinoscar/platform-db -w @marinoscar/platform-infra -w @marinoscar/platform-cli",
     "check:package-docs": "npm run docs:packages && node scripts/check-package-docs.mjs",
     "check:single-instance": "node scripts/check-single-instance.mjs",
+    "docs:slices": "node scripts/generate-slices-doc.mjs --write",
+    "check:slices-doc": "node scripts/generate-slices-doc.mjs --check",
     "check:slice-peers": "node scripts/check-slice-peers.mjs && node scripts/check-slice-peers.mjs --app starter/apps/api --app starter/apps/web --app starter/apps/cli --app tests/consumer-smoke/api --app tests/consumer-smoke/web --app tests/consumer-smoke/api-slim",
     "smoke:consumer": "npm run build:packages && node tests/consumer-smoke/run.mjs --from pack",
     "platform:infra:sync": "platform-infra sync",
