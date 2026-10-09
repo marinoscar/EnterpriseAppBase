@@ -6,12 +6,15 @@ import { dangerZoneLastViolations } from '@marinoscar/platform-web/user-data/hea
 import { ADMIN_SECTIONS } from '../config/adminSections';
 import { NAVIGATION } from '../config/navigation';
 import { USER_SETTINGS_SECTIONS } from '../config/userSettingsSections';
+import { sliceRoutes } from '../slices/manifest';
 
 // The Settings UI Pattern, as tests: every card is reachable (App.tsx has its
 // route) and the app's own card declares the exact permission its API route
 // enforces. The packaged cards are checked by the platform's own suites.
 const read = (relative: string) => readFileSync(fileURLToPath(new URL(relative, import.meta.url)), 'utf8');
 const appSource = read('../App.tsx');
+// Every path the app routes: the core's literal routes in App.tsx and the enabled slices' (src/slices/<id>.tsx).
+const routedPaths = new Set([...[...appSource.matchAll(/path="([^"]+)"/g)].map((match) => match[1]!), ...sliceRoutes.map((route) => route.path)]);
 const cards = [...ADMIN_SECTIONS, ...USER_SETTINGS_SECTIONS].flatMap((section) => section.cards);
 
 describe('settings registries', () => {
@@ -21,8 +24,8 @@ describe('settings registries', () => {
     expect(new Set(paths).size).toBe(paths.length);
   });
 
-  it.each(cards.map((card) => [card.path!]))('route %s exists in App.tsx', (path) => {
-    expect(appSource).toContain(`path="${path.replace(/^\//, '')}"`);
+  it.each(cards.map((card) => [card.path!]))('route %s exists (App.tsx or an enabled slice)', (path) => {
+    expect(routedPaths.has(path.replace(/^\//, ''))).toBe(true);
   });
 
   it('keep the Danger Zone group last in both hubs', () => {
@@ -42,8 +45,8 @@ describe('settings registries', () => {
 // The shell's navigation (the rail, the bottom bar, the user menu) reaches the
 // same routes, behind the same permissions, as the cards.
 describe('shell navigation', () => {
-  it.each(NAVIGATION.destinations.filter((d) => d.path !== '/').map((d) => [d.path]))('destination %s has a route in App.tsx', (path) => {
-    expect(appSource).toContain(`path="${path.replace(/^\//, '')}"`);
+  it.each(NAVIGATION.destinations.filter((d) => d.path !== '/').map((d) => [d.path]))('destination %s has a route', (path) => {
+    expect(routedPaths.has(path.replace(/^\//, ''))).toBe(true);
   });
 
   it('gate the Notes destination with its card\'s permission', () => {
