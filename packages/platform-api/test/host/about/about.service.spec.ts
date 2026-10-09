@@ -9,9 +9,9 @@
 // `test/about/about.integration.spec.ts`'s job and CANNOT be proven here, for
 // the reason that file's header gives.
 //
-// The health indicator is substituted because the real one runs `SELECT 1`
-// through Prisma, and the interesting case is the one where that FAILS — which
-// a real indicator against a real database will not do on demand.
+// The `PLATFORM_PRISMA` port is substituted because the real one runs
+// `SELECT 1` against PostgreSQL, and the interesting case is the one where that
+// FAILS — which a real database will not do on demand.
 // =============================================================================
 
 import { readFileSync } from 'fs';
@@ -19,10 +19,20 @@ import { mkdtemp, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
-import { AboutService } from './about.service';
-import { aboutResponseSchema } from './dto/about-response.dto';
-import type { DatabaseHealthIndicator } from '../health/indicators/database.indicator';
-import { deploymentModeFor } from '../../test/helpers/deployment-mode.helper';
+import type { ConfigService } from '@nestjs/config';
+
+import type { PrismaClientLike } from '../../../src/core/index';
+import { DeploymentModeService } from '../../../src/host/deployment/deployment-mode.service';
+import type { DeploymentMode } from '../../../src/host/deployment/deployment-mode';
+import { AboutService } from '../../../src/host/about/about.service';
+import { aboutResponseSchema } from '../../../src/host/about/dto/about-response.dto';
+
+/** A real `DeploymentModeService` for a given mode, built through the production parser. */
+function deploymentModeFor(mode: DeploymentMode): DeploymentModeService {
+  return new DeploymentModeService({
+    get: (key: string) => (key === 'deployment.mode' ? mode : undefined),
+  } as unknown as ConfigService);
+}
 
 const GOOD_DOCUMENT = {
   schema: 1,
@@ -39,7 +49,9 @@ describe('AboutService', () => {
   let dir: string;
   let path: string;
   let service: AboutService;
-  let isHealthy: jest.Mock;
+  let queryRaw: jest.Mock;
+  let prisma: PrismaClientLike;
+  const options = { apiVersion: () => process.env.APP_VERSION ?? '0.0.0' };
 
   const originalPath = process.env.DEPLOY_INFO_PATH;
   const originalVersion = process.env.APP_VERSION;
@@ -50,14 +62,10 @@ describe('AboutService', () => {
     process.env.DEPLOY_INFO_PATH = path;
     process.env.APP_VERSION = '9.9.9';
 
-    isHealthy = jest.fn().mockResolvedValue({
-      database: { status: 'up', responseTime: '3ms' },
-    });
+    queryRaw = jest.fn().mockResolvedValue([{ '?column?': 1 }]);
+    prisma = { $queryRaw: queryRaw } as unknown as PrismaClientLike;
 
-    service = new AboutService(
-      { isHealthy } as unknown as DatabaseHealthIndicator,
-      deploymentModeFor('self-hosted'),
-    );
+    service = new AboutService(options, prisma, deploymentModeFor('self-hosted'));
   });
 
   afterEach(async () => {
@@ -76,7 +84,7 @@ describe('AboutService', () => {
   // The API's own version — the one fact that never depends on anything
   // ---------------------------------------------------------------------------
 
-  it('reports the API version resolved by openapi/version.ts', async () => {
+  it("reports the API version the app's apiVersion option resolves", async () => {
     const report = await service.describe();
 
     expect(report.api.version).toBe('9.9.9');
@@ -85,15 +93,12 @@ describe('AboutService', () => {
   it('reports the deployment mode beside the API version (#685)', async () => {
     expect((await service.describe()).api.deploymentMode).toBe('self-hosted');
 
-    const saas = new AboutService(
-      { isHealthy } as unknown as DatabaseHealthIndicator,
-      deploymentModeFor('saas'),
-    );
+    const saas = new AboutService(options, prisma, deploymentModeFor('saas'));
     expect((await saas.describe()).api).toEqual({ version: '9.9.9', deploymentMode: 'saas' });
   });
 
   it('still reports the deployment mode with no document and no database (#685)', async () => {
-    isHealthy.mockRejectedValue(new Error('down'));
+    queryRaw.mockRejectedValue(new Error('down'));
 
     const report = await service.describe();
 
@@ -102,7 +107,7 @@ describe('AboutService', () => {
   });
 
   it('still reports the API version with no document and no database', async () => {
-    isHealthy.mockRejectedValue(new Error('down'));
+    queryRaw.mockRejectedValue(new Error('down'));
 
     const report = await service.describe();
 
@@ -257,52 +262,37 @@ describe('AboutService', () => {
   // ---------------------------------------------------------------------------
 
   describe('database probe', () => {
-    it('reports the indicator result when the database answers', async () => {
+    it('reports the probe result when the database answers', async () => {
       const report = await service.describe();
 
-      expect(report.database).toEqual({ status: 'up', responseTime: '3ms' });
+      expect(report.database).toEqual({ status: 'up', responseTime: expect.stringMatching(/^\d+ms$/) });
       expect(report.databaseError).toBeNull();
-      expect(isHealthy).toHaveBeenCalledWith('database');
+      expect(queryRaw).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports database: null plus a reason when no database client is bound', async () => {
+      const unbound = new AboutService(options, undefined, deploymentModeFor('self-hosted'));
+
+      const report = await unbound.describe();
+
+      expect(report.database).toBeNull();
+      expect(report.databaseError).toContain('PLATFORM_PRISMA');
     });
 
     it('reports database: null plus databaseError when the probe throws', async () => {
-      // ⚠ Never a 503. The indicator throws by design — that is right for
-      // Terminus and wrong here.
-      isHealthy.mockRejectedValue(new Error("Can't reach database server"));
+      // ⚠ Never a 503. The probe throws by design — that is right for a
+      // readiness check and wrong here.
+      queryRaw.mockRejectedValue(new Error("Can't reach database server"));
 
       const report = await service.describe();
 
       expect(report.database).toBeNull();
       expect(report.databaseError).toBe("Can't reach database server");
-    });
-
-    it('reports the underlying cause, not the indicator\'s generic wrapper message', async () => {
-      // ⚠ `HealthCheckError.message` is the constant `'Database check failed'`.
-      // Reporting that would tell an operator only what they already know; the
-      // diagnosis they came for is in `causes`.
-      const wrapped = Object.assign(new Error('Database check failed'), {
-        causes: { database: { status: 'down', message: "Can't reach database server" } },
-      });
-      isHealthy.mockRejectedValue(wrapped);
-
-      const report = await service.describe();
-
-      expect(report.database).toBeNull();
-      expect(report.databaseError).toBe("Can't reach database server");
-    });
-
-    it('falls back to the wrapper message when no cause carries one', async () => {
-      const wrapped = Object.assign(new Error('Database check failed'), {
-        causes: { database: { status: 'down' } },
-      });
-      isHealthy.mockRejectedValue(wrapped);
-
-      expect((await service.describe()).databaseError).toBe('Database check failed');
     });
 
     it('still reports the whole deploy document when the database is down', async () => {
       await write(GOOD_DOCUMENT);
-      isHealthy.mockRejectedValue(new Error('down'));
+      queryRaw.mockRejectedValue(new Error('down'));
 
       const report = await service.describe();
 
@@ -312,7 +302,7 @@ describe('AboutService', () => {
     });
 
     it('degrades a thrown non-Error into a message rather than propagating it', async () => {
-      isHealthy.mockRejectedValue('a bare string');
+      queryRaw.mockRejectedValue('a bare string');
 
       const report = await service.describe();
 
@@ -323,7 +313,7 @@ describe('AboutService', () => {
     it('never leaks a stack trace into the response', async () => {
       const error = new Error('boom');
       error.stack = 'Error: boom\n    at somewhere/secret.ts:12:3';
-      isHealthy.mockRejectedValue(error);
+      queryRaw.mockRejectedValue(error);
 
       const report = await service.describe();
 
@@ -338,7 +328,7 @@ describe('AboutService', () => {
 
   describe('deployment details (issue #392)', () => {
     const SAMPLE = JSON.parse(
-      readFileSync(join(__dirname, '../../test/fixtures/deploy-info.sample.json'), 'utf8'),
+      readFileSync(join(__dirname, '../../fixtures/deploy-info.sample.json'), 'utf8'),
     );
 
     it('surfaces every new field of the shared fixture unchanged', async () => {
@@ -403,7 +393,7 @@ describe('AboutService', () => {
       });
 
       it('is present even when the document is absent and the database is down', async () => {
-        isHealthy.mockRejectedValue(new Error('down'));
+        queryRaw.mockRejectedValue(new Error('down'));
 
         const { runtime, deployInfoStatus } = await service.describe();
 

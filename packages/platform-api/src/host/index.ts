@@ -192,3 +192,36 @@ export { resolveApiVersion } from './openapi/version';
 export { REQUIREMENTS_MARKER } from './openapi/rbac-docs';
 export { HTTP_METHODS, forEachOperation } from './openapi/types';
 export type { DocOperation, DocPathItem, MutableDocument } from './openapi/types';
+
+// ---- About: what is deployed here (#401, packaged by #891) -------------------
+export { AboutModule } from './about/about.module';
+export type { AboutModuleOptions } from './about/about.options';
+export { AboutService } from './about/about.service';
+export { AboutController } from './about/about.controller';
+export { AboutSupportBundleSection, versionsSectionSchema } from './about/about-support-bundle.section';
+export type { VersionsSectionData } from './about/about-support-bundle.section';
+export {
+  DEFAULT_DEPLOY_INFO_PATH,
+  DEPLOY_INFO_HISTORY_LIMIT,
+  DEPLOY_INFO_SCHEMA_VERSION,
+  readDeployInfo,
+  resolveDeployInfoPath,
+} from './about/deploy-info';
+export type {
+  DeployCommand,
+  DeployInfoApp,
+  DeployInfoDeployedBy,
+  DeployInfoDocument,
+  DeployInfoHistoryEntry,
+  DeployInfoHost,
+  DeployInfoProxy,
+  DeployInfoReadResult,
+  DeployInfoRemote,
+  DeployInfoRun,
+  DeployInfoStatus,
+  DeployProxyMode,
+  DeployRunOutcome,
+} from './about/deploy-info';
+export { DEPLOY_INFO_STATUSES } from './about/deploy-info.constants';
+export { AboutResponseDto, aboutResponseSchema } from './about/dto/about-response.dto';
+export type { AboutResponse } from './about/dto/about-response.dto';

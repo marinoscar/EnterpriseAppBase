@@ -56,7 +56,7 @@
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
-import { DEPLOYMENT_MODES } from '@marinoscar/platform-api/host';
+import { DEPLOYMENT_MODES } from '../../deployment/deployment-mode';
 import { DEPLOY_INFO_STATUSES } from '../deploy-info.constants';
 
 /** The API process's own version — always known, never read from disk. */

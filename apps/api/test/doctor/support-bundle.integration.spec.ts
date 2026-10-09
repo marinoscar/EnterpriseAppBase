@@ -24,7 +24,7 @@ import { DoctorService } from '@marinoscar/platform-api/doctor';
 
 import { PERMISSIONS_KEY } from '@marinoscar/platform-api/identity';
 import { doctorModule } from '../../src/doctor/doctor.config';
-import { AboutService } from '../../src/about/about.service';
+import { AboutService } from '@marinoscar/platform-api/host';
 import {
   GreptimeClient,
   TelemetrySettingsService,

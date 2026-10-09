@@ -9,7 +9,6 @@ import { PrismaModule } from './prisma/prisma.module';
 import { CommonModule } from './common/common.module';
 import { SettingsModule } from './platform/settings/settings.config';
 import { ProfileImageModule } from './platform/storage/storage.config';
-import { AboutModule } from './about/about.module';
 import { HealthModule } from './health/health.module';
 import { StorageModule } from './platform/storage/storage.config';
 import { StorageConfigModule } from './platform/storage/storage.config';
@@ -23,6 +22,7 @@ import { JobsModule } from './platform/jobs/jobs.config';
 import { ExamplesModule } from './examples/examples.module';
 import { DbBackupModule } from './platform/db-backup/db-backup.config';
 import { LoggerModule } from './common/logger/logger.module';
+import { aboutModule } from './platform/about/about.config';
 import { hostCoreModule } from './platform/host-core.config';
 import { DocsEgressContributor } from './openapi/docs-egress.contributor';
 import { AiModule } from './platform/ai/ai.config';
@@ -195,11 +195,12 @@ import configuration from './config/configuration';
 
     // `GET /api/admin/about` (#401, epic #397): what is deployed here — the
     // API's resolved version, the deploy document `appctl deploy` bind-mounts
-    // into the container, and a database liveness fact. Imports `HealthModule`
-    // for that last one and reads no settings, so it adds no edge to the
-    // settings or storage graphs. Registered after them all the same: it
-    // reports on the application, so it is the application that owns it.
-    AboutModule,
+    // into the container, and a database liveness fact (one `SELECT 1`
+    // through the `PLATFORM_PRISMA` port). The module is the host slice's
+    // (#891) and reads no settings, so it adds no edge to the settings or
+    // storage graphs. Registered after them all the same: it reports on the
+    // application, so it is the application that owns it.
+    aboutModule,
 
     // `GET /api/admin/doctor` (#634): read-only configuration and health
     // checks for every capability. Global so each feature module

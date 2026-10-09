@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { readDeployInfo } from '../../src/about/deploy-info';
+import { readDeployInfo } from '@marinoscar/platform-api/host';
 
 // =============================================================================
 // The document the CLI writes is one this reader accepts  (issue #407)

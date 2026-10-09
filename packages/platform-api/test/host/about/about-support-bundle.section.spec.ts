@@ -1,8 +1,8 @@
-import { SupportBundleRegistry } from '@marinoscar/platform-api/doctor';
+import { SupportBundleRegistry } from '../../../src/doctor/index';
 
-import { AboutSupportBundleSection } from './about-support-bundle.section';
-import type { AboutService } from './about.service';
-import type { AboutResponse } from './dto/about-response.dto';
+import { AboutSupportBundleSection } from '../../../src/host/about/about-support-bundle.section';
+import type { AboutService } from '../../../src/host/about/about.service';
+import type { AboutResponse } from '../../../src/host/about/dto/about-response.dto';
 
 /** What `describe()` returns when no deploy document exists: partial truth, never an error. */
 const NO_DOCUMENT: AboutResponse = {

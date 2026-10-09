@@ -53,9 +53,8 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import request from 'supertest';
 
-import { AboutController } from '../../src/about/about.controller';
+import { AboutController, DEFAULT_DEPLOY_INFO_PATH } from '@marinoscar/platform-api/host';
 import { PERMISSIONS_KEY } from '@marinoscar/platform-api/identity';
-import { DEFAULT_DEPLOY_INFO_PATH } from '../../src/about/deploy-info';
 import {
   TestContext,
   createTestApp,
@@ -112,8 +111,8 @@ describe('About API (Integration)', () => {
     setupBaseMocks();
     prisma = context.prismaMock;
 
-    // The liveness probe's one query. The REAL `DatabaseHealthIndicator` runs
-    // it — nothing about the health module is substituted here.
+    // The liveness probe's one query. The REAL `AboutService` runs it through
+    // the `PLATFORM_PRISMA` port — nothing about the probe is substituted here.
     prisma.$queryRaw.mockResolvedValue([{ '?column?': 1 }]);
 
     dir = await mkdtemp(join(tmpdir(), 'about-integration-'));
@@ -165,9 +164,9 @@ describe('About API (Integration)', () => {
     });
 
     it('200 with database: null when the database probe fails', async () => {
-      // ⚠ NOT a 503. `DatabaseHealthIndicator` throws `HealthCheckError`, which
-      // Nest would otherwise render as a 503 — proving it does not escape needs
-      // the real filter, which is why this case lives here.
+      // ⚠ NOT a 503. The probe's rejection would otherwise be rendered by the
+      // exception filter as a 5xx — proving it does not escape needs the real
+      // filter, which is why this case lives here.
       prisma.$queryRaw.mockRejectedValue(new Error("Can't reach database server"));
 
       const response = await request(server()).get(ROUTE).set(await adminAuth()).expect(200);

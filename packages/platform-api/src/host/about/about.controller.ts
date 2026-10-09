@@ -13,9 +13,9 @@
 // ⚠ IT GATES ON THE EXISTING `system_settings:read`, AND INVENTS NOTHING
 // -----------------------------------------------------------------------------
 //
-// The permission is `PERMISSIONS.SYSTEM_SETTINGS_READ` — the literal string
-// `system_settings:read`, already seeded Admin-only and already enforced by
-// `settings/system-settings/system-settings.controller.ts`.
+// The permission is `SETTINGS_PERMISSIONS.SYSTEM_SETTINGS_READ.id` — the literal
+// string `system_settings:read`, already seeded Admin-only and already enforced
+// by `settings/system-settings/system-settings.controller.ts`.
 //
 // There is deliberately NO permission of its own. A new one would have to be
 // seeded, granted and explained, and it would buy nothing: this endpoint reports
@@ -30,7 +30,7 @@
 // reaches this route (a later issue in this epic) must declare the exact same
 // permission, and `apps/web/src/__tests__/config/settingsCards.test.ts` reads
 // THIS FILE'S SOURCE to prove the two agree byte for byte. Both spellings — the
-// `PERMISSIONS.SYSTEM_SETTINGS_READ` reference below and the literal
+// `SETTINGS_PERMISSIONS.SYSTEM_SETTINGS_READ` reference below and the literal
 // `system_settings:read` — therefore appear in this file on purpose. Do not
 // "tidy" either of them away.
 //
@@ -61,9 +61,9 @@
 import { Controller, Get } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
-import { Auth } from '@marinoscar/platform-api/identity';
-import { AllowDuringMaintenance } from '../common/maintenance/allow-during-maintenance.decorator';
-import { PERMISSIONS } from '../common/constants/roles.constants';
+import { AllowDuringMaintenance } from '../../core/index';
+import { Auth } from '../../identity/index';
+import { SETTINGS_PERMISSIONS } from '../../settings/index';
 import { AboutService } from './about.service';
 import { AboutResponseDto } from './dto/about-response.dto';
 
@@ -89,7 +89,7 @@ export class AboutController {
   constructor(private readonly about: AboutService) {}
 
   @Get()
-  @Auth({ permissions: [PERMISSIONS.SYSTEM_SETTINGS_READ] })
+  @Auth({ permissions: [SETTINGS_PERMISSIONS.SYSTEM_SETTINGS_READ.id] })
   @ApiOperation({
     summary: 'Report what is deployed here (Admin only)',
     description:

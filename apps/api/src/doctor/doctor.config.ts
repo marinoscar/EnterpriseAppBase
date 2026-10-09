@@ -10,7 +10,7 @@
 //
 // ⚠ IT GATES ON THE EXISTING `system_settings:read` (the package default,
 // `DEFAULT_DOCTOR_PERMISSION`; see docs/specs/doctor.md §2.6), exactly like
-// `about/about.controller.ts` and for the same reason: the report describes the
+// the host slice's `about.controller.ts` and for the same reason: the report describes the
 // deployment's configuration, which is precisely the blast radius
 // `system_settings:read` already covers, and every check is read-only, so
 // there is no new capability to grant. No `doctor:read` is invented, and no
@@ -47,7 +47,7 @@ import { platformHost } from '../platform/platform-host';
  * GET /api/admin/doctor/support-bundle (#772) rides on the same permission.
  * Its file is named after the app's slug; the caller is resolved by the
  * package default (`request.requestUser`, which the app's `PermissionsGuard`
- * sets). Sections register themselves: `versions` from `about/`, `telemetry`
+ * sets). Sections register themselves: `versions` from the host slice's about module, `telemetry`
  * from `telemetry/`.
  */
 export const doctorModule = DoctorModule.forRoot({ host: platformHost, supportBundle: { appSlug: APP_SLUG } });

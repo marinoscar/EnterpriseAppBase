@@ -25,11 +25,11 @@
 // =============================================================================
 
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import { SupportBundleRegistry } from '@marinoscar/platform-api/doctor';
-import type { SupportBundleSection } from '@marinoscar/platform-api/doctor';
+import { SupportBundleRegistry } from '../../doctor/index';
+import type { SupportBundleSection } from '../../doctor/index';
 import { z } from 'zod';
 
-import { DEPLOYMENT_MODES } from '@marinoscar/platform-api/host';
+import { DEPLOYMENT_MODES } from '../deployment/deployment-mode';
 import { AboutService } from './about.service';
 import { DEPLOY_INFO_STATUSES } from './deploy-info.constants';
 
