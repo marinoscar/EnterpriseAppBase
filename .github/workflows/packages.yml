@@ -210,6 +210,11 @@ jobs:
         name: API consumer smoke
         run: node tests/consumer-smoke/run.mjs --project api --from tarballs "$RUNNER_TEMP/tarballs"
 
+      # Issue #914: only the peers of core, otel-core and telemetry.
+      - if: steps.scope.outputs.run == 'true'
+        name: Slim API consumer smoke (core, otel-core, telemetry peers only)
+        run: node tests/consumer-smoke/run.mjs --project api-slim --from tarballs "$RUNNER_TEMP/tarballs"
+
       - if: steps.scope.outputs.run == 'true'
         name: Web consumer smoke
         run: node tests/consumer-smoke/run.mjs --project web --from tarballs "$RUNNER_TEMP/tarballs"

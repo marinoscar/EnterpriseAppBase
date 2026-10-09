@@ -319,6 +319,7 @@ export function checkRepository(root = DEFAULT_ROOT) {
   const violations = [];
   const derived = {};
   const effective = {};
+  const required = {};
   for (const [pkg, graph] of Object.entries(graphFile)) {
     if (pkg.startsWith('$')) continue;
     const pkgDir = join(root, 'packages', pkg);
@@ -341,6 +342,7 @@ export function checkRepository(root = DEFAULT_ROOT) {
     });
     violations.push(...result.violations);
     derived[pkg] = result.derived;
+    required[pkg] = result.required;
     effective[pkg] = Object.fromEntries(Object.keys(result.fullGraph).map((s) => [s, [...result.eff(s)].sort()]));
   }
   for (const pkg of Object.keys(peersFile)) {
@@ -349,13 +351,20 @@ export function checkRepository(root = DEFAULT_ROOT) {
       violations.push({ rule: 'unknown', pkg, slice: '*', file: null, specifier: null, message: `${pkg}: has peer declarations but no entry in platform-slices.json` });
     }
   }
-  return { violations, derived, effective };
+  return { violations, derived, effective, required };
 }
 
-/** Markdown table of every slice's effective peers, for docs/PACKAGES.md. */
-export function effectiveTable(effective, pkg) {
-  const rows = Object.entries(effective[pkg] ?? {}).map(([slice, names]) => `| \`${slice}\` | ${names.map((n) => `\`${n}\``).join(', ') || 'none'} |`);
-  return ['| Slice | Peers to install (own and inherited) |', '|---|---|', ...rows].join('\n');
+/**
+ * Markdown table of what each slice needs installed beyond the required set
+ * (its own and inherited peers, implied peers included), for the docs.
+ */
+export function effectiveTable(effective, pkg, required = []) {
+  const base = new Set(required);
+  const rows = Object.entries(effective[pkg] ?? {}).map(([slice, names]) => {
+    const extra = names.filter((n) => !base.has(n));
+    return `| \`${slice}\` | ${extra.map((n) => `\`${n}\``).join(', ') || 'none'} |`;
+  });
+  return ['| Slice | Install beyond the required peers |', '|---|---|', ...rows].join('\n');
 }
 
 function main(argv) {
@@ -379,13 +388,13 @@ function main(argv) {
     // Bootstrapping: derive against an empty declaration.
     return deriveFresh(root);
   }
-  const { violations, derived, effective } = checkRepository(root);
+  const { violations, derived, effective, required } = checkRepository(root);
   if (mode === 'derive') {
     console.log(JSON.stringify(derived, null, 2));
     return 0;
   }
   if (mode === 'table') {
-    for (const pkg of Object.keys(effective)) console.log(`### ${pkg}\n\n${effectiveTable(effective, pkg)}\n`);
+    for (const pkg of Object.keys(effective)) console.log(`### ${pkg}\n\nRequired: ${required[pkg].map((n) => `\`${n}\``).join(', ') || 'none'}\n\n${effectiveTable(effective, pkg, required[pkg])}\n`);
     return 0;
   }
   if (violations.length > 0) {

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Consumer smoke for the @marinoscar/platform-* packages (issue #697).
 //
-// Copies a minimal consumer project (./api or ./web) to a temporary directory
+// Copies a minimal consumer project (./api, ./api-slim or ./web) to a temporary directory
 // OUTSIDE the repository, points its platform dependencies at packed tarballs,
 // the npm registry or a GitHub release, installs it with npm (no workspace,
 // no root node_modules, no link), then runs its build, its tests and the
@@ -10,7 +10,7 @@
 // clean install does not.
 //
 // Usage:
-//   node tests/consumer-smoke/run.mjs [--project api|web|all]
+//   node tests/consumer-smoke/run.mjs [--project api|api-slim|web|all]
 //        [--from pack | --from tarballs <dir> | --from registry <version|tag> | --from release <version>]
 //        [--repo <owner/name>] [--audit-signatures] [--keep]
 //
@@ -37,7 +37,7 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, '..', '..');
-const PROJECTS = ['api', 'web'];
+const PROJECTS = ['api', 'api-slim', 'web'];
 const PLATFORM_PACKAGES = ['contract', 'api', 'web', 'db', 'cli', 'infra'];
 const PLATFORM_PREFIX = '@marinoscar/platform-';
 const NPM = process.platform === 'win32' ? 'npm.cmd' : 'npm';
@@ -47,7 +47,7 @@ const STEP_TIMEOUT_MS = 10 * 60_000;
 const REGISTRY_RETRY_MS = 2 * 60_000;
 const REGISTRY_RETRY_INTERVAL_MS = 15_000;
 
-const USAGE = `Usage: node tests/consumer-smoke/run.mjs [--project api|web|all]
+const USAGE = `Usage: node tests/consumer-smoke/run.mjs [--project api|api-slim|web|all]
          [--from pack | --from tarballs <dir> | --from registry <version|tag> | --from release <version>]
          [--repo <owner/name>] [--audit-signatures] [--keep]`;
 
