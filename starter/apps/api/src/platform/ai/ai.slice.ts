@@ -8,6 +8,8 @@
 // browser, and an `ai.*` job is never node-eligible (CLAUDE.md, the AI rules).
 import { Module } from '@nestjs/common';
 
+import type { SystemSettingsNamespace, UserSettingsNamespace } from '@marinoscar/platform-api/settings';
+
 import type { ApiSlice } from '../slices/slice';
 
 export const aiSlice: ApiSlice = {
@@ -16,8 +18,8 @@ export const aiSlice: ApiSlice = {
   contribute: () => {
     const ai = require('@marinoscar/platform-api/ai') as typeof import('@marinoscar/platform-api/ai');
     return {
-      systemSettings: [ai.AI_SYSTEM_SETTINGS as never],
-      userSettings: [ai.AI_USER_SETTINGS as never],
+      systemSettings: [ai.AI_SYSTEM_SETTINGS as SystemSettingsNamespace],
+      userSettings: [ai.AI_USER_SETTINGS as UserSettingsNamespace],
       credentialPurposes: [ai.AI_CREDENTIAL_PURPOSE_DEF],
       // `AiModule.forRoot()` registers the same objects; listing them here only fixes the purge order.
       storagePrefixes: ai.AI_STORAGE_KEY_PREFIXES,

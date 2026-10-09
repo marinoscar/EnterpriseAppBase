@@ -3,6 +3,8 @@
 // (`/admin/settings/setup`), derived from the real state of the deployment
 // (settings, Doctor checks, counts), plus aggregate activation metrics. The
 // manifest (`./onboarding.manifest.ts`) is the app's whole contribution.
+import type { UserSettingsNamespace } from '@marinoscar/platform-api/settings';
+
 import type { ApiSlice } from '../slices/slice';
 
 export const onboardingSlice: ApiSlice = {
@@ -17,7 +19,7 @@ export const onboardingSlice: ApiSlice = {
   ],
   contribute: () => {
     const { ONBOARDING_USER_SETTINGS } = require('@marinoscar/platform-api/onboarding') as typeof import('@marinoscar/platform-api/onboarding');
-    return { userSettings: [ONBOARDING_USER_SETTINGS as never] };
+    return { userSettings: [ONBOARDING_USER_SETTINGS as UserSettingsNamespace] };
   },
   register: (enabled) => {
     const { registerOnboardingManifest } = require('./onboarding.manifest') as typeof import('./onboarding.manifest');

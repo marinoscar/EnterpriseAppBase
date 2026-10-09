@@ -3,6 +3,8 @@
 // node-offline notices. Turns the identity notices from log lines into mail.
 // Web Push needs the web app's service worker (`apps/web/src/sw.ts`) and an
 // administrator-generated VAPID key pair (`/admin/settings/push`): no environment variable.
+import type { SystemSettingsNamespace, UserSettingsNamespace } from '@marinoscar/platform-api/settings';
+
 import type { ApiSlice } from '../slices/slice';
 
 export const notificationsSlice: ApiSlice = {
@@ -11,8 +13,8 @@ export const notificationsSlice: ApiSlice = {
   contribute: () => {
     const notifications = require('@marinoscar/platform-api/notifications') as typeof import('@marinoscar/platform-api/notifications');
     return {
-      systemSettings: [notifications.NOTIFICATIONS_SYSTEM_SETTINGS as never],
-      userSettings: [notifications.NOTIFICATIONS_USER_SETTINGS as never],
+      systemSettings: [notifications.NOTIFICATIONS_SYSTEM_SETTINGS as SystemSettingsNamespace],
+      userSettings: [notifications.NOTIFICATIONS_USER_SETTINGS as UserSettingsNamespace],
       credentialPurposes: [notifications.PUSH_VAPID_CREDENTIAL_PURPOSE_DEF],
     };
   },
