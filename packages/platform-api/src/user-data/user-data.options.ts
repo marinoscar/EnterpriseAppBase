@@ -1,7 +1,9 @@
 // The user-data slice's module options (issue #743, PP-9.1).
 
-import type { ModuleMetadata } from '@nestjs/common';
+import type { ModuleMetadata, Type } from '@nestjs/common';
 
+import { DefaultUserDataEnvironment } from './default-environment';
+import type { UserDataEnvironment } from './ports';
 import type { PurgeDatamodel } from './purge/purge-planner';
 import type { LegacyUserDataJobType, UserRemovalHook } from './user-data.types';
 
@@ -46,8 +48,14 @@ export interface UserDataModuleOptions {
    * bootstrap.
    */
   datamodel: PurgeDatamodel | (() => PurgeDatamodel);
-  /** Modules binding `USER_DATA_DB` and `USER_DATA_ENVIRONMENT` (and the storage provider's). */
+  /** Modules binding `USER_DATA_DB`, the bypass client (the one port an app must supply). */
   imports?: ModuleMetadata['imports'];
+  /**
+   * The deployment and tenancy modes the slice gates on. Default
+   * {@link DefaultUserDataEnvironment}: the host slice's `DeploymentModeService`
+   * and identity's `TenancyService`.
+   */
+  environment?: Type<UserDataEnvironment>;
   /**
    * Job types an app queued before adopting the platform. Each gets an alias
    * handler that maps the old payload and runs `user.data.purge`'s work.
@@ -78,6 +86,8 @@ export interface ResolvedUserDataModuleOptions {
   readonly datamodel: () => PurgeDatamodel;
   /** See {@link UserDataModuleOptions.imports}. */
   readonly imports: NonNullable<ModuleMetadata['imports']>;
+  /** See {@link UserDataModuleOptions.environment}. */
+  readonly environment: Type<UserDataEnvironment>;
   /** See {@link UserDataModuleOptions.legacyJobTypes}. */
   readonly legacyJobTypes: readonly LegacyUserDataJobType[];
   /** See {@link UserDataModuleOptions.userRemovalHooks}. */
@@ -132,6 +142,7 @@ export function resolveUserDataModuleOptions(options: UserDataModuleOptions): Re
   return {
     datamodel: () => (cached ??= typeof datamodel === 'function' ? datamodel() : datamodel),
     imports: options.imports ?? [],
+    environment: options.environment ?? DefaultUserDataEnvironment,
     legacyJobTypes: legacy,
     userRemovalHooks: options.userRemovalHooks ?? [],
     keepJobsReferencedBy: options.factoryReset?.keepJobsReferencedBy ?? [],

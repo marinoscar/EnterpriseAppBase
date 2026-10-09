@@ -4,11 +4,14 @@
 
 import { DynamicModule, Module } from '@nestjs/common';
 
+import { OrganizationsModule } from '../identity/index';
 import { StorageProvidersModule } from '../storage/index';
 import { FactoryResetHandler } from './handlers/factory-reset.handler';
 import { OrgOffboardHandler } from './handlers/org-offboard.handler';
 import { LegacyUserDataPurgeHandlers, UserDataPurgeHandler } from './handlers/user-data-purge.handler';
 import { UserDataPlanService } from './user-data-plan.service';
+import { UserDataRegistriesDoctorCheck } from './doctor/user-data-registries.doctor-check';
+import { USER_DATA_ENVIRONMENT } from './ports';
 import { createUserDataControllers } from './user-data.controller';
 import { USER_DATA_OPTIONS, resolveUserDataModuleOptions, type UserDataModuleOptions } from './user-data.options';
 import { FactoryResetService, OrgOffboardingService, UserDataService } from './user-data.service';
@@ -20,8 +23,9 @@ import { UserPurgeRunner } from './user-purge.runner';
  * (`org.offboard`), with their routes.
  *
  * Needs, from the app: `JobsModule.forRoot()` (global), the core platform
- * host (`AUDIT_SINK`, global), the storage provider's dependencies, and
- * `options.imports` binding `USER_DATA_DB` and `USER_DATA_ENVIRONMENT`.
+ * host (`AUDIT_SINK`, global), the host core (`DeploymentModeService`), the
+ * storage provider's dependencies, the Doctor module and `options.imports`
+ * binding `USER_DATA_DB`.
  *
  * @stability experimental
  */
@@ -52,10 +56,13 @@ export class UserDataModule {
     const exported = [UserDataService, FactoryResetService, OrgOffboardingService, UserPurgeRunner, UserDataPlanService];
     return {
       module: UserDataModule,
-      imports: [...resolved.imports, StorageProvidersModule],
+      // `OrganizationsModule`: `TenancyService`, for the default environment.
+      imports: [...resolved.imports, StorageProvidersModule, OrganizationsModule],
       controllers: createUserDataControllers(),
       providers: [
         { provide: USER_DATA_OPTIONS, useValue: resolved },
+        { provide: USER_DATA_ENVIRONMENT, useClass: resolved.environment },
+        UserDataRegistriesDoctorCheck,
         ...exported,
         UserDataPurgeHandler,
         LegacyUserDataPurgeHandlers,

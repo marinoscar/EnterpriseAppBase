@@ -10,6 +10,9 @@ export {
 } from './user-data.options';
 export type { JobReference, ResolvedUserDataModuleOptions, UserDataModuleOptions } from './user-data.options';
 export { USER_DATA_DB, USER_DATA_ENVIRONMENT } from './ports';
+export { DefaultUserDataEnvironment } from './default-environment';
+export { composedSchemaDatamodel, findComposedSchemaPath } from './composed-schema';
+export { UserDataRegistriesDoctorCheck } from './doctor/user-data-registries.doctor-check';
 export type { UserDataDbPort, UserDataEnvironment, UserDataSystemReason } from './ports';
 export type {
   FactoryResetStepContext,
