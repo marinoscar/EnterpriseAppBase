@@ -17,7 +17,7 @@ import { http, HttpResponse } from 'msw';
 import { Route, Routes } from 'react-router-dom';
 import { render, mockUser, mockAdminUser } from '../utils/test-utils';
 import { server } from '../mocks/server';
-import UserAiKeysPage from '../../pages/UserAiKeysPage';
+import UserAiKeysPage from '@marinoscar/platform-web/ai/ui/keys-page';
 import UserSettingsHubPage from '../../pages/UserSettingsHubPage';
 import { RequireAiEnabled } from '../../components/common/RequireAiEnabled';
 import { mockUserSettings } from '../mocks/data';
@@ -32,7 +32,7 @@ import {
   mockUserAiKeysNone,
   mockUsableAiModelsMixed,
 } from '../mocks/fixtures/ai';
-import type { AiPublicConfig, UserAiKey } from '../../services/ai';
+import type { AiPublicConfig, UserAiKey } from '@marinoscar/platform-web/ai/headless';
 
 function useConfig(config: AiPublicConfig) {
   server.use(http.get('*/api/ai/config', () => HttpResponse.json({ data: config })));

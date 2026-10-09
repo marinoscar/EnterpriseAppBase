@@ -163,6 +163,26 @@
       "types": "./dist/ai/ui/index.d.ts",
       "default": "./dist/ai/ui/index.js"
     },
+    "./ai/ui/config-page": {
+      "types": "./dist/ai/ui/config-page.d.ts",
+      "default": "./dist/ai/ui/config-page.js"
+    },
+    "./ai/ui/models-page": {
+      "types": "./dist/ai/ui/models-page.d.ts",
+      "default": "./dist/ai/ui/models-page.js"
+    },
+    "./ai/ui/usage-page": {
+      "types": "./dist/ai/ui/usage-page.d.ts",
+      "default": "./dist/ai/ui/usage-page.js"
+    },
+    "./ai/ui/keys-page": {
+      "types": "./dist/ai/ui/keys-page.d.ts",
+      "default": "./dist/ai/ui/keys-page.js"
+    },
+    "./ai/ui/playground-page": {
+      "types": "./dist/ai/ui/playground-page.d.ts",
+      "default": "./dist/ai/ui/playground-page.js"
+    },
     "./db-backup/headless": {
       "types": "./dist/db-backup/headless/index.d.ts",
       "default": "./dist/db-backup/headless/index.js"
@@ -216,7 +236,7 @@
     "prepack": "node ../../scripts/copy-license.mjs",
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p test/telemetry && tsc --noEmit -p test/notifications",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p test/telemetry && tsc --noEmit -p test/notifications && tsc --noEmit -p test/ai",
     "docs": "typedoc --options typedoc.json",
     "test": "vitest",
     "test:run": "vitest run"

@@ -1,14 +1,16 @@
 /**
- * `useUserAiKeys` (#430) against the MSW network — the real `services/ai`
- * client and the real `ApiError` translation, so the `details.reason` shape
+ * `useUserAiKeys` (#430) against the MSW network — the packaged
+ * client and the host's `PlatformApiError` translation, so the `details.reason` shape
  * the page switches on is exercised end to end.
  */
 import { describe, it, expect } from 'vitest';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act, waitFor } from '@testing-library/react';
+import { renderHook } from '../utils/test-utils';
 import { http, HttpResponse } from 'msw';
 import { server } from '../mocks/server';
-import { useUserAiKeys } from '../../hooks/useUserAiKeys';
-import { ApiError } from '../../services/api';
+import { useUserAiKeys } from '@marinoscar/platform-web/ai/headless';
+import { isPlatformApiError } from '@marinoscar/platform-web/core';
+import type { PlatformApiError } from '@marinoscar/platform-web/core';
 import {
   mockAiKeyInvalidErrorBody,
   mockAiProbeResultFailed,
@@ -82,9 +84,9 @@ describe('useUserAiKeys', () => {
       }
     });
 
-    expect(thrown).toBeInstanceOf(ApiError);
-    expect((thrown as ApiError).status).toBe(400);
-    expect((thrown as ApiError).details).toEqual({ reason: 'AI_KEY_INVALID' });
+    expect(isPlatformApiError(thrown)).toBe(true);
+    expect((thrown as PlatformApiError).status).toBe(400);
+    expect((thrown as PlatformApiError).details).toEqual({ reason: 'AI_KEY_INVALID' });
     expect(result.current.keys).toEqual(mockUserAiKeysNone);
     expect(result.current.error).toBeNull();
   });

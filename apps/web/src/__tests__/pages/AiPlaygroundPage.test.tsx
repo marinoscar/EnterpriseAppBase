@@ -24,10 +24,10 @@ import {
   mockPlaygroundModels,
 } from '../mocks/fixtures/ai';
 import { controlledAiStream } from '../utils/aiStream';
-import AiPlaygroundPage from '../../pages/AiPlaygroundPage';
-import { AiConfigContext, type UseAiConfigReturn } from '../../hooks/useAiConfig';
-import { AI_RUN_POLL_INTERVAL_MS } from '../../hooks/useAiRun';
-import type { AiRunStatus, UsableAiModel } from '../../services/ai';
+import AiPlaygroundPage from '@marinoscar/platform-web/ai/ui/playground-page';
+import { AiConfigContext, type UseAiConfigReturn } from '@marinoscar/platform-web/ai/headless';
+import { AI_RUN_POLL_INTERVAL_MS } from '@marinoscar/platform-web/ai/headless';
+import type { AiRunStatus, UsableAiModel } from '@marinoscar/platform-web/ai/headless';
 
 function serveModels(models: UsableAiModel[] = mockPlaygroundModels) {
   server.use(http.get('*/api/ai/models', () => HttpResponse.json({ data: models })));

@@ -19,7 +19,7 @@ import userEvent from '@testing-library/user-event';
 import { delay, http, HttpResponse } from 'msw';
 import { render, mockAdminUser } from '../../utils/test-utils';
 import { server } from '../../mocks/server';
-import AiModelsPage from '../../../pages/Admin/AiModelsPage';
+import AiModelsPage from '@marinoscar/platform-web/ai/ui/models-page';
 import { mockAiAdminConfig, mockAiModelList } from '../../mocks/fixtures/ai';
 
 interface Captured {

@@ -1,5 +1,6 @@
 import { ReactElement, ReactNode } from 'react';
-import { render, RenderOptions, RenderResult } from '@testing-library/react';
+import { render, renderHook as rtlRenderHook, RenderOptions, RenderResult } from '@testing-library/react';
+import type { RenderHookOptions } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { CssBaseline } from '@mui/material';
 import { vi } from 'vitest';
@@ -8,7 +9,7 @@ import { vi } from 'vitest';
 import { AuthContext, IdentityWebAdaptersProvider } from '@marinoscar/platform-web/identity/headless';
 import type { AuthProviderInfo as AuthProviderType } from '@marinoscar/platform-web/identity/headless';
 import { ThemeContextProvider } from '../../contexts/ThemeContext';
-import { AiConfigContext, type UseAiConfigReturn } from '../../hooks/useAiConfig';
+import { AiConfigContext, type UseAiConfigReturn } from '@marinoscar/platform-web/ai/headless';
 import {
   mockAiPublicConfigDisabled,
   mockAiPublicConfigEnabled,
@@ -26,6 +27,8 @@ import {
 import { AppPlatformHostProvider } from '../../platform/platformHost';
 import { appIdentityAdapters } from '../../platform/identityAdapters';
 import { appTelemetryAdapters } from '../../platform/telemetryAdapters';
+import { appAiAdapters } from '../../platform/aiAdapters';
+import { AiWebAdaptersProvider } from '@marinoscar/platform-web/ai/headless';
 import { JobsWebAdaptersProvider } from '@marinoscar/platform-web/jobs/headless';
 import { appJobsAdapters } from '../../platform/jobsAdapters';
 import { DbBackupWebAdaptersProvider } from '@marinoscar/platform-web/db-backup/headless';
@@ -255,7 +258,9 @@ export function createWrapper(options: WrapperOptions = {}) {
       <TelemetryWebAdaptersProvider adapters={appTelemetryAdapters}>
         <JobsWebAdaptersProvider adapters={appJobsAdapters}>
           <DbBackupWebAdaptersProvider adapters={appDbBackupAdapters}>
-            <AppPlatformHostProvider>{children}</AppPlatformHostProvider>
+            <AiWebAdaptersProvider adapters={appAiAdapters}>
+              <AppPlatformHostProvider>{children}</AppPlatformHostProvider>
+            </AiWebAdaptersProvider>
           </DbBackupWebAdaptersProvider>
         </JobsWebAdaptersProvider>
       </TelemetryWebAdaptersProvider>
@@ -310,3 +315,17 @@ export function renderWithProviders(
 // Re-export everything from testing library
 export * from '@testing-library/react';
 export { renderWithProviders as render };
+
+/**
+ * `renderHook` inside the same providers `render` mounts (the real platform
+ * host, so a packaged hook reaches the app's transport). The packaged hooks
+ * read their transport from the host (#890).
+ */
+export function renderHookWithProviders<Result, Props>(
+  hook: (props: Props) => Result,
+  options: Omit<RenderHookOptions<Props>, 'wrapper'> & { wrapperOptions?: WrapperOptions } = {},
+) {
+  const { wrapperOptions, ...rest } = options;
+  return rtlRenderHook(hook, { ...rest, wrapper: createWrapper(wrapperOptions) });
+}
+export { renderHookWithProviders as renderHook };

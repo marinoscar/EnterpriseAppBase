@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act, waitFor } from '@testing-library/react';
+import { renderHook } from '../utils/test-utils';
 import { http, HttpResponse } from 'msw';
 import { server } from '../mocks/server';
 import { aiErrorBody, mockAiResponse, mockAiRun } from '../mocks/fixtures/ai';
@@ -8,8 +9,8 @@ import {
   AI_RUN_POLL_INTERVAL_MS,
   isAiRunTerminal,
   useAiRun,
-} from '../../hooks/useAiRun';
-import type { AiRun, AiRunStatus } from '../../services/ai';
+} from '@marinoscar/platform-web/ai/headless';
+import type { AiRun, AiRunStatus } from '@marinoscar/platform-web/ai/headless';
 
 /**
  * `useAiRun` — issue #434. Real timers with a 10 ms interval: short enough to

@@ -11,7 +11,7 @@ import { AuthContext } from '@marinoscar/platform-web/identity/headless';
 import { TelemetryConfigContext, type UseTelemetryConfigReturn } from '@marinoscar/platform-web/telemetry/headless';
 
 import { useSettingsFeatures } from '../../hooks/useSettingsFeatures';
-import { AiConfigContext, type UseAiConfigReturn } from '../../hooks/useAiConfig';
+import { AiConfigContext, type UseAiConfigReturn } from '@marinoscar/platform-web/ai/headless';
 import { mockAiPublicConfigEnabled } from '../mocks/fixtures/ai';
 import { mockTelemetryPublicConfigEnabled } from '../mocks/fixtures/telemetry';
 

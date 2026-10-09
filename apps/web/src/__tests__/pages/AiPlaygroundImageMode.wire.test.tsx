@@ -19,8 +19,8 @@ import {
   mockPlaygroundAllModeModels,
   mockStorageObject,
 } from '../mocks/fixtures/ai';
-import AiPlaygroundPage from '../../pages/AiPlaygroundPage';
-import { AI_RUN_POLL_INTERVAL_MS } from '../../hooks/useAiRun';
+import AiPlaygroundPage from '@marinoscar/platform-web/ai/ui/playground-page';
+import { AI_RUN_POLL_INTERVAL_MS } from '@marinoscar/platform-web/ai/headless';
 import { api } from '../../services/api';
 import { readMultipartFile } from '../utils/multipart';
 

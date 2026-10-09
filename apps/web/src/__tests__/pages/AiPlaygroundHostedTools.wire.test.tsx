@@ -17,8 +17,8 @@ import {
   mockPlaygroundHostedToolsModel,
   toSseBody,
 } from '../mocks/fixtures/ai';
-import AiPlaygroundPage from '../../pages/AiPlaygroundPage';
-import { AiConfigContext, type UseAiConfigReturn } from '../../hooks/useAiConfig';
+import AiPlaygroundPage from '@marinoscar/platform-web/ai/ui/playground-page';
+import { AiConfigContext, type UseAiConfigReturn } from '@marinoscar/platform-web/ai/headless';
 
 function capture() {
   const bodies: { stream: unknown[]; runs: unknown[] } = { stream: [], runs: [] };

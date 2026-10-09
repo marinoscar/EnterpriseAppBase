@@ -26,12 +26,12 @@ import {
   mockPlaygroundModels,
   toSseBody,
 } from '../mocks/fixtures/ai';
-import { AiConfigContext, type UseAiConfigReturn } from '../../hooks/useAiConfig';
-import AiPlaygroundPage from '../../pages/AiPlaygroundPage';
-import { AI_SCHEMA_PRESETS } from '../../components/ai/aiSchemaPresets';
-import { AI_RUN_POLL_INTERVAL_MS } from '../../hooks/useAiRun';
+import { AiConfigContext, type UseAiConfigReturn } from '@marinoscar/platform-web/ai/headless';
+import AiPlaygroundPage from '@marinoscar/platform-web/ai/ui/playground-page';
+import { AI_SCHEMA_PRESETS } from '@marinoscar/platform-web/ai/headless';
+import { AI_RUN_POLL_INTERVAL_MS } from '@marinoscar/platform-web/ai/headless';
 import { api } from '../../services/api';
-import type { AiResponse } from '../../services/ai';
+import type { AiResponse } from '@marinoscar/platform-web/ai/headless';
 
 interface Captured {
   url: URL;

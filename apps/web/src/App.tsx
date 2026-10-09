@@ -131,15 +131,15 @@ const AdminUsersPage = lazy(() =>
   import('@marinoscar/platform-web/identity/ui').then((m) => ({ default: m.UsersPage })),
 );
 // Issue #425, epic #419 — placeholders, filled in by #429, #430 and #434.
-const AiConfigPage = lazy(() => import('./pages/Admin/AiConfigPage'));
-const AiModelsPage = lazy(() => import('./pages/Admin/AiModelsPage'));
+const AiConfigPage = lazy(() => import('@marinoscar/platform-web/ai/ui/config-page'));
+const AiModelsPage = lazy(() => import('@marinoscar/platform-web/ai/ui/models-page'));
 // Issue #444, epic #420 — AI usage aggregates.
-const AiUsagePage = lazy(() => import('./pages/Admin/AiUsagePage'));
+const AiUsagePage = lazy(() => import('@marinoscar/platform-web/ai/ui/usage-page'));
 // Issue #739 (PP-8.6) — the active organization's own AI keys, the AI slice's
 // packaged page (`@marinoscar/platform-web/ai/ui`).
 const OrgAiKeysPage = lazy(() => import('@marinoscar/platform-web/ai/ui'));
-const UserAiKeysPage = lazy(() => import('./pages/UserAiKeysPage'));
-const AiPlaygroundPage = lazy(() => import('./pages/AiPlaygroundPage'));
+const UserAiKeysPage = lazy(() => import('@marinoscar/platform-web/ai/ui/keys-page'));
+const AiPlaygroundPage = lazy(() => import('@marinoscar/platform-web/ai/ui/playground-page'));
 // Issue #537, epic #528 — the telemetry policy page and the SQL explorer. Lazy
 // like every admin page; the explorer additionally lazy-loads its CodeMirror
 // editor, so neither weighs on the entry chunk. Packaged since #704

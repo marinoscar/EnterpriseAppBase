@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act, waitFor } from '@testing-library/react';
+import { renderHook } from '../utils/test-utils';
 import { http, HttpResponse } from 'msw';
 import { server } from '../mocks/server';
 import {
@@ -10,8 +11,8 @@ import {
   mockAiStructuredResponse,
 } from '../mocks/fixtures/ai';
 import { controlledAiStream } from '../utils/aiStream';
-import { buildHistoryInput, useAiChat, type AiChatMessage } from '../../hooks/useAiChat';
-import type { AiChatAttachment } from '../../components/ai/playground/chatAttachments';
+import { buildHistoryInput, useAiChat, type AiChatMessage } from '@marinoscar/platform-web/ai/headless';
+import type { AiChatAttachment } from '@marinoscar/platform-web/ai/headless';
 
 /**
  * `useAiChat` — issue #434. Streaming against a hand-driven MSW

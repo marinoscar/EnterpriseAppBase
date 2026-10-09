@@ -24,7 +24,7 @@ import {
   useSettingsFeatures as usePlatformSettingsFeatures,
 } from '@marinoscar/platform-web/settings/headless';
 import type { SettingsFeatures } from '@marinoscar/platform-web/settings/headless';
-import { useAiFeatures } from './useAiConfig';
+import { useAiFeatures } from '@marinoscar/platform-web/ai/headless';
 import { useOrgsFeature } from '@marinoscar/platform-web/identity/headless';
 
 declare module '@marinoscar/platform-web/settings/headless' {

@@ -22,9 +22,9 @@ import {
   mockSignedUrl,
   toSseBody,
 } from '../mocks/fixtures/ai';
-import AiPlaygroundPage from '../../pages/AiPlaygroundPage';
-import { AiConfigContext, type UseAiConfigReturn } from '../../hooks/useAiConfig';
-import type { AiPublicConfig } from '../../services/ai';
+import AiPlaygroundPage from '@marinoscar/platform-web/ai/ui/playground-page';
+import { AiConfigContext, type UseAiConfigReturn } from '@marinoscar/platform-web/ai/headless';
+import type { AiPublicConfig } from '@marinoscar/platform-web/ai/headless';
 
 async function renderChat(config: AiPublicConfig = mockAiPublicConfigHostedTools) {
   const user = userEvent.setup();

@@ -3,7 +3,7 @@ import { renderHook, act, waitFor } from '@testing-library/react';
 import {
   useMicrophonePermission,
   detectMicPlatform,
-} from '../../hooks/useMicrophonePermission';
+} from '@marinoscar/platform-web/ai/headless';
 
 /**
  * Issue #508. This hook OBSERVES the microphone permission up front (so the

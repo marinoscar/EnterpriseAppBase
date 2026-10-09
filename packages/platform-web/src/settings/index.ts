@@ -10,6 +10,7 @@ export type {
   SettingsFeatureKey,
   SettingsFeatures,
   UseUserSettingsOptions,
+  UseUserSettingsResult,
   UserSettingsDocument,
   UserSettingsUpdateBase,
 } from './headless/index.js';

@@ -15,8 +15,8 @@ import {
   mockAiPublicConfigEnabled,
   mockPlaygroundAllModeModels,
 } from '../mocks/fixtures/ai';
-import AiPlaygroundPage from '../../pages/AiPlaygroundPage';
-import { AiConfigContext, type UseAiConfigReturn } from '../../hooks/useAiConfig';
+import AiPlaygroundPage from '@marinoscar/platform-web/ai/ui/playground-page';
+import { AiConfigContext, type UseAiConfigReturn } from '@marinoscar/platform-web/ai/headless';
 
 async function renderEmbeddingsMode() {
   const user = userEvent.setup();

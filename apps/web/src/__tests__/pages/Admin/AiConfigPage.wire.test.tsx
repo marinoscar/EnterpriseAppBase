@@ -22,8 +22,8 @@ import { http, HttpResponse } from 'msw';
 import { render, mockAdminUser } from '../../utils/test-utils';
 import type { MockUser } from '../../utils/test-utils';
 import { server } from '../../mocks/server';
-import AiConfigPage from '../../../pages/Admin/AiConfigPage';
-import type { AiAdminConfig } from '../../../services/ai';
+import AiConfigPage from '@marinoscar/platform-web/ai/ui/config-page';
+import type { AiAdminConfig } from '@marinoscar/platform-web/ai/headless';
 import { mockAiAdminConfig, mockAiProbeResultFailed } from '../../mocks/fixtures/ai';
 
 const TYPED_KEY = 'sk-wire-test-key-NEVER-RENDERED-0001';

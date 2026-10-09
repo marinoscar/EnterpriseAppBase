@@ -13,9 +13,9 @@ import { http, HttpResponse } from 'msw';
 import { render } from '../utils/test-utils';
 import { server } from '../mocks/server';
 import { aiErrorBody, mockAiPublicConfigEnabled, mockPlaygroundModels } from '../mocks/fixtures/ai';
-import AiPlaygroundPage from '../../pages/AiPlaygroundPage';
-import { AiConfigContext, type UseAiConfigReturn } from '../../hooks/useAiConfig';
-import type { AiPublicConfig, UsableAiModel } from '../../services/ai';
+import AiPlaygroundPage from '@marinoscar/platform-web/ai/ui/playground-page';
+import { AiConfigContext, type UseAiConfigReturn } from '@marinoscar/platform-web/ai/headless';
+import type { AiPublicConfig, UsableAiModel } from '@marinoscar/platform-web/ai/headless';
 import {
   FAKE_CLIENT_SECRET,
   installFakeWebRtc,
