@@ -12,7 +12,12 @@
 
 import { z } from 'zod';
 
-import { MAX_NODE_CONCURRENCY, MAX_NODE_CREDENTIAL_DAYS, MAX_NODE_ELIGIBLE_TYPES } from './constants.js';
+import {
+  MAX_NODE_CONCURRENCY,
+  MAX_NODE_CREDENTIAL_DAYS,
+  MAX_NODE_CREDENTIAL_NAME_LENGTH,
+  MAX_NODE_ELIGIBLE_TYPES,
+} from './constants.js';
 
 /**
  * The entries of the status a node may report about itself.
@@ -167,7 +172,7 @@ export const createNodeCredentialSchema = z.object({
     .string()
     .trim()
     .min(1, 'Name is required')
-    .max(100, 'Name must be 100 characters or less'),
+    .max(MAX_NODE_CREDENTIAL_NAME_LENGTH, 'Name must be 100 characters or less'),
 
   // Optional ON PURPOSE — see the file header. Omitted means `expiresAt: null`
   // in the row, which `validateToken` treats as "no expiry to check", not as
@@ -482,7 +487,7 @@ export const registerNodeSchema = z.object({
    * file rather than being generated at startup: a generated name makes every
    * container restart a new node row.
    */
-  name: z.string().trim().min(1, 'Name is required').max(100, 'Name must be 100 characters or less'),
+  name: z.string().trim().min(1, 'Name is required').max(MAX_NODE_CREDENTIAL_NAME_LENGTH, 'Name must be 100 characters or less'),
 
   /** The machine's hostname, as the node reports it. */
   hostname: z.string().trim().min(1).max(255),

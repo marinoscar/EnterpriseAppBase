@@ -6,8 +6,32 @@
 export {
   MAX_NODE_CONCURRENCY,
   MAX_NODE_CREDENTIAL_DAYS,
+  MAX_NODE_CREDENTIAL_NAME_LENGTH,
   MAX_NODE_ELIGIBLE_TYPES,
+  NODE_HEALTHS,
+  NODE_STATUSES,
 } from './constants.js';
+// ---- ./admin-schemas.ts: the admin fleet's response shapes (#881)
+export {
+  adminNodeCredentialSchema,
+  adminNodeSchema,
+  nodeCredentialCreatedSchema,
+  nodeCredentialListItemSchema,
+  nodeJobCountsSchema,
+  nodeOwnerSchema,
+} from './admin-schemas.js';
+export type {
+  AdminNode,
+  AdminNodeCredential,
+  NodeCredentialCreated,
+  NodeCredentialListItem,
+  NodeHealth,
+  NodeHealthEnum,
+  NodeJobCounts,
+  NodeOwner,
+  NodeStatus,
+  NodeStatusEnum,
+} from './admin-schemas.js';
 export {
   claimJobsSchema,
   claimTokenField,
