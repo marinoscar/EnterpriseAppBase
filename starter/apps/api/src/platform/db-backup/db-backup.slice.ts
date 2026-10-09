@@ -8,8 +8,6 @@ import type { ApiSlice } from '../slices/slice';
 
 export const dbBackupSlice: ApiSlice = {
   id: 'db-backup',
-  label: 'Database backup and restore (pg_dump to object storage)',
-  requires: ['storage', 'notifications'],
   permissionSlices: ['db-backup'],
   contribute: () => {
     const backup = require('@marinoscar/platform-api/db-backup') as typeof import('@marinoscar/platform-api/db-backup');

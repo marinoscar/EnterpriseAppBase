@@ -12,8 +12,6 @@ import type { ApiSlice } from '../slices/slice';
 
 export const aiSlice: ApiSlice = {
   id: 'ai',
-  label: 'AI gateway: providers, keys, models, usage, admin pages',
-  requires: ['credentials', 'storage'],
   permissionSlices: ['ai'],
   contribute: () => {
     const ai = require('@marinoscar/platform-api/ai') as typeof import('@marinoscar/platform-api/ai');

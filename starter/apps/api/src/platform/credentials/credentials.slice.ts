@@ -5,8 +5,6 @@ import type { ApiSlice } from '../slices/slice';
 
 export const credentialsSlice: ApiSlice = {
   id: 'credentials',
-  label: 'Encrypted credential store (deployment, user and organization tiers)',
-  requires: [],
   contribute: () => {
     const { APP_CREDENTIAL_PURPOSES } = require('./credential-purposes') as typeof import('./credential-purposes');
     return { credentialPurposes: APP_CREDENTIAL_PURPOSES };

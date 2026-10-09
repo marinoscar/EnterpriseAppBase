@@ -8,6 +8,9 @@
 // and one minimal example, kept in `src/platform/<id>/` and described to the
 // rest of the app by an `ApiSlice` (`./definitions.ts` lists them all).
 //
+// What each slice requires, its label and the order they mount in are the
+// catalog in `slices.json` (validated by `@app/shared`, shared with the web app).
+//
 // A slice definition is DATA PLUS LAZY LOADERS: importing one runs nothing,
 // so a disabled slice costs no `forRoot()`, no registry entry and no route.
 // Everything that touches a static registry or builds a Nest module lives
@@ -17,21 +20,9 @@
 import type { DynamicModule, Provider, Type } from '@nestjs/common';
 import type { PlatformPermissionSlice } from '@marinoscar/platform-api/manifest';
 
-/** Every optional slice the starter can mount, in mount order (dependencies first). */
-export const SLICE_IDS = [
-  'credentials',
-  'storage',
-  'email',
-  'notifications',
-  'sharing',
-  'ai',
-  'db-backup',
-  'exports',
-  'onboarding',
-  'android-app',
-] as const;
+import type { SliceId } from '@app/shared';
 
-export type SliceId = (typeof SLICE_IDS)[number];
+export { SLICE_IDS, type SliceId } from '@app/shared';
 
 /** A Nest module a slice mounts. */
 export type SliceModule = Type<unknown> | DynamicModule;
@@ -72,10 +63,6 @@ export interface SliceUserDataOptions {
 
 export interface ApiSlice {
   readonly id: SliceId;
-  /** One line for the README table and for error messages. */
-  readonly label: string;
-  /** Slices that must be enabled with this one (the dependency, not a preference). */
-  readonly requires: readonly SliceId[];
   /** The slice's name in `PlatformPermissionOptions.slices`, when it declares permissions (seeded by `prisma:seed`). */
   readonly permissionSlices?: readonly PlatformPermissionSlice[];
   /** The slice's registry contributions. Lazy: evaluated for an enabled slice only. */
@@ -101,35 +88,4 @@ export interface ApiSlice {
    * A provider replaces the default of the same token.
    */
   readonly hostPorts?: (enabled: EnabledSlices) => readonly Provider[];
-}
-
-/** Thrown for a manifest the app cannot start with; names the slice and the fix. */
-export class SliceManifestError extends Error {}
-
-/**
- * Validates the manifest and returns the enabled slices in mount order:
- * an unknown id, a duplicate, or a slice whose `requires` is not enabled throws
- * with the line to add or remove.
- */
-export function resolveSlices(ids: readonly string[], definitions: Readonly<Record<SliceId, ApiSlice>>): readonly ApiSlice[] {
-  const known = new Set<string>(SLICE_IDS);
-  const seen = new Set<string>();
-  for (const id of ids) {
-    if (!known.has(id)) {
-      throw new SliceManifestError(`packages/shared/slices.json: unknown slice "${id}". Known slices: ${SLICE_IDS.join(', ')}.`);
-    }
-    if (seen.has(id)) throw new SliceManifestError(`packages/shared/slices.json: slice "${id}" is listed twice.`);
-    seen.add(id);
-  }
-  const enabled = SLICE_IDS.filter((id) => seen.has(id)).map((id) => definitions[id]);
-  for (const slice of enabled) {
-    const missing = slice.requires.filter((id) => !seen.has(id));
-    if (missing.length > 0) {
-      throw new SliceManifestError(
-        `packages/shared/slices.json: slice "${slice.id}" requires ${missing.map((id) => `"${id}"`).join(', ')}. ` +
-          `Add ${missing.length === 1 ? 'it' : 'them'} to "enabled", or remove "${slice.id}" too.`,
-      );
-    }
-  }
-  return enabled;
 }

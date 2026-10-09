@@ -7,8 +7,6 @@ import type { ApiSlice } from '../slices/slice';
 
 export const notificationsSlice: ApiSlice = {
   id: 'notifications',
-  label: 'Notifications: inbox, preferences, email, Web Push, broadcasts',
-  requires: ['email'],
   permissionSlices: ['notifications'],
   contribute: () => {
     const notifications = require('@marinoscar/platform-api/notifications') as typeof import('@marinoscar/platform-api/notifications');

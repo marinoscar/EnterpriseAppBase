@@ -33,9 +33,43 @@ exports.ANDROID_IDENTITY_SOURCE = Object.freeze({
   ...(identity.android ? { android: Object.freeze({ ...identity.android }) } : {}),
 });
 
-// The optional platform slices this app mounts, from slices.json (the slice manifest).
-// The API and the web app validate the ids against their own slice definitions.
-const slices = require('./slices.json');
+// The optional platform slices this app mounts, from slices.json (the slice
+// manifest). Validated here, once, so the API and the web app (which both import
+// this) fail at startup with the same message and never disagree about the list.
+const manifest = require('./slices.json');
 
-/** The ids in `slices.json` `enabled`, in file order. */
-exports.ENABLED_SLICES = Object.freeze([...slices.enabled]);
+/** Every optional slice the starter can mount, in mount order (dependencies first). */
+exports.SLICE_IDS = Object.freeze(Object.keys(manifest.catalog));
+
+/** `{ [id]: { label, requires } }` for every slice, in mount order. */
+exports.SLICE_CATALOG = Object.freeze(manifest.catalog);
+
+/**
+ * Validates a list of slice ids against the catalog and returns it in mount
+ * order: an unknown id, a duplicate, or a slice whose `requires` is not in the
+ * list throws, naming the slice and the line to add or remove.
+ */
+function resolveSliceIds(ids, catalog = manifest.catalog) {
+  const known = Object.keys(catalog);
+  const seen = new Set();
+  for (const id of ids) {
+    if (!known.includes(id)) throw new Error(`packages/shared/slices.json: unknown slice "${id}". Known slices: ${known.join(', ')}.`);
+    if (seen.has(id)) throw new Error(`packages/shared/slices.json: slice "${id}" is listed twice.`);
+    seen.add(id);
+  }
+  const ordered = known.filter((id) => seen.has(id));
+  for (const id of ordered) {
+    const missing = catalog[id].requires.filter((required) => !seen.has(required));
+    if (missing.length > 0) {
+      throw new Error(
+        `packages/shared/slices.json: slice "${id}" requires ${missing.map((m) => `"${m}"`).join(', ')}. ` +
+          `Add ${missing.length === 1 ? 'it' : 'them'} to "enabled", or remove "${id}" too.`,
+      );
+    }
+  }
+  return ordered;
+}
+exports.resolveSliceIds = resolveSliceIds;
+
+/** The ids in `slices.json` `enabled`, validated, in mount order. */
+exports.ENABLED_SLICES = Object.freeze(resolveSliceIds(manifest.enabled));

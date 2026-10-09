@@ -7,8 +7,6 @@ import type { ApiSlice } from '../slices/slice';
 
 export const onboardingSlice: ApiSlice = {
   id: 'onboarding',
-  label: 'First-run onboarding: welcome dialog, Get started, Setup guide',
-  requires: [],
   rawSql: [
     {
       file: 'platform/onboarding/onboarding-data.adapter.ts',

@@ -9,8 +9,6 @@ import type { ApiSlice } from '../slices/slice';
 
 export const storageSlice: ApiSlice = {
   id: 'storage',
-  label: 'Object storage: uploads, profile pictures, the storage admin page',
-  requires: ['credentials'],
   permissionSlices: ['storage'],
   contribute: () => {
     const { STORAGE_SLICE_KEY_PREFIXES } = require('@marinoscar/platform-api/storage') as typeof import('@marinoscar/platform-api/storage');

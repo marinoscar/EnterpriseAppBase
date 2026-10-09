@@ -9,8 +9,7 @@
 // import time, so two compositions cannot share a process any other way.
 import type { TestingModule } from '@nestjs/testing';
 
-import { ALL_SLICES } from '../src/platform/slices/definitions';
-import { SLICE_IDS, type SliceId } from '../src/platform/slices/slice';
+import { SLICE_CATALOG, SLICE_IDS, type SliceId } from '@app/shared';
 
 /** A class that only an enabled slice provides, to probe for. Loaded inside the isolated registry. */
 const PROBES: Readonly<Record<SliceId, { module: string; name: string }>> = {
@@ -40,7 +39,7 @@ function closureOf(id: SliceId): SliceId[] {
   const visit = (next: SliceId): void => {
     if (closure.has(next)) return;
     closure.add(next);
-    ALL_SLICES[next].requires.forEach(visit);
+    SLICE_CATALOG[next].requires.forEach(visit);
   };
   visit(id);
   return [...closure];
@@ -59,7 +58,11 @@ interface Composition {
 async function compose(enabled: readonly SliceId[]): Promise<Composition> {
   let load!: () => Promise<Composition>;
   jest.isolateModules(() => {
-    jest.doMock('@app/shared', () => ({ ...jest.requireActual('@app/shared'), ENABLED_SLICES: [...enabled] }));
+    jest.doMock('@app/shared', () => {
+      const actual = jest.requireActual('@app/shared') as typeof import('@app/shared');
+      // As `slices.json` would be: validated, in mount order.
+      return { ...actual, ENABLED_SLICES: actual.resolveSliceIds(enabled) };
+    });
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { Test } = require('@nestjs/testing') as typeof import('@nestjs/testing');
     const { AppModule } = require('../src/app.module') as typeof import('../src/app.module');

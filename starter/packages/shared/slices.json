@@ -1,5 +1,5 @@
 {
-  "$comment": "THE slice manifest: which optional platform slices this app mounts. The API (apps/api/src/platform/slices) and the web app (apps/web/src/slices) both read this one list, so they never disagree. Remove a line to drop a slice (and, with it, anything that requires it: a slice that requires a disabled one fails at startup naming both); add its id back to turn it on. Order does not matter. README, 'Optional slices' has the table.",
+  "$comment": "THE slice manifest: which optional platform slices this app mounts. `enabled` is the list you edit: remove a line to drop a slice, add an id to turn one on; order does not matter. `catalog` is the fixed list of slices the starter can mount, in mount order, with what each requires: the API (apps/api/src/platform/slices) and the web app (apps/web/src/slices) both read this one file and refuse to start when an enabled slice requires one that is not (the error names both). README, 'Optional slices' has the table.",
   "enabled": [
     "credentials",
     "storage",
@@ -11,5 +11,47 @@
     "exports",
     "onboarding",
     "android-app"
-  ]
+  ],
+  "catalog": {
+    "credentials": {
+      "label": "Encrypted credential store (deployment, user and organization tiers)",
+      "requires": []
+    },
+    "storage": {
+      "label": "Object storage: uploads, profile pictures, the storage admin page",
+      "requires": ["credentials"]
+    },
+    "email": {
+      "label": "Email: SES and SMTP transports, templates, the email settings page",
+      "requires": ["credentials"]
+    },
+    "notifications": {
+      "label": "Notifications: inbox, preferences, email, Web Push, broadcasts",
+      "requires": ["email"]
+    },
+    "sharing": {
+      "label": "Sharing: groups, invites, grants and link shares",
+      "requires": ["notifications"]
+    },
+    "ai": {
+      "label": "AI gateway: providers, keys, models, usage, admin pages",
+      "requires": ["credentials", "storage"]
+    },
+    "db-backup": {
+      "label": "Database backup and restore (pg_dump to object storage)",
+      "requires": ["storage", "notifications"]
+    },
+    "exports": {
+      "label": "Data export: signed downloads of a user's or an organization's data",
+      "requires": ["storage", "notifications"]
+    },
+    "onboarding": {
+      "label": "First-run onboarding: welcome dialog, Get started, Setup guide",
+      "requires": []
+    },
+    "android-app": {
+      "label": "Android companion: TWA trust, hosted APK releases, push channel",
+      "requires": ["storage", "notifications"]
+    }
+  }
 }

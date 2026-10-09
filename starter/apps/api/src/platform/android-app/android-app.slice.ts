@@ -7,8 +7,6 @@ import type { ApiSlice } from '../slices/slice';
 
 export const androidAppSlice: ApiSlice = {
   id: 'android-app',
-  label: 'Android companion: TWA trust, hosted APK releases, push channel',
-  requires: ['storage', 'notifications'],
   contribute: () => {
     const android = require('@marinoscar/platform-api/android-app') as typeof import('@marinoscar/platform-api/android-app');
     // `android-releases/`: kept by the factory reset.

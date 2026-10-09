@@ -29,5 +29,29 @@ export declare const ANDROID_IDENTITY_SOURCE: {
     readonly apkStem?: string;
   };
 };
-/** The optional platform slices this app mounts: the ids in `slices.json` `enabled`, in file order. */
-export declare const ENABLED_SLICES: readonly string[];
+/** An optional platform slice the starter can mount (`slices.json` `catalog`). */
+export type SliceId =
+  | 'credentials'
+  | 'storage'
+  | 'email'
+  | 'notifications'
+  | 'sharing'
+  | 'ai'
+  | 'db-backup'
+  | 'exports'
+  | 'onboarding'
+  | 'android-app';
+/** Every optional slice the starter can mount, in mount order (dependencies first). */
+export declare const SLICE_IDS: readonly SliceId[];
+/** What each slice is and requires, in mount order. */
+export declare const SLICE_CATALOG: Readonly<Record<SliceId, { readonly label: string; readonly requires: readonly SliceId[] }>>;
+/**
+ * Validates slice ids against the catalog and returns them in mount order; throws on an unknown id, a
+ * duplicate or a missing requirement, naming the slice and the line to add or remove.
+ */
+export declare function resolveSliceIds(
+  ids: readonly string[],
+  catalog?: Readonly<Record<string, { readonly requires: readonly string[] }>>,
+): readonly SliceId[];
+/** The slices this app mounts: `slices.json` `enabled`, validated, in mount order. */
+export declare const ENABLED_SLICES: readonly SliceId[];

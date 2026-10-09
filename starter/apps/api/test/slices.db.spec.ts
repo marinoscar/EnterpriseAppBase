@@ -6,7 +6,7 @@
 import type { NestFastifyApplication } from '@nestjs/platform-fastify';
 
 import { createApp } from '../src/main';
-import { SLICE_IDS, type SliceId } from '../src/platform/slices/slice';
+import { SLICE_IDS, type SliceId } from '@app/shared';
 import { isSliceEnabled } from '../src/platform/slices/manifest';
 
 interface Probe {

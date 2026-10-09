@@ -6,8 +6,6 @@ import type { ApiSlice } from '../slices/slice';
 
 export const exportsSlice: ApiSlice = {
   id: 'exports',
-  label: 'Data export: signed downloads of a user\'s or an organization\'s data',
-  requires: ['storage', 'notifications'],
   contribute: () => {
     const exports = require('@marinoscar/platform-api/exports') as typeof import('@marinoscar/platform-api/exports');
     const { EXPORTS_NOTIFICATIONS } = require('./exports.notifications') as typeof import('./exports.notifications');

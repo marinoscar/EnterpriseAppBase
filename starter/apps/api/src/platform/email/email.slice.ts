@@ -6,8 +6,6 @@ import type { ApiSlice } from '../slices/slice';
 
 export const emailSlice: ApiSlice = {
   id: 'email',
-  label: 'Email: SES and SMTP transports, templates, the email settings page',
-  requires: ['credentials'],
   contribute: () => {
     const email = require('@marinoscar/platform-api/email') as typeof import('@marinoscar/platform-api/email');
     return { credentialPurposes: [email.SES_CREDENTIAL_PURPOSE_DEF, email.SMTP_CREDENTIAL_PURPOSE_DEF] };

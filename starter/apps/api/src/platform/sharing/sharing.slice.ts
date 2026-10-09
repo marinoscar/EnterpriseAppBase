@@ -6,8 +6,6 @@ import type { ApiSlice } from '../slices/slice';
 
 export const sharingSlice: ApiSlice = {
   id: 'sharing',
-  label: 'Sharing: groups, invites, grants and link shares',
-  requires: ['notifications'],
   permissionSlices: ['sharing'],
   contribute: () => {
     const { SHARING_NOTIFICATIONS, SHARING_EMAIL_TEMPLATES } = require('./sharing.notifications') as typeof import('./sharing.notifications');
