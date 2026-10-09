@@ -262,6 +262,26 @@ Registered by `AndroidAppModule` (`@marinoscar/platform-api/android-app`, #746);
 |---|---|---|---|---|
 | `network.egress` | Outbound dependencies (air-gap readiness) | none | The deployment's outbound dependencies, from every `EgressContributor` registered with `EgressRegistry` (#773): Google sign-in, AI providers, the AI catalog refresh, AI realtime voice, Web Push, email, object storage, GreptimeDB and the API docs CDN. Configuration only: no DNS lookup, no connection. Each host is classified `public`, `private` or `unknown` by shape alone. `data`: `network`, `enabled`, `public`, `private`, `unknown`, `required_public`, `public_ids` (comma-joined, at most 500 characters). The check lives in the package (`NetworkEgressDoctorCheck`) and the host slice's `PlatformHostCoreModule` registers it, next to `DeploymentNetworkService` (the `DEPLOYMENT_NETWORK_SOURCE`). | `DEPLOYMENT_NETWORK=online` (default): always pass, an inventory ("N outbound dependencies enabled (P public, Q private): ..."). `air-gapped`: pass when every enabled dependency is private; warn when only optional ones are public (remedy names [the air-gapped runbook](../runbooks/air-gapped.md)); fail when a required one is public, such as Google as the only sign-in provider (remedy names the runbook section). `unknown` grades as public. A contributor that throws is one `unknown` entry under its id. Never `skip`. |
 
+#### Who registers what (#879)
+
+Every check is registered by the package module that owns its capability, never by app code; `doctor.config.ts` in an app carries options only. The reference app registers no check of its own (its worked example, `apps/api/src/examples/doctor/`, is not mounted).
+
+| Slice (module) | Checks |
+|---|---|
+| host (`PlatformHostCoreModule`) | `db.connection`, `db.migrations`, `db.rls_role`, `secrets.encryption-key`, `core.deployment-mode`, `core.event-bus`, `maintenance.mode`, `network.egress` |
+| identity | `auth.*`, `tenancy.mode` |
+| storage | `storage.config`, `storage.bucket` |
+| email | `email.config` |
+| notifications | `push.vapid` |
+| ai | `ai.enabled`, `ai.providers` |
+| jobs, nodes | `jobs.worker`, `jobs.backlog`, `nodes.fleet` |
+| db-backup | `backup.schedule`, `backup.pg-client`, `backup.rls-bypass` |
+| sharing | `sharing.groups.orphaned` |
+| telemetry | the five `telemetry.*` checks |
+| android-app | `android.assetlinks`, `android.releases` |
+
+Slices with runtime configuration and no check of their own, on purpose: **credentials** (its one deployment fact, `SECRETS_ENCRYPTION_KEY`, is `secrets.encryption-key`, which needs only core's cipher; the slice does not depend on `doctor`), **settings** (the namespaces are validated at boot) and **exports** (it has no configuration of its own: its dependencies are covered by `storage.*` and `jobs.*`).
+
 ### 2.8 The web page
 
 `/admin/settings/doctor` is a registry card and nothing else, per the [Settings UI Pattern](settings-ui.md): the last card of the Observability group in `ADMIN_SECTIONS`, built from the packaged descriptor (`{ ...doctorSettingsPage.card, Icon: doctorSettingsPage.Icon }`), permission `system_settings:read`, and a route in `App.tsx` wrapped in `RequirePermission` with the same string. The page itself is `DoctorPage` from `@marinoscar/platform-web/doctor/ui`; it checks no permission and imports no app code, reading the app through the platform host (`apps/web/src/platform/platformHost.tsx`). The app's `apps/web/src/pages/Admin/DoctorPage.tsx` is the binding: the `system_settings:read` redirect, then the packaged page. Status colours come from the theme's `palette.status` tokens. It carries no `feature`, deliberately: it reports on AI and telemetry while they are off (as `skip`), which is when an administrator asks why a capability is missing.
