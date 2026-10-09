@@ -10,11 +10,13 @@ import { afterAll, describe, expect, it } from 'vitest';
 // `main()` behind `isDirectExecution`, so importing it runs nothing; it just
 // exposes the pure functions (same pattern as check-single-instance.mjs).
 import {
+  checkAppPeers,
   checkRepository,
   closeOver,
   effectivePeers,
   isTestPath,
   packageOfSpecifier,
+  sliceOfPlatformImport,
 } from '../../../scripts/check-slice-peers.mjs';
 
 // =============================================================================
@@ -294,8 +296,68 @@ describe('command line', () => {
   });
 });
 
+describe('checkAppPeers (the consumer side)', () => {
+  /** An app directory importing `imports` and declaring `deps`, beside a fixture repository. */
+  function app(imports: string[], deps: Record<string, string>) {
+    const root = fixture({ files: CLEAN_FILES });
+    const dir = join(root, 'app');
+    mkdirSync(join(dir, 'src'), { recursive: true });
+    mkdirSync(join(dir, 'node_modules', 'ignored'), { recursive: true });
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'app', dependencies: deps }));
+    writeFileSync(join(dir, 'src', 'main.ts'), imports.map((i) => `import '${i}';\n`).join(''));
+    writeFileSync(join(dir, 'node_modules', 'ignored', 'index.js'), "require('@marinoscar/platform-x/feature');\n");
+    return { root, dir };
+  }
+
+  it('maps an import to its slice', () => {
+    expect(sliceOfPlatformImport('@marinoscar/platform-api')).toEqual({ pkg: 'platform-api', slice: 'core' });
+    expect(sliceOfPlatformImport('@marinoscar/platform-api/jobs')).toEqual({ pkg: 'platform-api', slice: 'jobs' });
+    expect(sliceOfPlatformImport('@marinoscar/platform-web/identity/ui')).toEqual({ pkg: 'platform-web', slice: 'identity' });
+    expect(sliceOfPlatformImport('@marinoscar/platform-api/ai/testing')).toEqual({ pkg: 'platform-api', slice: 'ai/testing' });
+    expect(sliceOfPlatformImport('@marinoscar/platform-cli/testing')).toEqual({ pkg: 'platform-cli', slice: 'testing' });
+    expect(sliceOfPlatformImport('react')).toBeNull();
+  });
+
+  it('asks for the optional peer of an imported slice and the peers of the universal slices', () => {
+    const { root, dir } = app(['@marinoscar/platform-x/feature'], {});
+    const { missing } = checkAppPeers(root, dir);
+    expect(missing.map((m) => m.peer).sort()).toEqual(['a', 'b']);
+    expect(missing.find((m) => m.peer === 'b')?.reasons).toEqual(['platform-x:feature']);
+  });
+
+  it('passes once every peer is declared, in dependencies or devDependencies', () => {
+    const { root, dir } = app(['@marinoscar/platform-x/feature'], { a: '^1', b: '^1' });
+    expect(checkAppPeers(root, dir).missing).toEqual([]);
+  });
+
+  it('does not ask for the peers of a slice the app never imports', () => {
+    const { root, dir } = app(['@marinoscar/platform-x'], { a: '^1' });
+    expect(checkAppPeers(root, dir).missing).toEqual([]);
+  });
+
+  it('reports an import of a slice that is not in the graph', () => {
+    const { root, dir } = app(['@marinoscar/platform-x/nope'], { a: '^1', b: '^1' });
+    expect(checkAppPeers(root, dir).unknown.join('\n')).toContain("'nope'");
+  });
+
+  it('exits 1 naming the app, the peer and the slice that brings it', () => {
+    const { root, dir } = app(['@marinoscar/platform-x/feature'], { a: '^1' });
+    const run = spawnSync(process.execPath, [SCRIPT, '--root', root, '--app', dir], { encoding: 'utf8' });
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain("does not declare 'b'");
+    expect(run.stderr).toContain('platform-x:feature');
+  });
+});
+
 describe('the repository', () => {
   it('passes its own check', () => {
     expect(checkRepository(REAL_ROOT).violations.map((v) => v.message)).toEqual([]);
+  });
+
+  it('keeps the starter and the consumer smoke apps on the peers of the slices they import', () => {
+    for (const app of ['starter/apps/api', 'starter/apps/web', 'starter/apps/cli', 'tests/consumer-smoke/api', 'tests/consumer-smoke/web', 'tests/consumer-smoke/api-slim']) {
+      const { missing, unknown } = checkAppPeers(REAL_ROOT, join(REAL_ROOT, app));
+      expect({ app, missing: missing.map((m) => m.peer), unknown }).toEqual({ app, missing: [], unknown: [] });
+    }
   });
 });

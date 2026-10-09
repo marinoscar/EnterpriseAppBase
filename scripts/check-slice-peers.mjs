@@ -48,10 +48,24 @@
 // `*.spec.*` / `*.test.*`, not a `.d.ts`. A `testing/` folder is published
 // source (the conformance harnesses) and IS scanned.
 //
+// THE CONSUMER SIDE (--app)
+// -----------------------------------------------------------------------------
+// npm does not install an OPTIONAL peer, so an app that imports a slice from
+// the PUBLISHED package must declare that slice's peers itself. `--app <dir>`
+// scans the app's own sources (never node_modules) for
+// `@marinoscar/platform-*/<slice>` imports, adds the universal slices, takes
+// the effective peers of every slice used (plus `$implies`) and fails for each
+// one the app's package.json declares in none of dependencies, devDependencies
+// or peerDependencies. The starter and tests/consumer-smoke/{api,web} run it,
+// so their lists cannot drift from the slices they import.
+//
 // Usage: node scripts/check-slice-peers.mjs [--root <dir>] [--derive] [--table]
+//        node scripts/check-slice-peers.mjs [--root <dir>] --app <dir> [--app <dir>...] [--print]
 //   --derive   print each slice's direct peers as JSON (to start or refresh
 //              packages/platform-slice-peers.json) and exit 0.
 //   --table    print each slice's effective peers (own + inherited) as Markdown.
+//   --app      check an app directory's package.json against the slices it imports.
+//   --print    with --app: print the slices used and the peers needed instead of checking.
 // Exit:  0 clean, 1 violations, 2 usage error.
 //
 // Uses the `typescript` scanner (a root devDependency) so comments and
@@ -367,15 +381,129 @@ export function effectiveTable(effective, pkg, required = []) {
   return ['| Slice | Install beyond the required peers |', '|---|---|', ...rows].join('\n');
 }
 
+const PLATFORM_SCOPE = '@marinoscar/';
+
+/**
+ * The slice an import of `@marinoscar/platform-x[/seg[/seg2]]` reaches:
+ * `core` for the package root, `<seg>/testing` for a testing entry point,
+ * otherwise `<seg>` (`ui`, `headless`, `sdk` and `service-worker` are views of
+ * the same slice). Returns `null` for a name that is not a platform package.
+ */
+export function sliceOfPlatformImport(spec) {
+  if (!spec.startsWith(`${PLATFORM_SCOPE}platform-`)) return null;
+  const [, pkg, seg, seg2] = spec.split('/');
+  if (!seg || seg === 'package.json') return { pkg, slice: 'core' };
+  if (seg === 'testing') return { pkg, slice: 'testing' };
+  return { pkg, slice: seg2 === 'testing' ? `${seg}/testing` : seg };
+}
+
+function walkAppSources(dir, out = []) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (!['node_modules', 'dist', 'build', '.git'].includes(entry.name)) walkAppSources(full, out);
+    } else if (entry.isFile() && SOURCE_EXT.test(entry.name) && !entry.name.endsWith('.d.ts')) {
+      out.push(full);
+    }
+  }
+  return out;
+}
+
+/**
+ * The peers an app directory needs installed, from the platform slices its own
+ * sources import. Returns `{ slices: { pkg: [slice] }, needed: { peer: [pkg:slice] }, unknown: [message] }`.
+ */
+export function appPeerNeeds(root, appDir) {
+  const graphFile = readJson(join(root, 'packages', 'platform-slices.json'));
+  const peersFile = readJson(join(root, 'packages', 'platform-slice-peers.json'));
+  const used = {};
+  const unknown = [];
+  for (const file of walkAppSources(appDir)) {
+    for (const spec of importedSpecifiers(readFileSync(file, 'utf8'), root)) {
+      const hit = sliceOfPlatformImport(spec);
+      if (!hit) continue;
+      if (!(hit.pkg in graphFile)) {
+        unknown.push(`${relative(root, file)}: '${spec}' is not a platform package`);
+        continue;
+      }
+      // A package with no `core` slice (platform-db) has nothing to resolve a root import to.
+      if (hit.slice === 'core' && !('core' in graphFile[hit.pkg])) continue;
+      (used[hit.pkg] ??= new Set()).add(hit.slice);
+    }
+  }
+  const needed = {};
+  const slices = {};
+  for (const [pkg, set] of Object.entries(used)) {
+    const graph = graphFile[pkg];
+    const fullGraph = { ...graph };
+    for (const slice of set) if (slice.endsWith('/testing')) fullGraph[slice] = [];
+    for (const slice of universalSlices(pkg, peersFile.$universal ?? {}, graph)) set.add(slice);
+    slices[pkg] = [...set].sort();
+    for (const slice of set) {
+      if (!(slice in fullGraph)) {
+        unknown.push(`${pkg}: '${slice}' is not a slice in packages/platform-slices.json`);
+        continue;
+      }
+      const eff = effectivePeers(slice, fullGraph, peersFile[pkg] ?? {}, peersFile.$implies?.[pkg] ?? {}, peersFile.$runtime?.[pkg] ?? {});
+      for (const peer of eff) (needed[peer] ??= new Set()).add(`${pkg}:${slice}`);
+    }
+  }
+  return { slices, needed: Object.fromEntries(Object.entries(needed).map(([k, v]) => [k, [...v].sort()])), unknown };
+}
+
+/** The peers an app's package.json fails to declare (`missing: [{ peer, reasons }]`), and unknown imports. */
+export function checkAppPeers(root, appDir) {
+  const { needed, unknown, slices } = appPeerNeeds(root, appDir);
+  const manifest = readJson(join(appDir, 'package.json'));
+  const declared = new Set(['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'].flatMap((f) => Object.keys(manifest[f] ?? {})));
+  const missing = Object.entries(needed)
+    .filter(([peer]) => !declared.has(peer))
+    .map(([peer, reasons]) => ({ peer, reasons }));
+  return { missing, unknown, needed, slices };
+}
+
+function mainApp(root, apps, print) {
+  let failed = false;
+  for (const app of apps) {
+    const dir = resolve(app);
+    if (!existsSync(join(dir, 'package.json'))) {
+      console.error(`check-slice-peers: ${dir}/package.json does not exist`);
+      return 2;
+    }
+    const { missing, unknown, needed, slices } = checkAppPeers(root, dir);
+    if (print) {
+      console.log(JSON.stringify({ app: relative(root, dir), slices, peers: Object.keys(needed).sort() }, null, 2));
+      continue;
+    }
+    for (const message of unknown) console.error(`  [unknown] ${message}`);
+    for (const { peer, reasons } of missing) {
+      console.error(`  [app-peer] ${relative(root, dir)}/package.json does not declare '${peer}' (needed by ${reasons.slice(0, 4).join(', ')}${reasons.length > 4 ? ', ...' : ''}); npm does not install an optional peer`);
+    }
+    if (missing.length > 0 || unknown.length > 0) failed = true;
+    else console.log(`check-slice-peers: ${relative(root, dir)} declares every peer of the platform slices it imports.`);
+  }
+  if (failed) {
+    console.error('\nAdd the listed packages to the app dependencies, at the range of the package peerDependencies. See docs/PACKAGES.md#peer-dependencies-per-slice.');
+    return 1;
+  }
+  return 0;
+}
+
 function main(argv) {
   let root = DEFAULT_ROOT;
   let mode = 'check';
+  const apps = [];
+  let print = false;
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === '--root') root = resolve(argv[++i] ?? '');
+    else if (argv[i] === '--app') {
+      mode = 'app';
+      apps.push(argv[++i] ?? '');
+    } else if (argv[i] === '--print') print = true;
     else if (argv[i] === '--derive') mode = 'derive';
     else if (argv[i] === '--table') mode = 'table';
     else {
-      console.error(`check-slice-peers: unknown argument ${argv[i]}\nUsage: node scripts/check-slice-peers.mjs [--root <dir>] [--derive] [--table]`);
+      console.error(`check-slice-peers: unknown argument ${argv[i]}\nUsage: node scripts/check-slice-peers.mjs [--root <dir>] [--derive] [--table] [--app <dir>...] [--print]`);
       return 2;
     }
   }
@@ -383,6 +511,7 @@ function main(argv) {
     console.error(`check-slice-peers: ${root} is not a directory`);
     return 2;
   }
+  if (mode === 'app') return mainApp(root, apps, print);
   const peersPath = join(root, 'packages', 'platform-slice-peers.json');
   if (mode === 'derive' && !existsSync(peersPath)) {
     // Bootstrapping: derive against an empty declaration.
