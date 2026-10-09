@@ -232,6 +232,11 @@ Read in this order:
 4. The spec in [docs/specs/](docs/specs/) for the feature you are touching.
 5. Its runbook in [docs/runbooks/](docs/runbooks/), if it has one.
 
+Using the application: [docs/ADMIN-GUIDE.md](docs/ADMIN-GUIDE.md), a tour of
+what an administrator or user can do, with the route and permission of each
+feature. Moving an existing app onto the packages:
+[docs/ADOPTING-THE-PLATFORM.md](docs/ADOPTING-THE-PLATFORM.md).
+
 The CLI has its own reference: [apps/cli/README.md](apps/cli/README.md).
 Coding agents follow [CLAUDE.md](CLAUDE.md).
 

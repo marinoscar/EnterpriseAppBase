@@ -88,6 +88,8 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 | Spec: worker nodes | [docs/specs/worker-nodes.md](docs/specs/worker-nodes.md) |
 | Spec: native companion architecture (Android: TWA plus native module, the five coordination channels, Kotlin `platform-core`, hosted APK releases, assetlinks, the `android_app` push channel; adding a native capability: §4) | [docs/specs/native-companion-architecture.md](docs/specs/native-companion-architecture.md) |
 | Spec: platform packages (package-based platform, extension contract, tenancy, migrations, adoption roadmap and status; shipped, adoption in progress) | [docs/specs/platform-packages.md](docs/specs/platform-packages.md) |
+| Using the app as an administrator or user (where each feature is, who may use it, the main steps) | [docs/ADMIN-GUIDE.md](docs/ADMIN-GUIDE.md) |
+| Adopting the platform packages in an existing fork or app (order, what each step deletes, checks, rollback, seam requests, pitfalls) | [docs/ADOPTING-THE-PLATFORM.md](docs/ADOPTING-THE-PLATFORM.md) |
 | Package documentation standard and checks (README template, TSDoc tags, extension-point catalog, TypeDoc, `check:package-docs`) | [docs/PACKAGES.md](docs/PACKAGES.md) |
 | Runbooks (operator procedures) | [docs/README.md#runbooks](docs/README.md#runbooks) |
 | Runbooks: deploy to a VPS, run worker nodes | [docs/runbooks/deploy-to-vps.md](docs/runbooks/deploy-to-vps.md), [docs/runbooks/run-worker-nodes.md](docs/runbooks/run-worker-nodes.md) |
