@@ -583,7 +583,7 @@ Two things never leave the facade, both handled by
 7. On the web side, `apps/web/src/services/sse.ts`'s `postSse()` is the
    client half of this contract: one `POST`ed request, one streamed answer,
    no reconnect (a reconnect would re-submit the prompt) — see
-   `apps/web/src/services/ai.ts` for how the AI chat surface uses it.
+   `streamAiResponse` in `packages/platform-web/src/ai/headless/client.ts` for how the AI chat surface uses it (through the host transport's `postSse`).
 
 ### Adding a provider
 
