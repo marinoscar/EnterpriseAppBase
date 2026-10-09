@@ -25,7 +25,7 @@
  * config providers (so the feature map is real), around the shell.
  */
 
-import { useMemo } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 import { PlatformHostProvider, createPlatformApiClient } from '@marinoscar/platform-web/core';
 import { useTelemetryFeatures } from '@marinoscar/platform-web/telemetry/headless';
@@ -78,6 +78,12 @@ export function useAppPlatformHost(): PlatformWebHost {
   const orgs = user?.tenancyMode === 'multi';
   const userId = user?.id ?? null;
   const email = user?.email ?? null;
+  // `refreshUser` changes identity between renders. The host must not: the
+  // packaged hooks key on it, so a new host would refetch on every render. A
+  // stable wrapper reads the latest function from a ref.
+  const refreshUserRef = useRef(refreshUser);
+  refreshUserRef.current = refreshUser;
+  const refresh = useCallback(() => refreshUserRef.current(), []);
 
   return useMemo<PlatformWebHost>(() => {
     const features: Record<string, boolean> = { ai, telemetry, orgs };
@@ -89,11 +95,11 @@ export function useAppPlatformHost(): PlatformWebHost {
         hasPermission,
         isFeatureEnabled: (feature) => features[feature] === true,
         // The user-data pages re-read the user after a deletion or a factory reset.
-        refresh: refreshUser,
+        refresh,
       },
       formatRelativeTime: (iso) => formatRelativeTime(iso),
     };
-  }, [userId, email, hasPermission, ai, telemetry, orgs, refreshUser]);
+  }, [userId, email, hasPermission, ai, telemetry, orgs, refresh]);
 }
 
 /** `PlatformHostProvider` bound to the app's host. Mount it once, inside the auth provider. */
