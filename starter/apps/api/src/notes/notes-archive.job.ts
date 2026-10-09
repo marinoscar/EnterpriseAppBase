@@ -1,6 +1,8 @@
-import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, Optional, type OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { JobHandlerRegistry, JobsService, enqueueHousekeepingJob, type Job, type JobHandler } from '@marinoscar/platform-api/jobs';
+import { NotificationsService } from '@marinoscar/platform-api/notifications';
 import { SystemSettingsService } from '@marinoscar/platform-api/settings';
 
 import { PrismaService } from '../prisma/prisma.service';
@@ -15,6 +17,10 @@ export const NOTES_ARCHIVE_JOB = 'notes.archive';
  * work is visible, retried and accounted for on the platform queue. Server
  * only: it writes as it goes, so it carries neither `nodeResultSchema` nor
  * `persistNodeResult`.
+ *
+ * With the notifications slice enabled it also tells each owner how many of
+ * their notes it archived (`notes.archived`), after the write committed. The
+ * dispatcher is optional: without the slice the job does exactly the above.
  */
 @Injectable()
 export class NotesArchiveHandler implements JobHandler, OnModuleInit {
@@ -27,6 +33,8 @@ export class NotesArchiveHandler implements JobHandler, OnModuleInit {
     private readonly registry: JobHandlerRegistry,
     private readonly settings: SystemSettingsService,
     private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+    @Optional() private readonly notifications?: NotificationsService,
   ) {}
 
   onModuleInit(): void {
@@ -37,11 +45,28 @@ export class NotesArchiveHandler implements JobHandler, OnModuleInit {
     const days = (await this.settings.getNamespace('notes')).archiveAfterDays;
     if (days === 0) return;
     const cutoff = new Date(Date.now() - days * 86_400_000);
-    const { count } = await this.prisma.note.updateMany({
-      where: { archived: false, updatedAt: { lt: cutoff } },
-      data: { archived: true },
-    });
+    const { count, perUser } = await this.archiveUntouchedSince(cutoff);
     this.logger.log(`job ${job.id}: archived ${count} note(s) untouched since ${cutoff.toISOString()}`);
+    // After the commit, outside any transaction. `notifyNow` is the awaited form
+    // for a job handler: it records delivery failures and never rejects.
+    const notesUrl = `${(this.config.get<string>('appUrl') ?? '').replace(/\/+$/, '')}/notes`;
+    if (this.notifications) {
+      for (const [userId, archived] of perUser) {
+        await this.notifications.notifyNow('notes.archived', userId, { count: archived, notesUrl });
+      }
+    }
+  }
+
+  /** Archives the untouched notes in one statement, and counts them per owner. */
+  private async archiveUntouchedSince(cutoff: Date): Promise<{ count: number; perUser: Map<string, number> }> {
+    const where = { archived: false, updatedAt: { lt: cutoff } };
+    const perUser = new Map<string, number>();
+    if (this.notifications) {
+      const owners = await this.prisma.note.groupBy({ by: ['userId'], where, _count: { _all: true } });
+      for (const owner of owners) perUser.set(owner.userId, owner._count._all);
+    }
+    const { count } = await this.prisma.note.updateMany({ where, data: { archived: true } });
+    return { count, perUser };
   }
 }
 

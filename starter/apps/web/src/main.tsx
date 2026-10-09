@@ -4,7 +4,12 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 
 import App from './App';
+import { setupSlices } from './slices/manifest';
 import { APP_THEMES } from './theme';
+
+// Each enabled optional slice configures itself once, before the first render
+// (the notification client, the link renderers, the Android launch capture).
+setupSlices();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

@@ -11,18 +11,22 @@
 // deployment and tenancy modes come from the host core and identity. The one
 // port bound here is the bypass client (./user-data-host.module.ts).
 //
-// ⚠ With the sharing slice enabled, add its last-admin rule before a user row
-// is deleted: `userRemovalHooks: [groupMembershipRemovalHook]`. With the
-// database backup slice, keep its jobs: `factoryReset: { keepJobsReferencedBy:
-// [{ model: 'DatabaseBackupRun', field: 'jobId' }] }`.
+// The enabled slices add their parts through `ApiSlice.userData()`: sharing's
+// last-admin rule runs before a user row is deleted, and the database backup
+// slice keeps its jobs through a factory reset (backups are its undo).
 // =============================================================================
 
 import { UserDataModule, composedSchemaDatamodel } from '@marinoscar/platform-api/user-data';
 
+import { ENABLED } from '../slices/manifest';
 import './user-data.manifest';
 import { UserDataHostModule } from './user-data-host.module';
+
+const sliceParts = ENABLED.map((slice) => slice.userData?.() ?? {});
 
 export const userDataModule = UserDataModule.forRoot({
   imports: [UserDataHostModule],
   datamodel: composedSchemaDatamodel(__dirname),
+  userRemovalHooks: sliceParts.flatMap((part) => part.userRemovalHooks ?? []),
+  factoryReset: { keepJobsReferencedBy: sliceParts.flatMap((part) => part.keepJobsReferencedBy ?? []) },
 });

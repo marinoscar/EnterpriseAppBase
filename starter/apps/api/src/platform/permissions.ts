@@ -6,14 +6,18 @@
 // (`platformPermissionCatalog`) and `./registrations.ts` fills the registries
 // with it (`registerPlatformPermissions`), so the two never disagree.
 //
-// MOUNTING ANOTHER SLICE adds its name to `slices` (for example `'storage'`),
-// so the seed writes the rows its routes check. A slice without permissions of
-// its own (credentials, email, android-app) enforces the `settings` slice's.
+// The OPTIONAL slices bring their own: each enabled slice in
+// `packages/shared/slices.json` names the permission sets it declares
+// (`ApiSlice.permissionSlices`: storage, notifications, sharing, AI, backup), so
+// the seed writes the rows its routes check. Re-run `npm run prisma:seed` after
+// enabling one. A slice without permissions of its own (credentials, email,
+// exports, onboarding, android-app) enforces the `settings` slice's.
 import type { PlatformPermissionOptions } from '@marinoscar/platform-api/manifest';
 
 import { NOTES_PERMISSIONS } from '../notes/notes.permissions';
+import { enabledPermissionSlices } from './slices/manifest';
 
 export const PERMISSION_OPTIONS = {
-  slices: ['identity', 'settings', 'jobs', 'nodes', 'user-data'],
+  slices: ['identity', 'settings', 'jobs', 'nodes', 'user-data', ...enabledPermissionSlices()],
   app: { permissions: [NOTES_PERMISSIONS] },
 } satisfies PlatformPermissionOptions;

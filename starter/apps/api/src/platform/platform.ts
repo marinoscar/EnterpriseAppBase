@@ -2,15 +2,26 @@
 // configured once with `forRoot()`, and the host modules binding their ports.
 // app.module.ts imports `PLATFORM_MODULES` and nothing else of the platform.
 //
+// The CORE (always mounted): the host core, identity, settings, worker-node
+// credentials, jobs, the Doctor, the data resets. The OPTIONAL slices (storage,
+// email, notifications, sharing, AI, backup, exports, onboarding, Android) are
+// `packages/shared/slices.json`: `./slices/` builds their modules, registers
+// what they add to the static registries and overrides the host ports they
+// replace, for the enabled ones only.
+//
 // The app's settings namespaces register FIRST: `SettingsModule.forRoot()`
 // composes the system settings request bodies from the registry. (The host
 // core's `maintenance` namespace is registered by `PlatformHostCoreModule.forRoot()`,
 // first in PLATFORM_MODULES, so before `SettingsModule.forRoot()` too.)
 import '../notes/notes.settings';
 import './storage.settings';
+// Everything the enabled slices add to the registries (settings namespaces,
+// credential purposes, storage prefixes, notifications, onboarding steps...).
+// Before the first `forRoot()` below, and never from `onModuleInit`.
+import './slices/bootstrap';
 
 import { APP_NAME } from '@app/shared';
-import { Global, Module } from '@nestjs/common';
+import { Global, Module, type ModuleMetadata, type Provider } from '@nestjs/common';
 import { PLATFORM_PRISMA, PlatformHostModule } from '@marinoscar/platform-api/core';
 import { DoctorModule } from '@marinoscar/platform-api/doctor';
 import { AppMetricsService, EVENT_BUS, PlatformHostCoreModule } from '@marinoscar/platform-api/host';
@@ -39,9 +50,13 @@ import {
   SystemSettingsStoreAdapter,
 } from './adapters';
 import { platformHost } from './host';
+import { ENABLED, enabledSlices } from './slices/manifest';
 import { userDataModule } from './user-data/user-data.config';
 
-const PORTS = [
+/** What a module can export: a provider token. */
+type PortToken = NonNullable<ModuleMetadata['exports']>[number];
+
+const CORE_PORTS: Array<Provider & { provide: unknown }> = [
   { provide: PLATFORM_PRISMA, useExisting: PrismaService },
   { provide: SETTINGS_DATA, useClass: SettingsDataAdapter },
   { provide: SETTINGS_PROFILE_IMAGES, useClass: AppProfileImages },
@@ -59,9 +74,27 @@ const PORTS = [
   { provide: JOBS_METRICS, useExisting: AppMetricsService },
 ];
 
+/**
+ * The core's ports, with each enabled slice's replacements applied (a provider
+ * of the same token wins: the storage slice's profile-image rule, the
+ * notifications slice's identity notifier) and any port only a slice binds
+ * appended.
+ */
+function bindPorts(): Array<Provider & { provide: unknown }> {
+  const overrides = new Map<unknown, Provider & { provide: unknown }>();
+  for (const slice of ENABLED) {
+    for (const port of (slice.hostPorts?.(enabledSlices) ?? []) as Array<Provider & { provide: unknown }>) overrides.set(port.provide, port);
+  }
+  const bound = CORE_PORTS.map((port) => overrides.get(port.provide) ?? port);
+  const known = new Set(CORE_PORTS.map((port) => port.provide));
+  return [...bound, ...[...overrides.values()].filter((port) => !known.has(port.provide))];
+}
+
+const PORTS = bindPorts();
+
 /** The slices' host ports, bound once and globally (a guard is built in every module that uses `@Auth()`). */
 @Global()
-@Module({ providers: PORTS, exports: PORTS.map((port) => port.provide) })
+@Module({ providers: PORTS, exports: PORTS.map((port) => port.provide as PortToken) })
 export class AppHostModule {}
 
 /**
@@ -89,6 +122,9 @@ export const PLATFORM_MODULES = [
   // The `nod_` worker-node credential family the identity guard accepts.
   NodeCredentialModule,
   jobsModule,
+  // The optional slices that `packages/shared/slices.json` enables, in mount
+  // order (each one's `forRoot()` is built here and nowhere else).
+  ...ENABLED.flatMap((slice) => slice.modules?.(enabledSlices) ?? []),
   // `GET /api/admin/doctor`: every registered check, read-only.
   DoctorModule.forRoot({ host: platformHost }),
   // The Danger Zone (`/api/user-data/*`), the admin factory reset and organization
