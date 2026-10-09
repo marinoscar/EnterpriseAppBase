@@ -5,10 +5,12 @@
 // Three independent facts, gathered with a strict rule between them: NO ONE OF
 // THEM MAY TAKE DOWN THE OTHER TWO.
 //
-//   1. The API's own version, from `openapi/version.ts`. Always available; the
+//   1. The API's own version, from the app's `apiVersion` option (the
+//      reference app passes its `resolveApiVersion`). Always available; the
 //      resolver never throws and falls back to `'0.0.0'`.
 //   2. The deploy document on disk, read fresh per request.
-//   3. A database liveness probe, from the health module's own indicator.
+//   3. A database liveness probe: one `SELECT 1` through the `PLATFORM_PRISMA`
+//      host port, timed.
 //
 // Each is obtained inside its own failure boundary, and every failure becomes a
 // field. Nothing here throws an HTTP exception, because the controller above it
@@ -16,11 +18,11 @@
 // `dto/about-response.dto.ts`.
 // =============================================================================
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 
-import { DeploymentModeService } from '@marinoscar/platform-api/host';
-import { DatabaseHealthIndicator } from '../health/indicators/database.indicator';
-import { resolveApiVersion } from '../openapi/version';
+import { PLATFORM_PRISMA, type PrismaClientLike } from '../../core/index';
+import { DeploymentModeService } from '../deployment/deployment-mode.service';
+import { ABOUT_OPTIONS, type ResolvedAboutOptions } from './about.options';
 import { readDeployInfo, resolveDeployInfoPath } from './deploy-info';
 import type { AboutResponse } from './dto/about-response.dto';
 
@@ -31,15 +33,20 @@ import type { AboutResponse } from './dto/about-response.dto';
  */
 const PROCESS_STARTED_AT = new Date(Date.now() - process.uptime() * 1000).toISOString();
 
-/** The key the health indicator reports its result under. */
-const DATABASE_INDICATOR_KEY = 'database';
-
+/**
+ * Builds the deployment report served at `GET /api/admin/about`.
+ *
+ * Exported for the reference app's wiring and tests; not a stable extension point (reach the report through `AboutModule.forRoot`).
+ *
+ * @internal
+ */
 @Injectable()
 export class AboutService {
   private readonly logger = new Logger(AboutService.name);
 
   constructor(
-    private readonly database: DatabaseHealthIndicator,
+    @Inject(ABOUT_OPTIONS) private readonly options: ResolvedAboutOptions,
+    @Optional() @Inject(PLATFORM_PRISMA) private readonly prisma: PrismaClientLike | undefined,
     // #685. Memory only: the mode was parsed when the container built, so
     // reading it cannot fail and cannot cost the "always answers 200" rule.
     private readonly deployment: DeploymentModeService,
@@ -62,7 +69,7 @@ export class AboutService {
     const document = deployInfo.document;
 
     return {
-      api: { version: resolveApiVersion(), deploymentMode: this.deployment.mode },
+      api: { version: this.options.apiVersion(), deploymentMode: this.deployment.mode },
 
       deployInfoStatus: deployInfo.status,
       deployInfoPath: deployInfo.path,
@@ -104,34 +111,37 @@ export class AboutService {
   }
 
   /**
-   * Asks the health module's indicator whether the database answers.
+   * Asks the database whether it answers: one `SELECT 1` through the
+   * `PLATFORM_PRISMA` host port, timed.
    *
-   * ⚠ A FAILURE IS A FIELD, NOT A 503. `DatabaseHealthIndicator` signals failure
-   * by THROWING `HealthCheckError`, which is the right contract for Terminus —
-   * the readiness probe wants a non-2xx. It is the wrong contract here, so the
-   * throw is caught and turned back into data. Letting it escape would mean the
-   * one page that reports what is deployed stops loading whenever the database
-   * is the thing that is broken, hiding the API version, the commit SHA and the
-   * deploy document, none of which need a database to be known.
+   * ⚠ A FAILURE IS A FIELD, NOT A 503. The probe throws when the database does
+   * not answer, which is the right contract for a readiness probe (it wants a
+   * non-2xx). It is the wrong contract here, so the throw is caught and turned
+   * back into data. Letting it escape would mean the one page that reports what
+   * is deployed stops loading whenever the database is the thing that is
+   * broken, hiding the API version, the commit SHA and the deploy document,
+   * none of which need a database to be known.
    */
   private async probeDatabase(): Promise<
     Pick<AboutResponse, 'database' | 'databaseError'>
   > {
+    if (!this.prisma) {
+      return {
+        database: null,
+        databaseError: 'No database client is bound to PLATFORM_PRISMA, so there is nothing to probe.',
+      };
+    }
+
+    const startedAt = Date.now();
     try {
-      const result = await this.database.isHealthy(DATABASE_INDICATOR_KEY);
-      const entry = result?.[DATABASE_INDICATOR_KEY];
+      await this.prisma.$queryRaw`SELECT 1`;
 
       return {
-        database: {
-          status: String(entry?.status ?? 'up'),
-          responseTime: String(entry?.responseTime ?? ''),
-        },
+        database: { status: 'up', responseTime: `${Date.now() - startedAt}ms` },
         databaseError: null,
       };
     } catch (error) {
-      // Logged at `warn`, not `error`: the indicator has already logged the
-      // underlying failure at `error` from the readiness path, and a page load
-      // is not a second incident.
+      // Logged at `warn`, not `error`: a page load is not an incident.
       this.logger.warn(
         `Database probe failed while building the about report: ${describe(error)}`,
       );
@@ -144,28 +154,14 @@ export class AboutService {
 /**
  * A message for the client that never leaks a stack trace.
  *
- * ⚠ IT READS `causes` FIRST, AND THAT IS THE WHOLE POINT OF THIS FUNCTION.
- * `HealthIndicator` wraps every failure in a `HealthCheckError` whose own
- * `message` is the CONSTANT string `'Database check failed'` — true, and useless
- * to the operator reading this page, who already knows the check failed and
- * wants to know why. The real diagnosis ("Can't reach database server",
- * "password authentication failed", a connect timeout) is put by the indicator
- * into `causes[key].message`, so that is what is reported when it is there.
- *
  * Only the MESSAGE is taken, never the error object: a stack trace must not
- * reach a response body.
+ * reach a response body. An error with no message, or a value that is not an
+ * `Error`, still produces a sentence an operator can read.
  */
 function describe(error: unknown): string {
-  const causes = (error as { causes?: Record<string, { message?: unknown }> })?.causes;
-
-  if (causes && typeof causes === 'object') {
-    for (const cause of Object.values(causes)) {
-      const message = cause?.message;
-      if (typeof message === 'string' && message.length > 0) return message;
-    }
+  if (error instanceof Error) {
+    return error.message.length > 0 ? error.message : 'The database did not answer.';
   }
 
-  if (error instanceof Error && error.message.length > 0) return error.message;
-
-  return 'The database did not answer.';
+  return 'Unknown error';
 }

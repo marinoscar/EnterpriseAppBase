@@ -20,21 +20,19 @@
  *
  * `usePermissions` is left real and driven through the auth fixture, because
  * read-only-versus-writable is one of the behaviours under test. The API is
- * driven through msw for the same reason it is in the banner's suite: mocking
+ * driven through a test platform host for the same reason it is in the banner's suite: mocking
  * the hook would hide the request shape, which is half of what this page does.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { http, HttpResponse } from 'msw';
 import { screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { server } from '../../mocks/server';
-import { render, mockAdminUser } from '../../utils/test-utils';
-import type { MockUser } from '../../utils/test-utils';
-import AdminMaintenancePage from '../../../pages/Admin/MaintenancePage';
-import { api } from '../../../services/api';
-import { clearMaintenanceBlock } from '../../../services/maintenance';
-import type { MaintenanceStatus } from '../../../types';
+import { userEvent } from '@testing-library/user-event';
+import { MaintenancePage as AdminMaintenancePage } from '../../src/host/ui/index.js';
+import { clearMaintenanceBlock } from '../../src/host/headless/index.js';
+import type { MaintenanceStatus } from '../../src/host/headless/index.js';
+import type { TestApiRequest } from '../../src/testing/index.js';
+import { fail, mockAdminUser, render, reset, serve } from './render.js';
+import type { MockUser } from './render.js';
 
 function status(overrides: Partial<MaintenanceStatus> = {}): MaintenanceStatus {
   const base: MaintenanceStatus = {
@@ -63,7 +61,7 @@ function status(overrides: Partial<MaintenanceStatus> = {}): MaintenanceStatus {
 }
 
 function serveStatus(value: MaintenanceStatus) {
-  server.use(http.get('*/api/admin/maintenance', () => HttpResponse.json({ data: value })));
+  serve('GET', '/admin/maintenance', value);
 }
 
 /** `system_settings:read` but no `:write` — the diagnosing admin. */
@@ -78,12 +76,12 @@ function layerSection() {
 
 describe('Admin MaintenancePage — the effective state', () => {
   beforeEach(() => {
-    api.setAccessToken(null);
+    reset();
     clearMaintenanceBlock();
   });
 
   afterEach(() => {
-    api.setAccessToken(null);
+    reset();
     clearMaintenanceBlock();
   });
 
@@ -297,12 +295,12 @@ describe('Admin MaintenancePage — an environment override is unchangeable from
 
 describe('Admin MaintenancePage — saving', () => {
   beforeEach(() => {
-    api.setAccessToken(null);
+    reset();
     clearMaintenanceBlock();
   });
 
   afterEach(() => {
-    api.setAccessToken(null);
+    reset();
     clearMaintenanceBlock();
   });
 
@@ -315,12 +313,10 @@ describe('Admin MaintenancePage — saving', () => {
     });
 
     serveStatus(status());
-    server.use(
-      http.put('*/api/admin/maintenance', async ({ request }) => {
-        body = await request.json();
-        return HttpResponse.json({ data: after });
-      }),
-    );
+    serve('PUT', '/admin/maintenance', (request: TestApiRequest) => {
+      body = request.body;
+      return after;
+    });
 
     const user = userEvent.setup();
     render(<AdminMaintenancePage />, { wrapperOptions: { user: mockAdminUser } });
@@ -368,11 +364,7 @@ describe('Admin MaintenancePage — saving', () => {
 
   it('surfaces a failed save without pretending it worked', async () => {
     serveStatus(status());
-    server.use(
-      http.put('*/api/admin/maintenance', () =>
-        HttpResponse.json({ message: 'Someone else is editing this' }, { status: 409 }),
-      ),
-    );
+    fail('PUT', '/admin/maintenance', 409, 'Someone else is editing this');
 
     const user = userEvent.setup();
     render(<AdminMaintenancePage />, { wrapperOptions: { user: mockAdminUser } });
@@ -386,7 +378,10 @@ describe('Admin MaintenancePage — saving', () => {
 });
 
 describe('Admin MaintenancePage — permissions', () => {
-  beforeEach(() => clearMaintenanceBlock());
+  beforeEach(() => {
+    reset();
+    clearMaintenanceBlock();
+  });
   afterEach(() => clearMaintenanceBlock());
 
   it('lets a read-only admin diagnose, and lets them change nothing', async () => {
@@ -405,11 +400,7 @@ describe('Admin MaintenancePage — permissions', () => {
   });
 
   it('reports a 403 as a permission problem rather than a mystery', async () => {
-    server.use(
-      http.get('*/api/admin/maintenance', () =>
-        HttpResponse.json({ message: 'Forbidden' }, { status: 403 }),
-      ),
-    );
+    fail('GET', '/admin/maintenance', 403, 'Forbidden');
 
     render(<AdminMaintenancePage />, { wrapperOptions: { user: readOnlyAdmin } });
 

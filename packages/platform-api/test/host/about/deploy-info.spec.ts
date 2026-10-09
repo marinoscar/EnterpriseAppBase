@@ -21,7 +21,7 @@ import {
   DEPLOY_INFO_SCHEMA_VERSION,
   readDeployInfo,
   resolveDeployInfoPath,
-} from './deploy-info';
+} from '../../../src/host/about/deploy-info';
 
 /** A complete, successful document, exactly as the CLI will write it. */
 const GOOD_DOCUMENT = {
@@ -317,7 +317,7 @@ describe('readDeployInfo', () => {
      * the two halves of the contract are pinned against one file.
      */
     const SAMPLE = JSON.parse(
-      readFileSync(join(__dirname, '../../test/fixtures/deploy-info.sample.json'), 'utf8'),
+      readFileSync(join(__dirname, '../../fixtures/deploy-info.sample.json'), 'utf8'),
     );
 
     const HISTORY_ENTRY = SAMPLE.history[0];

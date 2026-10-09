@@ -78,10 +78,7 @@ import type {
   AppNotification,
   NotificationListResponse,
   UnreadCountResponse,
-  MaintenanceStatus,
-  UpdateMaintenanceInput,
   ProfileImageMutationResponse,
-  AboutResponse,
 } from '../types';
 
 // Profile picture API — issue #367.
@@ -284,76 +281,6 @@ export async function markAllNotificationsRead(): Promise<UnreadCountResponse> {
 /** Re-exported for consumers that only import from this module. */
 export type { AppNotification };
 
-// Maintenance mode API — issue #258, epic #254.
-//
-// Two calls, one controller (`system_settings:read` to look,
-// `system_settings:write` to change), and the only place in the web app that
-// names these endpoints.
-//
-// BOTH ROUTES ARE EXEMPT FROM THE API'S OWN MAINTENANCE GUARD
-// (`@AllowDuringMaintenance()` on `maintenance.controller.ts`), which is what
-// makes them usable for the two jobs they have here: the admin page can close a
-// window from inside one, and `MaintenanceBanner` can keep telling a bypassing
-// administrator that a window is open. Exemption is REACHABILITY only — `@Auth()`
-// still runs, so a caller without the permission gets a 403 during a window
-// exactly as they would outside one.
+// The maintenance (`GET`/`PUT /admin/maintenance`) and about (`GET /admin/about`)
+// calls moved to `@marinoscar/platform-web/host/headless` (`createHostApi`, #891).
 
-/**
- * The effective maintenance state, plus each contributing layer.
- *
- * Served with `fresh: true` on the API side, so this never returns a value from
- * the guard's five-second cache: an operator inspecting the switch must not be
- * shown a stale one.
- */
-export async function getMaintenanceStatus(): Promise<MaintenanceStatus> {
-  return api.get<MaintenanceStatus>('/admin/maintenance');
-}
-
-/**
- * Open or close the persisted window.
- *
- * PUT, not PATCH, because `enabled` is required on every call — this endpoint
- * exists to answer on-or-off — while `message` and `allowAdmins` are optional
- * and OMITTING one keeps whatever is stored. So the caller must send `enabled`
- * deliberately every time and can leave the rest alone; see
- * `UpdateMaintenanceInput` for why `startedAt` / `startedById` are not part of
- * this body at all.
- *
- * RETURNS THE STATE AFTER THE WRITE, INCLUDING ITS LAYERS — which is the whole
- * reason the caller must adopt the response rather than its own input. An
- * environment override still outranks anything this writes, so a save that
- * turned the persisted flag off can legitimately come back with
- * `enabled: true` and `source: 'env'`, and a page that assumed its own payload
- * had taken effect would then show the operator the opposite of the truth.
- */
-export async function updateMaintenance(
-  input: UpdateMaintenanceInput,
-): Promise<MaintenanceStatus> {
-  return api.put<MaintenanceStatus>('/admin/maintenance', input);
-}
-
-// About API — issue #401, epic #397.
-//
-// One GET, no parameters, one controller (`about/about.controller.ts`, gated on
-// `system_settings:read`), and the only place in the web app that names this
-// endpoint. Sits beside `getMaintenanceStatus` above because it is the same
-// shape of call: a read-only report an operator opens when they need to know
-// what this deployment actually is.
-
-/**
- * What is deployed here: the API's own version, the deploy document `appctl
- * deploy` left on disk, and a database liveness fact.
- *
- * ⚠ THIS NEVER REJECTS FOR A MISSING OR BROKEN DEPLOY DOCUMENT, and callers
- * must not treat one as an error. The API answers 200 for every authorized
- * caller: `deployInfoStatus` carries `absent` / `invalid`, and a database that
- * did not answer arrives as `database: null` with a `databaseError` string. A
- * rejection from here means the request itself failed — a 401, a 403, a network
- * error or a maintenance window — and nothing else.
- *
- * Read from disk by the API on every request, so a rewritten document needs no
- * restart and this call always reports the current file.
- */
-export async function getAbout(): Promise<AboutResponse> {
-  return api.get<AboutResponse>('/admin/about');
-}

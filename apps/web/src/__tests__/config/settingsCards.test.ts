@@ -433,16 +433,22 @@ describe('the About card (#401)', () => {
     // side fails here instead of in production. This is the mechanical half of
     // CLAUDE.md Settings UI Pattern rule 3, and the controller's own header
     // names this test's sibling as the other half of the contract.
-    const API_SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../api/src');
+    const PLATFORM_API_SRC = resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      '../../../../../packages/platform-api/src',
+    );
     const rolesConstants = readApiPermissionConstants();
-    const aboutController = readFileSync(resolve(API_SRC, 'about/about.controller.ts'), 'utf8');
+    const aboutController = readFileSync(
+      resolve(PLATFORM_API_SRC, 'host/about/about.controller.ts'),
+      'utf8',
+    );
 
     expect(card?.permission).toBe('system_settings:read');
     expect(rolesConstants).toContain("SYSTEM_SETTINGS_READ: 'system_settings:read'");
     // Both spellings are asserted because the controller carries both on
     // purpose — the reference it decorates with, and the literal its header
     // names as half of this cross-app contract.
-    expect(aboutController).toContain('PERMISSIONS.SYSTEM_SETTINGS_READ');
+    expect(aboutController).toContain('SETTINGS_PERMISSIONS.SYSTEM_SETTINGS_READ');
     expect(aboutController).toContain('system_settings:read');
   });
 

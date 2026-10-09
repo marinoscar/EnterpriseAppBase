@@ -468,7 +468,7 @@ describe('the CLI writes its own marker into the .env', () => {
 
 const FIXTURE = JSON.parse(
   readFileSync(
-    resolve(__dirname, '..', '..', '..', '..', '..', '..', 'apps', 'api', 'test', 'fixtures', 'deploy-info.sample.json'),
+    resolve(__dirname, '..', '..', '..', '..', '..', 'platform-api', 'test', 'fixtures', 'deploy-info.sample.json'),
     'utf8',
   ),
 ) as Record<string, unknown>;

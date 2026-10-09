@@ -192,3 +192,11 @@ export { resolveApiVersion } from './openapi/version';
 export { REQUIREMENTS_MARKER } from './openapi/rbac-docs';
 export { HTTP_METHODS, forEachOperation } from './openapi/types';
 export type { DocOperation, DocPathItem, MutableDocument } from './openapi/types';
+
+// ---- About: what is deployed here (#401, packaged by #891) -------------------
+export { AboutModule } from './about/about.module';
+export type { AboutModuleOptions } from './about/about.options';
+// Reference-app wiring and tests only; not stable extension points (`@internal`).
+export { AboutService } from './about/about.service';
+export { AboutController } from './about/about.controller';
+export { DEFAULT_DEPLOY_INFO_PATH, readDeployInfo, resolveDeployInfoPath } from './about/deploy-info';

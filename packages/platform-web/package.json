@@ -195,6 +195,14 @@
       "types": "./dist/shell/ui/index.d.ts",
       "default": "./dist/shell/ui/index.js"
     },
+    "./host/headless": {
+      "types": "./dist/host/headless/index.d.ts",
+      "default": "./dist/host/headless/index.js"
+    },
+    "./host/ui": {
+      "types": "./dist/host/ui/index.d.ts",
+      "default": "./dist/host/ui/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

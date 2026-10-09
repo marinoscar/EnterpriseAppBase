@@ -3,7 +3,7 @@
  * #397).
  *
  * Deliberately the canonical "one GET, no params" fetch hook — the same shape
- * as `useNotificationConfig`, down to the three `useState`s, the `useIsMounted`
+ * as the other one-GET fetch hooks, down to the three `useState`s, the `useIsMounted`
  * guard on every `setState` past an `await`, the `useCallback` fetch and the
  * `{ data, isLoading, error, refresh }` return. There is nothing special about
  * this endpoint from the client's side: it takes no parameters, it is not
@@ -14,8 +14,8 @@
  * =============================================================================
  *
  * This is the one thing a reader of this hook has to get right, and it is a
- * property of the API rather than a convention of this file. `GET
- * /api/admin/about` ALWAYS answers 200 for an authorized caller — a missing
+ * property of the API rather than a convention of this file. `GET /api/admin/about`
+ * ALWAYS answers 200 for an authorized caller — a missing
  * deploy document is `deployInfoStatus: 'absent'`, an unreadable one is
  * `'invalid'`, a run that failed partway is `run.outcome: 'failure'` beside a
  * complete document, and a database that did not answer is `database: null`
@@ -30,27 +30,49 @@
  *
  * NOT POLLED, deliberately. A deployment's identity changes when somebody
  * deploys, which is not something that happens while you watch — unlike the
- * worker fleet's health, which `useVisiblePolling` exists for. `refresh` is
+ * worker fleet's health, which a polling hook exists for. `refresh` is
  * exposed so the page can offer an explicit re-read (the API re-reads the file
  * from disk on every request, so that genuinely picks up a fresh deploy without
  * a restart or a reload).
  */
 
-import { useCallback, useEffect, useState } from 'react';
-import { ApiError, getAbout } from '../services/api';
-import type { AboutResponse } from '../types';
-import { useIsMounted } from './useIsMounted';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { isPlatformApiError, usePlatformApi } from '../../core/index.js';
+import { useIsMounted } from '../internal/use-is-mounted.js';
+import type { AboutResponse } from './contract.js';
+import { createHostApi } from './host-client.js';
 
-interface UseAboutReturn {
+/**
+ * What {@link useAbout} returns.
+ *
+ * @stability experimental
+ */
+export interface UseAboutReturn {
   /** `null` until the first read resolves — never a signal about the deployment itself. */
   data: AboutResponse | null;
+  /** `true` while a read is in flight. */
   isLoading: boolean;
   /** The REQUEST failed (403, network, maintenance). Never a deploy-document state. */
   error: string | null;
+  /** Re-read the report (the API re-reads the deploy document on every request). */
   refresh: () => Promise<void>;
 }
 
+/**
+ * Reads `GET /api/admin/about` once on mount; `refresh` re-reads it.
+ *
+ * @returns the report, the loading flag, the request error and `refresh`.
+ *
+ * @example
+ * ```tsx
+ * const { data, isLoading, error, refresh } = useAbout();
+ * ```
+ *
+ * @stability experimental
+ */
 export function useAbout(): UseAboutReturn {
+  const api = usePlatformApi();
+  const hostApi = useMemo(() => createHostApi(api), [api]);
   const [data, setData] = useState<AboutResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -64,18 +86,18 @@ export function useAbout(): UseAboutReturn {
     try {
       setIsLoading(true);
       setError(null);
-      const response = await getAbout();
+      const response = await hostApi.getAbout();
       if (isMounted()) setData(response);
     } catch (err) {
       if (isMounted()) {
         setError(
-          err instanceof ApiError ? err.message : 'Failed to load deployment information',
+          isPlatformApiError(err) ? err.message : 'Failed to load deployment information',
         );
       }
     } finally {
       if (isMounted()) setIsLoading(false);
     }
-  }, [isMounted]);
+  }, [hostApi, isMounted]);
 
   useEffect(() => {
     void fetchAbout();

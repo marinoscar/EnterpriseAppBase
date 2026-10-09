@@ -134,7 +134,7 @@ export function buildDeployInfo(input: DeployInfoInput): Record<string, unknown>
     // ALWAYS written (rule 2), and each object is rebuilt key by key rather
     // than spread, so the document's shape is exactly the contract's and a
     // field added to an internal type can never leak into it. The shared
-    // fixture `apps/api/test/fixtures/deploy-info.sample.json` pins that shape
+    // fixture `packages/platform-api/test/fixtures/deploy-info.sample.json` pins that shape
     // from both sides.
     lastCommand: orNull(input.lastCommand),
     bindPort: orNull(input.bindPort),

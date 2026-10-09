@@ -17,7 +17,7 @@ import type { DeploymentHistoryEntry, HostFacts } from './state.js';
 // info.json against the shared fixture  (issue #392)
 // =============================================================================
 //
-// ⚠ ASSERTED FROM BOTH SIDES. `apps/api/test/fixtures/deploy-info.sample.json`
+// ⚠ ASSERTED FROM BOTH SIDES. `packages/platform-api/test/fixtures/deploy-info.sample.json`
 // is a complete example of the file. The API's tests parse it and assert every
 // field survives the lenient reader; THIS test builds the CLI's output and
 // asserts it has exactly the fixture's key set at every level. A field added
@@ -26,7 +26,7 @@ import type { DeploymentHistoryEntry, HostFacts } from './state.js';
 
 const FIXTURE_PATH = resolve(
   __dirname,
-  '..', '..', '..', '..', '..', 'apps', 'api', 'test', 'fixtures', 'deploy-info.sample.json',
+  '..', '..', '..', '..', 'platform-api', 'test', 'fixtures', 'deploy-info.sample.json',
 );
 
 const FIXTURE = JSON.parse(readFileSync(FIXTURE_PATH, 'utf8')) as Record<string, unknown>;
