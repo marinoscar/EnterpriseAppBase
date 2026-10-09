@@ -2,7 +2,7 @@
 // APK releases, a test push), the "update available" banner shown ONLY inside the
 // Android app's Trusted Web Activity, and the launch capture that remembers the
 // installed build before the router drops the `?source=twa&appVersion=...`
-// parameters. The Kotlin shell is built by `appctl android`.
+// parameters. The Kotlin shell is built by the CLI's `android` command.
 import { ANDROID_IDENTITY_SOURCE } from '@app/shared';
 import { androidIdentity, captureTwaLaunch } from '@marinoscar/platform-web/android-app/headless';
 import { AndroidUpdateBanner, androidAppSettingsPage } from '@marinoscar/platform-web/android-app/ui';

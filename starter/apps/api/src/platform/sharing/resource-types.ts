@@ -7,8 +7,8 @@
 // organization, while a shareable record belongs to an organization (its grants
 // are row-level-security rows of that org). The tested walk-through, with a
 // user-owned and a group-owned type, a controller using `AccessPolicy` and the
-// delete rule, is the sharing README's "Minimal examples":
-// https://github.com/marinoscar/EnterpriseAppBase/blob/main/packages/platform-api/src/sharing/README.md#minimal-examples
+// delete rule, is the "Minimal examples" section of the sharing package's
+// README (linked from this app's README, "Optional slices").
 //
 // Add yours to this array; `sharing.slice.ts` registers each when the slice is on.
 import type { ResourceTypeDef } from '@marinoscar/platform-api/sharing';

@@ -1,8 +1,8 @@
 // The Android companion slice: a Trusted Web Activity shell over this web app,
 // its trust (digital asset links), APK releases hosted by the deployment, and
 // Web Push to the Android app's own subscriptions. The Kotlin shell itself is
-// built from `@marinoscar/platform-infra`'s `android/` sources by `appctl
-// android`; this slice is the server half. Admin page: `/admin/settings/android`.
+// built from `@marinoscar/platform-infra`'s `android/` sources by the CLI's
+// `android` command; this slice is the server half. Admin page: `/admin/settings/android`.
 import type { ApiSlice } from '../slices/slice';
 
 export const androidAppSlice: ApiSlice = {
