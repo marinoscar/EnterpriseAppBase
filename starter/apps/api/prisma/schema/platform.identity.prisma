@@ -104,6 +104,9 @@ model User {
   // composed from package:storage.prisma
   storageObjects         StorageObject[]         @relation("UserStorageObjects")
 
+  // composed from app:documents.prisma
+  documents Document[]
+
   // composed from app:notes.prisma
   notes Note[]
 
@@ -465,6 +468,9 @@ model Organization {
   // composed from package:storage.prisma
   storageObjects      StorageObject[]
   storageObjectChunks StorageObjectChunk[]
+
+  // composed from app:documents.prisma
+  documents Document[]
 
   @@map("organizations")
 }
