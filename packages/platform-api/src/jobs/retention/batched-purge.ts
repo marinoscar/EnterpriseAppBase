@@ -79,7 +79,9 @@ export interface BatchedPurgeOptions {
   selectIds: (take: number) => Promise<string[]>;
   /** Deletes exactly these ids; returns the count. */
   deleteIds: (ids: string[]) => Promise<number>;
+  /** Ids per batch (default {@link RETENTION_PURGE_BATCH_SIZE}). */
   batchSize?: number;
+  /** Safety stop on the loop (default {@link RETENTION_PURGE_MAX_BATCHES}). */
   maxBatches?: number;
   /** Where the safety-stop warning goes. Optional so the loop stays usable on its own. */
   logger?: Pick<Logger, 'warn'>;
@@ -163,7 +165,9 @@ export function retentionCutoff(days: number, now: number = Date.now()): Date {
  * @stability experimental
  */
 export interface RetentionPolicyPurgeOptions {
+  /** The running job; only its id is logged. */
   job: Pick<Job, 'id'>;
+  /** Where the summary and the disabled no-op line go. */
   logger: Pick<Logger, 'log' | 'warn'>;
   /** The policy as read at the start of this run — re-read per run, never cached. */
   policy: RetentionPolicyValue;

@@ -58,6 +58,7 @@ export class NotificationInboxPurgeHandler implements JobHandler, OnModuleInit {
     private readonly retention: RetentionPurgeRegistry,
   ) {}
 
+  /** Registers with the job registry and declares the retention policy. */
   onModuleInit(): void {
     this.registry.register(this);
     this.retention.register({ policy: 'notifications', type: this.type, what: 'notification inbox purge' });

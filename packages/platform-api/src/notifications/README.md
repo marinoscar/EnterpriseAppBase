@@ -21,7 +21,9 @@ One way to tell a user something: raise a registered event by key, after the wri
 | Doctor | `doctor/` | `push.vapid` (the key pair is usable) and the Web Push egress entries. |
 | Test seams | `testing/` (`/notifications/testing`) | The `notifications` conformance suite, plus the slice's internals (`@internal`) for an app's own unit tests. |
 
-Not here: the notification-retention purge (the reference app's `common/retention`, which owns every retention policy), the email transports and templates themselves (`@marinoscar/platform-api/email`), and any digest or batching of events (no consumer).
+Also here (#898): the two retention purges of this slice's tables, `notifications.inbox.purge` and `notifications.deliveries.purge` (`retention/`), which batch through the jobs slice's `purgeInBatches`, declare their `retention.*` policy with its `RetentionPurgeRegistry` and are enqueued by its 01:00 cron. The `retention` namespace itself is the jobs slice's.
+
+Not here: the email transports and templates themselves (`@marinoscar/platform-api/email`), and any digest or batching of events (no consumer).
 
 ## Install and peer dependencies
 
@@ -179,6 +181,7 @@ New subpath in this version. From the reference app's local `src/notifications/`
 - The email channel forwards the rendered template's `attachments` (the layout's brand mark), as the test email always did.
 - Web Push configuration is read and written through the settings slice's `SystemSettingsRowStore` (the `webPush` row; stored values and audit actions unchanged).
 - The cross-replica stream rides `NOTIFICATIONS_EVENT_BUS`; the delivery counter `NOTIFICATIONS_METRICS`. Both optional.
+- #898: the inbox and delivery-log purges moved here from the reference app's `common/retention/`; `NotificationsModule.forRoot()` provides them, so an app deletes its copies. Job types, schedule and the `retention` settings are unchanged.
 - Internals an app's unit tests used (the channels, the stream, the controllers, the broadcast handlers) are on `/notifications/testing`, `@internal`.
 
 ## Troubleshooting

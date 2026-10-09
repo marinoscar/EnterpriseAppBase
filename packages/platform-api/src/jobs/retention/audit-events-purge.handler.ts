@@ -41,6 +41,38 @@ import { RetentionPurgeRegistry } from './retention-purge.registry';
 export const AUDIT_EVENTS_PURGE_TYPE = 'audit.events.purge';
 
 /**
+ * The two `audit_events` calls the purge makes.
+ *
+ * @stability experimental
+ */
+export interface AuditEventsPurgeDelegate {
+  /** Prisma `findMany`: the ids to purge. */
+  findMany(args: any): Promise<AuditEventsPurgeIdRow[]>;
+  /** Prisma `deleteMany`: how many were removed. */
+  deleteMany(args: any): Promise<AuditEventsPurgeBatch>;
+}
+
+/**
+ * One row the purge reads.
+ *
+ * @stability experimental
+ */
+export interface AuditEventsPurgeIdRow {
+  /** The event's id. */
+  id: string;
+}
+
+/**
+ * What a bulk delete resolves to.
+ *
+ * @stability experimental
+ */
+export interface AuditEventsPurgeBatch {
+  /** Rows removed. */
+  count: number;
+}
+
+/**
  * The part of the database client this purge uses: `audit_events`, two calls.
  * Structural, so an app's generated client satisfies it unchanged.
  *
@@ -48,12 +80,7 @@ export const AUDIT_EVENTS_PURGE_TYPE = 'audit.events.purge';
  */
 export interface AuditEventsPurgePrisma {
   /** `audit_events`. */
-  auditEvent: {
-    /** Prisma `findMany`. */
-    findMany(args: any): Promise<Array<{ id: string }>>;
-    /** Prisma `deleteMany`. */
-    deleteMany(args: any): Promise<{ count: number }>;
-  };
+  auditEvent: AuditEventsPurgeDelegate;
 }
 
 /**
@@ -80,6 +107,7 @@ export class AuditEventsPurgeHandler implements JobHandler, OnModuleInit {
     private readonly retention: RetentionPurgeRegistry,
   ) {}
 
+  /** Registers with the job registry and declares the `auditEvents` policy. */
   onModuleInit(): void {
     this.registry.register(this);
     this.retention.register({ policy: 'auditEvents', type: this.type, what: 'audit log purge' });

@@ -45,7 +45,9 @@ export const RETENTION_POLICY_KEYS = ['notifications', 'notificationDeliveries',
  * @stability stable
  */
 export const retentionPolicySchema = z.object({
+  /** Whether the purge runs for this table. */
   enabled: z.boolean(),
+  /** Days of rows kept; older rows are purged. */
   days: z.number().int().min(1).max(RETENTION_MAX_DAYS),
 });
 
@@ -62,9 +64,13 @@ export type RetentionPolicyValue = z.infer<typeof retentionPolicySchema>;
  * @stability stable
  */
 export const systemRetentionSchema = z.object({
+  /** The in-app inbox (`notifications`). */
   notifications: retentionPolicySchema,
+  /** The delivery log (`notification_deliveries`). */
   notificationDeliveries: retentionPolicySchema,
+  /** The admin audit trail (`audit_events`); ships off. */
   auditEvents: retentionPolicySchema,
+  /** Background AI runs (`ai_runs`). */
   aiRuns: retentionPolicySchema,
 });
 
@@ -83,7 +89,9 @@ export type SystemRetentionValue = z.infer<typeof systemRetentionSchema>;
 export type RetentionPolicyKey = keyof SystemRetentionValue;
 
 const retentionPolicyPatchSchema = z.object({
+  /** Whether the purge runs for this table. */
   enabled: z.boolean().optional(),
+  /** Days of rows kept. */
   days: z.number().int().min(1).max(RETENTION_MAX_DAYS).optional(),
 });
 
@@ -95,9 +103,13 @@ const retentionPolicyPatchSchema = z.object({
  * @stability stable
  */
 export const systemRetentionPatchSchema = z.object({
+  /** The in-app inbox (`notifications`). */
   notifications: retentionPolicyPatchSchema.optional(),
+  /** The delivery log (`notification_deliveries`). */
   notificationDeliveries: retentionPolicyPatchSchema.optional(),
+  /** The admin audit trail (`audit_events`); ships off. */
   auditEvents: retentionPolicyPatchSchema.optional(),
+  /** Background AI runs (`ai_runs`). */
   aiRuns: retentionPolicyPatchSchema.optional(),
 });
 
@@ -107,9 +119,13 @@ export const systemRetentionPatchSchema = z.object({
  * @stability stable
  */
 export const retentionSettingsSchema = z.object({
+  /** The in-app inbox (`notifications`). */
   notifications: retentionPolicySchema,
+  /** The delivery log (`notification_deliveries`). */
   notificationDeliveries: retentionPolicySchema,
+  /** The admin audit trail (`audit_events`); ships off. */
   auditEvents: retentionPolicySchema,
+  /** Background AI runs (`ai_runs`). */
   aiRuns: retentionPolicySchema,
 });
 
@@ -120,9 +136,13 @@ export const retentionSettingsSchema = z.object({
  * @stability stable
  */
 export const retentionSettingsPatchSchema = z.object({
+  /** The in-app inbox (`notifications`). */
   notifications: retentionPolicyPatchSchema.optional(),
+  /** The delivery log (`notification_deliveries`). */
   notificationDeliveries: retentionPolicyPatchSchema.optional(),
+  /** The admin audit trail (`audit_events`); ships off. */
   auditEvents: retentionPolicyPatchSchema.optional(),
+  /** Background AI runs (`ai_runs`). */
   aiRuns: retentionPolicyPatchSchema.optional(),
 });
 
@@ -140,8 +160,32 @@ export type RetentionSettingsPatchInput = z.infer<typeof retentionSettingsPatchS
  * @stability stable
  */
 export const retentionResponseSchema = z.object({
-  notifications: z.object({ enabled: z.boolean(), days: z.number().int() }),
-  notificationDeliveries: z.object({ enabled: z.boolean(), days: z.number().int() }),
-  auditEvents: z.object({ enabled: z.boolean(), days: z.number().int() }),
-  aiRuns: z.object({ enabled: z.boolean(), days: z.number().int() }),
+  /** The in-app inbox (`notifications`). */
+  notifications: z.object({
+    /** Whether the purge runs. */
+    enabled: z.boolean(),
+    /** Days of rows kept. */
+    days: z.number().int(),
+  }),
+  /** The delivery log (`notification_deliveries`). */
+  notificationDeliveries: z.object({
+    /** Whether the purge runs. */
+    enabled: z.boolean(),
+    /** Days of rows kept. */
+    days: z.number().int(),
+  }),
+  /** The admin audit trail (`audit_events`); ships off. */
+  auditEvents: z.object({
+    /** Whether the purge runs. */
+    enabled: z.boolean(),
+    /** Days of rows kept. */
+    days: z.number().int(),
+  }),
+  /** Background AI runs (`ai_runs`). */
+  aiRuns: z.object({
+    /** Whether the purge runs. */
+    enabled: z.boolean(),
+    /** Days of rows kept. */
+    days: z.number().int(),
+  }),
 });

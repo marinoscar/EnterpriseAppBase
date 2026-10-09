@@ -37,12 +37,11 @@ const RETENTION_SYSTEM_DEFAULTS: SystemRetentionValue = {
   aiRuns: { enabled: true, days: 90 },
 };
 
-type RetentionPatch = RetentionSettingsPatchInput;
 type RetentionPolicy = SystemRetentionValue['notifications'];
 
 function mergePolicy(
   current: RetentionPolicy,
-  patch: RetentionPatch['notifications'],
+  patch: RetentionSettingsPatchInput['notifications'],
 ): RetentionPolicy {
   return {
     enabled: patch?.enabled ?? current.enabled,
@@ -51,38 +50,64 @@ function mergePolicy(
 }
 
 /**
+ * The `retention` PATCH merge, leaf by leaf (there is deliberately no generic
+ * deep merge for system settings):
+ * `{ "retention": { "auditEvents": { "enabled": true } } }` changes that one
+ * switch and nothing else.
+ *
+ * @param current - the stored value.
+ * @param patch - the PATCH body's `retention` branch, when present.
+ * @returns the merged value, never a reference into `current`.
+ *
+ * @stability experimental
+ */
+export function mergeRetentionSettings(
+  current: SystemRetentionValue,
+  patch?: RetentionSettingsPatchInput,
+): SystemRetentionValue {
+  return {
+    notifications: mergePolicy(current.notifications, patch?.notifications),
+    notificationDeliveries: mergePolicy(current.notificationDeliveries, patch?.notificationDeliveries),
+    auditEvents: mergePolicy(current.auditEvents, patch?.auditEvents),
+    aiRuns: mergePolicy(current.aiRuns, patch?.aiRuns),
+  };
+}
+
+/**
  * The `retention` system-settings namespace (#681): one `{ enabled, days }` per
  * table that grows with every user action (the in-app inbox, the delivery log,
  * the audit trail, background AI runs). `auditEvents` ships OFF. The merge is
- * leaf by leaf. `JobsModule.forRoot()` registers it unless the app already did.
+ * leaf by leaf ({@link mergeRetentionSettings}). `JobsModule.forRoot()`
+ * registers it unless the app already did.
  *
  * @stability experimental
  */
 export const RETENTION_SYSTEM_SETTINGS = {
+  /** The namespace key (permanent). */
   key: 'retention',
+  /** What it holds. */
   description: 'Retention policy: one { enabled, days } per growing table (inbox, delivery log, audit trail, AI runs).',
+  /** The stored shape. */
   storedSchema: systemRetentionSchema,
+  /** The stored partial. */
   patchSchema: systemRetentionPatchSchema,
+  /** The PUT body's branch. */
   putSchema: retentionSettingsSchema,
+  /** The PATCH body's branch. */
   wirePatchSchema: retentionSettingsPatchSchema,
+  /** The GET response's branch. */
   responseSchema: retentionResponseSchema,
+  /** The shipped policy: three tables on, the audit trail off. */
   defaults: RETENTION_SYSTEM_DEFAULTS,
-  requiredOnPut: false,
   // The default `read` salvages each table's `{ enabled, days }` on its own,
   // so one damaged policy degrading to its default leaves the other three as
   // the operator set them. A row written before the namespace existed reads
   // as the defaults, and nothing is written on read.
-  merge(current, patch) {
-    // Leaf by leaf: `{ "retention": { "auditEvents": { "enabled": true } } }`
-    // changes that one switch and nothing else.
-    return {
-      notifications: mergePolicy(current.notifications, patch?.notifications),
-      notificationDeliveries: mergePolicy(current.notificationDeliveries, patch?.notificationDeliveries),
-      auditEvents: mergePolicy(current.auditEvents, patch?.auditEvents),
-      aiRuns: mergePolicy(current.aiRuns, patch?.aiRuns),
-    };
-  },
-} satisfies SystemSettingsNamespace<'retention', SystemRetentionValue, RetentionPatch>;
+  /** Optional in a PUT body: omitting it keeps the stored value, never resets it. */
+  requiredOnPut: false,
+  /** The PATCH merge ({@link mergeRetentionSettings}). */
+  merge: mergeRetentionSettings,
+} satisfies SystemSettingsNamespace<'retention', SystemRetentionValue, RetentionSettingsPatchInput>;
 
 declare module '../../settings/index' {
   interface SystemSettingsNamespaces {
@@ -94,6 +119,7 @@ declare module '../../settings/index' {
     retention: SystemRetentionValue;
   }
   interface SystemSettingsNamespaceDeclarations {
+    /** The `retention` declaration. */
     retention: typeof RETENTION_SYSTEM_SETTINGS;
   }
 }

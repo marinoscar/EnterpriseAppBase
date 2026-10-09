@@ -51,6 +51,7 @@ export class RetentionPurgeTask {
     private readonly purges: RetentionPurgeRegistry,
   ) {}
 
+  /** The 01:00 tick: decide, then enqueue. Never throws. */
   @Cron(CronExpression.EVERY_DAY_AT_1AM)
   async handleCron(): Promise<void> {
     try {

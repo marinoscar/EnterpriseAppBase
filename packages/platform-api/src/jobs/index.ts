@@ -78,9 +78,14 @@ export type {
 export { RetentionPurgeRegistry } from './retention/retention-purge.registry';
 export type { RetentionPurgeEntry } from './retention/retention-purge.registry';
 export { RetentionPurgeTask } from './retention/retention-purge.task';
-export { RETENTION_SYSTEM_SETTINGS } from './retention/retention.system-settings';
+export { RETENTION_SYSTEM_SETTINGS, mergeRetentionSettings } from './retention/retention.system-settings';
 export { AUDIT_EVENTS_PURGE_TYPE, AuditEventsPurgeHandler } from './retention/audit-events-purge.handler';
-export type { AuditEventsPurgePrisma } from './retention/audit-events-purge.handler';
+export type {
+  AuditEventsPurgeBatch,
+  AuditEventsPurgeDelegate,
+  AuditEventsPurgeIdRow,
+  AuditEventsPurgePrisma,
+} from './retention/audit-events-purge.handler';
 
 // ---- enqueueing ------------------------------------------------------------------------------
 export { ACTIVE_DEDUP_INDEX_NAME, JobsService, isActiveDedupConflict } from './jobs.service';

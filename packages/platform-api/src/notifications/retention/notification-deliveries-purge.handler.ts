@@ -69,6 +69,7 @@ export class NotificationDeliveriesPurgeHandler implements JobHandler, OnModuleI
     private readonly retention: RetentionPurgeRegistry,
   ) {}
 
+  /** Registers with the job registry and declares the retention policy. */
   onModuleInit(): void {
     this.registry.register(this);
     this.retention.register({ policy: 'notificationDeliveries', type: this.type, what: 'delivery log purge' });
