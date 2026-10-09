@@ -580,7 +580,7 @@ Two things never leave the facade, both handled by
    stream must not keep spending a user's rate limit or provider spend
    after nobody is listening. The same helper backs the non-streaming
    `POST /api/ai/responses` too.
-7. On the web side, `apps/web/src/services/sse.ts`'s `postSse()` is the
+7. On the web side, `@marinoscar/platform-web/core`'s `postSse()` (`packages/platform-web/src/core/http/sse.ts`) is the
    client half of this contract: one `POST`ed request, one streamed answer,
    no reconnect (a reconnect would re-submit the prompt) — see
    `streamAiResponse` in `packages/platform-web/src/ai/headless/client.ts` for how the AI chat surface uses it (through the host transport's `postSse`).
