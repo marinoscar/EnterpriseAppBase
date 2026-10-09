@@ -17,26 +17,22 @@
  *     test at the bottom pins exactly that, so the property cannot quietly
  *     become untrue if the banner is ever mounted somewhere else.
  *
- * The API is driven through msw rather than by mocking `useMaintenance`: the
+ * The API is driven through the test host rather than by mocking `useMaintenance`: the
  * permission-to-request relationship is the interesting part and a mocked hook
  * makes it unobservable.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { http, HttpResponse } from 'msw';
 import { screen, waitFor } from '@testing-library/react';
-import { server } from '../../mocks/server';
-import { render, mockAdminUser, mockUser } from '../../utils/test-utils';
-import type { MockUser } from '../../utils/test-utils';
-import { MaintenanceBanner } from '../../../components/common/MaintenanceBanner';
-import { MaintenanceGate } from '../../../components/common/MaintenanceGate';
-import { api } from '../../../services/api';
 import {
   MAINTENANCE_ADMIN_PATH,
   clearMaintenanceBlock,
   reportMaintenanceBlock,
-} from '../../../services/maintenance';
-import type { MaintenanceStatus } from '../../../types';
+} from '../../src/host/headless/index.js';
+import type { MaintenanceStatus } from '../../src/host/headless/index.js';
+import { MaintenanceBanner, MaintenanceGate } from '../../src/host/ui/index.js';
+import { fail, mockAdminUser, mockUser, render, reset, serve } from './render.js';
+import type { MockUser } from './render.js';
 
 function status(overrides: Partial<MaintenanceStatus> = {}): MaintenanceStatus {
   return {
@@ -67,12 +63,10 @@ function status(overrides: Partial<MaintenanceStatus> = {}): MaintenanceStatus {
 /** Serve a status and count how many times the endpoint was actually asked. */
 function serveStatus(value: MaintenanceStatus): { calls: () => number } {
   let calls = 0;
-  server.use(
-    http.get('*/api/admin/maintenance', () => {
-      calls += 1;
-      return HttpResponse.json({ data: value });
-    }),
-  );
+  serve('GET', '/admin/maintenance', () => {
+    calls += 1;
+    return value;
+  });
   return { calls: () => calls };
 }
 
@@ -84,12 +78,11 @@ const readOnlyAdmin: MockUser = {
 
 describe('MaintenanceBanner', () => {
   beforeEach(() => {
-    api.setAccessToken(null);
+    reset();
     clearMaintenanceBlock();
   });
 
   afterEach(() => {
-    api.setAccessToken(null);
     clearMaintenanceBlock();
   });
 
@@ -176,11 +169,7 @@ describe('MaintenanceBanner', () => {
   it('renders nothing when the status cannot be loaded', async () => {
     // A banner that appeared on an error would announce a window that may not
     // exist — the exact unverifiable guess this feature was built to avoid.
-    server.use(
-      http.get('*/api/admin/maintenance', () =>
-        HttpResponse.json({ message: 'Boom' }, { status: 500 }),
-      ),
-    );
+    fail('GET', '/admin/maintenance', 500, 'Boom');
 
     render(<MaintenanceBanner />, { wrapperOptions: { user: mockAdminUser } });
 
@@ -189,7 +178,10 @@ describe('MaintenanceBanner', () => {
 });
 
 describe('MaintenanceBanner — “bypassing” is structural', () => {
-  beforeEach(() => clearMaintenanceBlock());
+  beforeEach(() => {
+    reset();
+    clearMaintenanceBlock();
+  });
   afterEach(() => clearMaintenanceBlock());
 
   it('is unreachable for an administrator who is actually being blocked', async () => {
@@ -205,7 +197,7 @@ describe('MaintenanceBanner — “bypassing” is structural', () => {
     });
 
     render(
-      <MaintenanceGate>
+      <MaintenanceGate appName="Test App">
         <MaintenanceBanner />
       </MaintenanceGate>,
       { wrapperOptions: { user: mockAdminUser } },
@@ -221,7 +213,7 @@ describe('MaintenanceBanner — “bypassing” is structural', () => {
     serveStatus(status());
 
     render(
-      <MaintenanceGate>
+      <MaintenanceGate appName="Test App">
         <MaintenanceBanner />
       </MaintenanceGate>,
       { wrapperOptions: { user: mockAdminUser } },

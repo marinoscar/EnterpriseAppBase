@@ -290,7 +290,7 @@ A restore (`db.restore.run`) replaces the live database from a chosen backup, op
 
 A maintenance window takes the application out of service on purpose. While open, every API route answers `503` with an operator message and `Retry-After`, except sign-in, health, token refresh, device activation and the maintenance endpoints themselves. The state resolves from three layers: the `MAINTENANCE_MODE` environment variable (break-glass, both directions), an in-memory override (used by the restore swap), and the persisted `maintenance` setting. The web app shows a maintenance screen and banner.
 
-- **Code:** `packages/platform-api/src/host/maintenance/` (`@marinoscar/platform-api/host`, #867), `apps/web/src/components/common/MaintenanceGate.tsx`
+- **Code:** `packages/platform-api/src/host/maintenance/` (`@marinoscar/platform-api/host`, #867), `packages/platform-web/src/host/ui/maintenance-gate.tsx` (`@marinoscar/platform-web/host/ui`, #901)
 - **UI:** `/admin/settings/maintenance`
 - **Permissions:** `system_settings:read/write`
 - **Read more:** [specs/maintenance-mode.md](specs/maintenance-mode.md), [runbooks/maintenance-mode.md](runbooks/maintenance-mode.md)

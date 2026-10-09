@@ -1,4 +1,5 @@
 import { AndroidUpdateBanner } from '@marinoscar/platform-web/android-app/ui';
+import { MaintenanceBanner } from '@marinoscar/platform-web/host/ui';
 import { usePushSubscriptionSync } from '@marinoscar/platform-web/notifications/headless';
 import { NotificationPermissionBanner } from '@marinoscar/platform-web/notifications/ui';
 // The one-time welcome (#745): renders nothing until it should open.
@@ -9,7 +10,6 @@ import { ANDROID_TWA_KEY_PREFIX } from '../../config/androidApp';
 import { AppBar } from '../navigation/AppBar';
 import { BottomNav } from '../navigation/BottomNav';
 import { NavigationRail } from '../navigation/NavigationRail';
-import { MaintenanceBanner } from './MaintenanceBanner';
 
 /**
  * The app shell — this app's binding of the packaged `ShellLayout`

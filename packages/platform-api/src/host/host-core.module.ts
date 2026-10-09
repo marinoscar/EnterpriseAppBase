@@ -18,6 +18,9 @@
 //     log line (`LoggingInterceptor`) and core's `HttpExceptionFilter`, as
 //     global enhancers;
 //   - request ids (`RequestIdMiddleware`, every route);
+//   - the health probes (`GET /api/health`, `/live`, `/ready`: public, reachable
+//     during maintenance, the readiness probe a `SELECT 1` through
+//     `PLATFORM_PRISMA`; #901);
 //   - the deployment facts (`DeploymentModeService` for `DEPLOYMENT_MODE`,
 //     `DeploymentNetworkService` for `DEPLOYMENT_NETWORK`, bound as the doctor
 //     slice's `DEPLOYMENT_NETWORK_SOURCE`) and the generic Doctor checks:
@@ -38,10 +41,10 @@
 // checks, the doctor module. The database checks read through `PLATFORM_PRISMA`
 // and report `skip` when it is unbound.
 //
-// WHERE TO IMPORT IT. Only the maintenance controller has routes, and the
-// generated OpenAPI document lists paths in module order, so the app places
-// this module where `/api/admin/maintenance` belongs in its document (the
-// reference app: right after `HealthModule`).
+// WHERE TO IMPORT IT. Only the health and maintenance controllers have
+// routes, and the generated OpenAPI document lists paths in module order, so
+// the app places this module where `/api/health` and `/api/admin/maintenance`
+// belong in its document (the reference app: right after `ProfileImageModule`).
 // =============================================================================
 
 import {
@@ -54,6 +57,7 @@ import {
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
+import { TerminusModule } from '@nestjs/terminus';
 
 import { HttpExceptionFilter, PLATFORM_PRISMA } from '../core/index';
 import { requireJwtSecret } from '../identity/index';
@@ -78,6 +82,8 @@ import {
   type PlatformHostCoreOptions,
   type ResolvedPlatformHostCoreOptions,
 } from './host-core.options';
+import { DatabaseHealthIndicator } from './health/database.indicator';
+import { HealthController } from './health/health.controller';
 import { LoggingInterceptor } from './http/logging.interceptor';
 import { RequestIdMiddleware } from './http/request-id.middleware';
 import { TransformInterceptor } from './http/transform.interceptor';
@@ -143,9 +149,13 @@ export class PlatformHostCoreModule implements NestModule {
           inject: [ConfigService],
           useFactory: (config: ConfigService) => ({ secret: requireJwtSecret(config) }),
         }),
+        // The health probes' Terminus services.
+        TerminusModule,
         ...resolved.imports,
       ],
-      controllers: [MaintenanceController],
+      // Health first: `/api/health` has always preceded
+      // `/api/admin/maintenance` in the generated OpenAPI document.
+      controllers: [HealthController, MaintenanceController],
       providers: [
         { provide: PLATFORM_HOST_CORE_OPTIONS, useValue: resolved },
         {
@@ -175,6 +185,7 @@ export class PlatformHostCoreModule implements NestModule {
         RlsRoleDoctorCheck,
         NetworkEgressDoctorCheck,
         AppMetricsService,
+        DatabaseHealthIndicator,
         MaintenanceModeService,
         MaintenanceGuard,
         MaintenanceModeDoctorCheck,

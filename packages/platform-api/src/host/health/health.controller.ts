@@ -9,16 +9,17 @@ import {
   HealthCheckService,
   HealthCheckResult,
 } from '@nestjs/terminus';
-import { Public } from '@marinoscar/platform-api/identity';
-import { DatabaseHealthIndicator } from './indicators/database.indicator';
-import { AllowDuringMaintenance } from '../common/maintenance/allow-during-maintenance.decorator';
-import {
-  MAINTENANCE_ERROR_MARKER,
-  MAINTENANCE_RETRY_AFTER_SECONDS,
-  MaintenanceModeService,
-} from '@marinoscar/platform-api/host';
+import { AllowDuringMaintenance } from '../../core/index';
+import { Public } from '../../identity/index';
+import { DatabaseHealthIndicator } from './database.indicator';
+import { MAINTENANCE_ERROR_MARKER, MAINTENANCE_RETRY_AFTER_SECONDS } from '../maintenance/maintenance.guard';
+import { MaintenanceModeService } from '../maintenance/maintenance-mode.service';
 
 /**
+ * The health probes `GET /api/health`, `/live` and `/ready`, public and
+ * reachable during maintenance (moved from the reference app by #901).
+ * Mounted by `PlatformHostCoreModule.forRoot()`.
+ *
  * DELIBERATELY ASYMMETRIC UNDER MAINTENANCE (#257, epic #254).
  *
  * The whole controller is exempt from the maintenance guard — every route on it
@@ -33,6 +34,11 @@ import {
  *     upgrade the window was opened for.
  *   * `ready` reports 503. Readiness means "send me traffic", which is exactly
  *     what must not happen, so a load balancer drains this instance instead.
+ *
+ * Exported for the reference app's wiring and tests; not a stable extension
+ * point (the probes are mounted by `PlatformHostCoreModule.forRoot()`).
+ *
+ * @internal
  */
 @ApiTags('Health')
 @Controller('health')

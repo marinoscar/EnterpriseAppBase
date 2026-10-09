@@ -2,7 +2,7 @@ import {
   buildCorsOptions,
   InvalidCorsOriginError,
   isSameOriginOnly,
-} from './cors-options';
+} from '../../../src/host/http/cors-options';
 
 // =============================================================================
 // buildCorsOptions — tests (issue #517)

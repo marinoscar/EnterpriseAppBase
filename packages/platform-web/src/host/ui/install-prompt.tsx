@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Button, IconButton, Snackbar } from '@mui/material';
 import { Close as CloseIcon } from '@mui/icons-material';
-import { APP_NAME } from '@app/shared';
 
 /**
  * The "install this app" offer.
@@ -111,7 +110,34 @@ function isRunningInstalled(): boolean {
   return (window.navigator as NavigatorWithStandalone).standalone === true;
 }
 
-export function InstallPrompt() {
+/**
+ * Props of {@link InstallPrompt}.
+ *
+ * @stability experimental
+ */
+export interface InstallPromptProps {
+  /** The product name the offer's message uses. */
+  appName: string;
+}
+
+/**
+ * The "install this app" offer: captures `beforeinstallprompt`, shows a
+ * bottom-left snackbar, remembers a dismissal in `localStorage`, and renders
+ * `null` when installed, dismissed or not offered. Mount it once, outside
+ * the routes.
+ *
+ * @param props - see {@link InstallPromptProps}.
+ * @returns the snackbar, or `null`.
+ *
+ * @example
+ * ```tsx
+ * <InstallPrompt appName={APP_NAME} />
+ * ```
+ *
+ * @extensionPoint component
+ * @stability experimental
+ */
+export function InstallPrompt({ appName }: InstallPromptProps) {
   /**
    * The captured event. Holding it is the whole trick: the browser only offers
    * it once, and `prompt()` may only be called on it in response to the user's
@@ -187,7 +213,7 @@ export function InstallPrompt() {
         if (reason === 'clickaway') return;
         dismiss();
       }}
-      message={`Install ${APP_NAME} for faster access and notifications`}
+      message={`Install ${appName} for faster access and notifications`}
       // Matches `UpdatePrompt`'s offset for the same reason — it clears the
       // fixed `BottomNav`, which exists only below `sm`. A static responsive
       // style, not a `useMediaQuery` mount gate.
@@ -215,5 +241,3 @@ export function InstallPrompt() {
     />
   );
 }
-
-export default InstallPrompt;

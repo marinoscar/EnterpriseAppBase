@@ -21,11 +21,12 @@ import { verifyEncryptionKeyAtStartup } from '@marinoscar/platform-api/core';
 import { verifyTenancyModeAtStartup } from '@marinoscar/platform-api/identity';
 import { APP_OPENAPI } from './openapi/document';
 import {
+  buildCorsOptions,
+  isSameOriginOnly,
   registerPlatformDocs,
   verifyDeploymentModeAtStartup,
   verifyDeploymentNetworkAtStartup,
 } from '@marinoscar/platform-api/host';
-import { buildCorsOptions, isSameOriginOnly } from './common/cors/cors-options';
 import { registerRequestSpanAttributes } from '@marinoscar/platform-api/otel-core';
 
 async function bootstrap() {
@@ -128,7 +129,7 @@ async function bootstrap() {
   // CORS: same-origin only unless CORS_ORIGIN lists trusted origins (#517).
   // nginx (and the Vite dev proxy) serve the web app and /api from one origin,
   // and the CLI and worker nodes are not browsers, so the default emits no
-  // CORS headers at all. See src/common/cors/cors-options.ts.
+  // CORS headers at all. See `buildCorsOptions` in @marinoscar/platform-api/host.
   app.enableCors(corsOptions);
   logger.log(
     isSameOriginOnly(corsOptions)

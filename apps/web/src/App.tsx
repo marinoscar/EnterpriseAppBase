@@ -1,5 +1,6 @@
 import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
+import { APP_NAME } from '@app/shared';
 import { Routes, Route, Navigate } from 'react-router-dom';
 // The identity slice (#727, PP-6.6): the auth provider and the identity
 // pages' adapters are packaged; the app binds its transport, its logout
@@ -27,14 +28,16 @@ import { ErrorBoundary } from './components/common/ErrorBoundary';
 // path of a deployment that is deliberately out of service, and a code-split
 // chunk fetched at that moment is one more thing that has to be working for the
 // screen explaining why nothing is working to appear at all.
-import { MaintenanceGate } from './components/common/MaintenanceGate';
+import { MaintenanceGate } from '@marinoscar/platform-web/host/ui';
 // PWA prompts (#219, epic #215). Eagerly imported, not lazy: `UpdatePrompt` is
 // what REGISTERS the service worker, and a registration deferred behind a
 // dynamic import would not happen until React had already decided it was
 // needed. Both render `null` in their default state, so the cost is a few
 // hundred bytes in the entry chunk.
-import { UpdatePrompt } from './components/pwa/UpdatePrompt';
-import { InstallPrompt } from './components/pwa/InstallPrompt';
+import { InstallPrompt, UpdatePrompt } from '@marinoscar/platform-web/host/ui';
+// Vite PWA's virtual module: only this app's bundler resolves it, so the
+// package's `UpdatePrompt` takes the hook as a prop.
+import { useRegisterSW } from 'virtual:pwa-register/react';
 // The platform host every packaged page reads (#696).
 import { appPlatformApi } from './platform/platformHost';
 // Onboarding (#745): one GET /api/onboarding for the shell (its provider is in
@@ -98,7 +101,8 @@ const PushConfigPage = lazy(() =>
 // test and its bucket provisioner.
 const StorageConfigPage = lazy(() => import('@marinoscar/platform-web/storage/ui'));
 // Issue #258, epic #254 — the maintenance window's switch and its layers.
-// `Admin`-prefixed locally to keep it distinct from `pages/MaintenancePage`,
+// `Admin`-prefixed locally to keep it distinct from the package's public
+// `MaintenanceScreen`,
 // which is the screen a BLOCKED user sees rather than the page that opens and
 // closes the window.
 const AdminMaintenancePage = lazy(() => import('./pages/Admin/MaintenancePage'));
@@ -225,7 +229,7 @@ function AppRoutes() {
 
             An ordinary 503 with no marker never reaches it — see
             `services/maintenance.ts` for why that distinction is the feature. */}
-        <MaintenanceGate>
+        <MaintenanceGate appName={APP_NAME}>
           <Suspense fallback={<LoadingSpinner fullScreen />}>
             <Routes>
               {/* Public routes */}
@@ -1027,8 +1031,8 @@ function AppRoutes() {
           NEITHER RENDERS ANYTHING in its default state (no waiting worker, no
           captured install event), so a normal page load is pixel-identical to
           one before this change. */}
-      <UpdatePrompt />
-      <InstallPrompt />
+      <UpdatePrompt useRegisterSW={useRegisterSW} />
+      <InstallPrompt appName={APP_NAME} />
     </ThemeProvider>
   );
 }

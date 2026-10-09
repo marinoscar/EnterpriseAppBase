@@ -1,11 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { HealthCheckError } from '@nestjs/terminus';
-import { DatabaseHealthIndicator } from './database.indicator';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PLATFORM_PRISMA } from '../../../src/core/index';
+import { DatabaseHealthIndicator } from '../../../src/host/health/database.indicator';
 
 describe('DatabaseHealthIndicator', () => {
   let indicator: DatabaseHealthIndicator;
-  let mockPrismaService: jest.Mocked<PrismaService>;
+  let mockPrismaService: jest.Mocked<{ $queryRaw: jest.Mock }>;
 
   beforeEach(async () => {
     mockPrismaService = {
@@ -15,7 +15,7 @@ describe('DatabaseHealthIndicator', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         DatabaseHealthIndicator,
-        { provide: PrismaService, useValue: mockPrismaService },
+        { provide: PLATFORM_PRISMA, useValue: mockPrismaService },
       ],
     }).compile();
 
