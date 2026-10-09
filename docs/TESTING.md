@@ -37,6 +37,7 @@ here.
 | CLI | `apps/cli/src/**/*.test.{ts,tsx}` | Vitest, Node environment | `npm run test:run --workspace=cli` | `build` |
 | End-to-end | `tests/e2e/specs/*.spec.ts` | Playwright against the running Compose stack, `/testing/login` bypass | `cd tests/e2e && npm test` | none (run locally) |
 | Visual regression | `tests/visual/specs/*.spec.ts` | Playwright, pinned Chromium, a Vite harness; no API or database | see [Visual regression](#visual-regression) | `visual` |
+| Worker cycle e2e | `apps/api/scripts/worker-cycle-e2e.mjs` (+ `worker-e2e/`) | The compiled API on a real PostgreSQL, the packaged node CLI (`node enroll`, `node register`, `node start`) with one test executor, no Docker daemon: enrol, claim, run, settle, result persisted, the job-scoped credential held in node memory only and revoked on settle (#881) | `npm run test:worker-e2e --workspace=api` (after `build`, `prisma:migrate`, `prisma:seed`) | `worker-e2e` |
 | Consumer smoke | `tests/consumer-smoke/{api,web}` | The platform packages installed from tarballs, npm or a GitHub release into minimal apps outside the repository; `node:test`, Vitest | `npm run smoke:consumer` | `pack-smoke` (packages.yml), `github-release` and `registry-smoke` (release.yml) |
 
 Only `*.db.spec.ts` needs a database; the integration tier mocks `PrismaService`.
