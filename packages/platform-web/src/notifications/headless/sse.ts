@@ -1,5 +1,5 @@
 // The SSE connection the notification stream opens (issue #738): the shape of
-// the reference app's `services/sse.ts` `connectSse`, which the app hands in
+// `@marinoscar/platform-web/core`'s `connectSse`, which the app hands in
 // through `configureNotificationsWeb({ connectSse })` (bearer token, reconnect
 // with backoff, maintenance handling stay the app's).
 

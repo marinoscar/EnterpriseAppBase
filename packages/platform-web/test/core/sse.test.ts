@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SseParser } from '../../services/sse';
+import { SseParser } from '../../src/core/http/sse.js';
 
 /**
  * Issue #127, epic #109. `SseParser` is a pure, synchronous SSE framer — no
@@ -125,13 +125,13 @@ describe('SseParser', () => {
     it('strips exactly one leading space after the colon', () => {
       const parser = new SseParser();
       const frames = parser.push('data: {"x":1}\n\n');
-      expect(frames[0].data).toBe('{"x":1}');
+      expect(frames[0]?.data).toBe('{"x":1}');
     });
 
     it('leaves a second leading space intact', () => {
       const parser = new SseParser();
       const frames = parser.push('data:  x\n\n');
-      expect(frames[0].data).toBe(' x');
+      expect(frames[0]?.data).toBe(' x');
     });
   });
 
@@ -159,13 +159,13 @@ describe('SseParser', () => {
     it('defaults to "message" when no event: field is present', () => {
       const parser = new SseParser();
       const frames = parser.push('data: x\n\n');
-      expect(frames[0].event).toBe('message');
+      expect(frames[0]?.event).toBe('message');
     });
 
     it('uses the declared event: name when present', () => {
       const parser = new SseParser();
       const frames = parser.push('event: notification\ndata: x\n\n');
-      expect(frames[0].event).toBe('notification');
+      expect(frames[0]?.event).toBe('notification');
     });
 
     it('resets the event type after dispatch - a later frame with no event: defaults again', () => {
@@ -182,14 +182,14 @@ describe('SseParser', () => {
     it('sets the frame id and lastEventId', () => {
       const parser = new SseParser();
       const frames = parser.push('id: abc123\ndata: x\n\n');
-      expect(frames[0].id).toBe('abc123');
+      expect(frames[0]?.id).toBe('abc123');
       expect(parser.lastEventId).toBe('abc123');
     });
 
     it('ignores an id containing a NUL character - does not update lastEventId', () => {
       const parser = new SseParser();
       const frames = parser.push(`id: bad\0id\ndata: x\n\n`);
-      expect(frames[0].id).toBeNull();
+      expect(frames[0]?.id).toBeNull();
       expect(parser.lastEventId).toBeNull();
     });
 
@@ -197,15 +197,15 @@ describe('SseParser', () => {
       const parser = new SseParser();
       parser.push('id: first\ndata: a\n\n');
       const frames = parser.push(`id: bad\0\ndata: b\n\n`);
-      expect(frames[0].id).toBeNull();
+      expect(frames[0]?.id).toBeNull();
       expect(parser.lastEventId).toBe('first');
     });
 
     it('frameId resets to null after dispatch even without a NUL id involved', () => {
       const parser = new SseParser();
       const frames = parser.push('id: a\ndata: x\n\ndata: y\n\n');
-      expect(frames[0].id).toBe('a');
-      expect(frames[1].id).toBeNull();
+      expect(frames[0]?.id).toBe('a');
+      expect(frames[1]?.id).toBeNull();
     });
   });
 

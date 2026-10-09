@@ -10,9 +10,9 @@
  * inherits the bearer token, the 401 refresh and the maintenance recogniser.
  */
 
+import { connectSse } from '@marinoscar/platform-web/core';
 import { configureNotificationsWeb } from '@marinoscar/platform-web/notifications/headless';
 
 import { API_BASE_URL, api } from '../services/api';
-import { connectSse } from '../services/sse';
 
 configureNotificationsWeb({ api, apiBaseUrl: API_BASE_URL, connectSse });

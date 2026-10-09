@@ -30,7 +30,7 @@ export interface PlatformApiClientOptions {
    * `PlatformApiClient.postSse`: one POSTed request, one streamed
    * `text/event-stream` answer, with the client's bearer token and refresh.
    * Omit it and the adapter has no `postSse` (a page that needs it reports
-   * its absence). The reference app passes its `services/sse.ts` reader.
+   * its absence). The reference app passes core's `postSse`.
    * Errors it throws are mapped like every other call's.
    */
   postSse?(path: string, body: unknown, options: PlatformSseOptions): Promise<void>;

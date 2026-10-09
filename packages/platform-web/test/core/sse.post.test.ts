@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { postSse } from '../../services/sse';
-import { ApiError } from '../../services/api';
-import { clearMaintenanceBlock, getMaintenanceBlock } from '../../services/maintenance';
+import { ApiError } from '../../src/core/http/client.js';
+import { postSse } from '../../src/core/http/sse.js';
 
 /**
  * `postSse` — issue #425, epic #419. One POSTed request, one streamed answer:
@@ -62,7 +61,6 @@ function baseOptions(overrides: Partial<Parameters<typeof postSse>[0]> = {}) {
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  clearMaintenanceBlock();
 });
 
 describe('postSse — streaming', () => {
@@ -73,7 +71,7 @@ describe('postSse — streaming', () => {
     await postSse(baseOptions());
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0];
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
     expect(url).toBe('http://x/api/ai/responses/stream');
     expect(init.method).toBe('POST');
     expect(init.body).toBe(JSON.stringify({ input: 'hi' }));
@@ -90,7 +88,7 @@ describe('postSse — streaming', () => {
 
     await postSse(baseOptions({ authorization: () => null }));
 
-    expect(fetchMock.mock.calls[0][1].headers).not.toHaveProperty('Authorization');
+    expect(fetchMock.mock.calls[0]?.[1].headers).not.toHaveProperty('Authorization');
   });
 
   it('delivers each frame in order, parsed as JSON, across chunk boundaries', async () => {
@@ -165,10 +163,10 @@ describe('postSse — 401 retry', () => {
 
     expect(reauthenticate).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe('Bearer stale');
-    expect(fetchMock.mock.calls[1][1].headers.Authorization).toBe('Bearer fresh');
+    expect(fetchMock.mock.calls[0]?.[1].headers.Authorization).toBe('Bearer stale');
+    expect(fetchMock.mock.calls[1]?.[1].headers.Authorization).toBe('Bearer fresh');
     // The body is re-sent verbatim on the retry.
-    expect(fetchMock.mock.calls[1][1].body).toBe(JSON.stringify({ input: 'hi' }));
+    expect(fetchMock.mock.calls[1]?.[1].body).toBe(JSON.stringify({ input: 'hi' }));
     expect(onFrame).toHaveBeenCalledWith('message', { ok: true });
   });
 
@@ -227,7 +225,7 @@ describe('postSse — errors', () => {
     });
   });
 
-  it('reports a maintenance 503 to the maintenance gate on the way past', async () => {
+  it('hands a non-2xx status and body to onErrorResponse on the way past', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue(
@@ -239,8 +237,13 @@ describe('postSse — errors', () => {
       ),
     );
 
-    await expect(postSse(baseOptions())).rejects.toBeInstanceOf(ApiError);
-    expect(getMaintenanceBlock()).not.toBeNull();
+    const onErrorResponse = vi.fn();
+    await expect(postSse(baseOptions({ onErrorResponse }))).rejects.toBeInstanceOf(ApiError);
+    expect(onErrorResponse).toHaveBeenCalledWith(503, {
+      code: 'SERVICE_UNAVAILABLE',
+      message: 'Down for maintenance',
+      details: { reason: 'MAINTENANCE_MODE' },
+    });
   });
 
   it('rejects on a network failure that is not an abort', async () => {
@@ -284,7 +287,7 @@ describe('postSse — abort', () => {
 
     expect(onFrame).toHaveBeenCalledTimes(1);
     expect(onFrame).toHaveBeenCalledWith('message', { n: 1 });
-    expect(fetchMock.mock.calls[0][1].signal).toBe(controller.signal);
+    expect(fetchMock.mock.calls[0]?.[1].signal).toBe(controller.signal);
     // Aborting is not a reason to try again.
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });

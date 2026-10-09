@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { connectSse } from '../../services/sse';
+import { connectSse } from '../../src/core/http/sse.js';
 
 /**
  * OPTIONAL / STRETCH coverage for `connectSse` (the reconnect/backoff half of
- * `services/sse.ts`, as opposed to the pure `SseParser` covered in
+ * `core/http/sse.ts`, as opposed to the pure `SseParser` covered in
  * `sse.test.ts`). Kept in its own file so a flaky timing assertion here can
  * never threaten the required parser/stream/context/bell/link/browser-notif
  * suites.
@@ -105,12 +105,12 @@ describe('connectSse (optional stretch coverage)', () => {
     // load-bearing here: advancing by a big fixed window risks firing the
     // NEWLY-scheduled backoff timer too within the same call, cascading
     // through several reconnect cycles at once and corrupting the count.
-    delays.push(sleepDelayCalls()[0]);
+    delays.push(sleepDelayCalls()[0] as number);
     for (let i = 0; i < 3; i++) {
       await vi.advanceTimersToNextTimerAsync();
       await pump();
       const all = sleepDelayCalls();
-      delays.push(all[all.length - 1]);
+      delays.push(all[all.length - 1] as number);
     }
 
     conn.close();
@@ -121,7 +121,7 @@ describe('connectSse (optional stretch coverage)', () => {
     // consecutive accept-then-drop cycles, not resetting to 0 on every
     // accept (the exact bug this test guards against).
     for (let i = 1; i < delays.length; i++) {
-      expect(delays[i]).toBeGreaterThan(delays[i - 1]);
+      expect(delays[i] as number).toBeGreaterThan(delays[i - 1] as number);
     }
   });
 

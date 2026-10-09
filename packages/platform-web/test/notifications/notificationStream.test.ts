@@ -3,7 +3,7 @@ import type { SseFrame, SseOptions } from '../../src/notifications/headless/sse.
 
 /**
  * Issue #127, epic #109. `notificationStream.ts` is thin by design: SSE
- * framing/reconnection live in `services/sse.ts`, and this module only
+ * framing/reconnection live in core's `core/http/sse.ts`, and this module only
  * supplies the URL, the frame-name filter, and the data-to-notification
  * mapping. `connectSse` is mocked so these tests verify the wiring - what
  * options it's called with, and how `onFrame` behaves - without any real

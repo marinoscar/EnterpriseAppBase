@@ -34,10 +34,10 @@
  * This worktree cannot take a new dependency, and on inspection it does not
  * need one: the whole client is the parser below plus a retry loop, both of
  * which are small, fully testable without a network, and — unlike a
- * dependency — able to reuse this app's own `ApiService` token and refresh
+ * dependency — able to reuse the `PlatformHttpClient` token and refresh
  * machinery directly rather than through a callback shim. A library would also
  * bring its own opinions about 401 handling, which is precisely the part that
- * has to match `services/api.ts` exactly.
+ * has to match `core/http/client.ts` exactly.
  *
  * =============================================================================
  * WHAT THIS CLIENT DOES NOT DO, AND MUST NOT BE MADE TO DO
@@ -59,14 +59,17 @@
  * at all.
  */
 
-import { ApiError } from './api';
-import { readMaintenanceBlock, reportMaintenanceBlock } from './maintenance';
+import { ApiError } from './client.js';
 
 // =============================================================================
 // The parser — pure, synchronous, and free of both DOM and network
 // =============================================================================
 
-/** One dispatched SSE event. */
+/**
+ * One dispatched SSE event.
+ *
+ * @stability experimental
+ */
 export interface SseFrame {
   /**
    * The `event:` name, or `'message'` when the frame declared none.
@@ -97,6 +100,8 @@ export interface SseFrame {
  *
  * Deliberately a plain class with no I/O so the framing rules can be tested by
  * calling a method with a string.
+ *
+ * @stability experimental
  */
 export class SseParser {
   /** Bytes seen but not yet terminated by a line ending. */
@@ -134,7 +139,7 @@ export class SseParser {
   /**
    * Feed one decoded chunk; get back every frame it completed.
    *
-   * @param chunk decoded text. MUST come from a streaming decoder — see
+   * @param chunk - decoded text. MUST come from a streaming decoder — see
    *        `TextDecoder({ stream: true })` at the call site. Decoding each
    *        network chunk independently corrupts any multi-byte character that
    *        straddles a chunk boundary, which for this API means a notification
@@ -288,9 +293,16 @@ export class SseParser {
  * `'reconnecting'` is deliberately distinct from `'connecting'`: the first
  * connection attempt and a recovery after a drop look identical to the network
  * stack but not to a user, who has already seen the feature working once.
+ *
+ * @stability experimental
  */
 export type SseState = 'connecting' | 'open' | 'reconnecting' | 'closed';
 
+/**
+ * Options for {@link connectSse}.
+ *
+ * @stability experimental
+ */
 export interface SseOptions {
   /** Absolute or root-relative URL of the event stream. */
   url: string;
@@ -326,8 +338,13 @@ export interface SseOptions {
   onStateChange?: (state: SseState) => void;
 }
 
-/** A live connection. Idempotent `close()`. */
+/**
+ * A live connection. Idempotent `close()`.
+ *
+ * @stability experimental
+ */
 export interface SseConnection {
+  /** Close the connection for good; safe to call more than once. */
   close: () => void;
 }
 
@@ -369,6 +386,8 @@ const STABLE_CONNECTION_MS = 10_000;
  * detaches every listener — it is what an effect cleanup calls, and it must
  * remain safe to call at any point in the lifecycle, including before the first
  * fetch has resolved.
+ *
+ * @stability experimental
  */
 export function connectSse(options: SseOptions): SseConnection {
   const { url, authorization, reauthenticate, onOpen, onFrame, onStateChange } = options;
@@ -489,7 +508,7 @@ export function connectSse(options: SseOptions): SseConnection {
     const response = await fetch(url, {
       headers,
       signal: controller.signal,
-      // The refresh cookie, matching `ApiService.request`. The bearer header
+      // The refresh cookie, matching `PlatformHttpClient.request`. The bearer header
       // above is what actually authenticates this route; the cookie is here so
       // the two code paths cannot diverge in what they present.
       credentials: 'include',
@@ -620,6 +639,8 @@ export function connectSse(options: SseOptions): SseConnection {
 
 /**
  * Options for {@link postSse}.
+ *
+ * @stability experimental
  */
 export interface PostSseOptions<T> {
   /** Absolute or base-relative URL — resolve it against `API_BASE_URL`. */
@@ -637,6 +658,27 @@ export interface PostSseOptions<T> {
   onFrame: (event: string, data: T) => void;
   /** Aborting resolves the promise quietly — cancelling is not an error. */
   signal?: AbortSignal;
+  /**
+   * Called with every non-2xx response's status and parsed JSON error body,
+   * before the {@link ApiError} is thrown (the error is thrown either way). The
+   * same side channel as `PlatformHttpClientOptions.onErrorResponse`: the
+   * reference app notices a maintenance window here.
+   */
+  onErrorResponse?: (status: number, body: PostSseErrorBody) => void;
+}
+
+/**
+ * The JSON error envelope `postSse` parses off a non-2xx response.
+ *
+ * @stability experimental
+ */
+export interface PostSseErrorBody {
+  /** The API's message. */
+  message?: string;
+  /** The API's machine-readable error code. */
+  code?: string;
+  /** The error envelope's `details`. */
+  details?: unknown;
 }
 
 /**
@@ -651,24 +693,27 @@ export interface PostSseOptions<T> {
  * - ONE request. No reconnect, ever. The promise resolves when the server ends
  *   the stream.
  * - ONE 401 retry, through `reauthenticate` — the same single refresh-and-retry
- *   `ApiService.request` does, so an access token that expired just before the
+ *   `PlatformHttpClient.request` does, so an access token that expired just before the
  *   click does not surface as an error. A second 401 rejects.
  * - A NON-2xx REJECTS WITH `ApiError`, the error every other call site already
  *   catches, with `code`/`details` parsed from the JSON error body. The server
  *   runs every gate (AI disabled, no key, model not enabled) BEFORE the first
  *   byte precisely so those failures arrive here as ordinary JSON errors; a
  *   failure AFTER streaming began arrives as a frame (`event: error`) instead,
- *   and is the caller's to handle. A 503 maintenance block is reported to the
- *   maintenance gate on the way past, exactly as `ApiService.toError` does.
+ *   and is the caller's to handle. Every non-2xx is handed to `onErrorResponse` on the
+ *   way past (the app's maintenance recogniser), exactly as the HTTP
+ *   client's `toError` does.
  * - ABORT RESOLVES. A caller that aborts (a Stop button, an unmount) asked for
  *   the stream to end; rejecting would make every such caller write a catch
  *   that ignores `AbortError`.
  *
  * Same parser as `connectSse` (`SseParser`), same credential posture (a real
  * `Authorization` header, never a token in the URL — see this file's header).
+ *
+ * @stability experimental
  */
 export async function postSse<T>(options: PostSseOptions<T>): Promise<void> {
-  const { url, body, authorization, reauthenticate, onFrame, signal } = options;
+  const { url, body, authorization, reauthenticate, onFrame, signal, onErrorResponse } = options;
   const payload = JSON.stringify(body ?? {});
 
   const send = (): Promise<Response> => {
@@ -698,7 +743,7 @@ export async function postSse<T>(options: PostSseOptions<T>): Promise<void> {
     }
 
     if (!response.ok) {
-      throw await toStreamError(response);
+      throw await toStreamError(response, onErrorResponse);
     }
 
     if (!response.body) return;
@@ -747,14 +792,12 @@ function isAbortError(err: unknown): boolean {
   );
 }
 
-async function toStreamError(response: Response): Promise<ApiError> {
-  const errorBody = (await response.json().catch(() => ({}))) as {
-    message?: string;
-    code?: string;
-    details?: unknown;
-  };
-  const block = readMaintenanceBlock(response.status, errorBody);
-  if (block) reportMaintenanceBlock(block);
+async function toStreamError(
+  response: Response,
+  onErrorResponse: PostSseOptions<unknown>['onErrorResponse'],
+): Promise<ApiError> {
+  const errorBody = (await response.json().catch(() => ({}))) as PostSseErrorBody;
+  onErrorResponse?.(response.status, errorBody);
   return new ApiError(
     errorBody.message || `Stream responded ${response.status}`,
     response.status,

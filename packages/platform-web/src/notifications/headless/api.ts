@@ -77,7 +77,7 @@ export interface NotificationsWebConfig {
   apiBaseUrl?: string;
   /**
    * Opens a GET Server-Sent Events connection with the bearer token and
-   * reconnects (the reference app's `services/sse.ts` `connectSse`). Without
+   * reconnects (`@marinoscar/platform-web/core`'s `connectSse`). Without
    * it the inbox still loads, but no live stream opens.
    */
   connectSse?: (options: SseOptions) => SseConnection;
