@@ -11,7 +11,7 @@ Everything a browser does with notifications, without the app writing any of it:
 | Configuration | `/headless` | `configureNotificationsWeb({ api, apiBaseUrl, connectSse })`: the slice's services are plain module functions (logout calls one outside React), so they reach the API through the client the app configures once at startup. |
 | Inbox | `/headless` | `NotificationProvider` (the recent list, the authoritative unread count, the SSE stream, the toast, the service worker's click messages and the `?n=` cold-open parameter) and `useNotifications`. |
 | Push | `/headless` | `usePushSubscriptionSync` (the shell's once-per-load sync and the auto-prompt), `requestPermissionAndSyncPush`, `removePushSubscription` (the logout hook). |
-| Service worker | `/headless` | `registerNotificationServiceWorkerHandlers` and the three handlers it adds (`handlePushEvent`, `handleNotificationClick`, `handlePushSubscriptionChange`), for the app's own `sw.ts`. DOM-free at import. |
+| Service worker | `/headless` | `registerNotificationServiceWorkerHandlers` and the three handlers it adds (`handlePushEvent`, `handleNotificationClick`, `handlePushSubscriptionChange`), for the app's own `sw.ts`. DOM-free at import. Import it from `@marinoscar/platform-web/notifications/service-worker` (React-free; the `/headless` barrel re-exports it, but pulls React in, which breaks the worker in Vite dev mode, #886). |
 | Shell | `/ui` | `NotificationBell` (with slots) and `NotificationPermissionBanner`, placed by the app in its own AppBar and layout: the package never imports the app shell. |
 | Pages | `/ui` | `UserNotificationsPage` (`/settings/notifications`), `NotificationSettingsPage` (`/admin/settings/notifications`), `PushConfigPage` (`/admin/settings/push`), `BroadcastsPage` (`/admin/settings/broadcasts`). |
 
@@ -102,7 +102,7 @@ MUI throughout, light and dark. The bell's accessible name carries the unread co
 
 ## Infra
 
-None. The app's PWA build (`vite-plugin-pwa`, `injectManifest`) compiles its own `sw.ts`, which imports the handlers from `/headless`; the SSE stream needs the reverse proxy's SSE settings the platform infra ships.
+None. The app's PWA build (`vite-plugin-pwa`, `injectManifest`) compiles its own `sw.ts`, which imports the handlers from `/service-worker` (never the `/headless` barrel: in dev mode nothing is tree-shaken and React reaches the worker); the SSE stream needs the reverse proxy's SSE settings the platform infra ships.
 
 ## Observability
 
