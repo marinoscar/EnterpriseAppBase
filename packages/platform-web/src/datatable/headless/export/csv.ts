@@ -36,13 +36,23 @@
  * Prepended to the *file*, never to a field: `toCsv` deliberately returns
  * BOM-less text so it can be composed, and {@link toCsvFile} is the thing that
  * gets written to disk.
+ *
+ * @stability experimental
  */
 export const CSV_BOM = '\uFEFF';
 
-/** RFC 4180 row separator. Excel is the reason this is CRLF and not `\n`. */
+/**
+ * RFC 4180 row separator. Excel is the reason this is CRLF and not `\n`.
+ *
+ * @stability experimental
+ */
 export const CSV_ROW_SEPARATOR = '\r\n';
 
-/** RFC 4180 field separator. */
+/**
+ * RFC 4180 field separator.
+ *
+ * @stability experimental
+ */
 export const CSV_FIELD_SEPARATOR = ',';
 
 /**
@@ -51,10 +61,16 @@ export const CSV_FIELD_SEPARATOR = ',';
  * `=`, `+`, `-` and `@` start a formula in Excel / Sheets / LibreOffice. Tab and
  * CR are here because some spreadsheets strip leading whitespace *before*
  * deciding whether a cell is a formula, so `\t=1+1` is `=1+1`.
+ *
+ * @stability experimental
  */
 export const CSV_FORMULA_PREFIXES = ['=', '+', '-', '@', '\t', '\r'] as const;
 
-/** The prefix that forces a spreadsheet to treat a cell as literal text. */
+/**
+ * The prefix that forces a spreadsheet to treat a cell as literal text.
+ *
+ * @stability experimental
+ */
 export const CSV_FORMULA_ESCAPE = "'";
 
 /** Anything a spreadsheet would read as a number, and therefore never a formula. */
@@ -68,6 +84,8 @@ const MUST_QUOTE = /["\r\n,]/;
  *
  * Exported because "is this dangerous" is a question worth asserting directly,
  * separately from what the escaper then does about it.
+ *
+ * @stability experimental
  */
 export function isFormulaText(text: string): boolean {
   if (text.length === 0) return false;
@@ -77,7 +95,11 @@ export function isFormulaText(text: string): boolean {
   return !NUMERIC_TEXT.test(text);
 }
 
-/** Prefix a formula-shaped field so it opens as literal text. */
+/**
+ * Prefix a formula-shaped field so it opens as literal text.
+ *
+ * @stability experimental
+ */
 export function neutralizeFormula(text: string): string {
   return isFormulaText(text) ? `${CSV_FORMULA_ESCAPE}${text}` : text;
 }
@@ -91,6 +113,8 @@ export function neutralizeFormula(text: string): string {
  * downstream import would then have to know about.
  *
  * Numbers are stringified and never neutralized (see the module note).
+ *
+ * @stability experimental
  */
 export function escapeCsvField(value: string | number | null | undefined): string {
   if (value === null || value === undefined) return '';
@@ -105,7 +129,11 @@ export function escapeCsvField(value: string | number | null | undefined): strin
   return `"${text.replace(/"/g, '""')}"`;
 }
 
-/** One record → one CSV line (no trailing separator). */
+/**
+ * One record → one CSV line (no trailing separator).
+ *
+ * @stability experimental
+ */
 export function toCsvRow(fields: readonly (string | number | null | undefined)[]): string {
   return fields.map(escapeCsvField).join(CSV_FIELD_SEPARATOR);
 }
@@ -116,6 +144,8 @@ export function toCsvRow(fields: readonly (string | number | null | undefined)[]
  * A trailing CRLF is emitted after the final record (RFC 4180 permits it and
  * POSIX tools expect a final line terminator) whenever there is at least one
  * row of content.
+ *
+ * @stability experimental
  */
 export function toCsv(
   header: readonly string[],
@@ -125,7 +155,11 @@ export function toCsv(
   return `${lines.join(CSV_ROW_SEPARATOR)}${CSV_ROW_SEPARATOR}`;
 }
 
-/** {@link toCsv} plus the UTF-8 BOM — i.e. the exact bytes written to disk. */
+/**
+ * {@link toCsv} plus the UTF-8 BOM — i.e. the exact bytes written to disk.
+ *
+ * @stability experimental
+ */
 export function toCsvFile(
   header: readonly string[],
   body: readonly (readonly (string | number | null | undefined)[])[],

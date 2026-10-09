@@ -74,13 +74,21 @@ interface ExportProgress {
   error?: string;
 }
 
+/**
+ * Props of {@link DataTableExportControl}.
+ *
+ * @stability experimental
+ */
 export interface DataTableExportControlProps<Row> {
+  /** The resolved layout. */
   layout: DataTableLayout;
+  /** The table's columns. */
   columns: DataTableColumn<Row>[];
   /** The currently loaded page of rows. */
   rows: Row[];
   /** The user's resolved column visibility (#255), layout-independent. */
   visibleColumnIds?: ReadonlySet<string>;
+  /** The export config of the table. */
   config?: DataTableExportConfig<Row>;
   /** Seed for the download filename — the page's `tableId` or `ariaLabel`. */
   filenameBase?: string;
@@ -88,6 +96,14 @@ export interface DataTableExportControlProps<Row> {
   total?: number;
 }
 
+/**
+ * The CSV export control: export the rows on screen, or every row the server holds.
+ *
+ * @param props - the columns, the export config and the layout.
+ * @returns the control element.
+ *
+ * @stability experimental
+ */
 export function DataTableExportControl<Row>({
   layout,
   columns,

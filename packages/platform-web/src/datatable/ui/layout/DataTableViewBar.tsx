@@ -57,7 +57,11 @@ import ViewColumnIcon from '@mui/icons-material/ViewColumn';
 import type { DataTableColumn, DataTableDensity, DataTableLayout } from '../../headless/types.js';
 import { DENSITY_LABELS, DENSITY_OPTIONS, pickerColumns } from '../../headless/layout/layoutModel.js';
 
-/** Class on the hidden-column count badge, so the count is assertable. */
+/**
+ * Class on the hidden-column count badge, so the count is assertable.
+ *
+ * @stability experimental
+ */
 export const HIDDEN_COLUMN_COUNT_CLASS = 'datatable-hidden-column-count';
 
 const DENSITY_ICONS: Record<DataTableDensity, typeof DensitySmallIcon> = {
@@ -69,14 +73,25 @@ const DENSITY_ICONS: Record<DataTableDensity, typeof DensitySmallIcon> = {
 /** Every control in this surface clears the 44px touch floor. */
 const TOUCH_TARGET = { minWidth: 44, minHeight: 44 } as const;
 
+/**
+ * Props of {@link DataTableViewBar}.
+ *
+ * @stability experimental
+ */
 export interface DataTableViewBarProps<Row> {
+  /** The table's column definitions. */
   columns: DataTableColumn<Row>[];
+  /** The resolved layout. */
   layout: DataTableLayout;
   /** The user's own visibility choice — layout folding is applied elsewhere. */
   visibleColumnIds: ReadonlySet<string>;
+  /** The density in force. */
   density: DataTableDensity;
+  /** Called with a column id and whether it is now visible. */
   onToggleColumn: (columnId: string, visible: boolean) => void;
+  /** Called with the chosen density. */
   onDensityChange: (density: DataTableDensity) => void;
+  /** Called when the user resets the view to the defaults. */
   onReset: () => void;
   /**
    * Trailing slot, currently the CSV export control (#256).
@@ -89,6 +104,14 @@ export interface DataTableViewBarProps<Row> {
   trailing?: ReactNode;
 }
 
+/**
+ * The view bar: the column picker, the density choice and the reset button.
+ *
+ * @param props - the columns, density and callbacks.
+ * @returns the bar element.
+ *
+ * @stability experimental
+ */
 export function DataTableViewBar<Row>({
   columns,
   layout,

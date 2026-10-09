@@ -12,9 +12,15 @@ import { Box, Tooltip, Typography, CircularProgress } from '@mui/material';
 // Truncated cell
 // ---------------------------------------------------------------------------
 
+/**
+ * Props of {@link TruncatedCell}.
+ *
+ * @stability experimental
+ */
 export interface TruncatedCellProps {
   /** Full text revealed on hover/focus. Omitted when there is nothing to reveal. */
   title?: string;
+  /** The cell content. */
   children: ReactNode;
 }
 
@@ -25,6 +31,8 @@ export interface TruncatedCellProps {
  * The tooltip is what "expand" means on desktop: the row height stays fixed
  * (which is what keeps a wide table scannable) and the full value is one hover
  * or keyboard focus away.
+ *
+ * @stability experimental
  */
 export function TruncatedCell({ title, children }: TruncatedCellProps) {
   const hasTitle = typeof title === 'string' && title.length > 0;
@@ -53,6 +61,13 @@ export function TruncatedCell({ title, children }: TruncatedCellProps) {
 // Overlays
 // ---------------------------------------------------------------------------
 
+/**
+ * The grid's empty-state overlay.
+ *
+ * @returns the overlay element.
+ *
+ * @stability experimental
+ */
 export function DataTableEmptyOverlay({ children }: { children?: ReactNode }) {
   return (
     <Box
@@ -75,6 +90,13 @@ export function DataTableEmptyOverlay({ children }: { children?: ReactNode }) {
   );
 }
 
+/**
+ * The grid's loading overlay.
+ *
+ * @returns the overlay element.
+ *
+ * @stability experimental
+ */
 export function DataTableLoadingOverlay() {
   return (
     <Box

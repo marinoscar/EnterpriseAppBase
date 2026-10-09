@@ -33,7 +33,11 @@ import { Box, Stack, Typography } from '@mui/material';
 import type { DataTableColumn } from '../../headless/types.js';
 import { extractColumnValue, formatColumnValue } from '../../headless/columns.js';
 
-/** Field name of the synthetic leading expander column. */
+/**
+ * Field name of the synthetic leading expander column.
+ *
+ * @stability experimental
+ */
 export const EXPANDER_FIELD = '__datatable_expander__';
 
 /**
@@ -53,11 +57,26 @@ export const DETAIL_ROW_KEY = '__datatableDetailFor';
 /** Key holding the parent row object on a synthetic detail row. */
 export const DETAIL_ROW_SOURCE = '__datatableDetailSource';
 
+/**
+ * The synthetic grid row that holds an expanded row's detail panel.
+ *
+ * @stability experimental
+ */
 export interface DetailRow<Row> {
+  /** The id of the row this panel belongs to. */
   [DETAIL_ROW_KEY]: string;
+  /** The row this panel belongs to. */
   [DETAIL_ROW_SOURCE]: Row;
 }
 
+/**
+ * Whether a grid row is the synthetic row that holds an expanded row's detail panel.
+ *
+ * @param row - a grid row.
+ * @returns `true` for a detail row.
+ *
+ * @stability experimental
+ */
 export function isDetailRow<Row>(row: unknown): row is DetailRow<Row> {
   return (
     typeof row === 'object' &&
@@ -70,7 +89,11 @@ export function makeDetailRow<Row>(parentId: string, row: Row): DetailRow<Row> {
   return { [DETAIL_ROW_KEY]: parentId, [DETAIL_ROW_SOURCE]: row };
 }
 
-/** The grid row id for a synthetic detail row — namespaced so it cannot clash. */
+/**
+ * The grid row id for a synthetic detail row — namespaced so it cannot clash.
+ *
+ * @stability experimental
+ */
 export function detailRowId(parentId: string): string {
   return `__datatable_detail__${parentId}`;
 }
@@ -83,6 +106,8 @@ export function detailRowId(parentId: string): string {
  * layout-free environment (jsdom, a `display: none` ancestor) would clip its
  * own content. An arithmetic height is deterministic everywhere, and the panel
  * scrolls internally if a value is longer than the estimate.
+ *
+ * @stability experimental
  */
 export function detailRowHeight(fieldCount: number): number {
   const HEADER_AND_PADDING = 24;
@@ -90,8 +115,15 @@ export function detailRowHeight(fieldCount: number): number {
   return HEADER_AND_PADDING + Math.max(1, fieldCount) * PER_FIELD;
 }
 
+/**
+ * Props of {@link DetailRowPanel}.
+ *
+ * @stability experimental
+ */
 export interface DetailRowPanelProps<Row> {
+  /** The row whose details to draw. */
   row: Row;
+  /** The columns to draw in the panel. */
   columns: DataTableColumn<Row>[];
 }
 
@@ -99,6 +131,8 @@ export interface DetailRowPanelProps<Row> {
  * The expanded region's content: the hidden `detail` columns as label/value
  * pairs, in declaration order — the same shape the card renderer's collapsed
  * region uses, so a value looks the same wherever it was folded away to.
+ *
+ * @stability experimental
  */
 export function DetailRowPanel<Row>({ row, columns }: DetailRowPanelProps<Row>) {
   return (

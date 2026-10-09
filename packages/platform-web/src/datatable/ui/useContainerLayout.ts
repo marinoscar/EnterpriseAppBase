@@ -43,6 +43,8 @@ import type { DataTableLayout, DataTableRendererMode } from '../headless/types.j
  * without either horizontal scrolling or unreadable truncation — that is where
  * cards win. 600 is also MUI's `sm`, so a container that happens to match the
  * viewport lands on the same pivot the rest of the app uses.
+ *
+ * @stability experimental
  */
 export const DEFAULT_MOBILE_BREAKPOINT = 600;
 
@@ -52,9 +54,16 @@ export const DEFAULT_MOBILE_BREAKPOINT = 600;
  * `detail` columns away, so the tablet band is exactly "the widths at which
  * columns are being hidden" — and therefore exactly the band that needs a row
  * expander to make them reachable again.
+ *
+ * @stability experimental
  */
 export const DEFAULT_TABLET_BREAKPOINT = 1200;
 
+/**
+ * The container widths, in pixels, at which the table changes layout.
+ *
+ * @stability experimental
+ */
 export interface DataTableBreakpoints {
   /** Below this container width, render cards. */
   mobile: number;
@@ -62,6 +71,11 @@ export interface DataTableBreakpoints {
   tablet: number;
 }
 
+/**
+ * The default container-width breakpoints.
+ *
+ * @stability experimental
+ */
 export const DEFAULT_BREAKPOINTS: DataTableBreakpoints = {
   mobile: DEFAULT_MOBILE_BREAKPOINT,
   tablet: DEFAULT_TABLET_BREAKPOINT,
@@ -70,6 +84,8 @@ export const DEFAULT_BREAKPOINTS: DataTableBreakpoints = {
 /**
  * Pure width → layout mapping. Exported so it can be unit-tested without a DOM
  * and reused by anything that already knows its width.
+ *
+ * @stability experimental
  */
 export function layoutForWidth(
   width: number,
@@ -89,6 +105,8 @@ export function layoutForWidth(
  *
  * Returns `null` until a real (non-zero) width has been observed, which is the
  * caller's signal to use a viewport fallback instead of guessing.
+ *
+ * @stability experimental
  */
 export function useContainerWidth(ref: RefObject<HTMLElement | null>): number | null {
   const [width, setWidth] = useState<number | null>(null);
@@ -140,6 +158,8 @@ export function useContainerWidth(ref: RefObject<HTMLElement | null>): number | 
  * Mirrors {@link layoutForWidth}'s thresholds using MUI's own breakpoints so
  * the fallback and the measured answer agree whenever the container happens to
  * be the full viewport.
+ *
+ * @stability experimental
  */
 export function useViewportLayout(): DataTableLayout {
   const theme = useTheme();
@@ -152,9 +172,11 @@ export function useViewportLayout(): DataTableLayout {
 /**
  * Resolve the layout for one DataTable instance.
  *
- * @param ref         wrapper element to measure
- * @param mode        `'auto'` measures; anything else is returned verbatim
- * @param breakpoints per-instance overrides (`undefined` entries keep defaults)
+ * @param ref - wrapper element to measure.
+ * @param mode - `'auto'` measures; anything else is returned verbatim.
+ * @param breakpoints - per-instance overrides (`undefined` entries keep defaults).
+ *
+ * @stability experimental
  */
 export function useDataTableLayout(
   ref: RefObject<HTMLElement | null>,

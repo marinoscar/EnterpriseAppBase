@@ -38,6 +38,8 @@ import { toCsvFile } from './csv.js';
  * library issues 1 500 requests and builds a ~100 MB string in a tab that then
  * dies. 10 000 rows is far past any spreadsheet anyone actually reads and still
  * finishes in seconds.
+ *
+ * @stability experimental
  */
 export const DATA_TABLE_EXPORT_MAX_ROWS = 10_000;
 
@@ -47,6 +49,8 @@ export const DATA_TABLE_EXPORT_MAX_ROWS = 10_000;
  * Deliberately larger than any UI page size (the fetch is headless, so the MIT
  * DataGrid's 100-row page cap does not apply here) and small enough that the
  * progress indicator moves and a cancel lands promptly.
+ *
+ * @stability experimental
  */
 export const DATA_TABLE_EXPORT_FETCH_PAGE_SIZE = 250;
 
@@ -65,6 +69,8 @@ const MAX_FETCH_PAGES = 200;
  * cell. `exportable: false` is the opt-out, and it is what #259/#260 will set on
  * share tokens and PAT material so a credential can never leave through this
  * door.
+ *
+ * @stability experimental
  */
 export function isExportableColumn<Row>(column: DataTableColumn<Row>): boolean {
   return column.exportable !== false;
@@ -81,6 +87,8 @@ export function isExportableColumn<Row>(column: DataTableColumn<Row>): boolean {
  *
  * Omitting `visibleColumnIds` means "nothing is hidden" — what a caller outside
  * `DataTable` gets.
+ *
+ * @stability experimental
  */
 export function exportColumns<Row>(
   columns: DataTableColumn<Row>[],
@@ -96,9 +104,15 @@ export function exportColumns<Row>(
 // Rows → matrix → file
 // ---------------------------------------------------------------------------
 
-/** A header row plus one array of scalars per row, ready for serialization. */
+/**
+ * A header row plus one array of scalars per row, ready for serialization.
+ *
+ * @stability experimental
+ */
 export interface ExportMatrix {
+  /** The header row: one label per exported column. */
   header: string[];
+  /** The body rows: one cell per exported column. */
   body: (string | number | null)[][];
 }
 
@@ -108,6 +122,8 @@ export interface ExportMatrix {
  * `extractColumnValue` is the same extractor the grid's `valueGetter` and the
  * card's field text use, so a CSV cell can never disagree with what the table
  * sorted or displayed for that column.
+ *
+ * @stability experimental
  */
 export function buildExportMatrix<Row>(
   columns: DataTableColumn<Row>[],
@@ -119,7 +135,11 @@ export function buildExportMatrix<Row>(
   };
 }
 
-/** The complete CSV file text (BOM included) for a set of rows. */
+/**
+ * The complete CSV file text (BOM included) for a set of rows.
+ *
+ * @stability experimental
+ */
 export function buildCsvForRows<Row>(
   columns: DataTableColumn<Row>[],
   rows: readonly Row[],
@@ -134,7 +154,11 @@ export function buildCsvForRows<Row>(
 // Filename
 // ---------------------------------------------------------------------------
 
-/** `Enrichment jobs` → `enrichment-jobs`. Empty input falls back to `export`. */
+/**
+ * `Enrichment jobs` → `enrichment-jobs`. Empty input falls back to `export`.
+ *
+ * @stability experimental
+ */
 export function slugifyExportName(name: string | undefined | null): string {
   const slug = (name ?? '')
     .toLowerCase()
@@ -149,6 +173,8 @@ export function slugifyExportName(name: string | undefined | null): string {
  *
  * Dated because an export is a snapshot: two files downloaded a week apart must
  * not collide in a Downloads folder, and `jobs (3).csv` tells nobody anything.
+ *
+ * @stability experimental
  */
 export function exportFilename(base: string | undefined | null, now: Date = new Date()): string {
   const iso = Number.isNaN(now.getTime()) ? '' : `-${now.toISOString().slice(0, 10)}`;
@@ -167,6 +193,8 @@ export function exportFilename(base: string | undefined | null, now: Date = new 
  * Returns `false` when the environment cannot do it (jsdom without a
  * `createObjectURL` stub, an ancient browser) rather than throwing — a failed
  * download must not take a render down with it.
+ *
+ * @stability experimental
  */
 export function downloadCsv(content: string, filename: string): boolean {
   if (typeof document === 'undefined' || typeof URL === 'undefined') return false;
@@ -194,6 +222,11 @@ export function downloadCsv(content: string, filename: string): boolean {
 // "All matching rows" — replaying the page's own fetch
 // ---------------------------------------------------------------------------
 
+/**
+ * Options of {@link collectAllRows}.
+ *
+ * @stability experimental
+ */
 export interface CollectAllRowsOptions<Row> {
   /** The page's own fetch callback. The component cannot know the endpoint. */
   fetchPage: DataTableExportFetchPage<Row>;
@@ -203,16 +236,27 @@ export interface CollectAllRowsOptions<Row> {
   maxRows?: number;
   /** Called after every page with the running total. */
   onProgress?: (fetched: number) => void;
+  /** Aborts the collection when it fires. */
   signal?: AbortSignal;
 }
 
+/**
+ * What {@link collectAllRows} resolves to.
+ *
+ * @stability experimental
+ */
 export interface CollectAllRowsResult<Row> {
+  /** The rows collected. */
   rows: Row[];
   /** `true` when the ceiling stopped the walk before the server ran out. */
   capped: boolean;
 }
 
-/** Thrown when an in-flight export is cancelled by the user. */
+/**
+ * Thrown when an in-flight export is cancelled by the user.
+ *
+ * @stability experimental
+ */
 export class ExportCancelledError extends Error {
   constructor() {
     super('Export cancelled');
@@ -229,9 +273,11 @@ export class ExportCancelledError extends Error {
  * missing.
  *
  * Termination is defensive on purpose: a short page, an empty page, the row
- * ceiling, or {@link MAX_FETCH_PAGES}, whichever comes first. A callback that
+ * ceiling, or `MAX_FETCH_PAGES` (200), whichever comes first. A callback that
  * ignores `page` and keeps returning the same full page would otherwise loop
  * until the tab dies.
+ *
+ * @stability experimental
  */
 export async function collectAllRows<Row>({
   fetchPage,

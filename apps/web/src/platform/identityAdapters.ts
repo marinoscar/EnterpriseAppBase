@@ -5,7 +5,7 @@
  *
  *   - `appName`: the product name the sign-in error copy names.
  *   - `Spinner`: `LoadingSpinner`, so loading states look like the rest of the app.
- *   - `DataTable`: the app's responsive `DataTable` (`components/datatable`),
+ *   - `DataTable`: the responsive `DataTable` of `@marinoscar/platform-web/datatable/ui`,
  *     which the users, allowlist and token lists render through, so they keep
  *     the app's table on every breakpoint (the package's fallback is a plain
  *     MUI table).

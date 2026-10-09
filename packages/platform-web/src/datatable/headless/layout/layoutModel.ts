@@ -27,16 +27,32 @@
 import type { DataTableColumn, DataTableDensity, DataTableLayout } from '../types.js';
 
 // ---------------------------------------------------------------------------
-// Constants (mirroring the API bounds — apps/api/src/common/schemas/settings.schema.ts)
+// Constants (mirroring the bounds of the API's `dataTables` user-settings schema)
 // ---------------------------------------------------------------------------
 
-/** Max entries the API accepts in a `visibleColumns` list. */
+/**
+ * Max entries the API accepts in a `visibleColumns` list.
+ *
+ * @stability experimental
+ */
 export const DATA_TABLE_MAX_VISIBLE_COLUMNS = 60;
-/** Max length of any string inside `visibleColumns`. */
+/**
+ * Max length of any string inside `visibleColumns`.
+ *
+ * @stability experimental
+ */
 export const DATA_TABLE_MAX_ID_LENGTH = 64;
-/** Debounce window before an in-session layout change is written to the server. */
+/**
+ * Debounce window before an in-session layout change is written to the server.
+ *
+ * @stability experimental
+ */
 export const DATA_TABLE_PERSIST_DEBOUNCE_MS = 500;
-/** Density used when neither the user nor the page has chosen one. */
+/**
+ * Density used when neither the user nor the page has chosen one.
+ *
+ * @stability experimental
+ */
 export const DEFAULT_DENSITY: DataTableDensity = 'standard';
 
 /**
@@ -56,6 +72,8 @@ export const DEFAULT_DENSITY: DataTableDensity = 'standard';
  * This degrades correctly for any naive consumer that reads the field as a
  * plain list of visible ids: `-lastError` matches no column id, so it is
  * ignored and the remaining bare ids are exactly the visible set.
+ *
+ * @stability experimental
  */
 export const HIDDEN_COLUMN_PREFIX = '-';
 
@@ -82,12 +100,21 @@ export interface DataTableStoredLayout {
   /** The chosen row density. */
   density?: DataTableDensity;
   /** The chosen sort. */
-  sort?: { field: string; direction: 'asc' | 'desc' };
+  sort?: {
+    /** The sorted column id. */
+    field: string;
+    /** The sort direction. */
+    direction: 'asc' | 'desc';
+  };
   /** The chosen page size. */
   pageSize?: number;
 }
 
-/** The active sort, as persisted. Mirrors {@link DataTableSortState}. */
+/**
+ * The active sort, as persisted. Mirrors {@link DataTableSortState}.
+ *
+ * @stability experimental
+ */
 export type DataTableStoredSort = NonNullable<DataTableStoredLayout['sort']>;
 
 /**
@@ -99,7 +126,11 @@ export type DataTablesSettings = Record<string, DataTableStoredLayout>;
 
 const DENSITIES: readonly DataTableDensity[] = ['compact', 'standard', 'comfortable'];
 
-/** Whether a value is one of the three densities. */
+/**
+ * Whether a value is one of the three densities.
+ *
+ * @stability experimental
+ */
 export function isDensity(value: unknown): value is DataTableDensity {
   return typeof value === 'string' && (DENSITIES as readonly string[]).includes(value);
 }
@@ -112,6 +143,8 @@ export function isDensity(value: unknown): value is DataTableDensity {
  * understand keeps a malformed entry from crashing a render — and keeps us from
  * echoing an unknown key back on the next PATCH, which the API would reject
  * with a 400 and take the whole write down with it.
+ *
+ * @stability experimental
  */
 export function sanitizeStoredLayout(raw: unknown): DataTableStoredLayout {
   if (!raw || typeof raw !== 'object') return {};
@@ -144,7 +177,11 @@ export function sanitizeStoredLayout(raw: unknown): DataTableStoredLayout {
   return out;
 }
 
-/** `true` when an entry carries nothing — i.e. "reset to contract defaults". */
+/**
+ * `true` when an entry carries nothing — i.e. "reset to contract defaults".
+ *
+ * @stability experimental
+ */
 export function isEmptyStoredLayout(entry: DataTableStoredLayout): boolean {
   return (
     entry.visibleColumns === undefined &&
@@ -158,7 +195,11 @@ export function isEmptyStoredLayout(entry: DataTableStoredLayout): boolean {
 // Column helpers
 // ---------------------------------------------------------------------------
 
-/** `hideable` defaults to `true`; `false` pins a column permanently visible. */
+/**
+ * `hideable` defaults to `true`; `false` pins a column permanently visible.
+ *
+ * @stability experimental
+ */
 export function isHideable<Row>(column: DataTableColumn<Row>): boolean {
   return column.hideable !== false;
 }
@@ -169,6 +210,8 @@ export function isHideable<Row>(column: DataTableColumn<Row>): boolean {
  * Only the tablet grid does: `detail` columns are hidden there and reached via
  * the row expander. This is a presentation decision, so it composes with —
  * rather than being overridden by — the user's stored choice.
+ *
+ * @stability experimental
  */
 export function layoutHidesColumn<Row>(
   column: DataTableColumn<Row>,
@@ -184,6 +227,8 @@ export function layoutHidesColumn<Row>(
  * worse than no control. `hideable: false` columns are pinned; `detail` columns
  * on a tablet are already folded into the row expander, so a checkbox for them
  * would claim an effect it does not have.
+ *
+ * @stability experimental
  */
 export function pickerColumns<Row>(
   columns: DataTableColumn<Row>[],
@@ -196,7 +241,11 @@ export function pickerColumns<Row>(
 // Visibility encoding / resolution
 // ---------------------------------------------------------------------------
 
-/** The two explicit sets carried by a stored `visibleColumns` list. */
+/**
+ * The two explicit sets carried by a stored `visibleColumns` list.
+ *
+ * @stability experimental
+ */
 export interface DecodedVisibility {
   /** Ids stored as visible (bare). */
   visible: ReadonlySet<string>;
@@ -204,7 +253,11 @@ export interface DecodedVisibility {
   hidden: ReadonlySet<string>;
 }
 
-/** Split a stored `visibleColumns` list into its explicit visible/hidden sets. */
+/**
+ * Split a stored `visibleColumns` list into its explicit visible/hidden sets.
+ *
+ * @stability experimental
+ */
 export function decodeVisibility(stored: readonly string[]): DecodedVisibility {
   const visible = new Set<string>();
   const hidden = new Set<string>();
@@ -228,6 +281,8 @@ export function decodeVisibility(stored: readonly string[]): DecodedVisibility {
  * (visible ids first, since losing a hidden marker only costs the new-column
  * protection while losing a visible id would hide a column), and no entry
  * longer than {@link DATA_TABLE_MAX_ID_LENGTH}.
+ *
+ * @stability experimental
  */
 export function encodeVisibility<Row>(
   columns: DataTableColumn<Row>[],
@@ -265,6 +320,8 @@ export function encodeVisibility<Row>(
  *
  * A stored id matching no current column simply never matches, so a renamed or
  * deleted column is ignored rather than throwing.
+ *
+ * @stability experimental
  */
 export function resolveUserVisibleColumnIds<Row>(
   columns: DataTableColumn<Row>[],
@@ -295,6 +352,8 @@ export function resolveUserVisibleColumnIds<Row>(
  * at 800px; a user's "show me `lastError`" cannot un-fold that without
  * reintroducing the horizontal scroll the fold exists to remove. Conversely a
  * user hiding a column must win at every width.
+ *
+ * @stability experimental
  */
 export function resolveVisibleColumnIds<Row>(
   columns: DataTableColumn<Row>[],
@@ -316,6 +375,8 @@ export function resolveVisibleColumnIds<Row>(
  * Returns `null` when the stored field names a column that no longer exists or
  * is no longer `sortable` — restoring a sort the server would reject (or the
  * header cannot show) is worse than opening in the page's own default order.
+ *
+ * @stability experimental
  */
 export function resolveStoredSort<Row>(
   columns: DataTableColumn<Row>[],
@@ -341,6 +402,8 @@ export function resolveStoredSort<Row>(
  * is narrow — on the layout where vertical space is scarcest. These are the
  * card equivalents: header/body padding, the gap between fields, and the gap
  * between cards, in MUI spacing units.
+ *
+ * @stability experimental
  */
 export interface CardDensityMetrics {
   /** Horizontal padding of every card region. */
@@ -353,23 +416,40 @@ export interface CardDensityMetrics {
   cardGap: number;
 }
 
+/**
+ * Spacing metrics of the phone card list, per density.
+ *
+ * @stability experimental
+ */
 export const CARD_DENSITY: Record<DataTableDensity, CardDensityMetrics> = {
   compact: { px: 1, py: 0.75, fieldGap: 0.75, cardGap: 0.75 },
   standard: { px: 1.5, py: 1.25, fieldGap: 1.25, cardGap: 1.5 },
   comfortable: { px: 2, py: 1.75, fieldGap: 1.75, cardGap: 2.25 },
 };
 
-/** Card metrics for a density, falling back to `standard`. */
+/**
+ * Card metrics for a density, falling back to `standard`.
+ *
+ * @stability experimental
+ */
 export function cardDensityMetrics(density: DataTableDensity | undefined): CardDensityMetrics {
   return CARD_DENSITY[density ?? DEFAULT_DENSITY] ?? CARD_DENSITY[DEFAULT_DENSITY];
 }
 
-/** Human label for a density, used by the picker and its accessible names. */
+/**
+ * Human label for a density, used by the picker and its accessible names.
+ *
+ * @stability experimental
+ */
 export const DENSITY_LABELS: Record<DataTableDensity, string> = {
   compact: 'Compact',
   standard: 'Standard',
   comfortable: 'Comfortable',
 };
 
-/** The three densities, in the order the toggle presents them. */
+/**
+ * The three densities, in the order the toggle presents them.
+ *
+ * @stability experimental
+ */
 export const DENSITY_OPTIONS: readonly DataTableDensity[] = DENSITIES;

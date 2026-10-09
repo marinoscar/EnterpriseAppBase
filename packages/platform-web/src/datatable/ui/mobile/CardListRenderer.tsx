@@ -40,6 +40,14 @@ import {
 
 const EMPTY_SELECTION: ReadonlySet<string> = new Set<string>();
 
+/**
+ * The phone renderer: a list of cards with its sort control and compact pagination.
+ *
+ * @param props - the table's props plus the resolved layout.
+ * @returns the list element.
+ *
+ * @stability experimental
+ */
 export function CardListRenderer<Row>({
   columns,
   rows,

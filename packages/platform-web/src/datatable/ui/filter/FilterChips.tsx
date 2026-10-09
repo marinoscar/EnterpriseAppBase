@@ -28,10 +28,19 @@ import CancelIcon from '@mui/icons-material/Cancel';
 import type { DataTableColumn, DataTableFilterModel } from '../../headless/types.js';
 import { filterChipLabel, filterKey } from '../../headless/filter/filterModel.js';
 
+/**
+ * Props of {@link FilterChips}.
+ *
+ * @stability experimental
+ */
 export interface FilterChipsProps<Row> {
+  /** The filters in force. */
   filters: DataTableFilterModel;
+  /** The table's column definitions. */
   columns: DataTableColumn<Row>[];
+  /** Called with the position of the filter to remove. */
   onRemove: (index: number) => void;
+  /** Called when the user clears every filter. */
   onClearAll?: () => void;
   /**
    * `'wrap'` — chips flow onto multiple lines (desktop / tablet).
@@ -40,6 +49,14 @@ export interface FilterChipsProps<Row> {
   variant?: 'wrap' | 'strip';
 }
 
+/**
+ * The chips of the filters in force, each removable.
+ *
+ * @param props - the filters, the columns and the callbacks.
+ * @returns the chips element.
+ *
+ * @stability experimental
+ */
 export function FilterChips<Row>({
   filters,
   columns,

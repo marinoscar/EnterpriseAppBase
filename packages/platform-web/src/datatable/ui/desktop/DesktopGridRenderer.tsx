@@ -133,7 +133,11 @@ import {
   makeDetailRow,
 } from './detailRow.js';
 
-/** Field name of the synthetic trailing actions column. */
+/**
+ * Field name of the synthetic trailing actions column.
+ *
+ * @stability experimental
+ */
 export const ACTIONS_FIELD = '__datatable_actions__';
 
 const DEFAULT_PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
@@ -141,6 +145,11 @@ const DEFAULT_PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 const MAX_UNPAGINATED_ROWS = 100;
 const EMPTY_SELECTION: ReadonlySet<string> = new Set<string>();
 
+/**
+ * Props of {@link DesktopGridRenderer}.
+ *
+ * @stability experimental
+ */
 export interface DesktopGridRendererProps<Row> extends DataTableRendererProps<Row> {
   /**
    * Which grid layout to draw. Omit to fall back to a viewport media query
@@ -149,6 +158,14 @@ export interface DesktopGridRendererProps<Row> extends DataTableRendererProps<Ro
   variant?: 'desktop' | 'tablet';
 }
 
+/**
+ * The desktop and tablet renderer, over MUI X DataGrid.
+ *
+ * @param props - the table's props plus the resolved layout.
+ * @returns the grid element.
+ *
+ * @stability experimental
+ */
 export function DesktopGridRenderer<Row>({
   columns,
   rows,

@@ -27,8 +27,24 @@ interface PendingConfirm<Row> {
   row: Row;
 }
 
-/** Resolve the four dialog strings, filling in defaults. */
-export function confirmCopy<Row>(action: DataTableRowAction<Row>, row: Row) {
+/**
+ * Resolve the four dialog strings, filling in defaults.
+ *
+ * @stability experimental
+ */
+export function confirmCopy<Row>(
+  action: DataTableRowAction<Row>,
+  row: Row,
+): {
+  /** The dialog title. */
+  title: string;
+  /** The dialog body text. */
+  description: string;
+  /** The confirm button label. */
+  confirmLabel: string;
+  /** The cancel button label. */
+  cancelLabel: string;
+} {
   const options = typeof action.confirm === 'object' ? action.confirm : {};
   const description =
     typeof options.description === 'function' ? options.description(row) : options.description;
@@ -44,6 +60,11 @@ export function confirmCopy<Row>(action: DataTableRowAction<Row>, row: Row) {
   };
 }
 
+/**
+ * What {@link useRowActionConfirm} returns.
+ *
+ * @stability experimental
+ */
 export interface RowActionConfirm<Row> {
   /** Run an action, routing it through the dialog when it declares `confirm`. */
   run: (action: DataTableRowAction<Row>, row: Row) => void;
@@ -51,6 +72,14 @@ export interface RowActionConfirm<Row> {
   dialog: React.ReactElement;
 }
 
+/**
+ * The confirm-before-run flow of a row action: `run` runs an action at once, or after the user confirms when it declares `confirm`; `dialog` is the dialog to render.
+ *
+ * @typeParam Row - the row type.
+ * @returns the runner and the dialog element.
+ *
+ * @stability experimental
+ */
 export function useRowActionConfirm<Row>(): RowActionConfirm<Row> {
   const [pending, setPending] = useState<PendingConfirm<Row> | null>(null);
 

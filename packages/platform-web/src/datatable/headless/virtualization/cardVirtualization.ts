@@ -42,6 +42,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  *
  * `content-visibility` costs a containment context per card; below ~20 cards
  * there is nothing to skip and the plain list is both simpler and faster.
+ *
+ * @stability experimental
  */
 export const CARD_VIRTUALIZATION_MIN_ROWS = 20;
 
@@ -50,13 +52,19 @@ export const CARD_VIRTUALIZATION_MIN_ROWS = 20;
  *
  * Only ever visible for the frames between mount and the first measurement, and
  * only for cards that are already off screen.
+ *
+ * @stability experimental
  */
 export const CARD_FALLBACK_INTRINSIC_HEIGHT = 168;
 
 /** Re-measure only past this delta, so a 1px reflow cannot loop the state. */
 const MEASURE_EPSILON_PX = 4;
 
-/** Whether a card list of this size is worth skipping renders for. */
+/**
+ * Whether a card list of this size is worth skipping renders for.
+ *
+ * @stability experimental
+ */
 export function shouldVirtualizeCards(
   rowCount: number,
   minRows: number = CARD_VIRTUALIZATION_MIN_ROWS,
@@ -71,6 +79,8 @@ export function shouldVirtualizeCards(
  * card's real rendered size and uses the length only for cards it has never
  * laid out. That is what keeps the scrollbar honest as the user scrolls through
  * cards of genuinely different heights.
+ *
+ * @stability experimental
  */
 export function containIntrinsicSize(height: number | null | undefined): string {
   const px = Math.max(1, Math.round(height ?? CARD_FALLBACK_INTRINSIC_HEIGHT));
@@ -83,9 +93,13 @@ export function containIntrinsicSize(height: number | null | undefined): string 
  * A callback ref plus a `ResizeObserver`, so a card that reflows (a wider
  * container, a density change, a longer value) updates the placeholder instead
  * of pinning it to the first paint.
+ *
+ * @stability experimental
  */
 export function useMeasuredCardHeight(enabled: boolean): {
+  /** Ref callback to attach to the element whose height is measured. */
   measureRef: (node: HTMLElement | null) => void;
+  /** The measured height in pixels, or `null` before the first measurement. */
   height: number | null;
 } {
   const [height, setHeight] = useState<number | null>(null);
@@ -129,6 +143,8 @@ export function useMeasuredCardHeight(enabled: boolean): {
  * the card cannot rewrite it — but it can annotate what that render produced.
  * An explicit `loading` attribute is never overwritten: a page that deliberately
  * wrote `loading="eager"` on an above-the-fold thumbnail keeps it.
+ *
+ * @stability experimental
  */
 export function useLazyImages(
   ref: { current: HTMLElement | null },

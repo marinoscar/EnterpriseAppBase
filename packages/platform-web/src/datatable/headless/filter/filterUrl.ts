@@ -49,16 +49,36 @@ import type {
 } from '../types.js';
 import { filterTypeOf, operatorArity } from './operators.js';
 
-/** Repeated param carrying one encoded filter each. */
+/**
+ * Repeated param carrying one encoded filter each.
+ *
+ * @stability experimental
+ */
 export const DATATABLE_FILTER_PARAM = 'filter';
-/** Param carrying the global quick-search term. */
+/**
+ * Param carrying the global quick-search term.
+ *
+ * @stability experimental
+ */
 export const DATATABLE_SEARCH_PARAM = 'q';
 
+/**
+ * The filter and quick-search state read from, or written to, URL query parameters.
+ *
+ * @stability experimental
+ */
 export interface DataTableUrlState {
+  /** The filters read from the URL. */
   filters: DataTableFilterModel;
+  /** The quick-search term read from the URL. */
   search: string;
 }
 
+/**
+ * Names of the query parameters {@link readDataTableUrlState} and {@link writeDataTableUrlState} use.
+ *
+ * @stability experimental
+ */
 export interface DataTableUrlOptions<Row = unknown> {
   /** Override the repeated filter param name. Default `'filter'`. */
   filterParam?: string;
@@ -80,7 +100,11 @@ function encodeSegment(raw: string | number | boolean): string {
   return encodeURIComponent(String(raw));
 }
 
-/** Encode a single filter as a `columnId:operator[:value]` param value. */
+/**
+ * Encode a single filter as a `columnId:operator[:value]` param value.
+ *
+ * @stability experimental
+ */
 export function encodeFilter(filter: DataTableFilter): string {
   const head = `${encodeSegment(filter.columnId)}:${encodeSegment(filter.operator)}`;
   const arity = operatorArity(filter.operator);
@@ -103,6 +127,8 @@ function coerceScalar(raw: string, filterType: string | undefined): string | num
 /**
  * Decode one param value. Returns `null` for anything malformed — a hand-edited
  * or stale URL should drop the offending filter, never throw on render.
+ *
+ * @stability experimental
  */
 export function decodeFilter<Row>(
   encoded: string,
@@ -162,6 +188,8 @@ function safeDecode(raw: string): string {
 /**
  * Read the filter model and quick-search term out of a `URLSearchParams`.
  * Unknown / malformed filter params are dropped silently.
+ *
+ * @stability experimental
  */
 export function readDataTableUrlState<Row>(
   params: URLSearchParams,
@@ -185,6 +213,8 @@ export function readDataTableUrlState<Row>(
  *
  * An empty model / empty search removes its param entirely rather than leaving
  * `?filter=&q=` behind, so a cleared table produces a clean URL.
+ *
+ * @stability experimental
  */
 export function writeDataTableUrlState<Row>(
   params: URLSearchParams,

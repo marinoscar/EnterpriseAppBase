@@ -21,7 +21,11 @@ import {
   operatorLabel,
 } from './operators.js';
 
-/** Find the column a filter targets, if the table still declares it. */
+/**
+ * Find the column a filter targets, if the table still declares it.
+ *
+ * @stability experimental
+ */
 export function columnForFilter<Row>(
   columns: DataTableColumn<Row>[],
   filter: DataTableFilter,
@@ -36,6 +40,8 @@ export function columnForFilter<Row>(
  * `between` starts as `['', '']` rather than `null` so the two inputs stay
  * controlled from the first render (a React input that switches from
  * uncontrolled to controlled warns, and worse, drops the first keystroke).
+ *
+ * @stability experimental
  */
 export function blankValueFor(arity: ReturnType<typeof operatorArity>): DataTableFilterValue {
   if (arity === 0) return null;
@@ -44,7 +50,11 @@ export function blankValueFor(arity: ReturnType<typeof operatorArity>): DataTabl
   return '';
 }
 
-/** A fresh, not-yet-complete filter targeting `column`. */
+/**
+ * A fresh, not-yet-complete filter targeting `column`.
+ *
+ * @stability experimental
+ */
 export function draftFilterFor<Row>(column: DataTableColumn<Row>): DataTableFilter {
   const operator = defaultOperatorForColumn(column);
   const filterType = filterTypeOf(column);
@@ -62,6 +72,8 @@ export function draftFilterFor<Row>(column: DataTableColumn<Row>): DataTableFilt
  * The panel keeps an incomplete filter as a LOCAL draft and never emits it —
  * emitting `{ columnId: 'status', operator: 'is', value: '' }` would make the
  * page refetch with a meaningless param on the first click of "Add filter".
+ *
+ * @stability experimental
  */
 export function isFilterComplete(filter: DataTableFilter): boolean {
   const arity = operatorArity(filter.operator);
@@ -79,21 +91,42 @@ export function isFilterComplete(filter: DataTableFilter): boolean {
   return typeof filter.value === 'string' && filter.value.trim() !== '';
 }
 
-/** Structural identity, used to key React lists and to reject exact duplicates. */
+/**
+ * Structural identity, used to key React lists and to reject exact duplicates.
+ *
+ * @stability experimental
+ */
 export function filterKey(filter: DataTableFilter): string {
   return `${filter.columnId}|${filter.operator}|${JSON.stringify(filter.value ?? null)}`;
 }
 
+/**
+ * Whether two filters are the same predicate (same column, operator and value).
+ *
+ * @param a - one filter.
+ * @param b - another.
+ * @returns `true` when they are equal.
+ *
+ * @stability experimental
+ */
 export function sameFilter(a: DataTableFilter, b: DataTableFilter): boolean {
   return filterKey(a) === filterKey(b);
 }
 
-/** Whether `model` already contains an identical filter. */
+/**
+ * Whether `model` already contains an identical filter.
+ *
+ * @stability experimental
+ */
 export function containsFilter(model: DataTableFilterModel, filter: DataTableFilter): boolean {
   return model.some((entry) => sameFilter(entry, filter));
 }
 
-/** Human-readable operand, used in chip labels. */
+/**
+ * Human-readable operand, used in chip labels.
+ *
+ * @stability experimental
+ */
 export function describeFilterValue<Row>(
   filter: DataTableFilter,
   column: DataTableColumn<Row> | undefined,
@@ -124,6 +157,8 @@ export function describeFilterValue<Row>(
  * Falls back to the raw `columnId` when the table no longer declares that
  * column — a filter restored from a URL after a column was renamed should read
  * as something removable, not crash the chip strip.
+ *
+ * @stability experimental
  */
 export function filterChipLabel<Row>(
   filter: DataTableFilter,
@@ -143,6 +178,15 @@ export function filterChipLabel<Row>(
 // Model transitions — every one returns a NEW array
 // ---------------------------------------------------------------------------
 
+/**
+ * A filter model with `filter` added, unless an identical one is already in it.
+ *
+ * @param model - the current model.
+ * @param filter - the filter to add.
+ * @returns the new model (the same array when nothing changed).
+ *
+ * @stability experimental
+ */
 export function addFilter(
   model: DataTableFilterModel,
   filter: DataTableFilter,
@@ -151,6 +195,15 @@ export function addFilter(
   return [...model, filter];
 }
 
+/**
+ * A filter model without the filter at `index`.
+ *
+ * @param model - the current model.
+ * @param index - the position to remove.
+ * @returns the new model.
+ *
+ * @stability experimental
+ */
 export function removeFilterAt(
   model: DataTableFilterModel,
   index: number,
@@ -158,6 +211,16 @@ export function removeFilterAt(
   return model.filter((_, position) => position !== index);
 }
 
+/**
+ * A filter model with the filter at `index` replaced.
+ *
+ * @param model - the current model.
+ * @param index - the position to replace.
+ * @param filter - the replacement.
+ * @returns the new model.
+ *
+ * @stability experimental
+ */
 export function replaceFilterAt(
   model: DataTableFilterModel,
   index: number,

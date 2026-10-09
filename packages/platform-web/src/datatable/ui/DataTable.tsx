@@ -60,11 +60,12 @@
  *
  * ## Layout persistence
  *
- * Supplying `tableId` stores the resolved layout under
- * `user_settings.dataTables[tableId]`; omitting it keeps every control working
+ * Supplying `tableId` stores the resolved layout through the
+ * `DataTablePreferencesPort` in force (by default under
+ * `user_settings.dataTables[tableId]`); omitting it keeps every control working
  * but session-scoped. In-session state is authoritative either way — the write
  * is debounced and fire-and-forget, and its outcome never feeds back into what
- * is on screen. See `layout/useDataTableLayoutPrefs.ts`.
+ * is on screen. See `headless/layout/useDataTableLayoutPrefs.ts`.
  */
 
 import { useMemo, useRef } from 'react';
@@ -94,6 +95,8 @@ const NO_FILTERS: DataTableFilterModel = [];
  * Returns the input array unchanged when no column opts out, so the common case
  * costs one `some()` and keeps its referential identity (a fresh array here
  * would invalidate every downstream `useMemo` keyed on `columns`).
+ *
+ * @stability experimental
  */
 export function drawableColumns<Row>(
   columns: DataTableColumn<Row>[],
@@ -103,9 +106,15 @@ export function drawableColumns<Row>(
     : columns;
 }
 
-/** The inputs that decide whether the view bar has anything to be about. */
+/**
+ * The inputs that decide whether the view bar has anything to be about.
+ *
+ * @stability experimental
+ */
 export interface ViewBarVisibilityInput {
+  /** The number of rows on the page. */
   rowCount: number;
+  /** Whether the table is loading. */
   loading?: boolean;
   /** `true` when a filter or a quick-search term is currently applied. */
   hasActiveQuery: boolean;
@@ -136,6 +145,8 @@ export interface ViewBarVisibilityInput {
  *  - **`pagination.total > 0`** — the table HAS rows, this page just isn't
  *    showing any (a stale page index past the end). Export's "all matching
  *    rows" scope is still meaningful.
+ *
+ * @stability experimental
  */
 export function shouldRenderViewBar({
   rowCount,
@@ -155,7 +166,11 @@ export function shouldRenderViewBar({
  */
 const MOBILE_RENDERER = CardListRenderer;
 
-/** Which renderer module serves a given layout. */
+/**
+ * Which renderer module serves a given layout.
+ *
+ * @stability experimental
+ */
 export function rendererForLayout(layout: DataTableLayout): DataTableRendererKind {
   return layout === 'mobile' ? 'mobile' : 'desktop';
 }
@@ -166,6 +181,8 @@ export function rendererForLayout(layout: DataTableLayout): DataTableRendererKin
  * Retained as the public, ref-free helper (and used as the layout hook's
  * pre-measurement fallback). Prefer `DataTable`'s own container-driven switch:
  * this one cannot see that its table is inside a narrow drawer.
+ *
+ * @stability experimental
  */
 export function useDataTableRenderer(
   mode: DataTableRendererMode = 'auto',
@@ -175,6 +192,18 @@ export function useDataTableRenderer(
   return rendererForLayout(viewportLayout);
 }
 
+/**
+ * The responsive table: a virtualized grid on desktop, a grid with row expanders on tablet and a card list on a phone, chosen from the width of its own container.
+ *
+ * Supplying `tableId` stores the user's column, density, sort and page-size choices through the `DataTablePreferencesPort` in force; omitting it keeps every control working for the session only.
+ *
+ * @param props - the table's {@link DataTableProps}.
+ * @returns the table element.
+ *
+ * @extensionPoint component
+ *
+ * @stability experimental
+ */
 export function DataTable<Row>(props: DataTableProps<Row>) {
   const {
     renderer = 'auto',

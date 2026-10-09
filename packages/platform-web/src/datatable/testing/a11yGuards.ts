@@ -42,19 +42,27 @@ export function describeControl(control: HTMLElement): string {
   return `${control.tagName.toLowerCase()}[${label}]`;
 }
 
+/**
+ * Options of {@link assertNoInvisibleHitTargets}.
+ *
+ * @stability experimental
+ */
 export interface AssertNoInvisibleHitTargetsOptions {
   /**
-   * Overrides {@link DEFAULT_VISIBLE_CONTROL_SELECTOR}. The export suite
+   * Overrides `DEFAULT_VISIBLE_CONTROL_SELECTOR`. The export suite
    * passes this with `, [role="menuitem"]` appended, since its export menu's
    * controls are menu items rather than plain buttons or checkboxes.
    */
   selector?: string;
+  /** Selector for third-party chrome the sweep skips. */
   thirdPartyChrome?: string;
 }
 
 /**
  * Sweep every visible control under `root` and fail — naming the offender —
  * if any is `opacity: 0` while remaining hit-testable.
+ *
+ * @stability experimental
  */
 export function assertNoInvisibleHitTargets(
   root: HTMLElement,

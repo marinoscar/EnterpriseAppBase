@@ -38,11 +38,19 @@ import {
 } from '../../headless/filter/operators.js';
 import { blankValueFor, columnForFilter, draftFilterFor, isFilterComplete } from '../../headless/filter/filterModel.js';
 
+/**
+ * Props of {@link FilterEditor}.
+ *
+ * @stability experimental
+ */
 export interface FilterEditorProps<Row> {
   /** Filterable columns only. */
   columns: DataTableColumn<Row>[];
+  /** The filter being edited. */
   draft: DataTableFilter;
+  /** Called with the edited draft. */
   onDraftChange: (next: DataTableFilter) => void;
+  /** Called with the completed filter to add. */
   onCommit: (filter: DataTableFilter) => void;
   /** `'row'` on desktop/tablet, `'stacked'` in the phone sheet. */
   orientation?: 'row' | 'stacked';
@@ -51,6 +59,14 @@ export interface FilterEditorProps<Row> {
 /** Shared sizing so every control in the form is a legal touch target. */
 const CONTROL_SX = { '& .MuiInputBase-root': { minHeight: 44 } } as const;
 
+/**
+ * The form that builds one filter: column, operator and value.
+ *
+ * @param props - the draft and its callbacks.
+ * @returns the editor element.
+ *
+ * @stability experimental
+ */
 export function FilterEditor<Row>({
   columns,
   draft,

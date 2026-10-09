@@ -18,10 +18,22 @@
 import { vi } from 'vitest';
 import { act } from '@testing-library/react';
 
+/**
+ * The viewport width the layout stubs report, in pixels.
+ *
+ * @stability experimental
+ */
 export const VIEWPORT_WIDTH = 1440;
+/**
+ * The viewport height the layout stubs report, in pixels.
+ *
+ * @stability experimental
+ */
 export const VIEWPORT_HEIGHT = 900;
 /** A card reports a card-sized height so a "measured placeholder" assertion
- * measures something real rather than the stubbed viewport. */
+ * measures something real rather than the stubbed viewport. *
+ * @stability experimental
+ */
 export const CARD_HEIGHT = 220;
 
 /** Mutated by {@link setContainerWidth}; read by every stubbed geometry getter. */
@@ -37,6 +49,8 @@ const observers = new Set<FakeObserver>();
 /**
  * Install the geometry + ResizeObserver + matchMedia stubs onto the shared
  * jsdom globals. Call once, in a `beforeAll`.
+ *
+ * @stability experimental
  */
 export function installLayoutStubs(): void {
   for (const prop of ['clientWidth', 'offsetWidth', 'scrollWidth'] as const) {
@@ -127,17 +141,29 @@ export function installLayoutStubs(): void {
   }) as unknown as typeof window.matchMedia;
 }
 
-/** Reset the container to a desktop-sized default. Call in a `beforeEach`. */
+/**
+ * Reset the container to a desktop-sized default. Call in a `beforeEach`.
+ *
+ * @stability experimental
+ */
 export function resetContainerWidth(width = 1400): void {
   containerWidth = width;
 }
 
-/** Set the width used by the NEXT render (no resize observers fired). */
+/**
+ * Set the width used by the NEXT render (no resize observers fired).
+ *
+ * @stability experimental
+ */
 export function setInitialContainerWidth(width: number): void {
   containerWidth = width;
 }
 
-/** Resize the container and let every live observer report the new width. */
+/**
+ * Resize the container and let every live observer report the new width.
+ *
+ * @stability experimental
+ */
 export function setContainerWidth(width: number): void {
   containerWidth = width;
   act(() => {

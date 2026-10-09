@@ -59,9 +59,15 @@ import {
 } from './layoutModel.js';
 import { useDataTablePreferencesPort } from './preferences.js';
 
+/**
+ * Options of {@link useDataTableLayoutPrefs}.
+ *
+ * @stability experimental
+ */
 export interface UseDataTableLayoutPrefsOptions<Row> {
   /** Persistence key. Omit (or leave undefined) to keep everything in-session. */
   tableId?: string;
+  /** The table's columns, to validate stored choices against. */
   columns: DataTableColumn<Row>[];
   /** The resolved layout, so `detail` folding composes with the user's choice. */
   layout: DataTableLayout;
@@ -73,6 +79,11 @@ export interface UseDataTableLayoutPrefsOptions<Row> {
   pagination?: DataTablePaginationConfig;
 }
 
+/**
+ * What {@link useDataTableLayoutPrefs} returns.
+ *
+ * @stability experimental
+ */
 export interface DataTableLayoutPrefs {
   /** Effective density: the user's choice, else the page's, else `standard`. */
   density: DataTableDensity;
@@ -84,6 +95,7 @@ export interface DataTableLayoutPrefs {
   hydrated: boolean;
   /** `true` when anything differs from the contract defaults. */
   customized: boolean;
+  /** Chooses the row density. */
   setDensity: (density: DataTableDensity) => void;
   /** Show/hide one column. Pinned (`hideable: false`) columns are ignored. */
   toggleColumn: (columnId: string, visible: boolean) => void;
@@ -91,6 +103,18 @@ export interface DataTableLayoutPrefs {
   reset: () => void;
 }
 
+/**
+ * Per-user layout preferences of one table: visible columns, density, sort and page size, restored from and persisted through the {@link DataTablePreferencesPort} in force.
+ *
+ * In-session state is authoritative: a change applies at once, and the write is debounced and fire-and-forget.
+ *
+ * @param options - the table id, its columns and the page's controlled sort and pagination.
+ * @returns the effective preferences and their setters.
+ *
+ * @extensionPoint hook
+ *
+ * @stability experimental
+ */
 export function useDataTableLayoutPrefs<Row>({
   tableId,
   columns,
@@ -158,7 +182,7 @@ export function useDataTableLayoutPrefs<Row>({
       //
       // `PATCH /api/user-settings` supports optimistic concurrency: the
       // controller reads `if-match` and the service compares it against the
-      // stored `version`, raising a 409 on a mismatch. `hooks/useUserSettings.ts`
+      // stored `version`, raising a 409 on a mismatch. The settings page's `useUserSettings`
       // opts into that — it holds the whole settings object, shows a form, and a
       // "settings were updated elsewhere" retry is the right answer there.
       //

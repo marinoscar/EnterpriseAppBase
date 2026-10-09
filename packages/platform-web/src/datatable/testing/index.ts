@@ -11,8 +11,9 @@ export {
   conformanceFixtureRows,
   runDataTableConformanceSuite,
 } from './runDataTableConformanceSuite.js';
-export type { ConformanceRow, DataTableConformanceOptions } from './runDataTableConformanceSuite.js';
+export type { ConformanceRow, DataTableConformanceOptions, DataTableConformanceThemes } from './runDataTableConformanceSuite.js';
 export { assertNoInvisibleHitTargets } from './a11yGuards.js';
+export type { AssertNoInvisibleHitTargetsOptions } from './a11yGuards.js';
 export {
   CARD_HEIGHT,
   VIEWPORT_HEIGHT,

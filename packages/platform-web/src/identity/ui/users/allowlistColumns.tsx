@@ -21,7 +21,7 @@
  * ## Why `status` is a real column and not `filterOnly`
  *
  * `DataTableColumn.filterOnly` exists for query parameters with no cell, and
- * `datatable/types.ts` cites this very endpoint's `status` as the motivating
+ * `datatable/headless/types.ts` cites this very endpoint's `status` as the motivating
  * example — because in the origin project the allowlist had no status CELL, and
  * a decorative column reading `pending` on all 25 rows is worse than none.
  *

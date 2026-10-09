@@ -29,11 +29,22 @@ import CloseIcon from '@mui/icons-material/Close';
 import type { DataTableColumn, DataTableQuickSearchConfig } from '../../headless/types.js';
 import { searchableColumns } from '../../headless/filter/operators.js';
 
-/** Long enough to swallow a burst of typing, short enough to feel immediate. */
+/**
+ * Long enough to swallow a burst of typing, short enough to feel immediate.
+ *
+ * @stability experimental
+ */
 export const DEFAULT_QUICK_SEARCH_DEBOUNCE_MS = 300;
 
+/**
+ * Props of {@link QuickSearchField}.
+ *
+ * @stability experimental
+ */
 export interface QuickSearchFieldProps<Row> {
+  /** The quick-search config. */
   config: DataTableQuickSearchConfig;
+  /** The columns the search covers. */
   columns: DataTableColumn<Row>[];
   /** Fill the available width — the phone sheet and the tablet bar both do. */
   fullWidth?: boolean;
@@ -48,6 +59,14 @@ function defaultPlaceholder<Row>(columns: DataTableColumn<Row>[]): string {
   return `Search ${labels.slice(0, -1).join(', ')} or ${last}`;
 }
 
+/**
+ * The debounced quick-search box.
+ *
+ * @param props - the quick-search config and the columns it searches.
+ * @returns the field element.
+ *
+ * @stability experimental
+ */
 export function QuickSearchField<Row>({
   config,
   columns,

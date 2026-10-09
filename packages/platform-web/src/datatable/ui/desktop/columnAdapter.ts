@@ -17,7 +17,11 @@ import type { DataTableColumn } from '../../headless/types.js';
 import { extractColumnValue, formatColumnValue } from '../../headless/columns.js';
 import { TruncatedCell } from './cells.js';
 
-/** Minimum width applied to a flexing column that declares no `minWidth`. */
+/**
+ * Minimum width applied to a flexing column that declares no `minWidth`.
+ *
+ * @stability experimental
+ */
 export const DEFAULT_COLUMN_MIN_WIDTH = 120;
 
 /** @deprecated internal alias kept for readability inside this module. */
@@ -36,6 +40,8 @@ const displayText = formatColumnValue;
  *   filtering is client-side and would only ever filter the current page. The
  *   `DataTableColumn.filterable` declaration is consumed by the server-backed
  *   filter UI in issue #254.
+ *
+ * @stability experimental
  */
 export function toGridColDef<Row>(column: DataTableColumn<Row>): GridColDef {
   const align = column.align ?? 'left';
@@ -80,7 +86,11 @@ export function toGridColDef<Row>(column: DataTableColumn<Row>): GridColDef {
   return def;
 }
 
-/** Map a whole column set, preserving declaration order. */
+/**
+ * Map a whole column set, preserving declaration order.
+ *
+ * @stability experimental
+ */
 export function toGridColumns<Row>(columns: DataTableColumn<Row>[]): GridColDef[] {
   return columns.map((column) => toGridColDef(column));
 }
@@ -102,6 +112,8 @@ export function toGridColumns<Row>(columns: DataTableColumn<Row>[]): GridColDef[
  * must win at every width; the tablet fold must survive a stored layout made on
  * a desktop, or a `detail` column marked visible there would reintroduce at
  * 800px exactly the horizontal scroll the fold exists to remove.
+ *
+ * @stability experimental
  */
 export function buildColumnVisibilityModel<Row>(
   columns: DataTableColumn<Row>[],

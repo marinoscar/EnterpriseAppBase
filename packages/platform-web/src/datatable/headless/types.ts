@@ -25,6 +25,8 @@ import type { ReactNode } from 'react';
  * The `endsWith` / `gte` / `lte` / `in` / `isNotEmpty` members are not in any
  * type's DEFAULT set but remain part of the union: a column may pin them, and
  * they were published by #252 before this issue narrowed the defaults.
+ *
+ * @stability experimental
  */
 export type FilterOperator =
   // text
@@ -59,12 +61,20 @@ export type FilterOperator =
  * empty, or when a nullable column's first page is all nulls.
  *
  * Default `'text'`.
+ *
+ * @stability experimental
  */
 export type DataTableFilterType = 'text' | 'number' | 'date' | 'enum' | 'boolean';
 
-/** One selectable option for an `enum` filter column. */
+/**
+ * One selectable option for an `enum` filter column.
+ *
+ * @stability experimental
+ */
 export interface DataTableEnumValue {
+  /** The value sent to the server. */
   value: string;
+  /** The label shown to the user. */
   label: string;
 }
 
@@ -77,13 +87,23 @@ export interface DataTableEnumValue {
  *
  * A column author never writes "show this on mobile" or "hide below 1200px";
  * they state how important the column is and each renderer decides.
+ *
+ * @stability experimental
  */
 export type DataTableColumnPriority = 'primary' | 'secondary' | 'detail';
 
-/** Horizontal alignment of a cell's content (and its header). */
+/**
+ * Horizontal alignment of a cell's content (and its header).
+ *
+ * @stability experimental
+ */
 export type DataTableAlign = 'left' | 'center' | 'right';
 
-/** Sort direction used by the controlled server-side sort contract. */
+/**
+ * Sort direction used by the controlled server-side sort contract.
+ *
+ * @stability experimental
+ */
 export type DataTableSortDirection = 'asc' | 'desc';
 
 /**
@@ -93,6 +113,8 @@ export type DataTableSortDirection = 'asc' | 'desc';
  * card list onto its padding and inter-card gap (`layout/layoutModel.ts`).
  * A density that only worked on the grid would silently stop working exactly
  * where vertical space is scarcest.
+ *
+ * @stability experimental
  */
 export type DataTableDensity = 'compact' | 'standard' | 'comfortable';
 
@@ -106,6 +128,8 @@ export type DataTableDensity = 'compact' | 'standard' | 'comfortable';
  * A column with only `value` renders that value as text. A column with only
  * `render` has no scalar and therefore cannot be sorted or exported
  * meaningfully; declare `value` too whenever a sensible scalar exists.
+ *
+ * @stability experimental
  */
 export interface DataTableColumn<Row> {
   /**
@@ -240,21 +264,35 @@ export interface DataTableColumn<Row> {
 // Actions
 // ---------------------------------------------------------------------------
 
-/** Confirmation copy for a destructive row action. */
+/**
+ * Confirmation copy for a destructive row action.
+ *
+ * @stability experimental
+ */
 export interface DataTableConfirmOptions<Row> {
+  /** The dialog title. */
   title?: string;
   /** Static description, or one derived from the row being acted upon. */
   description?: string | ((row: Row) => string);
+  /** The confirm button label. */
   confirmLabel?: string;
+  /** The cancel button label. */
   cancelLabel?: string;
 }
 
-/** A per-row action rendered in the trailing actions column. */
+/**
+ * A per-row action rendered in the trailing actions column.
+ *
+ * @stability experimental
+ */
 export interface DataTableRowAction<Row> {
+  /** A stable identifier. */
   id: string;
+  /** The visible label. */
   label: string;
-  /** Optional icon element. Required in practice when >1 action (menu items). */
+  /** Optional icon element. Required in practice when more than one action (menu items). */
   icon?: ReactNode;
+  /** Runs the action on its row (after confirmation when `confirm` is set). */
   onClick: (row: Row) => void;
   /** Per-row disabling, e.g. "can't retry a running job". */
   disabled?: (row: Row) => boolean;
@@ -271,14 +309,23 @@ export interface DataTableRowAction<Row> {
   confirm?: boolean | DataTableConfirmOptions<Row>;
 }
 
-/** An action applied to the current selection, rendered in the bulk bar. */
+/**
+ * An action applied to the current selection, rendered in the bulk bar.
+ *
+ * @stability experimental
+ */
 export interface DataTableBulkAction {
+  /** A stable identifier. */
   id: string;
+  /** The visible label. */
   label: string;
+  /** An icon drawn beside the label. */
   icon?: ReactNode;
   /** Receives the selected row ids, in insertion order. */
   onClick: (ids: string[]) => void;
+  /** Draws the action as destructive. */
   destructive?: boolean;
+  /** Whether the action is unavailable. */
   disabled?: boolean | ((ids: string[]) => boolean);
 }
 
@@ -290,26 +337,43 @@ export interface DataTableBulkAction {
  * Controlled, server-side pagination. `page` is ZERO-BASED (matching MUI);
  * APIs in this codebase are one-based, so callers convert at the fetch
  * boundary (`page: pagination.page + 1`).
+ *
+ * @stability experimental
  */
 export interface DataTablePaginationConfig {
+  /** The zero-based page index. */
   page: number;
+  /** Rows per page. */
   pageSize: number;
   /** Total row count across all pages, from the server's `meta.totalItems`. */
   total: number;
+  /** Called with the new page and page size. */
   onPaginationChange: (next: { page: number; pageSize: number }) => void;
   /** Default `[10, 25, 50, 100]`. */
   pageSizeOptions?: number[];
 }
 
-/** The active sort, or `null` for "server default order". */
+/**
+ * The active sort, or `null` for "server default order".
+ *
+ * @stability experimental
+ */
 export interface DataTableSortState {
+  /** The sorted column id. */
   field: string;
+  /** The sort direction. */
   direction: DataTableSortDirection;
 }
 
-/** Controlled, server-side sorting. */
+/**
+ * Controlled, server-side sorting.
+ *
+ * @stability experimental
+ */
 export interface DataTableSortConfig {
+  /** The controlled sort (`sort` is the active sort, `onSortChange` reports a change). */
   sort: DataTableSortState | null;
+  /** Called with the new sort when the user changes it. */
   onSortChange: (next: DataTableSortState | null) => void;
 }
 
@@ -326,6 +390,8 @@ export interface DataTableSortConfig {
  * Dates are carried as `YYYY-MM-DD` strings rather than `Date` objects, so a
  * filter model survives `JSON.stringify`, a URL round-trip, and a page reload
  * without a revive step.
+ *
+ * @stability experimental
  */
 export type DataTableFilterValue = string | number | boolean | (string | number)[] | null;
 
@@ -335,10 +401,15 @@ export type DataTableFilterValue = string | number | boolean | (string | number)
  * `columnId` is a column `id` — the same identifier used as the sort field and
  * the DataGrid `field` — so a page maps it onto its endpoint's query param with
  * a lookup table it writes once.
+ *
+ * @stability experimental
  */
 export interface DataTableFilter {
+  /** The id of the filtered column. */
   columnId: string;
+  /** The comparison operator. */
   operator: FilterOperator;
+  /** The comparison value (a list for `between` and `isAnyOf`). */
   value: DataTableFilterValue;
 }
 
@@ -346,6 +417,8 @@ export interface DataTableFilter {
  * The complete, normalized filter model: an ordered list of filters, AND-ed
  * together by convention. The table treats this as opaque controlled state and
  * hands it straight back out on every change; interpreting it is the page's job.
+ *
+ * @stability experimental
  */
 export type DataTableFilterModel = DataTableFilter[];
 
@@ -356,6 +429,8 @@ export type DataTableFilterModel = DataTableFilter[];
  * keystroke (so typing never feels laggy) while `onChange` fires once the user
  * has paused for `debounceMs`. A page can therefore refetch directly from
  * `onChange` without its own debounce.
+ *
+ * @stability experimental
  */
 export interface DataTableQuickSearchConfig {
   /** The committed search term. */
@@ -364,7 +439,7 @@ export interface DataTableQuickSearchConfig {
   onChange: (next: string) => void;
   /** Input placeholder. Defaults to a term naming the `searchable` columns. */
   placeholder?: string;
-  /** Debounce window in ms. Default {@link DEFAULT_QUICK_SEARCH_DEBOUNCE_MS} (300). */
+  /** Debounce window in ms. Default `DEFAULT_QUICK_SEARCH_DEBOUNCE_MS` (300). */
   debounceMs?: number;
   /** Accessible name for the field. Default `'Search'`. */
   ariaLabel?: string;
@@ -384,6 +459,8 @@ export interface DataTableQuickSearchConfig {
  *
  * `page` is ZERO-BASED, matching {@link DataTablePaginationConfig}. Return fewer
  * rows than `pageSize` (or an empty array) to signal the end of the result set.
+ *
+ * @stability experimental
  */
 export type DataTableExportFetchPage<Row> = (params: {
   page: number;
@@ -395,6 +472,8 @@ export type DataTableExportFetchPage<Row> = (params: {
  * Optional export configuration. Export itself needs no configuration: every
  * table can export its current page out of the box (turn it off entirely with
  * {@link DataTableProps.disableExport}).
+ *
+ * @stability experimental
  */
 export interface DataTableExportConfig<Row> {
   /**
@@ -420,11 +499,15 @@ export interface DataTableExportConfig<Row> {
  * The value is a `Set<string>` of row ids. Selection is page-scoped: because
  * pagination is server-side the table only ever knows about the ids it has
  * loaded, so "select all" means "select every row on this page".
+ *
+ * @stability experimental
  */
 export interface DataTableSelectionConfig {
   /** Default `true` when a selection config is supplied at all. */
   selectable?: boolean;
+  /** The ids of the selected rows. */
   selectedIds: Set<string>;
+  /** Called with the new set of selected ids. */
   onSelectionChange: (next: Set<string>) => void;
 }
 
@@ -445,17 +528,36 @@ export interface DataTableSelectionConfig {
  *   - `'tablet'`  → `desktop/DesktopGridRenderer` with `variant="tablet"`
  *     (the real grid, `detail` columns folded into an expandable row)
  *   - `'desktop'` → `desktop/DesktopGridRenderer` with `variant="desktop"`
+ *
+ * @stability experimental
  */
 export type DataTableRendererMode = 'auto' | 'desktop' | 'tablet' | 'mobile';
 
-/** The resolved layout. Reported as `data-layout` on the table wrapper. */
+/**
+ * The resolved layout. Reported as `data-layout` on the table wrapper.
+ *
+ * @stability experimental
+ */
 export type DataTableLayout = 'mobile' | 'tablet' | 'desktop';
 
-/** The resolved renderer module. Reported as `data-renderer` on the wrapper. */
+/**
+ * The resolved renderer module. Reported as `data-renderer` on the wrapper.
+ *
+ * @stability experimental
+ */
 export type DataTableRendererKind = 'mobile' | 'desktop';
 
+/**
+ * Props of the `DataTable` component.
+ *
+ * The table is controlled: the page owns the rows, the sort, the pagination, the filters and the selection, and the table reports changes through callbacks.
+ *
+ * @stability experimental
+ */
 export interface DataTableProps<Row> {
+  /** The column definitions. */
   columns: DataTableColumn<Row>[];
+  /** The rows of the current page. */
   rows: Row[];
   /** Stable row identity. Must be unique within the page of rows. */
   rowId: (row: Row) => string;
@@ -467,8 +569,11 @@ export interface DataTableProps<Row> {
   /** Rendered by the no-rows overlay. Defaults to a plain "No results" message. */
   emptyState?: ReactNode;
 
+  /** The controlled server-side pagination. Absent shows every row. */
   pagination?: DataTablePaginationConfig;
+  /** The controlled sort. Absent turns sorting off. */
   sort?: DataTableSortConfig;
+  /** Row selection. Absent makes the table not selectable. */
   selection?: DataTableSelectionConfig;
 
   /**
@@ -486,7 +591,9 @@ export interface DataTableProps<Row> {
   /** Controlled, debounced global quick search. Omit to hide the search box. */
   quickSearch?: DataTableQuickSearchConfig;
 
+  /** Per-row actions, in a menu or as one icon button. */
   rowActions?: DataTableRowAction<Row>[];
+  /** Actions on the selected rows, shown while any is selected. */
   bulkActions?: DataTableBulkAction[];
 
   /**
@@ -539,7 +646,7 @@ export interface DataTableProps<Row> {
 
   /**
    * Container width (px) below which the card list is used.
-   * Default {@link DEFAULT_MOBILE_BREAKPOINT} (600).
+   * Default `DEFAULT_MOBILE_BREAKPOINT` (600).
    *
    * This is a **container** measurement, not a viewport one: overriding it is
    * how a host that knows something the table cannot measure (a chrome-heavy
@@ -551,7 +658,7 @@ export interface DataTableProps<Row> {
    * Container width (px) below which the grid runs in its tablet variant
    * (`detail` columns hidden, reachable via row expansion) and at or above
    * which the full desktop grid is used.
-   * Default {@link DEFAULT_TABLET_BREAKPOINT} (1200).
+   * Default `DEFAULT_TABLET_BREAKPOINT` (1200).
    */
   tabletBreakpoint?: number;
 
@@ -569,6 +676,8 @@ export interface DataTableProps<Row> {
  * one control whose shape is decided by the layout rather than by the row
  * presentation — and because a renderer that owned filter state would lose it
  * on every layout switch.
+ *
+ * @stability experimental
  */
 export type DataTableRendererProps<Row> = Omit<
   DataTableProps<Row>,

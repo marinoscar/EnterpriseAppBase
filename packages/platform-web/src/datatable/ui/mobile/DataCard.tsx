@@ -12,7 +12,7 @@
  * trailing overflow control, and body text at `body2` / `text.secondary` — the
  * shape that reads well on a phone at 360px.
  *
- * Touch-target rule (issue #243): every control here is >=44px and none of them
+ * Touch-target rule (issue #243): every control here is at least 44px and none of them
  * is hidden with `opacity: 0` while staying clickable. There are no
  * hover-revealed affordances on a card at all — a card list is a touch surface
  * first, and an invisible-but-tappable control is the exact bug #243 filed.
@@ -44,16 +44,31 @@ import { CardField, columnContent, columnText } from './CardField.js';
 import { cardDensityMetrics } from '../../headless/layout/layoutModel.js';
 import { containIntrinsicSize, useLazyImages } from '../../headless/virtualization/cardVirtualization.js';
 
+/**
+ * Props of {@link DataCard}.
+ *
+ * @stability experimental
+ */
 export interface DataCardProps<Row> {
+  /** The row. */
   row: Row;
+  /** A stable identifier. */
   id: string;
+  /** The columns drawn as the card headline. */
   primaryColumns: DataTableColumn<Row>[];
+  /** The columns drawn as the card body. */
   secondaryColumns: DataTableColumn<Row>[];
+  /** The columns drawn when the card is expanded. */
   detailColumns: DataTableColumn<Row>[];
+  /** Whether the card has a selection checkbox. */
   selectable: boolean;
+  /** Whether the card is selected. */
   selected: boolean;
+  /** Called with the row id when the checkbox is toggled. */
   onToggleSelect: (id: string) => void;
+  /** Per-row actions. */
   rowActions?: DataTableRowAction<Row>[];
+  /** Called with the chosen action and the row. */
   onRunAction: (action: DataTableRowAction<Row>, row: Row) => void;
   /**
    * Row-density preset (#255). Drives the card's padding and field gap — the
@@ -77,6 +92,14 @@ export interface DataCardProps<Row> {
   measureRef?: (node: HTMLElement | null) => void;
 }
 
+/**
+ * One row as a card.
+ *
+ * @param props - the row and how to draw it.
+ * @returns the card element.
+ *
+ * @stability experimental
+ */
 export function DataCard<Row>({
   row,
   id,

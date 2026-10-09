@@ -17,10 +17,17 @@ import { alpha } from '@mui/material/styles';
 import CloseIcon from '@mui/icons-material/Close';
 import type { DataTableBulkAction } from '../headless/types.js';
 
+/**
+ * Props of {@link BulkActionBar}.
+ *
+ * @stability experimental
+ */
 export interface BulkActionBarProps {
   /** Selected row ids, in selection order. */
   ids: string[];
+  /** The bulk actions to offer. */
   actions?: DataTableBulkAction[];
+  /** Called when the user clears the selection. */
   onClear: () => void;
   /**
    * Rows available to select on THIS page — selection is page-scoped,
@@ -36,6 +43,14 @@ function isActionDisabled(action: DataTableBulkAction, ids: string[]): boolean {
   return action.disabled ?? false;
 }
 
+/**
+ * The bar of bulk actions shown while rows are selected.
+ *
+ * @param props - the selected ids, the actions and the clear callback.
+ * @returns the bar element, or `null` when nothing is selected.
+ *
+ * @stability experimental
+ */
 export function BulkActionBar({ ids, actions, onClear, total }: BulkActionBarProps) {
   const count = ids.length;
   if (count === 0) return null;

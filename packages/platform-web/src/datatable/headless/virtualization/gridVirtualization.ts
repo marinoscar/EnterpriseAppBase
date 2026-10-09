@@ -46,23 +46,41 @@ import type { DataTableDensity } from '../types.js';
  *
  * 50 sits between the two page sizes that matter: the default 25-row page keeps
  * growing naturally, a 100-row page virtualizes.
+ *
+ * @stability experimental
  */
 export const GRID_VIRTUALIZATION_ROW_THRESHOLD = 50;
 
-/** Rows visible at once in a virtualized viewport, before scrolling. */
+/**
+ * Rows visible at once in a virtualized viewport, before scrolling.
+ *
+ * @stability experimental
+ */
 export const GRID_VIRTUALIZED_VISIBLE_ROWS = 12;
 
-/** MUI X row heights per density preset, in px. */
+/**
+ * MUI X row heights per density preset, in px.
+ *
+ * @stability experimental
+ */
 export const GRID_ROW_HEIGHT: Record<DataTableDensity, number> = {
   compact: 36,
   standard: 52,
   comfortable: 67,
 };
 
-/** Column header (56px) + footer (53px) — the chrome a viewport must also fit. */
+/**
+ * Column header (56px) + footer (53px) — the chrome a viewport must also fit.
+ *
+ * @stability experimental
+ */
 export const GRID_CHROME_HEIGHT = 109;
 
-/** The height a virtualized viewport takes when the caller supplied none. */
+/**
+ * The height a virtualized viewport takes when the caller supplied none.
+ *
+ * @stability experimental
+ */
 export function virtualizedViewportHeight(
   density: DataTableDensity,
   rowCount: number,
@@ -72,6 +90,11 @@ export function virtualizedViewportHeight(
   return Math.min(rowCount, visibleRows) * rowHeight + GRID_CHROME_HEIGHT;
 }
 
+/**
+ * How the desktop grid is virtualized for a given row count.
+ *
+ * @stability experimental
+ */
 export interface GridVirtualizationPlan {
   /** Whether DataGrid's row virtualization is enabled for this render. */
   virtualized: boolean;
@@ -81,11 +104,17 @@ export interface GridVirtualizationPlan {
   height: number | string | undefined;
 }
 
+/**
+ * What {@link planGridVirtualization} decides from.
+ *
+ * @stability experimental
+ */
 export interface GridVirtualizationInput {
   /** Rows handed to the grid, INCLUDING any synthetic tablet detail rows. */
   rowCount: number;
   /** The caller's explicit `height` prop, if any. */
   height?: number | string;
+  /** The row density in force. */
   density: DataTableDensity;
   /** Override for tests / unusual hosts. */
   threshold?: number;
@@ -102,6 +131,8 @@ export interface GridVirtualizationInput {
  *    of a computed viewport so the grid may virtualize.
  * 3. **Anything else** — auto-height, unchanged from #252. The table grows with
  *    its rows and the page scrolls.
+ *
+ * @stability experimental
  */
 export function planGridVirtualization({
   rowCount,

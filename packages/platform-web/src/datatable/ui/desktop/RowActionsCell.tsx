@@ -7,7 +7,7 @@
  * replaces.
  *
  * Shared by BOTH renderers — the card layout reuses it with `alwaysMenu` (a
- * card header has room for one trailing control) and `touchTarget` (>=44px).
+ * card header has room for one trailing control) and `touchTarget` (at least 44px).
  * That is why it lives next to the grid but is not grid-specific: reimplementing
  * an action menu for cards would guarantee the two drift.
  *
@@ -29,11 +29,19 @@ import {
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import type { DataTableRowAction } from '../../headless/types.js';
 
+/**
+ * Props of {@link RowActionsCell}.
+ *
+ * @stability experimental
+ */
 export interface RowActionsCellProps<Row> {
+  /** The row the actions run on. */
   row: Row;
+  /** The actions to offer. */
   actions: DataTableRowAction<Row>[];
   /** Label used to disambiguate the menu button for screen readers. */
   rowLabel?: string;
+  /** Called with the chosen action and the row. */
   onRun: (action: DataTableRowAction<Row>, row: Row) => void;
   /**
    * Collapse into the overflow menu even for a single action.
@@ -45,15 +53,23 @@ export interface RowActionsCellProps<Row> {
    */
   alwaysMenu?: boolean;
   /**
-   * Enforce a >=44px hit area (WCAG 2.5.8 / the review-queue touch rule).
+   * Enforce a hit area of at least 44px (WCAG 2.5.8 / the review-queue touch rule).
    * Off by default so the desktop grid keeps its compact cell density.
    */
   touchTarget?: boolean;
 }
 
-/** >=44px in both axes, per the touch-target rule this component must honour. */
+/** At least 44px in both axes, per the touch-target rule this component must honour. */
 const TOUCH_TARGET_SX = { minWidth: 44, minHeight: 44 } as const;
 
+/**
+ * The actions cell of a row: one icon button, or a menu for several.
+ *
+ * @param props - the row, its actions and the run callback.
+ * @returns the cell element.
+ *
+ * @stability experimental
+ */
 export function RowActionsCell<Row>({
   row,
   actions,

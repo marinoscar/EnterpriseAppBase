@@ -28,13 +28,19 @@ import type {
   FilterOperator,
 } from '../types.js';
 
-/** Assumed when a filterable column declares no `filterType`. */
+/**
+ * Assumed when a filterable column declares no `filterType`.
+ *
+ * @stability experimental
+ */
 export const DEFAULT_FILTER_TYPE: DataTableFilterType = 'text';
 
 /**
  * The default operator set per value type — issue #254's catalog, verbatim.
  * Order is the order the operator picker lists them in, so the first entry is
  * also the default operator for a fresh filter on that type.
+ *
+ * @stability experimental
  */
 export const OPERATORS_BY_FILTER_TYPE: Record<DataTableFilterType, FilterOperator[]> = {
   text: ['contains', 'equals', 'startsWith', 'isEmpty'],
@@ -77,7 +83,11 @@ const NUMBER_OPERATOR_LABELS: Partial<Record<FilterOperator, string>> = {
   lte: '≤',
 };
 
-/** Display label for an operator, in the context of a value type. */
+/**
+ * Display label for an operator, in the context of a value type.
+ *
+ * @stability experimental
+ */
 export function operatorLabel(
   operator: FilterOperator,
   filterType: DataTableFilterType = DEFAULT_FILTER_TYPE,
@@ -95,9 +105,19 @@ export function operatorLabel(
  *  - `1`      — one value.
  *  - `2`      — `between`: a `[from, to]` tuple.
  *  - `'many'` — `isAnyOf` / `in`: a set.
+ *
+ * @stability experimental
  */
 export type OperatorArity = 0 | 1 | 2 | 'many';
 
+/**
+ * How many values an operator takes (see {@link OperatorArity}).
+ *
+ * @param operator - the filter operator.
+ * @returns its arity.
+ *
+ * @stability experimental
+ */
 export function operatorArity(operator: FilterOperator): OperatorArity {
   if (operator === 'isEmpty' || operator === 'isNotEmpty') return 0;
   if (operator === 'between') return 2;
@@ -105,7 +125,11 @@ export function operatorArity(operator: FilterOperator): OperatorArity {
   return 1;
 }
 
-/** The value type a column filters as. */
+/**
+ * The value type a column filters as.
+ *
+ * @stability experimental
+ */
 export function filterTypeOf<Row>(column: DataTableColumn<Row>): DataTableFilterType {
   return column.filterType ?? DEFAULT_FILTER_TYPE;
 }
@@ -117,6 +141,8 @@ export function filterTypeOf<Row>(column: DataTableColumn<Row>): DataTableFilter
  * operand picker would have nothing to list, and an operator you cannot supply a
  * value for is exactly the "looks live, does nothing" affordance the contract
  * refuses elsewhere (see `sortable`'s opt-in rationale).
+ *
+ * @stability experimental
  */
 export function isFilterableColumn<Row>(column: DataTableColumn<Row>): boolean {
   const declared =
@@ -127,7 +153,11 @@ export function isFilterableColumn<Row>(column: DataTableColumn<Row>): boolean {
   return true;
 }
 
-/** Every filterable column, in declaration order. */
+/**
+ * Every filterable column, in declaration order.
+ *
+ * @stability experimental
+ */
 export function filterableColumns<Row>(
   columns: DataTableColumn<Row>[],
 ): DataTableColumn<Row>[] {
@@ -137,6 +167,8 @@ export function filterableColumns<Row>(
 /**
  * The operators offered for a column: the explicit array when one is declared,
  * otherwise the default set for its value type.
+ *
+ * @stability experimental
  */
 export function operatorsForColumn<Row>(column: DataTableColumn<Row>): FilterOperator[] {
   if (Array.isArray(column.filterable) && column.filterable.length > 0) {
@@ -145,12 +177,20 @@ export function operatorsForColumn<Row>(column: DataTableColumn<Row>): FilterOpe
   return OPERATORS_BY_FILTER_TYPE[filterTypeOf(column)];
 }
 
-/** The operator a fresh filter on this column starts with. */
+/**
+ * The operator a fresh filter on this column starts with.
+ *
+ * @stability experimental
+ */
 export function defaultOperatorForColumn<Row>(column: DataTableColumn<Row>): FilterOperator {
   return operatorsForColumn(column)[0]!;
 }
 
-/** Every column marked `searchable`, in declaration order. */
+/**
+ * Every column marked `searchable`, in declaration order.
+ *
+ * @stability experimental
+ */
 export function searchableColumns<Row>(
   columns: DataTableColumn<Row>[],
 ): DataTableColumn<Row>[] {

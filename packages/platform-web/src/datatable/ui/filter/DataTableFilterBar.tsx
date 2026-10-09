@@ -51,14 +51,28 @@ import { FilterEditor } from './FilterEditor.js';
 import { FilterChips } from './FilterChips.js';
 import { QuickSearchField } from './QuickSearchField.js';
 
-/** Class on the tablet/phone "Filters" badge, so its count is assertable. */
+/**
+ * Class on the tablet/phone "Filters" badge, so its count is assertable.
+ *
+ * @stability experimental
+ */
 export const FILTER_COUNT_CLASS = 'datatable-filter-count';
 
+/**
+ * Props of {@link DataTableFilterBar}.
+ *
+ * @stability experimental
+ */
 export interface DataTableFilterBarProps<Row> {
+  /** The table's column definitions. */
   columns: DataTableColumn<Row>[];
+  /** The resolved layout. */
   layout: DataTableLayout;
+  /** The filters in force. */
   filters: DataTableFilterModel;
+  /** Called with the new filter model. */
   onFiltersChange?: (next: DataTableFilterModel) => void;
+  /** The quick-search config; absent turns the search box off. */
   quickSearch?: DataTableQuickSearchConfig;
   /**
    * Total matching rows across all pages, when the page knows it —
@@ -70,6 +84,14 @@ export interface DataTableFilterBarProps<Row> {
   resultCount?: number;
 }
 
+/**
+ * The filter bar: quick search, the filter editor and the chips of the filters in force.
+ *
+ * @param props - the columns, the filter model and its change callback.
+ * @returns the bar element.
+ *
+ * @stability experimental
+ */
 export function DataTableFilterBar<Row>({
   columns,
   layout,

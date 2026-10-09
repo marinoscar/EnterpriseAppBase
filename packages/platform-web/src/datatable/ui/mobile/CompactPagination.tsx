@@ -18,12 +18,26 @@ import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import type { DataTablePaginationConfig } from '../../headless/types.js';
 
+/**
+ * Props of {@link CompactPagination}.
+ *
+ * @stability experimental
+ */
 export interface CompactPaginationProps {
+  /** The pagination config. */
   pagination: DataTablePaginationConfig;
   /** Rows actually rendered on this page, used to close the displayed range. */
   loadedRows: number;
 }
 
+/**
+ * The phone pagination: previous, next and the range shown.
+ *
+ * @param props - the pagination config.
+ * @returns the pagination element.
+ *
+ * @stability experimental
+ */
 export function CompactPagination({ pagination, loadedRows }: CompactPaginationProps) {
   const { page, pageSize, total, onPaginationChange } = pagination;
 

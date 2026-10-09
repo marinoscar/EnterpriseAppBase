@@ -19,11 +19,26 @@ import type { DataTableColumn, DataTableSortConfig } from '../../headless/types.
 
 const DEFAULT_VALUE = '__default__';
 
+/**
+ * Props of {@link CardSortControl}.
+ *
+ * @stability experimental
+ */
 export interface CardSortControlProps<Row> {
+  /** The table's column definitions. */
   columns: DataTableColumn<Row>[];
+  /** The controlled sort config. */
   sort: DataTableSortConfig;
 }
 
+/**
+ * The phone sort control: a column select and a direction toggle.
+ *
+ * @param props - the columns and the sort config.
+ * @returns the control element, or `null` when no column is sortable.
+ *
+ * @stability experimental
+ */
 export function CardSortControl<Row>({ columns, sort }: CardSortControlProps<Row>) {
   const sortable = columns.filter((column) => column.sortable);
   if (sortable.length === 0) return null;

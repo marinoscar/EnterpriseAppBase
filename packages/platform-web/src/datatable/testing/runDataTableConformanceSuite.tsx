@@ -24,8 +24,7 @@
  * own columns:
  *
  * ```tsx
- * import { runDataTableConformanceSuite } from
- *   '../../../components/datatable/__tests__/conformance/runDataTableConformanceSuite';
+ * import { runDataTableConformanceSuite } from '@marinoscar/platform-web/datatable/testing';
  *
  * describe('JobsTable', () => {
  *   runDataTableConformanceSuite({
@@ -96,15 +95,31 @@ import {
 // The fixture table
 // ---------------------------------------------------------------------------
 
+/**
+ * A row of the conformance suite's built-in fixture.
+ *
+ * @stability experimental
+ */
 export interface ConformanceRow {
+  /** The row id. */
   id: string;
+  /** The row's name. */
   name: string;
+  /** The row's status. */
   status: 'active' | 'paused' | 'archived';
+  /** The row's owner. */
   owner: string;
+  /** The row's score. */
   score: number;
+  /** Free text, or `null`. */
   notes: string | null;
 }
 
+/**
+ * The conformance suite's built-in fixture rows.
+ *
+ * @stability experimental
+ */
 export const conformanceFixtureRows: ConformanceRow[] = [
   { id: 'row-1', name: 'Nightly backup', status: 'active', owner: 'alice', score: 92, notes: null },
   {
@@ -120,6 +135,14 @@ export const conformanceFixtureRows: ConformanceRow[] = [
   { id: 'row-5', name: 'Tag vocabulary sync', status: 'paused', owner: 'dave', score: 58, notes: null },
 ];
 
+/**
+ * The id of a fixture row.
+ *
+ * @param row - a fixture row.
+ * @returns its id.
+ *
+ * @stability experimental
+ */
 export const conformanceFixtureRowId = (row: ConformanceRow) => row.id;
 
 /**
@@ -128,6 +151,8 @@ export const conformanceFixtureRowId = (row: ConformanceRow) => row.id;
  * (owner) — the specific case that must survive DataGrid's own cell keyboard
  * navigation — a sortable+filterable number, and a `detail`+`truncate`
  * column with a null value in the fixture (row-1/row-3/row-5).
+ *
+ * @stability experimental
  */
 export const conformanceFixtureColumns: DataTableColumn<ConformanceRow>[] = [
   {
@@ -256,6 +281,8 @@ export interface DataTableConformanceOptions<Row> {
  * Runs the full shared conformance suite. Call this at the top of a
  * `describe` block (or at module scope) — see the module docblock for the
  * default-fixture vs. custom-fixture usage split.
+ *
+ * @stability experimental
  */
 export function runDataTableConformanceSuite<Row = ConformanceRow>(
   options: DataTableConformanceOptions<Row> = {},

@@ -25,6 +25,11 @@ const CLAMP_LINES = 2;
 // Expandable (truncated) value
 // ---------------------------------------------------------------------------
 
+/**
+ * Props of {@link ExpandableValue}.
+ *
+ * @stability experimental
+ */
 export interface ExpandableValueProps {
   /**
    * Name of the thing being expanded — the column's `label`, not its value.
@@ -33,6 +38,7 @@ export interface ExpandableValueProps {
    * unusable.
    */
   text: string;
+  /** The value to clamp and expand. */
   children: ReactNode;
 }
 
@@ -43,6 +49,8 @@ export interface ExpandableValueProps {
  * Enter/Space activation, `aria-expanded`) with no button chrome, so the value
  * still reads as text. The 44px floor is the touch-target rule — a two-line
  * clamp of a short string can otherwise be ~34px tall.
+ *
+ * @stability experimental
  */
 export function ExpandableValue({ text, children }: ExpandableValueProps) {
   const [expanded, setExpanded] = useState(false);
@@ -101,13 +109,21 @@ export function ExpandableValue({ text, children }: ExpandableValueProps) {
 // Field content
 // ---------------------------------------------------------------------------
 
-/** The visual content of one column's cell — `render` wins, `value` is the fallback. */
+/**
+ * The visual content of one column's cell — `render` wins, `value` is the fallback.
+ *
+ * @stability experimental
+ */
 export function columnContent<Row>(column: DataTableColumn<Row>, row: Row): ReactNode {
   if (column.render) return column.render(row);
   return formatColumnValue(extractColumnValue(column, row));
 }
 
-/** The plain-text form of a column's cell, for aria labels and clamp toggles. */
+/**
+ * The plain-text form of a column's cell, for aria labels and clamp toggles.
+ *
+ * @stability experimental
+ */
 export function columnText<Row>(column: DataTableColumn<Row>, row: Row): string {
   return formatColumnValue(extractColumnValue(column, row));
 }
@@ -116,8 +132,15 @@ export function columnText<Row>(column: DataTableColumn<Row>, row: Row): string 
 // Label / value pair
 // ---------------------------------------------------------------------------
 
+/**
+ * Props of {@link CardField}.
+ *
+ * @stability experimental
+ */
 export interface CardFieldProps<Row> {
+  /** The column to draw. */
   column: DataTableColumn<Row>;
+  /** The row. */
   row: Row;
 }
 
@@ -146,6 +169,8 @@ export interface CardFieldProps<Row> {
  * same reason.) Do not re-add a `textAlign` derived from `column.align`: a
  * column declaring one is describing the grid, and a card is a different LAYOUT
  * of the same column contract, not a narrow grid.
+ *
+ * @stability experimental
  */
 export function CardField<Row>({ column, row }: CardFieldProps<Row>) {
   const content = columnContent(column, row);

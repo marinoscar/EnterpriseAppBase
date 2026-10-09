@@ -18,6 +18,8 @@ import type { DataTableColumn } from './types.js';
  *
  * Non-scalar fallbacks (booleans, Dates, objects) are coerced to something
  * sortable/exportable rather than leaking a live object into the grid.
+ *
+ * @stability experimental
  */
 export function extractColumnValue<Row>(
   column: DataTableColumn<Row>,
@@ -41,6 +43,8 @@ export function extractColumnValue<Row>(
  * Shared with the card renderer so an empty cell reads identically in both
  * layouts — a blank card field and an em-dashed grid cell would look like two
  * different states of the data.
+ *
+ * @stability experimental
  */
 export function formatColumnValue(value: string | number | null): string {
   return value === null || value === '' ? '—' : String(value);
@@ -48,8 +52,8 @@ export function formatColumnValue(value: string | number | null): string {
 
 /**
  * The accessible name for ONE row, shared by both renderers wherever a
- * control needs to disambiguate itself ("Select {row}", "Row actions for
- * {row}") — issue #257's accessibility pass.
+ * control needs to disambiguate itself ("Select \{row\}", "Row actions for
+ * \{row\}") — issue #257's accessibility pass.
  *
  * Derived from the first `primary` column still on screen (i.e. respecting
  * the user's #255 visibility choice, when supplied), mirroring exactly what a
@@ -57,6 +61,8 @@ export function formatColumnValue(value: string | number | null): string {
  * (`mobile/DataCard.tsx`'s `headlineText`). Falls back to the row id when
  * there is no primary column, or its scalar is null/empty — a bare em dash is
  * not a usable name.
+ *
+ * @stability experimental
  */
 export function rowAccessibleName<Row>(
   columns: DataTableColumn<Row>[],

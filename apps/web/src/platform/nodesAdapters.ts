@@ -4,7 +4,7 @@
  * `NodesWebAdaptersProvider` in `platform/shellProviders.tsx`:
  *
  *   - `Spinner`: `LoadingSpinner`, so loading states look like the rest of the app.
- *   - `DataTable`: the app's responsive `DataTable` (`components/datatable`),
+ *   - `DataTable`: the responsive `DataTable` of `@marinoscar/platform-web/datatable/ui`,
  *     which the fleet and the credential list render through.
  *   - `api`: the package's own nodes client (`createNodesApi`) over the app's
  *     transport (`appPlatformApi`, `platform/platformHost.tsx`).
