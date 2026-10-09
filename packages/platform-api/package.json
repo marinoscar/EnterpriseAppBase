@@ -265,6 +265,30 @@
     },
     "supertest": {
       "optional": true
+    },
+    "@nestjs/config": {
+      "optional": true
+    },
+    "@nestjs/event-emitter": {
+      "optional": true
+    },
+    "@nestjs/jwt": {
+      "optional": true
+    },
+    "@nestjs/passport": {
+      "optional": true
+    },
+    "@nestjs/schedule": {
+      "optional": true
+    },
+    "@nestjs/terminus": {
+      "optional": true
+    },
+    "@prisma/client-runtime-utils": {
+      "optional": true
+    },
+    "passport": {
+      "optional": true
     }
   },
   "devDependencies": {

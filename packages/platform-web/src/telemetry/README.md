@@ -20,7 +20,7 @@ import { telemetryAdminCards } from '@marinoscar/platform-web/telemetry/ui';
 const TelemetryDashboardPage = lazy(() => import('@marinoscar/platform-web/telemetry/ui/dashboard-page'));
 ```
 
-`/telemetry/ui` needs the optional peers `@mui/x-charts` (dashboard charts), `@mui/x-data-grid` (explorer results), `@uiw/react-codemirror` and `@codemirror/lang-sql` (the explorer's editor, lazy-loaded), besides the package peers `@mui/material`, `@mui/icons-material`, `@emotion/*`, `react-router-dom`. `/telemetry/headless` needs `react`, `react-router-dom` (the guard's redirect) and `@mui/material/styles` (the token contract) only; it imports no MUI component module (an ESLint rule and `test/telemetry/boundaries.test.ts` enforce it). Both use `@marinoscar/platform-contract`, whose peer `zod` the app installs; it is not bundled.
+`/telemetry/ui` needs the optional peers `@mui/x-charts` (dashboard charts), `@mui/x-data-grid` (explorer results), `@uiw/react-codemirror` and `@codemirror/lang-sql` (the explorer's editor, lazy-loaded), besides the required package peers (`@mui/material`, `@emotion/*`, `react`, `react-dom`) and the optional `@mui/icons-material` and `react-router-dom`. `/telemetry/headless` needs `react`, `react-router-dom` (the guard's redirect) and `@mui/material/styles` (the token contract) only; it imports no MUI component module (an ESLint rule and `test/telemetry/boundaries.test.ts` enforce it). Both use `@marinoscar/platform-contract`, whose peer `zod` the app installs; it is not bundled.
 
 ## Quick start
 

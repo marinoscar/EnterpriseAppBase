@@ -18,7 +18,7 @@ Ships inside `@marinoscar/platform-api`:
 import { TelemetryModule } from '@marinoscar/platform-api/telemetry';
 ```
 
-Beyond the package's peers, this slice needs `@nestjs/config` (the `greptime`, `stackAgent` and `otel` configuration namespaces) and `@nestjs/schedule` (the nightly retention cron). It brings `pg`, `exceljs` and `hyparquet-writer` as dependencies. Test fixtures are at `@marinoscar/platform-api/telemetry/testing`.
+Beyond the package's required peers (and those of `core`, `doctor` and `otel-core`, which it depends on), this slice needs the optional peers `@nestjs/config` (the `greptime`, `stackAgent` and `otel` configuration namespaces), `@nestjs/schedule` (the nightly retention cron) and `fastify` (the reply types of the SSE and export routes). Nothing else: no Passport, `@nestjs/jwt` or `@nestjs/event-emitter`. The consumer smoke `tests/consumer-smoke/api-slim` proves it. `telemetry/testing` also needs the optional `@nestjs/platform-fastify`. It brings `pg`, `exceljs` and `hyparquet-writer` as dependencies. Test fixtures are at `@marinoscar/platform-api/telemetry/testing`.
 
 ## Quick start
 

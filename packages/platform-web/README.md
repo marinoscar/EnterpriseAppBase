@@ -37,19 +37,32 @@ Status: pre-release (the current channel and how to install it: the [release run
 npm install @marinoscar/platform-web
 ```
 
-Install these in the app; the package never bundles its own copy (a second copy breaks dependency injection, hooks or theme context).
+Install these in the app; the package never bundles its own copy (a second copy breaks dependency injection, hooks or theme context). Which ones depends on the slices you import: only what `core` needs is required, the rest are optional peers npm does not install for you ([the rule](../../docs/PACKAGES.md#peer-dependencies-per-slice)). Import slices by their subpath, never from the package root, which may touch any slice.
+
+Required by every slice (`core`, with the peers MUI and Emotion need in turn):
 
 | Package | Range |
 |---|---|
 | `@emotion/react` | `^11.14.0` |
 | `@emotion/styled` | `^11.14.1` |
-| `@mui/icons-material` | `^9.1.0` |
 | `@mui/material` | `^9.1.0` |
 | `react` | `^19.2.7` |
 | `react-dom` | `^19.2.7` |
-| `react-router-dom` | `^7.17.0` |
 
-Optional peer `@mui/x-data-grid` `^9.10.1` is also needed by `@marinoscar/platform-web/datatable/ui` and, since the AI lists use it, by `@marinoscar/platform-web/ai/ui`. Optional peers, needed only by `@marinoscar/platform-web/telemetry/ui` (#704): `@mui/x-charts` `^9.14.0`, `@mui/x-data-grid` `^9.10.1`, `@uiw/react-codemirror` `^4.25.12` and `@codemirror/lang-sql` `^6.10.0`.
+Optional peers, installed for the slices that need them:
+
+| Package | Range | Needed by |
+|---|---|---|
+| `@mui/icons-material` | `^9.1.0` | every slice with a `/ui` entry (`doctor`, `identity`, `settings`, `sharing`, `onboarding`, `email`, `nodes`, `jobs`, `storage`, `notifications`, `exports`, `ai`, `db-backup`, `android-app`, `user-data`, `shell`, `host`, `datatable`, `telemetry`) |
+| `react-router-dom` | `^7.17.0` | the same slices, except `exports` and `datatable` |
+| `zod` | `^4.4.3` | `nodes`, `jobs` (and the app's own use of `@marinoscar/platform-contract`) |
+| `@mui/x-data-grid` | `^9.10.1` | `datatable/ui` and, since the AI lists use it, `ai/ui`; `telemetry/ui` |
+| `@mui/x-charts` | `^9.14.0` | `telemetry/ui` (#704) |
+| `@uiw/react-codemirror` | `^4.25.12` | `telemetry/ui` |
+| `@codemirror/lang-sql` | `^6.10.0` | `telemetry/ui` |
+| `vitest`, `vitest-axe`, `@testing-library/react`, `@testing-library/user-event` | `^4.1.8`, `^1.0.0-pre.5`, `^16.3.2`, `^14.6.1` | `datatable/testing` only |
+
+A slice also needs what the slices it depends on need (`packages/platform-slices.json`); the exact set per slice is `packages/platform-slice-peers.json`, and `node scripts/check-slice-peers.mjs --table` prints it.
 
 ## Quick start
 

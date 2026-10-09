@@ -64,7 +64,7 @@ Install these in the app; the package never bundles its own copy (a second copy 
 
 | Package | Range |
 |---|---|
-| `zod` | `^4.4.3` |
+| `zod` | `^4.4.3` (required; every slice imports it) |
 
 An app that uses `@marinoscar/platform-api` or `@marinoscar/platform-web` gets this package with them, but still installs `zod` itself.
 

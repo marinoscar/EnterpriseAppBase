@@ -43,6 +43,13 @@ jobs:
 
       - run: npm run lint:packages
 
+      # Per-slice peer dependencies (issue #914; docs/PACKAGES.md): every
+      # non-test import of a slice is covered by the peers it declares in
+      # packages/platform-slice-peers.json (or its slice dependencies'), no
+      # declared peer is orphaned, and only what the universal slices need is
+      # a required peer.
+      - run: npm run check:slice-peers
+
       - run: npm run test:packages
 
       # `npm pack --dry-run` per package: every exports/main/types target and
@@ -202,6 +209,11 @@ jobs:
       - if: steps.scope.outputs.run == 'true'
         name: API consumer smoke
         run: node tests/consumer-smoke/run.mjs --project api --from tarballs "$RUNNER_TEMP/tarballs"
+
+      # Issue #914: only the peers of core, otel-core and telemetry.
+      - if: steps.scope.outputs.run == 'true'
+        name: Slim API consumer smoke (core, otel-core, telemetry peers only)
+        run: node tests/consumer-smoke/run.mjs --project api-slim --from tarballs "$RUNNER_TEMP/tarballs"
 
       - if: steps.scope.outputs.run == 'true'
         name: Web consumer smoke

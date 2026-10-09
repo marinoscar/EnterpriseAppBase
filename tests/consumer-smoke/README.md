@@ -11,6 +11,7 @@ This directory is **not** an npm workspace (the root `workspaces` are `apps/*` a
 | Project | Stack | Proves |
 |---|---|---|
 | `api/` | NestJS 11 + Fastify, CommonJS, `tsc` with `NodeNext`, `experimentalDecorators`, `emitDecoratorMetadata`, `strict`, `skipLibCheck: false` | The package's `exports` and `.d.ts` resolve and type-check from outside the monorepo. `DoctorModule.forRoot` mounts with the consumer's own host (`src/platform-host.ts`, a test-only header guard): `GET /api/admin/doctor` answers 401 without `x-smoke: 1`, 403 without the permission, 200 with it. The consumer's checks (`src/smoke.check.ts`, registered by constructor-injected `DoctorCheckRegistry`) appear with a computed `verdict`; the zod query DTO answers 400 on a bad value; the route is in the consumer's OpenAPI document. `DoctorModule.forRoot` without a host and `definePlatformHost` with a missing access function both throw. The package is a real directory inside the consumer, not a link. The consumer augments `SystemSettingsNamespaces` with its own `notes` namespace (`src/notes.settings.ts`) before importing slices that augment it too (`src/settings-typing.check.ts`), and `tsc` proves `getNamespace('notes')`, `getNamespace(NOTES_SYSTEM_SETTINGS)` and the slices' keys are typed; at runtime `JobsModule.forRoot()` registers the `jobs` namespace with `DEFAULT_JOBS_POLICY` (#865). |
+| `api-slim/` | NestJS 11 context (no HTTP adapter), CommonJS, `tsc` with `NodeNext`, `skipLibCheck: false` | A consumer that installs ONLY the peers of `core`, `otel-core` and `telemetry` (the `telemetry` row of `node scripts/check-slice-peers.mjs --table`: the required peers plus `@nestjs/config`, `@nestjs/schedule` and `fastify`) builds and runs from packed tarballs (#914). `@marinoscar/platform-api/core`, `/otel-core` and `/telemetry` type-check and load, `TelemetryModule.forRoot` returns its module metadata, a Nest application context boots on `OtelMetricsModule` and runs a `@Trace()` method, and the peers of the other slices (`@nestjs/jwt`, `@nestjs/passport`, `passport`, `@nestjs/event-emitter`, `@nestjs/terminus`, `@nestjs/platform-fastify`, `supertest`) are not in `node_modules`. It does not boot `TelemetryModule`: its six host ports are an app's to bind. |
 | `web/` | Vite 8 + React 19 + MUI 9, ESM, `moduleResolution: bundler`, `skipLibCheck: false` | `tsc` and `vite build` succeed. A Vitest + jsdom test renders `DoctorPage` (`@marinoscar/platform-web/doctor/ui`) inside `PlatformHostProvider` with the consumer's fake host and finds the consumer's check row; the headless client (`/doctor/headless`) calls the consumer's transport; a packaged page refuses to render without a host. |
 
 After each project's tests, `scripts/check-single-instance.mjs --root <temp project> --guard @marinoscar/platform-*` proves one copy of every single-instance library there (Nest, zod, React, MUI, Emotion, the platform packages).
@@ -21,7 +22,7 @@ Needs Node 24 (npm 11): npm 10 crashes resolving Vitest's peer set.
 
 ```bash
 npm ci
-npm run smoke:consumer                                   # build, pack the six, smoke api and web
+npm run smoke:consumer                                   # build, pack the six, smoke api, api-slim and web
 npm run smoke:consumer -- --project api --keep           # one project, keep the temp directory
 ```
 
@@ -31,6 +32,7 @@ Or step by step, as CI does:
 npm run build:packages
 mkdir -p /tmp/pp-tarballs && for p in contract api web db cli infra; do npm pack -w @marinoscar/platform-$p --pack-destination /tmp/pp-tarballs; done
 node tests/consumer-smoke/run.mjs --project api --from tarballs /tmp/pp-tarballs
+node tests/consumer-smoke/run.mjs --project api-slim --from tarballs /tmp/pp-tarballs
 node tests/consumer-smoke/run.mjs --project web --from tarballs /tmp/pp-tarballs
 ```
 
@@ -60,4 +62,4 @@ When a slice ships in a package, add a minimal use of it here, the way the app i
 1. Import it in the matching project (`api/src/` for `@marinoscar/platform-api/<slice>`, `web/src/` for `@marinoscar/platform-web/<slice>`), through its public subpath only.
 2. Wire its extension points with the consumer's own code (its own registry entry, its own host binding), never a copy of the reference app's.
 3. Assert the observable result in `api/test/smoke.e2e.mjs` (`node:test`) or `web/src/App.test.tsx` (Vitest), including its fail-closed behaviour.
-4. A new peer goes in the project's `package.json` at the version the reference app uses. A new package (beyond the six) goes in `PLATFORM_PACKAGES` in `run.mjs`.
+4. A new peer goes in the project's `package.json` at the version the reference app uses. `node scripts/check-slice-peers.mjs --app tests/consumer-smoke/<project>` (part of `npm run check:slice-peers`) names every peer the imported slices need; an optional peer is not installed for you. A new package (beyond the six) goes in `PLATFORM_PACKAGES` in `run.mjs`.

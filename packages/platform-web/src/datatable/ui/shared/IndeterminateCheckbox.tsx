@@ -38,12 +38,10 @@
 
 import { useEffect, useRef } from 'react';
 import type { ComponentProps, InputHTMLAttributes, Ref } from 'react';
-import { Checkbox } from '@mui/material';
-// `@mui/material/utils/useForkRef` is not part of the package's public
-// `exports` map (a deep-import 404 under `moduleResolution: "bundler"`); the
-// underlying implementation IS a proper public export of `@mui/utils`, which
-// `@mui/material` already depends on.
-import useForkRef from '@mui/utils/useForkRef';
+// `useForkRef` is a public export of `@mui/material` (its `utils` barrel). It
+// is not imported from `@mui/utils`: that is a transitive dependency this
+// package does not declare (scripts/check-slice-peers.mjs).
+import { Checkbox, useForkRef } from '@mui/material';
 
 /** Matches `Checkbox`'s own root ref type — the rendered root is a `<span>`
  * in practice (SwitchBase forces `component="span"`), but MUI's public type
