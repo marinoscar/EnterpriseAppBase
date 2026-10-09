@@ -39,5 +39,36 @@ export default () => {
     // slice). The schedule, retention and policy are settings; the literal
     // string `false` turns the timer off, anything else leaves it on.
     dbBackup: { scheduleEnabled: process.env.DB_BACKUP_SCHEDULE_ENABLED !== 'false' },
+    // Observability (read by the telemetry slice's Doctor checks and its stack
+    // service). `otel.enabled` says whether the SDK was installed at boot
+    // (`src/instrumentation.ts`); WHETHER anything is exported is the runtime
+    // `telemetry.enabled` setting.
+    otel: {
+      enabled: process.env.OTEL_ENABLED === 'true',
+      endpoint: process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
+    },
+    // The GreptimeDB read side: the DEPLOYMENT DEFAULT for the connection an
+    // administrator can instead save at /admin/settings/telemetry (used wholly
+    // in place of this block when saved). The collector's writer login is the
+    // collector's and is not read here. Credentials default to '' (never a
+    // guessable default).
+    greptime: {
+      host: process.env.GREPTIME_HOST || '',
+      pgPort: parseInt(process.env.GREPTIME_PG_PORT || '4003', 10),
+      database: process.env.GREPTIME_DB || 'public',
+      readerUser: process.env.GREPTIME_READER_USER || '',
+      readerPassword: process.env.GREPTIME_READER_PASSWORD || '',
+      adminUser: process.env.GREPTIME_ADMIN_USER || '',
+      adminPassword: process.env.GREPTIME_ADMIN_PASSWORD || '',
+      available: Boolean(process.env.GREPTIME_HOST && process.env.GREPTIME_READER_USER && process.env.GREPTIME_READER_PASSWORD),
+    },
+    // The VPS sidecar that holds the Docker socket and starts the telemetry
+    // services on request. Deployment infrastructure; either value missing
+    // means "not configured", the normal state on a development machine. The
+    // token is read only by the stack client and never logged.
+    stackAgent: {
+      url: (process.env.STACK_AGENT_URL || '').trim(),
+      token: (process.env.STACK_AGENT_TOKEN || '').trim(),
+    },
   };
 };

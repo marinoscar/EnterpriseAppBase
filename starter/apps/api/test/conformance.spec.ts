@@ -16,6 +16,7 @@ import '@marinoscar/platform-api/db-backup/testing';
 import '@marinoscar/platform-api/exports/testing';
 import '@marinoscar/platform-api/onboarding/testing';
 import '@marinoscar/platform-api/android-app/testing';
+import '@marinoscar/platform-api/telemetry/testing';
 
 import { join } from 'node:path';
 import {
@@ -42,9 +43,6 @@ const SOURCE_ROOT = join(__dirname, '..', 'src');
 const API_ROOT = join(__dirname, '..');
 const WEB_SOURCE_ROOT = join(API_ROOT, '..', 'web', 'src');
 const MANIFESTS = [join(API_ROOT, 'package.json'), join(API_ROOT, '..', 'web', 'package.json'), join(API_ROOT, '..', '..', 'package.json')];
-const AI_FIXTURE_SKIP =
-  'Needs a fixture that boots this app over a mocked database; the platform package runs these suites against its own reference app, ' +
-  'and this app mounts no AI route of its own.';
 
 /** The suites of the optional slices that are on. */
 function sliceSuites() {
@@ -65,19 +63,16 @@ function sliceSuites() {
             rootModule: AppModule,
             isPublic: (target: object) => Reflect.getMetadata(IS_PUBLIC_KEY, target) === true,
             groupOwnedModels: {},
-            // The committed snapshot of the shareable resource types (platform/sharing/resource-types.ts).
+            // The committed snapshot of the shareable resource types (platform/sharing/resource-types.ts: the sample `document`).
             // A type id is permanent once grants of it exist.
-            resourceTypeIds: [],
+            resourceTypeIds: ['document'],
           },
         }
       : {}),
     ...(isSliceEnabled('ai')
       ? {
-          aiKillSwitch: { skip: AI_FIXTURE_SKIP },
-          aiRbacMatrix: { skip: AI_FIXTURE_SKIP },
-          aiSecretEgress: { skip: AI_FIXTURE_SKIP },
-          aiKeyPolicy: { skip: AI_FIXTURE_SKIP },
-          aiJobsServerOnly: { skip: AI_FIXTURE_SKIP },
+          // The five suites that boot the app (kill switch, RBAC matrix, secret egress, key policy, jobs
+          // server-only) run in `ai-conformance.spec.ts`, over a mocked database; the two source scans are here.
           // No provider SDK anywhere in the app or the web (AI rule 1).
           aiNoSdkLeak: {
             apiTrees: [{ name: 'apps/api/src', root: SOURCE_ROOT, minFiles: 20 }],
@@ -103,6 +98,10 @@ function sliceSuites() {
     ...(isSliceEnabled('android-app')
       ? { androidApp: { rawSqlIndexNames: RAW_SQL_INDEXES.map((index) => index.name) } }
       : {}),
+    // The metric groups are the registry's: the platform's six plus the app's (`activity`), registered by
+    // `TelemetryModule.forRoot` when AppModule is imported above. The slice's own cron lives in the package,
+    // outside this app's source roots, so `cronSourceRoots` is left out.
+    ...(isSliceEnabled('telemetry') ? { telemetry: {} } : {}),
   };
 }
 

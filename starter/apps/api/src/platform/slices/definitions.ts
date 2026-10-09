@@ -17,6 +17,7 @@ import { notificationsSlice } from '../notifications/notifications.slice';
 import { onboardingSlice } from '../onboarding/onboarding.slice';
 import { sharingSlice } from '../sharing/sharing.slice';
 import { storageSlice } from '../storage/storage.slice';
+import { telemetrySlice } from '../telemetry/telemetry.slice';
 import type { ApiSlice, SliceId } from './slice';
 
 export const ALL_SLICES: Readonly<Record<SliceId, ApiSlice>> = {
@@ -30,4 +31,5 @@ export const ALL_SLICES: Readonly<Record<SliceId, ApiSlice>> = {
   exports: exportsSlice,
   onboarding: onboardingSlice,
   'android-app': androidAppSlice,
+  telemetry: telemetrySlice,
 };
