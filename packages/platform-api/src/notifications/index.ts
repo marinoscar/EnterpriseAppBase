@@ -94,6 +94,17 @@ export { BROADCASTS_NOTIFICATIONS } from './broadcasts/broadcasts.notifications'
 export { NODES_NOTIFICATIONS } from './ops/nodes.notifications';
 export { OPS_NOTIFICATIONS } from './ops/ops.notifications';
 
+// ---- the retention purges of this slice's tables (#898) -----------------------------------
+export {
+  NOTIFICATION_DELIVERIES_PURGE_TYPE,
+  NotificationDeliveriesPurgeHandler,
+  PURGEABLE_DELIVERY_STATUSES,
+} from './retention/notification-deliveries-purge.handler';
+export {
+  NOTIFICATION_INBOX_PURGE_TYPE,
+  NotificationInboxPurgeHandler,
+} from './retention/notification-inbox-purge.handler';
+
 // ---- browser and push rendering ----------------------------------------------------------
 export {
   backupFailedBrowserTemplate,

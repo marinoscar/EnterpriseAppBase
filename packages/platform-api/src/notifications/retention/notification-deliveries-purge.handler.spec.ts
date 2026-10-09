@@ -1,7 +1,4 @@
-import type { Job } from '@prisma/client';
-
-import { DEFAULT_SYSTEM_SETTINGS } from '../types/settings.types';
-import { RETENTION_PURGE_BATCH_SIZE } from './batched-purge';
+import { RETENTION_PURGE_BATCH_SIZE, RETENTION_SYSTEM_SETTINGS, type Job } from '../../jobs/index';
 import { NOTIFICATION_DELIVERIES_PURGE_TYPE, NotificationDeliveriesPurgeHandler } from './notification-deliveries-purge.handler';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -12,11 +9,12 @@ describe('NotificationDeliveriesPurgeHandler', () => {
   let deleteMany: jest.Mock;
   let getRetentionPolicy: jest.Mock;
   let register: jest.Mock;
+  let retentionRegister: jest.Mock;
   let handler: NotificationDeliveriesPurgeHandler;
 
   const rows = (n: number, prefix: string) => Array.from({ length: n }, (_, i) => ({ id: `${prefix}-${i}` }));
   const withPolicy = (policy: { enabled: boolean; days: number }) => ({
-    ...structuredClone(DEFAULT_SYSTEM_SETTINGS.retention),
+    ...structuredClone(RETENTION_SYSTEM_SETTINGS.defaults),
     notificationDeliveries: policy,
   });
 
@@ -26,10 +24,12 @@ describe('NotificationDeliveriesPurgeHandler', () => {
     deleteMany = jest.fn(async ({ where }) => ({ count: where.id.in.length }));
     getRetentionPolicy = jest.fn().mockResolvedValue(withPolicy({ enabled: true, days: 90 }));
     register = jest.fn();
+    retentionRegister = jest.fn();
     handler = new NotificationDeliveriesPurgeHandler(
       { register } as never,
       { notificationDelivery: { findMany, deleteMany } } as never,
       { getRetentionPolicy } as never,
+      { register: retentionRegister } as never,
     );
   });
 
@@ -39,6 +39,11 @@ describe('NotificationDeliveriesPurgeHandler', () => {
     handler.onModuleInit();
 
     expect(register).toHaveBeenCalledWith(handler);
+    expect(retentionRegister).toHaveBeenCalledWith({
+      policy: 'notificationDeliveries',
+      type: handler.type,
+      what: 'delivery log purge',
+    });
     expect(handler.type).toBe('notifications.deliveries.purge');
     expect(handler.profile).toEqual({ maxRuntimeMs: 1_800_000, maxAttempts: 3 });
     expect('nodeResultSchema' in handler).toBe(false);

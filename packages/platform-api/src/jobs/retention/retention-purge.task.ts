@@ -1,12 +1,16 @@
 // =============================================================================
-// Daily retention scheduler (#681, platform-packages PP-1.10)
+// Daily retention scheduler (#681, platform-packages PP-1.10; jobs slice since #898)
 // =============================================================================
 //
 // ⚠ THIS TASK DELETES NOTHING. For each ENABLED `retention.*` policy it
 // enqueues one global purge job through the shared housekeeping helper, and
 // the handler does the deleting on a worker slot. Pinned by
-// `apps/api/test/conformance.spec.ts`, which needs no exemption for
+// the `cron-enqueue-only` conformance suite, which needs no exemption for
 // this file.
+//
+// WHICH PURGES EXIST is not this file's business: each purge handler declares
+// its own entry in `RetentionPurgeRegistry` (#898), so the scheduler enqueues
+// the purges whose handler is mounted, and nothing for a slice the app left out.
 //
 // One job per table rather than one job for all four: four rows in the admin
 // job list, independent retries and independent failure — a failing audit
@@ -20,46 +24,31 @@
 // because a throw out of a `@Cron` is an unhandled rejection.
 // =============================================================================
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 
-import { AI_RUNS_PURGE_TYPE } from '@marinoscar/platform-api/ai';
-import { enqueueHousekeepingJob } from '@marinoscar/platform-api/jobs';
-import { JobsService } from '@marinoscar/platform-api/jobs';
-import { NOTIFICATION_DELIVERIES_PURGE_TYPE } from './notification-deliveries-purge.handler';
-import { NOTIFICATION_INBOX_PURGE_TYPE } from './notification-inbox-purge.handler';
-import { PrismaService } from '../../prisma/prisma.service';
-import { SystemSettingsService } from '@marinoscar/platform-api/settings';
-import type { RetentionPolicyKey } from '../schemas/settings.schema';
-import { AUDIT_EVENTS_PURGE_TYPE } from './audit-events-purge.handler';
+import { PLATFORM_PRISMA } from '../../core/index';
+import { SystemSettingsService } from '../../settings/index';
+import type { JobsPrisma } from '../data/jobs-db';
+import { enqueueHousekeepingJob } from '../housekeeping.enqueue';
+import { JobsService } from '../jobs.service';
+import { RetentionPurgeRegistry } from './retention-purge.registry';
 
 /**
- * Which job type enforces which `retention.*` policy, and what to call it in a
- * log line. The type strings are imported from the handlers, never re-typed.
+ * The nightly retention scheduler: for each ENABLED `retention.*` policy whose
+ * purge handler is mounted, enqueues one global purge job. It deletes nothing.
+ *
+ * @stability experimental
  */
-export const RETENTION_PURGES: ReadonlyArray<{
-  policy: RetentionPolicyKey;
-  type: string;
-  what: string;
-}> = [
-  { policy: 'notifications', type: NOTIFICATION_INBOX_PURGE_TYPE, what: 'notification inbox purge' },
-  {
-    policy: 'notificationDeliveries',
-    type: NOTIFICATION_DELIVERIES_PURGE_TYPE,
-    what: 'delivery log purge',
-  },
-  { policy: 'auditEvents', type: AUDIT_EVENTS_PURGE_TYPE, what: 'audit log purge' },
-  { policy: 'aiRuns', type: AI_RUNS_PURGE_TYPE, what: 'AI run purge' },
-];
-
 @Injectable()
 export class RetentionPurgeTask {
   private readonly logger = new Logger(RetentionPurgeTask.name);
 
   constructor(
     private readonly jobs: JobsService,
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: JobsPrisma,
     private readonly systemSettings: SystemSettingsService,
+    private readonly purges: RetentionPurgeRegistry,
   ) {}
 
   @Cron(CronExpression.EVERY_DAY_AT_1AM)
@@ -67,7 +56,7 @@ export class RetentionPurgeTask {
     try {
       const policy = await this.systemSettings.getRetentionPolicy();
 
-      for (const purge of RETENTION_PURGES) {
+      for (const purge of this.purges.list()) {
         if (!policy[purge.policy].enabled) {
           this.logger.debug(
             `Retention for ${purge.policy} is disabled (retention.${purge.policy}.enabled); nothing queued`,

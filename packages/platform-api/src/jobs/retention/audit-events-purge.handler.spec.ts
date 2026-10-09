@@ -1,7 +1,7 @@
-import type { Job } from '@prisma/client';
+import type { Job } from '../data/jobs-db';
 
-import { DEFAULT_SYSTEM_SETTINGS } from '../../common/types/settings.types';
-import { RETENTION_PURGE_BATCH_SIZE } from '../../common/retention/batched-purge';
+import { RETENTION_SYSTEM_SETTINGS } from './retention.system-settings';
+import { RETENTION_PURGE_BATCH_SIZE } from './batched-purge';
 import { AUDIT_EVENTS_PURGE_TYPE, AuditEventsPurgeHandler } from './audit-events-purge.handler';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -12,11 +12,12 @@ describe('AuditEventsPurgeHandler', () => {
   let deleteMany: jest.Mock;
   let getRetentionPolicy: jest.Mock;
   let register: jest.Mock;
+  let retentionRegister: jest.Mock;
   let handler: AuditEventsPurgeHandler;
 
   const rows = (n: number, prefix: string) => Array.from({ length: n }, (_, i) => ({ id: `${prefix}-${i}` }));
   const withPolicy = (policy: { enabled: boolean; days: number }) => ({
-    ...structuredClone(DEFAULT_SYSTEM_SETTINGS.retention),
+    ...structuredClone(RETENTION_SYSTEM_SETTINGS.defaults),
     auditEvents: policy,
   });
 
@@ -26,10 +27,12 @@ describe('AuditEventsPurgeHandler', () => {
     deleteMany = jest.fn(async ({ where }) => ({ count: where.id.in.length }));
     getRetentionPolicy = jest.fn().mockResolvedValue(withPolicy({ enabled: true, days: 365 }));
     register = jest.fn();
+    retentionRegister = jest.fn();
     handler = new AuditEventsPurgeHandler(
       { register } as never,
       { auditEvent: { findMany, deleteMany } } as never,
       { getRetentionPolicy } as never,
+      { register: retentionRegister } as never,
     );
   });
 
@@ -39,6 +42,11 @@ describe('AuditEventsPurgeHandler', () => {
     handler.onModuleInit();
 
     expect(register).toHaveBeenCalledWith(handler);
+    expect(retentionRegister).toHaveBeenCalledWith({
+      policy: 'auditEvents',
+      type: handler.type,
+      what: 'audit log purge',
+    });
     expect(handler.type).toBe('audit.events.purge');
     expect(handler.profile).toEqual({ maxRuntimeMs: 1_800_000, maxAttempts: 3 });
     expect('nodeResultSchema' in handler).toBe(false);

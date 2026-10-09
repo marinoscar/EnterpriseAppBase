@@ -1,6 +1,6 @@
 // =============================================================================
 // Batched retention purge — the shared loop behind the four retention jobs
-// (#681, platform-packages PP-1.10)
+// (#681, platform-packages PP-1.10; moved into the jobs slice by #898)
 // =============================================================================
 //
 // `notifications.inbox.purge`, `notifications.deliveries.purge`,
@@ -21,6 +21,11 @@
 //     logs a warning, and the next run continues from the same cutoff, so the
 //     purge is idempotent.
 //
+// ONE COPY, owned by the jobs slice and exported from it
+// (`@marinoscar/platform-api/jobs`). Until #898 the reference app and the ai
+// slice each carried a byte-for-byte copy; the ai slice's `ai.runs.purge` and
+// the notifications slice's two purges now import this one.
+//
 // `AiUsagePurgeHandler` and `JobHistoryPurgeHandler` are deliberately NOT moved
 // onto this helper (no unrelated refactors in #681); a later change may.
 //
@@ -30,18 +35,31 @@
 // =============================================================================
 
 import type { Logger } from '@nestjs/common';
-import type { Job } from '@prisma/client';
+import type { RetentionPolicyValue } from '@marinoscar/platform-contract/jobs';
 
-import type { RetentionPolicyValue } from '../schemas/settings.schema';
+import type { Job } from '../data/jobs-db';
 
-/** Ids per batch — a lock-duration bound, as in `ai-usage-purge.handler.ts`. */
+/**
+ * Ids per batch — a lock-duration bound, as in `ai-usage-purge.handler.ts`.
+ *
+ * @stability experimental
+ */
 export const RETENTION_PURGE_BATCH_SIZE = 5000;
 
-/** Safety stop on the batch loop (5 million rows a run); the next run continues from the same cutoff. */
+/**
+ * Safety stop on the batch loop (5 million rows a run); the next run continues from the same cutoff.
+ *
+ * @stability experimental
+ */
 export const RETENTION_PURGE_MAX_BATCHES = 1000;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * What one {@link purgeInBatches} run did.
+ *
+ * @stability experimental
+ */
 export interface BatchedPurgeResult {
   /** Rows the deletes reported removed. */
   deleted: number;
@@ -51,6 +69,11 @@ export interface BatchedPurgeResult {
   hitSafetyStop: boolean;
 }
 
+/**
+ * The loop's inputs: how to read a batch of ids and how to delete them.
+ *
+ * @stability experimental
+ */
 export interface BatchedPurgeOptions {
   /** Reads at most `take` ids older than the cutoff, oldest first. */
   selectIds: (take: number) => Promise<string[]>;
@@ -68,6 +91,13 @@ export interface BatchedPurgeOptions {
  * Deletes in bounded batches until a batch comes back short or the safety stop
  * is reached. Errors from `selectIds`/`deleteIds` propagate, so a queue job
  * built on this fails and is retried.
+ *
+ * @param options - the reader, the deleter and the optional bounds.
+ * @returns what the loop deleted, in how many batches, and whether it stopped early.
+ * @throws RangeError when `batchSize` or `maxBatches` is not a positive integer.
+ *
+ * @extensionPoint hook
+ * @stability experimental
  */
 export async function purgeInBatches(options: BatchedPurgeOptions): Promise<BatchedPurgeResult> {
   const batchSize = options.batchSize ?? RETENTION_PURGE_BATCH_SIZE;
@@ -114,11 +144,24 @@ export async function purgeInBatches(options: BatchedPurgeOptions): Promise<Batc
   return { deleted, batches, hitSafetyStop };
 }
 
-/** `now - days`, the instant before which a row is purged. */
+/**
+ * `now - days`, the instant before which a row is purged.
+ *
+ * @param days - the policy's retention in days.
+ * @param now - the clock, in epoch milliseconds (tests pin it).
+ * @returns the cutoff instant.
+ *
+ * @stability experimental
+ */
 export function retentionCutoff(days: number, now: number = Date.now()): Date {
   return new Date(now - days * DAY_MS);
 }
 
+/**
+ * What {@link runRetentionPolicyPurge} needs from a retention handler.
+ *
+ * @stability experimental
+ */
 export interface RetentionPolicyPurgeOptions {
   job: Pick<Job, 'id'>;
   logger: Pick<Logger, 'log' | 'warn'>;
@@ -147,7 +190,11 @@ export interface RetentionPolicyPurgeOptions {
  * queued just before the switch was flipped, would otherwise delete data an
  * operator believes they stopped deleting.
  *
+ * @param options - the job, logger, policy and the table's reader and deleter.
  * @returns `null` for the disabled no-op, otherwise the loop's result.
+ *
+ * @extensionPoint hook
+ * @stability experimental
  */
 export async function runRetentionPolicyPurge(
   options: RetentionPolicyPurgeOptions,

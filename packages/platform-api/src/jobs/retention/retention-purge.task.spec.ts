@@ -1,9 +1,13 @@
-import { DEFAULT_SYSTEM_SETTINGS } from '../types/settings.types';
-import { AI_RUNS_PURGE_TYPE } from '@marinoscar/platform-api/ai';
-import { NOTIFICATION_DELIVERIES_PURGE_TYPE } from './notification-deliveries-purge.handler';
-import { NOTIFICATION_INBOX_PURGE_TYPE } from './notification-inbox-purge.handler';
-import { AUDIT_EVENTS_PURGE_TYPE } from './audit-events-purge.handler';
-import { RETENTION_PURGES, RetentionPurgeTask } from './retention-purge.task';
+import { RETENTION_POLICY_KEYS } from '@marinoscar/platform-contract/jobs';
+
+import { RetentionPurgeRegistry } from './retention-purge.registry';
+import { RetentionPurgeTask } from './retention-purge.task';
+import { RETENTION_SYSTEM_SETTINGS } from './retention.system-settings';
+
+const NOTIFICATION_INBOX_PURGE_TYPE = 'notifications.inbox.purge';
+const NOTIFICATION_DELIVERIES_PURGE_TYPE = 'notifications.deliveries.purge';
+const AUDIT_EVENTS_PURGE_TYPE = 'audit.events.purge';
+const AI_RUNS_PURGE_TYPE = 'ai.runs.purge';
 
 const ALL_ON = {
   notifications: { enabled: true, days: 180 },
@@ -16,6 +20,7 @@ describe('RetentionPurgeTask', () => {
   let findFirst: jest.Mock;
   let enqueue: jest.Mock;
   let getRetentionPolicy: jest.Mock;
+  let purges: RetentionPurgeRegistry;
   let task: RetentionPurgeTask;
 
   const enqueuedTypes = () => enqueue.mock.calls.map(([arg]) => arg.type);
@@ -24,23 +29,48 @@ describe('RetentionPurgeTask', () => {
     findFirst = jest.fn().mockResolvedValue(null);
     enqueue = jest.fn(async ({ type }) => ({ id: `job-${type}` }));
     getRetentionPolicy = jest.fn().mockResolvedValue(ALL_ON);
+    // Registered out of order on purpose: the scheduler lists them in key order.
+    purges = new RetentionPurgeRegistry();
+    purges.register({ policy: 'aiRuns', type: AI_RUNS_PURGE_TYPE, what: 'AI run purge' });
+    purges.register({ policy: 'auditEvents', type: AUDIT_EVENTS_PURGE_TYPE, what: 'audit log purge' });
+    purges.register({
+      policy: 'notificationDeliveries',
+      type: NOTIFICATION_DELIVERIES_PURGE_TYPE,
+      what: 'delivery log purge',
+    });
+    purges.register({ policy: 'notifications', type: NOTIFICATION_INBOX_PURGE_TYPE, what: 'notification inbox purge' });
     task = new RetentionPurgeTask(
       { enqueue } as never,
       { job: { findFirst } } as never,
       { getRetentionPolicy } as never,
+      purges,
     );
   });
 
-  it('maps each policy to the type its handler exports', () => {
-    expect(RETENTION_PURGES.map(({ policy, type }) => [policy, type])).toEqual([
+  it('lists the purges in the namespace key order, one per policy key', () => {
+    expect(purges.list().map(({ policy, type }) => [policy, type])).toEqual([
       ['notifications', NOTIFICATION_INBOX_PURGE_TYPE],
       ['notificationDeliveries', NOTIFICATION_DELIVERIES_PURGE_TYPE],
       ['auditEvents', AUDIT_EVENTS_PURGE_TYPE],
       ['aiRuns', AI_RUNS_PURGE_TYPE],
     ]);
-    expect(RETENTION_PURGES.map(({ policy }) => policy).sort()).toEqual(
-      Object.keys(DEFAULT_SYSTEM_SETTINGS.retention).sort(),
+    expect(purges.list().map(({ policy }) => policy)).toEqual([...RETENTION_POLICY_KEYS]);
+    expect(Object.keys(RETENTION_SYSTEM_SETTINGS.defaults)).toEqual([...RETENTION_POLICY_KEYS]);
+  });
+
+  it('enqueues only the purges whose handler is mounted', async () => {
+    const partial = new RetentionPurgeRegistry();
+    partial.register({ policy: 'auditEvents', type: AUDIT_EVENTS_PURGE_TYPE, what: 'audit log purge' });
+    task = new RetentionPurgeTask(
+      { enqueue } as never,
+      { job: { findFirst } } as never,
+      { getRetentionPolicy } as never,
+      partial,
     );
+
+    await task.handleCron();
+
+    expect(enqueuedTypes()).toEqual([AUDIT_EVENTS_PURGE_TYPE]);
   });
 
   it('enqueues one global, low-priority job per enabled policy', async () => {
@@ -58,7 +88,7 @@ describe('RetentionPurgeTask', () => {
   });
 
   it('enqueues nothing for a disabled policy (the shipped defaults leave audit off)', async () => {
-    getRetentionPolicy.mockResolvedValue(DEFAULT_SYSTEM_SETTINGS.retention);
+    getRetentionPolicy.mockResolvedValue(RETENTION_SYSTEM_SETTINGS.defaults);
 
     await task.handleCron();
 

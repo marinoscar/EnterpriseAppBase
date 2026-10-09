@@ -1,25 +1,27 @@
 // =============================================================================
-// System settings namespace `retention` (issue #677; namespace #681, PP-1.10)
+// System settings namespace `retention` (issue #677; namespace #681, PP-1.10;
+// jobs slice since #898)
 // =============================================================================
 //
-// A declaration file: pure data, imports only leaf modules. Registered by
-// `settings/registry/system-settings.manifest.ts`. Recipe:
-// `settings/registry/README.md`. Enforced by the batched purge jobs and the
+// A declaration file: pure data, imports only leaf modules (the schemas are
+// `@marinoscar/platform-contract/jobs`'s). `JobsModule.forRoot()` registers it
+// when the app has not (`ensureSystemSettingsNamespaces`); an app that pins the
+// stored key order lists it in its own manifest instead (the reference app's
+// `settings/registry/system-settings.manifest.ts` does). Enforced by the
+// batched purge jobs (each owned by the slice that owns the table) and the
 // enqueue-only cron in this folder; see `docs/runbooks/data-retention.md`.
 // =============================================================================
 
-import type { z } from 'zod';
 import {
-  systemRetentionPatchSchema,
-  systemRetentionSchema,
-  type SystemRetentionValue,
-} from '../schemas/settings.schema';
-import {
+  retentionResponseSchema,
   retentionSettingsPatchSchema,
   retentionSettingsSchema,
-} from '../schemas/system-settings-wire.schemas';
-import { retentionResponseSchema } from '../schemas/system-settings-response.schemas';
-import type { SystemSettingsNamespace } from '@marinoscar/platform-api/settings';
+  systemRetentionPatchSchema,
+  systemRetentionSchema,
+  type RetentionSettingsPatchInput,
+  type SystemRetentionValue,
+} from '@marinoscar/platform-contract/jobs';
+import type { SystemSettingsNamespace } from '../../settings/index';
 
 // ⚠ ENABLED BY DEFAULT for three of the four, and that is a behaviour change
 // on upgrade: the first 01:00 run after deploying deletes every existing row
@@ -35,7 +37,7 @@ const RETENTION_SYSTEM_DEFAULTS: SystemRetentionValue = {
   aiRuns: { enabled: true, days: 90 },
 };
 
-type RetentionPatch = z.infer<typeof retentionSettingsPatchSchema>;
+type RetentionPatch = RetentionSettingsPatchInput;
 type RetentionPolicy = SystemRetentionValue['notifications'];
 
 function mergePolicy(
@@ -48,6 +50,14 @@ function mergePolicy(
   };
 }
 
+/**
+ * The `retention` system-settings namespace (#681): one `{ enabled, days }` per
+ * table that grows with every user action (the in-app inbox, the delivery log,
+ * the audit trail, background AI runs). `auditEvents` ships OFF. The merge is
+ * leaf by leaf. `JobsModule.forRoot()` registers it unless the app already did.
+ *
+ * @stability experimental
+ */
 export const RETENTION_SYSTEM_SETTINGS = {
   key: 'retention',
   description: 'Retention policy: one { enabled, days } per growing table (inbox, delivery log, audit trail, AI runs).',
@@ -74,7 +84,7 @@ export const RETENTION_SYSTEM_SETTINGS = {
   },
 } satisfies SystemSettingsNamespace<'retention', SystemRetentionValue, RetentionPatch>;
 
-declare module '@marinoscar/platform-api/settings' {
+declare module '../../settings/index' {
   interface SystemSettingsNamespaces {
     /**
      * Retention policy (#681): one `{ enabled, days }` per table that grows with

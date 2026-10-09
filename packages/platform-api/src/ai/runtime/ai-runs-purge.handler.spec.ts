@@ -1,6 +1,6 @@
 import type { Job } from '../../jobs/index';
 
-import { RETENTION_PURGE_BATCH_SIZE } from './batched-purge';
+import { RETENTION_PURGE_BATCH_SIZE } from '../../jobs/index';
 import { AI_RUNS_PURGE_TYPE, AiRunsPurgeHandler } from './ai-runs-purge.handler';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -11,6 +11,7 @@ describe('AiRunsPurgeHandler', () => {
   let deleteMany: jest.Mock;
   let getRetentionPolicy: jest.Mock;
   let register: jest.Mock;
+  let retentionRegister: jest.Mock;
   let handler: AiRunsPurgeHandler;
 
   const rows = (n: number, prefix: string) => Array.from({ length: n }, (_, i) => ({ id: `${prefix}-${i}` }));
@@ -24,11 +25,13 @@ describe('AiRunsPurgeHandler', () => {
     deleteMany = jest.fn(async ({ where }) => ({ count: where.id.in.length }));
     getRetentionPolicy = jest.fn().mockResolvedValue(withPolicy({ enabled: true, days: 90 }));
     register = jest.fn();
+    retentionRegister = jest.fn();
     handler = new AiRunsPurgeHandler(
       { register } as never,
       // Retention reads through the system client (#725).
       { asSystem: () => ({ aiRun: { findMany, deleteMany } }) } as never,
       { getRetentionPolicy } as never,
+      { register: retentionRegister } as never,
     );
   });
 
@@ -38,6 +41,11 @@ describe('AiRunsPurgeHandler', () => {
     handler.onModuleInit();
 
     expect(register).toHaveBeenCalledWith(handler);
+    expect(retentionRegister).toHaveBeenCalledWith({
+      policy: 'aiRuns',
+      type: handler.type,
+      what: 'AI run purge',
+    });
     expect(handler.type).toBe('ai.runs.purge');
     expect(handler.profile).toEqual({ maxRuntimeMs: 1_800_000, maxAttempts: 3 });
     expect('nodeResultSchema' in handler).toBe(false);

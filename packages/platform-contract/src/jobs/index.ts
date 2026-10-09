@@ -57,3 +57,21 @@ export {
   systemJobsSchema,
 } from './settings-schemas.js';
 export type { JobsSettingsPatchInput, SystemJobsValue } from './settings-schemas.js';
+
+// ---- ./retention-schemas.ts: the `retention` system-settings namespace (#898)
+export {
+  RETENTION_MAX_DAYS,
+  RETENTION_POLICY_KEYS,
+  retentionPolicySchema,
+  retentionResponseSchema,
+  retentionSettingsPatchSchema,
+  retentionSettingsSchema,
+  systemRetentionPatchSchema,
+  systemRetentionSchema,
+} from './retention-schemas.js';
+export type {
+  RetentionPolicyKey,
+  RetentionPolicyValue,
+  RetentionSettingsPatchInput,
+  SystemRetentionValue,
+} from './retention-schemas.js';

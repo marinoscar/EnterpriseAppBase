@@ -18,7 +18,6 @@ import { z } from 'zod';
 import {
   BACKUP_TIME_OF_DAY_PATTERN,
   TELEMETRY_INSTANCE_ID_PATTERN,
-  RETENTION_MAX_DAYS,
 } from './settings.schema';
 
 // The request-body schemas deliberately RESTATE `common/schemas/settings.schema.ts`
@@ -128,30 +127,9 @@ export const telemetrySettingsSchema = z.object({
   }),
 });
 
-// =============================================================================
-// Retention policy on the wire (#681)
-// =============================================================================
-//
-// Restated here rather than imported, for the reason at the top of this file.
-// Optional in the PUT body like every namespace that ships ahead of its own
-// client. Bounds mirror `systemRetentionSchema` exactly.
-
-export const retentionPolicySettingsSchema = z.object({
-  enabled: z.boolean(),
-  days: z.number().int().min(1).max(RETENTION_MAX_DAYS),
-});
-
-export const retentionSettingsSchema = z.object({
-  notifications: retentionPolicySettingsSchema,
-  notificationDeliveries: retentionPolicySettingsSchema,
-  auditEvents: retentionPolicySettingsSchema,
-  aiRuns: retentionPolicySettingsSchema,
-});
-
-export const retentionPolicyPatchSettingsSchema = z.object({
-  enabled: z.boolean().optional(),
-  days: z.number().int().min(1).max(RETENTION_MAX_DAYS).optional(),
-});
+// Retention policy on the wire (#681): `@marinoscar/platform-contract/jobs`
+// since #898, re-exported unchanged.
+export { retentionSettingsSchema } from '@marinoscar/platform-contract/jobs';
 
 // =============================================================================
 // PATCH (partial update) branches
@@ -203,15 +181,7 @@ export const telemetrySettingsPatchSchema = z.object({
     .optional(),
 });
 
-// #681. Optional at the namespace level and leaf by leaf inside, so
-// `{ "retention": { "auditEvents": { "enabled": true } } }` is a legal body
-// that changes only that leaf.
-export const retentionSettingsPatchSchema = z.object({
-  notifications: retentionPolicyPatchSettingsSchema.optional(),
-  notificationDeliveries: retentionPolicyPatchSettingsSchema.optional(),
-  auditEvents: retentionPolicyPatchSettingsSchema.optional(),
-  aiRuns: retentionPolicyPatchSettingsSchema.optional(),
-});
+export { retentionSettingsPatchSchema } from '@marinoscar/platform-contract/jobs';
 
 // The `notifications` branches of the PUT and PATCH bodies (#225), the wire
 // contract of the notifications slice since #738.

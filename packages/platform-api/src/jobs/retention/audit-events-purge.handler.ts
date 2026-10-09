@@ -1,5 +1,5 @@
 // =============================================================================
-// `audit.events.purge` job handler (#681, platform-packages PP-1.10)
+// `audit.events.purge` job handler (#681, platform-packages PP-1.10; jobs slice since #898)
 // =============================================================================
 //
 // Deletes `audit_events` rows created before `retention.auditEvents.days` ago
@@ -12,26 +12,56 @@
 // well as in the task, so an admin rerun of an old row cannot delete history
 // an operator never agreed to delete; see `runRetentionPolicyPurge`.
 //
-// Provided by `RetentionModule` rather than a feature module: many modules
-// WRITE audit events (`grep -rn "auditEvent.create" apps/api/src`), none owns
-// the table.
+// Provided by `JobsModule` rather than a feature module: many slices WRITE
+// audit events (identity, ai, notifications), and the table is the identity
+// slice's, but identity cannot import jobs (the dependency graph runs the other
+// way, `platform-slices.json`), so the purge lives with the retention engine
+// that schedules it. It sees the table through the two-method structural view
+// below, which any app's generated client satisfies as it is.
 //
 // SERVER-ONLY: no `nodeResultSchema`/`persistNodeResult`.
 // =============================================================================
 
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import type { Job } from '@prisma/client';
+import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 
-import { JobExecutionProfile } from '@marinoscar/platform-api/jobs';
-import { JobHandler } from '@marinoscar/platform-api/jobs';
-import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
-import { PrismaService } from '../../prisma/prisma.service';
-import { SystemSettingsService } from '@marinoscar/platform-api/settings';
+import { PLATFORM_PRISMA } from '../../core/index';
+import { SystemSettingsService } from '../../settings/index';
+import type { Job } from '../data/jobs-db';
+import type { JobExecutionProfile } from '../job-execution-profile';
+import type { JobHandler } from '../job-handler.interface';
+import { JobHandlerRegistry } from '../job-handler.registry';
 import { runRetentionPolicyPurge } from './batched-purge';
+import { RetentionPurgeRegistry } from './retention-purge.registry';
 
-/** The job type. PERMANENT once rows of it exist. */
+/**
+ * The job type. PERMANENT once rows of it exist.
+ *
+ * @stability experimental
+ */
 export const AUDIT_EVENTS_PURGE_TYPE = 'audit.events.purge';
 
+/**
+ * The part of the database client this purge uses: `audit_events`, two calls.
+ * Structural, so an app's generated client satisfies it unchanged.
+ *
+ * @stability experimental
+ */
+export interface AuditEventsPurgePrisma {
+  /** `audit_events`. */
+  auditEvent: {
+    /** Prisma `findMany`. */
+    findMany(args: any): Promise<Array<{ id: string }>>;
+    /** Prisma `deleteMany`. */
+    deleteMany(args: any): Promise<{ count: number }>;
+  };
+}
+
+/**
+ * Deletes `audit_events` past `retention.auditEvents.days`, in batches; a
+ * logged no-op while the policy is off (the default).
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class AuditEventsPurgeHandler implements JobHandler, OnModuleInit {
   private readonly logger = new Logger(AuditEventsPurgeHandler.name);
@@ -45,12 +75,14 @@ export class AuditEventsPurgeHandler implements JobHandler, OnModuleInit {
 
   constructor(
     private readonly registry: JobHandlerRegistry,
-    private readonly prisma: PrismaService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: AuditEventsPurgePrisma,
     private readonly systemSettings: SystemSettingsService,
+    private readonly retention: RetentionPurgeRegistry,
   ) {}
 
   onModuleInit(): void {
     this.registry.register(this);
+    this.retention.register({ policy: 'auditEvents', type: this.type, what: 'audit log purge' });
   }
 
   /** Throws to fail (a database error), so the queue's retry applies. */
