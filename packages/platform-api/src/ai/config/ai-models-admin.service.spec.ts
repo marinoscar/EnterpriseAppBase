@@ -39,7 +39,7 @@ describe('AiModelsAdminService', () => {
     auditEvent: { create: jest.Mock };
   };
   let credentials: { describe: jest.Mock };
-  let catalog: { enqueueRefresh: jest.Mock };
+  let catalog: { enqueueRefresh: jest.Mock; disabledReason: jest.Mock };
   let service: AiModelsAdminService;
   let policy: { providers: Record<string, unknown> };
 
@@ -57,7 +57,10 @@ describe('AiModelsAdminService', () => {
       auditEvent: { create: jest.fn().mockResolvedValue({}) },
     };
     credentials = { describe: jest.fn().mockResolvedValue({ hint: '••••1234' }) };
-    catalog = { enqueueRefresh: jest.fn().mockResolvedValue({ id: 'job-1', status: 'pending' }) };
+    catalog = {
+      enqueueRefresh: jest.fn().mockResolvedValue({ id: 'job-1', status: 'pending' }),
+      disabledReason: jest.fn().mockResolvedValue(null),
+    };
 
     const registry = new AiProviderRegistry();
     registry.register(new FakeAiProvider({ id: 'openai' }));
@@ -218,6 +221,39 @@ describe('AiModelsAdminService', () => {
           meta: { provider: 'openai', jobId: 'job-1' },
         },
       });
+    });
+
+    it('409s AI_DISABLED when AI is off, before any key check (#888)', async () => {
+      catalog.disabledReason.mockResolvedValue('AI_DISABLED');
+      credentials.describe.mockResolvedValue(null);
+
+      const error = await service.refresh('openai', 'admin-1').catch((err: unknown) => err);
+
+      expect(error).toBeInstanceOf(ConflictException);
+      const body = (error as ConflictException).getResponse() as {
+        message: string;
+        details: Record<string, unknown>;
+      };
+      expect(body.details).toEqual({ reason: 'AI_DISABLED' });
+      expect(body.message).toMatch(/AI is turned off/);
+      expect(catalog.enqueueRefresh).not.toHaveBeenCalled();
+      expect(prisma.auditEvent.create).not.toHaveBeenCalled();
+    });
+
+    it('409s AI_PROVIDER_DISABLED when the provider is off (#888)', async () => {
+      catalog.disabledReason.mockResolvedValue('AI_PROVIDER_DISABLED');
+
+      const error = await service.refresh('openai', 'admin-1').catch((err: unknown) => err);
+
+      expect(error).toBeInstanceOf(ConflictException);
+      const body = (error as ConflictException).getResponse() as {
+        message: string;
+        details: Record<string, unknown>;
+      };
+      expect(body.details).toEqual({ reason: 'AI_PROVIDER_DISABLED', provider: 'openai' });
+      expect(body.message).toContain('"openai" is not enabled');
+      expect(catalog.disabledReason).toHaveBeenCalledWith('openai');
+      expect(catalog.enqueueRefresh).not.toHaveBeenCalled();
     });
 
     it('409s when no admin key is stored', async () => {
