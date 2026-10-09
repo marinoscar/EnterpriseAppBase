@@ -75,6 +75,7 @@ import type { Theme } from '@mui/material/styles';
 import { CssBaseline, Chip } from '@mui/material';
 import { axe } from 'vitest-axe';
 import 'vitest-axe/extend-expect';
+import './dom-matchers.js';
 
 import { DataTable } from '../ui/DataTable.js';
 import { rowAccessibleName } from '../headless/columns.js';

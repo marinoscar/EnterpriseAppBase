@@ -49,7 +49,7 @@ import {
   WCAG_AA_LARGE_TEXT,
   WCAG_AA_NORMAL_TEXT,
   WCAG_AA_UI_COMPONENT,
-} from './testUtils/contrast';
+} from './contrast';
 
 // Component-authored colors that are not part of the theme palette but ARE
 // painted by DataTable — the selected-row tint (`DesktopGridRenderer.tsx`'s

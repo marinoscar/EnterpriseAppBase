@@ -24,7 +24,7 @@ import { createIdentityApi } from '@marinoscar/platform-web/identity/headless';
 import type { IdentityWebAdapters } from '@marinoscar/platform-web/identity/headless';
 
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
-import { DataTable } from '../components/datatable';
+import { DataTable } from '@marinoscar/platform-web/datatable/ui';
 import { appPlatformApi } from './platformHost';
 
 /** The adapters `App.tsx` hands the identity pages. */

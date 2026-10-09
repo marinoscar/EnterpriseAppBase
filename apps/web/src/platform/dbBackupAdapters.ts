@@ -14,7 +14,7 @@
 
 import type { DbBackupWebAdapters } from '@marinoscar/platform-web/db-backup/headless';
 
-import { DataTable } from '../components/datatable';
+import { DataTable } from '@marinoscar/platform-web/datatable/ui';
 
 /** The adapters `App.tsx` hands the db-backup page. */
 export const appDbBackupAdapters: DbBackupWebAdapters = Object.freeze<DbBackupWebAdapters>({

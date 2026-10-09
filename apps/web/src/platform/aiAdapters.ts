@@ -15,7 +15,7 @@
 import type { AiWebAdapters } from '@marinoscar/platform-web/ai/headless';
 
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
-import { DataTable } from '../components/datatable';
+import { DataTable } from '@marinoscar/platform-web/datatable/ui';
 
 /** The adapters `shellProviders.tsx` hands the AI pages. */
 export const appAiAdapters: AiWebAdapters = Object.freeze<AiWebAdapters>({
