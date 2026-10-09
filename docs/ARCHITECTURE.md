@@ -864,7 +864,7 @@ The API does not migrate on startup. Run `npm run prisma:migrate` and `npm run p
 |---|---|---|
 | Traces | OpenTelemetry Node SDK with Node auto-instrumentations (health probes excluded) | OTLP → otel-collector → GreptimeDB |
 | Metrics | OpenTelemetry metrics exporter | OTLP → otel-collector → GreptimeDB |
-| Logs | Pino structured JSON (`apps/api/src/common/logger/`), pretty-printed in development; also exported over OTLP | stdout, and OTLP → otel-collector → GreptimeDB |
+| Logs | Nest `Logger` output on stdout; also exported over OTLP | stdout, and OTLP → otel-collector → GreptimeDB |
 
 - Instrumentation starts in `apps/api/src/instrumentation.ts`, before the application loads: a call to `initializeOtel()` from `@marinoscar/platform-api/otel-core/sdk` (`packages/platform-api/src/otel-core/`, the Nest-free half of the `otel-core` slice). It runs only when `OTEL_ENABLED=true` (the telemetry overlay sets it on the `api` service) and exports to `OTEL_EXPORTER_OTLP_ENDPOINT`. With `OTEL_ENABLED` unset the API runs unchanged and every instrument is a no-op.
 - A second, independent switch — the `telemetry.enabled` system setting — decides whether the SDK's output is actually exported, checked at export time by a runtime gate (`telemetryGate`, `packages/platform-api/src/otel-core/sdk/telemetry-gate.ts`) that starts closed and converges across a fleet within about five seconds of an administrator's change. See [specs/telemetry.md §2](specs/telemetry.md#2-the-two-switches).

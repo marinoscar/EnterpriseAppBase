@@ -20,7 +20,6 @@ import { NotificationsModule } from './platform/notifications/notifications.conf
 import { JobsModule } from './platform/jobs/jobs.config';
 import { ExamplesModule } from './examples/examples.module';
 import { DbBackupModule } from './platform/db-backup/db-backup.config';
-import { LoggerModule } from './common/logger/logger.module';
 import { aboutModule } from './platform/about/about.config';
 import { hostCoreModule } from './platform/host-core.config';
 import { DocsEgressContributor } from './openapi/docs-egress.contributor';
@@ -55,9 +54,6 @@ import configuration from './config/configuration';
 
     // Database
     PrismaModule,
-
-    // Logger
-    LoggerModule,
 
     // Feature modules
     CommonModule,

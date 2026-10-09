@@ -6,8 +6,7 @@
 // no product identity (a platform slice never imports `@app/shared`). This
 // file binds them to the app's, ONCE, so every surface that names the service
 // or the instance (the SDK resource in `instrumentation.ts`, `otel.serviceName`
-// in `config/configuration.ts`, the `service` field of every log line in
-// `common/logger/pino.config.ts`, the AI adapters' spans, the node relay, the
+// in `config/configuration.ts`, the AI adapters' spans, the node relay, the
 // telemetry settings) agrees by construction, and a fork renamed with
 // `scripts/rename.mjs` follows its new `APP_SLUG` without editing a line.
 //

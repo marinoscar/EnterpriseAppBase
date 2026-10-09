@@ -12,8 +12,8 @@
 // on identity.
 //
 // No port for logging (packaged code uses `new Logger(Context)` from
-// `@nestjs/common`, which already routes to the app's logger through
-// `app.useLogger`) and none for metrics or spans (packaged code uses
+// `@nestjs/common`, which is routed to the app's logger through
+// `app.useLogger` when it sets one) and none for metrics or spans (packaged code uses
 // `@opentelemetry/api`, a peer). See README.md next to this folder.
 // =============================================================================
 
