@@ -128,12 +128,14 @@ Adoption map:
 
 Worked, tested examples of every extension point: `apps/api/src/examples/user-data/`.
 
+**What an app owns, and nothing more (#880).** The registries (the manifest) are the app's data: which models are kept or deleted, extra categories, scopes, factory reset steps and offboarding preconditions. Everything generic is the slice's: the default scopes, the plan, the steps, the environment (`DEPLOYMENT_MODE` from the host core and `TENANCY_MODE` from identity, bound by default), the schema-folder lookup (`composedSchemaDatamodel`), the pages (they re-read the signed-in user through the host's `viewer.refresh`) and the `user-data.registries` Doctor check. The one port an app binds is the bypass client (`USER_DATA_DB`). The starter proves it: `starter/apps/api/src/platform/user-data/user-data.manifest.ts` holds the `Note` decision and nothing else changes when a model is added. `packages/platform-api/test/user-data/consumer-model.spec.ts` proves a new user-owned model is purged, factory-reset and exported by one registration, with no edit to the slice.
+
 ## 5. Guardrails
 
 - `packages/platform-api/test/user-data/`: the planner (order, ties, cascade-before-parent, cycles, self-restrict), scopes and built-in overrides, the purge flows (collect first, pending-job cleanup, kept rows, storage tolerance, retry accumulation, delegates, the legacy alias, removal hooks), the factory reset and offboarding steps, the services (phrase literals, saas gate, single-mode and default-org 409s, preconditions), the handler contracts (types, profiles, server-only).
 - `apps/api/test/user-data/*.db.spec.ts` on a database owned by an ordinary role (row-level security live): `user-data-purge` (foreign keys hold, kept list, other users intact, both organizations), `factory-reset` (full run, re-run, resume after a partial run, backups kept), `org-offboard` (two organizations, only one purged).
 - `apps/api/test/user-data/user-data.integration.spec.ts`: 401, 403, 400 phrase, 202 and dedup, 404 foreign job, the saas gate, the single-mode 409, the exact permission on every route.
-- `apps/api/test/user-data/user-data-conformance.spec.ts`: the `user-data` suite (every owner model decided and reachable by `everything`, hints and scopes valid, an order exists).
+- `apps/api/test/user-data/user-data-conformance.spec.ts`: the `user-data` suite (every owner model decided and reachable by `everything`, hints and scopes valid, an order exists); the same three checks run on a live deployment as the Doctor check `user-data.registries` (`packages/platform-api/test/user-data/registries-doctor-check.spec.ts`).
 - `apps/web/src/__tests__/config/settingsCards.test.ts`: both Danger Zone groups last (`dangerZoneLastViolations`), the exact card permissions. `packages/platform-web/test/user-data/`: the dialog gates, the two pages, offboarding.
 - `apps/api/test/jobs/job-type-snapshot.spec.ts`, `cron-enqueue-only.spec.ts` (no `@Cron` is added) and `test/tenancy/system-injection-boundary.spec.ts` (the bypass-client adapter is allowlisted).
 

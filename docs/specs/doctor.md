@@ -155,7 +155,7 @@ The route is gated on `system_settings:read` and mounted under `admin/`, so it i
 
 ### 2.7 Check inventory
 
-This is the single home for the list of checks. Twenty-eight checks ship. `dependsOn` and the rules below are taken from the code; "no settings page" means the check has no `settingsPath` (the service's fallback remedy then names the API logs).
+This is the single home for the list of checks. Thirty-four checks ship. `dependsOn` and the rules below are taken from the code; "no settings page" means the check has no `settingsPath` (the service's fallback remedy then names the API logs).
 
 #### core
 
@@ -256,6 +256,14 @@ Registered by `AndroidAppModule` (`@marinoscar/platform-api/android-app`, #746);
 | `android.assetlinks` | Android app Digital Asset Links | `db.connection` | Every (package, signing key) pair paired devices report is in the trusted list `/.well-known/assetlinks.json` serves. `data`: `trusted`, `reported`, `untrusted`. | skip: no device reported a signature. warn: a reported pair is not trusted (the app opens with a URL bar; names up to three). fail: the setting or a device source could not be read. pass: every reported pair is trusted. |
 | `android.releases` | Android app releases | `db.connection` | Paired devices have a current release to update to. `data`: `activeDevices`, `current`, `devicesBehind`. | skip: no device is paired. warn: devices are paired but no release is current. fail: the releases or a device source could not be read. pass: the current version, and how many devices run an older build. |
 
+#### user-data
+
+Registered by `UserDataModule` (`@marinoscar/platform-api/user-data`, #880); read-only and I/O-free (the registries and the parsed schema are in memory).
+
+| Id | Label | `dependsOn` | What it verifies | Rules |
+|---|---|---|---|---|
+| `user-data.registries` | Data reset registries | none | The three checks of the `user-data` conformance suite, on the running deployment: every user-owned model has a keep-or-delete decision (in a registered category when deleted), every hint and scope names a model, column and category that exist, and a delete order exists. `data`: `ownerModels`, `hints`, `categories`, `scopes`, `findings`. | pass: no finding. fail: any finding (the detail quotes the first three; the remedy names the manifest functions), or the composed schema cannot be read. Never `warn` or `skip`. |
+
 #### network
 
 | Id | Label | `dependsOn` | What it verifies | Rules |
@@ -279,6 +287,7 @@ Every check is registered by the package module that owns its capability, never 
 | sharing | `sharing.groups.orphaned` |
 | telemetry | the five `telemetry.*` checks |
 | android-app | `android.assetlinks`, `android.releases` |
+| user-data | `user-data.registries` (#880) |
 
 Slices with runtime configuration and no check of their own, on purpose: **credentials** (its one deployment fact, `SECRETS_ENCRYPTION_KEY`, is `secrets.encryption-key`, which needs only core's cipher; the slice does not depend on `doctor`), **settings** (the namespaces are validated at boot) and **exports** (it has no configuration of its own: its dependencies are covered by `storage.*` and `jobs.*`).
 
