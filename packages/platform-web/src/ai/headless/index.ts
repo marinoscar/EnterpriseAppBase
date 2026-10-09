@@ -14,13 +14,6 @@ export type { OrgAiKeyView } from '@marinoscar/platform-contract/ai';
 // ---- the slots the app fills (#890) ----
 export { AiWebAdaptersProvider, useAiWebAdapters } from './adapters.js';
 export type { AiSpinnerProps, AiWebAdapters } from './adapters.js';
-export type {
-  AiDataTableComponent,
-  AiDataTableProps,
-  AiTableColumn,
-  AiTableColumnPriority,
-  AiTableRowAction,
-} from './table.js';
 
 // ---- the wire: types, constants and the calls over `PlatformApiClient` ----
 export * from './types.js';

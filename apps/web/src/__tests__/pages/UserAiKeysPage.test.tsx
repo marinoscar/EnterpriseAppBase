@@ -19,7 +19,7 @@ import { render, mockUser, mockAdminUser } from '../utils/test-utils';
 import { server } from '../mocks/server';
 import UserAiKeysPage from '@marinoscar/platform-web/ai/ui/keys-page';
 import UserSettingsHubPage from '../../pages/UserSettingsHubPage';
-import { RequireAiEnabled } from '../../components/common/RequireAiEnabled';
+import { RequireAiEnabled } from '@marinoscar/platform-web/ai/ui/require-ai-enabled';
 import { mockUserSettings } from '../mocks/data';
 import {
   mockAiKeyInvalidErrorBody,

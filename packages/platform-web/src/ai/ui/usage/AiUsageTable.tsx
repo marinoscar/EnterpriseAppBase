@@ -8,8 +8,8 @@
  */
 import { useMemo } from 'react';
 import { Typography } from '@mui/material';
-import { AiTable } from '../internal/AiTable.js';
-import type { AiTableColumn } from '../../headless/table.js';
+import { DataTable } from '../../../datatable/index.js';
+import type { DataTableColumn } from '../../../datatable/index.js';
 import type { AiUsageSeriesEntry } from '../../headless/types.js';
 import { formatCount, formatFailureRate, formatUnits, formatUsageDay } from './aiUsageFormat.js';
 
@@ -39,8 +39,8 @@ export function AiUsageTable({
 }: AiUsageTableProps) {
   const hasUnits = rows.some((row) => formatUnits(row.units) !== null);
 
-  const columns = useMemo<AiTableColumn<AiUsageSeriesEntry>[]>(() => {
-    const cols: AiTableColumn<AiUsageSeriesEntry>[] = [
+  const columns = useMemo<DataTableColumn<AiUsageSeriesEntry>[]>(() => {
+    const cols: DataTableColumn<AiUsageSeriesEntry>[] = [
       {
         id: 'label',
         label: keyLabel,
@@ -118,7 +118,7 @@ export function AiUsageTable({
   }, [keyLabel, isDay, hasUnits]);
 
   return (
-    <AiTable<AiUsageSeriesEntry>
+    <DataTable<AiUsageSeriesEntry>
       tableId={tableId}
       data-testid={testId}
       ariaLabel={ariaLabel}

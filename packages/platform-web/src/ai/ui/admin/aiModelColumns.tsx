@@ -16,7 +16,7 @@
 
 import type { ReactNode } from 'react';
 import { Box, Chip, Stack, Switch, Tooltip, Typography } from '@mui/material';
-import type { AiTableColumn } from '../../headless/table.js';
+import type { DataTableColumn } from '../../../datatable/index.js';
 import type { AiModel } from '../../headless/types.js';
 import { AiCapabilityChips } from '../shared/AiCapabilityChips.js';
 import { capabilitySummary } from '../shared/aiCapabilities.js';
@@ -61,7 +61,7 @@ export function buildAiModelColumns({
   canWrite,
   pendingIds,
   onToggleEnabled,
-}: AiModelColumnOptions): AiTableColumn<AiModel>[] {
+}: AiModelColumnOptions): DataTableColumn<AiModel>[] {
   return [
     {
       // Row-unique within a provider, and so the row's accessible name.

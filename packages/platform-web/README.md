@@ -49,7 +49,7 @@ Install these in the app; the package never bundles its own copy (a second copy 
 | `react-dom` | `^19.2.7` |
 | `react-router-dom` | `^7.17.0` |
 
-Optional peers, needed only by `@marinoscar/platform-web/telemetry/ui` (#704): `@mui/x-charts` `^9.14.0`, `@mui/x-data-grid` `^9.10.1`, `@uiw/react-codemirror` `^4.25.12` and `@codemirror/lang-sql` `^6.10.0`.
+Optional peer `@mui/x-data-grid` `^9.10.1` is also needed by `@marinoscar/platform-web/datatable/ui` and, since the AI lists use it, by `@marinoscar/platform-web/ai/ui`. Optional peers, needed only by `@marinoscar/platform-web/telemetry/ui` (#704): `@mui/x-charts` `^9.14.0`, `@mui/x-data-grid` `^9.10.1`, `@uiw/react-codemirror` `^4.25.12` and `@codemirror/lang-sql` `^6.10.0`.
 
 ## Quick start
 

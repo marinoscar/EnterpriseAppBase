@@ -4,10 +4,9 @@
  * `AiWebAdaptersProvider` in `shellProviders.tsx`:
  *
  *   - `Spinner`: `LoadingSpinner`, so loading states look like the rest of the app.
- *   - `DataTable`: the responsive `DataTable` of `@marinoscar/platform-web/datatable/ui`,
- *     which the model catalogue and the usage breakdowns render through, so
- *     they keep the app's table on every breakpoint (the package's fallback is
- *     a plain MUI table).
+ *
+ * The model catalogue and the usage breakdowns render through the datatable
+ * slice's `DataTable` directly (#899); no table adapter is needed.
  *
  * A module constant, like `appJobsAdapters`.
  */
@@ -15,10 +14,8 @@
 import type { AiWebAdapters } from '@marinoscar/platform-web/ai/headless';
 
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
-import { DataTable } from '@marinoscar/platform-web/datatable/ui';
 
 /** The adapters `shellProviders.tsx` hands the AI pages. */
 export const appAiAdapters: AiWebAdapters = Object.freeze<AiWebAdapters>({
   Spinner: LoadingSpinner,
-  DataTable,
 });

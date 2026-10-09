@@ -59,8 +59,8 @@ import {
 import RefreshIcon from '@mui/icons-material/Refresh';
 import TuneIcon from '@mui/icons-material/Tune';
 import { Navigate, Link as RouterLink } from 'react-router-dom';
-import { AiTable } from './internal/AiTable.js';
-import type { AiTableRowAction } from '../headless/table.js';
+import { DataTable } from '../../datatable/index.js';
+import type { DataTableRowAction } from '../../datatable/index.js';
 import { usePlatformViewer } from '../../core/index.js';
 import { useAiAdminConfig } from '../headless/use-ai-admin-config.js';
 import { useAiModels } from '../headless/use-ai-models.js';
@@ -148,7 +148,7 @@ export default function AiModelsPage() {
   );
 
   const rowActions = useMemo(() => {
-    if (!canWrite) return [] as AiTableRowAction<AiModel>[];
+    if (!canWrite) return [] as DataTableRowAction<AiModel>[];
     return [
       {
         id: 'edit-capabilities',
@@ -161,7 +161,7 @@ export default function AiModelsPage() {
           setEditing(model);
         },
       },
-    ] satisfies AiTableRowAction<AiModel>[];
+    ] satisfies DataTableRowAction<AiModel>[];
   }, [canWrite, clearUpdateError, clearConfigSaveError]);
 
   // Defence, not the gate — the route's `RequirePermission` checks the same
@@ -352,7 +352,7 @@ export default function AiModelsPage() {
 
         <Paper sx={{ width: '100%', p: 2 }}>
           <Box sx={{ minWidth: 0 }}>
-            <AiTable<AiModel>
+            <DataTable<AiModel>
               tableId={TABLE_ID}
               data-testid="admin-ai-models-table"
               ariaLabel="AI models"
