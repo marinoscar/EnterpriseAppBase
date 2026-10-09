@@ -78,7 +78,9 @@ import { aiAdminConfigToInput, aiModelLimitKey, withModelLimits } from '../headl
 import type { AiModel, AiModelCapabilities, AiModelLimits, AiModelListFilter } from '../headless/types.js';
 
 /**
- * AI models page.
+ * Admin → Settings → AI → Models (`/admin/settings/ai/models`): the model
+ * catalogue with its capabilities, per-model limits and the refresh action.
+ * Needs `ai_config:read` (changes need `ai_config:write`).
  *
  * @stability experimental
  */

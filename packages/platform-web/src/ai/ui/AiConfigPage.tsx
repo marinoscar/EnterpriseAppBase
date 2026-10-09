@@ -102,11 +102,7 @@ const LIMIT_FIELDS = [
 ] as const;
 type LimitField = (typeof LIMIT_FIELDS)[number];
 
-const LIMIT_COPY: Record<LimitField, { /** The label. */
-/** The label. */
-label: string; /** The help. */
-/** The help. */
-help: string }> = {
+const LIMIT_COPY: Record<LimitField, { label: string; help: string }> = {
   perUserRequestsPerMinute: {
     label: 'Requests per minute, per user',
     help: "Every AI call a user makes, whoever's key pays.",
@@ -135,36 +131,24 @@ help: string }> = {
 
 /** The form's own state — strings for the number field so "blank" is representable. */
 interface AiFormState {
-  /** Whether enabled. */
   enabled: boolean;
-  /** The key policy. */
   keyPolicy: AiKeyPolicy;
-  /** Whether log prompt content. */
   logPromptContent: boolean;
   /** #739: whether the deployment's keys pay for organizations without their own. */
   deploymentKeyServesOrgs: boolean;
-  /** The max output tokens cap. */
   maxOutputTokensCap: string;
-  /** Whether allow background runs. */
   allowBackgroundRuns: boolean;
-  /** Whether allow realtime. */
   allowRealtime: boolean;
-  /** Whether hosted tools. */
   hostedTools: Record<AiHostedToolType, boolean>;
   /** One host per line, as typed. */
   mcpAllowedHosts: string;
   /** Strings so "blank" (unlimited) is representable. */
   limits: Record<LimitField, string>;
-  /** The providers. */
   providers: Record<string, AiProviderFormValue>;
 }
 
 /** Label and helper per hosted tool type (#442), in the order the API lists them. */
-const HOSTED_TOOL_COPY: Record<AiHostedToolType, { /** The label. */
-/** The label. */
-label: string; /** The help. */
-/** The help. */
-help: string }> = {
+const HOSTED_TOOL_COPY: Record<AiHostedToolType, { label: string; help: string }> = {
   web_search: { label: 'Web search', help: 'Live web search, with the sources cited in the answer.' },
   file_search: { label: 'File search', help: "Search documents in the provider's vector stores." },
   code_interpreter: { label: 'Code interpreter', help: 'Run code in a sandbox the provider manages.' },
@@ -300,11 +284,8 @@ function toInput(form: AiFormState, config: AiAdminConfig): AiAdminConfigInput {
 }
 
 interface FormErrors {
-  /** The max output tokens cap. */
   maxOutputTokensCap?: string;
-  /** The mcp allowed hosts. */
   mcpAllowedHosts?: string;
-  /** The limits. */
   limits: Partial<Record<LimitField, string>>;
   /** Per provider id; only providers with a problem appear. */
   providers: Record<string, AiProviderFormErrors>;
@@ -359,7 +340,9 @@ function hasErrors(errors: FormErrors): boolean {
 }
 
 /**
- * AI config page.
+ * Admin → Settings → AI (`/admin/settings/ai`): switch AI on, the key policy,
+ * the providers and their organization keys, hosted tools and limits. Needs
+ * `ai_config:read` (controls enabled with `ai_config:write`).
  *
  * @stability experimental
  */

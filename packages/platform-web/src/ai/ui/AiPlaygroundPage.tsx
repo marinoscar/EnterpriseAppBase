@@ -138,7 +138,6 @@ type ReasoningEffort = NonNullable<NonNullable<AiResponseRequest['reasoning']>['
 const REASONING_EFFORTS: ReasoningEffort[] = ['minimal', 'low', 'medium', 'high'];
 
 interface PlaygroundControls {
-  /** The instructions. */
   instructions: string;
   /** Blank = the provider's default. */
   maxOutputTokens: string;
@@ -146,13 +145,9 @@ interface PlaygroundControls {
   temperature: string;
   /** '' = let the model decide. */
   reasoningEffort: ReasoningEffort | '';
-  /** Whether reasoning summary. */
   reasoningSummary: boolean;
-  /** Whether structured. */
   structured: boolean;
-  /** The schema preset. */
   schemaPreset: string;
-  /** The schema text. */
   schemaText: string;
   /** Send as a background run (`POST /ai/runs`) instead of streaming. */
   background: boolean;
@@ -218,7 +213,8 @@ function parseTemperature(value: string): number | undefined | null {
 }
 
 /**
- * AI playground page.
+ * The AI playground (`/ai`): chat, image, transcription, speech, embeddings
+ * and voice against the models the viewer can use. Needs `ai:use`.
  *
  * @stability experimental
  */

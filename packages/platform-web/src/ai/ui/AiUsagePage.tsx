@@ -57,11 +57,8 @@ export const DAILY_TABLE_ID = 'admin-ai-usage-daily';
 type BreakdownGroupBy = Exclude<AiUsageGroupBy, 'day'>;
 
 interface BreakdownOption {
-  /** The value. */
   value: BreakdownGroupBy;
-  /** The label. */
   label: string;
-  /** The column. */
   column: string;
 }
 
@@ -82,9 +79,7 @@ const KEY_SOURCE_LABELS: Record<string, string> = {
   none: 'No key (keyless server)',
 };
 
-function OrgKeySummary({ totals }: { /** The totals. */
-/** The totals. */
-totals: Totals }) {
+function OrgKeySummary({ totals }: { totals: Totals }) {
   const share =
     totals.requests > 0 ? `${((totals.orgKeyRequests / totals.requests) * 100).toFixed(1)}%` : '—';
   return (
@@ -109,7 +104,9 @@ totals: Totals }) {
 }
 
 /**
- * AI usage page.
+ * Admin → Settings → AI → Usage (`/admin/settings/ai/usage`): totals, the daily
+ * series and a breakdown by user, model, provider, key source or organization.
+ * Needs `ai_config:read`.
  *
  * @stability experimental
  */

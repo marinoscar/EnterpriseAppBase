@@ -32,7 +32,8 @@ import { MyAiUsageSection } from './user/MyAiUsageSection.js';
 import type { AiDefaultModel } from '../headless/types.js';
 
 /**
- * User AI keys page.
+ * The user's AI keys page (`/settings/ai`): their own provider keys, the
+ * models they can use, their default model and their usage. Needs `ai:use`.
  *
  * @stability experimental
  */
