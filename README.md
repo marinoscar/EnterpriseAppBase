@@ -237,6 +237,10 @@ what an administrator or user can do, with the route and permission of each
 feature. Moving an existing app onto the packages:
 [docs/ADOPTING-THE-PLATFORM.md](docs/ADOPTING-THE-PLATFORM.md).
 
+Choosing what to use: [docs/SLICES.md](docs/SLICES.md), one generated page
+with every platform slice, the packages and imports that carry it, its cards,
+permissions, dependencies and peers, and whether it works on its own.
+
 The CLI has its own reference: [apps/cli/README.md](apps/cli/README.md).
 Coding agents follow [CLAUDE.md](CLAUDE.md).
 

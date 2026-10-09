@@ -29,6 +29,7 @@ In this order:
 | [../apps/cli/README.md](../apps/cli/README.md) | `appctl`: install, `login`, `api`, `config`, `deploy`, `node`, CI usage |
 | [ADMIN-GUIDE.md](ADMIN-GUIDE.md) | A task-oriented tour for administrators and users: organizations, groups and sharing, the Setup guide, data export, the Danger Zone, notifications, backup and restore, jobs and worker nodes, the Doctor, storage, email and AI, each with its route, permission and steps |
 | [ADOPTING-THE-PLATFORM.md](ADOPTING-THE-PLATFORM.md) | Moving an existing fork or app onto the `@marinoscar/platform-*` packages: the order, what each step deletes, the checks, rollback, seam requests and the pitfalls the first adoption found |
+| [SLICES.md](SLICES.md) | Every platform slice on one generated page: what it gives you, the packages and subpath imports that carry it, its admin cards, permissions, slice dependencies and peers, whether it works on its own, and the minimal backend-only telemetry consumer |
 | [PACKAGES.md](PACKAGES.md) | Documenting a `@marinoscar/platform-*` package or slice: the README template, TSDoc tags, the extension-point catalog, TypeDoc and the `check:package-docs` checks |
 
 ## Feature specs
