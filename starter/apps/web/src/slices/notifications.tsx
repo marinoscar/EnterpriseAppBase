@@ -3,7 +3,7 @@
 // admin policy, Web Push key and broadcast pages, and the permission banner.
 //
 // WEB PUSH needs the service worker built from `src/sw.ts` (vite.config.ts
-// emits it at /sw.js) and registered in `setup()` below; it works over HTTPS or on
+// emits it at /sw.js) and registered by `main.tsx`; it works over HTTPS or on
 // localhost, and only after an administrator generates a key pair at
 // /admin/settings/push (stored encrypted at runtime: no environment variable).
 import CampaignOutlinedIcon from '@mui/icons-material/CampaignOutlined';
@@ -48,6 +48,11 @@ export const notificationsWebSlice: WebSlice = {
     // subscription through one, outside React), so they reach the API through
     // this one configured client: the same bearer token, refresh and retries.
     configureNotificationsWeb({ api, apiBaseUrl: import.meta.env.VITE_API_BASE_URL || '/api', connectSse });
+    // The worker that shows pushes (src/sw.ts, served at /sw.js). Registering is harmless
+    // until an administrator generates a key pair; a browser without workers skips it.
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => undefined);
+    }
   },
   beforeLogout: removePushSubscription,
   // Inside the sign-in gate, around the shell: ONE inbox and ONE stream per tab.
