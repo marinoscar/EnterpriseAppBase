@@ -11,8 +11,8 @@ import type { ReactElement, ReactNode } from 'react';
 import { vi } from 'vitest';
 
 import { PlatformHostProvider } from '../../src/core/index.js';
-import { AiConfigContext, AiWebAdaptersProvider } from '../../src/ai/headless/index.js';
-import type { AiDataTableProps, AiWebAdapters, UseAiConfigReturn } from '../../src/ai/headless/index.js';
+import { AiConfigContext } from '../../src/ai/headless/index.js';
+import type { UseAiConfigReturn } from '../../src/ai/headless/index.js';
 import { createTestPlatformHost } from '../../src/testing/index.js';
 import type { TestApiResponse, TestPlatformHost } from '../../src/testing/index.js';
 import { mockAiPublicConfigDisabled, mockAiPublicConfigEnabled, mockSignedUrl } from './fixtures.js';
@@ -25,52 +25,6 @@ export const mockAdminUser = { permissions: [...ADMIN_PERMISSIONS] };
 
 /** A user who may only use AI. */
 export const mockUser = { permissions: ['ai:use'] };
-
-/**
- * A stand-in for the app's responsive `DataTable`: every column's cell, the
- * empty state, and one button per row action named "<action> for <first
- * column's value>" (the app's table names them the same way). Paging, sorting
- * and the layout renderers are the app's table's business and are tested in
- * the app.
- */
-function StandInTable<Row>(props: AiDataTableProps<Row>): ReactElement {
-  const { columns, rows, rowId, emptyState, rowActions = [] } = props;
-  const nameOf = (row: Row) => String(columns[0]?.value?.(row) ?? '');
-  return (
-    <table data-testid={props['data-testid']} aria-label={props.ariaLabel}>
-      <tbody>
-        {rows.length === 0 ? (
-          <tr>
-            <td>{emptyState}</td>
-          </tr>
-        ) : (
-          rows.map((row) => (
-            <tr key={rowId(row)}>
-              {columns.map((column) => (
-                <td key={column.id}>{column.render ? column.render(row) : column.value?.(row)}</td>
-              ))}
-              <td>
-                {rowActions.map((action) => (
-                  <button
-                    key={action.id}
-                    type="button"
-                    aria-label={`${action.label} for ${nameOf(row)}`}
-                    disabled={action.disabled?.(row) ?? false}
-                    onClick={() => action.onClick(row)}
-                  >
-                    {action.label}
-                  </button>
-                ))}
-              </td>
-            </tr>
-          ))
-        )}
-      </tbody>
-    </table>
-  );
-}
-
-const HARNESS_ADAPTERS: AiWebAdapters = Object.freeze<AiWebAdapters>({ DataTable: StandInTable });
 
 export interface HarnessOptions extends Omit<RenderOptions, 'wrapper'> {
   wrapperOptions?: {
@@ -102,11 +56,7 @@ export function render(ui: ReactElement, options: HarnessOptions = {}): HarnessR
           refresh: vi.fn().mockResolvedValue(undefined),
         };
   function Wrapper({ children }: { children: ReactNode }): ReactElement {
-    const inner = (
-      <AiWebAdaptersProvider adapters={HARNESS_ADAPTERS}>
-        <PlatformHostProvider host={host}>{children}</PlatformHostProvider>
-      </AiWebAdaptersProvider>
-    );
+    const inner = <PlatformHostProvider host={host}>{children}</PlatformHostProvider>;
     return (
       <MemoryRouter initialEntries={[wrapperOptions.route ?? '/']}>
         {aiValue ? <AiConfigContext.Provider value={aiValue}>{inner}</AiConfigContext.Provider> : inner}

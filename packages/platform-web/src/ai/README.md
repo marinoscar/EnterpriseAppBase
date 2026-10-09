@@ -1,6 +1,6 @@
 # @marinoscar/platform-web/ai
 
-`@marinoscar/platform-web/ai`: the browser side of the AI slice, in two entry points. `/ai/headless` holds the behaviour without markup: the AI wire types and calls over the host transport (`createAiResponse`, `streamAiResponse`, `getAiAdminConfig`, ... each takes the `PlatformApiClient` first), the hooks behind every AI page (`useAiConfig` with `AiConfigProvider`, `useAiAdminConfig`, `useAiModels`, `useAiUsage`, `useUserAiKeys`, `useUsableAiModels`, `useAiChat`, `useAiRun`, `useAiRealtimeSession`, `useMicrophonePermission`, `useAiUserSettings`), the organization tier (`useOrgAiKeys`, `useOrgAiPolicy`, #739) and the slots the app fills (`AiWebAdaptersProvider`). `/ai/ui` holds the `RequireAiEnabled` route guard and the pages: the Organization AI keys page (the default export), the admin AI, AI Models and AI Usage pages, the user AI Keys page and the Playground (#890), each also a subpath of its own for one lazy chunk per route. Depends on `core`, `settings` and `storage` (`packages/platform-slices.json`): the hooks call the API through the host's `api` (or an injected one), the pages read permissions from `usePlatformViewer()`, uploads go through the storage objects client and the default model through the settings slice's `useUserSettings`.
+`@marinoscar/platform-web/ai`: the browser side of the AI slice, in two entry points. `/ai/headless` holds the behaviour without markup: the AI wire types and calls over the host transport (`createAiResponse`, `streamAiResponse`, `getAiAdminConfig`, ... each takes the `PlatformApiClient` first), the hooks behind every AI page (`useAiConfig` with `AiConfigProvider`, `useAiAdminConfig`, `useAiModels`, `useAiUsage`, `useUserAiKeys`, `useUsableAiModels`, `useAiChat`, `useAiRun`, `useAiRealtimeSession`, `useMicrophonePermission`, `useAiUserSettings`), the organization tier (`useOrgAiKeys`, `useOrgAiPolicy`, #739) and the slots the app fills (`AiWebAdaptersProvider`). `/ai/ui` holds the `RequireAiEnabled` route guard and the pages: the Organization AI keys page (the default export), the admin AI, AI Models and AI Usage pages, the user AI Keys page and the Playground (#890), each also a subpath of its own for one lazy chunk per route. Depends on `core`, `settings`, `storage` and `datatable` (`packages/platform-slices.json`): the hooks call the API through the host's `api` (or an injected one), the pages read permissions from `usePlatformViewer()`, uploads go through the storage objects client and the default model through the settings slice's `useUserSettings`.
 
 ## Purpose and scope
 
@@ -19,7 +19,7 @@ import OrgAiKeysPage, { ORG_AI_KEYS_DESCRIPTION } from '@marinoscar/platform-web
 const AiModelsPage = lazy(() => import('@marinoscar/platform-web/ai/ui/models-page'));
 ```
 
-`/ai/headless` needs `react`; `/ai/ui` also `@mui/material`, `@emotion/*` and `react-router-dom` (the pages redirect and link). Both depend on `@marinoscar/platform-contract` (the org-key and policy types). Mount `PlatformHostProvider` (from `/core`) above the pages. Mount `AiConfigProvider` once around the signed-in shell (it fetches `GET /ai/config` for every `useAiConfig` and `useAiFeatures` below it; it usually sits above the host, so pass it the app's transport as `api`). Mount `AiWebAdaptersProvider` to hand in the app's spinner and responsive table.
+`/ai/headless` needs `react`; `/ai/ui` also `@mui/material`, `@emotion/*` and `react-router-dom` (the pages redirect and link). Both depend on `@marinoscar/platform-contract` (the org-key and policy types). Mount `PlatformHostProvider` (from `/core`) above the pages. Mount `AiConfigProvider` once around the signed-in shell (it fetches `GET /ai/config` for every `useAiConfig` and `useAiFeatures` below it; it usually sits above the host, so pass it the app's transport as `api`). Mount `AiWebAdaptersProvider` to hand in the app's spinner.
 
 ## Quick start
 
@@ -40,7 +40,7 @@ const OrgAiKeysPage = lazy(() => import('@marinoscar/platform-web/ai/ui'));
 
 ## Configuration
 
-The pages take no props. Each hook takes `{ api? }` (`AiHookOptions`): the transport (default: the platform host's, or a transport whose calls reject with "No platform transport is available"). `AiWebAdaptersProvider` takes `adapters: AiWebAdapters`, a module constant with two optional members: `Spinner` (default an MUI `CircularProgress`) and `DataTable` (default a plain MUI table; the model catalogue and the usage breakdowns draw through it).
+The pages take no props. Each hook takes `{ api? }` (`AiHookOptions`): the transport (default: the platform host's, or a transport whose calls reject with "No platform transport is available"). `AiWebAdaptersProvider` takes `adapters: AiWebAdapters`, a module constant with one optional member: `Spinner` (default an MUI `CircularProgress`). The model catalogue and the usage breakdowns draw through the datatable slice's `DataTable` directly (#899).
 
 | Option | Type | Default | Meaning |
 |---|---|---|---|
@@ -52,7 +52,7 @@ The pages take no props. Each hook takes `{ api? }` (`AiHookOptions`): the trans
 |---|---|---|---|---|---|
 | `OrgAiKeysPage` | component | `OrgAiKeysPage(): ReactElement` | Route the Organization AI keys page behind `org_ai_config:read` | experimental | [example](../../../../apps/web/src/App.tsx) |
 | `RequireAiEnabled` | component | `RequireAiEnabled(props: { children; fallback? }): ReactElement` | Gate an AI route on the kill switch, inside `RequirePermission` (import from `/ai/ui/require-ai-enabled` to keep the pages out of the main chunk) | experimental | [example](../../../../apps/web/src/App.tsx) |
-| `AiWebAdapters` | option | `{ Spinner?: ComponentType<AiSpinnerProps>; DataTable?: AiDataTableComponent }` | Draw the AI pages' loading state and tables with the app's own components | experimental | [example](../../../../apps/web/src/platform/aiAdapters.ts) |
+| `AiWebAdapters` | option | `{ Spinner?: ComponentType<AiSpinnerProps> }` | Draw the AI pages' loading state with the app's own spinner | experimental | [example](../../../../apps/web/src/platform/aiAdapters.ts) |
 | `AiWebAdaptersProvider` | component | `AiWebAdaptersProvider(props: { adapters: AiWebAdapters; children }): ReactElement` | Hand the app's adapters to every AI page below it | experimental | [example](../../../../apps/web/src/platform/shellProviders.tsx) |
 | `AiConfigProvider` | component | `AiConfigProvider(props: { api?: PlatformApiClient; children }): ReactElement` | Fetch `GET /ai/config` once for the shell, above the host | experimental | [example](../../../../apps/web/src/platform/shellProviders.tsx) |
 
@@ -66,7 +66,7 @@ Reads `org_ai_config:write` from the viewer to enable the Save and Remove contro
 
 ## UI
 
-Six pages. The pages moved in #890 keep the DOM and `sx` they had in the reference app, so its visual baselines are unchanged; the table and the spinner come from the app through the adapters. `AiConfigPage` (`/admin/settings/ai`: switch AI on, the key policy, providers and their keys, limits), `AiModelsPage` (the model catalogue), `AiUsagePage` (usage by user, model, provider, key source and organization), `UserAiKeysPage` (the caller's own keys, default model and usage) and `AiPlaygroundPage` (chat, image, transcription, speech, embeddings and voice).
+Six pages. The pages moved in #890 keep the DOM and `sx` they had in the reference app, so its visual baselines are unchanged; the spinner comes from the app through the adapters and the tables from the datatable slice. `AiConfigPage` (`/admin/settings/ai`: switch AI on, the key policy, providers and their keys, limits), `AiModelsPage` (the model catalogue), `AiUsagePage` (usage by user, model, provider, key source and organization), `UserAiKeysPage` (the caller's own keys, default model and usage) and `AiPlaygroundPage` (chat, image, transcription, speech, embeddings and voice).
 
 `OrgAiKeysPage`: `OrgAiKeysPage`: an info note on how organization keys are used (a member's own key still comes first), one row per provider (masked status, a key field, Save and Remove), and the effective policy (enabled, key policy, providers on, per-organization caps). The app's MUI theme styles it. Errors are shown in an `alert`; a key the provider rejects reads "The provider rejected this key. Nothing was saved."
 
@@ -90,7 +90,7 @@ None. `test/ai/` covers the slice without an app (the organization page, the hoo
 
 ## Upgrade notes
 
-New subpaths in #739: `/ai/headless` and `/ai/ui`. In #899: `/ai/ui/require-ai-enabled` (the `RequireAiEnabled` route guard, also exported by `/ai/ui`). In #890: `/ai/ui/config-page`, `/models-page`, `/usage-page`, `/keys-page` and `/playground-page`. The AI calls moved from the reference app's `services/ai.ts`: each now takes the `PlatformApiClient` as its first argument, and the hooks take `{ api? }` last. `PlatformApiClient` gained an optional `postFormData`, and `PlatformRequestOptions` gained `jsonBody` (a DELETE body); an app whose `createPlatformApiClient` is current has both.
+New subpaths in #739: `/ai/headless` and `/ai/ui`. In #899: the AI slice now depends on `datatable` and draws the model catalogue and usage breakdowns with its `DataTable`; `AiWebAdapters.DataTable` and the `AiDataTable*`/`AiTable*` types are gone (the pages' columns are `DataTableColumn`s). `/ai/ui/require-ai-enabled` (the `RequireAiEnabled` route guard, also exported by `/ai/ui`). In #890: `/ai/ui/config-page`, `/models-page`, `/usage-page`, `/keys-page` and `/playground-page`. The AI calls moved from the reference app's `services/ai.ts`: each now takes the `PlatformApiClient` as its first argument, and the hooks take `{ api? }` last. `PlatformApiClient` gained an optional `postFormData`, and `PlatformRequestOptions` gained `jsonBody` (a DELETE body); an app whose `createPlatformApiClient` is current has both.
 
 ## Troubleshooting
 

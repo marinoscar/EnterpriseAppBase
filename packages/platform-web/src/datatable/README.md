@@ -115,6 +115,8 @@ None. The table logs a `console.warn` when a preference cannot be loaded or save
 
 ## Upgrade notes
 
+New in #899: an `index.ts` at the slice root (`DataTable`, `DataTableColumn`, `DataTableRowAction`), the entry point sibling slices import (the `ai` slice draws its lists with it); not a package subpath.
+
 New in #897: the table moved from the reference app's `components/datatable`. Its two app dependencies became host bindings: the stored-layout type is `DataTableStoredLayout` (the app's `DataTableSettings` is an alias of it) and the user-settings calls go through `DataTablePreferencesPort`, defaulting to the host's transport. An app that imported `components/datatable` imports the three subpaths instead, and its tests import the stubs and the suite from `/testing`.
 
 ## Troubleshooting

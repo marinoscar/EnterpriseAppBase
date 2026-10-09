@@ -3,17 +3,14 @@
 // =============================================================================
 //
 // What the AI pages need from the app beyond the platform host: the app's
-// spinner and table (the app owns appearance). The jobs slice's
+// spinner (the app owns appearance). The jobs slice's
 // `JobsWebAdaptersProvider` is the model.
 //
-// Without a provider every adapter has a default: an MUI spinner and a plain
-// MUI table.
+// Without a provider the spinner defaults to an MUI `CircularProgress`.
 // =============================================================================
 
 import { createContext, useContext } from 'react';
 import type { ComponentType, ReactElement, ReactNode } from 'react';
-
-import type { AiDataTableComponent } from './table.js';
 
 /**
  * What {@link AiWebAdapters.Spinner} takes.
@@ -32,7 +29,7 @@ export interface AiSpinnerProps {
  * @example
  * ```ts
  * // apps/web/src/platform/aiAdapters.ts
- * export const appAiAdapters: AiWebAdapters = { Spinner: LoadingSpinner, DataTable };
+ * export const appAiAdapters: AiWebAdapters = { Spinner: LoadingSpinner };
  * ```
  *
  * @extensionPoint option
@@ -41,8 +38,6 @@ export interface AiSpinnerProps {
 export interface AiWebAdapters {
   /** The app's loading spinner. Default an MUI `CircularProgress`. */
   Spinner?: ComponentType<AiSpinnerProps>;
-  /** The app's table for the model catalogue and the usage breakdowns. Default a plain MUI table. */
-  DataTable?: AiDataTableComponent;
 }
 
 const NO_ADAPTERS: AiWebAdapters = Object.freeze({});

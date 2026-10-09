@@ -3,9 +3,11 @@
 // `@marinoscar/platform-web/identity/headless` (#727, PP-6.6); import them
 // from there.
 
+import type { AiDefaultModel } from '@marinoscar/platform-web/ai/headless';
 import type { DataTableDensity, DataTableStoredLayout } from '@marinoscar/platform-web/datatable/headless';
 
 export type { DataTableDensity };
+export type { AiDefaultModel };
 
 export type ProfileImageSource = 'none' | 'provider' | 'upload';
 
@@ -76,12 +78,6 @@ export interface UserSettings {
   ai?: UserAiSettings;
   updatedAt: string;
   version: number;
-}
-
-/** The model a user's AI requests default to — a provider/model pair, never a key. */
-export interface AiDefaultModel {
-  provider: string;
-  modelId: string;
 }
 
 /** `user_settings.ai` — `defaultModel: null` means "no default chosen". */
