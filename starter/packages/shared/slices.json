@@ -6,6 +6,7 @@
     "email",
     "notifications",
     "sharing",
-    "ai"
+    "ai",
+    "db-backup"
   ]
 }
