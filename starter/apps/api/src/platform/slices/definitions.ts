@@ -7,6 +7,7 @@
 // folder, its line below and its id from `SLICE_IDS` (`./slice.ts`), and the
 // web side's `src/slices/<id>.tsx`. To only switch it off, remove its id from
 // `slices.json` and nothing else.
+import { aiSlice } from '../ai/ai.slice';
 import { credentialsSlice } from '../credentials/credentials.slice';
 import { emailSlice } from '../email/email.slice';
 import { notificationsSlice } from '../notifications/notifications.slice';
@@ -21,4 +22,5 @@ export const ALL_SLICES = {
   email: emailSlice,
   notifications: notificationsSlice,
   sharing: sharingSlice,
+  ai: aiSlice,
 } as unknown as Readonly<Record<SliceId, ApiSlice>>;
