@@ -8,9 +8,11 @@
 // web side's `src/slices/<id>.tsx`. To only switch it off, remove its id from
 // `slices.json` and nothing else.
 import { credentialsSlice } from '../credentials/credentials.slice';
+import { storageSlice } from '../storage/storage.slice';
 import type { ApiSlice, SliceId } from './slice';
 
 // (Partial while the slices are added one commit at a time.)
 export const ALL_SLICES = {
   credentials: credentialsSlice,
+  storage: storageSlice,
 } as unknown as Readonly<Record<SliceId, ApiSlice>>;
