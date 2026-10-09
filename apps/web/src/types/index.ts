@@ -3,9 +3,11 @@
 // `@marinoscar/platform-web/identity/headless` (#727, PP-6.6); import them
 // from there.
 
-export type ProfileImageSource = 'none' | 'provider' | 'upload';
+import type { DataTableDensity, DataTableStoredLayout } from '@marinoscar/platform-web/datatable/headless';
 
-export type DataTableDensity = 'compact' | 'standard' | 'comfortable';
+export type { DataTableDensity };
+
+export type ProfileImageSource = 'none' | 'provider' | 'upload';
 
 /**
  * Navigation preferences. Every field is optional and an ABSENT field means
@@ -21,12 +23,7 @@ export interface NavigationSettings {
  * optional and an ABSENT field means "use the built-in default" for that table
  * (an absent `visibleColumns` is not an empty column set).
  */
-export interface DataTableSettings {
-  visibleColumns?: string[];
-  density?: DataTableDensity;
-  sort?: { field: string; direction: 'asc' | 'desc' };
-  pageSize?: number;
-}
+export type DataTableSettings = DataTableStoredLayout;
 
 // The notifications wire types are `@marinoscar/platform-web/notifications/headless` since #738.
 export type {

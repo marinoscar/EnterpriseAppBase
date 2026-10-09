@@ -33,7 +33,7 @@
  * credential, while a PAT is the user's whole identity).
  *
  * The third alternative, a bespoke table, was rejected here: both tables are
- * `components/datatable`, which is what gives them the phone card layout, the
+ * the `datatable` slice, which is what gives them the phone card layout, the
  * tablet expander, the column picker, the CSV export, the persisted layout and
  * the axe-tested keyboard model for free — and what means the accessibility
  * contract is asserted once, in the shared conformance suite, rather than

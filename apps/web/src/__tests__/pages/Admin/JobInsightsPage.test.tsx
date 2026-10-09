@@ -27,7 +27,7 @@ import {
   installLayoutStubs,
   resetContainerWidth,
   setInitialContainerWidth,
-} from '../../../components/datatable/__tests__/testUtils/layoutStubs';
+} from '@marinoscar/platform-web/datatable/testing';
 import { api } from '../../../services/api';
 import type { JobInsights } from '@marinoscar/platform-web/jobs/headless';
 

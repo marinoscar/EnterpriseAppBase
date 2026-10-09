@@ -3,7 +3,7 @@
  * page (`@marinoscar/platform-web/db-backup`) takes from this app, handed in
  * through `DbBackupWebAdaptersProvider` in `App.tsx`:
  *
- *   - `DataTable`: the app's responsive `DataTable` (`components/datatable`),
+ *   - `DataTable`: the responsive `DataTable` of `@marinoscar/platform-web/datatable/ui`,
  *     so the run list keeps the app's table on every breakpoint (the
  *     package's fallback is a plain MUI table).
  *
@@ -14,7 +14,7 @@
 
 import type { DbBackupWebAdapters } from '@marinoscar/platform-web/db-backup/headless';
 
-import { DataTable } from '../components/datatable';
+import { DataTable } from '@marinoscar/platform-web/datatable/ui';
 
 /** The adapters `App.tsx` hands the db-backup page. */
 export const appDbBackupAdapters: DbBackupWebAdapters = Object.freeze<DbBackupWebAdapters>({

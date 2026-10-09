@@ -34,12 +34,13 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { render, mockAdminUser, type MockUser } from '../../utils/test-utils';
 import { UserList, buildUserColumns } from '@marinoscar/platform-web/identity/ui';
-import { runDataTableConformanceSuite } from '../../../components/datatable/__tests__/conformance/runDataTableConformanceSuite';
 import {
   installLayoutStubs,
   resetContainerWidth,
+  runDataTableConformanceSuite,
   setInitialContainerWidth,
-} from '../../../components/datatable/__tests__/testUtils/layoutStubs';
+} from '@marinoscar/platform-web/datatable/testing';
+import { darkTheme, lightTheme } from '../../../theme';
 import { api } from '../../../services/api';
 import type { UserListItem } from '@marinoscar/platform-web/identity/headless';
 
@@ -626,4 +627,5 @@ runDataTableConformanceSuite({
   columns: buildUserColumns(),
   rows: [activeUser, inactiveUser, multiRoleUser],
   rowId: (user: UserListItem) => user.id,
+  themes: { light: lightTheme, dark: darkTheme },
 });

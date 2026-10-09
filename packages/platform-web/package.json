@@ -223,6 +223,18 @@
       "types": "./dist/host/ui/index.d.ts",
       "default": "./dist/host/ui/index.js"
     },
+    "./datatable/headless": {
+      "types": "./dist/datatable/headless/index.d.ts",
+      "default": "./dist/datatable/headless/index.js"
+    },
+    "./datatable/ui": {
+      "types": "./dist/datatable/ui/index.d.ts",
+      "default": "./dist/datatable/ui/index.js"
+    },
+    "./datatable/testing": {
+      "types": "./dist/datatable/testing/index.d.ts",
+      "default": "./dist/datatable/testing/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -236,7 +248,7 @@
     "prepack": "node ../../scripts/copy-license.mjs",
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p test/telemetry && tsc --noEmit -p test/notifications && tsc --noEmit -p test/ai && tsc --noEmit -p test/settings/ui",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p test/telemetry && tsc --noEmit -p test/notifications && tsc --noEmit -p test/ai && tsc --noEmit -p test/settings/ui && tsc --noEmit -p test/datatable",
     "docs": "typedoc --options typedoc.json",
     "test": "vitest",
     "test:run": "vitest run"
@@ -252,10 +264,14 @@
     "@mui/material": "^9.1.0",
     "@mui/x-charts": "^9.14.0",
     "@mui/x-data-grid": "^9.10.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@uiw/react-codemirror": "^4.25.12",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-router-dom": "^7.17.0",
+    "vitest": "^4.1.8",
+    "vitest-axe": "^1.0.0-pre.5",
     "zod": "^4.4.3"
   },
   "peerDependenciesMeta": {
@@ -268,7 +284,19 @@
     "@mui/x-data-grid": {
       "optional": true
     },
+    "@testing-library/react": {
+      "optional": true
+    },
+    "@testing-library/user-event": {
+      "optional": true
+    },
     "@uiw/react-codemirror": {
+      "optional": true
+    },
+    "vitest": {
+      "optional": true
+    },
+    "vitest-axe": {
       "optional": true
     }
   },
@@ -293,6 +321,7 @@
     "react-router-dom": "^7.17.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.8",
+    "vitest-axe": "^1.0.0-pre.5",
     "zod": "^4.4.3"
   }
 }
