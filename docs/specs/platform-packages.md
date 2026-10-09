@@ -1036,7 +1036,7 @@ flowchart LR
 
 | App | Status |
 |---|---|
-| EvoPath | In progress. It consumes the Doctor and telemetry slices from the pre-release tarballs (`0.1.0-next.1` to `0.1.0-next.3`, pinned by GitHub-release URL); the [gate report](../platform-adoption/go-no-go-evopath.md) measures that route. The remaining slices follow the order in [Adopting the platform](../ADOPTING-THE-PLATFORM.md). |
+| EvoPath | In progress. It consumes the Doctor and telemetry slices and `@marinoscar/platform-db` (the migration history is installed and pinned by `platform.lock`; the production baseline waits for the owner's deploy, see the [baseline runbook](../runbooks/database-baseline.md)) from the pre-release tarballs (`0.1.0-next.1` to `0.1.0-next.3`, pinned by GitHub-release URL); the [gate report](../platform-adoption/go-no-go-evopath.md) measures that route. The remaining slices follow the order in [Adopting the platform](../ADOPTING-THE-PLATFORM.md). |
 | kvox | Not started; it waits for the EvoPath retrospective. |
 | MemoriaHub | Not started; it waits for the kvox retrospective. |
 
