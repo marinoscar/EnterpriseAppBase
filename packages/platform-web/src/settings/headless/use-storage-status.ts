@@ -36,7 +36,6 @@ export interface UseStorageStatusResult {
  * if (configured === false) return <FeatureUnavailableNotice feature="storage" />;
  * ```
  *
- * @extensionPoint hook
  * @stability experimental
  */
 export function useStorageStatus(options: { skip?: boolean } = {}): UseStorageStatusResult {

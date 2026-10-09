@@ -61,7 +61,6 @@ const PROFILE_IMAGE = '/user-settings/profile-image';
  * const { settings } = await createProfileImageClient(api).upload(file);
  * ```
  *
- * @extensionPoint hook
  * @stability experimental
  */
 export function createProfileImageClient(api: PlatformApiClient): ProfileImageClient {
@@ -89,7 +88,6 @@ export function createProfileImageClient(api: PlatformApiClient): ProfileImageCl
  *
  * @returns a client whose identity is stable while the host's `api` is.
  *
- * @extensionPoint hook
  * @stability experimental
  */
 export function useProfileImageClient(): ProfileImageClient {

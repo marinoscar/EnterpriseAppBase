@@ -21,7 +21,7 @@ import { ThemeSettings } from './ThemeSettings.js';
 import { UserSettingsSection } from './UserSettingsSection.js';
 
 /**
- * Settings -> Appearance (`/settings/appearance`): light, dark or system. The
+ * Settings, Appearance (`/settings/appearance`): light, dark or system. The
  * stored preference reaches the app's theme through the host's `applyTheme`.
  *
  * @returns the page.

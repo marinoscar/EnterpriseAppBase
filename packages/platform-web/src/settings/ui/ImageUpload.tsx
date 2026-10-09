@@ -39,6 +39,7 @@ export interface ImageUploadProps {
   onUploaded: (result: ProfileImageMutationResponse, file: File) => void | Promise<void>;
   /** Lets the parent block conflicting actions while bytes are in flight. */
   onUploadingChange?: (uploading: boolean) => void;
+  /** Disables the control. */
   disabled?: boolean;
   /** Button text, e.g. "Replace picture" when one already exists. */
   label?: string;
@@ -73,7 +74,6 @@ function describeUploadError(err: unknown): string {
  * <ImageUpload onUploaded={(result) => adopt(result.settings)} />
  * ```
  *
- * @extensionPoint component
  * @stability experimental
  */
 export function ImageUpload({

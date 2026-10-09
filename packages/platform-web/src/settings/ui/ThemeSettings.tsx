@@ -18,8 +18,11 @@ import {
  * @stability experimental
  */
 export interface ThemeSettingsProps {
+  /** The stored theme preference. */
   currentTheme: 'light' | 'dark' | 'system';
+  /** Called with the chosen preference. */
   onThemeChange: (theme: 'light' | 'dark' | 'system') => void;
+  /** Disables the toggle (a save is in flight). */
   disabled?: boolean;
 }
 
@@ -34,7 +37,6 @@ export interface ThemeSettingsProps {
  * <ThemeSettings currentTheme="system" onThemeChange={(theme) => save({ theme })} />
  * ```
  *
- * @extensionPoint component
  * @stability experimental
  */
 export function ThemeSettings({

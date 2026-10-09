@@ -51,11 +51,16 @@ import { useOptionalPlatformHost } from '../../core/index.js';
 import { useUserSettings } from '../headless/use-user-settings.js';
 import { LoadingSpinner } from '../internal/LoadingSpinner.js';
 
-type UserSettings = UserSettingsResponseBase;
-/** The PATCH body the routed pages send: a theme and/or profile fields. */
-type UserSettingsUpdate = {
-  theme?: UserSettings['theme'];
-  profile?: Partial<UserSettings['profile']>;
+/**
+ * The PATCH body the routed pages send: a theme and/or profile fields.
+ *
+ * @stability experimental
+ */
+export type UserSettingsUpdate = {
+  /** A new theme preference. */
+  theme?: UserSettingsResponseBase['theme'];
+  /** New profile fields. */
+  profile?: Partial<UserSettingsResponseBase['profile']>;
 };
 
 /**
@@ -68,9 +73,9 @@ export interface UserSettingsSaveMessages {
   success: string;
   /**
    * Success-path fallback for the ERROR snackbar when the rejection is not an
-   * `Error` and therefore carries no `.message`, e.g. `'Failed to update
-   * theme'`. Carried per call site rather than hardcoded to one generic string
-   * so the two pages keep the exact copy the stacked page used.
+   * `Error` and therefore carries no `.message`, e.g. `'Failed to update theme'`.
+   * Carried per call site rather than hardcoded to one generic string so the
+   * two pages keep the exact copy the stacked page used.
    */
   failure: string;
 }
@@ -81,7 +86,8 @@ export interface UserSettingsSaveMessages {
  * @stability experimental
  */
 export interface UserSettingsSectionState {
-  settings: UserSettings;
+  /** The loaded document. */
+  settings: UserSettingsResponseBase;
   /** True while a PATCH is in flight. Pages pass it straight to `disabled`. */
   isSaving: boolean;
   /**
@@ -102,7 +108,7 @@ export interface UserSettingsSectionState {
    * already returned (the profile-image upload/delete responses), so the
    * stored `version` stays current, and optionally raise the success snackbar.
    */
-  replaceSettings: (settings: UserSettings, successMessage?: string) => void;
+  replaceSettings: (settings: UserSettingsResponseBase, successMessage?: string) => void;
 }
 
 /**
@@ -115,6 +121,7 @@ export interface UserSettingsSectionProps {
   title: string;
   /** Secondary line under the title. Mirrors the card description. */
   description: string;
+  /** Renders the page body once the document has loaded. */
   children: (state: UserSettingsSectionState) => ReactNode;
 }
 
@@ -133,7 +140,6 @@ export interface UserSettingsSectionProps {
  * </UserSettingsSection>
  * ```
  *
- * @extensionPoint component
  * @stability experimental
  */
 export function UserSettingsSection({
@@ -148,12 +154,12 @@ export function UserSettingsSection({
     isSaving,
     updateSettings,
     replaceSettings: adoptSettings,
-  } = useUserSettings<UserSettings, UserSettingsUpdate>({ applyTheme: useOptionalPlatformHost()?.applyTheme });
+  } = useUserSettings<UserSettingsResponseBase, UserSettingsUpdate>({ applyTheme: useOptionalPlatformHost()?.applyTheme });
 
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
 
-  const replaceSettings = (next: UserSettings, message?: string) => {
+  const replaceSettings = (next: UserSettingsResponseBase, message?: string) => {
     adoptSettings(next);
     if (message) setSuccessMessage(message);
   };

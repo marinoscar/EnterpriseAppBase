@@ -7,7 +7,7 @@ export { ImageUpload, PROFILE_IMAGE_MAX_BYTES, PROFILE_IMAGE_TYPES } from './Ima
 export type { ImageUploadProps } from './ImageUpload.js';
 export { OrgSettingsPage } from './OrgSettingsPage.js';
 export { ProfileSettings } from './ProfileSettings.js';
-export type { ProfileSettingsProps } from './ProfileSettings.js';
+export type { ProfilePatch, ProfileSettingsProps } from './ProfileSettings.js';
 export { ThemeSettings } from './ThemeSettings.js';
 export type { ThemeSettingsProps } from './ThemeSettings.js';
 export { UserAppearancePage } from './UserAppearancePage.js';
@@ -17,6 +17,7 @@ export type {
   UserSettingsSaveMessages,
   UserSettingsSectionProps,
   UserSettingsSectionState,
+  UserSettingsUpdate,
 } from './UserSettingsSection.js';
 export { SettingsHub } from './SettingsHub.js';
 export type { SettingsHubProps } from './SettingsHub.js';

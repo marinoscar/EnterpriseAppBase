@@ -17,7 +17,7 @@ import { ProfileSettings } from './ProfileSettings.js';
 import { UserSettingsSection } from './UserSettingsSection.js';
 
 /**
- * Settings -> Profile (`/settings/profile`): the display name and the profile
+ * Settings, Profile (`/settings/profile`): the display name and the profile
  * picture. Every user edits their own; the API grants it to all roles, so the
  * page carries no permission gate.
  *

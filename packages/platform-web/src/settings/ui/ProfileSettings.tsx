@@ -32,8 +32,12 @@ import type { ProfileImageMutationResponse } from '../headless/profile-image.js'
 import { useStorageStatus } from '../headless/use-storage-status.js';
 import { ImageUpload } from './ImageUpload.js';
 
-type UserSettings = UserSettingsResponseBase;
-type ProfilePatch = Partial<UserSettings['profile']>;
+/**
+ * The profile fields a save may change.
+ *
+ * @stability experimental
+ */
+export type ProfilePatch = Partial<UserSettingsResponseBase['profile']>;
 
 /**
  * Props of {@link ProfileSettings}.
@@ -41,14 +45,16 @@ type ProfilePatch = Partial<UserSettings['profile']>;
  * @stability experimental
  */
 export interface ProfileSettingsProps {
-  profile: UserSettings['profile'];
+  /** The stored profile preferences. */
+  profile: UserSettingsResponseBase['profile'];
   /** PATCH the changed profile fields (display name and/or picture source). */
   onSave: (profile: ProfilePatch) => Promise<void>;
   /**
    * Adopt the settings document the upload/remove endpoints return, so the
    * stored `version` stays current, and optionally announce success.
    */
-  onSettingsReplaced?: (settings: UserSettings, successMessage?: string) => void;
+  onSettingsReplaced?: (settings: UserSettingsResponseBase, successMessage?: string) => void;
+  /** Disables every control (a save is in flight). */
   disabled?: boolean;
 }
 
@@ -72,7 +78,6 @@ interface SourceOption {
  * <ProfileSettings profile={settings.profile} onSave={(profile) => save({ profile }, msgs)} />
  * ```
  *
- * @extensionPoint component
  * @stability experimental
  */
 export function ProfileSettings({
