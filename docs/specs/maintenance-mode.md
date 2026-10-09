@@ -1,6 +1,6 @@
 # Maintenance Mode
 
-> **Status:** shipped · **Code:** `packages/platform-api/src/host/maintenance/` (`@marinoscar/platform-api/host`, #867), `apps/web/src/components/common/MaintenanceGate.tsx`, `apps/web/src/services/maintenance.ts` · **API:** `/api/admin/maintenance` (see `/api/docs`) · **Admin UI:** `/admin/settings/maintenance` · **Runbook:** [maintenance-mode.md](../runbooks/maintenance-mode.md)
+> **Status:** shipped · **Code:** `packages/platform-api/src/host/maintenance/` (`@marinoscar/platform-api/host`, #867), `packages/platform-web/src/host/ui/maintenance-gate.tsx` (`@marinoscar/platform-web/host/ui`, #901), `apps/web/src/services/maintenance.ts` · **API:** `/api/admin/maintenance` (see `/api/docs`) · **Admin UI:** `/admin/settings/maintenance` · **Runbook:** [maintenance-mode.md](../runbooks/maintenance-mode.md)
 
 Maintenance mode takes the application out of service on purpose. While a
 window is open, every API route answers `503` with an operator-supplied message
@@ -233,7 +233,7 @@ in [ARCHITECTURE.md](../ARCHITECTURE.md).
 | Never populates `request.user`; `pat_`/`nod_` never bypass | `packages/platform-api/test/host/maintenance/maintenance.guard.spec.ts` |
 | The host core does not import `AuthModule` nor re-export its `JwtModule`; the guard is its only `APP_GUARD` | `packages/platform-api/test/host/host-core.module.spec.ts` |
 | The guard is the app's only `APP_GUARD`, anywhere in the module graph | `apps/api/test/platform/host-conformance.spec.ts` (the `host` conformance suite) |
-| Readiness answers `503` before the DB probe runs | `apps/api/src/health/health.controller.spec.ts` |
+| Readiness answers `503` before the DB probe runs | `packages/platform-api/test/host/health/health.controller.spec.ts` |
 | Marker survives the real exception filter; `Retry-After`; env override end to end | `apps/api/test/maintenance/maintenance.integration.spec.ts` |
 | Exact reachable set, enumerated from the router; `/api/docs` stays readable | `apps/api/test/maintenance/maintenance-reachable-set.integration.spec.ts` |
 

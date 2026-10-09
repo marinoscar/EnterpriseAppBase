@@ -9,8 +9,6 @@ import { PrismaModule } from './prisma/prisma.module';
 import { CommonModule } from './common/common.module';
 import { SettingsModule } from './platform/settings/settings.config';
 import { ProfileImageModule } from './platform/storage/storage.config';
-import { AboutModule } from './about/about.module';
-import { HealthModule } from './health/health.module';
 import { StorageModule } from './platform/storage/storage.config';
 import { StorageConfigModule } from './platform/storage/storage.config';
 import { NodeCredentialModule } from '@marinoscar/platform-api/nodes';
@@ -22,13 +20,12 @@ import { NotificationsModule } from './platform/notifications/notifications.conf
 import { JobsModule } from './platform/jobs/jobs.config';
 import { ExamplesModule } from './examples/examples.module';
 import { DbBackupModule } from './platform/db-backup/db-backup.config';
-import { LoggerModule } from './common/logger/logger.module';
+import { aboutModule } from './platform/about/about.config';
 import { hostCoreModule } from './platform/host-core.config';
 import { DocsEgressContributor } from './openapi/docs-egress.contributor';
 import { AiModule } from './platform/ai/ai.config';
 import { telemetryModule } from './platform/telemetry/telemetry.config';
 import { doctorModule } from './doctor/doctor.config';
-import { RetentionModule } from './common/retention/retention.module';
 import { platformHostModule } from './platform/platform-host.module';
 import { identityModule } from './platform/identity/identity.config';
 import { sharingModule } from './platform/sharing/sharing.config';
@@ -58,9 +55,6 @@ import configuration from './config/configuration';
     // Database
     PrismaModule,
 
-    // Logger
-    LoggerModule,
-
     // Feature modules
     CommonModule,
     // Identity (#727): sign-in, sessions and tokens (JWT, personal access
@@ -78,15 +72,14 @@ import configuration from './config/configuration';
     // Uploaded profile pictures (#367): its own module because it needs the
     // storage provider and SettingsModule must not (see the module).
     ProfileImageModule,
-    HealthModule,
     // The host core (#867, `@marinoscar/platform-api/host`): the cross-replica
     // event bus (`EVENT_BUS`, PP-1.11), the platform's app metrics (#600), the
     // maintenance switch (#257) with its admin endpoints and the global guard,
     // the `{ data }` envelope, the request log line, the exception filter and
-    // request ids. Global. HERE, right after `HealthModule`, because the
-    // generated OpenAPI document lists paths in module order and
-    // `/api/admin/maintenance` has always followed `/api/health` (it was
-    // discovered through `HealthModule`'s import of the old MaintenanceModule).
+    // request ids, and the health probes (`/api/health`, #901). Global. HERE,
+    // right after `ProfileImageModule`, because the generated OpenAPI document
+    // lists paths in module order and `/api/health` and
+    // `/api/admin/maintenance` have always been there.
     // The app's binding is `platform/host-core.config.ts`.
     hostCoreModule,
     StorageModule,
@@ -195,11 +188,12 @@ import configuration from './config/configuration';
 
     // `GET /api/admin/about` (#401, epic #397): what is deployed here — the
     // API's resolved version, the deploy document `appctl deploy` bind-mounts
-    // into the container, and a database liveness fact. Imports `HealthModule`
-    // for that last one and reads no settings, so it adds no edge to the
-    // settings or storage graphs. Registered after them all the same: it
-    // reports on the application, so it is the application that owns it.
-    AboutModule,
+    // into the container, and a database liveness fact (one `SELECT 1`
+    // through the `PLATFORM_PRISMA` port). The module is the host slice's
+    // (#891) and reads no settings, so it adds no edge to the settings or
+    // storage graphs. Registered after them all the same: it reports on the
+    // application, so it is the application that owns it.
+    aboutModule,
 
     // `GET /api/admin/doctor` (#634): read-only configuration and health
     // checks for every capability. Global so each feature module
@@ -223,12 +217,6 @@ import configuration from './config/configuration';
     // `platform/telemetry/telemetry.config.ts` (`TelemetryModule.forRoot({
     // host, imports: [TelemetryHostModule], metricGroups })`).
     telemetryModule,
-
-    // Data retention (#681): the daily, enqueue-only cron for the `retention`
-    // settings namespace and the `audit.events.purge` handler. The inbox,
-    // delivery-log and AI-run purges live with their tables, in
-    // `NotificationsModule` and `AiRuntimeModule`.
-    RetentionModule,
 
     // Sharing (#728, epic #666): groups inside an organization, their members
     // and invites (`/api/groups`), the ownership contract for group-owned rows

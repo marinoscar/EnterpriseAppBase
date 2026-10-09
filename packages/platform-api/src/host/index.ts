@@ -156,6 +156,13 @@ export { TransformInterceptor } from './http/transform.interceptor';
 export type { ApiEnvelope } from './http/transform.interceptor';
 export { LoggingInterceptor } from './http/logging.interceptor';
 export { RequestIdMiddleware } from './http/request-id.middleware';
+export { InvalidCorsOriginError, buildCorsOptions, isSameOriginOnly } from './http/cors-options';
+export type { AllowlistCorsOptions, CorsOptions, SameOriginCorsOptions } from './http/cors-options';
+
+// ---- Health probes (#901) ----------------------------------------------------
+// Reference-app wiring and tests only; not stable extension points (`@internal`).
+export { HealthController } from './health/health.controller';
+export { DatabaseHealthIndicator } from './health/database.indicator';
 
 // ---- OpenAPI and /api/docs (#53) ---------------------------------------------
 export {
@@ -192,3 +199,11 @@ export { resolveApiVersion } from './openapi/version';
 export { REQUIREMENTS_MARKER } from './openapi/rbac-docs';
 export { HTTP_METHODS, forEachOperation } from './openapi/types';
 export type { DocOperation, DocPathItem, MutableDocument } from './openapi/types';
+
+// ---- About: what is deployed here (#401, packaged by #891) -------------------
+export { AboutModule } from './about/about.module';
+export type { AboutModuleOptions } from './about/about.options';
+// Reference-app wiring and tests only; not stable extension points (`@internal`).
+export { AboutService } from './about/about.service';
+export { AboutController } from './about/about.controller';
+export { DEFAULT_DEPLOY_INFO_PATH, readDeployInfo, resolveDeployInfoPath } from './about/deploy-info';

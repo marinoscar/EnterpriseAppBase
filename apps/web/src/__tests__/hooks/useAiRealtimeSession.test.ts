@@ -5,14 +5,15 @@
  * the microphone are the scriptable fakes in `utils/fakeWebRtc.ts`.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act, waitFor } from '@testing-library/react';
+import { renderHook } from '../utils/test-utils';
 import { aiErrorBody } from '../mocks/fixtures/ai';
 import {
   AI_REALTIME_DATA_CHANNEL,
   AI_REALTIME_INPUT_TRANSCRIPTION_MODEL,
   formatRealtimeElapsed,
   useAiRealtimeSession,
-} from '../../hooks/useAiRealtimeSession';
+} from '@marinoscar/platform-web/ai/headless';
 import {
   FAKE_ANSWER_SDP,
   FAKE_CLIENT_SECRET,

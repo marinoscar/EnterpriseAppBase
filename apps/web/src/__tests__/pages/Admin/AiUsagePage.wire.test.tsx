@@ -13,13 +13,14 @@
  *      an empty state.
  */
 import { describe, it, expect, afterEach, beforeEach } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { render, mockAdminUser } from '../../utils/test-utils';
 import { server } from '../../mocks/server';
-import AiUsagePage from '../../../pages/Admin/AiUsagePage';
+import AiUsagePage from '@marinoscar/platform-web/ai/ui/usage-page';
 import { mockAiUsageEmpty } from '../../mocks/fixtures/ai';
+import { setViewportWidth } from '../../setup';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -112,5 +113,14 @@ describe('AiUsagePage — wire contract', () => {
     await renderLoaded();
 
     expect(screen.getByText('No AI requests were made in this range.')).toBeInTheDocument();
+  });
+
+  it('stacks the controls and renders every table as cards at 360px, never a wide grid', async () => {
+    act(() => setViewportWidth(360));
+    const user = await renderLoaded();
+
+    expect(await screen.findByTestId('admin-ai-usage-breakdown-table')).toHaveAttribute('data-layout', 'mobile');
+    await user.click(screen.getByRole('button', { name: 'Table' }));
+    expect(screen.getByTestId('admin-ai-usage-daily-table')).toHaveAttribute('data-layout', 'mobile');
   });
 });

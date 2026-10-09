@@ -15,7 +15,7 @@ One governed path from a feature to a model, so no feature holds a provider SDK,
 | Policy | `config/`, `ai.system-settings.ts`, `ai.user-settings.ts` | The `ai` settings namespaces (with the org layer), the kill switch (`AiEnabledGuard`, `AiOrgEnabledInterceptor`), the deployment's provider keys, `/api/admin/ai/*` |
 | Keys | `keys/` | A user's own keys (`/api/ai/keys`), an organization's own keys (`/api/admin/ai/org-keys`), `AiKeyResolver`, `UsableModelsService` |
 | Features | `features/`, `runtime/target-resolver.ts` | `registerAiFeature`, `GET /api/ai/features`, `AI_TARGET_RESOLVER` |
-| Runtime | `runtime/` | `AiService`, background runs (`ai_runs`, the `ai.*` job types), the tool loop, limits, usage recording |
+| Runtime | `runtime/` | `AiService`, background runs (`ai_runs`, the `ai.*` job types), the tool loop, limits, usage recording, the `ai.runs.purge` retention handler (`retention.aiRuns`, over the jobs slice's shared `batched-purge`, #898) |
 | HTTP | `http/` | `/api/ai/responses` (and its SSE stream), runs, embeddings, images, audio, realtime |
 | Storage | `storage/` | Storage objects in (`AiStorageInputResolver`) and out (`AiOutputWriter`, under `ai-outputs/`), over `AI_OBJECT_STORE` |
 | Usage | `usage/` | The usage report (`/api/admin/ai/usage`, `/api/admin/ai/org-usage`, `/api/ai/usage/me`) and its retention purge |
@@ -580,10 +580,10 @@ Two things never leave the facade, both handled by
    stream must not keep spending a user's rate limit or provider spend
    after nobody is listening. The same helper backs the non-streaming
    `POST /api/ai/responses` too.
-7. On the web side, `apps/web/src/services/sse.ts`'s `postSse()` is the
+7. On the web side, `@marinoscar/platform-web/core`'s `postSse()` (`packages/platform-web/src/core/http/sse.ts`) is the
    client half of this contract: one `POST`ed request, one streamed answer,
    no reconnect (a reconnect would re-submit the prompt) — see
-   `apps/web/src/services/ai.ts` for how the AI chat surface uses it.
+   `streamAiResponse` in `packages/platform-web/src/ai/headless/client.ts` for how the AI chat surface uses it (through the host transport's `postSse`).
 
 ### Adding a provider
 

@@ -62,6 +62,31 @@ export type { ClaimLease, JobExecutionProfile } from './job-execution-profile';
 export type { IssuedJobSecret, JobSecretBroker, JobSecretUsability } from './job-secret-broker';
 export { JOB_HISTORY_PURGE_TYPE, JobHistoryPurgeHandler } from './handlers/job-history-purge.handler';
 
+// ---- the retention engine (#898) ---------------------------------------------------------
+export {
+  RETENTION_PURGE_BATCH_SIZE,
+  RETENTION_PURGE_MAX_BATCHES,
+  purgeInBatches,
+  retentionCutoff,
+  runRetentionPolicyPurge,
+} from './retention/batched-purge';
+export type {
+  BatchedPurgeOptions,
+  BatchedPurgeResult,
+  RetentionPolicyPurgeOptions,
+} from './retention/batched-purge';
+export { RetentionPurgeRegistry } from './retention/retention-purge.registry';
+export type { RetentionPurgeEntry } from './retention/retention-purge.registry';
+export { RetentionPurgeTask } from './retention/retention-purge.task';
+export { RETENTION_SYSTEM_SETTINGS, mergeRetentionSettings } from './retention/retention.system-settings';
+export { AUDIT_EVENTS_PURGE_TYPE, AuditEventsPurgeHandler } from './retention/audit-events-purge.handler';
+export type {
+  AuditEventsPurgeBatch,
+  AuditEventsPurgeDelegate,
+  AuditEventsPurgeIdRow,
+  AuditEventsPurgePrisma,
+} from './retention/audit-events-purge.handler';
+
 // ---- enqueueing ------------------------------------------------------------------------------
 export { ACTIVE_DEDUP_INDEX_NAME, JobsService, isActiveDedupConflict } from './jobs.service';
 export type { EnqueueJobInput } from './jobs.service';

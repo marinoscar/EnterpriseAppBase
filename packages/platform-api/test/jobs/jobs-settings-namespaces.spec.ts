@@ -51,7 +51,7 @@ describe('JobsModule.forRoot() and NodesModule.forRoot() register their namespac
       expect(settings.systemSettingsNamespaceRegistry.has('jobs')).toBe(false);
       jobs.JobsModule.forRoot();
       nodes.NodesModule.forRoot();
-      expect(settings.systemSettingsNamespaceRegistry.ids()).toEqual(['jobs', 'nodes']);
+      expect(settings.systemSettingsNamespaceRegistry.ids()).toEqual(['jobs', 'retention', 'nodes']);
       expect(settings.systemSettingsNamespaceRegistry.get('jobs')).toBe(jobs.JOBS_SYSTEM_SETTINGS);
       // The composed defaults now carry the shipped policies.
       expect(settings.composeDefaultSystemSettings()).toMatchObject({
@@ -68,7 +68,7 @@ describe('JobsModule.forRoot() and NodesModule.forRoot() register their namespac
       jobs.JobsModule.forRoot();
       jobs.JobsModule.forRoot();
       expect(settings.systemSettingsNamespaceRegistry.get('jobs')).toBe(extended);
-      expect(settings.systemSettingsNamespaceRegistry.ids()).toEqual(['jobs']);
+      expect(settings.systemSettingsNamespaceRegistry.ids()).toEqual(['jobs', 'retention']);
       void nodes;
     });
   });

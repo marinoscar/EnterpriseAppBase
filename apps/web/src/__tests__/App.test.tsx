@@ -94,12 +94,12 @@ vi.mock('../pages/UserSettingsHubPage', () => ({
   default: () => <h1>User Settings Hub</h1>,
 }));
 
-vi.mock('../pages/UserProfilePage', () => ({
-  default: () => <h1>User Profile Page</h1>,
-}));
-
-vi.mock('../pages/UserAppearancePage', () => ({
-  default: () => <h1>User Appearance Page</h1>,
+// The packaged Profile and Appearance pages (#892), as placeholders; their own
+// suites, in packages/platform-web/test/settings, prove them.
+vi.mock('@marinoscar/platform-web/settings/ui', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@marinoscar/platform-web/settings/ui')>()),
+  UserProfilePage: () => <h1>User Profile Page</h1>,
+  UserAppearancePage: () => <h1>User Appearance Page</h1>,
 }));
 
 // Issue #126, epic #109: `UserNotificationsPage` is stood in for above, with

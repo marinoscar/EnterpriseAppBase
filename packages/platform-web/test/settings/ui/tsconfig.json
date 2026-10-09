@@ -1,0 +1,12 @@
+{
+  // The settings pages' suites (issue #892) were moved from the reference
+  // app's suite, which compiles without `noUncheckedIndexedAccess`; like
+  // test/notifications they keep that one relaxation and every other rule of
+  // the package's tsconfig.json. `npm run typecheck` runs it.
+  "extends": "../../../tsconfig.json",
+  "compilerOptions": {
+    "noUncheckedIndexedAccess": false
+  },
+  "include": ["./**/*", "../../setup.ts", "../../viewport.ts"],
+  "exclude": []
+}

@@ -11,7 +11,7 @@ import { afterEach } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { server } from '../mocks/server';
 import { toSseBody } from '../mocks/fixtures/ai';
-import type { AiStreamEvent } from '../../services/ai';
+import type { AiStreamEvent } from '@marinoscar/platform-web/ai/headless';
 
 export interface CapturedAiRequest {
   body: Record<string, unknown>;

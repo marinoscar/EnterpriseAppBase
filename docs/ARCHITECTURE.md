@@ -290,7 +290,7 @@ A restore (`db.restore.run`) replaces the live database from a chosen backup, op
 
 A maintenance window takes the application out of service on purpose. While open, every API route answers `503` with an operator message and `Retry-After`, except sign-in, health, token refresh, device activation and the maintenance endpoints themselves. The state resolves from three layers: the `MAINTENANCE_MODE` environment variable (break-glass, both directions), an in-memory override (used by the restore swap), and the persisted `maintenance` setting. The web app shows a maintenance screen and banner.
 
-- **Code:** `packages/platform-api/src/host/maintenance/` (`@marinoscar/platform-api/host`, #867), `apps/web/src/components/common/MaintenanceGate.tsx`
+- **Code:** `packages/platform-api/src/host/maintenance/` (`@marinoscar/platform-api/host`, #867), `packages/platform-web/src/host/ui/maintenance-gate.tsx` (`@marinoscar/platform-web/host/ui`, #901)
 - **UI:** `/admin/settings/maintenance`
 - **Permissions:** `system_settings:read/write`
 - **Read more:** [specs/maintenance-mode.md](specs/maintenance-mode.md), [runbooks/maintenance-mode.md](runbooks/maintenance-mode.md)
@@ -658,9 +658,9 @@ All 34 registered job types (pinned by `apps/api/test/jobs/job-type-snapshot.spe
 | `nodes.fleet.prune` | Fleet prune | `packages/platform-api/src/nodes/handlers/node-fleet-prune.handler.ts` (the nodes slice) | Forgets nodes offline longer than `nodes.offlineRetentionDays` | No |
 | `admin.broadcast.start` | Broadcast start | `packages/platform-api/src/notifications/broadcasts/handlers/broadcast-start.handler.ts` (the notifications slice) | Starts a broadcast: freezes the audience, enqueues the first chunk | No |
 | `admin.broadcast.chunk` | Broadcast delivery | `packages/platform-api/src/notifications/broadcasts/handlers/broadcast-chunk.handler.ts` (the notifications slice) | Delivers one page of recipients, enqueues its successor | No |
-| `notifications.inbox.purge` | Notification inbox purge | `common/retention/notification-inbox-purge.handler.ts` | Deletes `notifications` inbox rows past `retention.notifications`, in batches; daily at 01:00 | No |
-| `notifications.deliveries.purge` | Delivery log purge | `common/retention/notification-deliveries-purge.handler.ts` | Deletes `sent`/`failed` `notification_deliveries` past `retention.notificationDeliveries` (never `queued`); daily at 01:00 | No |
-| `audit.events.purge` | Audit log purge | `common/retention/audit-events-purge.handler.ts` | Deletes `audit_events` past `retention.auditEvents` (off by default); daily at 01:00 | No |
+| `notifications.inbox.purge` | Notification inbox purge | `notifications/retention/notification-inbox-purge.handler.ts` | Deletes `notifications` inbox rows past `retention.notifications`, in batches; daily at 01:00 | No |
+| `notifications.deliveries.purge` | Delivery log purge | `notifications/retention/notification-deliveries-purge.handler.ts` | Deletes `sent`/`failed` `notification_deliveries` past `retention.notificationDeliveries` (never `queued`); daily at 01:00 | No |
+| `audit.events.purge` | Audit log purge | `jobs/retention/audit-events-purge.handler.ts` | Deletes `audit_events` past `retention.auditEvents` (off by default); daily at 01:00 | No |
 | `storage.cleanup.stale-uploads` | Stale upload cleanup | `packages/platform-api/src/storage/handlers/storage-cleanup.handler.ts` (the storage slice) | Cleans up abandoned uploads, aborting billed multipart parts | No |
 | `storage.object.process` | Object processing | `packages/platform-api/src/storage/handlers/storage-object-process.handler.ts` (the storage slice) | Runs registered post-upload processors on one object and marks it `ready`/`failed` | No |
 | `db.backup.run` | Database backup | `packages/platform-api/src/db-backup/handlers/db-backup-run.handler.ts` (the db-backup slice) | Streams `pg_dump` into object storage | Yes |
@@ -775,9 +775,9 @@ The layout switches between a phone treatment (bottom navigation, compact AppBar
 | `ThemeContextProvider` | `apps/web/src/contexts/ThemeContext.tsx` | Light, dark or system theme preference |
 | `AuthProvider` | `@marinoscar/platform-web/identity/headless` (`packages/platform-web/src/identity/headless/auth-context.tsx`), mounted in `App.tsx` with the app's transport and push clean-up | Current user, enabled sign-in providers, sign-in and sign-out, the active organization, the user's memberships and `switchOrg` (`POST /api/auth/switch-org`) |
 | `NotificationProvider` | `apps/web/src/contexts/NotificationContext.tsx` | In-app inbox and the SSE notification stream |
-| `AiConfigProvider` | `apps/web/src/contexts/AiConfigContext.tsx` | The one `GET /api/ai/config` answer: whether AI is on, key policy, enabled providers |
+| `AiConfigProvider` | `@marinoscar/platform-web/ai/headless` (`packages/platform-web/src/ai/headless/ai-config-provider.tsx`), mounted by `apps/web/src/platform/shellProviders.tsx` with the app's transport | The one `GET /api/ai/config` answer: whether AI is on, key policy, enabled providers |
 
-All HTTP calls go through `ApiService` in `apps/web/src/services/api.ts`, the app's binding of `PlatformHttpClient` (`@marinoscar/platform-web/core`, which holds the access token and the refresh). It resolves the base URL (`VITE_API_BASE_URL`, default `/api`), attaches the in-memory access token, refreshes it once on `401`, unwraps the `{ data }` envelope, and recognizes the maintenance `503` centrally. Feature-specific clients (`services/ai.ts`, `services/storage.ts` and others) are thin wrappers over it; the job queue and fleet calls are the package's `createJobsApi` over it (`apps/web/src/platform/jobsAdapters.ts`, #854); the identity calls are the package's `createIdentityApi` over it (`apps/web/src/platform/identityAdapters.ts`). `services/sse.ts` opens event streams against the same base URL.
+All HTTP calls go through `ApiService` in `apps/web/src/services/api.ts`, the app's binding of `PlatformHttpClient` (`@marinoscar/platform-web/core`, which holds the access token and the refresh). It resolves the base URL (`VITE_API_BASE_URL`, default `/api`), attaches the in-memory access token, refreshes it once on `401`, unwraps the `{ data }` envelope, and recognizes the maintenance `503` centrally. Feature-specific clients (`services/ai.ts`, `services/storage.ts` and others) are thin wrappers over it; the job queue and fleet calls are the package's `createJobsApi` over it (`apps/web/src/platform/jobsAdapters.ts`, #854); the identity calls are the package's `createIdentityApi` over it (`apps/web/src/platform/identityAdapters.ts`). `connectSse` and `postSse` of `@marinoscar/platform-web/core` (#900) open event streams against the same base URL.
 
 ---
 
@@ -864,7 +864,7 @@ The API does not migrate on startup. Run `npm run prisma:migrate` and `npm run p
 |---|---|---|
 | Traces | OpenTelemetry Node SDK with Node auto-instrumentations (health probes excluded) | OTLP → otel-collector → GreptimeDB |
 | Metrics | OpenTelemetry metrics exporter | OTLP → otel-collector → GreptimeDB |
-| Logs | Pino structured JSON (`apps/api/src/common/logger/`), pretty-printed in development; also exported over OTLP | stdout, and OTLP → otel-collector → GreptimeDB |
+| Logs | Nest `Logger` output on stdout; also exported over OTLP | stdout, and OTLP → otel-collector → GreptimeDB |
 
 - Instrumentation starts in `apps/api/src/instrumentation.ts`, before the application loads: a call to `initializeOtel()` from `@marinoscar/platform-api/otel-core/sdk` (`packages/platform-api/src/otel-core/`, the Nest-free half of the `otel-core` slice). It runs only when `OTEL_ENABLED=true` (the telemetry overlay sets it on the `api` service) and exports to `OTEL_EXPORTER_OTLP_ENDPOINT`. With `OTEL_ENABLED` unset the API runs unchanged and every instrument is a no-op.
 - A second, independent switch — the `telemetry.enabled` system setting — decides whether the SDK's output is actually exported, checked at export time by a runtime gate (`telemetryGate`, `packages/platform-api/src/otel-core/sdk/telemetry-gate.ts`) that starts closed and converges across a fleet within about five seconds of an administrator's change. See [specs/telemetry.md §2](specs/telemetry.md#2-the-two-switches).

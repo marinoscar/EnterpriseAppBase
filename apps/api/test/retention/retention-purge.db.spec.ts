@@ -22,11 +22,12 @@ import { randomUUID } from 'node:crypto';
 import type { Job, PrismaClient } from '@prisma/client';
 
 import { AiRunsPurgeHandler } from '@marinoscar/platform-api/ai';
-import { AuditEventsPurgeHandler } from '../../src/common/retention/audit-events-purge.handler';
-import { purgeInBatches, retentionCutoff } from '../../src/common/retention/batched-purge';
-import type { SystemRetentionValue } from '../../src/common/schemas/settings.schema';
-import { NotificationDeliveriesPurgeHandler } from '../../src/common/retention/notification-deliveries-purge.handler';
-import { NotificationInboxPurgeHandler } from '../../src/common/retention/notification-inbox-purge.handler';
+import { AuditEventsPurgeHandler, purgeInBatches, retentionCutoff } from '@marinoscar/platform-api/jobs';
+import type { SystemRetentionValue } from '@marinoscar/platform-contract/jobs';
+import {
+  NotificationDeliveriesPurgeHandler,
+  NotificationInboxPurgeHandler,
+} from '@marinoscar/platform-api/notifications';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 import type { SystemSettingsService } from '@marinoscar/platform-api/settings';
 import { createDbClient, createDbServices, defaultOrgId, resolveDbSuite } from '../jobs/db-test-support';
@@ -53,6 +54,7 @@ describeWithDb('retention purges (real Postgres)', () => {
     getRetentionPolicy: async () => structuredClone(policy),
   } as unknown as SystemSettingsService;
   const registry = { register: () => undefined } as never;
+  const retention = { register: () => undefined } as never;
 
   const allEnabled = (): SystemRetentionValue => ({
     notifications: { enabled: true, days: DAYS },
@@ -96,7 +98,7 @@ describeWithDb('retention purges (real Postgres)', () => {
       });
       const recent = await client.notification.create({ data: { ...base, createdAt: NEW() } });
 
-      await new NotificationInboxPurgeHandler(registry, prisma(), settings).process(JOB);
+      await new NotificationInboxPurgeHandler(registry, prisma(), settings, retention).process(JOB);
 
       const left = await client.notification.findMany({ where: { eventKey: marker }, select: { id: true } });
       expect(left.map((row) => row.id)).toEqual([recent.id]);
@@ -110,7 +112,7 @@ describeWithDb('retention purges (real Postgres)', () => {
       });
       policy.notifications.enabled = false;
 
-      await new NotificationInboxPurgeHandler(registry, prisma(), settings).process(JOB);
+      await new NotificationInboxPurgeHandler(registry, prisma(), settings, retention).process(JOB);
 
       await expect(client.notification.findUnique({ where: { id: old.id } })).resolves.not.toBeNull();
       await client.notification.delete({ where: { id: old.id } });
@@ -137,7 +139,7 @@ describeWithDb('retention purges (real Postgres)', () => {
       );
       const id = Object.fromEntries(rows);
 
-      await new NotificationDeliveriesPurgeHandler(registry, prisma(), settings).process(JOB);
+      await new NotificationDeliveriesPurgeHandler(registry, prisma(), settings, retention).process(JOB);
 
       const left = await client.notificationDelivery.findMany({
         where: { eventKey: marker },
@@ -153,7 +155,7 @@ describeWithDb('retention purges (real Postgres)', () => {
       await client.auditEvent.create({ data: { ...base, createdAt: OLD() } });
       const recent = await client.auditEvent.create({ data: { ...base, createdAt: NEW() } });
 
-      await new AuditEventsPurgeHandler(registry, prisma(), settings).process(JOB);
+      await new AuditEventsPurgeHandler(registry, prisma(), settings, retention).process(JOB);
 
       const left = await client.auditEvent.findMany({ where: { action: marker }, select: { id: true } });
       expect(left.map((row) => row.id)).toEqual([recent.id]);
@@ -165,7 +167,7 @@ describeWithDb('retention purges (real Postgres)', () => {
       });
       policy.auditEvents = { enabled: false, days: 365 };
 
-      await new AuditEventsPurgeHandler(registry, prisma(), settings).process(JOB);
+      await new AuditEventsPurgeHandler(registry, prisma(), settings, retention).process(JOB);
 
       await expect(client.auditEvent.findUnique({ where: { id: old.id } })).resolves.not.toBeNull();
       await client.auditEvent.delete({ where: { id: old.id } });
@@ -193,7 +195,7 @@ describeWithDb('retention purges (real Postgres)', () => {
       );
       const id = Object.fromEntries(rows);
 
-      await new AiRunsPurgeHandler(registry, services.system, settings).process(JOB);
+      await new AiRunsPurgeHandler(registry, services.system, settings, retention).process(JOB);
 
       const left = await client.aiRun.findMany({ where: { provider: marker }, select: { id: true } });
       expect(left.map((row) => row.id).sort()).toEqual(

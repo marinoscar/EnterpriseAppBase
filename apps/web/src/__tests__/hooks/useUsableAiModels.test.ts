@@ -2,10 +2,11 @@
  * `useUsableAiModels` (#430) against the MSW network.
  */
 import { describe, it, expect } from 'vitest';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act, waitFor } from '@testing-library/react';
+import { renderHook } from '../utils/test-utils';
 import { http, HttpResponse } from 'msw';
 import { server } from '../mocks/server';
-import { useUsableAiModels } from '../../hooks/useUsableAiModels';
+import { useUsableAiModels } from '@marinoscar/platform-web/ai/headless';
 import { mockUsableAiModels, mockUsableAiModelsMixed } from '../mocks/fixtures/ai';
 
 describe('useUsableAiModels', () => {

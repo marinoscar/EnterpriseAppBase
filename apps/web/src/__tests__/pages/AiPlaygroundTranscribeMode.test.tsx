@@ -17,9 +17,9 @@ import {
   mockPlaygroundModels,
   mockPlaygroundTranscriptionModel,
 } from '../mocks/fixtures/ai';
-import AiPlaygroundPage from '../../pages/AiPlaygroundPage';
-import { AiConfigContext, type UseAiConfigReturn } from '../../hooks/useAiConfig';
-import { AI_RUN_POLL_INTERVAL_MS } from '../../hooks/useAiRun';
+import AiPlaygroundPage from '@marinoscar/platform-web/ai/ui/playground-page';
+import { AiConfigContext, type UseAiConfigReturn } from '@marinoscar/platform-web/ai/headless';
+import { AI_RUN_POLL_INTERVAL_MS } from '@marinoscar/platform-web/ai/headless';
 
 function fileList(...files: File[]): FileList {
   const list = { length: files.length, item: (index: number) => files[index] ?? null } as unknown as FileList;

@@ -5,7 +5,7 @@
 // Deletes `ai_runs` rows created before `retention.aiRuns.days` ago (default
 // 90), in bounded batches. `ai_runs.request` holds the user's complete prompt,
 // so keeping runs forever is a privacy problem as well as a size one. Enqueued
-// once a day by `RetentionPurgeTask`, which only enqueues.
+// once a day by `RetentionPurgeTask` (the jobs slice), which only enqueues.
 //
 // TERMINAL RUNS ONLY: `succeeded`, `failed`, `cancelled`. A `pending` or
 // `running` run is never touched at any age — its job may still be executing
@@ -26,10 +26,10 @@
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
 import type { Job } from '../../jobs/index';
 
-import { runRetentionPolicyPurge } from './batched-purge';
 import { JobExecutionProfile } from '../../jobs/index';
 import { JobHandler } from '../../jobs/index';
 import { JobHandlerRegistry } from '../../jobs/index';
+import { RetentionPurgeRegistry, runRetentionPolicyPurge } from '../../jobs/index';
 import type { AiSystemPrisma } from '../data/ai-db';
 import { AI_SYSTEM_PRISMA } from '../ports';
 import { SystemSettingsService } from '../../settings/index';
@@ -68,19 +68,19 @@ export class AiRunsPurgeHandler implements JobHandler, OnModuleInit {
     // SYSTEM client, reason `retention`.
     @Inject(AI_SYSTEM_PRISMA) private readonly prisma: AiSystemPrisma,
     private readonly systemSettings: SystemSettingsService,
+    private readonly retention: RetentionPurgeRegistry,
   ) {}
 
   onModuleInit(): void {
     this.registry.register(this);
+    this.retention.register({ policy: 'aiRuns', type: this.type, what: 'AI run purge' });
   }
 
   /** Throws to fail (a database error), so the queue's retry applies. */
   async process(job: Job): Promise<void> {
-    // `retention` is the reference app's namespace (#681); its `aiRuns` policy
-    // is `{ enabled, days }`.
-    const { aiRuns: policy } = (await this.systemSettings.getRetentionPolicy()) as {
-      aiRuns: { enabled: boolean; days: number };
-    };
+    // `retention` is the jobs slice's namespace (#681, #898); its `aiRuns`
+    // policy is `{ enabled, days }`.
+    const { aiRuns: policy } = await this.systemSettings.getRetentionPolicy();
 
     await runRetentionPolicyPurge({
       job,

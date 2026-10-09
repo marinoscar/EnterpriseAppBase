@@ -28,6 +28,8 @@ Status: pre-release (the current channel and how to install it: the [release run
 - `@marinoscar/platform-web/android-app/headless` and `@marinoscar/platform-web/android-app/ui`: the Trusted Web Activity launch helpers, the Android client and hooks, the update banner and the admin Android app page. [README](src/android-app/README.md).
 - `@marinoscar/platform-web/user-data/headless` and `@marinoscar/platform-web/user-data/ui`: the user Danger Zone page, the admin factory reset page, the organization offboarding dialog, the typed-confirmation dialog and the start-and-poll hook. [README](src/user-data/README.md).
 - `@marinoscar/platform-web/shell/headless` and `@marinoscar/platform-web/shell/ui`: the app shell: `ShellLayout` (the five coupled breakpoint gates), `ShellAppBar`, `ShellNavigationRail` (with Console mode), `ShellBottomNav`, `ShellUserMenu`, the navigation model (`ShellNavigation`, `ShellDestination`), the rail's collapse preference, `createShellTheme` with `ShellThemeProvider` / `ShellRoot`, and `ShellProviders`, with slots for branding and navigation (#868). [README](src/shell/README.md).
+- `@marinoscar/platform-web/host/headless` and `@marinoscar/platform-web/host/ui`: the About page, the admin Maintenance page and the public maintenance screen, with the maintenance recogniser and block store, `createHostApi` and the `useAbout`, `useMaintenance` and `useMaintenanceBlock` hooks (#891). [README](src/host/README.md).
+- `@marinoscar/platform-web/datatable/headless`, `@marinoscar/platform-web/datatable/ui` and `@marinoscar/platform-web/datatable/testing`: the responsive `DataTable` (desktop grid, tablet expander, phone cards) with its filters, view bar, CSV export and bulk actions, the layout-preference port `DataTablePreferencesPort`, and the jsdom layout stubs and conformance suite (#897). [README](src/datatable/README.md).
 
 ## Install and peer dependencies
 
@@ -47,7 +49,7 @@ Install these in the app; the package never bundles its own copy (a second copy 
 | `react-dom` | `^19.2.7` |
 | `react-router-dom` | `^7.17.0` |
 
-Optional peers, needed only by `@marinoscar/platform-web/telemetry/ui` (#704): `@mui/x-charts` `^9.14.0`, `@mui/x-data-grid` `^9.10.1`, `@uiw/react-codemirror` `^4.25.12` and `@codemirror/lang-sql` `^6.10.0`.
+Optional peer `@mui/x-data-grid` `^9.10.1` is also needed by `@marinoscar/platform-web/datatable/ui` and, since the AI lists use it, by `@marinoscar/platform-web/ai/ui`. Optional peers, needed only by `@marinoscar/platform-web/telemetry/ui` (#704): `@mui/x-charts` `^9.14.0`, `@mui/x-data-grid` `^9.10.1`, `@uiw/react-codemirror` `^4.25.12` and `@codemirror/lang-sql` `^6.10.0`.
 
 ## Quick start
 

@@ -25,9 +25,8 @@ import type {
 } from '@marinoscar/platform-web/telemetry/headless';
 
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
-import { useAiConfig } from '../hooks/useAiConfig';
-import { useAiModels } from '../hooks/useAiModels';
-import type { AiModel, AiModelListFilter } from '../services/ai';
+import { useAiConfig, useAiModels } from '@marinoscar/platform-web/ai/headless';
+import type { AiModel, AiModelListFilter } from '@marinoscar/platform-web/ai/headless';
 
 /** Enabled models only; one page of 100 is the whole catalogue in practice. */
 const ASSISTANT_MODEL_FILTER: AiModelListFilter = Object.freeze({ enabled: true, pageSize: 100 });

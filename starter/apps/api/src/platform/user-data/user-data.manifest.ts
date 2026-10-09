@@ -30,10 +30,14 @@ import type { Prisma } from '@prisma/client';
 /** The app's categories: the Danger Zone rows, and what a scope selects. */
 export const APP_USER_DATA_CATEGORIES: readonly UserDataCategoryDef[] = [
   { id: 'notes', label: 'Notes', description: 'Every note you wrote.', content: true },
+  { id: 'documents', label: 'Documents', description: 'Every document you wrote.', content: true },
 ];
 
 /** One keep-or-delete decision per user-owned model. */
-export const APP_USER_DATA_MODELS: readonly UserDataModelHint<Prisma.ModelName>[] = [{ model: 'Note', category: 'notes' }];
+export const APP_USER_DATA_MODELS: readonly UserDataModelHint<Prisma.ModelName>[] = [
+  { model: 'Note', category: 'notes' },
+  { model: 'Document', category: 'documents' },
+];
 
 /** Narrow scopes, such as "delete my notes" (none by default: the built-in scopes cover every category). */
 export const APP_USER_DATA_SCOPES: readonly UserDataScopeDef[] = [];

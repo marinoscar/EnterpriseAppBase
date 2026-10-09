@@ -1,6 +1,6 @@
 # AI Platform
 
-> **Status:** shipped · **Code:** `packages/platform-api/src/ai/` (`@marinoscar/platform-api/ai`, configured in `apps/api/src/platform/ai/ai.config.ts`), `packages/platform-contract/src/ai/`, `packages/platform-web/src/ai/` (Organization AI keys), `apps/web/src/pages/AiPlaygroundPage.tsx`, `apps/web/src/pages/Admin/AiConfigPage.tsx`, `AiModelsPage.tsx`, `AiUsagePage.tsx` · **API:** `/api/ai/*`, `/api/admin/ai/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/ai`, `/admin/settings/ai/models`, `/admin/settings/ai/usage`; user `/settings/ai`; Playground `/ai` (admin-only) · **Runbook:** [ai-configuration.md](../runbooks/ai-configuration.md) · **Recipe:** [packages/platform-api/src/ai/README.md](../../packages/platform-api/src/ai/README.md)
+> **Status:** shipped · **Code:** `packages/platform-api/src/ai/` (`@marinoscar/platform-api/ai`, configured in `apps/api/src/platform/ai/ai.config.ts`), `packages/platform-contract/src/ai/`, `packages/platform-web/src/ai/` (`@marinoscar/platform-web/ai`: the hooks, the AI calls and every AI page: the Organization AI keys page, the admin AI, AI Models and AI Usage pages, the user AI Keys page and the Playground) · **API:** `/api/ai/*`, `/api/admin/ai/*` (see `/api/docs`) · **Admin UI:** `/admin/settings/ai`, `/admin/settings/ai/models`, `/admin/settings/ai/usage`; user `/settings/ai`; Playground `/ai` (admin-only) · **Runbook:** [ai-configuration.md](../runbooks/ai-configuration.md) · **Recipe:** [packages/platform-api/src/ai/README.md](../../packages/platform-api/src/ai/README.md)
 
 The AI platform gives an app built from this template one admin-governed,
 bring-your-own-key (BYOK), multi-provider AI capability. Feature code injects
@@ -802,7 +802,7 @@ hosts are allowed; pointing at one is an administrator decision.
 
 ### 2.25 The Playground
 
-`/ai` (`apps/web/src/pages/AiPlaygroundPage.tsx`) is the reference browser
+`/ai` (`AiPlaygroundPage` of `@marinoscar/platform-web/ai/ui`, mounted by `apps/web/src/App.tsx`) is the reference browser
 client. It calls only the HTTP surface. It is an administrator tool: the route
 and its navigation entry require `ai:use` **and** `ai_config:read`, plus AI
 enabled. The consumer `/api/ai/*` endpoints stay on `ai:use`, since in-app
@@ -810,7 +810,7 @@ features call them for ordinary users.
 
 - **Modes:** Chat, Image, Transcribe, Speech, Embeddings, Voice, each tied to
   one capability and listing only usable models that declare it
-  (`components/ai/playground/aiPlaygroundModes.ts`). A mode no model serves is
+  (`packages/platform-web/src/ai/ui/playground/aiPlaygroundModes.ts`). A mode no model serves is
   `aria-disabled` with a reason.
 - **Chat** streams or queues a run, attaches storage objects per the model's
   modalities, and offers hosted tools that are switched on (not MCP). For a
@@ -820,7 +820,7 @@ features call them for ordinary users.
 - **Embeddings** shows vectors and, for ≤ 10 inputs, a cosine similarity
   matrix.
 - **Voice** is hidden unless `allowRealtime` is true. `useAiRealtimeSession`
-  (`apps/web/src/hooks/useAiRealtimeSession.ts`) asks for the microphone
+  (`packages/platform-web/src/ai/headless/use-ai-realtime-session.ts`) asks for the microphone
   first, mints, and keeps `clientSecret` in a local variable only. The
   deployment must allow the microphone via `Permissions-Policy:
   microphone=(self)` and `connect-src` must be able to reach the

@@ -21,7 +21,7 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { server } from '../../mocks/server';
 import { render, mockAdminUser, mockUser } from '../../utils/test-utils';
-import { MaintenanceGate } from '../../../components/common/MaintenanceGate';
+import { MaintenanceGate } from '@marinoscar/platform-web/host/ui';
 import { api } from '../../../services/api';
 import {
   MAINTENANCE_ADMIN_PATH,
@@ -90,7 +90,7 @@ describe('MaintenanceGate', () => {
     server.use(http.get('*/api/users', () => maintenance503()));
 
     render(
-      <MaintenanceGate>
+      <MaintenanceGate appName="Test App">
         <OrdinaryPage />
       </MaintenanceGate>,
     );
@@ -109,7 +109,7 @@ describe('MaintenanceGate', () => {
     server.use(http.get('*/api/users', () => plain503()));
 
     render(
-      <MaintenanceGate>
+      <MaintenanceGate appName="Test App">
         <OrdinaryPage />
       </MaintenanceGate>,
     );
@@ -126,7 +126,7 @@ describe('MaintenanceGate', () => {
     server.use(http.get('*/api/users', () => HttpResponse.json({ data: [] })));
 
     render(
-      <MaintenanceGate>
+      <MaintenanceGate appName="Test App">
         <OrdinaryPage />
       </MaintenanceGate>,
     );
@@ -150,7 +150,7 @@ describe('MaintenanceGate', () => {
 
     const user = userEvent.setup();
     render(
-      <MaintenanceGate>
+      <MaintenanceGate appName="Test App">
         <OrdinaryPage />
       </MaintenanceGate>,
     );
@@ -172,7 +172,7 @@ describe('MaintenanceGate', () => {
     server.use(http.get('*/api/users', () => maintenance503()));
 
     render(
-      <MaintenanceGate>
+      <MaintenanceGate appName="Test App">
         <OrdinaryPage />
       </MaintenanceGate>,
       { wrapperOptions: { route: MAINTENANCE_ADMIN_PATH, user: mockAdminUser } },
@@ -187,7 +187,7 @@ describe('MaintenanceGate', () => {
     server.use(http.get('*/api/users', () => maintenance503()));
 
     render(
-      <MaintenanceGate>
+      <MaintenanceGate appName="Test App">
         <OrdinaryPage />
       </MaintenanceGate>,
       { wrapperOptions: { route: `${MAINTENANCE_ADMIN_PATH}-history`, user: mockAdminUser } },
@@ -205,7 +205,7 @@ describe('the maintenance screen’s copy', () => {
     server.use(http.get('*/api/users', () => maintenance503()));
 
     render(
-      <MaintenanceGate>
+      <MaintenanceGate appName="Test App">
         <OrdinaryPage />
       </MaintenanceGate>,
       { wrapperOptions: { user: mockAdminUser } },
@@ -223,7 +223,7 @@ describe('the maintenance screen’s copy', () => {
     server.use(http.get('*/api/users', () => maintenance503()));
 
     render(
-      <MaintenanceGate>
+      <MaintenanceGate appName="Test App">
         <OrdinaryPage />
       </MaintenanceGate>,
       { wrapperOptions: { user: mockUser } },
@@ -256,7 +256,7 @@ describe('the maintenance screen’s copy', () => {
     );
 
     render(
-      <MaintenanceGate>
+      <MaintenanceGate appName="Test App">
         <OrdinaryPage />
       </MaintenanceGate>,
       { wrapperOptions: { user: mockUser } },
@@ -286,7 +286,7 @@ describe('the maintenance screen’s copy', () => {
     );
 
     render(
-      <MaintenanceGate>
+      <MaintenanceGate appName="Test App">
         <OrdinaryPage />
       </MaintenanceGate>,
     );

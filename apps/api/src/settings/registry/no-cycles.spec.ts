@@ -107,7 +107,6 @@ describe('settings registry import graph has no load-order cycle (#677)', () => 
   it.each([
     '../../platform/storage/storage.system-settings',
     '../../platform/telemetry/telemetry.system-settings',
-    '../../common/retention/retention.system-settings',
   ])('the declaration file %s is a leaf: loaded first, every schema it names is defined', (path) => {
     jest.isolateModules(() => {
       const mod = require(path) as Record<string, Record<string, unknown>>;
@@ -125,7 +124,7 @@ describe('settings registry import graph has no load-order cycle (#677)', () => 
   // nodes since #865: loaded first on their own, every schema they name is defined.
   it.each([
     ['@marinoscar/platform-api/notifications', ['NOTIFICATIONS_SYSTEM_SETTINGS', 'NOTIFICATIONS_USER_SETTINGS']],
-    ['@marinoscar/platform-api/jobs', ['JOBS_SYSTEM_SETTINGS']],
+    ['@marinoscar/platform-api/jobs', ['JOBS_SYSTEM_SETTINGS', 'RETENTION_SYSTEM_SETTINGS']],
     ['@marinoscar/platform-api/nodes', ['NODES_SYSTEM_SETTINGS']],
   ])('the packaged declarations of %s are leaves: loaded first, every schema they name is defined', (specifier, names) => {
     jest.isolateModules(() => {

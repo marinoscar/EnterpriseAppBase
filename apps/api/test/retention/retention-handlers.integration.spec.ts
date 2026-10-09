@@ -2,15 +2,14 @@
 // Retention purge handlers — registration in the real module graph (#681)
 // =============================================================================
 //
-// The unit specs construct each handler by hand; this boots the application
+// (#898: the purge handlers now live in the jobs, notifications and ai slices;
+// the scheduler enqueues what `RetentionPurgeRegistry` lists.) The unit specs construct each handler by hand; this boots the application
 // module and asserts what the worker and the node claim actually see: every
 // retention type registered, server-only (`JobHandlerRegistry.serverOnlyTypes()`,
 // the derivation the node plane reads) and carrying the declared profile.
 // =============================================================================
 
-import { JobHandlerRegistry } from '@marinoscar/platform-api/jobs';
-import { jobTypeLabel } from '@marinoscar/platform-api/jobs';
-import { RETENTION_PURGES } from '../../src/common/retention/retention-purge.task';
+import { JobHandlerRegistry, RetentionPurgeRegistry, jobTypeLabel } from '@marinoscar/platform-api/jobs';
 import { closeTestApp, createTestApp, type TestContext } from '../helpers/test-app.helper';
 
 const RETENTION_TYPES = [
@@ -23,18 +22,25 @@ const RETENTION_TYPES = [
 describe('retention purge handlers in the application module (#681)', () => {
   let context: TestContext;
   let registry: JobHandlerRegistry;
+  let purges: RetentionPurgeRegistry;
 
   beforeAll(async () => {
     context = await createTestApp();
     registry = context.app.get(JobHandlerRegistry);
+    purges = context.app.get(RetentionPurgeRegistry);
   }, 60_000);
 
   afterAll(async () => {
     await closeTestApp(context);
   });
 
-  it('the task schedules exactly these four types', () => {
-    expect(RETENTION_PURGES.map((purge) => purge.type)).toEqual(RETENTION_TYPES);
+  it('the scheduler is offered exactly these four purges, in the namespace key order (#898)', () => {
+    expect(purges.list().map((purge) => [purge.policy, purge.type])).toEqual([
+      ['notifications', 'notifications.inbox.purge'],
+      ['notificationDeliveries', 'notifications.deliveries.purge'],
+      ['auditEvents', 'audit.events.purge'],
+      ['aiRuns', 'ai.runs.purge'],
+    ]);
   });
 
   it.each(RETENTION_TYPES)('%s is registered, server-only, and declares its profile', (type) => {

@@ -3,7 +3,7 @@
  * fetch-based SSE client.
  *
  * Issue #127, epic #109. Thin by design: everything about SSE framing,
- * reconnection and backoff lives in `services/sse.ts`, and everything about
+ * reconnection and backoff lives in core's `connectSse` (`core/http/sse.ts`), and everything about
  * what a notification IS lives in `types/index.ts`. What is left here is the
  * three things that are specific to this one stream — its URL, its frame name,
  * and how a frame's `data` becomes something the notification centre can hold.

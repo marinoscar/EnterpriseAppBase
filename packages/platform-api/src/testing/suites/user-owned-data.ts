@@ -46,7 +46,7 @@ import { effectiveOnDelete, readSchemaDatamodel, type DatamodelField, type Datam
  * const options: UserOwnedDataOptions = {
  *   schemaPath: join(__dirname, '..', '..', 'prisma', 'schema'),
  *   policies: userOwnedModelRegistry.list(),
- *   rawSqlAllowlist: [{ file: 'health/indicators/database.indicator.ts', why: 'Health probe: SELECT 1.' }],
+ *   rawSqlAllowlist: [{ file: 'health/database.indicator.ts', why: 'Health probe: SELECT 1.' }],
  *   registerIn: 'src/app-registrations/user-owned-models.ts',
  * };
  * ```

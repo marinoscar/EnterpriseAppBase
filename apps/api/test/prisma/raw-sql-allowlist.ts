@@ -39,7 +39,7 @@ export const RAW_SQL_ALLOWLIST: ReadonlyArray<{ file: string; why: string }> = [
     why: 'Doctor check: reads _prisma_migrations, which has no Prisma model.',
   },
   {
-    file: 'health/indicators/database.indicator.ts',
+    file: 'health/database.indicator.ts',
     why: 'Health probe: SELECT 1.',
   },
   {
@@ -65,6 +65,10 @@ export const RAW_SQL_ALLOWLIST: ReadonlyArray<{ file: string; why: string }> = [
   {
     file: 'platform/onboarding/onboarding-data.adapter.ts',
     why: "Onboarding activation metrics (#745): ONE read-only aggregate SELECT (cohort, milestones, funnel) built by @marinoscar/platform-api/onboarding from registered SQL fragments; every value a positional parameter, no per-user row returned.",
+  },
+  {
+    file: 'about/about.service.ts',
+    why: "The host slice's About module (#891): one constant `SELECT 1` database reachability probe. No user ids, no table, no write.",
   },
   {
     file: 'data/identity-db.ts',

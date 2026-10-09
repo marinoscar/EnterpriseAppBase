@@ -34,8 +34,8 @@ describe('createStorageObjectsClient', () => {
   });
 
   it('refuses the simple upload on a transport without postFormData', async () => {
-    const host = createTestPlatformHost();
-    await expect(createStorageObjectsClient(host.api).upload(new Blob(['x']))).rejects.toThrow(/multipart/);
+    const { postFormData: _omitted, ...api } = createTestPlatformHost().api;
+    await expect(createStorageObjectsClient(api).upload(new Blob(['x']))).rejects.toThrow(/multipart/);
   });
 
   it('throws StorageObjectNotReadyError for a failed object and after the timeout', async () => {

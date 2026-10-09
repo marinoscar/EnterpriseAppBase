@@ -1,5 +1,6 @@
 import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
+import { APP_NAME } from '@app/shared';
 import { Routes, Route, Navigate } from 'react-router-dom';
 // The identity slice (#727, PP-6.6): the auth provider and the identity
 // pages' adapters are packaged; the app binds its transport, its logout
@@ -20,21 +21,23 @@ import { removePushSubscription } from '@marinoscar/platform-web/notifications/h
 import { ShellProviders } from '@marinoscar/platform-web/shell/headless';
 import { APP_SHELL_PROVIDERS } from './platform/shellProviders';
 import { ThemeContextProvider, useThemeContext } from './contexts/ThemeContext';
-import { RequireAiEnabled } from './components/common/RequireAiEnabled';
+import { RequireAiEnabled } from '@marinoscar/platform-web/ai/ui/require-ai-enabled';
 import { Layout } from './components/common/Layout';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 // Issue #258, epic #254. Eagerly imported, not lazy: it renders on the error
 // path of a deployment that is deliberately out of service, and a code-split
 // chunk fetched at that moment is one more thing that has to be working for the
 // screen explaining why nothing is working to appear at all.
-import { MaintenanceGate } from './components/common/MaintenanceGate';
+import { MaintenanceGate } from '@marinoscar/platform-web/host/ui';
 // PWA prompts (#219, epic #215). Eagerly imported, not lazy: `UpdatePrompt` is
 // what REGISTERS the service worker, and a registration deferred behind a
 // dynamic import would not happen until React had already decided it was
 // needed. Both render `null` in their default state, so the cost is a few
 // hundred bytes in the entry chunk.
-import { UpdatePrompt } from './components/pwa/UpdatePrompt';
-import { InstallPrompt } from './components/pwa/InstallPrompt';
+import { InstallPrompt, UpdatePrompt } from '@marinoscar/platform-web/host/ui';
+// Vite PWA's virtual module: only this app's bundler resolves it, so the
+// package's `UpdatePrompt` takes the hook as a prop.
+import { useRegisterSW } from 'virtual:pwa-register/react';
 // The platform host every packaged page reads (#696).
 import { appPlatformApi } from './platform/platformHost';
 // Onboarding (#745): one GET /api/onboarding for the shell (its provider is in
@@ -65,10 +68,14 @@ const HomePage = lazy(() => import('./pages/HomePage'));
 // `config/userSettingsSections.tsx` (#91, epic #90). These replace the single
 // stacked `UserSettingsPage`, which is deleted rather than left unrouted.
 const UserSettingsHubPage = lazy(() => import('./pages/UserSettingsHubPage'));
-const UserProfilePage = lazy(() => import('./pages/UserProfilePage'));
+const UserProfilePage = lazy(() =>
+  import('@marinoscar/platform-web/settings/ui').then((m) => ({ default: m.UserProfilePage })),
+);
 // `User`-prefixed to make explicit that it edits the signed-in user's own
 // theme, not anything under the Console.
-const UserAppearancePage = lazy(() => import('./pages/UserAppearancePage'));
+const UserAppearancePage = lazy(() =>
+  import('@marinoscar/platform-web/settings/ui').then((m) => ({ default: m.UserAppearancePage })),
+);
 // Issue #126, epic #109 — the per-user event x channel notification matrix.
 const UserNotificationsPage = lazy(() =>
   import('@marinoscar/platform-web/notifications/ui').then((m) => ({ default: m.UserNotificationsPage })),
@@ -94,7 +101,8 @@ const PushConfigPage = lazy(() =>
 // test and its bucket provisioner.
 const StorageConfigPage = lazy(() => import('@marinoscar/platform-web/storage/ui'));
 // Issue #258, epic #254 — the maintenance window's switch and its layers.
-// `Admin`-prefixed locally to keep it distinct from `pages/MaintenancePage`,
+// `Admin`-prefixed locally to keep it distinct from the package's public
+// `MaintenanceScreen`,
 // which is the screen a BLOCKED user sees rather than the page that opens and
 // closes the window.
 const AdminMaintenancePage = lazy(() => import('./pages/Admin/MaintenancePage'));
@@ -131,15 +139,15 @@ const AdminUsersPage = lazy(() =>
   import('@marinoscar/platform-web/identity/ui').then((m) => ({ default: m.UsersPage })),
 );
 // Issue #425, epic #419 — placeholders, filled in by #429, #430 and #434.
-const AiConfigPage = lazy(() => import('./pages/Admin/AiConfigPage'));
-const AiModelsPage = lazy(() => import('./pages/Admin/AiModelsPage'));
+const AiConfigPage = lazy(() => import('@marinoscar/platform-web/ai/ui/config-page'));
+const AiModelsPage = lazy(() => import('@marinoscar/platform-web/ai/ui/models-page'));
 // Issue #444, epic #420 — AI usage aggregates.
-const AiUsagePage = lazy(() => import('./pages/Admin/AiUsagePage'));
+const AiUsagePage = lazy(() => import('@marinoscar/platform-web/ai/ui/usage-page'));
 // Issue #739 (PP-8.6) — the active organization's own AI keys, the AI slice's
 // packaged page (`@marinoscar/platform-web/ai/ui`).
 const OrgAiKeysPage = lazy(() => import('@marinoscar/platform-web/ai/ui'));
-const UserAiKeysPage = lazy(() => import('./pages/UserAiKeysPage'));
-const AiPlaygroundPage = lazy(() => import('./pages/AiPlaygroundPage'));
+const UserAiKeysPage = lazy(() => import('@marinoscar/platform-web/ai/ui/keys-page'));
+const AiPlaygroundPage = lazy(() => import('@marinoscar/platform-web/ai/ui/playground-page'));
 // Issue #537, epic #528 — the telemetry policy page and the SQL explorer. Lazy
 // like every admin page; the explorer additionally lazy-loads its CodeMirror
 // editor, so neither weighs on the entry chunk. Packaged since #704
@@ -163,7 +171,9 @@ const OrganizationsPage = lazy(() => import('./pages/UserDataPages').then((m) =>
 const DangerZonePage = lazy(() => import('@marinoscar/platform-web/user-data/ui').then((m) => ({ default: m.UserDangerZonePage })));
 const FactoryResetPage = lazy(() => import('@marinoscar/platform-web/user-data/ui').then((m) => ({ default: m.FactoryResetPage })));
 // #733 (PP-8.1): the active organization's settings overrides.
-const OrgSettingsPage = lazy(() => import('./pages/Admin/OrgSettingsPage'));
+const OrgSettingsPage = lazy(() =>
+  import('@marinoscar/platform-web/settings/ui').then((m) => ({ default: m.OrgSettingsPage })),
+);
 // The sharing slice's pages (#731): the groups settings destination and its
 // detail page, and the public link page. One lazy chunk for the slice's UI.
 const GroupsPage = lazy(() =>
@@ -219,7 +229,7 @@ function AppRoutes() {
 
             An ordinary 503 with no marker never reaches it — see
             `services/maintenance.ts` for why that distinction is the feature. */}
-        <MaintenanceGate>
+        <MaintenanceGate appName={APP_NAME}>
           <Suspense fallback={<LoadingSpinner fullScreen />}>
             <Routes>
               {/* Public routes */}
@@ -1021,8 +1031,8 @@ function AppRoutes() {
           NEITHER RENDERS ANYTHING in its default state (no waiting worker, no
           captured install event), so a normal page load is pixel-identical to
           one before this change. */}
-      <UpdatePrompt />
-      <InstallPrompt />
+      <UpdatePrompt useRegisterSW={useRegisterSW} />
+      <InstallPrompt appName={APP_NAME} />
     </ThemeProvider>
   );
 }

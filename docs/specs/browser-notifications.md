@@ -491,10 +491,11 @@ hand-written file holding precaching (`self.__WB_MANIFEST`), the SPA
 navigation fallback, and the `push`, `notificationclick` and
 `pushsubscriptionchange` handlers.
 
-**Update and install prompts.** `components/pwa/UpdatePrompt.tsx` registers the
-worker (`useRegisterSW`), surfaces a waiting worker, and posts
+**Update and install prompts.** `UpdatePrompt` (`@marinoscar/platform-web/host/ui`, mounted by
+`App.tsx`, which passes it vite-plugin-pwa's `useRegisterSW`) registers the
+worker, surfaces a waiting worker, and posts
 `{ type: 'SKIP_WAITING' }`, which `sw.ts` listens for.
-`components/pwa/InstallPrompt.tsx` offers install where the browser fires
+`InstallPrompt` (same module) offers install where the browser fires
 `beforeinstallprompt`; iOS is covered by `AddToHomeScreenPanel.tsx` instead.
 
 **Caching headers.** `apps/web/nginx.conf` has exact-match blocks for

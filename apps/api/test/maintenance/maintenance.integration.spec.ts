@@ -1,6 +1,6 @@
 import request from 'supertest';
-import { DatabaseHealthIndicator } from '../../src/health/indicators/database.indicator';
 import {
+  DatabaseHealthIndicator,
   MAINTENANCE_ERROR_MARKER,
   MAINTENANCE_RETRY_AFTER_SECONDS,
   MaintenanceModeService,

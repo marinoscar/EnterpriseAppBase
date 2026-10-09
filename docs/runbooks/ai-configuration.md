@@ -29,7 +29,7 @@ Source of truth for every claim below:
   troubleshooting table.
 - `packages/platform-api/src/ai/providers/<provider>/` — each provider adapter and its
   model classifier.
-- `apps/web/src/pages/Admin/AiConfigPage.tsx`, `AiModelsPage.tsx`,
+- `packages/platform-web/src/ai/ui/AiConfigPage.tsx`, `AiModelsPage.tsx`,
   `AiUsagePage.tsx` — the admin UI; `packages/platform-web/src/ai/ui/OrgAiKeysPage.tsx`
   — the Organization AI keys page.
 - `packages/platform-api/src/ai/keys/org-keys.controller.ts` and

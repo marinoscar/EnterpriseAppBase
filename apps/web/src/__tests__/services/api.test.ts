@@ -4,9 +4,6 @@ import { server } from '../mocks/server';
 import {
   api,
   ApiError,
-  uploadProfileImage,
-  deleteProfileImage,
-  fetchProfileImagePreview,
 } from '../../services/api';
 
 describe('ApiService', () => {
@@ -310,71 +307,6 @@ describe('ApiService', () => {
     });
   });
 
-  describe('Profile image API (#367)', () => {
-    it('uploadProfileImage should POST the file as multipart to /user-settings/profile-image', async () => {
-      let rawBody = '';
-
-      server.use(
-        http.post('*/api/user-settings/profile-image', async ({ request }) => {
-          // Not `await request.formData()`: see the `postFormData` test
-          // above for why (Node 24 undici's cross-realm `File` assertion
-          // against this test file's jsdom `File`). Read the raw multipart
-          // body instead and assert on the realm-independent part header.
-          rawBody = await request.text();
-          return HttpResponse.json({
-            data: {
-              settings: {
-                theme: 'system',
-                profile: { imageSource: 'upload', imageObjectId: 'obj-1' },
-                updatedAt: '2024-06-01T00:00:00.000Z',
-                version: 2,
-              },
-              profileImageUrl: 'https://example.com/uploaded.jpg',
-            },
-          });
-        }),
-      );
-
-      const file = new File(['bytes'], 'avatar.png', { type: 'image/png' });
-      const result = await uploadProfileImage(file);
-
-      // See the `postFormData` test above for why this only checks presence
-      // via the raw body (not filename/content) rather than a parsed
-      // FormData value.
-      expect(rawBody).toContain('Content-Disposition: form-data; name="file"');
-      expect(result.profileImageUrl).toBe('https://example.com/uploaded.jpg');
-      expect(result.settings.profile.imageSource).toBe('upload');
-      expect(result.settings.version).toBe(2);
-    });
-
-    it('deleteProfileImage should DELETE /user-settings/profile-image', async () => {
-      let called = false;
-
-      server.use(
-        http.delete('*/api/user-settings/profile-image', () => {
-          called = true;
-          return HttpResponse.json({
-            data: {
-              settings: {
-                theme: 'system',
-                profile: { imageSource: 'provider', imageObjectId: null },
-                updatedAt: '2024-06-01T00:00:00.000Z',
-                version: 3,
-              },
-              profileImageUrl: null,
-            },
-          });
-        }),
-      );
-
-      const result = await deleteProfileImage();
-
-      expect(called).toBe(true);
-      expect(result.profileImageUrl).toBeNull();
-      expect(result.settings.profile.imageSource).toBe('provider');
-    });
-  });
-
   // MSW/undici's `Response.blob()` in this environment can return an instance
   // of Node's OWN `buffer.Blob`, a different realm/constructor than jsdom's
   // global `Blob` — so `toBeInstanceOf(Blob)` is unreliable here even though
@@ -389,7 +321,7 @@ describe('ApiService', () => {
     );
   }
 
-  describe('getBlob / fetchProfileImagePreview (#367)', () => {
+  describe('getBlob (#367)', () => {
     it('should return the response body as a Blob, not parsed JSON', async () => {
       server.use(
         http.get('*/api/user-settings/profile-image', () => {
@@ -476,36 +408,6 @@ describe('ApiService', () => {
         expect((error as ApiError).status).toBe(404);
         expect((error as ApiError).message).toBe('No uploaded picture');
       }
-    });
-
-    it('fetchProfileImagePreview should GET /user-settings/profile-image and resolve a Blob', async () => {
-      let requestedPath = '';
-
-      server.use(
-        http.get('*/api/user-settings/profile-image', ({ request }) => {
-          requestedPath = new URL(request.url).pathname;
-          return new HttpResponse('preview-bytes', {
-            headers: { 'Content-Type': 'image/jpeg' },
-          });
-        }),
-      );
-
-      const result = await fetchProfileImagePreview();
-
-      expect(requestedPath).toBe('/api/user-settings/profile-image');
-      expect(isBlobLike(result)).toBe(true);
-      expect(await result.text()).toBe('preview-bytes');
-    });
-
-    it('fetchProfileImagePreview should reject with an ApiError on 404 (no stored picture)', async () => {
-      server.use(
-        http.get('*/api/user-settings/profile-image', () => {
-          return HttpResponse.json({ message: 'Not found', code: 'NOT_FOUND' }, { status: 404 });
-        }),
-      );
-
-      await expect(fetchProfileImagePreview()).rejects.toThrow(ApiError);
-      await expect(fetchProfileImagePreview()).rejects.toMatchObject({ status: 404 });
     });
   });
 

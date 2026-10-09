@@ -10,10 +10,12 @@ The API host core (issue #867): the plumbing every other slice assumes is around
 - **The platform's app metrics** (#600, #680). `AppMetricsService`: the typed recorders the slices' metric ports bind to (jobs, backups, sign-in, AI, notifications), the generic `add`/`record` an app emits its own registered metrics through, and the database-backed gauges (queue depth, oldest pending job, last backup), only when `OTEL_ENABLED` installed the SDK. `registerPlatformHostAppMetrics()` declares the platform's 31 `app.*` metrics and the event bus's three in the app-metric registry of `otel-core`.
 - **Maintenance mode** (#257). `MaintenanceModeService` (environment override, then in-memory override, then the persisted `maintenance` namespace; audited through core's `AUDIT_SINK`), `GET`/`PUT /api/admin/maintenance` (`system_settings:read`/`system_settings:write`), the `maintenance.mode` Doctor check, the namespace declaration `MAINTENANCE_SYSTEM_SETTINGS` with its schemas (registered by `forRoot()` through the settings slice's `ensureSystemSettingsNamespaces` unless the app's manifest did), and `MaintenanceGuard` as the application's **only** `APP_GUARD`. There is no global JWT guard: a route without `@Auth()` is public.
 - **The deployment facts and the generic Doctor checks** (#685, #773, #879). `DeploymentModeService` (`DEPLOYMENT_MODE`, `self-hosted` or `saas`, parsed once and refused when invalid; `verifyDeploymentModeAtStartup` is the bootstrap call), `DeploymentNetworkService` (`DEPLOYMENT_NETWORK`, bound as the doctor slice's `DEPLOYMENT_NETWORK_SOURCE`), and six Doctor checks registered in this order: `core.deployment-mode`, `db.connection`, `db.migrations`, `secrets.encryption-key`, `db.rls_role` (`core` category) and `network.egress`. The database checks read through core's `PLATFORM_PRISMA` host port (`SELECT 1`, `_prisma_migrations`, `pg_roles` and `pg_class`; none needs the bypass client) and report `skip` when it is unbound. Both services read the raw string the app publishes as `deployment.mode` / `deployment.network` in its configuration, else the environment variable.
-- **The HTTP layer.** The `{ data, meta }` response envelope (`TransformInterceptor`, which leaves an `@Sse()` stream and a body that already has `data` alone), the request log line (`LoggingInterceptor`), core's `HttpExceptionFilter`, and request ids (`RequestIdMiddleware`: the incoming `x-request-id` or a UUID, echoed with `x-trace-id`).
+- **About** (#401, packaged by #891). `AboutModule.forRoot({ apiVersion })`, a separate module (so the app places it where `/api/admin/about` belongs in the OpenAPI document): `GET /api/admin/about` (`system_settings:read`, readable during a maintenance window, always `200`) reports the API version (the app's `apiVersion` resolver), the deployment mode, the deploy document `appctl deploy` leaves on disk (`readDeployInfo`, read fresh per request, never cached) and a database liveness fact (one timed `SELECT 1` through `PLATFORM_PRISMA`; a failure is a field, never a status). It also registers the `versions` support-bundle section.
+- **The health probes** (#901). `GET /api/health` (every dependency through Terminus), `/api/health/live` (the process is not hung; stays `200` during a maintenance window) and `/api/health/ready` (`503` with the maintenance marker while a window is open, checked before the database probe, then a timed `SELECT 1` through `PLATFORM_PRISMA` in `DatabaseHealthIndicator`). Public, `@AllowDuringMaintenance()`, tagged `Health`; moved from the reference app with the route, the responses and the OpenAPI document unchanged.
+- **The HTTP layer.** The `{ data, meta }` response envelope (`TransformInterceptor`, which leaves an `@Sse()` stream and a body that already has `data` alone), the request log line (`LoggingInterceptor`), core's `HttpExceptionFilter`, and request ids (`RequestIdMiddleware`: the incoming `x-request-id` or a UUID, echoed with `x-trace-id`), and the CORS policy builder `buildCorsOptions(process.env.CORS_ORIGIN)` / `isSameOriginOnly` (#517, packaged by #901): `CORS_ORIGIN` unset gives no CORS headers (same-origin), a comma-separated list gives exactly those origins with credentials, a wildcard or a malformed origin throws at bootstrap. The app passes the result to `app.enableCors`.
 - **The OpenAPI document and `/api/docs`** (#53), bootstrap-time because they need the built application: `createOpenApiDocument(app, openApi)` (Nest's introspection, nestjs-zod's clean-up, then the passes: generated **Requires:** lines from `@Auth()`, the PAT scheme on every authenticated operation, the `{ data }` envelope, the shared error response, `x-tagGroups` from core's tag registry, OpenAPI 3.1 nullables) and `registerPlatformDocs(app, openApi)`, which mounts `/api/openapi.json` and the Scalar page at `/api/docs` on Fastify, outside Nest's router (so outside the maintenance guard), and degrades both to a 503 if generation throws.
 
-Not here: the validation pipe (the app registers nestjs-zod's `ZodValidationPipe` as `APP_PIPE`), the app's OpenAPI tag taxonomy (registered into core's `openApiTags`), the app's own egress declarations (the reference app keeps `DocsEgressContributor`, the catalog example of `EgressRegistry.register`), the logger (Pino), the health probes, and the web app's maintenance screen.
+Not here: the validation pipe (the app registers nestjs-zod's `ZodValidationPipe` as `APP_PIPE`), the app's OpenAPI tag taxonomy (registered into core's `openApiTags`), the app's own egress declarations (the reference app keeps `DocsEgressContributor`, the catalog example of `EgressRegistry.register`), the logger (Pino), the app's `app.enableCors(...)` call, and the web app's maintenance screen (the web slice `@marinoscar/platform-web/host` owns the pages).
 
 ## Install and peer dependencies
 
@@ -23,7 +25,7 @@ Ships inside `@marinoscar/platform-api`; import it by its subpath:
 import { PlatformHostCoreModule, registerPlatformDocs, EVENT_BUS, AppMetricsService } from '@marinoscar/platform-api/host';
 ```
 
-The package's peers (`@nestjs/*`, `@nestjs/jwt`, `@nestjs/swagger`, `nestjs-zod`, `zod`, `@opentelemetry/api`, `rxjs`) and `fastify` for the docs routes and the request types. `pg` (the Postgres listener) is a dependency of the package.
+The package's peers (`@nestjs/*`, `@nestjs/jwt`, `@nestjs/swagger`, `nestjs-zod`, `zod`, `@opentelemetry/api`, `rxjs`, `@nestjs/terminus` for the health probes) and `fastify` for the docs routes and the request types. `pg` (the Postgres listener) is a dependency of the package.
 
 ## Quick start
 
@@ -40,7 +42,7 @@ const docsReady = registerPlatformDocs(app, { appName: APP_NAME, repoUrl: REPO_U
 
 It needs, from the app: core's `PlatformHostModule.forRoot()` (`AUDIT_SINK`; `PLATFORM_PRISMA` for the `postgres` bus and the gauges), the global settings slice (`forRoot()` registers `MAINTENANCE_SYSTEM_SETTINGS` unless the app's system-settings manifest already did, so call it before `SettingsModule.forRoot()` or register the namespace there; the reference app's manifest does, to fix the namespaces' order), a global `ConfigModule` carrying `jwt.secret` (the identity slice's configuration), and, for the two Doctor checks, the doctor slice. Bind the slices' ports to what it provides (`{ provide: JOBS_EVENT_BUS, useExisting: EVENT_BUS }`, `{ provide: IDENTITY_METRICS, useExisting: AppMetricsService }`, `{ provide: DB_BACKUP_MAINTENANCE, useExisting: MaintenanceModeService }`).
 
-Place it where `/api/admin/maintenance` belongs in the generated document: paths are listed in module order (the reference app: right after `HealthModule`).
+Place it where `/api/admin/maintenance` belongs in the generated document: paths are listed in module order (the reference app: where `HealthModule` used to be, right after `ProfileImageModule`; the module now carries `/api/health` too).
 
 ## Configuration
 
@@ -66,6 +68,8 @@ Place it where `/api/admin/maintenance` belongs in the generated document: paths
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `PlatformHostCoreModule.forRoot` | option | `forRoot(options?: PlatformHostCoreOptions): DynamicModule` | Mount the host core once, in the root module | experimental | [example](../../../../apps/api/src/platform/host-core.config.ts) |
+| `AboutModule.forRoot` | option | `forRoot(options: AboutModuleOptions): DynamicModule` | Mount `GET /api/admin/about`, passing the app's `apiVersion` | experimental | [example](../../../../apps/api/src/platform/about/about.config.ts) |
+| `AboutModuleOptions` | option | `{ apiVersion: () => string }` | Tell the about module which version the app's API is | experimental | [example](../../../../apps/api/src/platform/about/about.config.ts) |
 | `registerPlatformDocs` | option | `registerPlatformDocs(app, openApi: PlatformOpenApiOptions, logger?): boolean` | Mount `/api/openapi.json` and `/api/docs` at bootstrap | experimental | [example](../../../../apps/api/src/main.ts) |
 | `EVENT_BUS` | token | `@Inject(EVENT_BUS) bus: EventBus` | Publish or subscribe across replicas; bind a slice's bus port to it | experimental | [example](../../../../apps/api/src/platform/jobs/jobs-host.module.ts) |
 | `registerPlatformHostAppMetrics` | registry | `registerPlatformHostAppMetrics(...appMetrics: readonly AppMetricDef[][]): void` | Declare the platform's metrics, then the slices' and the app's own, in that order, before bootstrap | experimental | [example](../../../../apps/api/src/common/otel/app-metric.manifest.ts) |
@@ -83,7 +87,7 @@ No permission of its own: `/api/admin/maintenance` requires the settings slice's
 
 ## UI
 
-None. The web app's maintenance screen, banner and admin page are the app's (`apps/web/src/components/common/MaintenanceGate.tsx`, `/admin/settings/maintenance`); they mirror `MAINTENANCE_ERROR_MARKER` and `MAINTENANCE_RETRY_AFTER_SECONDS`.
+The pages are the web slice's, [`@marinoscar/platform-web/host`](../../../platform-web/src/host/README.md) (the About page, the admin Maintenance page and the public maintenance screen); the app keeps the gate, the banner and its registry cards (`/admin/settings/maintenance`, `/admin/settings/about`). The web slice mirrors `MAINTENANCE_ERROR_MARKER` and `MAINTENANCE_RETRY_AFTER_SECONDS`.
 
 ## Infra
 
@@ -124,6 +128,14 @@ runPlatformConformance({ sourceRoots: [API_SOURCE_ROOT], suites: { host: { rootM
 The reference app's behavioural suites stay with the composed app: the maintenance window end to end (`apps/api/test/maintenance/`), the exempt route set, the document and the docs routes (`apps/api/test/openapi/`), the Postgres bus against a real database (`apps/api/test/event-bus/postgres-event-bus.db.spec.ts`).
 
 ## Upgrade notes
+
+### Unreleased (#901)
+
+The health controller, its `DatabaseHealthIndicator` and `cors-options.ts` moved here from the reference app (`src/health/`, `src/common/cors/`). Delete `HealthModule` and its import (`PlatformHostCoreModule.forRoot()` now mounts `GET /api/health`, `/live` and `/ready`, first among its controllers, so the OpenAPI document keeps its order when the module sits where `HealthModule` was), install `@nestjs/terminus` (a new peer), and import `buildCorsOptions` / `isSameOriginOnly` from this slice in `main.ts`. The routes, the responses and the OpenAPI document are byte-identical. The raw-SQL allowlist entry for the indicator is now `health/database.indicator.ts` (host root).
+
+### Unreleased (#891)
+
+`GET /api/admin/about` moved here from the reference app (`src/about/`). Delete the local copy, import `AboutModule.forRoot({ apiVersion: resolveApiVersion })` where the route belongs in the document, and import `readDeployInfo` / `resolveDeployInfoPath` from this slice. The route, the response and the OpenAPI document are byte-identical. The database probe now reads through `PLATFORM_PRISMA` instead of the health module's indicator, so the module no longer imports `HealthModule`.
 
 ### 0.1.0 (#867)
 

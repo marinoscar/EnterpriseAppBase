@@ -46,7 +46,7 @@ No tables. `jobSchema` mirrors the public columns of `jobs` (the `jobs` fragment
 
 ## Permissions and settings
 
-None declared here. The routes these shapes describe require `jobs:read` / `jobs:write` (`@marinoscar/platform-api/jobs`). The `jobs` system-settings namespace's schemas are here (`settings-schemas.ts`, #865): `systemJobsSchema`, `systemJobsPatchSchema`, `jobsSettingsSchema`, `jobsSettingsPatchSchema`, `jobsResponseSchema`, with `SystemJobsValue` and `JobsSettingsPatchInput`; its declaration is `JOBS_SYSTEM_SETTINGS` of `@marinoscar/platform-api/jobs`.
+None declared here. The routes these shapes describe require `jobs:read` / `jobs:write` (`@marinoscar/platform-api/jobs`). The `jobs` system-settings namespace's schemas are here (`settings-schemas.ts`, #865): `systemJobsSchema`, `systemJobsPatchSchema`, `jobsSettingsSchema`, `jobsSettingsPatchSchema`, `jobsResponseSchema`, with `SystemJobsValue` and `JobsSettingsPatchInput`; its declaration is `JOBS_SYSTEM_SETTINGS` of `@marinoscar/platform-api/jobs`. The `retention` namespace's schemas are in `retention-schemas.ts` (#898); see the upgrade notes.
 
 ## UI
 
@@ -73,6 +73,8 @@ None of its own. `test/jobs-nodes.test.ts` parses representative rows and querie
 New in this version: the schemas moved here from `@marinoscar/platform-api/jobs`'s `dto/` files, unchanged except for the additive `orgId` (row) and `orgId` (list filter). The API still re-exports them under the same names.
 
 #865: the `jobs` settings namespace's five schemas moved here from the reference app's `common/schemas/` files, unchanged (the app re-exports them under the same names).
+
+#898: the `retention` settings namespace's schemas (`systemRetentionSchema`, `systemRetentionPatchSchema`, `retentionSettingsSchema`, `retentionSettingsPatchSchema`, `retentionResponseSchema`, `retentionPolicySchema`, with `RETENTION_MAX_DAYS`, `RETENTION_POLICY_KEYS` and the inferred types) moved here from the reference app's `common/schemas/` files, unchanged; its declaration is `RETENTION_SYSTEM_SETTINGS` of `@marinoscar/platform-api/jobs`.
 
 ## Troubleshooting
 

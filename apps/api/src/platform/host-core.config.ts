@@ -16,8 +16,8 @@
 //   - `EVENT_BUS_ADAPTER` and `OTEL_ENABLED` are read by the package itself
 //     (the defaults), so there is nothing to pass.
 //
-// `app.module.ts` places `hostCoreModule` right after `HealthModule`: the
-// generated OpenAPI document lists paths in module order, and
+// `app.module.ts` places `hostCoreModule` where `/api/health` used to be mounted:
+// the generated OpenAPI document lists paths in module order, and
 // `/api/admin/maintenance` has always followed `/api/health`.
 //
 // The OpenAPI identity (`APP_OPENAPI`) is bootstrap-time: `main.ts` passes it

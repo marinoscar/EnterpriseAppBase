@@ -1,0 +1,12 @@
+{
+  // The AI slice's tests (issue #890) were moved from the reference app's
+  // suite, which compiles without `noUncheckedIndexedAccess`; they keep that
+  // one relaxation (`expect(calls[0].body)` style assertions) and every other
+  // rule of the package's tsconfig.json. `npm run typecheck` runs both.
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "noUncheckedIndexedAccess": false
+  },
+  "include": ["./**/*", "../setup.ts", "../viewport.ts"],
+  "exclude": []
+}

@@ -525,8 +525,9 @@ script runs is copied into the production image).
 Vitest with jsdom, React Testing Library, `@testing-library/user-event` and
 MSW. About 160 test files, mostly under `apps/web/src/__tests__/` mirroring
 `src/` (`components/`, `pages/`, `hooks/`, `contexts/`, `config/`,
-`services/`, `pwa/`), plus a few colocated `__tests__/` folders such as
-`src/components/datatable/__tests__/`.
+`services/`, `pwa/`), plus a few colocated `__tests__/` folders. The DataTable's own suites live in
+`packages/platform-web/test/datatable/`; its layout stubs and conformance suite
+are the `@marinoscar/platform-web/datatable/testing` subpath.
 
 ### Configuration (`apps/web/vitest.config.ts`)
 

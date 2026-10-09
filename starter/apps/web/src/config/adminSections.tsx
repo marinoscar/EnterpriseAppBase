@@ -5,12 +5,16 @@ import type { SettingsSectionDef } from '@marinoscar/platform-web/settings/ui';
 import { DANGER_ZONE_GROUP_LABEL } from '@marinoscar/platform-web/user-data/headless';
 import { factoryResetSettingsPage } from '@marinoscar/platform-web/user-data/ui';
 
+import { composeSections } from '../slices/sections';
+import { sliceAdminCards } from '../slices/manifest';
+
 /**
- * The admin settings hub (`/admin/settings`), as data. Every card's
- * `permission` is the exact string the API route enforces. The packaged
- * slices ship their cards; the app decides where they go. APPEND new cards.
+ * The core's admin groups. `General` is empty on purpose: the optional slices
+ * (`packages/shared/slices.json`) append their cards to it and to
+ * `Operations`, and add their own groups (AI) before the Danger Zone.
  */
-export const ADMIN_SECTIONS: SettingsSectionDef[] = [
+const CORE_ADMIN_SECTIONS: SettingsSectionDef[] = [
+  { label: 'General', cards: [] },
   { label: 'Access', cards: [...identityAdminSections.access, ...identityAdminSections.organizations] },
   {
     label: 'Operations',
@@ -20,6 +24,14 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
       { ...doctorSettingsPage.card, Icon: doctorSettingsPage.Icon },
     ],
   },
-  // `Danger Zone` stays LAST (docs/specs/settings-ui.md): add new groups above it.
+  // `Danger Zone` stays LAST (docs/specs/settings-ui.md): new groups go above it.
   { label: DANGER_ZONE_GROUP_LABEL, cards: [{ ...factoryResetSettingsPage.card, Icon: factoryResetSettingsPage.Icon }] },
 ];
+
+/**
+ * The admin settings hub (`/admin/settings`), as data. Every card's
+ * `permission` is the exact string the API route enforces. The packaged
+ * slices ship their cards; the app decides where they go. A core card is
+ * appended above; an optional slice's card is declared in `src/slices/<id>.tsx`.
+ */
+export const ADMIN_SECTIONS: SettingsSectionDef[] = composeSections(CORE_ADMIN_SECTIONS, sliceAdminCards);
