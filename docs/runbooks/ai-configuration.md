@@ -148,8 +148,10 @@ appctl api POST /api/admin/ai/models/refresh --data '{"provider":"openai"}'
 ```
 
 This enqueues the server-only `ai.catalog.refresh` job and answers with its
-job id at once; watch the outcome at `/admin/settings/jobs`. It needs an admin
-key for that provider (`409` without one), because discovery and
+job id at once; watch the outcome at `/admin/settings/jobs`. It is refused with
+`409` (`details.reason` `AI_DISABLED` or `AI_PROVIDER_DISABLED`) while AI or that
+provider is switched off (section 3), so enable them first. It needs an admin
+key for that provider (`409 AI_KEY_REQUIRED` without one), because discovery and
 classification always run under the admin/org key, whatever the key policy.
 The one exception is a keyless OpenAI-compatible server (section 10.5).
 
