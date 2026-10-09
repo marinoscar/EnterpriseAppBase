@@ -849,7 +849,7 @@ None.
 
 Slices are subpath imports of one npm package, so using one is a matter of importing only its subpaths and installing only its peers. Nothing else of the package loads, and the optional peers of every other slice stay out of `node_modules`.
 
-The reference case is a backend-only telemetry consumer: `core`, `otel-core`, `telemetry` of `@marinoscar/platform-api`, nothing else. It is a real project, [`tests/consumer-smoke/api-slim`](../tests/consumer-smoke/api-slim/), that CI installs from packed tarballs outside the repository (see [the consumer smoke README](../tests/consumer-smoke/README.md)).
+The reference case is a backend-only telemetry consumer: `core`, `otel-core` and `telemetry` of `@marinoscar/platform-api`, nothing else. It is a real project, [`tests/consumer-smoke/api-slim`](../tests/consumer-smoke/api-slim/), that CI installs from packed tarballs outside the repository (see [the consumer smoke README](../tests/consumer-smoke/README.md)).
 
 ### Install
 
@@ -869,7 +869,7 @@ npm install @marinoscar/platform-api \
   zod@^4.4.3
 ```
 
-That is `@nestjs/common`, `@nestjs/core`, `@nestjs/swagger`, `@opentelemetry/api`, `@prisma/client`, `nestjs-zod`, `reflect-metadata`, `rxjs`, `zod` (the package's required peers) plus `@nestjs/config`, `@nestjs/schedule`, `fastify` (the optional peers of `core`, `otel-core`, `telemetry`). The project's `dependencies` are validated against `packages/platform-slice-peers.json` by `npm run check:slices-doc`, so this list cannot drift from the slices it imports.
+That is `@nestjs/common`, `@nestjs/core`, `@nestjs/swagger`, `@opentelemetry/api`, `@prisma/client`, `nestjs-zod`, `reflect-metadata`, `rxjs`, `zod` (the package's required peers) plus `@nestjs/config`, `@nestjs/schedule`, `fastify` (the extra peers of `core`, `otel-core` and `telemetry`). The project's `dependencies` are validated against `packages/platform-slice-peers.json` by `npm run check:slices-doc`, so this list cannot drift from the slices it imports.
 
 ### The consumer
 

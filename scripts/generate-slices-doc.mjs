@@ -593,6 +593,7 @@ export function telemetryPortTokens(root) {
 // -----------------------------------------------------------------------------
 
 const codeList = (items) => (items.length > 0 ? items.map((item) => `\`${item}\``).join(', ') : 'none');
+const list = (items) => (items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`);
 const esc = (text) => text.replace(/\|/g, '\\|');
 const anchor = (name) => name.toLowerCase().replace(/[^a-z0-9 -]/g, '').replace(/ /g, '-');
 
@@ -661,7 +662,7 @@ function renderExample(model, root) {
     '',
     'Slices are subpath imports of one npm package, so using one is a matter of importing only its subpaths and installing only its peers. Nothing else of the package loads, and the optional peers of every other slice stay out of `node_modules`.',
     '',
-    `The reference case is a backend-only telemetry consumer: ${spec.slices.map((slice) => `\`${slice}\``).join(', ')} of \`@marinoscar/${spec.package}\`, nothing else. It is a real project, [\`${spec.dir}\`](../${spec.dir}/), that CI installs from packed tarballs outside the repository (see [the consumer smoke README](../tests/consumer-smoke/README.md)).`,
+    `The reference case is a backend-only telemetry consumer: ${list(spec.slices.map((slice) => `\`${slice}\``))} of \`@marinoscar/${spec.package}\`, nothing else. It is a real project, [\`${spec.dir}\`](../${spec.dir}/), that CI installs from packed tarballs outside the repository (see [the consumer smoke README](../tests/consumer-smoke/README.md)).`,
     '',
     '### Install',
     '',
@@ -670,7 +671,7 @@ function renderExample(model, root) {
     ...deps.map((dep, index) => `  ${dep}${index < deps.length - 1 ? ' \\' : ''}`),
     '```',
     '',
-    `That is ${codeList(model.required[spec.package].filter((name) => example.dependencies.some(([dep]) => dep === name)))} (the package's required peers) plus ${codeList(example.dependencies.map(([name]) => name).filter((name) => !model.required[spec.package].includes(name)))} (the optional peers of ${spec.slices.map((slice) => `\`${slice}\``).join(', ')}). The project's \`dependencies\` are validated against \`packages/platform-slice-peers.json\` by \`npm run check:slices-doc\`, so this list cannot drift from the slices it imports.`,
+    `That is ${codeList(model.required[spec.package].filter((name) => example.dependencies.some(([dep]) => dep === name)))} (the package's required peers) plus ${codeList(example.dependencies.map(([name]) => name).filter((name) => !model.required[spec.package].includes(name)))} (the extra peers of ${list(spec.slices.map((slice) => `\`${slice}\``))}). The project's \`dependencies\` are validated against \`packages/platform-slice-peers.json\` by \`npm run check:slices-doc\`, so this list cannot drift from the slices it imports.`,
     '',
     '### The consumer',
     '',
