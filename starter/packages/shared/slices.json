@@ -1,4 +1,6 @@
 {
   "$comment": "THE slice manifest: which optional platform slices this app mounts. The API (apps/api/src/platform/slices) and the web app (apps/web/src/slices) both read this one list, so they never disagree. Remove a line to drop a slice (and, with it, anything that requires it: a slice that requires a disabled one fails at startup naming both); add its id back to turn it on. Order does not matter. README, 'Optional slices' has the table.",
-  "enabled": []
+  "enabled": [
+    "credentials"
+  ]
 }
