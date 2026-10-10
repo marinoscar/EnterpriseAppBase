@@ -16,6 +16,7 @@ export type { IdentityConfiguration } from './identity.configuration';
 
 // ---- the host ports (rung 3): one token per app capability --------------------------
 export {
+  IDENTITY_AUTH_CREDENTIALS,
   IDENTITY_EVENT_BUS,
   IDENTITY_JOBS,
   IDENTITY_METRICS,
@@ -27,6 +28,7 @@ export {
 } from './ports';
 export type {
   AllowlistInvitationNotice,
+  AuthProviderCredentials,
   IdentityEventBus,
   IdentityEventBusHealth,
   IdentityEventBusMeta,
@@ -75,14 +77,48 @@ export type {
 export { IDENTITY_EVENTS } from './identity.events';
 export type {
   IdentityMembershipChange,
+  IdentityLoginSucceededEvent,
   IdentityMembershipChangedEvent,
+  IdentityOrgCreatedEvent,
   IdentityOrgSwitchedEvent,
   IdentityUserCreatedEvent,
 } from './identity.events';
 
 // ---- sign-in providers (rung 2) -------------------------------------------------------
-export { authProviderRegistry, registerAuthProvider } from './auth/providers/auth-provider.registry';
-export type { AuthProviderRegistration } from './auth/providers/auth-provider.registry';
+export {
+  authCredentialPurpose,
+  authProviderRegistry,
+  authProviderStrategyName,
+  registerAuthProvider,
+} from './auth/providers/auth-provider.registry';
+export type {
+  AuthProviderContext,
+  AuthProviderDefinition,
+  AuthProviderMode,
+  AuthProviderRegistration,
+  AuthProviderStrategy,
+} from './auth/providers/auth-provider.registry';
+export {
+  assertExternalProfile,
+  externalProfileProblem,
+  googleProfileToExternal,
+  normalizeExternalProfile,
+} from './auth/external-profile';
+export type { ExternalProfile } from './auth/external-profile';
+export { createCookieStateStore } from './auth/providers/cookie-state-store';
+export type { CookieStateStore, CookieStateStoreOptions, CookieStateStoreRequest } from './auth/providers/cookie-state-store';
+export { IDENTITY_SIGNIN_POLICY } from './auth/sign-in-policy';
+export type { SignInAllow, SignInContext, SignInDecision, SignInDeny, SignInPolicy } from './auth/sign-in-policy';
+export {
+  REFRESH_TOKEN_COOKIE,
+  REFRESH_TOKEN_COOKIE_OPTIONS,
+  buildSignInSuccessRedirectUrl,
+  respondToSignIn,
+  setRefreshTokenCookie,
+} from './auth/sign-in-response';
+export type { RefreshTokenCookieOptions, RespondToSignInInput } from './auth/sign-in-response';
+export type { CookieReply, CookieReplyMethods, IdentityCookieOptions } from './auth/cookie-http';
+export { createPassportProviderGuard } from './auth/guards/external-provider.guard';
 
 // ---- roles and permissions, as data for the app's permission registry -----------------
 export {

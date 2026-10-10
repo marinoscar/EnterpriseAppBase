@@ -19,11 +19,13 @@ import type {
 import type { IdentityPrisma } from '../ports';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
+  IDENTITY_AUTH_CREDENTIALS,
   IDENTITY_METRICS,
   IDENTITY_NOTIFIER,
   IDENTITY_PROFILE_IMAGES,
   NOOP_IDENTITY_METRICS,
   USER_DEFAULTS,
+  type IdentityLoginOutcome,
   type IdentityMetrics,
   type IdentityNotifier,
   type IdentityProfileImages,
@@ -32,7 +34,19 @@ import {
 } from '../ports';
 import { DEFAULT_IDENTITY_OPTIONS, IDENTITY_OPTIONS, type ResolvedIdentityModuleOptions } from '../identity.options';
 import { IDENTITY_EVENTS, emitIdentityEvent } from '../identity.events';
-import { authProviderRegistry } from './providers/auth-provider.registry';
+import {
+  authProviderRegistry,
+  type AuthProviderContext,
+  type AuthProviderCredentials,
+  type AuthProviderDefinition,
+} from './providers/auth-provider.registry';
+import {
+  assertExternalProfile,
+  googleProfileToExternal,
+  normalizeExternalProfile,
+  type ExternalProfile,
+} from './external-profile';
+import { IDENTITY_SIGNIN_POLICY, type SignInDecision, type SignInPolicy } from './sign-in-policy';
 import { AdminBootstrapService } from './admin-bootstrap.service';
 import { AllowlistService } from '../allowlist/allowlist.service';
 import { DatabaseSeedException } from '../../core/index';
@@ -40,7 +54,7 @@ import {
   ORG_ADMIN_ROLE,
   ROLES,
 } from '../identity.constants';
-import { AuthLoginDeniedException } from './auth-error-codes';
+import { AuthLoginDeniedException, type AuthLoginDeniedReason } from './auth-error-codes';
 import { GoogleProfile } from './strategies/google.strategy';
 import { JwtPayload } from './strategies/jwt.strategy';
 import type { AuthenticatedRole, AuthenticatedUser } from './interfaces/authenticated-user.interface';
@@ -92,6 +106,12 @@ const CURRENT_USER_INCLUDE = {
   },
 } as const;
 
+/** The credential store of an app that bound none: every secret is absent. */
+const NO_AUTH_CREDENTIALS: AuthProviderCredentials = Object.freeze({ getSecret: async () => null });
+
+/** A profile whose address is present (the provider vouched for it). */
+type VerifiedProfile = ExternalProfile & { email: string };
+
 /** A loaded user whose memberships the active-org rules can read. */
 type MembershipGraph = {
   id: string;
@@ -141,25 +161,96 @@ export class AuthService {
     private readonly identityOptions: ResolvedIdentityModuleOptions = DEFAULT_IDENTITY_OPTIONS,
     // #727: `identity.user.created` and `identity.org.switched`, after commit.
     @Optional() private readonly events?: EventEmitter2,
+    // PP-14.9: the app's sign-in policy (`IdentityModule.forRoot({ signInPolicy })`);
+    // without one every sign-in the allowlist admits is allowed.
+    @Optional() @Inject(IDENTITY_SIGNIN_POLICY) private readonly signInPolicy?: SignInPolicy,
+    // PP-14.9: where a registered provider reads its secrets; without one they read as absent.
+    @Optional() @Inject(IDENTITY_AUTH_CREDENTIALS) private readonly authCredentials?: AuthProviderCredentials,
   ) {}
 
   /**
-   * Handles Google OAuth login
-   * Creates or updates user, links identity, checks admin bootstrap
+   * Handles Google OAuth login: maps the Google profile to the neutral shape
+   * and runs the shared sign-in ({@link completeExternalLogin}) with Google's
+   * rules (a verified address links to the existing user holding it).
    */
   async handleGoogleLogin(
     profile: GoogleProfile,
   ): Promise<FullTokenResponse> {
-    this.logger.log(`Google login attempt for email: ${profile.email}`);
+    return this.signInWith(googleProfileToExternal(profile), { label: 'Google', linkExistingByEmail: true });
+  }
+
+  /**
+   * Completes a sign-in for ANY registered provider: allowlist, the app's
+   * {@link SignInPolicy}, the user lookup (by `(provider, subject)`), creation
+   * or linking, the disabled and tenancy checks, then the session. Returns the
+   * tokens; the caller (the generic callback route, or a `custom` provider's own
+   * controller through `respondToSignIn`) puts the refresh token in the cookie.
+   *
+   * What it refuses, as `AuthLoginDeniedException` (the redirect carries only
+   * the `reason` code):
+   * - an address the provider does not vouch for (`emailVerified: false`) or no
+   *   address at all: `access_denied`;
+   * - an address outside the allowlist (`INITIAL_ADMIN_EMAIL` bypasses it):
+   *   `not_allowlisted`;
+   * - an address that belongs to a user with no identity at this provider,
+   *   unless the provider declared `linkExistingByEmail`: `access_denied`
+   *   (identities are never merged on an address the provider could have forged);
+   * - a `SignInPolicy` denial: its `reason`;
+   * - a disabled account: `account_disabled`; no organization: `no_organization`.
+   *
+   * @param profile - the provider's neutral profile; `provider` must be registered.
+   * @returns the access token, its lifetime and the refresh token.
+   * @throws Error when `profile.provider` is not a registered provider or the
+   *   profile is malformed (a programming error, not a refusal).
+   *
+   * @stability experimental
+   */
+  async completeExternalLogin(profile: ExternalProfile): Promise<FullTokenResponse> {
+    assertExternalProfile(profile);
+    const definition = authProviderRegistry.get(profile.provider);
+    if (!definition) {
+      throw new Error(
+        `completeExternalLogin: "${profile.provider}" is not a registered sign-in provider (registerAuthProvider).`,
+      );
+    }
+    return this.signInWith(normalizeExternalProfile(profile), {
+      label: definition.label ?? definition.id,
+      linkExistingByEmail: definition.linkExistingByEmail === true,
+    });
+  }
+
+  /** The sign-in itself, for a profile and the rules of its provider. */
+  private async signInWith(
+    profile: ExternalProfile,
+    rules: { label: string; linkExistingByEmail: boolean },
+  ): Promise<FullTokenResponse> {
+    // `linkExistingByEmail` is the provider's "trusted to vouch for the address"
+    // flag: it gates linking by address AND the INITIAL_ADMIN_EMAIL bootstrap.
+    this.logger.log(`${rules.label} login attempt for email: ${profile.email}`);
+
+    // The address is the key to the allowlist, the initial-admin bootstrap and
+    // account linking, so it must be one the provider vouches for. Checked
+    // before any lookup, so an unverified address learns nothing.
+    if (profile.email === null || !profile.emailVerified) {
+      this.logger.warn(`Login denied - ${rules.label} did not provide a verified email address`);
+      this.recordLogin('allowlist_rejected', profile.provider);
+      throw new AuthLoginDeniedException('access_denied', 'The sign-in provider did not verify your email address.');
+    }
+    const verified: VerifiedProfile = { ...profile, email: profile.email };
 
     // Check allowlist before any user lookup/creation
-    const email = profile.email.toLowerCase();
+    const email = verified.email.toLowerCase();
     const isAllowed = await this.allowlistService.isEmailAllowed(email);
-    const isInitialAdmin = this.isInitialAdminEmail(email);
+    // INITIAL_ADMIN_EMAIL bypasses the allowlist and bootstraps the first
+    // administrator, so only a provider trusted to vouch for the address may
+    // trigger it (`linkExistingByEmail`: Google). A multi-tenant issuer
+    // (Entra, a shared OIDC issuer) lets a tenant present any address, so for
+    // it the allowlist is the only gate and it is never made an administrator.
+    const isInitialAdmin = rules.linkExistingByEmail && this.isInitialAdminEmail(email);
 
     if (!isAllowed && !isInitialAdmin) {
       this.logger.warn(`Login denied - email not in allowlist: ${email}`);
-      this.metrics.authLogin('allowlist_rejected');
+      this.recordLogin('allowlist_rejected', profile.provider);
       throw new AuthLoginDeniedException(
         'not_allowlisted',
         'Your email is not authorized to access this application. Please contact an administrator.',
@@ -170,8 +261,8 @@ export class AuthService {
     let identity = await this.prisma.userIdentity.findUnique<IdentityUserIdentityRow & { user: AuthenticatedUser }>({
       where: {
         provider_providerSubject: {
-          provider: 'google',
-          providerSubject: profile.id,
+          provider: verified.provider,
+          providerSubject: verified.subject,
         },
       },
       include: {
@@ -188,31 +279,75 @@ export class AuthService {
     // inside the branch.
     let userWasCreated = false;
 
+    // The user an unlinked sign-in would be linked to (identity linking), when
+    // the provider is allowed to link by address.
+    let linkTarget: AuthenticatedUser | null = null;
+
     if (!user) {
       // Check if user exists by email (identity linking case)
-      const existingUser = await this.prisma.user.findUnique<AuthenticatedUser>({
-        where: { email: profile.email },
+      let existingUser = await this.prisma.user.findUnique<AuthenticatedUser>({
+        where: { email: verified.email },
         include: PRINCIPAL_USER_INCLUDE,
       });
 
+      // `users.email` is a case-sensitive unique and the allowlist lowercases,
+      // so `Alice@corp.com` would otherwise get a second account next to
+      // `alice@corp.com`. For a provider that does not link, look the address up
+      // case-insensitively too and apply the same refusal. Google's lookup is
+      // deliberately left exactly as it was.
+      if (!existingUser && !rules.linkExistingByEmail) {
+        existingUser = await this.prisma.user.findFirst<AuthenticatedUser>({
+          where: { email: { equals: verified.email, mode: 'insensitive' } },
+          include: PRINCIPAL_USER_INCLUDE,
+        });
+      }
+
       if (existingUser) {
+        // An address already owned by an account that has no identity at this
+        // provider is merged ONLY for a provider that declared its verified
+        // addresses unforgeable (Google). Anything else is refused: merging on
+        // an address a tenant admin or user could have set would let them
+        // sign in as that account.
+        if (!rules.linkExistingByEmail) {
+          this.logger.warn(
+            `Login denied - ${rules.label} address belongs to an account with no ${rules.label} identity (linking by address is off for this provider)`,
+          );
+          this.recordLogin('allowlist_rejected', profile.provider);
+          throw new AuthLoginDeniedException(
+            'access_denied',
+            'This email address belongs to an account that is not linked to this sign-in provider.',
+          );
+        }
+        linkTarget = existingUser;
+      }
+    }
+
+    // The app's sign-in policy: after the allowlist and the address rules,
+    // before the first write, so a denial creates and links nothing.
+    const decision = await this.evaluateSignInPolicy(verified, {
+      existingUserId: (user ?? linkTarget)?.id ?? null,
+      isInitialAdmin,
+    });
+
+    if (!user) {
+      if (linkTarget) {
         // Link new identity to existing user
         this.logger.log(
-          `Linking Google identity to existing user: ${existingUser.email}`,
+          `Linking ${rules.label} identity to existing user: ${linkTarget.email}`,
         );
         await this.prisma.userIdentity.create({
           data: {
-            userId: existingUser.id,
-            provider: 'google',
-            providerSubject: profile.id,
-            providerEmail: profile.email,
+            userId: linkTarget.id,
+            provider: verified.provider,
+            providerSubject: verified.subject,
+            providerEmail: verified.email,
           },
         });
-        user = existingUser;
+        user = linkTarget;
       } else {
         // Create new user with identity
-        this.logger.log(`Creating new user: ${profile.email}`);
-        user = await this.createNewUser(profile, isInitialAdmin);
+        this.logger.log(`Creating new user: ${verified.email}`);
+        user = await this.createNewUser(verified, isInitialAdmin, decision.roles, rules.linkExistingByEmail);
         userWasCreated = true;
 
         // Mark email as claimed in allowlist
@@ -225,7 +360,7 @@ export class AuthService {
       where: { id: user.id },
       data: {
         providerDisplayName: profile.displayName,
-        providerProfileImageUrl: profile.picture || null,
+        providerProfileImageUrl: profile.pictureUrl || null,
       },
     });
     // Principal cache (PP-1.12, #683): the cached row carries these columns.
@@ -234,7 +369,7 @@ export class AuthService {
     // Check if user is disabled
     if (!user.isActive) {
       this.logger.warn(`Login attempt by disabled user: ${user.email}`);
-      this.metrics.authLogin('disabled');
+      this.recordLogin('disabled', profile.provider);
       throw new AuthLoginDeniedException(
         'account_disabled',
         'User account is disabled',
@@ -263,6 +398,7 @@ export class AuthService {
     await this.applyTenancyAtSignIn(user.id, {
       isInitialAdmin,
       userWasCreated,
+      provider: profile.provider,
       // A restored membership's org role (PP-6.3, #723): an administrator's
       // is org_admin, everyone else's the default org role.
       orgRoleName: user.userRoles.some((ur) => ur.role.name === ROLES.ADMIN)
@@ -279,7 +415,7 @@ export class AuthService {
       this.logger.warn(
         `Login denied - user ${user.id} has no active organization membership to sign in to`,
       );
-      this.metrics.authLogin('no_organization');
+      this.recordLogin('no_organization', profile.provider);
       throw new AuthLoginDeniedException(
         'no_organization',
         'Your account is not a member of any organization. Ask an organization administrator to invite you.',
@@ -291,7 +427,7 @@ export class AuthService {
     await this.organizations.touchMembership(orgId, user.id);
 
     this.logger.log(`Login successful for user: ${user.email}`);
-    this.metrics.authLogin('success');
+    this.recordLogin('success', profile.provider);
 
     // -------------------------------------------------------------------------
     // Trigger: `user.welcome` (#128, epic #109)
@@ -343,7 +479,64 @@ export class AuthService {
       await this.notifications.userWelcomed(user.id, payload);
     }
 
+    // After the session exists and the welcome was raised; ids and the
+    // provider id only (no address, no token, no profile).
+    emitIdentityEvent(this.events, this.logger, IDENTITY_EVENTS.LOGIN_SUCCEEDED, {
+      userId: user.id,
+      provider: profile.provider,
+      isNewUser: userWasCreated,
+    });
+
     return tokens;
+  }
+
+  /**
+   * One `app.auth.logins` observation. Google's calls keep the one-argument
+   * form they always had (the instrument defaults the provider to `google`).
+   */
+  private recordLogin(outcome: IdentityLoginOutcome, provider?: string): void {
+    if (provider === undefined || provider === 'google') this.metrics.authLogin(outcome);
+    else this.metrics.authLogin(outcome, provider);
+  }
+
+  /**
+   * Asks the app's {@link SignInPolicy} (when one is bound). A denial, a
+   * malformed answer for a denial, or a throw ends the sign-in; a policy never
+   * sees the user created or linked yet.
+   */
+  private async evaluateSignInPolicy(
+    profile: VerifiedProfile,
+    ctx: { existingUserId: string | null; isInitialAdmin: boolean },
+  ): Promise<{ roles?: readonly string[] }> {
+    if (!this.signInPolicy) return {};
+
+    let decision: SignInDecision;
+    try {
+      decision = await this.signInPolicy.beforeLogin(profile, ctx);
+    } catch (error) {
+      // Fail closed. The message is the policy's own and may name a claim, so
+      // only the exception type is logged.
+      this.logger.error(
+        `Sign-in policy failed for ${profile.provider} (${error instanceof Error ? error.name : typeof error}); refusing the sign-in`,
+      );
+      throw new Error('The sign-in policy failed');
+    }
+
+    if (decision?.allow === true) {
+      return decision.roles?.length ? { roles: decision.roles } : {};
+    }
+
+    const reason: AuthLoginDeniedReason =
+      decision?.allow === false &&
+      (decision.reason === 'not_allowlisted' ||
+        decision.reason === 'account_disabled' ||
+        decision.reason === 'access_denied' ||
+        decision.reason === 'no_organization')
+        ? decision.reason
+        : 'access_denied';
+    this.logger.warn(`Login denied by the sign-in policy (${reason}) for provider ${profile.provider}`);
+    this.recordLogin('allowlist_rejected', profile.provider);
+    throw new AuthLoginDeniedException(reason, 'Sign-in was refused by the application policy.');
   }
 
   /**
@@ -367,7 +560,8 @@ export class AuthService {
       isInitialAdmin,
       userWasCreated,
       orgRoleName,
-    }: { isInitialAdmin: boolean; userWasCreated: boolean; orgRoleName: string },
+      provider,
+    }: { isInitialAdmin: boolean; userWasCreated: boolean; orgRoleName: string; provider?: string },
   ): Promise<void> {
     trace.getActiveSpan()?.setAttribute('tenancy.mode', this.tenancy.mode());
 
@@ -393,7 +587,7 @@ export class AuthService {
         this.logger.warn(
           `Login denied - user ${userId} has no active organization membership (tenancy mode multi)`,
         );
-        this.metrics.authLogin('no_organization');
+        this.recordLogin('no_organization', provider);
         throw new AuthLoginDeniedException(
           'no_organization',
           'Your account is not a member of any organization. Ask an organization administrator to invite you.',
@@ -414,15 +608,29 @@ export class AuthService {
    * initial administrator gets the system `admin` role in `user_roles` plus
    * `ORG_ADMIN_ROLE` on the default-org membership.
    */
-  private async createNewUser(profile: GoogleProfile, isInitialAdmin: boolean): Promise<AuthenticatedUser> {
-    // Check if this should be the initial admin
+  private async createNewUser(
+    profile: VerifiedProfile,
+    isInitialAdmin: boolean,
+    policyRoles?: readonly string[],
+    trustedEmail = true,
+  ): Promise<AuthenticatedUser> {
+    // Check if this should be the initial admin. Only for a provider trusted to
+    // vouch for the address: otherwise an address presented by another tenant
+    // could become the first administrator.
     const shouldGrantAdmin =
-      await this.adminBootstrapService.shouldGrantAdminRole(profile.email);
+      trustedEmail && (await this.adminBootstrapService.shouldGrantAdminRole(profile.email));
+
+    // Roles the app's sign-in policy mapped for this NEW user (resolved before
+    // anything is written; an unknown or conflicting name fails the sign-in).
+    const mapped = await this.resolvePolicyRoles(policyRoles);
 
     // The membership's org role, with its permissions (the returned principal
     // carries them). Resolved before the transaction: a missing row is a seed
-    // problem and must fail before anything is written.
-    const membershipRoleName = shouldGrantAdmin ? ORG_ADMIN_ROLE : this.identityOptions.defaultOrgRole;
+    // problem and must fail before anything is written. The initial
+    // administrator keeps `org_admin` whatever the policy mapped.
+    const membershipRoleName = shouldGrantAdmin
+      ? ORG_ADMIN_ROLE
+      : (mapped.orgRole ?? this.identityOptions.defaultOrgRole);
     const membershipRole = await this.prisma.role.findUnique<AuthenticatedRole>({
       where: { name: membershipRoleName },
       include: {
@@ -462,13 +670,13 @@ export class AuthService {
         data: {
           email: profile.email,
           providerDisplayName: profile.displayName,
-          providerProfileImageUrl: profile.picture || null,
+          providerProfileImageUrl: profile.pictureUrl || null,
           isActive: true,
           // Create identity
           identities: {
             create: {
-              provider: 'google',
-              providerSubject: profile.id,
+              provider: profile.provider,
+              providerSubject: profile.subject,
               providerEmail: profile.email,
             },
           },
@@ -530,6 +738,23 @@ export class AuthService {
         return userWithAdmin!;
       }
 
+      // System roles the policy mapped (never `admin` implicitly: only a name
+      // the app listed).
+      if (mapped.systemRoles.length > 0) {
+        for (const role of mapped.systemRoles) {
+          await tx.userRole.upsert({
+            where: { userId_roleId: { userId: newUser.id, roleId: role.id } },
+            update: {},
+            create: { userId: newUser.id, roleId: role.id },
+          });
+        }
+        const withRoles = await tx.user.findUnique<AuthenticatedUser>({
+          where: { id: newUser.id },
+          include: PRINCIPAL_USER_INCLUDE,
+        });
+        return withRoles!;
+      }
+
       // The principal graph without a second read: the user was created with
       // no system role, and the membership (if any) was written just above.
       return {
@@ -562,10 +787,36 @@ export class AuthService {
     emitIdentityEvent(this.events, this.logger, IDENTITY_EVENTS.USER_CREATED, {
       userId: user.id,
       email: user.email,
-      source: 'google',
+      source: profile.provider,
       orgId: defaultOrg?.id ?? null,
     });
     return user;
+  }
+
+  /**
+   * Resolves the role names a sign-in policy mapped: at most one `org` role
+   * (the new membership's role) and any number of `system` roles. Fails closed
+   * on an unknown name or a second org role.
+   */
+  private async resolvePolicyRoles(
+    names: readonly string[] | undefined,
+  ): Promise<{ orgRole: string | null; systemRoles: AuthenticatedRole[] }> {
+    const result: { orgRole: string | null; systemRoles: AuthenticatedRole[] } = { orgRole: null, systemRoles: [] };
+    for (const name of new Set(names ?? [])) {
+      const role = await this.prisma.role.findUnique<AuthenticatedRole>({ where: { name } });
+      if (!role) {
+        throw new Error(`The sign-in policy named a role that does not exist: "${name}"`);
+      }
+      if (role.scope === 'org') {
+        if (result.orgRole !== null) {
+          throw new Error('The sign-in policy named more than one organization role; a membership has one');
+        }
+        result.orgRole = role.name;
+      } else {
+        result.systemRoles.push(role);
+      }
+    }
+    return result;
   }
 
   /**
@@ -1304,17 +1555,67 @@ export class AuthService {
   }
 
   /**
+   * The context a provider's `isEnabled` and `createStrategy` receive: the app's
+   * configuration and the credential store (every secret absent when the app
+   * bound no `IDENTITY_AUTH_CREDENTIALS`).
+   *
+   * @internal
+   */
+  authProviderContext(): AuthProviderContext {
+    return {
+      config: this.configService,
+      credentials: this.authCredentials ?? NO_AUTH_CREDENTIALS,
+    };
+  }
+
+  /**
+   * Whether one provider is configured right now. A provider whose `isEnabled`
+   * throws is treated as not enabled (logged by name, never by message: a
+   * credential lookup's error can carry store details).
+   *
+   * @param provider - the registered definition.
+   *
+   * @internal
+   */
+  async isProviderEnabled(provider: AuthProviderDefinition): Promise<boolean> {
+    try {
+      return (await provider.isEnabled(this.configService, this.authProviderContext())) === true;
+    } catch (error) {
+      this.logger.warn(
+        `Sign-in provider "${provider.id}" could not be checked and is treated as not enabled (${error instanceof Error ? error.name : typeof error})`,
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Every registered provider with whether it is enabled, in registration order
+   * (the Doctor's and the egress inventory's view).
+   *
+   * @internal
+   */
+  async getProviderStates(): Promise<Array<{ provider: AuthProviderDefinition; enabled: boolean }>> {
+    return Promise.all(
+      authProviderRegistry.list().map(async (provider) => ({ provider, enabled: await this.isProviderEnabled(provider) })),
+    );
+  }
+
+  /**
    * Returns list of enabled OAuth providers
    */
   async getEnabledProviders(): Promise<AuthProviderDto[]> {
     // The provider registry (#727), in registration order: Google first, then
-    // any provider the app registered. Only configured ones are listed.
-    const providers: AuthProviderDto[] = authProviderRegistry
-      .list()
-      .filter((provider) => provider.isEnabled(this.configService))
-      .map((provider) => ({ name: provider.id, enabled: true }));
-
-    return providers;
+    // any provider the app registered. Only configured ones are listed. A
+    // `custom` provider says so (`mode`), so the login page does not navigate
+    // to a route that does not exist; a redirect provider's entry is unchanged.
+    const states = await this.getProviderStates();
+    return states
+      .filter(({ enabled }) => enabled)
+      .map(({ provider }) => ({
+        name: provider.id,
+        enabled: true,
+        ...(provider.mode === 'custom' ? { mode: 'custom' as const } : {}),
+      }));
   }
 
   /**

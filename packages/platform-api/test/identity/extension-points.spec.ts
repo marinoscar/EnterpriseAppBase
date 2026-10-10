@@ -73,17 +73,24 @@ describe('registerAuthProvider (rung 2)', () => {
   it('enables Google exactly when its client id and secret are configured', () => {
     const google = authProviderRegistry.require('google');
     const config = (values: Record<string, string | undefined>) => ({ get: (key: string) => values[key] }) as unknown as ConfigService;
-    expect(google.isEnabled(config({ 'google.clientId': 'a', 'google.clientSecret': 'b' }))).toBe(true);
-    expect(google.isEnabled(config({ 'google.clientId': 'a' }))).toBe(false);
+    // `isEnabled(config, ctx)`: a registration that only reads `config` ignores `ctx` (PP-14.9).
+    const enabled = (values: Record<string, string | undefined>) => {
+      const cfg = config(values);
+      return google.isEnabled(cfg, { config: cfg, credentials: { getSecret: async () => null } });
+    };
+    expect(enabled({ 'google.clientId': 'a', 'google.clientSecret': 'b' })).toBe(true);
+    expect(enabled({ 'google.clientId': 'a' })).toBe(false);
   });
 });
 
 describe('identity events (rung 4)', () => {
-  it('names the three events', () => {
+  it('names the five events', () => {
     expect(IDENTITY_EVENTS).toEqual({
       USER_CREATED: 'identity.user.created',
       MEMBERSHIP_CHANGED: 'identity.membership.changed',
       ORG_SWITCHED: 'identity.org.switched',
+      LOGIN_SUCCEEDED: 'identity.login.succeeded',
+      ORG_CREATED: 'identity.org.created',
     });
   });
 

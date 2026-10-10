@@ -51,8 +51,9 @@ contract lives in the generated OpenAPI document (`/api/docs`).
 
 ### OAuth 2.0 flow with Google
 
-All interactive sign-in goes through Google. The application never sees or
-stores a password.
+Interactive sign-in goes through Google, or through any provider an app
+registers ([below](#sign-in-providers-beyond-google)). The application never
+sees or stores a password.
 
 ```mermaid
 sequenceDiagram
@@ -162,14 +163,52 @@ in the redirect), `packages/platform-api/test/identity/auth/filters/google-oauth
 redirect with a code), `packages/platform-web/test/identity/auth-callback-page.test.tsx`,
 `apps/web/src/__tests__/contexts/AuthContext.test.tsx` and the copy test above.
 
+### Sign-in providers beyond Google
+
+An app adds a provider (GitHub, Entra, a generic OIDC) with `registerAuthProvider`; the recipe is [EXTENDING.md](EXTENDING.md#add-a-sign-in-provider), the reference is the [identity README](../packages/platform-api/src/identity/README.md#adding-a-sign-in-provider). Every provider, Google included, ends in one function, `AuthService.completeExternalLogin(profile)`, and one browser ending, `respondToSignIn`; Google's `handleGoogleLogin` maps its profile and runs the same path with its own rules. This section is the security reasoning behind that seam.
+
+| Route | Purpose |
+|---|---|
+| `GET /api/auth/:providerId` | Public. Starts the sign-in of a registered `redirect` provider. 404 for an unknown, `custom` or not configured provider (one message, so a probe learns nothing about which ids exist) |
+| `GET /api/auth/:providerId/callback` | Public. Maps the strategy's profile, signs in, sets the refresh cookie, redirects to the web app; every failure, including an unknown, `custom` or not configured provider, is a 302 to `error=<code>` (`authentication_failed` for the unknown ones), never a 404 |
+
+Google keeps its own two routes (a static route outranks the parameter). All of these are reachable during a maintenance window, like Google's.
+
+**What does not change for any provider.**
+
+- The access JWT is read only from `Authorization: Bearer`. It travels in the redirect's query string once, to the web app, which keeps it in memory; it is never in a cookie and, since the shared helper replaced the controller's own logging, never in a log line (the old line printed the redirect URL).
+- The only cookie is the HttpOnly `refresh_token` (`SameSite=Lax`, `Path=/api/auth`, 14 days, `Secure` in production), set by one function (`setRefreshTokenCookie`) that Google's callback, refresh rotation, `switch-org` and every other provider's callback all call. A provider cannot set its own cookie through the seam.
+- The email allowlist applies to every provider. `INITIAL_ADMIN_EMAIL` bypasses the allowlist **and** makes that account the first administrator (system `admin` plus `org_admin`), but only for a provider whose definition is trusted to vouch for the address (`linkExistingByEmail: true`; Google). Every other provider is allowlist-only and is never made an administrator; the address of a fresh deployment's administrator cannot be claimed through a multi-tenant issuer. The bypass is not a bypass of the sign-in policy.
+- The failure redirect carries a code from the closed set `AUTH_ERROR_CODES`, never text. The set is deliberately closed; a new code is added in the package.
+- Provider secrets are credentials (purpose `auth_<id>`, encrypted with `SECRETS_ENCRYPTION_KEY`), never environment variables. Google keeps its existing environment configuration for backward compatibility.
+
+**Threats the seam is built against, and the rule for each.**
+
+| Threat | Rule |
+|---|---|
+| **A forged or unverified address becomes access.** The address keys the allowlist, the initial-administrator bootstrap and account linking, so an attacker who can make a provider assert `admin@company.example` could be admitted, or be made the first administrator. | A profile with no address or `emailVerified: false` is refused (`access_denied`) **before any lookup**. A provider sets `emailVerified` only when it vouches that the person controls the address. |
+| **Account takeover by linking, and by the administrator bootstrap.** Merging a new provider identity into the user that holds the same address hands that account to whoever controls the address at the provider. For a multi-tenant issuer (Entra's `email` claim, a shared OIDC issuer) a tenant administrator, or a user, can set any address. | Linking an existing user by address, and the `INITIAL_ADMIN_EMAIL` allowlist bypass and admin grant, happen only when the provider's definition declares `linkExistingByEmail: true` ("trusted to vouch for the address") **and** the address is verified. The default is off: an address that belongs to a user with no identity at this provider is refused (`access_denied`) and nothing is written. Google declares `true`, which is exactly the behaviour it had before the seam. Returning users are found by `(provider, subject)`, never by address. For a provider that does not link, an existing account is also looked for case-insensitively (`users.email` is case-sensitive), so `Alice@corp.com` cannot become a second account next to `alice@corp.com`. |
+| **Pre-hijack through a non-trusted provider.** An attacker who signs up through a multi-tenant provider with an address that is allowlisted or invited, before its owner has ever signed in, owns that account; when the victim later signs in with a trusted provider (Google) their verified address links onto the attacker's account. | The allowlist is the gate for a non-trusted provider, so keep entries specific (an individual, not a whole domain) and do not allowlist an address before its owner is about to use it. Restrict the tenants and domains a multi-tenant provider accepts in a `SignInPolicy` (for Entra, the tenant id claim; for a shared OIDC issuer, the issuer and the address domain), and enable such a provider only together with that policy. A provider whose addresses are chosen by the user, with no verification, must not be registered. |
+| **A strategy impersonates another provider** and collides with its `(provider, subject)` identities. | The generic callback overwrites `provider` with the id of the definition that served the request. `completeExternalLogin` refuses an unregistered provider id. |
+| **A policy bug or throw admits someone.** | The policy runs after the allowlist and before the first write, for every provider. A denial carries a closed reason; a throw, an unknown role or a malformed answer fails the sign-in closed (`authentication_failed` / `access_denied`) and the policy's message is never logged or redirected. It cannot widen access: the allowlist, the disabled-account check and the tenancy rules still run. |
+| **A policy escalates privilege through a claim.** | `roles` apply only when the sign-in creates the user, so an administrator's later edits stick; at most one org role; unknown names refuse. Map roles only from claims the provider vouches for. |
+| **The provider payload leaks.** | `ExternalProfile.raw` exists for the policy only. It is never logged, stored or put in an event; `identity.login.succeeded` carries `{ userId, provider, isNewUser }` and nothing else. |
+| **A rotated or revoked secret keeps working.** | A `createStrategy` provider rebuilds its strategy from the credential store on every sign-in request, and `isEnabled` is read on each one. Deleting the secret turns the provider off at the next request. |
+| **A provider id replaces another Passport strategy.** Passport's registry is process-global; a provider id of `jwt` would replace the strategy `JwtAuthGuard` authenticates with. | A `createStrategy` provider is registered as `auth-provider:<id>`, and the ids `jwt` and `session` are reserved at registration. |
+| **Hostile optional profile fields.** A `pictureUrl` of `javascript:` or `data:` or an unbounded `displayName` is stored and later rendered. | `completeExternalLogin` drops (it does not fail the sign-in on) a `pictureUrl` that is not an `https:` URL of at most 2048 characters and a `displayName` over 255. |
+| **A hostile `:providerId`.** | The id is looked up in the registry (anything else is a 404 on the start route and an `authentication_failed` redirect on the callback) and never used to build a path or a query. On the web, a provider id read from the route or from storage is validated against the id pattern before it is spliced into a navigation path. |
+
+**Login CSRF is the provider's job, and the slice gives it no help by default.** The slice adds **no `state` and no PKCE**; without one the callback accepts an authorization code the browser did not start. `passport-oauth2`'s `state: true` and `pkce: true`, without a `store`, use a session store and **throw "requires session support" on every sign-in** here, because this Fastify app registers no session plugin. A real OAuth 2.0 provider therefore passes a custom `store`: `createCookieStateStore({ secret })` of `@marinoscar/platform-api/identity` is one (an HMAC-signed, 10-minute, HttpOnly, `SameSite=Lax`, `Path=/api/auth` cookie, compared in constant time and cleared when the callback is verified; it does not do PKCE). Google's strategy has the same exposure it had before the seam.
+
 ### User provisioning
 
-`AuthService.handleGoogleLogin` runs these steps:
+`AuthService.completeExternalLogin` (`handleGoogleLogin` for Google) runs these steps:
 
-1. Lowercase the email. Reject with 403 unless it is in `allowed_emails` or
+1. Refuse a profile with no verified address. Lowercase the email. Reject with 403 unless it is in `allowed_emails` or
    equals `INITIAL_ADMIN_EMAIL`.
 2. Look up the identity by `(provider, providerSubject)`. If absent, look up
-   the user by email and link the identity.
+   the user by email and link the identity only when the provider links by
+   address (Google); otherwise refuse. Ask the app's sign-in policy, if one is bound.
 3. If there is no user, create one inside a transaction: the user row, the
    identity, default user settings, the default role (`viewer`), an active
    membership in the default organization (`OrganizationsService.ensureMembership`)
@@ -204,7 +243,9 @@ The admin Doctor's `tenancy.mode` check reports a database that contradicts the
 mode.
 
 The admin role is granted only when the email matches `INITIAL_ADMIN_EMAIL`
-and no other active admin exists. Seeding adds `INITIAL_ADMIN_EMAIL` to the
+and no other active admin exists, and only to a sign-in through a provider
+trusted to vouch for the address (Google; see
+[Sign-in providers beyond Google](#sign-in-providers-beyond-google)). Seeding adds `INITIAL_ADMIN_EMAIL` to the
 allowlist.
 
 ### Access token (JWT)

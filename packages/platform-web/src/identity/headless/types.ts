@@ -95,6 +95,13 @@ export interface AuthProviderInfo {
   name: string;
   /** The provider's start URL, when the server sends one. */
   authUrl: string;
+  /**
+   * `custom` for a provider that owns its sign-in flow: there is no
+   * `/api/auth/<name>` redirect route, so `login(name)` calls the `start` of the
+   * look registered for the id instead of navigating. Absent for a redirect
+   * provider (every provider before this field existed).
+   */
+  mode?: 'custom';
 }
 
 /**
@@ -132,7 +139,11 @@ export interface AuthContextValue {
    * why the user is there; `RequireAuth` does the redirect.
    */
   sessionExpired: boolean;
-  /** Start a sign-in with `provider` (a full-page redirect to `/api/auth/<provider>`). */
+  /**
+   * Start a sign-in with `provider`: a full-page redirect to `/api/auth/<provider>`,
+   * or, for a provider the API lists with `mode: 'custom'`, the `start` function
+   * of the look registered for it (`registerAuthProvider` of this entry).
+   */
   login: (provider: string, options?: LoginOptions) => void;
   /** Sign out: the app's `onBeforeLogout`, `POST /auth/logout`, then the login page. */
   logout: () => Promise<void>;

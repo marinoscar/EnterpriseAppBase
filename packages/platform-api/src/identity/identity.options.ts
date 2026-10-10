@@ -4,6 +4,8 @@
 
 import type { DynamicModule, ForwardReference, Type } from '@nestjs/common';
 
+import type { PortBinding } from '../core/index';
+import type { SignInPolicy } from './auth/sign-in-policy';
 import { DEFAULT_ORG_ROLE } from './identity.permissions';
 
 /**
@@ -40,6 +42,19 @@ export interface IdentityModuleOptions {
    */
   enableTestAuth?: boolean;
   /**
+   * The app's sign-in policy (PP-14.9): consulted for every provider after the
+   * allowlist and before any write, it can deny a sign-in with a reason or map
+   * roles onto a new user. Bound HERE and not by providing
+   * `IDENTITY_SIGNIN_POLICY` in an app module, which identity's internals would
+   * never see. Default: none (every sign-in the allowlist admits is allowed).
+   *
+   * @example
+   * ```ts
+   * IdentityModule.forRoot({ signInPolicy: { useClass: CompanyDomainPolicy } });
+   * ```
+   */
+  signInPolicy?: PortBinding<SignInPolicy>;
+  /**
    * The modules that bind identity's host ports (`IDENTITY_NOTIFIER`,
    * `USER_DEFAULTS`, `IDENTITY_JOBS`, `IDENTITY_NODE_CREDENTIALS`, ...). Each
    * must be `@Global()`: `JwtAuthGuard` is instantiated in every module whose
@@ -60,6 +75,8 @@ export interface ResolvedIdentityModuleOptions {
   readonly initialAdminEmailEnv: string;
   /** Whether the test-only login is mounted. */
   readonly enableTestAuth: boolean;
+  /** The app's sign-in policy binding, when one was given. */
+  readonly signInPolicy?: PortBinding<SignInPolicy>;
   /** The host-port modules. */
   readonly imports: ReadonlyArray<Type<unknown> | DynamicModule | Promise<DynamicModule> | ForwardReference>;
 }
@@ -114,10 +131,18 @@ export function resolveIdentityModuleOptions(
         'address without a provider; pass enableTestAuth: process.env.NODE_ENV !== "production".',
     );
   }
+  const signInPolicy = options.signInPolicy;
+  if (
+    signInPolicy !== undefined &&
+    !('useExisting' in signInPolicy || 'useClass' in signInPolicy || 'useFactory' in signInPolicy)
+  ) {
+    throw new Error('IdentityModule.forRoot: signInPolicy must be a binding: { useExisting }, { useClass } or { useFactory }.');
+  }
   return Object.freeze({
     defaultOrgRole,
     initialAdminEmailEnv,
     enableTestAuth,
+    ...(signInPolicy ? { signInPolicy } : {}),
     imports: Object.freeze([...(options.imports ?? [])]),
   });
 }

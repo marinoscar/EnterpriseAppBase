@@ -33,3 +33,12 @@ export type {
 } from './conformance';
 export { createStubIdentityHost } from './stub-host';
 export type { StubIdentityHost, StubIdentityHostOptions, StubIdentityHostState, StubIdentityNotification } from './stub-host';
+
+// The sign-in provider conformance kit (PP-14.9).
+export { describeAuthProviderConformance } from './auth-provider-conformance';
+export type {
+  AuthProviderConformanceHarness,
+  AuthProviderConformanceHost,
+  AuthProviderConformanceOptions,
+  AuthProviderConformanceScenario,
+} from './auth-provider-conformance';

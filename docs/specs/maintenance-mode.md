@@ -160,7 +160,7 @@ Exactly this set, marked with `@AllowDuringMaintenance()`:
 | Route | Why |
 |---|---|
 | `GET /api/health`, `/live`, `/ready` | Orchestrators and load balancers. |
-| `GET /api/auth/providers`, `/google`, `/google/callback` | Signing in. A window nobody can sign in to cannot be ended. |
+| `GET /api/auth/providers`, `/google`, `/google/callback`, and `/<providerId>`, `/<providerId>/callback` of any other registered provider | Signing in. A window nobody can sign in to cannot be ended. |
 | `POST /api/auth/refresh` | Staying signed in through a long window. |
 | `GET /api/auth/me` | The maintenance page needs to know whether the viewer is an admin. |
 | `POST /api/auth/logout`, `/logout-all` | Signing out is never unavailable. |

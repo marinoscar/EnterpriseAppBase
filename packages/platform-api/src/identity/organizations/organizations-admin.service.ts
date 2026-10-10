@@ -1,9 +1,11 @@
-import { ConflictException, Injectable, Logger, NotFoundException, Inject } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, NotFoundException, Optional, Inject } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { trace } from '@opentelemetry/api';
 
 import { PLATFORM_PRISMA } from '../../core/index';
 import type { IdentityPrisma } from '../ports';
 import { ORG_ADMIN_ROLE } from '../identity.constants';
+import { IDENTITY_EVENTS, emitIdentityEvent } from '../identity.events';
 import { TenancyService } from './tenancy.service';
 import { OrgInvitesService } from './org-invites.service';
 import { TENANCY_SINGLE_ORG_REASON, writeAudit } from './org-admin.common';
@@ -61,6 +63,8 @@ export class OrganizationsAdminService {
     @Inject(PLATFORM_PRISMA) private readonly prisma: IdentityPrisma,
     private readonly tenancy: TenancyService,
     private readonly invites: OrgInvitesService,
+    // `identity.org.created`, after commit (PP-14.9).
+    @Optional() private readonly events?: EventEmitter2,
   ) {}
 
   /** Every organization, default first then by name, with its active member count. */
@@ -137,6 +141,10 @@ export class OrganizationsAdminService {
     // Committed: the organization, its invitation and the allowlist entry exist.
     await this.invites.dispatchInvitation(created.pending);
     this.logger.log(`Organization ${created.orgId} created by ${actorUserId}`);
+    emitIdentityEvent(this.events, this.logger, IDENTITY_EVENTS.ORG_CREATED, {
+      orgId: created.orgId,
+      createdBy: actorUserId,
+    });
 
     return this.get(created.orgId);
   }

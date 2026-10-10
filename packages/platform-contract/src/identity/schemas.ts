@@ -152,6 +152,8 @@ export const authProviderSchema = z.object({
   name: z.string(),
   /** Whether the provider is configured and offered on the login page. */
   enabled: z.boolean(),
+  /** `custom` for a provider that owns its sign-in flow; absent for a redirect provider (`/api/auth/<name>`). */
+  mode: z.literal('custom').optional(),
 });
 
 /**

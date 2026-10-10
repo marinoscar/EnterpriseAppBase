@@ -451,7 +451,7 @@ Available now. Full recipe: [the host README](../packages/platform-api/src/host/
 
 ### Writing a pluggable implementation
 
-Available now. A **pluggable kind** is the one shape every slice with a swappable part (AI provider, storage driver, email transport, sign-in provider, notification channel, telemetry store, backup target) is moving to, so you learn it once. The primitive is `definePluggableKind` of `@marinoscar/platform-api/core`; the AI providers, the storage drivers and the email transports use it ([Add an AI provider](#add-an-ai-provider-the-assemblyai-case), [Add a storage driver](#add-a-storage-driver), [Add an email transport](#add-an-email-transport)), the stories PP-14.9 to PP-14.12 apply it to each remaining slice, and until a slice's story lands, its kind is not yet registered there (see the placeholders below). The full reference is [the core README, Pluggable kinds](../packages/platform-api/src/core/README.md#pluggable-kinds). Worked example, with no consumer slice: [`greeter.kind.ts`](../apps/api/src/platform-extensions/core/greeter.kind.ts), registered by [`app-registrations/core.ts`](../apps/api/src/app-registrations/core.ts), proven by [`pluggable-kind.spec.ts`](../apps/api/test/examples/core/pluggable-kind.spec.ts) on the API side and [`pluggable-config-form.test.tsx`](../apps/web/src/__tests__/examples/settings/pluggable-config-form.test.tsx) on the web side.
+Available now. A **pluggable kind** is the one shape every slice with a swappable part (AI provider, storage driver, email transport, sign-in provider, notification channel, telemetry store, backup target) is moving to, so you learn it once. The primitive is `definePluggableKind` of `@marinoscar/platform-api/core`; the AI providers, the storage drivers and the email transports use it ([Add an AI provider](#add-an-ai-provider-the-assemblyai-case), [Add a storage driver](#add-a-storage-driver), [Add an email transport](#add-an-email-transport)), the stories PP-14.10 to PP-14.12 apply it to each remaining slice, and until a slice's story lands, its kind is not yet registered there (see the placeholders below). Sign-in providers keep identity's own registry (`registerAuthProvider`), extended compatibly: a provider has no admin settings form to generate (its secrets are credentials, its enablement is whether they exist), so [Add a sign-in provider](#add-a-sign-in-provider) is its own recipe. The full reference is [the core README, Pluggable kinds](../packages/platform-api/src/core/README.md#pluggable-kinds). Worked example, with no consumer slice: [`greeter.kind.ts`](../apps/api/src/platform-extensions/core/greeter.kind.ts), registered by [`app-registrations/core.ts`](../apps/api/src/app-registrations/core.ts), proven by [`pluggable-kind.spec.ts`](../apps/api/test/examples/core/pluggable-kind.spec.ts) on the API side and [`pluggable-config-form.test.tsx`](../apps/web/src/__tests__/examples/settings/pluggable-config-form.test.tsx) on the web side.
 
 1. **Pick the kind.** Import the kind a slice exposes. For a swappable part of your own, define one once, at module scope, in the file that owns it (`import { definePluggableKind } from '@marinoscar/platform-api/core'`):
 
@@ -592,13 +592,90 @@ Available now. An app, or an `@acme/ai-assemblyai` package an app installs, adds
 
 What is still closed (audit: [ai](EXTENSIBILITY-AUDIT.md#ai)): a new capability or operation (diarization, moderation, rerank), a transcription result with speakers (it carries `text`, `language`, `durationSeconds`, `segments` and `words`), and slots on the AI pages. The example transcribes only, within what the neutral contract already carries.
 
+### Add a sign-in provider
+
+Available now. An app, or an `@acme/auth-github` package an app installs, adds a way to sign in (GitHub, Entra, a generic OIDC, a company SSO) that completes a full login with no edit under `packages/`: the identity is stored under the provider's own id, the allowlist and the app's sign-in policy apply, the session and the refresh cookie are Google's, and the provider turns on when its secrets exist. The seam is `registerAuthProvider` (a registry, rung 2) plus `IdentityModule.forRoot({ signInPolicy })` (a binding, rung 3). The worked example is [`example-oidc`](../apps/api/src/platform-extensions/identity/example-oidc.provider.ts): a fake OIDC provider with no network. The reference for every member is the [identity README](../packages/platform-api/src/identity/README.md#adding-a-sign-in-provider).
+
+1. **Define the provider** (`AuthProviderDefinition`):
+
+   ```ts
+   import { authCredentialPurpose, type AuthProviderDefinition } from '@marinoscar/platform-api/identity';
+
+   const PURPOSE = authCredentialPurpose('github'); // 'auth_github'
+
+   export const githubProvider: AuthProviderDefinition = {
+     id: 'github',
+     label: 'GitHub',
+     isEnabled: async (_config, { credentials }) => (await credentials.getSecret(PURPOSE, 'client_secret')) !== null,
+     createStrategy: async ({ config, credentials }) =>
+       new GithubStrategy({
+         clientID: config.get<string>('github.clientId')!,        // not a secret: configuration
+         clientSecret: (await credentials.getSecret(PURPOSE, 'client_secret'))!,
+         callbackURL: `${config.get('appUrl')}/api/auth/github/callback`,
+       }, verify),                                                 // verify -> done(null, rawProfile)
+     mapProfile: (raw) => ({ provider: 'github', subject: String(raw.id), email: raw.primaryVerifiedEmail ?? null, emailVerified: Boolean(raw.primaryVerifiedEmail), displayName: raw.name }),
+     egressHosts: ['github.com', 'api.github.com'],
+     doctorRemedy: 'Store the GitHub OAuth app secret under the credential purpose auth_github.',
+   };
+   ```
+
+   - **`id`** matches `^[a-z][a-z0-9-]{0,31}$` and is permanent once an identity exists: it is the route segment, `UserIdentity.provider` and the Passport strategy name.
+   - **`createStrategy(ctx)`** builds the Passport strategy **for each sign-in request**, from the credential store as it is at that moment, so a rotated secret applies to the next sign-in with no restart. A provider that must be constructed by Nest at boot instead supplies `strategy` and `guard` classes (Google does); exactly one of the two ways is required for a `redirect` provider.
+   - **`isEnabled(config, ctx)`** may be asynchronous. The provider is listed by `GET /api/auth/providers` and its routes answer only while it is true; a throw counts as "not enabled". A fresh install that stored no secret lists nothing new.
+   - **`mapProfile(raw)`** turns what the strategy's verify callback returned into an `ExternalProfile`. Set `emailVerified: true` **only when the provider vouches the person controls the address**: an unverified or missing address is refused (`access_denied`) before any lookup, because the address keys the allowlist, the initial-administrator bootstrap and account linking. The `provider` you return is ignored; the route uses the definition's `id`. Never log `raw`.
+   - **`linkExistingByEmail`** (default `false`). Google links a verified address to the account that holds it; a new provider does not unless you say so. Without it, an address that belongs to a user with no identity at this provider is refused (`access_denied`), never merged. It means **"this provider is trusted to vouch for the address"** and gates two things: linking by address and the `INITIAL_ADMIN_EMAIL` bootstrap (the allowlist bypass and the first administrator's grant). Any other provider is allowlist-only and is never made an administrator. Set it only for a provider whose verified addresses an attacker cannot choose; for Entra (a tenant administrator sets the `email` claim) and a shared OIDC issuer leave it off, and accept only your own tenants and domains in a `SignInPolicy`, or an attacker can pre-create the account of an allowlisted address before its owner signs in. For a provider that does not link, an existing account is also matched case-insensitively.
+   - **`egressHosts`** and **`doctorRemedy`** feed the network-egress view (`auth.<id>`) and the Doctor's `auth.providers` check.
+   - **`mode: 'custom'`** for a provider with its own flow (a popup, a SAML POST): no routes are mounted, `GET /api/auth/providers` lists it with `mode: 'custom'`, and your own controller maps the profile, calls `AuthService.completeExternalLogin(profile)` and answers with `respondToSignIn`.
+2. **Declare the credential purpose and register**, at import time, in [`apps/api/src/app-registrations/identity.ts`](../apps/api/src/app-registrations/identity.ts) (imported by `platform/identity/identity.config.ts` before `IdentityModule.forRoot()`):
+
+   ```ts
+   import { registerCredentialPurpose } from '@marinoscar/platform-api/credentials';
+   import { registerAuthProvider } from '@marinoscar/platform-api/identity';
+
+   registerCredentialPurpose({ purpose: 'auth_github', owner: 'identity', label: 'GitHub OAuth secret', tiers: ['system'] });
+   registerAuthProvider(githubProvider);
+   ```
+
+   The registry freezes when the application bootstraps; a duplicate id or a malformed definition throws at registration. The app binds the store once: `{ provide: IDENTITY_AUTH_CREDENTIALS, useExisting: CredentialsService }` in [`identity-host.module.ts`](../apps/api/src/platform/identity/identity-host.module.ts). Without that binding every secret reads as absent and a credentials-backed provider stays off.
+3. **Store its secret** (the credential store, never an environment variable), then the provider is on. The slice mounts `GET /api/auth/github` (starts the flow) and `GET /api/auth/github/callback` (maps the profile, calls `completeExternalLogin`, sets the HttpOnly `refresh_token` cookie and redirects to the web `/auth/callback` with the access token, or with `error=<code>`), and an unknown, `custom` or unconfigured id is a 404 on the start route and a 302 to `error=authentication_failed` on the callback.
+4. **Bind a sign-in policy** only if you need one. It is consulted for **every** provider, Google included, after the allowlist and before the first write:
+
+   ```ts
+   IdentityModule.forRoot({ signInPolicy: { useClass: CompanyDomainPolicy }, /* ... */ });
+
+   class CompanyDomainPolicy implements SignInPolicy {
+     beforeLogin(profile: ExternalProfile): SignInDecision {
+       if (!profile.email?.endsWith('@acme.example')) return { allow: false, reason: 'access_denied' };
+       return { allow: true, roles: profile.raw?.admin ? ['org_admin'] : [] };   // applied to a NEW user only
+     }
+   }
+   ```
+
+   A denial carries one of the closed reasons to the redirect; `roles` map an `org` role onto the new membership (at most one) and any `system` roles onto the user, only at creation, so an administrator's later edits stick; an unknown role or a throwing policy fails the sign-in closed. Providing `IDENTITY_SIGNIN_POLICY` in an app module does not work (identity's internals never see it): bind it here. The example policy is [`ExampleOidcSignInPolicy`](../apps/api/src/platform-extensions/identity/example-oidc.provider.ts).
+5. **React to sign-ins** with `IDENTITY_EVENTS.LOGIN_SUCCEEDED` (`identity.login.succeeded`, `{ userId, provider, isNewUser }`, after the session exists) and `identity.user.created` (its `source` is the provider id). Both run after commit; a throwing listener cannot fail the sign-in.
+6. **The web needs a look and, for a custom provider, a start.** A redirect provider appears on the login page with a generic button; register its look with `registerAuthProvider({ id, label, Icon })` of `@marinoscar/platform-web/identity/headless`. For a `custom` provider add `start`, which `login(id)` calls instead of navigating. `LoginPage` also takes `BeforeProviders` and `AfterProviders` slots (they receive `{ providers, login }`). Worked example: [`company-sso.tsx`](../apps/web/src/platform-extensions/identity/company-sso.tsx).
+7. **Prove it with the kit and a test that boots the real app.**
+   - **The provider.** `describeAuthProviderConformance` of `@marinoscar/platform-api/identity/testing`: `mapProfile` returns a valid profile with the expected subject and survives a sparse payload, `isEnabled` is false without configuration and true with it, the strategy builds, the route is mounted, a full login creates a `UserIdentity` for this provider and subject, the allowlist still applies, an unverified address is refused and a policy denial returns its reason. The strategy is only built, never run: no network.
+
+     ```ts
+     import '../../../src/app-registrations/identity';
+     import { describeAuthProviderConformance } from '@marinoscar/platform-api/identity/testing';
+
+     describeAuthProviderConformance(githubProvider, { describe, it, expect, rawProfile, expectedSubject: '42', enabledWith: { credentials: { client_secret: 'x' } }, host });
+     ```
+
+   - **The app.** [`example-oidc.spec.ts`](../apps/api/test/examples/identity/example-oidc.spec.ts) drives the real application: a fresh install is unchanged, a new user, a returning user, an allowlist refusal, an unverified address, no merge into an existing account, the cookie's attributes and the events; [`example-oidc.policy.spec.ts`](../apps/api/test/examples/identity/example-oidc.policy.spec.ts) binds a policy through `forRoot` and proves a denial reason and a role mapping.
+
+     ```bash
+     cd apps/api && npx jest --config test/jest.config.js test/examples/identity
+     cd apps/web && npx vitest run src/__tests__/examples/identity
+     ```
+
+What is still closed (audit: [identity](EXTENSIBILITY-AUDIT.md#identity)): app roles in the invite and member routes (PP-14.15) and slots on the Users and Organization pages (PP-14.25). **Login CSRF is yours to prevent: the slice adds no `state` and no PKCE.** With `passport-oauth2`, `state: true` or `pkce: true` without a `store` throws "requires session support" on every sign-in here, because this app registers no session plugin. A real OAuth 2.0 provider must pass `store: createCookieStateStore({ secret: config.get('jwt.secret') })` (a signed, short-lived HttpOnly cookie; it does not do PKCE) or a store of its own. The example strategy has none only because it never leaves the process, and it is not a template for that part.
+
 ## Coming in later stories
 
 Each placeholder names the story that replaces it; each is built on [the pluggable kind](#writing-a-pluggable-implementation). Until then the audit row is the record of what is closed.
-
-### Coming in PP-14.9: add a sign-in provider
-
-A sign-in provider (GitHub, Entra, a generic OIDC) completed from an app: provider-neutral profile, generic routes, a sign-in policy hook, async enablement with credentials from the credential store, and a conformance kit. **Not supported yet.** `registerAuthProvider` supplies a strategy and a guard but mounts no routes and has no login-completion seam (audit: [identity](EXTENSIBILITY-AUDIT.md#identity)).
 
 ### Coming in PP-14.10: add a notification channel
 
@@ -639,7 +716,8 @@ A kit is a function an extension author calls with the implementation and the te
 | `describePluggableKindConformance(kind, { describe, it, expect }, options?)` | `@marinoscar/platform-api/core/testing` | For each registered implementation of a pluggable kind: a valid id and label, defaults that parse, a descriptor that validates with secrets as presence flags only, no secret-looking setting, a `build` function | Available |
 | `describeStorageDriverConformance(driver, { describe, it, expect, settings, secrets })` | `@marinoscar/platform-api/storage/testing` | A valid definition (id, label, defaults that parse); the full `StorageProvider` surface with `kind` equal to the driver id; put, head, read and delete real bytes; a 6 MiB streamed upload; the signed URL; key listing; `testConnection` never throws and never returns a secret; `provision`, `location` and `missing` when defined. It cannot detect a driver that buffers a whole stream | Available |
 | `describeEmailTransportConformance(transport, { describe, it, expect, settings, secrets, backend })` | `@marinoscar/platform-api/email/testing` | A valid definition (id, label, defaults that parse, declared secrets); an accepted message is `{ success: true }`; `send` never throws (network error, thrown string, thrown object); no secret material and no message content in the error text; attachments and headers passed through to one recipient; a throttle classified; `verify`, when defined, never throws | Available |
-| Auth provider, notification sender, telemetry store, backup target | the slice's `…/testing` entry | Each ships with its story (PP-14.9 to PP-14.12) | Coming |
+| `describeAuthProviderConformance(definition, { describe, it, expect, rawProfile, expectedSubject, enabledWith?, host? })` | `@marinoscar/platform-api/identity/testing` | A well-formed definition; `mapProfile` returns a valid `ExternalProfile` (and survives a sparse payload); `isEnabled` is false without configuration and true with it; the strategy builds; the route is mounted; a full login creates a `UserIdentity` for this provider and subject; the allowlist applies; an unverified address is refused; a policy denial returns its reason | Available |
+| Notification sender, telemetry store, backup target | the slice's `…/testing` entry | Each ships with its story (PP-14.10 to PP-14.12) | Coming |
 | Doctor check, job handler | `@marinoscar/platform-api/doctor/testing`, `…/jobs/testing` | Read-only checks; handler profile, idempotence and node-eligibility pairing | Coming (PP-14.26) |
 
 An app adds its own suite with `conformanceSuites.register` and a `declare module '@marinoscar/platform-api/testing'` augmentation of `PlatformConformanceSuiteOptions`; the android-app slice's `testing/conformance.ts` is the model. More: [TESTING.md](TESTING.md#platform-conformance).

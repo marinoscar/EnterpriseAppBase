@@ -14,12 +14,14 @@ import { Global, Module, type DynamicModule, type Logger } from '@nestjs/common'
 import { PLATFORM_PRISMA } from '../../core/index';
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
 import {
+  IDENTITY_AUTH_CREDENTIALS,
   IDENTITY_JOBS,
   IDENTITY_METRICS,
   IDENTITY_NODE_CREDENTIALS,
   IDENTITY_NOTIFIER,
   IDENTITY_PROFILE_IMAGES,
   USER_DEFAULTS,
+  type AuthProviderCredentials,
   type IdentityJobHandler,
   type IdentityJobsPort,
   type IdentityMetrics,
@@ -83,6 +85,8 @@ export interface StubIdentityHostOptions {
   readonly userSettings?: Record<string, unknown>;
   /** Resolves a `nod_` token; every token is unknown by default. */
   readonly validateNodeToken?: (token: string) => Promise<AuthenticatedUser | null>;
+  /** The credential store sign-in providers read their secrets from; unbound (every secret absent) by default. */
+  readonly authCredentials?: AuthProviderCredentials;
 }
 
 /**
@@ -141,6 +145,7 @@ export function createStubIdentityHost(options: StubIdentityHostOptions): StubId
     { provide: IDENTITY_JOBS, useValue: jobs },
     { provide: IDENTITY_METRICS, useValue: metrics },
     { provide: IDENTITY_NODE_CREDENTIALS, useValue: nodes },
+    ...(options.authCredentials ? [{ provide: IDENTITY_AUTH_CREDENTIALS, useValue: options.authCredentials }] : []),
   ];
 
   @Global()

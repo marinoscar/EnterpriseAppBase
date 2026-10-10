@@ -5,7 +5,7 @@
 // in ../README.md. Explicit named exports only.
 
 export { LoginPage } from './LoginPage.js';
-export type { LoginPageProps, LoginPageSlots } from './LoginPage.js';
+export type { LoginPageProps, LoginPageSlots, LoginProvidersSlotProps } from './LoginPage.js';
 export { AuthCallbackPage } from './AuthCallbackPage.js';
 export type { AuthCallbackPageProps } from './AuthCallbackPage.js';
 export { SignInErrorView } from './SignInErrorView.js';

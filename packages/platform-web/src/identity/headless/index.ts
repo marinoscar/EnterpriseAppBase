@@ -26,6 +26,7 @@ export {
   registerAuthProvider,
 } from './auth-provider-registry.js';
 export type { AuthProviderDescriptor } from './auth-provider-registry.js';
+export { lastAuthProvider, rememberAuthProvider, validAuthProviderId } from './last-provider.js';
 export { ORG_ROLES, createIdentityApi } from './api.js';
 export type {
   AllowedEmailEntry,

@@ -25,6 +25,15 @@ export interface AuthProviderDescriptor {
   textColor?: string;
   /** A CSS border for the button (Google's `1px solid #dadce0`). Default none. */
   border?: string;
+  /**
+   * Starts the sign-in of a provider the API lists with `mode: 'custom'` (a
+   * popup, a native SDK, a form): called by `useAuth().login(id)` after the
+   * return URL was stored, instead of the redirect to `/api/auth/<id>`. The
+   * flow must end by handing the access token to the callback route
+   * (`/auth/callback?token=...`) or by calling `setAccessToken` and
+   * `refreshUser`. Ignored for a redirect provider.
+   */
+  start?: () => void | Promise<void>;
 }
 
 const registered = new Map<string, AuthProviderDescriptor>();

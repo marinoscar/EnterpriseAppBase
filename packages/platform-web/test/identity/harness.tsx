@@ -28,7 +28,7 @@ export interface FakeSessionClient extends AuthSessionClient {
 export function fakeSessionClient(options: {
   refreshed?: boolean;
   me?: AuthUser | Error;
-  providers?: { name: string; authUrl: string }[];
+  providers?: { name: string; authUrl: string; mode?: 'custom' }[];
   post?: (path: string, body?: unknown) => unknown;
 } = {}): FakeSessionClient {
   const listeners = new Set<() => void>();

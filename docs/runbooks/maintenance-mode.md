@@ -82,7 +82,7 @@ appctl api PUT /api/admin/maintenance \
 
 ### 2.3 What stays reachable, on purpose
 
-Sign-in (`/api/auth/providers`, `/google`, `/google/callback`), token refresh,
+Sign-in (`/api/auth/providers`, `/google`, `/google/callback` and the same two routes of every other registered provider), token refresh,
 `/api/auth/me`, logout, the browser half of device activation, the health
 probes, and the maintenance endpoints themselves. Also `/api/docs` and
 `/api/openapi.json`, which are served outside the guard entirely.
