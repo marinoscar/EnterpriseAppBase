@@ -93,7 +93,8 @@ URL or complete a multipart upload.
 ### 2.3 `ResolvingStorageProvider`
 
 `STORAGE_PROVIDER` is bound with `useClass: ResolvingStorageProvider`
-(`storage-providers.module.ts`). Each of its thirteen `StorageProvider`
+(`storage-providers.module.ts`), unless the app passes
+`StorageModule.forRoot({ provider })`, which replaces it for every consumer. Each of its thirteen `StorageProvider`
 methods is one line: resolve the delegate, call the same method. Consumers
 (`ObjectsService`, `ProfileImageService`, `AvatarService`,
 `ObjectProcessingService`, `StorageCleanupHandler`, the database-backup
@@ -274,11 +275,15 @@ The slice's extension points, with a reference-app example each, are catalogued 
   `s3compatible` with an endpoint. If it needs a driver tweak (as R2's
   checksums did), add a modelled setting or a narrow branch in
   `buildS3ClientConfig`, and cover it in `s3-storage.provider.spec.ts`.
-- **Add a non-S3 backend (rung 3):** implement `StorageProvider` and override
-  the token in the app (`{ provide: STORAGE_PROVIDER, useClass: YourProvider }`).
-  There is deliberately no driver registry and no new `STORAGE_PROVIDER_KINDS`
-  member until a consumer needs one (an Azure Blob provider is deferred); file
-  a seam request rather than editing the package.
+- **Add a non-S3 backend (rung 3):** implement `StorageProvider` (including
+  `kind`, the id written to the rows) and bind it through the slice:
+  `StorageModule.forRoot({ provider: { useClass: YourProvider } })`. Every
+  package consumer receives it. A provider declared in an app module does not
+  reach them, because every package module imports `StorageProvidersModule`
+  and Nest resolves the token there first. There is no driver registry and no
+  new `STORAGE_PROVIDER_KINDS` member yet (per-driver settings, a form and a
+  kit are PP-14.7); the recipe is
+  [EXTENDING.md](../EXTENDING.md#replace-the-object-store).
 - **Process uploads:** register an `ObjectProcessor` with
   `ObjectProcessorRegistry` from its `onModuleInit` (the optional
   `OBJECT_PROCESSOR` token is gone, #736). Recipe:

@@ -590,10 +590,16 @@ Two things never leave the facade, both handled by
 ### Adding a provider
 
 A new provider is an adapter implementation against the existing
-`AiProviderAdapter` contract, never a platform change. The full recipe —
-self-registration, the model classifier, error mapping onto `AiErrorCode`,
-and the conformance kit every adapter must pass — is
+`AiProviderAdapter` contract. The full recipe — self-registration, the model
+classifier, error mapping onto `AiErrorCode`, and the conformance kit every
+adapter must pass — is
 [`docs/specs/ai-platform.md`](../../../../docs/specs/ai-platform.md) §4.
+
+**From an app or another package this is not supported yet** (PP-14.6): an
+adapter registered under a new id is listed and can be keyed and conformance-
+tested, but it cannot be enabled, because the `ai` settings namespace, the
+`AiModule.forRoot` provider list and the admin form are fixed to the five
+built-ins ([EXTENDING.md](../../../../docs/EXTENDING.md#add-an-ai-provider)).
 
 ## Extension-point catalog
 

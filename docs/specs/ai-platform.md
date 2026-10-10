@@ -903,9 +903,9 @@ To **use** AI in a feature, follow the recipe in
 [packages/platform-api/src/ai/README.md](../../packages/platform-api/src/ai/README.md): import
 `AiModule`, inject `AiService`, call `forUser(userId)`.
 
-To **add a provider**, implement an adapter against the existing contract.
-Nothing in the registry, the gate pipeline, the admin API or the HTTP
-surface changes. Copy the closest worked example: `providers/openai/`
+To **add a provider to the platform package**, implement an adapter against
+the existing contract. Nothing in the registry, the gate pipeline, the admin
+API or the HTTP surface changes. Copy the closest worked example: `providers/openai/`
 (Responses API, every port), `providers/anthropic/` (Messages API,
 stateless), `providers/gemini/` (`generateContent`, metadata-enriched
 classifier), or compose the OpenAI pieces as `providers/azure-openai/` and
@@ -956,6 +956,16 @@ classifier), or compose the OpenAI pieces as `providers/azure-openai/` and
    and merge (`ai/ai.system-settings.ts`); `settings-parity.spec.ts` checks
    one slot per id. Then run `npm run catalog:settings --workspace=api`. Add `<provider>.module.ts` to `AiModule`'s imports, and
    add an SDK boundary spec like `providers/gemini/gemini-sdk-boundary.spec.ts`.
+
+**From an app or another package this is not supported yet** (PP-14.6). An
+adapter an app registers with `AiProviderRegistry.register` is listed and can
+be keyed and tested with `describeAiProviderConformance`, but it cannot be
+enabled: the `ai` settings namespace has a fixed slot per built-in provider
+id (step 6), `AiModule.forRoot` accepts only the five built-in provider
+modules, and the admin form has no fields for it. Until the provider
+definition registry ships, a provider is added by following the steps above
+inside the package, or filed as a seam request. The app-side recipe will be
+[EXTENDING.md](../EXTENDING.md#add-an-ai-provider).
 
 A new AI route needs `AiEnabledGuard` plus `ai:use` (consumer) or
 `ai_config:*` (admin, no guard). A new AI job type must stay server-only.

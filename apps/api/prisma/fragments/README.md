@@ -26,7 +26,7 @@ extend model User {
 }
 ```
 
-Only a model its owner marked `// @extensible` can be extended: `User`, `Job` and `StorageObject`. An `extend` block holds back-relation fields only: no scalar field, no `fields: [...]` relation, no `@@` attribute (each is a composer error with a stable code, a file and a line).
+Only a model its owner marked `// @extensible` can be extended: `User`, `Organization`, `Job`, `Group` and `StorageObject`. An `extend` block holds back-relation fields only: no scalar field, no `fields: [...]` relation, no `@@` attribute (each is a composer error with a stable code, a file and a line).
 
 Then:
 
