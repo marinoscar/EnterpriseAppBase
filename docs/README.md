@@ -30,7 +30,7 @@ In this order:
 | [ADMIN-GUIDE.md](ADMIN-GUIDE.md) | A task-oriented tour for administrators and users: organizations, groups and sharing, the Setup guide, data export, the Danger Zone, notifications, backup and restore, jobs and worker nodes, the Doctor, storage, email and AI, each with its route, permission and steps |
 | [ADOPTING-THE-PLATFORM.md](ADOPTING-THE-PLATFORM.md) | Moving an existing fork or app onto the `@marinoscar/platform-*` packages: the order, what each step deletes, the checks, rollback, seam requests and the pitfalls the first adoption found |
 | [SLICES.md](SLICES.md) | Every platform slice on one generated page: what it gives you, the packages and subpath imports that carry it, its admin cards, permissions, slice dependencies and peers, whether it works on its own, and the minimal backend-only telemetry consumer |
-| [EXTENDING.md](EXTENDING.md) | The extension author guide: the ladder (options, registries, `forRoot` token bindings, events, composition, eject) and the rule that overrides never go through an app-module provider; numbered recipes with exact imports (metric and dashboard group, job type, Doctor check, notification, settings namespace, credential purpose, admin card, side table, RLS-protected table, object store, event bus adapter, pluggable implementation, AI provider); the extensions not open yet; shipping an extension as its own npm package |
+| [EXTENDING.md](EXTENDING.md) | The extension author guide: the ladder (options, registries, `forRoot` token bindings, events, composition, eject) and the rule that overrides never go through an app-module provider; numbered recipes with exact imports (metric and dashboard group, job type, Doctor check, notification, settings namespace, credential purpose, admin card, side table, RLS-protected table, object store, storage driver, event bus adapter, pluggable implementation, AI provider); the extensions not open yet; shipping an extension as its own npm package |
 | [EXTENSIBILITY-AUDIT.md](EXTENSIBILITY-AUDIT.md) | The living audit record: one section per slice with its verdict, open points, closed points with `file:line` evidence, the proposed fix and the PP-14 story that opens each, and whether it is fixed |
 | [PACKAGES.md](PACKAGES.md) | Documenting a `@marinoscar/platform-*` package or slice: the README template, TSDoc tags, the extension-point catalog, TypeDoc and the `check:package-docs` checks |
 
@@ -39,7 +39,7 @@ In this order:
 | Spec | Feature | Read it when… |
 |---|---|---|
 | [specs/settings-ui.md](specs/settings-ui.md) | Registry-driven settings hubs | you add a settings page, admin or per-user |
-| [specs/storage-providers.md](specs/storage-providers.md) | Runtime-configured object storage (S3, R2, S3-compatible) | you touch storage configuration or a storage consumer |
+| [specs/storage-providers.md](specs/storage-providers.md) | Runtime-configured object storage: pluggable storage drivers (built in: S3, R2, S3-compatible) | you touch storage configuration or a storage consumer |
 | [specs/job-queue.md](specs/job-queue.md) | Postgres-backed background job queue | you add a job type or anything long-running |
 | [specs/worker-nodes.md](specs/worker-nodes.md) | Remote worker nodes and their data plane | you make a job type node-eligible or change the node API |
 | [specs/ai-platform.md](specs/ai-platform.md) | Admin-governed, bring-your-own-key AI | you use AI from a feature or add a provider |

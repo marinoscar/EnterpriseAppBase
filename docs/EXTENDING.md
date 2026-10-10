@@ -59,7 +59,7 @@ The rule has three consequences:
 
 | Kind | Filled | Frozen | Examples |
 |---|---|---|---|
-| Static (`defineRegistry` at module scope) | At import time, from the app's registration files under `apps/api/src/app-registrations/` or from a side-effect import | When the application bootstraps (`RegistryFreezeService`); a later `register` throws `FROZEN` | Permissions, settings namespaces, notification events, templates and channels, storage key prefixes, metric groups, credential purposes, event bus adapters, user-owned models |
+| Static (`defineRegistry` at module scope) | At import time, from the app's registration files under `apps/api/src/app-registrations/` or from a side-effect import | When the application bootstraps (`RegistryFreezeService`); a later `register` throws `FROZEN` | Permissions, settings namespaces, notification events, templates and channels, storage key prefixes, metric groups, credential purposes, event bus adapters, storage drivers, user-owned models |
 | Held by Nest (a provider) | By a provider of yours, from its `onModuleInit` | Not frozen | `JobHandlerRegistry`, `DoctorCheckRegistry`, `EgressRegistry`, `NotificationChannelSenderRegistry`, `ObjectProcessorRegistry`, `AiProviderRegistry` |
 
 The app-owned seam of every static registry is a file in [`apps/api/src/app-registrations/`](../apps/api/src/app-registrations/README.md). Upstream keeps those files empty; a fork fills them and never edits a platform declaration or manifest.
@@ -241,7 +241,7 @@ An app table with an `org_id` is tenant data: row-level security isolates it, an
 
 ### Replace the object store
 
-Rung 3, available now. Full recipe: [the storage README](../packages/platform-api/src/storage/README.md#the-three-rungs-for-storage). Example: [`in-memory-storage.provider.ts`](../apps/api/src/platform-extensions/storage/in-memory-storage.provider.ts), proven by [`storage-provider-override.spec.ts`](../apps/api/test/examples/storage/storage-provider-override.spec.ts).
+Rung 3, available now, for a backend that is not configured at runtime (one an administrator configures is [a storage driver](#add-a-storage-driver)). Full recipe: [the storage README](../packages/platform-api/src/storage/README.md#the-three-rungs-for-storage). Example: [`in-memory-storage.provider.ts`](../apps/api/src/platform-extensions/storage/in-memory-storage.provider.ts), proven by [`storage-provider-override.spec.ts`](../apps/api/test/examples/storage/storage-provider-override.spec.ts).
 
 1. **Implement `StorageProvider`** (`import type { StorageProvider } from '@marinoscar/platform-api/storage'`), the whole interface, including the readonly `kind` (the id written to `storage_objects.storage_provider` and to backup rows; pick a stable lowercase id) and the synchronous `getBucket()`. Uploads of unbounded size stream; a backup archive is never buffered.
 2. **Bind it** where the app configures the slice, `apps/api/src/platform/storage/storage.config.ts`:
@@ -255,10 +255,89 @@ Rung 3, available now. Full recipe: [the storage README](../packages/platform-ap
 
    Exactly one of `useClass`, `useExisting`, `useFactory` (with `inject`); the binding's own dependencies come from `imports` and global modules. Every package consumer receives it: the objects API, profile images, exports, user-data, database backups, the AI output writer and the nodes data plane.
 3. **Do not provide `STORAGE_PROVIDER` in an app module.** It is invisible to the package modules (see [the rule](#overrides-go-through-forroot-bindings-never-an-app-module-provider)).
-4. **Configuration stays runtime.** The bundled `/admin/settings/storage` page configures the S3 family only; it does not configure a bound provider. Give the provider its own settings namespace and credential purpose ([above](#add-a-settings-namespace), [above](#add-a-credential-purpose)). Never add a storage environment variable.
+4. **Configuration stays runtime.** A bound provider overrides whatever driver the settings select, and the bundled `/admin/settings/storage` page does not configure it. Give the provider its own settings namespace and credential purpose ([above](#add-a-settings-namespace), [above](#add-a-credential-purpose)). Never add a storage environment variable. A backend that an administrator should configure on that page is a driver, not a binding: [Add a storage driver](#add-a-storage-driver).
 5. **Test it with real consumers**: copy `storage-provider-override.spec.ts` and run `storageConformanceSuite` through `runPlatformConformance`.
 
-Per-driver settings, a connection test and an admin form for a new backend are PP-14.7.
+Prefer [a storage driver](#add-a-storage-driver) unless the backend cannot be configured at runtime.
+
+### Add a storage driver
+
+Available now. An app, or an `@acme/storage-azure` package an app installs, adds an object store (Azure Blob, Google Cloud Storage, a local disk) that an administrator configures at runtime, with its own settings, encrypted secrets, connection test and admin form, and that every storage consumer then writes through, with no edit under `packages/`. It is [a pluggable kind](#writing-a-pluggable-implementation) (`storageDriverKind`, kind id `storage-driver`) behind one function, `registerStorageDriver`. The worked example is [`local-fs`](../apps/api/src/platform-extensions/storage/local-fs.driver.ts): objects as files in a folder on the API host. The contract and the rationale are in [the storage spec, §2.8 and §4](specs/storage-providers.md); the reference for every member is the [storage README](../packages/platform-api/src/storage/README.md#adding-a-storage-driver-from-an-app-or-package).
+
+1. **Implement the provider** the driver builds: `StorageProvider` (`import type { StorageProvider } from '@marinoscar/platform-api/storage'`), the whole interface, including the readonly `kind` (the driver id, written to `storage_objects.storage_provider` and to backup rows) and the synchronous `getBucket()` (the location, recorded on every row). Uploads of unbounded size stream, and a backup archive is never buffered: [`LocalFsStorageProvider`](../apps/api/src/platform-extensions/storage/local-fs.driver.ts) pipes into a temporary file and renames it into place. An operation the backend cannot do (`local-fs` has no browser-direct multipart upload) raises a clear error; declare it, do not hide it.
+2. **Define the driver** (`StorageDriverDefinition`), the part the rest of the slice reads before any provider exists:
+
+   ```ts
+   import { z } from 'zod';
+   import type { StorageDriverDefinition } from '@marinoscar/platform-api/storage';
+
+   export const localFsStorageDriver: StorageDriverDefinition<{ directory: string }> = {
+     id: 'local-fs',
+     label: 'Local filesystem',
+     settingsSchema: z.object({ directory: z.string().trim().max(512).meta({ label: 'Directory' }).describe('Absolute path the objects are written under.') }),
+     defaults: { directory: '' },
+     // secrets: [{ name: 'connectionString', label: 'Connection string', required: true }],   // a driver with a key declares it here
+     build: ({ settings, appOrigin }) => new LocalFsStorageProvider(resolveLocalFsDirectory(settings), appOrigin ?? ''),
+     testConnection: async ({ settings }) => ({ ok: true, message: `Wrote and read back a probe in ${resolveLocalFsDirectory(settings)}.` }),
+     provision: async ({ settings }) => ({ created: true, message: `Created ${resolveLocalFsDirectory(settings)}.` }),
+     listKeys: async function* ({ settings }, prefix) { yield* new LocalFsStorageProvider(resolveLocalFsDirectory(settings)).keys(prefix); },
+     location: (settings) => ({ bucket: resolveLocalFsDirectory(settings) }),
+     missing: () => [],
+   };
+   ```
+
+   - **`id`** matches `^[a-z][a-z0-9-]{1,47}$` and is permanent once a row exists: it is the key of `storage.drivers`, the value of `storage.provider`, the provider's `kind` and `storage_objects.storage_provider`.
+   - **`settingsSchema`** is a `z.object` of the **non-secret** settings only. `.describe('help')` is a field's help text and `.meta({ label })` its label. A field named like a secret (`secretAccessKey`, `apiKey`, `token`, `password`, ...) is refused at registration.
+   - **`defaults`** parse with `settingsSchema`.
+   - **`secrets`** (`{ name, label, required, help? }[]`) are kept encrypted in the credential store at the credential purpose `storage_<id>`, which `registerStorageDriver` registers for you. Read one with `await ctx.secret('name')` (`null` when none is stored); never put it in the settings and never in an environment variable.
+   - **`build`** returns the provider every consumer shares. It runs when the configuration changes, not per request, and the provider's `destroy()` is called when it is superseded.
+   - **`testConnection`** backs **Test connection** and **never throws**: every failure is `{ ok: false, message }`, and no `message`, `details` or `checks` entry carries a secret.
+   - **`provision`** (optional) backs **Create bucket**; omit it for a backend with no bucket or container. **`listKeys`** (optional) lets `npm run storage:purge` empty the store; a driver that defines neither `purge` nor `listKeys` is reported `unsupported` (exit `3`). **`location`** says where the objects live (default `settings.bucket`, else the driver id), **`missing`** names what is still unset (default: every `required` secret that is absent), **`egressHosts`** lists the hosts for the Doctor.
+3. **Register it at import time**, in [`apps/api/src/app-registrations/storage.ts`](../apps/api/src/app-registrations/storage.ts):
+
+   ```ts
+   import { registerStorageDriver } from '@marinoscar/platform-api/storage';
+
+   registerStorageDriver(localFsStorageDriver);
+   ```
+
+   [`platform/storage/storage.config.ts`](../apps/api/src/platform/storage/storage.config.ts) imports that file before it builds the storage module. The registry freezes when the application bootstraps, so a later registration fails with `FROZEN`; a duplicate id or a malformed definition (a bad id, a secret-named setting, defaults that do not parse, a missing operation) throws at registration. A package exposes the same call behind an entry the app imports (`import '@acme/storage-azure/register'`), as in [How to ship an extension as its own npm package](#how-to-ship-an-extension-as-its-own-npm-package).
+4. **There is nothing else to wire.** Registering gives the driver:
+   - **A settings record.** `drivers['local-fs'] = { directory }` in the `storage` namespace, validated by the schema on every write: an unregistered id is `400` with `details.reason` `STORAGE_UNKNOWN_DRIVER`, a setting the schema refuses `STORAGE_DRIVER_SETTINGS_INVALID`. A read never fails: a record stored for a driver that is no longer registered is ignored with one warning.
+   - **An entry in the driver list**, off until an administrator selects it and saves: a fresh install keeps `s3`. Selecting a driver relocates the deployment, so the `SWITCH` confirmation applies while objects exist; it acknowledges and does not copy.
+   - **Every consumer.** The objects API, profile images, exports, database backups and the node object store receive the provider the selected driver builds. `databaseBackup.storageProvider` accepts the driver id, `npm run storage:purge` uses `listKeys` (or `purge`), and the Doctor's `network.egress` view lists `egressHosts` under `storage.<id>`.
+5. **The web needs no code.** `GET /api/admin/storage-config` serves a descriptor per driver (`descriptors`, and every driver's settings in `drivers`), and the admin Storage page lists one radio per driver and draws a generated form: a control per setting and a write-only field per secret, **Test connection** (the driver's `message` and `details`) and **Create bucket**. To replace the generated form, register a panel at module scope (a presentation choice; the API still validates every save):
+
+   ```tsx
+   import { StorageGenericDriverPanel, registerStorageDriverPanel } from '@marinoscar/platform-web/storage/ui/driver-panels';
+
+   registerStorageDriverPanel('local-fs', (props) => <StorageGenericDriverPanel {...props} />);
+   ```
+
+   Wrap `StorageGenericDriverPanel` to add to the generated form, or render your own markup from `StorageDriverPanelProps`.
+6. **Prove it with the kit and a test that boots the real app.**
+   - **The driver.** `describeStorageDriverConformance` of `@marinoscar/platform-api/storage/testing`: put, head, read and delete real bytes, a 6 MiB streamed upload, the signed URL, key listing, and a `testConnection` that never throws and never returns a secret. It needs no network: point the driver at a fake (a temporary directory, an in-memory SDK, an emulator).
+
+     ```ts
+     import '../../../src/app-registrations/storage';
+     import { describeStorageDriverConformance } from '@marinoscar/platform-api/storage/testing';
+
+     describeStorageDriverConformance('local-fs', { describe, it, expect, settings: { directory: tmpDir }, secrets: {} });
+     ```
+
+     The kit cannot tell a driver that buffers a whole stream from one that pipes it; keeping that rule is yours.
+   - **The consumers.** [`local-fs-driver.spec.ts`](../apps/api/test/examples/storage/local-fs-driver.spec.ts) selects the driver through the real admin routes and asserts a profile image, an export and a database backup write through it, recorded with `storage_provider = local-fs`, that an unknown driver and an invalid setting are refused, and that an old flat row still loads.
+   - **The web.** [`local-fs-driver-panel.test.tsx`](../apps/web/src/__tests__/examples/storage/local-fs-driver-panel.test.tsx): the admin page lists the driver with no web code, saves `{ provider, drivers }`, shows the driver's test message, and takes a secret write-only under `secrets.<id>.<name>`.
+7. **Check it.**
+
+   ```bash
+   npx jest --config apps/api/test/jest.config.js --rootDir apps/api test/examples/storage
+   npm run test:run --workspace=web -- src/__tests__/examples/storage
+   ```
+
+What `local-fs` does not do, and a fork that selects it must add: its signed download URLs point at `/api/local-fs/objects/<token>`, a route the app does **not** mount by default (the driver is off until selected). A deployment that selects it mounts a route that calls `verifyLocalFsToken` and streams the object. It also has no browser-direct multipart upload, and it is a single-host store.
+
+What is still closed (audit: [storage](EXTENSIBILITY-AUDIT.md#storage)): slots on the page (`Sections`), a flag on the descriptor saying whether a driver implements `provision` (the page learns it only from the answer to **Create bucket**), a driver `message` that is more than a plain string, and a `secretStatus` that describes more than the active driver's first declared secret (every driver's presence is in `descriptors`).
 
 ### Add an event bus adapter
 
@@ -280,7 +359,7 @@ Available now. Full recipe: [the host README](../packages/platform-api/src/host/
 
 ### Writing a pluggable implementation
 
-Available now. A **pluggable kind** is the one shape every slice with a swappable part (AI provider, storage driver, email transport, sign-in provider, notification channel, telemetry store, backup target) is moving to, so you learn it once. The primitive is `definePluggableKind` of `@marinoscar/platform-api/core`; the AI providers use it ([Add an AI provider](#add-an-ai-provider-the-assemblyai-case)), the stories PP-14.7 to PP-14.12 apply it to each remaining slice, and until a slice's story lands, its kind is not yet registered there (see the placeholders below). The full reference is [the core README, Pluggable kinds](../packages/platform-api/src/core/README.md#pluggable-kinds). Worked example, with no consumer slice: [`greeter.kind.ts`](../apps/api/src/platform-extensions/core/greeter.kind.ts), registered by [`app-registrations/core.ts`](../apps/api/src/app-registrations/core.ts), proven by [`pluggable-kind.spec.ts`](../apps/api/test/examples/core/pluggable-kind.spec.ts) on the API side and [`pluggable-config-form.test.tsx`](../apps/web/src/__tests__/examples/settings/pluggable-config-form.test.tsx) on the web side.
+Available now. A **pluggable kind** is the one shape every slice with a swappable part (AI provider, storage driver, email transport, sign-in provider, notification channel, telemetry store, backup target) is moving to, so you learn it once. The primitive is `definePluggableKind` of `@marinoscar/platform-api/core`; the AI providers and the storage drivers use it ([Add an AI provider](#add-an-ai-provider-the-assemblyai-case), [Add a storage driver](#add-a-storage-driver)), the stories PP-14.8 to PP-14.12 apply it to each remaining slice, and until a slice's story lands, its kind is not yet registered there (see the placeholders below). The full reference is [the core README, Pluggable kinds](../packages/platform-api/src/core/README.md#pluggable-kinds). Worked example, with no consumer slice: [`greeter.kind.ts`](../apps/api/src/platform-extensions/core/greeter.kind.ts), registered by [`app-registrations/core.ts`](../apps/api/src/app-registrations/core.ts), proven by [`pluggable-kind.spec.ts`](../apps/api/test/examples/core/pluggable-kind.spec.ts) on the API side and [`pluggable-config-form.test.tsx`](../apps/web/src/__tests__/examples/settings/pluggable-config-form.test.tsx) on the web side.
 
 1. **Pick the kind.** Import the kind a slice exposes. For a swappable part of your own, define one once, at module scope, in the file that owns it (`import { definePluggableKind } from '@marinoscar/platform-api/core'`):
 
@@ -425,10 +504,6 @@ What is still closed (audit: [ai](EXTENSIBILITY-AUDIT.md#ai)): a new capability 
 
 Each placeholder names the story that replaces it; each is built on [the pluggable kind](#writing-a-pluggable-implementation). Until then the audit row is the record of what is closed.
 
-### Coming in PP-14.7: add a storage driver
-
-A storage driver (Azure Blob, GCS, local disk) with per-driver settings, a connection test, optional provisioning and key listing, and an admin form. **Not supported yet.** [Replace the object store](#replace-the-object-store) is the interim path for a backend that needs no admin form.
-
 ### Coming in PP-14.8: add an email transport
 
 An email transport (SendGrid, Postmark) that notifications and the admin test send use, with settings, credentials and a conformance kit. **Not supported yet.** A provider of `SmtpEmailProvider` in the app module does not reach `EmailNotificationChannel` or `EmailTestSendService`; the selectable transports are `ses` and `smtp` (audit: [email](EXTENSIBILITY-AUDIT.md#email)).
@@ -474,7 +549,8 @@ A kit is a function an extension author calls with the implementation and the te
 | `createAiRuntimeHarness({ extraProviders, extraAdapters, models })` | `@marinoscar/platform-api/ai/testing` | Not a kit but the runtime for one: the real gate pipeline (kill switch, provider switch, key policy, limits, usage) over your provider and in-memory tables | Available |
 | `runPlatformConformance` | `@marinoscar/platform-api/testing` | The platform's invariants over the app's source and registrations; a slice's suites register by importing its `…/testing` entry | Available |
 | `describePluggableKindConformance(kind, { describe, it, expect }, options?)` | `@marinoscar/platform-api/core/testing` | For each registered implementation of a pluggable kind: a valid id and label, defaults that parse, a descriptor that validates with secrets as presence flags only, no secret-looking setting, a `build` function | Available |
-| Storage driver, email transport, auth provider, notification sender, telemetry store, backup target | the slice's `…/testing` entry | Each ships with its story (PP-14.7 to PP-14.12) | Coming |
+| `describeStorageDriverConformance(driver, { describe, it, expect, settings, secrets })` | `@marinoscar/platform-api/storage/testing` | A valid definition (id, label, defaults that parse); the full `StorageProvider` surface with `kind` equal to the driver id; put, head, read and delete real bytes; a 6 MiB streamed upload; the signed URL; key listing; `testConnection` never throws and never returns a secret; `provision`, `location` and `missing` when defined. It cannot detect a driver that buffers a whole stream | Available |
+| Email transport, auth provider, notification sender, telemetry store, backup target | the slice's `…/testing` entry | Each ships with its story (PP-14.8 to PP-14.12) | Coming |
 | Doctor check, job handler | `@marinoscar/platform-api/doctor/testing`, `…/jobs/testing` | Read-only checks; handler profile, idempotence and node-eligibility pairing | Coming (PP-14.26) |
 
 An app adds its own suite with `conformanceSuites.register` and a `declare module '@marinoscar/platform-api/testing'` augmentation of `PlatformConformanceSuiteOptions`; the android-app slice's `testing/conformance.ts` is the model. More: [TESTING.md](TESTING.md#platform-conformance).
