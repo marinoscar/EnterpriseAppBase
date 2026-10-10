@@ -10,7 +10,7 @@
  * that with only the three built-in channels the markup an administrator or a
  * user sees is, element for element and class for class, the one they had.
  *
- * The only normalisation is React's generated ids (`:r1:`), which depend on
+ * The only normalisation is React's generated ids (`_r_1f_`), which depend on
  * render order. Re-record the snapshot only for a deliberate change of the
  * built-in markup.
  */
@@ -46,8 +46,8 @@ const mockSettings = vi.mocked(useSystemSettings as unknown as (...args: unknown
 const mockPermissions = vi.mocked(usePermissions);
 const mockEvents = vi.mocked(useNotificationEvents);
 
-/** React's generated ids depend on render order; the markup around them is what is compared. */
-const html = (root: Element): string => root.innerHTML.replace(/:r[0-9a-z]+:/g, ':rX:');
+/** React's generated ids (`_r_1f_`) depend on render order; the markup around them is what is compared. */
+const html = (root: Element): string => root.innerHTML.replace(/_r_[0-9a-z]+_/g, '_rX_');
 
 const event = (overrides: Partial<NotificationEventDef> & Pick<NotificationEventDef, 'key' | 'label'>): NotificationEventDef => ({
   description: `${overrides.label} description.`,
