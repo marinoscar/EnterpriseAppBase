@@ -18,3 +18,7 @@ export type {
 // titles a settings route from it.
 export { settingsPageTitle, visibleSettingsSections } from './ui/registry.js';
 export type { SettingsSectionDef } from './ui/registry.js';
+// The generated pluggable-kind form (#924): the AI admin page renders a
+// provider an app registered with it.
+export { PluggableConfigForm } from './ui/PluggableConfigForm.js';
+export type { PluggableConfigFormProps, PluggableConfigFormSlots } from './ui/PluggableConfigForm.js';

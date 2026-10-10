@@ -76,7 +76,10 @@ import { usePlatformViewer } from '../../core/index.js';
 import { useAiAdminConfig } from '../headless/use-ai-admin-config.js';
 import { AiConfigContext } from '../headless/use-ai-config.js';
 import { AiSpinner } from './internal/AiSpinner.js';
-import { AiProviderCard, AiSlotlessProviderCard } from './admin/AiProviderCard.js';
+import { AiSlotlessProviderCard } from './admin/AiProviderCard.js';
+import { AiGenericProviderCard } from './admin/AiGenericProviderCard.js';
+import { getAiProviderCard } from './admin/aiProviderCardRegistry.js';
+import { registerBuiltinAiProviderCards } from './admin/builtinAiProviderCards.js';
 import {
   EMPTY_PROVIDER_FORM_VALUE,
   hasProviderFormErrors,
@@ -87,6 +90,11 @@ import {
 import type { AiProviderFormErrors, AiProviderFormValue } from './admin/aiProviderForm.js';
 import { AI_HOSTED_TOOL_TYPES, AI_LIMIT_MAX, aiProviderSettingsFields } from '../headless/types.js';
 import type { AiAdminConfig, AiAdminConfigInput, AiHostedToolType, AiKeyPolicy, AiLimits } from '../headless/types.js';
+
+// The five built-in providers draw their bespoke cards through the same
+// registry an app uses (`registerAiProviderCard`); any other provider is drawn
+// from its descriptor by `AiGenericProviderCard` (PP-14.6, #924).
+registerBuiltinAiProviderCards();
 
 /**
  * The deployment-wide limit fields (#450; the per-organization pair #739);
@@ -753,13 +761,16 @@ export default function AiConfigPage() {
               <Alert severity="info">No AI providers are registered in this build.</Alert>
             ) : (
               <Stack spacing={2}>
-                {config.providers.map((provider) =>
-                  provider.configurable === false ? (
-                    <AiSlotlessProviderCard key={provider.id} provider={provider} />
-                  ) : (
-                  <AiProviderCard
+                {config.providers.map((provider) => {
+                  if (provider.configurable === false) {
+                    return <AiSlotlessProviderCard key={provider.id} provider={provider} />;
+                  }
+                  const Card = getAiProviderCard(provider.id) ?? AiGenericProviderCard;
+                  return (
+                  <Card
                     key={provider.id}
                     provider={provider}
+                    descriptor={config.descriptors?.find((descriptor) => descriptor.id === provider.id)}
                     value={form.providers[provider.id] ?? EMPTY_PROVIDER_FORM_VALUE}
                     onChange={(next) =>
                       setForm((prev) =>
@@ -791,8 +802,8 @@ export default function AiConfigPage() {
                       })
                     }
                   />
-                  ),
-                )}
+                  );
+                })}
               </Stack>
             )}
 

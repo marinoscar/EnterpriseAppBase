@@ -34,7 +34,6 @@
  */
 
 import { useEffect, useState } from 'react';
-import { Link as RouterLink } from 'react-router-dom';
 import {
   Accordion,
   AccordionDetails,
@@ -44,10 +43,6 @@ import {
   Box,
   Button,
   Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
   Divider,
   FormControlLabel,
   IconButton,
@@ -59,102 +54,16 @@ import {
   Typography,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import NetworkCheckIcon from '@mui/icons-material/NetworkCheck';
-import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
 import AddIcon from '@mui/icons-material/Add';
-import { AI_AZURE_DEFAULT_API_VERSION, AI_AZURE_DEPLOYMENTS_MAX, AI_KEY_REMOVE_CONFIRMATION, aiDefaultApiStyle, aiProviderSettingsFields } from '../../headless/types.js';
-import type { AiAdminProvider, AiApiStyle, AiProbeResult as AiProbeResultData, SecretStatus } from '../../headless/types.js';
+import { AI_AZURE_DEFAULT_API_VERSION, AI_AZURE_DEPLOYMENTS_MAX, aiDefaultApiStyle, aiProviderSettingsFields } from '../../headless/types.js';
+import type { AiAdminProvider, AiApiStyle, AiProbeResult as AiProbeResultData } from '../../headless/types.js';
+import type { PluggableDescriptor } from '@marinoscar/platform-contract/settings';
 import type { AiProviderFormErrors, AiProviderFormValue } from './aiProviderForm.js';
-import { AiProbeResult } from './AiProbeResult.js';
+import { AiProviderKeyActions, keyHelperText, MIN_KEY_LENGTH } from './AiProviderKeyActions.js';
 import { AiCapabilityChips } from '../shared/AiCapabilityChips.js';
 
-/** The API's minimum key length (`PUT …/key` body, `min(8)`). */
-const MIN_KEY_LENGTH = 8;
-
-/**
- * What to say about the stored key — the storage page's `secretHelperText`.
- * `hint` is the credential store's own mask, so an admin who just rotated a
- * key can see WHICH one is live.
- */
-export function keyHelperText(status: SecretStatus): string {
-  if (!status.configured) {
-    return 'No organization key is stored. Models cannot be discovered without one.';
-  }
-  const which = status.hint ? ` (${status.hint})` : '';
-  const when = status.updatedAt
-    ? `, last changed ${new Date(status.updatedAt).toLocaleDateString()}`
-    : '';
-  return `A key is saved${which}${when}. Leave this blank to keep it, or type a new one to replace it.`;
-}
-
-/** The typed-`REMOVE` confirmation — the `PushConfigConfirmDialog` pattern, not an import of it. */
-function AiKeyRemoveDialog({
-  open,
-  providerName,
-  isWorking,
-  error,
-  onConfirm,
-  onClose,
-}: {
-  open: boolean;
-  providerName: string;
-  isWorking: boolean;
-  error: string | null;
-  onConfirm: () => void;
-  onClose: () => void;
-}) {
-  const [typed, setTyped] = useState('');
-
-  // Every opening starts from nothing.
-  useEffect(() => {
-    if (open) setTyped('');
-  }, [open]);
-
-  const typedMatches = typed.trim() === AI_KEY_REMOVE_CONFIRMATION;
-
-  return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Remove the {providerName} organization key?</DialogTitle>
-      <DialogContent dividers>
-        {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
-            {error}
-          </Alert>
-        )}
-        <Alert severity="warning">
-          <AlertTitle>This cannot be undone</AlertTitle>
-          The stored key is deleted. Model discovery for {providerName} stops, and if users fall
-          back to the organization key, their calls start failing until a new key is saved.
-        </Alert>
-        <Box sx={{ mt: 3 }}>
-          <TextField
-            fullWidth
-            label={`Type ${AI_KEY_REMOVE_CONFIRMATION} to confirm`}
-            value={typed}
-            onChange={(e) => setTyped(e.target.value)}
-            autoComplete="off"
-            helperText="This must be typed exactly, in capitals. Nothing happens until it matches."
-          />
-        </Box>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose} disabled={isWorking}>
-          Cancel
-        </Button>
-        <Button
-          variant="contained"
-          color="error"
-          disabled={!typedMatches || isWorking}
-          onClick={onConfirm}
-        >
-          {isWorking ? 'Removing…' : 'Remove key'}
-        </Button>
-      </DialogActions>
-    </Dialog>
-  );
-}
-
+export { keyHelperText } from './AiProviderKeyActions.js';
 export type { AiProviderFormValue } from './aiProviderForm.js';
 
 /** How each wire API reads in the `apiStyle` select. */
@@ -163,16 +72,16 @@ const API_STYLE_LABELS: Record<AiApiStyle, string> = {
   chat_completions: 'Chat Completions',
 };
 
-/** Helper text under the endpoint field, per provider. */
-function baseUrlHelperText(providerId: string): string {
-  switch (providerId) {
-    case 'azure-openai':
-      return 'Your Azure OpenAI resource endpoint, e.g. https://my-resource.openai.azure.com. Must use https. Required to enable the provider.';
-    case 'openai-compatible':
-      return 'The server\'s API root, including /v1 — e.g. http://ollama:11434/v1 or https://vllm.internal.example.com/v1. Required to enable the provider.';
-    default:
-      return "Leave blank to use the provider's default endpoint. Set one only for a proxy or a compatible gateway.";
-  }
+/**
+ * Helper text under the endpoint field: the provider's own (`help.baseUrl`,
+ * declared by its definition), else the generic line for a provider with a
+ * default host.
+ */
+function baseUrlHelperText(provider: Pick<AiAdminProvider, 'help'>): string {
+  return (
+    provider.help?.baseUrl ??
+    "Leave blank to use the provider's default endpoint. Set one only for a proxy or a compatible gateway."
+  );
 }
 
 /** Azure OpenAI's model id to deployment name map, as editable rows. */
@@ -327,6 +236,12 @@ export interface AiProviderCardProps {
   onClearTestResult: () => void;
   /** Probe with the typed key, or the stored one when `apiKey` is blank. */
   onTest: (apiKey: string) => void;
+  /**
+   * The provider's generated-form description from `GET /admin/ai/config`
+   * (`descriptors`, PP-14.6, #924). The bespoke built-in cards ignore it; the
+   * generic card renders its fields.
+   */
+  descriptor?: PluggableDescriptor | undefined;
 }
 
 export function AiProviderCard({
@@ -352,7 +267,6 @@ export function AiProviderCard({
   const switchId = `ai-provider-${provider.id}-enabled`;
   /** WRITE-ONLY — see the file header. */
   const [apiKey, setApiKey] = useState('');
-  const [removeOpen, setRemoveOpen] = useState(false);
 
   // A new configuration from the server is the new baseline: whatever was
   // typed has either been stored (and must not be sent twice) or belongs to a
@@ -373,11 +287,6 @@ export function AiProviderCard({
     setApiKey('');
   };
 
-  const handleRemove = async () => {
-    const ok = await onRemoveKey();
-    if (ok) setRemoveOpen(false);
-  };
-
   // A provider with no adapter in this build (`registered: false`) exists
   // only as a settings row: it can be switched OFF, never on, and a key for
   // it cannot be verified or tested because there is nothing to call.
@@ -391,14 +300,6 @@ export function AiProviderCard({
   /** The SAVED setting — the probe and the runtime act on what is stored. */
   const savedKeyless = fields.includes('requiresKey') && provider.requiresKey === false;
   const keylessOnScreen = fields.includes('requiresKey') && !value.requiresKey;
-
-  const testBlockedReason = !canWrite
-    ? 'Testing asks the provider to do work, so it needs ai_config:write.'
-    : unregistered
-      ? 'This provider is not available in this build, so there is nothing to test.'
-      : !typedKey && !status.configured && !savedKeyless
-        ? 'Type a key to test it — none is stored yet.'
-        : null;
 
   return (
     <Paper variant="outlined" sx={{ p: { xs: 2, sm: 3 } }} data-testid={`ai-provider-${provider.id}`}>
@@ -464,7 +365,7 @@ export function AiProviderCard({
                 onChange={(e) => onChange({ ...value, baseUrl: e.target.value })}
                 disabled={!canWrite}
                 error={!!errors?.baseUrl}
-                helperText={errors?.baseUrl ?? baseUrlHelperText(provider.id)}
+                helperText={errors?.baseUrl ?? baseUrlHelperText(provider)}
               />
             )}
 
@@ -576,86 +477,27 @@ export function AiProviderCard({
         }
       />
 
-      <Box
-        sx={{
-          mt: 2,
-          display: 'flex',
-          flexDirection: { xs: 'column', sm: 'row' },
-          alignItems: { xs: 'stretch', sm: 'center' },
-          gap: 1.5,
-          flexWrap: 'wrap',
-        }}
-      >
-        <Button
-          variant="contained"
-          startIcon={<SaveOutlinedIcon />}
-          onClick={() => void handleSaveKey()}
-          disabled={!canWrite || unregistered || !typedKey || keyTooShort || busy}
-        >
-          {keyAction === 'save' ? 'Verifying…' : 'Save key'}
-        </Button>
-        <Button
-          variant="outlined"
-          startIcon={<NetworkCheckIcon />}
-          onClick={() => onTest(typedKey)}
-          disabled={!!testBlockedReason || keyTooShort || busy}
-        >
-          {isProbing ? 'Testing…' : 'Test'}
-        </Button>
-        <Button
-          color="error"
-          startIcon={<DeleteOutlineIcon />}
-          onClick={() => setRemoveOpen(true)}
-          disabled={!canWrite || !status.configured || busy}
-        >
-          Remove key
-        </Button>
-        <Box sx={{ flexGrow: 1 }} />
-        {aiEnabled ? (
-          <Button component={RouterLink} to="/admin/settings/ai/models">
-            Manage models →
-          </Button>
-        ) : (
-          <Typography variant="body2" color="text.secondary">
-            Switch AI on and save to manage models.
-          </Typography>
-        )}
-      </Box>
-      <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-        {testBlockedReason ??
-          'Save key verifies the key with the provider before storing it. Test checks the typed key, or the stored one when the box is empty, and stores nothing.'}
-      </Typography>
-
-      {keyError && !removeOpen && (
-        <Alert severity="error" sx={{ mt: 2 }} onClose={onClearKeyError}>
-          <AlertTitle>Could not save the key</AlertTitle>
-          {keyError}
-        </Alert>
-      )}
-
-      {probeError && (
-        <Alert severity="error" sx={{ mt: 2 }} onClose={onClearProbeError}>
-          <AlertTitle>The request itself failed</AlertTitle>
-          {probeError}
-        </Alert>
-      )}
-
-      {testResult && (
-        <Box sx={{ mt: 2 }}>
-          <AiProbeResult result={testResult} onClose={onClearTestResult} />
-        </Box>
-      )}
-
-      <AiKeyRemoveDialog
-        open={removeOpen}
+      <AiProviderKeyActions
         providerName={provider.displayName}
-        isWorking={keyAction === 'remove'}
-        error={removeOpen ? keyError : null}
-        onConfirm={() => void handleRemove()}
-        onClose={() => {
-          setRemoveOpen(false);
-          onClearKeyError();
-        }}
+        canWrite={canWrite}
+        unregistered={unregistered}
+        status={status}
+        typedKey={typedKey}
+        keyTooShort={keyTooShort}
+        savedKeyless={savedKeyless}
+        busy={busy}
+        keyAction={keyAction}
+        isProbing={isProbing}
+        aiEnabled={aiEnabled}
+        keyError={keyError}
+        onClearKeyError={onClearKeyError}
+        probeError={probeError}
+        onClearProbeError={onClearProbeError}
+        testResult={testResult}
+        onClearTestResult={onClearTestResult}
+        onSave={() => void handleSaveKey()}
+        onRemove={onRemoveKey}
+        onTest={() => onTest(typedKey)}
       />
     </Paper>
   );
