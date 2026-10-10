@@ -1,0 +1,150 @@
+// =============================================================================
+// The broadcast audience: ONE predicate, two readers (issue #323, epic #319)
+// =============================================================================
+//
+// A broadcast is counted once (`recipientsTargeted`, by the start handler) and
+// then paged through many times (by the chunk handler). Those are two
+// different queries against the same population, and this file exists so they
+// cannot be two different POPULATIONS.
+//
+// THE BUG THIS PREVENTS, stated concretely because it is the whole reason for
+// the indirection: if the count says `isActive: true` and the paging says
+// `isActive: true AND createdAt <= cutoff`, the progress bar in the admin UI
+// climbs to 940/1000 and stops there forever, with every job row `succeeded`
+// and no error anywhere. Nothing is broken except the number, and the number
+// is the only thing an operator has to tell them whether the send finished.
+// The inverse drift is worse: a count NARROWER than the paging reports 1200 of
+// 1000 sent. Both are the same class of bug — two hand-written `where` clauses
+// that agreed on the day they were written — and one exported function is the
+// only fix that stays true when somebody later adds a third reader.
+//
+// REJECTED: inlining the clause in both handlers with a comment saying "keep
+// these in sync". Comments do not fail a build. This does, the moment the
+// shape changes.
+//
+// REJECTED: a `BroadcastAudienceService` with a `count()` and a `page()`. It
+// would be a class holding no state whose two methods each take a Prisma
+// client — a namespace with extra ceremony. The thing that must be shared is
+// the PREDICATE, not the queries around it, and a `NotificationsWhere` is
+// composable (the chunk handler spreads a cursor into it) in a way that a
+// wrapped query is not.
+// =============================================================================
+
+import type { NotificationsJsonValue, NotificationsInputJsonValue, NotificationsWhere } from '../data/notifications-db';
+
+/**
+ * `Job.subjectType` for BOTH broadcast job types.
+ *
+ * Snake-cased to match the table it names (`notification_broadcasts`), like
+ * every other subject string in this repository. Shared, so the admin Jobs
+ * dashboard can filter a whole fan-out — the start job and every one of its
+ * chunks — by one subject.
+ *
+ * IT LIVES HERE RATHER THAN IN EITHER HANDLER, and that is the only reason
+ * this file has a constant that is not about the audience. The start handler
+ * must know the chunk handler's `type` (it enqueues the first chunk) and the
+ * chunk handler must know this subject string (it enqueues its successor); put
+ * this in the start handler and those two imports form a cycle between the two
+ * files. A cycle whose members are only read inside methods happens to resolve
+ * under CommonJS, which is precisely what makes it a bad thing to leave lying
+ * around — it works until someone moves one of them to a class-property
+ * initializer and gets `undefined` at boot. One shared module, imported by
+ * both, has no such failure mode.
+  *
+  * @stability experimental
+ */
+export const BROADCAST_SUBJECT_TYPE = 'notification_broadcast';
+
+/**
+ * Recipients dispatched per `admin.broadcast.chunk` job.
+ *
+ * A LOCK-AND-LATENCY BOUND, not a throughput knob — the same argument
+ * `PURGE_BATCH_SIZE` makes in `job-history-purge.handler.ts`. Each chunk holds
+ * a worker slot for as long as it takes to dispatch this many notifications,
+ * so a large value starves a queue sized for human-triggered work while a tiny
+ * one turns a 50k-user broadcast into a flood of `jobs` rows that the admin
+ * dashboard and `job-history-purge` both have to grind through.
+ *
+ * ⚠ IT IS ALSO THE DUPLICATE BOUND. The cursor is committed AFTER a page is
+ * dispatched, so a process killed mid-chunk re-sends AT MOST THIS MANY
+ * recipients on the retry. See the chunk handler's header for why duplicate
+ * beats drop, and for the seam that lets this bound be tightened without
+ * restructuring anything.
+ */
+export { BROADCAST_CHUNK_SIZE } from '@marinoscar/platform-contract/notifications';
+
+/**
+ * How many recipients inside one chunk are dispatched concurrently.
+ *
+ * BOUNDED, and small. `notifyNow` awaits a real mail transport, so an
+ * unbounded `Promise.all` over a page would open 200 concurrent SMTP
+ * conversations — enough to trip a provider's per-connection limits and to
+ * make one broadcast the noisiest thing in the process — in exchange for
+ * latency nobody is waiting on. A broadcast has no deadline; it has a
+ * throughput floor, and five in flight clears it.
+ *
+ * It is the STEADY-STATE backpressure: the pace the fan-out holds while the
+ * provider is accepting. The REACTIVE half arrived with issue #456 — the email
+ * transport now classifies a throttle, `notifyNow` reports it, and the chunk
+ * handler stops launching sends, commits the contiguous prefix that went out
+ * and throws `RateLimitError`, so the queue defers the chunk and
+ * `provider-throttle.service.ts` holds sibling chunks off. That makes this
+ * number ALSO the duplicate bound on a throttled page: only sends already in
+ * flight when the first refusal came back can have landed past the committed
+ * cursor, and there are at most this many of those.
+  *
+  * @stability experimental
+ */
+export const BROADCAST_SEND_CONCURRENCY = 5;
+
+/**
+ * The users a broadcast goes to: ACTIVE, and existing as of the frozen cutoff.
+ *
+ * Used by BOTH the count that fills `recipientsTargeted` and the paging query
+ * that walks the audience — see the file header for the progress-bar bug that
+ * makes sharing this non-negotiable.
+ *
+ * The two halves answer two different questions:
+ *
+ *   - `isActive: true` is evaluated LIVE, on every page. A user deactivated
+ *     mid-fan-out stops receiving the broadcast from the next chunk onwards,
+ *     which is the correct reading of deactivation — it is a statement about
+ *     now, not about the moment the send began. That is also why
+ *     `recipientsTargeted` can legitimately exceed `recipientsDispatched`, and
+ *     why the schema's own comment calls it "targeted at send time" rather
+ *     than "should have received it".
+ *   - `createdAt <= cutoff` is FROZEN, from the single `audienceCutoff` the
+ *     start handler stamps. Without it the fan-out chases a moving target: on
+ *     a busy deployment new users keep arriving behind the cursor, so the
+ *     send may never terminate and "who got this?" stops being answerable.
+ *     With it, membership is deterministic and reproducible by re-running this
+ *     one query, and the two boundary windows are decided explicitly — a user
+ *     created between compose and start IS included, one created between start
+ *     and the last chunk is NOT.
+ *
+ * `lte`, not `lt`: the cutoff is a timestamp the start handler generates, so
+ * the interval is closed at the boundary it owns. Nothing hinges on it beyond
+ * being stated once rather than guessed at each call site.
+ *
+ * ORGANIZATION TARGETING (#738) arrived exactly as this comment always said
+ * targeting would: as one extra clause HERE, so the count and the paging move
+ * together by construction. With `targetOrgId` set, the audience is the
+ * active users holding an ACTIVE membership of that organization (`Membership`,
+ * #721); evaluated live per page, like `isActive`, so a member removed
+ * mid-fan-out stops receiving it. Without it, every active user, as before.
+ * There is still no role filter, no segment and no user picker.
+ *
+ * @param cutoff - the frozen audience cutoff.
+ * @param targetOrgId - the broadcast's organization, or `null`/absent for a
+ *   system broadcast.
+ * @returns the `users` filter.
+ *
+ * @stability stable
+ */
+export function audienceWhere(cutoff: Date, targetOrgId: string | null = null): NotificationsWhere {
+  return {
+    isActive: true,
+    createdAt: { lte: cutoff },
+    ...(targetOrgId ? { memberships: { some: { orgId: targetOrgId, status: 'active' } } } : {}),
+  };
+}

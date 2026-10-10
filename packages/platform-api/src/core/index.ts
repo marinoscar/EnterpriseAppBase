@@ -1,0 +1,168 @@
+// `@marinoscar/platform-api/core`: the primitives every other slice builds on
+// (issue #698): the typed registry primitive (issue #675, moved here by issue
+// #694) and the principal and scope contract (ADR 0001). Documented in
+// ./README.md. Explicit named exports below the registry barrel.
+//
+// `registry/index.ts` stays free of Nest so it can load where no container
+// exists (seeds, standalone scripts, import-time DTOs); `RegistryFreezeService`
+// is the one Nest-aware export and lives in its own file.
+
+export * from './registry/index';
+export { RegistryFreezeService } from './registry/registry-freeze.service';
+
+// The pluggable-kind primitive (PP-14.5, issue #923): one registry of
+// implementations per kind, each with its own settings schema, defaults and
+// declared secrets, plus the descriptors a generated form renders. Framework-
+// free like the registry. The conformance kit is `@marinoscar/platform-api/core/testing`.
+export * from './pluggable/index';
+
+// The host ports (issue #696): the access port (`definePlatformHost`), the
+// DI-time ports (`AUDIT_SINK`, `SYSTEM_SETTINGS_STORE`, `PLATFORM_PRISMA`) and
+// `PlatformHostModule`, which binds them. Every packaged slice reuses them.
+export * from './host/index';
+
+// Roles and permissions (issue #676, packaged by #866): the role and
+// permission registries every slice declares into, the declaration types, and
+// the seed catalog built from them. Framework-free, like the registry
+// primitive. The platform's own declarations, in seed order, are
+// `@marinoscar/platform-api/manifest`.
+export {
+  buildPermissionCatalog,
+  catalogGrants,
+  composePermissionCatalog,
+  permissionIds,
+  permissionRegistry,
+  registerPermissions,
+  registerRoles,
+  roleIds,
+  roleRegistry,
+} from './permissions/index';
+export type {
+  CatalogGrant,
+  DeclarationList,
+  Declarations,
+  IdentifiedDeclaration,
+  PermissionCatalog,
+  PermissionCatalogDeclarations,
+  PermissionCatalogEntry,
+  PermissionCatalogSource,
+  PermissionDeclaration,
+  PermissionDeclarationMap,
+  PermissionScope,
+  RoleDeclaration,
+  RoleDeclarationMap,
+} from './permissions/index';
+
+// Principal and scope contract (ADR 0001, issue #687). Types only.
+export type {
+  CredentialKind,
+  GroupMembership,
+  NodePrincipal,
+  OrgMembership,
+  Principal,
+  PrincipalKind,
+  Scope,
+  SystemActor,
+  TenancyMode,
+  UserPrincipal,
+} from './principal/index';
+
+// Errors: the application-wide exception filter, the error envelope's
+// OpenAPI DTO and the two exceptions that go with it (issue #698).
+export { HttpExceptionFilter } from './errors/http-exception.filter';
+export { withVerbatimErrorBody, hasVerbatimErrorBody } from './errors/verbatim-error-body.exception';
+export { DatabaseSeedException } from './errors/database-seed.exception';
+export { ErrorDto } from './errors/error.dto';
+
+// Crypto: the AES-256-GCM secret cipher under every runtime-configured
+// credential, and its bootstrap check (issue #698), plus HMAC signing sub-keys
+// from the same master key (issue #822). The cipher reads
+// SECRETS_ENCRYPTION_KEY from the environment once and caches it.
+export {
+  ORG_CREDENTIAL_DOMAIN_PREFIX,
+  USER_CREDENTIAL_DOMAIN_PREFIX,
+  assertEncryptionKeyConfigured,
+  decryptSecret,
+  deriveSigningKey,
+  encryptSecret,
+  isCanonicalUuid,
+  orgCredentialPurpose,
+  userCredentialPurpose,
+} from './crypto/secret-cipher';
+export { verifyEncryptionKeyAtStartup } from './crypto/encryption-key-startup-check';
+
+// OpenAPI tag registry: apps and slices register the @ApiTags names their
+// controllers use, with a description and a sidebar group (issue #698).
+export {
+  OPENAPI_TAG_NAME_PATTERN,
+  openApiTagGroups,
+  openApiTags,
+} from './openapi/openapi-tag.registry';
+export type { OpenApiTag, OpenApiTagGroup } from './openapi/openapi-tag.registry';
+
+// Scoped data access (issue #699; origin #688): the user-owned data registry,
+// the user-scoped client extension and the explicit unscoped escape. The app
+// fills the registry and injects its generated client; nothing here imports a
+// generated model type (`@prisma/client/extension` only).
+export {
+  ScopedAccessError,
+  asSystem,
+  forUser,
+  ownerFieldOf,
+  ownerRelationOf,
+  registerUserOwnedModels,
+  userOwnedModelRegistry,
+  userScopeExtension,
+} from './data-access/index';
+export type {
+  ExportPolicy,
+  ExtendableClient,
+  PurgePolicy,
+  UserOwnedModelDef,
+  UserOwnedModelLookup,
+  UserScopeExtension,
+} from './data-access/index';
+
+// Organisation scoping and row-level security (issue #725; ADR 0002 D5): the
+// transaction-local `forOrg` / `runInOrg` shapes, the bypass shapes for the
+// separate system client, and the model ownership registry.
+export {
+  RLS_SETTINGS,
+  SYSTEM_ACCESS_REASONS,
+  forOrg,
+  forScope,
+  forSystem,
+  modelOwnershipRegistry,
+  modelsOfKind,
+  orgColumnOf,
+  orgFieldOf,
+  orgScopeExtension,
+  registerModelOwnership,
+  runAsSystem,
+  runInOrg,
+  runInScope,
+  systemScopeExtension,
+} from './data-access/index';
+export type {
+  ModelOwnershipDef,
+  OrgScope,
+  OrgScopedClient,
+  OwnershipKind,
+  RlsBaseClient,
+  RlsRunnableClient,
+  RlsTransactionClient,
+  RlsTransactionOptions,
+  SystemAccessReason,
+} from './data-access/index';
+
+// Cross-cutting decorators every packaged controller needs (issue #727): the
+// maintenance-window exemption the app's `MaintenanceGuard` reads, and the
+// `{ data: … }` envelope response documentation.
+export { ALLOW_DURING_MAINTENANCE_KEY, AllowDuringMaintenance } from './maintenance/allow-during-maintenance.decorator';
+export { ApiDataResponse } from './openapi/api-data-response.decorator';
+export type { ApiDataResponseOptions, DataResponsePagination } from './openapi/api-data-response.decorator';
+
+// The PostgreSQL connection string from `POSTGRES_*` (issue #172; packaged by
+// #740 for the db-backup slice's dump, restore and admin connections).
+export { buildDatabaseUrl } from './database-url';
+export type { DatabaseEnv } from './database-url';

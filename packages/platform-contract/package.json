@@ -1,0 +1,230 @@
+{
+  "name": "@marinoscar/platform-contract",
+  "version": "0.1.0-next.3",
+  "description": "Zod DTOs and types shared by the platform API and web packages. Dual CommonJS + ESM.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=24"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marinoscar/EnterpriseAppBase.git",
+    "directory": "packages/platform-contract"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/cjs/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/esm/index.d.ts",
+        "default": "./dist/esm/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/index.d.ts",
+        "default": "./dist/cjs/index.js"
+      }
+    },
+    "./doctor": {
+      "import": {
+        "types": "./dist/esm/doctor/index.d.ts",
+        "default": "./dist/esm/doctor/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/doctor/index.d.ts",
+        "default": "./dist/cjs/doctor/index.js"
+      }
+    },
+    "./telemetry": {
+      "import": {
+        "types": "./dist/esm/telemetry/index.d.ts",
+        "default": "./dist/esm/telemetry/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/telemetry/index.d.ts",
+        "default": "./dist/cjs/telemetry/index.js"
+      }
+    },
+    "./sharing": {
+      "import": {
+        "types": "./dist/esm/sharing/index.d.ts",
+        "default": "./dist/esm/sharing/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/sharing/index.d.ts",
+        "default": "./dist/cjs/sharing/index.js"
+      }
+    },
+    "./identity": {
+      "import": {
+        "types": "./dist/esm/identity/index.d.ts",
+        "default": "./dist/esm/identity/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/identity/index.d.ts",
+        "default": "./dist/cjs/identity/index.js"
+      }
+    },
+    "./settings": {
+      "import": {
+        "types": "./dist/esm/settings/index.d.ts",
+        "default": "./dist/esm/settings/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/settings/index.d.ts",
+        "default": "./dist/cjs/settings/index.js"
+      }
+    },
+    "./credentials": {
+      "import": {
+        "types": "./dist/esm/credentials/index.d.ts",
+        "default": "./dist/esm/credentials/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/credentials/index.d.ts",
+        "default": "./dist/cjs/credentials/index.js"
+      }
+    },
+    "./onboarding": {
+      "import": {
+        "types": "./dist/esm/onboarding/index.d.ts",
+        "default": "./dist/esm/onboarding/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/onboarding/index.d.ts",
+        "default": "./dist/cjs/onboarding/index.js"
+      }
+    },
+    "./email": {
+      "import": {
+        "types": "./dist/esm/email/index.d.ts",
+        "default": "./dist/esm/email/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/email/index.d.ts",
+        "default": "./dist/cjs/email/index.js"
+      }
+    },
+    "./jobs": {
+      "import": {
+        "types": "./dist/esm/jobs/index.d.ts",
+        "default": "./dist/esm/jobs/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/jobs/index.d.ts",
+        "default": "./dist/cjs/jobs/index.js"
+      }
+    },
+    "./nodes": {
+      "import": {
+        "types": "./dist/esm/nodes/index.d.ts",
+        "default": "./dist/esm/nodes/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/nodes/index.d.ts",
+        "default": "./dist/cjs/nodes/index.js"
+      }
+    },
+    "./storage": {
+      "import": {
+        "types": "./dist/esm/storage/index.d.ts",
+        "default": "./dist/esm/storage/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/storage/index.d.ts",
+        "default": "./dist/cjs/storage/index.js"
+      }
+    },
+    "./notifications": {
+      "import": {
+        "types": "./dist/esm/notifications/index.d.ts",
+        "default": "./dist/esm/notifications/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/notifications/index.d.ts",
+        "default": "./dist/cjs/notifications/index.js"
+      }
+    },
+    "./exports": {
+      "import": {
+        "types": "./dist/esm/exports/index.d.ts",
+        "default": "./dist/esm/exports/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/exports/index.d.ts",
+        "default": "./dist/cjs/exports/index.js"
+      }
+    },
+    "./ai": {
+      "import": {
+        "types": "./dist/esm/ai/index.d.ts",
+        "default": "./dist/esm/ai/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/ai/index.d.ts",
+        "default": "./dist/cjs/ai/index.js"
+      }
+    },
+    "./db-backup": {
+      "import": {
+        "types": "./dist/esm/db-backup/index.d.ts",
+        "default": "./dist/esm/db-backup/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/db-backup/index.d.ts",
+        "default": "./dist/cjs/db-backup/index.js"
+      }
+    },
+    "./android-app": {
+      "import": {
+        "types": "./dist/esm/android-app/index.d.ts",
+        "default": "./dist/esm/android-app/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/android-app/index.d.ts",
+        "default": "./dist/cjs/android-app/index.js"
+      }
+    },
+    "./user-data": {
+      "import": {
+        "types": "./dist/esm/user-data/index.d.ts",
+        "default": "./dist/esm/user-data/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/user-data/index.d.ts",
+        "default": "./dist/cjs/user-data/index.js"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "prebuild": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "prepack": "node ../../scripts/copy-license.mjs",
+    "build": "tsc -p tsconfig.cjs.json && tsc -p tsconfig.esm.json && node scripts/write-dist-stubs.mjs",
+    "dev": "node scripts/dev.mjs",
+    "typecheck": "tsc --noEmit",
+    "docs": "typedoc --options typedoc.json",
+    "test": "vitest",
+    "test:run": "vitest run"
+  },
+  "peerDependencies": {
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.32",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8",
+    "zod": "^4.4.3"
+  }
+}

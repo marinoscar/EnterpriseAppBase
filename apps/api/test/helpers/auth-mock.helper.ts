@@ -29,11 +29,15 @@ export async function createMockTestUser(
   // Setup the mock user in Prisma mock
   const mockUser = setupMockUser(options);
 
-  // Generate JWT
+  // Generate JWT. A user with an active membership (the post-split shape,
+  // #723) gets the `org` claim every token the API issues carries (#724); a
+  // pre-split user has no membership and keeps the pre-#724 claim set, which
+  // single mode honours through the temporary compatibility path.
   const accessToken = jwtService.sign({
     sub: mockUser.id,
     email: mockUser.email,
     roles: mockUser.roles,
+    ...(mockUser.activeOrgId ? { org: mockUser.activeOrgId } : {}),
   });
 
   return {

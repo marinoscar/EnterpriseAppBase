@@ -1,0 +1,11 @@
+// =============================================================================
+// Prisma Schema - Web Application Foundation
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}

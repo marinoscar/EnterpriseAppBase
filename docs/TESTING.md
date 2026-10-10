@@ -1,843 +1,887 @@
-# Testing Framework
+# Testing
 
-This document describes the testing strategy, frameworks, and conventions used in this project. It serves as a guide for developers writing new tests and for AI agents that need to understand the testing approach.
+How this repository is tested: which tiers exist, what each one can and
+cannot prove, how to run them, and how to add a test. This is the only
+testing document; the testing agent (`.claude/agents/testing-dev.md`) points
+here.
 
-## Table of Contents
+## Contents
 
-1. [Testing Framework Overview](#testing-framework-overview)
-2. [Test Structure](#test-structure)
-3. [Running Tests](#running-tests)
-4. [Test Patterns & Conventions](#test-patterns--conventions)
-5. [Mocking Strategies](#mocking-strategies)
-6. [Writing New Tests](#writing-new-tests)
-7. [Test Configuration](#test-configuration)
-8. [Best Practices](#best-practices)
+1. [Overview](#overview)
+2. [Running tests](#running-tests)
+3. [API unit tests](#api-unit-tests)
+4. [API integration tests](#api-integration-tests)
+5. [API real-Postgres tests](#api-real-postgres-tests)
+6. [API real-GreptimeDB tests](#api-real-greptimedb-tests)
+7. [Tripwire suites](#tripwire-suites)
+8. [API test configuration](#api-test-configuration)
+9. [Web tests](#web-tests)
+10. [CLI tests](#cli-tests)
+11. [End-to-end tests (Playwright)](#end-to-end-tests-playwright)
+12. [Visual regression](#visual-regression)
+13. [Consumer smoke (packed and published packages)](#consumer-smoke-packed-and-published-packages)
+14. [Mocking OAuth](#mocking-oauth)
+15. [Writing a new test](#writing-a-new-test)
+16. [CI](#ci)
+17. [Common issues](#common-issues)
 
-## Testing Framework Overview
+## Overview
 
-### Backend (API)
+| Tier | File pattern | Uses | Command | CI job |
+|---|---|---|---|---|
+| API unit | `apps/api/src/**/*.spec.ts` | Jest, `@nestjs/testing`, mocked dependencies | `npm test --workspace=api` | `api-test` (2 shards) |
+| API integration | `apps/api/test/**/*.integration.spec.ts` (60 files) | Full `AppModule` on Fastify, Supertest, **mocked** Prisma | `npm test --workspace=api` | `api-test` |
+| API real-Postgres | `**/*.db.spec.ts` (26 files) | A real, migrated PostgreSQL 16; `pg_dump`/`pg_restore` for backup suites | `npm run test:db --workspace=api` | `smoke` |
+| API real-GreptimeDB | `packages/platform-api/src/telemetry/telemetry.greptime.spec.ts` | A real, disposable GreptimeDB standalone | `npm run test:greptime --workspace=@marinoscar/platform-api` | `greptime-test` |
+| Web | `apps/web/src/**/*.test.{ts,tsx}` | Vitest, jsdom, React Testing Library, MSW | `npm run test:run --workspace=web` | `web-test` (6 shards) |
+| CLI | `apps/cli/src/**/*.test.{ts,tsx}` | Vitest, Node environment | `npm run test:run --workspace=cli` | `build` |
+| End-to-end | `tests/e2e/specs/*.spec.ts` | Playwright against the running Compose stack, `/testing/login` bypass | `cd tests/e2e && npm test` | none (run locally) |
+| Visual regression | `tests/visual/specs/*.spec.ts` | Playwright, pinned Chromium, a Vite harness; no API or database | see [Visual regression](#visual-regression) | `visual` |
+| Worker cycle e2e | `apps/api/scripts/worker-cycle-e2e.mjs` (+ `worker-e2e/`) | The compiled API on a real PostgreSQL, the packaged node CLI (`node enroll`, `node register`, `node start`) with one test executor, no Docker daemon: enrol, claim, run, settle, result persisted, the job-scoped credential held in node memory only and revoked on settle (#881) | `npm run test:worker-e2e --workspace=api` (after `build`, `prisma:migrate`, `prisma:seed`) | `worker-e2e` |
+| Consumer smoke | `tests/consumer-smoke/{api,web}` | The platform packages installed from tarballs, npm or a GitHub release into minimal apps outside the repository; `node:test`, Vitest | `npm run smoke:consumer` | `pack-smoke` (packages.yml), `github-release` and `registry-smoke` (release.yml) |
 
-**Framework:** Jest + Supertest + @nestjs/testing
+Only `*.db.spec.ts` needs a database; the integration tier mocks `PrismaService`.
 
-**Why These Frameworks:**
-- **Jest**: Industry-standard JavaScript testing framework with excellent TypeScript support, built-in mocking, and parallel test execution
-- **Supertest**: HTTP assertion library that works seamlessly with NestJS applications, allowing end-to-end API testing without spinning up a real server
-- **@nestjs/testing**: Official NestJS testing utilities that provide dependency injection and module compilation for isolated testing
+## Running tests
 
-**Key Features:**
-- Unit tests run in isolation with mocked dependencies
-- E2E tests use a real test database (PostgreSQL)
-- OAuth strategies are mocked to avoid external dependencies
-- Test database is reset between test suites for isolation
-
-### Frontend (Web)
-
-**Framework:** Vitest + React Testing Library + MSW (Mock Service Worker)
-
-**Why These Frameworks:**
-- **Vitest**: Fast, modern test runner built for Vite projects with Jest-compatible API, native ESM support, and excellent performance
-- **React Testing Library**: Encourages testing components from the user's perspective rather than implementation details, promoting maintainable tests
-- **MSW (Mock Service Worker)**: Intercepts network requests at the network level, providing realistic API mocking without changing application code
-- **@testing-library/user-event**: Simulates real user interactions more accurately than fireEvent
-
-**Key Features:**
-- Component tests render UI in jsdom environment
-- API calls are mocked with MSW handlers
-- User interactions tested with user-event library
-- Context providers (Auth, Theme) tested in isolation
-
-## Test Structure
-
-### Backend Test Organization
-
-```
-apps/api/
-├── src/
-│   └── **/*.spec.ts          # Unit tests (co-located with source)
-├── test/
-│   ├── jest.config.js         # Jest configuration
-│   ├── setup.ts               # Global test setup
-│   ├── teardown.ts            # Global test cleanup
-│   ├── helpers/               # Test utilities
-│   │   ├── test-app.helper.ts    # App creation/teardown
-│   │   ├── auth.helper.ts        # User creation & JWT helpers
-│   │   └── database.helper.ts    # DB seeding & cleanup
-│   ├── mocks/                 # Mock implementations
-│   │   ├── prisma.mock.ts        # Prisma client mocks
-│   │   └── google-oauth.mock.ts  # OAuth strategy mocks
-│   └── **/*.e2e.spec.ts       # E2E integration tests
-└── .env.test                  # Test environment variables
-```
-
-**Test Types:**
-- **Unit tests** (`*.spec.ts`): Located alongside source files, test individual services/controllers/guards in isolation
-- **E2E tests** (`*.e2e.spec.ts`): Located in `test/` directory, test full request-response cycles with real database
-
-### Frontend Test Organization
-
-```
-apps/web/
-├── src/
-│   ├── __tests__/
-│   │   ├── setup.ts              # Test setup (MSW, mocks)
-│   │   ├── utils/
-│   │   │   └── test-utils.tsx    # Custom render utilities
-│   │   ├── mocks/
-│   │   │   ├── server.ts         # MSW server setup
-│   │   │   └── handlers.ts       # API mock handlers
-│   │   ├── components/
-│   │   │   └── **/*.test.tsx     # Component tests
-│   │   ├── contexts/
-│   │   │   └── **/*.test.tsx     # Context/hook tests
-│   │   └── pages/
-│   │       └── **/*.test.tsx     # Page tests
-└── vitest.config.ts          # Vitest configuration
-```
-
-**Test Types:**
-- **Component tests**: Test individual React components in isolation
-- **Page tests**: Test entire pages with routing and context
-- **Context tests**: Test React contexts and custom hooks
-- **Integration tests**: Test multiple components working together
-
-## Running Tests
-
-### Backend Tests
+There is no root `npm test`. Run each workspace, or use the root shortcuts
+`npm run api:test` and `npm run web:test`.
 
 ```bash
-# Navigate to API directory
-cd apps/api
+# API: unit + integration (no database needed)
+npm test --workspace=api
+npm run test:watch --workspace=api
+npm run test:cov --workspace=api          # coverage in apps/api/coverage
+npm run test:debug --workspace=api        # node --inspect-brk, run in band
 
-# Run all tests
-npm test
+# API: real-Postgres tier (needs a database, see below)
+npm run test:db --workspace=api
 
-# Run tests in watch mode
-npm run test:watch
+npm test --workspace=api -- users.integration          # one file
+npm test --workspace=api -- -t "should return 403"     # one test by name
+npm test --workspace=api -- --shard=1/2                # one CI shard
 
-# Run with coverage
-npm run test:cov
+# Type-checking (Jest does not type-check)
+npm run typecheck --workspace=api   # also web, cli
 
-# Run only unit tests (exclude e2e)
-npm run test:unit
+# Web: once, watch, coverage, Vitest UI
+npm run test:run --workspace=web
+npm test --workspace=web
+npm run test:coverage --workspace=web
+npm run test:ui --workspace=web
 
-# Run only e2e tests
-npm run test:e2e
-
-# Debug tests
-npm run test:debug
-
-# CI mode (coverage + junit reporter)
-npm run test:ci
+# CLI
+npm run test:run --workspace=cli
 ```
 
-### Frontend Tests
+API script reference (`apps/api/package.json`):
 
-```bash
-# Navigate to web directory
-cd apps/web
+| Script | Runs |
+|---|---|
+| `test`, `test:unit` | Every `*.spec.ts` except `*.db.spec.ts` (identical scripts) |
+| `test:watch`, `test:cov`, `test:ci` | The same set, watching / with coverage / with coverage and JUnit |
+| `test:db` | Only `*.db.spec.ts`, `--runInBand` |
+| `test:all` | Everything, including `*.db.spec.ts` |
 
-# Run all tests
-npm test
+## API unit tests
 
-# Run tests in watch mode (interactive)
-npm run test:watch
-
-# Run tests once (CI mode)
-npm run test:run
-
-# Run with coverage
-npm run test:coverage
-
-# Open Vitest UI
-npm run test:ui
-
-# CI mode (coverage + junit reporter)
-npm run test:ci
-```
-
-### Environment Variables
-
-Backend tests require a test database. Create `apps/api/.env.test`:
-
-```bash
-DATABASE_URL="postgresql://user:password@localhost:5432/app_test"
-JWT_SECRET="test-secret-key-min-32-characters"
-NODE_ENV="test"
-```
-
-**Important:** The test database should be separate from development database. Tests will truncate all data between runs.
-
-## Test Patterns & Conventions
-
-### Naming Conventions
-
-**Backend:**
-- Unit tests: `*.spec.ts` (e.g., `auth.service.spec.ts`)
-- E2E tests: `*.e2e.spec.ts` (e.g., `auth.e2e.spec.ts`)
-
-**Frontend:**
-- All tests: `*.test.tsx` or `*.test.ts`
-- Test files mirror source structure (e.g., `LoginPage.tsx` → `LoginPage.test.tsx`)
-
-### Test Structure Pattern
-
-Use nested `describe` blocks to organize tests logically:
+Unit tests sit next to the code they test (`auth.service.ts` →
+`auth.service.spec.ts`). They build a small `TestingModule` with only the
+class under test and mocked collaborators. The largest groups are services,
+job handlers, cron tasks, DTOs (Zod schemas), mappers, guards and the AI
+provider conformance kit.
 
 ```typescript
-describe('ComponentName or ServiceName', () => {
-  // Setup
-  beforeEach(() => {
-    // Reset state before each test
-  });
-
-  describe('Feature Group 1', () => {
-    it('should do something specific', () => {
-      // Arrange
-      // Act
-      // Assert
-    });
-
-    it('should handle error case', () => {
-      // Test error handling
-    });
-  });
-
-  describe('Feature Group 2', () => {
-    it('should behave differently', () => {
-      // Another test
-    });
-  });
-});
-```
-
-**Best Practices:**
-- Group related tests in `describe` blocks
-- Use descriptive test names starting with "should"
-- Follow Arrange-Act-Assert pattern
-- One logical assertion per test (exceptions for related assertions)
-- Test both success and error cases
-
-### Backend Test Pattern (Unit Test)
-
-```typescript
-import { Test, TestingModule } from '@nestjs/testing';
-import { ServiceName } from './service-name.service';
+import { Test } from '@nestjs/testing';
+import { NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { createMockPrismaService } from '../../test/mocks/prisma.mock';
+import { createMockPrismaService, MockPrismaService } from '../../test/mocks/prisma.mock';
+import { PatService } from './pat.service';
 
-describe('ServiceName', () => {
-  let service: ServiceName;
-  let mockPrisma: MockPrismaService;
+describe('PatService', () => {
+  let service: PatService;
+  let prisma: MockPrismaService;
 
   beforeEach(async () => {
-    mockPrisma = createMockPrismaService();
-
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        ServiceName,
-        { provide: PrismaService, useValue: mockPrisma },
-      ],
+    prisma = createMockPrismaService();
+    const module = await Test.createTestingModule({
+      providers: [PatService, { provide: PrismaService, useValue: prisma }],
     }).compile();
-
-    service = module.get<ServiceName>(ServiceName);
+    service = module.get(PatService);
   });
 
-  afterEach(() => {
-    jest.clearAllMocks();
-  });
-
-  describe('methodName', () => {
-    it('should return expected result', async () => {
-      // Arrange
-      mockPrisma.model.findUnique.mockResolvedValue({ id: '1' });
-
-      // Act
-      const result = await service.methodName('1');
-
-      // Assert
-      expect(result).toEqual({ id: '1' });
-      expect(mockPrisma.model.findUnique).toHaveBeenCalledWith({
-        where: { id: '1' },
-      });
-    });
+  it('refuses to revoke a token the caller does not own', async () => {
+    prisma.personalAccessToken.findFirst.mockResolvedValue(null);
+    await expect(service.revokeToken('user-1', 'pat-1')).rejects.toThrow(NotFoundException);
   });
 });
 ```
 
-### Backend Test Pattern (E2E Test)
+Mock every other collaborator with a plain object of `jest.fn()` members
+(`{ provide: JobsService, useValue: { enqueue: jest.fn() } }`).
+
+## API integration tests
+
+`*.integration.spec.ts` files under `apps/api/test/` drive real HTTP requests
+through the **whole** application: every module, guard, pipe, filter and
+interceptor that `AppModule` wires, on the Fastify adapter. Only the database
+(and anything a spec opts to replace) is a mock. They prove routing, auth,
+RBAC, validation, the response envelope and error mapping end to end.
+
+### Layout
+
+| Path | Contents |
+|---|---|
+| `test/helpers/` | `test-app.helper.ts` (app bootstrap), `auth-mock.helper.ts` (mock users, real JWTs), `scratch-database.helper.ts` and `tmp-storage-provider.helper.ts` (db tier) |
+| `test/mocks/` | `prisma.mock.ts`, `google-oauth.mock.ts`, `storage-provider.mock.ts`, `pg-process.mock.ts` (fake `pg_dump`/`pg_restore`) |
+| `test/fixtures/` | `mock-setup.helper.ts` (`setupBaseMocks`, `setupMockUser`, ...), `test-data.factory.ts` (`createMockUser`, `mockRoles`), user/role/settings fixtures |
+| `test/<area>/` | Specs by feature: `auth`, `rbac`, `settings`, `ai`, `jobs`, `nodes`, `storage`, `notifications`, ... |
+
+`test/setup.ts` loads `apps/api/.env.test` (JWT secret, a dummy Google client
+id, `OTEL_ENABLED=false`, the test database address) and sets
+`NODE_ENV=test`.
+
+### `test-app.helper.ts`
+
+```typescript
+createTestApp(options?: {
+  useMockDatabase?: boolean;                 // default true
+  registerRoutes?: (app) => void;            // raw Fastify routes, added before init()
+  overrideProviders?: { provide; useValue }[]; // extra substitutions
+}): Promise<TestContext>
+
+interface TestContext { app; prisma; prismaMock; module; isMocked }
+closeTestApp(context): Promise<void>
+```
+
+With the default mocked database it:
+
+- compiles the full `AppModule`, overriding `PrismaService` with the shared
+  `prismaMock` and `JobWorker` with an empty object (so no polling loop runs);
+- applies each `overrideProviders` entry, for a spec that needs to control one
+  slice (a mail transport, a storage provider) while every other provider
+  stays real;
+- registers `@fastify/cookie` and `@fastify/multipart` the way `main.ts` does,
+  sets the `api` prefix, and relies on the global `ZodValidationPipe` from
+  `AppModule`;
+- calls `app.init()` and waits for Fastify to be ready.
+
+`useMockDatabase: false` compiles `AppModule` with no overrides. No suite in
+the repository uses it; real-database coverage lives in the `*.db.spec.ts`
+tier instead.
+
+### `auth-mock.helper.ts`
+
+| Function | Returns |
+|---|---|
+| `createMockTestUser(context, options?)` | Registers a mock user in `prismaMock` (via `setupMockUser`) and signs a real JWT with the app's own `JwtService`. `options` take `email`, `roleName`, `isActive` and so on |
+| `createMockAdminUser(context, email?)` | The same, with the `admin` role |
+| `createMockContributorUser` / `createMockViewerUser` / `createMockInactiveUser` | The other roles, and an inactive user |
+| `authHeader(token)` | `{ Authorization: 'Bearer <token>' }` |
+
+Because the JWT strategy reloads the user from Prisma on every request, the
+mock user registered by these helpers is what the guards see.
+
+### Mocked Prisma
+
+`test/mocks/prisma.mock.ts` exports:
+
+- `prismaMock`: a `mockDeep<PrismaClient>()` from `jest-mock-extended`, typed
+  `any` so tests can return partial rows;
+- `resetPrismaMock()`: call in `beforeEach`;
+- `mockPrismaTransaction()`: makes `$transaction` run callbacks and arrays
+  against the mock;
+- `createMockPrismaService()`: a fresh deep mock for unit tests.
+
+`fixtures/mock-setup.helper.ts` layers sensible defaults on top:
+`setupBaseMocks()` (roles, permissions, users, system settings, audit events,
+user settings), `setupMockUserList`, `setupMockAllowedEmail(List)`,
+`setupMockSystemSettings`, `setupMockUserSettings`.
+
+### A typical integration spec
 
 ```typescript
 import request from 'supertest';
-import { TestContext, createTestApp, closeTestApp } from '../helpers/test-app.helper';
-import { resetDatabase } from '../helpers/database.helper';
-import { createTestUser, authHeader } from '../helpers/auth.helper';
+import { TestContext, createTestApp, closeTestApp } from './helpers/test-app.helper';
+import { resetPrismaMock } from './mocks/prisma.mock';
+import { setupBaseMocks, setupMockUserList } from './fixtures/mock-setup.helper';
+import { createMockAdminUser, createMockViewerUser, authHeader } from './helpers/auth-mock.helper';
 
-describe('Controller (e2e)', () => {
+describe('Users (Integration)', () => {
   let context: TestContext;
 
   beforeAll(async () => {
-    context = await createTestApp();
+    context = await createTestApp({ useMockDatabase: true });
   });
 
   afterAll(async () => {
     await closeTestApp(context);
   });
 
-  beforeEach(async () => {
-    await resetDatabase(context.prisma);
-  });
-
-  describe('GET /api/endpoint', () => {
-    it('should return data for authenticated user', async () => {
-      const user = await createTestUser(context);
-
-      const response = await request(context.app.getHttpServer())
-        .get('/api/endpoint')
-        .set(authHeader(user.accessToken))
-        .expect(200);
-
-      expect(response.body.data).toBeDefined();
-    });
-
-    it('should return 401 without token', async () => {
-      await request(context.app.getHttpServer())
-        .get('/api/endpoint')
-        .expect(401);
-    });
-  });
-});
-```
-
-### Frontend Test Pattern (Component Test)
-
-```typescript
-import { describe, it, expect, beforeEach } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { render } from '../utils/test-utils';
-import { ComponentName } from '../../components/ComponentName';
-
-describe('ComponentName', () => {
   beforeEach(() => {
-    // Reset any state
+    resetPrismaMock();
+    setupBaseMocks();
   });
 
-  describe('Rendering', () => {
-    it('should render component with props', () => {
-      render(<ComponentName title="Test" />);
-
-      expect(screen.getByText('Test')).toBeInTheDocument();
-    });
+  it('returns 401 without a token', async () => {
+    await request(context.app.getHttpServer()).get('/api/users').expect(401);
   });
 
-  describe('User Interaction', () => {
-    it('should handle button click', async () => {
-      const user = userEvent.setup();
-      const onClickMock = vi.fn();
-
-      render(<ComponentName onClick={onClickMock} />);
-
-      await user.click(screen.getByRole('button'));
-
-      expect(onClickMock).toHaveBeenCalledTimes(1);
-    });
-  });
-});
-```
-
-### Frontend Test Pattern (Hook Test)
-
-```typescript
-import { renderHook, act, waitFor } from '@testing-library/react';
-import { useCustomHook } from '../../hooks/useCustomHook';
-
-describe('useCustomHook', () => {
-  it('should return initial state', () => {
-    const { result } = renderHook(() => useCustomHook());
-
-    expect(result.current.value).toBe(null);
-    expect(result.current.isLoading).toBe(false);
+  it('returns 403 without users:read', async () => {
+    const viewer = await createMockViewerUser(context);
+    await request(context.app.getHttpServer())
+      .get('/api/users')
+      .set(authHeader(viewer.accessToken))
+      .expect(403);
   });
 
-  it('should update state on action', async () => {
-    const { result } = renderHook(() => useCustomHook());
+  it('lists users for an admin', async () => {
+    const admin = await createMockAdminUser(context);
+    setupMockUserList([
+      { email: admin.email, roleName: 'admin' },
+      { email: 'user1@example.com', roleName: 'viewer' },
+    ]);
 
-    act(() => {
-      result.current.updateValue('new');
-    });
+    const res = await request(context.app.getHttpServer())
+      .get('/api/users')
+      .set(authHeader(admin.accessToken))
+      .expect(200);
 
-    await waitFor(() => {
-      expect(result.current.value).toBe('new');
-    });
+    expect(res.body.data.items).toHaveLength(2);
   });
 });
 ```
 
-## Mocking Strategies
+For a PAT, pass `Authorization: Bearer pat_…` and mock
+`prismaMock.personalAccessToken.findUnique`; `test/auth/pat-universality.integration.spec.ts`
+proves a PAT works on every authenticated route.
 
-### Backend Mocking
+A mock returns whatever the test told it to; it proves nothing about SQL,
+indexes, constraints, locks or isolation. For those, write a `*.db.spec.ts`.
 
-#### 1. Prisma Client Mocking (Unit Tests)
+## API real-Postgres tests
 
-Use the provided mock factory for consistent Prisma mocking:
+`*.db.spec.ts` suites observe real PostgreSQL: the job claim's
+`FOR UPDATE SKIP LOCKED`, the partial unique indexes Prisma cannot declare,
+`ON DELETE SET NULL` foreign keys, two executors racing for one row, a lease
+expiring between compute and submit, a real `pg_dump` streamed into storage,
+and a database renamed under a live pool during restore.
 
-```typescript
-import { createMockPrismaService, MockPrismaService } from '../../test/mocks/prisma.mock';
+They are excluded from every Jest script except `test:db` and `test:all`, so
+a plain `npm test` never needs a database.
 
-let mockPrisma: MockPrismaService;
+### Where they live
 
-beforeEach(() => {
-  mockPrisma = createMockPrismaService();
+| Location | Covers |
+|---|---|
+| `apps/api/test/jobs/` | Claim, enqueue dedup, lease renewal, stuck reset, history purge, insights, admin delete veto, terminal-write claim guard, schema indexes |
+| `apps/api/test/nodes/` | Node schema and FKs, claim contention with the in-process worker, fleet lifecycle, the `example.checksum` data plane, `job_node_secrets` schema |
+| `apps/api/test/integration/` | Cross-seam scenarios: queue/fleet concurrency, node lease boundary, backup round trip, restore round trip |
+| `apps/api/test/broadcasts/` | Broadcast model indexes and defaults, chunked fan-out |
+| `apps/api/test/ai/ai-usage.db.spec.ts` | Usage aggregation SQL |
+| `apps/api/test/credentials/` | The credential stores: `user_credentials`, `org_credentials` under row-level security, ciphertexts written before the package move |
+| `apps/api/test/prisma/platform-*.db.spec.ts` | `platform db sync` installs byte copies whose `_prisma_migrations.checksum` equals the package file's sha256; Prisma's silence about an edited applied migration; the raw-SQL index list equals the catalogue |
+| `apps/api/test/db-backup/*.db.spec.ts` | The packaged db-backup slice against real PostgreSQL: cluster primitives for restore, the single-active-run index, the PostgreSQL job-role broker, run/job linkage (its unit specs are in `packages/platform-api/test/db-backup/`) |
+| `apps/api/test/tenancy/` | Row-level security (#725): `rls-isolation` (two organizations, an ordinary role the suite creates, `FORCE` on: scoped reads, writes and raw SQL never cross, an unscoped client fails closed, the system client sees both, concurrent scoped transactions never mix), `rls-coverage` (every `org` model has RLS forced and a listed policy; no unclassified `org_id`), `storage-org-isolation` (the real storage service answers 404 across organizations for the same user), `rls-overhead` (prints the per-query cost) |
+| `apps/api/test/db-backup/db-backup-rls.db.spec.ts` | A dump and restore with RLS forced carry every row of every organization (exact counts), for the engine's dump, the broker's minted role and the CLI's node-side dump, with both negative controls |
 
-  // Configure specific mocks
-  mockPrisma.user.findUnique.mockResolvedValue({ id: '1', email: 'test@example.com' });
+Each file's header comment names what it proves and its measured wall-clock
+time.
+
+### Support code
+
+- `apps/api/test/jobs/db-test-support.ts`
+  - `resolveDbSuite(name)` returns `{ describeWithDb, dbReachable }`.
+    `describeWithDb` is `describe` when a TCP probe reaches
+    `POSTGRES_HOST:POSTGRES_PORT`, otherwise `describe.skip` with one warning.
+    `npm run test:db` without a database therefore skips cleanly.
+  - `createDbClient()` builds a `PrismaClient` from `POSTGRES_*`, ignoring the
+    `DATABASE_URL` that `.env.test` also sets. It carries the `app.rls_bypass`
+    startup option, so a fixture sees and writes every organization's rows even
+    when the role is ordinary (see below).
+  - `createDbServices()` builds the application's real `PrismaService` (tenant
+    client, `forOrg` / `runInOrg`) and `PrismaSystemService` against the same
+    database, for a service under test whose constructor takes them;
+    `defaultOrgId(client)` is the organization to hang fixture rows on.
+- `apps/api/test/helpers/rls-database.helper.ts` builds a migrated database
+  owned by its own **ordinary** role (`NOSUPERUSER NOBYPASSRLS`), because
+  row-level security is inert for a superuser: `createRlsDatabase(label)`
+  returns the tenant and system pools, an administrator session
+  (`admin(fn)`, bypass on, the ground truth), `createSibling` (a restore
+  target) and `destroy()`; `seedTwoOrgs(db)` seeds two organizations;
+  `rlsServices(db)` builds the real Nest providers over it. A suite that
+  proves isolation uses it; it never relies on the shared database's role.
+- `apps/api/test/helpers/scratch-database.helper.ts` builds throwaway
+  databases for destructive suites: `envFor(db)`, `prismaClientFor(db)`,
+  `pgConnectionFor(db)`, `migrateDeploy(db)` (runs the real
+  `prisma migrate deploy`), and `engineForConnection(conn)` (a backup engine
+  bound to that database only).
+- `apps/api/test/helpers/tmp-storage-provider.helper.ts`:
+  `TmpDirStorageProvider`, a real filesystem `StorageProvider` so backup
+  suites stream actual archive bytes.
+
+### Running them locally
+
+`infra/compose/test.compose.yml` provides a dedicated PostgreSQL 16 on host
+port **5433** (database `my_app_test`), matching `apps/api/.env.test`. It
+never touches your development database. The suites connect as the ordinary
+role **`app`** (password `postgres`), which `postgres-init/10-application-role.sh`
+creates and makes the database owner (`NOSUPERUSER NOBYPASSRLS CREATEDB
+CREATEROLE`), so row-level security applies to the application's own client;
+`postgres` stays the bootstrap superuser for administration. A volume created
+before this change keeps the old setup: `docker compose -f
+infra/compose/test.compose.yml down -v` and start again.
+
+```bash
+# 1. Start the test database
+docker compose -f infra/compose/test.compose.yml up -d
+
+# 2. Migrate it (explicit variables win over infra/compose/.env)
+POSTGRES_HOST=localhost POSTGRES_PORT=5433 POSTGRES_USER=app \
+POSTGRES_PASSWORD=postgres POSTGRES_DB=my_app_test \
+  npm run prisma:migrate --workspace=api
+
+# 3. Run the tier
+npm run test:db --workspace=api
+```
+
+The suites read `POSTGRES_*`, never `DATABASE_URL`. To point them elsewhere,
+export `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`,
+`POSTGRES_PASSWORD` and `POSTGRES_DB` before running; exported values win
+over `.env.test`. The database must be migrated first: several suites assert
+on indexes that exist only in the migration SQL.
+
+The backup and restore suites also shell out to `pg_dump`, `pg_restore` and
+`psql`, which must be on `PATH` with a major version compatible with the
+server. See [runbooks/postgres-client-version.md](runbooks/postgres-client-version.md).
+
+### Rules for a new `*.db.spec.ts`
+
+1. **Name it `<subject>.db.spec.ts`** and put it beside its siblings. The
+   filename alone opts it into `test:db` and out of everything else.
+2. **Wrap it in `describeWithDb`** from `resolveDbSuite`, so it skips without
+   a database.
+3. **Scope every row you create** behind a suite-and-process prefix, for
+   example `` `test.claim.${process.pid}.` `` for job types, emails and node
+   names. Delete by that prefix in `afterAll`, and in `beforeAll` to clean up
+   after a crashed run. The database is shared by every suite.
+4. **Assume serial execution.** `test:db` runs `--runInBand` because several
+   suites must be the only thing touching the rows they lock.
+5. **Never do anything destructive to the shared database.** Rename, drop or
+   terminate sessions only on a scratch database from
+   `scratch-database.helper.ts`. `database-restore-round-trip.db.spec.ts`
+   shows the guard: `assertNeverTheSharedDatabase` throws before any work if
+   a derived name could collide with `POSTGRES_DB`.
+
+## API real-GreptimeDB tests
+
+`packages/platform-api/src/telemetry/telemetry.greptime.spec.ts` observes a real
+GreptimeDB standalone: the reader/admin user split enforced by the server
+itself (not the app's SQL guard), `TelemetryQueryService` end to end (SELECT
+wrapping, truncation, multi-statement rejection, server-side SQL errors),
+retention (`ALTER DATABASE ... SET 'ttl'`, `SHOW CREATE DATABASE`,
+`TelemetryStatusService`), schema discovery and every export format,
+including a real Parquet round trip through the child-process helper
+(`packages/platform-api/src/telemetry/testing/parquet-child.ts`).
+
+It is excluded from every other Jest script (`test`, `test:db`, `test:all`
+all skip it via `testPathIgnorePatterns`/their own `testRegex`) and only runs
+under `test:greptime`, which every other Jest script's ignore pattern keeps
+out.
+
+### Running it locally
+
+`infra/compose/test.compose.yml`'s `greptime-test` service is a disposable
+GreptimeDB standalone with the same three users CI uses (`admin`, `writer`,
+`reader`, all `readonly` except `admin`/`writer`), on host ports 14010
+(HTTP) and 14013 (PostgreSQL wire):
+
+```bash
+# 1. Start it
+docker compose -f infra/compose/test.compose.yml up -d greptime-test
+
+# 2. Run the tier
+GREPTIME_TEST_URL="postgres://reader:test-reader@localhost:14013/public" \
+GREPTIME_TEST_ADMIN_URL="postgres://admin:test-admin@localhost:14013/public" \
+  npm run test:greptime --workspace=@marinoscar/platform-api
+```
+
+Without `GREPTIME_TEST_URL` every test in the file is skipped — a plain
+`npm run test:greptime --workspace=@marinoscar/platform-api` on a machine with no GreptimeDB
+running exits cleanly. `GREPTIME_TEST_ADMIN_URL` is optional: without it, the
+suite still runs everything that only needs the reader connection (queries,
+schema, exports) but skips fixture seeding and the retention test, which need
+`ALTER DATABASE` and `CREATE TABLE`/`INSERT`. `GREPTIME_TEST_OUT_DIR` is an
+optional directory to save each exported file to, for manual inspection.
+
+### In CI
+
+`greptime-test` (see [CI](#ci)) starts the same image directly with `docker
+run`, not a `services:` container: GitHub Actions' `services:` block cannot
+pass GreptimeDB the `--user-provider` argument its reader/admin split needs,
+so the job starts it as an explicit step and polls its `/health` endpoint
+before running the tier.
+
+## Tripwire suites
+
+These suites never hand-list what they check. They discover it (from the Nest
+router, the job registry, the seed file, the filesystem), so a new route, job
+type, provider SDK import or doc link is covered the moment it exists, with
+no edit to the suite.
+
+| Suite | Invariant |
+|---|---|
+| `apps/api/test/docs-links.spec.ts` | Every relative link in `README.md`, `CLAUDE.md`, `CHANGELOG.md`, `docs/**` and `.claude/agents/*.md` resolves to a real file (anchors stripped, fenced code ignored) |
+| `apps/api/test/conformance.spec.ts` | One entry for the platform's cross-cutting API invariants, through `runPlatformConformance()`: `cron-enqueue-only` (every `@Cron` only enqueues, except the three permanent exemptions), `on-event-no-io` (no `@OnEvent` body does storage I/O), `ai-kill-switch`, `ai-rbac-matrix`, `ai-secret-egress`, `ai-key-policy`, `ai-jobs-server-only`, `ai-no-sdk-leak` and `ai-orchestration-boundary`. Each suite's invariant is in [Platform conformance](#platform-conformance) |
+| `apps/web/src/__tests__/conformance.test.ts` | The web counterpart, through `runPlatformWebConformance()`: `settings-registry-gates`, `settings-registry-shape`, `settings-ai-cards`, `settings-card-routes` and `settings-route-ownership` |
+| `apps/api/test/prisma/user-owned-models.spec.ts` | Every `User` foreign key in the `prisma/schema/` folder is in the user-owned data registry, every registered model and field exists, and every purge policy matches the relation's `onDelete`; and only the files in `raw-sql-allowlist.ts` use `$queryRaw`/`$executeRaw` (or their `Unsafe` variants) under `apps/api/src`, comments and strings ignored, and every listed file still does. The scans run through `@marinoscar/platform-api/testing` (the `userOwnedData` suite of `runPlatformConformance()`, whose rules are proven on synthetic datamodels and fixture sources in the package); the spec keeps the registrations, the schema path, the allowlist and the 23-model pin |
+| `npm run db:check` (`smoke` job) | `apps/api/prisma/platform.lock` matches the files and the package: an installed migration is never edited, a released package migration is never rewritten, every package migration is installed. Logic in `packages/platform-db/test/sync/` |
+| `npm run db:check:database` (`smoke` job) | Every row of `_prisma_migrations` matches the migration file on disk (Prisma itself never checks this) |
+| `npm run db:drift` (`smoke` job) | The migration history replayed in a shadow database equals the schema (`prisma migrate diff --exit-code`), and every raw-SQL index in `packages/platform-db/raw-sql-indexes.json` (plus the lock's `rawSqlIndexes`) exists with its recorded definition |
+| `apps/api/test/prisma/platform-raw-sql-indexes.db.spec.ts` | The partial and expression indexes found in `pg_indexes` equal `raw-sql-indexes.json`, so an unlisted raw-SQL index fails the build |
+| `apps/api/test/platform/no-local-core-copies.spec.ts` | Nothing that moved into `@marinoscar/platform-api/core` (registry, principal, exception filter, exceptions, `ErrorDto`, secret cipher) exists again under `apps/api/src/common/`, and no file under `apps/api` imports those paths |
+| `apps/api/test/platform/secret-cipher-compat.spec.ts` | Ciphertexts the app's cipher wrote before the move into the package still decrypt (fixed key and fixtures; never regenerate them) |
+
+### Platform conformance
+
+A tripwire that stays in the platform repository stops checking an app the moment the app consumes a package. So the scan of an invariant ships in the package as a conformance suite, and each app runs it from one spec that supplies only its own data. The entry points are `runPlatformConformance()` from `@marinoscar/platform-api/testing` (Jest) and `runPlatformWebConformance()` from `@marinoscar/platform-web/testing` (Vitest); `apps/api/test/conformance.spec.ts` and `apps/web/src/__tests__/conformance.test.ts` are the worked examples. A suite's id is its stable name: the table lists the id, who owns it and what it pins; [the testing README](../packages/platform-api/src/testing/README.md#conformance-suite) has the options.
+
+| Suite id | Registered by | Invariant |
+|---|---|---|
+| `cron-enqueue-only` | `@marinoscar/platform-api/testing` | Every `@Cron` body enqueues and does none of the work itself, except exactly three argued exemptions (queue rule 1) |
+| `on-event-no-io` | `@marinoscar/platform-api/jobs/testing` | No `@OnEvent` body does storage I/O (queue rule 1, listener half) |
+| `ai-kill-switch` | `@marinoscar/platform-api/ai/testing` | With `ai.enabled=false` every discovered `/api/ai/*` route except `GET /api/ai/config` answers 403 `AI_DISABLED`, `/api/admin/ai/*` stays reachable, no `ai.*` job reaches a provider (AI rule 4) |
+| `ai-rbac-matrix` | `@marinoscar/platform-api/ai/testing` | Every AI route crossed with Admin/Contributor/Viewer/anonymous; the expected permission comes from the route's `@Auth()` metadata and the grant from the seeded role permissions |
+| `ai-secret-egress` | `@marinoscar/platform-api/ai/testing` | Sentinel keys never appear in any response, header, log line, audit row, usage row, run row or error body (AI rule 2) |
+| `ai-key-policy` | `@marinoscar/platform-api/ai/testing` | The BYOK / org-key resolution rule holds on every inference route, checked on the key the fake provider actually received |
+| `ai-jobs-server-only` | `@marinoscar/platform-api/ai/testing` | No `ai.*` job type is node-eligible (AI rule 3) |
+| `ai-no-sdk-leak` | `@marinoscar/platform-api/ai/testing` | No provider SDK import outside its adapter directory, none in the app, the web or the contract (AI rule 1) |
+| `ai-orchestration-boundary` | `@marinoscar/platform-api/ai/testing` | An orchestration library only under the roots an app allows (the base allows none; a fork that adopts one passes its allowed roots) |
+| `host` | `@marinoscar/platform-api/host/testing` | Exactly one `APP_GUARD` in the app's module graph, and it is `MaintenanceGuard` (no global JWT guard); `PlatformHostCoreModule.forRoot()` imported once; the `{ data }` envelope and the exception filter global, once each. Run by `apps/api/test/platform/host-conformance.spec.ts` |
+| `settings-registry-gates`, `settings-registry-shape`, `settings-ai-cards`, `settings-card-routes`, `settings-route-ownership` | `@marinoscar/platform-web/settings/testing` | The settings registries' shared gate, card shape and permission parity with the API's catalog, AI cards (AI rule 5), card-to-route parity, route ownership (Settings UI Pattern rules 1 and 3) |
+
+A slice's own suites (`identity`, `settings`, `storage`, ...) are listed in the same README table. To add the harness to an app:
+
+```ts
+// apps/api/test/conformance.spec.ts
+import '@marinoscar/platform-api/ai/testing'; // importing a slice's testing entry REGISTERS its suites
+import '@marinoscar/platform-api/jobs/testing';
+runPlatformConformance({
+  sourceRoots: CRON_SOURCE_ROOTS,
+  suites: {
+    cronEnqueueOnly: { exempt: EXEMPT, minCronFiles: 14 },
+    onEventNoIo: { minListenerFiles: 5 },
+    aiKillSwitch: { fixture: aiConformanceFixture }, // how the app boots, see apps/api/test/conformance/ai-fixture.ts
+    aiRbacMatrix: { skip: 'This app does not ship the AI slice.' }, // an opt-out needs a reason
+  },
 });
 ```
 
-The mock factory provides Jest mock functions for all Prisma operations (findUnique, findMany, create, update, delete, etc.).
+- **Data stays in the app.** The exemption list (each entry argued, more than 40 characters), the vacuity minimums, the fixture that boots the app and the source trees are the app's, so a fourth exemption is still a change to this repository's spec and to the spec of the rule.
+- **Nothing is hand-listed or hard-coded.** Routes come from the booted app's OpenAPI document, job types from `JobHandlerRegistry`, roles from the seeded grants, cards from the registries, permission ids from the generated catalog (`apps/api/prisma/catalog/permissions.json`), the web route table from the live `App.tsx`. `packages/platform-api/test/testing/no-hardcoded-paths.spec.ts` fails a suite that names `apps/api/src`, `apps/web/src` or `ai/providers`.
+- **Each suite can fail.** Its package tests plant a violation (an ungated AI route, a leaked sentinel, an SDK import outside its adapter, an invented card permission, a route two destinations claim) and assert the suite names it. A suite that cannot fail is not a tripwire.
+- **Opt-outs are visible and argued.** `{ skip: 'reason' }` registers a passing `<id>: skipped by the app (<reason>)` test instead of silently running nothing; a skip with no reason, or `false`, and an unknown key in `suites`, throw. The run prints a table of the suites run and skipped.
+- **Runner-agnostic where it can be.** The harness imports neither Jest nor Vitest; it uses the global `describe`/`it`/`expect` or a `testApi` you pass. The AI suites that boot the app are Jest-only (they use `jest.fn`) and need `supertest` (an optional peer).
+- **Needs built packages.** Jest resolves `@marinoscar/platform-api/testing` through the package `exports` to `dist/`, so run `npm run build:packages` first (every CI job already does).
+- **Package tests** live in `packages/platform-api/test/testing/`, `test/jobs/testing/` and `test/ai/testing/`, and `packages/platform-web/test/settings/testing/`, and run with `npm run test:packages`.
 
-#### 2. OAuth Strategy Mocking
+The telemetry slice ships the `telemetry` suite: importing `@marinoscar/platform-api/telemetry/testing` registers it, `apps/api/test/telemetry/telemetry-conformance.spec.ts` runs it, and each check is proved against a deliberately broken fixture in `packages/platform-api/test/telemetry/conformance.spec.ts`. The checks and how to run them are in the [slice README](../packages/platform-api/src/telemetry/README.md#conformance-suite); its web half is `apps/web/src/__tests__/config/telemetryParity.test.ts`.
 
-Google OAuth is mocked using a custom Passport strategy:
+The sharing slice ships the `sharing` suite the same way: importing `@marinoscar/platform-api/sharing/testing` registers it, `apps/api/test/sharing/sharing-conformance.spec.ts` runs it against the reference app, `apps/api/test/examples/sharing/conformance.example.spec.ts` runs it over the worked examples, and `packages/platform-api/test/sharing/conformance.spec.ts` proves each check against a planted violation. The examples themselves (`apps/api/test/examples/sharing/`, `*.db.spec.ts` where row-level security is involved, and `apps/web/src/__tests__/examples/sharing/`) are the compiled, tested reference uses the [slice README](../packages/platform-api/src/sharing/README.md#extension-point-catalog) links; they share records of test-only tables created in `beforeAll`, never a migration.
+
+The migration guards (`db:check`, `db:check:database`, `db:drift`) are npm scripts
+rather than Jest suites because they must also run against an app that consumes
+the package; they need the built packages (`npm run build:packages`) and, for
+the last two, a migrated database. See
+[DEVELOPMENT.md](DEVELOPMENT.md#authoring-a-platform-migration).
+
+Related guards in the same spirit: `packages/platform-api/src/ai/core/no-provider-sdk.spec.ts`
+(no SDK in `ai/core`), the per-provider `*-sdk-boundary.spec.ts` files,
+`apps/api/test/prisma/seed-data.spec.ts` (seed self-consistency without a
+database), `apps/api/test/prisma/scoped-access.db.spec.ts` (a user-scoped
+client never reaches another user's rows, on a real database), `apps/api/test/openapi/openapi-document.spec.ts` (the generated
+document) and `apps/api/test/production-image.spec.ts` (every script an npm
+script runs is copied into the production image).
+
+## API test configuration
+
+`apps/api/test/jest.config.js`:
+
+- `rootDir: '..'`, `roots: ['src/', 'test/']`, `testRegex: '.*\.spec\.ts$'`.
+- `setupFilesAfterEnv: test/setup.ts`, `globalTeardown: test/teardown.ts`,
+  `testTimeout: 30000`, `testEnvironment: 'node'`.
+- Coverage from `src/**/*.ts`, excluding modules, DTOs, `main.ts` and specs.
+  There is no API coverage threshold.
+- **Transpile only.** ts-jest runs with `isolatedModules: true`, so each file
+  is transpiled on its own and nothing is type-checked inside Jest. Type
+  errors in specs and helpers are caught by `npm run typecheck --workspace=api`,
+  because `apps/api/tsconfig.json` includes `test/**`.
+- **No `await import()` in a spec.** Under transpile-only NodeNext it stays a
+  real ESM dynamic import, which Jest's CommonJS runtime rejects. Use a
+  static import.
+
+## Web tests
+
+Vitest with jsdom, React Testing Library, `@testing-library/user-event` and
+MSW. About 160 test files, mostly under `apps/web/src/__tests__/` mirroring
+`src/` (`components/`, `pages/`, `hooks/`, `contexts/`, `config/`,
+`services/`, `pwa/`), plus a few colocated `__tests__/` folders. The DataTable's own suites live in
+`packages/platform-web/test/datatable/`; its layout stubs and conformance suite
+are the `@marinoscar/platform-web/datatable/testing` subpath.
+
+### Configuration (`apps/web/vitest.config.ts`)
+
+- `environment: 'jsdom'`, `globals: true`,
+  `setupFiles: ./src/__tests__/setup.ts`,
+  `include: src/**/*.{test,spec}.{ts,tsx}`.
+- Coverage thresholds: 70% lines, branches, functions and statements.
+  `src/sw.ts` is excluded (jsdom cannot load a service worker).
+- `testTimeout` and `hookTimeout` 20 s (the DataTable suites render full
+  grids and run axe).
+- Aliases: `@` → `src`, and `virtual:pwa-register/react` → a test double.
+
+### Setup (`src/__tests__/setup.ts`)
+
+- A query-aware `window.matchMedia` driven by `setViewportWidth(px)` /
+  `resetViewportWidth()`, so MUI breakpoints (`up('sm')`, `down('sm')`) can
+  be tested.
+- `ResizeObserver` and `IntersectionObserver` stubs.
+- The MSW server: `listen({ onUnhandledRequest: 'warn' })` before all,
+  `resetHandlers()` after each, `close()` after all.
+
+### Rendering
+
+`src/__tests__/utils/test-utils.tsx` re-exports Testing Library with
+`render` replaced by `renderWithProviders`, which wraps the component in a
+`MemoryRouter`, the theme provider, an `AuthContext` value and, optionally,
+the AI config context:
 
 ```typescript
-import { MockGoogleStrategy, createMockGoogleProfile } from '../../test/mocks/google-oauth.mock';
+import { render, screen, mockAdminUser } from '../utils/test-utils';
+import UserSettingsHubPage from '../../pages/UserSettingsHubPage';
 
-// Set mock profile for next auth
-MockGoogleStrategy.setMockProfile({
-  email: 'custom@example.com',
-  displayName: 'Custom User',
+render(<UserSettingsHubPage />, {
+  wrapperOptions: {
+    route: '/settings',
+    authenticated: true,
+    user: mockAdminUser,
+    theme: 'dark',
+    aiEnabled: true,
+  },
 });
 
-// Reset to defaults
-MockGoogleStrategy.resetMockProfile();
+expect(await screen.findByText('Profile')).toBeInTheDocument();
 ```
 
-This allows E2E tests to simulate OAuth flows without calling Google's servers.
+### Mocking the API
 
-#### 3. JWT Service Mocking (Unit Tests)
-
-```typescript
-const mockJwtService = {
-  sign: jest.fn().mockReturnValue('mock-jwt-token'),
-  verify: jest.fn().mockReturnValue({ sub: '1', email: 'test@example.com' }),
-} as any;
-```
-
-#### 4. Config Service Mocking
-
-```typescript
-const mockConfigService = {
-  get: jest.fn((key: string) => {
-    const config: Record<string, any> = {
-      'jwt.secret': 'test-secret',
-      'jwt.accessTtlMinutes': 15,
-    };
-    return config[key];
-  }),
-} as any;
-```
-
-### Frontend Mocking
-
-#### 1. API Mocking with MSW
-
-MSW intercepts HTTP requests at the network level. Handlers are defined in `apps/web/src/__tests__/mocks/handlers.ts`:
+Default handlers live in `src/__tests__/mocks/handlers.ts` (response data in
+`mocks/data.ts` and `mocks/fixtures/`). Override per test:
 
 ```typescript
 import { http, HttpResponse } from 'msw';
-
-export const handlers = [
-  http.get('/api/auth/me', () => {
-    return HttpResponse.json({
-      data: {
-        id: 'user-1',
-        email: 'test@example.com',
-        roles: ['viewer'],
-      },
-    });
-  }),
-
-  http.post('/api/auth/logout', () => {
-    return new HttpResponse(null, { status: 204 });
-  }),
-];
-```
-
-**Override handlers in specific tests:**
-
-```typescript
 import { server } from '../mocks/server';
-import { http, HttpResponse } from 'msw';
 
-it('should handle error', async () => {
-  server.use(
-    http.get('/api/auth/me', () => {
-      return new HttpResponse(null, { status: 500 });
-    }),
-  );
-
-  // Test error handling
-});
-```
-
-#### 2. Browser API Mocking
-
-Common browser APIs are mocked in `setup.ts`:
-
-```typescript
-// Mock window.matchMedia (for MUI responsive components)
-Object.defineProperty(window, 'matchMedia', {
-  writable: true,
-  value: vi.fn().mockImplementation((query: string) => ({
-    matches: false,
-    media: query,
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-  })),
-});
-
-// Mock ResizeObserver
-global.ResizeObserver = vi.fn().mockImplementation(() => ({
-  observe: vi.fn(),
-  unobserve: vi.fn(),
-  disconnect: vi.fn(),
-}));
-```
-
-#### 3. Context Mocking
-
-Use custom render utilities to wrap components with necessary providers:
-
-```typescript
-import { render } from '../utils/test-utils';
-
-// Render with authenticated context
-render(<Component />, {
-  wrapperOptions: { authenticated: true },
-});
-
-// Render with unauthenticated context
-render(<Component />, {
-  wrapperOptions: { authenticated: false },
-});
-```
-
-#### 4. Router Mocking
-
-```typescript
-import { MemoryRouter } from 'react-router-dom';
-
-render(
-  <MemoryRouter initialEntries={['/login']}>
-    <LoginPage />
-  </MemoryRouter>
+server.use(
+  http.get('/api/auth/me', () => new HttpResponse(null, { status: 500 })),
 );
 ```
 
-## Writing New Tests
+### What jsdom cannot see
 
-### Adding a Backend Unit Test
+jsdom has no layout engine: no text wrapping, truncation, overflow or real
+widths. Anything that depends on layout belongs in the
+[visual regression](#visual-regression) suite.
 
-1. **Create test file** next to source file: `feature.service.spec.ts`
-2. **Import testing utilities:**
-   ```typescript
-   import { Test, TestingModule } from '@nestjs/testing';
-   ```
-3. **Mock dependencies** using provided mock factories
-4. **Test each method** with success and error cases
-5. **Verify calls** to mocked dependencies
+## CLI tests
 
-### Adding a Backend E2E Test
+`apps/cli` uses Vitest with `environment: 'node'` (deliberately no DOM
+globals, so nothing passes in tests that could not work in a terminal).
+About 90 test files sit beside the code in `src/**`, including `.test.tsx`
+files for the ink screens. Notable ones:
 
-1. **Create test file** in `apps/api/test/` directory: `feature.e2e.spec.ts`
-2. **Use test helpers:**
-   ```typescript
-   import { createTestApp, closeTestApp } from '../helpers/test-app.helper';
-   import { resetDatabase } from '../helpers/database.helper';
-   import { createTestUser, authHeader } from '../helpers/auth.helper';
-   ```
-3. **Set up test context** in `beforeAll`
-4. **Reset database** in `beforeEach` for test isolation
-5. **Test HTTP endpoints** with Supertest
-6. **Test RBAC** by creating users with different roles
+- `src/template-identity.test.ts`: the rename guard; fails if the old product
+  name survives anywhere it should not.
+- `src/deploy/env-spec.test.ts`: parses `infra/compose/.env.example`. It
+  treats every commented `# KEY=value` line as a declared variable, so never
+  add illustrative commented assignments to that file.
 
-### Adding a Frontend Component Test
-
-1. **Create test file** in `apps/web/src/__tests__/components/`: `Component.test.tsx`
-2. **Import testing utilities:**
-   ```typescript
-   import { render } from '../utils/test-utils';
-   import { screen, waitFor } from '@testing-library/react';
-   import userEvent from '@testing-library/user-event';
-   ```
-3. **Test rendering** with different props
-4. **Test user interactions** with `userEvent`
-5. **Test async behavior** with `waitFor`
-6. **Mock API calls** with MSW if needed
-
-### Adding a Frontend Context/Hook Test
-
-1. **Create test file** in `apps/web/src/__tests__/contexts/`: `Context.test.tsx`
-2. **Use `renderHook`** from React Testing Library
-3. **Create wrapper** with necessary providers
-4. **Test state changes** with `act` and `waitFor`
-5. **Test error handling** by mocking failing API calls
-
-## Test Configuration
-
-### Backend Configuration
-
-**File:** `apps/api/test/jest.config.js`
-
-```javascript
-module.exports = {
-  moduleFileExtensions: ['js', 'json', 'ts'],
-  rootDir: '..',
-  testRegex: '.*\\.spec\\.ts$',
-  transform: {
-    '^.+\\.(t|j)s$': 'ts-jest',
-  },
-  collectCoverageFrom: [
-    'src/**/*.ts',
-    '!src/**/*.module.ts',
-    '!src/**/*.dto.ts',
-    '!src/main.ts',
-    '!src/**/*.spec.ts',
-  ],
-  coverageDirectory: './coverage',
-  testEnvironment: 'node',
-  roots: ['<rootDir>/src/', '<rootDir>/test/'],
-  moduleNameMapper: {
-    '^@/(.*)$': '<rootDir>/src/$1',
-  },
-  setupFilesAfterEnv: ['<rootDir>/test/setup.ts'],
-  globalTeardown: '<rootDir>/test/teardown.ts',
-  testTimeout: 30000,
-  verbose: true,
-};
+```bash
+npm run test:run --workspace=cli
 ```
 
-**Key Settings:**
-- `testRegex`: Matches `*.spec.ts` files
-- `roots`: Includes both `src/` and `test/` directories
-- `setupFilesAfterEnv`: Runs setup before tests
-- `testTimeout`: 30 seconds for database operations
-- `moduleNameMapper`: Supports `@/` path alias
+## End-to-end tests (Playwright)
 
-### Frontend Configuration
+`tests/e2e/` is a separate npm package (not a workspace) that drives the real
+running application with Playwright.
 
-**File:** `apps/web/vitest.config.ts`
+```
+tests/e2e/
+├── playwright.config.ts      # baseURL http://localhost:3535, Chromium
+├── helpers/auth.helper.ts    # loginAsTestUser, loginAsAdmin/Contributor/Viewer, isLoggedIn, logout
+├── fixtures/auth.fixture.ts  # adminPage / viewerPage fixtures
+└── specs/                    # auth.spec.ts, example.spec.ts
+```
+
+It is not run in CI. Run it against a local stack:
+
+```bash
+cd tests/e2e
+npm install
+npx playwright install chromium
+npm test                 # headless
+npm run test:headed      # watch the browser
+npm run test:ui          # Playwright UI mode
+```
+
+Outside CI the config starts the dev stack itself
+(`docker compose -f base.compose.yml -f dev.compose.yml up`) and waits for
+`/api/health/live`, reusing a stack that is already up. `BASE_URL` overrides
+the target.
+
+### Signing in without Google
+
+In development and test the web app serves `/testing/login` and the API
+serves `POST /api/auth/test/login`. The page takes an email, a role
+(`admin`, `contributor` or `viewer`) and an optional display name; the API
+creates or updates that user, issues real tokens and redirects through the
+normal `/auth/callback`.
 
 ```typescript
-export default defineConfig({
-  plugins: [react()],
-  test: {
-    environment: 'jsdom',
-    globals: true,
-    setupFiles: ['./src/__tests__/setup.ts'],
-    include: ['src/**/*.{test,spec}.{ts,tsx}'],
-    exclude: ['node_modules', 'dist'],
-    coverage: {
-      provider: 'v8',
-      reporter: ['text', 'json', 'html'],
-      exclude: [
-        'node_modules',
-        'src/__tests__',
-        '**/*.d.ts',
-        '**/*.config.*',
-        'src/main.tsx',
-      ],
-      thresholds: {
-        lines: 70,
-        branches: 70,
-        functions: 70,
-        statements: 70,
-      },
-    },
-    testTimeout: 10000,
-  },
-  resolve: {
-    alias: {
-      '@': resolve(__dirname, './src'),
-    },
-  },
+import { test, expect } from '../fixtures/auth.fixture';
+
+test('admin reaches Users & Allowlist', async ({ adminPage }) => {
+  await adminPage.goto('/admin/users');
+  await expect(adminPage).toHaveURL('/admin/settings/users');
 });
 ```
 
-**Key Settings:**
-- `environment: 'jsdom'`: Browser-like environment for React
-- `globals: true`: No need to import `describe`, `it`, `expect`
-- `setupFiles`: Runs MSW setup and browser mocks
-- `coverage.thresholds`: Enforces minimum 70% coverage
-- `testTimeout`: 10 seconds for async operations
+The bypass is absent in production builds and refused when
+`NODE_ENV=production`. See
+[SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md#13-test-authentication-development-only).
 
-## Best Practices
+`.github/workflows/deploy-e2e.yml` is a different thing: it exercises
+`appctl deploy` against real Docker on a simulated VPS.
 
-### General
+## Visual regression
 
-1. **Test Behavior, Not Implementation**
-   - Test what the code does, not how it does it
-   - Avoid testing internal state or private methods
-   - Focus on public API and observable outcomes
+`tests/visual/` is a pixel-diff suite for the settings and navigation
+surfaces. It exists because jsdom cannot see layout bugs such as a truncated
+rail caption or a card grid with the wrong column count.
 
-2. **Test Isolation**
-   - Each test should run independently
-   - Use `beforeEach` to reset state
-   - Don't rely on test execution order
+### How it works
 
-3. **Clear Test Names**
-   - Use descriptive names: `should return 401 when token is invalid`
-   - Follow pattern: "should [expected behavior] when [condition]"
+- It screenshots a harness, not the running app. `apps/web/visual/` is a
+  separate Vite entry that mounts the real components (`Layout`, the rail,
+  the settings hubs) with no API, database or OAuth behind them. Query
+  parameters pin the state: `?route=`, `?perms=`, `?roles=`, `?theme=`.
+- `tests/visual/support/harness.ts` builds those URLs and provides
+  `waitForInter(page)`, which every spec calls after `page.goto()` so no
+  screenshot is taken before the Inter webfont loads. The harness uses the
+  app's own font file (`apps/web/public/fonts/`).
+- `tests/visual/playwright.config.ts` boots only the harness's Vite server
+  on port 5183, disables animations, allows at most **4 differing pixels**
+  (`maxDiffPixels`, an absolute count) with a pixelmatch `threshold` of 0.05,
+  and never retries.
+- 26 baselines across 8 spec files, in `tests/visual/specs/*-snapshots/`.
+  Most are full-page shots that include the AppBar wordmark, so renaming the
+  product changes them.
+- The Telemetry Dashboard spec (`telemetry-dashboard.spec.ts`, #579) is the
+  one whose page data is screenshotted. It answers the page's `/api` calls
+  with fixtures through Playwright's `page.route()`
+  (`tests/visual/support/telemetryDashboard.ts`), pins `Date.now()` with
+  `page.clock.setFixedTime`, and pins the time zone and locale. Every other
+  spec relies on its `/api` fetches failing.
 
-4. **Arrange-Act-Assert Pattern**
-   - **Arrange:** Set up test data and mocks
-   - **Act:** Execute the code under test
-   - **Assert:** Verify the outcome
+### The pinned browser
 
-5. **Test Error Cases**
-   - Always test both success and failure paths
-   - Test edge cases and boundary conditions
-   - Test validation errors and exceptions
+Pixel baselines depend on the exact browser build. `@playwright/test` is
+pinned to `1.62.1` in `tests/visual/package.json`, and baselines are only
+valid when produced in `mcr.microsoft.com/playwright:v1.62.1-noble`, the same
+image the CI `visual` job uses. Three places carry that version: the package
+pin, `ci.yml`'s `visual` job and `visual-baselines.yml`. Change all three
+together.
 
-### Backend-Specific
+Always invoke the pinned binary `tests/visual/node_modules/.bin/playwright`,
+never `npx playwright`. From the repository root `npx` finds no local
+Playwright, downloads the latest one, and loads a second `@playwright/test`
+instance, which fails with "Playwright Test did not expect test() to be
+called here".
 
-1. **Unit Test External Dependencies**
-   - Mock Prisma, external APIs, file system
-   - Unit tests should be fast (<100ms per test)
+### Regenerating baselines
 
-2. **E2E Test Critical Paths**
-   - Auth flows (login, logout, refresh)
-   - RBAC enforcement
-   - Database transactions
-   - API contract validation
+This is the one canonical command. It runs in the pinned container and
+rewrites every baseline:
 
-3. **Use Test Helpers**
-   - Leverage provided helpers for user creation, auth headers, DB reset
-   - Keep test code DRY with shared utilities
-
-4. **Database Isolation**
-   - Always reset database in `beforeEach`
-   - Use separate test database
-   - Never use production data in tests
-
-### Frontend-Specific
-
-1. **Query by Accessibility**
-   - Prefer `getByRole`, `getByLabelText`, `getByText`
-   - Avoid `getByTestId` unless necessary
-   - Mirrors how users interact with UI
-
-2. **User-Centric Testing**
-   - Use `userEvent` instead of `fireEvent`
-   - Test user flows, not implementation
-   - Wait for async updates with `waitFor`
-
-3. **Mock Network at Network Level**
-   - Use MSW for realistic API mocking
-   - Define default handlers, override in tests
-   - MSW works in both tests and browser
-
-4. **Avoid Testing Implementation Details**
-   - Don't test component state directly
-   - Don't test CSS classes or internal methods
-   - Test visible output and user interactions
-
-### Coverage Guidelines
-
-**Target Coverage:** 70% minimum (enforced in frontend)
-
-**What to Focus On:**
-- Business logic in services
-- RBAC guards and decorators
-- API controllers (especially auth)
-- React contexts and custom hooks
-- Critical user flows (login, settings)
-
-**What Can Have Lower Coverage:**
-- DTOs and type definitions
-- Module configuration files
-- Simple getter/setter methods
-- UI styling components
-
-### Debugging Tests
-
-**Backend:**
 ```bash
-# Run tests with Node debugger
-npm run test:debug
-
-# Add breakpoint in code
-debugger;
-
-# Run single test file
-npm test -- auth.service.spec.ts
-
-# Run single test by name
-npm test -- -t "should create user"
+REPO=$(git rev-parse --show-toplevel)
+docker run --rm --user "$(id -u):$(id -g)" -v "$REPO:$REPO" -w "$REPO" \
+  mcr.microsoft.com/playwright:v1.62.1-noble \
+  tests/visual/node_modules/.bin/playwright test --config=tests/visual/playwright.config.ts --update-snapshots
 ```
 
-**Frontend:**
+- Install dependencies first, for Linux: `npm ci` and `npm run build:packages` at the root, and
+  `npm ci --prefix tests/visual`. On macOS or Windows the host's native
+  binaries (esbuild, Rollup) do not run in the Linux container.
+- `--user` keeps `test-results/` and `playwright-report/` owned by you.
+- The repository is mounted at its own absolute path so worktree symlinks
+  into the main checkout still resolve.
+- Drop `--update-snapshots` to verify instead of regenerate.
+
+Without Docker, or on macOS or Windows, use the **Regenerate visual
+baselines** workflow (`.github/workflows/visual-baselines.yml`): Actions →
+Run workflow → pick your branch. It runs the same command in the same image
+and commits the result to the branch (or, with `commit: false`, only uploads
+it as an artifact).
+
+- It runs `npm run build:packages` before the suite, as the `visual` job does:
+  the harness imports the `@marinoscar/platform-*` packages through their
+  `dist/`.
+- Its commit is pushed with the workflow's `GITHUB_TOKEN`, which does not start
+  other workflows. CI runs again with the branch's next push.
+
+Open every changed PNG before committing. Regenerating to make a red job
+green without looking is how a real layout regression gets blessed. A
+baseline that changes on a screen your branch did not touch is a finding.
+
+### In CI
+
+The `visual` job runs the same binary without `--update-snapshots` and
+uploads `tests/visual/playwright-report/` on every run; the report embeds the
+expected, actual and diff images.
+
+## Consumer smoke (packed and published packages)
+
+`tests/consumer-smoke/` installs the six `@marinoscar/platform-*` packages the
+way an app outside this repository does and proves they build, boot and render
+there. The app tiers above consume the packages through workspace symlinks,
+which resolve hoisted `node_modules` and the monorepo's TypeScript settings; a
+published tarball has only its `files`, its dependencies and its peers. A
+missing `files` entry, a dev-only dependency, a wrong `exports` condition or a
+peer installed twice show up only in a clean install.
+
+`tests/consumer-smoke/run.mjs` copies a consumer project (`api/`: Nest 11 +
+Fastify, `tsc` with `NodeNext` and decorator metadata; `web/`: Vite 8 + React
+19 + MUI 9) to `os.tmpdir()`, points its platform dependencies at the chosen
+source, runs `npm install`, `npm run build`, `npm test` and
+`scripts/check-single-instance.mjs --root <temp project>`. It is not an npm
+workspace and commits no lockfile.
+
 ```bash
-# Open Vitest UI for interactive debugging
-npm run test:ui
-
-# Run single test file
-npm test -- LoginPage.test.tsx
-
-# Run with browser-like debugging
-npm run test:ui
+npm run smoke:consumer                                            # build, pack, api + web
+node tests/consumer-smoke/run.mjs --project api --from tarballs <dir>
+node tests/consumer-smoke/run.mjs --from registry next --audit-signatures
+node tests/consumer-smoke/run.mjs --from release <version>
 ```
 
-**Helpful Debugging Tools:**
-- `screen.debug()` - Print current DOM state
-- `screen.logTestingPlaygroundURL()` - Get query suggestions
-- `console.log` in tests (shown in output)
-- VS Code debugger integration
+It needs Node 24 (npm 11). What each project asserts, and how a new slice
+adds itself: [tests/consumer-smoke/README.md](../tests/consumer-smoke/README.md).
+The release side: [release runbook, Consumption smoke](runbooks/release-platform-packages.md#consumption-smoke).
 
-## Common Issues and Solutions
+## Mocking OAuth
 
-### Backend
+No test talks to Google.
 
-**Issue:** Tests timeout waiting for database
-- **Solution:** Check `DATABASE_URL` in `.env.test`, ensure test DB is running
+- **Unit**: `packages/platform-api/test/identity/auth/auth.service.spec.ts` drives
+  `handleGoogleLogin` with plain profile objects and a mocked Prisma:
+  allowlist denial, identity linking, the transactional user creation and the
+  admin bootstrap. `auth.controller.spec.ts` and
+  `strategies/google.strategy.spec.ts` cover the controller and strategy.
+- **Integration**: `.env.test` provides a dummy `GOOGLE_CLIENT_ID`, so the
+  real `GoogleStrategy` registers and `GET /api/auth/google` answers a 302 to
+  Google without any network call. `test/auth/oauth.integration.spec.ts`
+  checks that redirect, the refresh cookie attributes, and that guard-level
+  callback failures redirect with a code from the closed sign-in error set
+  ([SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md#sign-in-failure-contract)).
+  The full callback round trip is skipped there, because it needs a real
+  authorization code.
+- **Test doubles**: `test/mocks/google-oauth.mock.ts` exports
+  `MockGoogleStrategy` (a `passport-custom` strategy named `google` with
+  `setMockProfile` / `resetMockProfile`) and `createMockGoogleProfile()`.
+  `createTestApp` does not register `MockGoogleStrategy`; a spec that wants a
+  canned profile to reach the callback must provide it itself.
+- **E2E**: use `/testing/login` ([above](#signing-in-without-google)).
 
-**Issue:** Prisma mock not working as expected
-- **Solution:** Clear mocks in `afterEach`, use `mockResolvedValue` for promises
+### Fastify and Passport regressions
 
-**Issue:** JWT validation fails in tests
-- **Solution:** Ensure `JWT_SECRET` is set in test environment
+Several bugs in the Fastify + Passport integration are pinned by tests:
 
-### Frontend
+| Behavior | Pinned by |
+|---|---|
+| The exception filter replies with Fastify's `code()`/`send()`, not Express's `status()`/`json()` | `packages/platform-api/test/core/http-exception.filter.spec.ts` (the filter lives in `@marinoscar/platform-api/core`) |
+| `GoogleOAuthGuard` hands Passport the raw request/response and copies `user` back | the OAuth redirect cases in `test/auth/oauth.integration.spec.ts` |
+| New users (and the bootstrap admin role) are created in one transaction | `src/auth/auth.service.spec.ts` |
+| A sign-in failure redirects with a closed error code, never a message | `src/auth/auth.controller.spec.ts`, `src/auth/filters/google-oauth-exception.filter.spec.ts`, `test/auth/oauth.integration.spec.ts` |
 
-**Issue:** "Target container is not a DOM element"
-- **Solution:** Ensure `jsdom` environment is set in vitest.config.ts
+## Writing a new test
 
-**Issue:** "window.matchMedia is not a function"
-- **Solution:** Check that setup.ts is imported in vitest.config
+| You changed | Write |
+|---|---|
+| A service, guard, handler, mapper or DTO | A unit spec beside it |
+| A controller route (auth, RBAC, validation, envelope) | An `*.integration.spec.ts` in `apps/api/test/<area>/` using `createTestApp` |
+| SQL behavior: an index, constraint, lock, raw query or transaction | A `*.db.spec.ts` following the [rules](#rules-for-a-new-dbspects) |
+| A job type | A unit spec for the handler; add a `*.db.spec.ts` if it depends on claim or lease behavior |
+| A React component, hook or page | A Vitest spec under `apps/web/src/__tests__/` |
+| Anything layout-dependent in the shell or settings hubs | A visual spec, then regenerate baselines |
+| A CLI command | A Vitest spec beside it in `apps/cli/src/` |
 
-**Issue:** MSW not intercepting requests
-- **Solution:** Verify server.listen() is called in beforeAll
+For every new protected route, test at least: 401 without a token, 403
+without the permission, and the success path with it. If you change behavior,
+add or adjust the test in the same commit or the next one.
 
-**Issue:** Async state not updating in tests
-- **Solution:** Use `await waitFor()` to wait for async updates
+Conventions:
 
-## Resources
+- Nested `describe` blocks, test names that state behavior
+  (`'returns 403 when the caller lacks users:write'`), Arrange-Act-Assert.
+- Test both success and failure paths.
+- Reset shared state in `beforeEach` (`resetPrismaMock()`, MSW
+  `resetHandlers()` is automatic).
+- On the web, query by role, label or text; use `getByTestId` only as a last
+  resort; use `userEvent` over `fireEvent`; `await waitFor(...)` for async UI.
 
-- [Jest Documentation](https://jestjs.io/docs/getting-started)
-- [Vitest Documentation](https://vitest.dev/)
-- [React Testing Library](https://testing-library.com/docs/react-testing-library/intro/)
-- [MSW Documentation](https://mswjs.io/docs/)
-- [NestJS Testing](https://docs.nestjs.com/fundamentals/testing)
-- [Supertest Documentation](https://github.com/visionmedia/supertest)
+## CI
 
-## Summary
+`.github/workflows/ci.yml` runs on pushes and pull requests to `main`:
 
-This project uses industry-standard testing frameworks tailored to each layer:
+| Job | Does |
+|---|---|
+| `build` (Build & Test) | `npm ci`, Prisma generate, typecheck for api/web/cli, CLI tests, CLI build |
+| `api-test` | `npm test --workspace=api -- --shard=N/2`, two shards |
+| `web-test` | `npm run test:run --workspace=web -- --shard=N/6`, six shards |
+| `openapi` | Typecheck the dump script, `npm run openapi:dump`, Spectral lint |
+| `smoke` | PostgreSQL 16 service; build the API; `prisma:migrate`; `test:db` (with `NODE_ENV=test`); seed twice (proves idempotency); boot `dist/main.js` and check health and `/api/openapi.json` |
+| `greptime-test` | `docker run` a GreptimeDB standalone (not a `services:` container — see [above](#api-real-greptimedb-tests)), wait for `/health`, then `test:greptime` in the api workspace and in `@marinoscar/platform-api` (the telemetry slice's specs, since #703) |
+| `visual` | The visual suite in the pinned Playwright container |
 
-- **Backend:** Jest + Supertest for comprehensive API testing with real database
-- **Frontend:** Vitest + React Testing Library + MSW for fast, user-centric component testing
-- **Mocking:** Prisma mocks, OAuth mocks, MSW handlers for realistic test scenarios
-- **Helpers:** Shared utilities for user creation, database reset, and test app setup
+`test:db` runs after migration and before seeding, so the suites see a
+freshly migrated, unseeded database. The Playwright e2e suite is not in CI.
 
-When writing tests, focus on behavior over implementation, maintain test isolation, and leverage the provided helpers for consistency. Target 70% coverage with emphasis on business logic, auth flows, and RBAC enforcement.
+`.github/workflows/packages.yml` runs the platform-package jobs on the same
+triggers:
+
+| Job | Does |
+|---|---|
+| `packages` (Build, lint & test packages) | `npm ci`, build, typecheck, boundary lint and tests of the six `packages/platform-*`, pack check, smoke imports |
+| `single-instance` | `npm ci`, then `npm run check:single-instance`: one copy of each single-instance library in `package-lock.json` and as resolved from every workspace (see [DEVELOPMENT.md](DEVELOPMENT.md#single-instance-dependencies)) |
+| `pack-smoke` | On pushes to `main` and pull requests that touch the packages: build, `npm pack` the six, then the [consumer smoke](#consumer-smoke-packed-and-published-packages) for `api` and `web` against the tarballs |
+
+`.github/workflows/release.yml` runs the consumer smoke twice more:
+`github-release` on the tarballs it attaches to the GitHub release
+`platform-v<version>` (and the api project from the release URLs), and
+`registry-smoke` after a real npm publish, with `npm audit signatures`.
+
+## Common issues
+
+| Symptom | Fix |
+|---|---|
+| `npm run test:db` skips everything with a warning | Nothing listens at `POSTGRES_HOST:POSTGRES_PORT`. Start `infra/compose/test.compose.yml` (port 5433) or export `POSTGRES_*` |
+| A `*.db.spec.ts` fails on a missing index or relation | Migrate that database: `npm run prisma:migrate --workspace=api` with the same `POSTGRES_*` |
+| Backup/restore suites fail on a version check | `pg_dump` on `PATH` is older than the server; see [runbooks/postgres-client-version.md](runbooks/postgres-client-version.md) |
+| "A dynamic import callback was invoked without --experimental-vm-modules" | A spec uses `await import(...)`; use a static import |
+| A type error passes `npm test` | Expected; Jest only transpiles. Run `npm run typecheck --workspace=api` |
+| An integration spec gets 401 for a user you created | `setupBaseMocks()` clears the mock user registry. Create users after `resetPrismaMock()` and `setupBaseMocks()` |
+| A Prisma mock returns `undefined` | Unconfigured calls return `undefined`. Use `mockResolvedValue`; call `mockPrismaTransaction()` for `$transaction` |
+| `window.matchMedia is not a function`, or breakpoints misbehave | The setup file did not load, or the viewport changed; use `setViewportWidth()` (reset after each test) |
+| MSW does not intercept a request | Check the handler path; look for the `onUnhandledRequest` warning |
+| Visual job red after a rename or deliberate UI change | [Regenerate the baselines](#regenerating-baselines), inspect the diff, commit |
+| Visual job fails with "did not expect test() to be called here" | Something ran `npx playwright`; use `tests/visual/node_modules/.bin/playwright` |

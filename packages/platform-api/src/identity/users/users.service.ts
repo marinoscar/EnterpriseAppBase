@@ -1,0 +1,532 @@
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+  ForbiddenException,
+  Inject,
+  Optional,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { PLATFORM_PRISMA } from '../../core/index';
+import type { IdentityMembershipRow, IdentityRoleRow, IdentityUserRow } from '../data/identity-db';
+import type { IdentityPrisma } from '../ports';
+import { UserListQueryDto } from './dto/user-list-query.dto';
+import { UpdateUserDto } from './dto/update-user.dto';
+import { UpdateUserRolesDto } from './dto/update-user-roles.dto';
+import {
+  ORG_ADMIN_ROLE,
+  ROLES,
+} from '../identity.constants';
+import { DEFAULT_IDENTITY_OPTIONS, IDENTITY_OPTIONS, type ResolvedIdentityModuleOptions } from '../identity.options';
+import {
+  IDENTITY_NOTIFIER,
+  IDENTITY_PROFILE_IMAGES,
+  type IdentityNotifier,
+  type IdentityProfileImages,
+  type RoleChangedNotice,
+} from '../ports';
+import { PrincipalCache } from '../auth/principal-cache/principal-cache.service';
+import { principalFactory } from '../auth/principal.factory';
+import { DefaultOrganizationMissingException } from '../organizations/organizations.errors';
+
+/**
+ * What the users endpoints load for a user's roles (PP-6.3, #723): the system
+ * roles and every membership with its org role, so `roles` can combine them
+ * through `PrincipalFactory` exactly as `/api/auth/me` does.
+ */
+const USER_ROLES_INCLUDE = {
+  userRoles: {
+    include: { role: true },
+  },
+  memberships: {
+    include: {
+      org: { select: { id: true, isDefault: true } },
+      role: true,
+    },
+  },
+} as const;
+
+/** A user loaded with {@link USER_ROLES_INCLUDE}. */
+type UserRolesGraph = IdentityUserRow & {
+  userRoles: Array<{ role: IdentityRoleRow }>;
+  memberships: Array<IdentityMembershipRow & { org: { id: string; isDefault: boolean }; role: IdentityRoleRow }>;
+};
+
+/** A {@link UserRolesGraph} with the user's settings value. */
+type UserWithSettings = UserRolesGraph & { userSettings: { value: unknown } | null };
+
+/**
+ * Precedence among org roles when a request names several, highest first.
+ * Any other org role (an app's own) ranks below these, in request order.
+ */
+const ORG_ROLE_PRECEDENCE: readonly string[] = [
+  ORG_ADMIN_ROLE,
+  ROLES.CONTRIBUTOR,
+  ROLES.VIEWER,
+];
+
+/** Where org roles are managed in multi-org mode (PP-6.8, #726). */
+const ORG_ROLES_ELSEWHERE =
+  'are organization roles. In multi-organization mode this endpoint changes system roles only ' +
+  `(${ROLES.ADMIN}); manage organization roles through the organization member endpoints ` +
+  '(/api/orgs/:orgId/members).';
+
+/**
+ * Exported for the reference app's wiring and tests; not a stable extension point (reach identity through IdentityModule and its documented seams).
+ *
+ * @internal
+ */
+@Injectable()
+export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
+  constructor(
+    @Inject(PLATFORM_PRISMA) private readonly prisma: IdentityPrisma,
+    @Inject(IDENTITY_NOTIFIER) private readonly notifications: IdentityNotifier,
+    private readonly config: ConfigService,
+    // PP-1.12 (#683): every write here changes what the user's JWT resolves to.
+    private readonly principalCache: PrincipalCache,
+    // #727: how a user's picture resolves from their stored profile settings.
+    @Inject(IDENTITY_PROFILE_IMAGES) private readonly profileImages: IdentityProfileImages,
+    @Optional() @Inject(IDENTITY_OPTIONS)
+    private readonly identityOptions: ResolvedIdentityModuleOptions = DEFAULT_IDENTITY_OPTIONS,
+  ) {}
+
+  /**
+   * List users with pagination and filtering
+   */
+  async listUsers(query: UserListQueryDto) {
+    const { page, pageSize, search, role, isActive, sortBy, sortOrder } = query;
+    const skip = (page - 1) * pageSize;
+
+    // Build where clause
+    const where: any = {};
+
+    if (search) {
+      where.OR = [
+        { email: { contains: search, mode: 'insensitive' } },
+        { displayName: { contains: search, mode: 'insensitive' } },
+        { providerDisplayName: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    if (role) {
+      // A system role is in `user_roles`; an org role on an active membership
+      // (PP-6.3, #723).
+      // ANDed, so it composes with the search `OR` above.
+      where.AND = [
+        {
+          OR: [
+            { userRoles: { some: { role: { name: role } } } },
+            { memberships: { some: { status: 'active', role: { name: role } } } },
+          ],
+        },
+      ];
+    }
+
+    if (isActive !== undefined) {
+      where.isActive = isActive;
+    }
+
+    // Execute query
+    const [items, total] = await Promise.all([
+      this.prisma.user.findMany<UserWithSettings>({
+        where,
+        skip,
+        take: pageSize,
+        orderBy: { [sortBy]: sortOrder },
+        include: {
+          ...USER_ROLES_INCLUDE,
+          // Same query, no N+1: needed to resolve `profileImageUrl` (#367).
+          userSettings: {
+            select: { value: true },
+          },
+        },
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+
+    // Transform to response format
+    const transformedItems = items.map((user) => ({
+      id: user.id,
+      email: user.email,
+      displayName: user.displayName,
+      providerDisplayName: user.providerDisplayName,
+      profileImageUrl: this.resolveImage(user),
+      providerProfileImageUrl: user.providerProfileImageUrl,
+      isActive: user.isActive,
+      roles: this.roleNames(user),
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    }));
+
+    return {
+      items: transformedItems,
+      total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize),
+    };
+  }
+
+  /**
+   * Get user by ID
+   */
+  async getUserById(id: string) {
+    const user = await this.prisma.user.findUnique<
+      UserWithSettings & { identities: Array<{ provider: string; providerEmail: string | null; createdAt: Date }> }
+    >({
+      where: { id },
+      include: {
+        ...USER_ROLES_INCLUDE,
+        identities: {
+          select: {
+            provider: true,
+            providerEmail: true,
+            createdAt: true,
+          },
+        },
+        userSettings: {
+          select: { value: true },
+        },
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException(`User with ID ${id} not found`);
+    }
+
+    return {
+      id: user.id,
+      email: user.email,
+      displayName: user.displayName,
+      providerDisplayName: user.providerDisplayName,
+      profileImageUrl: this.resolveImage(user),
+      providerProfileImageUrl: user.providerProfileImageUrl,
+      isActive: user.isActive,
+      roles: this.roleNames(user),
+      identities: user.identities,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    };
+  }
+
+  /**
+   * Update user (admin actions)
+   */
+  async updateUser(
+    id: string,
+    dto: UpdateUserDto,
+    adminUserId: string,
+  ) {
+    // Prevent admin from deactivating themselves
+    if (dto.isActive === false && id === adminUserId) {
+      throw new ForbiddenException('Cannot deactivate your own account');
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { id } });
+
+    if (!user) {
+      throw new NotFoundException(`User with ID ${id} not found`);
+    }
+
+    const updated = await this.prisma.user.update<UserWithSettings>({
+      where: { id },
+      data: {
+        displayName: dto.displayName,
+        isActive: dto.isActive,
+      },
+      include: {
+        ...USER_ROLES_INCLUDE,
+        userSettings: {
+          select: { value: true },
+        },
+      },
+    });
+
+    // Principal cache (PP-1.12, #683): ALWAYS, after the write committed —
+    // cheap, and it is what makes `isActive: false` reject the user's very
+    // next request (on this replica now, on others within bus latency).
+    this.principalCache.invalidateUser(id);
+
+    // Log audit event
+    await this.createAuditEvent(adminUserId, 'user:update', 'user', id, {
+      changes: dto,
+    });
+
+    this.logger.log(`User ${id} updated by admin ${adminUserId}`);
+
+    return {
+      id: updated.id,
+      email: updated.email,
+      displayName: updated.displayName,
+      providerDisplayName: updated.providerDisplayName,
+      profileImageUrl: this.resolveImage(updated),
+      providerProfileImageUrl: updated.providerProfileImageUrl,
+      isActive: updated.isActive,
+      roles: this.roleNames(updated),
+      createdAt: updated.createdAt,
+      updatedAt: updated.updatedAt,
+    };
+  }
+
+  /**
+   * Update user roles.
+   *
+   * The body keeps its pre-split shape (`roleNames` from `admin`,
+   * `contributor`, `viewer`); what it changes depends on the tenancy mode
+   * (PP-6.3, #723):
+   *
+   * - **single:** the system roles named become the user's `user_roles`
+   *   (`admin` toggles the system administrator), and the default-org
+   *   membership role becomes `org_admin` when `admin` is named, otherwise the
+   *   highest org role named (`contributor` above `viewer`), otherwise the default
+   *   org role. So `['admin']` is an administrator, `['contributor']` a
+   *   contributor with no system role.
+   * - **multi:** system roles only. An org role name is a 400 pointing to the
+   *   organization member endpoints (#726); memberships are not touched.
+   */
+  async updateUserRoles(
+    id: string,
+    dto: UpdateUserRolesDto,
+    adminUserId: string,
+  ) {
+    // Prevent admin from removing their own admin role
+    if (id === adminUserId && !dto.roleNames.includes(ROLES.ADMIN)) {
+      throw new ForbiddenException('Cannot remove admin role from yourself');
+    }
+
+    // The roles held BEFORE the change are read here, in the lookup that was
+    // already happening, because they are gone the moment the transaction
+    // below runs — `deleteMany` then `createMany` replaces the set wholesale.
+    // `security.role_changed` reports a DELTA (see role-changed.email.ts: "you
+    // are now a Viewer" cannot tell the reader whether they gained access or
+    // lost it), so the before-state has to be captured on this side of it.
+    const user = await this.prisma.user.findUnique<UserRolesGraph>({
+      where: { id },
+      include: USER_ROLES_INCLUDE,
+    });
+
+    if (!user) {
+      throw new NotFoundException(`User with ID ${id} not found`);
+    }
+
+    // System roles plus the current org role, as `/api/auth/me` shows them.
+    const previousRoles = this.roleNames(user);
+
+    // Validate all roles exist
+    const roles = await this.prisma.role.findMany({
+      where: { name: { in: dto.roleNames } },
+    });
+
+    if (roles.length !== dto.roleNames.length) {
+      const foundNames = roles.map((r) => r.name);
+      const invalid = dto.roleNames.filter((n) => !foundNames.includes(n));
+      throw new BadRequestException(`Invalid roles: ${invalid.join(', ')}`);
+    }
+
+    const systemRoles = roles.filter((role) => role.scope === 'system');
+    const orgRoles = roles.filter((role) => role.scope === 'org');
+    const singleOrg = principalFactory.mode() === 'single';
+
+    if (!singleOrg && orgRoles.length > 0) {
+      throw new BadRequestException(
+        `${orgRoles.map((role) => role.name).join(', ')} ${ORG_ROLES_ELSEWHERE}`,
+      );
+    }
+
+    // Single mode: the default-org membership role this request implies.
+    let membershipRole: { id: string; name: string } | null = null;
+    let defaultOrgId: string | null = null;
+    if (singleOrg) {
+      const membershipRoleName = systemRoles.some((role) => role.name === ROLES.ADMIN)
+        ? ORG_ADMIN_ROLE
+        : this.highestOrgRole(orgRoles.map((role) => role.name)) ?? this.identityOptions.defaultOrgRole;
+      membershipRole =
+        orgRoles.find((role) => role.name === membershipRoleName) ??
+        (await this.prisma.role.findUnique({ where: { name: membershipRoleName } }));
+      if (!membershipRole) {
+        throw new BadRequestException(`Invalid roles: ${membershipRoleName}`);
+      }
+      // The same lookup as `OrganizationsService.getDefaultOrg` (kept local so
+      // this service's dependencies do not change).
+      const defaultOrg = await this.prisma.organization.findFirst({
+        where: { isDefault: true },
+        select: { id: true },
+      });
+      if (!defaultOrg) throw new DefaultOrganizationMissingException();
+      defaultOrgId = defaultOrg.id;
+    }
+
+    // Replace the system roles (and, in single mode, set the membership role)
+    // in one transaction.
+    await this.prisma.$transaction(async (tx) => {
+      // Remove existing roles. Every row goes, including a pre-split row of an
+      // org role: from here on org roles live on the membership.
+      await tx.userRole.deleteMany({ where: { userId: id } });
+
+      // Add new roles
+      if (systemRoles.length > 0) {
+        await tx.userRole.createMany({
+          data: systemRoles.map((role) => ({
+            userId: id,
+            roleId: role.id,
+          })),
+        });
+      }
+
+      if (membershipRole && defaultOrgId) {
+        await tx.membership.upsert({
+          where: { orgId_userId: { orgId: defaultOrgId, userId: id } },
+          update: { roleId: membershipRole.id },
+          create: {
+            orgId: defaultOrgId,
+            userId: id,
+            roleId: membershipRole.id,
+            lastActiveAt: new Date(),
+          },
+        });
+      }
+    });
+
+    // What the user holds now, in the same terms as `previousRoles`.
+    const currentRoles = [
+      ...new Set([
+        ...systemRoles.map((role) => role.name),
+        ...(membershipRole ? [membershipRole.name] : this.currentOrgRole(user)),
+      ]),
+    ];
+
+    // Principal cache (PP-1.12, #683): AFTER the transaction committed, never
+    // inside it — a removed role stops authorising the next request.
+    this.principalCache.invalidateUser(id);
+
+    // Log audit event
+    await this.createAuditEvent(adminUserId, 'user:roles_update', 'user', id, {
+      newRoles: dto.roleNames,
+      systemRoles: systemRoles.map((role) => role.name),
+      ...(membershipRole ? { orgRole: membershipRole.name } : {}),
+    });
+
+    this.logger.log(
+      `User ${id} roles updated to [${dto.roleNames.join(', ')}] by admin ${adminUserId}`,
+    );
+
+    // -------------------------------------------------------------------------
+    // Trigger: `security.role_changed` (#128, epic #109)
+    // -------------------------------------------------------------------------
+    //
+    // AFTER THE TRANSACTION, NOT INSIDE IT. Two independent reasons, and the
+    // first is the property the whole epic exists to prove:
+    //
+    //   1. A send failure MUST NOT roll back the role change. `notify` is
+    //      detached — it schedules the dispatch on a later microtask and
+    //      returns before anything is rendered or sent — so the dispatch does
+    //      not run inside the `$transaction` above (which has already
+    //      committed), does not share a Prisma transaction client with it, and
+    //      cannot fail it. It also never rejects: every failure below it
+    //      becomes a `notification_deliveries` row with an `error`, never an
+    //      exception reaching here.
+    //
+    //   2. It must not delay this request. `notify` returns immediately; the
+    //      admin's PATCH does not wait on a mail server. Awaiting it is still
+    //      correct and cheap — it means "scheduled", not "delivered" — and it
+    //      is awaited here only so a `no-floating-promises` rule has nothing to
+    //      complain about.
+    //
+    // MANDATORY EVENT: `security.role_changed` is `mandatory: true` in the
+    // registry, so the recipient's stored preferences are ignored by
+    // `resolveChannels` and both declared channels (email and the in-app bell)
+    // are always attempted. A privilege change nobody can see is the failure
+    // this event exists to prevent.
+    //
+    // NO SELF-SUPPRESSION. An admin who changes their OWN roles still gets the
+    // notification. Suppressing it would be a rule with no security value —
+    // the alerting case is precisely the one where the actor and the account
+    // owner are believed to be the same person and are not.
+    const payload: RoleChangedNotice = {
+      recipientEmail: user.email,
+      previousRoles,
+      currentRoles,
+      changedAt: new Date(),
+      appUrl: this.appUrl(),
+    };
+
+    // The ACTOR IS NOT IN THE PAYLOAD, deliberately — see the long note in
+    // role-changed.email.ts. `audit_events` above records who made the change,
+    // which is the controlled place for it.
+    await this.notifications.roleChanged(id, payload);
+
+    return this.getUserById(id);
+  }
+
+  /**
+   * A user's role names as the API reports them: system roles plus the
+   * current org role (`PrincipalFactory`, PP-6.3).
+   */
+  private roleNames(user: Parameters<typeof principalFactory.access>[0]): string[] {
+    return principalFactory.access(user).roles;
+  }
+
+  /** The current org role of a loaded user, as a 0- or 1-element list. */
+  private currentOrgRole(user: Parameters<typeof principalFactory.access>[0]): string[] {
+    const orgRole = principalFactory.access(user).orgRole;
+    return orgRole ? [orgRole] : [];
+  }
+
+  /** The highest-ranked org role among `names`, or `undefined` when there is none. */
+  private highestOrgRole(names: string[]): string | undefined {
+    const ranked = ORG_ROLE_PRECEDENCE.find((name) => names.includes(name));
+    return ranked ?? names[0];
+  }
+
+  /**
+   * The picture representing a user, per their `profile.imageSource` (#367).
+   * `users.profile_image_url` is deliberately not consulted — nothing writes it.
+   */
+  private resolveImage(user: {
+    id: string;
+    providerProfileImageUrl: string | null;
+    userSettings?: { value: unknown } | null;
+  }): string | null {
+    const storedProfile = (
+      user.userSettings?.value as { profile?: unknown } | null | undefined
+    )?.profile;
+    return this.profileImages.resolveImageUrl(user, storedProfile);
+  }
+
+  /**
+   * Absolute URL of the application root, for a notification's CTA.
+   *
+   * Built here rather than in the template, which is a pure function of its
+   * input and has no business reading configuration. `undefined` when
+   * `APP_URL` is unset: the layout then omits the button rather than rendering
+   * one that goes nowhere.
+   */
+  private appUrl(): string | undefined {
+    const appUrl = this.config.get<string>('appUrl');
+    return appUrl ? appUrl.replace(/\/+$/, '') : undefined;
+  }
+
+  /**
+   * Create audit event
+   */
+  private async createAuditEvent(
+    actorUserId: string,
+    action: string,
+    targetType: string,
+    targetId: string,
+    meta: Record<string, unknown>,
+  ) {
+    await this.prisma.auditEvent.create({
+      data: {
+        actorUserId,
+        action,
+        targetType,
+        targetId,
+        meta: meta as any,
+      },
+    });
+  }
+}

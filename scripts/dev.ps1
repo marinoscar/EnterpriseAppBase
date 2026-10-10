@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
-    EnterpriseAppBase Development Script for Windows
+    Application Development Script for Windows
 
 .DESCRIPTION
-    Manages the EnterpriseAppBase development environment using Docker Compose.
+    Manages the application's development environment using Docker Compose.
     Supports starting, stopping, rebuilding, viewing logs, running tests, and Prisma operations.
 
 .PARAMETER Action
@@ -15,7 +15,7 @@
     For prisma action: generate, migrate, studio, reset
 
 .PARAMETER Otel
-    Switch to include OpenTelemetry observability stack
+    Switch to include the telemetry stack (OpenTelemetry Collector + GreptimeDB)
 
 .EXAMPLE
     .\dev.ps1 start
@@ -23,7 +23,7 @@
 
 .EXAMPLE
     .\dev.ps1 start -Otel
-    Starts all services with OpenTelemetry observability stack
+    Starts all services with telemetry stack (OpenTelemetry Collector + GreptimeDB)
 
 .EXAMPLE
     .\dev.ps1 rebuild
@@ -81,7 +81,7 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 $ComposeDir = Join-Path $RepoRoot "infra\compose"
 $BaseCompose = Join-Path $ComposeDir "base.compose.yml"
 $DevCompose = Join-Path $ComposeDir "dev.compose.yml"
-$OtelCompose = Join-Path $ComposeDir "otel.compose.yml"
+$OtelCompose = Join-Path $ComposeDir "telemetry.compose.yml"
 $TestCompose = Join-Path $ComposeDir "test.compose.yml"
 $ApiDir = Join-Path $RepoRoot "apps\api"
 $WebDir = Join-Path $RepoRoot "apps\web"
@@ -89,13 +89,13 @@ $WebDir = Join-Path $RepoRoot "apps\web"
 # Verify compose files exist
 if (-not (Test-Path $BaseCompose)) {
     Write-Err "ERROR: Base compose file not found at $BaseCompose"
-    Write-Err "Make sure you're running this script from the EnterpriseAppBase repository."
+    Write-Err "Make sure you're running this script from the repository root."
     exit 1
 }
 
 function Show-Help {
     Write-Host ""
-    Write-Info "EnterpriseAppBase Development Script"
+    Write-Info "Application Development Script"
     Write-Host "====================================="
     Write-Host ""
     Write-Host "Usage: .\dev.ps1 <action> [service/option] [-Otel]"
@@ -113,7 +113,7 @@ function Show-Help {
     Write-Host "  help      Show this help message"
     Write-Host ""
     Write-Host "Flags:"
-    Write-Host "  -Otel     Include OpenTelemetry observability stack (Uptrace)"
+    Write-Host "  -Otel     Include telemetry stack (OpenTelemetry Collector + GreptimeDB)"
     Write-Host ""
     Write-Host "Services: api, web, db, nginx"
     Write-Host ""
@@ -140,7 +140,7 @@ function Show-Help {
     Write-Host ""
     Write-Host "Examples:"
     Write-Host "  .\dev.ps1 start               # Start all services"
-    Write-Host "  .\dev.ps1 start -Otel         # Start with observability stack"
+    Write-Host "  .\dev.ps1 start -Otel         # Start with telemetry stack"
     Write-Host "  .\dev.ps1 rebuild             # Rebuild and start all services"
     Write-Host "  .\dev.ps1 rebuild api         # Rebuild only the API service"
     Write-Host "  .\dev.ps1 logs api            # Follow API logs"
@@ -153,7 +153,8 @@ function Show-Help {
     Write-Host "  API:            http://localhost:3535/api"
     Write-Host "  Swagger UI:     http://localhost:3535/api/docs"
     Write-Host "  API Health:     http://localhost:3535/api/health/live"
-    Write-Host "  Uptrace:        http://localhost:14318 (with -Otel flag)"
+    Write-Host "  GreptimeDB:     http://localhost:14000/dashboard (with -Otel flag)"
+    Write-Host "  GreptimeDB PG:  postgres://localhost:14003/public (with -Otel flag)"
     Write-Host ""
 }
 
@@ -179,9 +180,9 @@ function Invoke-DockerCompose {
 }
 
 function Start-Services {
-    Write-Info "Starting EnterpriseAppBase services..."
+    Write-Info "Starting services..."
     if ($Otel) {
-        Write-Info "Including OpenTelemetry observability stack..."
+        Write-Info "Including telemetry stack (OpenTelemetry Collector + GreptimeDB)..."
     }
     if ($Service) {
         Invoke-DockerCompose @("up", "-d", $Service)
@@ -193,12 +194,13 @@ function Start-Services {
     Write-Info "Application:  http://localhost:3535"
     Write-Info "Swagger UI:   http://localhost:3535/api/docs"
     if ($Otel) {
-        Write-Info "Uptrace:      http://localhost:14318"
+        Write-Info "GreptimeDB:    http://localhost:14000/dashboard"
+        Write-Info "GreptimeDB PG: postgres://localhost:14003/public (reader account)"
     }
 }
 
 function Stop-Services {
-    Write-Info "Stopping EnterpriseAppBase services..."
+    Write-Info "Stopping services..."
     if ($Service) {
         Invoke-DockerCompose @("stop", $Service)
     } else {
@@ -208,7 +210,7 @@ function Stop-Services {
 }
 
 function Restart-Services {
-    Write-Info "Restarting EnterpriseAppBase services..."
+    Write-Info "Restarting services..."
     if ($Service) {
         Invoke-DockerCompose @("restart", $Service)
     } else {
@@ -219,9 +221,9 @@ function Restart-Services {
 }
 
 function Rebuild-Services {
-    Write-Info "Rebuilding EnterpriseAppBase services (no cache)..."
+    Write-Info "Rebuilding services (no cache)..."
     if ($Otel) {
-        Write-Info "Including OpenTelemetry observability stack..."
+        Write-Info "Including telemetry stack (OpenTelemetry Collector + GreptimeDB)..."
     }
     if ($Service) {
         Invoke-DockerCompose @("build", "--no-cache", $Service)
@@ -235,7 +237,8 @@ function Rebuild-Services {
     Write-Info "Application:  http://localhost:3535"
     Write-Info "Swagger UI:   http://localhost:3535/api/docs"
     if ($Otel) {
-        Write-Info "Uptrace:      http://localhost:14318"
+        Write-Info "GreptimeDB:    http://localhost:14000/dashboard"
+        Write-Info "GreptimeDB PG: postgres://localhost:14003/public (reader account)"
     }
 }
 
@@ -257,7 +260,7 @@ function Clean-Services {
     Write-Warn "WARNING: This will stop all services and DELETE all data (database, volumes)!"
     $confirmation = Read-Host "Are you sure? Type 'yes' to confirm"
     if ($confirmation -eq "yes") {
-        Write-Info "Cleaning up EnterpriseAppBase services and volumes..."
+        Write-Info "Cleaning up services and volumes..."
         Invoke-DockerCompose @("down", "-v")
         Write-Success "Cleanup complete! All data has been removed."
     } else {
@@ -345,9 +348,9 @@ function Run-E2ETests {
         # Set individual database variables for test environment
         $env:POSTGRES_HOST = "localhost"
         $env:POSTGRES_PORT = "5433"
-        $env:POSTGRES_USER = "postgres"
+        $env:POSTGRES_USER = "app"
         $env:POSTGRES_PASSWORD = "postgres"
-        $env:POSTGRES_DB = "enterprise_app_test"
+        $env:POSTGRES_DB = "my_app_test"
         $env:POSTGRES_SSL = "false"
         npm run test:e2e
     } finally {

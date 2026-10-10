@@ -1,0 +1,124 @@
+import { describe, it, expect } from 'vitest';
+import { USER_SETTINGS_SECTIONS } from '../../config/userSettingsSections';
+
+/**
+ * Issue #126, epic #109. The Notifications card follows the same
+ * MANDATORY settings-registry pattern every other `/settings/*` card does
+ * (see CLAUDE.md's "MANDATORY: Settings UI Pattern" and
+ * `config/userSettingsSections.tsx`'s own header): declared once, here, with
+ * NO `permission` field.
+ *
+ * Every other card under `USER_SETTINGS_SECTIONS` is unpermissioned for the
+ * same reason - these are the caller's OWN settings, and the API grants
+ * `user_settings:read` / `user_settings:write` to all three roles. A
+ * `permission` field on this card would invent an authorization rule the API
+ * does not enforce, and would lock a Viewer out of saying how they want to be
+ * contacted.
+ */
+describe('USER_SETTINGS_SECTIONS - Notifications card (issue #126)', () => {
+  function findNotificationsCard() {
+    for (const section of USER_SETTINGS_SECTIONS) {
+      const card = section.cards.find((c) => c.path === '/settings/notifications');
+      if (card) return card;
+    }
+    return undefined;
+  }
+
+  it('is present in the registry', () => {
+    const card = findNotificationsCard();
+    expect(card).toBeDefined();
+    expect(card?.title).toBe('Notifications');
+  });
+
+  it('declares no permission - reachable by every authenticated user, not gated on a specific one', () => {
+    const card = findNotificationsCard();
+    expect(card).toBeDefined();
+    expect('permission' in (card as object)).toBe(false);
+    expect(card?.permission).toBeUndefined();
+  });
+
+  it('points at /settings/notifications', () => {
+    const card = findNotificationsCard();
+    expect(card?.path).toBe('/settings/notifications');
+  });
+
+  it('is grouped under Account, not Security - it is about how the account is contacted, not a credential', () => {
+    const accountSection = USER_SETTINGS_SECTIONS.find((s) => s.label === 'Account');
+    expect(accountSection?.cards.some((c) => c.path === '/settings/notifications')).toBe(
+      true,
+    );
+  });
+
+  // The wider claim: this is not a one-off omission on this card, it is true
+  // of the whole per-user registry (see the file's own header comment). A
+  // regression that added a permission ANYWHERE in USER_SETTINGS_SECTIONS
+  // would be exactly the kind of invented gate that CLAUDE.md's Settings UI
+  // Pattern rule 3 warns against.
+  /**
+   * Replaces "no card declares a permission" (#425, epic #419), deliberately.
+   *
+   * Every per-user card edits something the API grants all three roles, so for
+   * those a permission would invent a rule the API does not enforce. `AI Keys`
+   * is the first exception, and a real one: `ai:use` is a grant a deployment
+   * can withhold from a role (AI calls cost money), and the `/api/ai/keys`
+   * controller enforces exactly that string. The allow-list keeps the rule for
+   * everything else — a new gated user card has to be added here on purpose.
+   */
+  const PERMISSION_GATED_USER_CARDS: Record<string, string> = {
+    '/settings/ai': 'ai:use',
+    // #731: the org permission the `/api/groups` controller enforces.
+    '/settings/groups': 'groups:read',
+  };
+
+  it('only cards listed in PERMISSION_GATED_USER_CARDS declare a permission', () => {
+    const allCards = USER_SETTINGS_SECTIONS.flatMap((section) => section.cards);
+    for (const card of allCards) {
+      const expected = card.path ? PERMISSION_GATED_USER_CARDS[card.path] : undefined;
+      expect(card.permission, `${card.title} permission`).toBe(expected);
+    }
+    // Every allow-listed card still exists — a stale entry is a silent hole.
+    for (const path of Object.keys(PERMISSION_GATED_USER_CARDS)) {
+      expect(allCards.some((card) => card.path === path), `${path} is registered`).toBe(true);
+    }
+  });
+});
+
+/**
+ * Issue #731 (PP-7.4). The packaged groups page is ONE card in a new `Sharing`
+ * section APPENDED after every existing one (Settings UI Pattern rule 1:
+ * append, never insert), gated on the exact string the `/api/groups`
+ * controller enforces (rule 3), with no `feature`.
+ */
+describe('USER_SETTINGS_SECTIONS - Groups card (issue #731)', () => {
+  it('is the only card of a Sharing section, appended after the existing ones', () => {
+    const sharing = USER_SETTINGS_SECTIONS.find((section) => section.label === 'Sharing');
+    expect(sharing?.cards.map((card) => card.title)).toEqual(['Groups']);
+  });
+
+  it('leaves the existing sections, in order, untouched; later groups (#744 "Your data") go before the pinned Danger Zone (#743)', () => {
+    expect(USER_SETTINGS_SECTIONS.map((section) => section.label)).toEqual(['Account', 'Security', 'Sharing', 'Your data', 'Danger Zone']);
+  });
+
+  it('points at /settings/groups and declares groups:read and no feature', () => {
+    const card = USER_SETTINGS_SECTIONS.flatMap((section) => section.cards).find((c) => c.title === 'Groups');
+    expect(card?.path).toBe('/settings/groups');
+    expect(card?.permission).toBe('groups:read');
+    expect(card?.feature).toBeUndefined();
+  });
+});
+
+/**
+ * Issue #744 (PP-9.2). "Download your data" is ONE card in a `Your data`
+ * section appended after every existing one, with no permission (the API
+ * grants the `user-data` source to every role through `user_settings:read`)
+ * and no feature.
+ */
+describe('USER_SETTINGS_SECTIONS - Download your data (issue #744)', () => {
+  it('is the only card of the Your data section, ungated, at /settings/data-export', () => {
+    const section = USER_SETTINGS_SECTIONS.find((s) => s.label === 'Your data');
+    expect(section?.cards.map((card) => card.title)).toEqual(['Download your data']);
+    expect(section?.cards[0]?.path).toBe('/settings/data-export');
+    expect(section?.cards[0]?.permission).toBeUndefined();
+    expect(section?.cards[0]?.feature).toBeUndefined();
+  });
+});

@@ -1,1161 +1,394 @@
-# API Reference
+# API Conventions
+
+This page describes the rules every route in the API follows. It does not list
+endpoints. The per-endpoint reference (paths, parameters, request and response
+schemas, required permissions) is the generated OpenAPI document described
+below, which is built from the running code and cannot drift from it.
 
 ## Base URL
 
-- **Development**: http://localhost:3535/api
-- **Production**: https://yourdomain.com/api
+Nginx serves the web app at `/` and the API at `/api` on one origin
+(`http://localhost:3535/api` in development). Every route has the global
+prefix `api`. Because the browser only talks to one origin, the API enables no
+CORS policy; call it from another origin server-side, with a token.
+
+## OpenAPI Documentation
+
+- **Interactive reference**: `/api/docs` (Scalar, not Swagger UI).
+- **OpenAPI 3.1 document**: `GET /api/openapi.json`. If it fails to build at
+  startup, both routes answer `503` and the rest of the API keeps working.
+- **Offline dump**: `npm run openapi:dump` (repo root) writes `openapi.json`
+  without a database or credentials. `npm run openapi:lint` runs Spectral on it
+  with `.spectral.yaml`.
+- **CI**: the `openapi` job in `.github/workflows/ci.yml` runs
+  `openapi:typecheck`, `openapi:dump` and `openapi:lint`.
+
+### How the document is built
+
+The builder is the host slice's (`@marinoscar/platform-api/host`, #867:
+`createOpenApiDocument`, `registerPlatformDocs`); the reference app keeps only
+its binding in `apps/api/src/openapi/` (`document.ts`: the product name,
+repository and version; `tags.ts`: every tag and sidebar group, an undeclared
+tag fails a test), so a test, the dump script and the running server all
+produce the same document. It is built from the controllers' decorators, then
+post-processed: the generated permission line from `@Auth()`, the PAT scheme
+on every authenticated operation, 2xx schemas wrapped in `{ data, meta }`, the
+shared error response, the tag groups and OpenAPI 3.1 nullables. To document a new route, add
+`@ApiOperation` / `@ApiResponse` and `@Auth()`; the permission line is
+generated for you.
+
+#### One-click session auth
+
+The `/api/docs` page runs a small script before Scalar mounts. It calls
+`POST /api/auth/refresh` with your refresh cookie and pre-authorizes the
+`JWT-auth` scheme with the returned access token. Reload the page to get a
+fresh token after it expires.
 
 ## Authentication
 
-All endpoints require JWT Bearer token authentication unless explicitly marked as **Public**.
+Authentication is declared per route. `@Auth()` applies the JWT, role and
+permission guards; `@Public()` marks a route that needs no credential (sign-in,
+health, the device-code and device-token polls, avatar images).
 
-**Authorization Header:**
+| Credential | How it is sent | Accepted on | Issued by |
+|------------|----------------|-------------|-----------|
+| Session access token (JWT, 15 min default) | `Authorization: Bearer <jwt>` | Every authenticated route | OAuth callback, `POST /api/auth/refresh`, `POST /api/auth/switch-org` |
+| Refresh token (opaque, 14 days default) | `refresh_token` cookie, `HttpOnly`, `SameSite=Lax`, `Path=/api/auth` | `POST /api/auth/refresh`, `POST /api/auth/switch-org`, `POST /api/auth/logout` | OAuth callback, rotated on every refresh and switch-org |
+| Personal access token (`pat_…`) | `Authorization: Bearer pat_…` | Every authenticated route | `POST /api/pat`, or the device flow |
+| Node credential (`nod_…`) | `Authorization: Bearer nod_…` | Only `/api/nodes` and `/api/nodes/*`; `403` elsewhere | `POST /api/node-credentials` |
+| Link-share token (`lnk_…`) | `X-Link-Token: lnk_…` (the SPA reads it from the share URL's fragment, `/s#lnk_…`); never a path segment or a query parameter | `GET /api/public/links/current` and app routes behind `LinkGrantGuard`, for one record | `POST /api/grants/links` |
+
+- The access token is read from the `Authorization` header only, never from a
+  cookie. `POST /api/auth/refresh` returns a new one and rotates the cookie.
+- A `pat_` token carries its owner's full permission set
+  ([Personal Access Tokens](personal-access-tokens.md)). A `nod_` credential
+  cannot reach `/api/node-credentials`, so a leaked one cannot mint another.
+- A link-share token authenticates a deliberately public route for ONE
+  record, with no principal: it is not a bearer token and is refused
+  everywhere else. Every invalid link is the same `404`; see Rate Limiting for
+  the per-address miss limit.
+- Browserless clients such as `appctl` use the
+  [device authorization grant](DEVICE-AUTH.md). Every sign-in path is gated by
+  the email allowlist.
+
+### Active organization and `switch-org`
+
+Every user credential acts in exactly **one organization**, and no request
+input chooses it: the API never reads an org id from a header or a query
+parameter. The org comes from the credential (#724):
+
+- a session access token carries it as the signed `org` claim (single mode:
+  the default organization; multi mode: the membership used most recently
+  at sign-in);
+- a personal access token and a device session are bound to one org when
+  they are created or approved, for life.
+
+`GET /api/auth/me` reports it as `activeOrg` (`{ id, name, slug }`) with the
+roles and permissions computed for it, plus `memberships` (every org the user
+is an active member of, with the org role). A browser changes org with
+
+```http
+POST /api/auth/switch-org
+Authorization: Bearer <session access token>
+Cookie: refresh_token=…
+Content-Type: application/json
+
+{ "orgId": "0b6f1c2e-7a53-4a8e-9d0c-2f6a1e9b7c11" }
 ```
-Authorization: Bearer <access_token>
-```
 
-Access tokens are short-lived (15 minutes by default). Use the refresh token flow to obtain new access tokens.
+which answers like `POST /api/auth/refresh` (`{ accessToken, expiresIn }` and a
+rotated `refresh_token` cookie), with the new access token bound to `orgId`.
+`404` means `orgId` is not an organization the caller is an active member of
+(in single mode, anything but the default org); `403` means the caller used a
+PAT or a device credential, which cannot switch; `401` means the refresh
+cookie is missing or spent. The client discards its old access token and uses
+the new one: there is no way to act in two organizations with one token. A
+credential whose membership is removed or suspended is refused with `401`.
 
-## Response Format
+### Organization routes act on the active organization
 
-### Success Response
+`/api/org/members` and `/api/org/invites` (#726) administer **the caller's
+active organization**, the one the credential is bound to. No route takes an
+org id in the path, the query or the body (a body with an `orgId` key is a
+`400`, the DTOs are strict), so an administrator of org A cannot name org B:
+a member or an invitation of another organization is a `404`, exactly like
+one that does not exist. Administer another organization by switching to it
+(`POST /api/auth/switch-org`) as a member of it. They need ORG permissions
+(`org_members:*`, `org_invites:*`, held through the `org_admin` membership
+role), and work in both tenancy modes; the web UI shows them only in
+multi-org mode.
+
+`/api/admin/organizations` is the deployment operator's list of
+organizations (SYSTEM permissions `organizations:read` / `organizations:write`).
+Creating one is refused in single-org mode with `409` and
+`details.reason: "TENANCY_SINGLE_ORG"`; a taken slug is `409`
+(`SLUG_TAKEN`). The slug is immutable after creation, and which organization
+is the default cannot be changed.
+
+Member writes that would leave the organization without an active
+`org_admin` answer `409` with `details.reason: "LAST_ORG_ADMIN"`; changing
+your own role, suspending or removing yourself is `403`. Re-inviting an
+address that is already a member is `409` (`ALREADY_MEMBER`, or
+`INVITE_ACCEPTED` when its invitation was accepted).
+
+### Sign-in redirects
+
+The two Google routes, and the same two routes of every other registered `redirect` provider (`GET /api/auth/<providerId>` and `/callback`), answer with redirects, not the JSON envelope. An unknown, `custom` or not configured provider id is a 404 on the first route.
+
+| Route | Redirects to |
+|---|---|
+| `GET /api/auth/google` | Google's consent screen. `?select_account=1` forwards `prompt=select_account` so Google shows its account chooser; any other value is ignored |
+| `GET /api/auth/google/callback` | On success `<APP_URL>/auth/callback?token=<jwt>&expiresIn=<seconds>`. On any failure `<APP_URL>/auth/callback?error=<code>` |
+
+`<code>` is one of a closed set (`not_allowlisted`, `account_disabled`,
+`access_denied`, `authentication_failed`, `server_misconfigured`), never an
+exception message. Failures raised before the callback handler runs, such as
+cancelled consent or a replayed code, redirect the same way instead of returning
+a JSON error. The meaning of each code, the reason free text is excluded and the
+steps to add a code are in
+[SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md#sign-in-failure-contract).
+
+### How required permissions appear in the OpenAPI document
+
+`@Auth({ roles, permissions })` stamps an `x-rbac` extension on the operation,
+and the builder appends a line such as
+``**Requires:** authentication, plus permission `jobs:read`.`` to its
+description. A caller needs **any** listed role and **all** listed
+permissions. Every authenticated operation lists both the `JWT-auth` and
+`PAT-auth` security schemes. The permission matrix (which role holds which
+permission) lives in [ARCHITECTURE.md](ARCHITECTURE.md).
+
+## Response Envelope
+
+A global interceptor wraps every successful JSON body:
 
 ```json
-{
-  "data": <response_data>,
-  "meta": {
-    "timestamp": "2024-01-01T00:00:00.000Z"
-  }
-}
+{ "data": { "id": "…", "email": "…" }, "meta": { "timestamp": "2026-09-26T12:00:00.000Z" } }
 ```
 
-### Error Response
+A body that already has a top-level `data` key passes through unchanged. SSE
+streams and `204 No Content` responses are not enveloped.
+
+## Errors
+
+Every error goes through one global exception filter
+(`HttpExceptionFilter` from `@marinoscar/platform-api/core`,
+`packages/platform-api/src/core/errors/http-exception.filter.ts`, registered as
+the app's `APP_FILTER`), which builds this body:
 
 ```json
-{
-  "statusCode": 400,
-  "message": "Human readable error message",
-  "error": "BadRequest"
-}
+{ "statusCode": 409, "code": "CONFLICT", "message": "Settings version mismatch. Expected 3, found 4",
+  "details": {}, "timestamp": "2026-09-26T12:00:00.000Z", "path": "/api/system-settings" }
 ```
 
-For validation errors:
-```json
-{
-  "statusCode": 400,
-  "message": ["Field validation error 1", "Field validation error 2"],
-  "error": "BadRequest"
-}
-```
+- `code` is always derived from the status: `BAD_REQUEST` (400),
+  `UNAUTHORIZED` (401), `FORBIDDEN` (403), `NOT_FOUND` (404), `CONFLICT` (409),
+  `PRECONDITION_FAILED` (412), `PAYLOAD_TOO_LARGE` (413),
+  `UNPROCESSABLE_ENTITY` (422), `TOO_MANY_REQUESTS` (429), `INTERNAL_ERROR`
+  (500), and `ERROR` for anything else (for example 503). A `code` on a thrown
+  exception is ignored. The base's own `If-Match` routes answer a version
+  mismatch with `409 CONFLICT` (see [Optimistic Concurrency](#optimistic-concurrency-if-match)); `412` is mapped for
+  routes that choose the HTTP precondition status.
+- `details` is optional and endpoint-specific. It is the only place a custom
+  field survives. Branch on `details.reason` where an endpoint documents one
+  (for example `AI_DISABLED`, `AI_KEY_REQUIRED`, `MAINTENANCE_MODE`), never on
+  `message`.
+- A body or query that fails the global Zod validation pipe answers `400
+  BAD_REQUEST` with `details.issues`, one `{ "path": "items.0.name",
+  "message": "…" }` per failing field (`path` is the dotted Zod path, `""` for
+  the object itself, such as an unknown key on a strict schema). Only the path
+  and the message are published, never the submitted value. An exception that
+  already carries `details` keeps its own.
+- Outside production, an unexpected non-HTTP error puts its stack in `details`.
+- A `429` whose `details.retryAfterMs` is set also carries a `Retry-After`
+  header, in whole seconds rounded up.
+- One route opts out of the envelope: `POST /api/auth/device/token` returns
+  the RFC 8628 body `{ "error": "…", "error_description": "…" }` verbatim.
 
 ## Pagination
 
-Endpoints returning lists support pagination with the following query parameters:
+Lists are offset-paginated with `page` (default 1) and `pageSize` (default 20,
+max 100). Two body shapes exist. Most lists (users, allowlist, jobs, database backup
+runs, broadcasts, notifications, the AI model catalog) use the **flat** shape:
 
-| Parameter | Type | Default | Max | Description |
-|-----------|------|---------|-----|-------------|
-| `page` | number | 1 | - | Page number (1-indexed) |
-| `pageSize` | number | 20 | 100 | Items per page |
-
-**Paginated Response Format:**
 ```json
-{
-  "data": [...],
-  "meta": {
-    "total": 150,
-    "page": 1,
-    "pageSize": 20,
-    "totalPages": 8
-  }
-}
+{ "data": { "items": [], "total": 42, "page": 1, "pageSize": 20, "totalPages": 3 } }
 ```
 
----
+`GET /api/storage/objects` uses the **nested** shape, with counts in an inner
+`meta` and the total named `totalItems`:
 
-## Endpoints
-
-### Authentication
-
-#### GET /auth/providers
-**Public endpoint** - List enabled OAuth providers.
-
-**Response:**
 ```json
-{
-  "data": {
-    "providers": [
-      {
-        "name": "google",
-        "enabled": true
-      }
-    ]
-  }
-}
+{ "data": { "items": [], "meta": { "page": 1, "pageSize": 20, "totalItems": 42, "totalPages": 3 } } }
 ```
 
----
+`GET /api/auth/device/sessions` is older and differs: it takes `page` and
+`limit` (default 10) and returns `{ sessions, total, page, limit }`. Each
+operation's schema in `/api/docs` says which shape it returns.
 
-#### GET /auth/google
-**Public endpoint** - Initiate Google OAuth flow. Redirects to Google consent screen.
+## Optimistic Concurrency (`If-Match`)
 
-**Response:** HTTP 302 redirect to Google
+Settings-style resources return an integer `version`. Send it back in
+`If-Match` to make a write conditional:
 
----
-
-#### GET /auth/google/callback
-**Public endpoint** - OAuth callback handler (called by Google).
-
-**Query Parameters:**
-- `code` (string) - Authorization code from Google
-- `state` (string, optional) - CSRF protection state
-
-**Response:** HTTP 302 redirect to frontend with access token in query parameter
-- Sets HttpOnly refresh token cookie
-- Redirects to `/auth/callback?accessToken=<token>`
-
-**Error Cases:**
-- Email not in allowlist → Redirects to `/auth/error?error=not_authorized`
-- OAuth failure → Redirects to `/auth/error?error=oauth_failed`
-
----
-
-#### GET /auth/me
-**Requires Authentication** - Get current user profile.
-
-**Response:**
-```json
-{
-  "id": "uuid",
-  "email": "user@example.com",
-  "displayName": "John Doe",
-  "profileImageUrl": "https://...",
-  "isActive": true,
-  "roles": [
-    {
-      "id": "uuid",
-      "name": "admin",
-      "description": "Administrator with full access"
-    }
-  ],
-  "permissions": ["users:read", "users:write", "system_settings:read", ...]
-}
-```
-
----
-
-#### POST /auth/refresh
-**Public endpoint** - Refresh access token using refresh token cookie.
-
-**Request:** No body required (uses HttpOnly cookie)
-
-**Response:**
-```json
-{
-  "accessToken": "new_jwt_access_token",
-  "expiresIn": 900
-}
-```
-
-Sets new refresh token in HttpOnly cookie (token rotation).
-
-**Error Cases:**
-- 401 Unauthorized - Missing or invalid refresh token
-- 403 Forbidden - User is disabled
-
----
-
-#### POST /auth/logout
-**Requires Authentication** - Logout and revoke refresh token.
-
-**Request:** No body required
-
-**Response:** HTTP 204 No Content
-- Clears refresh token cookie
-- Revokes refresh token in database
-
----
-
-#### POST /auth/logout-all
-**Requires Authentication** - Logout from all devices and revoke all refresh tokens.
-
-**Request:** No body required
-
-**Response:** HTTP 204 No Content
-- Clears refresh token cookie
-- Revokes ALL refresh tokens for the current user across all devices
-
-**Use Case:** Security feature to force re-authentication on all sessions (e.g., after password change or suspected compromise).
-
----
-
-### Device Authorization (RFC 8628)
-
-The Device Authorization Flow enables input-constrained devices (CLI tools, IoT devices, Smart TVs) to obtain user authorization. See [DEVICE-AUTH.md](DEVICE-AUTH.md) for comprehensive guide and integration examples.
-
-#### POST /auth/device/code
-**Public endpoint** - Generate device code pair to initiate device authorization flow.
-
-**Request Body:**
-```json
-{
-  "clientInfo": {
-    "name": "My CLI Tool",
-    "version": "1.0.0",
-    "platform": "linux"
-  }
-}
-```
-
-**Fields:**
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `clientInfo` | object | No | Optional metadata about client device |
-| `clientInfo.name` | string | No | Application name |
-| `clientInfo.version` | string | No | Application version |
-| `clientInfo.platform` | string | No | Platform identifier |
-
-**Response:**
-```json
-{
-  "data": {
-    "deviceCode": "a4f3b8c9d2e1f5a6b7c8d9e0f1a2b3c4",
-    "userCode": "ABCD-1234",
-    "verificationUri": "http://localhost:3535/device",
-    "verificationUriComplete": "http://localhost:3535/device?code=ABCD-1234",
-    "expiresIn": 900,
-    "interval": 5
-  }
-}
-```
-
-**Response Fields:**
-| Field | Type | Description |
-|-------|------|-------------|
-| `deviceCode` | string | Opaque code for device polling (keep secret) |
-| `userCode` | string | Human-readable code for user entry (XXXX-XXXX format) |
-| `verificationUri` | string | URL where user should authorize |
-| `verificationUriComplete` | string | URL with user code pre-filled |
-| `expiresIn` | number | Code lifetime in seconds (default: 900) |
-| `interval` | number | Minimum polling interval in seconds (default: 5) |
-
----
-
-#### POST /auth/device/token
-**Public endpoint** - Poll for authorization status and obtain tokens when approved.
-
-**Request Body:**
-```json
-{
-  "deviceCode": "a4f3b8c9d2e1f5a6b7c8d9e0f1a2b3c4"
-}
-```
-
-**Response (200 OK - Authorized):**
-```json
-{
-  "data": {
-    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-    "refreshToken": "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6",
-    "tokenType": "Bearer",
-    "expiresIn": 900
-  }
-}
-```
-
-**Error Responses (400 Bad Request):**
-
-While authorization is pending:
-```json
-{
-  "error": "authorization_pending",
-  "error_description": "User has not yet authorized this device"
-}
-```
-
-Device polling too frequently:
-```json
-{
-  "error": "slow_down",
-  "error_description": "Polling too frequently. Please slow down."
-}
-```
-
-Code has expired:
-```json
-{
-  "error": "expired_token",
-  "error_description": "The device code has expired"
-}
-```
-
-User denied authorization:
-```json
-{
-  "error": "access_denied",
-  "error_description": "User denied the authorization request"
-}
-```
-
-**Error Response (401 Unauthorized):**
-
-Invalid device code:
-```json
-{
-  "error": "invalid_grant",
-  "error_description": "Invalid device code"
-}
-```
-
-**Usage:**
-1. Device requests code from `/auth/device/code`
-2. Device displays `userCode` and `verificationUri` to user
-3. Device polls this endpoint every `interval` seconds
-4. User visits verification page and approves device
-5. Polling returns tokens when approved
-
----
-
-#### GET /auth/device/activate
-**Requires Authentication** - Get activation page information and validate user code.
-
-**Query Parameters:**
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `code` | string | No | User verification code to validate |
-
-**Request (No Code):**
 ```http
-GET /auth/device/activate
-Authorization: Bearer <token>
+PATCH /api/system-settings
+If-Match: 4
 ```
 
-**Response (No Code):**
-```json
-{
-  "data": {
-    "verificationUri": "http://localhost:3535/device"
-  }
-}
-```
-
-**Request (With Code):**
-```http
-GET /auth/device/activate?code=ABCD-1234
-Authorization: Bearer <token>
-```
-
-**Response (With Valid Code):**
-```json
-{
-  "data": {
-    "verificationUri": "http://localhost:3535/device",
-    "userCode": "ABCD-1234",
-    "clientInfo": {
-      "name": "My CLI Tool",
-      "version": "1.0.0",
-      "platform": "linux"
-    },
-    "expiresAt": "2024-01-01T12:15:00.000Z"
-  }
-}
-```
-
-**Error Cases:**
-- 404 Not Found - Invalid user code
-- 400 Bad Request - Code has expired or already been processed
-
----
-
-#### POST /auth/device/authorize
-**Requires Authentication** - Approve or deny device authorization request.
-
-**Request Body:**
-```json
-{
-  "userCode": "ABCD-1234",
-  "approve": true
-}
-```
-
-**Fields:**
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `userCode` | string | Yes | User code from the device |
-| `approve` | boolean | Yes | true to approve, false to deny |
-
-**Response:**
-```json
-{
-  "data": {
-    "success": true,
-    "message": "Device authorized successfully"
-  }
-}
-```
-
-**Error Cases:**
-- 404 Not Found - Invalid user code
-- 400 Bad Request - Code has expired or already been processed
-
----
-
-#### GET /auth/device/sessions
-**Requires Authentication** - List current user's approved device sessions.
-
-**Query Parameters:**
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `page` | number | No | 1 | Page number |
-| `limit` | number | No | 10 | Items per page |
-
-**Response:**
-```json
-{
-  "data": {
-    "sessions": [
-      {
-        "id": "uuid-1234",
-        "userCode": "ABCD-1234",
-        "status": "approved",
-        "clientInfo": {
-          "name": "My CLI Tool",
-          "version": "1.0.0",
-          "platform": "linux"
-        },
-        "createdAt": "2024-01-01T12:00:00.000Z",
-        "expiresAt": "2024-01-01T12:15:00.000Z"
-      }
-    ],
-    "total": 5,
-    "page": 1,
-    "limit": 10
-  }
-}
-```
-
-**Use Case:** View all devices that have been authorized to access the account.
-
----
-
-#### DELETE /auth/device/sessions/:id
-**Requires Authentication** - Revoke a specific device session.
-
-**Parameters:**
-- `id` (UUID) - Session ID to revoke
-
-**Response:**
-```json
-{
-  "data": {
-    "success": true,
-    "message": "Device session revoked successfully"
-  }
-}
-```
-
-**Error Cases:**
-- 404 Not Found - Session not found or doesn't belong to current user
-
-**Use Case:** Revoke access for lost or compromised devices.
-
----
-
-### Users
-
-**All user endpoints require Admin role (`users:read` or `users:write` permissions)**
-
-#### GET /users
-List all users with pagination and filtering.
-
-**Query Parameters:**
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `page` | number | 1 | Page number |
-| `pageSize` | number | 20 | Items per page (max 100) |
-| `search` | string | - | Search by email or display name |
-| `isActive` | boolean | - | Filter by active status |
-| `role` | string | - | Filter by role name |
-| `sortBy` | enum | `createdAt` | Sort field: `email`, `createdAt`, `updatedAt` |
-| `sortOrder` | enum | `desc` | Sort order: `asc`, `desc` |
-
-**Response:**
-```json
-{
-  "data": [
-    {
-      "id": "uuid",
-      "email": "user@example.com",
-      "displayName": "John Doe",
-      "profileImageUrl": "https://...",
-      "providerDisplayName": "John Doe",
-      "providerProfileImageUrl": "https://lh3.googleusercontent.com/...",
-      "isActive": true,
-      "createdAt": "2024-01-01T00:00:00.000Z",
-      "roles": [
-        {
-          "id": "uuid",
-          "name": "contributor"
-        }
-      ]
-    }
-  ],
-  "meta": {
-    "total": 50,
-    "page": 1,
-    "pageSize": 20,
-    "totalPages": 3
-  }
-}
-```
-
-**Note:** `providerDisplayName` and `providerProfileImageUrl` may be null if not available from OAuth provider.
-
----
-
-#### GET /users/:id
-Get user by ID.
-
-**Parameters:**
-- `id` (UUID) - User ID
-
-**Response:**
-```json
-{
-  "id": "uuid",
-  "email": "user@example.com",
-  "displayName": "John Doe",
-  "profileImageUrl": "https://...",
-  "providerDisplayName": "John Doe",
-  "providerProfileImageUrl": "https://lh3.googleusercontent.com/...",
-  "isActive": true,
-  "createdAt": "2024-01-01T00:00:00.000Z",
-  "updatedAt": "2024-01-01T00:00:00.000Z",
-  "roles": [
-    {
-      "id": "uuid",
-      "name": "contributor",
-      "description": "Standard user capabilities"
-    }
-  ],
-  "identities": [
-    {
-      "provider": "google",
-      "providerEmail": "user@example.com"
-    }
-  ]
-}
-```
-
-**Note:** `providerDisplayName` and `providerProfileImageUrl` may be null if not available from OAuth provider.
-
-**Error Cases:**
-- 404 Not Found - User not found
-
----
-
-#### PATCH /users/:id
-Update user properties (activation status, display name).
-
-**Requires:** `users:write` permission
-
-**Parameters:**
-- `id` (UUID) - User ID
-
-**Request Body:**
-```json
-{
-  "isActive": false,
-  "displayName": "New Name"
-}
-```
-
-**Fields:**
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `isActive` | boolean | No | Activate or deactivate user |
-| `displayName` | string | No | Update user's display name |
-
-**Response:**
-```json
-{
-  "id": "uuid",
-  "email": "user@example.com",
-  "displayName": "New Name",
-  "isActive": false,
-  "roles": [
-    {
-      "id": "uuid",
-      "name": "viewer"
-    }
-  ]
-}
-```
-
-**Error Cases:**
-- 404 Not Found - User not found
-
----
-
-#### PUT /users/:id/roles
-Update user roles (replaces all current roles).
-
-**Requires:** `rbac:manage` permission
-
-**Parameters:**
-- `id` (UUID) - User ID
-
-**Request Body:**
-```json
-{
-  "roleNames": ["admin", "contributor"]
-}
-```
-
-**Fields:**
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `roleNames` | string[] | Yes | Array of role names to assign (min: 1) |
-
-**Response:**
-```json
-{
-  "id": "uuid",
-  "email": "user@example.com",
-  "displayName": "John Doe",
-  "isActive": true,
-  "roles": [
-    {
-      "id": "uuid",
-      "name": "admin",
-      "description": "Administrator with full access"
-    },
-    {
-      "id": "uuid",
-      "name": "contributor",
-      "description": "Standard user capabilities"
-    }
-  ]
-}
-```
-
-**Validation Rules:**
-- Cannot remove own admin role (prevents accidental lockout)
-- At least one role must be assigned
-- Role names must exist in the system
-
-**Error Cases:**
-- 400 Bad Request - Invalid role names, empty array, or attempting to remove own admin role
-- 401 Unauthorized - Not authenticated
-- 403 Forbidden - Missing `rbac:manage` permission
-- 404 Not Found - User not found
-
----
-
-### Allowlist
-
-**All allowlist endpoints require Admin role (`allowlist:read` or `allowlist:write` permissions)**
-
-The allowlist restricts application access to pre-authorized email addresses. Users must have their email in the allowlist before they can complete OAuth login.
-
-#### GET /allowlist
-List allowlisted emails with pagination, filtering, and sorting.
-
-**Query Parameters:**
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `page` | number | 1 | Page number |
-| `pageSize` | number | 20 | Items per page (max 100) |
-| `search` | string | - | Search by email |
-| `status` | enum | `all` | Filter by status: `all`, `pending`, `claimed` |
-| `sortBy` | enum | `addedAt` | Sort by: `email`, `addedAt`, `claimedAt` |
-| `sortOrder` | enum | `desc` | Sort order: `asc`, `desc` |
-
-**Response:**
-```json
-{
-  "data": [
-    {
-      "id": "uuid",
-      "email": "user@example.com",
-      "addedBy": {
-        "id": "uuid",
-        "email": "admin@example.com"
-      },
-      "addedAt": "2024-01-01T00:00:00.000Z",
-      "claimedBy": {
-        "id": "uuid",
-        "email": "user@example.com",
-        "displayName": "John Doe"
-      },
-      "claimedAt": "2024-01-02T00:00:00.000Z",
-      "notes": "New team member"
-    },
-    {
-      "id": "uuid",
-      "email": "pending@example.com",
-      "addedBy": {
-        "id": "uuid",
-        "email": "admin@example.com"
-      },
-      "addedAt": "2024-01-03T00:00:00.000Z",
-      "claimedBy": null,
-      "claimedAt": null,
-      "notes": null
-    }
-  ],
-  "meta": {
-    "total": 100,
-    "page": 1,
-    "pageSize": 20,
-    "totalPages": 5
-  }
-}
-```
-
-**Note:** `addedBy` object contains only `id` and `email` (no `displayName`). `claimedBy` object contains `id`, `email`, and `displayName` when not null.
-
-**Status Filters:**
-- `all` - All allowlist entries
-- `pending` - Emails not yet claimed by a user (claimedBy is null)
-- `claimed` - Emails claimed by registered users (claimedBy is not null)
-
----
-
-#### POST /allowlist
-Add email to allowlist.
-
-**Requires:** `allowlist:write` permission
-
-**Request Body:**
-```json
-{
-  "email": "newuser@example.com",
-  "notes": "Marketing team member - starts next week"
-}
-```
-
-**Fields:**
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `email` | string | Yes | Valid email address (case-insensitive) |
-| `notes` | string | No | Optional notes about this user |
-
-**Response:**
-```json
-{
-  "id": "uuid",
-  "email": "newuser@example.com",
-  "addedBy": {
-    "id": "uuid",
-    "email": "admin@example.com"
-  },
-  "addedAt": "2024-01-01T00:00:00.000Z",
-  "claimedBy": null,
-  "claimedAt": null,
-  "notes": "Marketing team member - starts next week"
-}
-```
-
-**Note:** `addedBy` object contains only `id` and `email` (no `displayName`).
-
-**Error Cases:**
-- 409 Conflict - Email already exists in allowlist
-- 400 Bad Request - Invalid email format
-
----
-
-#### DELETE /allowlist/:id
-Remove email from allowlist.
-
-**Requires:** `allowlist:write` permission
-
-**Parameters:**
-- `id` (UUID) - Allowlist entry ID
-
-**Response:** HTTP 204 No Content
-
-**Error Cases:**
-- 404 Not Found - Allowlist entry not found
-- 400 Bad Request - Cannot remove entry that has been claimed by a user
-
-**Note:** Entries that have been claimed (user has logged in) cannot be removed. This prevents accidentally removing access for existing users.
-
----
-
-### Settings
-
-#### GET /user-settings
-**Requires Authentication** - Get current user's settings.
-
-**Response:**
-```json
-{
-  "theme": "light",
-  "profile": {
-    "displayName": "John Doe",
-    "useProviderImage": true,
-    "customImageUrl": null
-  },
-  "updatedAt": "2024-01-01T00:00:00.000Z",
-  "version": 1
-}
-```
-
-**Fields:**
-| Field | Type | Description |
-|-------|------|-------------|
-| `theme` | enum | UI theme: `light`, `dark`, `system` |
-| `profile.displayName` | string \| null | User's display name override |
-| `profile.useProviderImage` | boolean | Whether to use OAuth provider's profile image |
-| `profile.customImageUrl` | string \| null | Custom profile image URL |
-| `updatedAt` | string | ISO 8601 timestamp of last update |
-| `version` | number | Version number for optimistic concurrency control |
-
----
-
-#### PUT /user-settings
-**Requires Authentication** - Replace all user settings.
-
-**Request Body:**
-```json
-{
-  "theme": "dark",
-  "profile": {
-    "displayName": "Jane Doe",
-    "useProviderImage": false,
-    "customImageUrl": "https://example.com/avatar.jpg"
-  }
-}
-```
-
-**Response:**
-```json
-{
-  "theme": "dark",
-  "profile": {
-    "displayName": "Jane Doe",
-    "useProviderImage": false,
-    "customImageUrl": "https://example.com/avatar.jpg"
-  },
-  "updatedAt": "2024-01-01T12:00:00.000Z",
-  "version": 2
-}
-```
-
-**Note:** This replaces the entire settings object. Use PATCH for partial updates.
-
----
-
-#### PATCH /user-settings
-**Requires Authentication** - Partially update user settings.
-
-**Request Body:**
-```json
-{
-  "theme": "dark"
-}
-```
-
-**Request Headers (Optional):**
-```
-If-Match: 1
-```
-
-**Response:**
-```json
-{
-  "theme": "dark",
-  "profile": {
-    "displayName": "John Doe",
-    "useProviderImage": true,
-    "customImageUrl": null
-  },
-  "updatedAt": "2024-01-01T12:00:00.000Z",
-  "version": 2
-}
-```
-
-**Optimistic Concurrency Control:**
-- Include `If-Match: <version>` header to ensure settings haven't been modified by another request
-- Returns **409 Conflict** if version mismatch detected
-- Prevents lost updates in concurrent scenarios
-
-**Note:** This performs a shallow merge with existing settings.
-
----
-
-#### GET /system-settings
-**Requires:** `system_settings:read` permission (Admin only)
-
-Get system-wide settings.
-
-**Response:**
-```json
-{
-  "ui": {
-    "allowUserThemeOverride": true
-  },
-  "security": {
-    "jwtAccessTtlMinutes": 15,
-    "refreshTtlDays": 14
-  },
-  "features": {},
-  "updatedAt": "2024-01-01T00:00:00.000Z",
-  "updatedBy": {
-    "id": "uuid",
-    "email": "admin@example.com"
-  },
-  "version": 1
-}
-```
-
-**Fields:**
-| Field | Type | Description |
-|-------|------|-------------|
-| `ui.allowUserThemeOverride` | boolean | Allow users to override system theme |
-| `security.jwtAccessTtlMinutes` | number | JWT access token TTL in minutes |
-| `security.refreshTtlDays` | number | Refresh token TTL in days |
-| `features` | object | Feature flags (extensible) |
-| `updatedAt` | string | ISO 8601 timestamp of last update |
-| `updatedBy` | object | User who last updated settings |
-| `version` | number | Version number for optimistic concurrency control |
-
----
-
-#### PUT /system-settings
-**Requires:** `system_settings:write` permission (Admin only)
-
-Replace all system settings.
-
-**Request Body:**
-```json
-{
-  "ui": {
-    "allowUserThemeOverride": true
-  },
-  "security": {
-    "jwtAccessTtlMinutes": 15,
-    "refreshTtlDays": 14
-  },
-  "features": {}
-}
-```
-
-**Response:**
-```json
-{
-  "ui": {
-    "allowUserThemeOverride": true
-  },
-  "security": {
-    "jwtAccessTtlMinutes": 15,
-    "refreshTtlDays": 14
-  },
-  "features": {},
-  "updatedAt": "2024-01-01T12:00:00.000Z",
-  "updatedBy": {
-    "id": "uuid",
-    "email": "admin@example.com"
-  },
-  "version": 2
-}
-```
-
----
-
-#### PATCH /system-settings
-**Requires:** `system_settings:write` permission (Admin only)
-
-Partially update system settings.
-
-**Request Body:**
-```json
-{
-  "ui": {
-    "allowUserThemeOverride": false
-  }
-}
-```
-
-**Request Headers (Optional):**
-```
-If-Match: 1
-```
-
-**Response:**
-```json
-{
-  "ui": {
-    "allowUserThemeOverride": false
-  },
-  "security": {
-    "jwtAccessTtlMinutes": 15,
-    "refreshTtlDays": 14
-  },
-  "features": {},
-  "updatedAt": "2024-01-01T12:00:00.000Z",
-  "updatedBy": {
-    "id": "uuid",
-    "email": "admin@example.com"
-  },
-  "version": 2
-}
-```
-
-**Optimistic Concurrency Control:**
-- Include `If-Match: <version>` header to ensure settings haven't been modified by another request
-- Returns **409 Conflict** if version mismatch detected
-- Prevents lost updates when multiple admins modify settings concurrently
-
----
-
-### Health
-
-**Public endpoints** - Used for Kubernetes liveness/readiness probes.
-
-#### GET /health
-Full health check - includes database connectivity test. Equivalent to GET /health/ready.
-
-**Response:**
-```json
-{
-  "status": "ok",
-  "timestamp": "2024-01-01T00:00:00.000Z",
-  "checks": {
-    "database": "ok"
-  }
-}
-```
-
-**Error Cases:**
-- 503 Service Unavailable - Database connection failed
-
----
-
-#### GET /health/live
-Liveness check - always returns 200 if service is running.
-
-**Response:**
-```json
-{
-  "status": "ok",
-  "timestamp": "2024-01-01T00:00:00.000Z"
-}
-```
-
----
-
-#### GET /health/ready
-Readiness check - includes database connectivity test.
-
-**Response:**
-```json
-{
-  "status": "ok",
-  "timestamp": "2024-01-01T00:00:00.000Z",
-  "checks": {
-    "database": "ok"
-  }
-}
-```
-
-**Error Cases:**
-- 503 Service Unavailable - Database connection failed
-
----
-
-## HTTP Status Codes
-
-| Code | Description |
-|------|-------------|
-| 200 | OK - Request successful |
-| 201 | Created - Resource created successfully |
-| 204 | No Content - Request successful, no response body |
-| 400 | Bad Request - Invalid request format or validation error |
-| 401 | Unauthorized - Missing or invalid authentication token |
-| 403 | Forbidden - Insufficient permissions or user disabled |
-| 404 | Not Found - Resource not found |
-| 409 | Conflict - Resource already exists or version mismatch (optimistic concurrency) |
-| 500 | Internal Server Error - Server error occurred |
-| 503 | Service Unavailable - Service temporarily unavailable |
-
----
-
-## Error Codes
-
-| Code | HTTP Status | Description |
-|------|-------------|-------------|
-| `AUTH_REQUIRED` | 401 | No valid authentication token provided |
-| `INVALID_TOKEN` | 401 | JWT token is invalid or expired |
-| `FORBIDDEN` | 403 | User does not have required permissions |
-| `USER_DISABLED` | 403 | User account is disabled |
-| `NOT_FOUND` | 404 | Requested resource not found |
-| `VALIDATION_ERROR` | 400 | Request validation failed |
-| `CONFLICT` | 409 | Resource already exists or version mismatch |
-| `NOT_AUTHORIZED` | 403 | Email not in allowlist |
-| `VERSION_MISMATCH` | 409 | Optimistic concurrency conflict (If-Match header) |
-
----
-
-## Rate Limits
-
-> **Note:** Rate limiting is recommended for production deployments but is not currently implemented in the application. Consider adding `@nestjs/throttler` or Nginx rate limiting before production deployment.
-
-**Recommended limits:**
-
-| Endpoint Pattern | Recommended Limit | Window |
-|------------------|-------------------|--------|
-| `/api/auth/*` | 10 requests | 1 minute |
-| `/api/allowlist` (POST) | 30 requests | 1 minute |
-| `/api/system-settings` (PUT/PATCH) | 30 requests | 1 minute |
-| All other endpoints | 100 requests | 1 minute |
-
----
-
-## Swagger/OpenAPI Documentation
-
-Interactive API documentation with request/response examples is available at:
-
-**Development:** http://localhost:3535/api/docs
-
-The Swagger UI allows you to:
-- Explore all endpoints
-- View request/response schemas
-- Test API calls directly from the browser
-- Authenticate with JWT tokens
-
----
-
-## CORS Policy
-
-The API uses a **same-origin architecture**. Both the frontend and API are served from the same host (via Nginx reverse proxy):
-
-- Frontend: `http://localhost:3535/`
-- API: `http://localhost:3535/api`
-
-This eliminates CORS complexity and improves security. No cross-origin requests are required.
-
----
+If the stored version differs, the write is refused with `409 CONFLICT` and
+nothing is changed. Reload, re-apply, and retry. Omit the header to overwrite
+unconditionally. An unparseable value is treated as absent.
+
+Routes that read it: `PATCH /api/system-settings`, `PATCH /api/user-settings`,
+`PATCH /api/org-settings`,
+and `PUT` on `/api/email-settings`, `/api/admin/storage-config`,
+`/api/admin/push-config` and `/api/admin/ai/config`. The admin configuration
+routes share the version of the single system-settings row, so a concurrent
+save of an unrelated setting can also cause a `409`. `/api/org-settings` has a
+version of its own per organization (`0` while the organization has no row,
+so `If-Match: 0` creates it), independent of the system row.
+
+## Server-Sent Events
+
+Three routes stream `text/event-stream`:
+
+| Route | Frames | Keep-alive |
+|-------|--------|-----------|
+| `POST /api/ai/responses/stream` | `event: <type>` with JSON `data:`; starts with `response.created`, ends with exactly one `response.completed` or `error` | `: ping` every 15 s |
+| `GET /api/notifications/stream` | `event: notification` with JSON `data:` | `: heartbeat` about every 25 s |
+| `POST /api/admin/telemetry/assistant/stream` | `event: step\|answer\|error\|done` with JSON `data:`; always ends with `done` | `: ping` every 15 s |
+
+- **AI stream**: send `Accept: text/event-stream` and the same body as
+  `POST /api/ai/responses` (there is no `stream` flag). A refusal **before** the
+  first frame is an ordinary JSON error with `details.reason`. A failure
+  **after** it is an `error` frame (`{ "type": "error", "code": "AI_…",
+  "message": "…" }`), then the stream closes. Close the connection to cancel;
+  the provider call is aborted.
+- **Notification stream**: no replay. After a reconnect, refetch
+  `GET /api/notifications`.
+- **Telemetry assistant stream**: requires `telemetry:query` and `ai:use`.
+  A refusal before the first frame is an ordinary JSON error with
+  `details.reason` (`AI_DISABLED`, or a `TELEMETRY_*` reason — see
+  [telemetry.md](specs/telemetry.md#5-explorer)). Closing the connection
+  cancels the AI call and any in-flight query.
+- **All three**: the native `EventSource` cannot send `Authorization`, and
+  tokens in the query string are not accepted, so use a fetch-based SSE
+  client. Nginx serves each stream from a dedicated unbuffered location.
+
+## Rate Limiting
+
+There is no global HTTP rate limiter in the API or in Nginx. Add one (for
+example `@nestjs/throttler`, or `limit_req` in Nginx) if you need it. Three
+targeted limits exist:
+
+- **AI**: administrators set per-user, org-key and per-model limits in the `ai`
+  settings namespace. A request over a limit gets `429` with
+  `details.reason: "AI_RATE_LIMITED"`, `details.limit`, `details.retryAfterMs`
+  and a `Retry-After` header. See [AI Platform](specs/ai-platform.md).
+- **Device token polling**: polling faster than the issued `interval` returns
+  the RFC 8628 `slow_down` error.
+- **Member lookup by email** (`POST /api/groups/:id/members` and
+  `POST /api/grants` with an `email` grantee, one shared budget): ten failed
+  lookups per account in ten minutes, then `429` with
+  `details.reason: "LOOKUP_THROTTLED"`, `details.retryAfterMs` and a
+  `Retry-After` header. It blunts probing which addresses have accounts. The
+  counts live in each API process, so with several replicas the limit is
+  approximate (up to the limit per replica), as it is for the AI limits.
+- **Public link resolution** (`GET /api/public/links/current` and every app
+  route behind `LinkGrantGuard`, one shared budget): 30 failed resolutions
+  (unknown, malformed, revoked, expired or otherwise invalid link tokens) per
+  client address in ten minutes, then `429` with
+  `details.reason: "LINK_RESOLUTION_THROTTLED"`, `details.retryAfterMs` and a
+  `Retry-After` header, even for a valid token. The address is `request.ip`,
+  which honours the proxy settings. Approximate across replicas, like the
+  limits above. `SharingModule.forRoot({ links: { maxMissesPerIp } })` sets it.
+
+## Maintenance Mode
+
+While a maintenance window is open, routes answer `503` with
+`Retry-After: 30` and the standard error body, where `details` is
+`{ "reason": "MAINTENANCE_MODE", "retryAfterSeconds": 30, "allowAdmins": … }`.
+
+Routes marked `@AllowDuringMaintenance()` stay reachable: `/api/auth/*`,
+`GET /api/auth/device/activate`, `POST /api/auth/device/authorize`,
+`/api/admin/maintenance` (so an admin can close the window), `/api/health/*`,
+`/api/admin/about` and the development-only `/api/auth/test/*`.
+
+When the window allows admins, a request with an Admin session JWT passes. A
+`pat_` or `nod_` token never does. `/api/docs` and `/api/openapi.json` are
+outside the Nest router and stay readable. See
+[Maintenance Mode](specs/maintenance-mode.md).
 
 ## Security Headers
 
-All API responses include security headers:
+Nginx (`infra/nginx/nginx.conf`) adds these to every response:
 
-```
+```text
+X-Frame-Options: SAMEORIGIN
 X-Content-Type-Options: nosniff
-X-Frame-Options: DENY
 X-XSS-Protection: 1; mode=block
+Referrer-Policy: strict-origin-when-cross-origin
+Permissions-Policy: camera=(), microphone=(self), geolocation=(), payment=()
 Strict-Transport-Security: max-age=31536000; includeSubDomains
+Content-Security-Policy: <per path, from infra/nginx/csp.conf>
 ```
 
----
+HSTS is ignored over plain HTTP. Development uses `csp.dev.conf`. Nginx also
+forwards `X-Request-ID` to the API for log correlation.
 
 ## Versioning
 
-The API currently does not use versioning (v1, v2, etc.). Breaking changes will be avoided when possible. When breaking changes are necessary, they will be:
+The API is not URL-versioned (there is no `/api/v1`). `info.version` in the
+OpenAPI document is the application version, so the document describes the
+build you are talking to. For a breaking change that external clients depend
+on, add a new route rather than changing an existing contract in place.
 
-1. Announced in advance
-2. Documented in migration guides
-3. Implemented with a transition period when feasible
+## Route Groups
 
-For future versions, the API may adopt URL-based versioning: `/api/v2/...`
+Every group below is under `/api`. Exact routes are in `/api/docs`.
+
+| Prefix | What it is | Permission family | Design doc |
+|--------|------------|-------------------|------------|
+| `auth` | Google OAuth sign-in, refresh, logout, current user | public / authenticated | [SECURITY-ARCHITECTURE](SECURITY-ARCHITECTURE.md) |
+| `auth/device` | RFC 8628 device authorization | public / authenticated | [DEVICE-AUTH](DEVICE-AUTH.md) |
+| `auth/test` | Test login (not registered in production) | public | [TESTING](TESTING.md) |
+| `users` | User management and role assignment | `users:*`, `rbac:manage` | [SECURITY-ARCHITECTURE](SECURITY-ARCHITECTURE.md) |
+| `users/:userId/avatar` | Public stream of an uploaded avatar | public | [storage-providers](specs/storage-providers.md) |
+| `allowlist` | Email allowlist | `allowlist:*` | [SECURITY-ARCHITECTURE](SECURITY-ARCHITECTURE.md) |
+| `org/members`, `org/invites` | The active organization's members and invitations (never another org's) | `org_members:*`, `org_invites:*` (org) | [platform-packages](specs/platform-packages.md#tenancy-and-access-model) |
+| `admin/organizations` | The deployment's organizations: list, create with a first-admin invitation, rename | `organizations:*` (system) | [platform-packages](specs/platform-packages.md#tenancy-and-access-model) |
+| `groups` | Groups of the active organization, their members and invitations; `groups/invites/mine` and its accept and decline for the invitee. A group the caller may not see is `404`, never `403` | `groups:read`, `groups:write`, `groups:admin` (org) | [sharing README](../packages/platform-api/src/sharing/README.md) |
+| `grants` | Share one record of a registered resource type with a user or a group of the active organization (one role per grantee, optional expiry, soft revoke); `grants/shared-with-me`. A record the caller may not share is `404` (for a type that hides existence) | `sharing:read`, `sharing:write`, `sharing:admin` (org) | [sharing README](../packages/platform-api/src/sharing/README.md) |
+| `grants/links` | Share one record by link: mint a link (`<APP_URL>/s#lnk_…`, the token returned once), list a record's links with their URLs; changed and revoked through `grants/:id` | `sharing:read`, `sharing:write` (org) | [sharing README](../packages/platform-api/src/sharing/README.md) |
+| `public/links` | **Deliberately public.** `current` resolves the link token in the `X-Link-Token` header (never a path or query parameter); every invalid link is the same `404`; per-address miss limit (see Rate Limiting); `Cache-Control: no-store`, `Referrer-Policy: no-referrer` | public (link token) | [sharing README](../packages/platform-api/src/sharing/README.md) |
+| `user-settings` | Current user's settings | `user_settings:*` | [settings-ui](specs/settings-ui.md) |
+| `user-settings/profile-image` | Upload, preview, remove profile picture | `user_settings:*` | [storage-providers](specs/storage-providers.md) |
+| `system-settings` | Global settings (JSONB namespaces) | `system_settings:*` | [settings-ui](specs/settings-ui.md) |
+| `org-settings` | The active organization's overrides of the org-overridable system namespaces, with each namespace's effective value; `PATCH` takes `If-Match`, `null` clears a namespace or a field, an unknown or non-overridable namespace is `400`; each namespace's own permissions filter `GET` and refuse `PATCH` (`403`) | `org_settings:read`, `org_settings:write` (org) | [settings README](../packages/platform-api/src/settings/README.md) |
+| `email-settings` | Outbound email transport configuration | `system_settings:*` | [browser-notifications](specs/browser-notifications.md) |
+| `pat` | Personal access tokens | authenticated (own) | [personal-access-tokens](personal-access-tokens.md) |
+| `storage/objects` | File uploads (simple and resumable) and downloads | authenticated (owner) | [storage-providers](specs/storage-providers.md) |
+| `admin/storage-config` | Object-storage provider, bucket, credential | `storage_config:*` | [storage-providers](specs/storage-providers.md) |
+| `notifications` | In-app notifications, event registry, push subscriptions, SSE stream | authenticated (own) | [browser-notifications](specs/browser-notifications.md) |
+| `admin/push-config` | Web Push (VAPID) keys | `push:*` | [browser-notifications](specs/browser-notifications.md) |
+| `admin/broadcasts` | Admin broadcasts to every user | `broadcasts:*` | [notification-broadcasts](specs/notification-broadcasts.md) |
+| `admin/jobs` | Background job queue: list, stats, insights, retry | `jobs:*` | [job-queue](specs/job-queue.md) |
+| `nodes` | Worker-node control and data plane | `nodes:*` or `nod_` credential | [worker-nodes](specs/worker-nodes.md) |
+| `node-credentials` | Mint and revoke `nod_` credentials | `nodes:*` | [worker-nodes](specs/worker-nodes.md) |
+| `admin/nodes` | The whole worker fleet, every owner | `nodes:*` | [worker-nodes](specs/worker-nodes.md) |
+| `admin/maintenance` | Open or close the maintenance window | `system_settings:*` | [maintenance-mode](specs/maintenance-mode.md) |
+| `admin/db-backup` | Database backup, restore and rollback | `db_backup:read/write/restore` | [database-backup](specs/database-backup.md) |
+| `admin/about` | Deployed version and deploy history | `system_settings:read` | [vps-deploy](specs/vps-deploy.md) |
+| `admin/doctor` | Read-only configuration and health checks for every capability; `support-bundle` downloads them with the versions and a telemetry summary as one redacted JSON file | `system_settings:read` | [doctor](specs/doctor.md) |
+| `ai` | AI config, BYOK keys, models, responses, streaming, embeddings | `ai:use` (`GET /api/ai/config`: any user) | [ai-platform](specs/ai-platform.md) |
+| `ai/images`, `ai/audio`, `ai/realtime` | Queued image/audio work, realtime sessions | `ai:use` | [ai-platform](specs/ai-platform.md) |
+| `ai/runs`, `ai/usage` | Background run status, caller's own usage | `ai:use` | [ai-platform](specs/ai-platform.md) |
+| `admin/ai` | AI kill switch, key policy, providers, model catalog, usage | `ai_config:*` | [ai-platform](specs/ai-platform.md) |
+| `telemetry` | Public telemetry feature flag | authenticated (any user) | [telemetry](specs/telemetry.md) |
+| `admin/telemetry` | Telemetry policy, status, SQL explorer, export, AI assistant stream | `telemetry:read/write/query` (assistant also needs `ai:use`) | [telemetry](specs/telemetry.md) |
+| `health` | Liveness and readiness probes | public | [ARCHITECTURE](ARCHITECTURE.md) |
+
+Every `/api/ai/*` route except `GET /api/ai/config` returns `403` with
+`details.reason: "AI_DISABLED"` while AI is switched off. `/api/admin/ai/*` is
+never blocked by that switch.

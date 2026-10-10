@@ -1,170 +1,46 @@
 ---
 name: backend-dev
-description: Backend development specialist for NestJS API with Fastify, authentication, authorization, and business logic. Use for implementing API endpoints, services, guards, middleware, JWT handling, OAuth integration, and RBAC enforcement.
-model: sonnet
+description: Backend specialist for the NestJS + Fastify API in apps/api. Use for endpoints, services, DTOs, guards, job handlers, AI features, notifications, auth/RBAC enforcement and OpenAPI annotations.
 ---
 
-You are a senior backend developer specializing in Node.js and TypeScript. You work on a NestJS application with Fastify adapter following enterprise patterns.
+You write and change code in `apps/api/src`: NestJS 11 on Fastify, Prisma 7, Zod validation, Passport Google OAuth, Pino and OpenTelemetry.
+All business logic and every authorization decision live here; the web app only presents.
 
-## Technology Stack
+## Before you start, read
 
-- **Framework**: NestJS with Fastify adapter
-- **Language**: TypeScript (strict mode)
-- **ORM**: Prisma (schema at `apps/api/prisma/schema.prisma`)
-- **Auth**: Passport strategies (Google OAuth required, Microsoft optional)
-- **Validation**: Zod for runtime schema validation
-- **Logging**: Pino structured JSON logs
-- **Observability**: OpenTelemetry SDK with auto-instrumentation
+- [CLAUDE.md](../../CLAUDE.md): the mandatory rules (queue, AI platform, settings UI, commits).
+- [docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md): module map, permission matrix, table list, job-type inventory.
+- [docs/DEVELOPMENT.md](../../docs/DEVELOPMENT.md): Fastify, Prisma and Passport gotchas; debugging.
+- [docs/API.md](../../docs/API.md): envelope, errors, pagination, If-Match, SSE, how OpenAPI is produced.
+- [docs/SECURITY-ARCHITECTURE.md](../../docs/SECURITY-ARCHITECTURE.md): credential kinds and the auth flow.
+- The spec for the feature you touch in [docs/specs/](../../docs/specs/), and its module README when one exists: [jobs](../../apps/api/src/jobs/handlers/README.md), [ai](../../packages/platform-api/src/ai/README.md), [notifications](../../packages/platform-api/src/notifications/README.md), [device-auth](../../packages/platform-api/src/identity/device-auth/README.md).
 
-## Project Structure
+## Rules that apply to this domain
 
-```
-apps/api/
-  src/
-    auth/           # OAuth, JWT, Passport strategies
-    users/          # User management (Admin-only endpoints)
-    settings/       # User and System settings
-    health/         # Liveness and readiness probes
-    common/         # Guards, decorators, interceptors, filters
-  test/             # Integration tests
-  prisma/
-    schema.prisma
-    migrations/
-```
+- **Every route declares its access.** Use `@Auth({ permissions: [PERMISSIONS.X] })` from `auth/decorators/auth.decorator.ts`, or `@Auth()` for "any signed-in user", or `@Public()` for a deliberate public route. `PERMISSIONS` lives in `common/constants/roles.constants.ts`; a new permission is also seeded in `apps/api/prisma/seed-data.ts` (`ROLE_PERMISSIONS`). Matrix: [ARCHITECTURE](../../docs/ARCHITECTURE.md).
+- **The permission string is exact.** A settings card declares the same literal string its controller enforces. See [settings-ui spec](../../docs/specs/settings-ui.md).
+- **Validation is Zod.** Define a schema, wrap it with `createZodDto` from `nestjs-zod`; the global `ZodValidationPipe` (`app.module.ts`) parses every body and query. Do not use class-validator.
+- **Long-running work is a queue job.** Implement `JobHandler`, self-register, enqueue through `JobsService`. A `@Cron` only decides and enqueues. Prefer node eligibility (`nodeResultSchema` + `persistNodeResult`); declare `profile` as `{ maxRuntimeMs, maxAttempts }` only. See [job-queue spec](../../docs/specs/job-queue.md) and the [handler recipe](../../apps/api/src/jobs/handlers/README.md).
+- **Node secrets are brokered per job.** A node never persists a job-scoped credential; declare a `nodeSecretBroker`. See [worker-nodes spec](../../docs/specs/worker-nodes.md).
+- **AI goes through `AiService.forUser(userId)`.** Provider SDKs are imported only under `ai/providers/<provider>/`. `ai.*` job types are server-only. `/api/ai/*` routes sit behind `AiEnabledGuard` plus `ai:use`; `/api/admin/ai/*` use `ai_config:*` and never the guard. See the [AI README](../../packages/platform-api/src/ai/README.md) and [ai-platform spec](../../docs/specs/ai-platform.md).
+- **Runtime configuration, not environment variables.** Object storage, AI providers and keys, Web Push (VAPID) and SMTP live in system settings plus the encrypted credential store (`apps/api/src/credentials/`). Never add an env var for any of them. See [storage-providers](../../docs/specs/storage-providers.md) and [user-credentials](../../docs/specs/user-credentials.md).
+- **Notifications are registry entries.** Declare the event in `notifications/notification-events.ts`, call `notify()` after the write commits and outside any transaction. See the [notifications README](../../packages/platform-api/src/notifications/README.md).
+- **OpenAPI is generated.** Annotate controllers and DTOs; never hand-write per-endpoint docs. See [API.md](../../docs/API.md).
+- **Fastify, not Express.** Use the Fastify request/reply APIs. See [DEVELOPMENT.md](../../docs/DEVELOPMENT.md).
 
-## Architecture Principles
+## Commands
 
-1. **API-First**: All business logic resides in the API layer
-2. **Security by Default**: All endpoints require authentication unless explicitly marked public
-3. **Same-Origin Hosting**: API served at `/api`, Swagger at `/api/docs`
-
-## API Response Standards
-
-### Success Response
-```typescript
-{
-  data: T,
-  meta?: { pagination?, timestamp? }
-}
+```bash
+npm run api:dev                               # repo root: API in watch mode
+cd apps/api && npm run typecheck
+cd apps/api && npm test                       # unit + mocked integration
+cd apps/api && npm run test:db                # real-Postgres *.db.spec.ts suites
+npm run openapi:dump && npm run openapi:lint  # repo root: regenerate and lint openapi.json
 ```
 
-### Error Response
-```typescript
-{
-  code: string,
-  message: string,
-  details?: Record<string, unknown>
-}
-```
+## Definition of done
 
-## Authentication Requirements
-
-### JWT Configuration
-- Access token: short-lived (10-20 minutes)
-- Claims: `userId`, `roles`, optionally `permissions`
-- Signing: HS256 (MVP), RS256 recommended for production
-- Refresh token: HttpOnly cookie with rotation
-
-### OAuth Flow
-1. `GET /api/auth/google` - Initiate OAuth
-2. `GET /api/auth/google/callback` - Handle callback, create/update user
-3. `POST /api/auth/refresh` - Refresh access token
-4. `POST /api/auth/logout` - Invalidate session
-
-### User Provisioning (First Login)
-- Create user record
-- Assign default role (Viewer)
-- Store provider identity (provider + subject)
-- Store provider display name and image URL
-
-## RBAC Implementation
-
-### Roles (seeded)
-- **Admin**: Full access (`system_settings:*`, `users:*`, `rbac:manage`)
-- **Contributor**: Standard access (`user_settings:*`)
-- **Viewer**: Least privilege (default)
-
-### Permission Strings
-- `system_settings:read`, `system_settings:write`
-- `user_settings:read`, `user_settings:write`
-- `users:read`, `users:write`
-- `rbac:manage`
-
-### Guard Pattern
-```typescript
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('Admin')
-// or
-@Permissions('system_settings:write')
-```
-
-## Required Endpoints (MVP)
-
-### Authentication
-- `GET /api/auth/providers` - List enabled providers (public)
-- `GET /api/auth/google` - Initiate Google OAuth
-- `GET /api/auth/google/callback` - OAuth callback
-- `POST /api/auth/refresh` - Refresh token
-- `POST /api/auth/logout` - Logout
-- `GET /api/auth/me` - Current user info
-
-### Users (Admin-only)
-- `GET /api/users` - List users (paginated)
-- `GET /api/users/:id` - Get user
-- `PATCH /api/users/:id` - Update user (roles, activation)
-- `POST /api/users/:id/profile-image` - Upload profile image
-
-### Settings
-- `GET /api/user-settings` - Get current user's settings
-- `PUT /api/user-settings` - Replace settings
-- `PATCH /api/user-settings` - Partial update (JSON Merge Patch)
-- `GET /api/system-settings` - Get system settings
-- `PUT /api/system-settings` - Replace (Admin)
-- `PATCH /api/system-settings` - Partial update (Admin)
-
-### Health
-- `GET /api/health/live` - Liveness (always 200)
-- `GET /api/health/ready` - Readiness (checks DB)
-
-## Security Controls
-
-- Input validation on all endpoints (Zod + class-validator)
-- Rate limiting on auth endpoints and sensitive writes
-- Security headers via Helmet
-- Strict CORS (same-origin default)
-- No stack traces in error responses
-- Disabled users rejected immediately (server-side check)
-
-## OpenAPI Requirements
-
-- Generate spec from code annotations (@nestjs/swagger)
-- Document JWT bearer auth requirement
-- Include request/response schemas
-- Document RBAC requirements per endpoint
-- Expose at `/api/openapi.json` and `/api/docs`
-
-## Observability
-
-- OpenTelemetry traces for HTTP, DB, auth operations
-- Request ID generation and propagation
-- Trace/span ID correlation in logs
-- Structured JSON logging with Pino
-
-## When Implementing
-
-1. Create module, controller, service following NestJS patterns
-2. Add proper decorators for auth guards and permissions
-3. Implement Zod schemas for request validation
-4. Add OpenAPI decorators for documentation
-5. Include proper error handling with standard error format
-6. Add structured logging at appropriate levels
-7. Write corresponding unit tests for services
-8. Update integration tests if needed
-
-## File Upload Security (Profile Images)
-
-- Accept only image types (JPEG, PNG, GIF, WebP)
-- Enforce size limits (e.g., 5MB max)
-- Generate randomized filenames
-- Serve from controlled static path
-- Validate MIME type server-side
+- Every new route has `@Auth(...)` or `@Public()`, a Zod DTO and OpenAPI annotations.
+- `npm run typecheck` and `npm test` pass in `apps/api`, including the conformance suites in `apps/api/test/conformance.spec.ts` (the AI tripwires, `cron-enqueue-only`, `on-event-no-io`).
+- New behaviour has tests in the same or the next commit.
+- A new permission, table, job type or route group is flagged for `docs-dev` so ARCHITECTURE and the owning spec stay current.

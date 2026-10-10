@@ -1,0 +1,333 @@
+{
+  "name": "@marinoscar/platform-api",
+  "version": "0.1.0-next.3",
+  "description": "NestJS dynamic modules of the platform (CommonJS, built with tsc for decorator metadata).",
+  "license": "MIT",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=24"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marinoscar/EnterpriseAppBase.git",
+    "directory": "packages/platform-api"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./core": {
+      "types": "./dist/core/index.d.ts",
+      "default": "./dist/core/index.js"
+    },
+    "./core/testing": {
+      "types": "./dist/core/testing/index.d.ts",
+      "default": "./dist/core/testing/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
+    },
+    "./doctor": {
+      "types": "./dist/doctor/index.d.ts",
+      "default": "./dist/doctor/index.js"
+    },
+    "./otel-core": {
+      "types": "./dist/otel-core/index.d.ts",
+      "default": "./dist/otel-core/index.js"
+    },
+    "./otel-core/sdk": {
+      "types": "./dist/otel-core/sdk/index.d.ts",
+      "default": "./dist/otel-core/sdk/index.js"
+    },
+    "./telemetry": {
+      "types": "./dist/telemetry/index.d.ts",
+      "default": "./dist/telemetry/index.js"
+    },
+    "./telemetry/testing": {
+      "types": "./dist/telemetry/testing/index.d.ts",
+      "default": "./dist/telemetry/testing/index.js"
+    },
+    "./sharing": {
+      "types": "./dist/sharing/index.d.ts",
+      "default": "./dist/sharing/index.js"
+    },
+    "./sharing/testing": {
+      "types": "./dist/sharing/testing/index.d.ts",
+      "default": "./dist/sharing/testing/index.js"
+    },
+    "./identity": {
+      "types": "./dist/identity/index.d.ts",
+      "default": "./dist/identity/index.js"
+    },
+    "./identity/testing": {
+      "types": "./dist/identity/testing/index.d.ts",
+      "default": "./dist/identity/testing/index.js"
+    },
+    "./settings": {
+      "types": "./dist/settings/index.d.ts",
+      "default": "./dist/settings/index.js"
+    },
+    "./settings/testing": {
+      "types": "./dist/settings/testing/index.d.ts",
+      "default": "./dist/settings/testing/index.js"
+    },
+    "./credentials": {
+      "types": "./dist/credentials/index.d.ts",
+      "default": "./dist/credentials/index.js"
+    },
+    "./credentials/testing": {
+      "types": "./dist/credentials/testing/index.d.ts",
+      "default": "./dist/credentials/testing/index.js"
+    },
+    "./onboarding": {
+      "types": "./dist/onboarding/index.d.ts",
+      "default": "./dist/onboarding/index.js"
+    },
+    "./onboarding/testing": {
+      "types": "./dist/onboarding/testing/index.d.ts",
+      "default": "./dist/onboarding/testing/index.js"
+    },
+    "./email": {
+      "types": "./dist/email/index.d.ts",
+      "default": "./dist/email/index.js"
+    },
+    "./email/testing": {
+      "types": "./dist/email/testing/index.d.ts",
+      "default": "./dist/email/testing/index.js"
+    },
+    "./jobs": {
+      "types": "./dist/jobs/index.d.ts",
+      "default": "./dist/jobs/index.js"
+    },
+    "./jobs/testing": {
+      "types": "./dist/jobs/testing/index.d.ts",
+      "default": "./dist/jobs/testing/index.js"
+    },
+    "./nodes": {
+      "types": "./dist/nodes/index.d.ts",
+      "default": "./dist/nodes/index.js"
+    },
+    "./storage": {
+      "types": "./dist/storage/index.d.ts",
+      "default": "./dist/storage/index.js"
+    },
+    "./storage/testing": {
+      "types": "./dist/storage/testing/index.d.ts",
+      "default": "./dist/storage/testing/index.js"
+    },
+    "./notifications": {
+      "types": "./dist/notifications/index.d.ts",
+      "default": "./dist/notifications/index.js"
+    },
+    "./notifications/testing": {
+      "types": "./dist/notifications/testing/index.d.ts",
+      "default": "./dist/notifications/testing/index.js"
+    },
+    "./exports": {
+      "types": "./dist/exports/index.d.ts",
+      "default": "./dist/exports/index.js"
+    },
+    "./exports/testing": {
+      "types": "./dist/exports/testing/index.d.ts",
+      "default": "./dist/exports/testing/index.js"
+    },
+    "./ai": {
+      "types": "./dist/ai/index.d.ts",
+      "default": "./dist/ai/index.js"
+    },
+    "./ai/testing": {
+      "types": "./dist/ai/testing/index.d.ts",
+      "default": "./dist/ai/testing/index.js"
+    },
+    "./db-backup": {
+      "types": "./dist/db-backup/index.d.ts",
+      "default": "./dist/db-backup/index.js"
+    },
+    "./db-backup/testing": {
+      "types": "./dist/db-backup/testing/index.d.ts",
+      "default": "./dist/db-backup/testing/index.js"
+    },
+    "./android-app": {
+      "types": "./dist/android-app/index.d.ts",
+      "default": "./dist/android-app/index.js"
+    },
+    "./android-app/testing": {
+      "types": "./dist/android-app/testing/index.d.ts",
+      "default": "./dist/android-app/testing/index.js"
+    },
+    "./user-data": {
+      "types": "./dist/user-data/index.d.ts",
+      "default": "./dist/user-data/index.js"
+    },
+    "./user-data/testing": {
+      "types": "./dist/user-data/testing/index.d.ts",
+      "default": "./dist/user-data/testing/index.js"
+    },
+    "./manifest": {
+      "types": "./dist/manifest/index.d.ts",
+      "default": "./dist/manifest/index.js"
+    },
+    "./host": {
+      "types": "./dist/host/index.d.ts",
+      "default": "./dist/host/index.js"
+    },
+    "./host/testing": {
+      "types": "./dist/host/testing/index.d.ts",
+      "default": "./dist/host/testing/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "prebuild": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "prepack": "node ../../scripts/copy-license.mjs",
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
+    "typecheck": "tsc --noEmit",
+    "docs": "typedoc --options typedoc.json",
+    "test": "jest --config ./test/jest.config.js --testPathIgnorePatterns='\\.greptime\\.spec\\.ts$' --testPathIgnorePatterns='\\.db\\.spec\\.ts$'",
+    "test:run": "jest --config ./test/jest.config.js --ci --testPathIgnorePatterns='\\.greptime\\.spec\\.ts$' --testPathIgnorePatterns='\\.db\\.spec\\.ts$'",
+    "test:greptime": "jest --config ./test/jest.config.js --testRegex '\\.greptime\\.spec\\.ts$' --runInBand"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
+    "@aws-sdk/client-s3": "^3.975.0",
+    "@aws-sdk/client-sesv2": "^3.1121.0",
+    "@aws-sdk/lib-storage": "^3.975.0",
+    "@aws-sdk/s3-request-presigner": "^3.975.0",
+    "@google/genai": "^2.24.0",
+    "@marinoscar/platform-contract": "0.1.0-next.3",
+    "@opentelemetry/auto-instrumentations-node": "^0.79.0",
+    "@opentelemetry/core": "^2.10.0",
+    "@opentelemetry/exporter-logs-otlp-http": "^0.221.0",
+    "@opentelemetry/exporter-metrics-otlp-http": "^0.221.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.221.0",
+    "@opentelemetry/resources": "^2.10.0",
+    "@opentelemetry/sdk-logs": "^0.221.0",
+    "@opentelemetry/sdk-metrics": "^2.10.0",
+    "@opentelemetry/sdk-node": "^0.221.0",
+    "@opentelemetry/sdk-trace-base": "^2.10.0",
+    "@opentelemetry/semantic-conventions": "^1.43.0",
+    "@types/passport": "^1.0.17",
+    "@types/passport-google-oauth20": "^2.0.17",
+    "@types/passport-jwt": "^4.0.1",
+    "@types/pg": "^8.23.1",
+    "archiver": "^5.3.2",
+    "exceljs": "^4.4.0",
+    "hyparquet-writer": "^0.16.10",
+    "nodemailer": "^9.0.6",
+    "openai": "^7.23.0",
+    "passport-google-oauth20": "^2.0.0",
+    "passport-jwt": "^4.0.1",
+    "pg": "^8.23.0",
+    "web-push": "3.6.7"
+  },
+  "peerDependencies": {
+    "@nestjs/common": "^11.1.12",
+    "@nestjs/config": "^4.0.2",
+    "@nestjs/core": "^11.1.12",
+    "@nestjs/event-emitter": "^3.0.1",
+    "@nestjs/jwt": "^11.0.2",
+    "@nestjs/passport": "^11.0.5",
+    "@nestjs/platform-fastify": "^11.1.12",
+    "@nestjs/schedule": "^6.1.0",
+    "@nestjs/swagger": "^11.2.5",
+    "@nestjs/terminus": "^11.0.0",
+    "@opentelemetry/api": "^1.9.1",
+    "@prisma/client": "^7.8.0",
+    "@prisma/client-runtime-utils": "^7.8.0",
+    "@types/supertest": "^7.2.0",
+    "fastify": "^5",
+    "nestjs-zod": "^5.4.0",
+    "passport": "^0.7.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
+    "supertest": "^7.2.2",
+    "zod": "^4.4.3"
+  },
+  "peerDependenciesMeta": {
+    "@nestjs/platform-fastify": {
+      "optional": true
+    },
+    "@types/supertest": {
+      "optional": true
+    },
+    "fastify": {
+      "optional": true
+    },
+    "supertest": {
+      "optional": true
+    },
+    "@nestjs/config": {
+      "optional": true
+    },
+    "@nestjs/event-emitter": {
+      "optional": true
+    },
+    "@nestjs/jwt": {
+      "optional": true
+    },
+    "@nestjs/passport": {
+      "optional": true
+    },
+    "@nestjs/schedule": {
+      "optional": true
+    },
+    "@nestjs/terminus": {
+      "optional": true
+    },
+    "@prisma/client-runtime-utils": {
+      "optional": true
+    },
+    "passport": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@fastify/cookie": "~11.0.2",
+    "@nestjs/common": "^11.1.12",
+    "@nestjs/config": "^4.0.2",
+    "@nestjs/core": "^11.1.12",
+    "@nestjs/event-emitter": "^3.0.1",
+    "@nestjs/jwt": "^11.0.2",
+    "@nestjs/passport": "^11.0.5",
+    "@nestjs/platform-fastify": "^11.1.12",
+    "@nestjs/schedule": "^6.1.0",
+    "@nestjs/swagger": "^11.2.5",
+    "@nestjs/terminus": "^11.0.0",
+    "@nestjs/testing": "^11.1.12",
+    "@opentelemetry/api": "^1.9.1",
+    "@prisma/client": "^7.8.0",
+    "@prisma/client-runtime-utils": "^7.8.0",
+    "@types/archiver": "^5.3.4",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^22.15.32",
+    "@types/nodemailer": "^8.0.1",
+    "@types/supertest": "^7.2.0",
+    "@types/web-push": "3.6.4",
+    "fastify": "^5",
+    "hyparquet": "^1.31.2",
+    "jest": "^30.4.2",
+    "jest-mock-extended": "^4.0.1",
+    "nestjs-zod": "^5.4.0",
+    "passport": "^0.7.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
+    "supertest": "^7.2.2",
+    "ts-jest": "^29.4.12",
+    "typescript": "^6.0.3",
+    "zod": "^4.4.3"
+  }
+}

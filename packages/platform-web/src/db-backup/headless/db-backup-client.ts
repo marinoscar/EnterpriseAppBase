@@ -1,0 +1,861 @@
+/**
+ * The database-backup API, as the web app sees it (issue #287, epic #254).
+ *
+ * ONE MODULE FOR TEN ROUTES ON ONE CONTROLLER, shaped exactly like
+ * `services/jobs.ts` (#266) and `services/nodes.ts` (#271): `services/api.ts`
+ * stays the transport — the `ApiService` instance, the refresh dance, the
+ * maintenance recogniser — and an epic's own surface gets a module where its
+ * calls sit next to the types they produce. Everything below goes through the
+ * shared `api` client, so a backup request inherits the token refresh, the 401
+ * retry and the maintenance interception like every other call in the app.
+ * That last one is not incidental here: this is the one page in the
+ * application that deliberately causes a maintenance window, and it must be
+ * gated by the same central recogniser as everything else rather than by a
+ * special case of its own.
+ *
+ * =============================================================================
+ * THE BYTE COUNTS ARE STRINGS, AND THEY STAY STRINGS
+ * =============================================================================
+ *
+ * `sizeBytes` and `bytesWritten` are `BigInt` columns, and the API publishes
+ * them as DECIMAL STRINGS (`^\d+$`) rather than as JSON numbers, because a
+ * multi-terabyte dump exceeds `Number.MAX_SAFE_INTEGER` and JSON has no integer
+ * type to protect it. They are typed as `string` here for the same reason, and
+ * nothing in this app widens them to `number` at the boundary.
+ *
+ * `parseByteCount` is the ONE place a string becomes a number, it is used only
+ * for FORMATTING and for the progress ratio, and it says so: at those sizes a
+ * few bits of mantissa are invisible in "1.4 TB" and in a percentage, whereas
+ * the same rounding applied at the transport boundary would silently corrupt a
+ * value that later gets compared or summed. It returns `null` rather than
+ * `NaN` for anything it cannot read, so a caller cannot accidentally render
+ * "NaN B".
+ *
+ * =============================================================================
+ * THE PRECONDITION PREDICATES MIRROR THE API'S REFUSALS
+ * =============================================================================
+ *
+ * `db-backup.controller.ts` answers 400 for a download of a run that is not
+ * `completed`, for a delete of a run that is still active, for a cancel of a
+ * run that has finished, for a restore of a run that is not `completed`, and
+ * for a rollback of a run that was never restored. Each of those has a
+ * predicate below, and the page disables the corresponding control from it —
+ * so a precondition is READ OFF THE UI rather than discovered by clicking and
+ * being refused. They are exported from the service module, next to the routes
+ * whose rules they mirror, exactly as `isJobActionable` and
+ * `nodeCredentialStatus` are.
+ *
+ * =============================================================================
+ * THE CONFIRMATION LITERALS ARE CONSTANTS, AND THEY ARE DIFFERENT WORDS
+ * =============================================================================
+ *
+ * `RESTORE` and `ROLLBACK` are Zod literals on the API's DTOs
+ * (`db-backup-restore.dto.ts`), and the pipe refuses anything else before the
+ * service is reached — so a mis-fired or replayed POST cannot reconstruct one
+ * by accident. They are two DIFFERENT words on purpose: a body copied from one
+ * route to the other is refused rather than silently accepted. The dialog makes
+ * the operator type the literal, and it compares against these constants rather
+ * than against a string typed a second time in a component.
+ */
+
+import {
+  BACKUP_FREQUENCIES,
+  BACKUP_STATUSES,
+  BACKUP_TRIGGERS,
+  RESTORE_CONFIRMATION,
+  RESTORE_GATE_IDS,
+  RESTORE_ROLLBACK_MODES,
+  RESTORE_SCHEMA_OVERRIDE_FIELD,
+  RESTORE_STATUSES,
+  ROLLBACK_CONFIRMATION,
+} from '@marinoscar/platform-contract/db-backup';
+
+import type { PlatformApiClient } from '../../core/index.js';
+
+// The value lists are the contract's (`@marinoscar/platform-contract/db-backup`,
+// #740): the API's enums are built from the same tuples.
+
+// =============================================================================
+// Enumerations — the API's own, restated so a bad value cannot compile
+// =============================================================================
+
+/**
+ * `DatabaseBackupRunDto.status` — the lifecycle of one dump.
+ *
+ *   `pending`   — claimed, nothing streamed yet.
+ *   `running`   — `pg_dump` is streaming into object storage.
+ *   `completed` — archive uploaded, checksummed and read back.
+ *   `failed`    — the dump or the upload failed; the partial archive is gone.
+ *   `stale`     — the run stopped heartbeating and the sweep released its slot.
+ *                 NOT the same as `failed`: nobody knows how it ended, and its
+ *                 archive may or may not exist. See the table module for why
+ *                 that difference is drawn on screen and not just in the enum.
+ *
+ * @stability experimental
+ */
+export const DB_BACKUP_RUN_STATUSES = BACKUP_STATUSES;
+/** @stability experimental */
+export type DbBackupRunStatus = (typeof DB_BACKUP_RUN_STATUSES)[number];
+
+/**
+ * What caused a run. `pre_restore` is the safety dump the restore path takes
+ * immediately before a swap, and an operator must be able to tell it from a
+ * backup they asked for — it is the archive a rollback falls back to.
+ *
+ * @stability experimental
+ */
+export const DB_BACKUP_TRIGGERS = BACKUP_TRIGGERS;
+/** @stability experimental */
+export type DbBackupTrigger = (typeof DB_BACKUP_TRIGGERS)[number];
+
+/**
+ * `databaseBackup.frequency`.
+ *
+ * @stability experimental
+ */
+export const DB_BACKUP_FREQUENCIES = BACKUP_FREQUENCIES;
+/** @stability experimental */
+export type DbBackupFrequency = (typeof DB_BACKUP_FREQUENCIES)[number];
+
+/**
+ * `databaseBackup.restoreRollbackMode` — what a restore does with the database
+ * it displaces, and therefore what a rollback COSTS.
+ *
+ *   `retain_database` — keep it, renamed. Rolling back is a catalog rename:
+ *                       SECONDS. Costs roughly double the volume for
+ *                       `oldDatabaseRetentionHours`.
+ *   `drop_database`   — drop it. Rolling back means restoring the pre-restore
+ *                       dump: HOURS.
+ */
+export { RESTORE_ROLLBACK_MODES };
+/** @stability experimental */
+export type RestoreRollbackMode = (typeof RESTORE_ROLLBACK_MODES)[number];
+
+/**
+ * What the rollback route will ACTUALLY be able to do, which is not always what
+ * was configured — `pre_restore_dump` is the downgrade the disk gate forces.
+ * See `RestoreRollbackPlan.downgraded`.
+ *
+ * @stability experimental
+ */
+export type EffectiveRollbackMode = 'retain_database' | 'pre_restore_dump';
+
+/**
+ * The restore audit state on the run the restore was performed FROM.
+ *
+ * `restoring` → `verifying` → `swapping` → `completed` | `failed`, plus
+ * `rolled_back` once a completed restore has been undone. `null` means this
+ * archive has never been restored, which is what makes the rollback route a
+ * 400 rather than a no-op.
+ */
+export { RESTORE_STATUSES };
+/** @stability experimental */
+export type RestoreStatus = (typeof RESTORE_STATUSES)[number];
+
+/**
+ * The pre-flight gates, by id (`rls_bypass` since #740). Every one of them is
+ * reported on every restore attempt, passes included — see
+ * `RestorePreflight.gates`.
+ */
+export { RESTORE_GATE_IDS };
+/** @stability experimental */
+export type RestoreGateId = (typeof RESTORE_GATE_IDS)[number];
+
+/**
+ * What KIND of thing a gate checks; it decides what a failure can be answered with.
+ *
+ * @stability experimental
+ */
+export type RestoreGateKind = 'capability' | 'disk' | 'replicas' | 'overridable';
+
+/**
+ * One gate's answer. `warning` is a real verdict, not a soft failure.
+ *
+ * @stability experimental
+ */
+export type RestoreGateVerdict = 'pass' | 'warning' | 'block';
+
+/**
+ * The exact strings the API's Zod literals require
+ * (`db-backup-restore.dto.ts`). Two different words, deliberately.
+ */
+export { RESTORE_CONFIRMATION, ROLLBACK_CONFIRMATION };
+
+/**
+ * The one value `block.overrideParameter` can name today, and the field the
+ * dialog's separate override control sets.
+ *
+ * The API is explicit that this flag unblocks THE SCHEMA GATE AND NOTHING
+ * ELSE: no amount of accepting a mismatch makes a role without `CREATEDB` able
+ * to create a database. The dialog therefore offers the override only when the
+ * block names this parameter, never as a general "force" switch.
+ *
+ * @stability experimental
+ */
+export const OVERRIDE_SCHEMA_CHECK_PARAMETER: typeof RESTORE_SCHEMA_OVERRIDE_FIELD = RESTORE_SCHEMA_OVERRIDE_FIELD;
+
+// =============================================================================
+// Response shapes — mirrors of `@marinoscar/platform-contract/db-backup`
+// =============================================================================
+
+/**
+ * The policy, plus the two computed fields the GET adds
+ * (`DatabaseBackupConfigDto`).
+ *
+ * `nextRunAt` IS THE WHOLE REASON THE CONFIG PANEL IS WORTH RENDERING. It is
+ * the server's own projection of the schedule through the stored timezone, so
+ * an administrator can confirm a schedule immediately instead of finding out a
+ * day later that it fires at the wrong hour — and it is recomputed by the API
+ * on every save, so the number on screen is never the client's arithmetic.
+ * `null` means nothing is scheduled (the policy is disabled, or the projection
+ * could not be made).
+ *
+ * @stability experimental
+ */
+export interface DbBackupConfig {
+  /** Enabled. */
+  enabled: boolean;
+  /** Frequency. */
+  frequency: DbBackupFrequency;
+  /** 0 = Sunday … 6 = Saturday. Read only when `frequency` is `weekly`. */
+  dayOfWeek: number;
+  /** 1–28. Read only when `frequency` is `monthly`; 28 is the ceiling so every month has the day. */
+  dayOfMonth: number;
+  /** `HH:mm`, 24-hour, in `timezone`. */
+  timeOfDay: string;
+  /** An IANA zone name. The API validates it by PERFORMING the projection — see below. */
+  timezone: string;
+  /** How many completed archives to keep. */
+  retentionCount: number;
+  /** Empty means "whatever storage provider is active". */
+  storageProvider: string;
+  /** How long a run may go without a heartbeat before the sweep calls it `stale`. */
+  runStaleMinutes: number;
+  /** 0–9, `pg_dump`'s own scale. 0 is "no compression", not "default". */
+  compressionLevel: number;
+  /** Restore rollback mode. */
+  restoreRollbackMode: RestoreRollbackMode;
+  /** How long a retained pre-restore database is kept before it is dropped. */
+  oldDatabaseRetentionHours: number;
+  /** Server-computed. `null` when nothing is scheduled. */
+  nextRunAt: string | null;
+  /** The run currently holding the single active slot, or `null`. */
+  activeRunId: string | null;
+  /**
+   * Whether this deployment offers in-app restore and rollback at all (#685).
+   * A deployment fact from `DEPLOYMENT_MODE`, not a setting: `available: false`
+   * means the restore and rollback routes answer 403 for everyone. Backups are
+   * unaffected.
+   */
+  restore: DbBackupRestoreAvailability;
+}
+
+/**
+ * Why in-app restore is unavailable. One reason today.
+ *
+ * @stability experimental
+ */
+export type DbBackupRestoreUnavailableReason = 'deployment_mode_saas';
+
+/**
+ * `DbBackupConfig.restore`.
+ *
+ * @stability experimental
+ */
+export interface DbBackupRestoreAvailability {
+  /** Available. */
+  available: boolean;
+  /** `null` when `available` is true. */
+  reason: DbBackupRestoreUnavailableReason | null;
+}
+
+/**
+ * The body `PUT config` accepts (`UpdateDatabaseBackupConfigDto`) — every field
+ * optional, and the computed ones absent because they are not settable.
+ *
+ * @stability experimental
+ */
+export type UpdateDbBackupConfigInput = Partial<
+  Omit<DbBackupConfig, 'nextRunAt' | 'activeRunId' | 'restore'>
+>;
+
+/**
+ * One run as the list and the detail return it (`DatabaseBackupRunDto`).
+ *
+ * The eight `restore*` fields are the RESTORE AUDIT, and they live on the
+ * backup run rather than in a table of their own: "this archive was restored,
+ * at this time, by this person, and here is what happened" is a property of the
+ * archive. `preRestoreBackupId` points at the safety dump taken just before the
+ * swap — the archive a `drop_database` rollback restores from.
+ *
+ * @stability experimental
+ */
+export interface DbBackupRun {
+  /** Id. */
+  id: string;
+  /** Status. */
+  status: DbBackupRunStatus;
+  /** Trigger. */
+  trigger: DbBackupTrigger;
+  /** Decimal string — see the module header. Live during the dump. */
+  bytesWritten: string;
+  /** Decimal string. The final archive size; `'0'` until the dump finishes. */
+  sizeBytes: string;
+  /** Storage provider. */
+  storageProvider: string;
+  /** Storage key. */
+  storageKey: string;
+  /** Bucket. */
+  bucket: string;
+  /** Format. */
+  format: string;
+  /** `null` until the archive has been read back and checksummed. */
+  checksumSha256: string | null;
+  /** When the archive was read back from storage and verified. `null` if it never was. */
+  verifiedAt: string | null;
+  /** Db version. */
+  dbVersion: string | null;
+  /** App version. */
+  appVersion: string | null;
+  /** The migration the schema was on when the dump was taken. */
+  migrationName: string | null;
+  /** Last error. */
+  lastError: string | null;
+  /** Started at. */
+  startedAt: string | null;
+  /** Finished at. */
+  finishedAt: string | null;
+  /** Last heartbeat at. */
+  lastHeartbeatAt: string | null;
+  /** Created by id. */
+  createdById: string | null;
+  /** Restore status. */
+  restoreStatus: RestoreStatus | null;
+  /** Restore error. */
+  restoreError: string | null;
+  /** Restored at. */
+  restoredAt: string | null;
+  /** Restored by id. */
+  restoredById: string | null;
+  /** The scratch database the archive was restored into before the swap. */
+  restoreScratchDb: string | null;
+  /** The database the swap displaced, if it was retained. */
+  restoreOldDb: string | null;
+  /** Swapped at. */
+  swappedAt: string | null;
+  /** Pre restore backup id. */
+  preRestoreBackupId: string | null;
+  /** Created at. */
+  createdAt: string;
+  /** Updated at. */
+  updatedAt: string;
+}
+
+/**
+ * `GET runs` — server-side pagination, one-based, `pageSize` capped at 100.
+ *
+ * @stability experimental
+ */
+export interface DbBackupRunListResponse {
+  /** Items. */
+  items: DbBackupRun[];
+  /** Total. */
+  total: number;
+  /** Page. */
+  page: number;
+  /** Page size. */
+  pageSize: number;
+  /** Total pages. */
+  totalPages: number;
+}
+
+/**
+ * The query `GET runs` honours, and nothing more — see `dbBackupTable.tsx`.
+ *
+ * @stability experimental
+ */
+export interface DbBackupRunListParams {
+  /** One-based. */
+  page?: number;
+  /** Max 100. */
+  pageSize?: number;
+  /** Status. */
+  status?: DbBackupRunStatus;
+  /** Trigger. */
+  trigger?: DbBackupTrigger;
+}
+
+/**
+ * A signed, expiring URL for one archive (`BackupDownloadUrlDto`).
+ *
+ * @stability experimental
+ */
+export interface BackupDownloadUrl {
+  /** Url. */
+  url: string;
+  /** Seconds. */
+  expiresIn: number;
+}
+
+/**
+ * What a cancel actually managed (`CancelBackupResultDto`).
+ *
+ * ⚠ READ `outcome`, NOT ONLY THE STATUS CODE. A dump is stopped by signalling a
+ * child process, and only the API instance holding that handle can do it, so a
+ * run executing elsewhere answers 200 with `not_running_here` and changes
+ * nothing. That is not an error and retrying does not help.
+ *
+ * @stability experimental
+ */
+export interface CancelBackupResult {
+  /** Run id. */
+  runId: string;
+  /** Outcome. */
+  outcome: 'signalled' | 'not_running_here';
+  /** Detail. */
+  detail: string;
+}
+
+/**
+ * What a delete managed (`DeleteBackupResultDto`).
+ *
+ * @stability experimental
+ */
+export interface DeleteBackupResult {
+  /** Id. */
+  id: string;
+  /** `false` when the row went but the stored object could not be removed. */
+  objectDeleted: boolean;
+}
+
+// =============================================================================
+// The pre-flight
+// =============================================================================
+
+/**
+ * One gate's verdict, with the action item that goes with it.
+ *
+ * @stability experimental
+ */
+export interface RestoreGate {
+  /** Id. */
+  id: RestoreGateId;
+  /** Kind. */
+  kind: RestoreGateKind;
+  /** Verdict. */
+  verdict: RestoreGateVerdict;
+  /** Title. */
+  title: string;
+  /** Detail. */
+  detail: string;
+  /** What to do about it. `null` when there is nothing to do — typically a pass. */
+  action: string | null;
+}
+
+/**
+ * What rolling back will cost if this restore goes ahead.
+ *
+ * `downgraded` is the field that matters: it means the configured
+ * `retain_database` could not be honoured (short disk, typically), so the way
+ * back is a full restore of the pre-restore dump — HOURS instead of SECONDS.
+ * That changes the recovery guarantee the operator is deciding against, so the
+ * dialog surfaces it before the confirmation rather than after.
+ *
+ * @stability experimental
+ */
+export interface RestoreRollbackPlan {
+  /** Configured. */
+  configured: RestoreRollbackMode;
+  /** Effective. */
+  effective: EffectiveRollbackMode;
+  /** Downgraded. */
+  downgraded: boolean;
+  /** Reason. */
+  reason: string | null;
+}
+
+/**
+ * Every gate that ran, plus the facts they ran against.
+ *
+ * `outcome` MIRRORS the response's `mode`, so a caller never has to work out
+ * which one won. `gates` carries the PASSES too, deliberately: an operator
+ * about to replace a production database should be able to see what was
+ * checked, not only what objected.
+ *
+ * @stability experimental
+ */
+export interface RestorePreflight {
+  /** Outcome. */
+  outcome: 'ok' | 'guided' | 'blocked';
+  /** Run id. */
+  runId: string;
+  /** Target database. */
+  targetDatabase: string;
+  /** Scratch database. */
+  scratchDatabase: string;
+  /** Old database. */
+  oldDatabase: string;
+  /** Gates. */
+  gates: RestoreGate[];
+  /** Rollback. */
+  rollback: RestoreRollbackPlan;
+  /** The migration the ARCHIVE was taken on. `null` when it could not be read. */
+  archiveMigration: string | null;
+  /** The migration the LIVE database is on. */
+  liveMigration: string | null;
+  /** Decimal string, or `null`. */
+  databaseSizeBytes: string | null;
+  /** Decimal string, or `null` — and `null` is COMMON: many hosts do not expose it. */
+  freeDiskBytes: string | null;
+}
+
+/**
+ * The paste-ready answer the `guided` outcome exists to deliver.
+ *
+ * @stability experimental
+ */
+export interface GuidedRestoreInstructions {
+  /** Reason. */
+  reason: string;
+  /** A multi-line shell block with real names, hosts and ports. Rendered monospace, copied whole. */
+  commands: string;
+  /** A repository-relative path, NOT a URL — see the dialog for how it is rendered. */
+  runbook: string;
+}
+
+/**
+ * Why the schema gate refused, and what (if anything) unblocks it.
+ *
+ * @stability experimental
+ */
+export interface RestoreBlock {
+  /** Gate id. */
+  gateId: RestoreGateId;
+  /** Message. */
+  message: string;
+  /** Overridable. */
+  overridable: boolean;
+  /** `'overrideSchemaCheck'`, or `null` when nothing unblocks this gate. */
+  overrideParameter: string | null;
+}
+
+/**
+ * The three NORMAL outcomes of `POST runs/{id}/restore`. ⚠ ALL THREE ARE 200 —
+ * read `mode`, never the status code.
+ *
+ *   `running` — gates passed, the restore is under way in the background.
+ *   `guided`  — a CAPABILITY gate failed. NOTHING was started, and this is not
+ *               an error: the body carries a complete command block so the same
+ *               restore can be done by hand with a superuser.
+ *   `blocked` — the schema gate refused. Nothing was started.
+ *
+ * `guidance` and `block` are HOISTED to the top level and are not duplicated
+ * inside `preflight`, so a renderer reads each exactly once.
+ *
+ * @stability experimental
+ */
+export type StartRestoreResult =
+  | {
+      /** Mode. */
+      mode: 'running';
+      /** Run id. */
+      runId: string;
+      /** Scratch database. */
+      scratchDatabase: string;
+      /** Old database. */
+      oldDatabase: string;
+      /** Preflight. */
+      preflight: RestorePreflight;
+    }
+  | {
+      /** Mode. */
+      mode: 'guided';
+      /** Run id. */
+      runId: string;
+      /** Guidance. */
+      guidance: GuidedRestoreInstructions;
+      /** Preflight. */
+      preflight: RestorePreflight;
+    }
+  | {
+      /** Mode. */
+      mode: 'blocked';
+      /** Run id. */
+      runId: string;
+      /** Block. */
+      block: RestoreBlock;
+      /** Preflight. */
+      preflight: RestorePreflight;
+    };
+
+/**
+ * The three outcomes of `POST runs/{id}/rollback`. All three are 200, and
+ * `detail` is always present and always renderable.
+ *
+ *   `renamed`         — the displaced database was renamed back. SECONDS, and
+ *                       the process exits at the end of it.
+ *   `restore_started` — there was nothing to rename, so this delegated into the
+ *                       restore path against the pre-restore dump. HOURS. Poll
+ *                       `preRestoreRunId`, NOT this run.
+ *   `unavailable`     — the retained database is past its retention window and
+ *                       there is no pre-restore backup to fall back on. A 200
+ *                       and not a failure: nothing went wrong just now, the
+ *                       rollback window simply closed.
+ *
+ * There is deliberately NO `preflight` on any of them: a rollback runs no
+ * gates.
+ *
+ * @stability experimental
+ */
+export type RollbackRestoreResult =
+  | {
+      /** Mode. */
+      mode: 'renamed';
+      /** Run id. */
+      runId: string;
+      /** Promoted. */
+      promoted: string;
+      /** Parked. */
+      parked: string;
+      /** Detail. */
+      detail: string;
+    }
+  | {
+      /** Mode. */
+      mode: 'restore_started';
+      /** Run id. */
+      runId: string;
+      /** Pre restore run id. */
+      preRestoreRunId: string;
+      /** Detail. */
+      detail: string;
+    }
+  | {
+      /** Mode. */
+      mode: 'unavailable';
+      /** Run id. */
+      runId: string;
+      /** Detail. */
+      detail: string;
+    };
+
+// =============================================================================
+// Requests
+// =============================================================================
+
+const BASE = '/admin/db-backup';
+
+/**
+ * The `/api/admin/db-backup` routes, as the page and the hooks call them.
+ * Build one with {@link createDbBackupApi} over the app's transport.
+ *
+ * @stability experimental
+ */
+export interface DbBackupApi {
+  /** `GET config` — the policy, plus `nextRunAt` and `activeRunId`. */
+  getDbBackupConfig(): Promise<DbBackupConfig>;
+  /**
+   * `PUT config` — the policy as it now stands.
+   *
+   * A 400 here is INFORMATION, not a client bug: the API refuses a timezone this
+   * runtime cannot resolve (it checks by performing the very projection
+   * `nextRunAt` publishes) and a `storageProvider` this deployment does not have.
+   * Nothing in this app second-guesses either with a list of its own — a
+   * hand-kept IANA list would rot, and the runtime's own ICU data is the
+   * authority on what it can schedule against. The page renders the API's
+   * message.
+   */
+  updateDbBackupConfig(input: UpdateDbBackupConfigInput): Promise<DbBackupConfig>;
+  /**
+   * `POST runs` — take a backup now. Answers 202 with the claimed run while the
+   * dump is still streaming, or 409 with `details.activeRunId` when one is
+   * already going.
+   */
+  startBackupRun(): Promise<DbBackupRun>;
+  /** `GET runs` — newest first, paginated, optionally filtered by status or trigger. */
+  getBackupRuns(params?: DbBackupRunListParams): Promise<DbBackupRunListResponse>;
+  /** `GET runs/{id}` — one run, in the same shape the list returns. */
+  getBackupRun(id: string): Promise<DbBackupRun>;
+  /** `GET runs/{id}/download` — a signed, expiring URL. 400 unless the run is `completed`. */
+  getBackupDownloadUrl(id: string): Promise<BackupDownloadUrl>;
+  /** `POST runs/{id}/cancel` — ⚠ read `outcome`, not only the status code. */
+  cancelBackupRun(id: string): Promise<CancelBackupResult>;
+  /** `DELETE runs/{id}` — the row and its archive. 400 while the run is active. */
+  deleteBackupRun(id: string): Promise<DeleteBackupResult>;
+  /**
+   * `POST runs/{id}/restore` — REPLACES THE PRODUCTION DATABASE.
+   *
+   * The confirmation literal is sent from the constant above rather than typed
+   * here a second time, and `overrideSchemaCheck` is omitted unless it is
+   * actually being set: sending `false` explicitly is the same request as
+   * omitting it, and a flag in the body of a destructive call that changes
+   * nothing is a flag somebody will later read as "an override was requested".
+   */
+  startRestore(id: string, options?: { overrideSchemaCheck?: boolean }): Promise<StartRestoreResult>;
+  /** `POST runs/{id}/rollback` — ⚠ read `mode`: the two routes back differ by hours. */
+  rollbackRestore(id: string): Promise<RollbackRestoreResult>;
+}
+
+/**
+ * The db-backup client over a {@link PlatformApiClient} (the platform host's
+ * transport: the reference app's `api` service). Keep the result's identity
+ * stable (`useMemo`), as the hooks do.
+ *
+ * @param api - the transport.
+ * @returns the client.
+ *
+ * @stability experimental
+ */
+export function createDbBackupApi(api: PlatformApiClient): DbBackupApi {
+  return {
+    async getDbBackupConfig(): Promise<DbBackupConfig> {
+      return api.get<DbBackupConfig>(`${BASE}/config`);
+    },
+    async updateDbBackupConfig(input: UpdateDbBackupConfigInput): Promise<DbBackupConfig> {
+      return api.put<DbBackupConfig>(`${BASE}/config`, input);
+    },
+    async startBackupRun(): Promise<DbBackupRun> {
+      return api.post<DbBackupRun>(`${BASE}/runs`);
+    },
+    async getBackupRuns(params: DbBackupRunListParams = {}): Promise<DbBackupRunListResponse> {
+      const query = new URLSearchParams();
+      if (params.page) query.set('page', String(params.page));
+      if (params.pageSize) query.set('pageSize', String(params.pageSize));
+      if (params.status) query.set('status', params.status);
+      if (params.trigger) query.set('trigger', params.trigger);
+
+      return api.get<DbBackupRunListResponse>(`${BASE}/runs?${query}`);
+    },
+    async getBackupRun(id: string): Promise<DbBackupRun> {
+      return api.get<DbBackupRun>(`${BASE}/runs/${id}`);
+    },
+    async getBackupDownloadUrl(id: string): Promise<BackupDownloadUrl> {
+      return api.get<BackupDownloadUrl>(`${BASE}/runs/${id}/download`);
+    },
+    async cancelBackupRun(id: string): Promise<CancelBackupResult> {
+      return api.post<CancelBackupResult>(`${BASE}/runs/${id}/cancel`);
+    },
+    async deleteBackupRun(id: string): Promise<DeleteBackupResult> {
+      return api.delete<DeleteBackupResult>(`${BASE}/runs/${id}`);
+    },
+    async startRestore(
+      id: string,
+      options: { overrideSchemaCheck?: boolean } = {},
+    ): Promise<StartRestoreResult> {
+      const body: { confirmation: string; overrideSchemaCheck?: boolean } = {
+        confirmation: RESTORE_CONFIRMATION,
+      };
+      if (options.overrideSchemaCheck) body.overrideSchemaCheck = true;
+
+      return api.post<StartRestoreResult>(`${BASE}/runs/${id}/restore`, body);
+    },
+    async rollbackRestore(id: string): Promise<RollbackRestoreResult> {
+      return api.post<RollbackRestoreResult>(`${BASE}/runs/${id}/rollback`, {
+        confirmation: ROLLBACK_CONFIRMATION,
+      });
+    },
+  };
+}
+
+// =============================================================================
+// Shared predicates — mirrors of the API's own refusals
+// =============================================================================
+
+/**
+ * Holding the single active slot: `pending` or `running`.
+ *
+ * @stability experimental
+ */
+export function isBackupRunActive(run: Pick<DbBackupRun, 'status'>): boolean {
+  return run.status === 'pending' || run.status === 'running';
+}
+
+/**
+ * Whether an archive can be downloaded or restored.
+ *
+ * `completed` and nothing else — the same rule `getDownloadUrl` and
+ * `requireRunForRestore` both enforce. A `stale` run is deliberately NOT
+ * downloadable: nobody knows how it ended, so its archive may be truncated.
+ *
+ * @stability experimental
+ */
+export function isBackupDownloadable(run: Pick<DbBackupRun, 'status'>): boolean {
+  return run.status === 'completed';
+}
+
+/**
+ * Restoring has the same `completed`-only precondition the download does.
+ *
+ * @stability experimental
+ */
+export function isBackupRestorable(run: Pick<DbBackupRun, 'status'>): boolean {
+  return run.status === 'completed';
+}
+
+/**
+ * The API refuses to delete a run that is still active — its archive is mid-upload.
+ *
+ * @stability experimental
+ */
+export function isBackupDeletable(run: Pick<DbBackupRun, 'status'>): boolean {
+  return !isBackupRunActive(run);
+}
+
+/**
+ * Only an active run can be cancelled; one that has finished is a 400.
+ *
+ * @stability experimental
+ */
+export function isBackupCancelable(run: Pick<DbBackupRun, 'status'>): boolean {
+  return isBackupRunActive(run);
+}
+
+/**
+ * Whether a restore performed FROM this archive is still moving.
+ *
+ * The three non-terminal states, and what the page watches to know a restart is
+ * expected.
+ *
+ * @stability experimental
+ */
+export function isRestoreInFlight(run: Pick<DbBackupRun, 'restoreStatus'>): boolean {
+  return (
+    run.restoreStatus === 'restoring' ||
+    run.restoreStatus === 'verifying' ||
+    run.restoreStatus === 'swapping'
+  );
+}
+
+/**
+ * Whether the rollback route has a swap to undo.
+ *
+ * `restoreStatus !== null` on a `completed` run, which is exactly what
+ * `rollbackRestore` checks before it refuses with `restore_never_ran`. Note it
+ * is deliberately NOT narrowed to `restoreStatus === 'completed'`: a restore
+ * that failed mid-swap is precisely the case an operator most needs to undo.
+ *
+ * @stability experimental
+ */
+export function isRollbackAvailable(
+  run: Pick<DbBackupRun, 'status' | 'restoreStatus'>,
+): boolean {
+  return run.status === 'completed' && run.restoreStatus !== null;
+}
+
+/**
+ * A decimal byte string as a number, for FORMATTING ONLY — see the module
+ * header on why the transported value stays a string.
+ *
+ * `null` (not `NaN`, and not `0`) for anything unreadable, so a caller renders
+ * "unknown" rather than a confident wrong number. `null` in means `null` out:
+ * `freeDiskBytes` is genuinely absent on many hosts, and that is a different
+ * fact from "zero bytes free".
+ *
+ * @stability experimental
+ */
+export function parseByteCount(value: string | null | undefined): number | null {
+  if (value === null || value === undefined) return null;
+  if (!/^\d+$/.test(value.trim())) return null;
+  const parsed = Number(value.trim());
+  return Number.isFinite(parsed) ? parsed : null;
+}

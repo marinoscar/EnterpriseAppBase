@@ -1,17 +1,55 @@
 {
-  "name": "enterprise-app",
+  "name": "my-app",
   "private": true,
-  "workspaces": ["apps/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
+    "setup": "npm run build --workspace=cli && node apps/cli/dist/cli.js init",
     "api": "npm -w apps/api",
     "web": "npm -w apps/web",
     "api:dev": "npm -w apps/api run start:dev",
     "web:dev": "npm -w apps/web run dev",
     "api:test": "npm -w apps/api test",
-    "web:test": "npm -w apps/web test"
+    "web:test": "npm -w apps/web test",
+    "openapi:dump": "npm run openapi:dump --workspace=api -- ../../openapi.json",
+    "openapi:lint": "spectral lint openapi.json --ruleset .spectral.yaml --fail-severity=error",
+    "build:packages": "npm run build -w @marinoscar/platform-contract -w @marinoscar/platform-api -w @marinoscar/platform-web -w @marinoscar/platform-db -w @marinoscar/platform-infra -w @marinoscar/platform-cli",
+    "typecheck:packages": "npm run typecheck -w @marinoscar/platform-contract -w @marinoscar/platform-api -w @marinoscar/platform-web -w @marinoscar/platform-db -w @marinoscar/platform-infra -w @marinoscar/platform-cli",
+    "test:packages": "npm run test:run -w @marinoscar/platform-contract -w @marinoscar/platform-api -w @marinoscar/platform-web -w @marinoscar/platform-db -w @marinoscar/platform-infra -w @marinoscar/platform-cli",
+    "lint:packages": "eslint --max-warnings=0 \"packages/platform-*/src/**/*.{ts,tsx}\"",
+    "dev:packages": "node scripts/dev-packages.mjs",
+    "docs:packages": "npm run docs -w @marinoscar/platform-contract -w @marinoscar/platform-api -w @marinoscar/platform-web -w @marinoscar/platform-db -w @marinoscar/platform-infra -w @marinoscar/platform-cli",
+    "check:package-docs": "npm run docs:packages && node scripts/check-package-docs.mjs",
+    "check:single-instance": "node scripts/check-single-instance.mjs",
+    "docs:slices": "node scripts/generate-slices-doc.mjs --write",
+    "check:slices-doc": "node scripts/generate-slices-doc.mjs --check",
+    "check:slice-peers": "node scripts/check-slice-peers.mjs && node scripts/check-slice-peers.mjs --app starter/apps/api --app starter/apps/web --app starter/apps/cli --app tests/consumer-smoke/api --app tests/consumer-smoke/web --app tests/consumer-smoke/api-slim",
+    "smoke:consumer": "npm run build:packages && node tests/consumer-smoke/run.mjs --from pack",
+    "platform:infra:sync": "platform-infra sync",
+    "changeset": "changeset",
+    "version-packages": "changeset version && node scripts/sync-starter-versions.mjs && npm install --package-lock-only",
+    "release": "npm run build:packages && changeset publish"
   },
   "overrides": {
     "@nestjs/common": "^11.1.12",
-    "@nestjs/core": "^11.1.12"
+    "@nestjs/core": "^11.1.12",
+    "deepmerge-ts": "^8.0.1",
+    "glob": "^13.0.6",
+    "magic-string": "^1.2.0"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.31.1",
+    "@stoplight/spectral-cli": "^6.16.3",
+    "eslint": "^10.12.0",
+    "eslint-import-resolver-typescript": "^4.4.5",
+    "eslint-plugin-boundaries": "^7.2.0",
+    "eslint-plugin-tsdoc": "^0.5.4",
+    "typedoc": "^0.28.20",
+    "typescript-eslint": "^8.71.1"
   }
 }

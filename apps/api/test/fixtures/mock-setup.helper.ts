@@ -76,6 +76,8 @@ export interface SetupMockUserResponse {
   id: string;
   email: string;
   roles: string[];
+  /** The first ACTIVE membership's org (#724), when the user has one. */
+  activeOrgId?: string;
 }
 
 // Registry of mock users - accumulates users across multiple setupMockUser calls
@@ -155,11 +157,13 @@ export function setupMockUser(
   mockUserRegistry.set(user.id, user);
 
   const roles = user.userRoles?.map((ur: any) => ur.role.name) || [];
+  const activeOrgId = (user.memberships ?? []).find((m: any) => m.status === 'active')?.orgId;
 
   return {
     id: user.id,
     email: user.email,
     roles,
+    ...(activeOrgId ? { activeOrgId } : {}),
   };
 }
 
@@ -609,6 +613,36 @@ export function setupBaseMocks(): void {
   (prismaMock.userRole.createMany as jest.Mock).mockImplementation(async ({ data }: any) => ({
     count: Array.isArray(data) ? data.length : 1,
   }));
+
+  // Organizations (PP-6.1, #721): the default organization every sign-up joins,
+  // and the membership write that joins it.
+  (prismaMock.organization.findFirst as jest.Mock).mockResolvedValue({
+    id: 'org-default',
+    name: 'Default organization',
+    slug: 'default',
+    isDefault: true,
+    createdById: null,
+    createdAt: new Date('2026-01-01T00:00:00Z'),
+    updatedAt: new Date('2026-01-01T00:00:00Z'),
+  });
+  (prismaMock.membership.upsert as jest.Mock).mockImplementation(async ({ create }: any) => ({
+    id: 'membership-mock',
+    status: 'active',
+    lastActiveAt: null,
+    createdAt: new Date('2026-01-01T00:00:00Z'),
+    updatedAt: new Date('2026-01-01T00:00:00Z'),
+    ...create,
+  }));
+  (prismaMock.membership.findMany as jest.Mock).mockResolvedValue([]);
+  // #724: a membership lookup by (org, user) answers from the mock user
+  // registry, so an org-bound PAT or device session of a post-split mock user
+  // (one created with `orgRoleName`) finds its membership.
+  (prismaMock.membership.findUnique as jest.Mock).mockImplementation(async ({ where }: any) => {
+    const key = where?.orgId_userId;
+    if (!key) return null;
+    const user = mockUserRegistry.get(key.userId);
+    return (user?.memberships ?? []).find((m: any) => m.orgId === key.orgId) ?? null;
+  });
 
   // Mock $connect and $disconnect
   (prismaMock.$connect as jest.Mock).mockResolvedValue(undefined);

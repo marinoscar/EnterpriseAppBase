@@ -11,7 +11,7 @@ import {
 } from '@mui/material';
 import { Settings as SettingsIcon } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '@marinoscar/platform-web/identity/headless';
 
 export function UserProfileCard() {
   const { user } = useAuth();
@@ -65,9 +65,7 @@ export function UserProfileCard() {
           <Stack
             direction="row"
             spacing={1}
-            flexWrap="wrap"
-            justifyContent="center"
-            sx={{ mt: 1, mb: 2 }}
+            sx={{ mt: 1, mb: 2, flexWrap: 'wrap', justifyContent: 'center' }}
           >
             {user.roles.map((role) => (
               <Chip

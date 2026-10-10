@@ -11,10 +11,18 @@
 
 const { Client } = require('pg');
 
-// Load .env files if running outside Docker
+// Load .env files - try multiple locations
 if (process.env.NODE_ENV !== 'production') {
   try {
-    require('dotenv').config();
+    const path = require('path');
+    const dotenv = require('dotenv');
+
+    // Try local .env first (apps/api/.env)
+    dotenv.config();
+
+    // Also load from infra/compose/.env (canonical env location)
+    const composeEnv = path.resolve(__dirname, '..', '..', '..', 'infra', 'compose', '.env');
+    dotenv.config({ path: composeEnv });
   } catch (err) {
     // dotenv might not be available, that's OK
   }
@@ -92,7 +100,7 @@ async function testConnection() {
     console.error(`  ${err.message}`);
     console.error('');
     console.error('Troubleshooting:');
-    console.error('  1. Verify database is running: docker compose ps db');
+    console.error('  1. Verify database is running and accessible');
     console.error('  2. Check environment variables are set correctly');
     console.error('  3. Verify network connectivity to database');
     console.error('  4. Check database credentials are correct');

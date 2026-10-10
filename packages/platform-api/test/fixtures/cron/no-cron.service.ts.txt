@@ -1,0 +1,5 @@
+export class NoCronService {
+  async purge(prisma: any): Promise<void> {
+    await prisma.session.deleteMany({});
+  }
+}

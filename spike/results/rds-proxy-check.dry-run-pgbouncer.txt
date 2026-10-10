@@ -1,0 +1,27 @@
+
+=== rds-proxy-check ===
+server: PostgreSQL 16.14 (Ubuntu 16.14-0ubuntu0.24.04.1) on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, 64-bit
+--- admin role
+    postgres: superuser=true bypassrls=true createrole=true rds_superuser member=null
+FACT admin_bypassrls=true admin_superuser=true
+FACT create_role_bypassrls=created
+PASS  the application role is NOSUPERUSER and NOBYPASSRLS (otherwise RLS is inert)
+
+PHASE P0-plain-queries start 2026-10-06T20:51:45.675Z
+PHASE P0-plain-queries end   2026-10-06T20:51:48.692Z   operations=3819
+WINDOW P0-plain-queries 2026-10-06T20:51:45.675Z 2026-10-06T20:51:48.692Z
+
+PHASE P1-transaction-local-scope start 2026-10-06T20:51:48.693Z
+PHASE P1-transaction-local-scope end   2026-10-06T20:51:51.733Z   operations=304
+WINDOW P1-transaction-local-scope 2026-10-06T20:51:48.693Z 2026-10-06T20:51:51.733Z
+PASS  P1: every request saw ONLY its own org (zero cross-org rows) and all 20 of its rows, through the pooler  (cross-org rows 0, short reads 0)
+PASS  P1: an unscoped client through the pooler still sees nothing (fail-closed)
+
+PHASE P2-session-level-set-POSITIVE-CONTROL start 2026-10-06T20:51:51.741Z
+PHASE P2-session-level-set-POSITIVE-CONTROL end   2026-10-06T20:51:54.746Z   operations=1832
+WINDOW P2-session-level-set-POSITIVE-CONTROL 2026-10-06T20:51:51.741Z 2026-10-06T20:51:54.746Z
+FACT p2_cross_org_rows=4120  (a pooler that pins the session makes this zero; a transaction pooler that does not pin makes it positive)
+
+NEXT: read DatabaseConnectionsCurrentlySessionPinned (Maximum, 1-minute period) for each WINDOW line above and search the proxy log for "pinned". See docs/runbooks/rds-proxy-rls-check.md.
+
+3/3 checks passed

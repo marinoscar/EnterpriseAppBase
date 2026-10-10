@@ -1,0 +1,225 @@
+name: Packages
+
+# The six @marinoscar/platform-* packages (issue #690): build, typecheck,
+# lint, test, pack check and smoke imports, in one job. Later platform
+# stories append their own jobs to this file (append-only); the app jobs in
+# ci.yml already run `npm run build:packages` after `npm ci`, so an app can
+# consume a package without touching ci.yml.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  packages:
+    name: Build, lint & test packages
+    runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - run: npm ci
+
+      # Dependency order (platform-contract first) is the order of the
+      # workspaces in the root script.
+      - run: npm run build:packages
+
+      - run: npm run typecheck:packages
+
+      - run: npm run lint:packages
+
+      # Per-slice peer dependencies (issue #914; docs/PACKAGES.md): every
+      # non-test import of a slice is covered by the peers it declares in
+      # packages/platform-slice-peers.json (or its slice dependencies'), no
+      # declared peer is orphaned, and only what the universal slices need is
+      # a required peer.
+      - run: npm run check:slice-peers
+
+      # docs/SLICES.md is generated from the slice graph, the peers, the
+      # package exports, the slice READMEs and packages/platform-slice-notes.json;
+      # the check fails when the committed page differs (run npm run docs:slices).
+      - run: npm run check:slices-doc
+
+      - run: npm run test:packages
+
+      # `npm pack --dry-run` per package: every exports/main/types target and
+      # README.md are in the tarball; nothing outside `files` (no src/,
+      # test/, specs, tsconfig*.json) is.
+      - name: Pack check
+        run: node scripts/check-package-pack.mjs
+
+      # Load each package the way a consumer does, from outside its own
+      # directory: CommonJS require for api/db/contract, plain Node ESM
+      # import for web/cli/infra/contract. Catches a missing `.js` extension,
+      # a wrong `type`, or a broken dual-format stub.
+      - name: Smoke imports
+        run: |
+          node -e "require('@marinoscar/platform-api'); require('@marinoscar/platform-db'); require('@marinoscar/platform-contract')"
+          node --input-type=module -e "await import('@marinoscar/platform-web'); await import('@marinoscar/platform-cli'); await import('@marinoscar/platform-infra'); await import('@marinoscar/platform-contract')"
+
+  # Package documentation standard (issue #693; docs/PACKAGES.md): TypeDoc
+  # validation (every export documented) and scripts/check-package-docs.mjs
+  # (README outline, @stability, extension-point catalog against the tags,
+  # example links into the reference app). The generated API reference of
+  # each package is uploaded as the `api-reference` artifact; it is never
+  # committed.
+  package-docs:
+    name: Package docs
+    runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - run: npm ci
+
+      # TypeDoc resolves imports between packages through their built types.
+      - run: npm run build:packages
+
+      - run: npm run check:package-docs
+
+      - name: Upload API reference
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-reference
+          path: packages/*/docs-api/
+          if-no-files-found: warn
+
+  # One copy of each single-instance library (Nest, Fastify, Prisma client,
+  # zod, React, MUI, Emotion, ink, the OpenTelemetry API and every
+  # packages/platform-* workspace), issue #695: the lockfile scan, then real
+  # resolution from every workspace. See docs/DEVELOPMENT.md
+  # "Single-instance dependencies".
+  single-instance:
+    name: Single-instance dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - run: npm run check:single-instance
+
+  # Changeset check (issue #691): a pull request that changes a platform
+  # package (anything under packages/platform-*/) must add a changeset, so
+  # every change reaches the CHANGELOG of the next release. `npx changeset
+  # --empty` records "no release impact" (tests only). App-only PRs pass.
+  # The Version Packages PR is exempt: it consumes changesets rather than
+  # adding one.
+  changeset-check:
+    name: Changeset check
+    if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'changeset-release/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - run: git fetch --no-tags origin main
+
+      # A version commit (`npm run version-packages`, issue #697: the first
+      # `next` version was prepared on a story branch) consumes changesets
+      # rather than adding one; in pre mode their ids move into
+      # .changeset/pre.json. It is recognised by a changed platform version
+      # and exempt, like the Version Packages branch above.
+      - name: Changeset status since main
+        run: |
+          if git diff origin/main...HEAD -- packages/platform-api/package.json | grep -qE '^\+\s+"version":'; then
+            echo "Version commit: the platform version changed, so its changesets are consumed; check skipped." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          npx changeset status --since=origin/main
+
+  # Consumer smoke (issue #697): pack the six packages and install the
+  # tarballs into minimal consumer apps in a temp directory outside the
+  # repository (tests/consumer-smoke/run.mjs), with no workspace link and no
+  # root node_modules: a Nest app (tsc with decorator metadata, boot, the
+  # Doctor route's 401/403/200, its own check, the fail-closed host) and a
+  # Vite app (vite build, a Vitest render of the Doctor page), each followed
+  # by the single-instance check on the consumer. Runs on pushes to main and
+  # on pull requests that touch what ends up in a tarball.
+  pack-smoke:
+    name: Consumer smoke (packed tarballs)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - id: scope
+        name: Changes that affect the packages
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then echo "run=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          git fetch --no-tags origin main
+          if git diff --name-only origin/main...HEAD | grep -qE '^(packages/|tests/consumer-smoke/|scripts/check-single-instance\.mjs$|scripts/copy-license\.mjs$|package\.json$|package-lock\.json$|\.github/workflows/packages\.yml$)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Consumer smoke skipped: no package-affecting change." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - if: steps.scope.outputs.run == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - if: steps.scope.outputs.run == 'true'
+        run: npm ci
+
+      - if: steps.scope.outputs.run == 'true'
+        run: npm run build:packages
+
+      - if: steps.scope.outputs.run == 'true'
+        name: Pack the six packages
+        run: |
+          mkdir -p "$RUNNER_TEMP/tarballs"
+          for p in contract api web db cli infra; do npm pack -w "@marinoscar/platform-$p" --pack-destination "$RUNNER_TEMP/tarballs"; done
+          ls "$RUNNER_TEMP/tarballs" >> "$GITHUB_STEP_SUMMARY"
+
+      - if: steps.scope.outputs.run == 'true'
+        name: API consumer smoke
+        run: node tests/consumer-smoke/run.mjs --project api --from tarballs "$RUNNER_TEMP/tarballs"
+
+      # Issue #914: only the peers of core, otel-core and telemetry.
+      - if: steps.scope.outputs.run == 'true'
+        name: Slim API consumer smoke (core, otel-core, telemetry peers only)
+        run: node tests/consumer-smoke/run.mjs --project api-slim --from tarballs "$RUNNER_TEMP/tarballs"
+
+      - if: steps.scope.outputs.run == 'true'
+        name: Web consumer smoke
+        run: node tests/consumer-smoke/run.mjs --project web --from tarballs "$RUNNER_TEMP/tarballs"

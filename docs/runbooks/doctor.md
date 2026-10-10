@@ -1,0 +1,173 @@
+# Runbook: Triage with the Doctor
+
+> **Audience:** operators · **Spec:** [doctor.md](../specs/doctor.md) · **Admin UI:** `/admin/settings/doctor` · **Permission:** `system_settings:read`
+
+Use this when something about a deployment is wrong or unverified (sign-in fails, uploads fail, email does not arrive, jobs do not run, telemetry is empty) and you want one list of what is misconfigured or down. The Doctor runs read-only checks across the database, authentication, maintenance, storage, email, Web Push, AI, the job queue, worker nodes, backups, telemetry and the deployment's outbound (internet) dependencies, and tells you which settings page or command fixes each problem. It changes nothing. For the design, the full check list and the exact pass, warn, fail and skip rules, see the [spec](../specs/doctor.md#27-check-inventory).
+
+## 1. Before you start
+
+- You need an Admin account: the report requires `system_settings:read`, which only the Admin role holds.
+- During a maintenance window the Doctor answers only when the window allows admins. With `allowAdmins: false` it returns the maintenance `503`; close the window first ([maintenance runbook](maintenance-mode.md)).
+- Running it is safe at any time and as often as you like. It sends no email or push, writes no object, calls no model and enqueues nothing.
+- A report is cached for 15 seconds. After you fix something, use **Run again** (or `refresh=true`) so you see the new state rather than the cached one.
+
+## 2. Run the Doctor
+
+### 2.1 In the web app
+
+1. Sign in as an Admin and open `/admin/settings`, then the **Doctor** card (Observability group), or go straight to `/admin/settings/doctor`.
+2. Read the verdict at the top, then the status counts.
+3. Expand any category with a warning or failure (those open by default). Turn on **Problems only** to hide everything else.
+4. On each problem row, read the **detail** (what was found) and the **remedy** (what to do), then use **Open settings** to reach the page that fixes it.
+5. Choose **Run again** after each fix. It bypasses the cache and runs every probe again.
+
+### 2.2 Over HTTP
+
+```bash
+curl -sS "https://<your-deployment>/api/admin/doctor?refresh=true" \
+  -H "Authorization: Bearer <admin access token or pat_ token>"
+```
+
+Add `&category=storage` to run one category. To list only the problems:
+
+```bash
+curl -sS "https://<your-deployment>/api/admin/doctor?refresh=true" \
+  -H "Authorization: Bearer $TOKEN" \
+  | jq '.data.checks[] | select(.status=="warn" or .status=="fail") | {id, status, detail, remedy}'
+```
+
+With the CLI, if you are already logged in:
+
+```bash
+appctl api GET /api/admin/doctor --raw | jq '.data.verdict'
+```
+
+The call always answers `200` when you are authorized; a failing check is a row in `data.checks`, not an error status. `401` means no valid token, `403` means the account lacks `system_settings:read`.
+
+## 3. Read the report
+
+| Status | Meaning | What to do |
+|---|---|---|
+| `pass` | Verified healthy. | Nothing. |
+| `skip` | Not evaluated, for one of two reasons (below). | Usually nothing. |
+| `warn` (amber) | It works, but something needs attention. | Read the remedy; plan the fix. |
+| `fail` (red) | Broken. | Fix now, starting with the topmost failure. |
+
+The **verdict** is the worst status present, ordered `pass`, `skip`, `warn`, `fail`.
+
+A `skip` means one of:
+
+- **A check it depends on did not pass.** The detail reads `Skipped: <check> did not pass`. Fix that one first; the skipped check runs again on the next report. Example: `storage.bucket` is skipped while `storage.config` fails.
+- **The capability is off on purpose.** AI switched off, or telemetry collection off. Nothing needs fixing unless you meant it to be on.
+
+Fix problems top to bottom within a category, and start with `core`: a failing `db.connection` makes most other checks skip or fail.
+
+## 4. Triage by check
+
+Each entry is the meaning of a `warn` or `fail` and where to go. The remedy in the report is authoritative for your deployment; this table is the map.
+
+### Core, authentication and maintenance
+
+| Check | Red or amber means | Go to |
+|---|---|---|
+| `db.connection` | The database did not answer, or `SELECT 1` took over 500 ms. | Check PostgreSQL is running and reachable, and `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` in `infra/compose/.env`. |
+| `db.migrations` | A migration is unfinished or rolled back, or none was ever applied. | Run `npm run prisma:migrate` in the `api` container. For an unfinished one, resolve it first as the remedy describes. |
+| `db.rls_role` | The API connects as a superuser or a `BYPASSRLS` role while tables force row-level security, so every organization can read every other's rows (fail). | Run the API as an ordinary role: create `CREATE ROLE app LOGIN PASSWORD '...' NOSUPERUSER NOBYPASSRLS CREATEDB CREATEROLE`, make it the owner of the database and its tables (or restore a backup into a database it owns), set `POSTGRES_USER` and `POSTGRES_PASSWORD` in `infra/compose/.env`, run `npm run prisma:migrate` and restart. A development volume made before this check existed keeps its old superuser: see [SECURITY-ARCHITECTURE.md §18](../SECURITY-ARCHITECTURE.md#the-application-role). |
+| `secrets.encryption-key` | `SECRETS_ENCRYPTION_KEY` is missing or malformed. | [Rotate or recover the key](rotate-secrets-encryption-key.md). If credentials were saved, restore the original key; a new one cannot decrypt them. |
+| `core.event-bus` | The Postgres event bus listener is disconnected, or `EVENT_BUS_ADAPTER` is unrecognised. Live notifications and job wake-ups do not cross replicas meanwhile; nothing is lost. | Point `POSTGRES_HOST`/`POSTGRES_PORT` at Postgres directly or at a session-mode pool (a transaction-mode pooler cannot carry `LISTEN`), check the `POSTGRES_*` credentials and the API log for `Event bus listener`. Set `EVENT_BUS_ADAPTER` to `postgres` or `in-process` and restart. |
+| `core.deployment-mode` | `DEPLOYMENT_MODE=saas` with in-app backups off, or the backup policy unreadable (warn; never fail). | Confirm automated backups and point-in-time recovery on the managed database, or turn on backups at `/admin/settings/db-backup`; see [database restore runbook](database-restore.md#11-saas-mode-use-the-providers-point-in-time-recovery). |
+| `auth.jwt-secret` | `JWT_SECRET` is unset (fail) or under 32 characters (warn). | Set a random value of 32 or more characters and restart the API. Everyone signs in again. |
+| `auth.providers` | No sign-in provider is configured. | Each registered provider's own instruction is in the remedy: for Google, set the `GOOGLE_*` variables in `.env` and restart the API; for a provider an app added, store its secret in the credential store (purpose `auth_<id>`). |
+| `auth.initial-admin` | No active Admin (fail), or `INITIAL_ADMIN_EMAIL` unset (warn). | Set `INITIAL_ADMIN_EMAIL` and sign in with that account; or `/admin/settings/users`. |
+| `auth.principal-cache` | Principals are cached but invalidations cannot cross replicas: the bus is `in-process` or its listener is down. A role change or deactivation made on one replica takes up to `AUTH_PRINCIPAL_CACHE_TTL_SECONDS` to reach the others. Harmless with exactly one replica. | Set `EVENT_BUS_ADAPTER=postgres` and restart every replica (see `core.event-bus` if the listener is down), or set `AUTH_PRINCIPAL_CACHE_TTL_SECONDS=0` to turn the cache off. |
+| `tenancy.mode` | No default organization (fail); `TENANCY_MODE=single` but several organizations exist (fail); or, in single mode, active users without a default-organization membership (warn). | No default organization: run `npm run prisma:migrate` and `npm run prisma:seed` in the `api` container. Several organizations in single mode: set `TENANCY_MODE=multi` in `.env` and restart the API, or consolidate the organizations into the default one (running several in single mode is unsupported). The warn needs no action: each user joins the default organization at their next sign-in; if the count keeps growing, look for membership errors in the API log around sign-in. |
+| `maintenance.mode` | A window is open (warn), or the saved setting could not be read. | `/admin/settings/maintenance`. If `MAINTENANCE_MODE` holds it open, unset it and restart; see [maintenance runbook](maintenance-mode.md). |
+
+### Storage, email and Web Push
+
+| Check | Red or amber means | Go to |
+|---|---|---|
+| `storage.config` | Object storage is not configured, or its settings cannot be read. | `/admin/settings/storage`; see [storage configuration](storage-configuration.md). A read failure usually means the wrong `SECRETS_ENCRYPTION_KEY`. |
+| `storage.bucket` | The store did not answer, rejected the credential, reports a missing bucket or region mismatch, or the key may not read the bucket. | `/admin/settings/storage`, then **Test connection** there. A pass is weaker than that test: a missing bucket can still pass here (see the [spec](../specs/doctor.md#27-check-inventory)). |
+| `email.config` | Email is not configured or switched off (warn), or incomplete (fail). | `/admin/settings/email`, then **Send test email** there. |
+| `push.vapid` | Web Push is off or unconfigured (warn), or the key pair or subject is invalid (fail). | `/admin/settings/push`; see [VAPID keys](vapid-keys.md). Regenerating keys forces browsers to re-subscribe. |
+
+### AI, jobs, nodes and backup
+
+| Check | Red or amber means | Go to |
+|---|---|---|
+| `ai.enabled` | Always `pass` or `skip`; `skip` means AI is off. | `/admin/settings/ai` if you want it on. |
+| `ai.providers` | AI is on but no provider is enabled, an enabled provider has no adapter, or it has no org key while the key policy promises a fallback. | `/admin/settings/ai`; see [AI configuration](ai-configuration.md). Use the **Test** button there to prove a provider. |
+| `jobs.worker` | `JOBS_WORKER_MODE` is unrecognised or `off`, or `JOBS_WORKER_CONCURRENCY` is zero. | Set the variable and restart the API, or make sure another instance or worker nodes run jobs. |
+| `jobs.backlog` | A job is stuck running with no live lease, or the oldest due job has waited over 15 minutes. | Confirm a worker runs (`jobs.worker`), then review or reset jobs at `/admin/settings/jobs`. |
+| `nodes.fleet` | An enrolled node is stale or offline. | `/admin/settings/workers`; on the node, `appctl node status`. See [run worker nodes](run-worker-nodes.md). |
+| `backup.schedule` | The latest run failed or went stale (fail), or the schedule is off, never completed, or the last success is over 48 hours old (warn). | `/admin/settings/db-backup`: read the run's error, fix the cause, then run a backup now. |
+| `backup.rls-bypass` | A dump's connection sees fewer rows than the system client (fail: the next backup would be incomplete), or the connection carrying the `app.rls_bypass` startup option cannot be opened (warn). | Fail: run the API as an ordinary role and check the dump arguments carry both `--enable-row-security` and `PGOPTIONS=-c app.rls_bypass=on` ([database-backup spec](../specs/database-backup.md#row-level-security)). Warn: `POSTGRES_HOST`/`POSTGRES_PORT` point at a transaction-mode pooler; point them at the database (or a session-mode pooler) itself. |
+| `backup.pg-client` | `pg_dump` is missing (warn), or older than the server or the pinned version (fail). | [Postgres client version](postgres-client-version.md). |
+
+### Telemetry
+
+The chain `telemetry.export`, `telemetry.connection`, `telemetry.reachable`, `telemetry.tables`, `telemetry.freshness` runs in that order; work through it from the top, because each skips when the one before fails. Procedures are in the [telemetry runbook](telemetry.md).
+
+| Check | Red or amber means | Go to |
+|---|---|---|
+| `telemetry.export` | `skip`: collection is off. Fail: collection is on but `OTEL_ENABLED` is not `true`. Warn: the export gate is closed, so no GreptimeDB connection yet. | Set `OTEL_ENABLED=true` and the OTLP endpoint for the `api` container with `telemetry.compose.yml`; or `/admin/settings/telemetry`. |
+| `telemetry.connection` | No GreptimeDB reader connection is configured. | `/admin/settings/telemetry`. |
+| `telemetry.reachable` | GreptimeDB did not answer as the reader. | Check the GreptimeDB container and the reader login; use **Test connection** on the settings page. |
+| `telemetry.tables` | The store is unreadable, a table is missing (nothing exported yet), or no retention is set. | Check the collector exports to this database; apply retention at `/admin/settings/telemetry` (needs the admin login). |
+| `telemetry.freshness` | No trace or log arrived within 5 minutes (warn), or none in 7 days (fail). | Check the OpenTelemetry collector container and `OTEL_EXPORTER_OTLP_ENDPOINT`; the Telemetry Dashboard shows the gap. |
+
+### Network
+
+| Check | Red or amber means | Go to |
+|---|---|---|
+| `network.egress` | Only with `DEPLOYMENT_NETWORK=air-gapped` (online it always passes, as an inventory). Fail: a required dependency points at the internet, such as Google as the only sign-in provider. Warn: optional ones do (an AI provider, Web Push, the docs CDN, ...); `data.public_ids` lists them. | [Air-gapped runbook](air-gapped.md): one section per dependency id, with what breaks offline and the internal alternative. |
+
+## 5. Send a support bundle
+
+When you need help from whoever supports your deployment, send ONE file instead of screenshots: the support bundle holds the Doctor report, the versions from the About page, a 24-hour telemetry summary and the outbound-dependency inventory (hosts only), with secrets and personal data removed. Design and the exact redaction rules: [Doctor spec §2.10](../specs/doctor.md#210-support-bundle).
+
+1. Open the Doctor (`/admin/settings/doctor`) and choose **Download support bundle**, next to **Run again**. The browser saves `support-bundle-<app>-<yyyyMMddTHHmmssZ>.json`.
+   Over HTTP: `curl -sS -OJ "https://<your-deployment>/api/admin/doctor/support-bundle" -H "Authorization: Bearer $TOKEN"` (`-OJ` keeps the server's filename).
+2. **Open the file before you send it.** It is plain, pretty-printed JSON; read it in any editor. Check:
+   - `redaction.rules` is `v1` and `redaction.replacements` is a number (how many values were replaced: emails, IPs, tokens, long keys, `password`-like fields);
+   - search it for anything you would not paste into a ticket: your domain, hostnames, customer names, email addresses. The bundle never includes the hostname, the domain, the deploy-info path, raw logs, traces, routes or query results, and the downloader's id and email are never written into it;
+   - each entry under `sections` is `ok`, `omitted` (with a `reason`) or `error`. `telemetry` is `omitted` unless your account holds `telemetry:query` and telemetry is on; `versions` with `deployInfoStatus: "absent"` simply means no deploy document was found.
+3. Attach the file to the ticket yourself. The application never uploads it anywhere.
+4. If the supporter needs raw telemetry rows, export them deliberately from the Telemetry Explorer (audited per query); never paste them from logs.
+
+Each download is recorded in the audit log as `support_bundle:download` (who, when, section statuses, size, replacement count). It needs `system_settings:read`, like the Doctor itself.
+
+## 6. Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| The page shows a red request-error alert, not rows | The request failed: `403`, a network error, or a maintenance `503`. A failing check never looks like this. | `403`: the account needs `system_settings:read`. `503`: close the maintenance window or allow admins. Then **Retry**. |
+| A problem you fixed still shows | The 15 second cache. | **Run again**, or add `refresh=true`. |
+| A check reads `Timed out after 5000ms` | The probe did not answer in time. | Check that the service it probes is reachable from the API; the remedy names the settings page. |
+| Many checks read `skip` | A shared dependency failed (usually `db.connection`), or capabilities are off. | Fix the topmost `fail` and run again. |
+| The whole run takes many seconds | Telemetry checks wait on each other in a chain, up to 36 seconds when GreptimeDB is unreachable. | Fix the telemetry connection, or read the other categories while it finishes. |
+| `storage.bucket` passes but uploads fail | The check is a read and cannot prove a write. | Run **Test connection** at `/admin/settings/storage`. |
+| The API itself is down | The Doctor runs inside the API. | Run `appctl deploy doctor` on the server ([deploy runbook](deploy-to-vps.md)) and read the container logs. |
+| **Download support bundle** shows "This app's transport cannot download files" | The web app's platform host has no `getBlob`. | A code fix: see the [web slice README](../../packages/platform-web/src/doctor/README.md#troubleshooting). |
+| A bundle section is `error` with "timed out after 10000 ms" | That section's source did not answer in time; the rest of the bundle is complete. | Send it anyway and mention it; the Doctor report usually shows the cause. |
+| A bundle section is `error` with "section output did not match its schema" | The section produced a field it does not allow, so its data was dropped on purpose. | A code fix in the section; the API log names the field path. |
+| The API exits at boot with `DoctorModule.forRoot: ... is required ... never public` or `Duplicate doctor check id` | The Doctor's binding (`apps/api/src/doctor/doctor.config.ts`) lost its platform host, or two checks share an id. | A code fix, not an operator one: see the [API slice README](../../packages/platform-api/src/doctor/README.md#troubleshooting). |
+
+## 7. Summary checklist
+
+- [ ] Signed in as an Admin; no maintenance window blocking admins
+- [ ] Ran the Doctor and read the verdict
+- [ ] Fixed `fail` rows first, starting with `core`
+- [ ] Resolved or accepted each `warn`
+- [ ] Understood every `skip` (dependency or intentionally off)
+- [ ] Used the settings page's Test button where a pass is weaker than an end-to-end test
+- [ ] **Run again**, and the verdict is what you expected
+- [ ] If asking for help: downloaded the support bundle, opened and read it, then attached it
+
+## See also
+
+- [Admin Doctor spec](../specs/doctor.md): the check contract, every rule, how to add a check.
+- Code: the framework is the packaged slice `@marinoscar/platform-api/doctor` and `@marinoscar/platform-web/doctor` ([API README](../../packages/platform-api/src/doctor/README.md), [web README](../../packages/platform-web/src/doctor/README.md)); the app holds its binding (`apps/api/src/doctor/doctor.config.ts`, `apps/web/src/pages/Admin/DoctorPage.tsx`) and the checks under `apps/api/src/<module>/doctor/`.
+- [Maintenance mode runbook](maintenance-mode.md), [telemetry runbook](telemetry.md), [deploy to a VPS](deploy-to-vps.md).
+- [`appctl` reference](../../apps/cli/README.md#checking-prerequisites): the host-level `appctl deploy doctor`.

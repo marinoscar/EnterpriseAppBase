@@ -1,0 +1,352 @@
+{
+  "name": "@marinoscar/platform-web",
+  "version": "0.1.0-next.3",
+  "description": "React pages, components and hooks of the platform (ESM).",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=24"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marinoscar/EnterpriseAppBase.git",
+    "directory": "packages/platform-web"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./core": {
+      "types": "./dist/core/index.d.ts",
+      "default": "./dist/core/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
+    },
+    "./doctor/headless": {
+      "types": "./dist/doctor/headless/index.d.ts",
+      "default": "./dist/doctor/headless/index.js"
+    },
+    "./doctor/ui": {
+      "types": "./dist/doctor/ui/index.d.ts",
+      "default": "./dist/doctor/ui/index.js"
+    },
+    "./telemetry/headless": {
+      "types": "./dist/telemetry/headless/index.d.ts",
+      "default": "./dist/telemetry/headless/index.js"
+    },
+    "./telemetry/ui": {
+      "types": "./dist/telemetry/ui/index.d.ts",
+      "default": "./dist/telemetry/ui/index.js"
+    },
+    "./telemetry/ui/settings-page": {
+      "types": "./dist/telemetry/ui/settings-page.d.ts",
+      "default": "./dist/telemetry/ui/settings-page.js"
+    },
+    "./telemetry/ui/explorer-page": {
+      "types": "./dist/telemetry/ui/explorer-page.d.ts",
+      "default": "./dist/telemetry/ui/explorer-page.js"
+    },
+    "./telemetry/ui/dashboard-page": {
+      "types": "./dist/telemetry/ui/dashboard-page.d.ts",
+      "default": "./dist/telemetry/ui/dashboard-page.js"
+    },
+    "./identity/headless": {
+      "types": "./dist/identity/headless/index.d.ts",
+      "default": "./dist/identity/headless/index.js"
+    },
+    "./identity/ui": {
+      "types": "./dist/identity/ui/index.d.ts",
+      "default": "./dist/identity/ui/index.js"
+    },
+    "./settings/headless": {
+      "types": "./dist/settings/headless/index.d.ts",
+      "default": "./dist/settings/headless/index.js"
+    },
+    "./settings/ui": {
+      "types": "./dist/settings/ui/index.d.ts",
+      "default": "./dist/settings/ui/index.js"
+    },
+    "./settings/testing": {
+      "types": "./dist/settings/testing/index.d.ts",
+      "default": "./dist/settings/testing/index.js"
+    },
+    "./sharing/headless": {
+      "types": "./dist/sharing/headless/index.d.ts",
+      "default": "./dist/sharing/headless/index.js"
+    },
+    "./sharing/ui": {
+      "types": "./dist/sharing/ui/index.d.ts",
+      "default": "./dist/sharing/ui/index.js"
+    },
+    "./credentials/headless": {
+      "types": "./dist/credentials/headless/index.d.ts",
+      "default": "./dist/credentials/headless/index.js"
+    },
+    "./credentials/ui": {
+      "types": "./dist/credentials/ui/index.d.ts",
+      "default": "./dist/credentials/ui/index.js"
+    },
+    "./onboarding/headless": {
+      "types": "./dist/onboarding/headless/index.d.ts",
+      "default": "./dist/onboarding/headless/index.js"
+    },
+    "./onboarding/ui": {
+      "types": "./dist/onboarding/ui/index.d.ts",
+      "default": "./dist/onboarding/ui/index.js"
+    },
+    "./email/headless": {
+      "types": "./dist/email/headless/index.d.ts",
+      "default": "./dist/email/headless/index.js"
+    },
+    "./email/ui": {
+      "types": "./dist/email/ui/index.d.ts",
+      "default": "./dist/email/ui/index.js"
+    },
+    "./email/ui/transport-panels": {
+      "types": "./dist/email/ui/transport-panels.d.ts",
+      "default": "./dist/email/ui/transport-panels.js"
+    },
+    "./nodes/headless": {
+      "types": "./dist/nodes/headless/index.d.ts",
+      "default": "./dist/nodes/headless/index.js"
+    },
+    "./nodes/ui": {
+      "types": "./dist/nodes/ui/index.d.ts",
+      "default": "./dist/nodes/ui/index.js"
+    },
+    "./jobs/headless": {
+      "types": "./dist/jobs/headless/index.d.ts",
+      "default": "./dist/jobs/headless/index.js"
+    },
+    "./jobs/ui": {
+      "types": "./dist/jobs/ui/index.d.ts",
+      "default": "./dist/jobs/ui/index.js"
+    },
+    "./storage/headless": {
+      "types": "./dist/storage/headless/index.d.ts",
+      "default": "./dist/storage/headless/index.js"
+    },
+    "./storage/ui": {
+      "types": "./dist/storage/ui/index.d.ts",
+      "default": "./dist/storage/ui/index.js"
+    },
+    "./storage/ui/driver-panels": {
+      "types": "./dist/storage/ui/driver-panels.d.ts",
+      "default": "./dist/storage/ui/driver-panels.js"
+    },
+    "./notifications/headless": {
+      "types": "./dist/notifications/headless/index.d.ts",
+      "default": "./dist/notifications/headless/index.js"
+    },
+    "./notifications/service-worker": {
+      "types": "./dist/notifications/headless/service-worker.d.ts",
+      "default": "./dist/notifications/headless/service-worker.js"
+    },
+    "./notifications/ui": {
+      "types": "./dist/notifications/ui/index.d.ts",
+      "default": "./dist/notifications/ui/index.js"
+    },
+    "./exports/headless": {
+      "types": "./dist/exports/headless/index.d.ts",
+      "default": "./dist/exports/headless/index.js"
+    },
+    "./exports/ui": {
+      "types": "./dist/exports/ui/index.d.ts",
+      "default": "./dist/exports/ui/index.js"
+    },
+    "./ai/headless": {
+      "types": "./dist/ai/headless/index.d.ts",
+      "default": "./dist/ai/headless/index.js"
+    },
+    "./ai/ui": {
+      "types": "./dist/ai/ui/index.d.ts",
+      "default": "./dist/ai/ui/index.js"
+    },
+    "./ai/ui/config-page": {
+      "types": "./dist/ai/ui/config-page.d.ts",
+      "default": "./dist/ai/ui/config-page.js"
+    },
+    "./ai/ui/models-page": {
+      "types": "./dist/ai/ui/models-page.d.ts",
+      "default": "./dist/ai/ui/models-page.js"
+    },
+    "./ai/ui/usage-page": {
+      "types": "./dist/ai/ui/usage-page.d.ts",
+      "default": "./dist/ai/ui/usage-page.js"
+    },
+    "./ai/ui/keys-page": {
+      "types": "./dist/ai/ui/keys-page.d.ts",
+      "default": "./dist/ai/ui/keys-page.js"
+    },
+    "./ai/ui/playground-page": {
+      "types": "./dist/ai/ui/playground-page.d.ts",
+      "default": "./dist/ai/ui/playground-page.js"
+    },
+    "./ai/ui/provider-cards": {
+      "types": "./dist/ai/ui/provider-cards.d.ts",
+      "default": "./dist/ai/ui/provider-cards.js"
+    },
+    "./ai/ui/require-ai-enabled": {
+      "types": "./dist/ai/ui/require-ai-enabled.d.ts",
+      "default": "./dist/ai/ui/require-ai-enabled.js"
+    },
+    "./db-backup/headless": {
+      "types": "./dist/db-backup/headless/index.d.ts",
+      "default": "./dist/db-backup/headless/index.js"
+    },
+    "./db-backup/ui": {
+      "types": "./dist/db-backup/ui/index.d.ts",
+      "default": "./dist/db-backup/ui/index.js"
+    },
+    "./android-app/headless": {
+      "types": "./dist/android-app/headless/index.d.ts",
+      "default": "./dist/android-app/headless/index.js"
+    },
+    "./android-app/ui": {
+      "types": "./dist/android-app/ui/index.d.ts",
+      "default": "./dist/android-app/ui/index.js"
+    },
+    "./user-data/headless": {
+      "types": "./dist/user-data/headless/index.d.ts",
+      "default": "./dist/user-data/headless/index.js"
+    },
+    "./user-data/ui": {
+      "types": "./dist/user-data/ui/index.d.ts",
+      "default": "./dist/user-data/ui/index.js"
+    },
+    "./shell/headless": {
+      "types": "./dist/shell/headless/index.d.ts",
+      "default": "./dist/shell/headless/index.js"
+    },
+    "./shell/ui": {
+      "types": "./dist/shell/ui/index.d.ts",
+      "default": "./dist/shell/ui/index.js"
+    },
+    "./host/headless": {
+      "types": "./dist/host/headless/index.d.ts",
+      "default": "./dist/host/headless/index.js"
+    },
+    "./host/ui": {
+      "types": "./dist/host/ui/index.d.ts",
+      "default": "./dist/host/ui/index.js"
+    },
+    "./datatable/headless": {
+      "types": "./dist/datatable/headless/index.d.ts",
+      "default": "./dist/datatable/headless/index.js"
+    },
+    "./datatable/ui": {
+      "types": "./dist/datatable/ui/index.d.ts",
+      "default": "./dist/datatable/ui/index.js"
+    },
+    "./datatable/testing": {
+      "types": "./dist/datatable/testing/index.d.ts",
+      "default": "./dist/datatable/testing/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "prebuild": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "prepack": "node ../../scripts/copy-license.mjs",
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p test/telemetry && tsc --noEmit -p test/notifications && tsc --noEmit -p test/ai && tsc --noEmit -p test/settings/ui && tsc --noEmit -p test/datatable",
+    "docs": "typedoc --options typedoc.json",
+    "test": "vitest",
+    "test:run": "vitest run"
+  },
+  "dependencies": {
+    "@marinoscar/platform-contract": "0.1.0-next.3"
+  },
+  "peerDependencies": {
+    "@codemirror/lang-sql": "^6.10.0",
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@mui/icons-material": "^9.1.0",
+    "@mui/material": "^9.1.0",
+    "@mui/x-charts": "^9.14.0",
+    "@mui/x-data-grid": "^9.10.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@uiw/react-codemirror": "^4.25.12",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-router-dom": "^7.17.0",
+    "vitest": "^4.1.8",
+    "vitest-axe": "^1.0.0-pre.5",
+    "zod": "^4.4.3"
+  },
+  "peerDependenciesMeta": {
+    "@codemirror/lang-sql": {
+      "optional": true
+    },
+    "@mui/x-charts": {
+      "optional": true
+    },
+    "@mui/x-data-grid": {
+      "optional": true
+    },
+    "@testing-library/react": {
+      "optional": true
+    },
+    "@testing-library/user-event": {
+      "optional": true
+    },
+    "@uiw/react-codemirror": {
+      "optional": true
+    },
+    "vitest": {
+      "optional": true
+    },
+    "vitest-axe": {
+      "optional": true
+    },
+    "@mui/icons-material": {
+      "optional": true
+    },
+    "react-router-dom": {
+      "optional": true
+    },
+    "zod": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@codemirror/lang-sql": "^6.10.0",
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@mui/icons-material": "^9.1.0",
+    "@mui/material": "^9.1.0",
+    "@mui/x-charts": "^9.14.0",
+    "@mui/x-data-grid": "^9.10.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/node": "^22.15.32",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@uiw/react-codemirror": "^4.25.12",
+    "jsdom": "^29.1.1",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-router-dom": "^7.17.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8",
+    "vitest-axe": "^1.0.0-pre.5",
+    "zod": "^4.4.3"
+  }
+}

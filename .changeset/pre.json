@@ -1,0 +1,39 @@
+{
+  "mode": "pre",
+  "tag": "next",
+  "initialVersions": {
+    "api": "1.0.0",
+    "cli": "1.0.0",
+    "stack-agent": "1.0.0",
+    "web": "1.0.0",
+    "@marinoscar/platform-api": "0.0.0",
+    "@marinoscar/platform-cli": "0.0.0",
+    "@marinoscar/platform-contract": "0.0.0",
+    "@marinoscar/platform-db": "0.0.0",
+    "@marinoscar/platform-infra": "0.0.0",
+    "@marinoscar/platform-web": "0.0.0",
+    "@app/shared": "1.0.0"
+  },
+  "changesets": [
+    "contract-doctor-schemas",
+    "contract-telemetry-schemas",
+    "core-derive-signing-key",
+    "db-schema-fragments",
+    "db-seed-platform",
+    "doctor-egress-inventory",
+    "doctor-slice",
+    "fastify-optional-peer",
+    "initial-platform-scaffold",
+    "otel-core-slice",
+    "platform-api-core-slice",
+    "platform-db-baseline",
+    "platform-db-cipher-comments",
+    "platform-db-migration-sync",
+    "platform-db-prerelease-lock",
+    "platform-history-v1",
+    "scoped-data-access",
+    "support-bundle",
+    "telemetry-api-slice",
+    "telemetry-web-slice"
+  ]
+}

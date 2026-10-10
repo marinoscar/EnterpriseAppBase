@@ -1,0 +1,21 @@
+{
+  // Typecheck config (`npm run typecheck` = tsc --noEmit). It covers src/ AND
+  // the tests and vitest.config.ts, which is why `rootDir`/`outDir` live only
+  // in tsconfig.build.json (a rootDir of ./src would make tsc reject the
+  // config file with TS6059) - the same split as apps/cli.
+  //
+  // NodeNext (from tsconfig.base.json) plus `"type": "module"` makes this a
+  // real ESM package: every relative import in src/ carries a `.js`
+  // extension. Node's ESM loader does no extension guessing, so a missing one
+  // typechecks and then fails with ERR_MODULE_NOT_FOUND in a consumer.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noUncheckedIndexedAccess": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src/**/*", "test/**/*", "vitest.config.ts"],
+  "exclude": ["node_modules", "dist"]
+}

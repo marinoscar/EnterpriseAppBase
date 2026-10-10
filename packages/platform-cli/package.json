@@ -1,0 +1,104 @@
+{
+  "name": "@marinoscar/platform-cli",
+  "version": "0.1.0-next.3",
+  "description": "CLI commands, TUI building blocks, deploy pipeline and worker-node engine of the platform (ESM).",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marinoscar/EnterpriseAppBase.git",
+    "directory": "packages/platform-cli"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./core": {
+      "types": "./dist/core/index.d.ts",
+      "default": "./dist/core/index.js"
+    },
+    "./telemetry": {
+      "types": "./dist/telemetry/index.d.ts",
+      "default": "./dist/telemetry/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
+    },
+    "./commands": {
+      "types": "./dist/commands/index.d.ts",
+      "default": "./dist/commands/index.js"
+    },
+    "./tui": {
+      "types": "./dist/tui/index.d.ts",
+      "default": "./dist/tui/index.js"
+    },
+    "./deploy": {
+      "types": "./dist/deploy/index.d.ts",
+      "default": "./dist/deploy/index.js"
+    },
+    "./node": {
+      "types": "./dist/node/index.d.ts",
+      "default": "./dist/node/index.js"
+    },
+    "./api-client": {
+      "types": "./dist/api-client/index.d.ts",
+      "default": "./dist/api-client/index.js"
+    },
+    "./android": {
+      "types": "./dist/android/index.d.ts",
+      "default": "./dist/android/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "prebuild": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "prepack": "node ../../scripts/copy-license.mjs",
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
+    "typecheck": "tsc --noEmit",
+    "docs": "typedoc --options typedoc.json",
+    "test": "vitest",
+    "test:run": "vitest run"
+  },
+  "dependencies": {
+    "@marinoscar/platform-contract": "0.1.0-next.3",
+    "@marinoscar/platform-infra": "0.1.0-next.3",
+    "commander": "^14.0.2",
+    "ink": "^7.1.1",
+    "ink-select-input": "^6.2.0",
+    "ink-spinner": "^5.0.0",
+    "ink-text-input": "^6.0.0"
+  },
+  "peerDependencies": {
+    "react": "^19.2.8"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.32",
+    "@types/react": "^19.2.18",
+    "react": "^19.2.8",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  }
+}

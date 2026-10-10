@@ -1,0 +1,33 @@
+{
+  "name": "platform-consumer-smoke-web",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A minimal React + Vite consumer of @marinoscar/platform-web, installed from packed or published packages by ../run.mjs. Never an npm workspace.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && vite build",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@marinoscar/platform-web": "next",
+    "@mui/icons-material": "^9.1.0",
+    "@mui/material": "^9.1.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-router-dom": "^7.17.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.3.2",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.2",
+    "jsdom": "^29.1.1",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16",
+    "vitest": "^4.1.8"
+  }
+}

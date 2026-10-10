@@ -2,9 +2,11 @@
 
 <!-- Brief description of the changes in this PR -->
 
-## Type of Change
+## Linked issue
 
-<!-- Mark the relevant option with an 'x' -->
+<!-- Fixes #123 / Relates to #123 — every feature or bug fix needs a tracking issue and its own worktree, see CLAUDE.md -->
+
+## Type of Change
 
 - [ ] Bug fix (non-breaking change which fixes an issue)
 - [ ] New feature (non-breaking change which adds functionality)
@@ -13,13 +15,7 @@
 - [ ] Refactoring (no functional changes)
 - [ ] CI/CD or infrastructure change
 
-## Related Issues
-
-<!-- Link any related issues here using "Fixes #123" or "Relates to #123" -->
-
 ## Changes Made
-
-<!-- List the key changes made in this PR -->
 
 -
 -
@@ -27,33 +23,32 @@
 
 ## Testing
 
-<!-- Describe the tests you ran to verify your changes -->
+<!-- Check the commands you ran; see docs/TESTING.md for the full suite -->
 
-- [ ] Unit tests pass (`npm test`)
-- [ ] Type checks pass (`npm run typecheck`)
-- [ ] E2E tests pass (if applicable)
+- [ ] `npm test --workspace=api` (mocked unit + integration)
+- [ ] `npm run test:db --workspace=api` (real Postgres)
+- [ ] `npm run test:run --workspace=web`
+- [ ] `npm run test:run --workspace=cli`
+- [ ] `npm run typecheck --workspace=<api|web|cli>`
+- [ ] `npm run openapi:dump && npm run openapi:lint` (routes changed)
 - [ ] Manual testing completed
 
-### Test Instructions
+## Docs updated
 
-<!-- If manual testing is needed, provide steps to test -->
+<!-- Check the one that applies -->
 
-1.
-2.
-3.
-
-## Screenshots
-
-<!-- If applicable, add screenshots to help explain your changes -->
+- [ ] Spec (`docs/specs/*.md`)
+- [ ] Runbook (`docs/runbooks/*.md`)
+- [ ] README
+- [ ] CLAUDE.md
+- [ ] None needed
 
 ## Checklist
 
-- [ ] My code follows the project's coding standards
 - [ ] I have performed a self-review of my own code
-- [ ] I have commented my code, particularly in hard-to-understand areas
-- [ ] I have made corresponding changes to the documentation
 - [ ] My changes generate no new warnings
 - [ ] Any dependent changes have been merged and published
+- [ ] Changeset added for platform package changes (`npx changeset`, or `npx changeset --empty`)
 
 ## Additional Notes
 

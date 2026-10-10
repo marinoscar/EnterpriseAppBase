@@ -1,0 +1,448 @@
+import request from 'supertest';
+import { JwtService } from '@nestjs/jwt';
+
+import { TestContext, createTestApp, closeTestApp } from '../helpers/test-app.helper';
+import { resetPrismaMock } from '../mocks/prisma.mock';
+import { setupBaseMocks } from '../fixtures/mock-setup.helper';
+import { createMockAdminUser, createMockViewerUser, authHeader } from '../helpers/auth-mock.helper';
+import type { SystemTelemetryValue } from '../../src/common/schemas/settings.schema';
+import {
+  GreptimeClient,
+  METRIC_GROUPS,
+  type MetricGroup,
+  type MetricGroupDef,
+  metricGroupRegistry,
+  REQUIRED_LOG_COLUMNS,
+  REQUIRED_TRACE_COLUMNS,
+  TelemetrySchemaService,
+  TelemetrySettingsService,
+} from '@marinoscar/platform-api/telemetry';
+import { telemetryProviders } from '../../src/platform/telemetry/telemetry.config';
+import { metricCatalogSchema } from '@marinoscar/platform-api/telemetry/testing';
+import { withTemporaryEntries } from '@marinoscar/platform-api/core';
+
+const { TelemetryDashboardService } = telemetryProviders;
+
+// =============================================================================
+// Telemetry dashboard over HTTP (issue #577)
+// =============================================================================
+//
+// Through the REAL `AppModule` wiring: RBAC on every route (401 without a
+// token, 403 with only `telemetry:read`, 200 with `telemetry:query`), the 409
+// / 503 preconditions, query validation by the global Zod pipe, and the
+// `{ data }` envelope. The GreptimeDB client, the telemetry policy and the
+// schema read are stubbed on the real providers — no network.
+// =============================================================================
+
+const BASE = '/api/admin/telemetry/dashboard';
+
+const ROUTES = [
+  `${BASE}/summary`,
+  `${BASE}/timeseries?panel=api`,
+  `${BASE}/top?kind=routes`,
+  `${BASE}/events`,
+  `${BASE}/filters`,
+  `${BASE}/metrics?group=host`,
+];
+
+const POLICY: SystemTelemetryValue = {
+  enabled: true,
+  retentionDays: 7,
+  instanceId: null,
+  query: { maxRows: 1000, timeoutSeconds: 15 },
+  assistant: {
+    enabled: false,
+    provider: null,
+    modelId: null,
+    shareResults: true,
+    maxResultRowsToModel: 20,
+    maxSteps: 6,
+  },
+};
+
+const SCHEMA = {
+  tables: [
+    {
+      name: 'opentelemetry_traces',
+      rows: null,
+      columns: REQUIRED_TRACE_COLUMNS.map((name) => ({ name, type: 'string', semanticType: null })),
+    },
+    {
+      name: 'opentelemetry_logs',
+      rows: null,
+      columns: REQUIRED_LOG_COLUMNS.map((name) => ({ name, type: 'string', semanticType: null })),
+    },
+  ],
+};
+
+describe('Telemetry dashboard integration', () => {
+  let context: TestContext;
+  let greptime: GreptimeClient;
+  let settings: TelemetrySettingsService;
+  let schema: TelemetrySchemaService;
+  let queryReader: jest.SpyInstance;
+  let isConfigured: jest.SpyInstance;
+  let getPolicy: jest.SpyInstance;
+
+  beforeAll(async () => {
+    context = await createTestApp({ useMockDatabase: true });
+    greptime = context.module.get(GreptimeClient);
+    settings = context.module.get(TelemetrySettingsService);
+    schema = context.module.get(TelemetrySchemaService);
+  });
+
+  afterAll(async () => {
+    await closeTestApp(context);
+  });
+
+  beforeEach(() => {
+    resetPrismaMock();
+    setupBaseMocks();
+    context.prismaMock.auditEvent.create.mockResolvedValue({} as never);
+
+    isConfigured = jest.spyOn(greptime, 'isConfigured').mockReturnValue(true);
+    getPolicy = jest.spyOn(settings, 'getPolicy').mockResolvedValue(POLICY);
+    jest.spyOn(schema, 'getSchema').mockResolvedValue(SCHEMA);
+    // Every statement answers with no rows; distinct values answer one service.
+    queryReader = jest.spyOn(greptime, 'queryReader').mockImplementation(async (sql: string) =>
+      sql.includes(' AS v ')
+        ? { fields: [{ name: 'v', dataTypeID: 25 }], rows: sql.includes('instance') ? [] : [['my-app-api']] }
+        : { fields: [], rows: [] },
+    );
+  });
+
+  afterEach(() => jest.restoreAllMocks());
+
+  /** A user holding ONLY `telemetry:read` (sees the store's status, not its data). */
+  function telemetryReadOnlyUser(): string {
+    const jwtService = context.module.get<JwtService>(JwtService);
+    const id = 'telemetry-read-only';
+    const email = 'telemetry-read-only@example.com';
+
+    context.prismaMock.user.findUnique.mockImplementation(async ({ where }: any) => {
+      if (where?.id !== id && where?.email !== email) return null;
+      return {
+        id,
+        email,
+        displayName: null,
+        providerDisplayName: 'Telemetry Read Only',
+        profileImageUrl: null,
+        providerProfileImageUrl: null,
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        userRoles: [
+          {
+            role: {
+              id: 'role-telemetry-readonly',
+              name: 'telemetry-readonly',
+              description: 'Telemetry status only',
+              rolePermissions: [
+                { permission: { id: 'perm-t-read', name: 'telemetry:read', description: 'View telemetry' } },
+              ],
+            },
+          },
+        ],
+      };
+    });
+
+    return jwtService.sign({ sub: id, email, roles: ['telemetry-readonly'] });
+  }
+
+  describe('RBAC', () => {
+    it.each(ROUTES)('%s is 401 without a token', async (route) => {
+      await request(context.app.getHttpServer()).get(route).expect(401);
+      expect(queryReader).not.toHaveBeenCalled();
+    });
+
+    it.each(ROUTES)('%s is 403 with only telemetry:read', async (route) => {
+      const token = telemetryReadOnlyUser();
+      await request(context.app.getHttpServer()).get(route).set(authHeader(token)).expect(403);
+      expect(queryReader).not.toHaveBeenCalled();
+    });
+
+    it.each(ROUTES)('%s is 403 for a viewer', async (route) => {
+      const viewer = await createMockViewerUser(context);
+      await request(context.app.getHttpServer()).get(route).set(authHeader(viewer.accessToken)).expect(403);
+    });
+
+    it.each(ROUTES)('%s is 200 with telemetry:query, inside the envelope', async (route) => {
+      const admin = await createMockAdminUser(context);
+      const res = await request(context.app.getHttpServer()).get(route).set(authHeader(admin.accessToken)).expect(200);
+
+      expect(res.body.data).toEqual(
+        expect.objectContaining({
+          range: expect.objectContaining({ bucketSeconds: 60 }),
+          generatedAt: expect.any(String),
+          truncated: false,
+          sql: expect.anything(),
+        }),
+      );
+    });
+  });
+
+  describe('preconditions', () => {
+    it.each(ROUTES)('%s is 409 TELEMETRY_DISABLED when telemetry is off', async (route) => {
+      const admin = await createMockAdminUser(context);
+      getPolicy.mockResolvedValue({ ...POLICY, enabled: false });
+
+      const res = await request(context.app.getHttpServer()).get(route).set(authHeader(admin.accessToken)).expect(409);
+      expect(res.body.details.reason).toBe('TELEMETRY_DISABLED');
+    });
+
+    it.each(ROUTES)('%s is 503 TELEMETRY_NOT_CONFIGURED without a store', async (route) => {
+      const admin = await createMockAdminUser(context);
+      isConfigured.mockReturnValue(false);
+
+      const res = await request(context.app.getHttpServer()).get(route).set(authHeader(admin.accessToken)).expect(503);
+      expect(res.body.details.reason).toBe('TELEMETRY_NOT_CONFIGURED');
+    });
+  });
+
+  describe('validation', () => {
+    it.each([
+      ['range with from/to', `${BASE}/summary?range=1h&from=2026-09-27T20:00:00Z&to=2026-09-27T21:00:00Z`],
+      ['a span over 30 days', `${BASE}/summary?from=2026-01-01T00:00:00Z&to=2026-03-01T00:00:00Z`],
+      ['buckets 45', `${BASE}/summary?buckets=45`],
+      ['an unknown range', `${BASE}/summary?range=2h`],
+      ['a missing panel', `${BASE}/timeseries`],
+      ['an unknown kind', `${BASE}/top?kind=slow`],
+      ['an unknown severity', `${BASE}/events?severity=debug`],
+      ['q over 200 characters', `${BASE}/events?q=${'x'.repeat(201)}`],
+      ['metrics without a group', `${BASE}/metrics`],
+      ['an unknown metric group', `${BASE}/metrics?group=disk`],
+      ['a host over 200 characters', `${BASE}/metrics?group=host&host=${'x'.repeat(201)}`],
+    ])('refuses %s with 400', async (_label, route) => {
+      const admin = await createMockAdminUser(context);
+      await request(context.app.getHttpServer()).get(route).set(authHeader(admin.accessToken)).expect(400);
+      expect(queryReader).not.toHaveBeenCalled();
+    });
+
+    it('refuses a malformed cursor with 400 TELEMETRY_DASHBOARD_BAD_CURSOR', async () => {
+      const admin = await createMockAdminUser(context);
+      const res = await request(context.app.getHttpServer())
+        .get(`${BASE}/events?cursor=bm90LWpzb24`)
+        .set(authHeader(admin.accessToken))
+        .expect(400);
+      expect(res.body.details.reason).toBe('TELEMETRY_DASHBOARD_BAD_CURSOR');
+    });
+
+    it('refuses an unknown service with 400 TELEMETRY_DASHBOARD_BAD_FILTER', async () => {
+      const admin = await createMockAdminUser(context);
+      const res = await request(context.app.getHttpServer())
+        .get(`${BASE}/summary?service=${encodeURIComponent("x' OR 1=1 --")}`)
+        .set(authHeader(admin.accessToken))
+        .expect(400);
+      expect(res.body.details).toEqual({ field: 'service', reason: 'TELEMETRY_DASHBOARD_BAD_FILTER' });
+    });
+
+    it('accepts a known service', async () => {
+      const admin = await createMockAdminUser(context);
+      await request(context.app.getHttpServer())
+        .get(`${BASE}/top?kind=errors&range=24h&service=my-app-api`)
+        .set(authHeader(admin.accessToken))
+        .expect(200);
+    });
+  });
+
+  describe('metrics (#601)', () => {
+    beforeEach(() => {
+      // Earlier tests filled the service's result and distinct-values caches
+      // from a schema without metric tables.
+      const dashboard = context.module.get(TelemetryDashboardService) as unknown as {
+        results: { clear(): void };
+        distinct: { clear(): void };
+      };
+      dashboard.results.clear();
+      dashboard.distinct.clear();
+      jest.spyOn(schema, 'getSchema').mockResolvedValue({ tables: [...SCHEMA.tables, ...metricCatalogSchema().tables] });
+      queryReader.mockImplementation(async (sql: string) =>
+        sql.includes('"host_name" AS v')
+          ? { fields: [{ name: 'v', dataTypeID: 25 }], rows: [['vm1']] }
+          : sql.includes(' AS v ')
+            ? { fields: [{ name: 'v', dataTypeID: 25 }], rows: sql.includes('instance') ? [] : [['my-app-api']] }
+            : { fields: [], rows: [] },
+      );
+    });
+
+    it.each(METRIC_GROUPS)('group %s answers the documented shape', async (group) => {
+      const admin = await createMockAdminUser(context);
+      const res = await request(context.app.getHttpServer())
+        .get(`${BASE}/metrics?group=${group}&range=6h`)
+        .set(authHeader(admin.accessToken))
+        .expect(200);
+
+      expect(res.body.data).toEqual({
+        range: expect.objectContaining({ bucketSeconds: expect.any(Number) }),
+        generatedAt: expect.any(String),
+        truncated: false,
+        sql: expect.arrayContaining([expect.any(String)]),
+        group,
+        available: true,
+        tiles: expect.any(Array),
+        series: expect.any(Array),
+        tables: expect.any(Array),
+        skipped: [],
+        freshMs: 150_000,
+      });
+      expect(res.body.data.range.bucketSeconds).toBeGreaterThanOrEqual(60);
+      expect(context.prismaMock.auditEvent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          action: 'telemetry:dashboard',
+          meta: expect.objectContaining({ route: 'metrics', params: expect.objectContaining({ group }) }),
+        }),
+      });
+    });
+
+    it('lists hosts in /filters', async () => {
+      const admin = await createMockAdminUser(context);
+      const res = await request(context.app.getHttpServer()).get(`${BASE}/filters`).set(authHeader(admin.accessToken)).expect(200);
+      expect(res.body.data.hosts).toEqual(['vm1']);
+    });
+
+    it('accepts a known host', async () => {
+      const admin = await createMockAdminUser(context);
+      await request(context.app.getHttpServer())
+        .get(`${BASE}/metrics?group=host&host=vm1`)
+        .set(authHeader(admin.accessToken))
+        .expect(200);
+      expect(queryReader.mock.calls.some(([sql]) => String(sql).includes(`"host_name" = 'vm1'`))).toBe(true);
+    });
+
+    it('refuses an unknown host with 400 TELEMETRY_DASHBOARD_BAD_FILTER', async () => {
+      const admin = await createMockAdminUser(context);
+      const res = await request(context.app.getHttpServer())
+        .get(`${BASE}/metrics?group=host&host=${encodeURIComponent("vm1' OR 1=1 --")}`)
+        .set(authHeader(admin.accessToken))
+        .expect(400);
+      expect(res.body.details).toEqual({ field: 'host', reason: 'TELEMETRY_DASHBOARD_BAD_FILTER' });
+    });
+  });
+
+  describe('metric groups (#680)', () => {
+    const GROUPS_ROUTE = `${BASE}/metric-groups`;
+
+    /** An app group whose one family reads a table the catalog fixture has. */
+    const APP_GROUP: MetricGroupDef = {
+      id: 'test_app',
+      label: 'Test app',
+      title: 'Test app section',
+      order: 70,
+      description: 'test widgets',
+      families: [
+        {
+          key: 'testAppQueueDepth',
+          group: 'test_app' as MetricGroup,
+          label: 'Test depth',
+          table: 'app_jobs_queue_depth',
+          kind: 'gauge',
+          unit: 'count',
+          groupBy: 'status',
+          requiredColumns: ['status', 'job_type'],
+          seriesAggregate: 'sum',
+          bucketAggregate: 'max',
+          filters: ['service', 'instance'],
+        },
+      ],
+    };
+
+    // The six platform groups, then the reference app's own `activity` group (PP-4.6).
+    const PLATFORM = [
+      { id: 'host', label: 'Host', title: 'Infrastructure', order: 10 },
+      { id: 'database', label: 'Database', title: 'Database', order: 20 },
+      { id: 'queue', label: 'Job queue', title: 'Job queue', order: 30 },
+      { id: 'nodes', label: 'Worker nodes', title: 'Worker nodes', order: 40 },
+      { id: 'uptime', label: 'Uptime and edge', title: 'Uptime & dependencies', order: 50 },
+      { id: 'pipeline', label: 'Telemetry pipeline', title: 'Telemetry pipeline', order: 60 },
+      { id: 'activity', label: 'App activity', title: 'App activity', order: 70 },
+    ];
+
+    it('is 401 without a token', async () => {
+      await request(context.app.getHttpServer()).get(GROUPS_ROUTE).expect(401);
+    });
+
+    it('is 403 with only telemetry:read', async () => {
+      const token = telemetryReadOnlyUser();
+      await request(context.app.getHttpServer()).get(GROUPS_ROUTE).set(authHeader(token)).expect(403);
+    });
+
+    it('is 403 for a viewer', async () => {
+      const viewer = await createMockViewerUser(context);
+      await request(context.app.getHttpServer()).get(GROUPS_ROUTE).set(authHeader(viewer.accessToken)).expect(403);
+    });
+
+    it('lists the platform groups and the reference app group with their API labels and dashboard titles, in order', async () => {
+      const admin = await createMockAdminUser(context);
+      const res = await request(context.app.getHttpServer())
+        .get(GROUPS_ROUTE)
+        .set(authHeader(admin.accessToken))
+        .expect(200);
+
+      // The handler returns `{ data }`, so the envelope passes it through as is.
+      expect(res.body).toEqual({ data: PLATFORM });
+    });
+
+    it('reads only the in-memory registry: no store query, no audit, even with no store and telemetry off', async () => {
+      const admin = await createMockAdminUser(context);
+      isConfigured.mockReturnValue(false);
+      getPolicy.mockResolvedValue({ ...POLICY, enabled: false });
+
+      const res = await request(context.app.getHttpServer())
+        .get(GROUPS_ROUTE)
+        .set(authHeader(admin.accessToken))
+        .expect(200);
+
+      expect(res.body.data).toEqual(PLATFORM);
+      expect(queryReader).not.toHaveBeenCalled();
+      expect(context.prismaMock.auditEvent.create).not.toHaveBeenCalled();
+    });
+
+    it('lists and serves an app group registered with withTemporaryEntries', async () => {
+      const admin = await createMockAdminUser(context);
+      const dashboard = context.module.get(TelemetryDashboardService) as unknown as {
+        results: { clear(): void };
+        distinct: { clear(): void };
+      };
+      dashboard.results.clear();
+      dashboard.distinct.clear();
+      jest.spyOn(schema, 'getSchema').mockResolvedValue({ tables: [...SCHEMA.tables, ...metricCatalogSchema().tables] });
+
+      // The registry is frozen once the app has bootstrapped; the helper
+      // unfreezes it for the callback and restores it afterwards.
+      expect(metricGroupRegistry.frozen).toBe(true);
+
+      await withTemporaryEntries(metricGroupRegistry, [APP_GROUP], async () => {
+        const groups = await request(context.app.getHttpServer())
+          .get(GROUPS_ROUTE)
+          .set(authHeader(admin.accessToken))
+          .expect(200);
+        expect(groups.body.data).toEqual([
+          ...PLATFORM,
+          { id: 'test_app', label: 'Test app', title: 'Test app section', order: 70 },
+        ]);
+
+        const metrics = await request(context.app.getHttpServer())
+          .get(`${BASE}/metrics?group=test_app&range=6h`)
+          .set(authHeader(admin.accessToken))
+          .expect(200);
+        expect(metrics.body.data).toEqual(
+          expect.objectContaining({ group: 'test_app', available: true, skipped: [] }),
+        );
+        expect(metrics.body.data.tiles.map((t: { key: string }) => t.key)).toEqual(
+          expect.arrayContaining([expect.stringMatching(/^testAppQueueDepth/)]),
+        );
+      });
+
+      expect(metricGroupRegistry.frozen).toBe(true);
+      const after = await request(context.app.getHttpServer())
+        .get(GROUPS_ROUTE)
+        .set(authHeader(admin.accessToken))
+        .expect(200);
+      expect(after.body.data).toEqual(PLATFORM);
+      await request(context.app.getHttpServer())
+        .get(`${BASE}/metrics?group=test_app`)
+        .set(authHeader(admin.accessToken))
+        .expect(400);
+    });
+  });
+});

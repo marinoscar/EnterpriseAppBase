@@ -1,0 +1,5 @@
+---
+"@marinoscar/platform-api": minor
+---
+
+Host: the event bus is pluggable. `registerEventBusAdapter({ id, label, create })` and `eventBusAdapterRegistry` add an adapter (Redis, NATS, a test double) that `EVENT_BUS_ADAPTER` and `PlatformHostCoreModule.forRoot({ eventBusAdapter })` select by id; `in-process` and `postgres` register through the same function. `forRoot({ eventBus })` takes a `PortBinding<EventBus>` that replaces the bus for every package consumer (a provider of `EVENT_BUS` in the app module never reached them, because the host core is global). `EventBusAdapterName` widens to any registered id, `EVENT_BUS_ADAPTERS` is now a deprecated alias of `BUILTIN_EVENT_BUS_ADAPTERS`, `EventBus` gains an optional `close()`, and `describeEventBusConformance` is exported from `@marinoscar/platform-api/host/testing`. Migration: an `eventBusAdapter` option naming an unregistered id now fails the boot instead of falling back to `in-process` (an unregistered `EVENT_BUS_ADAPTER` environment value still falls back with one warning).

@@ -1,0 +1,129 @@
+{
+  "$comment": "Per-slice direct peer dependencies (bare imports of non-test sources), checked by scripts/check-slice-peers.mjs. See docs/PACKAGES.md#peer-dependencies-per-slice.",
+  "$universal": {"platform-api": ["core"], "platform-web": ["core"], "platform-contract": "*", "platform-db": ["lock"], "platform-cli": ["core"], "platform-infra": []},
+  "$implies": {
+    "platform-api": {
+      "@nestjs/common": ["reflect-metadata", "rxjs"],
+      "@nestjs/core": ["@nestjs/common"],
+      "@nestjs/swagger": ["@nestjs/common", "@nestjs/core"],
+      "@nestjs/config": ["@nestjs/common"],
+      "@nestjs/schedule": ["@nestjs/common", "@nestjs/core"],
+      "@nestjs/event-emitter": ["@nestjs/common", "@nestjs/core"],
+      "@nestjs/jwt": ["@nestjs/common"],
+      "@nestjs/passport": ["@nestjs/common", "passport"],
+      "@nestjs/terminus": ["@nestjs/common", "@nestjs/core"],
+      "@nestjs/platform-fastify": ["@nestjs/common", "@nestjs/core"],
+      "nestjs-zod": ["@nestjs/common", "zod"],
+      "supertest": ["@types/supertest"]
+    },
+    "platform-web": {
+      "@mui/material": ["@emotion/react", "@emotion/styled", "react", "react-dom"],
+      "@mui/icons-material": ["@mui/material", "react"],
+      "@mui/x-charts": ["@mui/material", "react"],
+      "@mui/x-data-grid": ["@mui/material", "react"],
+      "@uiw/react-codemirror": ["react", "react-dom"],
+      "react-router-dom": ["react", "react-dom"],
+      "@testing-library/react": ["react", "react-dom"],
+      "vitest-axe": ["vitest"]
+    }
+  },
+  "$runtime": {
+    "platform-db": {
+      "drift": ["pg", "prisma"]
+    }
+  },
+  "platform-api": {
+    "core": ["@nestjs/common", "@nestjs/swagger", "@opentelemetry/api", "@prisma/client", "nestjs-zod"],
+    "testing": ["@nestjs/common"],
+    "doctor": ["@nestjs/common", "@nestjs/swagger", "fastify", "nestjs-zod", "zod"],
+    "otel-core": ["@nestjs/common", "@opentelemetry/api", "fastify"],
+    "telemetry": ["@nestjs/common", "@nestjs/config", "@nestjs/schedule", "@nestjs/swagger", "fastify", "nestjs-zod", "zod"],
+    "sharing": ["@nestjs/common", "@nestjs/core", "@nestjs/schedule", "@nestjs/swagger", "@opentelemetry/api", "nestjs-zod", "rxjs"],
+    "identity": ["@nestjs/common", "@nestjs/config", "@nestjs/core", "@nestjs/event-emitter", "@nestjs/jwt", "@nestjs/passport", "@nestjs/schedule", "@nestjs/swagger", "@opentelemetry/api", "fastify", "nestjs-zod", "zod"],
+    "settings": ["@nestjs/common", "@nestjs/config", "@nestjs/swagger", "nestjs-zod", "zod"],
+    "credentials": ["@nestjs/common"],
+    "onboarding": ["@nestjs/common", "@nestjs/config", "@nestjs/core", "@nestjs/swagger", "nestjs-zod", "zod"],
+    "email": ["@nestjs/common", "@nestjs/swagger", "nestjs-zod", "zod"],
+    "jobs": ["@nestjs/common", "@nestjs/config", "@nestjs/event-emitter", "@nestjs/schedule", "@nestjs/swagger", "@opentelemetry/api", "@prisma/client-runtime-utils", "nestjs-zod", "zod"],
+    "nodes": ["@nestjs/common", "@nestjs/config", "@nestjs/event-emitter", "@nestjs/schedule", "@nestjs/swagger", "@opentelemetry/api", "nestjs-zod", "zod"],
+    "storage": ["@nestjs/common", "@nestjs/config", "@nestjs/event-emitter", "@nestjs/schedule", "@nestjs/swagger", "@opentelemetry/api", "fastify", "nestjs-zod", "zod"],
+    "notifications": ["@nestjs/common", "@nestjs/config", "@nestjs/event-emitter", "@nestjs/swagger", "@opentelemetry/api", "nestjs-zod", "rxjs", "zod"],
+    "exports": ["@nestjs/common", "@nestjs/schedule", "@nestjs/swagger", "@opentelemetry/api", "nestjs-zod", "zod"],
+    "ai": ["@nestjs/common", "@nestjs/event-emitter", "@nestjs/schedule", "@nestjs/swagger", "@opentelemetry/api", "@prisma/client-runtime-utils", "fastify", "nestjs-zod", "rxjs", "zod"],
+    "db-backup": ["@nestjs/common", "@nestjs/config", "@nestjs/schedule", "@nestjs/swagger", "@prisma/client-runtime-utils", "nestjs-zod"],
+    "android-app": ["@nestjs/common", "@nestjs/swagger", "fastify", "nestjs-zod", "zod"],
+    "user-data": ["@nestjs/common", "@nestjs/core", "@nestjs/swagger", "@opentelemetry/api", "nestjs-zod", "zod"],
+    "manifest": [],
+    "host": ["@nestjs/common", "@nestjs/config", "@nestjs/core", "@nestjs/jwt", "@nestjs/swagger", "@nestjs/terminus", "@opentelemetry/api", "fastify", "nestjs-zod", "rxjs", "zod"],
+    "ai/testing": ["supertest"],
+    "telemetry/testing": ["@nestjs/core", "@nestjs/platform-fastify"]
+  },
+  "platform-web": {
+    "core": ["@mui/material", "react"],
+    "testing": [],
+    "doctor": ["@mui/icons-material", "@mui/material", "react", "react-router-dom"],
+    "telemetry": ["@codemirror/lang-sql", "@mui/icons-material", "@mui/material", "@mui/x-charts", "@mui/x-data-grid", "@uiw/react-codemirror", "react", "react-router-dom"],
+    "identity": ["@mui/icons-material", "@mui/material", "react", "react-router-dom"],
+    "settings": ["@mui/icons-material", "@mui/material", "react", "react-router-dom"],
+    "sharing": ["@mui/icons-material", "@mui/material", "react", "react-router-dom"],
+    "credentials": ["@mui/material", "react"],
+    "onboarding": ["@mui/icons-material", "@mui/material", "react", "react-router-dom"],
+    "email": ["@mui/icons-material", "@mui/material", "react", "react-router-dom"],
+    "nodes": ["@mui/icons-material", "@mui/material", "react", "react-router-dom", "zod"],
+    "jobs": ["@mui/icons-material", "@mui/material", "react", "react-router-dom", "zod"],
+    "storage": ["@mui/icons-material", "@mui/material", "react", "react-router-dom"],
+    "notifications": ["@mui/icons-material", "@mui/material", "react", "react-router-dom"],
+    "exports": ["@mui/icons-material", "@mui/material", "react"],
+    "ai": ["@mui/icons-material", "@mui/material", "react", "react-router-dom"],
+    "db-backup": ["@mui/icons-material", "@mui/material", "react", "react-router-dom"],
+    "android-app": ["@mui/icons-material", "@mui/material", "react", "react-router-dom"],
+    "user-data": ["@mui/icons-material", "@mui/material", "react", "react-router-dom"],
+    "shell": ["@mui/icons-material", "@mui/material", "react", "react-router-dom"],
+    "host": ["@mui/icons-material", "@mui/material", "react", "react-router-dom"],
+    "datatable": ["@mui/icons-material", "@mui/material", "@mui/x-data-grid", "react"],
+    "datatable/testing": ["@testing-library/react", "@testing-library/user-event", "vitest", "vitest-axe"]
+  },
+  "platform-contract": {
+    "doctor": ["zod"],
+    "telemetry": ["zod"],
+    "sharing": ["zod"],
+    "identity": ["zod"],
+    "settings": ["zod"],
+    "credentials": ["zod"],
+    "onboarding": ["zod"],
+    "email": ["zod"],
+    "jobs": ["zod"],
+    "nodes": ["zod"],
+    "storage": ["zod"],
+    "notifications": ["zod"],
+    "exports": ["zod"],
+    "ai": ["zod"],
+    "db-backup": ["zod"],
+    "android-app": ["zod"],
+    "user-data": ["zod"]
+  },
+  "platform-db": {
+    "compose": [],
+    "lock": ["zod"],
+    "sync": [],
+    "drift": ["zod"],
+    "baseline": ["zod"],
+    "bin": [],
+    "seed": []
+  },
+  "platform-cli": {
+    "core": [],
+    "telemetry": [],
+    "engine": ["react"],
+    "commands": [],
+    "tui": [],
+    "deploy": [],
+    "node": [],
+    "api-client": [],
+    "testing": [],
+    "android": ["react"]
+  },
+  "platform-infra": {
+    "telemetry": []
+  }
+}

@@ -1,0 +1,101 @@
+import type { MetricGroupDef } from '../metric-group.registry';
+import { HOST_FILTERS, T } from '../metric-catalog.helpers';
+
+/**
+ * The `uptime` metric group (httpcheck and nginx: status per URL, latency, TLS, edge traffic).
+ * The entries moved verbatim from `metric-catalog.ts` (#680); registered by `../metric-group.manifest.ts`.
+ */
+export const UPTIME_METRIC_GROUP: MetricGroupDef = {
+  id: 'uptime',
+  label: 'Uptime and edge',
+  title: 'Uptime & dependencies',
+  order: 50,
+  description: 'checks per URL, TLS days left, nginx',
+  families: [
+    {
+      key: 'httpDuration',
+      group: 'uptime',
+      label: 'Check duration',
+      table: 'httpcheck_duration_milliseconds',
+      kind: 'gauge',
+      unit: 'ms',
+      groupBy: 'http_url',
+      requiredColumns: ['http_url'],
+      seriesAggregate: 'max',
+      bucketAggregate: 'avg',
+      filters: HOST_FILTERS,
+      tileAggregate: 'max',
+    },
+    {
+      key: 'tlsDaysLeft',
+      group: 'uptime',
+      label: 'TLS certificate days left',
+      table: 'httpcheck_tls_cert_remaining_seconds',
+      kind: 'gauge',
+      unit: 'days',
+      groupBy: 'http_url',
+      requiredColumns: ['http_url'],
+      seriesAggregate: 'min',
+      bucketAggregate: 'min',
+      scale: 1 / 86_400,
+      filters: HOST_FILTERS,
+      tileAggregate: 'min',
+      verdict: { ...T.tlsDaysLeft, direction: 'below' },
+    },
+    {
+      key: 'nginxRequests',
+      group: 'uptime',
+      label: 'nginx requests',
+      table: 'nginx_requests_total',
+      kind: 'counter',
+      unit: 'per_s',
+      rate: 'per_s',
+      requiredColumns: ['host_name'],
+      filters: HOST_FILTERS,
+    },
+    {
+      key: 'nginxConnections',
+      group: 'uptime',
+      label: 'nginx connections',
+      table: 'nginx_connections_current',
+      kind: 'gauge',
+      unit: 'count',
+      groupBy: 'state',
+      requiredColumns: ['state', 'host_name'],
+      seriesAggregate: 'sum',
+      bucketAggregate: 'max',
+      filters: HOST_FILTERS,
+      tileGroups: ['active'],
+    },
+  ],
+  tables: [
+    {
+      key: 'uptimeTargets',
+      group: 'uptime',
+      label: 'Uptime targets',
+      keyColumn: 'http_url',
+      keyLabel: 'URL',
+      filters: HOST_FILTERS,
+      httpcheck: true,
+      parts: [
+        {
+          column: 'durationMs',
+          label: 'Duration',
+          unit: 'ms',
+          table: 'httpcheck_duration_milliseconds',
+          seriesAggregate: 'max',
+          over: 'last',
+        },
+        {
+          column: 'tlsDaysLeft',
+          label: 'TLS days left',
+          unit: 'days',
+          table: 'httpcheck_tls_cert_remaining_seconds',
+          seriesAggregate: 'min',
+          over: 'last',
+          scale: 1 / 86_400,
+        },
+      ],
+    },
+  ],
+};

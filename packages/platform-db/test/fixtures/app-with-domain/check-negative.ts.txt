@@ -1,0 +1,7 @@
+// The negative control of check-include.ts.txt: the same compiler must reject
+// an include key that does not exist, so the positive check has teeth.
+import { PrismaClient } from './client';
+
+declare const prisma: PrismaClient;
+
+export const unknownInclude = () => prisma.user.findFirstOrThrow({ include: { notARelation: true } });

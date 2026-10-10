@@ -1,0 +1,149 @@
+# @marinoscar/platform-api
+
+The NestJS side of the platform: dynamic modules (one subpath export per slice, for example `@marinoscar/platform-api/<slice>`) that an app imports into its own `AppModule` and extends through options, registries and injection tokens. CommonJS, compiled with `tsc` so decorator metadata (`design:paramtypes`) survives for Nest dependency injection.
+
+## Purpose and scope
+
+Dynamic modules, services, guards and registries of the platform's API slices. It does not own the app's composition root, its product identity or its own feature modules.
+
+Status: pre-release (the current channel and how to install it: the [release runbook](../../docs/runbooks/release-platform-packages.md)). The root export is only the package name (`PLATFORM_PACKAGE`); the slices are subpath exports, each with its own README:
+
+- `@marinoscar/platform-api/core`: the bottom of the slice graph, code only: the typed registry primitive (`defineRegistry`, `Registry`, `RegistryError`, `RegistryFreezeService`, `withTemporaryEntries`), the principal and scope contract (`Principal`, `Scope`, `SystemActor`, ADR 0001), the exception filter and its exceptions (`HttpExceptionFilter`, `ErrorDto`, `withVerbatimErrorBody`, `DatabaseSeedException`), the secret cipher (`encryptSecret`, `decryptSecret`, `userCredentialPurpose`, `deriveSigningKey`, `verifyEncryptionKeyAtStartup`) and the OpenAPI tag registry (`openApiTags`), the role and permission registries (`roleRegistry`, `permissionRegistry`, `registerPermissions`, `buildPermissionCatalog`, #866), and scoped data access (`userOwnedModelRegistry`, `forUser`, `userScopeExtension`, `asSystem`, `ScopedAccessError`; schema-independent, #699). [README](src/core/README.md).
+- `@marinoscar/platform-api/testing`: the conformance harness (`runPlatformConformance`, `conformanceSuites`, the `cron-enqueue-only` and `user-owned-data` suites, and the small Prisma schema reader behind the latter). [README](src/testing/README.md).
+- `@marinoscar/platform-api/doctor`: the admin Doctor, `GET /api/admin/doctor` (`DoctorModule.forRoot({ host })`, `DoctorCheckRegistry`, the check contract). The first packaged slice (#696). [README](src/doctor/README.md).
+- `@marinoscar/platform-api/otel-core` and `@marinoscar/platform-api/otel-core/sdk`: the emitting half of telemetry (#700): `initializeOtel` (the Nest-free SDK bootstrap, loaded first), the runtime export gate `telemetryGate`, the metrics host `MetricsHostService` with the app-metric name registry and the gauge-provider seam, `registerRequestSpanAttributes` and `@Trace()`. [README](src/otel-core/README.md).
+- `@marinoscar/platform-api/identity` and `@marinoscar/platform-api/identity/testing`: identity (#727): `IdentityModule.forRoot()`, the route-access decorators and guards (`@Auth`, `@Public`, `@CurrentUser`, `@CurrentPrincipal`, `JwtAuthGuard`), sessions and refresh tokens, personal access tokens, worker-node credentials, the device flow, users, the allowlist, organizations and tenancy, the sign-in provider registry, the `identity.*` events and the host ports identity reaches the app through; the test login, the stub host and the `identity` conformance suite. [README](src/identity/README.md).
+- `@marinoscar/platform-api/settings` and `@marinoscar/platform-api/settings/testing`: settings (#733): `SettingsModule.forRoot()`, the system and user namespace registries and their composition, `SystemSettingsService`, `UserSettingsService`, the org layer (`OrgSettingsService`, `/api/org-settings`), `SettingsResolver` (system, then org, then user) and `SystemSettingsRowStore`; the `settings` conformance suite. [README](src/settings/README.md).
+- `@marinoscar/platform-api/credentials` and `@marinoscar/platform-api/credentials/testing`: the encrypted credential stores (#735): the deployment's (`CredentialsService`), a user's own (`UserCredentialsService`) and an organization's (`OrgCredentialsService`, `org_credentials` under row-level security), `UserCredentialResolver` (user, then org, then deployment), the purpose registries `registerCredentialPurpose` and `registerUserCredentialPurpose`, and the `credentials` conformance suite. [README](src/credentials/README.md).
+- `@marinoscar/platform-api/onboarding` and `@marinoscar/platform-api/onboarding/testing`: onboarding (#745): `OnboardingModule.forRoot()`, the step, fact, ordering and activation-milestone registries, the platform steps (storage, email, access, AI, Web Push, backups, the org invite; profile, notifications), `GET /api/onboarding` (derived, read-only) and `GET /api/admin/onboarding/metrics` (aggregates only), the `onboarding` user-settings namespace and `extendOnboardingSettings`; the `onboarding` conformance suite. [README](src/onboarding/README.md).
+- `@marinoscar/platform-api/email` and `@marinoscar/platform-api/email/testing`: outgoing email (#737): `EmailModule.forRoot()`, pluggable transports (`registerEmailTransport`; SES and SMTP ship, with inline attachments), the `email` settings row and `/api/email-settings`, the template registry (`registerEmailTemplate`, `EmailTemplateDataMap` augmentation, overrides), the layout theme and brand-mark slot, the safe-HTML helpers, the `email` conformance suite and the `describeEmailTransportConformance` kit. [README](src/email/README.md).
+- `@marinoscar/platform-api/jobs`: the background job queue (#734): `JobsModule.forRoot()`, enqueue with active dedup, the one-statement claim, leases, the terminal state machine, the worker pool, the lease reaper and the temp-file janitor, the `JobHandler` contract and `JobHandlerRegistry`, the label registry, `JobScope`, `enqueueHousekeepingJob`, `job.settled`, `org_id` on jobs and the `/api/admin/jobs` routes. [README](src/jobs/README.md).
+- `@marinoscar/platform-api/nodes`: the worker-node fleet (#734): `NodesModule.forRoot()`, `NodeCredentialModule` (`nod_` tokens), the node control and data planes (`NODE_OBJECT_STORE`), the brokered per-job secret, the fleet admin routes, sweeps and gauges, and the `nodes.node.offline` event. [README](src/nodes/README.md).
+- `@marinoscar/platform-api/storage` and `@marinoscar/platform-api/storage/testing`: object storage (#736): `StorageModule.forRoot()`, `STORAGE_PROVIDER` (the S3 driver configured per call from runtime settings; the rung-3 override), the objects API, the storage-config admin routes and Doctor checks, the object-processor registry, the key-prefix registry with scopes and org-aware keys (`buildObjectKey`, `allKeyPrefixes`, `orgKeyPrefixes`), `runStoragePurge`, `ProfileImageModule.forRoot()`, `nodeObjectStoreBinding` and the `storage` conformance suite. [README](src/storage/README.md).
+- `@marinoscar/platform-api/exports` and `@marinoscar/platform-api/exports/testing`: data export (#744): `ExportsModule.forRoot()`, the source and writer registries (`registerExportSource`, `registerExportWriter`), the `user-data` and `org-data` sources driven by the user-owned and ownership registries, the `json`, `csv` and `xlsx` writers, the CSV helpers, the `Exporter`/`ExporterRegistry` document primitives, the `export.run` and `export.purge` jobs, `/api/exports` and the `exports` conformance suite (secret egress). [README](src/exports/README.md).
+- `@marinoscar/platform-api/ai` and `@marinoscar/platform-api/ai/testing`: the AI platform (#739): `AiModule.forRoot()` with its host ports (`AI_SYSTEM_PRISMA`, `AI_OBJECT_STORE`, `AI_METRICS`), `AiService.forUser` and the gate pipeline, the five provider adapters (their SDKs confined to `ai/providers/`), the model catalogue, the `ai` settings namespaces with the org layer, the user, organization and deployment key tiers, per-org caps and usage, the feature registry (`registerAiFeature`), `AI_TARGET_RESOLVER`, and the fake provider, runtime harness, adapter conformance kit and orchestration-boundary suite. [README](src/ai/README.md).
+- `@marinoscar/platform-api/db-backup` and `@marinoscar/platform-api/db-backup/testing`: database backup and restore (#740): `DbBackupModule.forRoot()` (deployment-mode aware: `saas` turns in-app restore off), the streaming `pg_dump` engine, schedule and retention, the restore with its read-only pre-flight (the `rls_bypass` gate) and the `RestoreCarryOver` registry, the four job types, the per-job role broker, the host ports and the `db-backup` conformance suite. [README](src/db-backup/README.md).
+- `@marinoscar/platform-api/telemetry` and `@marinoscar/platform-api/telemetry/testing`: the API side of observability: the `telemetry` settings and runtime export gate, the runtime GreptimeDB connection, the explorer, the AI assistant, the dashboard with its metric-group registry and health verdict, the stack-agent surface, two server-only job types, five Doctor checks and a support-bundle section; the `telemetry` conformance suite. [README](src/telemetry/README.md).
+- `@marinoscar/platform-api/sharing` and `@marinoscar/platform-api/sharing/testing`: sharing primitives: groups, members and invites inside an organization, the ownership contract, grants (user, group and link), `AccessPolicy`, the "resources I can see" query helpers, link shares and the public-route pattern; the `sharing` conformance suite. [README](src/sharing/README.md).
+- `@marinoscar/platform-api/notifications` and `@marinoscar/platform-api/notifications/testing`: the notification framework: the event, channel and template registries, the dispatcher and its policy (system, then organization), the email, in-app and Web Push channels, runtime Web Push keys, admin broadcasts and the SSE stream; the `notifications` conformance suite. [README](src/notifications/README.md).
+- `@marinoscar/platform-api/android-app` and `@marinoscar/platform-api/android-app/testing`: the server half of the Android companion: trusted apps and the Digital Asset Links route, hosted APK releases, the `android_app` notification channel and the test notification; the conformance suites of its `testing` entry. [README](src/android-app/README.md).
+- `@marinoscar/platform-api/user-data` and `@marinoscar/platform-api/user-data/testing`: the per-user data deletion with scopes, the admin factory reset and organization offboarding, built from the category, scope, keep-or-delete hint, factory-reset step and offboarding-precondition registries; the conformance suites of its `testing` entry. [README](src/user-data/README.md).
+- `@marinoscar/platform-api/manifest`: what every platform slice registers, in registration order (#866): the platform roles and every slice's permission sets in seed order (`PLATFORM_ROLES`, `PLATFORM_PERMISSION_SETS`, `PLATFORM_PERMISSIONS`), `registerPlatformPermissions()` and its pure twin `platformPermissionCatalog()` (both take the app's own roles and permissions and an optional `slices` filter), and the inventory of platform models with a foreign key to `User` (`PLATFORM_USER_OWNED_MODELS`, `registerPlatformUserOwnedModels()`). Data and plain functions, no Nest module. [README](src/manifest/README.md).
+- `@marinoscar/platform-api/host` and `@marinoscar/platform-api/host/testing`: the API host core (#867): `PlatformHostCoreModule.forRoot()` with the cross-replica event bus (`EVENT_BUS`), the platform's `AppMetricsService` and app-metric declarations, maintenance mode (`MaintenanceModeService`, `/api/admin/maintenance`, `MaintenanceGuard` as the only `APP_GUARD`), the `{ data }` envelope, the request log line, the exception filter and request ids; the OpenAPI document and `/api/docs` (`createOpenApiDocument`, `registerPlatformDocs`); the `host` conformance suite and `FakeEventBusNetwork`. [README](src/host/README.md).
+
+The `core` slice also holds the **host ports** (#696: `definePlatformHost`, `AUDIT_SINK`, `SYSTEM_SETTINGS_STORE`, `PLATFORM_PRISMA`, `PlatformHostModule`), the one mechanism every packaged slice uses to reach app-owned capabilities, with test doubles in `testing`. [Host ports](src/core/README.md#host-ports).
+
+Every slice that has a `testing` entry registers its conformance suites when that entry is imported; `runPlatformConformance()` runs them ([testing README](src/testing/README.md)).
+
+## Install and peer dependencies
+
+```bash
+npm install @marinoscar/platform-api
+```
+
+Install these in the app; the package never bundles its own copy (a second copy breaks dependency injection, hooks or theme context). Which ones depends on the slices you import: only what `core` needs is required, everything else is an optional peer that npm does not install for you ([the rule](../../docs/PACKAGES.md#peer-dependencies-per-slice)). Import slices by their subpath (`@marinoscar/platform-api/telemetry`), never from the package root: the root entry may touch any slice and so would need every peer.
+
+Required by every slice (`core`, with the peers those packages need in turn):
+
+| Package | Range |
+|---|---|
+| `@nestjs/common` | `^11.1.12` |
+| `@nestjs/core` | `^11.1.12` |
+| `@nestjs/swagger` | `^11.2.5` |
+| `@opentelemetry/api` | `^1.9.1` |
+| `@prisma/client` | `^7.8.0` (only `@prisma/client/extension` is imported, by `core`'s scoped data access; no slice imports the generated client) |
+| `nestjs-zod` | `^5.4.0` |
+| `reflect-metadata` | `^0.2.2` |
+| `rxjs` | `^7.8.1` |
+| `zod` | `^4.4.3` |
+
+Optional peers, installed for the slices that need them:
+
+| Package | Range | Needed by |
+|---|---|---|
+| `@nestjs/config` | `^4.0.2` | `telemetry`, `identity`, `settings`, `onboarding`, `jobs`, `nodes`, `storage`, `notifications`, `db-backup`, `host` |
+| `@nestjs/schedule` | `^6.1.0` | `telemetry`, `sharing`, `identity`, `jobs`, `nodes`, `storage`, `exports`, `ai`, `db-backup` |
+| `@nestjs/event-emitter` | `^3.0.1` | `identity`, `jobs`, `nodes`, `storage`, `notifications`, `ai` |
+| `@nestjs/jwt` | `^11.0.2` | `identity`, `host` |
+| `@nestjs/passport` | `^11.0.5` | `identity` |
+| `passport` | `^0.7.0` | `identity` (with `@nestjs/passport`) |
+| `@nestjs/terminus` | `^11.0.0` | `host` (the health controller) |
+| `@prisma/client-runtime-utils` | `^7.8.0` | `jobs`, `ai`, `db-backup` |
+| `fastify` | `^5` | the slices with controllers that read the request or write the reply (types: `doctor`, `otel-core`, `telemetry`, `identity`, `storage`, `ai`, `android-app`, `host`) |
+| `@nestjs/platform-fastify` | `^11.1.12` | the telemetry conformance suite, `@marinoscar/platform-api/telemetry/testing` |
+| `supertest` | `^7.2.2` | the AI conformance suites, `@marinoscar/platform-api/ai/testing` |
+| `@types/supertest` | `^7.2.0` | with `supertest`, for the same suites' declarations |
+
+A slice also needs what the slices it depends on need (`packages/platform-slices.json`): `settings` needs `identity`'s peers, `storage` needs `jobs`' and `nodes`', and so on. The exact set per slice is `packages/platform-slice-peers.json`; `node scripts/check-slice-peers.mjs --table` prints it. For example `core`, `otel-core` and `telemetry` together need the required peers above plus `@nestjs/config`, `@nestjs/schedule` and `fastify`, and nothing else; [`tests/consumer-smoke/api-slim`](../../tests/consumer-smoke/api-slim/) installs exactly that from packed tarballs.
+
+The type packages the published declarations need whatever an app imports (`@types/passport`, `@types/passport-jwt`, `@types/passport-google-oauth20` for the identity slice, `@types/pg` for telemetry) are dependencies, so an app that type-checks its libraries (`skipLibCheck: false`) installs nothing extra. `test/declaration-type-deps.spec.ts` fails on a declaration import the manifest does not cover (#865).
+
+The OpenTelemetry SDK packages the `otel-core` slice installs (`@opentelemetry/sdk-node`, the auto-instrumentations, the OTLP/HTTP exporters and their SDK siblings) are regular dependencies, not peers: only `@opentelemetry/api`, which holds the process-wide providers, must be a single shared copy.
+
+## Quick start
+
+Run the platform's conformance suites from a spec of your own (the reference app's is [`apps/api/test/conformance.spec.ts`](../../apps/api/test/conformance.spec.ts)):
+
+```ts
+import { join } from 'node:path';
+import { runPlatformConformance } from '@marinoscar/platform-api/testing';
+
+runPlatformConformance({
+  sourceRoots: [join(__dirname, '..', '..', 'src')],
+  suites: { cronEnqueueOnly: { exempt: EXEMPT, minCronFiles: 8 } },
+});
+```
+
+Declare a registry with `defineRegistry`, register the exception filter and validate the encryption key at bootstrap with `@marinoscar/platform-api/core`; see the [core README](src/core/README.md#quick-start).
+
+## Configuration
+
+None at the package level. Each slice documents its own options: `DoctorModule.forRoot()` in the [doctor README](src/doctor/README.md#configuration), `initializeOtel()` and `OtelMetricsModule` in the [otel-core README](src/otel-core/README.md#configuration), `PlatformHostModule.forRoot()` in the [core README](src/core/README.md#host-ports), the harness in the [testing README](src/testing/README.md#configuration).
+
+## Extension-point catalog
+
+None. The root export is only the package name; the extension points live in the slice catalogs ([core](src/core/README.md#extension-point-catalog), [testing](src/testing/README.md#extension-point-catalog), [doctor](src/doctor/README.md#extension-point-catalog), [otel-core](src/otel-core/README.md#extension-point-catalog)).
+
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../docs/EXTENDING.md).
+
+## Data
+
+None yet. A slice that owns models documents them here and in its own README; the schema fragments and migrations ship in `@marinoscar/platform-db`.
+
+## Permissions and settings
+
+The `doctor` slice requires `system_settings:read` by default and declares no permission of its own ([README](src/doctor/README.md#permissions-and-settings)). Other slices declare theirs in their own README as they are extracted.
+
+## UI
+
+None. Pages and settings cards live in `@marinoscar/platform-web`.
+
+## Infra
+
+Compose, nginx and collector configuration live in `@marinoscar/platform-infra`. The package reads `SECRETS_ENCRYPTION_KEY` (the `core` slice's secret cipher, see the [core README](src/core/README.md#configuration)) and, in the `otel-core` slice, the existing OpenTelemetry variables (`OTEL_ENABLED`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`, `OTEL_DEBUG`); it exports OTLP/HTTP to the collector ([otel-core README](src/otel-core/README.md#infra)) and adds no variable.
+
+## Observability
+
+The `doctor` slice logs one `warn` line when a check throws; `core` logs one `debug` line when it freezes the static registries, one line per handled error and the encryption-key startup check ([core README](src/core/README.md#observability)). Packaged code logs through Nest's `Logger`, which the app routes to its own logger. `otel-core` installs the OpenTelemetry SDK (when `OTEL_ENABLED=true`) and exports only what its runtime gate lets through ([README](src/otel-core/README.md#observability)). Other slices document theirs as they are extracted.
+
+## Security notes
+
+Every packaged controller takes the app's auth decorators through the host access port (`definePlatformHost`) rather than ship its own, and every `forRoot` refuses to build one without a host, so a packaged route is never public. The one route so far, `GET /api/admin/doctor`, is read-only and requires `system_settings:read` by default. The `core` slice also holds the secret cipher and the exception filter; their key handling, the module-scope key cache (install exactly one copy of the package) and the error-body rules are in the [core README](src/core/README.md#security-notes).
+
+## Conformance suite
+
+The harness is the `testing` slice: `runPlatformConformance()` from `@marinoscar/platform-api/testing` runs the platform's suites in any app: `cron-enqueue-only`, `user-owned-data`, and the suites a slice ships in its `testing` entry (`on-event-no-io` with the jobs slice; the AI kill switch, RBAC matrix, secret egress, key policy, jobs server-only, no-SDK-leak and orchestration-boundary suites with the AI slice; one per slice besides). The [testing README](src/testing/README.md#conformance-suite) lists every suite id.
+
+## Upgrade notes
+
+None. No version has been published yet, so there is nothing to migrate from.
+
+## Troubleshooting
+
+None yet. Build and import problems common to every platform package are in [DEVELOPMENT.md § Platform packages](../../docs/DEVELOPMENT.md#platform-packages).
+
+## Links
+
+- [Platform packages spec](../../docs/specs/platform-packages.md): the extension contract and the package documentation standard
+- [Package documentation standard and checks](../../docs/PACKAGES.md): how this README, the TSDoc and the catalog are checked
+- [DEVELOPMENT.md § Platform packages](../../docs/DEVELOPMENT.md#platform-packages): build, test and lint commands
