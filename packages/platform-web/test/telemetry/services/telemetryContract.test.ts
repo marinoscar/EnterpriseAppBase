@@ -33,6 +33,7 @@ import {
   telemetrySchemaSchema,
   telemetryStackStatusSchema,
   telemetryStatusSchema,
+  telemetryStoreResponseSchema,
 } from '@marinoscar/platform-contract/telemetry';
 import { describe, expect, it } from 'vitest';
 import type { z } from 'zod';
@@ -60,6 +61,8 @@ describe('telemetry fixtures are valid contract payloads', () => {
     ['mockTelemetryPublicConfigDisabled', telemetryPublicConfigSchema, fixtures.mockTelemetryPublicConfigDisabled],
     ['mockTelemetryPublicConfigEnabled', telemetryPublicConfigSchema, fixtures.mockTelemetryPublicConfigEnabled],
     ['mockTelemetryAdminConfig', telemetryConfigResponseSchema, fixtures.mockTelemetryAdminConfig],
+    ['mockTelemetryAdminConfigMemory', telemetryConfigResponseSchema, fixtures.mockTelemetryAdminConfigMemory],
+    ['mockTelemetryStoreMemory', telemetryStoreResponseSchema, fixtures.mockTelemetryStoreMemory],
     ['mockTelemetryStatus', telemetryStatusSchema, fixtures.mockTelemetryStatus],
     ['mockTelemetryStatusUnconfigured', telemetryStatusSchema, fixtures.mockTelemetryStatusUnconfigured],
     ['mockTelemetrySchema', telemetrySchemaSchema, fixtures.mockTelemetrySchema],
