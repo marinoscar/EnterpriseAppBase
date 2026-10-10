@@ -216,7 +216,7 @@ describe('ExampleOidcSignInPolicy bound through IdentityModule.forRoot (PP-14.9)
       host: {
         completeLogin: (profile: ExternalProfile) => auth.completeExternalLogin(profile),
         hasIdentity: async (provider, subject) =>
-          prismaMock.user.create.mock.calls.some((call) => {
+          prismaMock.user.create.mock.calls.some((call: unknown[]) => {
             const create = (call[0] as { data: { identities: { create: { provider: string; providerSubject: string } } } }).data.identities.create;
             return create.provider === provider && create.providerSubject === subject;
           }),

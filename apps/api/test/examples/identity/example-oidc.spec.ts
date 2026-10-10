@@ -268,7 +268,7 @@ describe('example-oidc: an app-side sign-in provider (PP-14.9)', () => {
     const host = () => ({
       completeLogin: (profile: ExternalProfile) => context.module.get(AuthService).completeExternalLogin(profile),
       hasIdentity: async (provider: string, subject: string) =>
-        prismaMock.user.create.mock.calls.some((call) => {
+        prismaMock.user.create.mock.calls.some((call: unknown[]) => {
           const create = (call[0] as { data: { identities: { create: { provider: string; providerSubject: string } } } }).data.identities.create;
           return create.provider === provider && create.providerSubject === subject;
         }),

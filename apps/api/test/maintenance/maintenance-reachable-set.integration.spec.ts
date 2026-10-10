@@ -70,6 +70,10 @@ const EXPECTED_REACHABLE = [
   'GET /api/auth/google/callback',
   'GET /api/auth/me',
   'GET /api/auth/providers',
+  // The routes of every other registered sign-in provider (PP-14.9): signing in
+  // with one is signing in, so a window must not lock it out either.
+  'GET /api/auth/{providerId}',
+  'GET /api/auth/{providerId}/callback',
   'POST /api/auth/logout',
   'POST /api/auth/logout-all',
   'POST /api/auth/refresh',
