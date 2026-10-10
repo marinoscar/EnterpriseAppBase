@@ -19,15 +19,18 @@ below. See §6 for what that looks like and how to tell it apart from other outa
 
 Source of truth for every claim below:
 
-- `packages/platform-api/src/storage/config/storage-config.ts` — `resolveStorageConfig`,
-  the single definition of "configured," and its per-provider field
-  requirements.
+- `packages/platform-api/src/storage/drivers/s3/s3-config.ts` — `resolveS3Config`,
+  the single definition of "configured" for the S3 family (AWS S3, R2 and
+  S3-compatible), and its per-provider field requirements.
 - `packages/platform-api/src/storage/config/storage-config-admin.service.ts` — the read
   and write path behind the admin API, including the switch gate.
-- `packages/platform-api/src/storage/config/storage-connection-test.service.ts` — the
-  four checks `POST /test` runs.
-- `packages/platform-api/src/storage/config/storage-bucket-provision.service.ts` — the
-  four steps `POST /bucket` runs, and the `guided` fallback.
+- `packages/platform-api/src/storage/drivers/s3/s3-connection-test.ts` — the
+  four checks `POST /test` runs for the S3 family (the service in
+  `config/storage-connection-test.service.ts` hands the request to the active
+  driver and audits the attempt).
+- `packages/platform-api/src/storage/drivers/s3/s3-provision.ts` — the
+  four steps `POST /bucket` runs, and the `guided` fallback (the service in
+  `config/storage-bucket-provision.service.ts` delegates the same way).
 - `packages/platform-api/src/storage/providers/s3/s3-storage.provider.ts` —
   `buildS3ClientConfig`, the one function that turns a resolved
   configuration into what the AWS SDK actually does per provider.
@@ -55,7 +58,12 @@ Decide, before opening the page:
 - **Which provider**: AWS S3, Cloudflare R2, or an S3-compatible endpoint
   (MinIO, Backblaze B2, Wasabi, Ceph RGW, LocalStack, …). All three speak
   the same protocol through the same SDK; the differences the form asks
-  about are covered per provider in §2.
+  about are covered per provider in §2. If your developers added a storage
+  driver of their own (Azure Blob, Google Cloud Storage, a local disk), it is
+  listed on the same form next to these three with the fields it declares;
+  ask them what it needs. This runbook covers the three built-in drivers; the
+  test, save, switch and rotate steps are the same for any driver
+  ([the spec](../specs/storage-providers.md)).
 - **A bucket name.** This application never invents or guesses one — there
   is no default, on purpose (a guessed name is either a 404 on every
   request or, worse, somebody else's bucket). Decide the name before you
@@ -89,7 +97,7 @@ write-only (§4 covers why) and the form always renders it empty.
 | Endpoint | Leave empty. The SDK derives AWS's own regional host from the region above. Only set this to point `s3` at a non-AWS host you are testing against (e.g. a local MinIO during development) — an explicit endpoint always wins over the SDK's own derivation. |
 | Account ID | Not used by `s3`. Leave empty. |
 | Access key ID / Secret access key | An IAM user or role's credential pair. See the IAM policy below. |
-| Force path style | Leave as **"Use provider default"** (virtual-host style) unless you have a specific reason to override it (see the "one driver, three provider shapes" section of [`docs/specs/storage-providers.md`](../specs/storage-providers.md)). |
+| Force path style | Leave as **"Use provider default"** (virtual-host style) unless you have a specific reason to override it (see the "S3 family: one provider, three driver shapes" section of [`docs/specs/storage-providers.md`](../specs/storage-providers.md)). |
 
 **Minimum IAM policy for uploads/downloads (no bucket administration):**
 
