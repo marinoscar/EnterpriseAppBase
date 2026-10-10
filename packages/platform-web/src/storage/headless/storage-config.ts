@@ -46,6 +46,7 @@ import {
   STORAGE_BUCKET_OUTCOMES,
   STORAGE_BUCKET_STEP_IDS,
   STORAGE_BUCKET_STEP_STATUSES,
+  STORAGE_DRIVER_ID_PATTERN,
   STORAGE_PROVIDER_KINDS,
   STORAGE_SWITCH_CONFIRMATION,
   STORAGE_TEST_CHECK_CODES,
@@ -66,7 +67,7 @@ import type { PlatformApiClient } from '../../core/index.js';
  * lists whatever `descriptors` the API serves. Use this for the built-ins' own
  * questions ("is this one of the S3 flavours"), never to validate a provider.
  */
-export { BUILTIN_STORAGE_PROVIDER_KINDS, STORAGE_PROVIDER_KINDS };
+export { BUILTIN_STORAGE_PROVIDER_KINDS, STORAGE_DRIVER_ID_PATTERN, STORAGE_PROVIDER_KINDS };
 
 /**
  * One of the three built-in drivers.

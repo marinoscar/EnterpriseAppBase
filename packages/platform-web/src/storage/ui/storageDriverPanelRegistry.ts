@@ -31,6 +31,7 @@ import type { StorageConfigView } from '../headless/index.js';
  * What a storage driver panel receives. The page owns the state and the save;
  * a panel only presents and collects, exactly as `PluggableConfigForm` does.
  *
+ * @extensionPoint slot
  * @stability experimental
  */
 export interface StorageDriverPanelProps {
