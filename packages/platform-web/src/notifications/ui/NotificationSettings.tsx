@@ -209,13 +209,33 @@ function channelLabel(
  * to notice two shapes happen to line up. `email` never produces one of
  * these at all: it is never gated, so it simply has no entry wherever these
  * are collected (see `channelStates` in the component below).
+ *
+ * An app supplies one for its own channel through
+ * `UserNotificationsPage`'s `channelStates` prop.
+ *
+ * @stability experimental
  */
 export interface ChannelState {
+  /** The channel's controls are disabled (the note says why). */
   disabled: boolean;
   /** Terse note beside the control. `null` when there is nothing to add. */
   note: string | null;
   /** The banner above the matrix. `null` when the channel is fully working. */
-  alert: { severity: 'info' | 'warning'; title: string; body: string } | null;
+  alert: ChannelAlert | null;
+}
+
+/**
+ * The banner above the matrix for a gated channel.
+ *
+ * @stability experimental
+ */
+export interface ChannelAlert {
+  /** `info` for a deliberate configuration, `warning` for something the user can fix. */
+  severity: 'info' | 'warning';
+  /** The banner heading. */
+  title: string;
+  /** The banner text; newlines render as a list. */
+  body: string;
 }
 
 /**

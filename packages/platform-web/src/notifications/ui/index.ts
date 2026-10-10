@@ -13,3 +13,5 @@ export { default as BroadcastsPage } from './BroadcastsPage.js';
 export { default as NotificationSettingsPage } from './NotificationSettingsPage.js';
 export { default as PushConfigPage } from './PushConfigPage.js';
 export { default as UserNotificationsPage } from './UserNotificationsPage.js';
+export type { UserNotificationsPageProps } from './UserNotificationsPage.js';
+export type { ChannelAlert, ChannelState } from './NotificationSettings.js';

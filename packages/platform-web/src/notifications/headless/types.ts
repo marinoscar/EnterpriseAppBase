@@ -46,7 +46,7 @@ export type NotificationChannel = 'email' | 'browser' | 'push' | (string & {});
  * a channel's label, its place in a list, whether a critical broadcast may rely
  * on it and whether a broadcast can be sent over it.
  *
- * @extensionPoint contract
+ * @extensionPoint schema
  * @stability experimental
  */
 export interface NotificationChannelDescriptor {
@@ -425,7 +425,18 @@ export interface SystemNotificationSettings {
    * is enabled. `browser` is also `browserEnabled`, kept equal by the API.
    * Absent on a deployment that never saved one.
    */
-  channels?: Record<string, { enabled: boolean }>;
+  channels?: Record<string, NotificationChannelSwitch>;
+}
+
+/**
+ * One channel's deployment-wide switch (an entry of
+ * {@link SystemNotificationSettings.channels}).
+ *
+ * @stability experimental
+ */
+export interface NotificationChannelSwitch {
+  /** Whether the channel delivers at all. */
+  enabled: boolean;
 }
 
 /**

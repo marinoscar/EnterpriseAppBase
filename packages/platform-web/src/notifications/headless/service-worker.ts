@@ -31,6 +31,21 @@
 import { isInternalLink } from './internalLink.js';
 
 /**
+ * One action button on a push notification, as an app's `pushPayload` hook
+ * added it.
+ *
+ * @stability experimental
+ */
+export interface NotificationAction {
+  /** The action id. */
+  action: string;
+  /** The button label. */
+  title: string;
+  /** An icon: a root-relative path or an `https:` URL. */
+  icon?: string;
+}
+
+/**
  * The payload the API's push channel sends as the Web Push message body
  * (JSON, under the 4 KB push payload limit). `id` and `link` ride into
  * `notification.data` for the click handler.
@@ -57,7 +72,7 @@ export interface NotificationPushPayload {
   /** A badge an app's `pushPayload` hook added; the configured default when absent. */
   badge?: string;
   /** Up to two action buttons an app's `pushPayload` hook added. A click on one opens the notification's link, as a click on the notification does. */
-  actions?: Array<{ action: string; title: string; icon?: string }>;
+  actions?: NotificationAction[];
 }
 
 /**
@@ -75,7 +90,7 @@ export interface NotificationsShowOptions {
   /** The status-bar badge URL. */
   badge?: string;
   /** Action buttons. */
-  actions?: Array<{ action: string; title: string; icon?: string }>;
+  actions?: NotificationAction[];
   /** Data handed to the click handler. */
   data?: unknown;
 }

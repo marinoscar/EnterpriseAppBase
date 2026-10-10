@@ -25,6 +25,7 @@ export type {
   NotificationChannel,
   NotificationChannelDescriptor,
   NotificationChannelPreferences,
+  NotificationChannelSwitch,
   NotificationChannelPreferencesPatch,
   NotificationConfigResponse,
   NotificationEventDef,
@@ -48,6 +49,7 @@ export {
   registerNotificationServiceWorkerHandlers,
 } from './service-worker.js';
 export type {
+  NotificationAction,
   NotificationPushPayload,
   NotificationServiceWorkerOptions,
   NotificationsClickEvent,
