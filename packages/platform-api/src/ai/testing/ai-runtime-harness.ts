@@ -4,15 +4,17 @@
 // The REAL `AiService`, `AiConfigService`, `AiKeyResolver`,
 // `UsableModelsService`, `AiUsageRecorder` and `AiRunsService`, over:
 //
-//   - `FakeAiProvider` registered as `openai` (the only id the settings
-//     schema has a slot for), recording every call and the key it carried,
+//   - `FakeAiProvider` registered as `openai`, recording every call and the key it carried,
 //     with its embeddings, images, audio and realtime ports on and classifying each model
 //     exactly as the catalog row below does;
 //   - the REAL `AiStorageInputResolver` and `AiOutputWriter` (#437) over the
 //     in-memory object storage from `in-memory-ai-storage.ts`;
 //   - the in-memory key/model tables from `in-memory-ai-keys-prisma.ts`,
 //     extended with `user_settings`, `ai_usage_events` and `ai_runs`;
-//   - a stubbed settings row, org credential and job queue.
+//   - a stubbed settings row, org credential and job queue;
+//   - optionally the provider an app or package adds (`extraProviders`,
+//     `extraAdapters`, models and keys with a `provider`), so its author can
+//     run the gate pipeline (kill switch, key policy, limits, usage) over it.
 //
 // So a gate test exercises the same code path production does, and "the
 // org key was never used" is a fact about the fake's recorded calls rather
@@ -25,7 +27,9 @@ import type { Job } from '../../jobs/index';
 
 import { AiConfigService, type AiPolicy, type AiProviderPolicy } from '../config/ai-config.service';
 import type { AiModelCapabilities } from '../core/capabilities';
+import type { AiProviderAdapter } from '../core/provider-adapter.interface';
 import { AiProviderRegistry } from '../core/provider-registry';
+import { aiProviderKind, defaultAiProviderSlot, registerAiProvider, type AiProviderDefinition } from '../providers/ai-provider-definition';
 import { AiKeyResolver } from '../keys/ai-key-resolver.service';
 import { UsableModelsService } from '../keys/usable-models.service';
 import type { AiTargetResolver } from '../runtime/target-resolver';
@@ -135,8 +139,10 @@ export const HARNESS_REALTIME_MODEL = 'fake-realtime-model';
  * @stability experimental
  */
 export interface HarnessModel {
-  /** Model id (of the fake provider). */
+  /** Model id. */
   modelId: string;
+  /** The provider the row belongs to. Default: the fake provider (`HARNESS_PROVIDER`). */
+  provider?: string;
   /** Its capabilities (text responses by default). */
   capabilities?: AiModelCapabilities;
   /** Whether it is enabled (default true). */
@@ -168,16 +174,35 @@ export interface AiRuntimeHarnessOptions {
     /** Merged over background runs on, realtime off. */
     defaults?: Partial<AiPolicy['defaults']>;
   };
-  /** Whether `HARNESS_USER` has a key. Default true. */
+  /** Whether `HARNESS_USER` has a key (for the fake provider, and for each extra provider). Default true. */
   userKey?: boolean;
-  /** Models the user's key reaches. Default: every catalog model. */
+  /** Models the fake provider's user key reaches. Default: every catalog model of the fake provider. */
   reachable?: string[];
+  /**
+   * Providers an app or package adds (PP-14.6): each is registered with
+   * `registerAiProvider` when it is not yet (the registry is process-wide, so a
+   * definition the test file already registered is reused), gets an enabled
+   * slot with its defaults, and, with `userKey`, a `HARNESS_USER` key reaching
+   * its models. Pair each with an adapter in {@link AiRuntimeHarnessOptions.extraAdapters}
+   * and catalog rows in {@link AiRuntimeHarnessOptions.models}.
+   */
+  extraProviders?: AiProviderDefinition[];
+  /**
+   * Adapters registered besides the fake provider, normally one per extra
+   * provider (the app's own adapter over a fake transport).
+   */
+  extraAdapters?: AiProviderAdapter[];
+  /**
+   * Settings of the extra providers' slots, by provider id, merged over each
+   * definition's defaults (`{ 'example-transcribe': { region: 'eu' } }`).
+   */
+  extraProviderSettings?: Record<string, Record<string, unknown>>;
   /** Whether an org key is stored. Default false. */
   orgKey?: boolean;
   /**
    * Catalog rows. Default: a fully capable `fake-model`, `fake-embedding-model`,
    * `fake-image-model`, `fake-transcription-model`, `fake-speech-model` and
-   * `fake-realtime-model`.
+   * `fake-realtime-model`. A row with a `provider` belongs to that provider.
    */
   models?: HarnessModel[];
   /** Options of the `FakeAiProvider` (scripts, ports, ...). */
@@ -303,8 +328,9 @@ export interface AiRuntimeHarness {
    * @param userId - the owner.
    * @param secret - the key (stored as-is).
    * @param reachable - the model ids it reaches.
+   * @param provider - the provider it is for (default: the fake provider).
    */
-  addUserKey(userId: string, secret: string, reachable: string[]): void;
+  addUserKey(userId: string, secret: string, reachable: string[], provider?: string): void;
   /**
    * Removes every key `userId` has stored.
    *
@@ -357,12 +383,13 @@ export interface AiRuntimeHarness {
     hasKey: jest.Mock;
   };
   /**
-   * Stores (or, with `null`, removes) an organization's own key for the fake provider (#739).
+   * Stores (or, with `null`, removes) an organization's own key for a provider (#739).
    *
    * @param orgId - the organization.
    * @param value - the key.
+   * @param provider - the provider it is for (default: the fake provider).
    */
-  setTenantKey(orgId: string, value: string | null): void;
+  setTenantKey(orgId: string, value: string | null, provider?: string): void;
   /** Removes every organization's own key. */
   clearTenantKeys(): void;
   /**
@@ -470,7 +497,7 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}): AiRu
 
   for (const model of models) {
     db.addModel({
-      provider: HARNESS_PROVIDER,
+      provider: model.provider ?? HARNESS_PROVIDER,
       modelId: model.modelId,
       capabilities: model.capabilities ?? FAKE_TEXT_MODEL_CAPABILITIES,
       enabled: model.enabled ?? true,
@@ -478,11 +505,11 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}): AiRu
     });
   }
 
-  const addUserKey = (userId: string, secret: string, reachable: string[]) => {
+  const addUserKey = (userId: string, secret: string, reachable: string[], provider: string = HARNESS_PROVIDER) => {
     db.keys.push({
       id: randomUUID(),
       userId,
-      provider: HARNESS_PROVIDER,
+      provider,
       secret,
       hint: null,
       verifiedAt: new Date(),
@@ -494,8 +521,15 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}): AiRu
     });
   };
 
+  const modelsOf = (provider: string) => models.filter((m) => (m.provider ?? HARNESS_PROVIDER) === provider).map((m) => m.modelId);
+
   if (opts.userKey ?? true) {
-    addUserKey(HARNESS_USER, HARNESS_USER_KEY, opts.reachable ?? models.map((m) => m.modelId));
+    addUserKey(HARNESS_USER, HARNESS_USER_KEY, opts.reachable ?? modelsOf(HARNESS_PROVIDER));
+  }
+
+  for (const definition of opts.extraProviders ?? []) {
+    if (!aiProviderKind.has(definition.id)) registerAiProvider(definition);
+    if (opts.userKey ?? true) addUserKey(HARNESS_USER, `${HARNESS_USER_KEY}-${definition.id}`, modelsOf(definition.id), definition.id);
   }
 
   if (opts.defaultModel) {
@@ -516,6 +550,12 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}): AiRu
       gemini: { enabled: false },
       'azure-openai': { enabled: false },
       'openai-compatible': { enabled: false },
+      ...Object.fromEntries(
+        (opts.extraProviders ?? []).map((definition) => [
+          definition.id,
+          { ...defaultAiProviderSlot(definition.id), enabled: true, ...(opts.extraProviderSettings?.[definition.id] ?? {}) },
+        ]),
+      ),
     },
     defaults: { allowBackgroundRuns: true, allowRealtime: false, ...(p.defaults ?? {}) },
     logPromptContent: p.logPromptContent ?? false,
@@ -671,6 +711,8 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}): AiRu
     registry.register(fake);
   }
 
+  for (const adapter of opts.extraAdapters ?? []) registry.register(adapter);
+
   // #739: each organization's stored `ai` overrides (its org layer), by org id.
   const orgLayers = new Map<string, Record<string, unknown>>();
   const orgSettings = {
@@ -698,9 +740,10 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}): AiRu
   };
   // #739: each organization's own key for the fake provider, by org id.
   const tenantKeys = new Map<string, string>();
+  const tenantKeyId = (orgId: string, provider: string) => `${orgId}|${provider}`;
   const orgKeys = {
-    getKey: jest.fn(async (orgId: string, provider: string) => (provider === HARNESS_PROVIDER ? tenantKeys.get(orgId) ?? null : null)),
-    hasKey: jest.fn(async (orgId: string, provider: string) => provider === HARNESS_PROVIDER && tenantKeys.has(orgId)),
+    getKey: jest.fn(async (orgId: string, provider: string) => tenantKeys.get(tenantKeyId(orgId, provider)) ?? null),
+    hasKey: jest.fn(async (orgId: string, provider: string) => tenantKeys.has(tenantKeyId(orgId, provider))),
   };
   const orgConfigWriters = new Set<string>();
   const resolver = new AiKeyResolver(userKeys as never, aiConfig, configWriters as never, orgKeys as never);
@@ -789,10 +832,10 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}): AiRu
       orgConfigWriters.clear();
     },
     orgKeys,
-    /** Store (or, with `null`, remove) an organization's own key for the fake provider (#739). */
-    setTenantKey(orgId: string, value: string | null) {
-      if (value === null) tenantKeys.delete(orgId);
-      else tenantKeys.set(orgId, value);
+    /** Store (or, with `null`, remove) an organization's own key for a provider (#739). */
+    setTenantKey(orgId: string, value: string | null, provider: string = HARNESS_PROVIDER) {
+      if (value === null) tenantKeys.delete(tenantKeyId(orgId, provider));
+      else tenantKeys.set(tenantKeyId(orgId, provider), value);
     },
     /** Remove every organization's own key. */
     clearTenantKeys() {

@@ -24,6 +24,7 @@
 // transport (#426).
 // =============================================================================
 
+import { AI_PROVIDER_ID_PATTERN } from '@marinoscar/platform-contract/ai';
 import { z } from 'zod';
 
 import { AiError, isAiErrorCode } from '../core/ai-error';
@@ -499,7 +500,9 @@ export function describeAiProviderConformance(
     });
 
     it('declares a stable id and a display name', () => {
-      expect(subject.adapter.id).toMatch(/^[a-z0-9][a-z0-9_-]*$/);
+      // The provider id pattern (`registerAiProvider`, and the provider part of an
+      // `ai.limits.perModel` key): lower-case letters, digits and hyphens, no `_`.
+      expect(subject.adapter.id).toMatch(AI_PROVIDER_ID_PATTERN);
       expect(subject.adapter.displayName.length).toBeGreaterThan(0);
     });
 

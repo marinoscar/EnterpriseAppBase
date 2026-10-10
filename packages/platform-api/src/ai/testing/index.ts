@@ -131,6 +131,7 @@ export {
   declaredSdks,
   findSdkLeaks,
   importSpecifiers,
+  registeredAiSdkPackages,
 } from './conformance/ai-no-sdk-leak.suite';
 export type { AiNoSdkLeakOptions, SdkLeakTree, SdkOwnerManifest } from './conformance/ai-no-sdk-leak.suite';
 export { aiOrchestrationBoundarySuite } from './conformance/ai-orchestration-boundary.registered';

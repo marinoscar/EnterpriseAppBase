@@ -1,7 +1,11 @@
 import { join } from 'node:path';
 
+import { Module } from '@nestjs/common';
+import { z } from 'zod';
+
 import { aiPackageProviderDirs } from '../../../src/ai/testing';
 import type { AiNoSdkLeakOptions } from '../../../src/ai/testing';
+import { registerAiProvider } from '../../../src/ai/providers/ai-provider-definition';
 import { runPlatformConformance } from '../../../src/testing';
 import { emptySourceRoot, outcome, recordingTestApi, removeSourceRoots, writeSource } from '../../support/conformance-harness';
 
@@ -36,6 +40,20 @@ async function run(options: AiNoSdkLeakOptions): Promise<Map<string, Error | nul
   return results;
 }
 
+@Module({})
+class AcmeModule {}
+
+// A provider an app registered that imports its own SDK (PP-14.6).
+registerAiProvider({
+  id: 'acme-sdk-provider',
+  label: 'Acme',
+  module: AcmeModule,
+  settingsSchema: z.object({}),
+  defaults: {},
+  requiresKey: true,
+  sdkPackages: ['acme-sdk'],
+});
+
 const cleanApp = (): Record<string, string> => ({ 'a.ts': 'export const a = 1;\n', 'b.ts': 'export const b = 2;\n' });
 
 describe('the ai-no-sdk-leak suite', () => {
@@ -61,7 +79,7 @@ describe('the ai-no-sdk-leak suite', () => {
     });
 
     for (const [name, error] of results) expect([name, error]).toEqual([name, null]);
-    expect(results.size).toBe(2 + 2 + 2 + 1 + 1 + 3);
+    expect(results.size).toBe(2 + 2 + 2 + 1 + 1 + 4);
   });
 
   describe('fails on a planted violation', () => {
@@ -148,6 +166,86 @@ describe('the ai-no-sdk-leak suite', () => {
       });
 
       expect(results.get('pkg: finds a non-trivial source tree and at least one provider directory, so this cannot pass vacuously')).not.toBeNull();
+    });
+  });
+
+  describe('provider directories and registered SDK packages (PP-14.6)', () => {
+    const appWithAdapter = (): Record<string, string> => ({
+      ...cleanApp(),
+      'platform-extensions/ai/acme/acme.adapter.ts': sdkImport('acme-sdk'),
+    });
+
+    it('lets an app-side adapter folder import its registered SDK, and nothing else', async () => {
+      const results = await run({
+        apiTrees: [{ name: 'app', root: tree(appWithAdapter()), minFiles: 2 }],
+        webTrees: [],
+        noSdkManifests: [],
+        providerDirs: ['platform-extensions/ai/'],
+      });
+
+      for (const [name, error] of results) expect([name, error]).toEqual([name, null]);
+      expect([...results.keys()].some((name) => name.includes('provider directory holds source files'))).toBe(true);
+    });
+
+    it('bans the registered SDK everywhere outside the provider directories', async () => {
+      const results = await run({
+        apiTrees: [{ name: 'app', root: tree({ ...appWithAdapter(), 'features/summary.service.ts': sdkImport('acme-sdk') }), minFiles: 2 }],
+        webTrees: [],
+        noSdkManifests: [],
+        providerDirs: ['platform-extensions/ai/'],
+      });
+
+      const failure = results.get('app: imports no provider SDK anywhere: a feature calls AiService.forUser');
+      expect(failure!.message).toContain('features/summary.service.ts: imports "acme-sdk"');
+      expect(failure!.message).not.toContain('acme.adapter.ts');
+    });
+
+    it('exempts any SDK an adapter folder imports, not only the one its definition lists', async () => {
+      const results = await run({
+        apiTrees: [{ name: 'app', root: tree({ ...cleanApp(), 'platform-extensions/ai/x/x.adapter.ts': sdkImport('openai') }), minFiles: 2 }],
+        webTrees: [],
+        noSdkManifests: [],
+        providerDirs: ['platform-extensions/ai/'],
+      });
+
+      expect(results.get('app: imports no provider SDK anywhere: a feature calls AiService.forUser')).toBeNull();
+    });
+
+    it('never exempts a web tree', async () => {
+      const results = await run({
+        apiTrees: [],
+        webTrees: [{ name: 'web', root: tree({ ...cleanApp(), 'platform-extensions/ai/chat.tsx': sdkImport('acme-sdk') }), minFiles: 2 }],
+        noSdkManifests: [],
+        providerDirs: ['platform-extensions/ai/'],
+      });
+
+      const [, error] = [...results].find(([title]) => title.startsWith('web: imports no provider SDK'))!;
+      expect(error!.message).toContain('chat.tsx: imports "acme-sdk"');
+    });
+
+    it('a provider directory that holds no source file fails (a typo exempts nothing)', async () => {
+      const results = await run({
+        apiTrees: [{ name: 'app', root: tree(cleanApp()), minFiles: 2 }],
+        webTrees: [],
+        noSdkManifests: [],
+        providerDirs: ['platform-extensiosn/ai/'],
+      });
+
+      const failure = [...results].find(([title]) => title.includes('provider directory holds source files'))![1];
+      expect(failure!.message).toContain('platform-extensiosn/ai/');
+    });
+
+    it('a manifest that declares a registered provider SDK is not a finding: the adapter folder owner must declare it', async () => {
+      const results = await run({
+        apiTrees: [],
+        webTrees: [],
+        noSdkManifests: [manifest({ name: 'api', dependencies: { 'acme-sdk': '^1', openai: '^7' } })],
+        extraSdkPackages: ['acme-sdk'],
+      });
+      const failure = [...results].find(([title]) => title.endsWith('declares no provider SDK'))![1];
+
+      expect(failure!.message).toContain('declares "openai"');
+      expect(failure!.message).not.toContain('acme-sdk');
     });
   });
 });

@@ -38,6 +38,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 
 import { conformanceSuites } from '../../../testing/index';
+import { aiProviderDefinitions } from '../../providers/ai-provider-definition';
 import type {
   ConformanceCase,
   ConformanceContext,
@@ -112,6 +113,21 @@ export interface AiNoSdkLeakOptions {
   noSdkManifests: readonly string[];
   /** More SDK package names to ban, beyond {@link PROVIDER_SDK_PACKAGES}. */
   extraSdkPackages?: readonly string[];
+  /**
+   * Directories where the adapter of a provider registered with
+   * `registerAiProvider` (an app's or another package's) may import its SDK
+   * (PP-14.6), relative to the root of each `apiTrees` entry, with `/`
+   * separators and a trailing `/`: `['platform-extensions/ai/']`. Applied in
+   * addition to a tree's own `sdkDirs`. Nothing else in that tree may import
+   * an SDK, and each directory must hold at least one source file in some tree
+   * (a typo would otherwise exempt nothing and look green).
+   *
+   * The SDK packages each registered definition lists in `sdkPackages` are
+   * banned too, everywhere outside these directories, so an adapter's SDK
+   * stays inside its own folder; a `package.json` that declares one of them is
+   * not a finding (the folder's owner must declare what it imports).
+   */
+  providerDirs?: readonly string[];
 }
 
 /**
@@ -220,6 +236,17 @@ function namesProviderSdk(specifier: string, banned: readonly string[]): boolean
 }
 
 /**
+ * The SDK packages the registered AI provider definitions declare
+ * (`sdkPackages`), de-duplicated, in registration order.
+ *
+ * @returns the package names.
+ * @stability experimental
+ */
+export function registeredAiSdkPackages(): string[] {
+  return [...new Set(aiProviderDefinitions().flatMap((definition) => definition.sdkPackages ?? []))];
+}
+
+/**
  * `<file>: imports "<sdk>"` for every provider SDK import outside the exempt directories.
  *
  * @param files - scanned files with root-relative paths.
@@ -275,9 +302,15 @@ const treeKey = (kind: 'api' | 'web', name: string): string => `${kind}:${name}`
 
 /** Runs the scan; see {@link aiNoSdkLeakSuite}. */
 function check(_context: ConformanceContext, options: AiNoSdkLeakOptions): ConformanceReport {
-  const banned = [...PROVIDER_SDK_PACKAGES, ...(options.extraSdkPackages ?? [])];
+  const registered = registeredAiSdkPackages();
+  // What a package.json may not declare: the known SDKs, minus the ones a registered
+  // provider definition owns (the folder that imports them declares them).
+  const bannedInManifests = [...PROVIDER_SDK_PACKAGES, ...(options.extraSdkPackages ?? [])].filter((name) => !registered.includes(name));
+  const banned = [...PROVIDER_SDK_PACKAGES, ...(options.extraSdkPackages ?? []), ...registered];
+  const providerDirs = options.providerDirs ?? [];
   const scanned: Record<string, number> = {};
   const findings: ConformanceFinding[] = [];
+  const providerDirFiles = new Map<string, number>(providerDirs.map((dir) => [dir, 0]));
 
   for (const [kind, trees] of [
     ['api', options.apiTrees],
@@ -288,7 +321,14 @@ function check(_context: ConformanceContext, options: AiNoSdkLeakOptions): Confo
       const key = treeKey(kind, tree.name);
       scanned[key] = files.length;
       scanned[`${key}#sdkDirs`] = tree.sdkDirs?.length ?? 0;
-      for (const message of findSdkLeaks(files, tree.sdkDirs ?? [], banned)) {
+      // Provider directories apply to app-side trees only: a web tree never gets one.
+      const exempt = kind === 'api' ? [...(tree.sdkDirs ?? []), ...providerDirs] : [...(tree.sdkDirs ?? [])];
+      if (kind === 'api') {
+        for (const dir of providerDirs) {
+          providerDirFiles.set(dir, (providerDirFiles.get(dir) ?? 0) + files.filter((file) => file.rel.startsWith(dir)).length);
+        }
+      }
+      for (const message of findSdkLeaks(files, exempt, banned)) {
         findings.push(finding(`${key}|${message.split(': ')[0]}`, message.slice(message.indexOf(': ') + 2)));
       }
     }
@@ -296,12 +336,18 @@ function check(_context: ConformanceContext, options: AiNoSdkLeakOptions): Confo
 
   const readManifest = (path: string): Record<string, unknown> => JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
 
+  for (const [dir, count] of providerDirFiles) {
+    if (count === 0) findings.push(finding(`providerDir|${dir}`, 'holds no source file in any api tree, so it exempts nothing'));
+  }
+  scanned['providerDirs'] = providerDirs.length;
+  scanned['registeredSdkPackages'] = registered.length;
+
   if (options.sdkOwner) {
     const declared = declaredSdks(readManifest(options.sdkOwner.manifest), banned);
     scanned['sdkOwner#declared'] = options.sdkOwner.declares.filter((name) => declared.includes(name)).length;
   }
   for (const path of options.noSdkManifests) {
-    for (const sdk of declaredSdks(readManifest(path), banned)) findings.push(finding(`manifest|${path}`, `declares "${sdk}"`));
+    for (const sdk of declaredSdks(readManifest(path), bannedInManifests)) findings.push(finding(`manifest|${path}`, `declares "${sdk}"`));
   }
 
   return { scanned, scannedFiles: {}, findings };
@@ -342,6 +388,15 @@ function cases(options: AiNoSdkLeakOptions): ReadonlyArray<ConformanceCase> {
         },
       });
     }
+  }
+
+  if ((options.providerDirs ?? []).length > 0) {
+    out.push({
+      name: 'every provider directory holds source files, so a typo cannot exempt nothing and look green',
+      run: (report, expect) => {
+        expect(report.findings.filter((f) => f.file.startsWith('providerDir|')).map((f) => `${f.file.slice('providerDir|'.length)}: ${f.message}`)).toEqual([]);
+      },
+    });
   }
 
   if (options.sdkOwner) {
@@ -386,6 +441,18 @@ function cases(options: AiNoSdkLeakOptions): ReadonlyArray<ConformanceCase> {
           { rel: 'runtime/ai.service.ts', source: `${IMPORT} OpenAI from 'openai';` },
         ];
         expect(findSdkLeaks(planted, ['providers/openai/'])).toEqual(['runtime/ai.service.ts: imports "openai"']);
+      },
+    },
+    {
+      name: 'the detector bans a registered provider SDK outside the provider directories, and allows it inside',
+      run: (_report, expect) => {
+        const planted: SourceFile[] = [
+          { rel: 'platform-extensions/ai/acme/acme.adapter.ts', source: `${IMPORT} { Acme } from 'acme-sdk/client';` },
+          { rel: 'features/summary.service.ts', source: `${IMPORT} { Acme } from 'acme-sdk';` },
+        ];
+        expect(findSdkLeaks(planted, ['platform-extensions/ai/'], [...PROVIDER_SDK_PACKAGES, 'acme-sdk'])).toEqual([
+          'features/summary.service.ts: imports "acme-sdk"',
+        ]);
       },
     },
     {
