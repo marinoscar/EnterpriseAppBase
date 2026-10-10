@@ -37,6 +37,7 @@
 import { ALLOWLIST_NOTIFICATIONS } from '../../identity-extensions/notifications/allowlist.notifications';
 import {
   APP_EMAIL_TEMPLATES,
+  adaptPlatformBroadcasts,
   APP_NOTIFICATIONS,
   APP_NOTIFICATION_CHANNELS,
 } from '../../app-registrations/notifications';
@@ -84,7 +85,10 @@ registerEmailTemplates(APP_EMAIL_TEMPLATES);
 registerNotifications(AUTH_NOTIFICATIONS);
 registerNotifications(ALLOWLIST_NOTIFICATIONS);
 registerNotifications(USERS_NOTIFICATIONS);
-registerNotifications(BROADCASTS_NOTIFICATIONS);
+// The broadcast pair, as the app adapts it (the reference app adds its webhook
+// channel and template to each event: how an app puts its channel on a platform
+// event without editing the package, PP-14.10).
+registerNotifications(adaptPlatformBroadcasts(BROADCASTS_NOTIFICATIONS));
 registerNotifications(OPS_NOTIFICATIONS);
 registerNotifications(NODES_NOTIFICATIONS);
 registerNotifications(DB_BACKUP_NOTIFICATIONS);
