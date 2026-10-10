@@ -198,7 +198,6 @@ export class AuthService {
    * @throws Error when `profile.provider` is not a registered provider or the
    *   profile is malformed (a programming error, not a refusal).
    *
-   * @extensionPoint function
    * @stability experimental
    */
   async completeExternalLogin(profile: ExternalProfile): Promise<FullTokenResponse> {

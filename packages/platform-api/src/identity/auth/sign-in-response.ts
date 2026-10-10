@@ -71,7 +71,6 @@ export const REFRESH_TOKEN_COOKIE_OPTIONS: Readonly<RefreshTokenCookieOptions> =
  * @param reply - the Fastify reply (with `@fastify/cookie`).
  * @param refreshToken - the refresh token.
  *
- * @extensionPoint function
  * @stability experimental
  */
 export function setRefreshTokenCookie(reply: CookieReply, refreshToken: string): void {
@@ -131,7 +130,7 @@ export interface RespondToSignInInput {
  * }
  * ```
  *
- * @extensionPoint function
+ * @extensionPoint hook
  * @stability experimental
  */
 export async function respondToSignIn(input: RespondToSignInInput): Promise<unknown> {

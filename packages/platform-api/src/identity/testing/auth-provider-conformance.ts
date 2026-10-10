@@ -187,7 +187,7 @@ async function refusal(promise: Promise<unknown>): Promise<string | null> {
  * });
  * ```
  *
- * @extensionPoint kit
+ * @extensionPoint registry
  * @stability experimental
  */
 export function describeAuthProviderConformance(

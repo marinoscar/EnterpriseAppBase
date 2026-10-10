@@ -35,7 +35,6 @@ import type { GoogleProfile } from './strategies/google.strategy';
  * };
  * ```
  *
- * @extensionPoint contract
  * @stability experimental
  */
 export interface ExternalProfile {

@@ -98,7 +98,7 @@ export type SignInDecision = SignInAllow | SignInDeny;
  * }
  * ```
  *
- * @extensionPoint port
+ * @extensionPoint hook
  * @stability experimental
  */
 export interface SignInPolicy {
