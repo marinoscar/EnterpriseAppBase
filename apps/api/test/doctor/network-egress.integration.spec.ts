@@ -155,16 +155,26 @@ describe('network.egress (Integration, #773)', () => {
       smtpPasswordStatus: { configured: true, hint: SECRETS.smtpHint },
       ...s.email,
     } as never);
+    // The admin view as it is since storage drivers became pluggable (PP-14.7):
+    // the active driver and ITS settings. The scenario's `effectiveEndpoint` is
+    // the endpoint the driver is configured with; the contributor asks the
+    // driver which hosts that means.
+    const { effectiveEndpoint, ...view } = s.storage as { provider: string; region: string; effectiveEndpoint: string | null };
     jest.spyOn(get(StorageConfigAdminService), 'describeForAdmin').mockResolvedValue({
-      bucket: 'acme-files',
-      endpoint: '',
-      accountId: '',
-      accessKeyId: SECRETS.storageKeyId,
-      forcePathStyle: null,
       configured: true,
       missing: [],
-      secretAccessKeyStatus: { configured: true, hint: SECRETS.storageHint },
-      ...s.storage,
+      secretStatus: { configured: true, hint: SECRETS.storageHint },
+      ...view,
+      drivers: {
+        [view.provider]: {
+          bucket: 'acme-files',
+          region: view.region,
+          endpoint: effectiveEndpoint ?? '',
+          accountId: '',
+          accessKeyId: SECRETS.storageKeyId,
+          forcePathStyle: null,
+        },
+      },
     } as never);
     const telemetry = get(TelemetryConnectionService);
     jest.spyOn(telemetry, 'describeSnapshot').mockReturnValue({

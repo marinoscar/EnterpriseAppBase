@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { LEGACY_STORAGE_FLAT_FIELDS } from '@marinoscar/platform-contract/storage';
 import { BUILTIN_AI_PROVIDER_IDS } from './settings.schema';
 import {
   systemSettingsSchema,
@@ -223,6 +224,14 @@ function expectSameKeys(actual: string[], expected: string[], context: string) {
   });
 }
 
+/**
+ * Fields a namespace still accepts, and publishes, as deprecated aliases of its
+ * current shape: optional in the stored schema, absent from the defaults.
+ */
+const DEPRECATED_ALIASES: Readonly<Record<string, readonly string[]>> = {
+  storage: LEGACY_STORAGE_FLAT_FIELDS,
+};
+
 describe('system settings parity across the places a namespace must be declared', () => {
   it('every registered namespace declares every part the six places derive from (#677)', () => {
     // `responseSchema` may be `null` (a namespace the documented response does
@@ -288,9 +297,15 @@ describe('system settings parity across the places a namespace must be declared'
           continue;
         }
 
+        // The defaults carry the namespace's CURRENT shape only. The deprecated
+        // read aliases of a namespace (the `storage` flat fields since drivers
+        // became pluggable, PP-14.7) are optional in the stored schema and
+        // never written, so they are not expected there.
+        const aliases = source.name.startsWith('DEFAULT_SYSTEM_SETTINGS') ? (DEPRECATED_ALIASES[namespace] ?? []) : [];
+
         expectSameKeys(
           actual,
-          expected,
+          expected.filter((key) => !aliases.includes(key)),
           `${source.name} vs ${REFERENCE.name}: fields of "${namespace}"`,
         );
       }

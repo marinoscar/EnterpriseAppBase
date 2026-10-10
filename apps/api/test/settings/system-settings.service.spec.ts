@@ -320,16 +320,20 @@ describe('SystemSettingsService', () => {
     // been saved. Only `undefined` may mean "leave it alone".
 
     describe('storage.forcePathStyle (tri-state)', () => {
-      function storedWithForcePathStyle(value: boolean | null) {
+      // The stored row an earlier release wrote: six flat fields, no `drivers`.
+      // Reading it is unchanged in meaning (PP-14.7, #925) and a PATCH converts
+      // it to the new shape, so the tri-state assertions below run over BOTH.
+      function legacyStoredWithForcePathStyle(value: boolean | null) {
         return {
           ...mockSystemSettings,
           value: {
             ...DEFAULT_SYSTEM_SETTINGS,
             storage: {
-              ...DEFAULT_SYSTEM_SETTINGS.storage,
               provider: 's3compatible',
               bucket: 'my-bucket',
+              region: '',
               endpoint: 'https://minio.internal:9000',
+              accountId: '',
               accessKeyId: 'AKIAEXAMPLE',
               forcePathStyle: value,
             },
@@ -337,12 +341,33 @@ describe('SystemSettingsService', () => {
         };
       }
 
+      function storedWithForcePathStyle(value: boolean | null) {
+        return {
+          ...mockSystemSettings,
+          value: {
+            ...DEFAULT_SYSTEM_SETTINGS,
+            storage: {
+              provider: 's3compatible',
+              drivers: {
+                s3compatible: {
+                  bucket: 'my-bucket',
+                  region: '',
+                  endpoint: 'https://minio.internal:9000',
+                  accessKeyId: 'AKIAEXAMPLE',
+                  forcePathStyle: value,
+                },
+              },
+            },
+          } as any,
+        };
+      }
+
       /** The `storage` block that actually reached Prisma. */
-      function writtenStorage(): Record<string, unknown> {
+      function writtenStorage(): { provider: string; drivers: Record<string, Record<string, unknown>> } {
         expect(mockPrisma.systemSettings.update).toHaveBeenCalledTimes(1);
 
         const call = mockPrisma.systemSettings.update.mock.calls[0][0] as {
-          data: { value: { storage: Record<string, unknown> } };
+          data: { value: { storage: { provider: string; drivers: Record<string, Record<string, unknown>> } } };
         };
 
         return call.data.value.storage;
@@ -356,48 +381,56 @@ describe('SystemSettingsService', () => {
         mockPrisma.auditEvent.create.mockResolvedValue({} as any);
       });
 
-      it('can be PATCHed back to null over a stored true', async () => {
-        mockPrisma.systemSettings.findUnique.mockResolvedValue(
-          storedWithForcePathStyle(true) as any,
-        );
+      describe.each([
+        ['the current shape', storedWithForcePathStyle],
+        ['a row stored before drivers were pluggable', legacyStoredWithForcePathStyle],
+      ])('over %s', (_label, stored) => {
+        it('can be PATCHed back to null over a stored true', async () => {
+          mockPrisma.systemSettings.findUnique.mockResolvedValue(stored(true) as any);
 
-        await service.patchSettings(
-          { storage: { forcePathStyle: null } },
-          mockUserId,
-        );
+          await service.patchSettings(
+            { storage: { forcePathStyle: null } },
+            mockUserId,
+          );
 
-        expect(writtenStorage().forcePathStyle).toBeNull();
-        // Nothing else in the namespace moved.
-        expect(writtenStorage().bucket).toBe('my-bucket');
-      });
+          expect(writtenStorage().drivers.s3compatible.forcePathStyle).toBeNull();
+          // Nothing else in the namespace moved.
+          expect(writtenStorage().drivers.s3compatible.bucket).toBe('my-bucket');
+        });
 
-      it('leaves a stored true alone when the key is absent from the body', async () => {
-        mockPrisma.systemSettings.findUnique.mockResolvedValue(
-          storedWithForcePathStyle(true) as any,
-        );
+        it('leaves a stored true alone when the key is absent from the body', async () => {
+          mockPrisma.systemSettings.findUnique.mockResolvedValue(stored(true) as any);
 
-        await service.patchSettings(
-          { storage: { bucket: 'other-bucket' } },
-          mockUserId,
-        );
+          await service.patchSettings(
+            { storage: { bucket: 'other-bucket' } },
+            mockUserId,
+          );
 
-        expect(writtenStorage().forcePathStyle).toBe(true);
-        expect(writtenStorage().bucket).toBe('other-bucket');
-      });
+          expect(writtenStorage().drivers.s3compatible.forcePathStyle).toBe(true);
+          expect(writtenStorage().drivers.s3compatible.bucket).toBe('other-bucket');
+        });
 
-      it('accepts an explicit false over a stored null', async () => {
-        mockPrisma.systemSettings.findUnique.mockResolvedValue(
-          storedWithForcePathStyle(null) as any,
-        );
+        it('accepts an explicit false over a stored null', async () => {
+          mockPrisma.systemSettings.findUnique.mockResolvedValue(stored(null) as any);
 
-        await service.patchSettings(
-          { storage: { forcePathStyle: false } },
-          mockUserId,
-        );
+          await service.patchSettings(
+            { storage: { forcePathStyle: false } },
+            mockUserId,
+          );
 
-        // `false` is an operator's answer, not an absent value — a `||` here
-        // would discard it and keep the vendor convention.
-        expect(writtenStorage().forcePathStyle).toBe(false);
+          // `false` is an operator's answer, not an absent value — a `||` here
+          // would discard it and keep the vendor convention.
+          expect(writtenStorage().drivers.s3compatible.forcePathStyle).toBe(false);
+        });
+
+        it('writes the new shape only: provider and drivers, no flat fields', async () => {
+          mockPrisma.systemSettings.findUnique.mockResolvedValue(stored(true) as any);
+
+          await service.patchSettings({ storage: { bucket: 'other-bucket' } }, mockUserId);
+
+          expect(Object.keys(writtenStorage()).sort()).toEqual(['drivers', 'provider']);
+          expect(writtenStorage().provider).toBe('s3compatible');
+        });
       });
     });
 
