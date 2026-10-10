@@ -30,6 +30,7 @@ import { STORAGE_DRIVER_ID_PATTERN, STORAGE_SECRET_FIELD_NAMES } from './constan
  * Not an enum: an app registers drivers (`registerStorageDriver`), and the API
  * validates the id against the registry.
  *
+ * @extensionPoint option
  * @stability experimental
  */
 export const storageDriverIdSchema = z.string().regex(STORAGE_DRIVER_ID_PATTERN);

@@ -91,22 +91,17 @@ export type {
   StorageDriverBuildContext,
   StorageDriverContext,
   StorageDriverDefinition,
+  StorageDriverGuidance,
   StorageDriverLocation,
   StorageDriverProvisionResult,
   StorageDriverPurgePrefixReport,
   StorageDriverPurgeResult,
   StorageDriverSettings,
   StorageDriverTestResult,
+  StorageSecretAddress,
 } from './drivers/storage-driver';
 export { BUILTIN_STORAGE_DRIVERS } from './drivers/builtin-storage-drivers';
-export {
-  r2SettingsSchema,
-  r2StorageDriver,
-  s3CompatibleSettingsSchema,
-  s3CompatibleStorageDriver,
-  s3SettingsSchema,
-  s3StorageDriver,
-} from './drivers/s3/s3-family';
+export { r2StorageDriver, s3CompatibleStorageDriver, s3StorageDriver } from './drivers/s3/s3-family';
 export {
   MISSING_STORAGE_CONFIG_FIELDS,
   R2_DEFAULT_REGION,

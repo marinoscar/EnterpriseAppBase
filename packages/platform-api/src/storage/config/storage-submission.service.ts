@@ -59,6 +59,11 @@ export interface PreparedStorageSubmission {
   redact(text: string): string;
 }
 
+/**
+ * Resolves the driver, settings and secrets of a SUBMITTED, unsaved storage configuration (the body of `POST /test` and `POST /bucket`), so the two routes cannot disagree about what that configuration is.
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class StorageSubmissionService {
   private readonly logger = new Logger(StorageSubmissionService.name);

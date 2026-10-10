@@ -41,7 +41,7 @@ export const BUILTIN_STORAGE_PROVIDER_KINDS = ['s3', 'r2', 's3compatible'] as co
 /**
  * The built-in storage provider kinds.
  *
- * @deprecated Use {@link BUILTIN_STORAGE_PROVIDER_KINDS}. The list is no longer
+ * @deprecated Use `BUILTIN_STORAGE_PROVIDER_KINDS`. The list is no longer
  *   the set of valid providers: any registered storage driver id is one.
  * @stability stable
  */

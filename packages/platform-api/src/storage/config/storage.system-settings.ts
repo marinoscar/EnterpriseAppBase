@@ -161,9 +161,10 @@ function adaptStored(source: Record<string, unknown>): { provider: string; drive
 }
 
 /**
- * The deprecated flat view of the active driver, for readers of `GET
- * /api/system-settings` written before drivers were pluggable: the six legacy
- * fields from `drivers.<provider>` when it declares them, empty otherwise.
+ * The deprecated flat view of the active driver, for readers of
+ * `GET /api/system-settings` written before drivers were pluggable: the six
+ * legacy fields from `drivers.<provider>` when it declares them, empty
+ * otherwise.
  */
 function legacyMirror(provider: string, drivers: DriversRecord): Required<Pick<SystemStorageValue, LegacyField>> {
   const active = drivers[provider] ?? {};
@@ -193,6 +194,7 @@ function legacyMirror(provider: string, drivers: DriversRecord): Required<Pick<S
  */
 const storedStorageSchema = systemStorageSchema
   .extend({
+    /** Every driver's own settings, keyed by driver id; absent in a PUT of the legacy flat fields, read as `{}`. */
     drivers: z.preprocess((value) => value ?? {}, systemStorageSchema.shape.drivers),
   })
   .superRefine((value, ctx) => {

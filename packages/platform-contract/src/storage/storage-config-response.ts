@@ -25,7 +25,7 @@
 
 import { z } from 'zod';
 
-import { pluggableDescriptorSchema } from '../settings/schemas.js';
+import { pluggableDescriptorSchema } from '../settings/index.js';
 import { storageDriverIdSchema, storageDriversSchema } from './settings-schemas.js';
 
 /**

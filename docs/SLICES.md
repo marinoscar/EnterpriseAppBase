@@ -452,7 +452,7 @@ None.
 |---|---|---|---|---|
 | API (`platform-api`) | `/storage`, `/storage/testing` | `core`, `doctor`, `otel-core`, `identity`, `settings`, `credentials`, `jobs`, `nodes` | `@nestjs/config`, `@nestjs/event-emitter`, `@nestjs/jwt`, `@nestjs/passport`, `@nestjs/schedule`, `@prisma/client-runtime-utils`, `fastify`, `passport` | [README](../packages/platform-api/src/storage/README.md) |
 | Web (`platform-web`) | `/storage/headless`, `/storage/ui` | `core` | `@mui/icons-material`, `react-router-dom` | [README](../packages/platform-web/src/storage/README.md) |
-| Contract (`platform-contract`) | `/storage` | none | none | [README](../packages/platform-contract/src/storage/README.md) |
+| Contract (`platform-contract`) | `/storage` | `settings` | none | [README](../packages/platform-contract/src/storage/README.md) |
 
 **Admin and settings cards.**
 

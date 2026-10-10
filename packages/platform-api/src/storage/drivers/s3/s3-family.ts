@@ -47,8 +47,7 @@ const forcePathStyleField = z
   .meta({ label: 'Force path style' })
   .describe('Address objects as host/bucket/key instead of bucket.host/key. Leave unset to use this vendor\'s convention.');
 
-/** The `s3` driver's settings. */
-export const s3SettingsSchema = z.object({
+const s3SettingsSchema = z.object({
   bucket: bucketField,
   region: regionField('The AWS region the bucket lives in. Required: there is no default.'),
   endpoint: endpointField('Leave empty for AWS. Set it to point at a local MinIO or another S3-compatible server.'),
@@ -56,8 +55,7 @@ export const s3SettingsSchema = z.object({
   forcePathStyle: forcePathStyleField,
 });
 
-/** The `r2` driver's settings. */
-export const r2SettingsSchema = z.object({
+const r2SettingsSchema = z.object({
   bucket: bucketField,
   accountId: z
     .string()
@@ -71,8 +69,7 @@ export const r2SettingsSchema = z.object({
   forcePathStyle: forcePathStyleField,
 });
 
-/** The `s3compatible` driver's settings. */
-export const s3CompatibleSettingsSchema = z.object({
+const s3CompatibleSettingsSchema = z.object({
   bucket: bucketField,
   region: regionField('Optional for most servers (MinIO, Ceph ignore it); some vendors require their own region.'),
   endpoint: endpointField('Required: the server\'s URL, for example https://minio.internal:9000.'),

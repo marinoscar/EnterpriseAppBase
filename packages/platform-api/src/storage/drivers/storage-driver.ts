@@ -112,6 +112,34 @@ export interface StorageDriverTestResult {
 }
 
 /**
+ * Where one of a driver's secrets lives in the credential store.
+ *
+ * @stability experimental
+ */
+export interface StorageSecretAddress {
+  /** The credential purpose (the cipher's sub-key domain; permanent once rows exist). */
+  purpose: string;
+  /** The name within the purpose. */
+  name: string;
+  /** The non-secret label stored beside the credential (default: the secret's declared label). */
+  label?: string;
+}
+
+/**
+ * Ready-to-paste instructions for a credential that may not create buckets.
+ *
+ * @stability experimental
+ */
+export interface StorageDriverGuidance {
+  /** What sent the operator here, in one sentence. */
+  reason: string;
+  /** A complete command block with this deployment's real names substituted. */
+  commands: string;
+  /** Repository-relative path to the runbook that explains the block, or `null`. */
+  runbook: string | null;
+}
+
+/**
  * The outcome of {@link StorageDriver.provision}.
  *
  * @stability experimental
@@ -126,7 +154,7 @@ export interface StorageDriverProvisionResult {
   /** Per-step report (S3: create, public access block, encryption, CORS). */
   steps?: readonly StorageBucketStep[];
   /** Ready-to-paste instructions for when the credential may not create buckets. */
-  guidance?: { reason: string; commands: string; runbook: string | null } | null;
+  guidance?: StorageDriverGuidance | null;
   /** The CORS origin the driver allowed, when it set one. */
   corsOrigin?: string | null;
 }
@@ -291,7 +319,7 @@ export interface StorageDriverDefinition<S extends StorageDriverSettings = Stora
    * The purpose is then the caller's to register. `label` is the non-secret
    * label stored beside the credential (default: the secret's declared label).
    */
-  credentialAddress?(secretName: string): { purpose: string; name: string; label?: string };
+  credentialAddress?(secretName: string): StorageSecretAddress;
   /** The hosts an instance with these settings calls, for the Doctor's network-egress view. Empty for a local backend. */
   egressHosts?(settings: S): readonly string[];
 }
@@ -330,7 +358,12 @@ export const STORAGE_BUCKET_STEP_LABELS: Record<StorageBucketStepId, string> = {
   cors: 'Apply the CORS rule browsers need',
 };
 
-/** The credential purpose a driver's secrets use by default. */
+/**
+ * The credential purpose a driver's secrets use by default (`storage_<id>`).
+ *
+ * @param id - the driver id.
+ * @stability experimental
+ */
 export function storageDriverCredentialPurpose(id: string): string {
   return `storage_${id}`;
 }
@@ -486,7 +519,7 @@ function definitionOf(impl: PluggableImplementation<StorageDriverDefinition<any>
 export function storageSecretAddress(
   driver: Pick<StorageDriverDefinition<any>, 'id' | 'credentialAddress'>,
   name: string,
-): { purpose: string; name: string; label?: string } {
+): StorageSecretAddress {
   return driver.credentialAddress ? driver.credentialAddress(name) : { purpose: storageDriverCredentialPurpose(driver.id), name };
 }
 

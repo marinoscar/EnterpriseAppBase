@@ -425,7 +425,10 @@ export interface S3FlavourSpec {
  *
  * @stability experimental
  */
-export type S3StoragePolicy = S3FamilySettings & { provider: string };
+export interface S3StoragePolicy extends S3FamilySettings {
+  /** The built-in driver id (`s3`, `r2`, `s3compatible`) the settings belong to. */
+  provider: string;
+}
 
 /**
  * Decide whether a flat built-in policy has usable object storage, and resolve it.

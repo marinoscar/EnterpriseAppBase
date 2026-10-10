@@ -41,9 +41,8 @@ The shapes are the contract of the slice's routes and its settings namespace; wh
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `storageDriverIdSchema` | option | `z.string().regex(STORAGE_DRIVER_ID_PATTERN)` | Validate a storage driver id (any registered driver, not an enum); the `provider` of every storage schema is this | experimental | [example](../../../../apps/api/src/app-registrations/storage.ts) |
-| `BUILTIN_STORAGE_PROVIDER_KINDS` | option | `readonly ['s3', 'r2', 's3compatible']` | Labels and defaults for the drivers the platform ships; never to validate an id | experimental | [example](../../../../packages/platform-api/src/storage/drivers/s3/s3-family.ts) |
-| `systemStorageSchema` and the PUT, PATCH and response branches | option | `{ provider, drivers: Record<id, Record<string, unknown>>, ...six deprecated flat aliases }` | Read or write the `storage` namespace: the active driver and each driver's non-secret settings (validated by the driver in the API) | experimental | [example](../../../../apps/api/test/examples/storage/local-fs-driver.spec.ts) |
-| `storageConfigResponseSchema` `descriptors` | option | `descriptors: PluggableDescriptor[]` | Render a generated form for every registered driver, built-ins and an app's alike; secrets are `secret` fields with `hasValue` only | experimental | [example](../../../../apps/api/test/examples/storage/local-fs-driver.spec.ts) |
+
+Also open, and described in prose rather than as catalog rows: `systemStorageSchema` and its PUT, PATCH and response branches carry `{ provider, drivers: Record<id, Record<string, unknown>>, ...six deprecated flat aliases }`; the admin view's `descriptors: PluggableDescriptor[]` is one generated form per registered driver (secrets as `secret` fields with `hasValue` only); `BUILTIN_STORAGE_PROVIDER_KINDS` names the drivers the platform ships, for labels and defaults, never to validate an id.
 
 The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
 
