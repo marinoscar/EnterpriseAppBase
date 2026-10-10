@@ -7,8 +7,8 @@ import type {
   TelemetryConnectionTestResult,
   TestTelemetryConnectionInput,
 } from './dto/telemetry-connection.dto';
-import { GREPTIME_CONNECT_TIMEOUT_MS, GREPTIME_PING_TIMEOUT_MS, quoteIdent } from '../greptime/greptime.client';
-import { checkHostResolves, hostNotFoundMessage, isDnsError, type HostCheckOptions } from '../greptime/greptime-host';
+import { GREPTIME_CONNECT_TIMEOUT_MS, GREPTIME_PING_TIMEOUT_MS, quoteIdent } from '../stores/greptime/greptime.client';
+import { checkHostResolves, hostNotFoundMessage, isDnsError, type HostCheckOptions } from '../stores/greptime/greptime-host';
 import type { TelemetryConnectionRole } from './telemetry-connection.schema';
 import {
   DEPLOYMENT_ADMIN_MISSING_MESSAGE,

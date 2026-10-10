@@ -1,11 +1,11 @@
-import type { TelemetryQueryResult } from '../greptime/greptime.client';
+import type { TelemetryQueryResult } from '../stores/telemetry-store';
 
 // =============================================================================
 // Row helpers for the metric catalog (issue #601)
 // =============================================================================
 //
 // The reader pool returns int8/numeric and timestamps as the server's TEXT
-// (`greptime.client.ts`): a count is `'60'`, an instant is
+// (`stores/telemetry-store.ts`): a count is `'60'`, an instant is
 // `'2026-09-30 00:21:00.000000'` (UTC, no zone). These turn both into plain
 // numbers. Pure functions.
 // =============================================================================

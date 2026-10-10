@@ -1,6 +1,6 @@
 import type { TelemetrySettings as SystemTelemetryValue } from '@marinoscar/platform-contract/telemetry';
 import { TelemetryConnectionService } from '../connection/telemetry-connection.service';
-import { GreptimeClient, type TelemetryQueryResult } from '../greptime/greptime.client';
+import { GreptimeClient, type TelemetryQueryResult } from '../stores/greptime/greptime.client';
 import { METRIC_GROUPS, metricTablesOf } from '../metrics/metric-catalog';
 import { VERDICT_PROBES, verdictInputsFrom, verdictProbeSql } from '../metrics/metric-verdict';
 import { TelemetrySchemaService } from '../query/telemetry-schema.service';

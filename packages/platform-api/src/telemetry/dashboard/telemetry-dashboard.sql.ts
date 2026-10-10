@@ -20,6 +20,17 @@
 // Every statement carries a literal top-level LIMIT (never a subquery wrapper
 // for a row cap: GreptimeDB drops an inner ORDER BY through one, #554).
 //
+// THE DIALECT (PP-14.11). The statements are ANSI-flavoured SQL except for
+// seven constructs, which are rendered by a `TelemetrySqlDialect` passed as the
+// LAST argument of each builder (default: the built-in GreptimeDB dialect, so a
+// caller that passes none gets exactly the text below): the time bucket
+// (`date_bin`), the percentile (`approx_percentile_cont ... WITHIN GROUP`), the
+// regular-expression replace (`regexp_replace(..., 'g')`), the JSON attribute
+// read (`json_get_string`), the case-insensitive substring match
+// (`ILIKE ... ESCAPE`), the text cast (`CAST(x AS STRING)`), the row cap
+// (`LIMIT n`), and the metric tables' time and value columns
+// (`greptime_timestamp`, `greptime_value`).
+//
 // -----------------------------------------------------------------------------
 // STEP 0 FINDINGS (verified live on GreptimeDB v1.2.1, 2026-09-27)
 // -----------------------------------------------------------------------------
@@ -96,9 +107,11 @@ import {
   type DashboardEventSeverity,
 } from '@marinoscar/platform-contract/telemetry';
 
+import { GREPTIME_SQL_DIALECT } from '../stores/greptime/greptime.dialect';
+import type { TelemetrySqlDialect } from '../stores/telemetry-store';
 import {
+  assertBucketSeconds,
   between,
-  bucketInterval,
   bucketRowLimit,
   ident,
   literal,
@@ -272,13 +285,20 @@ function traceFilters(filters: DashboardSqlFilters): string {
   return parts.map((p) => ` AND ${p}`).join('');
 }
 
-const LOG_SERVICE = `json_get_string(resource_attributes, '["service.name"]')`;
-const LOG_INSTANCE = `json_get_string(resource_attributes, '["app.instance.id"]')`;
+/** The service name of a log record: a key of the JSON `resource_attributes` column. */
+function logService(dialect: TelemetrySqlDialect): string {
+  return dialect.jsonString('resource_attributes', 'service.name');
+}
 
-function logFilters(filters: DashboardSqlFilters): string {
+/** The instance id of a log record: a key of the JSON `resource_attributes` column. */
+function logInstance(dialect: TelemetrySqlDialect): string {
+  return dialect.jsonString('resource_attributes', 'app.instance.id');
+}
+
+function logFilters(filters: DashboardSqlFilters, dialect: TelemetrySqlDialect): string {
   const parts: string[] = [];
-  if (filters.service) parts.push(`${LOG_SERVICE} = ${literal(filters.service)}`);
-  if (filters.instance) parts.push(`${LOG_INSTANCE} = ${literal(filters.instance)}`);
+  if (filters.service) parts.push(`${logService(dialect)} = ${literal(filters.service)}`);
+  if (filters.instance) parts.push(`${logInstance(dialect)} = ${literal(filters.instance)}`);
   return parts.map((p) => ` AND ${p}`).join('');
 }
 
@@ -325,12 +345,31 @@ export function isStreamingRoute(route: string | null | undefined): boolean {
 }
 
 /** p95 (ns) of every server span in the group, streams included (per-route table). */
-const P95_NS = `approx_percentile_cont(0.95) WITHIN GROUP (ORDER BY ${ident(TRACE_COLUMNS.duration)})`;
+function p95Ns(dialect: TelemetrySqlDialect): string {
+  return dialect.percentile(0.95, ident(TRACE_COLUMNS.duration));
+}
 
 /** p95 (ns) of the group with streaming (SSE) spans left out; NULL when only streams. */
-export const LATENCY_P95_NS =
-  `approx_percentile_cont(0.95) WITHIN GROUP (ORDER BY CASE WHEN ${STREAM_SPAN_PREDICATE} ` +
-  `THEN NULL ELSE ${ident(TRACE_COLUMNS.duration)} END)`;
+function latencyP95Ns(dialect: TelemetrySqlDialect): string {
+  return dialect.percentile(
+    0.95,
+    `CASE WHEN ${STREAM_SPAN_PREDICATE} THEN NULL ELSE ${ident(TRACE_COLUMNS.duration)} END`,
+  );
+}
+
+/**
+ * {@link latencyP95Ns} in the built-in GreptimeDB dialect: the text the
+ * latency tiles carry there.
+ *
+ * @stability stable
+ */
+export const LATENCY_P95_NS = latencyP95Ns(GREPTIME_SQL_DIALECT);
+
+/** `dialect.timeBucket` after checking the size is one of the dashboard's. */
+function bucketOf(dialect: TelemetrySqlDialect, column: string, bucketSeconds: number): string {
+  assertBucketSeconds(bucketSeconds);
+  return dialect.timeBucket(column, bucketSeconds);
+}
 
 function statusClass(low: number): string {
   return `sum(CASE WHEN ${STATUS} >= ${low} AND ${STATUS} < ${low + 100} THEN 1 ELSE 0 END)`;
@@ -342,13 +381,17 @@ function statusClass(low: number): string {
  * Server spans per bucket: status classes and p95 (ns, streams excluded).
  * Columns: t, total, s2xx, s3xx, s4xx, s5xx, p95_ns.
  */
-export function apiTimeseriesSql(window: DashboardSqlWindow, filters: DashboardSqlFilters = {}): string {
+export function apiTimeseriesSql(
+  window: DashboardSqlWindow,
+  filters: DashboardSqlFilters = {},
+  dialect: TelemetrySqlDialect = GREPTIME_SQL_DIALECT,
+): string {
   return (
-    `SELECT date_bin(${bucketInterval(window.bucketSeconds)}, ${ident('timestamp')}) AS t, count(*) AS total, ` +
+    `SELECT ${bucketOf(dialect, ident('timestamp'), window.bucketSeconds)} AS t, count(*) AS total, ` +
     `${statusClass(200)} AS s2xx, ${statusClass(300)} AS s3xx, ${statusClass(400)} AS s4xx, ` +
-    `sum(CASE WHEN ${STATUS} >= 500 THEN 1 ELSE 0 END) AS s5xx, ${LATENCY_P95_NS} AS p95_ns ` +
+    `sum(CASE WHEN ${STATUS} >= 500 THEN 1 ELSE 0 END) AS s5xx, ${latencyP95Ns(dialect)} AS p95_ns ` +
     `${serverSpans(window.from, window.to, filters)} ` +
-    `GROUP BY t ORDER BY t LIMIT ${bucketRowLimit(window.from, window.to, window.bucketSeconds)}`
+    `GROUP BY t ORDER BY t ${dialect.limit(bucketRowLimit(window.from, window.to, window.bucketSeconds))}`
   );
 }
 
@@ -357,18 +400,24 @@ export function apiTimeseriesSql(window: DashboardSqlWindow, filters: DashboardS
  * `[previousFrom, from)` in one statement. Columns: period
  * ('current'|'previous'), requests, errors (5xx), p95_ns (streams excluded).
  */
-export function apiTotalsSql(previousFrom: Date, window: DashboardSqlWindow, filters: DashboardSqlFilters = {}): string {
+export function apiTotalsSql(
+  previousFrom: Date,
+  window: DashboardSqlWindow,
+  filters: DashboardSqlFilters = {},
+  dialect: TelemetrySqlDialect = GREPTIME_SQL_DIALECT,
+): string {
   return (
     `SELECT CASE WHEN ${ident('timestamp')} >= ${timestampLiteral(window.from)} THEN 'current' ELSE 'previous' END AS period, ` +
-    `count(*) AS requests, sum(CASE WHEN ${STATUS} >= 500 THEN 1 ELSE 0 END) AS errors, ${LATENCY_P95_NS} AS p95_ns ` +
+    `count(*) AS requests, sum(CASE WHEN ${STATUS} >= 500 THEN 1 ELSE 0 END) AS errors, ${latencyP95Ns(dialect)} AS p95_ns ` +
     `${serverSpans(previousFrom, window.to, filters)} ` +
-    'GROUP BY period ORDER BY period LIMIT 2'
+    `GROUP BY period ORDER BY period ${dialect.limit(2)}`
   );
 }
 
 /** The server span's path with numeric/UUID/hex segments as `:id`. */
-const NORMALIZED_ROUTE =
-  `regexp_replace(${ident(TRACE_COLUMNS.path)}, ${literal(ROUTE_NORMALIZE_PATTERN)}, ${literal(ROUTE_NORMALIZE_REPLACEMENT)}, 'g')`;
+function normalizedRoute(dialect: TelemetrySqlDialect): string {
+  return dialect.regexpReplaceAll(ident(TRACE_COLUMNS.path), ROUTE_NORMALIZE_PATTERN, ROUTE_NORMALIZE_REPLACEMENT);
+}
 
 /**
  * Top routes (normalized path) by 5xx count, then client errors (4xx except
@@ -378,16 +427,21 @@ const NORMALIZED_ROUTE =
  * truncation shows. Streams stay in, with their own p95: the table is per
  * route, so it is honest.
  */
-export function topRoutesSql(window: DashboardSqlWindow, filters: DashboardSqlFilters = {}, limit = TOP_N + 1): string {
+export function topRoutesSql(
+  window: DashboardSqlWindow,
+  filters: DashboardSqlFilters = {},
+  limit = TOP_N + 1,
+  dialect: TelemetrySqlDialect = GREPTIME_SQL_DIALECT,
+): string {
   const unknown = filters.tracesHaveRouteMatched
     ? `sum(CASE WHEN ${UNKNOWN_ROUTE_PREDICATE} THEN 1 ELSE 0 END)`
     : '0';
   return (
-    `SELECT ${ident(TRACE_COLUMNS.method)} AS method, ${NORMALIZED_ROUTE} AS route, ` +
+    `SELECT ${ident(TRACE_COLUMNS.method)} AS method, ${normalizedRoute(dialect)} AS route, ` +
     `count(*) AS requests, sum(CASE WHEN ${STATUS} >= 500 THEN 1 ELSE 0 END) AS errors, ` +
-    `sum(CASE WHEN ${CLIENT_ERROR_PREDICATE} THEN 1 ELSE 0 END) AS client_errors, ${unknown} AS unknown_requests, ${P95_NS} AS p95_ns ` +
+    `sum(CASE WHEN ${CLIENT_ERROR_PREDICATE} THEN 1 ELSE 0 END) AS client_errors, ${unknown} AS unknown_requests, ${p95Ns(dialect)} AS p95_ns ` +
     `${serverSpans(window.from, window.to, filters)} ` +
-    `GROUP BY method, route ORDER BY errors DESC, client_errors DESC, p95_ns DESC LIMIT ${positive(limit)}`
+    `GROUP BY method, route ORDER BY errors DESC, client_errors DESC, p95_ns DESC ${dialect.limit(positive(limit))}`
   );
 }
 
@@ -422,13 +476,14 @@ export function unknownRoutesTotalsSql(
   previousFrom: Date,
   window: DashboardSqlWindow,
   filters: DashboardSqlFilters = {},
+  dialect: TelemetrySqlDialect = GREPTIME_SQL_DIALECT,
 ): string | null {
   if (!filters.tracesHaveRouteMatched) return null;
   return (
     `SELECT CASE WHEN ${ident('timestamp')} >= ${timestampLiteral(window.from)} THEN 'current' ELSE 'previous' END AS period, ` +
     `count(*) AS requests, ${bearerCount(filters)} AS bearer ` +
     `${serverSpans(previousFrom, window.to, filters)} AND ${UNKNOWN_ROUTE_PREDICATE} ` +
-    'GROUP BY period ORDER BY period LIMIT 2'
+    `GROUP BY period ORDER BY period ${dialect.limit(2)}`
   );
 }
 
@@ -441,20 +496,21 @@ export function topUnknownRoutesSql(
   window: DashboardSqlWindow,
   filters: DashboardSqlFilters = {},
   limit = TOP_N + 1,
+  dialect: TelemetrySqlDialect = GREPTIME_SQL_DIALECT,
 ): string | null {
   if (!filters.tracesHaveRouteMatched) return null;
   return (
-    `SELECT ${ident(TRACE_COLUMNS.method)} AS method, ${NORMALIZED_ROUTE} AS route, ` +
+    `SELECT ${ident(TRACE_COLUMNS.method)} AS method, ${normalizedRoute(dialect)} AS route, ` +
     `count(*) AS requests, ${bearerCount(filters)} AS bearer ` +
     `${serverSpans(window.from, window.to, filters)} AND ${UNKNOWN_ROUTE_PREDICATE} ` +
-    `GROUP BY method, route ORDER BY bearer DESC, requests DESC, method, route LIMIT ${positive(limit)}`
+    `GROUP BY method, route ORDER BY bearer DESC, requests DESC, method, route ${dialect.limit(positive(limit))}`
   );
 }
 
 // ---- logs panel --------------------------------------------------------------
 
-function logsIn(from: Date, to: Date, filters: DashboardSqlFilters): string {
-  return `FROM ${ident(LOGS_TABLE)} WHERE ${between('timestamp', from, to)}${logFilters(filters)}`;
+function logsIn(from: Date, to: Date, filters: DashboardSqlFilters, dialect: TelemetrySqlDialect): string {
+  return `FROM ${ident(LOGS_TABLE)} WHERE ${between('timestamp', from, to)}${logFilters(filters, dialect)}`;
 }
 
 function band(name: keyof typeof SEVERITY_BANDS): string {
@@ -462,22 +518,31 @@ function band(name: keyof typeof SEVERITY_BANDS): string {
 }
 
 /** Logs per bucket by severity band. Columns: t, error, warn, info, other. */
-export function logsTimeseriesSql(window: DashboardSqlWindow, filters: DashboardSqlFilters = {}): string {
+export function logsTimeseriesSql(
+  window: DashboardSqlWindow,
+  filters: DashboardSqlFilters = {},
+  dialect: TelemetrySqlDialect = GREPTIME_SQL_DIALECT,
+): string {
   return (
-    `SELECT date_bin(${bucketInterval(window.bucketSeconds)}, ${ident('timestamp')}) AS t, ` +
+    `SELECT ${bucketOf(dialect, ident('timestamp'), window.bucketSeconds)} AS t, ` +
     `${band('error')} AS error, ${band('warn')} AS warn, ${band('info')} AS info, ${band('other')} AS other ` +
-    `${logsIn(window.from, window.to, filters)} ` +
-    `GROUP BY t ORDER BY t LIMIT ${bucketRowLimit(window.from, window.to, window.bucketSeconds)}`
+    `${logsIn(window.from, window.to, filters, dialect)} ` +
+    `GROUP BY t ORDER BY t ${dialect.limit(bucketRowLimit(window.from, window.to, window.bucketSeconds))}`
   );
 }
 
 /** Error and warn counts of the current and previous windows. Columns: period, error, warn. */
-export function logsTotalsSql(previousFrom: Date, window: DashboardSqlWindow, filters: DashboardSqlFilters = {}): string {
+export function logsTotalsSql(
+  previousFrom: Date,
+  window: DashboardSqlWindow,
+  filters: DashboardSqlFilters = {},
+  dialect: TelemetrySqlDialect = GREPTIME_SQL_DIALECT,
+): string {
   return (
     `SELECT CASE WHEN ${ident('timestamp')} >= ${timestampLiteral(window.from)} THEN 'current' ELSE 'previous' END AS period, ` +
     `${band('error')} AS error, ${band('warn')} AS warn ` +
-    `${logsIn(previousFrom, window.to, filters)} ` +
-    'GROUP BY period ORDER BY period LIMIT 2'
+    `${logsIn(previousFrom, window.to, filters, dialect)} ` +
+    `GROUP BY period ORDER BY period ${dialect.limit(2)}`
   );
 }
 
@@ -485,13 +550,18 @@ export function logsTotalsSql(previousFrom: Date, window: DashboardSqlWindow, fi
  * Most frequent error messages (first `ERROR_MESSAGE_CHARS` characters).
  * Columns: message, occurrences, first_seen, last_seen, sample_trace_id, service.
  */
-export function topErrorsSql(window: DashboardSqlWindow, filters: DashboardSqlFilters = {}, limit = TOP_N + 1): string {
+export function topErrorsSql(
+  window: DashboardSqlWindow,
+  filters: DashboardSqlFilters = {},
+  limit = TOP_N + 1,
+  dialect: TelemetrySqlDialect = GREPTIME_SQL_DIALECT,
+): string {
   return (
     `SELECT substr(body, 1, ${ERROR_MESSAGE_CHARS}) AS message, count(*) AS occurrences, ` +
     `min(${ident('timestamp')}) AS first_seen, max(${ident('timestamp')}) AS last_seen, ` +
-    `max(trace_id) AS sample_trace_id, max(${LOG_SERVICE}) AS service ` +
-    `${logsIn(window.from, window.to, filters)} AND ${SEVERITY_BANDS.error} ` +
-    `GROUP BY message ORDER BY occurrences DESC, last_seen DESC LIMIT ${positive(limit)}`
+    `max(trace_id) AS sample_trace_id, max(${logService(dialect)}) AS service ` +
+    `${logsIn(window.from, window.to, filters, dialect)} AND ${SEVERITY_BANDS.error} ` +
+    `GROUP BY message ORDER BY occurrences DESC, last_seen DESC ${dialect.limit(positive(limit))}`
   );
 }
 
@@ -520,14 +590,19 @@ export interface EventsSqlOptions {
  * Columns: ts (full-precision text), severity_number, severity_text,
  * service, body, trace_id, span_id.
  */
-export function eventsSql(window: DashboardSqlWindow, filters: DashboardSqlFilters, opts: EventsSqlOptions): string {
+export function eventsSql(
+  window: DashboardSqlWindow,
+  filters: DashboardSqlFilters,
+  opts: EventsSqlOptions,
+  dialect: TelemetrySqlDialect = GREPTIME_SQL_DIALECT,
+): string {
   const severities = EVENT_SEVERITIES.filter((s) => opts.severities.includes(s));
   if (severities.length === 0) throw new RangeError('eventsSql needs at least one severity');
 
   const where: string[] = [`(${severities.map((s) => SEVERITY_BANDS[s]).join(' OR ')})`];
 
   const pattern = opts.q ? likeContainsPattern(opts.q) : '';
-  if (pattern) where.push(`body ILIKE '%${pattern}%' ESCAPE '\\'`);
+  if (pattern) where.push(dialect.containsIgnoreCase('body', pattern));
 
   if (opts.cursor) {
     const { ts, spanId } = opts.cursor;
@@ -539,10 +614,10 @@ export function eventsSql(window: DashboardSqlWindow, filters: DashboardSqlFilte
   }
 
   return (
-    `SELECT CAST(${ident('timestamp')} AS STRING) AS ts, severity_number, severity_text, ${LOG_SERVICE} AS service, ` +
+    `SELECT ${dialect.castText(ident('timestamp'))} AS ts, severity_number, severity_text, ${logService(dialect)} AS service, ` +
     'body, trace_id, span_id ' +
-    `${logsIn(window.from, window.to, filters)} AND ${where.join(' AND ')} ` +
-    `ORDER BY ${ident('timestamp')} DESC, span_id DESC LIMIT ${positive(opts.limit ?? EVENTS_PAGE_SIZE + 1)}`
+    `${logsIn(window.from, window.to, filters, dialect)} AND ${where.join(' AND ')} ` +
+    `ORDER BY ${ident('timestamp')} DESC, span_id DESC ${dialect.limit(positive(opts.limit ?? EVENTS_PAGE_SIZE + 1))}`
   );
 }
 
@@ -558,18 +633,19 @@ export function lastDataSql(
   until: Date,
   filters: DashboardSqlFilters,
   tables: { traces: boolean; logs: boolean },
+  dialect: TelemetrySqlDialect = GREPTIME_SQL_DIALECT,
 ): string {
   const traces = tables.traces
     ? `(SELECT max(${ident('timestamp')}) FROM ${ident(TRACES_TABLE)} WHERE ${between('timestamp', since, until)}${traceFilters(filters)})`
     : 'NULL';
-  const logs = tables.logs ? `(SELECT max(${ident('timestamp')}) ${logsIn(since, until, filters)})` : 'NULL';
-  return `SELECT ${traces} AS traces_last, ${logs} AS logs_last LIMIT 1`;
+  const logs = tables.logs ? `(SELECT max(${ident('timestamp')}) ${logsIn(since, until, filters, dialect)})` : 'NULL';
+  return `SELECT ${traces} AS traces_last, ${logs} AS logs_last ${dialect.limit(1)}`;
 }
 
 // ---- filter values -----------------------------------------------------------
 
-function distinctUnion(parts: string[], limit: number): string {
-  return `${parts.join(' UNION ')} ORDER BY v LIMIT ${positive(limit)}`;
+function distinctUnion(parts: string[], limit: number, dialect: TelemetrySqlDialect): string {
+  return `${parts.join(' UNION ')} ORDER BY v ${dialect.limit(positive(limit))}`;
 }
 
 /** Distinct service names in `[from, to)` across traces and logs. Column: v. */
@@ -578,6 +654,7 @@ export function distinctServicesSql(
   to: Date,
   tables: { traces: boolean; logs: boolean },
   limit = DISTINCT_VALUES_MAX + 1,
+  dialect: TelemetrySqlDialect = GREPTIME_SQL_DIALECT,
 ): string | null {
   const parts: string[] = [];
   if (tables.traces) {
@@ -585,9 +662,10 @@ export function distinctServicesSql(
     parts.push(`SELECT ${col} AS v FROM ${ident(TRACES_TABLE)} WHERE ${between('timestamp', from, to)} AND ${col} IS NOT NULL AND ${col} <> ''`);
   }
   if (tables.logs) {
-    parts.push(`SELECT ${LOG_SERVICE} AS v ${logsIn(from, to, {})} AND ${LOG_SERVICE} IS NOT NULL AND ${LOG_SERVICE} <> ''`);
+    const service = logService(dialect);
+    parts.push(`SELECT ${service} AS v ${logsIn(from, to, {}, dialect)} AND ${service} IS NOT NULL AND ${service} <> ''`);
   }
-  return parts.length ? distinctUnion(parts, limit) : null;
+  return parts.length ? distinctUnion(parts, limit, dialect) : null;
 }
 
 /** Distinct instance ids in `[from, to)` across traces (when the column exists) and logs. Column: v. */
@@ -596,6 +674,7 @@ export function distinctInstancesSql(
   to: Date,
   tables: { traces: boolean; logs: boolean },
   limit = DISTINCT_VALUES_MAX + 1,
+  dialect: TelemetrySqlDialect = GREPTIME_SQL_DIALECT,
 ): string | null {
   const parts: string[] = [];
   if (tables.traces) {
@@ -603,15 +682,16 @@ export function distinctInstancesSql(
     parts.push(`SELECT ${col} AS v FROM ${ident(TRACES_TABLE)} WHERE ${between('timestamp', from, to)} AND ${col} IS NOT NULL AND ${col} <> ''`);
   }
   if (tables.logs) {
-    parts.push(`SELECT ${LOG_INSTANCE} AS v ${logsIn(from, to, {})} AND ${LOG_INSTANCE} IS NOT NULL AND ${LOG_INSTANCE} <> ''`);
+    const instance = logInstance(dialect);
+    parts.push(`SELECT ${instance} AS v ${logsIn(from, to, {}, dialect)} AND ${instance} IS NOT NULL AND ${instance} <> ''`);
   }
-  return parts.length ? distinctUnion(parts, limit) : null;
+  return parts.length ? distinctUnion(parts, limit, dialect) : null;
 }
 
 // ---- runtime -----------------------------------------------------------------
 
-function metricWhere(from: Date, to: Date, service?: string | null): string {
-  return `${between('greptime_timestamp', from, to)}${service ? ` AND service_name = ${literal(service)}` : ''}`;
+function metricWhere(from: Date, to: Date, service: string | null | undefined, dialect: TelemetrySqlDialect): string {
+  return `${between(dialect.timestampColumn, from, to)}${service ? ` AND service_name = ${literal(service)}` : ''}`;
 }
 
 /**
@@ -619,20 +699,34 @@ function metricWhere(from: Date, to: Date, service?: string | null): string {
  * export, then averaged per bucket. Columns: t, v. The instance filter does
  * not apply (the metric tables have no instance column).
  */
-export function heapUsedSql(from: Date, to: Date, bucketSeconds: number, service?: string | null): string {
+export function heapUsedSql(
+  from: Date,
+  to: Date,
+  bucketSeconds: number,
+  service?: string | null,
+  dialect: TelemetrySqlDialect = GREPTIME_SQL_DIALECT,
+): string {
+  const { timestampColumn: ts, valueColumn: value } = dialect;
   return (
-    `SELECT date_bin(${bucketInterval(bucketSeconds)}, ts) AS t, avg(total) AS v FROM (` +
-    `SELECT greptime_timestamp AS ts, sum(greptime_value) AS total FROM ${ident(HEAP_USED_TABLE)} ` +
-    `WHERE ${metricWhere(from, to, service)} GROUP BY greptime_timestamp` +
-    `) GROUP BY t ORDER BY t LIMIT ${bucketRowLimit(from, to, bucketSeconds)}`
+    `SELECT ${bucketOf(dialect, 'ts', bucketSeconds)} AS t, avg(total) AS v FROM (` +
+    `SELECT ${ts} AS ts, sum(${value}) AS total FROM ${ident(HEAP_USED_TABLE)} ` +
+    `WHERE ${metricWhere(from, to, service, dialect)} GROUP BY ${ts}` +
+    `) GROUP BY t ORDER BY t ${dialect.limit(bucketRowLimit(from, to, bucketSeconds))}`
   );
 }
 
 /** Event-loop delay p99 (ms), max per bucket over `[from, to)`. Columns: t, v. */
-export function eventLoopDelayP99Sql(from: Date, to: Date, bucketSeconds: number, service?: string | null): string {
+export function eventLoopDelayP99Sql(
+  from: Date,
+  to: Date,
+  bucketSeconds: number,
+  service?: string | null,
+  dialect: TelemetrySqlDialect = GREPTIME_SQL_DIALECT,
+): string {
+  const { timestampColumn: ts, valueColumn: value } = dialect;
   return (
-    `SELECT date_bin(${bucketInterval(bucketSeconds)}, greptime_timestamp) AS t, max(greptime_value) * 1000 AS v ` +
-    `FROM ${ident(EVENT_LOOP_P99_TABLE)} WHERE ${metricWhere(from, to, service)} ` +
-    `GROUP BY t ORDER BY t LIMIT ${bucketRowLimit(from, to, bucketSeconds)}`
+    `SELECT ${bucketOf(dialect, ts, bucketSeconds)} AS t, max(${value}) * 1000 AS v ` +
+    `FROM ${ident(EVENT_LOOP_P99_TABLE)} WHERE ${metricWhere(from, to, service, dialect)} ` +
+    `GROUP BY t ORDER BY t ${dialect.limit(bucketRowLimit(from, to, bucketSeconds))}`
   );
 }

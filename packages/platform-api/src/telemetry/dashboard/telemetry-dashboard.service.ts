@@ -18,7 +18,14 @@ import {
   type TelemetryDashboardTopQuery,
 } from '../dto/telemetry-dashboard.dto';
 import type { TelemetrySchema } from '../dto/telemetry-query.dto';
-import { GreptimeClient, type TelemetryQueryResult } from '../greptime/greptime.client';
+import { GREPTIME_SQL_DIALECT } from '../stores/greptime/greptime.dialect';
+import {
+  TELEMETRY_SQL_DIALECT,
+  TELEMETRY_STORE,
+  type TelemetryQueryResult,
+  type TelemetrySqlDialect,
+  type TelemetryStore,
+} from '../stores/telemetry-store';
 import { analyzeStatement } from '../query/sql-guard';
 import { requireQueryablePolicy, toTelemetryHttpError } from '../query/telemetry-availability';
 import { TELEMETRY_ERROR_REASONS, TelemetryHttpError } from '../query/telemetry-query.errors';
@@ -380,14 +387,14 @@ class StatementRunner {
   readonly sql: string[] = [];
 
   constructor(
-    private readonly greptime: GreptimeClient,
+    private readonly store: TelemetryStore,
     private readonly timeoutMs: number,
   ) {}
 
   async run(sql: string): Promise<TelemetryQueryResult> {
     this.sql.push(sql);
     try {
-      return await this.greptime.queryReader(sql, { timeoutMs: this.timeoutMs });
+      return await this.store.query(sql, [], { readOnly: true, timeoutMs: this.timeoutMs });
     } catch (error) {
       throw toTelemetryHttpError(error);
     }
@@ -406,7 +413,7 @@ export class TelemetryDashboardService {
   private readonly distinct = new SharedTtlCache<DistinctValues>(DASHBOARD_DISTINCT_CACHE_MS);
 
   constructor(
-    private readonly greptime: GreptimeClient,
+    @Inject(TELEMETRY_STORE) private readonly store: TelemetryStore,
     private readonly settings: TelemetrySettingsService,
     private readonly schema: TelemetrySchemaService,
     @Inject(TELEMETRY_AUDIT_SINK) private readonly auditSink: TelemetryAuditSink,
@@ -416,6 +423,8 @@ export class TelemetryDashboardService {
     @Inject(TELEMETRY_VERDICT_THRESHOLDS) private readonly thresholds: VerdictThresholds = DEFAULT_VERDICT_THRESHOLDS,
     // `forRoot({ metrics: { freshMs } })`; optional so a host that predates it boots.
     @Optional() @Inject(TELEMETRY_METRIC_FRESH_MS) private readonly metricFreshMs: number = METRIC_FRESH_MS,
+    // The store's SQL dialect (PP-14.11); the built-in GreptimeDB one serves a hand-built instance.
+    @Optional() @Inject(TELEMETRY_SQL_DIALECT) private readonly dialect: TelemetrySqlDialect = GREPTIME_SQL_DIALECT,
   ) {}
 
   async summary(userId: string, query: TelemetryDashboardQuery): Promise<TelemetryDashboardSummary> {
@@ -452,7 +461,7 @@ export class TelemetryDashboardService {
   }
 
   async filters(userId: string, query: TelemetryDashboardQuery): Promise<TelemetryDashboardFilters> {
-    const policy = await requireQueryablePolicy(this.greptime, this.settings);
+    const policy = await requireQueryablePolicy(this.store, this.settings);
     const window = resolveWindow(query);
     const timeoutMs = policy.query.timeoutSeconds * 1000;
     const started = Date.now();
@@ -482,7 +491,7 @@ export class TelemetryDashboardService {
     extra: Record<string, string>,
     compute: (ctx: ComputeContext) => Promise<T>,
   ): Promise<T> {
-    const policy = await requireQueryablePolicy(this.greptime, this.settings);
+    const policy = await requireQueryablePolicy(this.store, this.settings);
     const window = resolveWindow(query);
     const key = [
       route,
@@ -498,7 +507,7 @@ export class TelemetryDashboardService {
     const value = await this.results.get(key, () => {
       const started = Date.now();
       return this.audited(userId, route, { ...query, ...extra }, started, async () => {
-        const runner = new StatementRunner(this.greptime, policy.query.timeoutSeconds * 1000);
+        const runner = new StatementRunner(this.store, policy.query.timeoutSeconds * 1000);
         const schema = await this.schema.getSchema();
         const catalog = catalogOf(schema);
         const tables = metricTablesOf(schema);
@@ -552,7 +561,7 @@ export class TelemetryDashboardService {
       actorUserId: userId,
       action: TELEMETRY_DASHBOARD_AUDIT_ACTION,
       targetType: 'telemetry_store',
-      targetId: this.greptime.database,
+      targetId: this.store.database,
       meta: { route, params: auditParams(params), ...meta },
     });
   }
@@ -603,13 +612,19 @@ export class TelemetryDashboardService {
       catalog = catalogOf(schema);
       metricTables = metricTablesOf(schema);
     }
-    const runner = new StatementRunner(this.greptime, timeoutMs);
+    const runner = new StatementRunner(this.store, timeoutMs);
     const tables = { traces: catalog.traces, logs: catalog.logs };
 
     const [services, instances, hosts] = await Promise.all([
-      runner.maybe(distinctServicesSql(window.from, window.to, tables)),
+      runner.maybe(distinctServicesSql(window.from, window.to, tables, undefined, this.dialect)),
       runner.maybe(
-        distinctInstancesSql(window.from, window.to, { traces: catalog.tracesHaveInstance, logs: catalog.logs }),
+        distinctInstancesSql(
+          window.from,
+          window.to,
+          { traces: catalog.tracesHaveInstance, logs: catalog.logs },
+          undefined,
+          this.dialect,
+        ),
       ),
       runner.maybe(
         distinctHostsSql(
@@ -654,29 +669,29 @@ export class TelemetryDashboardService {
     // (see UNKNOWN_ROUTE_PREDICATE); the templates return null otherwise.
     const unknownSql = catalog.traces
       ? {
-          totals: unknownRoutesTotalsSql(window.previousFrom, window, filters),
-          top: topUnknownRoutesSql(window, filters, UNKNOWN_ROUTES_TOP_N + 1),
+          totals: unknownRoutesTotalsSql(window.previousFrom, window, filters, this.dialect),
+          top: topUnknownRoutesSql(window, filters, UNKNOWN_ROUTES_TOP_N + 1, this.dialect),
         }
       : { totals: null, top: null };
 
     const [apiTotals, apiSeries, logsTotals, logsSeries, last, routes, errors, heap, eventLoop, probeResults, unknownTotals, unknownTop] = await Promise.all([
-      runner.maybe(catalog.traces ? apiTotalsSql(window.previousFrom, window, filters) : null),
-      runner.maybe(catalog.traces ? apiTimeseriesSql(window, filters) : null),
-      runner.maybe(catalog.logs ? logsTotalsSql(window.previousFrom, window, filters) : null),
-      runner.maybe(catalog.logs ? logsTimeseriesSql(window, filters) : null),
+      runner.maybe(catalog.traces ? apiTotalsSql(window.previousFrom, window, filters, this.dialect) : null),
+      runner.maybe(catalog.traces ? apiTimeseriesSql(window, filters, this.dialect) : null),
+      runner.maybe(catalog.logs ? logsTotalsSql(window.previousFrom, window, filters, this.dialect) : null),
+      runner.maybe(catalog.logs ? logsTimeseriesSql(window, filters, this.dialect) : null),
       runner.maybe(
         catalog.traces || catalog.logs
           ? lastDataSql(lastDataSince, new Date(now.getTime() + 60_000), filters, {
               traces: catalog.traces,
               logs: catalog.logs,
-            })
+            }, this.dialect)
           : null,
       ),
-      runner.maybe(catalog.traces ? topRoutesSql(window, filters) : null),
-      runner.maybe(catalog.logs ? topErrorsSql(window, filters, 1) : null),
-      runner.maybe(catalog.heap ? heapUsedSql(window.previousFrom, window.to, runtimeBucket, runtimeService) : null),
+      runner.maybe(catalog.traces ? topRoutesSql(window, filters, undefined, this.dialect) : null),
+      runner.maybe(catalog.logs ? topErrorsSql(window, filters, 1, this.dialect) : null),
+      runner.maybe(catalog.heap ? heapUsedSql(window.previousFrom, window.to, runtimeBucket, runtimeService, this.dialect) : null),
       runner.maybe(
-        catalog.eventLoop ? eventLoopDelayP99Sql(window.previousFrom, window.to, runtimeBucket, runtimeService) : null,
+        catalog.eventLoop ? eventLoopDelayP99Sql(window.previousFrom, window.to, runtimeBucket, runtimeService, this.dialect) : null,
       ),
       Promise.all(VERDICT_PROBES.map((probe) => runner.maybe(probeSql[probe]))),
       runner.maybe(unknownSql.totals),
@@ -848,7 +863,7 @@ export class TelemetryDashboardService {
   ): Promise<TelemetryDashboardMetrics> {
     const now = new Date(Date.now());
     const freshMs = this.metricFreshMs ?? METRIC_FRESH_MS;
-    const result = await computeMetricGroup({ group, window, filters, tables, runner, now, freshMs });
+    const result = await computeMetricGroup({ group, window, filters, tables, runner, now, freshMs, dialect: this.dialect });
     return {
       range: { from: window.from.toISOString(), to: window.to.toISOString(), bucketSeconds: result.bucketSeconds },
       generatedAt: now.toISOString(),
@@ -879,7 +894,7 @@ export class TelemetryDashboardService {
     });
 
     if (panel === 'api') {
-      const result = await runner.maybe(catalog.traces ? apiTimeseriesSql(window, filters) : null);
+      const result = await runner.maybe(catalog.traces ? apiTimeseriesSql(window, filters, this.dialect) : null);
       const rows = byBucket(result);
       const i = (name: string) => column(result, name);
       return {
@@ -899,7 +914,7 @@ export class TelemetryDashboardService {
       };
     }
 
-    const result = await runner.maybe(catalog.logs ? logsTimeseriesSql(window, filters) : null);
+    const result = await runner.maybe(catalog.logs ? logsTimeseriesSql(window, filters, this.dialect) : null);
     const rows = byBucket(result);
     const i = (name: string) => column(result, name);
     return {
@@ -927,7 +942,7 @@ export class TelemetryDashboardService {
     const base = () => ({ range: rangeOf(window), generatedAt: new Date(Date.now()).toISOString(), sql: runner.sql[0] ?? '' });
 
     if (kind === 'routes') {
-      const rows = objects(await runner.maybe(catalog.traces ? topRoutesSql(window, filters) : null));
+      const rows = objects(await runner.maybe(catalog.traces ? topRoutesSql(window, filters, undefined, this.dialect) : null));
       return {
         ...base(),
         truncated: rows.length > TOP_N,
@@ -951,7 +966,7 @@ export class TelemetryDashboardService {
       };
     }
 
-    const rows = objects(await runner.maybe(catalog.logs ? topErrorsSql(window, filters) : null));
+    const rows = objects(await runner.maybe(catalog.logs ? topErrorsSql(window, filters, undefined, this.dialect) : null));
     return {
       ...base(),
       truncated: rows.length > TOP_N,
@@ -981,7 +996,7 @@ export class TelemetryDashboardService {
       return { ...envelope, sql: '', items: [], nextCursor: null };
     }
 
-    const sql = eventsSql(window, filters, { severities, q, cursor, limit: EVENTS_PAGE_SIZE + 1 });
+    const sql = eventsSql(window, filters, { severities, q, cursor, limit: EVENTS_PAGE_SIZE + 1 }, this.dialect);
 
     // Defence in depth: the statement is server-authored, but it carries user
     // text, so it must still be exactly one read-only statement.

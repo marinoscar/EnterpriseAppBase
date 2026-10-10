@@ -19,6 +19,9 @@
 //                 `DEFAULT_VERDICT_THRESHOLDS` (zod-validated); `verdictPolicy`:
 //                 what `VERDICT_POLICY` is bound to (rung 3; default
 //                 `DefaultVerdictPolicy`).
+//   store         the id of the telemetry store the slice queries (default
+//                 `greptime`): a store registered with `registerTelemetryStore`
+//                 before `forRoot` runs (PP-14.11).
 //   metrics       `freshMs`: how much older than its table's newest reading a
 //                 `last` cell (and an uptime check) may be and still count as
 //                 current (default `METRIC_FRESH_MS`, 150 s).
@@ -35,6 +38,9 @@ import { DEFAULT_VERDICT_THRESHOLDS, type VerdictThresholds } from './dashboard/
 import type { VerdictPolicy } from './dashboard/verdict-policy';
 import { METRIC_FRESH_MS } from './metrics/metric-group';
 import type { MetricGroupDef } from './metrics/metric-group.registry';
+// The built-in store registers on import: whatever validates a store id finds it.
+import './stores/greptime/greptime.store';
+import { BUILTIN_TELEMETRY_STORE_ID, telemetryStoreKind } from './stores/telemetry-store';
 
 /**
  * A partial {@link VerdictThresholds}: any field, at any depth, may be left out
@@ -118,6 +124,18 @@ export interface TelemetryModuleOptions {
   dashboard?: TelemetryDashboardOptions;
   /** The dashboard metric groups' freshness window. */
   metrics?: TelemetryMetricsOptions;
+  /**
+   * The id of the telemetry store the explorer, the dashboard, the status page,
+   * the retention job and the Doctor use. Default `greptime` (the built-in).
+   * An app's own store is registered with `registerTelemetryStore` at import
+   * time (before `forRoot` runs) and selected here.
+   *
+   * @example
+   * ```ts
+   * TelemetryModule.forRoot({ host, imports, store: 'memory' });
+   * ```
+   */
+  store?: string;
 }
 
 /**
@@ -143,6 +161,8 @@ export interface ResolvedTelemetryModuleOptions {
   readonly verdictPolicy: PortBinding<VerdictPolicy> | undefined;
   /** The metric groups' freshness window in milliseconds (`TELEMETRY_METRIC_FRESH_MS`). */
   readonly metricFreshMs: number;
+  /** The id of the selected telemetry store (registered; default `greptime`). */
+  readonly store: string;
 }
 
 /**
@@ -347,6 +367,14 @@ export function resolveTelemetryModuleOptions(options: TelemetryModuleOptions): 
   const verdictThresholds = resolveVerdictThresholds(options.dashboard?.verdictThresholds);
   const metricFreshMs = resolveMetricFreshMs(options.metrics);
 
+  const store = options.store ?? BUILTIN_TELEMETRY_STORE_ID;
+  if (typeof store !== 'string' || !telemetryStoreKind.has(store)) {
+    fail(
+      `\`store\` ${JSON.stringify(store)} is not a registered telemetry store (registered: ${telemetryStoreKind.ids().join(', ') || '(none)'}). ` +
+        'Register it with registerTelemetryStore at import time, before TelemetryModule.forRoot runs',
+    );
+  }
+
   const actorId = options.actorId ?? defaultTelemetryActorId;
   const param = createParamDecorator((_data: unknown, ctx: ExecutionContext) => actorId(ctx.switchToHttp().getRequest()));
 
@@ -359,5 +387,6 @@ export function resolveTelemetryModuleOptions(options: TelemetryModuleOptions): 
     verdictThresholds,
     verdictPolicy,
     metricFreshMs,
+    store,
   });
 }

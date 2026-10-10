@@ -1,17 +1,19 @@
 // =============================================================================
-// Typed failures of the GreptimeDB client (issue #534, epic #528)
+// Typed failures of a telemetry store (issue #534, epic #528; PP-14.11)
 // =============================================================================
 //
-// One base class so a caller (the status service here; the explorer's query
-// service in #535; the assistant's tools in #536) can catch "anything the
-// telemetry store did" in one clause and map the subclasses to its own
-// response. NONE OF THESE MESSAGES CARRIES A CREDENTIAL: they are built from
+// What `TelemetryStore.query` throws on purpose. One base class so a caller
+// (the status service, the explorer's query service, the assistant's tools) can
+// catch "anything the telemetry store did" in one clause and map the subclasses
+// to its own response. A store an app registers throws these same classes (they
+// are exported by `@marinoscar/platform-api/telemetry`), so the explorer maps
+// its failures to the same HTTP responses. NONE OF THESE MESSAGES CARRIES A CREDENTIAL: they are built from
 // fixed text plus, for `TelemetryQueryFailedError`, the server's own error
 // message, which GreptimeDB builds from the SQL it was given — never from the
 // connection's password.
 // =============================================================================
 
-/** Base of every error `GreptimeClient` throws on purpose. */
+/** Base of every error a telemetry store throws on purpose. */
 export class TelemetryStoreError extends Error {
   constructor(message: string) {
     super(message);
@@ -26,13 +28,18 @@ export class TelemetryStoreError extends Error {
  * deployment without a telemetry store is a supported state.
  */
 export class TelemetryNotConfiguredError extends TelemetryStoreError {
-  constructor(readonly role: 'reader' | 'admin') {
+  constructor(
+    readonly role: 'reader' | 'admin',
+    /** Replaces the GreptimeDB wording, for a store that is not GreptimeDB. */
+    message?: string,
+  ) {
     super(
-      role === 'admin'
-        ? 'The GreptimeDB admin connection is not configured. Set the admin user and password at ' +
+      message ??
+        (role === 'admin'
+          ? 'The GreptimeDB admin connection is not configured. Set the admin user and password at ' +
             '/admin/settings/telemetry (or GREPTIME_ADMIN_USER / GREPTIME_ADMIN_PASSWORD as the deployment default).'
-        : 'GreptimeDB is not configured. Configure the connection at /admin/settings/telemetry ' +
-            '(or GREPTIME_HOST / GREPTIME_READER_USER / GREPTIME_READER_PASSWORD as the deployment default).',
+          : 'GreptimeDB is not configured. Configure the connection at /admin/settings/telemetry ' +
+            '(or GREPTIME_HOST / GREPTIME_READER_USER / GREPTIME_READER_PASSWORD as the deployment default).'),
     );
   }
 }

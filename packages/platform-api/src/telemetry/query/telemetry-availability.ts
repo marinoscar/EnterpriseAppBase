@@ -1,11 +1,11 @@
 import type { TelemetrySettings as SystemTelemetryValue } from '@marinoscar/platform-contract/telemetry';
-import type { GreptimeClient } from '../greptime/greptime.client';
+import type { TelemetryStore } from '../stores/telemetry-store';
 import {
   TelemetryMultiStatementError,
   TelemetryNotConfiguredError,
   TelemetryQueryFailedError,
   TelemetryQueryTimeoutError,
-} from '../greptime/greptime.errors';
+} from '../stores/telemetry-store.errors';
 import type { TelemetrySettingsService } from '../telemetry-settings.service';
 import { TelemetrySqlRejectedError } from './sql-guard';
 import { TELEMETRY_ERROR_REASONS, TelemetryHttpError } from './telemetry-query.errors';
@@ -20,10 +20,10 @@ import { TELEMETRY_ERROR_REASONS, TelemetryHttpError } from './telemetry-query.e
 
 /** The current policy, or a `TelemetryHttpError` saying why nothing may be queried. */
 export async function requireQueryablePolicy(
-  greptime: GreptimeClient,
+  store: TelemetryStore,
   settings: TelemetrySettingsService,
 ): Promise<SystemTelemetryValue> {
-  if (!greptime.isConfigured()) {
+  if (!store.isConfigured()) {
     throw new TelemetryHttpError(
       TELEMETRY_ERROR_REASONS.NOT_CONFIGURED,
       'No telemetry store is configured for this deployment.',
@@ -43,7 +43,7 @@ export async function requireQueryablePolicy(
 }
 
 /**
- * Maps anything the guard or `GreptimeClient` threw to its HTTP failure.
+ * Maps anything the guard or the telemetry store threw to its HTTP failure.
  * Anything unrecognised is returned unchanged (and becomes a 500).
  */
 export function toTelemetryHttpError(error: unknown): unknown {

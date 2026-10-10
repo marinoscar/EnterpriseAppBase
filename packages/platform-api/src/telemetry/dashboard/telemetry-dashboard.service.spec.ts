@@ -6,8 +6,8 @@ import {
   telemetryDashboardTimeseriesQuerySchema,
 } from '../dto/telemetry-dashboard.dto';
 import type { TelemetrySchema } from '../dto/telemetry-query.dto';
-import type { TelemetryQueryResult } from '../greptime/greptime.client';
-import { TelemetryQueryFailedError, TelemetryQueryTimeoutError } from '../greptime/greptime.errors';
+import type { TelemetryQueryResult } from '../stores/greptime/greptime.client';
+import { TelemetryQueryFailedError, TelemetryQueryTimeoutError } from '../stores/telemetry-store.errors';
 import { analyzeStatement } from '../query/sql-guard';
 import { TelemetryHttpError } from '../query/telemetry-query.errors';
 import { metricCatalogSchema } from '../testing/metric-schema.fixture';
@@ -170,15 +170,21 @@ function setup(opts: { schema?: TelemetrySchema; overrides?: Record<string, Tele
   const greptime = {
     database: 'public',
     isConfigured: jest.fn().mockReturnValue(true),
-    queryReader: jest.fn(async (sql: string) => answer(sql, opts.overrides)),
+    queryReader: jest.fn(async (sql: string, _options?: unknown) => answer(sql, opts.overrides)),
   };
   const settings = { getPolicy: jest.fn().mockResolvedValue(POLICY) };
   const schema = { getSchema: jest.fn().mockResolvedValue(opts.schema ?? FULL_SCHEMA) };
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
-  const service = new TelemetryDashboardService(greptime as never, settings as never, schema as never, audit as never);
+  // The service talks to the store port; this adapter keeps the assertions on the GreptimeDB-facing `queryReader` call.
+  const store = {
+    ...greptime,
+    query: (sql: string, _params: unknown[], options: { timeoutMs: number }) =>
+      greptime.queryReader(sql, { timeoutMs: options.timeoutMs }),
+  };
+  const service = new TelemetryDashboardService(store as never, settings as never, schema as never, audit as never);
   const sqlOf = (kind: string) => greptime.queryReader.mock.calls.map(([sql]) => sql).filter((sql) => classify(sql) === kind);
 
-  return { service, greptime, settings, schema, audit, sqlOf };
+  return { service, greptime, store, settings, schema, audit, sqlOf };
 }
 
 async function rejection(promise: Promise<unknown>): Promise<TelemetryHttpError> {
@@ -964,9 +970,9 @@ describe('metrics route', () => {
     const { service } = setup({ schema: METRIC_SCHEMA });
     expect((await service.metrics('u1', { group: 'host' })).freshMs).toBe(150_000);
 
-    const { greptime, settings, schema, audit } = setup({ schema: METRIC_SCHEMA });
+    const { store, settings, schema, audit } = setup({ schema: METRIC_SCHEMA });
     const custom = new TelemetryDashboardService(
-      greptime as never,
+      store as never,
       settings as never,
       schema as never,
       audit as never,

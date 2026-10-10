@@ -5,7 +5,7 @@ import { DoctorCheckOutcome } from '../../doctor/index';
 import { DoctorCheckRegistry } from '../../doctor/index';
 import { TelemetryConnectionService } from '../connection/telemetry-connection.service';
 import { TelemetryStatus } from '../dto/telemetry-status.dto';
-import { GreptimeClient } from '../greptime/greptime.client';
+import type { TelemetryStore } from '../stores/telemetry-store';
 import { TelemetrySettingsService } from '../telemetry-settings.service';
 import { TelemetryStatusService } from '../telemetry-status.service';
 import { TelemetryConnectionDoctorCheck } from './telemetry-connection.doctor-check';
@@ -117,7 +117,7 @@ describe('telemetry doctor checks', () => {
     const make = (ping: object) =>
       new TelemetryReachableDoctorCheck(registry(), {
         ping: jest.fn().mockResolvedValue(ping),
-      } as unknown as GreptimeClient);
+      } as unknown as TelemetryStore);
 
     it('passes with the version', async () => {
       const outcome = await make({ reachable: true, version: 'PostgreSQL 16.3 GreptimeDB 1.2.1' }).run();
@@ -209,7 +209,9 @@ describe('telemetry doctor checks', () => {
         fields: [{ name: 'traces_last' }, { name: 'logs_last' }],
         rows: [[new Date().toISOString(), new Date().toISOString()]],
       });
-      const check = new TelemetryFreshnessDoctorCheck(registry(), { queryReader } as unknown as GreptimeClient);
+      // The check talks to the store port; `query` is the built-in's reader call.
+      const store = { query: (sql: string, _params: unknown[], options: { timeoutMs: number }) => queryReader(sql, options) };
+      const check = new TelemetryFreshnessDoctorCheck(registry(), store as unknown as TelemetryStore);
 
       await expect(check.run()).resolves.toMatchObject({ status: 'pass' });
       const sql = String(queryReader.mock.calls[0][0]);

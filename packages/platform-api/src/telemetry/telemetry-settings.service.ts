@@ -15,7 +15,7 @@ import type {
   TelemetryPublicConfig,
   UpdateTelemetryConfigInput,
 } from './dto/telemetry-config.dto';
-import { GreptimeClient } from './greptime/greptime.client';
+import { TELEMETRY_STORE, telemetryStoreKind, type TelemetryStore } from './stores/telemetry-store';
 import { TELEMETRY_RETENTION_TYPE } from './handlers/telemetry-retention.handler';
 import {
   TELEMETRY_APP_INFO,
@@ -96,7 +96,7 @@ export class TelemetrySettingsService implements OnModuleInit, OnModuleDestroy {
   constructor(
     @Inject(TELEMETRY_AUDIT_SINK) private readonly audit: TelemetryAuditSink,
     @Inject(TELEMETRY_SETTINGS_STORE) private readonly systemSettings: TelemetrySettingsStore,
-    private readonly greptime: GreptimeClient,
+    @Inject(TELEMETRY_STORE) private readonly store: TelemetryStore,
     @Inject(TELEMETRY_JOBS) private readonly jobs: TelemetryJobsPort,
     @Inject(TELEMETRY_APP_INFO) private readonly appInfo: TelemetryAppInfo,
   ) {}
@@ -156,7 +156,7 @@ export class TelemetrySettingsService implements OnModuleInit, OnModuleDestroy {
   async refreshGate(): Promise<boolean> {
     try {
       const policy = await this.getPolicy({ fresh: true });
-      const next = policy.enabled && this.greptime.isConfigured();
+      const next = policy.enabled && this.store.isConfigured();
       const previous = telemetryGate.isEnabled();
       const nextInstanceId = resolveTelemetryInstanceId(policy.instanceId, this.appInfo.slug);
       const previousInstanceId = telemetryGate.instanceId();
@@ -196,8 +196,9 @@ export class TelemetrySettingsService implements OnModuleInit, OnModuleDestroy {
 
     return {
       ...structuredClone(policy),
-      available: this.greptime.isConfigured(),
-      retentionApplicable: this.greptime.isAdminConfigured(),
+      available: this.store.isConfigured(),
+      retentionApplicable: this.store.retention?.isApplicable() ?? false,
+      store: { id: this.store.id, label: this.storeLabel() },
       instanceIdDefault: this.appInfo.slug,
       instanceIdEffective: resolveTelemetryInstanceId(policy.instanceId, this.appInfo.slug),
       version: row?.version ?? 0,
@@ -206,12 +207,17 @@ export class TelemetrySettingsService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  /** The active store's human label (its registered label, else its id). */
+  private storeLabel(): string {
+    return telemetryStoreKind.has(this.store.id) ? telemetryStoreKind.get(this.store.id).label : this.store.id;
+  }
+
   /** `GET /api/telemetry/config` — the web feature flag. Cached; no provenance, no bounds. */
   async describePublic(): Promise<TelemetryPublicConfig> {
     const policy = await this.getPolicy();
 
     return {
-      available: this.greptime.isConfigured(),
+      available: this.store.isConfigured(),
       enabled: policy.enabled,
       assistantEnabled: policy.assistant.enabled,
     };

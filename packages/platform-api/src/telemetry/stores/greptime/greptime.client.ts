@@ -1,11 +1,13 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { Pool, types as pgTypes, type PoolClient, type PoolConfig, type QueryArrayResult } from 'pg';
 
+import type { TelemetrySchema } from '@marinoscar/platform-contract/telemetry';
+
 import {
   TelemetryConnectionService,
   type GreptimeEnvironmentConfig,
-} from '../connection/telemetry-connection.service';
-import type { TelemetryConnectionRole } from '../connection/telemetry-connection.schema';
+} from '../../connection/telemetry-connection.service';
+import type { TelemetryConnectionRole } from '../../connection/telemetry-connection.schema';
 
 import {
   TelemetryMultiStatementError,
@@ -13,8 +15,20 @@ import {
   TelemetryQueryFailedError,
   TelemetryQueryTimeoutError,
   TelemetryQueryAbortedError,
-} from './greptime.errors';
+} from '../telemetry-store.errors';
+import type {
+  TelemetryPingResult,
+  TelemetryQueryOptions,
+  TelemetryQueryResult,
+  TelemetryRetentionControl,
+  TelemetryStore,
+  TelemetryStoreQueryOptions,
+} from '../telemetry-store';
 import { checkHostResolves, hostNotFoundMessage, isDnsError, type HostCheckOptions } from './greptime-host';
+import { createGreptimeRetention } from './greptime.retention';
+import { readGreptimeSchema } from './greptime.schema';
+
+export type { TelemetryField, TelemetryPingResult, TelemetryQueryOptions, TelemetryQueryResult } from '../telemetry-store';
 
 // =============================================================================
 // GreptimeClient — the API's only connection to the telemetry store
@@ -82,60 +96,6 @@ import { checkHostResolves, hostNotFoundMessage, isDnsError, type HostCheckOptio
 // error message.
 // =============================================================================
 
-/**
- * A column of a result, as the wire protocol describes it.
- *
- * @stability experimental
- */
-export interface TelemetryField {
-  /** The column name. */
-  name: string;
-  /** PostgreSQL type OID (1043 varchar, 20 int8, 1700 numeric, 1114/1184 timestamp, …). */
-  dataTypeID: number;
-}
-
-/**
- * One statement's result. `rows[i][j]` is the value of `fields[j]`.
- *
- * @stability experimental
- */
-export interface TelemetryQueryResult {
-  /** The columns. */
-  fields: TelemetryField[];
-  /** The rows, in column order. */
-  rows: unknown[][];
-}
-
-/**
- * How one statement runs.
- *
- * @stability experimental
- */
-export interface TelemetryQueryOptions {
-  /** Hard client-side ceiling on the statement's wall-clock time. */
-  timeoutMs: number;
-  /**
-   * Abandons the statement (destroying its connection, exactly as a timeout
-   * does) when aborted — `TelemetryQueryAbortedError`. Issue #536: a closed
-   * assistant stream stops its in-flight query.
-   */
-  signal?: AbortSignal;
-}
-
-/**
- * Whether the store answered a `SELECT version()`.
- *
- * @stability experimental
- */
-export interface TelemetryPingResult {
-  /** Whether it answered. */
-  reachable: boolean;
-  /** `SELECT version()` — e.g. `PostgreSQL 16.3 GreptimeDB 1.2.1`. */
-  version?: string;
-  /** Why it did not (no secret material). */
-  error?: string;
-}
-
 /** The `greptime` block of `config/configuration.ts` — the deployment default. */
 export type GreptimeConfig = GreptimeEnvironmentConfig;
 
@@ -179,6 +139,9 @@ export const GREPTIME_CONNECT_TIMEOUT_MS = 5_000;
 /** Timeout for `ping()`. */
 export const GREPTIME_PING_TIMEOUT_MS = 5_000;
 
+/** Default ceiling of each `information_schema` read of `schema()`. */
+export const GREPTIME_SCHEMA_TIMEOUT_MS = 10_000;
+
 /** Type OIDs whose text form is kept verbatim instead of parsed by `pg`. */
 const KEEP_AS_TEXT_OIDS = new Set<number>([
   20, // int8 — beyond Number.MAX_SAFE_INTEGER in practice (durations in ns)
@@ -217,29 +180,36 @@ export function quoteLiteral(value: string): string {
   return `'${value.replace(/'/g, "''")}'`;
 }
 
-/** `rows` as objects keyed by field name. Only when the names are unique. */
-export function rowsAsObjects(result: TelemetryQueryResult): Record<string, unknown>[] {
-  return result.rows.map((row) =>
-    Object.fromEntries(result.fields.map((field, index) => [field.name, row[index]])),
-  );
-}
+// Kept here for the callers (and the tests) that import it from the client.
+export { rowsAsObjects } from '../telemetry-store';
 
 /**
- * The telemetry store's client: a read-only reader pool and an admin pool,
- * built from the runtime connection and rebuilt when it changes. Exported by
- * `TelemetryModule`.
+ * The built-in telemetry store (`greptime`): a read-only reader pool and an
+ * admin pool, built from the runtime connection and rebuilt when it changes.
+ * Implements {@link TelemetryStore} (the port every service depends on) and
+ * keeps its GreptimeDB-specific members (`queryReader`, `queryAdmin`,
+ * `isAdminConfigured`) for the code that is GreptimeDB-specific by nature.
+ * Exported by `TelemetryModule`.
  *
  * @stability experimental
  */
 @Injectable()
-export class GreptimeClient implements OnModuleDestroy {
+export class GreptimeClient implements TelemetryStore, OnModuleDestroy {
+  /** The store id: `greptime`. */
+  readonly id = 'greptime';
+
   private readonly logger = new Logger(GreptimeClient.name);
   private readonly pools: Partial<Record<Role, KeyedPool>> = {};
   /** A pool being built (its password is being read), so concurrent calls share it. */
   private readonly building: Partial<Record<Role, Promise<KeyedPool>>> = {};
 
+  /** The retention control: `ALTER DATABASE ... SET 'ttl'` on the admin login, `SHOW CREATE DATABASE` to read it. */
+  readonly retention: TelemetryRetentionControl;
+
   /** @internal */
-  constructor(private readonly connection: TelemetryConnectionService) {}
+  constructor(private readonly connection: TelemetryConnectionService) {
+    this.retention = createGreptimeRetention(this);
+  }
 
   /** Whether the reader connection is configured (admin UI or deployment default). */
   isConfigured(): boolean {
@@ -263,6 +233,33 @@ export class GreptimeClient implements OnModuleDestroy {
   /** The GreptimeDB database telemetry is written to (default `public`). */
   get database(): string {
     return this.connection.database;
+  }
+
+  /**
+   * {@link TelemetryStore.query}: one statement as the read-only user. The
+   * login is what makes `readOnly` true (GreptimeDB refuses a write from it);
+   * the SQL is sent as-is, so `params` must be empty (see the header).
+   */
+  async query(sql: string, params: readonly unknown[], options: TelemetryStoreQueryOptions): Promise<TelemetryQueryResult> {
+    if (params.length > 0) {
+      throw new TelemetryQueryFailedError(
+        'GreptimeDB does not accept bind parameters; the statement must carry its values as quoted literals.',
+        undefined,
+        'server',
+      );
+    }
+
+    return this.run('reader', sql, { timeoutMs: options.timeoutMs, signal: options.signal });
+  }
+
+  /** {@link TelemetryStore.schema}: the tables and columns of the telemetry database, read fresh. */
+  async schema(options: { timeoutMs?: number } = {}): Promise<TelemetrySchema> {
+    return readGreptimeSchema(this, options.timeoutMs ?? GREPTIME_SCHEMA_TIMEOUT_MS);
+  }
+
+  /** {@link TelemetryStore.close}: closes both pools. */
+  async close(): Promise<void> {
+    await this.onModuleDestroy();
   }
 
   /**

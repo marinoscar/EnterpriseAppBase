@@ -1,6 +1,7 @@
 import { HttpStatus } from '@nestjs/common';
 
-import { TelemetryQueryTimeoutError } from '../greptime/greptime.errors';
+import { readGreptimeSchema } from '../stores/greptime/greptime.schema';
+import { TelemetryQueryTimeoutError } from '../stores/telemetry-store.errors';
 import { TelemetryHttpError } from './telemetry-query.errors';
 import { groupSchema, TELEMETRY_SCHEMA_CACHE_MS, TelemetrySchemaService } from './telemetry-schema.service';
 
@@ -35,7 +36,13 @@ function setup(opts: { configured?: boolean; enabled?: boolean } = {}) {
     getPolicy: jest.fn().mockResolvedValue({ enabled: opts.enabled ?? true, query: { maxRows: 10, timeoutSeconds: 9 } }),
   };
 
-  return { service: new TelemetrySchemaService(greptime as never, settings as never), greptime };
+  // The store's `schema()` is what the service calls; the built-in reads `information_schema` through `queryReader`.
+  const store = {
+    ...greptime,
+    schema: (options?: { timeoutMs?: number }) => readGreptimeSchema(greptime, options?.timeoutMs ?? 10_000),
+  };
+
+  return { service: new TelemetrySchemaService(store as never, settings as never), greptime };
 }
 
 describe('TelemetrySchemaService', () => {

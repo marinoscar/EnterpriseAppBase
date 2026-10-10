@@ -47,6 +47,13 @@ export function bucketInterval(bucketSeconds: number): string {
   return `INTERVAL '${bucketSeconds} seconds'`;
 }
 
+/** Throws a RangeError unless `bucketSeconds` is one of {@link BUCKET_SIZES_SECONDS}. */
+export function assertBucketSeconds(bucketSeconds: number): void {
+  if (!(BUCKET_SIZES_SECONDS as readonly number[]).includes(bucketSeconds)) {
+    throw new RangeError(`bucketSeconds must be one of ${BUCKET_SIZES_SECONDS.join(', ')}`);
+  }
+}
+
 /** The bucket size for a span: span/buckets rounded UP to an allowed size (the largest when above all). */
 export function bucketSecondsFor(spanMs: number, buckets: number): number {
   const wanted = spanMs / 1000 / buckets;

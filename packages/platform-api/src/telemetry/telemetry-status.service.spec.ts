@@ -1,5 +1,7 @@
 import { TELEMETRY_SETTINGS_DEFAULTS } from './telemetry.settings';
-import { TelemetryQueryFailedError } from './greptime/greptime.errors';
+import { createGreptimeRetention } from './stores/greptime/greptime.retention';
+import { groupSchema } from './stores/greptime/greptime.schema';
+import { TelemetryQueryFailedError } from './stores/telemetry-store.errors';
 import {
   parseHumantimeSeconds,
   parseTtlFromCreateDatabase,
@@ -34,8 +36,24 @@ function build(options: { configured?: boolean; admin?: boolean; problem?: strin
   const settings = {
     getPolicy: jest.fn().mockResolvedValue({ ...TELEMETRY_SETTINGS_DEFAULTS, retentionDays: 7 }),
   };
+  // The service reads the store port: `ping`, the retention control (the built-in's reads
+  // `SHOW CREATE DATABASE`) and `schema()` (the tables with their row estimates).
+  const store = {
+    ...greptime,
+    id: 'greptime',
+    retention: createGreptimeRetention(greptime),
+    schema: jest.fn(async () =>
+      groupSchema(
+        [
+          ['opentelemetry_logs', '1234'],
+          ['opentelemetry_traces', null],
+        ],
+        [],
+      ),
+    ),
+  };
 
-  return { service: new TelemetryStatusService(greptime as never, settings as never), greptime };
+  return { service: new TelemetryStatusService(store as never, settings as never), greptime, store };
 }
 
 describe('TelemetryStatusService', () => {
@@ -82,7 +100,7 @@ describe('TelemetryStatusService', () => {
   });
 
   it('reports version, TTL (parsed from "7days") and tables when reachable', async () => {
-    const { service, greptime } = build();
+    const { service, greptime, store } = build();
 
     await expect(service.getStatus()).resolves.toEqual({
       configured: true,
@@ -98,10 +116,7 @@ describe('TelemetryStatusService', () => {
       error: null,
     });
     expect(greptime.queryAdmin).toHaveBeenCalledWith('SHOW CREATE DATABASE "public"', { timeoutMs: 5000 });
-    expect(greptime.queryReader).toHaveBeenCalledWith(
-      "SELECT table_name, table_rows FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name",
-      { timeoutMs: 5000 },
-    );
+    expect(store.schema).toHaveBeenCalledWith({ timeoutMs: 5000 });
   });
 
   it('falls back to the reader for SHOW CREATE DATABASE without an admin credential', async () => {

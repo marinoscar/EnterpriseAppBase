@@ -1,11 +1,18 @@
-import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, OnModuleInit, Optional } from '@nestjs/common';
 
 import { DoctorCheck, DoctorCheckOutcome } from '../../doctor/index';
 import { DoctorCheckRegistry } from '../../doctor/index';
 import { LAST_DATA_LOOKBACK_MS, toDate } from '../dashboard/telemetry-dashboard.service';
 import { lastDataSql } from '../dashboard/telemetry-dashboard.sql';
 import { DEFAULT_VERDICT_THRESHOLDS, type VerdictThresholds } from '../dashboard/telemetry-dashboard.verdict';
-import { GreptimeClient, rowsAsObjects } from '../greptime/greptime.client';
+import {
+  TELEMETRY_SQL_DIALECT,
+  TELEMETRY_STORE,
+  rowsAsObjects,
+  type TelemetrySqlDialect,
+  type TelemetryStore,
+} from '../stores/telemetry-store';
+import { GREPTIME_SQL_DIALECT } from '../stores/greptime/greptime.dialect';
 import { TELEMETRY_VERDICT_THRESHOLDS } from '../telemetry.options';
 import { TELEMETRY_SETTINGS_PATH } from './telemetry-export.doctor-check';
 
@@ -63,7 +70,7 @@ export function decideTelemetryFreshness(
  * captured, not merely configured.
  *
  * REUSES the dashboard's `lastDataSql` (the statement behind its `lastDataAt`)
- * over the READER path directly — `GreptimeClient.queryReader` — and not
+ * over the READER path directly — `TelemetryStore.query` — and not
  * `TelemetryDashboardService.summary`, which writes a `telemetry:dashboard`
  * audit row per read. Depends on `telemetry.tables`, so both tables exist.
  */
@@ -78,8 +85,9 @@ export class TelemetryFreshnessDoctorCheck implements DoctorCheck, OnModuleInit 
 
   constructor(
     private readonly registry: DoctorCheckRegistry,
-    private readonly greptime: GreptimeClient,
+    @Inject(TELEMETRY_STORE) private readonly store: TelemetryStore,
     @Inject(TELEMETRY_VERDICT_THRESHOLDS) private readonly thresholds: VerdictThresholds = DEFAULT_VERDICT_THRESHOLDS,
+    @Optional() @Inject(TELEMETRY_SQL_DIALECT) private readonly dialect: TelemetrySqlDialect = GREPTIME_SQL_DIALECT,
   ) {}
 
   onModuleInit(): void {
@@ -93,9 +101,10 @@ export class TelemetryFreshnessDoctorCheck implements DoctorCheck, OnModuleInit 
       new Date(now.getTime() + 60_000),
       {},
       { traces: true, logs: true },
+      this.dialect,
     );
 
-    const row = rowsAsObjects(await this.greptime.queryReader(sql, { timeoutMs: FRESHNESS_QUERY_TIMEOUT_MS }))[0] ?? {};
+    const row = rowsAsObjects(await this.store.query(sql, [], { readOnly: true, timeoutMs: FRESHNESS_QUERY_TIMEOUT_MS }))[0] ?? {};
 
     return decideTelemetryFreshness(
       { traces: toDate(row.traces_last), logs: toDate(row.logs_last) },

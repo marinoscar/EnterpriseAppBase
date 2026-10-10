@@ -1,8 +1,8 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 
 import type { TelemetryColumnType, TelemetryQueryRunResult } from '../dto/telemetry-query.dto';
-import { GreptimeClient } from '../greptime/greptime.client';
 import { TELEMETRY_AUDIT_SINK, type TelemetryAuditSink } from '../ports';
+import { TELEMETRY_STORE, type TelemetryStore } from '../stores/telemetry-store';
 import { TelemetrySettingsService } from '../telemetry-settings.service';
 import { analyzeStatement, applyRowCap } from './sql-guard';
 import { requireQueryablePolicy, toTelemetryHttpError } from './telemetry-availability';
@@ -27,7 +27,8 @@ import { TelemetryHttpError } from './telemetry-query.errors';
 //      Never a `SELECT * FROM (<sql>) LIMIT n` wrapper: GreptimeDB drops the
 //      inner ORDER BY through one (#554). What the text cannot bound
 //      (`LIMIT ALL`, SHOW, …) is sliced here after the fact;
-//   4. `GreptimeClient.queryReader` — the READ-ONLY user (the real control),
+//   4. `TelemetryStore.query` with `readOnly: true` — the built-in store logs in
+//      as a READ-ONLY user (the real control),
 //      with `telemetry.query.timeoutSeconds` enforced client-side (504);
 //   5. the result made JSON-safe (see `toJsonSafe`);
 //   6. an audit row — for failures too, so a refused `DROP` is on record.
@@ -98,7 +99,7 @@ export function columnTypeName(dataTypeID: number): TelemetryColumnType {
  * Buffer → base64, bigint → decimal string, Date → ISO string, non-finite
  * number → its name (JSON would silently turn it into null), arrays and
  * plain objects recursively. `int8`/`numeric`/timestamps already arrive as
- * strings from `GreptimeClient` and stay that way.
+ * strings from the store and stay that way.
  */
 export function toJsonSafe(value: unknown): unknown {
   if (value === null || value === undefined) return null;
@@ -137,7 +138,7 @@ export class TelemetryQueryService {
   private readonly logger = new Logger(TelemetryQueryService.name);
 
   constructor(
-    private readonly greptime: GreptimeClient,
+    @Inject(TELEMETRY_STORE) private readonly store: TelemetryStore,
     private readonly settings: TelemetrySettingsService,
     @Inject(TELEMETRY_AUDIT_SINK) private readonly auditSink: TelemetryAuditSink,
   ) {}
@@ -150,7 +151,7 @@ export class TelemetryQueryService {
     const source = opts.source ?? 'explorer';
 
     // Preconditions are not audited: nothing was attempted against the store.
-    const policy = await requireQueryablePolicy(this.greptime, this.settings);
+    const policy = await requireQueryablePolicy(this.store, this.settings);
     const maxRows = clampRows(opts.maxRows, policy.query.maxRows);
 
     const started = Date.now();
@@ -164,14 +165,15 @@ export class TelemetryQueryService {
       // slice below still caps the RESPONSE; the rows are held in memory in
       // the meantime, bounded only by the policy timeout. Streaming rows off
       // the socket and hanging up past the cap was considered and not done:
-      // it would replace `GreptimeClient.run`'s one-shot query (and its
+      // it would replace the store's one-shot query (and its
       // multi-statement check) for statements that are rare — `LIMIT ALL`,
       // `LIMIT <expression>`, `FETCH FIRST`, SHOW/DESCRIBE/EXPLAIN.
       if (capped.strategy === 'client-only' && statement.kind === 'select') {
         this.logger.debug('Telemetry query has no server-side row cap; capping client-side');
       }
 
-      const result = await this.greptime.queryReader(capped.sql, {
+      const result = await this.store.query(capped.sql, [], {
+        readOnly: true,
         timeoutMs: policy.query.timeoutSeconds * 1000,
         signal: opts.signal,
       });
@@ -227,7 +229,7 @@ export class TelemetryQueryService {
       actorUserId: userId,
       action: TELEMETRY_QUERY_AUDIT_ACTIONS[source],
       targetType: 'telemetry_store',
-      targetId: this.greptime.database,
+      targetId: this.store.database,
       meta: {
         sql: sql.length > TELEMETRY_AUDIT_SQL_MAX ? `${sql.slice(0, TELEMETRY_AUDIT_SQL_MAX)}…` : sql,
         ...(sql.length > TELEMETRY_AUDIT_SQL_MAX ? { sqlLength: sql.length } : {}),

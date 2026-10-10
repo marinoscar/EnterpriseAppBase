@@ -1,5 +1,6 @@
 import { TELEMETRY_SETTINGS_DEFAULTS } from '../telemetry.settings';
 import type { TelemetryJobRecord as Job } from '../ports';
+import { createGreptimeRetention } from '../stores/greptime/greptime.retention';
 import {
   retentionStatement,
   TELEMETRY_RETENTION_TYPE,
@@ -21,9 +22,12 @@ function build(options: { configured?: boolean; admin?: boolean; retentionDays?:
     isConfigured: jest.fn().mockReturnValue(options.configured ?? true),
     isAdminConfigured: jest.fn().mockReturnValue(options.admin ?? true),
     queryAdmin: jest.fn().mockResolvedValue({ fields: [], rows: [] }),
+    queryReader: jest.fn().mockResolvedValue({ fields: [], rows: [] }),
   };
 
-  const handler = new TelemetryRetentionHandler(registry as never, systemSettings as never, greptime as never);
+  // The handler talks to the store port's retention control; the built-in's issues the ALTER on `queryAdmin`.
+  const store = { ...greptime, id: 'greptime', retention: createGreptimeRetention(greptime) };
+  const handler = new TelemetryRetentionHandler(registry as never, systemSettings as never, store as never);
 
   return { handler, registry, systemSettings, greptime };
 }

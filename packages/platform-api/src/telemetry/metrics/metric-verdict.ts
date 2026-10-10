@@ -1,5 +1,5 @@
 import type { VerdictInput } from '../dashboard/telemetry-dashboard.verdict';
-import type { TelemetryQueryResult } from '../greptime/greptime.client';
+import type { TelemetryQueryResult } from '../stores/telemetry-store';
 import {
   HOST_TABLES,
   HTTPCHECK_STATUS_TABLE,
