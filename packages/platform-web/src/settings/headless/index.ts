@@ -21,6 +21,12 @@ export { createProfileImageClient, useProfileImageClient } from './profile-image
 export type { ProfileImageClient, ProfileImageMutationResponse } from './profile-image.js';
 export { useStorageStatus } from './use-storage-status.js';
 export type { UseStorageStatusResult } from './use-storage-status.js';
+export { usePluggableConfigForm } from './use-pluggable-config-form.js';
+export type {
+  PluggableConfigPayload,
+  PluggableSettingsValue,
+  UsePluggableConfigFormResult,
+} from './use-pluggable-config-form.js';
 export { useOrgSettings } from './use-org-settings.js';
 export type { UseOrgSettingsResult } from './use-org-settings.js';
 
