@@ -34,7 +34,6 @@ import {
 } from '../storage/index';
 import type { SystemDatabaseBackupValue } from '@marinoscar/platform-contract/db-backup';
 import { StorageConfigService } from '../storage/index';
-import type { StorageProviderKind } from '@marinoscar/platform-contract/storage';
 import {
   assertUsableStorageProvider,
   BACKUP_ARCHIVE_FORMAT,
@@ -697,10 +696,12 @@ export class DatabaseBackupRunnerService {
     // the interactive object API would give every backup a user-facing object
     // record that an administrator could delete by hand.
     @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
-    // #373 (epic #372). The token above moves the archive; this says WHICH
-    // provider moved it. Both are needed because `StorageProvider` exposes a
-    // bucket and not a provider kind, and a backup row that named the wrong one
-    // is a row a restore cannot act on — see `db-backup-storage.ts`'s header.
+    // #373 (epic #372). The token above moves the archive and names its kind
+    // (`storage.kind`, PP-14.1); this is read first only to REFRESH the
+    // settings snapshot the default provider answers `kind` from, so the pair
+    // on a backup row (bucket, provider) still describes one fresh
+    // configuration. A backup row that named the wrong provider is a row a
+    // restore cannot act on — see `db-backup-storage.ts`'s header.
     private readonly storageConfig: StorageConfigService,
     // Retention is a REQUIRED collaborator, not an optional seam like the two
     // below it. A runner that could be constructed without one is a runner a
@@ -734,6 +735,22 @@ export class DatabaseBackupRunnerService {
   private readonly appVersion: () => string;
 
   /**
+   * The kind of the storage provider in force, for the rows and the rule that
+   * record or compare it: `STORAGE_PROVIDER`'s own `kind` (the configured
+   * `s3`/`r2`/`s3compatible` for the default provider, the app backend's id for
+   * a `StorageModule.forRoot({ provider })` binding).
+   *
+   * The settings read comes first, and only for the default provider's sake:
+   * `ResolvingStorageProvider.kind` is synchronous and answers from the last
+   * settings read, so awaiting one here keeps this exactly as fresh as the
+   * `activeProvider()` call it replaces.
+   */
+  private async activeProviderKind(): Promise<string> {
+    await this.storageConfig.activeProvider();
+    return this.storage.kind;
+  }
+
+  /**
    * Validates a `databaseBackup.storageProvider` value against the provider
    * this deployment actually has.
    *
@@ -756,7 +773,7 @@ export class DatabaseBackupRunnerService {
   ): Promise<void> {
     assertUsableStorageProvider(
       configured,
-      await this.storageConfig.activeProvider()
+      await this.activeProviderKind()
     );
   }
 
@@ -839,7 +856,7 @@ export class DatabaseBackupRunnerService {
     // it is a settings read, and a transaction is the last place to put one.
     // Both halves of the pair are taken here so every attempt writes the same
     // provider and bucket.
-    const provider = await this.storageConfig.activeProvider();
+    const provider = await this.activeProviderKind();
 
     for (let attempt = 1; attempt <= CLAIM_MAX_ATTEMPTS; attempt += 1) {
       // Generated HERE, for the reason `claimRun` gives: the storage key
@@ -1154,7 +1171,7 @@ export class DatabaseBackupRunnerService {
         ...this.buildRunData(payload, {
           id,
           bucket: this.storage.getBucket(),
-          provider: await this.storageConfig.activeProvider(),
+          provider: await this.activeProviderKind(),
           at: startedAt,
         }),
         jobId: job.id,
@@ -1207,7 +1224,7 @@ export class DatabaseBackupRunnerService {
     const bucket = this.storage.getBucket();
     // Once, before the loop — see `queueBackup`: one settings read, and every
     // attempt records the same pair.
-    const provider = await this.storageConfig.activeProvider();
+    const provider = await this.activeProviderKind();
 
     for (let attempt = 1; attempt <= CLAIM_MAX_ATTEMPTS; attempt += 1) {
       // The id is generated HERE rather than left to the column default,
@@ -1299,7 +1316,7 @@ export class DatabaseBackupRunnerService {
     args: {
       id: string;
       bucket: string;
-      provider: StorageProviderKind;
+      provider: string;
       at: Date;
     }
   ): DatabaseBackupRunCreateData {

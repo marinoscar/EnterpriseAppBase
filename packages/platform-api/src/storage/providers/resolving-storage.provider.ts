@@ -118,6 +118,18 @@ export class ResolvingStorageProvider implements StorageProvider {
     private readonly configService: ConfigService,
   ) {}
 
+  /**
+   * The configured provider kind (`s3`, `r2`, `s3compatible`), from the last
+   * settings read. Synchronous, like {@link getBucket} and from the same
+   * snapshot, so a row recording a bucket and a row recording its provider
+   * describe one configuration. Code that can await and needs the current
+   * value reads `StorageConfigService.activeProvider()` first, which also
+   * refreshes this snapshot.
+   */
+  get kind(): string {
+    return this.storageConfig.lastKnownProvider();
+  }
+
   // ---------------------------------------------------------------------------
   // StorageProvider — all thirteen methods, each one line of delegation
   // ---------------------------------------------------------------------------
@@ -329,7 +341,7 @@ export class ResolvingStorageProvider implements StorageProvider {
     const provider = new S3StorageProvider({
       // #374: the kind travels WITH the configuration rather than being
       // inferred from it downstream. It is what selects R2's checksum flags and
-      // what `S3StorageProvider.providerId` answers with; the endpoint and the
+      // what `S3StorageProvider.kind` answers with; the endpoint and the
       // region in this same object were already resolved per provider by
       // `resolveStorageConfig`, so the driver never re-derives either.
       provider: config.provider,

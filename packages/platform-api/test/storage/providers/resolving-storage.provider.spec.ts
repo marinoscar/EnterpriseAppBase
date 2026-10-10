@@ -61,6 +61,7 @@ describe('ResolvingStorageProvider', () => {
   let storageConfig: {
     resolve: jest.Mock;
     lastKnownBucket: jest.Mock;
+    lastKnownProvider: jest.Mock;
   };
   let configService: { get: jest.Mock };
   let provider: ResolvingStorageProvider;
@@ -81,6 +82,7 @@ describe('ResolvingStorageProvider', () => {
     storageConfig = {
       resolve: jest.fn().mockResolvedValue(configured(resolvedConfig())),
       lastKnownBucket: jest.fn().mockReturnValue(null),
+      lastKnownProvider: jest.fn().mockReturnValue('s3'),
     };
     configService = { get: jest.fn((_key: string, def: unknown) => def) };
 
@@ -88,6 +90,22 @@ describe('ResolvingStorageProvider', () => {
       storageConfig as unknown as StorageConfigService,
       configService as unknown as ConfigService,
     );
+  });
+
+  // ===========================================================================
+  // kind (PP-14.1)
+  // ===========================================================================
+
+  describe('kind', () => {
+    it('answers the configured provider kind from the settings snapshot', () => {
+      expect(provider.kind).toBe('s3');
+
+      storageConfig.lastKnownProvider.mockReturnValue('r2');
+      expect(provider.kind).toBe('r2');
+
+      storageConfig.lastKnownProvider.mockReturnValue('s3compatible');
+      expect(provider.kind).toBe('s3compatible');
+    });
   });
 
   // ===========================================================================

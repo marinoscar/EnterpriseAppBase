@@ -71,7 +71,7 @@ export interface S3StorageProviderConfig {
    * and inferring one from the other is precisely the conflation
    * `forcePathStyle: !!endpoint` used to make.
    *
-   * It is also what {@link S3StorageProvider.providerId} answers with.
+   * It is also what {@link S3StorageProvider.kind} answers with.
    */
   provider: StorageProviderKind;
   /** Bucket every operation addresses. */
@@ -261,39 +261,27 @@ export class S3StorageProvider implements StorageProvider {
   private readonly partSize: number;
 
   /**
-   * Which vendor this client is actually talking to.
-   *
-   * ── WHY IT EXISTS (#374) ────────────────────────────────────────────────────
-   *
-   * So that "which provider is in force?" has an authoritative answer on the
-   * object that IS the answer, rather than being inferred from the shape of a
-   * config (an endpoint means MinIO, no endpoint means AWS) or read from a
-   * constant. Before #373 the recording sites wrote the literal `'s3'`; a
-   * literal stops being true the moment an operator can choose.
-   *
-   * ── IT IS NOT A SECOND MECHANISM ────────────────────────────────────────────
-   *
-   * The rows that RECORD where bytes went (`storage_objects.storage_provider`,
-   * `database_backup_runs.storage_provider`) and the rule that compares
-   * `databaseBackup.storageProvider` against what is live keep asking
-   * `StorageConfigService.activeProvider()`, which reads the same settings
-   * namespace the bucket comes from — so a row cannot name one configuration's
-   * bucket and another's provider. This field is that same value, carried by
-   * the client built from it, for the caller that already holds a driver and
-   * would otherwise have to go back to the settings to ask.
-   *
-   * ⚠ DELIBERATELY NOT ON THE `StorageProvider` INTERFACE. Adding it would
-   * oblige `ResolvingStorageProvider` to answer synchronously for a
-   * configuration it resolves asynchronously — the same trap `getBucket()`
-   * already documents — and `activeProvider()` is the honest async answer that
-   * already exists. The nine consumers of `STORAGE_PROVIDER` are untouched.
+   * Which vendor this client is actually talking to (`s3`, `r2` or
+   * `s3compatible`): the {@link StorageProvider.kind} of this driver, carried
+   * by the client built from the configuration, so "which provider is in
+   * force?" has an authoritative answer on the object that IS the answer
+   * rather than being inferred from the shape of a config.
    */
-  readonly providerId: StorageProviderKind;
+  readonly kind: StorageProviderKind;
+
+  /**
+   * Alias of {@link S3StorageProvider.kind}, kept for existing callers.
+   *
+   * @deprecated Use `kind`.
+   */
+  get providerId(): StorageProviderKind {
+    return this.kind;
+  }
 
   constructor(config: S3StorageProviderConfig) {
     const { provider, region, endpoint } = config;
 
-    this.providerId = provider;
+    this.kind = provider;
     this.bucket = config.bucket;
     this.partSize = config.partSize ?? DEFAULT_S3_PART_SIZE;
 

@@ -14,16 +14,23 @@ import {
  * By default `StorageProvidersModule` binds it to `ResolvingStorageProvider`:
  * the S3 driver, configured per call from the `storage` settings namespace
  * and the credential store (`s3`, `r2`, `s3compatible`). RUNG 3: an app with
- * a non-S3 backend (Azure Blob, a local disk) overrides the whole token with
- * its own {@link StorageProvider}; there is deliberately no driver registry
+ * a non-S3 backend (Azure Blob, a local disk) hands its own
+ * {@link StorageProvider} to `StorageModule.forRoot({ provider })`, and every
+ * package consumer receives it. There is deliberately no driver registry
  * until a consumer needs one.
+ *
+ * ⚠ Do NOT provide this token in an app module: every package module imports
+ * `StorageProvidersModule`, and Nest resolves a token from the consuming
+ * module's own imports first, so an app-level provider is never seen by them.
  *
  * A `Symbol.for(...)` key, so two copies of the package agree.
  *
  * @example
  * ```ts
- * // a module of the app, imported after the storage modules:
- * { provide: STORAGE_PROVIDER, useClass: AzureBlobStorageProvider }
+ * export const StorageModule = PlatformStorageModule.forRoot({
+ *   imports: [StorageHostModule],
+ *   provider: { useClass: AzureBlobStorageProvider },
+ * });
  * ```
  *
  * @extensionPoint token
@@ -38,6 +45,19 @@ export const STORAGE_PROVIDER: unique symbol = Symbol.for('@marinoscar/platform/
  * @stability stable
  */
 export interface StorageProvider {
+  /**
+   * The id of the backend this provider talks to: what the platform writes to
+   * `storage_objects.storage_provider` and to `database_backup_runs.storage_provider`
+   * for every object this provider takes. The built-ins answer `'s3'`, `'r2'` or
+   * `'s3compatible'` (the configured kind); an app backend picks a stable
+   * lowercase id of its own (`'azure-blob'`, `'local-disk'`).
+   *
+   * Synchronous by interface, like {@link StorageProvider.getBucket}: a
+   * provider whose answer depends on configuration read asynchronously
+   * answers from its last known configuration.
+   */
+  readonly kind: string;
+
   /**
    * Simple upload for small to medium files
    * Stream is uploaded directly to storage

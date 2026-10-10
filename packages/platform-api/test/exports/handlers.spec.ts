@@ -29,6 +29,7 @@ const NOW = new Date('2026-10-08T10:00:00.000Z');
 function fakeStorage(fail?: Error) {
   const objects = new Map<string, Buffer>();
   return {
+    kind: 's3',
     objects,
     deleted: [] as string[],
     async upload(key: string, stream: Readable) {
@@ -82,7 +83,6 @@ function setup(storage = fakeStorage(), options: Parameters<typeof resolveExport
     prisma as never,
     { asSystem: () => db } as never,
     storage as never,
-    { activeProvider: async () => 's3' } as never,
     audit as never,
     notifier as never,
     metrics as never,
