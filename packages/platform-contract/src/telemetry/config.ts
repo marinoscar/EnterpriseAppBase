@@ -58,8 +58,8 @@ export const telemetryConfigResponseSchema = telemetrySettingsSchema.extend({
    */
   available: z.boolean(),
   /**
-   * Whether the GreptimeDB admin login is configured (admin UI or deployment
-   * default), which retention needs. While false, `retentionDays` is stored
+   * Whether the store can change retention now (for GreptimeDB: the admin login
+   * is configured, in the admin UI or as the deployment default). While false, `retentionDays` is stored
    * but not applied.
    */
   retentionApplicable: z.boolean(),
@@ -74,6 +74,20 @@ export const telemetryConfigResponseSchema = telemetrySettingsSchema.extend({
    * `instanceIdDefault`. Read-only.
    */
   instanceIdEffective: z.string(),
+  /**
+   * The telemetry store this deployment uses (`TelemetryModule.forRoot({ store })`):
+   * its id and label. The settings page shows the GreptimeDB connection form for
+   * `greptime` and a generated form for any other store. Absent from a server
+   * that predates pluggable stores, which always used GreptimeDB.
+   */
+  store: z
+    .object({
+      /** The store id (`greptime`). */
+      id: z.string(),
+      /** The store's human label (`GreptimeDB`). */
+      label: z.string(),
+    })
+    .optional(),
   /** The system-settings row version — send it back as `If-Match` on `PUT`. `0` when nothing is stored yet. */
   version: z.number().int(),
   /** When the namespace was last saved, or `null` when nothing is stored yet. */

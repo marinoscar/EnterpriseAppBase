@@ -167,3 +167,5 @@ export type {
   TelemetryAssistantStepEvent,
   TelemetryAssistantTurn,
 } from './assistant.js';
+export { telemetryStoreResponseSchema, telemetryStoreSummarySchema, updateTelemetryStoreSchema } from './store.js';
+export type { TelemetryStoreResponse, TelemetryStoreSummary, UpdateTelemetryStoreInput } from './store.js';
