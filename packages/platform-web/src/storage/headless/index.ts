@@ -7,6 +7,7 @@
 export { useStorageConfig } from './use-storage-config.js';
 export type { StorageSwitchRequired, UseStorageConfigOptions, UseStorageConfigReturn } from './use-storage-config.js';
 export {
+  BUILTIN_STORAGE_PROVIDER_KINDS,
   MISSING_STORAGE_CONFIG_FIELDS,
   STORAGE_BUCKET_OUTCOMES,
   STORAGE_BUCKET_STEP_IDS,
@@ -21,6 +22,7 @@ export {
   reportsBucketMissing,
 } from './storage-config.js';
 export type {
+  BuiltinStorageProviderKind,
   GuidedBucketInstructions,
   MissingStorageConfigField,
   StorageBucketOutcome,
@@ -33,6 +35,7 @@ export type {
   StorageConfigView,
   StorageConnectionCheck,
   StorageConnectionTestResult,
+  StorageDriverSettings,
   StorageLocation,
   StorageLocationInUseDetails,
   StorageProviderKind,

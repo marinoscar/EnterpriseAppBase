@@ -9,16 +9,19 @@
  * keeps the auth header, the refresh dance and the maintenance recogniser.
  *
  * =============================================================================
- * THE SECRET ACCESS KEY ONLY EVER TRAVELS ONE WAY
+ * A DRIVER'S SECRETS ONLY EVER TRAVEL ONE WAY
  * =============================================================================
  *
- * No response type below carries the secret access key, because no endpoint
- * returns it — the API holds it in the encrypted credential store and answers
- * with {@link StorageSecretStatus}, a masked hint mirroring `SmtpPasswordStatus`
- * and `PrivateKeyStatus`. It appears in exactly one place in this file: the
- * optional, WRITE-ONLY `secretAccessKey` on {@link StorageConfigInput}, where
- * blank/absent means "keep the stored one". Nothing here, and nothing built on
- * it, should grow a field that could hold the real key coming back.
+ * No response type below carries a secret (the S3 secret access key, or any
+ * secret a custom driver declares), because no endpoint returns one — the API
+ * holds them in the encrypted credential store and answers with
+ * {@link StorageSecretStatus} (a masked hint for the active driver's first
+ * secret) and `hasValue` on each `secret` field of a descriptor. A secret
+ * appears in exactly one place in this file: the optional, WRITE-ONLY `secrets`
+ * (and the built-ins' deprecated `secretAccessKey` alias) on
+ * {@link StorageConfigInput}, where blank/absent means "keep the stored one".
+ * Nothing here, and nothing built on it, should grow a field that could hold
+ * the real value coming back.
  *
  * `accessKeyId` IS returned, deliberately: it travels in the clear in every
  * SigV4 `Authorization` header, and an administrator who cannot see it cannot
@@ -36,7 +39,9 @@
  * diagnosis; both reject only when the call itself fails.
  */
 
+import type { PluggableDescriptor } from '@marinoscar/platform-contract/settings';
 import {
+  BUILTIN_STORAGE_PROVIDER_KINDS,
   MISSING_STORAGE_CONFIG_FIELDS,
   STORAGE_BUCKET_OUTCOMES,
   STORAGE_BUCKET_STEP_IDS,
@@ -55,22 +60,41 @@ import type { PlatformApiClient } from '../../core/index.js';
 // below are the page's own view of the same shapes.
 
 /**
- * Which object store this deployment talks to.
- *
- * Mirrors `STORAGE_PROVIDER_KINDS` in
- * `apps/api/src/common/schemas/settings.schema.ts`, as a const tuple so the
- * union and the list a form iterates are one declaration rather than two.
+ * The storage drivers the platform ships (`s3`, `r2`, `s3compatible`). NOT a
+ * closed set since PP-14.7 (#925): an app or package registers more with
+ * `registerStorageDriver` (`@marinoscar/platform-api/storage`), and the page
+ * lists whatever `descriptors` the API serves. Use this for the built-ins' own
+ * questions ("is this one of the S3 flavours"), never to validate a provider.
  */
-export { STORAGE_PROVIDER_KINDS };
+export { BUILTIN_STORAGE_PROVIDER_KINDS, STORAGE_PROVIDER_KINDS };
+
 /**
- * Which object store this deployment talks to.
+ * One of the three built-in drivers.
  *
  * @stability experimental
  */
-export type StorageProviderKind = (typeof STORAGE_PROVIDER_KINDS)[number];
+export type BuiltinStorageProviderKind = (typeof BUILTIN_STORAGE_PROVIDER_KINDS)[number];
 
 /**
- * Every field the configuration needs and might not have.
+ * Which object store this deployment talks to: a registered driver's id
+ * (`s3`, `r2`, `s3compatible`, or an app's own such as `local-fs`).
+ *
+ * @stability experimental
+ */
+export type StorageProviderKind = string;
+
+/**
+ * One driver's non-secret settings, as the driver's own schema defines them
+ * (`drivers.s3.bucket`, `drivers.local-fs.directory`, ...).
+ *
+ * @stability experimental
+ */
+export type StorageDriverSettings = Record<string, unknown>;
+
+/**
+ * Every field the configuration needs and might not have. The built-in
+ * drivers' vocabulary; a custom driver names its own, so
+ * {@link MissingStorageConfigField} is any string.
  *
  * `secretAccessKey` is in here even though it is not a settings field: from
  * "can this deployment store a file?", a missing credential row and an empty
@@ -79,11 +103,12 @@ export type StorageProviderKind = (typeof STORAGE_PROVIDER_KINDS)[number];
  */
 export { MISSING_STORAGE_CONFIG_FIELDS };
 /**
- * A field the configuration needs and does not have.
+ * A field the configuration needs and does not have: a setting or secret name
+ * of the active driver.
  *
  * @stability experimental
  */
-export type MissingStorageConfigField = (typeof MISSING_STORAGE_CONFIG_FIELDS)[number];
+export type MissingStorageConfigField = string;
 
 /**
  * What the UI may know about the stored secret access key. Mirrors
@@ -109,31 +134,44 @@ export interface StorageSecretStatus {
  * @stability experimental
  */
 export interface StorageConfigView {
-  /** Which provider: `s3`, `r2` or `s3compatible`. */
+  /** The active driver's id: `s3`, `r2`, `s3compatible` or a registered driver's own. */
   provider: StorageProviderKind;
-  /** The bucket name. */
+  /**
+   * Every registered driver's own non-secret settings, defaults filled, keyed by
+   * driver id. The current shape: the page edits these.
+   */
+  drivers: Record<string, StorageDriverSettings>;
+  /**
+   * One descriptor per registered driver (`kind: 'storage-driver'`): its label
+   * and a field per setting, then one `secret` field per declared secret
+   * (presence only, never a value). The page lists drivers from these and
+   * draws the form of a driver that has no registered panel from them.
+   */
+  descriptors: PluggableDescriptor[];
+  /** @deprecated Read view of `drivers.<provider>.bucket` (the built-ins); `''` when the active driver has none. */
   bucket: string;
-  /** The region (`auto` for R2). */
+  /** @deprecated Read view of `drivers.<provider>.region` (the built-ins). */
   region: string;
-  /** The operator's endpoint override, verbatim. `''` when there is none. */
+  /** @deprecated Read view of `drivers.<provider>.endpoint` (the built-ins), verbatim. `''` when there is none. */
   endpoint: string;
-  /** Cloudflare account id — only meaningful for `r2`. */
+  /** @deprecated Read view of `drivers.<provider>.accountId` (`r2` only). */
   accountId: string;
-  /** The access key id: an identifier, never the secret. */
+  /** @deprecated Read view of `drivers.<provider>.accessKeyId` (the built-ins): an identifier, never the secret. */
   accessKeyId: string;
-  /** TRI-STATE: `null` is "use this vendor's convention", not `false`. */
+  /** @deprecated Read view of `drivers.<provider>.forcePathStyle`. TRI-STATE: `null` is "use this vendor's convention", not `false`. */
   forcePathStyle: boolean | null;
   /**
-   * What an S3 client would actually be pointed at — READ-ONLY, and derived
-   * server-side (for R2, from `accountId`), so a settings page never builds
-   * that host itself. `null` for plain AWS S3, where the SDK builds its own.
+   * Where the active driver's client would actually be pointed at — READ-ONLY,
+   * and derived server-side (for R2, from `accountId`), so a settings page never
+   * builds that host itself. `null` for plain AWS S3, where the SDK builds its
+   * own, and for a driver with no endpoint.
    */
   effectiveEndpoint: string | null;
   /** The single definition of "this deployment can store a file". */
   configured: boolean;
-  /** Every field standing in the way of `configured`. */
+  /** Every setting or secret of the active driver standing in the way of `configured`. */
   missing: MissingStorageConfigField[];
-  /** The masked status of the stored secret access key. */
+  /** The masked status of the active driver's first declared secret (the built-ins': the secret access key). */
   secretStatus: StorageSecretStatus;
   /** Bumped on every write. Pass back as `If-Match` on the next `PUT`. */
   version: number;
@@ -149,31 +187,38 @@ export interface StorageConfigView {
 }
 
 /**
- * The body of `PUT`, `POST /test` and `POST /bucket` — the same seven settings
- * fields in all three, which is what lets the two probes run against a
- * configuration that has NOT been saved yet.
+ * The body of `PUT`, `POST /test` and `POST /bucket` — the same fields in all
+ * three, which is what lets the two probes run against a configuration that has
+ * NOT been saved yet.
  *
- * `secretAccessKey` is optional and write-only: omit it (or send it blank) to
- * keep the stored one. There is no way to erase a stored secret here.
+ * `provider` is the only required field. `drivers` merges settings over the
+ * stored ones, per driver (`null` resets that driver to its defaults); a
+ * string field the admin cleared is sent as `''`, because an absent key keeps
+ * the stored value. `secrets` is WRITE-ONLY: a blank value is omitted (keep the
+ * stored one), and there is no way to erase a stored secret here.
  *
  * @stability experimental
  */
 export interface StorageConfigInput {
-  /** Which provider: `s3`, `r2` or `s3compatible`. */
+  /** The driver to use: a registered driver's id. */
   provider: StorageProviderKind;
-  /** The bucket name. */
-  bucket: string;
-  /** The region (`auto` for R2). */
-  region: string;
-  /** The endpoint; empty or `null` means the SDK's own host. */
-  endpoint: string;
-  /** The Cloudflare account id (R2 only). */
-  accountId: string;
-  /** The access key id: an identifier, never the secret. */
-  accessKeyId: string;
-  /** TRI-STATE — `null` means "vendor convention", and is a real saved value. */
-  forcePathStyle: boolean | null;
-  /** WRITE-ONLY. Omitted entirely when the admin did not retype it. */
+  /** Settings to merge over the stored ones, by driver id; `null` resets a driver. */
+  drivers?: Record<string, StorageDriverSettings | null>;
+  /** WRITE-ONLY. Secrets by driver id and declared name. Omitted entirely when nothing was retyped. */
+  secrets?: Record<string, Record<string, string>>;
+  /** @deprecated Alias of `drivers.<provider>.bucket` (the built-ins). */
+  bucket?: string;
+  /** @deprecated Alias of `drivers.<provider>.region` (the built-ins). */
+  region?: string;
+  /** @deprecated Alias of `drivers.<provider>.endpoint` (the built-ins). */
+  endpoint?: string;
+  /** @deprecated Alias of `drivers.<provider>.accountId` (`r2`). */
+  accountId?: string;
+  /** @deprecated Alias of `drivers.<provider>.accessKeyId` (the built-ins). */
+  accessKeyId?: string;
+  /** @deprecated Alias of `drivers.<provider>.forcePathStyle` — TRI-STATE, `null` means "vendor convention". */
+  forcePathStyle?: boolean | null;
+  /** @deprecated WRITE-ONLY alias of `secrets.<provider>.secretAccessKey` (the built-ins). */
   secretAccessKey?: string;
 }
 
@@ -192,9 +237,9 @@ export { STORAGE_SWITCH_CONFIRMATION };
  * @stability experimental
  */
 export interface StorageLocation {
-  /** Which provider. */
+  /** Which provider (driver id). */
   provider: StorageProviderKind;
-  /** The bucket. */
+  /** The bucket (or, for a driver without one, whatever the driver names its location). */
   bucket: string;
   /** The endpoint, or `null` for the SDK's own host. */
   endpoint: string | null;
@@ -293,18 +338,25 @@ export interface StorageConnectionCheck {
 export interface StorageConnectionTestResult {
   /** Whether every check passed. */
   success: boolean;
-  /** Which provider: `s3`, `r2` or `s3compatible`. */
+  /** Which driver was tested (its id). */
   provider: StorageProviderKind;
-  /** The bucket name. */
+  /** The bucket name (the driver's location). */
   bucket: string;
   /** The region (`auto` for R2). */
   region: string;
   /** The endpoint the client actually used, or `null` for the SDK default. */
   effectiveEndpoint: string | null;
-  /** True when the submitted body left `secretAccessKey` blank. */
+  /** True when the submitted body left a declared secret blank, so the stored one was used. */
   usedStoredSecret: boolean;
-  /** One entry per check, in order. */
+  /**
+   * One entry per check, in order. The four S3 checks for a built-in driver;
+   * `[]` for a driver that reports only {@link StorageConnectionTestResult.message}.
+   */
   checks: StorageConnectionCheck[];
+  /** The driver's own one-line verdict (secret material already redacted). Present for a custom driver. */
+  message?: string;
+  /** The driver's own safe key/value facts (a directory, a container, a version). Never a secret. */
+  details?: Record<string, string | number | boolean>;
   /** When it ran (ISO). */
   attemptedAt: string;
 }
@@ -397,16 +449,18 @@ export interface GuidedBucketInstructions {
 export interface StorageBucketProvisionResult {
   /** The outcome; `guided` is not an error. */
   outcome: StorageBucketOutcome;
-  /** Which provider: `s3`, `r2` or `s3compatible`. */
+  /** Which driver (its id). */
   provider: StorageProviderKind;
-  /** The bucket name. */
+  /** The bucket name (the driver's location). */
   bucket: string;
   /** The region (`auto` for R2). */
   region: string;
   /** The endpoint the client actually used, or `null` for the SDK default. */
   effectiveEndpoint: string | null;
-  /** One entry per step, in order. */
+  /** One entry per step, in order. Skipped for a driver without `provision`. */
   steps: StorageBucketStep[];
+  /** The driver's own one-line outcome. Present for a custom driver, and for a driver that cannot provision. */
+  message?: string;
   /** Non-null exactly when `outcome === 'guided'`. */
   guidance: GuidedBucketInstructions | null;
   /** The browser origin the CORS rule names, or `null`. */
@@ -437,7 +491,7 @@ const BASE = '/admin/storage-config';
 export interface StorageConfigClient {
   /** `GET` (`storage_config:read`). */
   get(): Promise<StorageConfigView>;
-  /** `PUT` (`storage_config:write`): full replace of the seven settings fields; `If-Match` is the loaded version. */
+  /** `PUT` (`storage_config:write`): `provider` plus the `drivers` settings and `secrets` to merge; `If-Match` is the loaded version. */
   update(input: StorageConfigInput, expectedVersion?: number, options?: { confirmSwitch?: boolean }): Promise<StorageConfigView>;
   /** `POST /test` (`storage_config:write`): runs against the configuration in the body, saved or not. */
   test(input: StorageConfigInput): Promise<StorageConnectionTestResult>;
