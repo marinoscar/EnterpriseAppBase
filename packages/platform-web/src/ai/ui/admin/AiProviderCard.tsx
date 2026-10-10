@@ -273,6 +273,33 @@ function DeploymentsEditor({
   );
 }
 
+/**
+ * A provider an app registered under a new id (#921): there is a working
+ * adapter but the `ai` settings namespace has no slot for it, so there is
+ * nothing to switch on or edit yet. Listed so the administrator can see it
+ * exists; the page does not send it back on save.
+ */
+export function AiSlotlessProviderCard({ provider }: { provider: AiAdminProvider }) {
+  return (
+    <Paper variant="outlined" sx={{ p: { xs: 2, sm: 3 } }} data-testid={`ai-provider-${provider.id}`}>
+      <Typography variant="h6" component="h3">
+        {provider.displayName}
+      </Typography>
+      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+        <Typography variant="body2" color="text.secondary">
+          {provider.id}
+        </Typography>
+        <Chip size="small" label="Registered, not configurable yet" />
+      </Stack>
+      {provider.supportedCapabilities.length > 0 && (
+        <Box sx={{ mt: 1 }}>
+          <AiCapabilityChips capabilities={provider.supportedCapabilities} />
+        </Box>
+      )}
+    </Paper>
+  );
+}
+
 export interface AiProviderCardProps {
   provider: AiAdminProvider;
   value: AiProviderFormValue;

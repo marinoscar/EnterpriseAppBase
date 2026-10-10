@@ -252,6 +252,12 @@ export interface AiAdminProvider {
    * be switched off but not on (`400 AI_PROVIDER_NOT_REGISTERED`).
    */
   registered: boolean;
+  /**
+   * `false` for a registered adapter that has no settings slot yet (#921): the
+   * page lists it read-only and never sends it back on save. Absent (an older
+   * API, or any provider with a slot) means configurable.
+   */
+  configurable?: boolean;
   /** Whether enabled. */
   enabled: boolean;
   /**
