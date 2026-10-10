@@ -48,8 +48,12 @@ export interface EventBusConformanceOptions {
   deliveryTimeoutMs?: number;
 }
 
-/** A bus, or a factory of fresh ones (closed after each case). */
-type BusSource = EventBus | (() => EventBus | Promise<EventBus>);
+/**
+ * A bus, or a factory of fresh ones (closed after each case).
+ *
+ * @stability experimental
+ */
+export type EventBusConformanceSource = EventBus | (() => EventBus | Promise<EventBus>);
 
 interface Received {
   payload: unknown;
@@ -87,11 +91,11 @@ async function settle(): Promise<void> {
  * describeEventBusConformance(() => new InProcessEventBus(), { describe, it, expect });
  * ```
  *
- * @extensionPoint testing
+ * @extensionPoint hook
  * @stability experimental
  */
 export function describeEventBusConformance(
-  source: BusSource,
+  source: EventBusConformanceSource,
   harness: EventBusConformanceHarness,
   options: EventBusConformanceOptions = {},
 ): void {

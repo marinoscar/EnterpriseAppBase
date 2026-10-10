@@ -111,7 +111,6 @@ export type BuiltinEventBusAdapterName = 'in-process' | 'postgres';
  *
  * @stability experimental
  */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export type EventBusAdapterName = BuiltinEventBusAdapterName | (string & {});
 
 /**

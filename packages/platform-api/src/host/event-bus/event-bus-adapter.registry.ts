@@ -90,6 +90,7 @@ export interface EventBusAdapterDef {
  * Every registered event bus adapter, in registration order (the two built-ins
  * first). Frozen when the application has bootstrapped.
  *
+ * @extensionPoint registry
  * @stability experimental
  */
 export const eventBusAdapterRegistry: Registry<EventBusAdapterDef> = defineRegistry<EventBusAdapterDef>({
