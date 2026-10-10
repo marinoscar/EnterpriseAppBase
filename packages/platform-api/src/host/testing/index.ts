@@ -8,3 +8,7 @@ export type { HostConformanceOptions, HostGlobalEnhancer, HostModuleGraph } from
 
 // A multi-replica event bus double for an app's own tests (no database).
 export { FakeEventBusNetwork, flushEventBus } from './fake-event-bus-network';
+
+// The event bus adapter conformance kit (PP-14.2): run it on an adapter you register or bind.
+export { describeEventBusConformance } from './event-bus-conformance';
+export type { EventBusConformanceHarness, EventBusConformanceOptions, EventBusConformanceSource } from './event-bus-conformance';

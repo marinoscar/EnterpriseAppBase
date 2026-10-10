@@ -16,6 +16,7 @@ export type {
 
 // ---- Event bus (PP-1.11, #682) ----------------------------------------------
 export {
+  BUILTIN_EVENT_BUS_ADAPTERS,
   EVENT_BUS,
   EVENT_BUS_ADAPTERS,
   EVENT_BUS_CHANNEL_PATTERN,
@@ -23,6 +24,7 @@ export {
   EventBusPayloadTooLargeError,
 } from './event-bus/event-bus.interface';
 export type {
+  BuiltinEventBusAdapterName,
   EventBus,
   EventBusAdapterName,
   EventBusHandler,
@@ -30,11 +32,25 @@ export type {
   EventBusMeta,
 } from './event-bus/event-bus.interface';
 export { exceedsEventBusPayloadLimit } from './event-bus/event-bus-core';
-export { DEFAULT_EVENT_BUS_ADAPTER, EVENT_BUS_SELECTION, parseEventBusAdapter } from './event-bus/event-bus.config';
+export {
+  BOUND_EVENT_BUS_SELECTION,
+  DEFAULT_EVENT_BUS_ADAPTER,
+  EVENT_BUS_SELECTION,
+  parseEventBusAdapter,
+} from './event-bus/event-bus.config';
 export type { EventBusSelection } from './event-bus/event-bus.config';
 export { EVENT_BUS_APP_METRICS, NOOP_EVENT_BUS_METRICS, eventBusMetricsVia } from './event-bus/event-bus.metrics';
 export type { EventBusAppMetricDef, EventBusAppMetricKey, EventBusMetrics, EventBusPublishOutcome } from './event-bus/event-bus.metrics';
 export { InProcessEventBus } from './event-bus/in-process-event-bus';
+// The adapter registry (PP-14.2, #920): the built-ins register themselves through it on load.
+export {
+  EVENT_BUS_ADAPTER_ID_PATTERN,
+  eventBusAdapterRegistry,
+  registerEventBusAdapter,
+  unknownEventBusAdapterError,
+} from './event-bus/event-bus-adapter.registry';
+export type { EventBusAdapterContext, EventBusAdapterDef } from './event-bus/event-bus-adapter.registry';
+export { IN_PROCESS_EVENT_BUS_ADAPTER, POSTGRES_EVENT_BUS_ADAPTER } from './event-bus/builtin-event-bus-adapters';
 export {
   DEFAULT_INITIAL_BACKOFF_MS,
   DEFAULT_MAX_BACKOFF_MS,

@@ -23,8 +23,10 @@
 //     receive. No new infrastructure: the database every replica already
 //     shares is the bus. See `postgres-event-bus.ts`.
 //
-// A Redis/Valkey adapter can be added later behind this same interface;
-// nothing above it moves.
+// Any other adapter (Redis, NATS, a test double) registers itself behind this
+// same interface with `registerEventBusAdapter` (./event-bus-adapter.registry.ts)
+// or is bound whole through `PlatformHostCoreModule.forRoot({ eventBus })`;
+// nothing above the interface moves.
 //
 // -----------------------------------------------------------------------------
 // SEMANTICS EVERY ADAPTER HONOURS
@@ -96,18 +98,36 @@
 export const EVENT_BUS: unique symbol = Symbol.for('@marinoscar/platform/EVENT_BUS');
 
 /**
- * The adapters the platform ships.
+ * The adapter ids the platform ships.
  *
  * @stability experimental
  */
-export type EventBusAdapterName = 'in-process' | 'postgres';
+export type BuiltinEventBusAdapterName = 'in-process' | 'postgres';
 
 /**
- * Every adapter name, in the order the docs list them.
+ * Which adapter backs a bus: a built-in id, or the id of any adapter an app
+ * registered with `registerEventBusAdapter`. The `(string & {})` keeps the
+ * built-ins offered by completion while accepting every registered id.
  *
  * @stability experimental
  */
-export const EVENT_BUS_ADAPTERS: readonly EventBusAdapterName[] = ['in-process', 'postgres'];
+export type EventBusAdapterName = BuiltinEventBusAdapterName | (string & {});
+
+/**
+ * The adapter ids the platform ships, in the order the docs list them. An app's
+ * own adapters are not here: list them with `eventBusAdapterRegistry.ids()`.
+ *
+ * @stability experimental
+ */
+export const BUILTIN_EVENT_BUS_ADAPTERS: readonly BuiltinEventBusAdapterName[] = ['in-process', 'postgres'];
+
+/**
+ * Alias of {@link BUILTIN_EVENT_BUS_ADAPTERS}, kept for one release.
+ *
+ * @deprecated Use {@link BUILTIN_EVENT_BUS_ADAPTERS}, or `eventBusAdapterRegistry.ids()` for every registered adapter.
+ * @stability experimental
+ */
+export const EVENT_BUS_ADAPTERS: readonly BuiltinEventBusAdapterName[] = BUILTIN_EVENT_BUS_ADAPTERS;
 
 /**
  * A logical channel name. Lower-case, dotted, at least two segments, e.g.
@@ -218,4 +238,12 @@ export interface EventBus {
 
   /** A synchronous snapshot. Performs no I/O, so a Doctor check may call it freely. */
   health(): EventBusHealth;
+
+  /**
+   * Releases the adapter's resources (a listener session, a connection) and
+   * stops delivering. Idempotent. Optional: an adapter with nothing to release
+   * omits it. Nest calls `onModuleDestroy` on the instance, not this method, so
+   * an adapter that holds resources implements both.
+   */
+  close?(): Promise<void>;
 }

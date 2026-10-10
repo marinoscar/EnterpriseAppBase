@@ -29,9 +29,13 @@ import {
   PostgresEventBus,
   TransformInterceptor,
   LoggingInterceptor,
+  eventBusAdapterRegistry,
+  registerEventBusAdapter,
   resolvePlatformHostCoreOptions,
   type EventBus,
+  type PlatformHostCoreOptions,
 } from '../../src/host/index';
+import { withTemporaryEntries } from '../../src/core/registry/testing';
 import { createEventBus } from '../../src/host/event-bus/event-bus.factory';
 import { checkHostModuleGraph, discoverHostModuleGraph } from '../../src/host/testing/index';
 
@@ -79,17 +83,17 @@ class ProbeController {
 @Module({ controllers: [ProbeController] })
 class ProbeModule {}
 
-function rootImports(eventBusAdapter?: string) {
+function rootImports(eventBusAdapter?: string, extraOptions: PlatformHostCoreOptions = {}) {
   return [
     ConfigModule.forRoot({ isGlobal: true, ignoreEnvFile: true, load: [() => ({ jwt: { secret: 'host-core-test-secret' } })] }),
     FakeSettingsModule,
     PlatformHostModule.forRoot({ audit: { useFactory: () => new InMemoryAuditSink() } }),
-    PlatformHostCoreModule.forRoot({ eventBusAdapter, metricsGauges: false }),
+    PlatformHostCoreModule.forRoot({ eventBusAdapter, metricsGauges: false, ...extraOptions }),
   ];
 }
 
-async function compile(eventBusAdapter?: string, extra: unknown[] = []): Promise<TestingModule> {
-  return Test.createTestingModule({ imports: [...rootImports(eventBusAdapter), ...(extra as never[])] })
+async function compile(eventBusAdapter?: string, extra: unknown[] = [], extraOptions: PlatformHostCoreOptions = {}): Promise<TestingModule> {
+  return Test.createTestingModule({ imports: [...rootImports(eventBusAdapter, extraOptions), ...(extra as never[])] })
     // The identity guards on the maintenance controller (`@Auth()`) resolve
     // their own dependencies; this suite does not authenticate anyone.
     .useMocker(() => ({}))
@@ -149,6 +153,10 @@ describe('PlatformHostCoreModule', () => {
     it('validates its options', () => {
       expect(() => resolvePlatformHostCoreOptions({ eventBusAdapter: 1 as never })).toThrow(/eventBusAdapter/);
       expect(() => resolvePlatformHostCoreOptions({ metricsGauges: 'yes' as never })).toThrow(/metricsGauges/);
+      expect(() => resolvePlatformHostCoreOptions({ eventBus: 'bus' as never })).toThrow(/exactly one of useExisting, useClass or useFactory/);
+      expect(() => resolvePlatformHostCoreOptions({ eventBus: {} as never })).toThrow(/exactly one of/);
+      expect(() => resolvePlatformHostCoreOptions({ eventBus: { useClass: InProcessEventBus, useFactory: () => ({}) } as never })).toThrow(/exactly one of/);
+      expect(resolvePlatformHostCoreOptions({ eventBus: { useClass: InProcessEventBus } }).eventBus).toEqual({ useClass: InProcessEventBus });
       expect(Object.isFrozen(resolvePlatformHostCoreOptions())).toBe(true);
     });
 
@@ -215,9 +223,85 @@ describe('PlatformHostCoreModule', () => {
       await moduleRef.close();
     });
 
-    it('builds the Postgres adapter for postgres, and refuses postgres without a client', () => {
+    describe('pluggable (PP-14.2, #920)', () => {
+      const registered = (id: string, create: () => EventBus | Promise<EventBus>) => ({ id, label: `Test ${id}`, create });
+
+      it('selects an adapter an app registered, by the eventBusAdapter option', async () => {
+        const custom = new InProcessEventBus();
+        const create = jest.fn(() => custom);
+        await withTemporaryEntries(eventBusAdapterRegistry, [registered('custom-bus', create)], async () => {
+          const moduleRef = await compile('custom-bus');
+          expect(moduleRef.get<EventBus>(EVENT_BUS)).toBe(custom);
+          expect(moduleRef.get(EVENT_BUS_SELECTION)).toMatchObject({ adapter: 'custom-bus', recognised: true });
+          expect(create).toHaveBeenCalledTimes(1);
+          expect(create.mock.calls[0]).toEqual([expect.objectContaining({ id: 'custom-bus' })]);
+          await moduleRef.close();
+        });
+      });
+
+      it('selects a registered adapter by EVENT_BUS_ADAPTER too, and awaits an async create', async () => {
+        const custom = new InProcessEventBus();
+        process.env.EVENT_BUS_ADAPTER = 'Async-Bus';
+        await withTemporaryEntries(eventBusAdapterRegistry, [registered('async-bus', async () => custom)], async () => {
+          const moduleRef = await compile();
+          expect(moduleRef.get<EventBus>(EVENT_BUS)).toBe(custom);
+          await moduleRef.close();
+        });
+      });
+
+      it('fails the boot for an unregistered eventBusAdapter option, naming the id and the registered ones', async () => {
+        await expect(compile('nope')).rejects.toThrow(/Unknown event bus adapter "nope".*in-process, postgres/);
+      });
+
+      it('still falls back, with one warning, for an unregistered EVENT_BUS_ADAPTER value', async () => {
+        process.env.EVENT_BUS_ADAPTER = 'nope';
+        const moduleRef = await compile();
+        expect(moduleRef.get<EventBus>(EVENT_BUS)).toBeInstanceOf(InProcessEventBus);
+        expect(warn.mock.calls.filter(([m]) => String(m).includes('in-process, postgres'))).toHaveLength(1);
+        await moduleRef.close();
+      });
+
+      it('binds a whole bus with eventBus (useFactory), winning over eventBusAdapter and the environment', async () => {
+        const bound = new InProcessEventBus();
+        process.env.EVENT_BUS_ADAPTER = 'postgres';
+        const moduleRef = await compile('also-ignored', [], { eventBus: { useFactory: () => bound } });
+        expect(moduleRef.get<EventBus>(EVENT_BUS)).toBe(bound);
+        expect(moduleRef.get(EVENT_BUS_SELECTION)).toMatchObject({ recognised: true, configured: 'eventBus binding' });
+        await moduleRef.close();
+      });
+
+      it('binds eventBus with useClass and useExisting, instantiated once', async () => {
+        const viaClass = await compile(undefined, [], { eventBus: { useClass: InProcessEventBus } });
+        expect(viaClass.get<EventBus>(EVENT_BUS)).toBeInstanceOf(InProcessEventBus);
+        await viaClass.close();
+
+        const TOKEN = Symbol('existing-bus');
+        const existing = new InProcessEventBus();
+        @Global()
+        @Module({ providers: [{ provide: TOKEN, useValue: existing }], exports: [TOKEN] })
+        class ExistingBusModule {}
+        const viaExisting = await compile(undefined, [ExistingBusModule], { eventBus: { useExisting: TOKEN } });
+        expect(viaExisting.get<EventBus>(EVENT_BUS)).toBe(existing);
+        await viaExisting.close();
+      });
+
+      it('reports a bound bus to the Doctor without the in-process advice', async () => {
+        const moduleRef = await compile(undefined, [], { eventBus: { useFactory: () => new InProcessEventBus() } });
+        await moduleRef.init();
+        const check = moduleRef.get(DoctorCheckRegistry).list().find((c) => c.id === 'core.event-bus')!;
+        expect((await check.run()).status).toBe('pass');
+        await moduleRef.close();
+      });
+
+      it('exposes the built-ins through the same public registry', () => {
+        expect(eventBusAdapterRegistry.ids()).toEqual(expect.arrayContaining(['in-process', 'postgres']));
+        expect(() => registerEventBusAdapter(registered('postgres', () => new InProcessEventBus()))).toThrow(/postgres/);
+      });
+    });
+
+    it('builds the Postgres adapter for postgres, and refuses postgres without a client', async () => {
       const selection = { adapter: 'postgres' as const, recognised: true, configured: 'postgres' };
-      const bus = createEventBus(selection, { $executeRaw: jest.fn() });
+      const bus = await createEventBus(selection, { $executeRaw: jest.fn() });
       expect(bus).toBeInstanceOf(PostgresEventBus);
       expect(bus.health().connected).toBe(false);
       expect(() => createEventBus(selection, undefined)).toThrow(/PLATFORM_PRISMA/);

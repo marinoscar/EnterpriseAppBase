@@ -104,6 +104,11 @@ export class InProcessEventBus implements EventBus {
     };
   }
 
+  /** Drops every handler. Idempotent; there is no connection to release. */
+  async close(): Promise<void> {
+    this.dispatcher.clear();
+  }
+
   /**
    * Handlers on a channel. Diagnostics and tests only.
    *

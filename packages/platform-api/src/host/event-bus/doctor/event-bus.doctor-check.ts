@@ -58,6 +58,28 @@ export function decideEventBus(health: EventBusHealth, selection: EventBusSelect
     };
   }
 
+  if (health.adapter !== 'in-process') {
+    // An adapter the app registered or bound (PP-14.2): the platform knows only
+    // what the bus's own snapshot says.
+    if (health.connected) {
+      return {
+        status: 'pass',
+        detail: `Event bus adapter "${health.adapter}" is connected${
+          health.lastConnectedAt ? ` since ${health.lastConnectedAt}` : ''
+        }`,
+        data,
+      };
+    }
+
+    return {
+      status: 'warn',
+      detail: `Event bus adapter "${health.adapter}" is disconnected; live events from other replicas may be missed`,
+      remedy: 'Check the adapter\'s connection settings and the API log. Live events are degraded meanwhile; notifications are still stored and jobs still poll.',
+      ...(health.lastError ? { error: health.lastError } : {}),
+      data,
+    };
+  }
+
   return {
     status: 'pass',
     detail:
