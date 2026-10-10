@@ -66,7 +66,12 @@ describeWithDb('email settings on the row store (real Postgres)', () => {
     expect(setSecret).toHaveBeenCalledWith('smtp', 'default', 'Correct-Horse-9', expect.objectContaining({ updatedByUserId: adminId }));
 
     const row = await app.prisma.systemSettings.findUnique({ where: { key: EMAIL_SETTINGS_KEY } });
-    expect(row?.value).toEqual({ provider: 'smtp', enabled: true, smtpHost: 'smtp.example.test', smtpPort: 587 });
+    // Stored in the current shape: the flat aliases of the PUT are the SMTP transport's settings.
+    expect(row?.value).toEqual({
+      provider: 'smtp',
+      enabled: true,
+      transports: { smtp: { host: 'smtp.example.test', port: 587, useTls: true, username: '' } },
+    });
     expect(await app.prisma.systemSettings.findUnique({ where: { key: 'global' } })).toBeNull();
 
     const second = await service.update({ provider: 'smtp', enabled: false, smtpHost: 'smtp.example.test' }, adminId, 1);
@@ -86,10 +91,46 @@ describeWithDb('email settings on the row store (real Postgres)', () => {
   });
 
   it('reports a stored row that no longer validates instead of failing the page, and throws on the send path', async () => {
-    await app.prisma.systemSettings.update({ where: { key: EMAIL_SETTINGS_KEY }, data: { value: { provider: 'carrier-pigeon', enabled: true } } });
+    await app.prisma.systemSettings.update({ where: { key: EMAIL_SETTINGS_KEY }, data: { value: { provider: 'Carrier Pigeon', enabled: true } } });
     const view = await service.describeForAdmin();
     expect(view.settingsError).toContain('provider');
     expect(view.provider).toBeNull();
     await expect(service.get()).rejects.toThrow(/invalid at: provider/);
+  });
+
+  it('reads a row an earlier release stored (flat ses* / smtp* fields) and migrates it on the next save', async () => {
+    await app.prisma.systemSettings.update({
+      where: { key: EMAIL_SETTINGS_KEY },
+      data: {
+        value: {
+          provider: 'smtp',
+          enabled: true,
+          fromAddress: 'no-reply@example.test',
+          smtpHost: 'legacy.example.test',
+          smtpPort: 465,
+          smtpUseTls: false,
+          smtpUsername: 'mailer',
+          sesRegion: 'eu-west-1',
+        },
+      },
+    });
+
+    const view = await service.describeForAdmin();
+    expect(view.settingsError).toBeNull();
+    expect(view).toMatchObject({ provider: 'smtp', smtpHost: 'legacy.example.test', smtpPort: 465, smtpUseTls: false, smtpUsername: 'mailer', sesRegion: 'eu-west-1' });
+    expect(view.transports.smtp).toEqual({ host: 'legacy.example.test', port: 465, useTls: false, username: 'mailer' });
+
+    const row = await app.prisma.systemSettings.findUnique({ where: { key: EMAIL_SETTINGS_KEY } });
+    await service.update({ provider: 'smtp', enabled: true, fromAddress: 'no-reply@example.test' }, adminId, row?.version);
+    const migrated = await app.prisma.systemSettings.findUnique({ where: { key: EMAIL_SETTINGS_KEY } });
+    expect(migrated?.value).toEqual({
+      provider: 'smtp',
+      enabled: true,
+      fromAddress: 'no-reply@example.test',
+      transports: {
+        smtp: { host: 'legacy.example.test', port: 465, useTls: false, username: 'mailer' },
+        ses: { region: 'eu-west-1' },
+      },
+    });
   });
 });
