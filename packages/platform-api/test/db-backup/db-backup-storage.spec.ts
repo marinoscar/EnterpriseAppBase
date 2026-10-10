@@ -94,6 +94,17 @@ describe('the databaseBackup.storageProvider constraint', () => {
     expect(isUsableStorageProvider('s3', 'r2')).toBe(false);
   });
 
+  it('accepts the id of a storage driver an app registered, as the open string it is (PP-14.7)', () => {
+    // `databaseBackup.storageProvider` was never an enum (the contract types it
+    // `z.string()`), so a custom driver's id pins a backup exactly as `r2` does:
+    // the comparison is against whatever `StorageProvider.kind` the active
+    // driver reports, never against a list.
+    expect(isUsableStorageProvider('local-fs', 'local-fs')).toBe(true);
+    expect(isUsableStorageProvider(' Azure-Blob ', 'azure-blob')).toBe(true);
+    expect(isUsableStorageProvider('local-fs', 's3')).toBe(false);
+    expect(() => assertUsableStorageProvider('azure-blob', 'local-fs')).toThrow(DatabaseBackupStorageProviderError);
+  });
+
   it('rejects a value naming a provider this deployment does not have', () => {
     expect(isUsableStorageProvider('gcs', ACTIVE)).toBe(false);
     expect(() => assertUsableStorageProvider('gcs', ACTIVE)).toThrow(
