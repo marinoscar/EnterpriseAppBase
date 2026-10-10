@@ -1,14 +1,12 @@
-/**
- * The telemetry store section's data (PP-14.11).
- *
- * Loads `GET /admin/telemetry/store` (the active store, its generated-form
- * descriptor and settings) and saves with `PUT`, `If-Match: <the stored
- * settings' version>`. A stale version answers 409, surfaced as `conflict` so
- * the page can offer a reload. Secrets are write-only: they are sent, never read
- * back, and a secret nobody retyped is not sent at all.
- *
- * Writes resolve `true`/`false` and never throw.
- */
+// The telemetry store section's data (PP-14.11).
+//
+// Loads `GET /admin/telemetry/store` (the active store, its generated-form
+// descriptor and settings) and saves with `PUT`, `If-Match: <the stored
+// settings' version>`. A stale version answers 409, surfaced as `conflict` so
+// the page can offer a reload. Secrets are write-only: they are sent, never read
+// back, and a secret nobody retyped is not sent at all.
+//
+// Writes resolve `true`/`false` and never throw.
 import { useCallback, useEffect, useState } from 'react';
 import { isPlatformApiError } from '../../../core/index.js';
 import type { TelemetryStoreConfig, TelemetryStoreInput } from '../services/telemetry.js';

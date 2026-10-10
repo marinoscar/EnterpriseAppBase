@@ -50,7 +50,11 @@ import {
 import { TELEMETRY_STORE_SETTINGS_KEY, TelemetryStoreResolver } from './telemetry-store.resolver';
 import type { TelemetryStoreResponse, TelemetryStoreSummary, UpdateTelemetryStoreInput } from './dto/telemetry-store.dto';
 
-/** The audit action of a save. */
+/**
+ * The audit action of a save of the store settings.
+ *
+ * @stability experimental
+ */
 export const TELEMETRY_STORE_UPDATE_AUDIT_ACTION = 'telemetry:store_update';
 
 function isRecord(value: unknown): value is Record<string, unknown> {

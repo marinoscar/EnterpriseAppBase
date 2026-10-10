@@ -47,7 +47,6 @@ import { Logger } from '@nestjs/common';
 import { PLUGGABLE_ID_PATTERN, pluggableDescriptorSchema } from '@marinoscar/platform-contract/settings';
 import { telemetrySchemaSchema } from '@marinoscar/platform-contract/telemetry';
 
-import { SECRET_LIKE_FIELD_PATTERN } from '../../core/testing/index';
 import {
   apiTimeseriesSql,
   apiTotalsSql,
@@ -139,6 +138,34 @@ export interface TelemetryStoreFixture {
 }
 
 /**
+ * The `timeout` scenario of {@link TelemetryStoreConformanceOptions}.
+ *
+ * @stability experimental
+ */
+export interface TelemetryStoreTimeoutScenario {
+  /** A statement that takes longer than `timeoutMs` on this store. */
+  statement: string;
+  /** The ceiling to run it under; default 20 ms. */
+  timeoutMs?: number;
+  /** Settings merged over the kit's `settings` for this scenario only (an artificial latency, say). */
+  settings?: Record<string, unknown>;
+}
+
+/**
+ * How to build an unconfigured instance, for the `unconfigured` scenario of {@link TelemetryStoreConformanceOptions}.
+ *
+ * @stability experimental
+ */
+export interface TelemetryStoreUnconfiguredScenario {
+  /** Settings that leave the store unconfigured. */
+  settings?: Record<string, unknown>;
+  /** Secrets to build it with (usually none). */
+  secrets?: Record<string, string>;
+  /** The build context's `connection` for it. */
+  connection?: unknown;
+}
+
+/**
  * Options of {@link describeTelemetryStoreConformance}.
  *
  * @stability experimental
@@ -163,17 +190,20 @@ export interface TelemetryStoreConformanceOptions extends TelemetryStoreConforma
    * scenario only (a store with an artificial latency setting slows itself down
    * here). Without it the `timeout` scenario is skipped.
    */
-  timeout?: { statement: string; timeoutMs?: number; settings?: Record<string, unknown> };
+  timeout?: TelemetryStoreTimeoutScenario;
   /**
    * How to build an UNCONFIGURED instance (its settings and secrets missing).
    * Without it the `unconfigured` scenario is skipped.
    */
-  unconfigured?: { settings?: Record<string, unknown>; secrets?: Record<string, string>; connection?: unknown };
+  unconfigured?: TelemetryStoreUnconfiguredScenario;
   /** The dataset for the `dashboard` scenario. */
   fixture?: TelemetryStoreFixture;
   /** Scenarios to skip, each for a stated reason of the caller's. */
   skip?: readonly TelemetryStoreConformanceScenario[];
 }
+
+/** The names the kit treats as secrets when they appear in a settings schema (the same rule as the pluggable-kind kit's). */
+const SECRET_LIKE_FIELD_PATTERN = /key|secret|token|password/i;
 
 const DEFAULT_WRITES: readonly string[] = [
   "INSERT INTO opentelemetry_logs (body) VALUES ('conformance')",

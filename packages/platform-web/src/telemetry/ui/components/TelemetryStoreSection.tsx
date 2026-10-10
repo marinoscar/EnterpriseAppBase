@@ -1,23 +1,20 @@
-/**
- * The Store section of the telemetry settings page for a store that is not the
- * built-in GreptimeDB (PP-14.11).
- *
- * The deployment picks its telemetry store in code, with
- * `TelemetryModule.forRoot({ store })`. GreptimeDB has a bespoke Connection
- * section; any other registered store brings its own settings and secrets, and
- * this section draws them as a generated form: the settings slice's
- * `PluggableConfigForm` over the descriptor `GET /admin/telemetry/store`
- * serves. Nothing about the store is known here.
- *
- * Secrets are WRITE-ONLY: a stored one shows as saved, never as a value, and a
- * secret nobody retyped is not sent. Every save sends `If-Match: <the stored
- * settings' version>`; a 409 offers a reload. Controls are disabled without
- * `telemetry:write`; the API is the gate.
- */
+// The Store section of the telemetry settings page for a store that is not the
+// built-in GreptimeDB (PP-14.11).
+//
+// The deployment picks its telemetry store in code, with
+// `TelemetryModule.forRoot({ store })`. GreptimeDB has a bespoke Connection
+// section; any other registered store brings its own settings and secrets, and
+// this section draws them as a generated form: the settings slice's
+// `PluggableConfigForm` over the descriptor `GET /admin/telemetry/store`
+// serves. Nothing about the store is known here.
+//
+// Secrets are WRITE-ONLY: a stored one shows as saved, never as a value, and a
+// secret nobody retyped is not sent. Every save sends `If-Match: <the stored
+// settings' version>`; a 409 offers a reload. Controls are disabled without
+// `telemetry:write`; the API is the gate.
 import { useEffect, type FormEvent } from 'react';
 import { Alert, Box, Button, Chip, Paper, Stack, Typography } from '@mui/material';
-import { usePluggableConfigForm } from '../../../settings/headless/index.js';
-import { PluggableConfigForm } from '../../../settings/index.js';
+import { PluggableConfigForm, usePluggableConfigForm } from '../../../settings/index.js';
 import type { PluggableDescriptor } from '@marinoscar/platform-contract/settings';
 import { useTelemetryStore } from '../../headless/hooks/useTelemetryStore.js';
 

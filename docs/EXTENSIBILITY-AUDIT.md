@@ -15,7 +15,7 @@ The audit record of the extension seams of every platform slice. A closed point 
 
 Evidence paths are written `api:`, `web:`, `contract:`, `cli:`, `db:` and `infra:` for `packages/platform-api/src/`, `packages/platform-web/src/`, `packages/platform-contract/src/`, `packages/platform-cli/src/`, `packages/platform-db/` and `packages/platform-infra/`; a path under `apps/` or `docs/` is from the repository root. A story is written PP-14.n (its issue number follows).
 
-As of this version: 114 closed points in 29 sections, 32 fixed and 82 open.
+As of this version: 114 closed points in 29 sections, 34 fixed and 80 open.
 
 ## Verdicts
 
@@ -29,7 +29,7 @@ As of this version: 114 closed points in 29 sections, 32 fixed and 82 open.
 | [jobs](#jobs) | Mostly open | 4 | 0 | 4 | PP-14.19, PP-14.23, PP-14.26 |
 | [nodes](#nodes) | Mostly open | 4 | 0 | 4 | PP-14.19, PP-14.23 |
 | [doctor](#doctor) | Mostly open | 2 | 0 | 2 | PP-14.23, PP-14.26 |
-| [telemetry](#telemetry) | Mostly open | 7 | 0 | 7 | PP-14.11, PP-14.18, PP-14.24 |
+| [telemetry](#telemetry) | Mostly open | 7 | 2 | 5 | PP-14.11, PP-14.18, PP-14.24 |
 | [otel-core](#otel-core) | Mostly open | 1 | 0 | 1 | PP-14.18 |
 | [core](#core) | Mostly open | 6 | 1 | 5 | PP-14.14, PP-14.5, PP-14.23 |
 | [shell](#shell) | Mostly open | 2 | 0 | 2 | PP-14.25 |
@@ -67,7 +67,7 @@ The 28 stories of the epic, in order. Phase 1 makes the existing seams real; pha
 | PP-14.8 | #926 | email: pluggable email transports (SendGrid, Postmark) | 2 | 14.5 | no | This change |
 | PP-14.9 | #927 | identity: add a sign-in provider (GitHub, Entra, OIDC) | 2 | 14.5 | no | This change |
 | PP-14.10 | #928 | notifications: first-class app channels (Slack, SMS, Teams, webhook) | 2 | 14.5 | no | This change |
-| PP-14.11 | #929 | telemetry: a TELEMETRY_STORE port so the time-series store is replaceable | 2 | 14.5 | no | Open |
+| PP-14.11 | #929 | telemetry: a TELEMETRY_STORE port so the time-series store is replaceable | 2 | 14.5 | no | This change |
 | PP-14.12 | #930 | db-backup: pluggable backup target, schedule policy and restore gates | 2 | 14.1 (14.7) | verify | Open |
 | PP-14.13 | #931 | host: health indicators, maintenance bypass, About contributors, deployment capabilities and app guards | 3 | 14.2 | no | Open |
 | PP-14.14 | #932 | core: open the access-reason, principal and error-code vocabularies | 3 | none | no | Open |
@@ -204,14 +204,14 @@ Closed points: none recorded at the audit commit.
 
 ### telemetry
 
-**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 7 (0 fixed, 7 open) · **Stories:** PP-14.11, PP-14.18, PP-14.24
+**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 7 (2 fixed, 5 open) · **Stories:** PP-14.11, PP-14.18, PP-14.24
 
-**Open points.** `TelemetryModule.forRoot` options, `metricGroups` and `registerMetricGroup`, the verdict thresholds and `VERDICT_POLICY` (bound by `dashboard.verdictPolicy`), the `TELEMETRY_*` host ports, `withTelemetryTokens` and the packaged dashboard, explorer and settings pages. The reference group is `apps/api/src/platform-extensions/telemetry/activity.metric-group.ts`.
+**Open points.** The telemetry store (`registerTelemetryStore`, `TelemetryStore`, `TelemetrySqlDialect`, `TELEMETRY_STORE`, `TELEMETRY_SQL_DIALECT`, `TelemetryModule.forRoot({ store })`, `describeTelemetryStoreConformance`), `TelemetryModule.forRoot` options, `metricGroups` and `registerMetricGroup`, the verdict thresholds and `VERDICT_POLICY` (bound by `dashboard.verdictPolicy`), the `TELEMETRY_*` host ports, `withTelemetryTokens` and the packaged dashboard, explorer and settings pages. The reference group is `apps/api/src/platform-extensions/telemetry/activity.metric-group.ts`.
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
-| telemetry-1 | The time-series store is a concrete class: `GreptimeClient` (a `pg` pool) is injected directly by the query and dashboard services and the module providers, and the dashboard SQL is GreptimeDB-specific (`date_bin`, `greptime_timestamp`). | api: `telemetry/query/telemetry-query.service.ts:140`; `telemetry/dashboard/telemetry-dashboard.service.ts:383, :409`; `telemetry/telemetry.module.ts:103, :196`; `telemetry/dashboard/telemetry-dashboard.sql.ts:347` | `TelemetryStore` and `TelemetrySqlDialect`, `registerTelemetryStore`, `TelemetryModule.forRoot({ store })`; Greptime becomes the built-in implementation. | PP-14.11 (#929) | Open |
-| telemetry-2 | The only credential purpose is `telemetry_greptime`. | api: `telemetry/connection/telemetry-connection.schema.ts:72` | One purpose per store implementation. | PP-14.11 (#929) | Open |
+| telemetry-1 | The time-series store is a concrete class: `GreptimeClient` (a `pg` pool) is injected directly by the query and dashboard services and the module providers, and the dashboard SQL is GreptimeDB-specific (`date_bin`, `greptime_timestamp`). | api: `telemetry/query/telemetry-query.service.ts:140`; `telemetry/dashboard/telemetry-dashboard.service.ts:383, :409`; `telemetry/telemetry.module.ts:103, :196`; `telemetry/dashboard/telemetry-dashboard.sql.ts:347` | `TelemetryStore` and `TelemetrySqlDialect`, `registerTelemetryStore`, `TelemetryModule.forRoot({ store })`; Greptime becomes the built-in implementation. Every service injects `TELEMETRY_STORE` and `TELEMETRY_SQL_DIALECT`; the seven non-portable constructs of the dashboard SQL are the dialect's; the explorer's guard stays above the store. Still GreptimeDB-shaped by design: the OpenTelemetry table layout the collector writes, the metric catalog's `METRIC_*_COLUMN` names, the assistant's SQL and prompt and the Doctor's wording. | PP-14.11 (#929) | Fixed |
+| telemetry-2 | The only credential purpose is `telemetry_greptime`. | api: `telemetry/connection/telemetry-connection.schema.ts:72` | One purpose per store implementation: `telemetry_<id>`, registered by `registerTelemetryStore` for a store that declares secrets; `telemetry_greptime` is unchanged. | PP-14.11 (#929) | Fixed |
 | telemetry-3 | `METRIC_UNITS` is a closed 15-value list enforced by `assertUnit`; `kind` is `gauge`, `counter` or `histogram`. | contract: `telemetry/constants.ts:446`; api: `telemetry/metrics/metric-group.registry.ts`; `telemetry/metrics/metric-catalog.ts:174-223` | `registerMetricUnit({ id, label, format, currency?, decimals? })`. | PP-14.18 (#936) | Open |
 | telemetry-4 | Presentation is a module constant covering the six platform groups only; an app group gets default tiles (no colours, top-N or virtual columns). | web: `telemetry/ui/components/dashboard/metrics/MetricSections.tsx:83` | `MetricGroupDef.presentation` (bounded, validated, no code), served by `/metric-groups`. | PP-14.18 (#936) | Open |
 | telemetry-5 | `DASHBOARD_PANELS` (`api`, `logs`) and `DASHBOARD_TOP_KINDS` are closed; the three pages take no props or slots. | contract: `telemetry/constants.ts:402, :417`; web: `telemetry/ui/pages/TelemetryDashboardPage.tsx:279` | `registerDashboardPanel` (API) and `registerDashboardPanelView` (web); `Sections`, `Header`, explorer `starterQueries`. | PP-14.18 (#936) | Open |

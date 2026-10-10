@@ -36,7 +36,7 @@ Standalone: **Yes** means the slice imports and runs with the foundation slices 
 | [`testing`](#testing) | The conformance harness (`runPlatformConformance`, `runPlatformWebConformance`) that proves an app wires the slices correctly, and the shared test helpers. | API, Web, CLI | `core`, `engine` | Yes |
 | [`doctor`](#doctor) | The admin Doctor: a read-only check registry every slice adds its checks to, the report, the support bundle and the Doctor page. | API, Web, Contract | `core` | With slices |
 | [`otel-core`](#otel-core) | The OpenTelemetry SDK behind a runtime export gate, the metric name registry and the `@Trace()` decorator, so a service emits traces and metrics without owning an exporter. | API | `core` | Yes |
-| [`telemetry`](#telemetry) | Observability for the app: the runtime-configured GreptimeDB connection, the SQL explorer, the AI assistant, the dashboard with its health verdict and metric groups, and the retention job. | API, Web, Contract, CLI, Infra | `core`, `doctor`, `otel-core` | With app ports |
+| [`telemetry`](#telemetry) | Observability for the app: the runtime-configured GreptimeDB connection, the SQL explorer, the AI assistant, the dashboard with its health verdict and metric groups, and the retention job. | API, Web, Contract, CLI, Infra | `core`, `credentials`, `doctor`, `otel-core`, `settings` | With app ports |
 | [`manifest`](#manifest) | The platform roles, the permission sets every slice declares and the model-ownership inventory the app reads once, instead of listing them slice by slice. | API | `ai`, `android-app`, `core`, `credentials`, `db-backup`, `identity`, `jobs`, `nodes`, `notifications`, `settings`, `sharing`, `storage`, `telemetry`, `user-data` | With slices |
 | [`host`](#host) | The host core: the event bus, maintenance mode with its guard, the response envelope, the exception filter, request ids, health, CORS, the OpenAPI document and the About page. | API, Web | `core`, `db-backup`, `doctor`, `identity`, `nodes`, `otel-core`, `settings` | With slices |
 | [`shell`](#shell) | The web app shell: layout, app bar, navigation rail with Console mode, bottom navigation, user menu and the shell theme. | Web | `core`, `identity`, `settings` | With slices |
@@ -159,13 +159,13 @@ None.
 
 **What it gives you.** Observability for the app: the runtime-configured GreptimeDB connection, the SQL explorer, the AI assistant, the dashboard with its health verdict and metric groups, and the retention job.
 
-**What it is** (from its README). The API side of observability, in the API layer: the `telemetry` settings and the runtime export gate they drive, the runtime GreptimeDB connection and client, the explorer (guarded SQL, schema, export), the AI assistant, the Telemetry Dashboard with its metric-group registry and health verdict, the stack-agent surface, and more.
+**What it is** (from its README). The API side of observability, in the API layer: the `telemetry` settings and the runtime export gate they drive, the telemetry store port (`TelemetryStore`, `TelemetrySqlDialect`) with GreptimeDB as its built-in implementation, the runtime GreptimeDB connection and client, the explorer (guarded SQL, schema, export), the AI assistant, and more.
 
 | Part | Import paths | Depends on (slices) | Install beyond the required peers | README |
 |---|---|---|---|---|
-| API (`platform-api`) | `/telemetry`, `/telemetry/testing` | `core`, `doctor`, `otel-core` | `@nestjs/config`, `@nestjs/schedule`, `fastify`; `/testing` adds `@nestjs/platform-fastify` | [README](../packages/platform-api/src/telemetry/README.md) |
-| Web (`platform-web`) | `/telemetry/headless`, `/telemetry/ui`, `/telemetry/ui/dashboard-page`, `/telemetry/ui/explorer-page`, `/telemetry/ui/settings-page` | `core` | `@codemirror/lang-sql`, `@mui/icons-material`, `@mui/x-charts`, `@mui/x-data-grid`, `@uiw/react-codemirror`, `react-router-dom` | [README](../packages/platform-web/src/telemetry/README.md) |
-| Contract (`platform-contract`) | `/telemetry` | none | none | [README](../packages/platform-contract/src/telemetry/README.md) |
+| API (`platform-api`) | `/telemetry`, `/telemetry/testing` | `core`, `doctor`, `otel-core`, `credentials` | `@nestjs/config`, `@nestjs/schedule`, `fastify`; `/testing` adds `@nestjs/platform-fastify` | [README](../packages/platform-api/src/telemetry/README.md) |
+| Web (`platform-web`) | `/telemetry/headless`, `/telemetry/ui`, `/telemetry/ui/dashboard-page`, `/telemetry/ui/explorer-page`, `/telemetry/ui/settings-page` | `core`, `settings` | `@codemirror/lang-sql`, `@mui/icons-material`, `@mui/x-charts`, `@mui/x-data-grid`, `@uiw/react-codemirror`, `react-router-dom` | [README](../packages/platform-web/src/telemetry/README.md) |
+| Contract (`platform-contract`) | `/telemetry` | `settings` | none | [README](../packages/platform-contract/src/telemetry/README.md) |
 | CLI (`platform-cli`) | `/telemetry` | `core` | none | [README](../packages/platform-cli/src/telemetry/README.md) |
 | Infra (`platform-infra`) | `/telemetry` | none | none | [README](../packages/platform-infra/src/telemetry/README.md) |
 
@@ -179,7 +179,7 @@ None.
 
 **Permissions it adds.** `telemetry:{read,write,query}`
 
-**Standalone (With app ports).** Imports core, otel-core and doctor. Mounting `TelemetryModule` additionally needs the app to bind the six telemetry host ports and to supply the access decorators; the backend-only consumer below imports it and builds its module metadata but does not boot it. Transitive slice dependencies in API: `core`, `doctor`, `otel-core`.
+**Standalone (With app ports).** Imports core, otel-core and doctor. Mounting `TelemetryModule` additionally needs the app to bind the six telemetry host ports and to supply the access decorators; the backend-only consumer below imports it and builds its module metadata but does not boot it. Transitive slice dependencies in API: `core`, `credentials`, `doctor`, `otel-core`.
 
 ### manifest
 

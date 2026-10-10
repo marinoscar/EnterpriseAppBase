@@ -453,6 +453,116 @@ An old `email` row (the flat `sesRegion`, `smtpHost`, ... fields) still loads: t
 
 What is still closed (audit: [email](EXTENSIBILITY-AUDIT.md#email)): slots on the page (`Sections`), a `verify` that the Doctor runs (the Doctor never touches the network), and a descriptor field kind richer than the five of `describeConfigFields`.
 
+### Replace the telemetry store
+
+Available now. An app, or an `@acme/telemetry-clickhouse` package an app installs, keeps the telemetry the collector exports in another database and has the explorer, the Telemetry Dashboard, the status page, the retention job and the Doctor query it, with no edit under `packages/`. It is [a pluggable kind](#writing-a-pluggable-implementation) with two parts: a **store** (the connection) and a **dialect** (the spelling of the SQL the dashboard cannot write portably). The worked example is [`memory-store.ts`](../apps/api/src/platform-extensions/telemetry/memory-store.ts): rows held in process memory, queried by a tiny SQL engine, no database. The reference for every member is the [telemetry README](../packages/platform-api/src/telemetry/README.md#replacing-the-store-rung-2).
+
+1. **Implement the store** (`TelemetryStore`). `query` is the part that matters: it MUST refuse a statement that writes (`options.readOnly` is always `true`), honour `timeoutMs` (throw `TelemetryQueryTimeoutError`) and `signal` (`TelemetryQueryAbortedError`), and throw `TelemetryNotConfiguredError` while unconfigured. It returns positional rows (`{ fields: [{ name, dataTypeID }], rows: unknown[][] }`, a PostgreSQL type OID per column, 64-bit integers and timestamps as text). The explorer's guard (one read-only statement, the row cap, the timeout, the audit row) runs above the store, so a route never hands it a write; the guard is not a reason to skip the check.
+
+   ```ts
+   import { TelemetryQueryTimeoutError, type TelemetryStore } from '@marinoscar/platform-api/telemetry';
+
+   class ClickHouseTelemetryStore implements TelemetryStore {
+     readonly id = 'clickhouse';
+     constructor(readonly database: string, private readonly client: ClickHouseClient) {}
+     isConfigured() { return true; }
+     configurationProblem() { return null; }
+     async query(sql: string, _params: readonly unknown[], { timeoutMs, signal }: { timeoutMs: number; signal?: AbortSignal }) {
+       // a read-only connection (readonly=1), the timeout and the abort signal passed to the driver...
+       return { fields: [/* { name, dataTypeID } */], rows: [/* unknown[] per row */] };
+     }
+     async schema() { return { tables: [/* { name, rows, columns: [{ name, type, semanticType }] } */] }; }
+     async ping() { return { reachable: true, version: 'ClickHouse 24.3' }; }   // never throws
+     async close() { await this.client.close(); }
+   }
+   ```
+
+   `retention` is optional: add `{ isApplicable(), apply(days), current() }` and the nightly retention job calls it; without it the job is a logged no-op and the status page shows no TTL.
+2. **Write the dialect** (`TelemetrySqlDialect`). The dashboard's statements are ANSI-flavoured SQL except seven constructs, which the platform asks the dialect for. Start from the built-in (`GREPTIME_SQL_DIALECT`) and replace what your engine spells differently:
+
+   ```ts
+   import { GREPTIME_SQL_DIALECT, quoteSqlLiteral, type TelemetrySqlDialect } from '@marinoscar/platform-api/telemetry';
+
+   export const CLICKHOUSE_DIALECT: TelemetrySqlDialect = {
+     ...GREPTIME_SQL_DIALECT,
+     id: 'clickhouse',
+     timeBucket: (column, seconds) => `toStartOfInterval(${column}, INTERVAL ${seconds} SECOND)`,
+     percentile: (fraction, expr) => `quantile(${fraction})(${expr})`,
+     // regexpReplaceAll, jsonString, containsIgnoreCase, castText and limit follow
+   };
+   ```
+
+   | Member | The construct | GreptimeDB spelling |
+   |---|---|---|
+   | `timeBucket(column, seconds)` | An epoch-aligned time bucket | `date_bin(INTERVAL '60 seconds', "timestamp")` |
+   | `percentile(fraction, expr)` | An aggregate quantile that ignores NULLs | `approx_percentile_cont(0.95) WITHIN GROUP (ORDER BY expr)` |
+   | `regexpReplaceAll(expr, pattern, replacement)` | Route normalisation | `regexp_replace(expr, 'p', 'r', 'g')` |
+   | `jsonString(column, key)` | A key of a log record's JSON `resource_attributes` | `json_get_string(col, '["service.name"]')` |
+   | `containsIgnoreCase(expr, escapedPattern)` | The events search | `expr ILIKE '%p%' ESCAPE '\'` |
+   | `castText(expr)` | Full-precision timestamp text for the events cursor | `CAST(expr AS STRING)` |
+   | `limit(rows)` | The row cap | `LIMIT n` |
+   | `timestampColumn`, `valueColumn` | The metric tables' time index and value | `greptime_timestamp`, `greptime_value` |
+
+   What the dialect does **not** abstract, and a store must therefore accept: double-quoted identifiers, single-quoted literals, `CASE WHEN`, `GROUP BY` an alias, `UNION`, subqueries in `FROM`, scalar subqueries, `count`/`sum`/`min`/`max`/`avg`, `substr`, ISO timestamp literals compared with a timestamp column, `lag(...) OVER (...)` in the metric catalog's series, and the OpenTelemetry table layout the collector's exporter writes (`opentelemetry_traces`, `opentelemetry_logs`, flattened `"span_attributes.*"` columns). A store over another layout maps it in its query layer.
+3. **Define and register it** at import time, in [`apps/api/src/app-registrations/telemetry.ts`](../apps/api/src/app-registrations/telemetry.ts):
+
+   ```ts
+   import { registerTelemetryStore } from '@marinoscar/platform-api/telemetry';
+
+   registerTelemetryStore({
+     id: 'clickhouse',
+     label: 'ClickHouse',
+     settingsSchema: z.object({ url: z.string().url().describe('HTTP endpoint'), database: z.string().default('otel') }),
+     defaults: { url: 'http://clickhouse:8123', database: 'otel' },
+     secrets: [{ name: 'password', label: 'Password', required: true }],
+     build: async ({ settings, secret }) => ({
+       store: new ClickHouseTelemetryStore(String(settings.database), makeClient(String(settings.url), await secret('password'))),
+       dialect: CLICKHOUSE_DIALECT,
+     }),
+   });
+   ```
+
+   - **`id`** matches `^[a-z][a-z0-9-]{1,47}$` and is permanent once settings or a secret exist: it keys the `telemetry_store` row and names the credential purpose.
+   - **`settingsSchema`** is a `z.object` of the **non-secret** settings; a field named like a secret is refused at registration. **`secrets`** are kept encrypted at the credential purpose `telemetry_<id>`, which `registerTelemetryStore` registers for you; read one with `await secret('name')` inside `build`.
+   - **`build`** runs when the stored settings or a secret change (the previous store is `close()`d), not per query. A throw leaves the store unbuilt and the page shows why.
+   - The registry freezes when the application bootstraps, so a later registration fails with `FROZEN`; a duplicate id or a malformed definition throws at registration. [`platform/telemetry/telemetry.config.ts`](../apps/api/src/platform/telemetry/telemetry.config.ts) imports that file before it builds the module.
+4. **Select it.** Registering is not selecting. The store is a deployment decision, made in code, so every instance agrees:
+
+   ```ts
+   TelemetryModule.forRoot({ host: platformHost, imports: [TelemetryHostModule], store: 'clickhouse' });
+   ```
+
+   A `store` nobody registered fails boot, naming the registered ids. Allow the settings row in the app's settings-store adapter (`telemetry_store`, beside `telemetry_connection`: the reference app's `TELEMETRY_OWNED_ROW_KEYS`).
+5. **There is nothing else to wire.** Selecting the store gives it:
+   - **Every consumer.** The explorer, the export, the assistant's statements, the dashboard, the status page, the retention job, the Doctor checks and the support bundle read `TELEMETRY_STORE`; none imports the GreptimeDB client. The override reaches them all because `forRoot` binds the token where it is provided ([the rule](#overrides-go-through-forroot-bindings-never-an-app-module-provider)).
+   - **A settings route and a form.** `GET` / `PUT /api/admin/telemetry/store` describe the store (a descriptor: its fields, then a write-only field per secret with presence only) and save it (`If-Match`, validated with your schema, secrets encrypted, an audit row with names only). A save reaches the running store on that instance at once and on every other within five seconds.
+6. **The web needs no code.** The Telemetry settings page shows the GreptimeDB Connection form for the built-in store and, for yours, one **Store** section: a control per setting and a write-only field per secret, drawn from the descriptor by the settings slice's `PluggableConfigForm`. The services section (the GreptimeDB containers) is left out.
+7. **Prove it with the kit and a test that boots the real module.**
+   - **The store.** `describeTelemetryStoreConformance` of `@marinoscar/platform-api/telemetry/testing`: the definition, `query` refusing writes and staying usable, its timeout and abort signal, `schema()`, a `ping()` that never throws and leaks no secret, an unconfigured store, `close()` twice, and, given a `fixture`, **every dashboard statement built with your dialect run against your store**.
+
+     ```ts
+     import '../../../src/app-registrations/telemetry';
+     import { describeTelemetryStoreConformance } from '@marinoscar/platform-api/telemetry/testing';
+
+     describeTelemetryStoreConformance('clickhouse', {
+       describe, it, expect, settings: {}, secrets: { password: 'x' },
+       writeStatements: ['DROP TABLE opentelemetry_logs'],
+       timeout: { statement: 'SELECT sleep(3)', timeoutMs: 20 },
+       fixture: { prepare: (store) => loadRows(store), from, to },
+     });
+     ```
+
+   - **The consumers.** [`memory-store.spec.ts`](../apps/api/test/examples/telemetry/memory-store.spec.ts) boots the real `TelemetryModule.forRoot({ store: 'memory' })` (through `bootStubApp({ store })`), loads fixture rows, and calls the dashboard summary, top routes, filters and events, the explorer (a read, and a write the guard refuses above the store), the status and schema routes and the store settings route. [`telemetry-store.module.spec.ts`](../packages/platform-api/test/telemetry/telemetry-store.module.spec.ts) asserts seven consumers all hold the same store.
+   - **The web.** [`memory-store-section.test.tsx`](../apps/web/src/__tests__/examples/telemetry/memory-store-section.test.tsx): the page draws the Store section with no web code and saves `{ settings, secrets }` with the row's version.
+8. **Check it.**
+
+   ```bash
+   npx jest --config apps/api/test/jest.config.js --rootDir apps/api test/examples/telemetry
+   npm run test:run --workspace=web -- src/__tests__/examples/telemetry
+   ```
+
+Not covered here: **replacing the OpenTelemetry collector's exporter**, which writes the telemetry into the store, is an infra overlay (the collector config is `@marinoscar/platform-infra/telemetry`; [telemetry runbook §2.4](runbooks/telemetry.md#24-add-your-own-collector-pipelines-app-overlay)). The API only reads. What is still closed (audit: [telemetry](EXTENSIBILITY-AUDIT.md#telemetry)): the assistant's own SQL and system prompt describe GreptimeDB (DataFusion) SQL, the metric catalog's series still read the OpenTelemetry-on-GreptimeDB table layout, and the Doctor's tables check names GreptimeDB in its text.
+
 ### Add an event bus adapter
 
 Available now. Full recipe: [the host README](../packages/platform-api/src/host/README.md#adding-an-event-bus-adapter). Example: [`recording-event-bus.ts`](../apps/api/src/platform-extensions/host/recording-event-bus.ts), registered by [`app-registrations/host.ts`](../apps/api/src/app-registrations/host.ts), proven by [`event-bus-adapter.spec.ts`](../apps/api/test/examples/host/event-bus-adapter.spec.ts).
@@ -473,7 +583,7 @@ Available now. Full recipe: [the host README](../packages/platform-api/src/host/
 
 ### Writing a pluggable implementation
 
-Available now. A **pluggable kind** is the one shape every slice with a swappable part (AI provider, storage driver, email transport, sign-in provider, notification channel, telemetry store, backup target) is moving to, so you learn it once. The primitive is `definePluggableKind` of `@marinoscar/platform-api/core`; the AI providers, the storage drivers and the email transports use it ([Add an AI provider](#add-an-ai-provider-the-assemblyai-case), [Add a storage driver](#add-a-storage-driver), [Add an email transport](#add-an-email-transport)), the stories PP-14.11 and PP-14.12 apply it to each remaining slice, and until a slice's story lands, its kind is not yet registered there (see the placeholders below). Sign-in providers keep identity's own registry (`registerAuthProvider`), extended compatibly: a provider has no admin settings form to generate (its secrets are credentials, its enablement is whether they exist), so [Add a sign-in provider](#add-a-sign-in-provider) is its own recipe. Notification channels keep the notifications registries for the same reason (a channel's configuration is the app's, and its administrator control is one switch per channel): [Add a notification channel](#add-a-notification-channel). The full reference is [the core README, Pluggable kinds](../packages/platform-api/src/core/README.md#pluggable-kinds). Worked example, with no consumer slice: [`greeter.kind.ts`](../apps/api/src/platform-extensions/core/greeter.kind.ts), registered by [`app-registrations/core.ts`](../apps/api/src/app-registrations/core.ts), proven by [`pluggable-kind.spec.ts`](../apps/api/test/examples/core/pluggable-kind.spec.ts) on the API side and [`pluggable-config-form.test.tsx`](../apps/web/src/__tests__/examples/settings/pluggable-config-form.test.tsx) on the web side.
+Available now. A **pluggable kind** is the one shape every slice with a swappable part (AI provider, storage driver, email transport, sign-in provider, notification channel, telemetry store, backup target) is moving to, so you learn it once. The primitive is `definePluggableKind` of `@marinoscar/platform-api/core`; the AI providers, the storage drivers and the email transports use it ([Add an AI provider](#add-an-ai-provider-the-assemblyai-case), [Add a storage driver](#add-a-storage-driver), [Add an email transport](#add-an-email-transport)), the telemetry stores use it too ([Replace the telemetry store](#replace-the-telemetry-store)), the story PP-14.12 applies it to the remaining slice, and until that story lands its kind is not yet registered there (see the placeholder below). Sign-in providers keep identity's own registry (`registerAuthProvider`), extended compatibly: a provider has no admin settings form to generate (its secrets are credentials, its enablement is whether they exist), so [Add a sign-in provider](#add-a-sign-in-provider) is its own recipe. Notification channels keep the notifications registries for the same reason (a channel's configuration is the app's, and its administrator control is one switch per channel): [Add a notification channel](#add-a-notification-channel). The full reference is [the core README, Pluggable kinds](../packages/platform-api/src/core/README.md#pluggable-kinds). Worked example, with no consumer slice: [`greeter.kind.ts`](../apps/api/src/platform-extensions/core/greeter.kind.ts), registered by [`app-registrations/core.ts`](../apps/api/src/app-registrations/core.ts), proven by [`pluggable-kind.spec.ts`](../apps/api/test/examples/core/pluggable-kind.spec.ts) on the API side and [`pluggable-config-form.test.tsx`](../apps/web/src/__tests__/examples/settings/pluggable-config-form.test.tsx) on the web side.
 
 1. **Pick the kind.** Import the kind a slice exposes. For a swappable part of your own, define one once, at module scope, in the file that owns it (`import { definePluggableKind } from '@marinoscar/platform-api/core'`):
 
@@ -699,10 +809,6 @@ What is still closed (audit: [identity](EXTENSIBILITY-AUDIT.md#identity)): app r
 
 Each placeholder names the story that replaces it; each is built on [the pluggable kind](#writing-a-pluggable-implementation). Until then the audit row is the record of what is closed.
 
-### Coming in PP-14.11: replace the telemetry store
-
-A `TelemetryStore` and SQL dialect so the time-series store behind the dashboard and the explorer is replaceable. **Not supported yet.** The query and dashboard services depend on the concrete GreptimeDB client. Redirecting ingest is possible through the app's collector overlay ([telemetry runbook §2.4](runbooks/telemetry.md#24-add-your-own-collector-pipelines-app-overlay)); querying another store is not.
-
 ### Coming in PP-14.12: add a backup target
 
 A backup target port (with mirror targets), a cron schedule, age-based retention, app restore gates and completion events. **Not supported yet.** Backups write through the single `STORAGE_PROVIDER`, so [Replace the object store](#replace-the-object-store) changes where they go, for backups and everything else.
@@ -736,7 +842,8 @@ A kit is a function an extension author calls with the implementation and the te
 | `describeEmailTransportConformance(transport, { describe, it, expect, settings, secrets, backend })` | `@marinoscar/platform-api/email/testing` | A valid definition (id, label, defaults that parse, declared secrets); an accepted message is `{ success: true }`; `send` never throws (network error, thrown string, thrown object); no secret material and no message content in the error text; attachments and headers passed through to one recipient; a throttle classified; `verify`, when defined, never throws | Available |
 | `describeAuthProviderConformance(definition, { describe, it, expect, rawProfile, expectedSubject, enabledWith?, host? })` | `@marinoscar/platform-api/identity/testing` | A well-formed definition; `mapProfile` returns a valid `ExternalProfile` (and survives a sparse payload); `isEnabled` is false without configuration and true with it; the strategy builds; the route is mounted; a full login creates a `UserIdentity` for this provider and subject; the allowlist applies; an unverified address is refused; a policy denial returns its reason | Available |
 | `describeNotificationSenderConformance(sender, { describe, it, expect, recipient, handles?, secrets?, breakTransport? })` | `@marinoscar/platform-api/notifications/testing` | The channel is registered and the sender has a resolver; a reachable recipient resolves to a destination with a redacted display that carries no secret; an unreachable one resolves to `null`; `deliver` never throws (any payload, a down transport, an empty destination) and reports a failure with a reason; no secret in the display, `error` or `messageId`; the channel switch drops the channel, mandatory events included | Available |
-| Telemetry store, backup target | the slice's `…/testing` entry | Each ships with its story (PP-14.11, PP-14.12) | Coming |
+| `describeTelemetryStoreConformance(store, { describe, it, expect, settings?, secrets?, writeStatements?, timeout?, unconfigured?, fixture? })` | `@marinoscar/platform-api/telemetry/testing` | A valid definition (id, label, defaults, no secret-looking setting, a form descriptor); `query` refuses writes and answers a read afterwards, honours its timeout and abort signal; `schema()` has the explorer shape, sorted; `ping()` never throws and leaks no secret; an unconfigured store refuses with a typed error; `close()` twice; the dialect renders every construct; given a fixture, every dashboard statement built with the dialect runs against the store | Available |
+| Backup target | the slice's `…/testing` entry | Ships with its story (PP-14.12) | Coming |
 | Doctor check, job handler | `@marinoscar/platform-api/doctor/testing`, `…/jobs/testing` | Read-only checks; handler profile, idempotence and node-eligibility pairing | Coming (PP-14.26) |
 
 An app adds its own suite with `conformanceSuites.register` and a `declare module '@marinoscar/platform-api/testing'` augmentation of `PlatformConformanceSuiteOptions`; the android-app slice's `testing/conformance.ts` is the model. More: [TESTING.md](TESTING.md#platform-conformance).

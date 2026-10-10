@@ -52,4 +52,6 @@ export type {
   TelemetryStoreConformanceOptions,
   TelemetryStoreConformanceScenario,
   TelemetryStoreFixture,
+  TelemetryStoreTimeoutScenario,
+  TelemetryStoreUnconfiguredScenario,
 } from './store-conformance';

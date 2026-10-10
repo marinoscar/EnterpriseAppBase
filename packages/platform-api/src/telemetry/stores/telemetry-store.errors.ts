@@ -13,7 +13,10 @@
 // connection's password.
 // =============================================================================
 
-/** Base of every error a telemetry store throws on purpose. */
+/** Base of every error a telemetry store throws on purpose.
+ *
+ * @stability experimental
+ */
 export class TelemetryStoreError extends Error {
   constructor(message: string) {
     super(message);
@@ -26,11 +29,17 @@ export class TelemetryStoreError extends Error {
  * /admin/settings/telemetry nor supplied by the `GREPTIME_*` deployment
  * default, or the admin login missing for an admin call. Not a fault: a
  * deployment without a telemetry store is a supported state.
+ *
+ * @stability experimental
  */
 export class TelemetryNotConfiguredError extends TelemetryStoreError {
+  /**
+   * @param role - which login was missing (`reader` for every store but the built-in one).
+   * @param message - replaces the GreptimeDB wording, for a store that is not GreptimeDB.
+   */
   constructor(
+    /** Which login the call needed. */
     readonly role: 'reader' | 'admin',
-    /** Replaces the GreptimeDB wording, for a store that is not GreptimeDB. */
     message?: string,
   ) {
     super(
@@ -49,9 +58,14 @@ export class TelemetryNotConfiguredError extends TelemetryStoreError {
  * read-only user cannot `SET statement_timeout`, and GreptimeDB ignores the
  * startup parameter (spike #529). The connection that ran it has already been
  * destroyed when this is thrown; the server may still be finishing the query.
+ *
+ * @stability experimental
  */
 export class TelemetryQueryTimeoutError extends TelemetryStoreError {
-  constructor(readonly timeoutMs: number) {
+  constructor(
+    /** The ceiling that was exceeded, in milliseconds. */
+    readonly timeoutMs: number,
+  ) {
     super(`The telemetry query did not finish within ${timeoutMs} ms and was abandoned.`);
   }
 }
@@ -61,6 +75,8 @@ export class TelemetryQueryTimeoutError extends TelemetryStoreError {
  * protocol runs every statement in a multi-statement string (spike #529), so
  * the client refuses to hand such a result back; the explorer's guard (#535)
  * should reject the text before it is ever sent.
+ *
+ * @stability experimental
  */
 export class TelemetryMultiStatementError extends TelemetryStoreError {
   constructor() {
@@ -75,12 +91,15 @@ export class TelemetryMultiStatementError extends TelemetryStoreError {
  * error (bad SQL, permission refused — the caller's statement is at fault and
  * the message is safe to show), `connection` is the store not answering at
  * all (refused/reset socket, failed authentication handshake).
+ *
+ * @stability experimental
  */
 export class TelemetryQueryFailedError extends TelemetryStoreError {
   constructor(
     message: string,
     /** SQLSTATE when the server supplied one (or a Node error code for a socket failure). */
     readonly code?: string,
+    /** `server` (the store answered with an error) or `connection` (it did not answer). */
     readonly origin: 'server' | 'connection' = 'server',
   ) {
     super(message);
@@ -92,6 +111,8 @@ export class TelemetryQueryFailedError extends TelemetryStoreError {
  * assistant's client disconnected, issue #536). Like a timeout, the
  * connection that ran it has already been destroyed; the server may still be
  * finishing the query.
+ *
+ * @stability experimental
  */
 export class TelemetryQueryAbortedError extends TelemetryStoreError {
   constructor() {

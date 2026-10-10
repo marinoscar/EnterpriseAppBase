@@ -404,7 +404,7 @@ export interface TelemetryStoreBuildContext {
 }
 
 /**
- * The argument of {@link TelemetryStoreDefinition.build}.
+ * The argument of a store definition's `build`.
  *
  * @stability experimental
  */
