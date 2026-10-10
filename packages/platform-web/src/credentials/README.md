@@ -6,6 +6,8 @@ The browser half of the credentials slice (issue #735, PP-8.8): the write-only s
 
 Five pages of the reference app each render a password field for a stored secret with their own hint sentence (storage, e-mail, the AI provider card, the telemetry connection, a user's own AI key). This slice is the one implementation they converge on: a password input that says whether a secret is saved (its non-secret hint and last change) and that leaving it blank keeps it.
 
+Sibling slices import it through `credentials/index.ts` (not a package subpath); the settings slice's `PluggableConfigForm` (#923) renders `SecretField` and `usePluggableConfigForm` uses `secretForSubmit` that way.
+
 Not here: the five pages themselves, which move onto `SecretField` when their slices are extracted (#736, #737, #738, #739, the telemetry follow-up), so this story edits none of them; any API call (the owning feature's page sends the value); a credentials browser (there is none, on purpose).
 
 ## Install and peer dependencies
