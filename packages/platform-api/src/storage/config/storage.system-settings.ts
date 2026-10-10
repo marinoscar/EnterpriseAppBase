@@ -181,10 +181,15 @@ function legacyMirror(provider: string, drivers: DriversRecord): Required<Pick<S
 }
 
 /**
- * The stored `storage` schema. A PUT body (and any value that reaches the
- * composed stored schema) is checked by the driver that owns each entry; the
- * legacy flat fields are folded into `drivers.<provider>` and dropped, so a
- * PUT converts the row exactly as a PATCH does.
+ * The stored `storage` schema, still a plain `z.object` (an app can extend the
+ * namespace). A PUT body (and any value that reaches the composed stored
+ * schema) is checked by the driver that owns each entry, and refused when a
+ * legacy flat field contradicts `drivers.<provider>`.
+ *
+ * A PUT that carries only the legacy flat fields stores them as sent (with an
+ * empty `drivers`): `read` folds them into `drivers.<provider>` on every read,
+ * so the row means the same thing in either shape, and the first PATCH
+ * rewrites it in the new one.
  */
 const storedStorageSchema = systemStorageSchema
   .extend({
@@ -209,17 +214,6 @@ const storedStorageSchema = systemStorageSchema
         path: ['drivers', value.provider],
       });
     }
-  })
-  .transform((value): SystemStorageValue => {
-    const legacy = legacyFieldsFor(value.provider, legacyFieldsOf(value));
-    const drivers: DriversRecord = {};
-    for (const [id, entry] of Object.entries(value.drivers)) {
-      drivers[id] = storageDriverKind.has(id) ? storageDriverKind.parseSettings(id, id === value.provider ? { ...legacy, ...entry } : entry) : entry;
-    }
-    if (!(value.provider in drivers) && Object.keys(legacy).length > 0 && storageDriverKind.has(value.provider)) {
-      drivers[value.provider] = storageDriverKind.parseSettings(value.provider, legacy);
-    }
-    return { provider: value.provider, drivers };
   });
 
 /**

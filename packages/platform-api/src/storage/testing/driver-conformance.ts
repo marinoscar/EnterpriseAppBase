@@ -67,8 +67,8 @@ import {
 export interface StorageDriverConformanceHarness {
   /** The runner's `describe`. */
   describe: (name: string, fn: () => void) => unknown;
-  /** The runner's `it`; the kit passes asynchronous case bodies. */
-  it: (name: string, fn: () => void | Promise<void>) => unknown;
+  /** The runner's `it`. Every case body the kit passes is an asynchronous function. */
+  it: (name: string, fn: () => Promise<void>) => unknown;
   /** The runner's `expect`. */
   expect: (actual: unknown) => any;
 }
@@ -212,7 +212,7 @@ export function describeStorageDriverConformance(
 
   describe(`storage driver conformance: ${label}`, () => {
     if (resolved === undefined) {
-      it('is registered', () => {
+      it('is registered', async () => {
         expect(`storage driver "${label}" is registered`).toBe(
           `storage driver "${label}" is not registered: call registerStorageDriver before describeStorageDriverConformance`,
         );
@@ -224,7 +224,9 @@ export function describeStorageDriverConformance(
 
     const scenario = (id: StorageDriverConformanceScenario, title: string, fn: () => void | Promise<void>) => {
       if (skip.has(id)) return;
-      it(`[${id}] ${title}`, fn);
+      it(`[${id}] ${title}`, async () => {
+        await fn();
+      });
     };
 
     const contextFor = (settings: Record<string, unknown>, secrets: Record<string, string>): StorageDriverContext => ({

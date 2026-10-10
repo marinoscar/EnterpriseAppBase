@@ -231,14 +231,26 @@ describe('the storage namespace: a PATCH writes the new shape only', () => {
 describe('the storage namespace: a PUT', () => {
   const parse = (value: unknown) => STORAGE_SYSTEM_SETTINGS.storedSchema.safeParse(value);
 
-  it('folds the legacy flat fields into drivers and stores the new shape only', () => {
+  it('accepts a body of the legacy flat fields; the stored row reads as drivers.<provider>', () => {
     const result = parse({ provider: 's3compatible', bucket: 'b', region: '', endpoint: 'http://minio:9000', accountId: '', accessKeyId: 'K', forcePathStyle: null });
 
     expect(result.success).toBe(true);
-    expect(result.data).toEqual({
-      provider: 's3compatible',
-      drivers: { s3compatible: { bucket: 'b', region: '', endpoint: 'http://minio:9000', accessKeyId: 'K', forcePathStyle: null } },
+    // Stored as sent (with an empty `drivers`)...
+    expect(result.data).toMatchObject({ provider: 's3compatible', drivers: {}, bucket: 'b' });
+    // ...and read as the new shape, so it means the same in either.
+    expect(read(result.data).drivers.s3compatible).toEqual({
+      bucket: 'b',
+      region: '',
+      endpoint: 'http://minio:9000',
+      accessKeyId: 'K',
+      forcePathStyle: null,
     });
+    // The first PATCH rewrites it in the new shape only.
+    expect(Object.keys(mergeStorageSettings(read(result.data))).sort()).toEqual(['drivers', 'provider']);
+  });
+
+  it('stays a plain z.object, so an app can still extend the namespace', () => {
+    expect(STORAGE_SYSTEM_SETTINGS.storedSchema).toBeInstanceOf(z.ZodObject);
   });
 
   it('accepts the new shape, and checks each entry with the driver that owns it', () => {
