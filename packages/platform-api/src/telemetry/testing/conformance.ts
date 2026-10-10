@@ -472,6 +472,8 @@ export interface StubAppInput {
   ports?: StubTelemetryPortsOptions;
   /** The `greptime` configuration namespace (the deployment default), or none. */
   greptime?: Record<string, unknown>;
+  /** The telemetry store to select (`forRoot({ store })`); default `greptime`. Register it before booting. */
+  store?: string;
 }
 
 /**
@@ -505,7 +507,7 @@ export const bootStubApp: CreateConformanceApp = async (input) => {
         load: [() => ({ otel: { enabled: false }, ...(input.greptime ? { greptime: input.greptime } : {}) })],
       }),
       DoctorModule.forRoot({ host, supportBundle: false }),
-      TelemetryModule.forRoot({ host, imports: [module] }),
+      TelemetryModule.forRoot({ host, imports: [module], ...(input.store ? { store: input.store } : {}) }),
     ],
   })
   class ConformanceAppModule {}

@@ -61,6 +61,9 @@ import {
  */
 export const TELEMETRY_STORE_SETTINGS_KEY = 'telemetry_store';
 
+/** How long boot waits for the first build of the store. */
+const BOOT_WAIT_MS = 3_000;
+
 /** How often a running instance re-reads the settings row, so a save elsewhere reaches it. */
 export const TELEMETRY_STORE_REFRESH_INTERVAL_MS = 5_000;
 
@@ -107,10 +110,23 @@ export class TelemetryStoreResolver implements TelemetryStore, OnModuleInit, OnM
     this.id = options.store;
   }
 
-  /** Builds the store once and then keeps it fresh. Detached and swallowed: boot never waits on, or fails because of, a store. */
-  onModuleInit(): void {
+  /**
+   * Builds the store once and then keeps it fresh. Boot waits for the first
+   * build only briefly (`BOOT_WAIT_MS`) and never fails because of a store: a
+   * database that is slow to answer leaves the store unbuilt until the next
+   * refresh.
+   */
+  async onModuleInit(): Promise<void> {
     this.started = true;
-    void this.refresh();
+    let waiting: NodeJS.Timeout | undefined;
+    await Promise.race([
+      this.refresh(),
+      new Promise<void>((resolve) => {
+        waiting = setTimeout(resolve, BOOT_WAIT_MS);
+        waiting.unref?.();
+      }),
+    ]);
+    if (waiting) clearTimeout(waiting);
     this.timer = setInterval(() => void this.refresh(), TELEMETRY_STORE_REFRESH_INTERVAL_MS);
     this.timer.unref?.();
   }

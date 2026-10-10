@@ -26,6 +26,7 @@ import {
   type TelemetryCredentialInfo,
 } from '../ports';
 import { TELEMETRY_SETTINGS_DEFAULTS } from '../telemetry.settings';
+import type { TelemetrySettings } from '@marinoscar/platform-contract/telemetry';
 
 /**
  * What the stub ports hold.
@@ -33,8 +34,17 @@ import { TELEMETRY_SETTINGS_DEFAULTS } from '../telemetry.settings';
  * @stability experimental
  */
 export interface StubTelemetryPortsOptions {
-  /** Passwords the credential store holds, by credential name (`reader`, `admin`), under purpose `telemetry_greptime`. */
+  /**
+   * Secrets the credential store holds. A bare key is a credential name
+   * (`reader`, `admin`) under purpose `telemetry_greptime`; a key with a colon
+   * is `<purpose>:<name>`, for a registered store's own secrets
+   * (`telemetry_acme:apiKey`).
+   */
   credentials?: Readonly<Record<string, string>>;
+  /** A patch over the `telemetry` policy defaults (`{ enabled: true }`); `query` and `assistant` merge one level deep. */
+  policy?: {
+    [K in keyof TelemetrySettings]?: TelemetrySettings[K] extends object ? Partial<TelemetrySettings[K]> : TelemetrySettings[K];
+  };
   /** Keyed system-settings rows the settings store holds, by key (`telemetry_connection`); the value is the row's stored JSON. */
   rows?: Readonly<Record<string, unknown>>;
 }
@@ -73,13 +83,23 @@ export function createStubTelemetryPorts(options: StubTelemetryPortsOptions = {}
   state: StubTelemetryPortsState;
 } {
   const state: StubTelemetryPortsState = { audit: [], handlers: [] };
-  const secrets = new Map(Object.entries(options.credentials ?? {}));
+  // Addressed `<purpose>:<name>`; a bare name is a GreptimeDB login.
+  const secrets = new Map(
+    Object.entries(options.credentials ?? {}).map(([key, value]) => [key.includes(':') ? key : `telemetry_greptime:${key}`, value]),
+  );
+  const addressOf = (purpose: string, name: string) => `${purpose}:${name}`;
+  const policy: TelemetrySettings = {
+    ...structuredClone(TELEMETRY_SETTINGS_DEFAULTS),
+    ...(options.policy ?? {}),
+    query: { ...TELEMETRY_SETTINGS_DEFAULTS.query, ...(options.policy?.query ?? {}) },
+    assistant: { ...TELEMETRY_SETTINGS_DEFAULTS.assistant, ...(options.policy?.assistant ?? {}) },
+  } as TelemetrySettings;
   const rows = new Map(Object.entries(options.rows ?? {}));
   const savedAt = new Date('2026-01-01T00:00:00.000Z');
 
   const describe = async (purpose: string, name: string): Promise<TelemetryCredentialInfo | null> => {
-    const secret = secrets.get(name);
-    if (secret === undefined || purpose !== 'telemetry_greptime') return null;
+    const secret = secrets.get(addressOf(purpose, name));
+    if (secret === undefined) return null;
     return { purpose, name, hint: secret.slice(-4), label: null, updatedByUserId: null, createdAt: savedAt, updatedAt: savedAt };
   };
 
@@ -89,7 +109,7 @@ export function createStubTelemetryPorts(options: StubTelemetryPortsOptions = {}
       {
         provide: TELEMETRY_SETTINGS_STORE,
         useValue: {
-          getTelemetryPolicy: async () => structuredClone(TELEMETRY_SETTINGS_DEFAULTS),
+          getTelemetryPolicy: async () => structuredClone(policy),
           replaceTelemetryPolicy: async () => undefined,
           readPolicyProvenance: async () => null,
           readRow: async (key: string) =>
@@ -102,12 +122,12 @@ export function createStubTelemetryPorts(options: StubTelemetryPortsOptions = {}
       {
         provide: TELEMETRY_CREDENTIAL_STORE,
         useValue: {
-          getSecret: async (purpose: string, name: string) => (purpose === 'telemetry_greptime' ? (secrets.get(name) ?? null) : null),
-          setSecret: async (_purpose: string, name: string, secret: string | null | undefined) => {
-            if (secret) secrets.set(name, secret);
-            else secrets.delete(name);
+          getSecret: async (purpose: string, name: string) => secrets.get(addressOf(purpose, name)) ?? null,
+          setSecret: async (purpose: string, name: string, secret: string | null | undefined) => {
+            if (secret) secrets.set(addressOf(purpose, name), secret);
+            else secrets.delete(addressOf(purpose, name));
           },
-          deleteSecret: async (_purpose: string, name: string) => void secrets.delete(name),
+          deleteSecret: async (purpose: string, name: string) => void secrets.delete(addressOf(purpose, name)),
           describe,
         },
       },

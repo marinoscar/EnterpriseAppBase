@@ -249,7 +249,7 @@ export class GreptimeClient implements TelemetryStore, OnModuleDestroy {
       );
     }
 
-    return this.run('reader', sql, { timeoutMs: options.timeoutMs, signal: options.signal });
+    return this.queryReader(sql, { timeoutMs: options.timeoutMs, signal: options.signal });
   }
 
   /** {@link TelemetryStore.schema}: the tables and columns of the telemetry database, read fresh. */
