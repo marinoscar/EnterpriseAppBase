@@ -14,7 +14,8 @@
 //     keeps its place in the system settings document (`forRoot()` registers
 //     it only when nothing did);
 //   - `EVENT_BUS_ADAPTER` and `OTEL_ENABLED` are read by the package itself
-//     (the defaults), so there is nothing to pass.
+//     (the defaults), so there is nothing to pass; `EVENT_BUS_ADAPTER` accepts
+//     any adapter registered in `app-registrations/host.ts` too.
 //
 // `app.module.ts` places `hostCoreModule` where `/api/health` used to be mounted:
 // the generated OpenAPI document lists paths in module order, and
@@ -29,6 +30,8 @@ import '../common/otel/app-metric.manifest';
 // The settings manifest registers the `maintenance` namespace in this app's
 // namespace order; `forRoot()` would otherwise register it itself.
 import '../settings/registry';
+// The app's own event bus adapters (PP-14.2), registered before `forRoot()` builds the bus.
+import '../app-registrations/host';
 
 import { PlatformHostCoreModule } from '@marinoscar/platform-api/host';
 
