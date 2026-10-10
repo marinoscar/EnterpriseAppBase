@@ -9,34 +9,69 @@
 // =============================================================================
 
 /**
- * S3-compatible providers this app can be pointed at.
+ * The pattern every storage driver id must match: a lower-case letter, then
+ * letters, digits and hyphens, 2 to 48 characters. The same pattern as every
+ * pluggable id (`PLUGGABLE_ID_PATTERN` of `@marinoscar/platform-contract/settings`).
+ * An id is the key its settings are stored under, so it is permanent once a
+ * row exists.
  *
- * A closed enum rather than a free string (unlike
- * `databaseBackup.storageProvider`, which names a provider REGISTRATION and is deliberately
- * open for forks) because this value selects which set of the configuration
- * fields is meaningful and how an endpoint is derived.
+ * @stability experimental
+ */
+export const STORAGE_DRIVER_ID_PATTERN = /^[a-z][a-z0-9-]{1,47}$/;
+
+/**
+ * The storage drivers the platform SHIPS (S3-compatible object stores). Not a
+ * closed set: an app or package registers more with `registerStorageDriver`
+ * (`@marinoscar/platform-api/storage`) and its id is any
+ * {@link STORAGE_DRIVER_ID_PATTERN} string. Use this list for defaults, labels
+ * and the "is this one of the S3 flavours" question, never to validate an id.
  *
- *  - `s3`           — AWS S3 proper. `region` is required by the SDK;
+ *  - `s3`           - AWS S3 proper. `region` is required by the SDK;
  *                     `endpoint` is left empty and the SDK derives it.
- *  - `r2`           — Cloudflare R2: its `region` is literally `auto`, and its
+ *  - `r2`           - Cloudflare R2: its `region` is literally `auto`, and its
  *                     endpoint is DERIVED from `accountId`.
- *  - `s3compatible` — MinIO, Backblaze B2, Wasabi, Ceph RGW and anything else
+ *  - `s3compatible` - MinIO, Backblaze B2, Wasabi, Ceph RGW and anything else
  *                     speaking the same protocol at an operator-supplied
  *                     `endpoint`.
  *
- * A non-S3 backend is not a new member here: an app overrides the whole
- * `STORAGE_PROVIDER` token (`@marinoscar/platform-api/storage`).
- *
- * @stability stable
+ * @stability experimental
  */
-export const STORAGE_PROVIDER_KINDS = ['s3', 'r2', 's3compatible'] as const;
+export const BUILTIN_STORAGE_PROVIDER_KINDS = ['s3', 'r2', 's3compatible'] as const;
 
 /**
- * A configured object-storage provider. See {@link STORAGE_PROVIDER_KINDS}.
+ * The built-in storage provider kinds.
+ *
+ * @deprecated Use {@link BUILTIN_STORAGE_PROVIDER_KINDS}. The list is no longer
+ *   the set of valid providers: any registered storage driver id is one.
+ * @stability stable
+ */
+export const STORAGE_PROVIDER_KINDS = BUILTIN_STORAGE_PROVIDER_KINDS;
+
+/**
+ * One of {@link BUILTIN_STORAGE_PROVIDER_KINDS}.
+ *
+ * @stability experimental
+ */
+export type BuiltinStorageProviderKind = (typeof BUILTIN_STORAGE_PROVIDER_KINDS)[number];
+
+/**
+ * A configured object-storage provider: the id of a registered storage driver.
+ * A plain string since storage drivers became pluggable (PP-14.7); the
+ * built-ins are {@link BuiltinStorageProviderKind}.
  *
  * @stability stable
  */
-export type StorageProviderKind = (typeof STORAGE_PROVIDER_KINDS)[number];
+export type StorageProviderKind = string;
+
+/**
+ * The names of the legacy flat fields the `storage` namespace stored before
+ * drivers had a settings record of their own. They are a read-only view of the
+ * active built-in driver's settings; the namespace stores the new shape
+ * (`provider` plus `drivers`).
+ *
+ * @stability experimental
+ */
+export const LEGACY_STORAGE_FLAT_FIELDS = ['bucket', 'region', 'endpoint', 'accountId', 'accessKeyId', 'forcePathStyle'] as const;
 
 /**
  * The five `StorageObjectStatus` values of the `storage` fragment, in its
@@ -54,9 +89,11 @@ export const STORAGE_OBJECT_STATUSES = ['pending', 'uploading', 'processing', 'r
 export type StorageObjectStatusName = (typeof STORAGE_OBJECT_STATUSES)[number];
 
 /**
- * Every field the resolved storage configuration can be missing, in the order
- * the admin page and the 503 list them. `secretAccessKey` is the credential
- * store's half; the rest are the `storage` settings namespace's.
+ * Every field the BUILT-IN (S3 family) storage drivers can be missing, in the
+ * order the admin page and the 503 list them. `secretAccessKey` is the
+ * credential store's half; the rest are the driver's settings. A driver an app
+ * registers reports its own field names, so the wire shape of `missing` is a
+ * list of strings; this list names the built-ins' values.
  *
  * @stability stable
  */
