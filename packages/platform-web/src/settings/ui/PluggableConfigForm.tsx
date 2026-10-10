@@ -50,7 +50,6 @@ export interface PluggableFieldRenderContext {
  * The part overrides of {@link PluggableConfigForm}. Everything is optional;
  * with none the rendering is the default.
  *
- * @extensionPoint slot
  * @stability experimental
  */
 export interface PluggableConfigFormSlots {

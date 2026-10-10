@@ -66,7 +66,7 @@ const UserProfilePage = lazy(() =>
 
 The host must provide the optional ports the pages use: `api.postFormData` and `api.getBlob` (the picture), `applyTheme` (the Appearance page), and `PlatformHostProvider` plus the identity `AuthProvider` above the routes.
 
-## The pluggable configuration form
+### The pluggable configuration form
 
 A page that configures one implementation of a pluggable kind fetches its descriptor and stored settings from the API, then:
 
@@ -131,6 +131,7 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | `UserAppearancePage` | component | `UserAppearancePage(): ReactElement` | Route the `Appearance` card (`/settings/appearance`, no permission) | experimental | [example](../../../../apps/web/src/App.tsx) |
 | `PluggableConfigForm` | component | `PluggableConfigForm(props: PluggableConfigFormProps): ReactElement` | Render the configuration form of one pluggable implementation from its `PluggableDescriptor`; secrets are write-only | experimental | [example](../../../../apps/web/src/__tests__/examples/settings/GreeterSettings.example.tsx) |
 | `usePluggableConfigForm` | hook | `usePluggableConfigForm(descriptor, initial?): UsePluggableConfigFormResult` | Hold that form's state: `value`, `secrets`, `dirty`, `setField`, `setSecret`, `reset`, `payload()` (omits untouched secrets) | experimental | [example](../../../../apps/web/src/__tests__/examples/settings/GreeterSettings.example.tsx) |
+| `PluggableConfigFormProps` | slot | `{ descriptor; value; onChange(name, next); secrets; onSecretChange(name, next); disabled?; slots?: { renderField?, textField?, secretField?, otherNote? } }` | Replace one field's control, restyle the text fields, or reword the `other` note; the default rendering is unchanged | experimental | [example](../../../../apps/web/src/__tests__/examples/settings/GreeterSettings.example.tsx) |
 | `settingsRegistryGatesSuite` | registry | `WebConformanceSuite` (id `settings-registry-gates`) | Read the suite's id; it runs for every app that imports `/settings/testing` | experimental | [example](../../../../apps/web/src/__tests__/conformance.test.ts) |
 | `settingsRegistryShapeSuite` | registry | `WebConformanceSuite` (id `settings-registry-shape`) | Read the suite's id | experimental | [example](../../../../apps/web/src/__tests__/conformance.test.ts) |
 | `settingsAiCardsSuite` | registry | `WebConformanceSuite` (id `settings-ai-cards`) | Read the suite's id | experimental | [example](../../../../apps/web/src/__tests__/conformance.test.ts) |

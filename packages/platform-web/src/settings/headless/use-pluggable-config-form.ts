@@ -16,7 +16,11 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 
 import { secretForSubmit } from '../../credentials/index.js';
 
-/** The non-secret settings of one implementation, keyed by field name. */
+/**
+ * The non-secret settings of one implementation, keyed by field name.
+ *
+ * @stability experimental
+ */
 export type PluggableSettingsValue = Readonly<Record<string, unknown>>;
 
 /**
