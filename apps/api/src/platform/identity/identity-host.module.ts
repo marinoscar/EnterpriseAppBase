@@ -1,5 +1,7 @@
 import { Global, Module } from '@nestjs/common';
+import { CredentialsModule, CredentialsService } from '@marinoscar/platform-api/credentials';
 import {
+  IDENTITY_AUTH_CREDENTIALS,
   IDENTITY_EVENT_BUS,
   IDENTITY_JOBS,
   IDENTITY_METRICS,
@@ -56,11 +58,14 @@ const PORTS = [
   { provide: IDENTITY_METRICS, useExisting: AppMetricsService },
   { provide: IDENTITY_NODE_CREDENTIALS, useExisting: NodeCredentialService },
   { provide: IDENTITY_EVENT_BUS, useExisting: EVENT_BUS },
+  // Where a registered sign-in provider reads its secrets (PP-14.9): the
+  // deployment's encrypted credential store, purpose `auth_<id>`.
+  { provide: IDENTITY_AUTH_CREDENTIALS, useExisting: CredentialsService },
 ];
 
 @Global()
 @Module({
-  imports: [NotificationsModule, JobsModule],
+  imports: [NotificationsModule, JobsModule, CredentialsModule],
   providers: PORTS,
   exports: PORTS.map((port) => port.provide),
 })
