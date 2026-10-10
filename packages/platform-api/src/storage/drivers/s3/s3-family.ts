@@ -219,7 +219,8 @@ export const r2StorageDriver = defineS3FamilyDriver(S3_FLAVOURS.r2, {
  * @stability experimental
  */
 export const s3CompatibleStorageDriver = defineS3FamilyDriver(S3_FLAVOURS.s3compatible, {
-  label: 'S3-compatible',
+  // The label the admin page has always shown for this radio (the page now takes it from the descriptor).
+  label: 'S3-compatible (MinIO, Wasabi, Backblaze B2…)',
   description: 'MinIO, Backblaze B2, Wasabi, Ceph and other S3-compatible servers at an endpoint you supply.',
   settingsSchema: s3CompatibleSettingsSchema,
 });

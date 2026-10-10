@@ -55,7 +55,8 @@ export class StorageEgressContributor implements EgressContributor, OnModuleInit
       egressDependency({
         // The id the S3 family has always had; another driver gets its own.
         id: (BUILTIN_STORAGE_PROVIDER_KINDS as readonly string[]).includes(view.provider) ? 'storage.s3' : `storage.${view.provider}`,
-        capability: `Object storage (${driver?.label ?? view.provider})`,
+        // The driver's label without its parenthetical hint ("S3-compatible (MinIO, ...)" is "S3-compatible" here).
+        capability: `Object storage (${(driver?.label ?? view.provider).replace(/\s*\(.*\)\s*$/, '')})`,
         direction: 'both',
         enabled: view.configured,
         required: false,
