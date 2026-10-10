@@ -3,12 +3,20 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  AI_PROVIDER_ID_PATTERN,
+  AI_PROVIDER_IDS,
   AI_SETTINGS_CARRIES_NO_SECRET,
+  BUILTIN_AI_PROVIDER_IDS,
   ORG_AI_KEY_VIEW_CARRIES_NO_SECRET,
   aiFeatureViewSchema,
+  aiProviderIdSchema,
+  aiProvidersResponseSchema,
+  aiSettingsPatchSchema,
+  aiSettingsSchema,
   orgAiKeyViewSchema,
   orgAiSettingsSchema,
   setOrgAiKeySchema,
+  systemAiPatchSchema,
   systemAiSchema,
   tightenAiPolicy,
   type SystemAiValue,
@@ -75,9 +83,9 @@ describe('tightenAiPolicy (an organization can only tighten)', () => {
 
   it('switches providers off, never on', () => {
     const effective = tightenAiPolicy(SYSTEM, { providers: { anthropic: { enabled: false }, gemini: { enabled: true } } });
-    expect(effective.providers.anthropic.enabled).toBe(false);
-    expect(effective.providers.gemini.enabled).toBe(false);
-    expect(effective.providers.openai.enabled).toBe(true);
+    expect(effective.providers.anthropic?.enabled).toBe(false);
+    expect(effective.providers.gemini?.enabled).toBe(false);
+    expect(effective.providers.openai?.enabled).toBe(true);
   });
 
   it('leaves everything else, and the system value, untouched', () => {
@@ -111,5 +119,74 @@ describe('org keys and features on the wire', () => {
         usable: true,
       }).usable,
     ).toBe(true);
+  });
+});
+
+describe('the open provider record (PP-14.6)', () => {
+  it('BUILTIN_AI_PROVIDER_IDS is the shipped list and AI_PROVIDER_IDS is its deprecated alias', () => {
+    expect([...BUILTIN_AI_PROVIDER_IDS]).toEqual(['openai', 'anthropic', 'gemini', 'azure-openai', 'openai-compatible']);
+    expect(AI_PROVIDER_IDS).toBe(BUILTIN_AI_PROVIDER_IDS);
+  });
+
+  it('every built-in id matches the provider id pattern, which is the provider part of a perModel key', () => {
+    for (const id of BUILTIN_AI_PROVIDER_IDS) expect(aiProviderIdSchema.safeParse(id).success).toBe(true);
+    expect(aiProviderIdSchema.safeParse('example-transcribe').success).toBe(true);
+    for (const bad of ['', 'a', 'A-b', 'has_underscore', '1abc', 'x'.repeat(49), 'a:b', 'a b']) {
+      expect(aiProviderIdSchema.safeParse(bad).success).toBe(false);
+    }
+    expect(AI_PROVIDER_ID_PATTERN.test('openai')).toBe(true);
+  });
+
+  it('the stored schema accepts a slot for a provider it has never heard of, with its own fields passed through', () => {
+    const value = { ...SYSTEM, providers: { ...SYSTEM.providers, 'example-transcribe': { enabled: true, region: 'eu' } } };
+    expect(systemAiSchema.parse(value).providers['example-transcribe']).toEqual({ enabled: true, region: 'eu' });
+  });
+
+  it('a slot needs `enabled`, and a provider id must match the pattern', () => {
+    expect(systemAiSchema.safeParse({ ...SYSTEM, providers: { 'example-transcribe': { region: 'eu' } } }).success).toBe(false);
+    expect(systemAiSchema.safeParse({ ...SYSTEM, providers: { 'Bad_Id': { enabled: true } } }).success).toBe(false);
+  });
+
+  it("today's stored shape of the five built-ins still parses unchanged", () => {
+    const stored = {
+      ...SYSTEM,
+      providers: {
+        openai: { enabled: true, baseUrl: 'https://gateway.example.com/v1' },
+        anthropic: { enabled: false },
+        gemini: { enabled: false },
+        'azure-openai': {
+          enabled: true,
+          baseUrl: 'https://res.openai.azure.com',
+          apiVersion: '2025-04-01-preview',
+          apiStyle: 'responses',
+          deployments: { 'gpt-4o': 'my-gpt-4o' },
+        },
+        'openai-compatible': { enabled: true, baseUrl: 'http://ollama:11434/v1', apiStyle: 'chat_completions', requiresKey: false },
+      },
+    };
+    expect(systemAiSchema.parse(stored)).toEqual(stored);
+    expect(aiSettingsSchema.parse(stored).providers).toEqual(stored.providers);
+  });
+
+  it('the PATCH schemas take a partial slot per provider id, with `null` for a setting to remove', () => {
+    const patch = { providers: { openai: { baseUrl: null }, 'example-transcribe': { enabled: true, region: 'eu' } } };
+    expect(systemAiPatchSchema.parse(patch)).toEqual(patch);
+    expect(aiSettingsPatchSchema.parse(patch)).toEqual(patch);
+    expect(systemAiPatchSchema.safeParse({ providers: { 'Not Valid': { enabled: true } } }).success).toBe(false);
+  });
+
+  it('the response record carries hasKey beside enabled', () => {
+    expect(aiProvidersResponseSchema.parse({ openai: { enabled: true, hasKey: true, baseUrl: 'https://x.example.com' } })).toEqual({
+      openai: { enabled: true, hasKey: true, baseUrl: 'https://x.example.com' },
+    });
+  });
+
+  it('the org layer takes `enabled` for any provider id and tightens a provider the system registered', () => {
+    expect(orgAiSettingsSchema.parse({ providers: { 'example-transcribe': { enabled: false } } })).toEqual({
+      providers: { 'example-transcribe': { enabled: false } },
+    });
+    const system = { ...SYSTEM, providers: { ...SYSTEM.providers, 'example-transcribe': { enabled: true, region: 'eu' } } };
+    const effective = tightenAiPolicy(system, { providers: { 'example-transcribe': { enabled: false } } });
+    expect(effective.providers['example-transcribe']).toEqual({ enabled: false, region: 'eu' });
   });
 });

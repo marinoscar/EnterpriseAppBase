@@ -3,8 +3,8 @@ import { providerCallSettings, providerPolicy, type AiPolicy, type AiProviderPol
 
 /**
  * The AI provider ids the policy has a settings slot for, in settings order
- * (`AI_PROVIDER_IDS`). An adapter registered for an id with no slot can never
- * be enabled, so it has no egress.
+ * (every provider registered with `registerAiProvider`). An adapter registered
+ * for an id with no provider definition can never be enabled, so it has no egress.
  */
 export function aiPolicyProviderIds(policy: AiPolicy): string[] {
   return Object.keys(policy.providers as Record<string, AiProviderPolicy | undefined>);

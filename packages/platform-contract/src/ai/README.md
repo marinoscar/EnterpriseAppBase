@@ -8,8 +8,8 @@ One definition of the AI policy and of the organization-tier shapes, shared by t
 
 | File | What |
 |---|---|
-| `constants.ts` | `AI_PROVIDER_IDS`, `AI_KEY_POLICIES`, `AI_OPENAI_API_STYLES`, the limit, MCP-host, Azure and endpoint bounds, `aiEndpointUrlProblem`, `ORG_AI_KEY_MIN`/`MAX`, and the literal-union types. zod-free |
-| `schemas.ts` | The `ai` system namespace (`systemAiSchema` stored, `systemAiPatchSchema`, the PUT/PATCH wire branches `aiSettingsSchema`/`aiSettingsPatchSchema`, the response branch `aiResponseSchema`), its limits (`systemAiLimitsSchema`, with `perOrg` since #739), the org layer (`orgAiSettingsSchema`) and its merge (`tightenAiPolicy`), the per-user namespace (`userAiSettingsSchema`), and the compile-time `AI_SETTINGS_CARRIES_NO_SECRET` proof |
+| `constants.ts` | `AI_PROVIDER_ID_PATTERN`, `BUILTIN_AI_PROVIDER_IDS` (`AI_PROVIDER_IDS` is its deprecated alias), `AI_KEY_POLICIES`, `AI_OPENAI_API_STYLES`, the limit, MCP-host, Azure and endpoint bounds, `aiEndpointUrlProblem`, `ORG_AI_KEY_MIN`/`MAX`, and the literal-union types. zod-free |
+| `schemas.ts` | The `ai` system namespace (`systemAiSchema` stored, `systemAiPatchSchema`, the PUT/PATCH wire branches `aiSettingsSchema`/`aiSettingsPatchSchema`, the response branch `aiResponseSchema`), its limits (`systemAiLimitsSchema`, with `perOrg` since #739), the open `providers` record (`aiProviderIdSchema`, `aiProviderSlotSchema`, `systemAiProvidersSchema` and its PATCH, response and org-layer counterparts), the org layer (`orgAiSettingsSchema`) and its merge (`tightenAiPolicy`), the per-user namespace (`userAiSettingsSchema`), and the compile-time `AI_SETTINGS_CARRIES_NO_SECRET` proof |
 | `org-keys.ts` | `setOrgAiKeySchema` (`PUT /api/admin/ai/org-keys/:provider`) and `orgAiKeyViewSchema` (masked), with the `ORG_AI_KEY_VIEW_CARRIES_NO_SECRET` proof |
 | `features.ts` | `aiFeatureViewSchema`, one row of `GET /api/ai/features` |
 
@@ -42,7 +42,14 @@ None. Schemas and constants take no options.
 
 ## Extension-point catalog
 
-None. The schemas describe the platform's own namespace and routes; a built-in provider added to the package appends to `AI_PROVIDER_IDS` and its slot in the schemas (docs/specs/ai-platform.md §4); an app cannot add one yet (PP-14.6).
+`ai.providers` is a record keyed by provider id, so an app or package adds a provider (`registerAiProvider` in `@marinoscar/platform-api/ai`) with no change here. The two schemas below are what a provider-aware consumer takes; the provider's own settings are validated by its `settingsSchema` in the API, which this package cannot see.
+
+| Name | Kind | Signature | When to use | Stability | Example |
+|---|---|---|---|---|---|
+| `aiProviderIdSchema` | schema | `z.string().regex(AI_PROVIDER_ID_PATTERN)` | Validate a provider id anywhere (`^[a-z][a-z0-9-]{1,47}$`, the pattern of the registry and of an `ai.limits.perModel` key); never `z.enum(BUILTIN_AI_PROVIDER_IDS)` | experimental | [example](../../../../apps/api/src/app-registrations/ai.ts) |
+| `aiProviderSlotSchema` | schema | `z.looseObject({ enabled: boolean })` | A provider's slot in the stored `ai.providers` record: the switch every provider has, plus its own non-secret settings, passed through | experimental | [example](../../../../apps/api/test/examples/ai/ai-stored-settings.spec.ts) |
+
+A built-in provider added to the package appends to `BUILTIN_AI_PROVIDER_IDS` (docs/specs/ai-platform.md §4).
 
 The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
 

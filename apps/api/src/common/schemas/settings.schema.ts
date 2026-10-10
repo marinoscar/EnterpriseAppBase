@@ -223,6 +223,7 @@ export type {
 // imported them from this file.
 export {
   AI_PROVIDER_IDS,
+  BUILTIN_AI_PROVIDER_IDS,
   AI_KEY_POLICIES,
   AI_USAGE_RETENTION_MAX_DAYS,
   AI_MCP_ALLOWED_HOST_PATTERN,

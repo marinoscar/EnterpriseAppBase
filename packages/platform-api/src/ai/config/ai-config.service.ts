@@ -1,18 +1,15 @@
 import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { tightenAiPolicy } from '@marinoscar/platform-contract/ai';
 
-import type { z } from 'zod';
-
-import {
-  type AiOpenAiApiStyle,
-  systemAiSchema,
-  type SystemAiValue,
-} from '@marinoscar/platform-contract/ai';
+import { type AiOpenAiApiStyle, type SystemAiValue } from '@marinoscar/platform-contract/ai';
 import { CredentialsService } from '../../credentials/index';
 import { OrgSettingsService, SystemSettingsService } from '../../settings/index';
 import { AI_MODULE_OPTIONS, DEFAULT_AI_OPTIONS, type AiResolvedOptions } from '../ai.options';
 import { AiError } from '../core/ai-error';
 import { AiProviderRegistry } from '../core/provider-registry';
+import { aiProviderSettingsFields, getAiProviderDefinition } from '../providers/ai-provider-definition';
+// Registers the five built-in providers (side effect): the policy helpers below read the registry.
+import '../providers/builtin-ai-providers';
 import { AI_CREDENTIAL_PURPOSE, aiCredentialName } from './ai-credential.constants';
 import type { AiPublicConfig } from './dto/ai-public-config.dto';
 
@@ -51,10 +48,12 @@ export const AI_POLICY_CACHE_MS = 5_000;
 export type AiPolicy = SystemAiValue;
 
 /**
- * One provider's slot in the policy — the union of every slot's fields
- * (#448: the Azure OpenAI and OpenAI-compatible slots carry more than
- * `enabled`/`baseUrl`), so a generic reader can ask for any of them and get
- * `undefined` where a provider has no such field.
+ * One provider's slot in the policy — `enabled` plus the provider's own
+ * non-secret settings (PP-14.6, #924). The typed fields are the built-in
+ * providers' (#448: the Azure OpenAI and OpenAI-compatible slots carry more than
+ * `enabled`/`baseUrl`); a provider an app or package registered adds its own,
+ * reachable through the index signature. A generic reader asks for any of them
+ * and gets `undefined` where a provider has no such field.
  *
  * @stability experimental
  */
@@ -71,59 +70,35 @@ export interface AiProviderPolicy {
   deployments?: Record<string, string>;
   /** OpenAI-compatible: whether the server needs a key. */
   requiresKey?: boolean;
-}
-
-/**
- * The provider-specific settings a slot may carry besides `enabled` (#448).
- *
- * @stability experimental
- */
-export const AI_PROVIDER_SETTINGS_FIELDS = ['baseUrl', 'apiVersion', 'apiStyle', 'deployments', 'requiresKey'] as const;
-
-/**
- * One of {@link AI_PROVIDER_SETTINGS_FIELDS}.
- *
- * @stability experimental
- */
-export type AiProviderSettingsField = (typeof AI_PROVIDER_SETTINGS_FIELDS)[number];
-
-/**
- * A provider's own slot schema, or `undefined` for an id with no settings slot.
- *
- * @stability experimental
- */
-export function providerSlotSchema(providerId: string): z.ZodObject<z.ZodRawShape> | undefined {
-  const shape = systemAiSchema.shape.providers.shape as Record<string, z.ZodObject<z.ZodRawShape> | undefined>;
-
-  return Object.prototype.hasOwnProperty.call(shape, providerId) ? shape[providerId] : undefined;
+  /** Any other setting the provider's own `settingsSchema` declares. */
+  [setting: string]: unknown;
 }
 
 /**
  * The settings fields `providerId`'s slot accepts besides `enabled`, read off
- * its schema — so a slot that gains a field gains it here with no list to
- * update. Empty for an id with no slot.
+ * its registered definition — so a provider that gains a field gains it here
+ * with no list to update. Empty for an id with no definition.
  *
  * @stability experimental
  */
-export function providerSettingsFields(providerId: string): AiProviderSettingsField[] {
-  const schema = providerSlotSchema(providerId);
-
-  if (!schema) return [];
-
-  const keys = new Set(Object.keys(schema.shape));
-
-  return AI_PROVIDER_SETTINGS_FIELDS.filter((field) => keys.has(field));
+export function providerSettingsFields(providerId: string): string[] {
+  return aiProviderSettingsFields(providerId);
 }
 
 /**
- * Whether calls to this provider need a key (#448). Only the
- * OpenAI-compatible slot can say no — `requiresKey: false` is the
- * administrator's opt-in to a keyless server, resolved as
- * `keySource: 'none'` — and absent means yes, as it does for every other provider.
+ * Whether calls to this provider need a key. A provider whose definition says
+ * `requiresKey: false` never does. Otherwise the slot may opt out: the
+ * OpenAI-compatible slot's `requiresKey: false` is the administrator's opt-in
+ * to a keyless server (#448), resolved as `keySource: 'none'`, and absent
+ * means yes, as it does for every other provider.
  *
+ * @param slot - the provider's policy slot.
+ * @param providerId - the provider, to consult its definition (omit to read the slot alone).
  * @stability experimental
  */
-export function providerRequiresKey(slot: AiProviderPolicy | undefined): boolean {
+export function providerRequiresKey(slot: AiProviderPolicy | undefined, providerId?: string): boolean {
+  if (providerId !== undefined && getAiProviderDefinition(providerId)?.requiresKey === false) return false;
+
   return slot?.requiresKey !== false;
 }
 
@@ -157,9 +132,9 @@ export function providerCallSettings(
 }
 
 /**
- * A provider's policy slot by id, or `undefined` for an id the settings schema
- * has no slot for. `providers` is a closed object keyed by `AI_PROVIDER_IDS`;
- * this is the one place that indexes it by an arbitrary string.
+ * A provider's policy slot by id, or `undefined` for an id with no slot (an
+ * adapter registered without a provider definition). `providers` is a record
+ * keyed by provider id; this is the one place that indexes it by an arbitrary string.
  *
  * @stability experimental
  */
@@ -383,7 +358,7 @@ export class AiConfigService implements OnModuleInit {
           enabled: providerPolicy(policy, id)?.enabled ?? false,
           hasOrgKey: info !== null,
           supportsPreviousResponseId: this.registry.supportsPreviousResponseId(id),
-          requiresKey: providerRequiresKey(providerPolicy(policy, id)),
+          requiresKey: providerRequiresKey(providerPolicy(policy, id), id),
         };
       }),
     );

@@ -183,6 +183,10 @@
       "types": "./dist/ai/ui/playground-page.d.ts",
       "default": "./dist/ai/ui/playground-page.js"
     },
+    "./ai/ui/provider-cards": {
+      "types": "./dist/ai/ui/provider-cards.d.ts",
+      "default": "./dist/ai/ui/provider-cards.js"
+    },
     "./ai/ui/require-ai-enabled": {
       "types": "./dist/ai/ui/require-ai-enabled.d.ts",
       "default": "./dist/ai/ui/require-ai-enabled.js"

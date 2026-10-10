@@ -74,6 +74,12 @@ registry:
 |---|---|---|
 | `core.ts` | The implementations of a pluggable kind (`definePluggableKind` of `@marinoscar/platform-api/core`, PP-14.5): one registry per kind, `pluggable.<kind>`. Makes the `register` call itself, at import time. Upstream registers the worked example, the toy `greeter` kind; nothing in the running app imports it | [core/README.md, "Pluggable kinds"](../../../../packages/platform-api/src/core/README.md#pluggable-kinds) |
 
+registry:
+
+| File | Registry | Recipe |
+|---|---|---|
+| `ai.ts` | `aiProviderKind` (`@marinoscar/platform-api/ai`, PP-14.6): AI providers, registered at import time with `registerAiProvider(...)`. `platform/ai/ai.config.ts` imports it before `AiModule.forRoot()`, which loads the module of every registered provider. Upstream registers the worked example (`example-transcribe`, an AssemblyAI stand-in that only transcribes over a fake transport); it is off until an administrator switches it on | [ai/README.md, "Adding a provider from an app or package"](../../../../packages/platform-api/src/ai/README.md) |
+
 ## What goes here, and what does not
 
 | Goes here | Does not |

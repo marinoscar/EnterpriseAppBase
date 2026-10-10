@@ -256,7 +256,10 @@ row on `/admin/settings/ai` (or `providers.<id>.enabled: true` in
 `PUT /api/admin/ai/config`), add and test the admin key (section 4), refresh
 the catalog (section 5), and enable models (section 6). Users then add their
 own keys (section 8) under the policy you chose (section 7). No provider reads
-an environment variable, and none needs a restart.
+an environment variable, and none needs a restart. A provider the app added
+(`registerAiProvider`, [spec §4](../specs/ai-platform.md#4-extending-it-in-a-fork))
+has a row of its own, switched off until you enable it, and is configured the
+same way; its settings appear as extra fields on the row.
 
 | Provider | `previousResponseId` | Hosted tools | Capability ports besides `responses` |
 |---|---|---|---|

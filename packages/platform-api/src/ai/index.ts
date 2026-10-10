@@ -101,7 +101,22 @@ export { AI_CATALOG_REFRESH_TYPE } from './catalog/ai-catalog.service';
 export { AiUsageService } from './usage/ai-usage.service';
 export { AiUsagePurgeHandler, AI_USAGE_PURGE_TYPE } from './usage/ai-usage-purge.handler';
 
-// ---- the provider modules (adding one: docs/specs/ai-platform.md §4) ---------------------------
+// ---- registering a provider from an app or package (PP-14.6, #924) ------------------------------
+export {
+  AI_PROVIDER_KEY_SECRET,
+  aiProviderDefinitions,
+  aiProviderKind,
+  aiProviderSettingsFields,
+  defaultAiProviderSlot,
+  describeAiProvider,
+  getAiProviderDefinition,
+  registerAiProvider,
+  requireAiProviderDefinition,
+} from './providers/ai-provider-definition';
+export type { AiProviderDefinition, AiProviderSlotValue } from './providers/ai-provider-definition';
+export { BUILTIN_AI_PROVIDER_DEFINITIONS } from './providers/builtin-ai-providers';
+
+// ---- the provider modules (adding a built-in one: docs/specs/ai-platform.md §4) ---------------------------
 export { AiCoreModule } from './core/ai-core.module';
 export { OpenAiProviderModule } from './providers/openai/openai.module';
 export { AnthropicProviderModule } from './providers/anthropic/anthropic.module';

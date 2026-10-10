@@ -91,7 +91,7 @@ export class AiProviderTestService {
     // A keyless provider (#448: `requiresKey: false`) is tested with no key at
     // all when none is submitted or stored — exactly how it will be called.
     const apiKey =
-      submittedKey.length > 0 ? submittedKey : (storedKey ?? (providerRequiresKey(slot) ? null : AI_KEYLESS_API_KEY));
+      submittedKey.length > 0 ? submittedKey : (storedKey ?? (providerRequiresKey(slot, provider) ? null : AI_KEYLESS_API_KEY));
     // The slot's own settings, with a submitted endpoint taking the stored one's place.
     const call = providerCallSettings(slot);
     const baseUrl = input.baseUrl || call.baseUrl || undefined;

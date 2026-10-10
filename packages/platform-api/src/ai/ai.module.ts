@@ -8,30 +8,22 @@ import { AiCoreModule } from './core/ai-core.module';
 import { AiFeaturesModule } from './features/ai-features.module';
 import { AiHttpModule } from './http/ai-http.module';
 import { AiKeysModule } from './keys/ai-keys.module';
-import { AnthropicProviderModule } from './providers/anthropic/anthropic.module';
-import { AzureOpenAiProviderModule } from './providers/azure-openai/azure-openai.module';
-import { GeminiProviderModule } from './providers/gemini/gemini.module';
-import { OpenAiProviderModule } from './providers/openai/openai.module';
-import { OpenAiCompatibleProviderModule } from './providers/openai-compatible/openai-compatible.module';
+import { aiProviderKind, requireAiProviderDefinition } from './providers/ai-provider-definition';
+// Registers the five built-in providers (side effect) before the registry is read.
+import './providers/builtin-ai-providers';
 import { AiRuntimeModule } from './runtime/ai-runtime.module';
 import { registerAiStorageKeyPrefixes } from './storage/ai-storage-key-prefixes';
 import { AiUsageModule } from './usage/ai-usage.module';
 
 /**
- * The provider modules the slice ships, by provider id.
+ * A provider id accepted by {@link AiModuleOptions.providers}: any id
+ * registered with `registerAiProvider`.
  *
- * @stability stable
+ * @deprecated Since PP-14.6 (#924) the provider list is open: this is `string`,
+ *   kept as an alias for one release.
+ * @stability experimental
  */
-export type AiProviderModuleId = 'openai' | 'anthropic' | 'gemini' | 'azure-openai' | 'openai-compatible';
-
-/** Every shipped provider, in registration (and admin UI) order. */
-const PROVIDER_MODULES: ReadonlyArray<readonly [AiProviderModuleId, Type<unknown>]> = [
-  ['openai', OpenAiProviderModule],
-  ['anthropic', AnthropicProviderModule],
-  ['gemini', GeminiProviderModule],
-  ['azure-openai', AzureOpenAiProviderModule],
-  ['openai-compatible', OpenAiCompatibleProviderModule],
-];
+export type AiProviderModuleId = string;
 
 /**
  * Options of {@link AiModule.forRoot}. No option is an environment variable:
@@ -42,10 +34,14 @@ const PROVIDER_MODULES: ReadonlyArray<readonly [AiProviderModuleId, Type<unknown
  */
 export interface AiModuleOptions {
   /**
-   * Provider modules to load. Default: all five. An unloaded provider is
-   * simply absent from the registry (its settings slot stays, inert).
+   * The ids of the providers whose modules to load. Default: every provider
+   * registered with `registerAiProvider` when `forRoot` is called (the five
+   * built-ins, and an app's or package's own: register them first, at import
+   * time). An unloaded provider is simply absent from the adapter registry
+   * (its settings slot stays, inert). An id with no registered definition
+   * throws, naming the registered ones.
    */
-  readonly providers?: readonly AiProviderModuleId[];
+  readonly providers?: readonly string[];
   /**
    * The modules binding the slice's host ports (`AI_SYSTEM_PRISMA`,
    * `AI_OBJECT_STORE`, optionally `AI_METRICS` and `AI_TARGET_RESOLVER`).
@@ -102,13 +98,10 @@ export class AiModule {
    * @stability experimental
    */
   static forRoot(options: AiModuleOptions = {}): DynamicModule {
-    const wanted = new Set<AiProviderModuleId>(options.providers ?? PROVIDER_MODULES.map(([id]) => id));
-    for (const id of wanted) {
-      if (!PROVIDER_MODULES.some(([known]) => known === id)) {
-        throw new Error(`AiModule.forRoot: unknown provider module "${id}"`);
-      }
-    }
-    const providers = PROVIDER_MODULES.filter(([id]) => wanted.has(id)).map(([, module]) => module);
+    const wanted = options.providers ?? aiProviderKind.ids();
+    // Throws PluggableUnknownError for an unregistered id, naming it, the
+    // registered ids and how to register one.
+    const providers = [...new Set(wanted)].map((id) => requireAiProviderDefinition(id));
     // The slice's own object-key prefix (`ai-outputs/`), with the storage
     // slice's registry; a no-op when the app's manifest registered it already.
     registerAiStorageKeyPrefixes();
@@ -122,7 +115,7 @@ export class AiModule {
         AiOptionsModule.of(resolved),
         ...(options.imports ?? []),
         AiCoreModule,
-        ...providers,
+        ...providers.map((definition) => definition.module),
         AiCatalogModule,
         AiConfigModule,
         AiKeysModule,

@@ -5,6 +5,8 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
+  providerSettingValue,
+  withProviderSetting,
   toProviderFormValue,
   toProviderInput,
   validateProviderForm,
@@ -13,7 +15,7 @@ import {
 import type { AiProviderFormValue } from '../../src/ai/ui/admin/aiProviderForm.js';
 import { aiAdminConfigToInput } from '../../src/ai/headless/types.js';
 import type { AiAdminProvider } from '../../src/ai/headless/types.js';
-import { mockAiAdminConfig, mockAiAdminConfigWithCompatible } from './fixtures.js';
+import { mockAiAdminConfig, mockAiAdminConfigWithCompatible, mockAiAdminConfigWithExample } from './fixtures.js';
 
 const [openai, azure, compatible] = mockAiAdminConfigWithCompatible.providers as [
   AiAdminProvider,
@@ -175,6 +177,56 @@ describe('aiProviderForm', () => {
     it('only validates fields the provider renders', () => {
       // openai has no apiVersion field, so a stale value there is never an error.
       expect(validateProviderForm(openai, value({ apiVersion: 'bad version' }))).toEqual({});
+    });
+  });
+
+  describe('a provider an app registered (PP-14.6, #924)', () => {
+    const example = mockAiAdminConfigWithExample.providers[1] as AiAdminProvider;
+
+    it('loads its own settings into the form value and sends them back as { enabled, ...settings }', () => {
+      const form = toProviderFormValue(example);
+      expect(form.settings).toEqual({ region: 'us' });
+      expect(toProviderInput(example, { ...form, enabled: true, settings: { region: 'eu' } })).toEqual({
+        enabled: true,
+        region: 'eu',
+      });
+    });
+
+    it('leaves an empty own setting out of the entry (the provider default)', () => {
+      expect(toProviderInput(example, { ...toProviderFormValue(example), settings: { region: '' } })).toEqual({
+        enabled: false,
+      });
+    });
+
+    it('aiAdminConfigToInput re-sends its stored settings', () => {
+      expect(aiAdminConfigToInput(mockAiAdminConfigWithExample).providers['example-transcribe']).toEqual({
+        enabled: false,
+        region: 'us',
+      });
+    });
+
+    it('the built-ins carry no own settings', () => {
+      expect(toProviderFormValue(azure).settings).toBeUndefined();
+    });
+
+    it('requires an endpoint to enable only a provider whose API says requiresBaseUrl', () => {
+      const gateway: AiAdminProvider = { ...example, settingsFields: ['baseUrl'], requiresBaseUrl: true };
+      expect(validateProviderForm(gateway, value({ enabled: true })).baseUrl).toMatch(/base url is required/i);
+      expect(validateProviderForm({ ...gateway, requiresBaseUrl: false }, value({ enabled: true })).baseUrl).toBeUndefined();
+    });
+
+    it('providerSettingValue / withProviderSetting map built-in names to the typed members and the rest to settings', () => {
+      const form = toProviderFormValue(example);
+      expect(providerSettingValue(form, 'region')).toBe('us');
+      expect(providerSettingValue(form, 'baseUrl')).toBeUndefined();
+      expect(withProviderSetting(form, 'region', 'eu').settings).toEqual({ region: 'eu' });
+      expect(withProviderSetting(form, 'region', undefined).settings).toEqual({});
+      expect(withProviderSetting(form, 'baseUrl', 'https://x.example').baseUrl).toBe('https://x.example');
+      expect(withProviderSetting(form, 'baseUrl', undefined).baseUrl).toBe('');
+      expect(withProviderSetting(form, 'enabled', true).enabled).toBe(true);
+      expect(withProviderSetting(form, 'requiresKey', false).requiresKey).toBe(false);
+      expect(withProviderSetting(form, 'apiStyle', 'responses').apiStyle).toBe('responses');
+      expect(providerSettingValue(withProviderSetting(form, 'apiVersion', '2024-10-21'), 'apiVersion')).toBe('2024-10-21');
     });
   });
 });

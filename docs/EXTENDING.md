@@ -280,7 +280,7 @@ Available now. Full recipe: [the host README](../packages/platform-api/src/host/
 
 ### Writing a pluggable implementation
 
-Available now. A **pluggable kind** is the one shape every slice with a swappable part (AI provider, storage driver, email transport, sign-in provider, notification channel, telemetry store, backup target) is moving to, so you learn it once. The primitive is `definePluggableKind` of `@marinoscar/platform-api/core`; the stories PP-14.6 to PP-14.12 apply it to each slice, and until a slice's story lands, its kind is not yet registered there (see the placeholders below). The full reference is [the core README, Pluggable kinds](../packages/platform-api/src/core/README.md#pluggable-kinds). Worked example, with no consumer slice: [`greeter.kind.ts`](../apps/api/src/platform-extensions/core/greeter.kind.ts), registered by [`app-registrations/core.ts`](../apps/api/src/app-registrations/core.ts), proven by [`pluggable-kind.spec.ts`](../apps/api/test/examples/core/pluggable-kind.spec.ts) on the API side and [`pluggable-config-form.test.tsx`](../apps/web/src/__tests__/examples/settings/pluggable-config-form.test.tsx) on the web side.
+Available now. A **pluggable kind** is the one shape every slice with a swappable part (AI provider, storage driver, email transport, sign-in provider, notification channel, telemetry store, backup target) is moving to, so you learn it once. The primitive is `definePluggableKind` of `@marinoscar/platform-api/core`; the AI providers use it ([Add an AI provider](#add-an-ai-provider-the-assemblyai-case)), the stories PP-14.7 to PP-14.12 apply it to each remaining slice, and until a slice's story lands, its kind is not yet registered there (see the placeholders below). The full reference is [the core README, Pluggable kinds](../packages/platform-api/src/core/README.md#pluggable-kinds). Worked example, with no consumer slice: [`greeter.kind.ts`](../apps/api/src/platform-extensions/core/greeter.kind.ts), registered by [`app-registrations/core.ts`](../apps/api/src/app-registrations/core.ts), proven by [`pluggable-kind.spec.ts`](../apps/api/test/examples/core/pluggable-kind.spec.ts) on the API side and [`pluggable-config-form.test.tsx`](../apps/web/src/__tests__/examples/settings/pluggable-config-form.test.tsx) on the web side.
 
 1. **Pick the kind.** Import the kind a slice exposes. For a swappable part of your own, define one once, at module scope, in the file that owns it (`import { definePluggableKind } from '@marinoscar/platform-api/core'`):
 
@@ -339,13 +339,91 @@ The rules, from the [open id vocabulary](#open-an-id-vocabulary) shape:
 - **An unknown id is refused on write and ignored with one warning on read.**
 - **Runtime configuration is never an environment variable.** The settings are stored at runtime and edited in the admin form.
 
+### Add an AI provider (the AssemblyAI case)
+
+Available now. An app, or an `@acme/ai-assemblyai` package an app installs, adds a provider (here a transcription-only AssemblyAI) that is configured at runtime, keyed by users, organizations and the deployment, and metered, limited and gated like the built-ins, with no edit under `packages/`. It is [a pluggable kind](#writing-a-pluggable-implementation) (`aiProviderKind`, kind id `ai-provider`) behind one function, `registerAiProvider`. The worked example is [`example-transcribe`](../apps/api/src/platform-extensions/ai/example-transcribe/), a stand-in for AssemblyAI over a fake transport (no network); the contract and the rationale are in [the AI platform spec, §4](specs/ai-platform.md#4-extending-it-in-a-fork).
+
+1. **Write the adapter**, one class implementing `AiProviderAdapter` (everything below imports from `@marinoscar/platform-api/ai`): [`example-transcribe.adapter.ts`](../apps/api/src/platform-extensions/ai/example-transcribe/example-transcribe.adapter.ts).
+   - `id` (`example-transcribe`, permanent once a setting, a key or a usage row references it), `displayName`, `defaultBaseUrl` (the host the Doctor's egress inventory lists), `listModels`, `verifyKey` and `classifyModel`.
+   - **Only the ports the vendor has.** Presence is the declaration: an `audio` port with `transcribe` and no `speech` gives the capability `audio_transcription` and nothing else, and the gate pipeline refuses every other operation before the adapter is reached. The capabilities are the existing ones (`AI_CAPABILITIES`); a new capability or operation is not open yet (audit: [ai-7](EXTENSIBILITY-AUDIT.md#ai)).
+   - The key arrives per call in `AiCallContext.apiKey` and the provider's settings in `AiCallContext.providerSettings`; the class holds neither. Every failure leaves as an `AiError` (`AiError.wrap(err, code, message)`), never the vendor's message.
+   - The vendor sits behind an injected transport ([`example-transcribe.transport.ts`](../apps/api/src/platform-extensions/ai/example-transcribe/example-transcribe.transport.ts)). A real provider puts its SDK or HTTP client behind the same interface, in this folder, and a test swaps in a fake.
+2. **Provide it from a Nest module** that imports `AiCoreModule` and registers the adapter in `onModuleInit` ([`example-transcribe.module.ts`](../apps/api/src/platform-extensions/ai/example-transcribe/example-transcribe.module.ts)):
+
+   ```ts
+   onModuleInit(): void {
+     this.registry.register(this);
+   }
+   ```
+
+3. **Describe it with a definition** ([`example-transcribe.provider.ts`](../apps/api/src/platform-extensions/ai/example-transcribe/example-transcribe.provider.ts)), the part the rest of the slice reads before any adapter runs:
+
+   ```ts
+   import type { AiProviderDefinition } from '@marinoscar/platform-api/ai';
+
+   export const exampleTranscribeProvider: AiProviderDefinition = {
+     id: 'example-transcribe',
+     label: 'Example Transcribe',
+     module: ExampleTranscribeModule,
+     settingsSchema: z.object({ region: z.enum(['us', 'eu']).default('us').describe('Processing region') }),
+     defaults: { region: 'us' },
+     requiresKey: true,
+     help: { key: 'Where to find the key.' },
+     // A provider whose adapter imports an SDK adds: sdkPackages: ['assemblyai'],
+   };
+   ```
+
+   - **`id`** matches `^[a-z][a-z0-9-]{1,47}$` and equals the adapter's `id`.
+   - **`settingsSchema`** is a `z.object` of the **non-secret** fields only. `.describe('help')` is a field's help text and `.meta({ label })` its label. A field named like a secret (`apiKey`, `key`, `token`, `secret`, `password`), `enabled` or `hasKey` is refused at registration.
+   - **`defaults`** parse with `settingsSchema` and exclude `enabled`, which starts `false`.
+   - **`requiresKey`** is `true` unless the vendor authenticates another way (then calls resolve with `keySource: 'none'`). **`requiresBaseUrl`** (optional) blocks enabling the provider until `settings.baseUrl` is set and requires a `baseUrl` field in the schema. **`help`** is the text under the key and endpoint fields.
+   - **`sdkPackages`** (optional) lists the npm packages the adapter imports (step 6). The example imports none, so it omits the field.
+4. **Register it at import time**, in [`apps/api/src/app-registrations/ai.ts`](../apps/api/src/app-registrations/ai.ts):
+
+   ```ts
+   import { registerAiProvider } from '@marinoscar/platform-api/ai';
+
+   registerAiProvider(exampleTranscribeProvider);
+   ```
+
+   [`platform/ai/ai.config.ts`](../apps/api/src/platform/ai/ai.config.ts) imports that file before it calls `AiModule.forRoot()`, which loads the `module` of every registered definition. The registry freezes when the application bootstraps, so a later registration fails with `FROZEN`. `AiModule.forRoot({ providers: ['openai', 'example-transcribe'] })` loads only the ids you name, and an id nobody registered fails at boot, naming the registered ones. A package exposes the same call behind an entry the app imports (`import '@acme/ai-assemblyai/register'`), as in [How to ship an extension as its own npm package](#how-to-ship-an-extension-as-its-own-npm-package). A malformed definition (a bad id, a secret-looking field, defaults that do not parse) throws at registration.
+5. **There is nothing else to wire.** Registering gives the provider:
+   - **A settings slot.** `ai.providers` is a record keyed by provider id, `{ enabled } & the provider's settings`, so the stored value is `ai.providers['example-transcribe'] = { enabled, region }`. A fresh install reads it switched off with the defaults. Every write (`PUT /api/admin/ai/config`, `PATCH /api/system-settings`) validates the slot with the `settingsSchema`: an unregistered id is `400 AI_UNKNOWN_PROVIDER`, an undeclared setting `AI_PROVIDER_FIELD_UNSUPPORTED`, an invalid value `AI_PROVIDER_SETTINGS_INVALID`. A read never fails: a slot stored for a provider that is no longer registered is dropped with one warning.
+   - **Keys, through the existing routes.** The deployment key at `PUT /api/admin/ai/providers/example-transcribe/key` (the adapter's `verifyKey` accepts it before anything is stored; it is encrypted in the credential store under the existing purpose `ai`, name `example-transcribe`), a user's own key at `PUT /api/ai/keys/example-transcribe` and an organization's at `PUT /api/admin/ai/org-keys/example-transcribe`. No credential purpose, route or table is added, and no environment variable.
+   - **The gates.** The kill switches, the provider switch, model enablement, the key policy, rate limits, usage rows and the Doctor check treat it like a built-in. It starts off: an administrator enables it at `/admin/settings/ai`, stores a key, refreshes the catalog and enables a model.
+6. **Keep its SDK in its folder.** The vendor's package is imported only under `platform-extensions/ai/<id>/`. Pass that folder to the `ai-no-sdk-leak` conformance suite in [`apps/api/test/conformance.spec.ts`](../apps/api/test/conformance.spec.ts) and list the package in `sdkPackages`:
+
+   ```ts
+   aiNoSdkLeak: { /* apiTrees, webTrees, noSdkManifests, ... */ providerDirs: ['platform-extensions/ai/'] },
+   ```
+
+   Each directory is relative to the root of an `apiTrees` entry, ends in `/` and must hold a source file, so a typo cannot exempt nothing. The suite then bans every registered `sdkPackages` entry everywhere else (the app, the web, the contract).
+7. **The web needs no code.** `GET /api/admin/ai/config` serves a descriptor per provider (`descriptors`, with `settings`, `requiresBaseUrl` and `help` on each provider), and the admin AI page draws a card from it: an Enabled switch, a select for `region`, a write-only key field with Save key, Test and Remove key. The user and organization key pages list providers from the API. To replace the generated card, register your own at module scope (the card is a presentation choice; the API still validates every save):
+
+   ```tsx
+   import { AiGenericProviderCard, registerAiProviderCard } from '@marinoscar/platform-web/ai/ui/provider-cards';
+
+   registerAiProviderCard('example-transcribe', (props) => <AiGenericProviderCard {...props} />);
+   ```
+
+   Wrap `AiGenericProviderCard` to add to the generated card, or render your own markup from `AiProviderCardProps`.
+8. **Prove it with the kit and a test that boots the real app.**
+   - **The adapter.** `describeAiProviderConformance` of `@marinoscar/platform-api/ai/testing` over the fake transport: [`example-transcribe.conformance.spec.ts`](../apps/api/test/examples/ai/example-transcribe.conformance.spec.ts). The scenarios of a port the adapter does not carry have nothing to check and pass; the spec adds what the kit cannot know (the capability set is `audio_transcription` alone, the region reaches the transport, no log or error carries the key).
+   - **The gates over your provider.** `createAiRuntimeHarness({ extraProviders, extraAdapters, models, extraProviderSettings })` runs the real `AiService`, key resolver, usage recorder and run state machine over in-memory tables, with your provider enabled and a user key for it. [`example-transcribe.e2e.spec.ts`](../apps/api/test/examples/ai/example-transcribe.e2e.spec.ts) drives the admin routes (descriptor, enable with `region: 'eu'`, key verified before it is stored, `403 AI_DISABLED` while off) and the runtime (a user transcribes through the existing route and job, the usage row names the provider, a user's own key wins over the deployment key).
+   - **The stored shape.** [`ai-stored-settings.spec.ts`](../apps/api/test/examples/ai/ai-stored-settings.spec.ts): a row stored before the registry existed loads unchanged, and a slot for a removed provider is dropped with one warning.
+   - **The web.** [`example-provider-card.test.tsx`](../apps/web/src/__tests__/examples/ai/example-provider-card.test.tsx): the admin page draws the provider with no web code, and the typed key goes out once, alone.
+9. **Check it.**
+
+   ```bash
+   npx jest --config apps/api/test/jest.config.js --rootDir apps/api test/examples/ai
+   cd apps/web && npx vitest run src/__tests__/examples/ai/example-provider-card.test.tsx
+   ```
+
+What is still closed (audit: [ai](EXTENSIBILITY-AUDIT.md#ai)): a new capability or operation (diarization, moderation, rerank), a transcription result with speakers (it carries `text`, `language`, `durationSeconds`, `segments` and `words`), and slots on the AI pages. The example transcribes only, within what the neutral contract already carries.
+
 ## Coming in later stories
 
 Each placeholder names the story that replaces it; each is built on [the pluggable kind](#writing-a-pluggable-implementation). Until then the audit row is the record of what is closed.
-
-### Coming in PP-14.6: add an AI provider
-
-Add an adapter (for example an AssemblyAI transcription provider) from an app or an `@acme/ai-assemblyai` package, store its key encrypted, enable it in the admin AI page, and have it metered, limited and keyed like the built-ins. **Not supported yet.** Today an adapter registered with `AiProviderRegistry.register` is listed, can be keyed and passes `describeAiProviderConformance`, but it cannot be enabled: the `ai` settings namespace, `AiModule.forRoot` and the admin form are fixed to the five built-in providers (audit: [ai](EXTENSIBILITY-AUDIT.md#ai)). The in-package recipe is [ai-platform.md §4](specs/ai-platform.md#4-extending-it-in-a-fork).
 
 ### Coming in PP-14.7: add a storage driver
 
@@ -392,10 +470,11 @@ A kit is a function an extension author calls with the implementation and the te
 | Kit | Import | Checks | Status |
 |---|---|---|---|
 | `describeEventBusConformance(bus, { describe, it, expect })` | `@marinoscar/platform-api/host/testing` | Publish and subscribe on a dotted channel, ordering, unsubscribe, publish with no subscriber, `close()` | Available |
-| `describeAiProviderConformance` | `@marinoscar/platform-api/ai/testing` | `listModels`, `verifyKey`, `classifyModel`, the responses port, every error is an `AiError` | Available |
+| `describeAiProviderConformance(name, factory, options?)` | `@marinoscar/platform-api/ai/testing` | `listModels`, `verifyKey`, `classifyModel`, each port the adapter carries (responses, embeddings, images, audio), every error is an `AiError`; the scenarios of a port it lacks pass | Available |
+| `createAiRuntimeHarness({ extraProviders, extraAdapters, models })` | `@marinoscar/platform-api/ai/testing` | Not a kit but the runtime for one: the real gate pipeline (kill switch, provider switch, key policy, limits, usage) over your provider and in-memory tables | Available |
 | `runPlatformConformance` | `@marinoscar/platform-api/testing` | The platform's invariants over the app's source and registrations; a slice's suites register by importing its `…/testing` entry | Available |
 | `describePluggableKindConformance(kind, { describe, it, expect }, options?)` | `@marinoscar/platform-api/core/testing` | For each registered implementation of a pluggable kind: a valid id and label, defaults that parse, a descriptor that validates with secrets as presence flags only, no secret-looking setting, a `build` function | Available |
-| Storage driver, email transport, auth provider, notification sender, telemetry store, backup target | the slice's `…/testing` entry | Each ships with its story (PP-14.6 to PP-14.12) | Coming |
+| Storage driver, email transport, auth provider, notification sender, telemetry store, backup target | the slice's `…/testing` entry | Each ships with its story (PP-14.7 to PP-14.12) | Coming |
 | Doctor check, job handler | `@marinoscar/platform-api/doctor/testing`, `…/jobs/testing` | Read-only checks; handler profile, idempotence and node-eligibility pairing | Coming (PP-14.26) |
 
 An app adds its own suite with `conformanceSuites.register` and a `declare module '@marinoscar/platform-api/testing'` augmentation of `PlatformConformanceSuiteOptions`; the android-app slice's `testing/conformance.ts` is the model. More: [TESTING.md](TESTING.md#platform-conformance).

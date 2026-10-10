@@ -23,7 +23,8 @@ import {
 // `providers` is keyed by provider id (the admin view lists them as an array
 // with more fields; `enabled`, `baseUrl` and — for the providers whose
 // `settingsFields` name them (#448) — `apiVersion`, `apiStyle`, `deployments`
-// and `requiresKey` are writable).
+// and `requiresKey` are writable, and so is every other field a registered
+// provider's `settingsSchema` declares, PP-14.6).
 //
 // There is NO key field here and there must never be one. The admin key has
 // its own routes (`PUT`/`DELETE /api/admin/ai/providers/:provider/key`) so it
@@ -34,7 +35,7 @@ import {
 /** Largest accepted provider id — generous; real ids are short. */
 const PROVIDER_ID_MAX = 64;
 
-export const aiProviderSettingsInputSchema = z.object({
+export const aiProviderSettingsInputSchema = z.looseObject({
   enabled: z.boolean(),
   /**
    * Endpoint override for an OpenAI-compatible gateway. Omit (or send null /
@@ -64,6 +65,13 @@ export const aiProviderSettingsInputSchema = z.object({
    * credential and usage is recorded with `keySource: "none"`. Default `true`.
    */
   requiresKey: z.boolean().nullish(),
+  /**
+   * A provider an app or package registered (`registerAiProvider`, PP-14.6)
+   * declares its own settings (`region`, ...); they pass through here and are
+   * validated by that provider's `settingsSchema` in the service, which
+   * rejects a name the provider does not declare. Omit / null / empty CLEARS a
+   * stored value, like the fields above.
+   */
 });
 
 /** `ai.hostedTools` (#442) — every provider-hosted tool type's switch, and the MCP host allowlist. */

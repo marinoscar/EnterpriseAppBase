@@ -13,9 +13,9 @@
 // import time by the registry.
 // =============================================================================
 
+import { BadRequestException, Logger } from '@nestjs/common';
 import type { z } from 'zod';
 import {
-  AI_PROVIDER_IDS,
   orgAiSettingsSchema,
   systemAiPatchSchema,
   systemAiSchema,
@@ -25,11 +25,15 @@ import {
 } from '@marinoscar/platform-contract/ai';
 import { aiSettingsPatchSchema, aiSettingsSchema } from '@marinoscar/platform-contract/ai';
 import { aiResponseSchema } from '@marinoscar/platform-contract/ai';
+import { PluggableSettingsError, PluggableUnknownError } from '../core/index';
 import { mergeOptional } from '../settings/index';
 import type {
   SettingsReadHelpers,
   SystemSettingsNamespace,
 } from '../settings/index';
+import { aiProviderKind, defaultAiProviderSlot } from './providers/ai-provider-definition';
+// Registers the five built-in providers (side effect): the namespace below reads the registry.
+import './providers/builtin-ai-providers';
 
 // OFF, and INERT: `enabled: false` is the point, matching every other feature
 // namespace that ships ahead of its own UI (`databaseBackup.enabled`,
@@ -97,42 +101,105 @@ const AI_SYSTEM_DEFAULTS: SystemAiValue = {
   deploymentKeyServesOrgs: true,
 };
 
+const logger = new Logger('AiSettings');
+
 /**
- * `stored` (the raw `ai` namespace) with `providers` rebuilt slot by slot —
- * each `AI_PROVIDER_IDS` slot that passes its own slot schema is kept,
- * any other falls back to that provider's default — and `defaults` rebuilt
- * field by field the same way (#449). Everything else in the namespace is
- * left for `readNamespace` to salvage as usual.
+ * Each distinct read warning is logged ONCE per process: the namespace is read
+ * on every settings read and every five seconds by the policy cache, and a
+ * stored slot for a provider that is no longer registered stays stored until
+ * the next save.
+ */
+const warnedOnce = new Set<string>();
+function warnOnce(message: string): void {
+  if (warnedOnce.has(message)) return;
+  warnedOnce.add(message);
+  logger.warn(message);
+}
+
+/**
+ * The 400 for a `providers` PATCH or PUT the registry refuses: an id nobody
+ * registered, or settings that do not parse with the provider's own schema.
+ */
+function providerRejection(error: unknown): never {
+  if (error instanceof PluggableUnknownError) {
+    throw new BadRequestException({
+      message: `Unknown AI provider "${error.id}". Registered: ${error.registeredIds.join(', ') || '(none)'}.`,
+      details: { reason: 'AI_UNKNOWN_PROVIDER', provider: error.id },
+    });
+  }
+  if (error instanceof PluggableSettingsError) {
+    throw new BadRequestException({
+      message: `The settings for AI provider "${error.id}" are not valid: ${error.message}`,
+      details: {
+        reason: 'AI_PROVIDER_SETTINGS_INVALID',
+        provider: error.id,
+        fields: [...new Set(error.issues.map((issue) => String(issue.path[0] ?? '')))].filter(Boolean),
+      },
+    });
+  }
+  throw error;
+}
+
+/**
+ * The `providers` record, validated against the provider registry: every
+ * entry must belong to a registered provider and parse with that provider's
+ * own `settingsSchema` (defaults filled). Used as the stored schema's
+ * `providers` field, so a PUT, and any value that reaches the stored schema,
+ * is checked by the provider that owns each slot.
+ */
+const registeredProvidersSchema = systemAiSchema.shape.providers.transform((providers, ctx) => {
+  const next: Record<string, { enabled: boolean } & Record<string, unknown>> = {};
+
+  for (const [id, slot] of Object.entries(providers)) {
+    try {
+      next[id] = aiProviderKind.parseSettings(id, slot) as { enabled: boolean } & Record<string, unknown>;
+    } catch (error) {
+      if (!(error instanceof PluggableUnknownError) && !(error instanceof PluggableSettingsError)) throw error;
+      ctx.addIssue({ code: 'custom', message: error.message, path: [id] });
+    }
+  }
+
+  return next;
+});
+
+/**
+ * The stored `ai` schema the settings registry uses: `systemAiSchema` with
+ * `providers` checked against the provider registry (which the contract
+ * package cannot see).
+ */
+const storedAiSchema = systemAiSchema.extend({ providers: registeredProvidersSchema });
+
+/**
+ * `stored` (the raw `ai` namespace) with `providers` rebuilt from the
+ * provider registry — each REGISTERED provider's slot that parses with its
+ * own settings schema is kept, any other falls back to that provider's
+ * defaults, and a stored slot for a provider that is no longer registered is
+ * dropped with one warning — and `defaults` rebuilt field by field the same
+ * way (#449). Everything else in the namespace is left for `readNamespace` to
+ * salvage as usual.
  *
- * Why: a slot appended to `AI_PROVIDER_IDS` later (`anthropic`, #446;
- * `gemini`, #447) is absent from every row written before it, and validating
- * `providers` as one unit would then reset the operator's OpenAI switch and
- * endpoint to the defaults on the first read after upgrading. `defaults` gets
- * the same treatment, field by field, so a field appended to it later
+ * Why: a provider registered after a row was written (a built-in appended
+ * later, `anthropic` #446 and `gemini` #447; an app's own, PP-14.6) is absent
+ * from that row, and validating `providers` as one unit would then reset the
+ * operator's OpenAI switch and endpoint to the defaults on the first read
+ * after upgrading. Removing a provider's definition must not brick the row
+ * either, so its stored slot is ignored, never an error. `defaults` gets the
+ * same treatment, field by field, so a field appended to it later
  * (`allowRealtime`, #449) cannot reset a stored `maxOutputTokensCap` or
  * `allowBackgroundRuns` beside it.
  */
 function withAiSlots(stored: unknown, helpers: SettingsReadHelpers): unknown {
-  const source = helpers.asPlainObject(stored);
+  // A missing or unusable namespace reads as an empty one: every registered
+  // provider still gets its default slot (the static defaults know only the built-ins).
+  const source = helpers.asPlainObject(stored) ?? {};
 
-  if (!source) return stored;
-
-  const providers = helpers.asPlainObject(source.providers) ?? {};
-  const providerDefaults = AI_SYSTEM_DEFAULTS.providers as Record<string, unknown>;
+  const known = aiProviderKind.readSettingsRecord(helpers.asPlainObject(source.providers) ?? {}, warnOnce);
   const storedDefaults = helpers.asPlainObject(source.defaults);
 
   return {
     ...source,
-    providers: Object.fromEntries(
-      AI_PROVIDER_IDS.map((id) => {
-        // Each slot against its OWN schema (#448: the Azure and
-        // OpenAI-compatible slots carry more than `enabled`/`baseUrl`).
-        const slotSchema = systemAiSchema.shape.providers.shape[id];
-        const parsed = slotSchema.safeParse(providers[id]);
-
-        return [id, parsed.success ? parsed.data : structuredClone(providerDefaults[id])];
-      }),
-    ),
+    // Registered order (the built-ins first), every registered provider present.
+    providers: Object.fromEntries(aiProviderKind.ids().map((id) => [id, known[id] ?? defaultAiProviderSlot(id)])),
     ...(storedDefaults
       ? {
           // An absent optional field (`maxOutputTokensCap`) stays absent.
@@ -147,6 +214,46 @@ function withAiSlots(stored: unknown, helpers: SettingsReadHelpers): unknown {
 }
 
 /**
+ * PATCH merge of `providers`: for each provider the patch names, `undefined`
+ * keeps a setting, `null` removes it (back to the provider's default) and
+ * anything else replaces it; the result is validated with that provider's own
+ * schema (`mergeSettingsRecord`). A provider the patch does not name keeps its
+ * stored slot. An unregistered id, or settings that do not parse, are a 400.
+ */
+function mergeProviders(
+  current: SystemAiValue['providers'],
+  patch: Record<string, Record<string, unknown>> | undefined,
+): SystemAiValue['providers'] {
+  const stored: Record<string, Record<string, unknown>> = structuredClone(current);
+
+  if (!patch) return stored as SystemAiValue['providers'];
+
+  const cleaned: Record<string, Record<string, unknown>> = {};
+
+  for (const [id, slotPatch] of Object.entries(patch)) {
+    const kept: Record<string, unknown> = {};
+
+    for (const [field, value] of Object.entries(slotPatch)) {
+      if (value === undefined) continue;
+      if (value === null) {
+        // Drop the stored value so the default applies; the merge below cannot "unset" a key.
+        if (stored[id]) delete stored[id][field];
+        continue;
+      }
+      kept[field] = value;
+    }
+
+    cleaned[id] = kept;
+  }
+
+  try {
+    return aiProviderKind.mergeSettingsRecord(stored, cleaned) as SystemAiValue['providers'];
+  } catch (error) {
+    return providerRejection(error);
+  }
+}
+
+/**
  * Exported for the reference app's wiring and tests (route discovery, contract
  * and egress suites); not part of the slice's documented surface.
  *
@@ -155,7 +262,7 @@ function withAiSlots(stored: unknown, helpers: SettingsReadHelpers): unknown {
 export const AI_SYSTEM_SETTINGS = {
   key: 'ai',
   description: 'Deployment-wide AI platform policy: the kill switch, key policy, provider slots, call defaults, hosted tools and limits.',
-  storedSchema: systemAiSchema,
+  storedSchema: storedAiSchema,
   patchSchema: systemAiPatchSchema,
   putSchema: aiSettingsSchema,
   wirePatchSchema: aiSettingsPatchSchema,
@@ -167,7 +274,7 @@ export const AI_SYSTEM_SETTINGS = {
   // salvage every namespace gets — and `providers` is salvaged one level
   // deeper, per provider, first (`withAiSlots`).
   read(stored, helpers) {
-    return helpers.readNamespace(withAiSlots(stored, helpers), systemAiSchema, AI_SYSTEM_DEFAULTS);
+    return helpers.readNamespace(withAiSlots(stored, helpers), storedAiSchema, AI_SYSTEM_DEFAULTS);
   },
   merge(current, patch) {
     // Field by field, one level deep into each `providers.<id>` and
@@ -186,57 +293,7 @@ export const AI_SYSTEM_SETTINGS = {
     return {
       enabled: patch?.enabled ?? current.enabled,
       keyPolicy: patch?.keyPolicy ?? current.keyPolicy,
-      providers: {
-        openai: {
-          enabled: patch?.providers?.openai?.enabled ?? current.providers.openai.enabled,
-          baseUrl: mergeOptional(patch?.providers?.openai?.baseUrl, current.providers.openai.baseUrl),
-        },
-        anthropic: {
-          enabled: patch?.providers?.anthropic?.enabled ?? current.providers.anthropic.enabled,
-          baseUrl: mergeOptional(patch?.providers?.anthropic?.baseUrl, current.providers.anthropic.baseUrl),
-        },
-        gemini: {
-          enabled: patch?.providers?.gemini?.enabled ?? current.providers.gemini.enabled,
-          baseUrl: mergeOptional(patch?.providers?.gemini?.baseUrl, current.providers.gemini.baseUrl),
-        },
-        // #448. Every optional field merges like `baseUrl` (absent keeps,
-        // `null` removes); `deployments` is one value, replaced whole.
-        'azure-openai': {
-          enabled: patch?.providers?.['azure-openai']?.enabled ?? current.providers['azure-openai'].enabled,
-          baseUrl: mergeOptional(
-            patch?.providers?.['azure-openai']?.baseUrl,
-            current.providers['azure-openai'].baseUrl,
-          ),
-          apiVersion: mergeOptional(
-            patch?.providers?.['azure-openai']?.apiVersion,
-            current.providers['azure-openai'].apiVersion,
-          ),
-          apiStyle: mergeOptional(
-            patch?.providers?.['azure-openai']?.apiStyle,
-            current.providers['azure-openai'].apiStyle,
-          ),
-          deployments: mergeOptional(
-            patch?.providers?.['azure-openai']?.deployments,
-            current.providers['azure-openai'].deployments,
-          ),
-        },
-        'openai-compatible': {
-          enabled:
-            patch?.providers?.['openai-compatible']?.enabled ?? current.providers['openai-compatible'].enabled,
-          baseUrl: mergeOptional(
-            patch?.providers?.['openai-compatible']?.baseUrl,
-            current.providers['openai-compatible'].baseUrl,
-          ),
-          apiStyle: mergeOptional(
-            patch?.providers?.['openai-compatible']?.apiStyle,
-            current.providers['openai-compatible'].apiStyle,
-          ),
-          requiresKey: mergeOptional(
-            patch?.providers?.['openai-compatible']?.requiresKey,
-            current.providers['openai-compatible'].requiresKey,
-          ),
-        },
-      },
+      providers: mergeProviders(current.providers, patch?.providers),
       defaults: {
         maxOutputTokensCap: mergeOptional(patch?.defaults?.maxOutputTokensCap, current.defaults.maxOutputTokensCap),
         allowBackgroundRuns: patch?.defaults?.allowBackgroundRuns ?? current.defaults.allowBackgroundRuns,

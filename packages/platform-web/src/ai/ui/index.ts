@@ -14,3 +14,15 @@ export { default as UserAiKeysPage } from './UserAiKeysPage.js';
 export { default as AiPlaygroundPage } from './AiPlaygroundPage.js';
 export { RequireAiEnabled } from './RequireAiEnabled.js';
 export type { RequireAiEnabledProps } from './RequireAiEnabled.js';
+export {
+  AiGenericProviderCard,
+  getAiProviderCard,
+  registerAiProviderCard,
+} from './provider-cards.js';
+export type {
+  AiDeploymentRow,
+  AiProviderCardComponent,
+  AiProviderCardProps,
+  AiProviderFormErrors,
+  AiProviderFormValue,
+} from './provider-cards.js';

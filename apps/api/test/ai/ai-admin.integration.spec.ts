@@ -359,8 +359,28 @@ describe('AI Administration Integration', () => {
             requiresKey: null,
             keyStatus: { configured: false, hint: null, updatedAt: null, updatedByUserId: null },
           },
+          // PP-14.6: the app's own provider (app-registrations/ai.ts), off until switched on.
+          {
+            id: 'example-transcribe',
+            displayName: 'Example Transcribe',
+            registered: true,
+            enabled: false,
+            baseUrl: null,
+            settingsFields: ['region'],
+            settings: { region: 'us' },
+            requiresBaseUrl: false,
+            keyStatus: { configured: false, hint: null, updatedAt: null, updatedByUserId: null },
+          },
         ],
       });
+      expect(res.body.data.descriptors.map((d: { id: string }) => d.id)).toEqual([
+        'openai',
+        'anthropic',
+        'gemini',
+        'azure-openai',
+        'openai-compatible',
+        'example-transcribe',
+      ]);
       // Anthropic runs none of the neutral hosted tools, and says so (#446).
       const capabilitiesOf = (id: string) =>
         (res.body.data.providers as Array<{ id: string; supportedCapabilities: string[] }>).find((p) => p.id === id)
