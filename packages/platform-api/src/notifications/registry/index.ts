@@ -21,6 +21,8 @@
 export {
   NOTIFICATION_CHANNEL_ID_PATTERN,
   collapseOverlappingChannels,
+  criticalCapableChannels,
+  describeNotificationChannels,
   isRegisteredNotificationChannel,
   listNotificationChannels,
   notificationChannelRegistry,
@@ -31,6 +33,19 @@ export type {
   NotificationChannel,
   NotificationChannelDef,
 } from './channel.registry';
+
+export {
+  channelTemplateRegistry,
+  findChannelTemplate,
+  registerChannelTemplate,
+  renderChannelPayload,
+} from './channel-template.registry';
+export type {
+  ChannelPayload,
+  ChannelTemplateBinding,
+  ChannelTemplateContext,
+  ChannelTemplateRender,
+} from './channel-template.registry';
 
 export {
   NOTIFICATION_EVENT_KEY_MAX_LENGTH,

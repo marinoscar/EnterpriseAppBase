@@ -500,4 +500,93 @@ describe('PushNotificationChannel', () => {
       expect(mockPrisma.notification.create).not.toHaveBeenCalled();
     });
   });
+
+  // ==========================================================================
+  // The app's payload extras (PP-14.10): allowlisted, bounded, never fatal
+  // ==========================================================================
+
+  describe('deliver() with a pushPayload hook', () => {
+    function withHook(hook: (event: unknown, data: unknown) => unknown): PushNotificationChannel {
+      return new PushNotificationChannel(
+        mockPrisma as never,
+        mockPushConfig as unknown as PushConfigService,
+        hook as never,
+      );
+    }
+
+    const sentPayload = (): Record<string, unknown> =>
+      JSON.parse(webpush.sendNotification.mock.calls[0]![1] as string) as Record<string, unknown>;
+    const sentOptions = (): Record<string, unknown> => webpush.sendNotification.mock.calls[0]![2] as Record<string, unknown>;
+
+    beforeEach(() => {
+      mockPrisma.pushSubscription.findMany.mockResolvedValue([subscriptionRow()]);
+      webpush.sendNotification.mockResolvedValue(undefined);
+    });
+
+    it('adds the allowlisted extras to the payload and the urgency to the send options', async () => {
+      const hook = jest.fn().mockReturnValue({
+        tag: 'welcome',
+        icon: '/icons/welcome.png',
+        actions: [{ action: 'open', title: 'Open' }],
+        urgency: 'high',
+      });
+
+      const result = await withHook(hook).deliver(contextFor('user.welcome', { x: 1 }), 'user-1');
+
+      expect(result.success).toBe(true);
+      expect(hook).toHaveBeenCalledWith(expect.objectContaining({ key: 'user.welcome' }), { x: 1 });
+      expect(sentPayload()).toMatchObject({
+        id: 'notif-1',
+        eventKey: 'user.welcome',
+        tag: 'welcome',
+        icon: '/icons/welcome.png',
+        actions: [{ action: 'open', title: 'Open' }],
+      });
+      expect(sentPayload()).not.toHaveProperty('urgency');
+      expect(sentOptions()).toMatchObject({ urgency: 'high' });
+    });
+
+    it('lets an extra override nothing: the five original fields and unknown keys are fixed', async () => {
+      const hook = jest.fn().mockReturnValue({ title: 'hijack', body: 'hijack', link: 'https://evil.example', id: 'x', secret: 's' });
+
+      await withHook(hook).deliver(contextFor('user.welcome'), 'user-1');
+
+      expect(sentPayload()).toMatchObject({ id: 'notif-1', eventKey: 'user.welcome' });
+      expect(sentPayload().title).not.toBe('hijack');
+      expect(sentPayload()).not.toHaveProperty('secret');
+      expect(sentOptions()).not.toHaveProperty('urgency');
+    });
+
+    it('sends the push without extras when the hook throws', async () => {
+      const result = await withHook(() => {
+        throw new Error('hook exploded');
+      }).deliver(contextFor('user.welcome'), 'user-1');
+
+      expect(result.success).toBe(true);
+      expect(Object.keys(sentPayload()).sort()).toEqual(['body', 'eventKey', 'id', 'link', 'title']);
+    });
+
+    it('sends the push without extras when they would push the payload over the ceiling', async () => {
+      const actions = Array.from({ length: 2 }, (_, i) => ({ action: `a${i}`, title: 'x'.repeat(64), icon: `https://cdn.example.test/${'i'.repeat(440)}` }));
+      const hook = () => ({
+        actions,
+        icon: `https://cdn.example.test/${'p'.repeat(470)}`,
+        badge: `https://cdn.example.test/${'b'.repeat(470)}`,
+      });
+      // A near-maximal body (2,000 characters) beside ~2.4 KB of extras.
+      const data = { title: 'Big', body: 'b'.repeat(2000), link: '/status', critical: false };
+
+      const result = await withHook(hook).deliver(contextFor('admin.broadcast', data), 'user-1');
+
+      expect(result.success).toBe(true);
+      expect(Object.keys(sentPayload()).sort()).toEqual(['body', 'eventKey', 'id', 'link', 'title']);
+      expect(Buffer.byteLength(webpush.sendNotification.mock.calls[0]![1] as string)).toBeLessThanOrEqual(3_800);
+    });
+
+    it('sends today\'s five fields when no hook is bound', async () => {
+      await channel.deliver(contextFor('user.welcome'), 'user-1');
+
+      expect(Object.keys(sentPayload()).sort()).toEqual(['body', 'eventKey', 'id', 'link', 'title']);
+    });
+  });
 });

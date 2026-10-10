@@ -95,6 +95,7 @@ import type { DataTableFilterModel, DataTableRowAction } from './datatable.js';
 import { BroadcastComposer } from './BroadcastComposer.js';
 import { BroadcastDetailDialog } from './BroadcastDetailDialog.js';
 import { usePermissions } from '../../identity/index.js';
+import { useNotificationChannels } from '../headless/useNotificationChannels.js';
 import {
   BROADCASTS_POLL_INTERVAL_MS,
   useBroadcastActions,
@@ -214,7 +215,13 @@ export default function BroadcastsPage() {
     };
   }, [composerOpen]);
 
-  const columns = useMemo(() => buildBroadcastColumns(), []);
+  // Labels for the channels an app registered; the platform's own keep their wording.
+  const { channels: channelDescriptors } = useNotificationChannels();
+  const channelLabels = useMemo(
+    () => new Map((channelDescriptors ?? []).map((channel) => [channel.id, channel.label])),
+    [channelDescriptors],
+  );
+  const columns = useMemo(() => buildBroadcastColumns(channelLabels), [channelLabels]);
 
   const canWrite = hasPermission('broadcasts:write');
 
@@ -499,6 +506,7 @@ export default function BroadcastsPage() {
           isLoading={detailLoading}
           error={detailError}
           onClose={() => setDetailOpen(false)}
+          channelLabels={channelLabels}
         />
 
         <Snackbar

@@ -652,12 +652,15 @@ describe('NotificationsService', () => {
       await service.notify('admin.broadcast', USER_ID, {});
       await service.flush();
 
-      expect(browserContextChannels()).toEqual(['email', 'browser', 'push']);
+      // The reference app's broadcast events also declare its `webhook` example
+      // channel (PP-14.10); it has no sender in this spec, so only the list shows it.
+      expect(browserContextChannels()).toEqual(['email', 'browser', 'push', 'webhook']);
       // Every sender sees the same list.
       expect(emailSender.deliver.mock.calls[0]![0].channels).toEqual([
         'email',
         'browser',
         'push',
+        'webhook',
       ]);
     });
 
@@ -673,7 +676,7 @@ describe('NotificationsService', () => {
       await service.notify('admin.broadcast', USER_ID, {});
       await service.flush();
 
-      expect(browserContextChannels()).toEqual(['email', 'browser']);
+      expect(browserContextChannels()).toEqual(['email', 'browser', 'webhook']);
     });
 
     it('reflects the NotifyOptions.channels intersection', async () => {
@@ -697,7 +700,7 @@ describe('NotificationsService', () => {
       await service.notify('admin.broadcast_critical', USER_ID, {});
       await service.flush();
 
-      expect(browserContextChannels()).toEqual(['email', 'browser', 'push']);
+      expect(browserContextChannels()).toEqual(['email', 'browser', 'push', 'webhook']);
     });
   });
 

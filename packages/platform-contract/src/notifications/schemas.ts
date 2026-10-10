@@ -135,17 +135,64 @@ export type NotificationsPatchValue = z.infer<typeof notificationsPatchSchema>;
 // ---- system settings: `notifications` --------------------------------------------------
 
 /**
- * The deployment-wide browser-notification policy (`system_settings`
- * `notifications`): whether the browser channel is on, and which events are
- * suppressed for everyone. A `mandatory` event's inbox row survives both.
+ * One channel's deployment-wide switch (the value of one `channels` entry of
+ * the `notifications` system namespace).
+ *
+ * @stability experimental
+ */
+export const notificationChannelPolicySchema = z.object({
+  /** Whether the channel delivers at all. `false` drops it from every dispatch (a `mandatory` event keeps its in-app row). */
+  enabled: z.boolean(),
+});
+
+/**
+ * One channel's switch.
+ *
+ * @stability experimental
+ */
+export type NotificationChannelPolicyValue = z.infer<typeof notificationChannelPolicySchema>;
+
+/**
+ * The `channels` record of the `notifications` system namespace: channel id to
+ * that channel's switch, sparse. An absent channel is ENABLED (an operator opts
+ * a channel out, never in), which is also what makes a channel an app registers
+ * later deliver without anyone saving anything first. The id is open and is not
+ * checked against the registry here: an entry for a channel this build does not
+ * register is kept and never matches. `browser` is also written as the legacy
+ * `browserEnabled` boolean, kept in step with `channels.browser.enabled`.
+ *
+ * @extensionPoint schema
+ * @stability experimental
+ */
+export const notificationChannelPoliciesSchema = z.record(notificationChannelIdSchema, notificationChannelPolicySchema);
+
+/**
+ * The stored `channels` record.
+ *
+ * @stability experimental
+ */
+export type NotificationChannelPoliciesValue = z.infer<typeof notificationChannelPoliciesSchema>;
+
+/**
+ * The deployment-wide notification policy (`system_settings`
+ * `notifications`): whether the browser channel is on, which events are
+ * suppressed for everyone, and (`channels`) a switch per channel. A
+ * `mandatory` event's inbox row survives all of them.
+ *
+ * `browserEnabled` is the original switch and stays the spelling of the browser
+ * channel's; `channels.browser.enabled` is its alias (a write of either sets
+ * both). `channels` is absent on a row written before it existed, which reads
+ * as every channel enabled.
  *
  * @stability stable
  */
 export const systemNotificationsSchema = z.object({
-  /** Whether the browser channel is on. */
+  /** Whether the browser channel is on (alias of `channels.browser.enabled`). */
   browserEnabled: z.boolean(),
   /** Event keys whose browser delivery is suppressed. */
   disabledEvents: z.array(notificationEventKeySchema).max(MAX_DISABLED_NOTIFICATION_EVENTS),
+  /** A switch per channel; an absent channel is enabled. */
+  channels: notificationChannelPoliciesSchema.optional(),
 });
 
 /**
@@ -157,7 +204,8 @@ export type SystemNotificationsValue = z.infer<typeof systemNotificationsSchema>
 
 /**
  * PATCH counterpart: `disabledEvents` REPLACES wholesale (RFC 7396's rule for
- * arrays: a merge could never re-enable an event).
+ * arrays: a merge could never re-enable an event); `channels` merges per
+ * channel.
  *
  * @stability stable
  */
@@ -166,6 +214,8 @@ export const systemNotificationsPatchSchema = z.object({
   browserEnabled: z.boolean().optional(),
   /** Event keys whose browser delivery is suppressed. */
   disabledEvents: z.array(notificationEventKeySchema).max(MAX_DISABLED_NOTIFICATION_EVENTS).optional(),
+  /** Per-channel switches, merged into the stored record. */
+  channels: notificationChannelPoliciesSchema.optional(),
 });
 
 /**
@@ -178,6 +228,8 @@ export const notificationsSettingsSchema = z.object({
   browserEnabled: z.boolean(),
   /** Event keys whose browser delivery is suppressed. */
   disabledEvents: z.array(notificationEventKeySchema).max(MAX_DISABLED_NOTIFICATION_EVENTS),
+  /** A switch per channel; omitted means every channel enabled. */
+  channels: notificationChannelPoliciesSchema.optional(),
 });
 
 /**
@@ -190,6 +242,8 @@ export const notificationsSettingsPatchSchema = z.object({
   browserEnabled: z.boolean().optional(),
   /** Event keys whose browser delivery is suppressed. */
   disabledEvents: z.array(notificationEventKeySchema).max(MAX_DISABLED_NOTIFICATION_EVENTS).optional(),
+  /** Per-channel switches, merged into the stored record. */
+  channels: notificationChannelPoliciesSchema.optional(),
 });
 
 /**
@@ -202,13 +256,16 @@ export const notificationsResponseSchema = z.object({
   browserEnabled: z.boolean(),
   /** Event keys whose browser delivery is suppressed. */
   disabledEvents: z.array(z.string()),
+  /** A switch per channel; absent when none was ever saved (every channel enabled). */
+  channels: z.record(z.string(), notificationChannelPolicySchema).optional(),
 });
 
 /**
  * The ORG LAYER of the `notifications` namespace (#738, through #733's
  * `/api/org-settings`): what one organization may set for its own members. It
  * may only TIGHTEN: `browserEnabled: false` turns browser delivery off for
- * the org (the effective value is system AND org), and `disabledEvents`
+ * the org (the effective value is system AND org), `channels` turns other
+ * channels off for it (system AND org, per channel), and `disabledEvents`
  * suppresses more events (the effective list is the union). Every field is
  * optional: an org stores only what it overrides.
  *
@@ -220,6 +277,8 @@ export const orgNotificationsSchema = z.object({
   browserEnabled: z.boolean().optional(),
   /** Event keys whose browser delivery is suppressed. */
   disabledEvents: z.array(notificationEventKeySchema).max(MAX_DISABLED_NOTIFICATION_EVENTS).optional(),
+  /** Channels the organization turns off for its members (an `enabled: true` entry never loosens the system policy). */
+  channels: notificationChannelPoliciesSchema.optional(),
 });
 
 /**
@@ -313,6 +372,57 @@ export const notificationEventSchema = z.object({
  * @stability stable
  */
 export type NotificationEventResponse = z.infer<typeof notificationEventSchema>;
+
+/**
+ * One delivery channel as `GET /api/notifications/channels` serves it: what a
+ * client needs to draw the channel (its label, where it sits) and to apply the
+ * rules that depend on it (which channels a critical broadcast may rely on,
+ * which a user may toggle, which a fresh broadcast starts with). The registry
+ * is the only source: a client holds no list of channels.
+ *
+ * @extensionPoint schema
+ * @stability experimental
+ */
+export const notificationChannelDescriptorSchema = z.object({
+  /** The channel id; permanent. */
+  id: notificationChannelIdSchema,
+  /** The label an administrator or a user reads (`Email`, `Browser`). */
+  label: z.string(),
+  /** One sentence on what the channel delivers to. */
+  description: z.string(),
+  /** Whether a user may toggle the channel in their preferences. */
+  userConfigurable: z.boolean(),
+  /** Whether a critical broadcast may rely on this channel (it leaves a durable record a recipient can go back and read; `browser`). */
+  criticalCapable: z.boolean(),
+  /** Whether the broadcast events declare this channel, so a broadcast can be sent over it. */
+  broadcastCapable: z.boolean(),
+  /** Whether a new broadcast starts with this channel selected. */
+  broadcastDefault: z.boolean(),
+  /** Registration order, from 0: the order every client lists channels in. */
+  order: z.number().int().nonnegative(),
+});
+
+/**
+ * One channel descriptor.
+ *
+ * @stability experimental
+ */
+export type NotificationChannelDescriptorResponse = z.infer<typeof notificationChannelDescriptorSchema>;
+
+/**
+ * `GET /api/notifications/channels`: every registered delivery channel, in
+ * registration order.
+ *
+ * @stability experimental
+ */
+export const notificationChannelsResponseSchema = z.array(notificationChannelDescriptorSchema);
+
+/**
+ * The channels response.
+ *
+ * @stability experimental
+ */
+export type NotificationChannelsResponse = z.infer<typeof notificationChannelsResponseSchema>;
 
 /**
  * `GET /api/notifications/config`: what a non-admin client needs to know
@@ -942,7 +1052,7 @@ export const createBroadcastSchema = z
         message: 'scheduledFor must be in the future',
       })
       .optional(),
-    /** A critical broadcast cannot be muted (needs the `browser` channel). */
+    /** A critical broadcast cannot be muted (needs a channel flagged `criticalCapable`, `browser`). */
     critical: z.boolean().default(false),
     /** Target one organization's active members. A system administrator may name any organization or omit it (every active user); an organization administrator's broadcast always targets their active organization. */
     targetOrgId: z.uuid().optional(),
@@ -950,15 +1060,6 @@ export const createBroadcastSchema = z
   .superRefine((value, ctx) => {
     if (value.ctaLabel && !value.link) {
       ctx.addIssue({ code: 'custom', path: ['ctaLabel'], message: 'ctaLabel requires link' });
-    }
-    if (value.critical && !value.channels.includes('browser')) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['channels'],
-        message:
-          'a critical broadcast must include the "browser" channel: the durable in-app ' +
-          'notification is the only record a recipient can go back and read',
-      });
     }
   });
 

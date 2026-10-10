@@ -66,6 +66,16 @@ import type {
 // =============================================================================
 
 /**
+ * One channel's switch in {@link NotificationPolicy.channels}.
+ *
+ * @stability experimental
+ */
+export interface NotificationChannelPolicy {
+  /** Whether the channel delivers at all. `false` drops it from every dispatch. */
+  readonly enabled: boolean;
+}
+
+/**
  * The deployment-wide browser-notification policy, as this module needs it.
  *
  * STRUCTURALLY COMPATIBLE WITH `SystemNotificationsValue` (see
@@ -101,6 +111,16 @@ export interface NotificationPolicy {
    * addition of an event uneventful.
    */
   disabledEvents: readonly string[];
+
+  /**
+   * A switch per channel (PP-14.10): `{ slack: { enabled: false } }` drops the
+   * channel from every dispatch in this deployment (or organization). SPARSE:
+   * an absent channel is enabled, so a channel an app registers later delivers
+   * without anyone saving anything. `browser` is also spelled
+   * {@link browserEnabled}; the two are kept in step on write and the stricter
+   * one wins on read.
+   */
+  channels?: Readonly<Record<string, NotificationChannelPolicy>>;
 }
 
 /**
@@ -146,7 +166,48 @@ export function isBrowserToastAllowed(
   eventKey: string,
   policy: NotificationPolicy = DEFAULT_NOTIFICATION_POLICY,
 ): boolean {
-  return policy.browserEnabled && !policy.disabledEvents.includes(eventKey);
+  return (
+    policy.browserEnabled &&
+    explicitChannelSwitch(policy, 'browser') !== false &&
+    !policy.disabledEvents.includes(eventKey)
+  );
+}
+
+/**
+ * The policy's explicit switch for `channel`, or `undefined` when it names none.
+ * An own-property read: a channel id is lower-case letters, digits and `_`, so
+ * `constructor` is a valid id and must not resolve off `Object.prototype`.
+ */
+function explicitChannelSwitch(policy: NotificationPolicy, channel: string): boolean | undefined {
+  const channels = policy.channels;
+  if (!channels || !Object.prototype.hasOwnProperty.call(channels, channel)) return undefined;
+  const entry = channels[channel];
+  return typeof entry?.enabled === 'boolean' ? entry.enabled : undefined;
+}
+
+/**
+ * Whether the deployment's (or organization's) switch for `channel` is on
+ * (PP-14.10). The generic half of the policy: `browser` also answers to
+ * `browserEnabled`; every other channel answers only to `channels`, and an
+ * absent entry is on.
+ *
+ * @param channel - a channel id.
+ * @param policy - the policy in force.
+ * @returns `false` only when an operator switched the channel off.
+ *
+ * @example
+ * ```ts
+ * isChannelSwitchedOn('slack', { browserEnabled: true, disabledEvents: [], channels: { slack: { enabled: false } } }); // false
+ * ```
+ *
+ * @stability experimental
+ */
+export function isChannelSwitchedOn(
+  channel: NotificationChannel,
+  policy: NotificationPolicy = DEFAULT_NOTIFICATION_POLICY,
+): boolean {
+  if (channel === 'browser' && !policy.browserEnabled) return false;
+  return explicitChannelSwitch(policy, channel) !== false;
 }
 
 /**
@@ -169,23 +230,15 @@ export function isBrowserToastAllowed(
  * offered, so #126's preferences matrix loses that column with no UI change at
  * all.
  *
- * MANDATORY EVENTS ARE EXEMPT — see this file's header. Their row IS the
- * delivery, and removing the channel would stop it being written.
+ * MANDATORY EVENTS KEEP THEIR `browser` ROW — see this file's header. Their row
+ * IS the delivery, and removing the channel would stop it being written.
  *
- * Only `browser` is subject to policy today. `email` has no deployment-wide
- * gate (#225 declared none), and `push` — widened into `NOTIFICATION_CHANNELS`
- * by #228 — gets NONE EITHER, DELIBERATELY, for now: #228 is a structural
- * widening only (the type grows; no `NOTIFICATION_EVENTS` entry declares
- * `push` in its `channels` yet, so nothing dispatches over it), and a
- * deployment-wide policy gate for it is explicitly #230's job, not this one's.
- * This mirrors how `email` shipped in #122 with no gate of its own — a channel
- * may exist here, structurally, for a while before it earns an admin-facing
- * kill switch. So the `: true` fallback below is unchanged and intentional: it
- * does not mean "every channel but browser is safe to assume ungated
- * forever", it means "no channel but browser has EARNED a gate yet". Filtering
- * by a per-channel rule rather than a hardcoded `!== 'browser'` is what keeps
- * #230's eventual addition a change to one predicate rather than a rewrite of
- * this function.
+ * EVERY CHANNEL HAS A SWITCH (PP-14.10). `browser` answers to `browserEnabled`
+ * and `disabledEvents` as always; any other channel (`email`, `push`, an app's
+ * `slack`) answers to its `channels[id].enabled` entry, and an absent entry is
+ * on. A mandatory event is NOT exempt from another channel's switch: its
+ * guarantee is the inbox row, and an operator who turned a transport off has
+ * decided nothing goes over it. The org layer tightens the same record.
  *
  * Returns a fresh array; nothing here hands out a reference into the registry.
   *
@@ -195,12 +248,15 @@ export function policyChannels(
   event: NotificationEventDef,
   policy: NotificationPolicy = DEFAULT_NOTIFICATION_POLICY,
 ): NotificationChannel[] {
-  // A mandatory event keeps every channel it declares, whatever the policy
-  // says. The toast is still suppressed for it — that is `isBrowserToastAllowed`
-  // above, which has no such exemption.
-  if (event.mandatory === true) return [...event.channels];
-
-  return event.channels.filter((channel) =>
-    channel === 'browser' ? isBrowserToastAllowed(event.key, policy) : true,
-  );
+  return event.channels.filter((channel) => {
+    // `browser` is the in-app inbox: a mandatory event keeps its row whatever
+    // the policy says (the toast is still suppressed, `isBrowserToastAllowed`),
+    // and a non-mandatory one is subject to the kill switch and the per-event
+    // suppression list.
+    if (channel === 'browser') return event.mandatory === true || isBrowserToastAllowed(event.key, policy);
+    // Every other channel answers to its own switch (PP-14.10), mandatory or
+    // not: an operator who switched Slack off has decided nothing goes over it,
+    // and a mandatory event's guarantee is the inbox row, not any one transport.
+    return isChannelSwitchedOn(channel, policy);
+  });
 }

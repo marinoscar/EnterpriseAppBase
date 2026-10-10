@@ -30,6 +30,11 @@ import { RegistryError, defineRegistry } from '../../core/index';
 import type { BrowserNotificationTemplate } from '../channels/browser-templates';
 import { emailTemplateRegistry } from '../../email/index';
 import {
+  channelTemplateRegistry,
+  preflightChannelTemplate,
+  type ChannelTemplateRender,
+} from './channel-template.registry';
+import {
   NOTIFICATION_EVENT_KEY_PATTERN,
   assertValidNotificationEvent,
   notificationEventRegistry,
@@ -143,6 +148,13 @@ export interface NotificationRegistration {
   readonly emailTemplate?: string;
   /** The bell row / OS toast renderer; also serves push. Optional: the channel falls back to the event's label. */
   readonly browserTemplate?: BrowserNotificationTemplate;
+  /**
+   * The renderers of the event over the channels an app added (Slack, SMS, a
+   * webhook), by channel id (PP-14.10). Each channel must be registered and
+   * declared by the event; checked with the event and the other bindings, so a
+   * bad one leaves nothing behind. A sender reads them with `renderChannelPayload`.
+   */
+  readonly channelTemplates?: Readonly<Record<string, ChannelTemplateRender>>;
 }
 
 /**
@@ -168,12 +180,14 @@ export interface NotificationRegistration {
  */
 export function registerNotification(input: NotificationRegistration): void {
   const { event, emailTemplate, browserTemplate } = input;
+  const channelTemplates = Object.entries(input.channelTemplates ?? {});
 
   // 1. Writes are possible at all.
   const writing = [
     notificationEventRegistry,
     ...(emailTemplate !== undefined ? [eventEmailTemplateRegistry] : []),
     ...(browserTemplate !== undefined ? [eventBrowserTemplateRegistry] : []),
+    ...(channelTemplates.length > 0 ? [channelTemplateRegistry] : []),
   ];
   for (const registry of writing) {
     if (registry.frozen) {
@@ -214,6 +228,9 @@ export function registerNotification(input: NotificationRegistration): void {
   if (browserTemplate !== undefined) {
     preflight(eventBrowserTemplateRegistry, key, () => assertBrowserBinding(event, key, browserTemplate));
   }
+  for (const [channelId, render] of channelTemplates) {
+    preflightChannelTemplate(event, channelId, render);
+  }
 
   // 4. The event. Its registry checks the key, the event's invariants and
   //    duplicates; a refusal here has registered nothing.
@@ -225,6 +242,9 @@ export function registerNotification(input: NotificationRegistration): void {
   }
   if (browserTemplate !== undefined) {
     eventBrowserTemplateRegistry.register({ eventKey: key, render: browserTemplate });
+  }
+  for (const [channelId, render] of channelTemplates) {
+    channelTemplateRegistry.register({ channelId, eventKey: key, render });
   }
 }
 

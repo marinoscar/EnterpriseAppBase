@@ -151,7 +151,46 @@ binding; without one the event's `label` and `description` are used. A
 subscription is tagged `android_app` when the web app subscribes inside the
 TWA (the subscribe body's optional `platform`), and is re-tagged only up to
 `android_app`, never back to `browser`. An application's own channel is one
-more sender that self-registers; see §4.
+more sender that self-registers, with its own handle, template and administrator
+switch; see §2.3.1 and §4.
+
+#### 2.3.1 App channels
+
+A channel an app adds (Slack, SMS, Teams, a webhook) is first-class, with no
+package edit; the recipe is [EXTENDING.md, Add a notification channel](../EXTENDING.md#add-a-notification-channel).
+
+- **Recipient handles.** A sender resolves its destination asynchronously with
+  `resolveRecipient(recipient, context)` returning `{ to, display }`; the
+  synchronous `resolveTo` still works. `to` goes to `deliver` and may be a secret.
+  The delivery row's `recipient` stores `display`, the redacted label, and never
+  `to`. `null` skips the channel for that recipient (no row, no attempt).
+  `context.handle()` reads the app's `RecipientHandleSource`, bound through
+  `NotificationsModule.forRoot({ recipientHandles })`.
+- **Templates.** `registerChannelTemplate` (or `registerNotification({
+  channelTemplates })`) binds a pure renderer to an event over the channel; it is
+  validated like the email and browser bindings (the channel is registered and
+  the event declares it). The `notifications` conformance suite fails an event
+  bound for an app channel with no template unless the channel declares
+  `rendersRawData`.
+- **The administrator switch.** Every channel has a switch: `channels` in the
+  `notifications` system namespace is `{ <channelId>: { enabled } }`, sparse (an
+  absent channel is on). `browserEnabled` is the browser channel's spelling and
+  `channels.browser.enabled` its alias; a write of either sets both and the
+  stricter wins on read. `policyChannels` applies the switch to every channel
+  for both the preferences matrix and the dispatcher. A `mandatory` event keeps
+  its `browser` row whatever the policy says (§2.4) but is not exempt from
+  another channel's switch. The organization layer tightens the same record.
+- **The registry for clients.** `GET /api/notifications/channels` serves every
+  channel's label, whether a user may toggle it, whether a critical broadcast may
+  rely on it (`criticalCapable`), whether the broadcast events declare it and
+  whether a broadcast starts with it. The composer, the matrix and the admin
+  page draw from it; the web bundle holds no channel list.
+- **Push extras.** `NotificationsModule.forRoot({ pushPayload })` returns, per
+  event, `actions` (at most two), `icon`, `badge`, `tag` and `urgency`; only those
+  survive the allowlist, each is bounded, and a throw or an oversize payload
+  sends the push without extras.
+- **The kit.** `describeNotificationSenderConformance` in
+  `@marinoscar/platform-api/notifications/testing`.
 
 The push channel writes its own row rather than sharing the browser channel's.
 Channels are independently pluggable, and no event today declares both
@@ -625,8 +664,8 @@ Delivery semantics:
 
 | Namespace / store | Keys | Edited at |
 |---|---|---|
-| `system_settings.notifications` | `browserEnabled`, `disabledEvents` | `/admin/settings/notifications` |
-| `org_settings.notifications` (#738) | `browserEnabled`, `disabledEvents` (tighten only) | `/admin/settings/org-settings` |
+| `system_settings.notifications` | `browserEnabled`, `disabledEvents`, `channels` (a switch per channel) | `/admin/settings/notifications` |
+| `org_settings.notifications` (#738) | `browserEnabled`, `disabledEvents`, `channels` (tighten only) | `/admin/settings/org-settings` |
 | `system_settings.webPush` | `enabled`, `publicKey`, `subject` | `/admin/settings/push` |
 | `credentials` (`push_vapid` / `default`) | VAPID private key, encrypted with `SECRETS_ENCRYPTION_KEY` | `/admin/settings/push` |
 | `user_settings.notifications` | Per-user, per-event, per-channel preferences | `/settings/notifications` |
@@ -655,6 +694,7 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) for the full permission matrix.
 | Method and route | Purpose | Permission |
 |---|---|---|
 | `GET /api/notifications/events` | Registry events, each with `channels` (policy-filtered, for the preferences matrix) and `declaredChannels` (unfiltered, so the admin policy page keeps listing a suppressed event) | authenticated |
+| `GET /api/notifications/channels` | Every registered channel: label, description, `userConfigurable`, `criticalCapable`, `broadcastCapable`, `broadcastDefault`, `order` | authenticated |
 | `GET /api/notifications/config` | `browserEnabled`, `pushEnabled`, `vapidPublicKey` | authenticated |
 | `GET /api/notifications/stream` | SSE stream of new inbox rows, each with `toast` and `pushed` | authenticated |
 | `GET /api/notifications` | Caller's inbox, paginated (`page`, `pageSize`, `unreadOnly`) | authenticated |
@@ -679,7 +719,7 @@ channels, email templates and notifications in
 `apps/api/src/app-registrations/notifications.ts`, and a channel's transport is
 a provider in the fork's own module that registers itself into
 `NotificationChannelSenderRegistry` from `onModuleInit` (the same file's
-"Adding a channel"). Never rename an event key or a channel id; add a new one.
+"Adding a channel", and §2.3.1). Never rename an event key or a channel id; add a new one.
 
 Choosing an entry point:
 
@@ -815,6 +855,9 @@ the app closed; iOS Safari in a tab (install panel) and installed (push).
   suppression and dedup (#224), the admin policy and its enforcement
   (#225–#227), the `push` channel and subscriptions (#228–#230), the iOS
   walkthrough (#231).
+- Issue #928 (epic #918): app channels are first-class: async recipient handles,
+  a switch per channel, channel templates, `GET /api/notifications/channels`,
+  push payload extras and the sender conformance kit.
 - Issue #288 (epic #254): the four operational events and
   `notifyPermissionHolders`.
 - Issue #355: runtime-configurable VAPID keys and `push:*`.

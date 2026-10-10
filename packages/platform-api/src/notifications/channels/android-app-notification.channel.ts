@@ -1,4 +1,4 @@
-import { Inject, Injectable, type OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Optional, type OnModuleInit } from '@nestjs/common';
 
 import { PLATFORM_PRISMA } from '../../core/index';
 import type { NotificationsPrisma } from '../data/notifications-db';
@@ -6,7 +6,9 @@ import type { NotificationChannel } from '../notification-events';
 import { PushConfigService } from '../push-config.service';
 import { NotificationChannelSenderRegistry } from '../registry/channel-sender.registry';
 import { ANDROID_APP_NOTIFICATION_CHANNEL } from '../registry/platform-channels';
+import { NOTIFICATION_PUSH_PAYLOAD } from '../ports';
 import { PushNotificationChannel } from './push-notification.channel';
+import type { PushPayloadHook } from './push-payload';
 
 // =============================================================================
 // AndroidAppNotificationChannel (#746, PP-9.4; harvested from EvoPath #312)
@@ -45,9 +47,13 @@ export class AndroidAppNotificationChannel extends PushNotificationChannel imple
   constructor(
     @Inject(PLATFORM_PRISMA) prisma: NotificationsPrisma,
     pushConfig: PushConfigService,
+    // At the parent's index for the same dependency, on purpose: Nest merges
+    // `@Optional()` indexes down an inheritance chain, so the optional hook
+    // must sit where the parent marked it optional and nowhere else.
+    @Optional() @Inject(NOTIFICATION_PUSH_PAYLOAD) pushPayload: PushPayloadHook | null | undefined,
     private readonly senders: NotificationChannelSenderRegistry,
   ) {
-    super(prisma, pushConfig);
+    super(prisma, pushConfig, pushPayload);
   }
 
   /** Registers this sender for `android_app`; the channel id must be registered first. */

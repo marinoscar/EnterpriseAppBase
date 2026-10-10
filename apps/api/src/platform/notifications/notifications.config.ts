@@ -9,6 +9,7 @@ import {
 } from '@marinoscar/platform-api/notifications';
 
 import { EmailModule } from '../email/email.config';
+import { WebhookRecipientHandles } from '../../platform-extensions/notifications/webhook.channel';
 import { NotificationsHostModule } from './notifications-host.module';
 
 // =============================================================================
@@ -30,6 +31,9 @@ import { NotificationsHostModule } from './notifications-host.module';
 
 export const NotificationsModule = PlatformNotificationsModule.forRoot({
   imports: [EmailModule, NotificationsHostModule],
+  // Per-user destinations on the app's own channels (PP-14.10): the worked
+  // example keeps the webhook channel's in memory; a real app reads its own table.
+  recipientHandles: { useClass: WebhookRecipientHandles },
 });
 
 export const BroadcastsModule = PlatformBroadcastsModule;

@@ -15,7 +15,7 @@ The audit record of the extension seams of every platform slice. A closed point 
 
 Evidence paths are written `api:`, `web:`, `contract:`, `cli:`, `db:` and `infra:` for `packages/platform-api/src/`, `packages/platform-web/src/`, `packages/platform-contract/src/`, `packages/platform-cli/src/`, `packages/platform-db/` and `packages/platform-infra/`; a path under `apps/` or `docs/` is from the repository root. A story is written PP-14.n (its issue number follows).
 
-As of this version: 114 closed points in 29 sections, 27 fixed and 87 open.
+As of this version: 114 closed points in 29 sections, 32 fixed and 82 open.
 
 ## Verdicts
 
@@ -24,7 +24,7 @@ As of this version: 114 closed points in 29 sections, 27 fixed and 87 open.
 | [onboarding](#onboarding) | Open | 1 | 0 | 1 | PP-14.20 |
 | [credentials](#credentials) | Open | 0 | 0 | 0 | none |
 | [settings](#settings) | Mostly open | 7 | 1 | 6 | PP-14.21, PP-14.5, PP-14.24 |
-| [notifications](#notifications) | Mostly open | 7 | 1 | 6 | PP-14.10, PP-14.8, PP-14.24 |
+| [notifications](#notifications) | Mostly open | 7 | 6 | 1 | PP-14.10, PP-14.8, PP-14.24 |
 | [exports](#exports) | Mostly open | 3 | 0 | 3 | PP-14.20 |
 | [jobs](#jobs) | Mostly open | 4 | 0 | 4 | PP-14.19, PP-14.23, PP-14.26 |
 | [nodes](#nodes) | Mostly open | 4 | 0 | 4 | PP-14.19, PP-14.23 |
@@ -66,7 +66,7 @@ The 28 stories of the epic, in order. Phase 1 makes the existing seams real; pha
 | PP-14.7 | #925 | storage: pluggable storage drivers (Azure Blob, GCS, local) | 2 | 14.1, 14.5 | verify | This change |
 | PP-14.8 | #926 | email: pluggable email transports (SendGrid, Postmark) | 2 | 14.5 | no | This change |
 | PP-14.9 | #927 | identity: add a sign-in provider (GitHub, Entra, OIDC) | 2 | 14.5 | no | This change |
-| PP-14.10 | #928 | notifications: first-class app channels (Slack, SMS, Teams, webhook) | 2 | 14.5 | no | Open |
+| PP-14.10 | #928 | notifications: first-class app channels (Slack, SMS, Teams, webhook) | 2 | 14.5 | no | This change |
 | PP-14.11 | #929 | telemetry: a TELEMETRY_STORE port so the time-series store is replaceable | 2 | 14.5 | no | Open |
 | PP-14.12 | #930 | db-backup: pluggable backup target, schedule policy and restore gates | 2 | 14.1 (14.7) | verify | Open |
 | PP-14.13 | #931 | host: health indicators, maintenance bypass, About contributors, deployment capabilities and app guards | 3 | 14.2 | no | Open |
@@ -139,19 +139,19 @@ Closed points: none recorded at the audit commit.
 
 ### notifications
 
-**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 7 (1 fixed, 6 open) · **Stories:** PP-14.10, PP-14.8, PP-14.24
+**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 7 (6 fixed, 1 open) · **Stories:** PP-14.10, PP-14.8, PP-14.24
 
-**Open points.** Event, channel and template registries with open channel ids (`registerNotification`, `registerNotificationEvent`, `registerNotificationChannel`, the two template bindings), `NotificationChannelSenderRegistry`, `NotificationsService`, the org policy layer and the web bell, provider and pages.
+**Open points.** Event, channel and template registries with open channel ids (`registerNotification`, `registerNotificationEvent`, `registerNotificationChannel`, the email and browser template bindings, `registerChannelTemplate`), `NotificationChannelSenderRegistry` and the async `resolveRecipient`, the `recipientHandles` and `pushPayload` options, a switch per channel in the `notifications` policy (and its org layer), `GET /api/notifications/channels` with the composer, matrix and admin page drawn from it, `describeNotificationSenderConformance`, `NotificationsService` and the web bell, provider and pages.
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
-| notifications-1 | A recipient carries only an email address (`resolveTo` is synchronous), so a Slack or SMS channel has no per-user handle; the push channel works around it by returning the user id, which is then stored in the delivery row. | api: `notifications/notification.types.ts:58, :365`; `notifications/channels/push-notification.channel.ts:159` | Async `resolveRecipient` returning `{ to, display }` and a `NOTIFICATION_RECIPIENT_HANDLES` port bound by `NotificationsModule.forRoot({ recipientHandles })`; the row stores `display`. | PP-14.10 (#928) | Open |
-| notifications-2 | The admin kill switch is browser-only: the `notifications` namespace is `browserEnabled` plus `disabledEvents`, and `policyChannels` special-cases `browser`. | api: `notifications/notifications.system-settings.ts:38, :56`; `notifications/notification-policy.ts:204` | `channels: Record<channelId, { enabled }>` in the namespace with `browserEnabled` kept as an alias; one switch per registered channel. | PP-14.10 (#928) | Open |
-| notifications-3 | Templates exist only for email and browser; a new channel renders from raw data with no registry or validation. | api: `notifications/registry/bindings.registry.ts:72, :92` | `registerChannelTemplate({ channelId, eventKey, render })`, validated at bootstrap. | PP-14.10 (#928) | Open |
-| notifications-4 | The broadcast composer and the preference matrix hard-code the channel list, order, labels and the critical rule. | web: `notifications/ui/BroadcastComposer.tsx:115, :118, :229`; contract: `notifications/schemas.ts:954`; web: `notifications/ui/NotificationSettings.tsx:188, :568` | `GET /notifications/channels` (labels, order, `criticalCapable`); delete `CHANNEL_ORDER`, `DEFAULT_CHANNELS`, `CHANNEL_LABELS`. | PP-14.10 (#928) | Open |
-| notifications-5 | The push payload has exactly five fields. | api: `notifications/channels/push-notification.channel.ts:~111` | `NotificationsModule.forRoot({ pushPayload })` with an allowlisted extras shape. | PP-14.10 (#928) | Open |
+| notifications-1 | A recipient carries only an email address (`resolveTo` is synchronous), so a Slack or SMS channel has no per-user handle; the push channel works around it by returning the user id, which is then stored in the delivery row. | api: `notifications/notification.types.ts:58, :365`; `notifications/channels/push-notification.channel.ts:159` | Async `resolveRecipient` returning `{ to, display }` and a `NOTIFICATION_RECIPIENT_HANDLES` port bound by `NotificationsModule.forRoot({ recipientHandles })`; the row stores `display`. | PP-14.10 (#928) | Fixed |
+| notifications-2 | The admin kill switch is browser-only: the `notifications` namespace is `browserEnabled` plus `disabledEvents`, and `policyChannels` special-cases `browser`. | api: `notifications/notifications.system-settings.ts:38, :56`; `notifications/notification-policy.ts:204` | `channels: Record<channelId, { enabled }>` in the namespace with `browserEnabled` kept as an alias; one switch per registered channel. | PP-14.10 (#928) | Fixed |
+| notifications-3 | Templates exist only for email and browser; a new channel renders from raw data with no registry or validation. | api: `notifications/registry/bindings.registry.ts:72, :92` | `registerChannelTemplate({ channelId, eventKey, render })`, validated at bootstrap. | PP-14.10 (#928) | Fixed |
+| notifications-4 | The broadcast composer and the preference matrix hard-code the channel list, order, labels and the critical rule. | web: `notifications/ui/BroadcastComposer.tsx:115, :118, :229`; contract: `notifications/schemas.ts:954`; web: `notifications/ui/NotificationSettings.tsx:188, :568` | `GET /notifications/channels` (labels, order, `criticalCapable`); delete `CHANNEL_ORDER`, `DEFAULT_CHANNELS`, `CHANNEL_LABELS`. | PP-14.10 (#928) | Fixed |
+| notifications-5 | The push payload has exactly five fields. | api: `notifications/channels/push-notification.channel.ts:~111` | `NotificationsModule.forRoot({ pushPayload })` with an allowlisted extras shape. | PP-14.10 (#928) | Fixed |
 | notifications-6 | `EmailNotificationChannel` takes the two concrete email classes, so no other transport reaches notifications. | api: `notifications/channels/email-notification.channel.ts:116` | Depend on the `EmailTransportResolver`, never on concrete classes. | PP-14.8 (#926) | Fixed |
-| notifications-7 | `NotificationSettings` labels and the admin composer need the channel list from the API. | web: `notifications/ui/NotificationSettings.tsx:188` | Labels from the channel registry plus `PageSlotsBase`. | PP-14.24 (#942) | Open |
+| notifications-7 | The notification pages take no slots. (The channel list and labels come from the API since PP-14.10; the slots are what remains.) | web: `notifications/ui/NotificationSettings.tsx`, `notifications/ui/BroadcastComposer.tsx` | `PageSlotsBase` on the packaged pages. | PP-14.24 (#942) | Open |
 
 ### exports
 

@@ -33,6 +33,7 @@ import { ExampleChecksumHandler } from './jobs/example-checksum.handler';
 import { ExampleEchoHandler } from './jobs/example-echo.handler';
 import { registerExampleJobTypeLabels } from './jobs/job-type-labels.example';
 import { ExampleMetadataProcessor } from './storage/example-metadata.processor';
+import { WebhookChannelModule } from '../platform-extensions/notifications/webhook.channel';
 
 @Module({
   // `example.checksum` reads object bytes server-side when no node takes it:
@@ -40,7 +41,7 @@ import { ExampleMetadataProcessor } from './storage/example-metadata.processor';
   // `ObjectProcessingModule` (#736): the processor registry the example
   // metadata processor registers itself with. `AiModule` (#739): the example
   // feature service injects `AiService`.
-  imports: [StorageProvidersModule, ObjectProcessingModule, AiModule],
+  imports: [StorageProvidersModule, ObjectProcessingModule, AiModule, WebhookChannelModule],
   providers: [ExampleEchoHandler, ExampleChecksumHandler, ExampleMetadataProcessor, ExampleSummaryService],
   exports: [ExampleEchoHandler, ExampleChecksumHandler, ExampleMetadataProcessor, ExampleSummaryService],
 })

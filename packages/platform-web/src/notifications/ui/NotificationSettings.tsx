@@ -92,6 +92,7 @@ import {
 import LockIcon from '@mui/icons-material/Lock';
 import type {
   NotificationChannel,
+  NotificationChannelDescriptor,
   NotificationEventDef,
   NotificationPreferences,
 } from '../headless/types.js';
@@ -177,25 +178,19 @@ export function preferenceWriteFor(
 // =============================================================================
 
 /**
- * The visible label per channel.
- *
- * Keyed by the channels this build knows about. `channelLabel` is DEFENSIVE
- * about the lookup — a newer server can declare a channel this bundle has
- * never heard of (the registry is server-owned, which is the entire point of
- * fetching it rather than mirroring it), and the right behaviour then is to
- * render the raw key rather than put an empty label on a live control.
+ * The visible label of a channel: the label the API's channel registry gave it
+ * (`GET /api/notifications/channels`), or the raw id while the descriptors are
+ * not known. The bundle holds no label of its own: a newer server can register
+ * a channel this build has never heard of (the registry is server-owned, which
+ * is the entire point of fetching it rather than mirroring it), and an app's
+ * own channel needs no edit here to be drawn. Falling back to the raw id puts a
+ * legible, if plain, label on a live control rather than an empty one.
  */
-const CHANNEL_LABELS: Record<NotificationChannel, string> = {
-  email: 'Email',
-  browser: 'Browser',
-  // The push column (#228). `pushChannelState()` below disables it while the
-  // deployment has push off, and notes when this device has not granted
-  // permission. Rows appear only for events that declare `push`.
-  push: 'Push',
-};
-
-function channelLabel(channel: NotificationChannel): string {
-  return CHANNEL_LABELS[channel] ?? channel;
+function channelLabel(
+  channel: NotificationChannel,
+  descriptors: readonly NotificationChannelDescriptor[] | undefined,
+): string {
+  return descriptors?.find((descriptor) => descriptor.id === channel)?.label ?? channel;
 }
 
 /**
@@ -214,13 +209,33 @@ function channelLabel(channel: NotificationChannel): string {
  * to notice two shapes happen to line up. `email` never produces one of
  * these at all: it is never gated, so it simply has no entry wherever these
  * are collected (see `channelStates` in the component below).
+ *
+ * An app supplies one for its own channel through
+ * `UserNotificationsPage`'s `channelStates` prop.
+ *
+ * @stability experimental
  */
-interface ChannelState {
+export interface ChannelState {
+  /** The channel's controls are disabled (the note says why). */
   disabled: boolean;
   /** Terse note beside the control. `null` when there is nothing to add. */
   note: string | null;
   /** The banner above the matrix. `null` when the channel is fully working. */
-  alert: { severity: 'info' | 'warning'; title: string; body: string } | null;
+  alert: ChannelAlert | null;
+}
+
+/**
+ * The banner above the matrix for a gated channel.
+ *
+ * @stability experimental
+ */
+export interface ChannelAlert {
+  /** `info` for a deliberate configuration, `warning` for something the user can fix. */
+  severity: 'info' | 'warning';
+  /** The banner heading. */
+  title: string;
+  /** The banner text; newlines render as a list. */
+  body: string;
 }
 
 /**
@@ -523,6 +538,21 @@ export interface NotificationSettingsProps {
    * stack a second request behind the browser's modal.
    */
   isRequestingPermission?: boolean;
+  /**
+   * The channel descriptors from `GET /api/notifications/channels`
+   * (`useNotificationChannels`), which are where every label comes from. Absent
+   * (not yet read, or the read failed): a channel is labelled with its raw id.
+   */
+  channels?: NotificationChannelDescriptor[];
+  /**
+   * How an app's own channel column behaves, by channel id: disabled with a
+   * terse note and an optional banner above the matrix, exactly as the
+   * built-in browser and push columns are. Optional: a channel with no entry is
+   * never gated and shows nothing extra. An entry for `browser` is ignored (its
+   * state is derived from `browserCapability`), and one for `push` replaces the
+   * built-in push state.
+   */
+  channelStates?: Readonly<Record<string, ChannelState>>;
 }
 
 export function NotificationSettings({
@@ -534,6 +564,8 @@ export function NotificationSettings({
   onRequestPermission,
   isRequestingPermission = false,
   pushEnabled = false,
+  channels: channelDescriptors,
+  channelStates: extraChannelStates,
 }: NotificationSettingsProps) {
   // `useId` rather than interpolating `event.key`: two instances of this
   // component (or a future second matrix on the page) would otherwise emit
@@ -557,8 +589,9 @@ export function NotificationSettings({
   // and for any channel a newer server declares that this build has no
   // `ChannelState` for at all.
   const channelStates: Partial<Record<NotificationChannel, ChannelState>> = {
-    browser,
     push,
+    ...extraChannelStates,
+    browser,
   };
 
   // Only relevant if some event actually declares the channel. Today only
@@ -566,9 +599,14 @@ export function NotificationSettings({
   // declares none must not show a banner about a column that is not on
   // screen.
   const showsBrowserChannel = events.some((event) => event.channels.includes('browser'));
-  // Same shape as `showsBrowserChannel`: the push banner appears only when
-  // some registry event declares `push`.
-  const showsPushChannel = events.some((event) => event.channels.includes('push'));
+  // The banners of every other gated channel (push, and any an app supplied in
+  // `channelStates`), by the same rule as `showsBrowserChannel`: a channel's
+  // banner appears only when some registry event declares it. Registration
+  // order of `channelStates`, so push still comes first.
+  const channelBanners = Object.entries(channelStates).filter(
+    ([channel, state]) =>
+      channel !== 'browser' && state?.alert && events.some((event) => event.channels.includes(channel)),
+  ) as Array<[NotificationChannel, ChannelState & { alert: NonNullable<ChannelState['alert']> }]>;
 
   if (events.length === 0) {
     // A REAL ANSWER, not a loading state — the caller renders a spinner while
@@ -687,18 +725,18 @@ export function NotificationSettings({
           </Alert>
         )}
 
-        {showsPushChannel && push.alert && (
-          <Alert severity={push.alert.severity} sx={{ mb: 2 }}>
-            <AlertTitle>{push.alert.title}</AlertTitle>
-            {push.alert.body}
+        {channelBanners.map(([channel, state]) => (
+          <Alert key={channel} severity={state.alert.severity} sx={{ mb: 2 }}>
+            <AlertTitle>{state.alert.title}</AlertTitle>
+            {state.alert.body}
             {/*
-              NO ACTION BUTTON HERE. This alert only renders while the
+              NO ACTION BUTTON HERE. For push this alert only renders while the
               deployment has push off, which no user action can change. The
               permission a push subscription needs is requested by the browser
               banner above and by the app-wide banner (#365).
             */}
           </Alert>
-        )}
+        ))}
 
         <Box component="ul" sx={{ listStyle: 'none', m: 0, p: 0 }}>
           {events.map((event, index) => {
@@ -794,7 +832,7 @@ export function NotificationSettings({
                             // all-or-nothing, so a per-channel opt-out here
                             // would render a choice the server ignores.
                             disabled={isSaving || event.mandatory || channelDisabled}
-                            label={channelLabel(channel)}
+                            label={channelLabel(channel, channelDescriptors)}
                             control={
                               <Switch
                                 checked={checked}
@@ -813,7 +851,7 @@ export function NotificationSettings({
                                 // switches with no way to tell them apart.
                                 slotProps={{
                                   input: {
-                                    'aria-label': `${channelLabel(channel)} notifications for ${event.label}`,
+                                    'aria-label': `${channelLabel(channel, channelDescriptors)} notifications for ${event.label}`,
                                     'aria-describedby': [descriptionId, noteId]
                                       .filter(Boolean)
                                       .join(' '),

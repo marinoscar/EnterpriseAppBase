@@ -1,4 +1,4 @@
-import { Module, type DynamicModule } from '@nestjs/common';
+import { Module, type DynamicModule, type Provider } from '@nestjs/common';
 
 import { CredentialsModule } from '../credentials/index';
 import { BrowserNotificationChannel } from './channels/browser-notification.channel';
@@ -25,6 +25,7 @@ import {
 import { PushVapidDoctorCheck } from './doctor/push-vapid.doctor-check';
 import { WebPushEgressContributor } from './doctor/egress/web-push.egress.contributor';
 import { NotificationChannelSenderRegistry } from './registry/channel-sender.registry';
+import { NOTIFICATION_PUSH_PAYLOAD, NOTIFICATION_RECIPIENT_HANDLES } from './ports';
 import { NOTIFICATIONS_OPTIONS, resolveNotificationsModuleOptions, type NotificationsModuleOptions } from './notifications.options';
 
 // =============================================================================
@@ -285,8 +286,25 @@ export class NotificationsModule {
         ...resolved.imports,
       ],
       controllers: [NotificationsController, PushConfigController],
-      providers: [{ provide: NOTIFICATIONS_OPTIONS, useValue: resolved }, ...PROVIDERS],
-      exports: [NOTIFICATIONS_OPTIONS, ...EXPORTED],
+      providers: [
+        { provide: NOTIFICATIONS_OPTIONS, useValue: resolved },
+        // The app's per-user channel handles (PP-14.10). Bound HERE, in the
+        // module the dispatcher is provided in: a provider of the token in the
+        // app's own module would be invisible to it (Nest resolves a token
+        // from the consuming module's providers and imports). Absent: the
+        // token is not provided and `handle()` answers `null`.
+        ...(resolved.recipientHandles ? [{ provide: NOTIFICATION_RECIPIENT_HANDLES, ...resolved.recipientHandles } as Provider] : []),
+        // The app's push payload hook; `null` when it gave none, so the push
+        // channels' optional injection always resolves.
+        { provide: NOTIFICATION_PUSH_PAYLOAD, useValue: resolved.pushPayload ?? null },
+        ...PROVIDERS,
+      ],
+      exports: [
+        NOTIFICATIONS_OPTIONS,
+        NOTIFICATION_PUSH_PAYLOAD,
+        ...(resolved.recipientHandles ? [NOTIFICATION_RECIPIENT_HANDLES] : []),
+        ...EXPORTED,
+      ],
     };
   }
 }

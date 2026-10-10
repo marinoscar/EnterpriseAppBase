@@ -42,6 +42,11 @@ vi.mock('../../src/notifications/headless/useBroadcasts.js', async () => {
   };
 });
 
+// The channel descriptors (PP-14.10) the composer and the table labels read.
+vi.mock('../../src/notifications/headless/useNotificationChannels.js', () => ({
+  useNotificationChannels: vi.fn(),
+}));
+
 // The audience count and the detail read go straight to the service, not
 // through a hook, so they are stubbed at the module boundary.
 vi.mock('../../src/notifications/headless/broadcasts.js', async () => {
@@ -63,6 +68,8 @@ import {
   useVisiblePolling,
 } from '../../src/notifications/headless/useBroadcasts.js';
 import { getBroadcast, getBroadcastAudience } from '../../src/notifications/headless/broadcasts.js';
+import { useNotificationChannels } from '../../src/notifications/headless/useNotificationChannels.js';
+import { channelsHookReturn } from './channels-fixture.js';
 import BroadcastsPage from '../../src/notifications/ui/BroadcastsPage.js';
 
 const mockUseBroadcasts = vi.mocked(useBroadcasts);
@@ -70,6 +77,7 @@ const mockUseBroadcastActions = vi.mocked(useBroadcastActions);
 const mockUseVisiblePolling = vi.mocked(useVisiblePolling);
 const mockGetAudience = vi.mocked(getBroadcastAudience);
 const mockGetBroadcast = vi.mocked(getBroadcast);
+const mockUseNotificationChannels = vi.mocked(useNotificationChannels);
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -196,6 +204,7 @@ async function openRowMenu(user: ReturnType<typeof userEvent.setup>, rowTitle: s
 describe('BroadcastsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseNotificationChannels.mockReturnValue(channelsHookReturn());
     mockGetAudience.mockResolvedValue({ activeUsers: 1284 });
     mockGetBroadcast.mockResolvedValue({
       ...sentBroadcast,

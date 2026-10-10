@@ -17,6 +17,8 @@
 // The tokens are `Symbol.for(...)` keys, so two copies of this file agree.
 // =============================================================================
 
+import type { RecipientHandle } from './notification.types';
+
 // ---- metrics --------------------------------------------------------------------------
 
 /**
@@ -164,3 +166,64 @@ export const NOTIFICATION_STREAM_BUS_CHANNEL = 'notifications.stream';
  * @stability experimental
  */
 export const NOTIFICATION_STREAM_INLINE_LIMIT_BYTES = 7_000;
+
+// ---- per-user channel handles ---------------------------------------------------------
+
+/**
+ * Injection token of the app's {@link RecipientHandleSource}. Optional:
+ * without it `ResolveRecipientContext.handle()` answers `null`. Bound through
+ * `NotificationsModule.forRoot({ recipientHandles })`, never provided in an
+ * app module (Nest scoping would hide it from the dispatcher); exported so an
+ * app sender may inject it too.
+ *
+ * @example
+ * ```ts
+ * NotificationsModule.forRoot({ imports, recipientHandles: { useClass: SlackHandles } });
+ * ```
+ *
+ * @extensionPoint token
+ * @stability experimental
+ */
+export const NOTIFICATION_RECIPIENT_HANDLES: unique symbol = Symbol.for('@marinoscar/platform/notifications/RECIPIENT_HANDLES');
+
+/**
+ * Where an app keeps its users' destinations on channels the platform cannot
+ * know (a Slack member id, a phone number, a Teams webhook): the app's own
+ * table, behind one method. The slice never stores a handle; it asks.
+ *
+ * @example
+ * ```ts
+ * @Injectable()
+ * class SlackHandles implements RecipientHandleSource {
+ *   async handleFor(userId: string, channelId: string) {
+ *     const row = channelId === 'slack' ? await this.db.slackLink.findUnique({ where: { userId } }) : null;
+ *     return row ? { to: row.memberId, display: `@${row.handle}` } : null;
+ *   }
+ * }
+ * ```
+ *
+ * @extensionPoint hook
+ * @stability experimental
+ */
+export interface RecipientHandleSource {
+  /**
+   * The user's destination on a channel.
+   *
+   * @param userId - the recipient's account.
+   * @param channelId - the channel being resolved.
+   * @returns the handle (`display` redacted), or `null` when the user has none on that channel.
+   */
+  handleFor(userId: string, channelId: string): Promise<RecipientHandle | null>;
+}
+
+// ---- push payload extras --------------------------------------------------------------
+
+/**
+ * Injection token of the app's push payload hook (the resolved
+ * `NotificationsModule.forRoot({ pushPayload })` function), or `null`.
+ *
+ * @stability experimental
+ *
+ * @internal
+ */
+export const NOTIFICATION_PUSH_PAYLOAD: unique symbol = Symbol.for('@marinoscar/platform/notifications/PUSH_PAYLOAD');

@@ -6,7 +6,9 @@ import type { NotificationsPrisma } from './data/notifications-db';
 import {
   NOOP_NOTIFICATIONS_METRICS,
   NOTIFICATIONS_METRICS,
+  NOTIFICATION_RECIPIENT_HANDLES,
   type NotificationsMetrics,
+  type RecipientHandleSource,
 } from './ports';
 import { describeThrown } from './describe-thrown';
 import { NotificationDeliveryService } from './notification-delivery.service';
@@ -28,10 +30,15 @@ import {
   type NotificationChannelSender,
   type NotificationDispatchContext,
   type NotificationRecipient,
+  type RecipientHandle,
+  type ResolveRecipientContext,
   type NotifyNowResult,
   type NotifyOptions,
   type NotifyPermissionHoldersOptions,
 } from './notification.types';
+
+/** The longest `display` stored in a delivery row's `recipient`. */
+const MAX_DISPLAY_LENGTH = 255;
 
 // =============================================================================
 // NotificationsService — the dispatcher (issue #125, epic #109)
@@ -240,6 +247,12 @@ export class NotificationsService implements OnModuleDestroy {
     // for app senders.
     @Optional()
     private readonly senderRegistry?: NotificationChannelSenderRegistry,
+    // PP-14.10. The app's per-user channel handles, bound through
+    // `NotificationsModule.forRoot({ recipientHandles })`. Optional: without it
+    // `ResolveRecipientContext.handle()` answers `null`.
+    @Optional()
+    @Inject(NOTIFICATION_RECIPIENT_HANDLES)
+    private readonly handles?: RecipientHandleSource,
   ) {
     this.senders = new Map();
 
@@ -1236,6 +1249,55 @@ export class NotificationsService implements OnModuleDestroy {
   }
 
   /**
+   * Where `sender` would deliver for this dispatch: its async
+   * `resolveRecipient` when it has one (PP-14.10), else its synchronous
+   * `resolveTo` (the address doubles as the row's label). `null` means the
+   * channel cannot reach this recipient; a sender that throws while resolving
+   * is treated the same way (logged, never rethrown), because resolution runs
+   * on the dispatch path and `notify` never rejects.
+   */
+  private async resolveDestination(
+    sender: NotificationChannelSender,
+    channel: NotificationChannel,
+    context: NotificationDispatchContext,
+  ): Promise<RecipientHandle | null> {
+    const { event, recipient } = context;
+    try {
+      if (sender.resolveRecipient) {
+        const resolveContext: ResolveRecipientContext = {
+          channel,
+          event,
+          handle: () => this.handleFor(recipient, channel),
+        };
+        const resolved = await sender.resolveRecipient(recipient, resolveContext);
+        if (!resolved || typeof resolved.to !== 'string' || resolved.to === '') return null;
+        // The row stores `display`, never `to` (which may be a secret). A sender
+        // that forgot it gets a placeholder rather than its destination.
+        const display = typeof resolved.display === 'string' && resolved.display !== '' ? resolved.display : '(redacted)';
+        return { to: resolved.to, display: display.slice(0, MAX_DISPLAY_LENGTH) };
+      }
+      const to = sender.resolveTo?.(recipient) ?? null;
+      return to ? { to, display: to } : null;
+    } catch (err) {
+      this.logger.warn(
+        `Could not resolve the '${channel}' destination for '${event.key}': ${describeThrown(err)}`,
+      );
+      return null;
+    }
+  }
+
+  /** The app's handle for this recipient on `channel`, or `null`; never throws. */
+  private async handleFor(recipient: NotificationRecipient, channel: NotificationChannel): Promise<RecipientHandle | null> {
+    if (!this.handles || !recipient.userId) return null;
+    try {
+      return (await this.handles.handleFor(recipient.userId, channel)) ?? null;
+    } catch (err) {
+      this.logger.warn(`The recipient handle source failed for channel '${channel}': ${describeThrown(err)}`);
+      return null;
+    }
+  }
+
+  /**
    * The transport for `channel`: a platform sender from the module factory, or
    * an app sender that registered itself in `NotificationChannelSenderRegistry`
    * (#678). Resolved per delivery because app senders register in their own
@@ -1279,9 +1341,9 @@ export class NotificationsService implements OnModuleDestroy {
       return {};
     }
 
-    const to = sender.resolveTo(recipient);
+    const resolved = await this.resolveDestination(sender, channel, context);
 
-    if (!to) {
+    if (!resolved) {
       // The channel cannot reach this recipient at all. Still no row:
       // `NotificationDelivery.recipient` is NOT NULL and exists to answer
       // "where did this go?", so filling it with a placeholder to record a
@@ -1296,10 +1358,14 @@ export class NotificationsService implements OnModuleDestroy {
     // Written BEFORE the attempt. See notification-delivery.service.ts for why
     // the extra write is worth it. `null` means the row could not be written;
     // the send proceeds anyway and the mark* calls below become no-ops.
+    //
+    // `display` is what the row stores (PP-14.10): the sender's redacted form of
+    // the destination, or the address itself for a sender with only `resolveTo`.
+    // The raw `to` goes to `deliver` and never into the row.
     const deliveryId = await this.deliveries.queue({
       eventKey: event.key,
       userId: recipient.userId,
-      recipient: to,
+      recipient: resolved.display,
       channel,
     });
 
@@ -1309,7 +1375,7 @@ export class NotificationsService implements OnModuleDestroy {
     let result: ChannelDeliveryResult;
 
     try {
-      result = await sender.deliver(context, to);
+      result = await sender.deliver(context, resolved.to);
     } catch (err) {
       // BELT AND BRACES. `NotificationChannelSender.deliver` is contracted not
       // to throw and today's one implementation does not — but #125's

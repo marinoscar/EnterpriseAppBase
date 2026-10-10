@@ -4,6 +4,10 @@
 
 import type { DynamicModule, ForwardReference, Type } from '@nestjs/common';
 
+import type { PortBinding } from '../core/index';
+import type { PushPayloadHook } from './channels/push-payload';
+import type { RecipientHandleSource } from './ports';
+
 /**
  * A module `NotificationsModule.forRoot({ imports })` accepts.
  *
@@ -30,6 +34,33 @@ export interface NotificationsModuleOptions {
    * port module must be `@Global()` or export the tokens.
    */
   imports?: readonly NotificationsImport[];
+  /**
+   * Where the app keeps its users' destinations on channels it added (a Slack
+   * member id, a phone number): bound to {@link NOTIFICATION_RECIPIENT_HANDLES}
+   * inside the slice, so the dispatcher and every sender see it
+   * (`ResolveRecipientContext.handle()`). `useExisting` names a provider a
+   * module in `imports` exports; `useClass` and `useFactory` take their
+   * dependencies from `imports` and the global modules. Absent: no handles
+   * (`handle()` answers `null`).
+   *
+   * @example
+   * ```ts
+   * NotificationsModule.forRoot({ imports, recipientHandles: { useClass: SlackHandles } });
+   * ```
+   */
+  recipientHandles?: PortBinding<RecipientHandleSource>;
+  /**
+   * Adds allowlisted extras (`actions`, `icon`, `badge`, `urgency`, `tag`) to
+   * the Web Push payload of an event. Called once per push delivery; unknown
+   * keys are dropped and a throw sends the push without extras. Absent: the
+   * five fields every push has always carried.
+   *
+   * @example
+   * ```ts
+   * NotificationsModule.forRoot({ imports, pushPayload: (event) => (event.key === 'billing.invoice_ready' ? { tag: 'invoice', urgency: 'high' } : {}) });
+   * ```
+   */
+  pushPayload?: PushPayloadHook;
 }
 
 /**
@@ -47,6 +78,10 @@ export const NOTIFICATIONS_OPTIONS: unique symbol = Symbol.for('@marinoscar/plat
 export interface ResolvedNotificationsModuleOptions {
   /** The app's modules. */
   readonly imports: readonly NotificationsImport[];
+  /** The binding of `NOTIFICATION_RECIPIENT_HANDLES`, or `undefined` for none. */
+  readonly recipientHandles: PortBinding<RecipientHandleSource> | undefined;
+  /** The push payload hook, or `undefined`. */
+  readonly pushPayload: PushPayloadHook | undefined;
 }
 
 /**
@@ -62,5 +97,19 @@ export function resolveNotificationsModuleOptions(options: NotificationsModuleOp
   if (options.imports !== undefined && !Array.isArray(options.imports)) {
     throw new Error('NotificationsModule.forRoot: imports must be an array of modules.');
   }
-  return Object.freeze({ imports: Object.freeze([...(options.imports ?? [])]) });
+  const handles = options.recipientHandles;
+  if (handles !== undefined) {
+    const kinds = handles && typeof handles === 'object' ? ['useExisting', 'useClass', 'useFactory'].filter((key) => key in handles) : [];
+    if (kinds.length !== 1) {
+      throw new Error('NotificationsModule.forRoot: recipientHandles needs exactly one of useExisting, useClass or useFactory.');
+    }
+  }
+  if (options.pushPayload !== undefined && typeof options.pushPayload !== 'function') {
+    throw new Error('NotificationsModule.forRoot: pushPayload must be a function (event, data) => extras.');
+  }
+  return Object.freeze({
+    imports: Object.freeze([...(options.imports ?? [])]),
+    recipientHandles: handles,
+    pushPayload: options.pushPayload,
+  });
 }

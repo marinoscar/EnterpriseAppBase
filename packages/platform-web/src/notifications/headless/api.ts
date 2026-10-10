@@ -17,6 +17,7 @@
 import { ApiError } from '../../core/index.js';
 import type {
   NotificationConfigResponse,
+  NotificationChannelDescriptor,
   NotificationEventDef,
   NotificationListResponse,
   PushSubscriptionPayload,
@@ -148,6 +149,18 @@ export const api: NotificationsApiClient = {
  */
 export async function getNotificationEvents(): Promise<NotificationEventDef[]> {
   return api.get<NotificationEventDef[]>('/notifications/events');
+}
+
+/**
+ * `GET /api/notifications/channels`: every registered delivery channel, in
+ * registration order. Readable by any signed-in user.
+ *
+ * @returns the channel descriptors.
+ *
+ * @stability experimental
+ */
+export async function getNotificationChannels(): Promise<NotificationChannelDescriptor[]> {
+  return api.get<NotificationChannelDescriptor[]>('/notifications/channels');
 }
 
 /**

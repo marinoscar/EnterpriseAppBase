@@ -32,6 +32,10 @@ vi.mock('../../src/notifications/headless/useNotificationEvents.js', () => ({
   useNotificationEvents: vi.fn(),
 }));
 
+vi.mock('../../src/notifications/headless/useNotificationChannels.js', () => ({
+  useNotificationChannels: vi.fn(),
+}));
+
 vi.mock('../../src/notifications/headless/useNotificationCapability.js', () => ({
   useNotificationCapability: vi.fn(),
 }));
@@ -42,6 +46,8 @@ vi.mock('../../src/notifications/headless/useNotificationConfig.js', () => ({
 
 import { useUserSettings } from '../../src/settings/headless/use-user-settings.js';
 import { useNotificationEvents } from '../../src/notifications/headless/useNotificationEvents.js';
+import { useNotificationChannels } from '../../src/notifications/headless/useNotificationChannels.js';
+import { builtinChannelDescriptors, channelsHookReturn, slackDescriptor } from './channels-fixture.js';
 import { useNotificationCapability } from '../../src/notifications/headless/useNotificationCapability.js';
 import { useNotificationConfig } from '../../src/notifications/headless/useNotificationConfig.js';
 import UserNotificationsPage from '../../src/notifications/ui/UserNotificationsPage.js';
@@ -51,6 +57,7 @@ import type { NotificationCapability } from '../../src/notifications/headless/us
 // Loosely typed: the page binds the hook to its own document type.
 const mockUseUserSettings = vi.mocked(useUserSettings as unknown as (...args: unknown[]) => any);
 const mockUseNotificationEvents = vi.mocked(useNotificationEvents);
+const mockUseNotificationChannels = vi.mocked(useNotificationChannels);
 const mockUseNotificationCapability = vi.mocked(useNotificationCapability);
 const mockUseNotificationConfig = vi.mocked(useNotificationConfig);
 
@@ -152,6 +159,32 @@ describe('UserNotificationsPage', () => {
     mockEvents([WELCOME, WEEKLY_DIGEST, ROLE_CHANGED]);
     mockCapability('granted');
     mockConfig();
+    mockUseNotificationChannels.mockReturnValue(channelsHookReturn());
+  });
+
+  it("gates an app's channel column from the channelStates prop and labels it from the channel registry (PP-14.10)", () => {
+    mockEvents([
+      {
+        key: 'billing.invoice_ready',
+        label: 'Invoice ready',
+        description: 'An invoice is ready.',
+        channels: ['email', 'slack'],
+        declaredChannels: ['email', 'slack'],
+        defaultEnabled: true,
+        mandatory: false,
+      },
+    ]);
+    mockUseNotificationChannels.mockReturnValue(channelsHookReturn([...builtinChannelDescriptors(), slackDescriptor()]));
+
+    render(
+      <UserNotificationsPage
+        channelStates={{ slack: { disabled: true, note: 'Link Slack first', alert: { severity: 'info', title: 'Slack is not linked', body: 'Link it.' } } }}
+      />,
+    );
+
+    expect(screen.getByRole('switch', { name: 'Slack notifications for Invoice ready' })).toBeDisabled();
+    expect(screen.getByText('Link Slack first')).toBeInTheDocument();
+    expect(screen.getByText('Slack is not linked')).toBeInTheDocument();
   });
 
   it('displays its title and description', () => {

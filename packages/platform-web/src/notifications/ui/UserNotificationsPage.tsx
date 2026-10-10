@@ -58,10 +58,11 @@
 import { useCallback, useState } from 'react';
 import { Alert } from '@mui/material';
 import { LoadingSpinner } from './LoadingSpinner.js';
-import { NotificationSettings } from './NotificationSettings.js';
+import { NotificationSettings, type ChannelState } from './NotificationSettings.js';
 import { useIsMounted } from '../headless/useIsMounted.js';
 import { useNotificationCapability } from '../headless/useNotificationCapability.js';
 import { useNotificationConfig } from '../headless/useNotificationConfig.js';
+import { useNotificationChannels } from '../headless/useNotificationChannels.js';
 import { useNotificationEvents } from '../headless/useNotificationEvents.js';
 import { requestPermissionAndSyncPush } from '../headless/pushSubscription.js';
 import type { NotificationPreferencesPatch } from '../headless/types.js';
@@ -74,18 +75,39 @@ const PAGE_DESCRIPTION =
   'Choose which events notify you, and whether they arrive by email or in your browser.';
 
 /**
+ * Props of {@link UserNotificationsPage}.
+ *
+ * @stability experimental
+ */
+export interface UserNotificationsPageProps {
+  /**
+   * How an app's own channel column behaves, by channel id: disabled with a
+   * terse note and an optional banner above the matrix, as the built-in push
+   * column is (for example "link your Slack account first"). A channel with no
+   * entry is never gated. The built-in browser and push states are derived by
+   * the page; an entry for `push` replaces the built-in one.
+   */
+  channelStates?: Readonly<Record<string, ChannelState>>;
+}
+
+/**
  * The `/settings/notifications` page: the signed-in user's per-channel, per-event preferences and this device's permission state.
  *
+ * @param props - see {@link UserNotificationsPageProps}.
  * @returns the page.
  *
  * @extensionPoint component
  * @stability experimental
  */
-export default function UserNotificationsPage() {
+export default function UserNotificationsPage({ channelStates }: UserNotificationsPageProps = {}) {
   // Both hooks at the top level of the component, NOT inside the render prop
   // below — a hook called from a callback is a hook called conditionally, and
   // the render prop is only invoked once the settings document has loaded.
-  const { events, isLoading, error } = useNotificationEvents();
+  const { events, isLoading: eventsLoading, error } = useNotificationEvents();
+  // The channel labels (PP-14.10). A failed read is not fatal: the matrix then
+  // labels each channel with its raw id, which is legible if plain.
+  const { channels, isLoading: channelsLoading } = useNotificationChannels();
+  const isLoading = eventsLoading || channelsLoading;
 
   // OBSERVED here; this page requests only from the click handler below (the
   // shell's `usePushSubscriptionSync` owns the once-per-load auto-prompt).
@@ -165,6 +187,8 @@ export default function UserNotificationsPage() {
         return (
           <NotificationSettings
             events={events}
+            channels={channels ?? undefined}
+            channelStates={channelStates}
             // THE RAW STORED NAMESPACE, passed straight through — `undefined`
             // when the user has never saved a preference, which is the normal
             // case. Deliberately NOT `?? {}`-ed into a defaulted object here:

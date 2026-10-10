@@ -225,11 +225,15 @@ function expectSameKeys(actual: string[], expected: string[], context: string) {
 }
 
 /**
- * Fields a namespace still accepts, and publishes, as deprecated aliases of its
- * current shape: optional in the stored schema, absent from the defaults.
+ * Fields a namespace accepts and publishes that its defaults leave out:
+ * optional in the stored schema and absent until an operator writes one. The
+ * `storage` flat fields are deprecated aliases of its current shape; the
+ * `notifications` `channels` record is a sparse per-channel switch where an
+ * absent channel is enabled (PP-14.10), so the default is no record at all.
  */
 const DEPRECATED_ALIASES: Readonly<Record<string, readonly string[]>> = {
   storage: LEGACY_STORAGE_FLAT_FIELDS,
+  notifications: ['channels'],
 };
 
 describe('system settings parity across the places a namespace must be declared', () => {

@@ -26,6 +26,9 @@ import type { Observable } from 'rxjs';
 import { ApiDataResponse } from '../core/index';
 import { Auth, CurrentUser, type RequestUser } from '../identity/index';
 import { listNotificationEvents } from './notification-events';
+import { describeNotificationChannels } from './registry/channel.registry';
+import { BROADCAST_EVENT_KEY } from './broadcasts/broadcasts.service';
+import { NotificationChannelDescriptorDto, type NotificationChannelDescriptorResponse } from './dto/notification-channel.dto';
 import { policyChannels } from './notification-policy';
 import { NotificationPolicyService } from './notification-policy.service';
 import {
@@ -168,6 +171,30 @@ export class NotificationsController {
       defaultEnabled: event.defaultEnabled,
       mandatory: event.mandatory === true,
     }));
+  }
+
+  @Get('channels')
+  @Auth()
+  @ApiOperation({
+    summary: 'List notification channels',
+    description:
+      'Every delivery channel this application registered, in registration order, with ' +
+      'the label to draw, whether a user may toggle it, whether a critical broadcast may ' +
+      'rely on it (`criticalCapable`), whether a broadcast can be sent over it (`broadcastCapable`: ' +
+      'the broadcast events declare it) and whether a new broadcast starts with it selected. ' +
+      'Clients hold no list of channels of their own: the broadcast composer, the ' +
+      'preferences matrix and the administrator\'s channel switches all read this. ' +
+      'Readable by **any authenticated user** (the preferences matrix needs the labels); it ' +
+      'describes what channels *exist* and carries no configuration, no handle and no secret. ' +
+      'Whether an administrator switched one off is `notifications.channels` in system ' +
+      'settings, and the effect shows up in `GET /events` as a channel missing from `channels`.',
+  })
+  @ApiDataResponse(NotificationChannelDescriptorDto, {
+    isArray: true,
+    description: 'The notification channel registry',
+  })
+  listChannels(): NotificationChannelDescriptorResponse[] {
+    return describeNotificationChannels({ broadcastEventKey: BROADCAST_EVENT_KEY });
   }
 
   /**

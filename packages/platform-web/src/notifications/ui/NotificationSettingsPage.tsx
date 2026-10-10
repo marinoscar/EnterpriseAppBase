@@ -30,6 +30,14 @@
  * do anything. The registry is the authority on which those are — this page
  * filters on `declaredChannels.includes('browser')` and never restates the list.
  *
+ * THE CHANNEL SWITCHES (PP-14.10). Beyond the browser switch, every channel an
+ * app registered (anything but the platform's `email`, `browser` and `push`,
+ * which are configured on their own pages) gets a switch of its own, drawn
+ * from `GET /api/notifications/channels` with the label the registry gave it.
+ * A switch writes `channels.<id>.enabled`; the section does not render at all
+ * while the deployment registers no such channel, so a deployment with only
+ * the platform's channels sees the page exactly as it was.
+ *
  * `declaredChannels`, NOT `channels` (#521). `channels` is what a USER will
  * receive: the API narrows it by this very policy, so a non-mandatory event
  * this page has suppressed (or every one, while the switch is off) no longer
@@ -55,8 +63,15 @@ import {
 } from '@mui/material';
 import LockIcon from '@mui/icons-material/Lock';
 import { SystemSettingsSection } from './SystemSettingsSection.js';
+import { useNotificationChannels } from '../headless/useNotificationChannels.js';
 import { useNotificationEvents } from '../headless/useNotificationEvents.js';
 import type { NotificationEventDef, SystemNotificationSettings } from '../headless/types.js';
+
+/**
+ * The channels the platform configures elsewhere (Email and Push on their own
+ * settings pages) or on this page's browser switch: no channel switch here.
+ */
+const PLATFORM_CHANNEL_IDS: readonly string[] = ['email', 'browser', 'push'];
 
 const PAGE_TITLE = 'Notifications';
 const PAGE_DESCRIPTION =
@@ -192,8 +207,22 @@ interface FormProps {
  */
 function NotificationSettingsForm({ stored, canWrite, isSaving, onSave }: FormProps) {
   const { events, isLoading, error } = useNotificationEvents();
+  const { channels: channelDescriptors } = useNotificationChannels();
+
+  // The channels an app registered, each with a switch of its own. Empty for a
+  // deployment with only the platform's channels (the section then renders
+  // nothing).
+  const appChannels = useMemo(
+    () => (channelDescriptors ?? []).filter((channel) => !PLATFORM_CHANNEL_IDS.includes(channel.id)),
+    [channelDescriptors],
+  );
 
   const [browserEnabled, setBrowserEnabled] = useState(stored.browserEnabled);
+  // Local edits of the channel switches, by channel id; a channel absent here
+  // shows its stored state (enabled when nothing is stored).
+  const [channelEdits, setChannelEdits] = useState<Record<string, boolean>>({});
+  const storedChannelEnabled = (id: string): boolean => stored.channels?.[id]?.enabled ?? true;
+  const channelEnabled = (id: string): boolean => channelEdits[id] ?? storedChannelEnabled(id);
   const [disabledEvents, setDisabledEvents] = useState<string[]>(
     stored.disabledEvents,
   );
@@ -204,6 +233,7 @@ function NotificationSettingsForm({ stored, canWrite, isSaving, onSave }: FormPr
   useEffect(() => {
     setBrowserEnabled(stored.browserEnabled);
     setDisabledEvents(stored.disabledEvents);
+    setChannelEdits({});
   }, [stored]);
 
   // `declaredChannels`, not the policy-narrowed `channels`: see the file
@@ -215,9 +245,19 @@ function NotificationSettingsForm({ stored, canWrite, isSaving, onSave }: FormPr
     [events],
   );
 
+  // Only the switches that differ from what is stored: the PATCH merges per
+  // channel, so an unchanged channel is not sent.
+  const changedChannels = Object.fromEntries(
+    Object.entries(channelEdits)
+      .filter(([id, enabled]) => enabled !== storedChannelEnabled(id))
+      .map(([id, enabled]) => [id, { enabled }]),
+  );
+  const hasChannelChanges = Object.keys(changedChannels).length > 0;
+
   const isDirty =
     browserEnabled !== stored.browserEnabled ||
-    !sameKeys(disabledEvents, stored.disabledEvents);
+    !sameKeys(disabledEvents, stored.disabledEvents) ||
+    hasChannelChanges;
 
   const controlsDisabled = !canWrite || isSaving;
 
@@ -228,7 +268,11 @@ function NotificationSettingsForm({ stored, canWrite, isSaving, onSave }: FormPr
   };
 
   const handleSave = () => {
-    void onSave({ browserEnabled, disabledEvents });
+    void onSave({
+      browserEnabled,
+      disabledEvents,
+      ...(hasChannelChanges ? { channels: changedChannels } : {}),
+    });
   };
 
   return (
@@ -251,6 +295,47 @@ function NotificationSettingsForm({ stored, canWrite, isSaving, onSave }: FormPr
         When off, no one receives browser notifications, whatever their own
         preferences say. Email is unaffected.
       </Typography>
+
+      {appChannels.length > 0 && (
+        <>
+          <Divider sx={{ my: 3 }} />
+
+          <Typography variant="h6" gutterBottom>
+            Delivery channels
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            Turn a channel off to stop every notification over it, for everyone. Browser, email and push
+            are configured above and on their own pages.
+          </Typography>
+          <Stack divider={<Divider flexItem />}>
+            {appChannels.map((channel) => (
+              <Box key={channel.id} sx={{ py: 1 }}>
+                <FormControlLabel
+                  sx={{ alignItems: 'flex-start', m: 0 }}
+                  control={
+                    <Switch
+                      checked={channelEnabled(channel.id)}
+                      disabled={controlsDisabled}
+                      onChange={(e) =>
+                        setChannelEdits((current) => ({ ...current, [channel.id]: e.target.checked }))
+                      }
+                      slotProps={{ input: { 'aria-label': `Deliver ${channel.label} notifications` } }}
+                    />
+                  }
+                  label={
+                    <Box>
+                      <Typography variant="subtitle2">{channel.label}</Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {channel.description}
+                      </Typography>
+                    </Box>
+                  }
+                />
+              </Box>
+            ))}
+          </Stack>
+        </>
+      )}
 
       <Divider sx={{ my: 3 }} />
 

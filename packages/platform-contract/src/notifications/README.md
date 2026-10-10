@@ -9,8 +9,8 @@ One definition of what crosses the wire for notifications, so the API's validati
 | Part | Source | What it is |
 |---|---|---|
 | Constants | `constants.ts` | Zod-free: the channel id pattern and length (channel ids are OPEN), the preference bounds, the event key pattern, the SSE event name, the confirmation words, the push test verdicts, the broadcast statuses and limits, `BROADCAST_CHUNK_SIZE`. |
-| Settings namespaces | `schemas.ts` | `notificationsSchema` / `notificationsPatchSchema` (user preferences, channel-outer, sparse), `systemNotificationsSchema` / `systemNotificationsPatchSchema` (the deployment policy), `orgNotificationsSchema` (the org layer, tighten only). |
-| Inbox | `schemas.ts` | `notificationEventSchema`, `notificationConfigSchema`, `notificationSchema`, `notificationListQuerySchema`, `unreadCountSchema`, `notificationStreamEventSchema`. |
+| Settings namespaces | `schemas.ts` | `notificationsSchema` / `notificationsPatchSchema` (user preferences, channel-outer, sparse), `systemNotificationsSchema` / `systemNotificationsPatchSchema` (the deployment policy: `browserEnabled`, `disabledEvents` and `channels`, a switch per channel), `orgNotificationsSchema` (the org layer, tighten only). |
+| Inbox | `schemas.ts` | `notificationEventSchema`, `notificationChannelDescriptorSchema` (`GET /api/notifications/channels`), `notificationConfigSchema`, `notificationSchema`, `notificationListQuerySchema`, `unreadCountSchema`, `notificationStreamEventSchema`. |
 | Push | `schemas.ts` | `pushSubscribeSchema`, `pushConfigSchema`, `pushConfigResponseSchema`, the generate / update / rotate / remove bodies, `pushTestResponseSchema` and its parts, `PUSH_CONTRACT_CARRIES_NO_SECRET`. |
 | Broadcasts | `schemas.ts` | `createBroadcastSchema`, `broadcastSchema`, `broadcastDetailSchema`, `broadcastCreateResultSchema`, `broadcastAudienceQuerySchema`, `broadcastAudienceSchema`, `broadcastTestResultSchema`, `broadcastListQuerySchema`. |
 
@@ -49,9 +49,13 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `createBroadcastSchema` | schema | `z.object({ title, body, link?, ctaLabel?, channels, scheduledFor?, critical, targetOrgId? })` | Compose or validate a broadcast; `targetOrgId` addresses one organization's active members | stable | [example](../../../../apps/api/test/broadcasts/org-broadcasts.integration.spec.ts) |
-| `orgNotificationsSchema` | schema | `z.object({ browserEnabled?, disabledEvents? })` | An organization's overrides of the notification policy: may only tighten it | experimental | [example](../../../../apps/api/src/settings/registry/system-settings.manifest.ts) |
+| `notificationChannelDescriptorSchema` | schema | `z.object({ id, label, description, userConfigurable, criticalCapable, broadcastCapable, broadcastDefault, order })` | Read the channel registry from a client: the label to draw, the flags the broadcast composer applies, the order | experimental | [example](../../../../apps/web/src/__tests__/examples/notifications/webhook-channel-composer.test.tsx) |
+| `notificationChannelPoliciesSchema` | schema | `z.record(channelId, { enabled: boolean })` | The `channels` record of the `notifications` system namespace: a sparse switch per channel (absent means enabled), merged per channel | experimental | [example](../../../../apps/api/test/examples/notifications/webhook-channel.spec.ts) |
+| `orgNotificationsSchema` | schema | `z.object({ browserEnabled?, disabledEvents?, channels? })` | An organization's overrides of the notification policy: may only tighten it | experimental | [example](../../../../apps/api/src/settings/registry/system-settings.manifest.ts) |
 
 Supporting exports (stable unless noted): every schema listed under Purpose and scope with its inferred type; the named enum types (`BroadcastStatusEnum`, `PushTestOverallEnum`, `PushTestConfigSourceEnum`, `PushTestSendStatusEnum`, `BooleanQueryEnum`); `NoSecretIn`, `SecretFieldNames`, `PushContractCarriesNoSecret`; every constant of `constants.ts`.
+
+**The per-channel policy.** `systemNotificationsSchema` carries `channels` beside `browserEnabled`: `browserEnabled` is the browser channel's switch and `channels.browser.enabled` its alias (a write of either sets both; the stricter wins on read). `channels` is optional and sparse, so a row written before it existed reads as every channel enabled. `createBroadcastSchema` no longer restates which channel a critical broadcast needs: the API checks it against the channels flagged `criticalCapable` (`notificationChannelDescriptorSchema`).
 
 **Channel ids are open.** No list of channels is part of the contract: a channel is any id matching `NOTIFICATION_CHANNEL_ID_PATTERN` (at most `NOTIFICATION_CHANNEL_ID_MAX_LENGTH` characters), checked against the API's registry where a new value is written. `PLATFORM_NOTIFICATION_CHANNEL_IDS` names the platform's three for information only.
 

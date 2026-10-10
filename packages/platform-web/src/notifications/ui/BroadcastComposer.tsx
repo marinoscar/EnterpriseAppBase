@@ -29,11 +29,14 @@
  *     and the admin would see a button here and none in the mail.
  *   * `link` must be root-relative, not protocol-relative, no `/\`, no spaces
  *     or control characters — validated on blur, with the API's own reasons.
- *   * `critical ⇒ channels includes 'browser'` — the Important switch FORCES
- *     In-app on and locks it. Mirrored as a forced control rather than as a
- *     validation message because there is no state in which an admin would
- *     rather have the 400: a critical announcement with no durable in-app row
- *     is unreadable by anyone who missed the mail.
+ *   * `critical ⇒ channels includes a criticalCapable channel` (`browser`) — the
+ *     Important switch FORCES the first such channel on and locks it while it
+ *     is the only one selected. Which channels are critical-capable comes from
+ *     the channel descriptors the API serves, not from this file. Mirrored as a
+ *     forced control rather than as a validation message because there is no
+ *     state in which an admin would rather have the 400: a critical
+ *     announcement with no durable in-app row is unreadable by anyone who
+ *     missed the mail.
  *   * `scheduledFor` strictly in the future — a `min` on the input plus a
  *     submit-time check, since `min` on a native datetime input is advisory in
  *     several browsers.
@@ -103,19 +106,9 @@ import {
 } from '../headless/broadcasts.js';
 import type { CreateBroadcastRequest } from '../headless/broadcasts.js';
 import type { NotificationChannel } from '../headless/types.js';
+import { useNotificationChannels } from '../headless/useNotificationChannels.js';
 import { useNotificationConfig } from '../headless/useNotificationConfig.js';
 import { channelLabel } from './broadcastsTable.js';
-
-/**
- * The channels offered, in the order they are drawn.
- *
- * In-app first because it is the only one that leaves a record the recipient
- * can go back and read, and the only one a critical broadcast may not omit.
- */
-const CHANNEL_ORDER: NotificationChannel[] = ['browser', 'email', 'push'];
-
-/** Default selection for a fresh composition: the durable row plus mail. */
-const DEFAULT_CHANNELS: NotificationChannel[] = ['browser', 'email'];
 
 /**
  * `sanitizeLink`'s forbidden set, restated from the DTO: C0 controls, space,
@@ -190,7 +183,32 @@ export function BroadcastComposer({
   const [link, setLink] = useState('');
   const [linkTouched, setLinkTouched] = useState(false);
   const [ctaLabel, setCtaLabel] = useState('');
-  const [channels, setChannels] = useState<NotificationChannel[]>(DEFAULT_CHANNELS);
+  // The channels offered, in the order they are drawn, and the defaults, the
+  // critical-capable ones: all from the API's channel registry (PP-14.10). The
+  // bundle holds none of them. `null` selection means "untouched": the defaults,
+  // which are only known once the descriptors arrive.
+  const { channels: channelDescriptors, error: channelsError } = useNotificationChannels();
+  // Critical-capable channels first (they leave the record the recipient can go
+  // back and read, and a critical broadcast may not omit one), then the rest,
+  // each group in the registry's order.
+  const offered = useMemo(() => {
+    const usable = (channelDescriptors ?? []).filter((descriptor) => descriptor.broadcastCapable);
+    return [...usable.filter((d) => d.criticalCapable), ...usable.filter((d) => !d.criticalCapable)];
+  }, [channelDescriptors]);
+  const defaultChannels = useMemo(
+    () => offered.filter((descriptor) => descriptor.broadcastDefault).map((descriptor) => descriptor.id),
+    [offered],
+  );
+  const criticalCapable = useMemo(
+    () => offered.filter((descriptor) => descriptor.criticalCapable).map((descriptor) => descriptor.id),
+    [offered],
+  );
+  const labels = useMemo(
+    () => new Map((channelDescriptors ?? []).map((descriptor) => [descriptor.id, descriptor.label])),
+    [channelDescriptors],
+  );
+  const [selection, setSelection] = useState<NotificationChannel[] | null>(null);
+  const channels: NotificationChannel[] = selection ?? defaultChannels;
   const [critical, setCritical] = useState(false);
   const [timing, setTiming] = useState<'now' | 'later'>('now');
   const [scheduleInput, setScheduleInput] = useState('');
@@ -218,24 +236,30 @@ export function BroadcastComposer({
   }, [open]);
 
   /**
-   * The critical ⇒ In-app rule, applied as STATE rather than as validation.
+   * The critical ⇒ durable-record rule, applied as STATE rather than as
+   * validation.
    *
-   * Turning Important on adds `browser` to the selection immediately, and the
-   * checkbox below is disabled while it is on. Mirrors the API's superRefine,
-   * so the 400 it would raise is unreachable from this form.
+   * Turning Important on adds the first critical-capable channel to the
+   * selection when none is there yet, and that channel's checkbox is disabled
+   * while it is the only one. Mirrors the API's rule, so the 400 it would raise
+   * is unreachable from this form.
    */
   useEffect(() => {
-    if (!critical) return;
-    setChannels((current) => (current.includes('browser') ? current : [...current, 'browser']));
-  }, [critical]);
+    if (!critical || criticalCapable.length === 0) return;
+    setSelection((current) => {
+      const base = current ?? defaultChannels;
+      return base.some((channel) => criticalCapable.includes(channel)) ? current : [...base, criticalCapable[0]!];
+    });
+  }, [critical, criticalCapable, defaultChannels]);
 
   /** Push cannot be selected on a deployment that has no push channel at all. */
   useEffect(() => {
     if (!pushUnavailable) return;
-    setChannels((current) =>
-      current.includes('push') ? current.filter((channel) => channel !== 'push') : current,
-    );
-  }, [pushUnavailable]);
+    setSelection((current) => {
+      const base = current ?? defaultChannels;
+      return base.includes('push') ? base.filter((channel) => channel !== 'push') : current;
+    });
+  }, [pushUnavailable, defaultChannels]);
 
   const linkError = linkTouched ? validateLink(link) : null;
   const trimmedTitle = title.trim();
@@ -280,11 +304,10 @@ export function BroadcastComposer({
   };
 
   const toggleChannel = (channel: NotificationChannel) => {
-    setChannels((current) =>
-      current.includes(channel)
-        ? current.filter((entry) => entry !== channel)
-        : [...current, channel],
-    );
+    setSelection((current) => {
+      const base = current ?? defaultChannels;
+      return base.includes(channel) ? base.filter((entry) => entry !== channel) : [...base, channel];
+    });
   };
 
   const handleSendTest = async () => {
@@ -313,7 +336,7 @@ export function BroadcastComposer({
    * an estimate the API has not answered yet, and "Goes to all 0 active users"
    * is both alarming and wrong.
    */
-  const channelPhrase = channels.map(channelLabel).join(' and ') || 'no channels';
+  const channelPhrase = channels.map((channel) => channelLabel(channel, labels)).join(' and ') || 'no channels';
   const audiencePhrase =
     audience === null
       ? 'Goes to all active users'
@@ -421,9 +444,15 @@ export function BroadcastComposer({
               <FormControl component="fieldset" variant="standard">
                 <FormLabel component="legend">Channels</FormLabel>
                 <FormGroup row>
-                  {CHANNEL_ORDER.map((channel) => {
+                  {offered.map(({ id: channel }) => {
                     const isPush = channel === 'push';
-                    const lockedByCritical = channel === 'browser' && critical;
+                    // Locked while it is the last selected channel a critical
+                    // broadcast may rely on.
+                    const lockedByCritical =
+                      critical &&
+                      criticalCapable.includes(channel) &&
+                      channels.filter((entry) => criticalCapable.includes(entry)).length === 1 &&
+                      channels.includes(channel);
                     const disabled = (isPush && pushUnavailable) || lockedByCritical;
                     const tooltip = isPush && pushUnavailable
                       ? 'Push is not configured on this deployment, so there is no push channel to send over.'
@@ -445,14 +474,19 @@ export function BroadcastComposer({
                                 disabled={disabled}
                               />
                             }
-                            label={channelLabel(channel)}
+                            label={channelLabel(channel, labels)}
                           />
                         </span>
                       </Tooltip>
                     );
                   })}
                 </FormGroup>
-                {channels.length === 0 && (
+                {channelsError && (
+                  <Alert severity="error" sx={{ mt: 1 }}>
+                    {channelsError}
+                  </Alert>
+                )}
+                {channels.length === 0 && channelDescriptors !== null && (
                   <Typography variant="caption" color="error">
                     Select at least one channel — a broadcast with none reaches nobody.
                   </Typography>

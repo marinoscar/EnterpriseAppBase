@@ -31,6 +31,21 @@
 import { isInternalLink } from './internalLink.js';
 
 /**
+ * One action button on a push notification, as an app's `pushPayload` hook
+ * added it.
+ *
+ * @stability experimental
+ */
+export interface NotificationAction {
+  /** The action id. */
+  action: string;
+  /** The button label. */
+  title: string;
+  /** An icon: a root-relative path or an `https:` URL. */
+  icon?: string;
+}
+
+/**
  * The payload the API's push channel sends as the Web Push message body
  * (JSON, under the 4 KB push payload limit). `id` and `link` ride into
  * `notification.data` for the click handler.
@@ -50,6 +65,14 @@ export interface NotificationPushPayload {
   link: string;
   /** Set only by the admin "Send test push" action (#618). */
   test?: boolean;
+  /** A collapse tag an app's `pushPayload` hook added (PP-14.10); the notification id when absent. */
+  tag?: string;
+  /** An icon an app's `pushPayload` hook added; the configured default when absent. */
+  icon?: string;
+  /** A badge an app's `pushPayload` hook added; the configured default when absent. */
+  badge?: string;
+  /** Up to two action buttons an app's `pushPayload` hook added. A click on one opens the notification's link, as a click on the notification does. */
+  actions?: NotificationAction[];
 }
 
 /**
@@ -66,6 +89,8 @@ export interface NotificationsShowOptions {
   icon?: string;
   /** The status-bar badge URL. */
   badge?: string;
+  /** Action buttons. */
+  actions?: NotificationAction[];
   /** Data handed to the click handler. */
   data?: unknown;
 }
@@ -330,9 +355,16 @@ export async function handlePushEvent(
 
   await scope.registration.showNotification(payload.title, {
     body: payload.body,
-    // Keyed by the notification id: repeated pushes of one row collapse.
-    tag: payload.id,
+    // Keyed by the notification id: repeated pushes of one row collapse. An
+    // app's own tag (PP-14.10) collapses pushes of different rows instead.
+    tag: typeof payload.tag === 'string' && payload.tag !== '' ? payload.tag : payload.id,
     ...icons,
+    // The app's icon and badge, when its hook added them; the payload came
+    // through the API's allowlist, which only lets a root-relative path or an
+    // `https:` URL through.
+    ...(typeof payload.icon === 'string' ? { icon: payload.icon } : {}),
+    ...(typeof payload.badge === 'string' ? { badge: payload.badge } : {}),
+    ...(Array.isArray(payload.actions) && payload.actions.length > 0 ? { actions: payload.actions.slice(0, 2) } : {}),
     data: { id: payload.id, link: payload.link },
   });
 }
