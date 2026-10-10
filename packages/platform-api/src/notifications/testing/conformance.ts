@@ -27,7 +27,12 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 import { SECRET_BEARING_KEYS } from '@marinoscar/platform-contract/credentials';
-import { pushConfigResponseSchema, pushConfigSchema } from '@marinoscar/platform-contract/notifications';
+import {
+  ANDROID_APP_NOTIFICATION_CHANNEL_ID,
+  PLATFORM_NOTIFICATION_CHANNEL_IDS,
+  pushConfigResponseSchema,
+  pushConfigSchema,
+} from '@marinoscar/platform-contract/notifications';
 
 import { conformanceSuites } from '../../testing/index';
 import type { ConformanceCase, ConformanceContext, ConformanceFinding, ConformanceReport, ConformanceSuite } from '../../testing/index';
@@ -36,6 +41,7 @@ import { BROADCASTS_NOTIFICATIONS } from '../broadcasts/broadcasts.notifications
 import { NODES_NOTIFICATIONS } from '../ops/nodes.notifications';
 import { OPS_NOTIFICATIONS } from '../ops/ops.notifications';
 import { eventEmailTemplateRegistry } from '../registry/bindings.registry';
+import { channelTemplateRegistry } from '../registry/channel-template.registry';
 import { notificationChannelRegistry } from '../registry/channel.registry';
 import { notificationEventRegistry } from '../registry/event.registry';
 import { PLATFORM_NOTIFICATION_CHANNELS } from '../registry/platform-channels';
@@ -65,6 +71,7 @@ export interface NotificationsConformanceOptions {
 const FILE_PLATFORM = 'notifications-platform';
 const FILE_TEMPLATES = 'notifications-templates';
 const FILE_SCHEMAS = 'notifications-schemas';
+const FILE_CHANNEL_TEMPLATES = 'notifications-channel-templates';
 
 /** A dispatcher call: `notify(`, `notifyNow(`, `notifyAddress(`, `notifyPermissionHolders(`, `notifyPermissionHoldersNow(`. */
 const NOTIFY_CALL = /\.notify(?:Now|Address|PermissionHolders|PermissionHoldersNow)?\(/;
@@ -107,6 +114,36 @@ export function checkEmailBindings(): ConformanceFinding[] {
       findings.push({ file: FILE_TEMPLATES, message: `event "${event.key}" declares email but no email template is bound (registerNotification({ emailTemplate }))` });
     } else if (!emailTemplateRegistry.has(binding.template)) {
       findings.push({ file: FILE_TEMPLATES, message: `event "${event.key}" is bound to email template "${binding.template}", which is not registered` });
+    }
+  }
+  return findings;
+}
+
+/**
+ * Check 2b (PP-14.10): every event bound for an app's channel has a template for
+ * it, unless the channel declares it renders from the raw event data
+ * (`rendersRawData: true`). The platform's own channels have template
+ * registries of their own (email, browser, push) and are not checked here.
+ *
+ * @returns one finding per event with no template.
+ *
+ * @stability experimental
+ */
+export function checkChannelTemplates(): ConformanceFinding[] {
+  const builtIn = new Set<string>([...PLATFORM_NOTIFICATION_CHANNEL_IDS, ANDROID_APP_NOTIFICATION_CHANNEL_ID]);
+  const findings: ConformanceFinding[] = [];
+  for (const channel of notificationChannelRegistry.list()) {
+    if (builtIn.has(channel.id) || channel.rendersRawData === true) continue;
+    for (const event of notificationEventRegistry.list()) {
+      if (!event.channels.includes(channel.id)) continue;
+      if (!channelTemplateRegistry.has(`${channel.id}:${event.key}`)) {
+        findings.push({
+          file: FILE_CHANNEL_TEMPLATES,
+          message:
+            `event "${event.key}" is bound for channel "${channel.id}" but has no template for it ` +
+            '(registerChannelTemplate, or declare the channel with rendersRawData: true)',
+        });
+      }
     }
   }
   return findings;
@@ -239,10 +276,10 @@ export const notificationsConformanceSuite: ConformanceSuite<NotificationsConfor
   id: 'notifications',
   title: 'the notifications slice keeps its invariants',
   description:
-    'The platform channels and notifications are registered, every email-capable event has a template, no notify() runs inside a transaction, and no Web Push shape can carry the private key.',
+    'The platform channels and notifications are registered, every email-capable event has a template, every event bound for an app channel has a template (or the channel renders raw data), no notify() runs inside a transaction, and no Web Push shape can carry the private key.',
   check(context, options): ConformanceReport {
     const afterCommit = checkNotifyAfterCommit(context, options.afterCommitAllowlist);
-    const findings = [...checkPlatformNotifications(), ...checkEmailBindings(), ...afterCommit.findings, ...checkPushSchemas()];
+    const findings = [...checkPlatformNotifications(), ...checkEmailBindings(), ...checkChannelTemplates(), ...afterCommit.findings, ...checkPushSchemas()];
     return {
       scanned: {
         channels: notificationChannelRegistry.ids().length,
@@ -267,6 +304,12 @@ export const notificationsConformanceSuite: ConformanceSuite<NotificationsConfor
         name: 'templates: every event that declares email has a registered template',
         run: (report, expect) => {
           expect(report.findings.filter(only(FILE_TEMPLATES))).toEqual([]);
+        },
+      },
+      {
+        name: 'channel-templates: every event bound for an app channel has a template or the channel renders raw data',
+        run: (report, expect) => {
+          expect(report.findings.filter(only(FILE_CHANNEL_TEMPLATES))).toEqual([]);
         },
       },
       {

@@ -1,4 +1,4 @@
-import { Injectable, Logger, Inject } from '@nestjs/common';
+import { Injectable, Logger, Inject, Optional } from '@nestjs/common';
 import * as webpush from 'web-push';
 import { WebPushError } from 'web-push';
 
@@ -14,6 +14,13 @@ import type {
   BrowserNotificationTemplate,
 } from './browser-templates';
 import { sanitizeLink } from './browser-notification.channel';
+import { NOTIFICATION_PUSH_PAYLOAD } from '../ports';
+import {
+  PUSH_MAX_PAYLOAD_BYTES,
+  sanitizePushExtras,
+  type PushPayloadHook,
+  type SanitizedPushExtras,
+} from './push-payload';
 import type {
   ChannelDeliveryResult,
   NotificationChannelSender,
@@ -142,6 +149,8 @@ export class PushNotificationChannel implements NotificationChannelSender {
   constructor(
     @Inject(PLATFORM_PRISMA) private readonly prisma: NotificationsPrisma,
     private readonly pushConfig: PushConfigService,
+    // PP-14.10: the app's `forRoot({ pushPayload })` hook, when it gave one.
+    @Optional() @Inject(NOTIFICATION_PUSH_PAYLOAD) private readonly pushPayload?: PushPayloadHook | null,
   ) {}
 
   /**
@@ -210,6 +219,17 @@ export class PushNotificationChannel implements NotificationChannelSender {
     return 'No push subscriptions for this user';
   }
 
+  /** The allowlisted extras the app's hook adds for this push (empty without a hook). */
+  private extrasFor(context: NotificationDispatchContext): SanitizedPushExtras {
+    if (!this.pushPayload) return { payload: {} };
+    try {
+      return sanitizePushExtras(this.pushPayload(context.event, context.data));
+    } catch (err) {
+      this.logger.warn(`The pushPayload hook threw for '${context.event.key}'; sending without extras: ${describeThrown(err)}`);
+      return { payload: {} };
+    }
+  }
+
   private async deliverInner(
     context: NotificationDispatchContext,
     to: string,
@@ -268,7 +288,14 @@ export class PushNotificationChannel implements NotificationChannelSender {
       body,
       link,
     };
-    const serializedPayload = JSON.stringify(payload);
+    // The app's extras (PP-14.10), through the allowlist: a throwing or
+    // oversize hook costs the extras, never the push.
+    const extras = this.extrasFor(context);
+    let serializedPayload = JSON.stringify({ ...payload, ...extras.payload });
+    if (Buffer.byteLength(serializedPayload) > PUSH_MAX_PAYLOAD_BYTES) {
+      this.logger.warn(`Push extras for '${eventKey}' push the payload over ${PUSH_MAX_PAYLOAD_BYTES} bytes; sending without them.`);
+      serializedPayload = JSON.stringify(payload);
+    }
 
     // ONE call, ONE source of truth for "what VAPID key pair is active right
     // now" — see `PushConfigService.resolveActiveVapidConfig`'s own header
@@ -310,7 +337,7 @@ export class PushNotificationChannel implements NotificationChannelSender {
             keys: { p256dh: subscription.p256dh, auth: subscription.auth },
           },
           serializedPayload,
-          { vapidDetails },
+          { vapidDetails, ...(extras.urgency ? { urgency: extras.urgency } : {}) },
         ),
       ),
     );

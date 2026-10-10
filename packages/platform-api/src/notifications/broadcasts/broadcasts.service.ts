@@ -59,6 +59,8 @@ import type { BroadcastEmailData } from '../../email/index';
 import { describeThrown } from '../describe-thrown';
 import type { NotificationChannel } from '../notification-events';
 import { NotificationsService } from '../notifications.service';
+import { isChannelSwitchedOn } from '../notification-policy';
+import { notificationChannelRegistry } from '../registry/channel.registry';
 import { BROADCAST_SUBJECT_TYPE, audienceWhere } from './broadcast-audience';
 import { BROADCAST_CHUNK_TYPE } from './handlers/broadcast-chunk.handler';
 import { BROADCAST_START_TYPE } from './handlers/broadcast-start.handler';
@@ -710,40 +712,53 @@ export class BroadcastsService {
    * warning and a log line.
    */
   private async warningsFor(dto: CreateBroadcastInput): Promise<string[]> {
-    if (!dto.channels.includes('browser')) {
-      return [];
-    }
-
     try {
       const policy = await this.systemSettings.getNotificationsPolicy();
+      const warnings: string[] = [];
 
-      if (!policy.browserEnabled) {
+      if (dto.channels.includes('browser') && !policy.browserEnabled) {
         if (dto.critical) {
-          return [
+          warnings.push(
             'Browser notifications are currently disabled deployment-wide, so recipients will ' +
               'not see an OS notification for this broadcast. Because it is marked important, ' +
               'the in-app notification is still delivered and appears in the bell. The setting ' +
               'can be re-enabled before this broadcast is sent.',
-          ];
+          );
+        } else {
+          const pushNote = dto.channels.includes('push')
+            ? ' Recipients with push notifications enabled on a device still get an in-app ' +
+              'entry from the push delivery.'
+            : '';
+
+          warnings.push(
+            'Browser notifications are currently disabled deployment-wide, so the in-app ' +
+              'notification for this broadcast will not be delivered: it will not appear in the ' +
+              'bell and no OS notification will be shown.' +
+              pushNote +
+              ' The setting can be re-enabled before this broadcast is sent.',
+          );
         }
-
-        const pushNote = dto.channels.includes('push')
-          ? ' Recipients with push notifications enabled on a device still get an in-app ' +
-            'entry from the push delivery.'
-          : '';
-
-        return [
-          'Browser notifications are currently disabled deployment-wide, so the in-app ' +
-            'notification for this broadcast will not be delivered: it will not appear in the ' +
-            'bell and no OS notification will be shown.' +
-            pushNote +
-            ' The setting can be re-enabled before this broadcast is sent.',
-        ];
       }
+
+      // Any other channel an administrator switched off (PP-14.10) delivers
+      // nothing, critical or not: said now, while the switch can still be
+      // flipped back before the send.
+      for (const channel of dto.channels) {
+        if (channel !== 'browser' && !isChannelSwitchedOn(channel, policy)) {
+          const label = notificationChannelRegistry.get(channel)?.label ?? channel;
+          warnings.push(
+            `The ${label} channel is currently switched off by an administrator, so nothing in ` +
+              'this broadcast will be delivered over it. The switch can be turned back on before ' +
+              'this broadcast is sent.',
+          );
+        }
+      }
+
+      return warnings;
     } catch (err) {
       this.logger.warn(
         `Could not read the notification policy while composing a broadcast; ` +
-          `no browser warning was raised: ${describeThrown(err)}`
+          `no channel warning was raised: ${describeThrown(err)}`
       );
     }
 

@@ -327,6 +327,48 @@ export interface NotifyNowResult {
 }
 
 /**
+ * A per-user destination on one channel: what an app's table holds for a user
+ * and a channel (PP-14.10).
+ *
+ * @extensionPoint contract
+ * @stability experimental
+ */
+export interface RecipientHandle {
+  /** What the transport delivers to (a Slack member id, a phone number, a URL). May be sensitive; never logged or stored in a delivery row. */
+  to: string;
+  /** The redacted form stored in the delivery row and shown to operators. Never a secret. */
+  display: string;
+}
+
+/**
+ * What {@link NotificationChannelSender.resolveRecipient} resolves to: the
+ * destination and the row's redacted label. The same shape as
+ * {@link RecipientHandle}.
+ *
+ * @extensionPoint contract
+ * @stability experimental
+ */
+export type ResolvedRecipient = RecipientHandle;
+
+/**
+ * What a sender is given to resolve a recipient (PP-14.10).
+ *
+ * @stability experimental
+ */
+export interface ResolveRecipientContext {
+  /** The channel being resolved (the sender's own). */
+  readonly channel: NotificationChannel;
+  /** The event being dispatched. */
+  readonly event: NotificationEventDef;
+  /**
+   * This recipient's handle on this channel from the app's
+   * {@link RecipientHandleSource}, or `null` (no source bound, no account, no
+   * handle on file, or the source failed: it is logged, never thrown).
+   */
+  handle(): Promise<RecipientHandle | null>;
+}
+
+/**
  * A transport the dispatcher can fan an event out to.
  *
  * ADDING A CHANNEL IS: one class implementing this, and one line in
@@ -353,7 +395,11 @@ export interface NotificationChannelSender {
 
   /**
    * The address or handle this channel would deliver to, or `null` when it
-   * cannot reach this recipient at all.
+   * cannot reach this recipient at all. SYNCHRONOUS: only a channel whose
+   * address is already on the {@link NotificationRecipient} (email) can use it.
+   * A channel that needs a lookup (a Slack member id, a phone number) implements
+   * {@link resolveRecipient} instead, which wins when both are present. A sender
+   * has at least one of the two.
    *
    * SEPARATE FROM `deliver` because `NotificationDelivery.recipient` is NOT
    * NULL and the row is written as `queued` BEFORE the attempt (see
@@ -362,7 +408,34 @@ export interface NotificationChannelSender {
    * no row, no attempt — rather than forcing a placeholder into the one column
    * that answers "where did this actually go?".
    */
-  resolveTo(recipient: NotificationRecipient): string | null;
+  resolveTo?(recipient: NotificationRecipient): string | null;
+
+  /**
+   * The destination this channel would deliver to, resolved asynchronously
+   * (PP-14.10), or `null` when it cannot reach this recipient at all (no
+   * handle on file: the dispatch skips the channel for this recipient, no row,
+   * no attempt, one warning).
+   *
+   * `to` is what {@link deliver} receives (a channel id, a phone number, a
+   * URL: whatever the transport needs, possibly a secret). `display` is what
+   * the delivery row's `recipient` column stores, so it must be REDACTED and
+   * safe to show an operator (`#ops-alerts`, `+1 ***-**67`, a URL's host): the
+   * row outlives the message and is read by whoever triages failures. Never put
+   * a secret in `display`.
+   *
+   * Prefer `context.handle()` for a per-user handle: it reads the app's
+   * {@link RecipientHandleSource} (`NotificationsModule.forRoot({ recipientHandles })`)
+   * for this recipient and channel. A sender with its own source ignores it.
+   * Must not throw: an unreachable recipient is `null`, not an error.
+   *
+   * @param recipient - who the dispatch is for.
+   * @param context - the event, the channel and the handle lookup.
+   * @returns the destination, or `null`.
+   *
+   * @extensionPoint contract
+   * @stability experimental
+   */
+  resolveRecipient?(recipient: NotificationRecipient, context: ResolveRecipientContext): Promise<ResolvedRecipient | null>;
 
   /**
    * Attempt one delivery.
@@ -377,9 +450,9 @@ export interface NotificationChannelSender {
    * not read this comment. A guarantee that depends on every future
    * implementer being careful is not a guarantee.
    *
-   * @param to - the destination from {@link resolveTo}, passed in rather than
-   *           re-derived so the row's `recipient` and the actual send can
-   *           never disagree.
+   * @param to - the destination from {@link resolveRecipient} (its `to`) or
+   *           {@link resolveTo}, passed in rather than re-derived so the row's
+   *           `recipient` and the actual send can never disagree.
    */
   deliver(
     context: NotificationDispatchContext,

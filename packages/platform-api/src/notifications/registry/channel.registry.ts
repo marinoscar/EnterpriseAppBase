@@ -31,7 +31,10 @@
 // =============================================================================
 
 import { defineRegistry } from '../../core/index';
-import { NOTIFICATION_CHANNEL_ID_PATTERN as WIRE_CHANNEL_ID_PATTERN } from '@marinoscar/platform-contract/notifications';
+import {
+  NOTIFICATION_CHANNEL_ID_PATTERN as WIRE_CHANNEL_ID_PATTERN,
+  type NotificationChannelDescriptorResponse,
+} from '@marinoscar/platform-contract/notifications';
 import type { NotificationChannelIds } from '../index';
 
 /**
@@ -65,6 +68,28 @@ export interface NotificationChannelDef {
    * muted the covering channel still gets this one.
    */
   readonly coveredBy?: string;
+  /**
+   * Whether a CRITICAL broadcast may rely on this channel as the record a
+   * recipient can go back and read (PP-14.10). A critical broadcast must name at
+   * least one channel flagged this way; the web composer forces the first one on
+   * and locks it. Default `false`; the platform's `browser` (the durable in-app
+   * inbox row) is the one built-in that sets it. Only a channel whose delivery
+   * leaves a durable, readable record belongs here.
+   */
+  readonly criticalCapable?: boolean;
+  /**
+   * Whether a new broadcast starts with this channel selected (PP-14.10).
+   * Default `false`; the platform's `browser` and `email` set it.
+   */
+  readonly broadcastDefault?: boolean;
+  /**
+   * The channel renders from the raw event `data` and needs no per-event
+   * template (PP-14.10). Without it, every event bound for the channel must have
+   * a template registered with `registerChannelTemplate`; the `notifications`
+   * conformance suite reports the ones that do not. The platform's own channels
+   * have their own template registries (email, browser) and are not checked.
+   */
+  readonly rendersRawData?: boolean;
 }
 
 // `NotificationChannelIds` is DECLARED in the slice's entry module (../index), so an app's
@@ -110,6 +135,11 @@ export const notificationChannelRegistry = defineRegistry<NotificationChannelDef
     }
     if (channel.coveredBy !== undefined && (typeof channel.coveredBy !== 'string' || channel.coveredBy === channel.id)) {
       throw new Error('coveredBy must name another channel id when present');
+    }
+    for (const flag of ['criticalCapable', 'broadcastDefault', 'rendersRawData'] as const) {
+      if (channel[flag] !== undefined && typeof channel[flag] !== 'boolean') {
+        throw new Error(`${flag} must be a boolean when present`);
+      }
     }
     if (channel.id.length > 32) {
       throw new Error('a channel id must be at most 32 characters');
@@ -206,4 +236,43 @@ export function collapseOverlappingChannels<C extends string>(channels: readonly
     const coveredBy = notificationChannelRegistry.get(channel)?.coveredBy;
     return coveredBy === undefined || !present.has(coveredBy);
   });
+}
+
+/**
+ * The registry as `GET /api/notifications/channels` serves it: one descriptor
+ * per registered channel, in registration order, with the defaults applied
+ * (PP-14.10). Clients draw channels from this and hold no list of their own.
+ *
+ * @returns a fresh array of descriptors; `order` is the registration index.
+ *
+ * @example
+ * ```ts
+ * describeNotificationChannels().map((channel) => channel.label); // ['Email', 'Browser', 'Push']
+ * ```
+ *
+ * @extensionPoint registry
+ * @stability experimental
+ */
+export function describeNotificationChannels(): NotificationChannelDescriptorResponse[] {
+  return notificationChannelRegistry.list().map((channel, order) => ({
+    id: channel.id,
+    label: channel.label,
+    description: channel.description,
+    userConfigurable: channel.userConfigurable !== false,
+    criticalCapable: channel.criticalCapable === true,
+    broadcastDefault: channel.broadcastDefault === true,
+    order,
+  }));
+}
+
+/**
+ * The registered channels a critical broadcast may rely on
+ * ({@link NotificationChannelDef.criticalCapable}), in registration order.
+ *
+ * @returns the channel ids.
+ *
+ * @stability experimental
+ */
+export function criticalCapableChannels(): string[] {
+  return notificationChannelRegistry.list().filter((channel) => channel.criticalCapable === true).map((channel) => channel.id);
 }

@@ -8,6 +8,7 @@
 // preference and `mandatory` gates). Documented in ../README.md.
 
 export {
+  checkChannelTemplates,
   checkEmailBindings,
   checkNotifyAfterCommit,
   checkPlatformNotifications,
@@ -15,6 +16,12 @@ export {
   notificationsConformanceSuite,
 } from './conformance';
 export type { NotificationsConformanceOptions, NotifyAfterCommitScan } from './conformance';
+export { describeNotificationSenderConformance } from './sender-conformance';
+export type {
+  NotificationSenderConformanceHarness,
+  NotificationSenderConformanceOptions,
+  NotificationSenderConformanceScenario,
+} from './sender-conformance';
 
 // ---- internals, for an app's own unit tests ------------------------------------------------
 export { NOTIFICATION_CHANNEL_SENDERS } from '../notification.types';

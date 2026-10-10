@@ -29,16 +29,21 @@ export const PLATFORM_NOTIFICATION_CHANNELS: readonly NotificationChannelDef[] =
     id: 'email',
     label: 'Email',
     description: 'A message sent to the address on the account, through the configured email provider.',
+    broadcastDefault: true,
   },
   {
     id: 'browser',
     label: 'Browser',
     description:
       "A row in the user's in-app notification centre, streamed to any open tab, which may show it as a toast.",
+    // The durable row is the record a recipient can go back and read, which is
+    // what a critical broadcast relies on.
+    criticalCapable: true,
+    broadcastDefault: true,
   },
   {
     id: 'push',
-    label: 'Web Push',
+    label: 'Push',
     description: 'An operating-system notification delivered through Web Push to every browser the user subscribed.',
   },
 ];

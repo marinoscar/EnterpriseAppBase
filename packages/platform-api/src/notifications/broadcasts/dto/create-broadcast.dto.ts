@@ -5,7 +5,7 @@
 import { createZodDto } from 'nestjs-zod';
 import { createBroadcastSchema as wireCreateBroadcastSchema } from '@marinoscar/platform-contract/notifications';
 
-import { notificationChannelRegistry } from '../../registry/channel.registry';
+import { criticalCapableChannels, notificationChannelRegistry } from '../../registry/channel.registry';
 
 export {
   BROADCAST_BODY_MAX,
@@ -18,7 +18,9 @@ export type { CreateBroadcastInput } from '@marinoscar/platform-contract/notific
 /**
  * The create body, with its open channel ids checked against the channel
  * registry at run time (#738): an unregistered channel is a 400, exactly as
- * the closed enum it replaces was.
+ * the closed enum it replaces was. A critical broadcast must include a channel
+ * flagged `criticalCapable` (PP-14.10; `browser` unless an app flags another):
+ * the durable record is the only thing a recipient can go back and read.
  *
  * @stability stable
  *
@@ -34,6 +36,21 @@ export const createBroadcastSchema = wireCreateBroadcastSchema.superRefine((valu
       });
     }
   });
+
+  if (value.critical) {
+    const capable = criticalCapableChannels();
+    if (capable.length > 0 && !value.channels.some((channel) => capable.includes(channel))) {
+      const names = capable.map((id) => `"${id}"`);
+      ctx.addIssue({
+        code: 'custom',
+        path: ['channels'],
+        message:
+          `a critical broadcast must include ${
+            names.length === 1 ? `the ${names[0]} channel` : `one of the ${names.join(', ')} channels`
+          }: the durable in-app notification is the only record a recipient can go back and read`,
+      });
+    }
+  }
 });
 
 /**

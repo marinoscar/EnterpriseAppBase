@@ -27,6 +27,7 @@ export {
   NOOP_NOTIFICATIONS_METRICS,
   NOTIFICATIONS_EVENT_BUS,
   NOTIFICATIONS_METRICS,
+  NOTIFICATION_RECIPIENT_HANDLES,
   NOTIFICATION_STREAM_BUS_CHANNEL,
   NOTIFICATION_STREAM_INLINE_LIMIT_BYTES,
 } from './ports';
@@ -35,6 +36,7 @@ export type {
   NotificationsEventBus,
   NotificationsEventBusMeta,
   NotificationsMetrics,
+  RecipientHandleSource,
 } from './ports';
 
 // ---- the dispatcher ----------------------------------------------------------------------
@@ -47,6 +49,9 @@ export type {
   NotifyNowResult,
   NotifyOptions,
   NotifyPermissionHoldersOptions,
+  RecipientHandle,
+  ResolvedRecipient,
+  ResolveRecipientContext,
 } from './notification.types';
 
 // ---- registries --------------------------------------------------------------------------
@@ -57,7 +62,10 @@ export {
   NOTIFICATION_EVENT_KEY_MAX_LENGTH,
   NOTIFICATION_EVENT_KEY_PATTERN,
   PLATFORM_NOTIFICATION_CHANNELS,
+  channelTemplateRegistry,
   collapseOverlappingChannels,
+  criticalCapableChannels,
+  describeNotificationChannels,
   emailTemplateRegistry,
   eventBrowserTemplateRegistry,
   eventEmailTemplateRegistry,
@@ -65,7 +73,9 @@ export {
   listNotificationChannels,
   notificationChannelRegistry,
   notificationEventRegistry,
+  findChannelTemplate,
   registerBrowserNotificationTemplate,
+  registerChannelTemplate,
   registerEmailNotificationTemplate,
   registerEmailTemplates,
   registerNotification,
@@ -75,8 +85,13 @@ export {
   registerNotifications,
   registerAndroidAppNotificationChannel,
   registerPlatformNotificationChannels,
+  renderChannelPayload,
 } from './registry/index';
 export type {
+  ChannelPayload,
+  ChannelTemplateBinding,
+  ChannelTemplateContext,
+  ChannelTemplateRender,
   EmailTemplateEntry,
   EventBrowserTemplateBinding,
   EventEmailTemplateBinding,
@@ -124,10 +139,20 @@ export {
   resolveChannels,
 } from './notification-preferences';
 export type { ChannelPreferences, NotificationPreferences } from './notification-preferences';
-export { DEFAULT_NOTIFICATION_POLICY, isBrowserToastAllowed, policyChannels } from './notification-policy';
+export { DEFAULT_NOTIFICATION_POLICY, isBrowserToastAllowed, isChannelSwitchedOn, policyChannels } from './notification-policy';
 export type { NotificationPolicy } from './notification-policy';
 export { NOTIFICATIONS_SYSTEM_SETTINGS, tightenNotificationsPolicy } from './notifications.system-settings';
 export { NOTIFICATIONS_USER_SETTINGS, notificationsPatchSchema } from './notifications.user-settings';
+
+// ---- push payload extras ---------------------------------------------------------------
+export { PUSH_MAX_ACTIONS, PUSH_MAX_PAYLOAD_BYTES, sanitizePushExtras } from './channels/push-payload';
+export type {
+  PushAction,
+  PushPayloadExtras,
+  PushPayloadHook,
+  PushUrgency,
+  SanitizedPushExtras,
+} from './channels/push-payload';
 
 // ---- the stream --------------------------------------------------------------------------
 export { HEARTBEAT_INTERVAL_MS, NOTIFICATION_SSE_EVENT, parseNotificationStreamBusMessage } from './notification-stream.service';
