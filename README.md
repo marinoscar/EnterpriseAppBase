@@ -241,6 +241,11 @@ Choosing what to use: [docs/SLICES.md](docs/SLICES.md), one generated page
 with every platform slice, the packages and imports that carry it, its cards,
 permissions, dependencies and peers, and whether it works on its own.
 
+Extending a slice from your own app or from a package it installs:
+[docs/EXTENDING.md](docs/EXTENDING.md), the ladder of extension mechanisms and a
+recipe per extension; [docs/EXTENSIBILITY-AUDIT.md](docs/EXTENSIBILITY-AUDIT.md),
+what each slice still closes and the story that opens it.
+
 The CLI has its own reference: [apps/cli/README.md](apps/cli/README.md).
 Coding agents follow [CLAUDE.md](CLAUDE.md).
 
