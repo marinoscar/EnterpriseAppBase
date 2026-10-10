@@ -14,7 +14,7 @@
 // key of the call and no log or error carries it.
 // =============================================================================
 
-import { AiError, AiProviderRegistry, adapterCapabilities } from '@marinoscar/platform-api/ai';
+import { AiError, AiProviderRegistry, adapterCapabilities, type AiProviderAdapter } from '@marinoscar/platform-api/ai';
 import { describeAiProviderConformance } from '@marinoscar/platform-api/ai/testing';
 
 import { ExampleTranscribeAdapter } from '../../../src/platform-extensions/ai/example-transcribe/example-transcribe.adapter';
@@ -56,7 +56,8 @@ describe('ExampleTranscribeAdapter beyond the kit', () => {
   });
 
   it('carries the audio.transcribe port and no other: that is its whole capability set', () => {
-    const { adapter } = build();
+    // Typed as the contract: the concrete class has no `responses` member to look at.
+    const adapter: AiProviderAdapter = build().adapter;
 
     expect(adapterCapabilities(adapter)).toEqual(['audio_transcription']);
     expect(adapter.responses).toBeUndefined();
