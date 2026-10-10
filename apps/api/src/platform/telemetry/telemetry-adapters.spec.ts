@@ -152,7 +152,7 @@ describe('TelemetrySettingsStoreAdapter (TELEMETRY_SETTINGS_STORE)', () => {
   it('refuses every row telemetry does not own, before touching the database', async () => {
     const { store, prisma } = setup();
 
-    expect(TELEMETRY_OWNED_ROW_KEYS).toEqual(['telemetry_connection']);
+    expect(TELEMETRY_OWNED_ROW_KEYS).toEqual(['telemetry_connection', 'telemetry_store']);
     await expect(store.readRow('global')).rejects.toThrow('may not access');
     await expect(store.writeRow('global', {}, 'u1')).rejects.toThrow('may not access');
     await expect(store.deleteRow('ai_keys')).rejects.toThrow('may not access');
