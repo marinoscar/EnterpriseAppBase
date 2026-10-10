@@ -123,7 +123,12 @@ const SECRET_LOOKING_FIELDS: ReadonlySet<string> = new Set(
 /** Fields the slot owns, not the provider. */
 const RESERVED_FIELDS: ReadonlySet<string> = new Set(['enabled', 'haskey']);
 
-/** The name of the one secret every keyed provider declares (the deployment's key, stored by `PUT /api/admin/ai/providers/:provider/key`). */
+/**
+ * The name of the one secret every keyed provider declares (the deployment's
+ * key, stored by `PUT /api/admin/ai/providers/:provider/key`).
+ *
+ * @stability experimental
+ */
 export const AI_PROVIDER_KEY_SECRET = 'apiKey';
 
 /**
@@ -279,14 +284,27 @@ function definitionOfImplementation(impl: PluggableImplementation<AiProviderDefi
 }
 
 /**
+ * One provider's slot in `ai.providers`: the `enabled` switch and the
+ * provider's own non-secret settings.
+ *
+ * @stability experimental
+ */
+export interface AiProviderSlotValue {
+  /** Whether an administrator switched the provider on. */
+  enabled: boolean;
+  /** The provider's own settings, as its `settingsSchema` declares them. */
+  [setting: string]: unknown;
+}
+
+/**
  * A fresh slot for `id`: `enabled: false` and the provider's defaults.
  *
  * @param id - a registered provider id.
  * @throws PluggableUnknownError when `id` is not registered.
  * @stability experimental
  */
-export function defaultAiProviderSlot(id: string): { enabled: boolean } & Record<string, unknown> {
-  return structuredClone(aiProviderKind.parseSettings(id, {})) as { enabled: boolean } & Record<string, unknown>;
+export function defaultAiProviderSlot(id: string): AiProviderSlotValue {
+  return structuredClone(aiProviderKind.parseSettings(id, {})) as AiProviderSlotValue;
 }
 
 /**

@@ -113,7 +113,7 @@ export {
   registerAiProvider,
   requireAiProviderDefinition,
 } from './providers/ai-provider-definition';
-export type { AiProviderDefinition } from './providers/ai-provider-definition';
+export type { AiProviderDefinition, AiProviderSlotValue } from './providers/ai-provider-definition';
 export { BUILTIN_AI_PROVIDER_DEFINITIONS } from './providers/builtin-ai-providers';
 
 // ---- the provider modules (adding a built-in one: docs/specs/ai-platform.md §4) ---------------------------

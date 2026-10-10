@@ -308,14 +308,16 @@ uses elsewhere in this codebase.
 | Option | Type | Default | Meaning |
 |---|---|---|---|
 | `imports` | `Array<Type \| DynamicModule>` | `[]` | The `@Global()` modules binding the host ports (`AI_SYSTEM_PRISMA` and `AI_OBJECT_STORE` required; `AI_METRICS` and `AI_TARGET_RESOLVER` optional) |
-| `providers` | `AiProviderModuleId[]` | all five | Which provider adapters to load; an unloaded provider is absent from the registry (its settings slot stays, inert) |
+| `providers` | `string[]` | every registered provider | The ids of the providers whose modules to load (`registerAiProvider`: the five built-ins and an app's own, registered before `forRoot` is called); an unloaded provider is absent from the adapter registry (its settings slot stays, inert); an id nobody registered throws, naming the registered ones |
 | `perUserDefaultModel` | `boolean` | `true` | Whether users pick their own default model (`ai.defaultModel`); `false` for an app whose features pick their model (an `AI_TARGET_RESOLVER`). `GET /api/ai/config` reports it, so the web hides the picker |
 
 ### Runtime policy (the `ai` namespace)
 
 The deployment's `ai` system settings namespace (schemas: `@marinoscar/platform-contract/ai`) holds `enabled`, `keyPolicy` (`byok` or `byok_with_org_fallback`), one slot per provider, `defaults` (output-token cap, background runs, realtime), `logPromptContent`, `usageRetentionDays`, `hostedTools`, `limits` and `deploymentKeyServesOrgs` (#739, default `true`: whether the deployment's keys pay for an organization that stores none of its own). Edited at `/admin/settings/ai`.
 
-**A registered provider without a slot (#921).** The namespace has one fixed slot per built-in provider. An adapter an app registers under a NEW id (`AiProviderRegistry.register`) appears in `GET /api/admin/ai/config` with `configurable: false` (the field is absent for a provider that has a slot): it can be keyed and tested, but not switched on or configured until a slot exists. `PUT /api/admin/ai/config` ignores such an entry when it is submitted exactly as listed (not enabled, no settings), so the admin form's full-replace save never fails because of it; anything else for it, and any id the registry does not know, is still `400 AI_UNKNOWN_PROVIDER`. The web page lists it as "Registered, not configurable yet" and does not send it back. Registry-driven slots are a separate piece of work (PP-14.6, #924).
+**Providers are a record (PP-14.6, #924).** `ai.providers` is a record keyed by provider id, `{ <id>: { enabled } & <that provider's own settings> }`, built from the provider registry (`registerAiProvider`): the five built-ins keep their current fields (`baseUrl`, `apiVersion`, `apiStyle`, `deployments`, `requiresKey`), and an app's or package's provider has its own (`region`, ...). Every registered provider always has a slot; a fresh install reads it as switched off with the provider's defaults. A WRITE (`PUT /api/admin/ai/config`, `PATCH`/`PUT /api/system-settings`) validates each slot with its provider's `settingsSchema`: an id nobody registered is `400 AI_UNKNOWN_PROVIDER`, a setting the provider does not declare `400 AI_PROVIDER_FIELD_UNSUPPORTED`, a value its schema rejects `400 AI_PROVIDER_SETTINGS_INVALID` (with the field named), and enabling a provider with `requiresBaseUrl` before it has a `baseUrl` `400 AI_BASE_URL_REQUIRED`. A READ never fails on stored data: a slot stored for a provider that is no longer registered is dropped with ONE warning (naming all such ids), and a slot that no longer parses falls back to the provider's defaults; the next save drops the stale slot for good.
+
+`GET /api/admin/ai/config` describes each provider for a generated form: `providers[]` (the typed fields of the built-ins plus `settings`, the stored values of exactly its `settingsFields`, `requiresBaseUrl` and `help`) and `descriptors[]`, one `PluggableDescriptor` per registered provider (`enabled`, its settings fields, then a write-only `apiKey` secret field that says only whether a key is stored). **An adapter registered without a provider definition (#921)** (straight into `AiProviderRegistry`) still appears with `configurable: false`: it can be keyed and tested, but not switched on, because the namespace has no slot for it; `PUT /api/admin/ai/config` ignores such an entry when it is submitted exactly as listed (not enabled, no settings), anything else for it is `400 AI_UNKNOWN_PROVIDER`.
 
 **The org layer (#739).** The namespace is org-overridable through the settings slice: an organization may only TIGHTEN it (`tightenAiPolicy`): switch AI off for its members, narrow `byok_with_org_fallback` to `byok`, switch providers off, and set lower `limits.perOrg` daily caps. `AiConfigService.resolveForOrg(orgId)` is the effective policy every gate reads; `AiOrgEnabledInterceptor` refuses a consumer route with `403 AI_DISABLED` (`details.scope: 'org'`) while the caller's organization has AI off.
 
@@ -587,19 +589,18 @@ Two things never leave the facade, both handled by
    no reconnect (a reconnect would re-submit the prompt) — see
    `streamAiResponse` in `packages/platform-web/src/ai/headless/client.ts` for how the AI chat surface uses it (through the host transport's `postSse`).
 
-### Adding a provider
+### Adding a provider from an app or package
 
-A new provider is an adapter implementation against the existing
-`AiProviderAdapter` contract. The full recipe — self-registration, the model
-classifier, error mapping onto `AiErrorCode`, and the conformance kit every
-adapter must pass — is
-[`docs/specs/ai-platform.md`](../../../../docs/specs/ai-platform.md) §4.
+An app (or a package it installs) adds a provider, such as AssemblyAI for transcripts, with no edit to this package. Four pieces, in the order the reference app's `example-transcribe` has them:
 
-**From an app or another package this is not supported yet** (PP-14.6): an
-adapter registered under a new id is listed and can be keyed and conformance-
-tested, but it cannot be enabled, because the `ai` settings namespace, the
-`AiModule.forRoot` provider list and the admin form are fixed to the five
-built-ins ([EXTENDING.md](../../../../docs/EXTENDING.md#coming-in-pp-146-add-an-ai-provider)).
+1. **The adapter**, an `@Injectable()` class implementing `AiProviderAdapter` with only the capability ports the vendor has (presence is the declaration: `audio.transcribe` alone gives `audio_transcription` and nothing else), reading its key from `AiCallContext.apiKey` and its settings from `providerSettings`, failing only with `AiError`, and registering itself in `onModuleInit` ([adapter](../../../../apps/api/src/platform-extensions/ai/example-transcribe/example-transcribe.adapter.ts), over an injected transport with no network: [transport](../../../../apps/api/src/platform-extensions/ai/example-transcribe/example-transcribe.transport.ts)).
+2. **A Nest module** that imports `AiCoreModule` and provides the adapter ([module](../../../../apps/api/src/platform-extensions/ai/example-transcribe/example-transcribe.module.ts)).
+3. **The definition**, registered with `registerAiProvider` at import time, before `AiModule.forRoot()`: `id` (`^[a-z][a-z0-9-]{1,47}$`, permanent), `label`, the `module`, a zod `settingsSchema` of the provider's NON-secret settings (a field named like a secret is refused) with its `defaults`, `requiresKey`, optionally `requiresBaseUrl`, `help` and `sdkPackages` ([definition](../../../../apps/api/src/platform-extensions/ai/example-transcribe/example-transcribe.provider.ts), registered from [`app-registrations/ai.ts`](../../../../apps/api/src/app-registrations/ai.ts)).
+4. **Tests**: `describeAiProviderConformance` over the adapter ([example](../../../../apps/api/test/examples/ai/example-transcribe.conformance.spec.ts)), and `createAiRuntimeHarness({ extraProviders, extraAdapters, models })` to run the kill switch, key policy, limits and usage over it ([example](../../../../apps/api/test/examples/ai/example-transcribe.e2e.spec.ts)).
+
+Registering is all the wiring there is: `AiModule.forRoot` loads the module, the `ai` namespace gains the slot, the admin page renders a form from the descriptor, `PUT /api/admin/ai/providers/<id>/key` stores and verifies the deployment key (the user and organization key pages list the provider from the API), and usage, limits, the Doctor and the conformance suites include it. A provider whose adapter imports an SDK keeps that import in its own folder and passes the folder as `providerDirs` to the `ai-no-sdk-leak` suite; the package names go in `sdkPackages`.
+
+**A built-in provider** (inside this package) is the same four pieces under `providers/<id>/`, plus its definition file registered by `providers/builtin-ai-providers.ts` and its SDK confined to that directory: [`docs/specs/ai-platform.md`](../../../../docs/specs/ai-platform.md) §4.
 
 ## Extension-point catalog
 
@@ -607,7 +608,10 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
-| `AiModule.forRoot` | option | `forRoot({ imports?, providers?, perUserDefaultModel? }): DynamicModule` | Configure the slice once, with the host-port modules; import the result everywhere | experimental | [example](../../../../apps/api/src/platform/ai/ai.config.ts) |
+| `AiModule.forRoot` | option | `forRoot({ imports?, providers?: string[], perUserDefaultModel? }): DynamicModule` | Configure the slice once, with the host-port modules; import the result everywhere | experimental | [example](../../../../apps/api/src/platform/ai/ai.config.ts) |
+| `registerAiProvider` | registry | `registerAiProvider(def: AiProviderDefinition): void` | Add an AI provider from an app or package: its slot in `ai.providers`, its admin form, its key routes and its module follow from the definition; call it at import time, before `AiModule.forRoot()` | experimental | [example](../../../../apps/api/src/app-registrations/ai.ts) |
+| `AiProviderDefinition` | registry | `{ id; label; description?; module; settingsSchema; defaults; requiresKey; requiresBaseUrl?; help?; sdkPackages? }` | Describe a provider before its adapter runs: its non-secret settings, whether it needs a key and an endpoint, the SDK packages its folder may import | experimental | [example](../../../../apps/api/src/platform-extensions/ai/example-transcribe/example-transcribe.provider.ts) |
+| `aiProviderKind` | registry | `PluggableKind<AiProviderDefinition>` | Read the registered definitions (ids, descriptors, defaults) or validate a provider's settings; the registry behind `registerAiProvider` | experimental | [example](../../../../apps/api/test/examples/ai/ai-stored-settings.spec.ts) |
 | `AI_SYSTEM_PRISMA` | token | `InjectionToken<AiSystemPrisma>` | Bind the app's bypass client (retention purges, the deployment-wide usage report) | experimental | [example](../../../../apps/api/src/platform/ai/ai-host.module.ts) |
 | `AI_OBJECT_STORE` | token | `InjectionToken<AiObjectStore>` | Bind object storage for image, audio and file-input runs | experimental | [example](../../../../apps/api/src/platform/ai/ai-host.module.ts) |
 | `AI_METRICS` | token | `InjectionToken<AiMetrics>` | Bind the app's `app.ai.*` instruments; omit for none | experimental | [example](../../../../apps/api/src/platform/ai/ai-host.module.ts) |
@@ -624,7 +628,7 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | `aiKeyPolicySuite` | registry | `ConformanceAppSuite<AiKeyPolicyOptions>` | Read the suite's id and description | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
 | `AiJobsServerOnlyOptions` | option | `{ fixture; minAiJobTypes? }` | Run the `ai-jobs-server-only` suite (`aiJobsServerOnly`) | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
 | `aiJobsServerOnlySuite` | registry | `ConformanceAppSuite<AiJobsServerOnlyOptions>` | Read the suite's id and description | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
-| `AiNoSdkLeakOptions` | option | `{ apiTrees; webTrees; sdkOwner?; noSdkManifests; extraSdkPackages? }` | Run the `ai-no-sdk-leak` suite (`aiNoSdkLeak`) over the source trees and manifests the app ships | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
+| `AiNoSdkLeakOptions` | option | `{ apiTrees; webTrees; sdkOwner?; noSdkManifests; extraSdkPackages?; providerDirs? }` | Run the `ai-no-sdk-leak` suite (`aiNoSdkLeak`) over the source trees and manifests the app ships; `providerDirs` names the app folders where a registered provider's adapter may import its SDK | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
 | `aiNoSdkLeakSuite` | registry | `ConformanceSuite<AiNoSdkLeakOptions>` | Call the suite's `check()` directly in a test | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
 | `aiOrchestrationBoundarySuite` | registry | `ConformanceAppSuite<OrchestrationBoundaryOptions>` | Read the suite's id (`ai-orchestration-boundary`, option key `aiOrchestrationBoundary`) | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
 
@@ -668,7 +672,8 @@ Every provider round-trip is an `ai.request` span (provider, model, operation, `
 ## Security notes
 
 - **Keys never leave the server.** A key is resolved per call and held only between resolution and the adapter call; no route, log line, span, `AiError`, usage row or `ai_runs.request` row carries one. The one secret returned is a realtime session's ephemeral provider secret (`POST /api/ai/realtime/sessions`), never a key. `ai-secret-egress.integration.spec.ts` sweeps every response for the user, organization and deployment sentinels.
-- **SDKs stay in their folder.** Only `providers/<provider>/` imports a provider SDK (the `ai-no-sdk-leak` conformance suite, each SDK-boundary spec).
+- **SDKs stay in their folder.** Only `providers/<provider>/` imports a provider SDK, or, for a provider an app registered, the folder passed as `providerDirs` (the `ai-no-sdk-leak` conformance suite, each SDK-boundary spec). The `sdkPackages` of every registered definition are banned everywhere else.
+- **A provider's settings carry no key.** `registerAiProvider` refuses a `settingsSchema` field named like a secret (`apiKey`, `key`, `token`, `secret`, `password`, ...): the key goes through the credential stores and the verify-first key routes.
 - **AI jobs are server-only.** No `ai.*` job type implements `nodeResultSchema`/`persistNodeResult`: a key is never brokered to a worker node.
 - **Orchestration stays above the gateway.** `@langchain/langgraph` and `@langchain/core` are allowed only under an app's orchestration directory, and `langchain`, `langsmith`, `@ai-sdk/*` and `@langchain/<provider>` never (`runOrchestrationBoundarySuite`).
 - **Tenant isolation.** `ai_runs` and `ai_usage_events` are under row-level security; `orgId` comes from the principal or the job, never request input. An organization's key is read only in that organization's scope.
@@ -687,7 +692,7 @@ Every provider round-trip is an `ai.request` span (provider, model, operation, `
 | `ai-secret-egress` (`aiSecretEgress`) | No response schema has a key-shaped property (only the realtime `clientSecret`); no sentinel key appears in any body, header, log line, audit row, usage row, run row, stored object or error | `fixture` |
 | `ai-key-policy` (`aiKeyPolicy`) | The administrator's key is never spent on a user's own inference, BYOK always wins, a keyless provider gets no key, over every synchronous and queued route | `fixture` |
 | `ai-jobs-server-only` (`aiJobsServerOnly`) | No `ai.*` job type is node-eligible (derived from `serverOnlyTypes()`) | `fixture` |
-| `ai-no-sdk-leak` (`aiNoSdkLeak`) | No provider SDK import outside its adapter directory, none in the app, the web or the contract, no manifest but the package's declares one | `apiTrees`, `webTrees`, `sdkOwner?`, `noSdkManifests` |
+| `ai-no-sdk-leak` (`aiNoSdkLeak`) | No provider SDK import outside its adapter directory (or an app's `providerDirs`), none in the web or the contract, no manifest but the owner's declares one; the registered definitions' `sdkPackages` are banned outside `providerDirs` | `apiTrees`, `webTrees`, `sdkOwner?`, `noSdkManifests`, `extraSdkPackages?`, `providerDirs?` |
 | `ai-orchestration-boundary` (`aiOrchestrationBoundary`) | No file outside the allowed orchestration roots imports `@langchain/*`, and no banned orchestration package is installed or imported | `apiSourceRoots`, `webSourceRoots`, `packageJsonPaths`, `allowedRoots` |
 
 The five that boot the app take ONE `AiConformanceFixture` (how the app creates itself over a mocked database, mints a user for a role, returns its OpenAPI document and which grants it seeds); the reference app's is [`apps/api/test/conformance/ai-fixture.ts`](../../../../apps/api/test/conformance/ai-fixture.ts), built from the helpers its other integration specs use. `aiPackageProviderDirs(root)` lists the package's own adapter directories for `ai-no-sdk-leak` from the slice's layout. The web side (every AI card carries a permission the API enforces and `feature: 'ai'`) is the `settings-ai-cards` suite of [`@marinoscar/platform-web/settings/testing`](../../../platform-web/src/settings/README.md#conformance-suite).
@@ -713,7 +718,7 @@ An app with AI disabled at build time still runs the suites and they must find t
 |---|---|
 | `describeAiProviderConformance(name, factory, options?)` | Every adapter behaves the same for each port it carries (listing, key verification, classification, responses, streaming, structured output, the tool round-trip, embeddings, images, audio) |
 | `runOrchestrationBoundarySuite(options)` | The orchestration scan behind `ai-orchestration-boundary`, callable directly |
-| `createAiRuntimeHarness(options?)` | The real runtime over a scripted fake, in-memory tables and storage: for gate, key-policy and limit tests |
+| `createAiRuntimeHarness(options?)` | The real runtime over a scripted fake, in-memory tables and storage: for gate, key-policy and limit tests; `extraProviders`, `extraAdapters` and catalog rows with a `provider` run the same gates over a provider an app added |
 
 ### Testing without a real provider
 
@@ -800,6 +805,7 @@ New subpath in this version. From the reference app's `src/ai/` (#739):
 - New routes: `GET /api/ai/features`, `/api/admin/ai/org-keys`, `GET /api/admin/ai/org-usage`; `GET /api/admin/ai/usage` takes `orgId` and `groupBy=org`. New permissions `org_ai_config:read`/`write` (seeded for `org_admin`).
 - `ai-outputs/` is registered by the slice (`AI_STORAGE_KEY_PREFIXES`); an app manifest may reuse the definition to keep its purge order.
 - Nothing is migrated: stored keys, runs and usage rows are read unchanged.
+- PP-14.6 (#924): `ai.providers` is a record keyed by provider id, validated by the provider registry. The stored shape of the five built-ins is unchanged and loads as before. `AiModuleOptions.providers` is `string[]` (the `AiProviderModuleId` union is `string`); `AI_PROVIDER_IDS` is a deprecated alias of `BUILTIN_AI_PROVIDER_IDS`; `AI_PROVIDER_SETTINGS_FIELDS` and the web/API `PROVIDERS_REQUIRING_BASE_URL` are replaced by the definition (`requiresBaseUrl`, `help`). `providerRequiresKey(slot)` takes the provider id as its second argument. The admin config response gains `descriptors` and, per provider, `settings`, `requiresBaseUrl` and `help`; `settingsFields` is `string[]`. A `PATCH /api/system-settings` provider URL rule (an `http` Azure endpoint) is now enforced when the namespace merges the patch, still as a 400.
 
 ## Troubleshooting
 
@@ -811,6 +817,9 @@ New subpath in this version. From the reference app's `src/ai/` (#739):
 | `400 AI_INVALID_REQUEST` "unknown feature" | `forUser(userId, { feature })` names a feature never registered | `registerAiFeature` it at import time, before bootstrap |
 | `Registry "ai-features" is frozen` | A feature registered after bootstrap | Register from the app's manifest, at import time |
 | `429 AI_RATE_LIMITED` with `details.limit: 'perOrg.*'` | The organization's daily cap | Raise `limits.perOrg` (deployment) or the org's own lower value |
+| `Unknown ai-provider implementation "<id>"` at boot, or `400 AI_UNKNOWN_PROVIDER` | The provider was never registered, or registered after `AiModule.forRoot()` was called | Call `registerAiProvider` at import time and import that file before `forRoot` (`platform/ai/ai.config.ts` imports `app-registrations/ai.ts` first) |
+| `Registry "pluggable.ai-provider" is frozen` | A provider registered after bootstrap | Register from `app-registrations/ai.ts`, at import time |
+| A warning "Ignoring stored ai-provider settings for ..." | A slot is stored for a provider no longer registered | Nothing breaks; re-register the provider to use it again, or save the settings to drop the slot |
 | `503 AI_STORAGE_UNAVAILABLE` on an image or speech run | Object storage is not configured | Configure it at `/admin/settings/storage` |
 
 ## Links
