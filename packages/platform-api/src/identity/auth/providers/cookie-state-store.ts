@@ -39,12 +39,67 @@ export interface CookieStateStoreOptions {
   secure?: boolean;
 }
 
-/** The raw request as the store sees it: Passport's request plus the response the identity guard attached. */
-type StoreRequest = IncomingMessage & {
+/**
+ * The raw request as the store sees it: Passport's request plus the response the
+ * identity guard attaches.
+ *
+ * @stability experimental
+ */
+export type CookieStateStoreRequest = IncomingMessage & {
+  /** The raw response, attached by the identity sign-in guard. */
   res?: ServerResponse;
   /** Set by `verify`: the cookie the guard clears from the Fastify reply (the raw header would be overwritten by Fastify's own `Set-Cookie`). */
   clearAuthStateCookie?: string;
 };
+
+/**
+ * The `store` object `passport-oauth2` calls.
+ *
+ * @stability experimental
+ */
+export interface CookieStateStore {
+  /**
+   * Generates a state, remembers it in the cookie and passes it to the provider.
+   *
+   * @param req - Passport's raw request, with the response attached.
+   * @param callback - receives the state to send to the provider.
+   */
+  store(req: CookieStateStoreRequest, callback: (error: Error | null, state: string) => void): void;
+  /**
+   * The same, in the shape `@types/passport-oauth2` declares (a `meta` argument that is ignored).
+   *
+   * @param req - Passport's raw request, with the response attached.
+   * @param meta - ignored.
+   * @param callback - receives the state to send to the provider.
+   */
+  store(req: CookieStateStoreRequest, meta: unknown, callback: (error: Error | null, state: string) => void): void;
+  /**
+   * Checks the returned state against the cookie and marks the cookie for clearing.
+   *
+   * @param req - Passport's raw request.
+   * @param providedState - the `state` the provider sent back.
+   * @param callback - `ok` is true for a valid, unexpired, matching state.
+   */
+  verify(
+    req: CookieStateStoreRequest,
+    providedState: string,
+    callback: (error: Error | null, ok: boolean, info?: { message: string }) => void,
+  ): void;
+  /**
+   * The same, in the shape `@types/passport-oauth2` declares (a `meta` argument that is ignored).
+   *
+   * @param req - Passport's raw request.
+   * @param providedState - the `state` the provider sent back.
+   * @param meta - ignored.
+   * @param callback - `ok` is true for a valid, unexpired, matching state.
+   */
+  verify(
+    req: CookieStateStoreRequest,
+    providedState: string,
+    meta: unknown,
+    callback: (error: Error | null, ok: boolean, info?: { message: string }) => void,
+  ): void;
+}
 
 const sign = (secret: string, payload: string): Buffer => createHmac('sha256', secret).update(`oauth-state:${payload}`).digest();
 
@@ -73,25 +128,29 @@ function readCookie(header: string | undefined, name: string): string | undefine
  * @extensionPoint hook
  * @stability experimental
  */
-export function createCookieStateStore(options: CookieStateStoreOptions) {
+export function createCookieStateStore(options: CookieStateStoreOptions): CookieStateStore {
   if (!options.secret) throw new TypeError('createCookieStateStore requires a secret');
   const name = options.cookieName ?? 'oauth_state';
   const ttl = options.ttlSeconds ?? 600;
   const attributes = `Path=/api/auth; HttpOnly; SameSite=Lax${(options.secure ?? process.env.NODE_ENV === 'production') ? '; Secure' : ''}`;
 
-  return {
-    /** Generates a state, remembers it in the cookie and passes it to the provider. */
-    store(req: StoreRequest, callback: (error: Error | null, state?: string) => void): void {
+  // Written with the two-argument `store` and three-argument `verify` Passport
+  // dispatches on by arity (`Function.length`); the overloads above are typing only.
+  const impl = {
+    store(req: CookieStateStoreRequest, callback: (error: Error | null, state: string) => void) {
       const res = req.res;
-      if (!res) return callback(new Error('The cookie state store needs the response; use it with the identity sign-in routes'));
+      if (!res) return callback(new Error('The cookie state store needs the response; use it with the identity sign-in routes'), '');
       const state = randomBytes(24).toString('base64url');
       const payload = `${state}.${Math.floor(Date.now() / 1000) + ttl}`;
       res.appendHeader('Set-Cookie', `${name}=${payload}.${sign(options.secret, payload).toString('base64url')}; Max-Age=${ttl}; ${attributes}`);
       callback(null, state);
     },
 
-    /** Checks the returned state against the cookie, then marks the cookie for clearing. */
-    verify(req: StoreRequest, providedState: string, callback: (error: Error | null, ok?: boolean, info?: { message: string }) => void): void {
+    verify(
+      req: CookieStateStoreRequest,
+      providedState: string,
+      callback: (error: Error | null, ok: boolean, info?: { message: string }) => void,
+    ) {
       const fail = (message: string) => callback(null, false, { message });
       const [state, expiry, signature] = (readCookie(req.headers.cookie, name) ?? '').split('.');
       req.clearAuthStateCookie = name;
@@ -102,4 +161,5 @@ export function createCookieStateStore(options: CookieStateStoreOptions) {
       callback(null, true);
     },
   };
+  return impl as CookieStateStore;
 }
