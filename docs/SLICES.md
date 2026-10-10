@@ -43,7 +43,7 @@ Standalone: **Yes** means the slice imports and runs with the foundation slices 
 | [`datatable`](#datatable) | The responsive `DataTable`: a virtualized grid on desktop and cards on phones, with sort, filter, selection, CSV export and per-user column preferences. | Web | `core` | Yes |
 | [`sharing`](#sharing) | Groups, members and invites inside an organization, group-owned resources, per-resource grants, link shares and the access policy that decides who can see a record. | API, Web, Contract | `core`, `doctor`, `otel-core` | With app ports |
 | [`identity`](#identity) | Sign-in (Google and registered providers), JWT sessions with rotating refresh tokens, users, roles and permissions, the allowlist, personal access tokens, the device flow and organizations. | API, Web, Contract | `core`, `doctor`, `otel-core` | With slices |
-| [`settings`](#settings) | The system, organization and user settings documents, the namespace registries they are composed from and the resolver that reads a setting through the layers; in the web package the settings hub and the profile, appearance and organization settings pages. | API, Web, Contract | `core`, `identity`, `onboarding` | With slices |
+| [`settings`](#settings) | The system, organization and user settings documents, the namespace registries they are composed from and the resolver that reads a setting through the layers; in the web package the settings hub and the profile, appearance and organization settings pages. | API, Web, Contract | `core`, `credentials`, `identity`, `onboarding` | With slices |
 | [`credentials`](#credentials) | The encrypted credential store in three tiers (deployment, organization, user) and the purpose registries, so no feature stores a key of its own. | API, Web, Contract | `core` | With slices |
 | [`onboarding`](#onboarding) | First-run guidance: the welcome dialog, the admin Setup guide and the per-user Get started checklist, built from step and fact registries other slices add to. | API, Web, Contract | `core`, `doctor`, `identity`, `settings` | With slices |
 | [`email`](#email) | Outgoing email: SES and SMTP transports configured at runtime, the template registry with the platform's templates, the layout theme and the safe-HTML helpers. | API, Web, Contract | `core`, `credentials`, `doctor`, `identity`, `settings` | With slices |
@@ -237,7 +237,7 @@ None.
 
 **Permissions it adds.** none declared by this slice
 
-**Standalone (With slices).** Web only; imports core, settings and identity. Its five breakpoint gates move together. Transitive slice dependencies in Web: `core`, `identity`, `onboarding`, `settings`.
+**Standalone (With slices).** Web only; imports core, settings and identity. Its five breakpoint gates move together. Transitive slice dependencies in Web: `core`, `credentials`, `identity`, `onboarding`, `settings`.
 
 ### datatable
 
@@ -317,7 +317,7 @@ A capability an app mounts: its routes, jobs, settings, Doctor checks and, in th
 | Part | Import paths | Depends on (slices) | Install beyond the required peers | README |
 |---|---|---|---|---|
 | API (`platform-api`) | `/settings`, `/settings/testing` | `core`, `identity` | `@nestjs/config`, `@nestjs/event-emitter`, `@nestjs/jwt`, `@nestjs/passport`, `@nestjs/schedule`, `fastify`, `passport` | [README](../packages/platform-api/src/settings/README.md) |
-| Web (`platform-web`) | `/settings/headless`, `/settings/testing`, `/settings/ui` | `core`, `identity`, `onboarding` | `@mui/icons-material`, `react-router-dom` | [README](../packages/platform-web/src/settings/README.md) |
+| Web (`platform-web`) | `/settings/headless`, `/settings/testing`, `/settings/ui` | `core`, `identity`, `onboarding`, `credentials` | `@mui/icons-material`, `react-router-dom` | [README](../packages/platform-web/src/settings/README.md) |
 | Contract (`platform-contract`) | `/settings` | none | none | [README](../packages/platform-contract/src/settings/README.md) |
 
 **Admin and settings cards.**
