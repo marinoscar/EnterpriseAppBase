@@ -40,6 +40,7 @@ describe('@marinoscar/platform-api', () => {
     expect(manifest.exports).toEqual({
       '.': { types: './dist/index.d.ts', default: './dist/index.js' },
       './core': { types: './dist/core/index.d.ts', default: './dist/core/index.js' },
+      './core/testing': { types: './dist/core/testing/index.d.ts', default: './dist/core/testing/index.js' },
       './testing': { types: './dist/testing/index.d.ts', default: './dist/testing/index.js' },
       './doctor': { types: './dist/doctor/index.d.ts', default: './dist/doctor/index.js' },
       './otel-core': { types: './dist/otel-core/index.d.ts', default: './dist/otel-core/index.js' },

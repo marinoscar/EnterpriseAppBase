@@ -26,6 +26,10 @@
       "types": "./dist/core/index.d.ts",
       "default": "./dist/core/index.js"
     },
+    "./core/testing": {
+      "types": "./dist/core/testing/index.d.ts",
+      "default": "./dist/core/testing/index.js"
+    },
     "./testing": {
       "types": "./dist/testing/index.d.ts",
       "default": "./dist/testing/index.js"
