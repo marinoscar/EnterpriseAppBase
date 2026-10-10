@@ -78,23 +78,25 @@ value. Both appear on `/settings/notifications` automatically: a toggle for
 | `body` | Trimmed, 1–2,000 chars (`BROADCAST_BODY_MAX`). Plain text. |
 | `link` | Optional, ≤ 500 chars, root-relative: starts with `/`, not `//` or `/\`, no spaces or control characters. |
 | `ctaLabel` | Optional, 1–40 chars; requires `link`. |
-| `channels` | At least one of `email`, `browser`, `push`; no duplicates. |
+| `channels` | At least one registered channel id (`email`, `browser`, `push`, or a channel the app registered); no duplicates. The broadcast events deliver over the channels they declare. |
 | `scheduledFor` | Optional ISO-8601 with offset; must be in the future. |
-| `critical` | Boolean, default `false`. `critical: true` without `browser` in `channels` is a 400. |
+| `critical` | Boolean, default `false`. `critical: true` without a channel flagged `criticalCapable` (`browser`) in `channels` is a 400. |
 
 The `link` check produces a fixable 400 at compose time. The security
 boundary is still `sanitizeLink` in the browser channel, which silently drops a
 bad link at render time.
 
-Create returns `{ broadcast, warnings }`. The only warning today fires when
-`browser` was selected while the deployment-wide browser kill switch is off,
-and it says one of two things depending on the broadcast's importance: for
+Create returns `{ broadcast, warnings }`. A warning fires when a selected channel
+is switched off deployment-wide: when `browser` was selected while the browser
+kill switch is off it says one of two things depending on the broadcast's importance: for
 `admin.broadcast` (non-critical), the in-app row is not written at all and the
 bell never shows it — unless `push` is also selected and the recipient has an
 active subscription, which writes its own in-app row; for
 `admin.broadcast_critical` (mandatory), the row is still written and reaches
 the bell, only the OS toast is withheld. That is a warning, not a 400, because
-scheduling for after the switch is flipped back is legitimate.
+scheduling for after the switch is flipped back is legitimate. Any other
+selected channel an administrator switched off (`channels.<id>.enabled`) gets a
+single line saying nothing will be delivered over it.
 
 **Rendering.** The body splits into paragraphs on blank lines; a single
 newline inside a paragraph is joined with a space (mail clients reflow). Empty
@@ -273,8 +275,8 @@ muted cannot survive. `resolveChannels` stays free of the parameter because
 narrow a mandatory event; an admin choosing email-only is not a user opting
 out.
 
-`critical ⇒ browser` is enforced in `CreateBroadcastDto`'s `superRefine`, not
-in the dispatcher. In this app the `notifications` row written by the browser
+`critical ⇒ a criticalCapable channel` (`browser`) is enforced in
+`CreateBroadcastDto`'s `superRefine`, not in the dispatcher. In this app the `notifications` row written by the browser
 channel is the in-app record; a critical announcement without it leaves nothing
 to reread. It is a policy about what the composer may send. A future call site
 reaching `notifyNow('admin.broadcast_critical', …)` without this DTO could
@@ -456,12 +458,16 @@ an audit event with identifiers and shape, never the composed body.
 - **Exact per-broadcast delivery counts** would need a broadcast id on
   `notification_deliveries`; see §6 for why the template does not.
 - **A new send path for `admin.broadcast_critical`** outside
-  `CreateBroadcastDto` must enforce `critical ⇒ browser` itself.
+  `CreateBroadcastDto` must enforce `critical ⇒ a criticalCapable channel` itself.
 - **New job types that chain themselves** must enqueue their successor with
   `skipDedup: true`, as the chunk handler does. The general recipe is
   [`packages/platform-api/src/jobs/handlers/README.md`](../../packages/platform-api/src/jobs/handlers/README.md).
-- Adding a channel to the broadcast events is a registry edit plus a template;
-  see the [notifications README](../../packages/platform-api/src/notifications/README.md).
+- Adding a channel to the broadcast events is a registry edit plus a template:
+  the app registers a copy of the broadcast registrations with the channel added
+  and a template bound (`adaptPlatformBroadcasts` in the reference app), and the
+  composer offers it from `GET /api/notifications/channels` (`broadcastCapable`).
+  See [EXTENDING.md, Add a notification channel](../EXTENDING.md#add-a-notification-channel)
+  and the [notifications README](../../packages/platform-api/src/notifications/README.md).
 
 ## 5. Guardrails
 

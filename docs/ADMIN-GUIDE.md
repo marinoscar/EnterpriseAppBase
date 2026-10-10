@@ -208,7 +208,7 @@ Three pages cover notifications.
 | Page | Route | Who | What it does |
 |---|---|---|---|
 | Notifications (user) | `/settings/notifications` | every user | Choose which events notify you and whether they arrive by email or in your browser |
-| Notifications (admin) | `/admin/settings/notifications` | `system_settings:read` to view, `system_settings:write` to change | Switch browser notifications off for everyone, and suppress single events |
+| Notifications (admin) | `/admin/settings/notifications` | `system_settings:read` to view, `system_settings:write` to change | Switch browser notifications off for everyone, suppress single events, and switch off a delivery channel the application added (Slack, SMS, a webhook) |
 | Web Push | `/admin/settings/push` | `push:read` to view, `push:write` to change | Generate and manage the VAPID key pair that browser push needs |
 | Broadcasts | `/admin/settings/broadcasts` | `broadcasts:read` / `broadcasts:write`; `org_broadcasts:read` / `org_broadcasts:write` for your own organization | Announce something to every active user |
 

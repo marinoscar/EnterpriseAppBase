@@ -175,9 +175,13 @@ describe('the webhook channel in the reference app (PP-14.10)', () => {
       expect(channels.find((channel) => channel.id === 'webhook')).toMatchObject({
         label: 'Webhook',
         criticalCapable: false,
+        broadcastCapable: true,
         broadcastDefault: false,
         userConfigurable: true,
       });
+      // Registered, but the broadcast events do not declare it: the composer must not offer it.
+      expect(channels.find((channel) => channel.id === 'android_app')).toMatchObject({ broadcastCapable: false });
+      expect(channels.filter((channel) => channel.broadcastDefault).map((channel) => channel.id)).toEqual(['email', 'browser']);
       expect(channels.filter((channel) => channel.criticalCapable).map((channel) => channel.id)).toEqual(['browser']);
     });
 
