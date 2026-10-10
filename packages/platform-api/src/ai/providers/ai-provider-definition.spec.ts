@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { z } from 'zod';
 
-import { PluggableUnknownError } from '../../core/pluggable/index';
+import { PluggableUnknownError } from '../../core/index';
 import {
   aiProviderDefinitions,
   aiProviderKind,

@@ -27,7 +27,7 @@ import { AI_PROVIDER_ID_PATTERN } from '@marinoscar/platform-contract/ai';
 import type { PluggableDescriptor } from '@marinoscar/platform-contract/settings';
 import { z } from 'zod';
 
-import { definePluggableKind, type PluggableImplementation, type PluggableKind } from '../../core/pluggable/index';
+import { definePluggableKind, type PluggableImplementation, type PluggableKind } from '../../core/index';
 
 /**
  * What an app or package tells the AI slice about a provider it adds.

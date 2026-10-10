@@ -17,7 +17,7 @@ import { PLATFORM_PRISMA } from '../../core/index';
 import { SystemSettingsService } from '../../settings/index';
 import { AiError, isAiErrorCode } from '../core/ai-error';
 import type { AiProviderAdapter } from '../core/provider-adapter.interface';
-import { PluggableSettingsError } from '../../core/pluggable/index';
+import { PluggableSettingsError } from '../../core/index';
 import { AiProviderRegistry } from '../core/provider-registry';
 // Registers the five built-in providers (side effect): the admin service reads the registry.
 import '../providers/builtin-ai-providers';

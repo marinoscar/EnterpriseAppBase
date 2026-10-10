@@ -25,7 +25,7 @@ import {
 } from '@marinoscar/platform-contract/ai';
 import { aiSettingsPatchSchema, aiSettingsSchema } from '@marinoscar/platform-contract/ai';
 import { aiResponseSchema } from '@marinoscar/platform-contract/ai';
-import { PluggableSettingsError, PluggableUnknownError } from '../core/pluggable/index';
+import { PluggableSettingsError, PluggableUnknownError } from '../core/index';
 import { mergeOptional } from '../settings/index';
 import type {
   SettingsReadHelpers,
