@@ -1,6 +1,6 @@
 {
   "name": "@marinoscar/platform-infra",
-  "version": "0.1.0-next.3",
+  "version": "0.1.0-next.4",
   "description": "Compose fragments, nginx and OpenTelemetry collector configuration of the platform (ESM).",
   "license": "MIT",
   "type": "module",
