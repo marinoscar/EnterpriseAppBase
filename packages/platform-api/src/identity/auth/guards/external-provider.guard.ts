@@ -52,8 +52,12 @@ export function createPassportProviderGuard(strategyName: string): Type<CanActiv
   class PassportProviderGuard extends AuthGuard(strategyName) {
     getRequest(context: ExecutionContext) {
       const request = context.switchToHttp().getRequest();
+      const raw = request.raw || request;
+      // Passport strategies read `req.query` (Express); Node's IncomingMessage
+      // has none, so hand it the Fastify request's parsed query.
+      if (raw !== request && raw.query === undefined) raw.query = request.query;
       // Return the raw Node.js IncomingMessage for Passport compatibility
-      return request.raw || request;
+      return raw;
     }
 
     getResponse(context: ExecutionContext) {
