@@ -160,8 +160,11 @@ export class EmailTransportResolver implements OnModuleDestroy {
       return { ok: false, error: `Email transport "${id}" could not be built: ${describe(error)}` };
     }
 
+    // Read AGAIN after the await: a concurrent resolve may have replaced the
+    // entry meanwhile, and the transport actually superseded is that one.
+    const superseded = this.cache.get(id);
     this.cache.set(id, { fingerprint, transport });
-    if (cached) await this.release(id, cached.transport);
+    if (superseded) await this.release(id, superseded.transport);
 
     return { ok: true, id, label: definition.label, transport };
   }

@@ -82,6 +82,20 @@ describe('EmailTransportResolver', () => {
     expect(built[1]!.transport.destroyed).toBe(false);
   });
 
+  it('releases the transport actually superseded when two resolves race', async () => {
+    const { instance } = resolver();
+
+    const [first, second] = await Promise.all([
+      instance.resolve({ provider: 'resolver-spec', transports: { 'resolver-spec': { host: 'a.example.test' } } }),
+      instance.resolve({ provider: 'resolver-spec', transports: { 'resolver-spec': { host: 'b.example.test' } } }),
+    ]);
+
+    expect([first.ok, second.ok]).toEqual([true, true]);
+    expect(built).toHaveLength(2);
+    // Exactly one stays live (the later write wins) and the other was released, none twice.
+    expect(built.filter((entry) => entry.transport.destroyed)).toHaveLength(1);
+  });
+
   it('releases every cached transport on shutdown', async () => {
     const { instance } = resolver();
     await instance.resolve({ provider: 'resolver-spec' });
