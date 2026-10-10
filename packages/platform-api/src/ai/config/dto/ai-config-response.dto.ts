@@ -2,6 +2,7 @@ import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
 import { AI_KEY_POLICIES, AI_OPENAI_API_STYLES } from '@marinoscar/platform-contract/ai';
+import { pluggableDescriptorSchema } from '@marinoscar/platform-contract/settings';
 import { AI_CAPABILITIES } from '../../core/capabilities';
 
 // =============================================================================
@@ -36,10 +37,12 @@ export const aiAdminProviderSchema = z.object({
    */
   registered: z.boolean(),
   /**
-   * `false` for a registered adapter that has no settings slot yet (#921): an
-   * app registered it under a new id, so the `ai` namespace cannot store its
-   * settings and it cannot be enabled. Absent means configurable. A form shows
-   * such a provider read-only and does not send it back on save.
+   * `false` for a registered adapter that has no provider definition (#921,
+   * PP-14.6): an app registered it straight into the adapter registry, so the
+   * `ai` namespace has no slot for its settings and it cannot be enabled.
+   * Absent means configurable; every provider registered with
+   * `registerAiProvider` is. A form shows such a provider read-only and does
+   * not send it back on save.
    */
   configurable: z.boolean().optional(),
   /** The `ai.providers.<id>.enabled` switch, as stored. */
@@ -58,7 +61,21 @@ export const aiAdminProviderSchema = z.object({
    * `deployments` for `azure-openai`, and `apiStyle` and `requiresKey` for
    * `openai-compatible`. A form renders exactly these.
    */
-  settingsFields: z.array(z.enum(['baseUrl', 'apiVersion', 'apiStyle', 'deployments', 'requiresKey'])),
+  settingsFields: z.array(z.string()),
+  /**
+   * The provider's settings, as stored, besides `enabled` (PP-14.6): the
+   * values of exactly the `settingsFields`. The built-ins' also have the
+   * typed `baseUrl`, `apiVersion`, `apiStyle`, `deployments` and `requiresKey`
+   * properties below; a provider an app registered has only these.
+   */
+  settings: z.record(z.string(), z.unknown()),
+  /**
+   * Whether the provider cannot be enabled before `baseUrl` is set (it has no
+   * default host): `azure-openai` and `openai-compatible`.
+   */
+  requiresBaseUrl: z.boolean(),
+  /** The provider's own help texts for its key and endpoint fields, when it declares any. */
+  help: z.object({ key: z.string().optional(), baseUrl: z.string().optional() }).optional(),
   /** Azure OpenAI `api-version`, or null for the default (`2025-04-01-preview`). */
   apiVersion: z.string().nullable(),
   /**
@@ -134,6 +151,15 @@ export const aiConfigResponseSchema = z.object({
   deploymentKeyServesOrgs: z.boolean(),
   /** Registered providers ∪ providers with a settings slot. */
   providers: z.array(aiAdminProviderSchema),
+  /**
+   * One generated-form descriptor per provider registered with
+   * `registerAiProvider` (PP-14.6), in the order of `providers`: the
+   * `enabled` switch, the provider's settings fields and, when it needs a key,
+   * a write-only `apiKey` secret field that says only whether a key is stored.
+   * The built-ins' have descriptors too; their admin cards keep their bespoke
+   * form and a provider an app added is rendered from its descriptor.
+   */
+  descriptors: z.array(pluggableDescriptorSchema),
   /** The system-settings row version — send it back as `If-Match` on `PUT`. `0` when nothing is stored yet. */
   version: z.number().int(),
   updatedAt: z.iso.datetime().nullable(),

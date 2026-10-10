@@ -195,7 +195,7 @@ export class AiCatalogService {
 
     // A keyless provider (#448: `requiresKey: false`) lists its models with
     // no key at all; every other provider needs the admin key to discover.
-    const discoveryKey = apiKey ?? (providerRequiresKey(providerPolicy) ? null : AI_KEYLESS_API_KEY);
+    const discoveryKey = apiKey ?? (providerRequiresKey(providerPolicy, providerId) ? null : AI_KEYLESS_API_KEY);
 
     if (!discoveryKey) {
       return { skipped: 'NO_ADMIN_KEY' };

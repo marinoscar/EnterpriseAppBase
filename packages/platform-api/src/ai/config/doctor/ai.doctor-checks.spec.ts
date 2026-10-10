@@ -19,6 +19,8 @@ function provider(overrides: Partial<AiAdminProvider> = {}): AiAdminProvider {
     enabled: true,
     baseUrl: null,
     settingsFields: [],
+    settings: {},
+    requiresBaseUrl: false,
     apiVersion: null,
     apiStyle: null,
     deployments: null,

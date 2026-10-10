@@ -17,20 +17,29 @@ import { PLATFORM_PRISMA } from '../../core/index';
 import { SystemSettingsService } from '../../settings/index';
 import { AiError, isAiErrorCode } from '../core/ai-error';
 import type { AiProviderAdapter } from '../core/provider-adapter.interface';
+import { PluggableSettingsError } from '../../core/pluggable/index';
 import { AiProviderRegistry } from '../core/provider-registry';
+// Registers the five built-in providers (side effect): the admin service reads the registry.
+import '../providers/builtin-ai-providers';
 import {
   AI_CREDENTIAL_PURPOSE,
   aiCredentialLabel,
   aiCredentialName,
 } from './ai-credential.constants';
 import {
-  AI_PROVIDER_SETTINGS_FIELDS,
+  aiProviderDefinitions,
+  aiProviderKind,
+  defaultAiProviderSlot,
+  describeAiProvider,
+  getAiProviderDefinition,
+  requireAiProviderDefinition,
+} from '../providers/ai-provider-definition';
+import {
   AiConfigService,
   providerCallSettings,
   providerPolicy,
   providerRequiresKey,
   providerSettingsFields,
-  providerSlotSchema,
   type AiProviderPolicy,
 } from './ai-config.service';
 import type {
@@ -74,13 +83,6 @@ export const AI_CONFIG_REJECTIONS = {
   /** Enabling a provider that cannot work without an endpoint (#448) before one is set. */
   BASE_URL_REQUIRED: 'AI_BASE_URL_REQUIRED',
 } as const;
-
-/**
- * Providers that have no default host and so cannot be enabled without a
- * `baseUrl` (#448): an Azure resource and a self-hosted server are, by
- * definition, somewhere only the administrator knows.
- */
-const PROVIDERS_REQUIRING_BASE_URL = new Set(['azure-openai', 'openai-compatible']);
 
 type SettingsRow = {
   version: number;
@@ -138,6 +140,7 @@ export class AiConfigAdminService {
       limits: structuredClone(policy.limits),
       deploymentKeyServesOrgs: policy.deploymentKeyServesOrgs,
       providers: ids.map((id, index) => this.describeProvider(id, policy, keyInfos[index])),
+      descriptors: ids.flatMap((id, index) => (getAiProviderDefinition(id) ? [describeAiProvider(id, keyInfos[index] !== null)] : [])),
       version: row?.version ?? 0,
       updatedAt: row?.updatedAt.toISOString() ?? null,
       updatedBy: row?.updatedByUser ?? null,
@@ -276,7 +279,7 @@ export class AiConfigAdminService {
    * Read fresh: it gates an admin action.
    */
   async providerRequiresKey(provider: string): Promise<boolean> {
-    return providerRequiresKey(providerPolicy(await this.aiConfig.resolve({ fresh: true }), provider));
+    return providerRequiresKey(providerPolicy(await this.aiConfig.resolve({ fresh: true }), provider), provider);
   }
 
   /** The adapter for `provider`, or a 404 naming it. */
@@ -290,9 +293,15 @@ export class AiConfigAdminService {
     return adapter;
   }
 
-  /** Registered providers first (registration order), then settings-only slots. */
+  /**
+   * Registered adapters first (registration order: the built-ins, then an
+   * app's own), then providers with a definition whose adapter is not loaded,
+   * then any other settings slot.
+   */
   knownProviderIds(policy: SystemAiValue): string[] {
-    return [...new Set([...this.registry.ids(), ...Object.keys(policy.providers)])];
+    return [
+      ...new Set([...this.registry.ids(), ...aiProviderDefinitions().map((def) => def.id), ...Object.keys(policy.providers)]),
+    ];
   }
 
   // ---------------------------------------------------------------------------
@@ -303,19 +312,25 @@ export class AiConfigAdminService {
     keyInfo: CredentialInfo | null,
   ): AiAdminProvider {
     const adapter = this.registry.get(id);
+    const definition = getAiProviderDefinition(id);
     const slot = providerPolicy(policy, id);
+    const { enabled: _enabled, ...settings } = slot ?? { enabled: false };
 
     return {
       id,
-      displayName: adapter?.displayName ?? id,
+      displayName: adapter?.displayName ?? definition?.label ?? id,
       registered: adapter !== undefined,
-      // #921: an adapter an app registered under a new id has no settings slot
-      // yet. Reported only when false, so a provider that has a slot keeps the
-      // exact response it always had.
+      // #921: an adapter registered without a provider definition has no
+      // settings slot, so the `ai` namespace cannot store its settings and it
+      // cannot be enabled. Reported only when false, so a provider that has a
+      // slot keeps the exact response it always had.
       ...(slot === undefined ? { configurable: false } : {}),
       enabled: slot?.enabled ?? false,
       baseUrl: slot?.baseUrl ?? null,
       settingsFields: providerSettingsFields(id),
+      settings: structuredClone(settings) as Record<string, unknown>,
+      requiresBaseUrl: definition?.requiresBaseUrl === true,
+      ...(definition?.help ? { help: { ...definition.help } } : {}),
       apiVersion: slot?.apiVersion ?? null,
       apiStyle: slot?.apiStyle ?? null,
       deployments: slot?.deployments ? { ...slot.deployments } : null,
@@ -332,18 +347,20 @@ export class AiConfigAdminService {
 
   /**
    * The namespace to write. A provider the body leaves out keeps its stored
-   * slot; a provider id with no settings slot is a 400, as is ENABLING a
+   * slot; a provider id nobody registered is a 400, as is ENABLING a
    * provider no adapter is registered for (it could never serve a call).
    *
-   * The one tolerated slotless id (#921) is a REGISTERED adapter (an app added
-   * it) submitted exactly as `describeForAdmin` describes it: switched off, no
-   * settings. The admin form sends every listed provider back, so refusing
-   * that would fail every save. It is ignored, never stored; anything else for
-   * it, and any id the registry does not know either, stays a 400.
+   * The one tolerated slotless id (#921) is a REGISTERED adapter without a
+   * provider definition (an app registered it straight into
+   * `AiProviderRegistry`) submitted exactly as `describeForAdmin` describes
+   * it: switched off, no settings. The admin form sends every listed provider
+   * back, so refusing that would fail every save. It is ignored, never
+   * stored; anything else for it, and any id the registry does not know
+   * either, stays a 400.
    */
   private buildNext(current: SystemAiValue, input: UpdateAiConfigInput): SystemAiValue {
     for (const [id, submitted] of Object.entries(input.providers)) {
-      if (providerPolicy(current, id) !== undefined) continue;
+      if (getAiProviderDefinition(id) !== undefined) continue;
 
       if (!this.registry.get(id)) {
         throw this.unknownProvider(id, BadRequestException);
@@ -351,7 +368,7 @@ export class AiConfigAdminService {
 
       if (!isSlotlessDefault(submitted)) {
         throw new BadRequestException({
-          message: `AI provider "${id}" is registered but cannot be configured yet: it has no settings slot.`,
+          message: `AI provider "${id}" is registered but cannot be configured: it has no provider definition (registerAiProvider).`,
           details: { reason: AI_CONFIG_REJECTIONS.UNKNOWN_PROVIDER, provider: id },
         });
       }
@@ -359,12 +376,12 @@ export class AiConfigAdminService {
 
     const providers: Record<string, AiProviderPolicy> = {};
 
-    for (const id of Object.keys(current.providers)) {
-      const stored = providerPolicy(current, id) as AiProviderPolicy;
+    for (const id of new Set([...aiProviderDefinitions().map((def) => def.id), ...Object.keys(current.providers)])) {
       const submitted = input.providers[id];
 
       if (!submitted) {
-        providers[id] = stored;
+        const stored = providerPolicy(current, id) ?? (getAiProviderDefinition(id) ? defaultAiProviderSlot(id) : undefined);
+        if (stored) providers[id] = stored;
         continue;
       }
 
@@ -410,19 +427,19 @@ export class AiConfigAdminService {
   /**
    * One provider's next slot from its submitted settings (#448). Every field
    * the body leaves empty is ABSENT (the provider default) — full replace, as
-   * for `baseUrl` before it. A value for a field this provider's slot does not
-   * have is a 400 rather than silently dropped, and the built slot must pass
-   * the provider's own schema (an `https`-only Azure endpoint, no credentials
-   * in a URL): the admin form is the one place such a mistake can be caught
-   * before it breaks every call.
+   * for `baseUrl` before it. A value for a field this provider's definition
+   * does not declare is a 400 rather than silently dropped, and the built slot
+   * must pass the provider's own `settingsSchema` (an `https`-only Azure
+   * endpoint, no credentials in a URL): the admin form is the one place such a
+   * mistake can be caught before it breaks every call.
    */
   private buildSlot(id: string, submitted: UpdateAiConfigInput['providers'][string]): AiProviderPolicy {
+    const definition = requireAiProviderDefinition(id);
     const allowed = new Set<string>(providerSettingsFields(id));
     const slot: Record<string, unknown> = { enabled: submitted.enabled };
 
-    for (const field of AI_PROVIDER_SETTINGS_FIELDS) {
-      const raw = submitted[field];
-      if (isEmptySettingsValue(field, raw)) continue;
+    for (const [field, raw] of Object.entries(submitted)) {
+      if (field === 'enabled' || isEmptySettingsValue(raw)) continue;
 
       if (!allowed.has(field)) {
         throw new BadRequestException({
@@ -431,32 +448,36 @@ export class AiConfigAdminService {
         });
       }
 
-      slot[field] = field === 'deployments' ? { ...(raw as Record<string, string>) } : raw;
+      slot[field] = structuredClone(raw);
     }
 
-    const parsed = providerSlotSchema(id)?.safeParse(slot);
+    let parsed: Record<string, unknown>;
 
-    if (parsed && !parsed.success) {
+    try {
+      parsed = aiProviderKind.parseSettings(id, slot);
+    } catch (error) {
+      if (!(error instanceof PluggableSettingsError)) throw error;
+
       throw new BadRequestException({
-        message: `The settings for AI provider "${id}" are not valid: ${parsed.error.issues
+        message: `The settings for AI provider "${id}" are not valid: ${error.issues
           .map((issue) => `${issue.path.join('.') || id}: ${issue.message}`)
           .join('; ')}.`,
         details: {
           reason: AI_CONFIG_REJECTIONS.SETTINGS_INVALID,
           provider: id,
-          fields: [...new Set(parsed.error.issues.map((issue) => String(issue.path[0] ?? '')))].filter(Boolean),
+          fields: [...new Set(error.issues.map((issue) => String(issue.path[0] ?? '')))].filter(Boolean),
         },
       });
     }
 
-    if (submitted.enabled && PROVIDERS_REQUIRING_BASE_URL.has(id) && !slot.baseUrl) {
+    if (submitted.enabled && definition.requiresBaseUrl === true && !parsed.baseUrl) {
       throw new BadRequestException({
         message: `AI provider "${id}" needs a base URL before it can be enabled.`,
         details: { reason: AI_CONFIG_REJECTIONS.BASE_URL_REQUIRED, provider: id },
       });
     }
 
-    return slot as unknown as AiProviderPolicy;
+    return parsed as unknown as AiProviderPolicy;
   }
 
   /**
@@ -477,7 +498,7 @@ export class AiConfigAdminService {
       const slot = providerPolicy(next, id);
 
       // A keyless provider (#448) is served with no key at all: it needs no fallback.
-      if (!slot?.enabled || !providerRequiresKey(slot)) continue;
+      if (!slot?.enabled || !providerRequiresKey(slot, id)) continue;
 
       const info = await this.credentials.describe(AI_CREDENTIAL_PURPOSE, aiCredentialName(id));
 
@@ -566,12 +587,12 @@ export class AiConfigAdminService {
 }
 
 /** A submitted provider setting that means "the provider default": absent, null, empty, or an empty map. */
-function isEmptySettingsValue(field: (typeof AI_PROVIDER_SETTINGS_FIELDS)[number], raw: unknown): boolean {
+function isEmptySettingsValue(raw: unknown): boolean {
   return (
     raw === undefined ||
     raw === null ||
     raw === '' ||
-    (field === 'deployments' && typeof raw === 'object' && Object.keys(raw).length === 0)
+    (typeof raw === 'object' && !Array.isArray(raw) && Object.keys(raw).length === 0)
   );
 }
 
@@ -583,7 +604,7 @@ function isEmptySettingsValue(field: (typeof AI_PROVIDER_SETTINGS_FIELDS)[number
 function isSlotlessDefault(submitted: UpdateAiConfigInput['providers'][string]): boolean {
   return (
     !submitted.enabled &&
-    AI_PROVIDER_SETTINGS_FIELDS.every((field) => isEmptySettingsValue(field, submitted[field]))
+    Object.entries(submitted).every(([field, raw]) => field === 'enabled' || isEmptySettingsValue(raw))
   );
 }
 
@@ -610,7 +631,7 @@ export function toPatch(next: SystemAiValue) {
           },
         ];
       }),
-    ) as Record<keyof SystemAiValue['providers'], { enabled: boolean; baseUrl: string | null }>,
+    ) as Record<string, { enabled: boolean } & Record<string, unknown>>,
     defaults: {
       allowBackgroundRuns: next.defaults.allowBackgroundRuns,
       allowRealtime: next.defaults.allowRealtime,

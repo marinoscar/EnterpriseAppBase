@@ -130,6 +130,8 @@ describe('AiConfigAdminService', () => {
           enabled: true,
           baseUrl: 'https://gw.example.com',
           settingsFields: ['baseUrl'],
+          settings: { baseUrl: 'https://gw.example.com' },
+          requiresBaseUrl: false,
           apiVersion: null,
           apiStyle: null,
           deployments: null,

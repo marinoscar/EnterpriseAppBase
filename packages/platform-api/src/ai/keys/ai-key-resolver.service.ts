@@ -177,7 +177,7 @@ export class AiKeyResolver {
 
   /** Rule 0: the administrator marked this provider `requiresKey: false`. */
   private async keyless(provider: string): Promise<boolean> {
-    return !providerRequiresKey(providerPolicy(await this.aiConfig.resolve(), provider));
+    return !providerRequiresKey(providerPolicy(await this.aiConfig.resolve(), provider), provider);
   }
 
   /**
