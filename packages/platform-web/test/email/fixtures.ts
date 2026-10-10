@@ -58,7 +58,7 @@ export const logDescriptor = (): PluggableDescriptor => ({
 });
 
 /** An invented transport with a required secret, a select, a switch and a number. */
-export const relayDescriptor = (): PluggableDescriptor => ({
+export const relayDescriptor = (hasValue = false): PluggableDescriptor => ({
   kind: 'email-transport',
   id: 'relay-api',
   label: 'Relay API',
@@ -68,7 +68,7 @@ export const relayDescriptor = (): PluggableDescriptor => ({
     { kind: 'enum', name: 'region', label: 'Data region', options: ['us', 'eu'] },
     { kind: 'boolean', name: 'sandbox', label: 'Sandbox mode' },
     { kind: 'number', name: 'retries', label: 'Retries', min: 0, max: 5, integer: true },
-    { kind: 'secret', name: 'apiKey', label: 'API key', hasValue: false, required: true },
+    { kind: 'secret', name: 'apiKey', label: 'API key', hasValue, required: true },
   ],
 });
 

@@ -29,17 +29,31 @@
  * five seconds carrying the one string the admin needed to read twice.
  *
  * -----------------------------------------------------------------------------
- * THE WIRE SHAPE IS FLAT, AND "OFF" IS TWO FIELDS
+ * TRANSPORTS ARE PLUGGABLE, AND "OFF" IS TWO FIELDS
  * -----------------------------------------------------------------------------
  *
- * `EmailSettings` is one flat object — `sesRegion`, `smtpHost`, `smtpPort` and
- * friends are siblings, not members of `ses: {…}` / `smtp: {…}` groups — and
- * "email is turned off" is `enabled: false`, NOT a third `provider` value. See
- * `types/index.ts` for both, and `providerChoice` / `applyProviderChoice` below
- * for how the two fields reach one radio group without either being lost.
+ * The API describes every registered email transport (`descriptors`) and
+ * carries each one's settings (`transports.<id>`) and the masked status of its
+ * secrets (`secretStatuses`). The page draws one radio per descriptor and the
+ * selected transport's form below it. WHICH component draws that form is the
+ * panel registry's decision (`./emailTransportPanelRegistry.ts`): the two
+ * built-ins register their bespoke panels (`SesTransportPanel`,
+ * `SmtpTransportPanel`, moved verbatim, so their markup did not change), every
+ * other transport gets `EmailGenericTransportPanel`, generated from its
+ * descriptor.
+ *
+ * "Email is turned off" is `enabled: false`, NOT a third `provider` value. See
+ * `providerChoice` below for how the two fields reach one radio group without
+ * either being lost.
+ *
+ * ONLY THE SELECTED TRANSPORT'S SETTINGS AND TYPED SECRETS ARE SENT. The API
+ * merges `transports.<id>` over what is stored and leaves every other
+ * transport's settings alone, so switching between transports and back loses
+ * nothing in the stored row (the edits to a transport that is not selected
+ * stay on this page until it is reloaded).
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import {
   Alert,
@@ -63,27 +77,30 @@ import {
   Typography,
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
+import type { PluggableDescriptor } from '@marinoscar/platform-contract/settings';
 import { Navigate } from 'react-router-dom';
 import { usePlatformViewer } from '../../core/index.js';
 import { useEmailSettings } from '../headless/index.js';
-import type {
-  EmailProviderKind,
-  EmailSettings,
-  EmailSettingsInput,
-  SmtpPasswordStatus,
-} from '../headless/index.js';
+import type { EmailProviderKind, EmailSettings, EmailSettingsInput } from '../headless/index.js';
+import { withTransportDefaults } from '../headless/normalize-email-settings.js';
+import { registerBuiltinEmailTransportPanels } from './builtinEmailTransportPanels.js';
+import { EmailGenericTransportPanel } from './EmailGenericTransportPanel.js';
+import { getEmailTransportPanel, getEmailTransportPanelOptions } from './emailTransportPanelRegistry.js';
+
+// The two built-in transports draw their bespoke panel through the same
+// registry an app uses (PP-14.8); every other transport is drawn by
+// `EmailGenericTransportPanel` from its descriptor.
+registerBuiltinEmailTransportPanels();
+
+/** One transport's settings as edited, by setting name. */
+type TransportValue = Record<string, unknown>;
+
+/** The typed (write-only) secrets, by transport id and declared name. */
+type TypedSecretsById = Record<string, Record<string, string>>;
 
 /**
- * The form's own state, FLAT and all-strings-where-typed.
- *
- * Flat for two reasons now: every field is edited independently, and the
- * payload it is built from and turned back into is flat as well, so there is
- * no regrouping step in either direction to get wrong.
- *
- * `smtpPort` is a string rather than a number because a number-typed control
- * cannot hold the intermediate empty value a user passes through while
- * retyping a port — binding it to a `number` makes the field impossible to
- * clear, which reads as a broken input. It is parsed once, at submit.
+ * The form's own state: the four settings every transport shares, and the
+ * edited settings of every transport the API described, by transport id.
  */
 interface EmailFormState {
   /** `null` is "no transport chosen", exactly as on the wire. */
@@ -91,16 +108,9 @@ interface EmailFormState {
   enabled: boolean;
   fromAddress: string;
   fromName: string;
-  sesRegion: string;
-  sesAccessKeyId: string;
-  smtpHost: string;
-  smtpPort: string;
-  /** REQUIRE TLS — see `EmailSettings.smtpUseTls`. Not nodemailer's `secure`. */
-  smtpUseTls: boolean;
-  smtpUsername: string;
+  /** Every described transport's settings in the shape its panel edits. */
+  transports: Record<string, TransportValue>;
 }
-
-const DEFAULT_SMTP_PORT = '587';
 
 /** The API's own ceiling on `fromName` (`emailSettingsSchema`, `.max(100)`). */
 const MAX_FROM_NAME_LENGTH = 100;
@@ -127,10 +137,8 @@ const MAX_FROM_NAME_LENGTH = 100;
  *   null      false   | (none)       off    | fresh install, nothing set up
  *   null      true    | (none)       on     | rejected by `validate` — on with
  *                                           |   nothing to send through
- *   'ses'     true    | Amazon SES   on     | sending via SES
- *   'smtp'    true    | SMTP         on     | sending via SMTP
- *   'ses'     false   | Amazon SES   off    | configured, deliberately off
- *   'smtp'    false   | SMTP         off    | configured, deliberately off
+ *   '<id>'    true    | <its label>  on     | sending via that transport
+ *   '<id>'    false   | <its label>  off    | configured, deliberately off
  *
  * There is deliberately no control that returns `provider` to `null` once a
  * transport has been picked. "I do not want mail sent" is the switch; going
@@ -142,7 +150,22 @@ function providerChoice(provider: EmailProviderKind | null): string {
   return provider ?? '';
 }
 
-function toFormState(settings: EmailSettings): EmailFormState {
+/** A copy of `value` with the text settings the descriptor declares and nobody filled in as `''`. */
+function withTextDefaults(descriptor: PluggableDescriptor | undefined, value: Readonly<TransportValue>): TransportValue {
+  const out: TransportValue = { ...value };
+  for (const field of descriptor?.fields ?? []) {
+    if (field.kind === 'string' && out[field.name] === undefined) out[field.name] = '';
+  }
+  return out;
+}
+
+function toFormState(settings: EmailSettings, descriptors: readonly PluggableDescriptor[]): EmailFormState {
+  const transports: Record<string, TransportValue> = {};
+  for (const descriptor of descriptors) {
+    const stored: TransportValue = { ...(settings.transports[descriptor.id] ?? {}) };
+    const toForm = getEmailTransportPanelOptions(descriptor.id).toForm;
+    transports[descriptor.id] = toForm ? toForm(stored) : stored;
+  }
   return {
     provider: settings.provider,
     enabled: settings.enabled,
@@ -150,76 +173,8 @@ function toFormState(settings: EmailSettings): EmailFormState {
     // API strips empties before writing), so `?? ''` is the whole conversion.
     fromAddress: settings.fromAddress ?? '',
     fromName: settings.fromName ?? '',
-    sesRegion: settings.sesRegion ?? '',
-    sesAccessKeyId: settings.sesAccessKeyId ?? '',
-    smtpHost: settings.smtpHost ?? '',
-    // An absent port renders as the STARTTLS default rather than as blank or
-    // "0": it is both a legal port and an obvious default to an admin, and it
-    // is the value the API's provider would fall back to anyway.
-    smtpPort: settings.smtpPort != null ? String(settings.smtpPort) : DEFAULT_SMTP_PORT,
-    // ABSENT MEANS TRUE, matching `smtp-email.provider.ts` (`settings.smtpUseTls ?? true`).
-    // Defaulting the toggle to off here would show every unconfigured
-    // deployment a screen claiming TLS is not required when in fact it is.
-    smtpUseTls: settings.smtpUseTls ?? true,
-    smtpUsername: settings.smtpUsername ?? '',
+    transports,
   };
-}
-
-/**
- * The port as the API wants it: a number, or `''` for "not configured".
- *
- * `Number('')` is 0 and `Number('abc')` is NaN, and both would reach the wire
- * as something wrong — 0 is below the schema's minimum, and NaN JSON-serialises
- * to `null`, which the API accepts and reads as "unset", so a typo would
- * silently erase a working port. Anything that is not a whole number in range
- * becomes the explicit empty box instead; `validate` is what stops a bad value
- * being submitted while it actually matters.
- */
-function toPortValue(raw: string): number | '' {
-  const trimmed = raw.trim();
-  if (!trimmed) return '';
-  const port = Number(trimmed);
-  return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : '';
-}
-
-/**
- * What to say about the stored SMTP password.
- *
- * `hint` is the credential store's own mask (`••••` plus at most the last four
- * characters), derived on write by the code that held the plaintext. It beats a
- * fixed placeholder outright: an admin who has just rotated a credential can
- * see WHICH one is live, not merely that one exists. It can still be null — for
- * a secret too short to mask safely, or a row written outside
- * `CredentialsService` — so the sentence is assembled to read correctly
- * without it rather than assuming it is there.
- */
-function smtpPasswordHelperText(status: SmtpPasswordStatus): string {
-  if (!status.configured) {
-    return 'No password is saved yet. Leave blank if this server does not need one.';
-  }
-  const which = status.hint ? ` (${status.hint})` : '';
-  const when = status.updatedAt
-    ? `, last changed ${new Date(status.updatedAt).toLocaleDateString()}`
-    : '';
-  return `A password is saved${which}${when}. Leave this blank to keep it, or type a new one to replace it.`;
-}
-
-/**
- * What to say about the stored SES secret access key — the same three-state
- * wording as {@link smtpPasswordHelperText}, and for the same reason: this
- * field is BLANK-PRESERVES too (see `EmailSettingsInput.sesSecretAccessKey`),
- * so the box is honest about whether leaving it alone keeps something or
- * keeps nothing.
- */
-function sesSecretAccessKeyHelperText(status: SmtpPasswordStatus): string {
-  if (!status.configured) {
-    return 'No secret access key is saved yet. SES cannot send until one is.';
-  }
-  const which = status.hint ? ` (${status.hint})` : '';
-  const when = status.updatedAt
-    ? `, last changed ${new Date(status.updatedAt).toLocaleDateString()}`
-    : '';
-  return `A secret access key is saved${which}${when}. Leave this blank to keep it, or type a new one to replace it.`;
 }
 
 /**
@@ -232,59 +187,48 @@ function sesSecretAccessKeyHelperText(status: SmtpPasswordStatus): string {
  * Two tiers, and the split is not cosmetic. The FORMAT rules run whether or not
  * email is switched on, because the API's do: `blankable` tolerates an empty
  * box, but a non-empty one is still checked by `emailSettingsSchema`'s own rule
- * — `z.email()`, the 1–65535 port range, the 100-character name cap —
- * regardless of `enabled`. A rule skipped here that the API applies is a 400
- * the admin could not see coming. The REQUIRED rules run only when mail is
- * actually being sent: a deployment that has turned email off must not be
- * blocked from saving that fact by an empty SMTP host it will never use.
+ * — `z.email()`, the 100-character name cap — regardless of `enabled`. A rule
+ * skipped here that the API applies is a 400 the admin could not see coming.
+ * The REQUIRED rules run only when mail is actually being sent: a deployment
+ * that has turned email off must not be blocked from saving that fact by an
+ * empty SMTP host it will never use. The selected transport's own rules come
+ * from its registered panel.
  */
-function validate(form: EmailFormState): Partial<Record<keyof EmailFormState, string>> {
-  const errors: Partial<Record<keyof EmailFormState, string>> = {};
+function validate(
+  form: EmailFormState,
+  descriptors: readonly PluggableDescriptor[],
+): { common: Partial<Record<'provider' | 'fromAddress' | 'fromName', string>>; transport: Record<string, string> } {
+  const common: Partial<Record<'provider' | 'fromAddress' | 'fromName', string>> = {};
+  let transport: Record<string, string> = {};
 
   const fromAddress = form.fromAddress.trim();
   if (fromAddress && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fromAddress)) {
-    errors.fromAddress = 'That does not look like an email address.';
+    common.fromAddress = 'That does not look like an email address.';
   }
 
   if (form.fromName.trim().length > MAX_FROM_NAME_LENGTH) {
-    errors.fromName = `Keep the display name to ${MAX_FROM_NAME_LENGTH} characters or fewer.`;
+    common.fromName = `Keep the display name to ${MAX_FROM_NAME_LENGTH} characters or fewer.`;
   }
 
-  const port = form.smtpPort.trim();
-  if (port && toPortValue(port) === '') {
-    errors.smtpPort = 'Port must be a whole number between 1 and 65535.';
+  // Only the SELECTED transport's settings are sent, so only they are checked.
+  const validateTransport = form.provider ? getEmailTransportPanelOptions(form.provider).validate : undefined;
+  if (form.provider && validateTransport) {
+    transport = validateTransport(form.transports[form.provider] ?? {}, { enabled: form.enabled });
   }
 
-  if (!form.enabled) return errors;
+  if (!form.enabled) return { common, transport };
 
   if (!form.provider) {
-    errors.provider = 'Choose a provider, or leave email switched off.';
+    common.provider = 'Choose a provider, or leave email switched off.';
+  } else if (!descriptors.some((descriptor) => descriptor.id === form.provider)) {
+    common.provider = `The selected transport "${form.provider}" is not available. Choose another.`;
   }
 
   if (!fromAddress) {
-    errors.fromAddress = 'A from address is required to send mail.';
+    common.fromAddress = 'A from address is required to send mail.';
   }
 
-  if (form.provider === 'ses') {
-    if (!form.sesRegion.trim()) {
-      errors.sesRegion = 'A region is required, e.g. us-east-1.';
-    }
-    // Access key ID is the visible/required half of the SES credential, exactly
-    // like `smtpHost` for SMTP. The secret access key is the write-only,
-    // blank-preserves half — like `smtpPassword` — and is deliberately NOT
-    // checked here: blank means "keep the stored one", which is a legal, even
-    // expected, state on every load of this form.
-    if (!form.sesAccessKeyId.trim()) {
-      errors.sesAccessKeyId = 'An access key ID is required.';
-    }
-  }
-
-  if (form.provider === 'smtp') {
-    if (!form.smtpHost.trim()) errors.smtpHost = 'A host is required.';
-    if (!port) errors.smtpPort = 'A port is required.';
-  }
-
-  return errors;
+  return { common, transport };
 }
 
 /**
@@ -304,7 +248,7 @@ export default function EmailSettingsPage() {
   const { hasPermission } = viewer;
   const user = { email: viewer.email ?? undefined };
   const {
-    settings,
+    settings: loaded,
     isLoading,
     loadError,
     isSaving,
@@ -317,33 +261,32 @@ export default function EmailSettingsPage() {
     clearSaveError,
   } = useEmailSettings();
 
+  // A response from an API older than the transports is completed from its
+  // flat fields (`withTransportDefaults`); a current one is returned as it is.
+  const settings = useMemo(() => (loaded ? withTransportDefaults(loaded) : null), [loaded]);
+  /** The transports the API described, in its order. */
+  const descriptors: readonly PluggableDescriptor[] = settings?.descriptors ?? [];
+
   const [form, setForm] = useState<EmailFormState | null>(null);
   /**
    * Held OUTSIDE `form` because it is not a value the page ever read — it is a
    * write-only instruction. Keeping it in the form object would put it in the
    * dirty comparison's baseline, where an empty string would have to mean both
    * "unchanged" and "erase", which is the exact ambiguity this contract exists
-   * to remove.
+   * to remove. By transport id and declared secret name (the SMTP password is
+   * `smtp.password`, the SES secret access key `ses.secretAccessKey`).
    */
-  const [smtpPassword, setSmtpPassword] = useState('');
-  /**
-   * Held OUTSIDE `form` for the exact same reason as `smtpPassword` above: it
-   * is write-only and blank-preserves (see
-   * `EmailSettingsInput.sesSecretAccessKey`), so it must not enter the
-   * dirty-comparison baseline as an unchanged value.
-   */
-  const [sesSecretAccessKey, setSesSecretAccessKey] = useState('');
+  const [typedSecrets, setTypedSecrets] = useState<TypedSecretsById>({});
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
 
   // The server's response is the new baseline after every load AND every save,
-  // so this also clears the password/secret boxes once a save has consumed
-  // them. Leaving a typed secret on screen after a successful save would imply
-  // it is still pending, and the next save would send it again.
+  // so this also clears the typed secrets once a save has consumed them.
+  // Leaving a typed secret on screen after a successful save would imply it is
+  // still pending, and the next save would send it again.
   useEffect(() => {
     if (settings) {
-      setForm(toFormState(settings));
-      setSmtpPassword('');
-      setSesSecretAccessKey('');
+      setForm(toFormState(settings, settings.descriptors));
+      setTypedSecrets({});
     }
   }, [settings]);
 
@@ -365,21 +308,40 @@ export default function EmailSettingsPage() {
     );
   }
 
-  const errors = form ? validate(form) : {};
-  const hasErrors = Object.keys(errors).length > 0;
+  const checks = form ? validate(form, descriptors) : { common: {}, transport: {} };
+  const errors = checks.common;
+  const hasErrors = Object.keys(errors).length > 0 || Object.keys(checks.transport).length > 0;
 
-  // A typed password/secret counts as a change even when every other field
-  // matches: each is the one edit that leaves no visible trace in the form
-  // baseline.
+  /** The selected transport's descriptor, or `undefined` for none (or one the API no longer describes). */
+  const activeDescriptor = form?.provider ? descriptors.find((descriptor) => descriptor.id === form.provider) : undefined;
+  const activeSecrets: Record<string, string> = (form?.provider && typedSecrets[form.provider]) || {};
+
+  // A typed secret counts as a change even when every other field matches: it
+  // is the one edit that leaves no visible trace in the form baseline.
   const isDirty =
     !!form &&
     !!settings &&
-    (JSON.stringify(form) !== JSON.stringify(toFormState(settings)) ||
-      smtpPassword !== '' ||
-      sesSecretAccessKey !== '');
+    (JSON.stringify(form) !== JSON.stringify(toFormState(settings, descriptors)) ||
+      Object.values(activeSecrets).some((value) => value !== ''));
 
   const update = <K extends keyof EmailFormState>(key: K, value: EmailFormState[K]) => {
     setForm((prev) => (prev ? { ...prev, [key]: value } : prev));
+  };
+
+  /** Reports one changed setting of transport `id`; `undefined` removes it. */
+  const updateTransport = (id: string, name: string, next: unknown) => {
+    setForm((prev) => {
+      if (!prev) return prev;
+      const current = { ...(prev.transports[id] ?? {}) };
+      if (next === undefined) delete current[name];
+      else current[name] = next;
+      return { ...prev, transports: { ...prev.transports, [id]: current } };
+    });
+  };
+
+  /** Reports one typed secret of transport `id`. */
+  const updateSecret = (id: string, name: string, next: string) => {
+    setTypedSecrets((prev) => ({ ...prev, [id]: { ...(prev[id] ?? {}), [name]: next } }));
   };
 
   /**
@@ -395,45 +357,46 @@ export default function EmailSettingsPage() {
     update('provider', value === '' ? null : (value as EmailProviderKind));
   };
 
-  const toInput = (state: EmailFormState): EmailSettingsInput => ({
-    // Both required, neither blankable: `null` is a real persisted value for
-    // `provider`, and `enabled` is a boolean the API always expects.
-    provider: state.provider,
-    enabled: state.enabled,
+  const toInput = (state: EmailFormState): EmailSettingsInput => {
+    const id = state.provider;
+    const descriptor = descriptors.find((entry) => entry.id === id);
+    const toTransportInput = id ? getEmailTransportPanelOptions(id).toInput : undefined;
+    const value = (id && state.transports[id]) || {};
+    const typed = Object.fromEntries(Object.entries(activeSecrets).filter(([, secret]) => secret !== ''));
 
-    // EMPTY BOXES GO AS `''`, NOT AS OMITTED KEYS. `updateEmailSettingsSchema`
-    // wraps every optional field in `blankable`, whose entire purpose is to
-    // accept what a cleared form control actually produces and convert it to
-    // "absent" exactly once, server-side, in `stripUnsetSettingFields`. Sending
-    // `''` says what the admin did — they cleared the field — instead of
-    // reimplementing that conversion in a seventh place.
-    //
-    // It also makes the PUT a true replacement: an admin abandoning SMTP for
-    // SES clears the host and the row loses it, rather than the key going
-    // missing and the old value surviving in a document nothing on screen
-    // shows. Fields belonging to the OTHER provider are still submitted from
-    // form state rather than blanked, so switching provider does not silently
-    // discard a configuration the admin may switch back to.
-    fromAddress: state.fromAddress.trim(),
-    fromName: state.fromName.trim(),
-    sesRegion: state.sesRegion.trim(),
-    sesAccessKeyId: state.sesAccessKeyId.trim(),
-    smtpHost: state.smtpHost.trim(),
-    smtpPort: toPortValue(state.smtpPort),
-    smtpUseTls: state.smtpUseTls,
-    smtpUsername: state.smtpUsername.trim(),
+    return {
+      // Both required, neither blankable: `null` is a real persisted value for
+      // `provider`, and `enabled` is a boolean the API always expects.
+      provider: state.provider,
+      enabled: state.enabled,
 
-    // THE ONE EXCEPTION, AND THE OPPOSITE MEANING. For every field above, `''`
-    // means "not configured". For the password it means "I did not retype it",
-    // so blank PRESERVES the stored value. The key is omitted entirely rather
-    // than sent as `''` — the intent reaches the API as an absence rather than
-    // as a value it has to interpret, and no code path can ever send an empty
-    // password that a future server revision might read as "clear it". See
-    // `EmailSettingsInput`.
-    ...(smtpPassword ? { smtpPassword } : {}),
-    // Same exception, same reason, for the SES secret access key.
-    ...(sesSecretAccessKey ? { sesSecretAccessKey } : {}),
-  });
+      // EMPTY BOXES GO AS `''`, NOT AS OMITTED KEYS. `updateEmailSettingsSchema`
+      // wraps every optional field in `blankable`, whose entire purpose is to
+      // accept what a cleared form control actually produces and convert it to
+      // "absent" exactly once, server-side, in `stripUnsetSettingFields`. Sending
+      // `''` says what the admin did — they cleared the field — instead of
+      // reimplementing that conversion in a seventh place.
+      fromAddress: state.fromAddress.trim(),
+      fromName: state.fromName.trim(),
+
+      // ONLY THE SELECTED TRANSPORT'S SETTINGS GO. The API merges
+      // `transports.<id>` over what is stored and leaves every other
+      // transport's settings alone, so switching provider does not discard a
+      // configuration the admin may switch back to.
+      ...(id && descriptor
+        ? { transports: { [id]: toTransportInput ? toTransportInput(value) : withTextDefaults(descriptor, value) } }
+        : {}),
+
+      // THE ONE EXCEPTION, AND THE OPPOSITE MEANING. For every setting above,
+      // `''` means "not configured". For a secret it means "I did not retype
+      // it", so blank PRESERVES the stored value. The key is omitted entirely
+      // rather than sent as `''` — the intent reaches the API as an absence
+      // rather than as a value it has to interpret, and no code path can ever
+      // send an empty secret that a future server revision might read as
+      // "clear it". See `EmailSettingsInput`.
+      ...(id && Object.keys(typed).length > 0 ? { secrets: { [id]: typed } } : {}),
+    };
+  };
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -483,6 +446,14 @@ export default function EmailSettingsPage() {
           : !settings.provider
             ? 'No provider is configured, so there is nothing to send with.'
             : null;
+
+  /** The component that draws the selected transport's form: its registered panel, else the generated one. */
+  const TransportPanel = (form?.provider && getEmailTransportPanel(form.provider)) || EmailGenericTransportPanel;
+
+  /** The label of the transport the last test went through, from the descriptors; none for one the API no longer describes. */
+  const testedTransportLabel = testResult?.providerKind
+    ? descriptors.find((descriptor) => descriptor.id === testResult.providerKind)?.label
+    : undefined;
 
   return (
     <Container maxWidth="lg">
@@ -580,18 +551,15 @@ export default function EmailSettingsPage() {
                   onChange={(e) => applyProviderChoice(e.target.value)}
                   sx={{ flexDirection: { xs: 'column', sm: 'row' }, columnGap: 3 }}
                 >
-                  <FormControlLabel
-                    value="ses"
-                    control={<Radio />}
-                    label="Amazon SES"
-                    disabled={!canWrite}
-                  />
-                  <FormControlLabel
-                    value="smtp"
-                    control={<Radio />}
-                    label="SMTP"
-                    disabled={!canWrite}
-                  />
+                  {descriptors.map((descriptor) => (
+                    <FormControlLabel
+                      key={descriptor.id}
+                      value={descriptor.id}
+                      control={<Radio />}
+                      label={descriptor.label}
+                      disabled={!canWrite}
+                    />
+                  ))}
                 </RadioGroup>
                 <FormHelperText>
                   {errors.provider ??
@@ -631,193 +599,31 @@ export default function EmailSettingsPage() {
                 </Grid>
               </Grid>
 
-              {/* PROVIDER-SPECIFIC FIELDS ARE MOUNTED, never rendered and
+              {/* THE SELECTED TRANSPORT'S FORM IS MOUNTED, never rendered and
                   hidden. The same rule `SettingsHub` follows for its two
                   responsive treatments: a hidden duplicate doubles the tab
                   order with targets a keyboard user can reach but not see.
 
-                  They are shown whether or not `enabled` is on, deliberately:
+                  It is shown whether or not `enabled` is on, deliberately:
                   configuring a transport before switching mail on, and fixing
                   one while mail is off, are both ordinary. The values of the
-                  provider NOT selected stay in form state and are resubmitted
-                  untouched, so switching between the two loses nothing. */}
-              {form.provider === 'ses' && (
-                <>
-                  <Divider sx={{ my: 3 }} />
-                  <Typography variant="h6" gutterBottom>
-                    Amazon SES
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                    Enter the AWS access key for a user or role authorised to call SES in the
-                    region below (issue #585 — these credentials are stored here, not read from
-                    the deployment's environment).
-                  </Typography>
-                  <Grid container spacing={2}>
-                    <Grid size={{ xs: 12, sm: 6 }}>
-                      <TextField
-                        fullWidth
-                        label="Access Key ID"
-                        value={form.sesAccessKeyId}
-                        onChange={(e) => update('sesAccessKeyId', e.target.value)}
-                        disabled={!canWrite}
-                        autoComplete="off"
-                        error={!!errors.sesAccessKeyId}
-                        helperText={
-                          errors.sesAccessKeyId ?? 'e.g. AKIAIOSFODNN7EXAMPLE'
-                        }
-                      />
-                    </Grid>
-                    <Grid size={{ xs: 12, sm: 6 }}>
-                      {/* THE BLANK-PRESERVES CONTRACT, SAID OUT LOUD — same
-                          shape as the SMTP password field below, and for the
-                          same reason (#585). The field renders empty because
-                          the stored secret is encrypted and unreadable, not
-                          because nothing is stored. An empty box that silently
-                          means "keep" confuses; one that silently means "erase"
-                          destroys. So the helper text states which it is, and
-                          `sesSecretAccessKeyStatus` — the only non-secret thing
-                          the API says about this credential — decides the
-                          wording, so the sentence is never a guess. Its `hint`
-                          is the store's own mask, which names WHICH credential
-                          is live rather than only that one exists. */}
-                      <TextField
-                        fullWidth
-                        type="password"
-                        label="Secret Access Key"
-                        value={sesSecretAccessKey}
-                        onChange={(e) => setSesSecretAccessKey(e.target.value)}
-                        disabled={!canWrite}
-                        // A password manager filling this box would silently
-                        // re-send a credential the admin never typed.
-                        autoComplete="new-password"
-                        placeholder={
-                          settings.sesSecretAccessKeyStatus.configured
-                            ? (settings.sesSecretAccessKeyStatus.hint ?? '••••••••')
-                            : ''
-                        }
-                        helperText={sesSecretAccessKeyHelperText(settings.sesSecretAccessKeyStatus)}
-                      />
-                    </Grid>
-                    <Grid size={{ xs: 12, sm: 6 }}>
-                      <TextField
-                        fullWidth
-                        label="Region"
-                        value={form.sesRegion}
-                        onChange={(e) => update('sesRegion', e.target.value)}
-                        disabled={!canWrite}
-                        error={!!errors.sesRegion}
-                        helperText={
-                          errors.sesRegion ??
-                          'The region holding your verified sender identity, e.g. us-east-1. Leave blank to use the deployment default.'
-                        }
-                      />
-                    </Grid>
-                  </Grid>
-                </>
-              )}
-
-              {form.provider === 'smtp' && (
-                <>
-                  <Divider sx={{ my: 3 }} />
-                  <Typography variant="h6" gutterBottom>
-                    SMTP
-                  </Typography>
-                  <Grid container spacing={2}>
-                    <Grid size={{ xs: 12, sm: 8 }}>
-                      <TextField
-                        fullWidth
-                        label="Host"
-                        value={form.smtpHost}
-                        onChange={(e) => update('smtpHost', e.target.value)}
-                        disabled={!canWrite}
-                        error={!!errors.smtpHost}
-                        helperText={errors.smtpHost ?? 'e.g. smtp.example.com'}
-                      />
-                    </Grid>
-                    <Grid size={{ xs: 12, sm: 4 }}>
-                      <TextField
-                        fullWidth
-                        label="Port"
-                        // `inputMode` rather than `type="number"`: a number
-                        // input adds spinners nobody wants on a port and lets
-                        // the browser hand back an empty string for "1e5",
-                        // which validates as blank rather than as invalid.
-                        slotProps={{ htmlInput: { inputMode: 'numeric', pattern: '[0-9]*' } }}
-                        value={form.smtpPort}
-                        onChange={(e) => update('smtpPort', e.target.value)}
-                        disabled={!canWrite}
-                        error={!!errors.smtpPort}
-                        helperText={errors.smtpPort ?? '587 for STARTTLS, 465 for implicit TLS.'}
-                      />
-                    </Grid>
-                    <Grid size={{ xs: 12 }}>
-                      <FormControlLabel
-                        control={
-                          <Switch
-                            checked={form.smtpUseTls}
-                            onChange={(e) => update('smtpUseTls', e.target.checked)}
-                            disabled={!canWrite}
-                          />
-                        }
-                        label="Require TLS"
-                      />
-                      {/* THIS IS NOT THE "implicit TLS" FLAG. The API works
-                          that out from the port itself (465 is TLS from the
-                          first byte), so the only question left for an admin
-                          is whether an unencrypted connection is acceptable —
-                          and the answer is on by default, because a missing
-                          key in a stored blob must not be why a mail password
-                          crosses the network in the clear. See
-                          `smtp-email.provider.ts`. */}
-                      <Typography variant="body2" color="text.secondary" sx={{ ml: 6, mt: -0.5 }}>
-                        On by default, and refuses to send over an unencrypted connection: port
-                        465 is TLS from the first byte, every other port must complete STARTTLS.
-                        Turn this off only for a legacy relay that cannot do either.
-                      </Typography>
-                    </Grid>
-                    <Grid size={{ xs: 12, sm: 6 }}>
-                      <TextField
-                        fullWidth
-                        label="Username"
-                        value={form.smtpUsername}
-                        onChange={(e) => update('smtpUsername', e.target.value)}
-                        disabled={!canWrite}
-                        autoComplete="off"
-                        helperText="Leave blank for a relay that authorises by source IP."
-                      />
-                    </Grid>
-                    <Grid size={{ xs: 12, sm: 6 }}>
-                      {/* THE BLANK-PRESERVES CONTRACT, SAID OUT LOUD (#124,
-                          #115). The field renders empty because the stored
-                          password is encrypted and unreadable — not because
-                          there is nothing stored. An empty box that silently
-                          means "keep" confuses; one that silently means "erase"
-                          destroys. So the helper text states which it is, and
-                          `smtpPasswordStatus` — the only non-secret thing the
-                          API says about the password — decides the wording, so
-                          the sentence is never a guess. Its `hint` is the
-                          store's own mask, which names WHICH credential is
-                          live rather than only that one exists. */}
-                      <TextField
-                        fullWidth
-                        type="password"
-                        label="Password"
-                        value={smtpPassword}
-                        onChange={(e) => setSmtpPassword(e.target.value)}
-                        disabled={!canWrite}
-                        // A password manager filling this box would silently
-                        // re-send a credential the admin never typed.
-                        autoComplete="new-password"
-                        placeholder={
-                          settings.smtpPasswordStatus.configured
-                            ? (settings.smtpPasswordStatus.hint ?? '••••••••')
-                            : ''
-                        }
-                        helperText={smtpPasswordHelperText(settings.smtpPasswordStatus)}
-                      />
-                    </Grid>
-                  </Grid>
-                </>
+                  transports NOT selected stay in form state, so switching
+                  between them loses nothing on this page. Which component draws
+                  the form is the panel registry's decision: the two built-ins'
+                  bespoke panels, or a form generated from the descriptor. */}
+              {activeDescriptor && form.provider && (
+                <TransportPanel
+                  transport={form.provider}
+                  descriptor={activeDescriptor}
+                  settings={settings}
+                  value={form.transports[form.provider] ?? {}}
+                  onChange={(name, next) => updateTransport(form.provider as string, name, next)}
+                  secrets={activeSecrets}
+                  onSecretChange={(name, next) => updateSecret(form.provider as string, name, next)}
+                  secretStatuses={settings.secretStatuses[form.provider] ?? {}}
+                  errors={checks.transport}
+                  canWrite={canWrite}
+                />
               )}
 
               {saveError && (
@@ -887,11 +693,7 @@ export default function EmailSettingsPage() {
                           happens minutes later and somewhere else, so claiming
                           delivery here would be a claim the page cannot back. */}
                       Sent to {testResult.sentTo ?? user?.email}
-                      {testResult.providerKind === 'ses'
-                        ? ' via Amazon SES'
-                        : testResult.providerKind === 'smtp'
-                          ? ' via SMTP'
-                          : ''}
+                      {testedTransportLabel ? ` via ${testedTransportLabel}` : ''}
                       . Acceptance is not delivery — check that inbox, and its spam folder.
                       {testResult.messageId && (
                         <Box

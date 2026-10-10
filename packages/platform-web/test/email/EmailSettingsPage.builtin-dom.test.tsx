@@ -21,7 +21,7 @@ vi.mock('../../src/email/headless/use-email-settings.js', () => ({ useEmailSetti
 import { useEmailSettings } from '../../src/email/headless/use-email-settings.js';
 import type { UseEmailSettingsReturn } from '../../src/email/headless/index.js';
 import EmailSettingsPage from '../../src/email/ui/EmailSettingsPage.js';
-import { emailSettingsFixture, freshSettingsFixture, sesSettingsFixture } from './fixtures.js';
+import { NO_SECRET, emailSettingsFixture, freshSettingsFixture, sesSettingsFixture } from './fixtures.js';
 import { READ_ONLY_PERMISSIONS, hookReturn, render } from './harness.js';
 
 const mockUseEmailSettings = vi.mocked(useEmailSettings);
@@ -63,7 +63,15 @@ describe("the built-in transports' forms are unchanged", () => {
   });
 
   it('ses, with no secret saved yet', () => {
-    expect(mount({ settings: sesSettingsFixture({ sesSecretAccessKeyStatus: { configured: false, hint: null, updatedAt: null, updatedByUserId: null } }) })).toMatchSnapshot();
+    // The response carries the status twice (the deprecated flat one and `secretStatuses`); a real one agrees with itself.
+    expect(
+      mount({
+        settings: sesSettingsFixture({
+          sesSecretAccessKeyStatus: NO_SECRET,
+          secretStatuses: { ses: { secretAccessKey: NO_SECRET }, smtp: { password: NO_SECRET } },
+        }),
+      }),
+    ).toMatchSnapshot();
   });
 
   it('a fresh install: no transport chosen, switched off', () => {

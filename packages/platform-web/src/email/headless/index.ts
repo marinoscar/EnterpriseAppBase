@@ -11,3 +11,5 @@ export type {
   UseEmailSettingsOptions,
   UseEmailSettingsReturn,
 } from './use-email-settings.js';
+export { withTransportDefaults } from './normalize-email-settings.js';
+export type { EmailSettingsWire } from './normalize-email-settings.js';
