@@ -16,19 +16,55 @@
 
 import { z } from 'zod';
 
-import { EMAIL_PROVIDER_KINDS } from './constants.js';
-import type { EmailProviderKind } from './constants.js';
+import { pluggableDescriptorSchema } from '../settings/index.js';
+import { EMAIL_TRANSPORT_ID_PATTERN } from './constants.js';
+import type { BuiltinEmailProviderKind } from './constants.js';
 
 /**
- * The entries of the transport enum, as `z.enum` types them: each kind keyed
- * by itself. Named so the schemas' types read as a reference.
+ * The entries of the former transport enum: each built-in kind keyed by itself.
  *
+ * @deprecated The transport is an open id now ({@link emailTransportIdSchema}).
  * @stability stable
  */
-export type EmailProviderKindEnum = { [K in EmailProviderKind]: K };
+export type EmailProviderKindEnum = { [K in BuiltinEmailProviderKind]: K };
 
-// The transport, typed through its named entries.
-const providerKindSchema: z.ZodEnum<EmailProviderKindEnum> = z.enum(EMAIL_PROVIDER_KINDS);
+/**
+ * An email transport id: any string matching {@link EMAIL_TRANSPORT_ID_PATTERN}.
+ * Not an enum: an app registers transports (`registerEmailTransport`), and the
+ * API validates the id against the registry.
+ *
+ * @extensionPoint option
+ * @stability experimental
+ */
+export const emailTransportIdSchema = z.string().regex(EMAIL_TRANSPORT_ID_PATTERN);
+
+/**
+ * One transport's non-secret settings as stored: whatever that transport's
+ * `settingsSchema` declares. The contract cannot see the registry, so it
+ * checks the shape (a record) and the API validates each entry with the
+ * transport that owns it.
+ *
+ * @stability experimental
+ */
+export const emailTransportSettingsSchema = z.record(z.string(), z.unknown());
+
+/**
+ * The `transports` record: transport id to that transport's settings.
+ *
+ * @stability experimental
+ */
+export const emailTransportsSchema = z.record(emailTransportIdSchema, emailTransportSettingsSchema);
+
+/**
+ * The `transports` record of a PUT: `null` removes a transport's stored
+ * settings (back to its defaults), an object is merged over them.
+ *
+ * @stability experimental
+ */
+export const emailTransportsPatchSchema = z.record(emailTransportIdSchema, emailTransportSettingsSchema.nullable());
+
+// The transport, as the settings and the test-send result carry it.
+const providerKindSchema = emailTransportIdSchema;
 
 /**
  * The admin-configurable half of email delivery: which transport, where it
@@ -40,7 +76,8 @@ const providerKindSchema: z.ZodEnum<EmailProviderKindEnum> = z.enum(EMAIL_PROVID
  */
 export const emailSettingsSchema = z.object({
   /**
-   * Which transport to use. `null` means "no transport chosen", the state of
+   * The id of the active transport: a built-in (`ses`, `smtp`) or one an app
+   * registered. `null` means "no transport chosen", the state of
    * every fresh installation: a real, persisted state rather than an absent
    * key.
    */
@@ -50,36 +87,45 @@ export const emailSettingsSchema = z.object({
   enabled: z.boolean(),
 
   /**
-   * SES region override. Absent means "use the deployment's SES region
+   * Every transport's own non-secret settings, keyed by transport id
+   * (`transports.smtp.host`, `transports.my-relay.apiBase`), each validated by
+   * the transport that owns it. A row written before transports were pluggable
+   * has none: the API folds the flat fields below into `transports.ses` and
+   * `transports.smtp` when it reads such a row.
+   */
+  transports: emailTransportsSchema.optional(),
+
+  /**
+   * @deprecated Read view of `transports.ses.region`. SES region override. Absent means "use the deployment's SES region
    * fallback" (`SES_REGION` in the reference app). A verified sending identity
    * is regional, so the override is the usual case.
    */
   sesRegion: z.string().trim().min(1).optional(),
 
   /**
-   * SES access key id. An IDENTIFIER, NOT A SECRET: it travels in clear in
+   * @deprecated Read view of `transports.ses.accessKeyId`. SES access key id. An IDENTIFIER, NOT A SECRET: it travels in clear in
    * every SigV4 request. The secret access key lives in the credential store.
    */
   sesAccessKeyId: z.string().trim().min(1).optional(),
 
-  /** SMTP server host. */
+  /** @deprecated Read view of `transports.smtp.host`. SMTP server host. */
   smtpHost: z.string().trim().min(1).optional(),
 
   /**
-   * SMTP port, validated here so a typo fails on the settings form rather than
+   * @deprecated Read view of `transports.smtp.port`. SMTP port, validated here so a typo fails on the settings form rather than
    * as a socket-level error.
    */
   smtpPort: z.number().int().min(1).max(65535).optional(),
 
   /**
-   * Require TLS. Absent is treated as `true` by the provider: a mail
+   * @deprecated Read view of `transports.smtp.useTls`. Require TLS. Absent is treated as `true` by the provider: a mail
    * credential must not cross the network in the clear because a checkbox was
    * missing from a stored row.
    */
   smtpUseTls: z.boolean().optional(),
 
   /**
-   * SMTP username. Absent means unauthenticated submission (an internal relay
+   * @deprecated Read view of `transports.smtp.username`. SMTP username. Absent means unauthenticated submission (an internal relay
    * that authorises by source IP).
    */
   smtpUsername: z.string().trim().min(1).optional(),
@@ -136,7 +182,8 @@ export type EmailCredentialStatusDto = z.infer<typeof credentialStatusSchema>;
 
 /**
  * The `GET` and `PUT /api/email-settings` response body (inside the global
- * `{ data }` envelope): the settings, the masked status of both secrets, why
+ * `{ data }` envelope): the settings, a descriptor per registered transport,
+ * the masked status of every transport secret, why
  * the stored row could not be read (field paths only; the read degrades to
  * the defaults instead of failing, so the page that repairs the row still
  * renders), and the row's version for `If-Match`.
@@ -144,9 +191,24 @@ export type EmailCredentialStatusDto = z.infer<typeof credentialStatusSchema>;
  * @stability stable
  */
 export const emailSettingsResponseSchema = emailSettingsSchema.extend({
-  /** The SMTP password's masked status. */
+  /** Every REGISTERED transport's own settings, keyed by transport id, with its defaults filled. */
+  transports: emailTransportsSchema,
+  /**
+   * One descriptor per registered transport, in registration order: its id
+   * and label, its non-secret settings fields and one `secret` field per
+   * declared secret carrying only whether a value is stored (`hasValue`),
+   * never the value. The admin page renders any transport without
+   * hard-coded knowledge of it.
+   */
+  descriptors: z.array(pluggableDescriptorSchema),
+  /**
+   * The masked status of every declared secret of every registered transport:
+   * `{ <transportId>: { <secretName>: status } }`. Nothing here can carry a value.
+   */
+  secretStatuses: z.record(emailTransportIdSchema, z.record(z.string(), credentialStatusSchema)),
+  /** @deprecated `secretStatuses.smtp.password`. The SMTP password's masked status. */
   smtpPasswordStatus: credentialStatusSchema,
-  /** The SES secret access key's masked status. */
+  /** @deprecated `secretStatuses.ses.secretAccessKey`. The SES secret access key's masked status. */
   sesSecretAccessKeyStatus: credentialStatusSchema,
   /** Why the stored configuration could not be read; null normally. Field paths only. */
   settingsError: z.string().nullable(),
@@ -192,33 +254,47 @@ function blankable<T extends z.ZodTypeAny>(inner: T) {
 }
 
 /**
- * The `PUT /api/email-settings` body: every settings field (blankable), plus
- * the two WRITE-ONLY secrets. A blank secret (absent, `null` or `''`)
+ * The `PUT /api/email-settings` body: every settings field (blankable), the
+ * `transports` patch, plus the WRITE-ONLY secrets (`secrets`, and the two
+ * legacy aliases). A blank secret (absent, `null` or `''`)
  * preserves the stored one; erasing a stored secret is not expressible here.
  *
  * @stability stable
  */
 export const updateEmailSettingsSchema = emailSettingsSchema.extend({
-  /** SES region override; blank clears it. */
+  /**
+   * Transport settings to merge, per transport id, each validated by the
+   * transport that owns it. `null` removes a transport's stored settings (back
+   * to its defaults); a setting a transport's entry omits keeps its stored
+   * value. `transports.<id>` wins over a legacy flat field for the same setting.
+   */
+  transports: emailTransportsPatchSchema.optional(),
+  /** @deprecated Alias of `transports.ses.region`; blank clears it. */
   sesRegion: blankable(emailSettingsSchema.shape.sesRegion),
-  /** SES access key id (not a secret); blank clears it. */
+  /** @deprecated Alias of `transports.ses.accessKeyId` (not a secret); blank clears it. */
   sesAccessKeyId: blankable(emailSettingsSchema.shape.sesAccessKeyId),
-  /** SMTP server host; blank clears it. */
+  /** @deprecated Alias of `transports.smtp.host`; blank clears it. */
   smtpHost: blankable(emailSettingsSchema.shape.smtpHost),
-  /** SMTP port; blank clears it (587 applies). */
+  /** @deprecated Alias of `transports.smtp.port`; blank clears it (587 applies). */
   smtpPort: blankable(emailSettingsSchema.shape.smtpPort),
-  /** Require TLS; blank clears it (on applies). */
+  /** @deprecated Alias of `transports.smtp.useTls`; blank clears it (on applies). */
   smtpUseTls: blankable(emailSettingsSchema.shape.smtpUseTls),
-  /** SMTP username; blank means unauthenticated submission. */
+  /** @deprecated Alias of `transports.smtp.username`; blank means unauthenticated submission. */
   smtpUsername: blankable(emailSettingsSchema.shape.smtpUsername),
   /** Sender address; blank clears it. */
   fromAddress: blankable(emailSettingsSchema.shape.fromAddress),
   /** Sender display name; blank clears it. */
   fromName: blankable(emailSettingsSchema.shape.fromName),
-  /** The SMTP password. Write-only; blank preserves the stored one. */
+  /** The SMTP password. Write-only; blank preserves the stored one. Alias of `secrets.smtp.password`. */
   smtpPassword: z.string().max(MAX_SECRET_LENGTH).nullish(),
-  /** The SES secret access key. Write-only; blank preserves the stored one. */
+  /** The SES secret access key. Write-only; blank preserves the stored one. Alias of `secrets.ses.secretAccessKey`. */
   sesSecretAccessKey: z.string().max(MAX_SECRET_LENGTH).nullish(),
+  /**
+   * WRITE-ONLY secrets of any transport: `{ <transportId>: { <secretName>: value } }`,
+   * the names the transport declares (`descriptors[].fields` of kind `secret`).
+   * A blank value keeps the stored one. Never echoed back.
+   */
+  secrets: z.record(emailTransportIdSchema, z.record(z.string(), z.string().max(4096).nullish())).optional(),
 });
 
 /**
