@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AI_PROVIDER_IDS } from './settings.schema';
+import { BUILTIN_AI_PROVIDER_IDS } from './settings.schema';
 import {
   systemSettingsSchema,
   systemSettingsPatchSchema,
@@ -321,30 +321,40 @@ describe('system settings parity across the places a namespace must be declared'
     expect(() => systemSettingsSchema.parse(DEFAULT_SYSTEM_SETTINGS)).not.toThrow();
   });
 
-  it('declares one ai.providers slot per AI_PROVIDER_IDS entry in every source (#446)', () => {
-    // One level deeper than the namespace-by-field check above, for the one
-    // nested map that grows by appending an id: a provider added to
-    // `AI_PROVIDER_IDS` but missed in one of these places would otherwise be
-    // silently unconfigurable (or silently unwritable) there.
-    const providersOf = (schema: z.ZodObject<z.ZodRawShape>): string[] | null => {
+  it('declares ai.providers as an open record in every schema source, and the built-in slots in the defaults (#446, PP-14.6)', () => {
+    // `ai.providers` used to be an object with one fixed key per provider, and
+    // this guard compared those key sets. Since PP-14.6 it is a RECORD keyed by
+    // provider id, open to a provider an app registers: every schema source
+    // must say so (a source that kept the fixed keys would silently refuse an
+    // app's provider there), and the defaults carry the providers the platform
+    // ships. The per-provider validation lives in the provider registry
+    // (`ai.system-settings.spec.ts` in the package).
+    const providersOf = (schema: z.ZodObject<z.ZodRawShape>): unknown => {
       const ai = unwrap((schema.shape as Record<string, unknown>).ai);
 
-      return ai instanceof z.ZodObject
-        ? objectKeys((ai.shape as Record<string, unknown>).providers)
-        : null;
+      return ai instanceof z.ZodObject ? unwrap((ai.shape as Record<string, unknown>).providers) : null;
     };
 
-    const sources: Array<[string, string[] | null]> = [
+    const sources: Array<[string, unknown]> = [
       ['systemSettingsSchema', providersOf(systemSettingsSchema)],
       ['systemSettingsPatchSchema', providersOf(systemSettingsPatchSchema)],
       ['updateSystemSettingsSchema (PUT body)', providersOf(updateSystemSettingsSchema)],
       ['patchSystemSettingsSchema (PATCH body)', providersOf(patchSystemSettingsSchema)],
-      ['DEFAULT_SYSTEM_SETTINGS', valueKeys(DEFAULT_SYSTEM_SETTINGS.ai.providers)],
     ];
 
-    for (const [name, keys] of sources) {
-      expect(keys).not.toBeNull();
-      expectSameKeys(keys ?? [], [...AI_PROVIDER_IDS], `${name}: ai.providers slots`);
+    for (const [name, providers] of sources) {
+      expect({ name, isRecord: providers instanceof z.ZodRecord }).toEqual({ name, isRecord: true });
+      // An id nobody built in is accepted by the shape (the registry decides whether it exists).
+      expect({ name, accepts: ((providers as z.ZodRecord).keyType as unknown as z.ZodType).safeParse('example-transcribe').success }).toEqual({
+        name,
+        accepts: true,
+      });
     }
+
+    expectSameKeys(
+      valueKeys(DEFAULT_SYSTEM_SETTINGS.ai.providers) ?? [],
+      [...BUILTIN_AI_PROVIDER_IDS],
+      'DEFAULT_SYSTEM_SETTINGS: ai.providers slots',
+    );
   });
 });

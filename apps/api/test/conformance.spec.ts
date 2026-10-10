@@ -85,6 +85,9 @@ import { runPlatformConformance } from '@marinoscar/platform-api/testing';
 // Importing a slice's testing entry REGISTERS its suites with the harness.
 import '@marinoscar/platform-api/ai/testing';
 import '@marinoscar/platform-api/jobs/testing';
+// The app's own AI providers (registers `example-transcribe`): the SDK-leak suite reads
+// the registered definitions' `sdkPackages`, and each AI suite discovers its routes.
+import '../src/app-registrations/ai';
 
 import { aiConformanceFixture } from './conformance/ai-fixture';
 import { API_SOURCE_ROOT, CRON_SOURCE_ROOTS, JOBS_SLICE_SOURCE_ROOT, NODES_SLICE_SOURCE_ROOT } from './jobs/cron-source-roots';
@@ -182,6 +185,10 @@ runPlatformConformance({
         { name: '@marinoscar/platform-web', root: join(REPO, 'packages', 'platform-web', 'src'), minFiles: 50 },
         { name: '@marinoscar/platform-contract', root: join(REPO, 'packages', 'platform-contract', 'src'), minFiles: 20 },
       ],
+      // PP-14.6: where an app-side adapter of a provider registered with
+      // `registerAiProvider` may import its SDK (the example imports none; a real
+      // provider's folder, `platform-extensions/ai/<id>/`, would).
+      providerDirs: ['platform-extensions/ai/'],
       sdkOwner: {
         manifest: join(REPO, 'packages', 'platform-api', 'package.json'),
         declares: ['openai', '@anthropic-ai/sdk', '@google/genai'],

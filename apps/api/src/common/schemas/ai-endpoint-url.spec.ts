@@ -1,6 +1,9 @@
 // The SSRF posture of the #448 endpoint settings: which URLs an administrator
 // may point the Azure OpenAI and OpenAI-compatible adapters at.
 
+import { BadRequestException } from '@nestjs/common';
+import { AI_SYSTEM_SETTINGS } from '@marinoscar/platform-api/ai';
+
 import {
   AI_AZURE_ENDPOINT_SCHEMES,
   AI_COMPATIBLE_ENDPOINT_SCHEMES,
@@ -73,7 +76,7 @@ describe('the #448 provider slots', () => {
     expect(systemAiCompatibleProviderSchema.safeParse({ enabled: true, baseUrl: 'ftp://x.example' }).success).toBe(false);
   });
 
-  it('lets a PATCH remove each optional field with null, and applies the same URL rules', () => {
+  it('lets a PATCH remove each optional field with null', () => {
     expect(
       systemAiPatchSchema.safeParse({
         providers: {
@@ -82,8 +85,20 @@ describe('the #448 provider slots', () => {
         },
       }).success,
     ).toBe(true);
-    expect(
-      systemAiPatchSchema.safeParse({ providers: { 'azure-openai': { baseUrl: 'http://contoso.openai.azure.com' } } }).success,
-    ).toBe(false);
+  });
+
+  // PP-14.6 (#924): `ai.providers` is an open record, so the PATCH WIRE schema
+  // no longer carries a provider's own URL rules (the contract package cannot
+  // know which providers a deployment registered). The same rules now come from
+  // the provider's `settingsSchema` (the contract's `systemAiAzureProviderSchema`
+  // above, registered by the platform) when the namespace merges the patch: still
+  // a 400 for an `http` Azure endpoint, before anything is stored.
+  it('applies the same URL rules to a PATCH when the namespace merges it', () => {
+    const current = AI_SYSTEM_SETTINGS.defaults;
+    const patch = { providers: { 'azure-openai': { baseUrl: 'http://contoso.openai.azure.com' } } };
+
+    expect(systemAiPatchSchema.safeParse(patch).success).toBe(true);
+    expect(() => AI_SYSTEM_SETTINGS.merge(current, patch)).toThrow(BadRequestException);
+    expect(() => AI_SYSTEM_SETTINGS.merge(current, { providers: { 'azure-openai': { baseUrl: 'https://contoso.openai.azure.com' } } })).not.toThrow();
   });
 });

@@ -37,11 +37,11 @@ describe('AiModule', () => {
       await ctx?.app.close();
     });
 
-    it('boots with the built-in providers registered', () => {
+    it('boots with the built-in providers and the app\'s own registered', () => {
       const registry = ctx.app.get(AiProviderRegistry);
 
       expect(registry).toBeInstanceOf(AiProviderRegistry);
-      expect(registry.ids()).toEqual(['openai', 'anthropic', 'gemini', 'azure-openai', 'openai-compatible']);
+      expect(registry.ids()).toEqual(['openai', 'anthropic', 'gemini', 'azure-openai', 'openai-compatible', 'example-transcribe']);
       // Anthropic and Gemini store no responses, so they declare they cannot chain (#446, #447);
       // the two OpenAI-family adapters declare the same, conservatively, for both API styles (#448).
       expect(registry.supportsPreviousResponseId('openai')).toBe(true);

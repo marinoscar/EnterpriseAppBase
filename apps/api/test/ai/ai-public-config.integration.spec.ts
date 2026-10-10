@@ -230,6 +230,8 @@ describe('Public AI config and kill switch', () => {
             supportsPreviousResponseId: false,
             requiresKey: true,
           },
+          // PP-14.6: the app's own provider (app-registrations/ai.ts), registered and off.
+          { id: 'example-transcribe', displayName: 'Example Transcribe', enabled: false, hasOrgKey: true, supportsPreviousResponseId: true, requiresKey: true },
         ],
       });
       expect(res.text).not.toContain(ORG_KEY);
