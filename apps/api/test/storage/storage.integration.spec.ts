@@ -46,7 +46,9 @@ describe('Storage Integration', () => {
     // Override storage provider with mock
     const storageProviderToken = context.module.get(STORAGE_PROVIDER, { strict: false });
     if (storageProviderToken) {
-      Object.assign(storageProviderToken, mockStorageProvider);
+      // `kind` is a getter on the real provider (it answers from the settings snapshot): leave it be.
+      const { kind: _kind, ...methods } = mockStorageProvider;
+      Object.assign(storageProviderToken, methods);
     }
   });
 
@@ -751,7 +753,9 @@ describe('Storage Integration — upload limits (#519)', () => {
 
     const storageProviderToken = context.module.get(STORAGE_PROVIDER, { strict: false });
     if (storageProviderToken) {
-      Object.assign(storageProviderToken, mockStorageProvider);
+      // `kind` is a getter on the real provider (it answers from the settings snapshot): leave it be.
+      const { kind: _kind, ...methods } = mockStorageProvider;
+      Object.assign(storageProviderToken, methods);
     }
   });
 

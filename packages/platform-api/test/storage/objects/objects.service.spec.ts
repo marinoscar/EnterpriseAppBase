@@ -15,7 +15,6 @@ import { PrismaService } from '../support/app-doubles';
 import { STORAGE_PROVIDER } from '../../../src/storage/providers/storage-provider.interface';
 import { createMockPrismaService, MockPrismaService } from '../support/prisma.mock';
 import { createMockStorageProvider } from '../support/storage-provider.mock';
-import { StorageConfigService } from '../../../src/storage/config/storage-config.service';
 import { ObjectProcessingService } from '../../../src/storage/processing/object-processing.service';
 import { ACTIVE_DEDUP_INDEX_NAME, JobsService } from '../../../src/jobs/index';
 import { STORAGE_OBJECT_PROCESS_TYPE } from '../../../src/storage/handlers/storage-object-process.handler';
@@ -26,7 +25,6 @@ describe('ObjectsService', () => {
   let service: ObjectsService;
   let mockPrisma: MockPrismaService;
   let mockStorageProvider: ReturnType<typeof createMockStorageProvider>;
-  let mockStorageConfig: { activeProvider: jest.Mock };
   let mockConfig: jest.Mocked<ConfigService>;
   let mockProcessing: { appliesTo: jest.Mock };
   let mockJobs: { enqueueWithin: jest.Mock };
@@ -54,7 +52,6 @@ describe('ObjectsService', () => {
   beforeEach(async () => {
     mockPrisma = createMockPrismaService();
     mockStorageProvider = createMockStorageProvider();
-    mockStorageConfig = { activeProvider: jest.fn(async () => 's3' as const) };
     mockConfig = {
       get: jest.fn(),
     } as any;
@@ -71,8 +68,6 @@ describe('ObjectsService', () => {
         ObjectsService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: STORAGE_PROVIDER, useValue: mockStorageProvider },
-        // #373: the row records the LIVE provider, so the service reads it.
-        { provide: StorageConfigService, useValue: mockStorageConfig },
         { provide: ConfigService, useValue: mockConfig },
         { provide: ObjectProcessingService, useValue: mockProcessing },
         { provide: JobsService, useValue: mockJobs },

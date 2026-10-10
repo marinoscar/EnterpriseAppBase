@@ -59,6 +59,7 @@ describeWithDb('the export framework over row-level security (real Postgres)', (
   const options = resolveExportsModuleOptions({ datamodel: Prisma.dmmf.datamodel, appSlug: 'test-app' });
 
   const storage = {
+    kind: 's3',
     async upload(key: string, stream: Readable) {
       const chunks: Buffer[] = [];
       for await (const chunk of stream) chunks.push(Buffer.from(chunk));
@@ -80,7 +81,6 @@ describeWithDb('the export framework over row-level security (real Postgres)', (
       services.prisma as never,
       services.system as never,
       storage as never,
-      { activeProvider: async () => 's3' } as never,
       { record: async () => undefined } as never,
       { notify: async () => undefined } as never,
     );

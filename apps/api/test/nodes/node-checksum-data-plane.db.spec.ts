@@ -117,6 +117,7 @@ const { describeWithDb } = resolveDbSuite('node-checksum-data-plane.db.spec');
 // =============================================================================
 
 class LocalFileStorageProvider implements StorageProvider {
+  readonly kind = 's3';
   private readonly secret = randomUUID();
 
   constructor(private readonly root: string) {}

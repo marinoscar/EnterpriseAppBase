@@ -74,7 +74,9 @@ describe('Storage objects RBAC matrix — every /api/storage/objects* route x ev
 
     const storageProviderToken = context.module.get(STORAGE_PROVIDER, { strict: false });
     if (storageProviderToken) {
-      Object.assign(storageProviderToken, mockStorageProvider);
+      // `kind` is a getter on the real provider (it answers from the settings snapshot): leave it be.
+      const { kind: _kind, ...methods } = mockStorageProvider;
+      Object.assign(storageProviderToken, methods);
     }
 
     const document = createOpenApiDocument(context.app) as unknown as MutableDocument;

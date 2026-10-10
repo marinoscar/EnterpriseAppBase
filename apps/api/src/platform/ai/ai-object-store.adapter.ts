@@ -55,8 +55,12 @@ export class AiObjectStoreAdapter implements AiObjectStore {
     }
   }
 
-  activeProvider(): Promise<string> {
-    return this.storageConfig.activeProvider();
+  async activeProvider(): Promise<string> {
+    // The provider's own kind: the configured s3/r2/s3compatible for the
+    // default provider, the app backend's id when `StorageModule.forRoot({ provider })`
+    // replaced it. Called after the upload, which refreshed the default
+    // provider's snapshot.
+    return this.storage.kind;
   }
 
   notConfiguredReason(err: unknown): string | null {

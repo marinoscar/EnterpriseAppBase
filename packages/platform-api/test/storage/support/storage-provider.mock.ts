@@ -17,6 +17,8 @@ import {
  * All methods return sensible defaults that can be overridden in tests
  */
 export const createMockStorageProvider = (): jest.Mocked<StorageProvider> => ({
+  kind: 's3',
+
   upload: jest.fn().mockResolvedValue({
     key: 'test-key',
     bucket: 'test-bucket',

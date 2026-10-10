@@ -157,6 +157,16 @@ export class StorageConfigService implements OnModuleInit {
    */
   private lastPolicyBucket: string | null = null;
 
+  /**
+   * The provider kind named by the last successful settings read, for the
+   * synchronous {@link lastKnownProvider} (`StorageProvider.kind`). Unlike the
+   * bucket it always has an answer: the namespace always names a provider, and
+   * until the first read it is the schema default (`'s3'`). Refreshed on every
+   * settings read, next to {@link lastPolicyBucket}, so a row naming a bucket
+   * and a row naming its provider describe one configuration.
+   */
+  private lastPolicyProvider: StorageProviderKind = 's3';
+
   constructor(
     private readonly systemSettings: SystemSettingsService,
     private readonly credentials: CredentialsService,
@@ -338,6 +348,15 @@ export class StorageConfigService implements OnModuleInit {
   }
 
   /**
+   * The provider kind as of the last successful settings read (`'s3'` before
+   * any). Synchronous, for `ResolvingStorageProvider.kind`; callers that can
+   * await and need the current value use {@link activeProvider}.
+   */
+  lastKnownProvider(): StorageProviderKind {
+    return this.lastPolicyProvider;
+  }
+
+  /**
    * The configured bucket as of the last successful settings read, or `null`.
    *
    * SYNCHRONOUS, and that is its entire reason for existing: 
@@ -386,6 +405,7 @@ export class StorageConfigService implements OnModuleInit {
     const value = await this.systemSettings.getStoragePolicy();
 
     this.cache = { value, readAt: now };
+    this.lastPolicyProvider = value.provider;
 
     // The synchronous snapshot is refreshed HERE — on every settings read,
     // whether it came from a resolve, the startup warm or a `fresh` admin read

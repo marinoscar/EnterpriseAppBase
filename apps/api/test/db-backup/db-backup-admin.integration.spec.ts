@@ -180,6 +180,7 @@ describe('Admin database-backup API (Integration)', () => {
   };
 
   const storage = {
+    kind: 's3',
     delete: jest.fn(),
     getSignedDownloadUrl: jest.fn(),
   };

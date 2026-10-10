@@ -21,7 +21,6 @@ import { AVATAR_PURPOSE } from '../profile-image/profile-image';
 import { mimeTypeMatches, normaliseMimeType } from '../mime-type-match';
 import { STORAGE_PROVIDER } from '../providers/storage-provider.interface';
 import type { StorageProvider } from '../providers/storage-provider.interface';
-import { StorageConfigService } from '../config/storage-config.service';
 import {
   InitUploadDto,
   InitUploadResponseDto,
@@ -105,11 +104,6 @@ export class ObjectsService {
     @Inject(PLATFORM_PRISMA) private readonly prisma: StoragePrisma,
     @Inject(STORAGE_PROVIDER)
     private readonly storageProvider: StorageProvider,
-    // #373 (epic #372). The token above moves the bytes; this answers "which
-    // provider was that?" for the row that records where they went. The
-    // provider kind is not on `StorageProvider` — see
-    // `StorageConfigService.activeProvider`.
-    private readonly storageConfig: StorageConfigService,
     private readonly config: ConfigService,
     // #520: post-upload processing is a queue job. These two decide, at
     // upload time, whether one is needed and queue it — see `settleUpload`.
@@ -202,11 +196,12 @@ export class ObjectsService {
         size: BigInt(size),
         mimeType,
         storageKey,
-        // The LIVE provider, not a literal: an operator who selected R2 must
-        // not leave a trail of rows claiming their objects are in S3. Read
-        // through the same cached settings read `getBucket()` answers from, so
-        // this pair names one configuration.
-        storageProvider: await this.storageConfig.activeProvider(),
+        // The LIVE provider kind, not a literal: an operator who selected R2
+        // (or an app backend bound through `StorageModule.forRoot({ provider })`)
+        // must not leave a trail of rows claiming their objects are in S3. It
+        // comes from the same snapshot `getBucket()` answers from, so this pair
+        // names one configuration.
+        storageProvider: this.storageProvider.kind,
         bucket: this.storageProvider.getBucket(),
         status: 'pending',
         s3UploadId: uploadId,
@@ -481,7 +476,7 @@ export class ObjectsService {
       mimeType: mimetype,
     });
 
-    const storageProvider = await this.storageConfig.activeProvider();
+    const storageProvider = this.storageProvider.kind;
 
     // We don't know the size until after upload for streams
     // Use a default size of 0, should be updated in post-processing.

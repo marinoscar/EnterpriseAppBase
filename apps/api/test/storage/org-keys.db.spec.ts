@@ -20,7 +20,6 @@ import {
   isRegisteredStorageKey,
   orgKeyPrefixes,
   type ObjectProcessingService,
-  type StorageConfigService,
 } from '@marinoscar/platform-api/storage';
 
 import { resolveDbSuite } from '../jobs/db-test-support';
@@ -46,6 +45,7 @@ describeWithDb('org-aware object keys (real Postgres)', () => {
     services = rlsServices(db);
 
     const storage = {
+      kind: 's3',
       upload: async (key: string, stream: Readable) => {
         stream.resume();
         uploaded.push(key);
@@ -58,10 +58,9 @@ describeWithDb('org-aware object keys (real Postgres)', () => {
       delete: async (key: string) => void deleted.push(key),
     };
     const config = { get: (_key: string, fallback?: unknown) => fallback };
-    const storageConfig = { activeProvider: async () => 's3' } as unknown as StorageConfigService;
     const processing = { appliesTo: () => false } as unknown as ObjectProcessingService;
 
-    objects = new ObjectsService(services.prisma as never, storage as never, storageConfig, config as never, processing, {} as JobsService);
+    objects = new ObjectsService(services.prisma as never, storage as never, config as never, processing, {} as JobsService);
 
     // A pre-#736 object: its key has no organization segment.
     const legacy = await db.system.$transaction(async (tx) => {

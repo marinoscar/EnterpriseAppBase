@@ -44,7 +44,6 @@ import { JobHandlerRegistry, type Job, type JobHandler, type JobExecutionProfile
 import { MetricsHostService } from '../../otel-core/index';
 import {
   STORAGE_PROVIDER,
-  StorageConfigService,
   buildObjectKey,
   storageRunInOrg,
   type StoragePrisma,
@@ -93,7 +92,6 @@ export class ExportRunHandler implements JobHandler, OnModuleInit {
     @Inject(PLATFORM_PRISMA) private readonly prisma: StoragePrisma,
     @Inject(EXPORTS_SYSTEM_DATA) private readonly system: ExportsSystemData,
     @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
-    private readonly storageConfig: StorageConfigService,
     @Inject(AUDIT_SINK) private readonly audit: AuditSink,
     @Optional() @Inject(EXPORTS_NOTIFIER) private readonly notifier?: ExportsNotifier,
     @Optional() private readonly metrics?: MetricsHostService,
@@ -215,7 +213,7 @@ export class ExportRunHandler implements JobHandler, OnModuleInit {
     }
 
     const expiresAt = new Date(now.getTime() + this.options.retentionDays * DAY_MS);
-    const storageProvider = await this.storageConfig.activeProvider();
+    const storageProvider = this.storage.kind;
     try {
       return await storageRunInOrg(this.prisma, payload.orgId, async (tx) => {
         const object = await tx.storageObject.upsert({

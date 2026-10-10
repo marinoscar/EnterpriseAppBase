@@ -118,6 +118,7 @@ function bootInMode(mode: 'self-hosted' | 'saas'): ModeHarness {
     cancel: jest.fn(),
   };
   const storage = {
+    kind: 's3',
     download: jest.fn(),
     delete: jest.fn(),
     getSignedDownloadUrl: jest.fn(),

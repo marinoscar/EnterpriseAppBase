@@ -36,7 +36,9 @@ describe('Profile Image Integration (#367)', () => {
       strict: false,
     });
     if (storageProviderToken) {
-      Object.assign(storageProviderToken, mockStorageProvider);
+      // `kind` is a getter on the real provider (it answers from the settings snapshot): leave it be.
+      const { kind: _kind, ...methods } = mockStorageProvider;
+      Object.assign(storageProviderToken, methods);
     }
   });
 

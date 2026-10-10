@@ -23,7 +23,6 @@ import { NotFoundException } from '@nestjs/common';
 import { ObjectProcessingService } from '@marinoscar/platform-api/storage';
 import { ObjectsService } from '@marinoscar/platform-api/storage';
 import type { JobsService } from '@marinoscar/platform-api/jobs';
-import type { StorageConfigService } from '@marinoscar/platform-api/storage';
 import { resolveDbSuite } from '../jobs/db-test-support';
 import { createRlsDatabase, rlsServices, seedTwoOrgs, ORG_A, ORG_B, type RlsDatabase, type TwoOrgFixture } from '../helpers/rls-database.helper';
 
@@ -44,6 +43,7 @@ describeWithDb('ObjectsService over row-level security (real Postgres)', () => {
     services = rlsServices(db);
 
     const storage = {
+      kind: 's3',
       upload: async (_key: string, stream: Readable) => {
         stream.resume();
         return { bucket: 'test-bucket' };
@@ -52,10 +52,9 @@ describeWithDb('ObjectsService over row-level security (real Postgres)', () => {
       delete: async (key: string) => void deleted.push(key),
     };
     const config = { get: (_key: string, fallback?: unknown) => fallback };
-    const storageConfig = { activeProvider: async () => 's3' } as unknown as StorageConfigService;
     const processing = { appliesTo: () => false } as unknown as ObjectProcessingService;
 
-    objects = new ObjectsService(services.prisma, storage as never, storageConfig, config as never, processing, {} as JobsService);
+    objects = new ObjectsService(services.prisma, storage as never, config as never, processing, {} as JobsService);
 
     // The one user belongs to both organizations: give userA ownership of B's rows too.
     await db.system.$transaction(async (tx) => {

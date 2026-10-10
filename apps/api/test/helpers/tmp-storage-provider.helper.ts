@@ -63,7 +63,9 @@ function notSupported(method: string): never {
 export class TmpDirStorageProvider implements StorageProvider {
   constructor(
     private readonly baseDir: string,
-    private readonly bucket: string = 'test-tmp-bucket'
+    private readonly bucket: string = 'test-tmp-bucket',
+    /** The `StorageProvider.kind` rows record; 's3' keeps the backup suites' expectations. */
+    readonly kind: string = 's3'
   ) {}
 
   private pathFor(key: string): string {

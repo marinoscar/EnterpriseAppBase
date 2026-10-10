@@ -257,6 +257,17 @@ describe('StorageConfigService', () => {
       expect(await service.activeProvider()).toBe('s3compatible');
     });
 
+    it('refreshes the synchronous lastKnownProvider() snapshot (PP-14.1)', async () => {
+      expect(service.lastKnownProvider()).toBe('s3');
+
+      systemSettings.getStoragePolicy.mockResolvedValue(
+        policy({ provider: 'r2' }),
+      );
+      await service.activeProvider();
+
+      expect(service.lastKnownProvider()).toBe('r2');
+    });
+
     it('goes through the same cache as resolve(), so a fresh read costs one call', async () => {
       jest.useFakeTimers();
 
