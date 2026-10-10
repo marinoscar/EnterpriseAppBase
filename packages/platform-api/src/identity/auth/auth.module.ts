@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { AllowlistModule } from '../allowlist/allowlist.module';
 import { AuthController } from './auth.controller';
+import { AuthProviderController } from './auth-provider.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { AdminBootstrapService } from './admin-bootstrap.service';
@@ -11,7 +12,7 @@ import { requireJwtSecret } from '../identity.configuration';
 import { TokenCleanupTask } from './tasks/token-cleanup.task';
 import { TokenCleanupHandler } from './handlers/token-cleanup.handler';
 import { AuthProvidersDoctorCheck } from './doctor/auth-providers.doctor-check';
-import { GoogleAuthEgressContributor } from './doctor/egress/google-auth.egress.contributor';
+import { AuthProvidersEgressContributor } from './doctor/egress/auth-providers.egress.contributor';
 import { InitialAdminDoctorCheck } from './doctor/initial-admin.doctor-check';
 import { JwtSecretDoctorCheck } from './doctor/jwt-secret.doctor-check';
 import { PrincipalCacheModule } from './principal-cache/principal-cache.module';
@@ -58,7 +59,7 @@ import { PrincipalCacheDoctorCheck } from './doctor/principal-cache.doctor-check
     // `OrganizationsService` (`createNewUser` joins a new user to the default
     // org) come from global modules `IdentityModule.forRoot()` mounts.
   ],
-  controllers: [AuthController],
+  controllers: [AuthController, AuthProviderController],
   providers: [
     AuthService,
     AdminBootstrapService,
@@ -71,8 +72,8 @@ import { PrincipalCacheDoctorCheck } from './doctor/principal-cache.doctor-check
     InitialAdminDoctorCheck,
     // PP-1.12 (#683): `auth.principal-cache`.
     PrincipalCacheDoctorCheck,
-    // Egress inventory (#773): Google sign-in's outbound hosts.
-    GoogleAuthEgressContributor,
+    // Egress inventory (#773): each registered sign-in provider's outbound hosts.
+    AuthProvidersEgressContributor,
   ],
   exports: [AuthService, AdminBootstrapService, JwtModule],
 })

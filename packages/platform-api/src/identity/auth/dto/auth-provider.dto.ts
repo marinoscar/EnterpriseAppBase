@@ -15,6 +15,15 @@ export class AuthProviderDto {
     description: 'Whether the provider is enabled',
   })
   enabled!: boolean;
+
+  @ApiProperty({
+    required: false,
+    enum: ['custom'],
+    example: 'custom',
+    description:
+      'Present only for a provider that owns its sign-in flow (no `/api/auth/<name>` redirect route): the login page then asks the web provider look to start it. Absent for a redirect provider.',
+  })
+  mode?: 'custom';
 }
 
 /**

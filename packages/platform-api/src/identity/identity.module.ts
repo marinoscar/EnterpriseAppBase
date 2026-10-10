@@ -18,12 +18,13 @@
 // Every identity module is a singleton: `forRoot` is called once per app.
 // =============================================================================
 
-import { DynamicModule, Module, type ModuleMetadata, type Type } from '@nestjs/common';
+import { DynamicModule, Module, type ModuleMetadata, type Provider, type Type } from '@nestjs/common';
 
 import { AuthModule } from './auth/auth.module';
 import { authProviderRegistry } from './auth/providers/auth-provider.registry';
 import './auth/providers/google.provider';
 import { DeviceAuthModule } from './device-auth/device-auth.module';
+import { IDENTITY_SIGNIN_POLICY } from './auth/sign-in-policy';
 import { IDENTITY_OPTIONS, resolveIdentityModuleOptions, type IdentityModuleOptions } from './identity.options';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { PatModule } from './pat/pat.module';
@@ -73,7 +74,8 @@ export class IdentityModule {
 
     // Every registered sign-in provider's Passport strategy (Google first),
     // registered before this call; the registry freezes at bootstrap.
-    const strategies = authProviderRegistry.list().map((provider) => provider.strategy);
+    // A provider that builds its strategy per request (`createStrategy`) has no class to provide.
+    const strategies = authProviderRegistry.list().flatMap((provider) => (provider.strategy ? [provider.strategy] : []));
 
     // Built as STATIC modules, never as a dynamic module's inline `imports`:
     // Nest inserts a dynamic module's inline imports into the container
@@ -99,8 +101,13 @@ export class IdentityModule {
       module: IdentityModule,
       global: true,
       imports: [composition],
-      providers: [{ provide: IDENTITY_OPTIONS, useValue: resolved }],
-      exports: [IDENTITY_OPTIONS],
+      providers: [
+        { provide: IDENTITY_OPTIONS, useValue: resolved },
+        // The app's sign-in policy (PP-14.9), visible to `AuthService` because
+        // this module is global; absent when the app bound none.
+        ...(resolved.signInPolicy ? [{ provide: IDENTITY_SIGNIN_POLICY, ...resolved.signInPolicy } as Provider] : []),
+      ],
+      exports: [IDENTITY_OPTIONS, ...(resolved.signInPolicy ? [IDENTITY_SIGNIN_POLICY] : [])],
     };
   }
 }

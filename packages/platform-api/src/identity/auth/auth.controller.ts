@@ -13,7 +13,6 @@ import {
   Body,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { DatabaseSeedException } from '../../core/index';
 import {
   ApiTags,
   ApiOperation,
@@ -23,10 +22,8 @@ import {
 } from '@nestjs/swagger';
 import type { CookieReply as FastifyReply, CookieRequest as FastifyRequest } from './cookie-http';
 import { AuthService } from './auth.service';
-import {
-  buildAuthErrorRedirectUrl,
-  resolveAuthErrorCode,
-} from './auth-error-codes';
+import { buildAuthErrorRedirectUrl } from './auth-error-codes';
+import { REFRESH_TOKEN_COOKIE, respondToSignIn, setRefreshTokenCookie } from './sign-in-response';
 import { GoogleOAuthGuard } from './guards/google-oauth.guard';
 import { GoogleOAuthExceptionFilter } from './filters/google-oauth-exception.filter';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -44,15 +41,6 @@ import {
 } from './dto/auth-provider.dto';
 import { CurrentUserDto, TokenResponseDto } from './dto/auth-user.dto';
 import { AllowDuringMaintenance } from '../../core/index';
-
-const REFRESH_TOKEN_COOKIE = 'refresh_token';
-const COOKIE_OPTIONS = {
-  httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: 'lax' as const,
-  path: '/api/auth',
-  maxAge: 14 * 24 * 60 * 60, // 14 days in seconds (cookie spec uses seconds)
-};
 
 /**
  * REACHABLE DURING A MAINTENANCE WINDOW, as a whole controller (#257).
@@ -162,65 +150,28 @@ export class AuthController {
     @Req() req: FastifyRequest & { user?: GoogleProfile },
     @Res() res: FastifyReply,
   ) {
-    try {
-      // Google profile is attached by the guard
-      const profile = req.user;
+    // Google profile is attached by the guard
+    const profile = req.user;
 
-      if (!profile) {
-        this.logger.error('No profile found in Google OAuth callback');
-        return res.status(302).redirect(
-          buildAuthErrorRedirectUrl(
-            this.configService.get<string>('appUrl'),
-            'authentication_failed',
-          ),
-        );
-      }
-
-      // Handle login and generate tokens
-      const tokens = await this.authService.handleGoogleLogin(profile);
-
-      // Set refresh token in HttpOnly cookie
-      this.logger.log(`Setting refresh token cookie with options: ${JSON.stringify(COOKIE_OPTIONS)}`);
-      res.setCookie(REFRESH_TOKEN_COOKIE, tokens.refreshToken!, COOKIE_OPTIONS);
-
-      // Redirect to frontend with access token only
-      const appUrl = this.configService.get<string>('appUrl');
-      const redirectUrl = new URL('/auth/callback', appUrl);
-      redirectUrl.searchParams.set('token', tokens.accessToken);
-      redirectUrl.searchParams.set('expiresIn', tokens.expiresIn.toString());
-
-      this.logger.log(`Redirecting to: ${redirectUrl.toString()}`);
-      return res.status(302).redirect(redirectUrl.toString());
-    } catch (error) {
-      // Log with full context for debugging
-      if (error instanceof DatabaseSeedException) {
-        this.logger.error(
-          'Database seed error during OAuth callback - seeds have not been run',
-          {
-            error: error.message,
-            stack: error.stack,
-          },
-        );
-      } else {
-        this.logger.error('Error in Google OAuth callback', error);
-      }
-
-      // Closed set of codes only (#652): the exception's message never
-      // reaches the redirect, so the callback page cannot be made to show
-      // attacker-chosen text.
-      //
-      // ⚠ EXPLICIT 302, like the success branch: by the time a route handler
-      // runs, Nest has already set the reply's status to the route default
-      // (200), and Fastify's `redirect(url)` keeps a status that was set, so a
-      // bare `redirect` answered 200 with a Location header that a browser
-      // does not follow (#722 found it driving a refusal end to end).
+    if (!profile) {
+      this.logger.error('No profile found in Google OAuth callback');
       return res.status(302).redirect(
         buildAuthErrorRedirectUrl(
           this.configService.get<string>('appUrl'),
-          resolveAuthErrorCode(error),
+          'authentication_failed',
         ),
       );
     }
+
+    // Handle login, set the refresh cookie and redirect (or redirect with the
+    // error code): the same ending every provider's callback uses.
+    return respondToSignIn({
+      reply: res,
+      appUrl: this.configService.get<string>('appUrl'),
+      signIn: () => this.authService.handleGoogleLogin(profile),
+      logger: this.logger,
+      label: 'Google OAuth callback',
+    });
   }
 
   /**
@@ -288,7 +239,7 @@ export class AuthController {
     const tokens = await this.authService.refreshAccessToken(refreshToken);
 
     // Set new refresh token in cookie (rotation)
-    res.setCookie(REFRESH_TOKEN_COOKIE, tokens.refreshToken!, COOKIE_OPTIONS);
+    setRefreshTokenCookie(res, tokens.refreshToken!);
 
     // Return new access token
     return {
@@ -344,7 +295,7 @@ export class AuthController {
     );
 
     // Same cookie, same attributes as a rotation (SECURITY-ARCHITECTURE §3).
-    res.setCookie(REFRESH_TOKEN_COOKIE, tokens.refreshToken!, COOKIE_OPTIONS);
+    setRefreshTokenCookie(res, tokens.refreshToken!);
 
     return {
       accessToken: tokens.accessToken,

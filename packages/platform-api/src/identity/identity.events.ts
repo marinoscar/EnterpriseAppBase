@@ -27,6 +27,8 @@ import type { Logger } from '@nestjs/common';
  * - `identity.membership.changed`: a membership was created, re-activated,
  *   suspended, given another org role, or removed.
  * - `identity.org.switched`: a session switched its active organization.
+ * - `identity.login.succeeded`: a sign-in with any provider ended in a session.
+ * - `identity.org.created`: an administrator created an organization.
  *
  * @example
  * ```ts
@@ -44,6 +46,10 @@ export const IDENTITY_EVENTS = {
   MEMBERSHIP_CHANGED: 'identity.membership.changed',
   /** A session switched organization. Payload: {@link IdentityOrgSwitchedEvent}. */
   ORG_SWITCHED: 'identity.org.switched',
+  /** A sign-in succeeded. Payload: {@link IdentityLoginSucceededEvent}. */
+  LOGIN_SUCCEEDED: 'identity.login.succeeded',
+  /** An organization was created. Payload: {@link IdentityOrgCreatedEvent}. */
+  ORG_CREATED: 'identity.org.created',
 } as const;
 
 /**
@@ -56,7 +62,7 @@ export interface IdentityUserCreatedEvent {
   userId: string;
   /** The new user's email. */
   email: string;
-  /** How the user was created: an OAuth provider id (`google`) or `test-auth`. */
+  /** How the user was created: the sign-in provider's id (`google`, `github`) or `test-auth`. */
   source: string;
   /** The organization the user joined at creation, or `null` (multi-org mode). */
   orgId: string | null;
@@ -99,6 +105,34 @@ export interface IdentityOrgSwitchedEvent {
   orgId: string;
 }
 
+/**
+ * Payload of `identity.login.succeeded`: emitted after the session was issued,
+ * for every provider (Google included). Carries ids and the provider id only:
+ * no email, no token, no profile.
+ *
+ * @stability experimental
+ */
+export interface IdentityLoginSucceededEvent {
+  /** The signed-in user. */
+  userId: string;
+  /** The provider id the person signed in with (`google`, `github`). */
+  provider: string;
+  /** True when this sign-in created the user. */
+  isNewUser: boolean;
+}
+
+/**
+ * Payload of `identity.org.created`.
+ *
+ * @stability experimental
+ */
+export interface IdentityOrgCreatedEvent {
+  /** The new organization's id. */
+  orgId: string;
+  /** The administrator who created it. */
+  createdBy: string;
+}
+
 /** The emitter shape identity needs: `EventEmitter2`'s `emit`. */
 interface EventEmitterLike {
   emit(event: string, payload: unknown): boolean;
@@ -117,7 +151,12 @@ export function emitIdentityEvent(
   emitter: EventEmitterLike | undefined | null,
   logger: Pick<Logger, 'warn'>,
   event: (typeof IDENTITY_EVENTS)[keyof typeof IDENTITY_EVENTS],
-  payload: IdentityUserCreatedEvent | IdentityMembershipChangedEvent | IdentityOrgSwitchedEvent,
+  payload:
+    | IdentityUserCreatedEvent
+    | IdentityMembershipChangedEvent
+    | IdentityOrgSwitchedEvent
+    | IdentityLoginSucceededEvent
+    | IdentityOrgCreatedEvent,
 ): void {
   if (!emitter) return;
   try {

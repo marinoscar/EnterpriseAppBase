@@ -213,6 +213,29 @@ export interface IdentityProfileImages {
   hasUploadedImage(storedProfile: unknown): boolean;
 }
 
+// ---- provider secrets (the IDENTITY_AUTH_CREDENTIALS seam) ----------------------------
+
+/**
+ * Injection token of the credential store a sign-in provider reads its secrets
+ * from (`AuthProviderContext.credentials`). The app binds it to its
+ * `CredentialsService` (`@marinoscar/platform-api/credentials`), which satisfies
+ * {@link AuthProviderCredentials}; identity does not import the credentials
+ * slice. Optional: without it every secret reads as absent, so a provider that
+ * keeps its secrets in the store is off (Google, which reads the environment, is
+ * unaffected).
+ *
+ * @example
+ * ```ts
+ * { provide: IDENTITY_AUTH_CREDENTIALS, useExisting: CredentialsService }
+ * ```
+ *
+ * @extensionPoint token
+ * @stability experimental
+ */
+export const IDENTITY_AUTH_CREDENTIALS: unique symbol = Symbol.for('@marinoscar/platform/identity/AUTH_CREDENTIALS');
+
+export type { AuthProviderCredentials } from './auth/providers/auth-provider.registry';
+
 // ---- metrics --------------------------------------------------------------------------
 
 /**
@@ -225,7 +248,9 @@ export interface IdentityProfileImages {
 export const IDENTITY_METRICS: unique symbol = Symbol.for('@marinoscar/platform/identity/METRICS');
 
 /**
- * How a Google sign-in ended (`app.auth.logins` `outcome`). Closed, bounded.
+ * How a sign-in ended (`app.auth.logins` `outcome`), for any provider. Closed,
+ * bounded: a refusal by the allowlist, by the app's `SignInPolicy` or for an
+ * unverified provider address is `allowlist_rejected` (admission refused).
  *
  * @stability experimental
  */
