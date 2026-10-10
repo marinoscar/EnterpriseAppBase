@@ -15,7 +15,7 @@ The audit record of the extension seams of every platform slice. A closed point 
 
 Evidence paths are written `api:`, `web:`, `contract:`, `cli:`, `db:` and `infra:` for `packages/platform-api/src/`, `packages/platform-web/src/`, `packages/platform-contract/src/`, `packages/platform-cli/src/`, `packages/platform-db/` and `packages/platform-infra/`; a path under `apps/` or `docs/` is from the repository root. A story is written PP-14.n (its issue number follows).
 
-As of this version: 114 closed points in 29 sections, 6 fixed and 108 open.
+As of this version: 114 closed points in 29 sections, 8 fixed and 106 open.
 
 ## Verdicts
 
@@ -23,7 +23,7 @@ As of this version: 114 closed points in 29 sections, 6 fixed and 108 open.
 |---|---|---|---|---|---|
 | [onboarding](#onboarding) | Open | 1 | 0 | 1 | PP-14.20 |
 | [credentials](#credentials) | Open | 0 | 0 | 0 | none |
-| [settings](#settings) | Mostly open | 7 | 0 | 7 | PP-14.21, PP-14.5, PP-14.24 |
+| [settings](#settings) | Mostly open | 7 | 1 | 6 | PP-14.21, PP-14.5, PP-14.24 |
 | [notifications](#notifications) | Mostly open | 7 | 0 | 7 | PP-14.10, PP-14.8, PP-14.24 |
 | [exports](#exports) | Mostly open | 3 | 0 | 3 | PP-14.20 |
 | [jobs](#jobs) | Mostly open | 4 | 0 | 4 | PP-14.19, PP-14.23, PP-14.26 |
@@ -31,7 +31,7 @@ As of this version: 114 closed points in 29 sections, 6 fixed and 108 open.
 | [doctor](#doctor) | Mostly open | 2 | 0 | 2 | PP-14.23, PP-14.26 |
 | [telemetry](#telemetry) | Mostly open | 7 | 0 | 7 | PP-14.11, PP-14.18, PP-14.24 |
 | [otel-core](#otel-core) | Mostly open | 1 | 0 | 1 | PP-14.18 |
-| [core](#core) | Mostly open | 6 | 0 | 6 | PP-14.14, PP-14.5, PP-14.23 |
+| [core](#core) | Mostly open | 6 | 1 | 5 | PP-14.14, PP-14.5, PP-14.23 |
 | [shell](#shell) | Mostly open | 2 | 0 | 2 | PP-14.25 |
 | [sharing](#sharing) | Mostly open | 4 | 0 | 4 | PP-14.16, PP-14.15, PP-14.25 |
 | [manifest](#manifest) | Mostly open | 2 | 0 | 2 | PP-14.15 |
@@ -61,7 +61,7 @@ The 28 stories of the epic, in order. Phase 1 makes the existing seams real; pha
 | PP-14.2 | #920 | host: make the event bus pluggable (binding option and adapter registry) | 1 | none | no | Merged (PR #948) |
 | PP-14.3 | #921 | ai: a registered provider without a settings slot must not break the admin AI page | 1 | none | no | Merged (PR #949) |
 | PP-14.4 | #922 | docs: extension author guide, audit record and corrected recipes | 1 | none | no | This change |
-| PP-14.5 | #923 | core: the pluggable-kind primitive (registry, per-implementation settings, secrets, descriptors, generic form, kit) | 2 | none | no | Open |
+| PP-14.5 | #923 | core: the pluggable-kind primitive (registry, per-implementation settings, secrets, descriptors, generic form, kit) | 2 | none | no | This change |
 | PP-14.6 | #924 | ai: let an app or package add an AI provider (the AssemblyAI case) | 2 | 14.5, 14.3 | no | Open |
 | PP-14.7 | #925 | storage: pluggable storage drivers (Azure Blob, GCS, local) | 2 | 14.1, 14.5 | verify | Open |
 | PP-14.8 | #926 | email: pluggable email transports (SendGrid, Postmark) | 2 | 14.5 | no | Open |
@@ -92,7 +92,7 @@ The closed points fall into six repeating patterns. Each is removed once, in one
 
 | # | Pattern | Removed by |
 |---|---|---|
-| 1 | Closed id lists for pluggable kinds (TypeScript unions, `z.enum`, a fixed settings key per implementation, a `switch` over ids) | The pluggable-kind primitive (PP-14.5) and the open vocabularies of phase 3. The rule is [Open an id vocabulary](EXTENDING.md#open-an-id-vocabulary); the guardrail is PP-14.28. |
+| 1 | Closed id lists for pluggable kinds (TypeScript unions, `z.enum`, a fixed settings key per implementation, a `switch` over ids) | The pluggable-kind primitive (PP-14.5, shipped: [Writing a pluggable implementation](EXTENDING.md#writing-a-pluggable-implementation)) applied by the phase 2 stories, and the open vocabularies of phase 3. The rule is [Open an id vocabulary](EXTENDING.md#open-an-id-vocabulary); the guardrail is PP-14.28. |
 | 2 | Documented token overrides that a package-internal consumer never sees (NestJS module scoping) | Bindings through `forRoot` (PP-14.1, PP-14.2 and the phase 2 stories). The rule is [overrides go through `forRoot`](EXTENDING.md#the-extension-ladder). |
 | 3 | Packaged web pages with no slots, or a `Header` slot only | The packaged-page slot contract (PP-14.23 to PP-14.25). |
 | 4 | Settings extension is top-level only (no nested paths, no org layer, no core `profile` or `theme`) | PP-14.21. |
@@ -117,13 +117,13 @@ Sections follow the verdict, from the most open slice to the most closed.
 
 **Verdict:** Open · **Packages:** api, web, contract · **Closed points:** 0 (0 fixed, 0 open) · **Stories:** none
 
-**Open points.** The two purpose registries (`registerCredentialPurpose`, `registerUserCredentialPurpose`), the three tier modules and `UserCredentialResolver`, and the write-only `SecretField` on the web. No closed point was recorded at the audit commit; the pluggable-kind primitive (PP-14.5) reuses the purpose registries (one purpose per implementation) and `SecretField` for write-only secrets.
+**Open points.** The two purpose registries (`registerCredentialPurpose`, `registerUserCredentialPurpose`), the three tier modules and `UserCredentialResolver`, and the write-only `SecretField` on the web. No closed point was recorded at the audit commit; a pluggable implementation's declared secrets are stored by its consuming slice as credential purposes, and the generic `PluggableConfigForm` renders them with the write-only `SecretField`.
 
 Closed points: none recorded at the audit commit.
 
 ### settings
 
-**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 7 (0 fixed, 7 open) · **Stories:** PP-14.21, PP-14.5, PP-14.24
+**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 7 (1 fixed, 6 open) · **Stories:** PP-14.21, PP-14.5, PP-14.24
 
 **Open points.** System and user namespace registries (`registerSystemSettingsNamespaces`, `registerUserSettingsNamespaces`), the `app-registrations/settings.ts` extension lists, the org layer, `SettingsResolver`, `SystemSettingsRowStore`, `registerSettingsFeature` and the packaged hub and profile pages.
 
@@ -134,7 +134,7 @@ Closed points: none recorded at the audit commit.
 | settings-3 | The core user fields sit outside the registries: `theme` (light, dark, system), `profile` and the derived `security` block. No `profile.timezone`, no extra themes. | contract: `settings/constants.ts:21`; api: `settings/registry/compose.ts:236` (`UserSettingsCoreShape`) | `extendUserProfile({ fields })` and `registerThemePreference({ id, label })`; `security` stays closed on purpose. | PP-14.21 (#939) | Open |
 | settings-4 | `ProfileSettings` and `ThemeSettings` take fixed props; `OrgSettingsPage` renders `other` fields (objects, records) only as a link. | web: `settings/ui/` | `slots.ExtraFields`; `registerOrgSettingsFieldRenderer(namespace, field, Component)`. | PP-14.21 (#939) | Open |
 | settings-5 | A separately installed package cannot contribute a namespace: the manifests that fold and register them are app code. | api: `settings/registry/` | `registerSettingsContribution({ system, user, extensions })`, a pre-bootstrap collector folded in a documented order. | PP-14.21 (#939) | Open |
-| settings-6 | The org-settings field descriptor knows five kinds and no secret; it is the base the generic form generalises. | api: `settings/org-settings/describe-fields.ts`; contract: `settings/schemas.ts:303, settings/constants.ts:147` | Move to `describeConfigFields` in core; add the write-only `secret` kind; `PluggableConfigForm` in the settings web slice (new slice edge `settings -> credentials`). | PP-14.5 (#923) | Open |
+| settings-6 | The org-settings field descriptor knows five kinds and no secret; it is the base the generic form generalises. | api: `settings/org-settings/describe-fields.ts`; contract: `settings/schemas.ts:303, settings/constants.ts:147` | Move to `describeConfigFields` in core; add the write-only `secret` kind; `PluggableConfigForm` in the settings web slice (new slice edge `settings -> credentials`). | PP-14.5 (#923) | Fixed |
 | settings-7 | `UserProfilePage` and `UserAppearancePage` take no slots. | web: `settings/ui/` | `PageSlotsBase` on both. | PP-14.24 (#942) | Open |
 
 ### notifications
@@ -230,7 +230,7 @@ Closed points: none recorded at the audit commit.
 
 ### core
 
-**Verdict:** Mostly open · **Packages:** api, web · **Closed points:** 6 (0 fixed, 6 open) · **Stories:** PP-14.14, PP-14.5, PP-14.23
+**Verdict:** Mostly open · **Packages:** api, web · **Closed points:** 6 (1 fixed, 5 open) · **Stories:** PP-14.14, PP-14.5, PP-14.23
 
 **Open points.** `defineRegistry` and the static registries, the host ports (`PlatformHostModule.forRoot`, `AUDIT_SINK`, `SYSTEM_SETTINGS_STORE`, `PLATFORM_PRISMA`), `HttpExceptionFilter`, `PortBinding`, and on the web `PlatformHostProvider`.
 
@@ -240,7 +240,7 @@ Closed points: none recorded at the audit commit.
 | core-2 | `CredentialKind` and `PrincipalKind` are closed; an app auth scheme (API key, webhook token) has no principal kind. | api: `core/principal/principal.types.ts:58, :70` | Augmentable `PrincipalKinds` and `CredentialKinds` plus `registerCredentialKind`; guards deny unknown kinds unless registered. | PP-14.14 (#932) | Open |
 | core-3 | `HttpExceptionFilter` derives `code` from the HTTP status and ignores a payload `code`; `ErrorDto` publishes a closed nine-value enum; there is no mapper for foreign errors (Prisma, SDKs). | api: `core/errors/http-exception.filter.ts:156` | `registerErrorCode`, `HttpExceptionFilter` option `mappers`; `ErrorDto.code` becomes an open string. | PP-14.14 (#932) | Open |
 | core-4 | `PlatformWebHost` has fixed ports (`api`, `viewer`, `formatRelativeTime`, `applyTheme`); an installed extension package cannot add its own. | web: `core/` (PlatformWebHost) | `PlatformWebHost.extensions` and `usePlatformPort<T>(key)`. | PP-14.14 (#932) | Open |
-| core-5 | No pluggable-kind primitive: seven slices each hard-code their own implementation list. | api: `core/registry/registry.ts:459` (the registry it builds on) | `definePluggableKind`, `describeConfigFields`, `PluggableConfigForm`, `describePluggableKindConformance`. | PP-14.5 (#923) | Open |
+| core-5 | No pluggable-kind primitive: seven slices each hard-code their own implementation list. | api: `core/registry/registry.ts:459` (the registry it builds on) | `definePluggableKind`, `describeConfigFields`, `PluggableConfigForm`, `describePluggableKindConformance`. | PP-14.5 (#923) | Fixed |
 | core-6 | No shared slot contract for packaged pages. | web: `core/` | `PageSlotsBase` and `TableSlots<Row>` in `@marinoscar/platform-web/core`, with a CI check. | PP-14.23 (#941) | Open |
 
 ### shell

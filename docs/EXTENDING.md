@@ -278,13 +278,70 @@ Available now. Full recipe: [the host README](../packages/platform-api/src/host/
 4. **Or hand over a finished bus** with `PlatformHostCoreModule.forRoot({ eventBus: { useClass: RedisEventBus } })` (`useExisting` or `useFactory` also work). It wins over the id and needs no registry entry.
 5. **Run the kit**: `describeEventBusConformance(() => new RedisEventBus(...), { describe, it, expect })` from `@marinoscar/platform-api/host/testing`.
 
+### Writing a pluggable implementation
+
+Available now. A **pluggable kind** is the one shape every slice with a swappable part (AI provider, storage driver, email transport, sign-in provider, notification channel, telemetry store, backup target) is moving to, so you learn it once. The primitive is `definePluggableKind` of `@marinoscar/platform-api/core`; the stories PP-14.6 to PP-14.12 apply it to each slice, and until a slice's story lands, its kind is not yet registered there (see the placeholders below). The full reference is [the core README, Pluggable kinds](../packages/platform-api/src/core/README.md#pluggable-kinds). Worked example, with no consumer slice: [`greeter.kind.ts`](../apps/api/src/platform-extensions/core/greeter.kind.ts), registered by [`app-registrations/core.ts`](../apps/api/src/app-registrations/core.ts), proven by [`pluggable-kind.spec.ts`](../apps/api/test/examples/core/pluggable-kind.spec.ts) on the API side and [`pluggable-config-form.test.tsx`](../apps/web/src/__tests__/examples/settings/pluggable-config-form.test.tsx) on the web side.
+
+1. **Pick the kind.** Import the kind a slice exposes. For a swappable part of your own, define one once, at module scope, in the file that owns it (`import { definePluggableKind } from '@marinoscar/platform-api/core'`):
+
+   ```ts
+   export const greeterKind = definePluggableKind<Greeter>({ kind: 'greeter', label: 'Greeter' });
+   ```
+
+   The first type argument is what `build` returns; an optional second is the context the consuming slice passes to `build` besides the settings. The kind id matches `^[a-z][a-z0-9-]{1,47}$` and names a registry, `pluggable.greeter`.
+2. **Define the implementation** (`PluggableImplementation`, `PluggableSecretSpec` from the same entry):
+   - **`id`**: matches `^[a-z][a-z0-9-]{1,47}$` (`PLUGGABLE_ID_PATTERN` of `@marinoscar/platform-contract/settings`). It is the key the settings are stored under, so it is permanent once a row exists: never rename it.
+   - **`label`**, optional **`description`**: what the admin form shows.
+   - **`settingsSchema`**: a `z.object` of the **non-secret** fields only. `.describe('help')` becomes the field's help text and `.meta({ label })` its label (else the field name, humanised). Use `boolean`, `z.enum`, `number` and `string` fields: those render as a switch, a select and inputs; any other type (an object, an array, a record) is described as `other`, which the generated form shows as a note.
+   - **`defaults`**: the settings of a fresh install. They must parse with `settingsSchema`.
+   - **`secrets`**: `{ name, label, required, help? }[]` for each key or token the implementation needs. A secret is declared here, never a settings field (`apiKey` is in `secrets`, not in `settingsSchema`) and never an environment variable. The kind stores nothing: the consuming slice keeps each secret in the encrypted credential store under a credential purpose ([Add a credential purpose](#add-a-credential-purpose)) and tells the kind only whether one exists.
+   - **`build({ settings, secret })`**: returns the instance, or a promise of it. `settings` is parsed with `settingsSchema` and has the defaults filled. `await secret('apiKey')` resolves a declared secret for this call and returns `null` when none is stored; throw a clear error for a required one that is missing. The consuming slice's own context is merged into the same object.
+   - **`egressHosts(settings)`** (optional): the hosts an instance calls, for an `EgressContributor` ([Add a doctor check](#add-a-doctor-check)).
+3. **Register at import time**, in `apps/api/src/app-registrations/core.ts`:
+
+   ```ts
+   greeterKind.register(plainGreeter);
+   greeterKind.register(signedGreeter);
+   ```
+
+   Whatever builds the kind's instances imports that file before the application container is created. A duplicate id throws `DUPLICATE_ID`, a malformed one `INVALID_ID` or `INVALID_ENTRY`, and a registration after the application has bootstrapped `FROZEN`, like every other static registry. Ship an implementation as an npm package by following [the extension package rules](#how-to-ship-an-extension-as-its-own-npm-package): a module-scope side effect behind an entry the app imports.
+4. **Store the settings as a record keyed by implementation id**, `{ [id]: that implementation's settings }`. The consuming slice calls the kind for both directions:
+
+   | Direction | Call | Rule |
+   |---|---|---|
+   | Write | `kind.mergeSettingsRecord(stored, patch)` | An unregistered id throws `PluggableUnknownError`; an entry that does not parse throws `PluggableSettingsError` (zod `issues`). `null` removes an entry; anything else is merged over the stored entry and parsed, defaults filled. Entries the patch does not name are kept. Map both errors to the slice's own 400. |
+   | Read | `kind.readSettingsRecord(stored, warn)` | An id that is no longer registered is dropped with **one** warning naming every such id; an entry that no longer parses falls back to the defaults with a warning. It never throws, so removing a plugin never bricks the row. |
+   | Parse one | `kind.parseSettings(id, raw)` | Validates and fills defaults before `build`; `undefined` and `null` count as `{}`. |
+   | Look up | `kind.get(id)`, `has`, `ids`, `list` | `get` throws `PluggableUnknownError`, whose message names the kind, the id and the registered ids. |
+
+   Never write the secret into this record.
+5. **Serve descriptors and render the generic form.**
+   - **API.** `kind.describeAll((id) => ({ secrets: { apiKey: true } }))` (or `describe(id, presence)`) returns one `PluggableDescriptor` per implementation: `{ kind, id, label, description?, fields }`. `fields` holds the non-secret settings in declaration order (`describeConfigFields(schema)` does that part alone), then one `secret` field per declared secret, carrying `hasValue` and `required` and **never a value**. The slice computes the presence flags from its credential store and serves the descriptors on its admin route.
+   - **Contract.** `pluggableDescriptorSchema` and `configFieldSchema` of `@marinoscar/platform-contract/settings` validate the wire shape; the field kinds are `boolean`, `enum`, `number`, `string`, `other` and `secret`.
+   - **Web.** The page holds the state with `usePluggableConfigForm(descriptor, stored)` (`@marinoscar/platform-web/settings/headless`) and renders `<PluggableConfigForm descriptor value onChange secrets onSecretChange disabled />` (`@marinoscar/platform-web/settings/ui`). `form.payload()` returns `{ settings, secrets }`: the settings, and only the secrets the user typed (a blank secret means "keep the stored one"). A secret is a write-only `SecretField`; its stored value never reaches the browser. The form has no save button, fetch or permission check: the page sends `settings` through the slice's settings route and each typed secret to the slice's own route for that credential (there is no generic credentials route), and disables the controls without the write permission. Replace one field's control through the form's `slots` ([the settings web README](../packages/platform-web/src/settings/README.md)). Example: [`GreeterSettings.example.tsx`](../apps/web/src/__tests__/examples/settings/GreeterSettings.example.tsx).
+   - **Card.** The page is an admin card: [Add an admin card](#add-an-admin-card).
+6. **Run the conformance kit** on every registered implementation (`describePluggableKindConformance` of `@marinoscar/platform-api/core/testing`). Import the file that registers the implementations first, so they exist when the cases are declared:
+
+   ```ts
+   import '../../../src/app-registrations/core';
+   import { describePluggableKindConformance } from '@marinoscar/platform-api/core/testing';
+
+   describePluggableKindConformance(greeterKind, { describe, it, expect });
+   ```
+
+   It checks a valid id and label, defaults that parse with the implementation's own schema, a descriptor that validates with one `secret` field per declared secret and only presence flags, no `settingsSchema` field named like a secret (`/key|secret|token|password/i`), a secret name that is unique and does not collide with a settings field, and a `build` function. A setting that is genuinely not a secret (an S3 `keyPrefix`) is vouched for with `{ allowSecretLikeFields: ['keyPrefix'] }` as the third argument.
+7. **Check it.** `npx jest --config apps/api/test/jest.config.js --rootDir apps/api test/examples/core/pluggable-kind` for the API and `cd apps/web && npx vitest run src/__tests__/examples/settings/pluggable-config-form.test.tsx` for the form.
+
+The rules, from the [open id vocabulary](#open-an-id-vocabulary) shape:
+
+- **A secret is never a settings field and never an environment variable.** It is declared in `secrets`, stored encrypted in the credential store, resolved only through `secret(name)` for the call, and described as `hasValue`. No route, log line, error or descriptor carries its value.
+- **The id is a string with a pattern, not a union.** Do not add a `z.enum` of ids or a `switch` over them; look the implementation up with `kind.get`.
+- **An unknown id is refused on write and ignored with one warning on read.**
+- **Runtime configuration is never an environment variable.** The settings are stored at runtime and edited in the admin form.
+
 ## Coming in later stories
 
-Each placeholder names the story that replaces it. Until then the audit row is the record of what is closed.
-
-### Coming in PP-14.5: writing a pluggable implementation
-
-The pluggable-kind primitive (`definePluggableKind`, `describeConfigFields`, `PluggableConfigForm`, `describePluggableKindConformance`) that PP-14.6 to PP-14.12 apply. This section becomes the author guide for an implementation of any kind: id, non-secret settings schema, secrets as credential purposes, `build`, the descriptor the admin form is generated from, and the kit.
+Each placeholder names the story that replaces it; each is built on [the pluggable kind](#writing-a-pluggable-implementation). Until then the audit row is the record of what is closed.
 
 ### Coming in PP-14.6: add an AI provider
 
@@ -337,7 +394,8 @@ A kit is a function an extension author calls with the implementation and the te
 | `describeEventBusConformance(bus, { describe, it, expect })` | `@marinoscar/platform-api/host/testing` | Publish and subscribe on a dotted channel, ordering, unsubscribe, publish with no subscriber, `close()` | Available |
 | `describeAiProviderConformance` | `@marinoscar/platform-api/ai/testing` | `listModels`, `verifyKey`, `classifyModel`, the responses port, every error is an `AiError` | Available |
 | `runPlatformConformance` | `@marinoscar/platform-api/testing` | The platform's invariants over the app's source and registrations; a slice's suites register by importing its `…/testing` entry | Available |
-| Storage driver, email transport, auth provider, notification sender, telemetry store, backup target, pluggable kind | the slice's `…/testing` entry | Each ships with its story (PP-14.5 to PP-14.12) | Coming |
+| `describePluggableKindConformance(kind, { describe, it, expect }, options?)` | `@marinoscar/platform-api/core/testing` | For each registered implementation of a pluggable kind: a valid id and label, defaults that parse, a descriptor that validates with secrets as presence flags only, no secret-looking setting, a `build` function | Available |
+| Storage driver, email transport, auth provider, notification sender, telemetry store, backup target | the slice's `…/testing` entry | Each ships with its story (PP-14.6 to PP-14.12) | Coming |
 | Doctor check, job handler | `@marinoscar/platform-api/doctor/testing`, `…/jobs/testing` | Read-only checks; handler profile, idempotence and node-eligibility pairing | Coming (PP-14.26) |
 
 An app adds its own suite with `conformanceSuites.register` and a `declare module '@marinoscar/platform-api/testing'` augmentation of `PlatformConformanceSuiteOptions`; the android-app slice's `testing/conformance.ts` is the model. More: [TESTING.md](TESTING.md#platform-conformance).
