@@ -16,6 +16,7 @@ import type {
   TelemetrySchema,
   TelemetryStack,
   TelemetryStatus,
+  TelemetryStoreConfig,
 } from '@marinoscar/platform-web/telemetry/headless';
 
 export const mockTelemetryPublicConfigDisabled: TelemetryPublicConfig = {
@@ -295,4 +296,53 @@ export const mockTelemetryStackAgentDown: TelemetryStack = {
   agentError: 'connect ECONNREFUSED 172.18.0.5:8080',
   services: [],
   deploy: null,
+};
+
+// ---- the telemetry store (PP-14.11) ------------------------------------------------------
+
+/**
+ * `GET /admin/telemetry/store` when the deployment selects the example `memory`
+ * store the API registers (apps/api/src/platform-extensions/telemetry/memory-store.ts):
+ * its three settings, no secrets.
+ */
+export const mockTelemetryStoreMemory: TelemetryStoreConfig = {
+  active: {
+    id: 'memory',
+    label: 'In-memory (example)',
+    description: 'Rows held in this process, queried with a tiny SQL engine. A worked example, not for production.',
+  },
+  stores: [
+    { id: 'greptime', label: 'GreptimeDB', description: 'GreptimeDB over the PostgreSQL wire protocol. Configured at /admin/settings/telemetry.' },
+    { id: 'memory', label: 'In-memory (example)' },
+  ],
+  descriptor: {
+    kind: 'telemetry-store',
+    id: 'memory',
+    label: 'In-memory (example)',
+    description: 'Rows held in this process, queried with a tiny SQL engine. A worked example, not for production.',
+    fields: [
+      { name: 'enabled', label: 'Enabled', help: 'Whether the store answers queries.', kind: 'boolean' },
+      { name: 'database', label: 'Database', help: 'The name shown as the telemetry database.', kind: 'string', maxLength: 63 },
+      {
+        name: 'latencyMs',
+        label: 'Latency ms',
+        help: 'An artificial delay per query, in milliseconds (to try the timeout).',
+        kind: 'number',
+        min: 0,
+        max: 60000,
+        integer: true,
+      },
+    ],
+  },
+  settings: { enabled: true, database: 'memory', latencyMs: 0 },
+  ready: true,
+  error: null,
+  version: 0,
+  updatedAt: null,
+};
+
+/** `GET /admin/telemetry/config` for a deployment on the `memory` store. */
+export const mockTelemetryAdminConfigMemoryStore: TelemetryAdminConfig = {
+  ...mockTelemetryAdminConfig,
+  store: { id: 'memory', label: 'In-memory (example)' },
 };

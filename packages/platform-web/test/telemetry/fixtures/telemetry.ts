@@ -16,6 +16,7 @@ import type {
   TelemetrySchema,
   TelemetryStack,
   TelemetryStatus,
+  TelemetryStoreConfig,
 } from '../../../src/telemetry/headless/index.js';
 
 export const mockTelemetryPublicConfigDisabled: TelemetryPublicConfig = {
@@ -295,4 +296,37 @@ export const mockTelemetryStackAgentDown: TelemetryStack = {
   agentError: 'connect ECONNREFUSED 172.18.0.5:8080',
   services: [],
   deploy: null,
+};
+
+// ---- the telemetry store (PP-14.11) ----------------------------------------------------
+
+/** `GET /admin/telemetry/store` for the example `memory` store: two settings and one write-only secret. */
+export const mockTelemetryStoreMemory: TelemetryStoreConfig = {
+  active: { id: 'memory', label: 'In-memory (example)', description: 'Rows held in this process.' },
+  stores: [
+    { id: 'greptime', label: 'GreptimeDB' },
+    { id: 'memory', label: 'In-memory (example)', description: 'Rows held in this process.' },
+  ],
+  descriptor: {
+    kind: 'telemetry-store',
+    id: 'memory',
+    label: 'In-memory (example)',
+    description: 'Rows held in this process.',
+    fields: [
+      { name: 'database', label: 'Database', help: 'The name shown as the telemetry database.', kind: 'string' },
+      { name: 'latencyMs', label: 'Latency ms', help: 'An artificial delay per query.', kind: 'number', integer: true },
+      { name: 'apiKey', label: 'API key', kind: 'secret', hasValue: false, required: false },
+    ],
+  },
+  settings: { database: 'memory', latencyMs: 0 },
+  ready: true,
+  error: null,
+  version: 2,
+  updatedAt: '2026-09-27T10:00:00.000Z',
+};
+
+/** `GET /admin/telemetry/config` when the deployment's store is `memory`. */
+export const mockTelemetryAdminConfigMemory: TelemetryAdminConfig = {
+  ...mockTelemetryAdminConfig,
+  store: { id: 'memory', label: 'In-memory (example)' },
 };
