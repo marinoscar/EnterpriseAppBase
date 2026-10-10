@@ -50,6 +50,11 @@ jobs:
       # a required peer.
       - run: npm run check:slice-peers
 
+      # docs/SLICES.md is generated from the slice graph, the peers, the
+      # package exports, the slice READMEs and packages/platform-slice-notes.json;
+      # the check fails when the committed page differs (run npm run docs:slices).
+      - run: npm run check:slices-doc
+
       - run: npm run test:packages
 
       # `npm pack --dry-run` per package: every exports/main/types target and
