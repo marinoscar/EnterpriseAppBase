@@ -965,7 +965,7 @@ id (step 6), `AiModule.forRoot` accepts only the five built-in provider
 modules, and the admin form has no fields for it. Until the provider
 definition registry ships, a provider is added by following the steps above
 inside the package, or filed as a seam request. The app-side recipe will be
-[EXTENDING.md](../EXTENDING.md#add-an-ai-provider).
+[EXTENDING.md](../EXTENDING.md#coming-in-pp-146-add-an-ai-provider).
 
 A new AI route needs `AiEnabledGuard` plus `ai:use` (consumer) or
 `ai_config:*` (admin, no guard). A new AI job type must stay server-only.

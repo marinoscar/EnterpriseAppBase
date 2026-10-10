@@ -599,7 +599,7 @@ adapter must pass — is
 adapter registered under a new id is listed and can be keyed and conformance-
 tested, but it cannot be enabled, because the `ai` settings namespace, the
 `AiModule.forRoot` provider list and the admin form are fixed to the five
-built-ins ([EXTENDING.md](../../../../docs/EXTENDING.md#add-an-ai-provider)).
+built-ins ([EXTENDING.md](../../../../docs/EXTENDING.md#coming-in-pp-146-add-an-ai-provider)).
 
 ## Extension-point catalog
 
