@@ -80,6 +80,47 @@ describe('handlePushEvent', () => {
     expect(fake.registration.showNotification).toHaveBeenCalledWith('Hello', expect.objectContaining({ icon: '/i.png', badge: '/b.png' }));
   });
 
+  it("shows the extras an app's pushPayload hook added (PP-14.10): tag, icon, badge and at most two actions", async () => {
+    const { scope: s, fake } = scope();
+    await handlePushEvent(
+      s,
+      pushEvent({
+        ...payload,
+        tag: 'invoice',
+        icon: '/icons/invoice.png',
+        badge: 'https://cdn.example.test/badge.png',
+        actions: [
+          { action: 'open', title: 'Open' },
+          { action: 'later', title: 'Later' },
+          { action: 'third', title: 'Third' },
+        ],
+      }).event,
+    );
+    expect(fake.registration.showNotification).toHaveBeenCalledWith('Hello', {
+      body: 'Welcome aboard',
+      tag: 'invoice',
+      icon: '/icons/invoice.png',
+      badge: 'https://cdn.example.test/badge.png',
+      actions: [
+        { action: 'open', title: 'Open' },
+        { action: 'later', title: 'Later' },
+      ],
+      data: { id: 'n1', link: '/settings' },
+    });
+  });
+
+  it('ignores extras of the wrong type and keeps the defaults', async () => {
+    const { scope: s, fake } = scope();
+    await handlePushEvent(s, pushEvent({ ...payload, tag: 7, icon: 3, badge: {}, actions: 'open' }).event);
+    expect(fake.registration.showNotification).toHaveBeenCalledWith('Hello', {
+      body: 'Welcome aboard',
+      tag: 'n1',
+      icon: '/icons/icon-192.png',
+      badge: '/icons/badge-96.png',
+      data: { id: 'n1', link: '/settings' },
+    });
+  });
+
   it('shows a generic notification for a missing or malformed payload, never nothing', async () => {
     for (const event of [pushEvent(undefined).event, { data: { json: () => { throw new Error('bad'); } }, waitUntil: vi.fn() }]) {
       const { scope: s, fake } = scope();

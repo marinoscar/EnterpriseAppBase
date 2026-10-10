@@ -13,6 +13,8 @@ export type { SseConnection, SseFrame, SseOptions, SseState } from './sse.js';
 
 export { NotificationProvider, useNotifications } from './NotificationContext.js';
 export type { NotificationContextValue } from './NotificationContext.js';
+export { useNotificationChannels } from './useNotificationChannels.js';
+export type { UseNotificationChannelsReturn } from './useNotificationChannels.js';
 export { usePushSubscriptionSync } from './usePushSubscriptionSync.js';
 export type { UsePushSubscriptionSyncResult } from './usePushSubscriptionSync.js';
 export type { NotificationCapability } from './useNotificationCapability.js';
@@ -21,6 +23,7 @@ export { removePushSubscription, requestPermissionAndSyncPush } from './pushSubs
 export type {
   AppNotification,
   NotificationChannel,
+  NotificationChannelDescriptor,
   NotificationChannelPreferences,
   NotificationChannelPreferencesPatch,
   NotificationConfigResponse,

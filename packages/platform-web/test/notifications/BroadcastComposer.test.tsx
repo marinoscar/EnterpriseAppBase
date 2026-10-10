@@ -36,10 +36,16 @@ import type { NotificationConfigResponse } from '../../src/notifications/headles
 vi.mock('../../src/notifications/headless/useNotificationConfig.js', () => ({
   useNotificationConfig: vi.fn(),
 }));
+vi.mock('../../src/notifications/headless/useNotificationChannels.js', () => ({
+  useNotificationChannels: vi.fn(),
+}));
 
 import { useNotificationConfig } from '../../src/notifications/headless/useNotificationConfig.js';
+import { useNotificationChannels } from '../../src/notifications/headless/useNotificationChannels.js';
+import { channelsHookReturn } from './channels-fixture.js';
 
 const mockUseNotificationConfig = vi.mocked(useNotificationConfig);
+const mockUseNotificationChannels = vi.mocked(useNotificationChannels);
 
 function setConfig(config: NotificationConfigResponse | null) {
   mockUseNotificationConfig.mockReturnValue({
@@ -94,6 +100,8 @@ describe('BroadcastComposer', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setConfig({ browserEnabled: true, pushEnabled: true, vapidPublicKey: 'key' });
+    // The three built-in channels, as the API serves them.
+    mockUseNotificationChannels.mockReturnValue(channelsHookReturn());
     onSubmit.mockResolvedValue(true);
     onSendTest.mockResolvedValue(true);
   });

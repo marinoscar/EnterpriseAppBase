@@ -105,7 +105,12 @@ export const STATUS_CHIP_COLOR: Record<
   failed: 'error',
 };
 
-/** Channel keys as the API stores them → what an administrator calls them. */
+/**
+ * How an administrator calls the platform's own channels where it differs from
+ * the registry's label (`browser` is "In-app" here). Every other channel is
+ * called what the API's channel registry calls it (`labels`, from
+ * `GET /api/notifications/channels`).
+ */
 const CHANNEL_LABELS: Record<string, string> = {
   browser: 'In-app',
   email: 'Email',
@@ -124,8 +129,8 @@ const CHANNEL_LABELS: Record<string, string> = {
  * delivery too (#521). The label names what the admin is choosing — a place in
  * the app — not the OS mechanism.
  */
-export function channelLabel(channel: string): string {
-  return CHANNEL_LABELS[channel] ?? channel;
+export function channelLabel(channel: string, labels?: ReadonlyMap<string, string>): string {
+  return CHANNEL_LABELS[channel] ?? labels?.get(channel) ?? channel;
 }
 
 /** A timestamp in the viewer's locale, or an em dash when the API sent `null`. */
@@ -179,7 +184,7 @@ export function asBroadcastStatus(value: string | undefined): BroadcastStatusNam
 // The columns
 // =============================================================================
 
-export function buildBroadcastColumns(): DataTableColumn<Broadcast>[] {
+export function buildBroadcastColumns(labels?: ReadonlyMap<string, string>): DataTableColumn<Broadcast>[] {
   return [
     {
       /**
@@ -267,11 +272,11 @@ export function buildBroadcastColumns(): DataTableColumn<Broadcast>[] {
       label: 'Channels',
       priority: 'secondary',
       minWidth: 180,
-      value: (broadcast) => broadcast.channels.map(channelLabel).join(', '),
+      value: (broadcast) => broadcast.channels.map((channel) => channelLabel(channel, labels)).join(', '),
       render: (broadcast) => (
         <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap' }}>
           {broadcast.channels.map((channel) => (
-            <Chip key={channel} label={channelLabel(channel)} size="small" variant="outlined" />
+            <Chip key={channel} label={channelLabel(channel, labels)} size="small" variant="outlined" />
           ))}
         </Stack>
       ),

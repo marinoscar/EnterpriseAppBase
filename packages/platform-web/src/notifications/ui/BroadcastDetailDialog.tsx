@@ -55,6 +55,8 @@ interface BroadcastDetailDialogProps {
   isLoading: boolean;
   error: string | null;
   onClose: () => void;
+  /** Labels for the channels an app registered (`GET /api/notifications/channels`); the platform's own keep their wording. */
+  channelLabels?: ReadonlyMap<string, string>;
 }
 
 /** One label/value row of the summary grid. */
@@ -75,6 +77,7 @@ export function BroadcastDetailDialog({
   isLoading,
   error,
   onClose,
+  channelLabels,
 }: BroadcastDetailDialogProps) {
   const theme = useTheme();
   // The same `down('sm')` compact-window read `SettingsHub.tsx` and `AppBar.tsx`
@@ -127,7 +130,7 @@ export function BroadcastDetailDialog({
                   {broadcast.channels.map((channel) => (
                     <Chip
                       key={channel}
-                      label={channelLabel(channel)}
+                      label={channelLabel(channel, channelLabels)}
                       size="small"
                       variant="outlined"
                     />
@@ -266,7 +269,7 @@ export function BroadcastDetailDialog({
                     <TableBody>
                       {broadcast.approximateDeliveryAttempts.map((entry) => (
                         <TableRow key={`${entry.channel}:${entry.status}`}>
-                          <TableCell>{channelLabel(entry.channel)}</TableCell>
+                          <TableCell>{channelLabel(entry.channel, channelLabels)}</TableCell>
                           <TableCell>{entry.status}</TableCell>
                           <TableCell align="right">{entry.count}</TableCell>
                         </TableRow>

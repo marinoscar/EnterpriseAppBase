@@ -62,6 +62,7 @@ import { NotificationSettings } from './NotificationSettings.js';
 import { useIsMounted } from '../headless/useIsMounted.js';
 import { useNotificationCapability } from '../headless/useNotificationCapability.js';
 import { useNotificationConfig } from '../headless/useNotificationConfig.js';
+import { useNotificationChannels } from '../headless/useNotificationChannels.js';
 import { useNotificationEvents } from '../headless/useNotificationEvents.js';
 import { requestPermissionAndSyncPush } from '../headless/pushSubscription.js';
 import type { NotificationPreferencesPatch } from '../headless/types.js';
@@ -85,7 +86,11 @@ export default function UserNotificationsPage() {
   // Both hooks at the top level of the component, NOT inside the render prop
   // below — a hook called from a callback is a hook called conditionally, and
   // the render prop is only invoked once the settings document has loaded.
-  const { events, isLoading, error } = useNotificationEvents();
+  const { events, isLoading: eventsLoading, error } = useNotificationEvents();
+  // The channel labels (PP-14.10). A failed read is not fatal: the matrix then
+  // labels each channel with its raw id, which is legible if plain.
+  const { channels, isLoading: channelsLoading } = useNotificationChannels();
+  const isLoading = eventsLoading || channelsLoading;
 
   // OBSERVED here; this page requests only from the click handler below (the
   // shell's `usePushSubscriptionSync` owns the once-per-load auto-prompt).
@@ -165,6 +170,7 @@ export default function UserNotificationsPage() {
         return (
           <NotificationSettings
             events={events}
+            channels={channels ?? undefined}
             // THE RAW STORED NAMESPACE, passed straight through — `undefined`
             // when the user has never saved a preference, which is the normal
             // case. Deliberately NOT `?? {}`-ed into a defaulted object here:

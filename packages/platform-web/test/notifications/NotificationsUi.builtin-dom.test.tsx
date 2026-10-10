@@ -35,16 +35,26 @@ vi.mock('../../src/identity/headless/index.js', async (importOriginal) => ({
   usePermissions: vi.fn(),
 }));
 vi.mock('../../src/notifications/headless/useNotificationEvents.js', () => ({ useNotificationEvents: vi.fn() }));
+vi.mock('../../src/notifications/headless/useNotificationChannels.js', () => ({ useNotificationChannels: vi.fn() }));
 
 import { useNotificationConfig } from '../../src/notifications/headless/useNotificationConfig.js';
 import { useSystemSettings } from '../../src/settings/headless/use-system-settings.js';
 import { usePermissions } from '../../src/identity/headless/index.js';
 import { useNotificationEvents } from '../../src/notifications/headless/useNotificationEvents.js';
+import { useNotificationChannels } from '../../src/notifications/headless/useNotificationChannels.js';
+import { builtinChannelDescriptors, channelsHookReturn } from './channels-fixture.js';
 
 const mockConfig = vi.mocked(useNotificationConfig);
 const mockSettings = vi.mocked(useSystemSettings as unknown as (...args: unknown[]) => any);
 const mockPermissions = vi.mocked(usePermissions);
 const mockEvents = vi.mocked(useNotificationEvents);
+const mockChannels = vi.mocked(useNotificationChannels);
+
+// The three built-in channels, as the API serves them: the markup must be the
+// one the constants produced.
+beforeEach(() => {
+  mockChannels.mockReturnValue(channelsHookReturn());
+});
 
 /** React's generated ids (`_r_1f_`) depend on render order; the markup around them is what is compared. */
 const html = (root: Element): string => root.innerHTML.replace(/_r_[0-9a-z]+_/g, '_rX_');
@@ -91,6 +101,7 @@ function matrix(
       events={options.events ?? [WELCOME, DIGEST, ROLE_CHANGED, BUILD, ANNOUNCEMENT]}
       preferences={options.preferences}
       onToggle={noop}
+      channels={builtinChannelDescriptors()}
       browserCapability={capability}
       pushEnabled={options.pushEnabled ?? true}
       onRequestPermission={noop}

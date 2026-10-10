@@ -25,31 +25,48 @@
 // =============================================================================
 
 /**
- * A delivery channel.
+ * A delivery channel id.
  *
- * Mirrors the API's `NOTIFICATION_CHANNELS`. This union is the ONE piece of the
- * registry the web app restates, and only because it is the key type of the
- * patch documents below — an open `string` there would let a typo compile.
- * It is a closed set server-side too (the PATCH schema validates the outer key
- * against the same enum and 400s on anything else), so a channel this union
- * lacks is a channel this app could not write anyway.
+ * OPEN: any id the API registered (an app's own included), with the three
+ * platform ids named for completion. The bundle holds no list of channels, no
+ * labels and no order: those come from `GET /api/notifications/channels`
+ * ({@link NotificationChannelDescriptor}), so an app's channel is drawn with no
+ * edit here. A stored preference or an event may name a channel this build has
+ * never heard of; rendering falls back to the raw id rather than a blank label.
  *
- * `'push'` was added here in #228 (epic #215), mirroring the API's widening of
- * `NOTIFICATION_CHANNELS` in the same issue. #228 also builds the
- * preferences-matrix column for it (`pushChannelState()` in
- * `NotificationSettings.tsx`, disabled while the deployment's `pushEnabled` is
- * `false`). The column only has rows for events that declare `push`.
- *
- * Rendering is nonetheless written to survive a NEWER server that declares a
- * channel this build has never heard of — see `CHANNEL_LABELS` in
- * `components/settings/NotificationSettings.tsx`, which falls back to the raw
- * key rather than rendering a blank label.
-  *
-  * @stability experimental
+ * @stability experimental
  */
 // OPEN since #738: any channel id the API registered (an app's own included);
 // the three platform ids are named for completion.
 export type NotificationChannel = 'email' | 'browser' | 'push' | (string & {});
+
+/**
+ * One delivery channel, as served by `GET /api/notifications/channels`: field
+ * for field the API's `notificationChannelDescriptorSchema`. The only source of
+ * a channel's label, its place in a list, whether a critical broadcast may rely
+ * on it and whether a broadcast can be sent over it.
+ *
+ * @extensionPoint contract
+ * @stability experimental
+ */
+export interface NotificationChannelDescriptor {
+  /** The channel id; permanent. */
+  id: NotificationChannel;
+  /** The label to draw (`Email`, `Browser`, `Slack`). */
+  label: string;
+  /** One sentence on what the channel delivers to. */
+  description: string;
+  /** Whether a user may toggle the channel in their preferences. */
+  userConfigurable: boolean;
+  /** Whether a critical broadcast may rely on this channel (it leaves a durable record a recipient can read). */
+  criticalCapable: boolean;
+  /** Whether the broadcast events declare this channel, so a broadcast can be sent over it. */
+  broadcastCapable: boolean;
+  /** Whether a new broadcast starts with this channel selected. */
+  broadcastDefault: boolean;
+  /** Registration order, from 0: the order every list draws channels in. */
+  order: number;
+}
 
 /**
  * One entry of the event registry, as served by `GET /api/notifications/events`.
@@ -403,6 +420,12 @@ export interface SystemNotificationSettings {
    * suppressed, so the page leaves unknown stored keys alone.
    */
   disabledEvents: string[];
+  /**
+   * A switch per channel (`{ slack: { enabled: false } }`); an absent channel
+   * is enabled. `browser` is also `browserEnabled`, kept equal by the API.
+   * Absent on a deployment that never saved one.
+   */
+  channels?: Record<string, { enabled: boolean }>;
 }
 
 /**
