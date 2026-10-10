@@ -20,6 +20,7 @@ export {
   registerAiProviderCard,
 } from './provider-cards.js';
 export type {
+  AiDeploymentRow,
   AiProviderCardComponent,
   AiProviderCardProps,
   AiProviderFormErrors,

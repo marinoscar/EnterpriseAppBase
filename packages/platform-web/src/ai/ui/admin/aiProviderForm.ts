@@ -23,15 +23,27 @@ import type { AiAdminProvider, AiApiStyle, AiProviderSettingsInput } from '../..
 /** Longest base URL the form accepts. */
 export const MAX_BASE_URL_LENGTH = 512;
 
-/** One `deployments` row as typed — rows keep their order and can be half-filled. */
+/**
+ * One `deployments` row as typed — rows keep their order and can be half-filled.
+ *
+ * @stability experimental
+ */
 export interface AiDeploymentRow {
+  /** The model id as typed. */
   modelId: string;
+  /** The deployment name as typed. */
   deployment: string;
 }
 
-/** The provider's slice of the page form. Strings so "blank" (default) is representable. */
+/**
+ * The provider's slice of the page form. Strings so "blank" (default) is representable.
+ *
+ * @stability experimental
+ */
 export interface AiProviderFormValue {
+  /** The provider's switch. */
   enabled: boolean;
+  /** The endpoint override as typed; `''` for the provider's default. */
   baseUrl: string;
   /** Azure OpenAI; blank for the default. */
   apiVersion: string;
@@ -49,14 +61,25 @@ export interface AiProviderFormValue {
   settings?: Record<string, unknown>;
 }
 
-/** Field-level problems the card shows inline; any entry blocks Save. */
+/**
+ * Field-level problems the card shows inline; any entry blocks Save.
+ *
+ * @stability experimental
+ */
 export interface AiProviderFormErrors {
+  /** A problem with the endpoint. */
   baseUrl?: string;
+  /** A problem with the `api-version`. */
   apiVersion?: string;
   /** A problem with the list as a whole (too many, a duplicate model id). */
   deployments?: string;
   /** Per-row problems, by row index. */
-  deploymentRows?: Record<number, { modelId?: string; deployment?: string }>;
+  deploymentRows?: Record<number, {
+    /** A problem with the row's model id. */
+    modelId?: string;
+    /** A problem with the row's deployment name. */
+    deployment?: string;
+  }>;
 }
 
 /**

@@ -209,10 +209,23 @@ export function AiSlotlessProviderCard({ provider }: { provider: AiAdminProvider
   );
 }
 
+/**
+ * What a provider's card on the admin AI page receives: the provider as the
+ * API describes it, its editable form value, whether the viewer may write, and
+ * the immediate key actions with their state. A card registered with
+ * `registerAiProviderCard` is a component of these props.
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
 export interface AiProviderCardProps {
+  /** The provider as the API describes it. */
   provider: AiAdminProvider;
+  /** The editable form value (enabled, endpoint, the provider's own settings). */
   value: AiProviderFormValue;
+  /** Reports the next form value; the page holds it. */
   onChange: (next: AiProviderFormValue) => void;
+  /** Whether the viewer holds `ai_config:write`; a card disables its controls without it. */
   canWrite: boolean;
   /** Field-level errors for this provider's settings, if the page's validation found any. */
   errors?: AiProviderFormErrors;
@@ -223,16 +236,24 @@ export interface AiProviderCardProps {
   keyAction: 'save' | 'remove' | null;
   /** True while any write or probe on the page is in flight — one at a time. */
   busy: boolean;
+  /** The last key-write failure for THIS provider, if any. */
   keyError: string | null;
+  /** Dismisses {@link keyError}. */
   onClearKeyError: () => void;
   /** Resolves `true` when the key was verified and stored. */
   onSaveKey: (apiKey: string) => Promise<boolean>;
+  /** Removes the stored key (after the typed `REMOVE`); resolves `true` when done. */
   onRemoveKey: () => Promise<boolean>;
 
+  /** Whether a probe of THIS provider is running. */
   isProbing: boolean;
+  /** The last probe failure for THIS provider (the request itself failed). */
   probeError: string | null;
+  /** Dismisses {@link probeError}. */
   onClearProbeError: () => void;
+  /** The last probe verdict for THIS provider. */
   testResult: AiProbeResultData | null;
+  /** Dismisses {@link testResult}. */
   onClearTestResult: () => void;
   /** Probe with the typed key, or the stored one when `apiKey` is blank. */
   onTest: (apiKey: string) => void;

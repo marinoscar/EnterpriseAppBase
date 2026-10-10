@@ -59,6 +59,28 @@ function emptyKeyHelp(provider: AiAdminProvider): string {
   return provider.help?.key ?? 'No organization key is stored yet.';
 }
 
+/**
+ * The card the admin AI page draws for a provider that has no registered card:
+ * a switch, the provider's own settings and a write-only key, all generated
+ * from the descriptor in `props.descriptor`. Also usable inside a bespoke card
+ * that only wants to add to it.
+ *
+ * @param props - see {@link AiProviderCardProps}.
+ * @returns the card.
+ *
+ * @example
+ * ```tsx
+ * registerAiProviderCard('example-transcribe', (props) => (
+ *   <>
+ *     <Alert severity="info">Transcription bills per minute.</Alert>
+ *     <AiGenericProviderCard {...props} />
+ *   </>
+ * ));
+ * ```
+ *
+ * @extensionPoint component
+ * @stability experimental
+ */
 export function AiGenericProviderCard({
   provider,
   value,

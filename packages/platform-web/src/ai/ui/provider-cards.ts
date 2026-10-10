@@ -7,4 +7,4 @@ export { registerAiProviderCard, getAiProviderCard } from './admin/aiProviderCar
 export type { AiProviderCardComponent } from './admin/aiProviderCardRegistry.js';
 export { AiGenericProviderCard } from './admin/AiGenericProviderCard.js';
 export type { AiProviderCardProps } from './admin/AiProviderCard.js';
-export type { AiProviderFormErrors, AiProviderFormValue } from './admin/aiProviderForm.js';
+export type { AiDeploymentRow, AiProviderFormErrors, AiProviderFormValue } from './admin/aiProviderForm.js';
