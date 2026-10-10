@@ -47,8 +47,11 @@ export class AndroidAppNotificationChannel extends PushNotificationChannel imple
   constructor(
     @Inject(PLATFORM_PRISMA) prisma: NotificationsPrisma,
     pushConfig: PushConfigService,
+    // At the parent's index for the same dependency, on purpose: Nest merges
+    // `@Optional()` indexes down an inheritance chain, so the optional hook
+    // must sit where the parent marked it optional and nowhere else.
+    @Optional() @Inject(NOTIFICATION_PUSH_PAYLOAD) pushPayload: PushPayloadHook | null | undefined,
     private readonly senders: NotificationChannelSenderRegistry,
-    @Optional() @Inject(NOTIFICATION_PUSH_PAYLOAD) pushPayload?: PushPayloadHook | null,
   ) {
     super(prisma, pushConfig, pushPayload);
   }

@@ -58,7 +58,7 @@ describe('AndroidAppNotificationChannel', () => {
       notification: { create: jest.fn() },
     };
     const senders = new NotificationChannelSenderRegistry([]);
-    const channel = new AndroidAppNotificationChannel(prisma as never, fakePushConfig(), senders);
+    const channel = new AndroidAppNotificationChannel(prisma as never, fakePushConfig(), undefined, senders);
     return { prisma, senders, channel };
   }
 
