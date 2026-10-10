@@ -27,13 +27,6 @@
 import type { ConfigField } from '@marinoscar/platform-contract/settings';
 import { z } from 'zod';
 
-/**
- * A configuration field the description of a zod schema can produce (never `secret`).
- *
- * @stability experimental
- */
-export type DescribedConfigField = Exclude<ConfigField, { kind: 'secret' }>;
-
 const WRAPPERS = new Set(['optional', 'nullable', 'readonly', 'nonoptional']);
 const MAX_WRAPPER_DEPTH = 8;
 
@@ -85,12 +78,12 @@ function helpOf(chain: readonly z.ZodType[]): string | undefined {
  *
  * @param name - the field's key in its object schema.
  * @param schema - the field's zod schema.
- * @returns the descriptor: `name`, `kind` and the kind's bounds, then `label`
+ * @returns the descriptor (never of kind `secret`): `name`, `kind` and the kind's bounds, then `label`
  *   and, when the schema has a description, `help`.
  *
  * @stability experimental
  */
-export function describeConfigField(name: string, schema: z.ZodType): DescribedConfigField {
+export function describeConfigField(name: string, schema: z.ZodType): ConfigField {
   const chain = unwrapChain(schema);
   const inner = chain[chain.length - 1] as z.ZodType;
   const label = labelOf(name, chain);
@@ -136,6 +129,6 @@ export function describeConfigField(name: string, schema: z.ZodType): DescribedC
  * @extensionPoint option
  * @stability experimental
  */
-export function describeConfigFields(schema: z.ZodObject<z.ZodRawShape>): DescribedConfigField[] {
+export function describeConfigFields(schema: z.ZodObject<z.ZodRawShape>): ConfigField[] {
   return Object.entries(schema.shape as Record<string, z.ZodType>).map(([name, field]) => describeConfigField(name, field));
 }

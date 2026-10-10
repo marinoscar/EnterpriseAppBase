@@ -12,4 +12,3 @@ export type {
 } from './pluggable-kind';
 export { PluggableSettingsError, PluggableUnknownError } from './pluggable-errors';
 export { describeConfigField, describeConfigFields } from './describe-config-fields';
-export type { DescribedConfigField } from './describe-config-fields';

@@ -1,6 +1,6 @@
 # @marinoscar/platform-api/core
 
-`@marinoscar/platform-api/core`: the bottom of the slice graph. Code only, no tables: the typed **registry primitive**, the org-aware **principal and scope contract**, the application-wide **exception filter** with its exceptions and error DTO, the **secret cipher** under every runtime-configured credential with its bootstrap check, the **OpenAPI tag registry**, the **role and permission registries** (issue #866), **scoped data access** (the user-owned data registry, `forUser()` and `asSystem()`, issue #699), and the **host ports** (issue #696) through which a packaged slice reaches app-owned capabilities without importing app code. Every other slice imports it; it imports no other slice (`packages/platform-slices.json`: `"core": []`).
+`@marinoscar/platform-api/core`: the bottom of the slice graph. Code only, no tables: the typed **registry primitive**, the org-aware **principal and scope contract**, the application-wide **exception filter** with its exceptions and error DTO, the **secret cipher** under every runtime-configured credential with its bootstrap check, the **OpenAPI tag registry**, the **role and permission registries** (issue #866), **scoped data access** (the user-owned data registry, `forUser()` and `asSystem()`, issue #699), the **pluggable-kind primitive** (PP-14.5, issue #923: one registry of implementations per kind, each with its own settings, secrets and generated-form descriptor), and the **host ports** (issue #696) through which a packaged slice reaches app-owned capabilities without importing app code. Every other slice imports it; it imports no other slice (`packages/platform-slices.json`: `"core": []`).
 
 ## Purpose and scope
 
@@ -13,6 +13,7 @@ Each primitive used to live in the app (`apps/api/src/common/`) and every fork c
 | Principal and scope | `principal/` | Types only (ADR 0001): who is calling (`Principal`), the data boundary one operation runs in (`Scope`), and the named escape from scoping (`SystemActor`). No runtime code. |
 | Errors | `errors/` | `HttpExceptionFilter`, which turns every thrown value into the one error envelope, the `ErrorDto` that documents that envelope in OpenAPI, the verbatim-body opt-out for externally specified bodies, and `DatabaseSeedException`. |
 | Crypto | `crypto/` | AES-256-GCM with a per-purpose sub-key (HMAC-SHA256 over a fixed, versioned label), the owner-bound domain builder for per-user secrets, and `verifyEncryptionKeyAtStartup`. |
+| Pluggable kinds | `pluggable/`, `testing/` | `definePluggableKind`: one registry of implementations per kind (AI providers, storage drivers, email transports...), each with its own zod settings schema, defaults and declared secrets; the write/read rules for a settings record keyed by implementation id; `describeConfigFields` and the `PluggableDescriptor` a generated form renders; and `describePluggableKindConformance`, the kit every kind runs. Framework-free. See [Pluggable kinds](#pluggable-kinds). |
 | Host ports | `host/` | `definePlatformHost` (decorator-time access), the `AUDIT_SINK`, `SYSTEM_SETTINGS_STORE` and `PLATFORM_PRISMA` tokens and `PlatformHostModule`, which binds them once in the app (`apps/api/src/platform/`). See [Host ports](#host-ports). |
 | Scoped data access | `data-access/` | The user-owned data registry (every model with a foreign key to `User`, with its role, purge and export policy), the user-scoped Prisma client extension (`forUser`, `userScopeExtension`) and the explicit unscoped escape (`asSystem`). Schema-independent: model names are strings and the app passes its own client in. See [Scoped data access](#scoped-data-access). Moved from the app by #699 (origin #688). |
 | OpenAPI tags | `openapi/` | `openApiTags`: every `@ApiTags` name with its description and sidebar group, registered by the app and by slices; the app's document builder publishes `tags` and `x-tagGroups` from it. Also `@ApiDataResponse`, which documents a response inside the `{ data: … }` envelope (flat or nested pagination, arrays, `oneOf` unions); moved from the app by #727 so packaged controllers document it the same way. |
@@ -28,7 +29,7 @@ Ships inside `@marinoscar/platform-api`; import it by its subpath:
 import { HttpExceptionFilter, defineRegistry, encryptSecret } from '@marinoscar/platform-api/core';
 ```
 
-Peers are those of the package ([README](../../README.md#install-and-peer-dependencies)). Within the slice: `registry/`, `permissions/`, `principal/`, `openapi/` and `crypto/secret-cipher.ts` import nothing outside Node built-ins; `RegistryFreezeService`, the host ports, the errors and the startup check need `@nestjs/common`, `ErrorDto` needs `@nestjs/swagger`, `HttpExceptionFilter` needs `nestjs-zod` (it names the failing fields of a `ZodValidationException`), and `data-access/` needs `@prisma/client` (its `@prisma/client/extension` entry only, which does not depend on a generated client) and `@opentelemetry/api` (the `asSystem` span attributes). `test/core/core-imports.spec.ts` pins that set (no `from '@prisma/client'`, `@prisma/client/extension` only from `data-access/`, no other slice).
+Peers are those of the package ([README](../../README.md#install-and-peer-dependencies)). Within the slice: `registry/`, `permissions/`, `principal/`, `openapi/` and `crypto/secret-cipher.ts` import nothing outside Node built-ins; `RegistryFreezeService`, the host ports, the errors and the startup check need `@nestjs/common`, `ErrorDto` needs `@nestjs/swagger`, `HttpExceptionFilter` needs `nestjs-zod` (it names the failing fields of a `ZodValidationException`), and `data-access/` needs `@prisma/client` (its `@prisma/client/extension` entry only, which does not depend on a generated client) and `@opentelemetry/api` (the `asSystem` span attributes). `pluggable/` and `testing/` import `zod` and `@marinoscar/platform-contract/settings` (the descriptor and id-pattern wire shapes), and nothing else. `test/core/core-imports.spec.ts` pins that set (no `from '@prisma/client'`, `@prisma/client/extension` only from `data-access/`, no other slice).
 
 ## Quick start
 
@@ -224,6 +225,61 @@ Everything else throws `ScopedAccessError` before reaching the database: an acto
 
 **The model ownership registry.** `modelOwnershipRegistry` (a `defineRegistry` registry, `registerModelOwnership(defs)`) classifies every Prisma model as `org` (NOT NULL `org_id`, row-level security forced), `org-optional` (nullable `org_id`, no row-level security), `user` (personal) or `system` (deployment-wide). `modelsOfKind(kind)` and `orgFieldOf(model)` read it. The reference app's `rls-coverage` database spec checks it against the catalogue: every `org` model has `relrowsecurity`, `relforcerowsecurity` and a policy named in `RLS_POLICIES`, and no unregistered table has an `org_id` column.
 
+### Pluggable kinds
+
+A **pluggable kind** is the one shape every slice with a swappable part shares (AI providers, storage drivers, email transports, sign-in providers, notification channels, the telemetry store, the backup target), so an extension author learns it once. `definePluggableKind<TInstance, TBuildContext>({ kind, label })` creates the kind; each **implementation** brings:
+
+| Member | Meaning |
+|---|---|
+| `id`, `label`, `description?` | `id` matches `^[a-z][a-z0-9-]{1,47}$` and is permanent once settings are stored under it. |
+| `settingsSchema` | A `z.object` of the **non-secret** settings. `.describe('help')` becomes the field's help text and `.meta({ label })` its label (else the field name, humanised). |
+| `defaults` | The settings of a fresh install; must parse with `settingsSchema`. |
+| `secrets?` | `{ name, label, required, help? }[]`: the secrets it needs. Declared, never stored in settings and never read from an environment variable. |
+| `build(input)` | Makes the instance from the consuming slice's context plus `settings` (parsed) and `secret(name)` (resolves a declared secret from the credential store, `null` when none is stored). |
+| `egressHosts?(settings)` | The hosts an instance calls, for the Doctor's egress contributors. |
+
+The kind is a registry named `pluggable.<kind>` on `defineRegistry`: a duplicate id throws (`DUPLICATE_ID`), and it freezes with the others once the application has bootstrapped, so register **at import time** from `apps/api/src/app-registrations/`. A kind owns no storage: the slice that consumes it keeps the settings and the secrets.
+
+**Settings are a record keyed by implementation id**, `{ <id>: <that implementation's settings> }`, and the kind owns the rules for it:
+
+| Operation | Behaviour |
+|---|---|
+| `parseSettings(id, raw)` | Fills the implementation's defaults, validates with its schema. `undefined` and `null` count as `{}`. Throws `PluggableSettingsError` (zod `issues`) or, for an unregistered id, `PluggableUnknownError`. |
+| `mergeSettingsRecord(stored, patch)` (WRITE) | Each patched id must be registered (else `PluggableUnknownError`; map it to the slice's `*_UNKNOWN_*` 400); the entry is shallow-merged over the stored one and parsed; `null` removes it. Entries the patch does not name, including ones stored for implementations that are no longer registered, are kept untouched. |
+| `readSettingsRecord(stored, warn)` (READ) | An id that is no longer registered is dropped with **one** `warn` call naming all of them, so removing a plugin never bricks the settings row. An entry that no longer parses falls back to its defaults with a warning. Reading never throws on stored data. |
+
+**Descriptors.** `describe(id, { secrets })` and `describeAll(id => ({ secrets }))` return the `PluggableDescriptor` of `@marinoscar/platform-contract/settings`: `{ kind, id, label, description?, fields }`, where `fields` is the settings in declaration order (`describeConfigFields`: `boolean`, `enum`, `number`, `string`, or `other` for what a form cannot render) followed by one write-only `secret` field per declared secret, carrying `hasValue` and `required` and **never** a value. The consuming slice computes `secrets: { apiKey: true }` from its credential store (`CredentialsService`, `OrgCredentialsService`...) and serves the descriptors on its admin route; the web form (`PluggableConfigForm` of `@marinoscar/platform-web/settings/ui`) renders them. `describeConfigFields` is the generalisation of the organization settings page's field description: `describeOrgFields` is now a thin wrapper that drops `label` and `help`, so the org settings wire shape is unchanged.
+
+```ts
+// apps/api/src/platform-extensions/core/greeter.kind.ts
+export const greeterKind = definePluggableKind<Greeter>({ kind: 'greeter', label: 'Greeter' });
+
+// apps/api/src/app-registrations/core.ts: at import time
+greeterKind.register({
+  id: 'signed',
+  label: 'Signed greeter',
+  settingsSchema: z.object({ greeting: z.string().min(1).max(40), style: z.enum(['formal', 'casual']) }),
+  defaults: { greeting: 'Greetings', style: 'formal' },
+  secrets: [{ name: 'apiKey', label: 'Signing key', required: true }],
+  async build({ settings, secret }) {
+    const apiKey = await secret('apiKey'); // never from settings or env
+    if (apiKey === null) throw new Error('needs its apiKey');
+    return { greet: async (name) => `${settings.greeting}, ${name}. ${sign(apiKey, name)}` };
+  },
+});
+
+// in the consuming slice: write, read, describe, build
+record = greeterKind.mergeSettingsRecord(record, patch);          // rejects unknown ids
+const settings = greeterKind.readSettingsRecord(record, logger.warn);
+const descriptors = greeterKind.describeAll((id) => ({ secrets: presenceOf(id) }));
+const impl = greeterKind.get(id);                                  // throws PluggableUnknownError
+const greeter = await impl.build({ settings: greeterKind.parseSettings(id, settings[id]), secret });
+```
+
+**The kit.** `describePluggableKindConformance(kind, { describe, it, expect })` of `@marinoscar/platform-api/core/testing` is runner-agnostic (Jest and Vitest both work) and runs once per registered implementation: a valid id and a label; `defaults` parse with the implementation's own `settingsSchema`; `describe()` validates against `pluggableDescriptorSchema` and lists exactly the declared secrets with presence flags only; no `settingsSchema` field matches `/key|secret|token|password/i` (declare it in `secrets`; a field that is genuinely not a secret, such as an S3 `keyPrefix`, is vouched for with `{ allowSecretLikeFields: ['keyPrefix'] }`); a secret name never repeats or collides with a settings field; `build` is a function. Import the file that registers the implementations first, so they exist when the cases are declared.
+
+Worked example, without any consumer slice: [`greeter.kind.ts`](../../../../apps/api/src/platform-extensions/core/greeter.kind.ts), registered by [`app-registrations/core.ts`](../../../../apps/api/src/app-registrations/core.ts) and exercised by [`pluggable-kind.spec.ts`](../../../../apps/api/test/examples/core/pluggable-kind.spec.ts).
+
 ### Logging, metrics and spans
 
 No port. Packaged code logs with `new Logger(Context)` from `@nestjs/common`, which the app may route to its own logger through `app.useLogger`. Metrics and spans use `@opentelemetry/api` (a peer) until `otel-core` (#700) ships.
@@ -237,7 +293,7 @@ No port. Packaged code logs with `new Logger(Context)` from `@nestjs/common`, wh
 
 The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
 
-Thirteen symbols are extension points; the other exports are the contracts, functions, types and constants that go with them (listed below the table).
+Sixteen symbols are extension points; the other exports are the contracts, functions, types and constants that go with them (listed below the table).
 
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
@@ -254,6 +310,9 @@ Thirteen symbols are extension points; the other exports are the contracts, func
 | `permissionRegistry` | registry | `Registry<PermissionDeclaration>` | Register permissions with their scope and default grants (`registerPermissions(declarations)`), after every role; the seed catalog is built from it | stable | [example](../../../../apps/api/src/common/permissions/permission.manifest.ts) |
 | `userOwnedModelRegistry` | registry | `Registry<UserOwnedModelDef>` | Register every model with a foreign key to `User`, with its role, purge and export policy (`registerUserOwnedModels(defs)`) | experimental | [example](../../../../apps/api/src/prisma/ownership/user-owned-model.manifest.ts) |
 | `modelOwnershipRegistry` | registry | `Registry<ModelOwnershipDef>` | Classify every model as `org`, `org-optional`, `user` or `system` (`registerModelOwnership(defs)`); the `org` ones get `org_id` and forced row-level security | experimental | [example](../../../../apps/api/src/prisma/ownership/model-ownership.manifest.ts) |
+| `definePluggableKind` | registry | `definePluggableKind<TInstance, TBuildContext = object>(options: { kind: string; label: string }): PluggableKind<TInstance, TBuildContext>`; `kind.register(impl: PluggableImplementation)` with `{ id, label, settingsSchema, defaults, secrets?, build, egressHosts? }` | Make a slice's swappable part (AI provider, storage driver, email transport...) pluggable: one registry of implementations, each with its own settings schema, defaults and declared secrets; register at import time | experimental | [example](../../../../apps/api/src/platform-extensions/core/greeter.kind.ts) |
+| `describeConfigFields` | option | `describeConfigFields(schema: z.ZodObject): ConfigField[]` | Describe a zod object as form fields (`boolean`, `enum`, `number`, `string`, `other`, each with `label` and `help`) for a generated form | experimental | [example](../../../../apps/api/test/examples/core/pluggable-kind.spec.ts) |
+| `describePluggableKindConformance` | hook | `describePluggableKindConformance(kind, { describe, it, expect }, options?): void` (`@marinoscar/platform-api/core/testing`) | Prove every implementation of a kind is well formed: valid id, defaults that parse, a descriptor that validates, no secret-looking setting, a build function | experimental | [example](../../../../apps/api/test/examples/core/pluggable-kind.spec.ts) |
 
 Registry, all `@stability stable`:
 
@@ -331,6 +390,19 @@ Scoped data access, all `@stability experimental` (#699; organisation scope and 
 | `registerModelOwnership(defs)`, `modelsOfKind(kind)`, `orgFieldOf(model)`, `orgColumnOf(model)` | functions | Fill and read `modelOwnershipRegistry`. |
 | `ModelOwnershipDef<TModel>`, `OwnershipKind` | types | Type a classification. |
 
+Pluggable kinds, all `@stability experimental` (PP-14.5, #923):
+
+| Export | Kind | Use it to |
+|---|---|---|
+| `PluggableKind<TInstance, TBuildContext>` | type | The kind `definePluggableKind` returns: `register`, `get`, `has`, `ids`, `list`, `parseSettings`, `mergeSettingsRecord`, `readSettingsRecord`, `describe`, `describeAll`. |
+| `PluggableImplementation<TInstance, TBuildContext, TSettings>`, `PluggableSecretSpec`, `PluggableBuildInput`, `PluggableSecretPresence`, `DefinePluggableKindOptions` | types | Type an implementation, its declared secrets, what `build` receives and the presence flags `describe` takes. |
+| `PluggableUnknownError` | error | No implementation under that id. Carries `kind`, `id` and `registeredIds`; the message names all three and says how to register one. Map it to the slice's own 400. |
+| `PluggableSettingsError` | error | Settings that do not parse with the implementation's schema. Carries `kind`, `id` and the zod `issues`. |
+| `describeConfigField(name, schema)` | function | Describe one field (never a `secret`). `label` comes from `.meta({ label })` or the humanised name, `help` from `.describe()`. |
+| `SECRET_LIKE_FIELD_PATTERN`, `PluggableConformanceHarness`, `PluggableConformanceOptions` (`core/testing`) | constant, types | The names the kit refuses in a `settingsSchema`; type the harness and the `allowSecretLikeFields` option. |
+
+The wire shapes (`configFieldSchema`, `pluggableDescriptorSchema`, `PLUGGABLE_ID_PATTERN`) are in [`@marinoscar/platform-contract/settings`](../../../platform-contract/src/settings/README.md).
+
 OpenAPI tags, all `@stability experimental`:
 
 | Export | Use it to |
@@ -374,6 +446,7 @@ None. The slice is API-side code only.
 - **Byte compatibility.** The env var name, the sub-key label prefixes (encryption and signing), the IV and tag lengths, the payload layout and the error texts are fixed: changing the label makes every stored credential undecryptable. `apps/api/test/platform/secret-cipher-compat.spec.ts` decrypts ciphertexts written before the move.
 - **Error bodies.** The filter rebuilds every body from a fixed key set, so a thrown exception cannot leak extra fields; a validation failure names the failing fields (`details.issues`) but never echoes the submitted value; stacks are omitted from responses in `production`.
 - **Host ports.** The host's access port fails closed: `definePlatformHost` refuses missing or non-decorator access functions and an empty permission list, and every packaged `forRoot` refuses a missing `host`, so a packaged route is never public. The audit port never receives secret material (`meta` is scalars only), and the settings port patches only through the app's own validated, versioned, audited path. `createTestPlatformHost` trusts a request header and is for package tests only.
+- **Pluggable kinds keep secrets out of settings.** An implementation declares its secrets; `describe` reports only whether one is stored (`hasValue`), and the kit fails any `settingsSchema` field named like a secret. The kind never stores, logs or returns a secret: the consuming slice owns the credential store and hands `build` a resolver that lives for the call. Unknown ids are refused on write and ignored with a warning on read, so a removed plugin neither bricks the row nor is silently accepted.
 - **Principal and scope.** A `Scope` is derived from the principal, never from request input; `SystemActor` is the only unscoped path and always carries a reason.
 - **Scoped data access is defence in depth.** Every route still declares its access, and a service still decides which user it acts for; the scoped client guarantees that, once it has, a forgotten `where: { userId }` cannot reach another user's rows. It is application-level only until row-level security arrives with organisations (#725). Another user's row is "not found", never a 403 that leaks its existence.
 - **Raw SQL bypasses scoping.** A scoped client refuses it outright; unscoped raw SQL is allowed only in files on the app's raw-SQL allowlist, each with a reason, enforced by the `userOwnedData` conformance suite. A raw statement must never take a request-derived id without scoping it to the caller.
@@ -381,9 +454,11 @@ None. The slice is API-side code only.
 
 ## Conformance suite
 
-None of its own: the slice is pinned by its specs in the package (`test/core/`: registry, principal types, filter, verbatim brand, cipher, startup check, OpenAPI tags, import boundary, and `data-access/`: the registry rules and the scoped extension run against a fake client implementing `$extends`). Apps run the platform conformance suites from the [`testing` slice](../testing/README.md); `userOwnedData` is the one that checks an app's user-owned registrations against its schema and its raw SQL against its allowlist. The real-database isolation proof stays in the reference app (`apps/api/test/prisma/scoped-access.db.spec.ts`), because it needs the app's schema.
+The pluggable-kind kit is `describePluggableKindConformance` of `@marinoscar/platform-api/core/testing` (see [Pluggable kinds](#pluggable-kinds)); every kind runs it on its implementations. Otherwise none of its own: the slice is pinned by its specs in the package (`test/core/`: registry, principal types, filter, verbatim brand, cipher, startup check, OpenAPI tags, import boundary, and `data-access/`: the registry rules and the scoped extension run against a fake client implementing `$extends`). Apps run the platform conformance suites from the [`testing` slice](../testing/README.md); `userOwnedData` is the one that checks an app's user-owned registrations against its schema and its raw SQL against its allowlist. The real-database isolation proof stays in the reference app (`apps/api/test/prisma/scoped-access.db.spec.ts`), because it needs the app's schema.
 
 ## Upgrade notes
+
+PP-14.5 (#923) adds the pluggable-kind primitive and the `./core/testing` entry; nothing existing changes. `describeOrgFields` of the settings slice now delegates to `describeConfigFields` and drops the new `label` and `help`, so the organization settings response (and its OpenAPI) is byte-identical.
 
 First release of the full slice (the registry primitive shipped first, issue #694; the host ports with #696). For anyone who copied the app's files before the move:
 
@@ -408,6 +483,9 @@ First release of the full slice (the registry primitive shipped first, issue #69
 | `Failed to decrypt secret: ...` | Wrong key, wrong purpose (a per-user secret decrypted with the bare purpose), or a tampered payload. |
 | An error body without `message` (only `error`, `error_description`) | The exception was branded with `withVerbatimErrorBody`; that is the RFC 8628 device token endpoint's contract. |
 | A tag renders with no description or outside every sidebar group | No one registered it in `openApiTags`. |
+| `Unknown <kind> implementation "x". Registered: ...` (`PluggableUnknownError`) | Nothing registered that id: import the file that registers it before the application is created (or, on a read, the plugin was removed and its stored entry is ignored with a warning). |
+| The conformance kit fails "keeps secrets out of settingsSchema" | A settings field is named `key`, `secret`, `token` or `password`. Move real secrets to the implementation's `secrets`; for a field that is not one (an S3 `keyPrefix`) pass `allowSecretLikeFields`. |
+| The kit runs no cases for an implementation | The registering file was imported after `describePluggableKindConformance` was called; import it first. |
 | `Nest can't resolve dependencies ... Symbol(@marinoscar/platform/AUDIT_SINK)` (or another port) | A slice injects a port the app did not bind. Add it to `PlatformHostModule.forRoot({...})` in `apps/api/src/platform/platform-host.module.ts`. |
 | `definePlatformHost: ... never public` at import | The host's `access` functions are missing or return something that is not a decorator. |
 | `ScopedAccessError: <Model> is not user-owned; use asSystem() with a reason.` | The model is actor-only or unregistered (or the registry was never filled: the app's manifest was not imported before the call). Register it, or use `asSystem` for system work. |
@@ -422,6 +500,7 @@ First release of the full slice (the registry primitive shipped first, issue #69
 - ADR: [0001, org-aware principal and scope](../../../../docs/adr/0001-org-aware-principal-and-scope.md).
 - Scoped data access in the reference app: [prisma/ownership/README.md](../../../../apps/api/src/prisma/ownership/README.md); security view: [SECURITY-ARCHITECTURE.md §17](../../../../docs/SECURITY-ARCHITECTURE.md#17-user-owned-data-and-scoped-access).
 - Registry recipe and behaviour rules: [registry/README.md](./registry/README.md).
+- Pluggable kinds: [Pluggable kinds](#pluggable-kinds); wire shapes in the [contract settings README](../../../platform-contract/src/settings/README.md).
 - Encrypted credential storage: [SECURITY-ARCHITECTURE.md](../../../../docs/SECURITY-ARCHITECTURE.md) and the [key rotation runbook](../../../../docs/runbooks/rotate-secrets-encryption-key.md).
 - Error envelope: [API.md](../../../../docs/API.md).
 - Package README: [platform-api](../../README.md).

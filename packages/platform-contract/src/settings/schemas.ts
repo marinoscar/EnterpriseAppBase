@@ -428,10 +428,21 @@ const configFieldBase = {
  * @stability experimental
  */
 export const configFieldSchema = z.discriminatedUnion('kind', [
-  z.object({ ...configFieldBase, kind: z.literal('boolean') }),
-  z.object({ ...configFieldBase, kind: z.literal('enum'), options: z.array(z.string()) }),
   z.object({
     ...configFieldBase,
+    /** A switch. */
+    kind: z.literal('boolean'),
+  }),
+  z.object({
+    ...configFieldBase,
+    /** A select. */
+    kind: z.literal('enum'),
+    /** The allowed values. */
+    options: z.array(z.string()),
+  }),
+  z.object({
+    ...configFieldBase,
+    /** A number input. */
     kind: z.literal('number'),
     /** The lower bound, when the schema declares one. */
     min: z.number().optional(),
@@ -442,13 +453,19 @@ export const configFieldSchema = z.discriminatedUnion('kind', [
   }),
   z.object({
     ...configFieldBase,
+    /** A text input. */
     kind: z.literal('string'),
     /** The longest value, when the schema declares one. */
     maxLength: z.number().int().optional(),
   }),
-  z.object({ ...configFieldBase, kind: z.literal('other') }),
   z.object({
     ...configFieldBase,
+    /** A field the form cannot edit generically; it shows a note instead of a control. */
+    kind: z.literal('other'),
+  }),
+  z.object({
+    ...configFieldBase,
+    /** A write-only secret input. */
     kind: z.literal('secret'),
     /** Whether a value is stored. The value itself never leaves the server. */
     hasValue: z.boolean(),

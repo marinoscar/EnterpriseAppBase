@@ -83,7 +83,7 @@ What every other slice stands on: the registry primitive and host ports, the Ope
 
 | Part | Import paths | Depends on (slices) | Install beyond the required peers | README |
 |---|---|---|---|---|
-| API (`platform-api`) | `/core` | none | none | [README](../packages/platform-api/src/core/README.md) |
+| API (`platform-api`) | `/core`, `/core/testing` | none | none | [README](../packages/platform-api/src/core/README.md) |
 | Web (`platform-web`) | `/core` | none | none | [README](../packages/platform-web/src/core/README.md) |
 | CLI (`platform-cli`) | `/core` | none | none | [README](../packages/platform-cli/src/core/README.md) |
 

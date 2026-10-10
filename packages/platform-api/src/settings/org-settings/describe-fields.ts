@@ -24,10 +24,9 @@ import { describeConfigField } from '../../core/index';
 
 /** The descriptor of one field. */
 export function describeOrgField(name: string, schema: z.ZodType): OrgSettingsField {
-  const { label: _label, help: _help, ...field } = describeConfigField(name, schema) as ReturnType<typeof describeConfigField> & {
-    help?: string;
-  };
-  return field as OrgSettingsField;
+  // `describeConfigField` never yields a `secret`, and without `label` and `help` the rest is an org settings field.
+  const { label: _label, help: _help, ...field } = describeConfigField(name, schema);
+  return field as unknown as OrgSettingsField;
 }
 
 /** The descriptors of every field of an `org.schema`, in declaration order. */
