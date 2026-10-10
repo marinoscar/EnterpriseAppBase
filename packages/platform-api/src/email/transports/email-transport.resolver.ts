@@ -45,6 +45,8 @@ import './builtin-email-transports';
  * @stability experimental
  */
 export interface ActiveEmailTransport {
+  /** Discriminant: the transport resolved. */
+  ok: true;
   /** The transport id (`settings.provider`). */
   id: string;
   /** Its human label. */
@@ -54,11 +56,23 @@ export interface ActiveEmailTransport {
 }
 
 /**
+ * Why no transport could be resolved.
+ *
+ * @stability experimental
+ */
+export interface UnavailableEmailTransport {
+  /** Discriminant: the transport did not resolve. */
+  ok: false;
+  /** A sentence an administrator can act on (no secret, no stored value). */
+  error: string;
+}
+
+/**
  * The outcome of {@link EmailTransportResolver.resolve}: the transport, or why there is none.
  *
  * @stability experimental
  */
-export type EmailTransportResolution = ({ ok: true } & ActiveEmailTransport) | { ok: false; error: string };
+export type EmailTransportResolution = ActiveEmailTransport | UnavailableEmailTransport;
 
 /** Longest error text a resolution failure carries. */
 const MAX_ERROR_LENGTH = 500;

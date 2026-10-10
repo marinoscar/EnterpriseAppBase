@@ -379,13 +379,13 @@ None.
 
 **What it gives you.** Outgoing email: SES and SMTP transports configured at runtime, the template registry with the platform's templates, the layout theme and the safe-HTML helpers.
 
-**What it is** (from its README). The platform's outgoing email: the Amazon SES and SMTP transports, the `email` settings row and its admin routes (`/api/email-settings`), the test send, the template registry with the platform's nine templates, the layout and its theme, the safe-HTML helpers and the doctor check.
+**What it is** (from its README). The platform's outgoing email: pluggable transports (Amazon SES and SMTP ship; an app or package registers more with `registerEmailTransport`), the `email` settings row and its admin routes (`/api/email-settings`), the test send, the template registry with the platform's nine templates, the layout and its theme, the safe-HTML helpers and the doctor check.
 
 | Part | Import paths | Depends on (slices) | Install beyond the required peers | README |
 |---|---|---|---|---|
 | API (`platform-api`) | `/email`, `/email/testing` | `core`, `doctor`, `identity`, `settings`, `credentials` | `@nestjs/config`, `@nestjs/event-emitter`, `@nestjs/jwt`, `@nestjs/passport`, `@nestjs/schedule`, `fastify`, `passport` | [README](../packages/platform-api/src/email/README.md) |
-| Web (`platform-web`) | `/email/headless`, `/email/ui` | `core`, `settings`, `credentials` | `@mui/icons-material`, `react-router-dom` | [README](../packages/platform-web/src/email/README.md) |
-| Contract (`platform-contract`) | `/email` | none | none | [README](../packages/platform-contract/src/email/README.md) |
+| Web (`platform-web`) | `/email/headless`, `/email/ui`, `/email/ui/transport-panels` | `core`, `settings`, `credentials` | `@mui/icons-material`, `react-router-dom` | [README](../packages/platform-web/src/email/README.md) |
+| Contract (`platform-contract`) | `/email` | `settings` | none | [README](../packages/platform-contract/src/email/README.md) |
 
 **Admin and settings cards.**
 

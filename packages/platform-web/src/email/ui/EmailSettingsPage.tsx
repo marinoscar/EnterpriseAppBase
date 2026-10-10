@@ -137,8 +137,8 @@ const MAX_FROM_NAME_LENGTH = 100;
  *   null      false   | (none)       off    | fresh install, nothing set up
  *   null      true    | (none)       on     | rejected by `validate` — on with
  *                                           |   nothing to send through
- *   '<id>'    true    | <its label>  on     | sending via that transport
- *   '<id>'    false   | <its label>  off    | configured, deliberately off
+ *   an id     true    | its label    on     | sending via that transport
+ *   an id     false   | its label    off    | configured, deliberately off
  *
  * There is deliberately no control that returns `provider` to `null` once a
  * transport has been picked. "I do not want mail sent" is the switch; going

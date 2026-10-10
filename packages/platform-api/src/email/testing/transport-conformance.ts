@@ -89,16 +89,25 @@ export interface ReceivedEmail {
   /** The custom headers, by name. */
   headers?: Readonly<Record<string, string>>;
   /** The MIME parts. */
-  attachments?: ReadonlyArray<{
-    filename: string;
-    contentType?: string;
-    /** The bytes, base64-encoded, when the backend exposes them. */
-    contentBase64?: string;
-    /** The Content-ID, without angle brackets. */
-    contentId?: string;
-    /** `inline` or `attachment` (any case). */
-    disposition?: string;
-  }>;
+  attachments?: readonly ReceivedEmailAttachment[];
+}
+
+/**
+ * One MIME part as the backend received it.
+ *
+ * @stability experimental
+ */
+export interface ReceivedEmailAttachment {
+  /** The file name. */
+  filename: string;
+  /** The MIME type, when the backend exposes it. */
+  contentType?: string;
+  /** The bytes, base64-encoded, when the backend exposes them. */
+  contentBase64?: string;
+  /** The Content-ID, without angle brackets. */
+  contentId?: string;
+  /** `inline` or `attachment` (any case). */
+  disposition?: string;
 }
 
 /**

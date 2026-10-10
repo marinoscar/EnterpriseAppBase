@@ -13,7 +13,7 @@ export {
   LEGACY_EMAIL_FLAT_FIELDS,
   LEGACY_EMAIL_FLAT_FIELD_TARGETS,
 } from './constants.js';
-export type { BuiltinEmailProviderKind, EmailProviderKind } from './constants.js';
+export type { BuiltinEmailProviderKind, EmailProviderKind, LegacyEmailFieldTarget } from './constants.js';
 export {
   DEFAULT_EMAIL_SETTINGS,
   EMAIL_SETTINGS_CARRIES_NO_SECRET,

@@ -19,9 +19,17 @@ import { LEGACY_EMAIL_FLAT_FIELDS, LEGACY_EMAIL_FLAT_FIELD_TARGETS } from '@mari
 import { PluggableSettingsError, PluggableUnknownError } from '../core/index';
 import { emailTransportKind } from './transports/email-transport';
 
-/** One transport's settings record. */
+/**
+ * One transport's settings record.
+ *
+ * @stability experimental
+ */
 export type EmailTransportSettingsRecord = Record<string, unknown>;
-/** The `transports` record: transport id to its settings. */
+/**
+ * The `transports` record: transport id to its settings.
+ *
+ * @stability experimental
+ */
 export type EmailTransportsRecord = Record<string, EmailTransportSettingsRecord>;
 /** A legacy flat field name. */
 export type LegacyEmailField = (typeof LEGACY_EMAIL_FLAT_FIELDS)[number];

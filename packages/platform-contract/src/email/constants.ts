@@ -47,7 +47,7 @@ export type BuiltinEmailProviderKind = (typeof BUILTIN_EMAIL_PROVIDER_KINDS)[num
 /**
  * A configured transport: the id of a registered email transport. A plain
  * string since transports became pluggable; the built-ins are
- * {@link BuiltinEmailProviderKind}.
+ * `BuiltinEmailProviderKind`.
  *
  * @stability stable
  */
@@ -71,14 +71,24 @@ export const LEGACY_EMAIL_FLAT_FIELDS = [
 ] as const;
 
 /**
+ * Where one legacy flat field lives now.
+ *
+ * @stability experimental
+ */
+export interface LegacyEmailFieldTarget {
+  /** The built-in transport that owns the setting. */
+  transport: BuiltinEmailProviderKind;
+  /** The name of the setting inside `transports.<transport>`. */
+  setting: string;
+}
+
+/**
  * Where each legacy flat field lives now: the built-in transport that owns it
  * and the name of the setting inside `transports.<id>`.
  *
  * @stability experimental
  */
-export const LEGACY_EMAIL_FLAT_FIELD_TARGETS: Readonly<
-  Record<(typeof LEGACY_EMAIL_FLAT_FIELDS)[number], { transport: BuiltinEmailProviderKind; setting: string }>
-> = {
+export const LEGACY_EMAIL_FLAT_FIELD_TARGETS: Readonly<Record<(typeof LEGACY_EMAIL_FLAT_FIELDS)[number], LegacyEmailFieldTarget>> = {
   sesRegion: { transport: 'ses', setting: 'region' },
   sesAccessKeyId: { transport: 'ses', setting: 'accessKeyId' },
   smtpHost: { transport: 'smtp', setting: 'host' },

@@ -44,6 +44,18 @@ import type { EmailProvider } from '../providers/email-provider.interface';
 export type EmailTransportSettings = Record<string, unknown>;
 
 /**
+ * What {@link EmailTransport.verify} answers.
+ *
+ * @stability experimental
+ */
+export interface EmailTransportVerification {
+  /** Whether the transport can send with the configuration it was built with. */
+  ok: boolean;
+  /** One sentence an administrator can act on. NEVER carries secret material. */
+  message: string;
+}
+
+/**
  * A built transport: the thing the slice calls to put one message on the
  * network.
  *
@@ -74,7 +86,7 @@ export interface EmailTransport extends EmailProvider {
    * touches the network). NEVER THROWS: `{ ok: false, message }` on failure.
    * The message is shown to an administrator, so it must carry no secret.
    */
-  verify?(): Promise<{ ok: boolean; message: string }>;
+  verify?(): Promise<EmailTransportVerification>;
   /**
    * Releases what the transport holds (a connection pool, a client). Called
    * when the settings change and the transport is replaced. Optional.

@@ -140,7 +140,7 @@ outside any `$transaction`.
 
 | Channel | Sender | What it does |
 |---|---|---|
-| `email` | `channels/email-notification.channel.ts` | Renders the template bound to the event (`eventEmailTemplateRegistry`) and sends it over the configured transport (SMTP settings at `/admin/settings/email`, or SES). A missing binding is a recorded failure. |
+| `email` | `channels/email-notification.channel.ts` | Renders the template bound to the event (`eventEmailTemplateRegistry`) and sends it over the configured email transport (`EmailTransportResolver` builds the one `/admin/settings/email` selects: SMTP, SES or a transport an app registered). A missing binding is a recorded failure. |
 | `browser` | `channels/browser-notification.channel.ts` | Writes a `notifications` row (the inbox), then publishes it to the user's SSE stream with a server-computed `toast` flag and a `pushed` flag (§2.12). Titles and bodies are truncated (`MAX_TITLE_LENGTH`, `MAX_BODY_LENGTH`); `link` goes through `sanitizeLink` (root-relative only). |
 | `push` | `channels/push-notification.channel.ts` | Writes its own `notifications` row, then sends an encrypted Web Push message to each of the user's `push_subscriptions` (§2.7). |
 | `android_app` | `channels/android-app-notification.channel.ts` | The `push` sender restricted to subscriptions made inside the Android app's TWA (`push_subscriptions.platform = 'android_app'`). Registered by `registerAndroidAppNotificationChannel()` and provided by `AndroidAppModule` (#746). Declared `coveredBy: 'push'`: when an event resolves both, `collapseOverlappingChannels` drops `android_app`, so nobody receives two toasts. |

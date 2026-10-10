@@ -25,10 +25,18 @@ import { SesEmailProvider } from '../providers/ses-email.provider';
 import { SmtpEmailProvider } from '../providers/smtp-email.provider';
 import { emailTransportKind, registerEmailTransport, type EmailTransportDefinition } from './email-transport';
 
-/** The ids of the transports the platform ships. */
+/**
+ * The ids of the transports the platform ships.
+ *
+ * @stability experimental
+ */
 export const BUILTIN_EMAIL_TRANSPORT_IDS = ['ses', 'smtp'] as const;
 
-/** The settings of the `ses` transport. */
+/**
+ * The settings of the `ses` transport.
+ *
+ * @stability experimental
+ */
 export interface SesTransportSettings extends Record<string, unknown> {
   /** Region override; empty means the deployment's fallback. */
   region: string;
@@ -36,7 +44,11 @@ export interface SesTransportSettings extends Record<string, unknown> {
   accessKeyId: string;
 }
 
-/** The settings of the `smtp` transport. */
+/**
+ * The settings of the `smtp` transport.
+ *
+ * @stability experimental
+ */
 export interface SmtpTransportSettings extends Record<string, unknown> {
   /** Server host; empty means not configured. */
   host: string;

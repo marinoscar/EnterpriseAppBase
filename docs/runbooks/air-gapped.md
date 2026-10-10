@@ -78,9 +78,9 @@ Every id the check can report, what stops working offline, and how to make it in
 - **Offline:** browser push notifications are not delivered; the in-app inbox still is.
 - **Make it internal:** switch Web Push off at `/admin/settings/push` ([VAPID keys runbook](vapid-keys.md)). Browser push services cannot be self-hosted.
 
-### `email.smtp` and `email.ses`: email
+### `email.<transport>`: email (`email.smtp`, `email.ses`, and one per transport an app registered)
 
-- **Hosts:** the SMTP relay's host, or `email.<region>.amazonaws.com` for Amazon SES.
+- **Hosts:** the SMTP relay's host, `email.<region>.amazonaws.com` for Amazon SES, or the hosts a registered transport declares (none for a local transport such as an in-memory log).
 - **Offline:** no email is sent (invitations, notification emails, digests).
 - **Make it internal:** at `/admin/settings/email`, choose **SMTP** with an internal relay (for example `smtp.corp.internal`), then **Send test email**. SES has no internal equivalent.
 

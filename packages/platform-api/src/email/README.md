@@ -1,6 +1,6 @@
 # @marinoscar/platform-api/email
 
-The platform's outgoing email: the Amazon SES and SMTP transports, the `email` settings row and its admin routes (`/api/email-settings`), the test send, the template registry with the platform's nine templates, the layout and its theme, the safe-HTML helpers and the doctor check. Moved out of the reference app's `src/email/` by issue #737 (PP-8.4). It depends on `core`, `doctor`, `identity`, `settings` (the row store, the permission strings), `credentials` (the two secrets) and `testing` of this package (`packages/platform-slices.json`), and on `@marinoscar/platform-contract/email` for the wire shapes. The conformance suite is the nested subpath `@marinoscar/platform-api/email/testing`, catalogued here.
+The platform's outgoing email: pluggable transports (Amazon SES and SMTP ship; an app or package registers more with `registerEmailTransport`), the `email` settings row and its admin routes (`/api/email-settings`), the test send, the template registry with the platform's nine templates, the layout and its theme, the safe-HTML helpers and the doctor check. Moved out of the reference app's `src/email/` by issue #737 (PP-8.4). It depends on `core`, `doctor`, `identity`, `settings` (the row store, the permission strings), `credentials` (the two secrets) and `testing` of this package (`packages/platform-slices.json`), and on `@marinoscar/platform-contract/email` for the wire shapes. The conformance suite is the nested subpath `@marinoscar/platform-api/email/testing`, catalogued here.
 
 ## Purpose and scope
 
@@ -9,15 +9,15 @@ One place that turns "send this message" into a delivery attempt that never thro
 | Part | Source | What it is |
 |---|---|---|
 | Module | `email.module.ts`, `email.options.ts` | `EmailModule.forRoot(options)`: the providers, the controller, the doctor check; configures the render context and registers the platform templates. Not global. |
-| Settings | `email-settings.service.ts`, `email-settings.schema.ts` | `EmailSettingsService`: the `email` row of `system_settings`, through the settings slice's `SystemSettingsRowStore` (`If-Match`, version, audit), plus the SMTP password and SES secret in `CredentialsService`. |
+| Settings | `email-settings.service.ts`, `email-settings.schema.ts`, `email-settings-compat.ts` | `EmailSettingsService`: the `email` row of `system_settings` (`provider` plus a `transports` record, with read-compat for the flat `ses*` / `smtp*` fields), through the settings slice's `SystemSettingsRowStore` (`If-Match`, version, audit), plus every transport's secrets in `CredentialsService`. |
 | Admin routes | `email-settings.controller.ts`, `email-test-send.service.ts`, `dto/` | `GET`/`PUT /api/email-settings`, `POST /api/email-settings/test` (to the caller's own address only, always HTTP 200 with `success`). |
-| Transports | `base-email.provider.ts`, `providers/` | `BaseEmailProvider` (never throws, redacts secrets, caps errors, classifies throttles), `SesEmailProvider` (SESv2), `SmtpEmailProvider` (nodemailer). Both send inline attachments. |
+| Transports | `transports/`, `base-email.provider.ts`, `providers/` | The `email-transport` pluggable kind (`registerEmailTransport`), `EmailTransportResolver` (the transport the settings select, built and cached), the built-ins `ses` and `smtp` registered through the same function, `BaseEmailProvider` (never throws, redacts secrets, caps errors, classifies throttles), `SesEmailProvider` (SESv2), `SmtpEmailProvider` (nodemailer). Both send inline attachments. |
 | Rate limits | `email-rate-limit.ts` | `classifyEmailRateLimit`: SMTP and SES throttle rules over a generic classifier the app passes. |
 | Templates | `templates/` | The registry (`registerEmailTemplate`, `findEmailTemplate`, `renderEmailTemplate`), the render context, the layout and theme, the safe-HTML helpers, the nine platform templates. Framework-free. |
-| Doctor | `doctor/` | `email.config` (configured and switched on, secrets present) and the `email.smtp` / `email.ses` egress entries. |
-| Test seams | `testing/` (`/email/testing`) | The `email` conformance suite. |
+| Doctor | `doctor/` | `email.config` (configured and switched on, secrets present, judged by the selected transport's own hooks) and one `email.<id>` egress entry per registered transport. |
+| Test seams | `testing/` (`/email/testing`) | The `email` conformance suite and `describeEmailTransportConformance`, the kit every transport runs. |
 
-Not here: which notification event uses which template (the notifications slice's event-to-template bindings, #738), new transports (the provider kind list stays closed; see the provider-token route below), any templating engine (MJML, React-email), and per-organization themes (deferred: no consumer).
+Not here: which notification event uses which template (the notifications slice's event-to-template bindings, #738), any templating engine (MJML, React-email), and per-organization themes (deferred: no consumer).
 
 ## Install and peer dependencies
 
@@ -44,7 +44,7 @@ export const EMAIL_MODULE_OPTIONS: EmailModuleOptions = {
 export const EmailModule = PlatformEmailModule.forRoot(EMAIL_MODULE_OPTIONS);
 ```
 
-A feature imports that one object (`imports: [EmailModule]`) and injects `EmailSettingsService` and the two providers. Templates register at import time, from a manifest, never from `onModuleInit` ([`notification.manifest.ts`](../../../../apps/api/src/platform/notifications/notification.manifest.ts)):
+A feature imports that one object (`imports: [EmailModule]`) and injects `EmailSettingsService` and `EmailTransportResolver` (the transport the settings select). Templates register at import time, from a manifest, never from `onModuleInit` ([`notification.manifest.ts`](../../../../apps/api/src/platform/notifications/notification.manifest.ts)):
 
 ```ts
 configureEmailRendering(EMAIL_MODULE_OPTIONS);   // the same options forRoot receives
@@ -96,15 +96,52 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | `SafeHtml` | hook | `SafeHtml.unsafeFromTrustedString(markup)`, `SafeHtml.EMPTY` | The one, greppable bypass, for markup literal in the source | stable | [example](../../../../apps/api/src/platform-extensions/email/examples/example-digest.email.ts) |
 | `escapeHtml` | hook | `escapeHtml(value: string): string` | Escape a value by hand inside a trusted literal | stable | [example](../../../../apps/api/src/platform-extensions/email/examples/example-digest.email.ts) |
 | `safeUrl` | hook | `safeUrl(value: string): string \| null` | Admit only absolute `http(s)` / `mailto` links | stable | [example](../../../../apps/api/src/platform-extensions/email/examples/example-digest.email.ts) |
+| `registerEmailTransport` | registry | `registerEmailTransport<S>(def: EmailTransportDefinition<S>): void` | Add a way of sending mail (SendGrid, Postmark, a log) with its own settings, secrets and admin form; `ses` and `smtp` register through it | experimental | [example](../../../../apps/api/src/app-registrations/email.ts) |
+| `emailTransportKind` | registry | `PluggableKind<EmailTransport, EmailTransportBuildContext>` | Read or describe the registered transports (ids, labels, descriptors) | experimental | [example](../../../../apps/api/test/examples/email/log-transport.spec.ts) |
+| `EmailTransport` | registry | `{ send(msg): Promise<EmailSendResult>; verify?(); destroy?() }` | The object `build` returns; extend `BaseEmailProvider` to inherit never-throw, redaction and throttle classification | experimental | [example](../../../../apps/api/src/platform-extensions/email/log-transport.ts) |
+| `EmailTransportDefinition` | registry | `PluggableImplementation<EmailTransport, EmailTransportBuildContext, S> & { credentialAddress?, missing?, summary?, egressCapability?, egressHosts? }` | Declare a transport: id, label, settings schema, defaults, secrets, `build` and the Doctor hooks | experimental | [example](../../../../apps/api/src/platform-extensions/email/log-transport.ts) |
+| `describeEmailTransportConformance` | registry | `describeEmailTransportConformance(transport, { describe, it, expect, settings, secrets, backend, skip? }): void` | Prove a transport keeps the contract (never throws, no secret or message content in errors, attachments passed through, throttles classified) | experimental | [example](../../../../apps/api/test/examples/email/log-transport.spec.ts) |
 | `emailConformanceSuite` | registry | `ConformanceSuite<EmailConformanceOptions>` | Run the slice's invariants in the app through `runPlatformConformance({ suites: { email } })` | experimental | [example](../../../../apps/api/test/email/email-conformance.spec.ts) |
 
-Supporting exports (experimental unless noted): the module options and `EMAIL_OPTIONS`; `EmailSettingsService`, `EMAIL_SETTINGS_KEY` (stable), `EmailSettingsAdminView`, `CredentialStatus`; the controller, the test-send service and `formatFromHeader`; the credential addresses `SMTP_CREDENTIAL_*` and `SES_CREDENTIAL_*` with their purpose declarations (stable); the DTO classes and the re-exported contract schemas; `BaseEmailProvider`, `SecretRedactor`, `EmailMessage`, `EmailSendResult`, `EmailProvider` (stable) and `EmailAttachment`; `classifyEmailRateLimit`; the doctor check and egress contributor; `registerEmailTemplates`, `registerPlatformEmailTemplates`, `emailTemplateOverrideRegistry`, `listEmailTemplateOverrides`, `isEmailTemplateName`, `withLayoutAttachments`; `createEmailRenderContext`, `currentEmailRenderContext`, `resolveEmailRenderContext`, `isEmailRenderingConfigured`; `resolveEmailLayout`, `DEFAULT_EMAIL_LAYOUT_THEME`, `DEFAULT_EMAIL_TONES`, `renderCallout`; `TRANSACTIONAL_EMAIL_HEADERS` (stable); the nine templates and their data types; `PLATFORM_EMAIL_TEMPLATES`.
+Supporting exports (experimental unless noted): the module options and `EMAIL_OPTIONS`; `EmailTransportResolver`, `emailTransportDefinitions`, `getEmailTransport`, `requireEmailTransport`, `emailTransportIds`, `labelOfEmailTransport`, `describeEmailTransports`, `missingEmailTransportFields`, `emailTransportSecretAddress`, `emailTransportCredentialPurpose`, `sesEmailTransport`, `smtpEmailTransport`, `registerBuiltinEmailTransports`; `EmailSettingsService`, `EMAIL_SETTINGS_KEY` (stable), `EmailSettingsAdminView`, `CredentialStatus`; the controller, the test-send service and `formatFromHeader`; the credential addresses `SMTP_CREDENTIAL_*` and `SES_CREDENTIAL_*` with their purpose declarations (stable); the DTO classes and the re-exported contract schemas; `BaseEmailProvider`, `SecretRedactor`, `EmailMessage`, `EmailSendResult`, `EmailProvider` (stable) and `EmailAttachment`; `classifyEmailRateLimit`; the doctor check and egress contributor; `registerEmailTemplates`, `registerPlatformEmailTemplates`, `emailTemplateOverrideRegistry`, `listEmailTemplateOverrides`, `isEmailTemplateName`, `withLayoutAttachments`; `createEmailRenderContext`, `currentEmailRenderContext`, `resolveEmailRenderContext`, `isEmailRenderingConfigured`; `resolveEmailLayout`, `DEFAULT_EMAIL_LAYOUT_THEME`, `DEFAULT_EMAIL_TONES`, `renderCallout`; `TRANSACTIONAL_EMAIL_HEADERS` (stable); the nine templates and their data types; `PLATFORM_EMAIL_TEMPLATES`.
 
 ### The three rungs, for email
 
 1. **Option.** `forRoot({ appName, layout: { theme, brandMark, footerHtml } })`: a different look for every message, no code.
 2. **Registry.** `registerEmailTemplate('coach-weekly-review', template)` plus the `EmailTemplateDataMap` augmentation adds a message; `{ override: true }` replaces a platform one (EvoPath restyles `broadcast` this way). A duplicate without `override` throws `DUPLICATE_ID` naming the template; each override is logged once at bootstrap (`Email template "broadcast" is overridden by acme.`). **Template names are stable ids** once a notification event maps to them (bindings and delivery records persist them): add a name, never rename one.
-3. **Token.** Not supported yet, see PP-14.8 (#926). A provider of `SmtpEmailProvider` (or `SesEmailProvider`) in the app's own module does not reach the package's consumers (`EmailNotificationChannel`, `EmailTestSendService`): they take the concrete classes from `EmailModule`, and Nest resolves them there first. No transport registry exists until PP-14.8 adds one; the selectable transports are `ses` and `smtp`. [EXTENDING.md](../../../../docs/EXTENDING.md#coming-in-pp-148-add-an-email-transport) tracks the recipe.
+3. **A transport.** `registerEmailTransport(def)` adds a way of sending mail; see [Adding an email transport](#adding-an-email-transport). It is a registry entry, not a provider token: `EmailNotificationChannel` and `EmailTestSendService` take the `EmailTransportResolver` from `EmailModule`, which builds whichever registered transport the settings name. (Providing `SmtpEmailProvider` in an app module never reached those consumers, and no longer needs to.)
+
+### Adding an email transport
+
+A transport is a [pluggable kind](../core/README.md#pluggable-kinds) (`emailTransportKind`, kind id `email-transport`). The recipe, step by step, with the worked example: [docs/EXTENDING.md, Add an email transport](../../../../docs/EXTENDING.md#add-an-email-transport).
+
+```ts
+// apps/api/src/app-registrations/email.ts, imported by platform/email/email.config.ts BEFORE forRoot()
+registerEmailTransport({
+  id: 'sendgrid',                                   // ^[a-z][a-z0-9-]{1,47}$, permanent once a row exists
+  label: 'SendGrid',
+  settingsSchema: z.object({ apiBase: z.string().trim().describe('API base URL').meta({ label: 'API base URL' }) }),
+  defaults: { apiBase: 'https://api.sendgrid.com' },
+  secrets: [{ name: 'apiKey', label: 'API key', required: true }],   // encrypted at the credential purpose email_sendgrid
+  build: ({ settings, secret, logger, classifyRateLimit }) => new SendgridTransport(settings.apiBase, () => secret('apiKey'), logger, classifyRateLimit),
+  egressHosts: (settings) => [new URL(settings.apiBase).host],
+});
+```
+
+| Member | Meaning |
+|---|---|
+| `id`, `label`, `description?` | The id is the key of `transports`, the value of `provider` and the suffix of the credential purpose. The label is what the admin page, the Doctor, the egress view and the test email call it. |
+| `settingsSchema`, `defaults` | A `z.object` of the **non-secret** settings; a field named like a secret is refused at registration. The defaults parse with the schema. |
+| `secrets` | `{ name, label, required, help? }[]`, stored encrypted at `email_<id>` (override with `credentialAddress(name)`, as the built-ins do). Read one with `await secret(name)` in `build`'s input, at send time. |
+| `build(input)` | `{ logger, classifyRateLimit?, sesRegionFallback?, settings, secret }` in, an `EmailTransport` out. Called when the transport's settings change; the previous one is `destroy()`ed. |
+| `missing`, `summary` | What the Doctor reports as unset (default: every required secret that is absent) and its phrase for a complete configuration (default: the label). |
+| `egressCapability`, `egressHosts` | The capability name and hosts of the `email.<id>` network-egress entry (default: `Email (<label>)` and none). |
+
+**What an `EmailTransport` must do.** `send(message)` never throws: every failure is `{ success: false, error }`, the error text carries no secret and no message content, attachments and headers are passed through, and a provider throttle is `rateLimited: true` (with `retryAfterMs` when the vendor named one). Extend `BaseEmailProvider` and write `deliver`; it does all four. `verify?()` is a pre-flight the admin **Send test email** runs before it sends (never the Doctor, which does not touch the network); it returns `{ ok, message }` and never throws.
+
+**The stored shape.** `{ provider, enabled, fromAddress, fromName, transports: { <id>: settings } }`. `PUT /api/email-settings` merges `transports.<id>` over what is stored (`null` removes a transport's settings), validates it with the transport's schema, and takes write-only secrets in `secrets.<id>.<name>` (blank keeps the stored one). The flat `sesRegion`, `sesAccessKeyId`, `smtpHost`, `smtpPort`, `smtpUseTls` and `smtpUsername` of an earlier release are read into `transports.ses` and `transports.smtp`, served as a deprecated read view, and accepted on `PUT` as aliases.
+
+**Proving it.** `describeEmailTransportConformance` of `@marinoscar/platform-api/email/testing`, run over `ses` and `smtp` ([`builtin-transports.conformance.spec.ts`](../../test/email/transports/builtin-transports.conformance.spec.ts)) and over the app's example ([`log-transport.spec.ts`](../../../../apps/api/test/examples/email/log-transport.spec.ts)).
 
 ### Writing a template
 
@@ -112,7 +149,7 @@ A template is `(data, ctx?) => RenderedEmail`: pure, synchronous, total. Resolve
 
 ## Data
 
-No model of its own. The configuration is the `email` row of `system_settings` (owned by the settings slice), read and written only through `SystemSettingsRowStore`; **the key `'email'` is permanent** (`EMAIL_SETTINGS_KEY`). The two secrets are credential-store rows `smtp/default` and `email_ses/default` (purposes declared by `SMTP_CREDENTIAL_PURPOSE_DEF` and `SES_CREDENTIAL_PURPOSE_DEF`, registered by the app's credential manifest). Audit rows: `email_settings:replace` (meta: the row key and version, the new value, and whether each secret changed) and `email_settings:test` (provider, success, error). `updatedBy` reads `users.id` and `users.email` through `PLATFORM_PRISMA`. No migration.
+No model of its own. The configuration is the `email` row of `system_settings` (owned by the settings slice), read and written only through `SystemSettingsRowStore`; **the key `'email'` is permanent** (`EMAIL_SETTINGS_KEY`). The built-in secrets are credential-store rows `smtp/default` and `email_ses/default` (purposes declared by `SMTP_CREDENTIAL_PURPOSE_DEF` and `SES_CREDENTIAL_PURPOSE_DEF`, registered by the app's credential manifest); a transport an app registers keeps its secrets at the purpose `email_<id>`, registered by `registerEmailTransport`. Audit rows: `email_settings:replace` (meta: the row key and version, the new value, and whether each secret changed, by `transport.secret` name) and `email_settings:test` (provider, success, error). `updatedBy` reads `users.id` and `users.email` through `PLATFORM_PRISMA`. No migration.
 
 ## Permissions and settings
 
@@ -133,7 +170,7 @@ Logs through Nest's `Logger`: settings saves (user id and which secrets changed,
 ## Security notes
 
 - **Escaping is the default.** Every interpolation in `html` is escaped; `SafeHtml.unsafeFromTrustedString` is the only bypass (grep for it in review), for markup literal in the source. Layouts take `SafeHtml`, never `string`, so concatenated markup does not compile. Subjects are plain text and never escaped.
-- **Secrets live in the credential store only.** The settings schema and the response carry compile-time proofs of no secret-bearing field; the PUT body's `smtpPassword` / `sesSecretAccessKey` are write-only and blank preserves. `getSecret` (plaintext) is called only by the two providers, at send time. `SecretRedactor` scrubs every registered secret from provider errors before they are logged or returned; no secret appears in any response, log or audit row (`apps/api/test/settings/email-settings.integration.spec.ts`).
+- **Secrets live in the credential store only.** The settings schema and the response carry compile-time proofs of no secret-bearing field; the PUT body's `secrets` (and the aliases `smtpPassword` / `sesSecretAccessKey`) are write-only and blank preserves. `getSecret` (plaintext) is called only through a transport's `secret(name)`, at send time. `SecretRedactor` scrubs every registered secret from provider errors before they are logged or returned; no secret appears in any response, log or audit row (`apps/api/test/settings/email-settings.integration.spec.ts`).
 - **No remote images.** Remote content is blocked by default in every major client and reads as a tracking pixel, so the brand mark ships inside the message as a `Content-ID` part and the HTML references it by `cid:`. Theme colours are hex-only and the font stack a list of names, because they land in `style` attributes and the dark-mode `<style>` block, where no HTML escaping applies.
 - **The test send cannot target anyone else**: there is no recipient parameter; it goes to the caller's own address.
 
@@ -155,6 +192,18 @@ runPlatformConformance({ sourceRoots: [API_SOURCE_ROOT], suites: { email: { samp
 | `renders` | A sampled template (the platform's nine, plus `samples`) throws, renders an empty subject or text, no complete HTML document, or puts markup from its data into the HTML unescaped; or rendering was never configured |
 | `no-secret` | The stored settings or the admin response declares a secret-bearing field |
 
+The transport kit is separate: `describeEmailTransportConformance(transport, options)` (see [Adding an email transport](#adding-an-email-transport)). Its cases:
+
+| Case | Fails when |
+|---|---|
+| definition | The id or label is malformed, the defaults do not parse, the declared secrets and the supplied ones differ, or `build` returns no `send` |
+| accepts | An accepted message is not `{ success: true }` |
+| neverThrows | `send` rejects for a network error, a thrown string or a thrown object, or the failed result has no error text |
+| errorHygiene | The error text carries the recipient, the subject, the body or a secret the backend echoed back |
+| attachments | An inline part, a plain attachment or a header is dropped or altered, or the message goes to more than its one recipient |
+| rateLimit | A throttle is not `rateLimited: true`, or an ordinary failure is |
+| verify | `verify`, when defined, throws or returns a message carrying a secret |
+
 ## Upgrade notes
 
 New subpath in this version. From the reference app's local `src/email/` (#737):
@@ -165,7 +214,8 @@ New subpath in this version. From the reference app's local `src/email/` (#737):
 - `org-invitation`, `group-invitation` and `shared-with-you` are not platform defaults any more: they belong to the slices that own their words and register through the registry (the reference app's `src/platform/email/templates/`).
 - `EmailTestSendService` audits through `AUDIT_SINK`; `EmailSettingsService` needs `SystemSettingsRowStore` and `PLATFORM_PRISMA`; `SesEmailProvider` takes `(settings, credentials, options?)`.
 - The queue's rate-limit classifier is an option (`classifyRateLimit`); without it only the SMTP and SES wording rules apply.
-- Stored settings, secrets and audit actions are unchanged; the row key stays `'email'`.
+- Stored secrets and audit actions are unchanged; the row key stays `'email'`. The row itself is read in either shape and rewritten as `{ provider, enabled, fromAddress, fromName, transports }` on the next save.
+- Transports are pluggable (`registerEmailTransport`). `EmailNotificationChannel` and `EmailTestSendService` take an `EmailTransportResolver` instead of `SesEmailProvider` and `SmtpEmailProvider`; the two classes now take a `Pick<EmailSettingsService, 'get'>` and a `Pick<CredentialsService, 'getSecret'>`. The Doctor's egress entries are listed in registration order (`email.ses`, `email.smtp`, then the app's). `EmailProviderKind` is a `string` and `EMAIL_PROVIDER_KINDS` a deprecated alias of `BUILTIN_EMAIL_PROVIDER_KINDS`.
 
 ## Troubleshooting
 
@@ -180,7 +230,11 @@ New subpath in this version. From the reference app's local `src/email/` (#737):
 | Test send: `535 Authentication failed` | Wrong SMTP username or password | Re-enter the password (blank keeps the stored one) |
 | A broken-image box where the logo should be | A message built by hand without the rendered `attachments` | Send what `renderEmailTemplate` returns, `attachments` included |
 | The brand mark is missing from notification emails (but present in the test email) | A notification email channel that builds its message from `subject`, `html`, `text` and `headers` only (the platform's forwards `attachments` since #738) | Forward `rendered.attachments` in a custom channel, as `@marinoscar/platform-api/notifications`'s email channel does |
-| `GET /api/email-settings` shows `settingsError` | The stored row no longer validates | Correct the named fields and save; the page renders defaults until then |
+| `GET /api/email-settings` shows `settingsError` | The stored row no longer validates, or a registered transport's stored settings no longer parse with its schema (`transports.smtp.port`) | Correct the named fields and save; the page renders defaults until then |
+| Test send or notification: `Email transport "x" is not registered` | `provider` names a transport that is no longer registered (a plugin removed, or the registration not imported before `forRoot`) | Choose another transport at `/admin/settings/email`, or import the module that calls `registerEmailTransport` before the email module is built |
+| `PUT /api/email-settings` answers `EMAIL_UNKNOWN_TRANSPORT`, `EMAIL_TRANSPORT_SETTINGS_INVALID` or `EMAIL_UNKNOWN_SECRET` | A transport id nobody registered, a setting its schema refuses, or a secret it never declared | Fix the body; `details` names the transport and the fields |
+| `registerEmailTransport` throws `FROZEN` | It ran after the application bootstrapped | Register at import time, from the app's `app-registrations/email.ts`, which the email config imports first |
+| `registerEmailTransport` throws "looks like a secret" | A `settingsSchema` field is named `apiKey`, `password`, `token`, ... | Declare it in `secrets` instead |
 
 ## Links
 

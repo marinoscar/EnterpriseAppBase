@@ -30,6 +30,7 @@ export type {
   SmtpPasswordStatus,
 } from './email-settings.service';
 export { EmailSettingsController } from './email-settings.controller';
+export type { EmailTransportSettingsRecord, EmailTransportsRecord } from './email-settings-compat';
 export { EmailTestSendService, formatFromHeader } from './email-test-send.service';
 export type { TestSendActor } from './email-test-send.service';
 export {
@@ -83,9 +84,10 @@ export type {
   EmailTransportEgressOptions,
   EmailTransportSecretAddress,
   EmailTransportSettings,
+  EmailTransportVerification,
 } from './transports/email-transport';
 export { EmailTransportResolver } from './transports/email-transport.resolver';
-export type { ActiveEmailTransport, EmailTransportResolution } from './transports/email-transport.resolver';
+export type { ActiveEmailTransport, EmailTransportResolution, UnavailableEmailTransport } from './transports/email-transport.resolver';
 export {
   BUILTIN_EMAIL_TRANSPORT_IDS,
   registerBuiltinEmailTransports,

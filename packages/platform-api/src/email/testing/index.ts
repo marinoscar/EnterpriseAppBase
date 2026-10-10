@@ -18,4 +18,5 @@ export type {
   EmailTransportConformanceOptions,
   EmailTransportConformanceScenario,
   ReceivedEmail,
+  ReceivedEmailAttachment,
 } from './transport-conformance';

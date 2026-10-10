@@ -15,7 +15,7 @@ The audit record of the extension seams of every platform slice. A closed point 
 
 Evidence paths are written `api:`, `web:`, `contract:`, `cli:`, `db:` and `infra:` for `packages/platform-api/src/`, `packages/platform-web/src/`, `packages/platform-contract/src/`, `packages/platform-cli/src/`, `packages/platform-db/` and `packages/platform-infra/`; a path under `apps/` or `docs/` is from the repository root. A story is written PP-14.n (its issue number follows).
 
-As of this version: 114 closed points in 29 sections, 16 fixed and 98 open.
+As of this version: 114 closed points in 29 sections, 21 fixed and 93 open.
 
 ## Verdicts
 
@@ -24,7 +24,7 @@ As of this version: 114 closed points in 29 sections, 16 fixed and 98 open.
 | [onboarding](#onboarding) | Open | 1 | 0 | 1 | PP-14.20 |
 | [credentials](#credentials) | Open | 0 | 0 | 0 | none |
 | [settings](#settings) | Mostly open | 7 | 1 | 6 | PP-14.21, PP-14.5, PP-14.24 |
-| [notifications](#notifications) | Mostly open | 7 | 0 | 7 | PP-14.10, PP-14.8, PP-14.24 |
+| [notifications](#notifications) | Mostly open | 7 | 1 | 6 | PP-14.10, PP-14.8, PP-14.24 |
 | [exports](#exports) | Mostly open | 3 | 0 | 3 | PP-14.20 |
 | [jobs](#jobs) | Mostly open | 4 | 0 | 4 | PP-14.19, PP-14.23, PP-14.26 |
 | [nodes](#nodes) | Mostly open | 4 | 0 | 4 | PP-14.19, PP-14.23 |
@@ -43,7 +43,7 @@ As of this version: 114 closed points in 29 sections, 16 fixed and 98 open.
 | [ai](#ai) | Mostly open | 10 | 6 | 4 | PP-14.3, PP-14.6, PP-14.17, PP-14.24 |
 | [storage](#storage) | Mostly open | 5 | 4 | 1 | PP-14.1, PP-14.7, PP-14.24 |
 | [identity](#identity) | Partly closed | 8 | 0 | 8 | PP-14.9, PP-14.15, PP-14.25 |
-| [email](#email) | Partly closed | 5 | 0 | 5 | PP-14.8, PP-14.24 |
+| [email](#email) | Partly closed | 5 | 4 | 1 | PP-14.8, PP-14.24 |
 | [host](#host) | Partly closed | 8 | 1 | 7 | PP-14.2, PP-14.13, PP-14.24 |
 | [datatable](#datatable) | Partly closed | 2 | 0 | 2 | PP-14.20 |
 | [db-backup](#db-backup) | Partly closed | 4 | 0 | 4 | PP-14.12, PP-14.23 |
@@ -64,7 +64,7 @@ The 28 stories of the epic, in order. Phase 1 makes the existing seams real; pha
 | PP-14.5 | #923 | core: the pluggable-kind primitive (registry, per-implementation settings, secrets, descriptors, generic form, kit) | 2 | none | no | This change |
 | PP-14.6 | #924 | ai: let an app or package add an AI provider (the AssemblyAI case) | 2 | 14.5, 14.3 | no | This change |
 | PP-14.7 | #925 | storage: pluggable storage drivers (Azure Blob, GCS, local) | 2 | 14.1, 14.5 | verify | This change |
-| PP-14.8 | #926 | email: pluggable email transports (SendGrid, Postmark) | 2 | 14.5 | no | Open |
+| PP-14.8 | #926 | email: pluggable email transports (SendGrid, Postmark) | 2 | 14.5 | no | This change |
 | PP-14.9 | #927 | identity: add a sign-in provider (GitHub, Entra, OIDC) | 2 | 14.5 | no | Open |
 | PP-14.10 | #928 | notifications: first-class app channels (Slack, SMS, Teams, webhook) | 2 | 14.5 | no | Open |
 | PP-14.11 | #929 | telemetry: a TELEMETRY_STORE port so the time-series store is replaceable | 2 | 14.5 | no | Open |
@@ -139,7 +139,7 @@ Closed points: none recorded at the audit commit.
 
 ### notifications
 
-**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 7 (0 fixed, 7 open) · **Stories:** PP-14.10, PP-14.8, PP-14.24
+**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 7 (1 fixed, 6 open) · **Stories:** PP-14.10, PP-14.8, PP-14.24
 
 **Open points.** Event, channel and template registries with open channel ids (`registerNotification`, `registerNotificationEvent`, `registerNotificationChannel`, the two template bindings), `NotificationChannelSenderRegistry`, `NotificationsService`, the org policy layer and the web bell, provider and pages.
 
@@ -150,7 +150,7 @@ Closed points: none recorded at the audit commit.
 | notifications-3 | Templates exist only for email and browser; a new channel renders from raw data with no registry or validation. | api: `notifications/registry/bindings.registry.ts:72, :92` | `registerChannelTemplate({ channelId, eventKey, render })`, validated at bootstrap. | PP-14.10 (#928) | Open |
 | notifications-4 | The broadcast composer and the preference matrix hard-code the channel list, order, labels and the critical rule. | web: `notifications/ui/BroadcastComposer.tsx:115, :118, :229`; contract: `notifications/schemas.ts:954`; web: `notifications/ui/NotificationSettings.tsx:188, :568` | `GET /notifications/channels` (labels, order, `criticalCapable`); delete `CHANNEL_ORDER`, `DEFAULT_CHANNELS`, `CHANNEL_LABELS`. | PP-14.10 (#928) | Open |
 | notifications-5 | The push payload has exactly five fields. | api: `notifications/channels/push-notification.channel.ts:~111` | `NotificationsModule.forRoot({ pushPayload })` with an allowlisted extras shape. | PP-14.10 (#928) | Open |
-| notifications-6 | `EmailNotificationChannel` takes the two concrete email classes, so no other transport reaches notifications. | api: `notifications/channels/email-notification.channel.ts:116` | Depend on the `EmailTransportResolver`, never on concrete classes. | PP-14.8 (#926) | Open |
+| notifications-6 | `EmailNotificationChannel` takes the two concrete email classes, so no other transport reaches notifications. | api: `notifications/channels/email-notification.channel.ts:116` | Depend on the `EmailTransportResolver`, never on concrete classes. | PP-14.8 (#926) | Fixed |
 | notifications-7 | `NotificationSettings` labels and the admin composer need the channel list from the API. | web: `notifications/ui/NotificationSettings.tsx:188` | Labels from the channel registry plus `PageSlotsBase`. | PP-14.24 (#942) | Open |
 
 ### exports
@@ -399,16 +399,16 @@ Closed points: none recorded at the audit commit.
 
 ### email
 
-**Verdict:** Partly closed · **Packages:** api, web, contract · **Closed points:** 5 (0 fixed, 5 open) · **Stories:** PP-14.8, PP-14.24
+**Verdict:** Partly closed · **Packages:** api, web, contract · **Closed points:** 5 (4 fixed, 1 open) · **Stories:** PP-14.8, PP-14.24
 
-**Open points.** Template registry and layout theme (`registerEmailTemplate`, `EmailTemplateDataMap`, `EmailLayoutTheme`, `EmailBrandMark`), `configureEmailRendering`, the safe-HTML helpers and `emailConformanceSuite`. The transport is not open.
+**Open points.** Template registry and layout theme (`registerEmailTemplate`, `EmailTemplateDataMap`, `EmailLayoutTheme`, `EmailBrandMark`), `configureEmailRendering`, the safe-HTML helpers and `emailConformanceSuite`; the transport (`registerEmailTransport`, `EmailTransportResolver`, `registerEmailTransportPanel`, `describeEmailTransportConformance`).
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
-| email-1 | There is no transport seam: consumers take the concrete classes, `EmailModule` provides and exports them, so the README recipe ("provide `SmtpEmailProvider` in the app module") never reached `EmailNotificationChannel` or `EmailTestSendService`. The recipe is corrected (it now says "not supported yet"). | api: `notifications/channels/email-notification.channel.ts:116`; `email/email-test-send.service.ts:169`; `email/email.module.ts:141-142` | `EmailTransport`, `registerEmailTransport` and an `EmailTransportResolver` the two consumers depend on. | PP-14.8 (#926) | Open |
-| email-2 | The transport kinds (`ses`, `smtp`) are closed in the contract, the settings have fixed `ses*` and `smtp*` fields, and only the `smtp` and `email_ses` credential purposes exist. | contract: `email/constants.ts:14`; `email/schemas.ts:31, :47-75, :244` | Open kind, settings `provider: string` plus `transports: Record<id, settings>` with read-compat; one purpose per transport. | PP-14.8 (#926) | Open |
-| email-3 | The Doctor check, the egress contributor and the `test-email` template hard-code the two kinds. | api: `email/doctor/email-config.doctor-check.ts:43, :63`; `email/doctor/egress/email.egress.contributor.ts:54, :64`; `email/templates/test-email.email.ts:81` | Labels and egress hosts from the registry. | PP-14.8 (#926) | Open |
-| email-4 | `EmailSettingsPage` takes no props and hard-codes the transport radios; there is no transport conformance (never throw, redaction, attachments). | web: `email/ui/EmailSettingsPage.tsx:584, :590` | `registerEmailTransportPanel(id, Component)`; `describeEmailTransportConformance`. | PP-14.8 (#926) | Open |
+| email-1 | There is no transport seam: consumers take the concrete classes, `EmailModule` provides and exports them, so the README recipe ("provide `SmtpEmailProvider` in the app module") never reached `EmailNotificationChannel` or `EmailTestSendService`. The recipe was corrected to say "not supported yet" by PP-14.4 and is replaced here by the working one. | api: `notifications/channels/email-notification.channel.ts:116`; `email/email-test-send.service.ts:169`; `email/email.module.ts:141-142` | `EmailTransport`, `registerEmailTransport` and an `EmailTransportResolver` the two consumers depend on. | PP-14.8 (#926) | Fixed |
+| email-2 | The transport kinds (`ses`, `smtp`) are closed in the contract, the settings have fixed `ses*` and `smtp*` fields, and only the `smtp` and `email_ses` credential purposes exist. | contract: `email/constants.ts:14`; `email/schemas.ts:31, :47-75, :244` | Open kind, settings `provider: string` plus `transports: Record<id, settings>` with read-compat; one purpose per transport. | PP-14.8 (#926) | Fixed |
+| email-3 | The Doctor check, the egress contributor and the `test-email` template hard-code the two kinds. | api: `email/doctor/email-config.doctor-check.ts:43, :63`; `email/doctor/egress/email.egress.contributor.ts:54, :64`; `email/templates/test-email.email.ts:81` | Labels and egress hosts from the registry. | PP-14.8 (#926) | Fixed |
+| email-4 | `EmailSettingsPage` takes no props and hard-codes the transport radios; there is no transport conformance (never throw, redaction, attachments). | web: `email/ui/EmailSettingsPage.tsx:584, :590` | `registerEmailTransportPanel(id, Component)`; `describeEmailTransportConformance`. | PP-14.8 (#926) | Fixed |
 | email-5 | `EmailSettingsPage` takes no slots. | web: `email/ui/EmailSettingsPage.tsx` | `Sections`. | PP-14.24 (#942) | Open |
 
 ### host
