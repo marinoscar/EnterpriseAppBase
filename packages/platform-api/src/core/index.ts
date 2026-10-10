@@ -10,6 +10,12 @@
 export * from './registry/index';
 export { RegistryFreezeService } from './registry/registry-freeze.service';
 
+// The pluggable-kind primitive (PP-14.5, issue #923): one registry of
+// implementations per kind, each with its own settings schema, defaults and
+// declared secrets, plus the descriptors a generated form renders. Framework-
+// free like the registry. The conformance kit is `@marinoscar/platform-api/core/testing`.
+export * from './pluggable/index';
+
 // The host ports (issue #696): the access port (`definePlatformHost`), the
 // DI-time ports (`AUDIT_SINK`, `SYSTEM_SETTINGS_STORE`, `PLATFORM_PRISMA`) and
 // `PlatformHostModule`, which binds them. Every packaged slice reuses them.

@@ -25,6 +25,10 @@ const ALLOWED_EXTERNAL = [
   /^node:[a-z_/]+$/,
   /^@prisma\/client\/extension$/,
   /^@opentelemetry\/api$/,
+  // The pluggable-kind primitive (PP-14.5, issue #923): zod for the settings schemas, and the
+  // contract's wire shapes (the field descriptor, the id pattern) it produces and validates.
+  /^zod$/,
+  /^@marinoscar\/platform-contract\/settings$/,
 ];
 
 /** The schema-independent Prisma entry point, and the only directory allowed to import it. */
@@ -49,7 +53,7 @@ function specifiersOf(file: string): string[] {
   return patterns.flatMap((re) => [...source.matchAll(re)].map((m) => m[1]));
 }
 
-describe('the core slice imports nothing but Nest, nestjs-zod, node built-ins, the Prisma extension entry, the OTel API and itself', () => {
+describe('the core slice imports nothing but Nest, nestjs-zod, zod, the contract settings wire shapes, node built-ins, the Prisma extension entry, the OTel API and itself', () => {
   const files = tsFiles(CORE);
 
   it('finds the slice (guards against a path that matches nothing)', () => {
@@ -96,7 +100,7 @@ describe('the core slice imports nothing but Nest, nestjs-zod, node built-ins, t
     expect(offenders).toEqual([]);
   });
 
-  it('external imports are only @nestjs/common, @nestjs/swagger, nestjs-zod, fastify, node: built-ins, @prisma/client/extension and @opentelemetry/api', () => {
+  it('external imports are only @nestjs/common, @nestjs/swagger, nestjs-zod, zod, the contract settings entry, fastify, node: built-ins, @prisma/client/extension and @opentelemetry/api', () => {
     const offenders = files.flatMap((file) =>
       specifiersOf(file)
         .filter((specifier) => !specifier.startsWith('.'))
