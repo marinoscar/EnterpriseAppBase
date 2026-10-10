@@ -22,6 +22,7 @@ import { ConfigModule } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import { Test } from '@nestjs/testing';
+import { Strategy as OAuth2Strategy } from 'passport-oauth2';
 import request from 'supertest';
 
 import { DoctorModule } from '@marinoscar/platform-api/doctor';
@@ -29,7 +30,9 @@ import {
   AuthService,
   IdentityModule,
   authProviderRegistry,
+  createCookieStateStore,
   identityConfiguration,
+  type AuthProviderDefinition,
   type ExternalProfile,
   type SignInPolicy,
 } from '@marinoscar/platform-api/identity';
@@ -55,6 +58,37 @@ const claims = (over: Partial<ExampleOidcClaims> = {}): ExampleOidcClaims => ({
   exp: nowSeconds() + 300,
   ...over,
 });
+
+/**
+ * A real `passport-oauth2` strategy (its token exchange and profile call stubbed:
+ * no network) using `createCookieStateStore` for login-CSRF `state`. `state: true`
+ * without a store would throw "requires session support" here.
+ */
+const oauthStateProvider: AuthProviderDefinition = {
+  id: 'oauth-state',
+  isEnabled: () => true,
+  createStrategy: ({ config }) => {
+    const strategy = new OAuth2Strategy(
+      {
+        authorizationURL: 'https://idp.example.test/authorize',
+        tokenURL: 'https://idp.example.test/token',
+        clientID: 'client',
+        clientSecret: 'secret',
+        callbackURL: 'http://localhost/api/auth/oauth-state/callback',
+        store: createCookieStateStore({ secret: config.get<string>('jwt.secret') ?? 'x', secure: false }),
+      },
+      (_at: string, _rt: string, profile: unknown, done: (e: Error | null, u?: unknown) => void) => done(null, profile),
+    );
+    (strategy as any)._oauth2.getOAuthAccessToken = (_c: string, _p: unknown, cb: (e: null, at: string, rt: string, r: object) => void) => cb(null, 'at', 'rt', {});
+    (strategy as any).userProfile = (_t: string, done: (e: null, p: object) => void) =>
+      done(null, { sub: 'os-1', mail: 'staff@example.test', verified: true });
+    return strategy as never;
+  },
+  mapProfile: (raw) => {
+    const r = raw as { sub: string; mail: string; verified: boolean };
+    return { provider: 'oauth-state', subject: r.sub, email: r.mail, emailVerified: r.verified };
+  },
+};
 
 /** The policy under test, switchable so the kit can swap in its own denial. */
 const policy: { current: SignInPolicy } = { current: new ExampleOidcSignInPolicy() };
@@ -134,7 +168,7 @@ describe('ExampleOidcSignInPolicy bound through IdentityModule.forRoot (PP-14.9)
     let release!: () => void;
     const held = new Promise<void>((resolve) => (release = resolve));
     const ready = new Promise<void>((resolve, reject) => {
-      void withTemporaryEntries(authProviderRegistry, authProviderRegistry.has('example-oidc') ? [] : [exampleOidcProvider], async () => {
+      void withTemporaryEntries(authProviderRegistry, [...(authProviderRegistry.has('example-oidc') ? [] : [exampleOidcProvider]), oauthStateProvider], async () => {
         try {
           const booted = await bootApp();
           app = booted.app;
@@ -208,6 +242,33 @@ describe('ExampleOidcSignInPolicy bound through IdentityModule.forRoot (PP-14.9)
       expect(decision).toEqual({ allow: true });
     },
   );
+
+  describe('login CSRF: the cookie state store on a real passport-oauth2 strategy', () => {
+    it('completes a sign-in whose state comes back with the cookie that started it', async () => {
+      const start = await request(app.getHttpServer()).get('/api/auth/oauth-state').expect(302);
+      const state = new URL(start.headers.location!).searchParams.get('state')!;
+      const cookie = (start.headers['set-cookie'] as unknown as string[]).find((c) => c.startsWith('oauth_state='))!;
+      expect(cookie).toContain('HttpOnly');
+
+      const done = await request(app.getHttpServer())
+        .get('/api/auth/oauth-state/callback')
+        .query({ code: 'c', state })
+        .set('Cookie', cookie.split(';')[0]!)
+        .expect(302);
+
+      expect(new URL(done.headers.location!).searchParams.has('token')).toBe(true);
+    });
+
+    it('refuses a callback whose browser never started the flow (no state cookie)', async () => {
+      const start = await request(app.getHttpServer()).get('/api/auth/oauth-state').expect(302);
+      const state = new URL(start.headers.location!).searchParams.get('state')!;
+
+      const res = await request(app.getHttpServer()).get('/api/auth/oauth-state/callback').query({ code: 'c', state }).expect(302);
+
+      expect(new URL(res.headers.location!).searchParams.get('error')).toBe('authentication_failed');
+      expect(prismaMock.user.create).not.toHaveBeenCalled();
+    });
+  });
 
   it('waves another provider through, so binding it cannot change Google', () => {
     const decision = new ExampleOidcSignInPolicy().beforeLogin({
