@@ -76,7 +76,7 @@ import { usePlatformViewer } from '../../core/index.js';
 import { useAiAdminConfig } from '../headless/use-ai-admin-config.js';
 import { AiConfigContext } from '../headless/use-ai-config.js';
 import { AiSpinner } from './internal/AiSpinner.js';
-import { AiProviderCard } from './admin/AiProviderCard.js';
+import { AiProviderCard, AiSlotlessProviderCard } from './admin/AiProviderCard.js';
 import {
   EMPTY_PROVIDER_FORM_VALUE,
   hasProviderFormErrors,
@@ -263,6 +263,8 @@ function toLimits(form: AiFormState, config: AiAdminConfig): AiLimits {
 function toInput(form: AiFormState, config: AiAdminConfig): AiAdminConfigInput {
   const providers: AiAdminConfigInput['providers'] = {};
   for (const provider of config.providers) {
+    // #921: a provider without a settings slot has nothing to save.
+    if (provider.configurable === false) continue;
     const value = form.providers[provider.id];
     if (value) providers[provider.id] = toProviderInput(provider, value);
   }
@@ -751,7 +753,10 @@ export default function AiConfigPage() {
               <Alert severity="info">No AI providers are registered in this build.</Alert>
             ) : (
               <Stack spacing={2}>
-                {config.providers.map((provider) => (
+                {config.providers.map((provider) =>
+                  provider.configurable === false ? (
+                    <AiSlotlessProviderCard key={provider.id} provider={provider} />
+                  ) : (
                   <AiProviderCard
                     key={provider.id}
                     provider={provider}
@@ -786,7 +791,8 @@ export default function AiConfigPage() {
                       })
                     }
                   />
-                ))}
+                  ),
+                )}
               </Stack>
             )}
 

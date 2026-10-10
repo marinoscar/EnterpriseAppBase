@@ -309,6 +309,10 @@ export class AiConfigAdminService {
       id,
       displayName: adapter?.displayName ?? id,
       registered: adapter !== undefined,
+      // #921: an adapter an app registered under a new id has no settings slot
+      // yet. Reported only when false, so a provider that has a slot keeps the
+      // exact response it always had.
+      ...(slot === undefined ? { configurable: false } : {}),
       enabled: slot?.enabled ?? false,
       baseUrl: slot?.baseUrl ?? null,
       settingsFields: providerSettingsFields(id),
@@ -330,11 +334,26 @@ export class AiConfigAdminService {
    * The namespace to write. A provider the body leaves out keeps its stored
    * slot; a provider id with no settings slot is a 400, as is ENABLING a
    * provider no adapter is registered for (it could never serve a call).
+   *
+   * The one tolerated slotless id (#921) is a REGISTERED adapter (an app added
+   * it) submitted exactly as `describeForAdmin` describes it: switched off, no
+   * settings. The admin form sends every listed provider back, so refusing
+   * that would fail every save. It is ignored, never stored; anything else for
+   * it, and any id the registry does not know either, stays a 400.
    */
   private buildNext(current: SystemAiValue, input: UpdateAiConfigInput): SystemAiValue {
-    for (const id of Object.keys(input.providers)) {
-      if (providerPolicy(current, id) === undefined) {
+    for (const [id, submitted] of Object.entries(input.providers)) {
+      if (providerPolicy(current, id) !== undefined) continue;
+
+      if (!this.registry.get(id)) {
         throw this.unknownProvider(id, BadRequestException);
+      }
+
+      if (!isSlotlessDefault(submitted)) {
+        throw new BadRequestException({
+          message: `AI provider "${id}" is registered but cannot be configured yet: it has no settings slot.`,
+          details: { reason: AI_CONFIG_REJECTIONS.UNKNOWN_PROVIDER, provider: id },
+        });
       }
     }
 
@@ -403,13 +422,7 @@ export class AiConfigAdminService {
 
     for (const field of AI_PROVIDER_SETTINGS_FIELDS) {
       const raw = submitted[field];
-      const empty =
-        raw === undefined ||
-        raw === null ||
-        raw === '' ||
-        (field === 'deployments' && typeof raw === 'object' && Object.keys(raw).length === 0);
-
-      if (empty) continue;
+      if (isEmptySettingsValue(field, raw)) continue;
 
       if (!allowed.has(field)) {
         throw new BadRequestException({
@@ -550,6 +563,28 @@ export class AiConfigAdminService {
       },
     });
   }
+}
+
+/** A submitted provider setting that means "the provider default": absent, null, empty, or an empty map. */
+function isEmptySettingsValue(field: (typeof AI_PROVIDER_SETTINGS_FIELDS)[number], raw: unknown): boolean {
+  return (
+    raw === undefined ||
+    raw === null ||
+    raw === '' ||
+    (field === 'deployments' && typeof raw === 'object' && Object.keys(raw).length === 0)
+  );
+}
+
+/**
+ * Whether a submitted provider entry equals what `describeForAdmin` reports
+ * for a provider without a settings slot (#921): not enabled, every setting at
+ * the provider default.
+ */
+function isSlotlessDefault(submitted: UpdateAiConfigInput['providers'][string]): boolean {
+  return (
+    !submitted.enabled &&
+    AI_PROVIDER_SETTINGS_FIELDS.every((field) => isEmptySettingsValue(field, submitted[field]))
+  );
 }
 
 /**

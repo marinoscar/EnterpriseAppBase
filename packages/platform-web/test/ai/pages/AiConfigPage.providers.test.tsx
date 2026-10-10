@@ -14,7 +14,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { render } from '../harness.js';
 import type { AiAdminConfig } from '../../../src/ai/headless/types.js';
-import { mockAiAdminConfigWithCompatible } from '../fixtures.js';
+import { mockAiAdminConfig, mockAiAdminConfigWithCompatible } from '../fixtures.js';
 
 vi.mock('../../../src/ai/headless/use-ai-admin-config.js', () => ({ useAiAdminConfig: vi.fn() }));
 
@@ -268,6 +268,64 @@ describe('AiConfigPage — provider-specific fields (#448)', () => {
 
       await user.click(screen.getByRole('radio', { name: /fall back to the organization key/i }));
       expect(screen.getByTestId('ai-org-fallback-warning')).not.toHaveTextContent(/OpenAI-compatible/);
+    });
+  });
+
+  describe('a registered provider without a settings slot (#921)', () => {
+    const slotless: AiAdminConfig = {
+      ...mockAiAdminConfig,
+      providers: [
+        ...mockAiAdminConfig.providers,
+        {
+          id: 'acme-llm',
+          displayName: 'Acme LLM',
+          registered: true,
+          configurable: false,
+          enabled: false,
+          baseUrl: null,
+          settingsFields: ['baseUrl'],
+          keyStatus: { configured: false, hint: null, updatedAt: null, updatedByUserId: null },
+          supportedCapabilities: ['responses'],
+        },
+      ],
+    };
+
+    it('is listed as "Registered, not configurable yet", with no switch or settings', () => {
+      setHook(slotless);
+      renderPage();
+      const acme = within(card('acme-llm'));
+
+      expect(acme.getByText('Acme LLM')).toBeInTheDocument();
+      expect(acme.getByText('Registered, not configurable yet')).toBeInTheDocument();
+      expect(acme.queryByRole('switch')).not.toBeInTheDocument();
+      expect(acme.queryByLabelText('Base URL')).not.toBeInTheDocument();
+    });
+
+    it('is not sent back on save, so the save cannot fail because of it', async () => {
+      const hook = setHook(slotless);
+      const user = renderPage();
+
+      await user.click(screen.getByRole('switch', { name: 'Enable OpenAI' }));
+      await user.click(saveButton());
+
+      await waitFor(() => expect(hook.save).toHaveBeenCalledTimes(1));
+      const body = vi.mocked(hook.save).mock.calls[0][0];
+      expect(Object.keys(body.providers)).toEqual(mockAiAdminConfig.providers.map((p) => p.id));
+      expect(body.providers).not.toHaveProperty('acme-llm');
+    });
+
+    it('a configuration without one renders and saves exactly as before', async () => {
+      const hook = setHook();
+      const user = renderPage();
+
+      expect(screen.queryByText('Registered, not configurable yet')).not.toBeInTheDocument();
+      await user.click(screen.getByRole('switch', { name: 'Enable OpenAI' }));
+      await user.click(saveButton());
+
+      await waitFor(() => expect(hook.save).toHaveBeenCalledTimes(1));
+      expect(Object.keys(vi.mocked(hook.save).mock.calls[0][0].providers)).toEqual(
+        mockAiAdminConfigWithCompatible.providers.map((p) => p.id),
+      );
     });
   });
 });
