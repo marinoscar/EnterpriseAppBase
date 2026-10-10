@@ -30,6 +30,7 @@ import {
   AI_MCP_ALLOWED_HOST_PATTERN,
   AI_MCP_ALLOWED_HOSTS_MAX,
   AI_OPENAI_API_STYLES,
+  AI_PROVIDER_ID_PATTERN,
   AI_USAGE_RETENTION_MAX_DAYS,
   aiEndpointUrlProblem,
   type AiKeyPolicy,
@@ -225,14 +226,13 @@ export type SystemAiLimitsValue = z.infer<typeof systemAiLimitsSchema>;
  * `providers.openai.baseUrl` IS AN ENDPOINT OVERRIDE, NOT A CREDENTIAL — the
  * exact counterpart of `systemStorageSchema.endpoint`. It exists for
  * OpenAI-compatible proxies and self-hosted gateways, and is optional because
- * absent means "use the provider's own default host". `providers` is closed
- * to `AI_PROVIDER_IDS` (`openai`, `anthropic`, `gemini`) rather than an open
- * `z.record`, for the same reason `STORAGE_PROVIDER_KINDS` is a closed enum
- * and not a free string: this value is read by name at the consuming layer, a
- * `z.record` cannot be validated field-by-field by `readNamespace` below (it
- * has no fixed `.shape` to iterate), and an operator-supplied provider id
- * would be a namespace with no fixed key set to keep parity with across the
- * six places a namespace must be declared.
+ * absent means "use the provider's own default host". `providers` is a RECORD
+ * keyed by provider id (PP-14.6, #924), open to a provider an app or package
+ * registers: this schema checks the id and `enabled`, and the provider's own
+ * `settingsSchema` (the API's provider registry) validates the rest, which a
+ * schema in this package cannot, since it does not know which providers a
+ * deployment registered. The stored shape of the five built-in providers is
+ * unchanged.
  *
  * `defaults.maxOutputTokensCap` bounds every call regardless of what the
  * caller (or the model's own `maxOutputTokens`) requests, and is optional:
@@ -424,6 +424,96 @@ export const systemAiCompatibleProviderSchema = systemAiProviderSchema.extend({
   requiresKey: z.boolean().optional(),
 });
 
+// ---- the open `providers` record (PP-14.6, issue #924) ------------------------------------
+//
+// `ai.providers` is a RECORD keyed by provider id, not an object with one fixed
+// key per provider. A provider an app or package adds
+// (`registerAiProvider`, `@marinoscar/platform-api/ai`) has a slot with no
+// change here. The record only checks the id and the one field every slot
+// has (`enabled`); the provider-specific fields pass through and are validated
+// by the provider's own `settingsSchema` where the registry is (the API's
+// `ai` namespace read and merge), never by this package, which cannot know
+// which providers a deployment registered.
+
+/**
+ * A provider id: a lower-case letter, then lower-case letters, digits and
+ * hyphens (2 to 48 characters). The pattern of the pluggable-kind registry
+ * and the provider part of an `ai.limits.perModel` key.
+ *
+ * @extensionPoint schema
+ * @stability experimental
+ */
+export const aiProviderIdSchema = z.string().regex(AI_PROVIDER_ID_PATTERN);
+
+/**
+ * One provider's slot in the stored `ai.providers` record: the switch every
+ * provider has, plus the provider's own non-secret settings (`baseUrl`,
+ * `region`, ...), which pass through. Carries no key.
+ *
+ * @extensionPoint schema
+ * @stability experimental
+ */
+export const aiProviderSlotSchema = z.looseObject({
+  /** Whether the provider is switched on. */
+  enabled: z.boolean(),
+});
+
+/**
+ * One provider's slot in a PATCH: every field optional, and a provider's own
+ * optional setting takes `null` to remove it (back to its default).
+ *
+ * @stability experimental
+ */
+export const aiProviderSlotPatchSchema = z.looseObject({
+  /** Whether the provider is switched on. */
+  enabled: z.boolean().optional(),
+});
+
+/**
+ * `ai.providers` as stored and as a PUT carries it: slots by provider id.
+ *
+ * @stability experimental
+ */
+export const systemAiProvidersSchema = z.record(aiProviderIdSchema, aiProviderSlotSchema);
+
+/**
+ * `ai.providers` in a PATCH: the slots to change, by provider id; a provider
+ * left out keeps its stored settings.
+ *
+ * @stability experimental
+ */
+export const systemAiProvidersPatchSchema = z.record(aiProviderIdSchema, aiProviderSlotPatchSchema);
+
+/**
+ * `ai.providers` as `GET /api/system-settings` answers it. `hasKey` is
+ * reported by consumers that know whether a deployment key is stored.
+ *
+ * @stability experimental
+ */
+export const aiProvidersResponseSchema = z.record(
+  aiProviderIdSchema,
+  z.looseObject({
+    /** Whether the provider is switched on. */
+    enabled: z.boolean(),
+    /** Whether the deployment stores a key for the provider. */
+    hasKey: z.boolean().optional(),
+  }),
+);
+
+/**
+ * `ai.providers` in an organization's overrides: it may only switch a
+ * provider off for its members.
+ *
+ * @stability experimental
+ */
+export const orgAiProvidersSchema = z.record(
+  aiProviderIdSchema,
+  z.object({
+    /** `false` switches the provider off for the organization's members. */
+    enabled: z.boolean().optional(),
+  }),
+);
+
 /**
  * The stored `ai` system settings namespace: the deployment's AI policy.
  * It carries no key (see `AI_SETTINGS_CARRIES_NO_SECRET`).
@@ -436,22 +526,7 @@ export const systemAiSchema = z.object({
   /** Whose key pays: the caller's own only (`byok`), or an administrator's as a fallback. */
   keyPolicy: keyPolicyEnum(),
   /** Per-provider settings, by provider id. */
-  providers: z.object({
-    /** The OpenAI slot. */
-    openai: systemAiProviderSchema,
-    // #446. Appended; a stored row written before this slot existed is
-    // salvaged per provider by `SystemSettingsService`, never reset.
-    /** The Anthropic slot. */
-    anthropic: systemAiProviderSchema,
-    // #447. Appended, and salvaged per provider exactly like `anthropic`.
-    /** The Gemini slot. */
-    gemini: systemAiProviderSchema,
-    // #448. Appended, each with its own extended slot shape.
-    /** The Azure OpenAI slot. */
-    'azure-openai': systemAiAzureProviderSchema,
-    /** The OpenAI-compatible server slot. */
-    'openai-compatible': systemAiCompatibleProviderSchema,
-  }),
+  providers: systemAiProvidersSchema,
   /** Deployment-wide defaults a call cannot exceed. */
   defaults: z.object({
     /** Output-token ceiling for every call; `null` means no cap. */
@@ -513,43 +588,6 @@ export type SystemAiValue = z.infer<typeof systemAiSchema>;
 // host" / "no cap"). The same absent-vs-null distinction
 // `storage.forcePathStyle` and `maintenance.startedAt` already draw; without
 // it an override, once set, could be changed but never cleared (#428).
-/** One provider's slot in a PATCH: each field optional, `baseUrl: null` removes the override. */
-const systemAiProviderPatchSchema = z.object({
-  /** Whether the provider is switched on. */
-  enabled: z.boolean().optional(),
-  /** The endpoint override; `null` removes it. */
-  baseUrl: z.string().url().nullable().optional(),
-});
-
-/**
- * The #448 slots in a PATCH: every optional field takes `null` to remove it
- * (back to its default). `deployments` REPLACES wholesale when present — the
- * same rule as `mcpAllowedHosts` and `limits`: a merge could never remove one.
- */
-const systemAiAzureProviderPatchSchema = z.object({
-  /** Whether the provider is switched on. */
-  enabled: z.boolean().optional(),
-  /** The Azure endpoint; `null` removes it. */
-  baseUrl: aiEndpointUrlSchema(AI_AZURE_ENDPOINT_SCHEMES).nullable().optional(),
-  /** The API version; `null` restores the default. */
-  apiVersion: z.string().regex(AI_AZURE_API_VERSION_PATTERN).nullable().optional(),
-  /** The API shape; `null` restores the default. */
-  apiStyle: apiStyleEnum().nullable().optional(),
-  /** Model id to deployment name, replaced whole; `null` clears it. */
-  deployments: aiAzureDeploymentsSchema.nullable().optional(),
-});
-
-const systemAiCompatibleProviderPatchSchema = z.object({
-  /** Whether the provider is switched on. */
-  enabled: z.boolean().optional(),
-  /** The server's endpoint; `null` removes it. */
-  baseUrl: aiEndpointUrlSchema(AI_COMPATIBLE_ENDPOINT_SCHEMES).nullable().optional(),
-  /** The API shape; `null` restores the default. */
-  apiStyle: apiStyleEnum().nullable().optional(),
-  /** Whether the server needs a key; `null` restores the default (yes). */
-  requiresKey: z.boolean().nullable().optional(),
-});
-
 /**
  * A `PATCH /api/system-settings` body's `ai` member: every field optional.
  *
@@ -561,20 +599,7 @@ export const systemAiPatchSchema = z.object({
   /** Whose key pays: the caller's own only (`byok`), or an administrator's as a fallback. */
   keyPolicy: keyPolicyEnum().optional(),
   /** Per-provider settings, by provider id. */
-  providers: z
-    .object({
-      /** The OpenAI slot. */
-      openai: systemAiProviderPatchSchema.optional(),
-      /** The Anthropic slot. */
-      anthropic: systemAiProviderPatchSchema.optional(),
-      /** The Gemini slot. */
-      gemini: systemAiProviderPatchSchema.optional(),
-      /** The Azure OpenAI slot. */
-      'azure-openai': systemAiAzureProviderPatchSchema.optional(),
-      /** The OpenAI-compatible server slot. */
-      'openai-compatible': systemAiCompatibleProviderPatchSchema.optional(),
-    })
-    .optional(),
+  providers: systemAiProvidersPatchSchema.optional(),
   /** Deployment-wide defaults a call cannot exceed. */
   defaults: z
     .object({
@@ -704,54 +729,7 @@ export const aiSettingsSchema = z.object({
   /** Whose key pays: the caller's own only (`byok`), or an administrator's as a fallback. */
   keyPolicy: keyPolicyEnum(),
   /** Per-provider settings, by provider id. */
-  providers: z.object({
-    /** The OpenAI slot. */
-    openai: z.object({
-      /** Whether the provider is switched on. */
-      enabled: z.boolean(),
-      /** The endpoint override; absent means the provider's default. */
-      baseUrl: z.string().url().optional(),
-    }),
-    /** The Anthropic slot. */
-    anthropic: z.object({
-      /** Whether the provider is switched on. */
-      enabled: z.boolean(),
-      /** The endpoint override; absent means the provider's default. */
-      baseUrl: z.string().url().optional(),
-    }),
-    /** The Gemini slot. */
-    gemini: z.object({
-      /** Whether the provider is switched on. */
-      enabled: z.boolean(),
-      /** The endpoint override; absent means the provider's default. */
-      baseUrl: z.string().url().optional(),
-    }),
-    // #448 — see `systemAiAzureProviderSchema` / `systemAiCompatibleProviderSchema`.
-    /** The Azure OpenAI slot. */
-    'azure-openai': z.object({
-      /** Whether the provider is switched on. */
-      enabled: z.boolean(),
-      /** The endpoint override; absent means the provider's default. */
-      baseUrl: aiEndpointUrlSchema(AI_AZURE_ENDPOINT_SCHEMES).optional(),
-      /** Azure OpenAI: the API version. */
-      apiVersion: z.string().regex(AI_AZURE_API_VERSION_PATTERN).optional(),
-      /** Which API shape the server speaks (`responses` or `chat_completions`). */
-      apiStyle: apiStyleEnum().optional(),
-      /** Azure OpenAI: model id to deployment name. */
-      deployments: aiAzureDeploymentsSchema.optional(),
-    }),
-    /** The OpenAI-compatible server slot. */
-    'openai-compatible': z.object({
-      /** Whether the provider is switched on. */
-      enabled: z.boolean(),
-      /** The endpoint override; absent means the provider's default. */
-      baseUrl: aiEndpointUrlSchema(AI_COMPATIBLE_ENDPOINT_SCHEMES).optional(),
-      /** Which API shape the server speaks (`responses` or `chat_completions`). */
-      apiStyle: apiStyleEnum().optional(),
-      /** OpenAI-compatible: whether the server needs a key. */
-      requiresKey: z.boolean().optional(),
-    }),
-  }),
+  providers: systemAiProvidersSchema,
   /** Deployment-wide defaults a call cannot exceed. */
   defaults: z.object({
     /** Output-token ceiling for every call; `null` means no cap. */
@@ -806,68 +784,7 @@ export const aiSettingsPatchSchema = z.object({
   /** Whose key pays: the caller's own only (`byok`), or an administrator's as a fallback. */
   keyPolicy: keyPolicyEnum().optional(),
   /** Per-provider settings, by provider id. */
-  providers: z
-    .object({
-      /** The OpenAI slot. */
-      openai: z
-        .object({
-          /** Whether the provider is switched on. */
-          enabled: z.boolean().optional(),
-          // Absent leaves it alone; explicit `null` removes the override.
-          /** The endpoint override; absent means the provider's default. */
-          baseUrl: z.string().url().nullable().optional(),
-        })
-        .optional(),
-      /** The Anthropic slot. */
-      anthropic: z
-        .object({
-          /** Whether the provider is switched on. */
-          enabled: z.boolean().optional(),
-          /** The endpoint override; absent means the provider's default. */
-          baseUrl: z.string().url().nullable().optional(),
-        })
-        .optional(),
-      /** The Gemini slot. */
-      gemini: z
-        .object({
-          /** Whether the provider is switched on. */
-          enabled: z.boolean().optional(),
-          /** The endpoint override; absent means the provider's default. */
-          baseUrl: z.string().url().nullable().optional(),
-        })
-        .optional(),
-      // #448. `null` removes an optional field (back to its default);
-      // `deployments` replaces wholesale when present.
-      /** The Azure OpenAI slot. */
-      'azure-openai': z
-        .object({
-          /** Whether the provider is switched on. */
-          enabled: z.boolean().optional(),
-          /** The endpoint override; absent means the provider's default. */
-          baseUrl: aiEndpointUrlSchema(AI_AZURE_ENDPOINT_SCHEMES).nullable().optional(),
-          /** Azure OpenAI: the API version. */
-          apiVersion: z.string().regex(AI_AZURE_API_VERSION_PATTERN).nullable().optional(),
-          /** Which API shape the server speaks (`responses` or `chat_completions`). */
-          apiStyle: apiStyleEnum().nullable().optional(),
-          /** Azure OpenAI: model id to deployment name. */
-          deployments: aiAzureDeploymentsSchema.nullable().optional(),
-        })
-        .optional(),
-      /** The OpenAI-compatible server slot. */
-      'openai-compatible': z
-        .object({
-          /** Whether the provider is switched on. */
-          enabled: z.boolean().optional(),
-          /** The endpoint override; absent means the provider's default. */
-          baseUrl: aiEndpointUrlSchema(AI_COMPATIBLE_ENDPOINT_SCHEMES).nullable().optional(),
-          /** Which API shape the server speaks (`responses` or `chat_completions`). */
-          apiStyle: apiStyleEnum().nullable().optional(),
-          /** OpenAI-compatible: whether the server needs a key. */
-          requiresKey: z.boolean().nullable().optional(),
-        })
-        .optional(),
-    })
-    .optional(),
+  providers: systemAiProvidersPatchSchema.optional(),
   /** Deployment-wide defaults a call cannot exceed. */
   defaults: z
     .object({
@@ -932,53 +849,7 @@ export const aiResponseSchema = z.object({
   /** Whose key pays: the caller's own only (`byok`), or an administrator's as a fallback. */
   keyPolicy: keyPolicyEnum(),
   /** Per-provider settings, by provider id. */
-  providers: z.object({
-    /** The OpenAI slot. */
-    openai: z.object({
-      /** Whether the provider is switched on. */
-      enabled: z.boolean(),
-      /** The endpoint override; absent means the provider's default. */
-      baseUrl: z.string().optional(),
-    }),
-    /** The Anthropic slot. */
-    anthropic: z.object({
-      /** Whether the provider is switched on. */
-      enabled: z.boolean(),
-      /** The endpoint override; absent means the provider's default. */
-      baseUrl: z.string().optional(),
-    }),
-    /** The Gemini slot. */
-    gemini: z.object({
-      /** Whether the provider is switched on. */
-      enabled: z.boolean(),
-      /** The endpoint override; absent means the provider's default. */
-      baseUrl: z.string().optional(),
-    }),
-    /** The Azure OpenAI slot. */
-    'azure-openai': z.object({
-      /** Whether the provider is switched on. */
-      enabled: z.boolean(),
-      /** The endpoint override; absent means the provider's default. */
-      baseUrl: z.string().optional(),
-      /** Azure OpenAI: the API version. */
-      apiVersion: z.string().optional(),
-      /** Which API shape the server speaks (`responses` or `chat_completions`). */
-      apiStyle: apiStyleEnum().optional(),
-      /** Azure OpenAI: model id to deployment name. */
-      deployments: z.record(z.string(), z.string()).optional(),
-    }),
-    /** The OpenAI-compatible server slot. */
-    'openai-compatible': z.object({
-      /** Whether the provider is switched on. */
-      enabled: z.boolean(),
-      /** The endpoint override; absent means the provider's default. */
-      baseUrl: z.string().optional(),
-      /** Which API shape the server speaks (`responses` or `chat_completions`). */
-      apiStyle: apiStyleEnum().optional(),
-      /** OpenAI-compatible: whether the server needs a key. */
-      requiresKey: z.boolean().optional(),
-    }),
-  }),
+  providers: aiProvidersResponseSchema,
   /** Deployment-wide defaults a call cannot exceed. */
   defaults: z.object({
     /** Output-token ceiling for every call; `null` means no cap. */
@@ -1063,13 +934,6 @@ export const aiResponseSchema = z.object({
 // daily caps, and switch providers off. Every field optional (an org stores
 // only what it overrides), no `.default()`, no secret.
 
-const orgAiProviderSlotSchema = z
-  .object({
-    /** `false` switches the provider off for the organization's members. */
-    enabled: z.boolean().optional(),
-  })
-  .optional();
-
 /**
  * The fields of the `ai` namespace an organization may set for itself.
  *
@@ -1081,20 +945,7 @@ export const orgAiSettingsSchema = z.object({
   /** Whose key pays: the caller's own only (`byok`), or an administrator's as a fallback. */
   keyPolicy: keyPolicyEnum().optional(),
   /** Per-provider settings, by provider id. */
-  providers: z
-    .object({
-      /** The OpenAI slot. */
-      openai: orgAiProviderSlotSchema,
-      /** The Anthropic slot. */
-      anthropic: orgAiProviderSlotSchema,
-      /** The Gemini slot. */
-      gemini: orgAiProviderSlotSchema,
-      /** The Azure OpenAI slot. */
-      'azure-openai': orgAiProviderSlotSchema,
-      /** The OpenAI-compatible server slot. */
-      'openai-compatible': orgAiProviderSlotSchema,
-    })
-    .optional(),
+  providers: orgAiProvidersSchema.optional(),
   /** Rate limits and output caps; every absent field is unlimited. */
   limits: z
     .object({

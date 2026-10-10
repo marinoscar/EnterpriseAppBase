@@ -20,25 +20,52 @@
 // no controller exists yet that lets a caller actually run a model (#427,
 // #428, #431, #432).
 //
-// `AI_PROVIDER_IDS` NAMES A REGISTRATION, NOT A CLOSED SET FOREVER — `as const`
-// listed `'openai'` alone through Phase 1, and Phase 3 appends to the array
-// rather than replacing it (`'anthropic'`, #446; `'gemini'`, #447;
-// `'azure-openai'` and `'openai-compatible'`, #448). A fork adding its own
-// provider extends this array; nothing about the shape below assumes a fixed
-// number of members. Append only: the order is the admin UI's order.
+// `BUILTIN_AI_PROVIDER_IDS` names the providers the platform SHIPS, not a closed
+// set (PP-14.6, #924): an app or package adds its own with `registerAiProvider`
+// (`@marinoscar/platform-api/ai`) and its id is any `AI_PROVIDER_ID_PATTERN`
+// string. Append only to the built-in list: the order is the admin UI's order.
 /**
- * Every provider id the `ai` namespace has a settings slot for. Permanent strings.
+ * The id pattern of an AI provider: a lower-case letter, then lower-case
+ * letters, digits and hyphens, 2 to 48 characters. Also the provider part of
+ * an `ai.limits.perModel` key (`AI_LIMIT_MODEL_KEY_PATTERN`). Permanent once a
+ * provider's settings or keys are stored under it.
  *
  * @stability experimental
  */
-export const AI_PROVIDER_IDS = ['openai', 'anthropic', 'gemini', 'azure-openai', 'openai-compatible'] as const;
+export const AI_PROVIDER_ID_PATTERN = /^[a-z][a-z0-9-]{1,47}$/;
 
 /**
- * A registered AI provider id. See {@link AI_PROVIDER_IDS}.
+ * The provider ids the platform ships an adapter and a settings slot for.
+ * Permanent strings. An app's own providers are not listed here: ask the API
+ * (`GET /api/admin/ai/config`, `GET /api/ai/config`) for the registered ones.
  *
  * @stability experimental
  */
-export type AiProviderId = (typeof AI_PROVIDER_IDS)[number];
+export const BUILTIN_AI_PROVIDER_IDS = ['openai', 'anthropic', 'gemini', 'azure-openai', 'openai-compatible'] as const;
+
+/**
+ * The provider ids the platform ships.
+ *
+ * @deprecated Use {@link BUILTIN_AI_PROVIDER_IDS}. The list is no longer the set
+ *   of providers a deployment can use (PP-14.6, #924); kept as an alias for one release.
+ * @stability experimental
+ */
+export const AI_PROVIDER_IDS = BUILTIN_AI_PROVIDER_IDS;
+
+/**
+ * One of {@link BUILTIN_AI_PROVIDER_IDS}.
+ *
+ * @stability experimental
+ */
+export type BuiltinAiProviderId = (typeof BUILTIN_AI_PROVIDER_IDS)[number];
+
+/**
+ * An AI provider id: a built-in one (autocompleted) or any string an app or
+ * package registered. See {@link AI_PROVIDER_ID_PATTERN}.
+ *
+ * @stability experimental
+ */
+export type AiProviderId = BuiltinAiProviderId | (string & {});
 
 /**
  * How this deployment sources the API key a call actually authenticates
