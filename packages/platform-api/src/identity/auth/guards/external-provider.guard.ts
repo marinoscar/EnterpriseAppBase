@@ -32,7 +32,11 @@ import passport from 'passport';
 
 import { AuthLoginDeniedException } from '../auth-error-codes';
 import { AuthService } from '../auth.service';
-import { authProviderRegistry, type AuthProviderDefinition } from '../providers/auth-provider.registry';
+import {
+  authProviderRegistry,
+  authProviderStrategyName,
+  type AuthProviderDefinition,
+} from '../providers/auth-provider.registry';
 
 /** The registered, enabled, redirect-mode definition behind a request, or a 404. */
 const UNKNOWN_PROVIDER = 'Unknown sign-in provider';
@@ -56,6 +60,9 @@ export function createPassportProviderGuard(strategyName: string): Type<CanActiv
       // Passport strategies read `req.query` (Express); Node's IncomingMessage
       // has none, so hand it the Fastify request's parsed query.
       if (raw !== request && raw.query === undefined) raw.query = request.query;
+      // A strategy's state store (createCookieStateStore) writes its cookie on the
+      // response, which Passport does not hand it.
+      if (raw !== request && raw.res === undefined) raw.res = context.switchToHttp().getResponse().raw;
       // Return the raw Node.js IncomingMessage for Passport compatibility
       return raw;
     }
@@ -67,6 +74,14 @@ export function createPassportProviderGuard(strategyName: string): Type<CanActiv
     }
 
     handleRequest<TUser = unknown>(err: Error | null, user: TUser | false, _info: unknown, context: ExecutionContext): TUser {
+      // A verified (or failed) state cookie is single use: expire it on the
+      // Fastify reply, whose own Set-Cookie would overwrite a raw header.
+      const raw = context.switchToHttp().getRequest().raw as { clearAuthStateCookie?: string } | undefined;
+      const reply = context.switchToHttp().getResponse();
+      if (raw?.clearAuthStateCookie && typeof reply.clearCookie === 'function') {
+        reply.clearCookie(raw.clearAuthStateCookie, { path: '/api/auth' });
+      }
+
       if (err) throw err;
 
       if (!user) {
@@ -125,10 +140,12 @@ export class ExternalProviderGuard implements CanActivate {
       // Rebuilt for every request: the strategy reads the credential store, and
       // a secret an administrator rotated must apply to the next sign-in.
       const strategy = await provider.createStrategy(this.auth.authProviderContext());
-      passport.use(provider.id, strategy);
+      // Namespaced: Passport's registry is process-global, and a provider id
+      // must never replace another strategy (for example `jwt`).
+      passport.use(authProviderStrategyName(provider.id), strategy);
       let delegate = this.delegates.get(provider.id);
       if (!delegate) {
-        delegate = new (createPassportProviderGuard(provider.id))();
+        delegate = new (createPassportProviderGuard(authProviderStrategyName(provider.id)))();
         this.delegates.set(provider.id, delegate);
       }
       return delegate;

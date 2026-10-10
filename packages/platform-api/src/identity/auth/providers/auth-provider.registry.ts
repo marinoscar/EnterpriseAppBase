@@ -109,7 +109,11 @@ export type AuthProviderStrategy = PassportStrategyInstance;
  *   },
  *   async createStrategy({ config, credentials }) {
  *     const secret = await credentials.getSecret(authCredentialPurpose('github'), 'client_secret');
- *     return new GithubStrategy({ clientID: config.get('github.clientId'), clientSecret: secret!, callbackURL }, verify);
+ *     return new GithubStrategy({
+ *       clientID: config.get('github.clientId'), clientSecret: secret!, callbackURL,
+ *       // `state: true` alone throws here (no session plugin): bring a store.
+ *       store: createCookieStateStore({ secret: config.get('jwt.secret')! }),
+ *     }, verify);
  *   },
  *   mapProfile: (raw) => toExternalProfile('github', raw),
  *   egressHosts: ['github.com', 'api.github.com'],
@@ -138,7 +142,15 @@ export interface AuthProviderDefinition {
   /**
    * Builds the Passport strategy for ONE sign-in request, reading its secrets
    * through `ctx.credentials`. Called on every `GET /api/auth/:id` and
-   * `/callback`; the result is registered under the provider id.
+   * `/callback`; the result is registered with Passport under
+   * `authProviderStrategyName(id)`.
+   *
+   * LOGIN CSRF IS YOURS TO PREVENT. The slice adds no `state` and no PKCE. For a
+   * `passport-oauth2` strategy, `state: true` or `pkce: true` WITHOUT a `store`
+   * uses the session store and throws "requires session support" on every
+   * sign-in, because this Fastify app registers no session plugin. Pass your own
+   * `store` instead: {@link createCookieStateStore} is a signed, short-lived
+   * HttpOnly cookie store that works here.
    *
    * @param ctx - configuration and the credential store.
    */
@@ -165,13 +177,19 @@ export interface AuthProviderDefinition {
    */
   mapProfile?(raw: unknown): ExternalProfile;
   /**
-   * Whether a verified email may link this provider's identity to an EXISTING
-   * user with the same address. Default `false`: a sign-in whose address
-   * belongs to a user with no identity at this provider is refused
-   * (`access_denied`) rather than silently merged. Set `true` ONLY for a
-   * provider whose verified-email claim cannot be forged by an attacker
-   * (Google). Not enough for multi-tenant issuers where a tenant admin sets
-   * the address (Entra's `email` claim, a shared OIDC issuer).
+   * Whether this provider is TRUSTED TO VOUCH FOR THE EMAIL ADDRESS. It gates
+   * two things, both keyed by the address:
+   *
+   * - linking: a verified address may link this provider's identity to an
+   *   EXISTING user with the same address (otherwise that sign-in is refused,
+   *   `access_denied`, rather than silently merged);
+   * - the `INITIAL_ADMIN_EMAIL` bootstrap: only a trusted provider may use that
+   *   address to bypass the allowlist and become the first administrator. Any
+   *   other provider is allowlist-only and is never made an administrator.
+   *
+   * Set `true` ONLY for a provider whose verified-email claim an attacker
+   * cannot choose (Google). Never for a multi-tenant issuer where a tenant
+   * admin or user sets the address (Entra's `email` claim, a shared OIDC issuer).
    *
    * @defaultValue `false`
    */
@@ -190,6 +208,27 @@ export interface AuthProviderDefinition {
  * @stability experimental
  */
 export type AuthProviderRegistration = AuthProviderDefinition;
+
+/**
+ * Passport strategy names that already exist in the process (the JWT strategy
+ * `JwtAuthGuard` authenticates with, Passport's built-in `session`). A provider
+ * may not take one as its id: Passport's registry is process-global.
+ */
+const RESERVED_PROVIDER_IDS: ReadonlySet<string> = new Set(['jwt', 'session']);
+
+/**
+ * The name a `createStrategy` provider's strategy is registered under in
+ * Passport (`auth-provider:<id>`), so no provider id can collide with another
+ * strategy's name.
+ *
+ * @param providerId - the provider id.
+ * @returns the Passport strategy name.
+ *
+ * @stability experimental
+ */
+export function authProviderStrategyName(providerId: string): string {
+  return `auth-provider:${providerId}`;
+}
 
 /**
  * The credential purpose a provider's secrets use by convention (`auth_<id>`).
@@ -216,6 +255,9 @@ export const authProviderRegistry: Registry<AuthProviderDefinition> = defineRegi
   idOf: (provider) => provider.id,
   idPattern: /^[a-z][a-z0-9-]{0,31}$/,
   validate: (provider) => {
+    if (RESERVED_PROVIDER_IDS.has(provider.id)) {
+      throw new Error(`auth provider "${provider.id}": the id is reserved (it names an existing Passport strategy)`);
+    }
     if (typeof provider.isEnabled !== 'function') throw new Error(`auth provider "${provider.id}": isEnabled must be a function`);
     if (provider.mode !== undefined && provider.mode !== 'redirect' && provider.mode !== 'custom') {
       throw new Error(`auth provider "${provider.id}": mode must be "redirect" or "custom"`);

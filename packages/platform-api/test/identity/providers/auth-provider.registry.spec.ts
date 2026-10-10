@@ -1,6 +1,7 @@
 import { withTemporaryEntries } from '../../../src/core/index';
 import {
   authCredentialPurpose,
+  authProviderStrategyName,
   authProviderRegistry,
   registerAuthProvider,
   type AuthProviderDefinition,
@@ -57,6 +58,14 @@ describe('the sign-in provider registry (PP-14.9)', () => {
       displayName: 'A',
       pictureUrl: 'u',
     });
+  });
+
+  it.each(['jwt', 'session'])('reserves the id "%s", the name of an existing Passport strategy', (id) => {
+    expect(() => registerAuthProvider({ ...base, id })).toThrow(/reserved/);
+  });
+
+  it('names the Passport strategy auth-provider:<id>, so no id can replace another strategy', () => {
+    expect(authProviderStrategyName('github')).toBe('auth-provider:github');
   });
 
   it('names the credential purpose auth_<id>', () => {

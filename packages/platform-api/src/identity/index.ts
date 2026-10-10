@@ -88,6 +88,7 @@ export type {
 export {
   authCredentialPurpose,
   authProviderRegistry,
+  authProviderStrategyName,
   registerAuthProvider,
 } from './auth/providers/auth-provider.registry';
 export type {
@@ -97,8 +98,15 @@ export type {
   AuthProviderRegistration,
   AuthProviderStrategy,
 } from './auth/providers/auth-provider.registry';
-export { assertExternalProfile, externalProfileProblem, googleProfileToExternal } from './auth/external-profile';
+export {
+  assertExternalProfile,
+  externalProfileProblem,
+  googleProfileToExternal,
+  normalizeExternalProfile,
+} from './auth/external-profile';
 export type { ExternalProfile } from './auth/external-profile';
+export { createCookieStateStore } from './auth/providers/cookie-state-store';
+export type { CookieStateStoreOptions } from './auth/providers/cookie-state-store';
 export { IDENTITY_SIGNIN_POLICY } from './auth/sign-in-policy';
 export type { SignInAllow, SignInContext, SignInDecision, SignInDeny, SignInPolicy } from './auth/sign-in-policy';
 export {

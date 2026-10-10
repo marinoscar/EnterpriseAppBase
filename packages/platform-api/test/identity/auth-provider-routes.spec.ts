@@ -5,6 +5,8 @@ import { ConfigModule } from '@nestjs/config';
 import { EventEmitter2, EventEmitterModule } from '@nestjs/event-emitter';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import { Test } from '@nestjs/testing';
+import passport from 'passport';
+import { Strategy as OAuth2Strategy } from 'passport-oauth2';
 import request from 'supertest';
 
 import { DoctorModule } from '../../src/doctor/index';
@@ -13,6 +15,7 @@ import {
   IdentityModule,
   authCredentialPurpose,
   authProviderRegistry,
+  createCookieStateStore,
   identityConfiguration,
   type AuthProviderDefinition,
   type ExternalProfile,
@@ -250,6 +253,106 @@ describe('generic sign-in routes (PP-14.9)', () => {
       } finally {
         await app.close();
       }
+    });
+  });
+
+  it('registers the strategy under a namespaced Passport name, never the bare provider id', async () => {
+    await withTemporaryEntries(authProviderRegistry, [fakeDefinition()], async () => {
+      const { app } = await boot({ secrets: { client_secret: 'topsecret' } });
+      try {
+        await request(app.getHttpServer()).get('/api/auth/fake').expect(302);
+        const registry = passport as unknown as { _strategy(name: string): unknown };
+        expect(registry._strategy('auth-provider:fake')).toBeDefined();
+        expect(registry._strategy('fake')).toBeUndefined();
+        // The JWT strategy the guards authenticate with is untouched.
+        expect(registry._strategy('jwt')).toBeDefined();
+      } finally {
+        await app.close();
+      }
+    });
+  });
+
+  describe('a real passport-oauth2 strategy with the cookie state store (no session plugin)', () => {
+    const oauthDefinition = (): AuthProviderDefinition => ({
+      id: 'oauthfake',
+      isEnabled: () => true,
+      createStrategy: ({ config }) => {
+        const strategy = new OAuth2Strategy(
+          {
+            authorizationURL: 'https://idp.example/authorize',
+            tokenURL: 'https://idp.example/token',
+            clientID: 'client',
+            clientSecret: 'secret',
+            callbackURL: 'http://localhost/api/auth/oauthfake/callback',
+            store: createCookieStateStore({ secret: config.get<string>('jwt.secret') ?? 'x', secure: false }),
+          },
+          (_at: string, _rt: string, profile: unknown, done: (e: Error | null, u?: unknown) => void) => done(null, profile),
+        );
+        // No network: the token exchange and the profile call are stubbed.
+        (strategy as any)._oauth2.getOAuthAccessToken = (_c: string, _p: unknown, cb: (e: null, at: string, rt: string, r: object) => void) => cb(null, 'at', 'rt', {});
+        (strategy as any).userProfile = (_t: string, done: (e: null, p: object) => void) =>
+          done(null, { sub: 'o-1', mail: 'oauth@example.com', verified: true, name: 'O Auth' });
+        return strategy as never;
+      },
+      mapProfile: (raw) => {
+        const r = raw as { sub: string; mail: string; verified: boolean };
+        return { provider: 'oauthfake', subject: r.sub, email: r.mail, emailVerified: r.verified };
+      },
+    });
+
+    const start = async (app: NestFastifyApplication) => {
+      const res = await request(app.getHttpServer()).get('/api/auth/oauthfake').expect(302);
+      const location = new URL(res.headers.location!);
+      const cookie = (res.headers['set-cookie'] as unknown as string[]).find((c) => c.startsWith('oauth_state='))!;
+      return { state: location.searchParams.get('state')!, cookie: cookie.split(';')[0]!, setCookie: cookie };
+    };
+
+    it('sends the state out in a signed HttpOnly cookie, and completes the sign-in when it comes back', async () => {
+      await withTemporaryEntries(authProviderRegistry, [oauthDefinition()], async () => {
+        const { app } = await boot();
+        try {
+          const { state, cookie, setCookie } = await start(app);
+          expect(state).toBeTruthy();
+          expect(setCookie).toContain('HttpOnly');
+          expect(setCookie).toContain('SameSite=Lax');
+          expect(setCookie).toContain('Path=/api/auth');
+
+          const done = await request(app.getHttpServer())
+            .get('/api/auth/oauthfake/callback')
+            .query({ code: 'abc', state })
+            .set('Cookie', cookie)
+            .expect(302);
+
+          expect(new URL(done.headers.location!).searchParams.get('token')).toEqual(expect.any(String));
+          const cookies = done.headers['set-cookie'] as unknown as string[];
+          // The refresh token is set and the single-use state cookie is expired.
+          expect(cookies.some((c) => c.startsWith('refresh_token='))).toBe(true);
+          expect(cookies.find((c) => c.startsWith('oauth_state='))).toMatch(/oauth_state=;/);
+        } finally {
+          await app.close();
+        }
+      });
+    });
+
+    it.each([
+      ['no state cookie (a login CSRF: the browser never started this flow)', (s: { state: string; cookie: string }) => ({ state: s.state, cookie: undefined })],
+      ['a state that is not the one issued', (s: { state: string; cookie: string }) => ({ state: 'attacker-state', cookie: s.cookie })],
+    ])('refuses %s', async (_name, tamper) => {
+      await withTemporaryEntries(authProviderRegistry, [oauthDefinition()], async () => {
+        const { app } = await boot();
+        try {
+          const issued = await start(app);
+          const { state, cookie } = tamper(issued);
+          const req = request(app.getHttpServer()).get('/api/auth/oauthfake/callback').query({ code: 'abc', state });
+          const res = await (cookie ? req.set('Cookie', cookie) : req).expect(302);
+
+          expect(new URL(res.headers.location!).searchParams.get('error')).toBe('authentication_failed');
+          expect((res.headers['set-cookie'] as unknown as string[] | undefined)?.some((c) => c.startsWith('refresh_token=')) ?? false).toBe(false);
+          expect(prismaMock.user.create).not.toHaveBeenCalled();
+        } finally {
+          await app.close();
+        }
+      });
     });
   });
 });
