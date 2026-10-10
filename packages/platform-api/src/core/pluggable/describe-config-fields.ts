@@ -6,8 +6,9 @@
 // each field of a settings schema as one of five kinds: boolean, enum (with its
 // options), number (with its bounds), string (with its maximum length) and
 // `other` (anything else: the form shows a note instead of a control).
-// Wrappers (`optional`, `nullable`, `readonly`, `nonoptional`) are unwrapped
-// first. Generalised from the organization settings page's `describeOrgFields`
+// Wrappers (`optional`, `nullable`, `readonly`, `nonoptional`, `default`,
+// `prefault`) are unwrapped first, so `z.enum(['us', 'eu']).default('us')` is an
+// `enum` field (PP-14.6, #924). Generalised from the organization settings page's `describeOrgFields`
 // (issue #733), which now delegates here and drops the two additions below, so
 // its wire output is unchanged.
 //
@@ -27,7 +28,7 @@
 import type { ConfigField } from '@marinoscar/platform-contract/settings';
 import { z } from 'zod';
 
-const WRAPPERS = new Set(['optional', 'nullable', 'readonly', 'nonoptional']);
+const WRAPPERS = new Set(['optional', 'nullable', 'readonly', 'nonoptional', 'default', 'prefault']);
 const MAX_WRAPPER_DEPTH = 8;
 
 interface ZodInternals {

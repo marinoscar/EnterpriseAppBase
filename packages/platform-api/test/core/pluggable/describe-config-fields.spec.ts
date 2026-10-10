@@ -25,6 +25,17 @@ describe('describeConfigFields', () => {
     expect(fields.map((f) => f.name)).toEqual(['enabled', 'mode', 'retries', 'region', 'extra']);
   });
 
+  it('unwraps a default, so a defaulted enum is still an enum with its help', () => {
+    expect(describeConfigField('region', z.enum(['us', 'eu']).default('us').describe('Processing region'))).toEqual({
+      name: 'region',
+      kind: 'enum',
+      options: ['us', 'eu'],
+      label: 'Region',
+      help: 'Processing region',
+    });
+    expect(describeConfigField('n', z.number().int().default(3))).toMatchObject({ kind: 'number', integer: true });
+  });
+
   it('unwraps optional, nullable and readonly, and omits unbounded limits', () => {
     expect(describeConfigField('a', z.string().optional())).toEqual({ name: 'a', kind: 'string', label: 'A' });
     expect(describeConfigField('b', z.number().nullable().optional())).toEqual({ name: 'b', kind: 'number', label: 'B' });
