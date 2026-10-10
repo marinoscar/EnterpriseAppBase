@@ -59,6 +59,8 @@ const [value, setValue] = useState('');
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `SecretField` | component | `SecretField(props: SecretFieldProps): ReactElement` | Render a write-only secret input with the unified "saved" helper text | experimental | [example](../../../../apps/web/src/platform-extensions/credentials/examples/WebhookSigningKeyField.tsx) |

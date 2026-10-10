@@ -38,6 +38,8 @@ None. Schemas and constants take no options.
 
 None. The contract declares shapes; adding a category, a scope, a factory reset step or an offboarding precondition is a registry of `@marinoscar/platform-api/user-data`, not a contract change.
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 Supporting exports (experimental): `USER_DATA_PURGE_JOB_TYPE`, `FACTORY_RESET_JOB_TYPE`, `ORG_OFFBOARD_JOB_TYPE`, `USER_DATA_EVERYTHING_SCOPE`, `USER_DATA_CONTENT_SCOPE`, `USER_DATA_EVERYTHING_CONFIRMATION`, `USER_DATA_CONTENT_CONFIRMATION`, `FACTORY_RESET_CONFIRMATION`, `FACTORY_RESET_BACKUP_PATH`, `USER_DATA_SCOPE_LAYERS`, `OFFBOARDING_USER_DISPOSITIONS`, `USER_DATA_JOB_STATUSES`, `USER_DATA_ERROR_CODES`, `USER_DATA_PERMISSION`, `FACTORY_RESET_PERMISSION`, `ORG_OFFBOARD_PERMISSION`, `USER_DATA_PATHS`; the schemas `userDataSummarySchema`, `userDataCategorySummarySchema`, `userDataScopeSchema`, `userDataDeletionRequestSchema`, `userDataJobStartedSchema`, `userDataPurgeResultSchema`, `userDataDeletionStatusSchema`, `factoryResetRequestSchema`, `factoryResetSummarySchema`, `factoryResetResultSchema`, `factoryResetStatusSchema`, `orgOffboardingRequestSchema`, `orgOffboardingSummarySchema`, `orgOffboardingResultSchema`, `orgOffboardingStatusSchema`, `offboardingPreconditionResultSchema`, and their types.
 
 ## Data

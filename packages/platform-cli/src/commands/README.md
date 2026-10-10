@@ -42,6 +42,8 @@ None. The registrars take the program and nothing else; their behaviour is confi
 
 None. The built-ins are not extension points; an app adds commands through `registerCliCommand` in the [core catalog](../core/README.md#extension-point-catalog).
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 ## Data
 
 None. `login` writes the token to `~/.<name>/config.json`; see the [package README](../../README.md#security-notes).

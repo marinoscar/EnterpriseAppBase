@@ -74,6 +74,8 @@ The pages take no props. `MaintenanceGate` takes `appName` (passed to the screen
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `AboutPage` | component | `AboutPage(): ReactElement` | Route `/admin/settings/about` behind `system_settings:read` | experimental | [example](../../../../apps/web/src/pages/Admin/AboutPage.tsx) |

@@ -38,6 +38,8 @@ None. Schemas and constants take no options.
 
 None. The shapes are the closed contract of the slice's routes and its settings namespace; the provider list is closed on purpose (a non-S3 backend is bound with `StorageModule.forRoot({ provider })` in the API slice, it is not a new kind).
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 ## Data
 
 No tables. `systemStorageSchema` is the `storage` value of the `global` system-settings row; `version`, `updatedAt` and `updatedBy` of the admin view come from that row. Object sizes and part totals are strings (64-bit values lose precision as JSON numbers); dates are ISO strings; `forcePathStyle` is tri-state (`null` means "this vendor's convention").

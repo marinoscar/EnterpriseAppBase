@@ -40,6 +40,8 @@ None. Schemas and constants take no options.
 
 None. The node protocol is the platform's; a node that learns a new vital needs a contract change first, which is the review that surface should get.
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 Supporting exports (experimental unless tagged stable): the constants above, every `*Schema` of `schemas.ts` and of `settings-schemas.ts` (stable), `claimTokenField`, the inferred types `NodeVitals`, `NodeVitalsCounters`, `AdminNode`, `AdminNodeCredential`, `NodeCredentialListItem`, `NodeCredentialCreated`, `NodeOwner`, `NodeJobCounts`, `NodeStatus` and `NodeHealth`, and the enum entry type `NodeReportedStatusEnum`.
 
 ## Data

@@ -75,6 +75,8 @@ await this.notifications.notify('example.invoice_ready', userId, { invoiceNumber
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `NotificationsModule.forRoot` | option | `forRoot(options?: NotificationsModuleOptions): DynamicModule` | Mount the slice once, with the email module and the host ports | experimental | [example](../../../../apps/api/src/platform/notifications/notifications.config.ts) |

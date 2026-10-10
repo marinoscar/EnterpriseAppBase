@@ -42,6 +42,8 @@ The reference app appends the card and routes the page ([`apps/web/src/config/us
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `createExportsClient` | hook | `createExportsClient(api: PlatformApiClient): ExportsClient` | Call the export routes outside the hooks | experimental | [example](../../../../apps/web/src/__tests__/platform/exports.test.tsx) |

@@ -41,6 +41,8 @@ defaultExecutorRegistry().types(); // ['app.echo', 'db.backup.run', 'example.che
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `registerNodeExecutor` | registry | `registerNodeExecutor(executor: JobExecutor): void` | Let worker nodes run an app's node-eligible job type | experimental | [example](../../../../apps/cli/src/examples/echo.executor.ts) |

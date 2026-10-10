@@ -37,6 +37,8 @@ None. Schemas and constants take no options.
 
 None. The schemas are the closed presentation contract of the credential stores: an app needing more on a credential stores a new purpose rather than widening the shape, and widening it with a secret-bearing field is exactly what the credentials conformance suite fails.
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 ## Data
 
 No tables. The shapes mirror the public columns of the `credentials` fragment of `@marinoscar/platform-db`:

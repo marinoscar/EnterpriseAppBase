@@ -48,6 +48,8 @@ The page takes no props.
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `useEmailSettings` | hook | `useEmailSettings(options?: { api? }): UseEmailSettingsReturn` | Build your own email settings page over the same load, save and test-send contract | experimental | [example](../../../../apps/web/src/__tests__/pages/Admin/EmailSettingsPage.test.tsx) |

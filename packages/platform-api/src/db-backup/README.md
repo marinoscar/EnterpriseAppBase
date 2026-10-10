@@ -54,6 +54,8 @@ The policy (schedule, retention, provider pin, compression, rollback mode, node 
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `DbBackupModule.forRoot` | option | `forRoot(options?: DbBackupModuleOptions): DynamicModule` | Mount backups, restores, their jobs, routes and Doctor checks once | experimental | [example](../../../../apps/api/src/platform/db-backup/db-backup.config.ts) |

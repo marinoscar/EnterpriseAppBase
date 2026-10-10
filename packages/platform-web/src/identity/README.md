@@ -70,6 +70,8 @@ export const api = new ApiService(); // baseUrl, refreshLockName, maintenance ho
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `AuthProvider` | component | `AuthProvider(props: { client; onBeforeLogout?; loginPath?; callbackPath?; children }): ReactElement` | Hold the session for the routed tree | stable | [example](../../../../apps/web/src/App.tsx) |

@@ -77,6 +77,8 @@ With no `layout` option every platform template renders byte for byte what the p
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `EmailModule.forRoot` | option | `forRoot(options: EmailModuleOptions): DynamicModule` | Mount the slice once, with the product name, URL, look and classifier | experimental | [example](../../../../apps/api/src/platform/email/email.config.ts) |

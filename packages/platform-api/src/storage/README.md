@@ -69,6 +69,8 @@ export { StorageConfigModule } from '@marinoscar/platform-api/storage';
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `StorageModule.forRoot` | option | `forRoot(options?: StorageModuleOptions): DynamicModule` | Mount the objects API, its jobs and the cleanup cron once, with deployment tuning | experimental | [example](../../../../apps/api/src/platform/storage/storage.config.ts) |

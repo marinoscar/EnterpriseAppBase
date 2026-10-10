@@ -104,6 +104,8 @@ The programmatic API takes the same three folders as `ComposeOptions` (`platform
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../docs/EXTENDING.md).
+
 The one seam of the data layer is the `extend model` block, written in the app's fragment folder (`ComposeOptions.appFragmentsDir`). The row below names the option that locates it.
 
 | Name | Kind | Signature | When to use | Stability | Example |

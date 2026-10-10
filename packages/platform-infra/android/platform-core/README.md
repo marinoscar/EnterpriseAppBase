@@ -72,6 +72,8 @@ The script stores the result as the extra property `platformIdentity` (a `Map<St
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 Kotlin and Gradle seams (not TypeScript symbols, so `check:package-docs` does not read this table):
 
 | Name | Kind | Signature | When to use | Stability | Example |

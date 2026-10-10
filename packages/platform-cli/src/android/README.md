@@ -56,6 +56,8 @@ Environment (prefixed with the CLI's env prefix, `APPCTL_` in the reference app)
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `androidCommand` | registry | `androidCommand(options?: AndroidCommandOptions): CliCommandRegistration` | Add the `android` group to an app's CLI (`extraCommands` or `registerCliCommand`) | experimental | [example](../../../../apps/cli/src/app.ts) |

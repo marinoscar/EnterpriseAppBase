@@ -75,6 +75,8 @@ The slice registers the `user-data.registries` Doctor check (`UserDataRegistries
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `UserDataModule.forRoot` | option | `(options: UserDataModuleOptions) => DynamicModule` | Mount the slice once | experimental | [user-data.config.ts](../../../../apps/api/src/platform/user-data/user-data.config.ts) |

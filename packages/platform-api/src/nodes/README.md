@@ -50,6 +50,8 @@ The fleet policy (staleness, the offline multiplier, retention) is the `nodes` s
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `NodesModule.forRoot` | option | `forRoot(options?: NodesModuleOptions): DynamicModule` | Mount the fleet once, with the app's host ports | experimental | [example](../../../../apps/api/src/platform/jobs/jobs.config.ts) |

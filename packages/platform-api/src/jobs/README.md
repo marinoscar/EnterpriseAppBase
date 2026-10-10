@@ -59,6 +59,8 @@ Environment-only (no option): `JOBS_RATELIMIT_MAX_HITS` (10), `JOBS_RATELIMIT_BA
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `JobsModule.forRoot` | option | `forRoot(options?: JobsModuleOptions): DynamicModule` | Mount the queue once, with the app's host ports | experimental | [example](../../../../apps/api/src/platform/jobs/jobs.config.ts) |

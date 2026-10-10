@@ -53,6 +53,8 @@ registerEnvSpecFragment(telemetryEnvSpecFragment);
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 Two seams of this slice. Every row links a working use in the reference CLI. The registries the fragment plugs into belong to the `core` slice; their examples are below the table.
 
 | Name | Kind | Signature | When to use | Stability | Example |

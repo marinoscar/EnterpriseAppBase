@@ -60,6 +60,8 @@ The deployment defaults `GREPTIME_*` and `STACK_AGENT_URL` / `STACK_AGENT_TOKEN`
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 Order follows the extension ladder: options (rung 1), registries (rung 2), tokens (rung 3). Every row links a working use in the reference app. `Stability` is `experimental` for the module options and every host port (the ports are replaced when jobs, settings and AI are packaged) and `stable` for the metric-group shape, the thresholds and the settings schema.
 
 | Name | Kind | Signature | When to use | Stability | Example |

@@ -63,6 +63,8 @@ The identity file may carry any `InfraIdentityInput` field: `cliName` (required 
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../docs/EXTENDING.md).
+
 The exported seams, then the seams that are files and a command (below). Every row links a working use in the reference app.
 
 | Name | Kind | Signature | When to use | Stability | Example |

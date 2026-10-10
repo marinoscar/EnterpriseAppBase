@@ -109,6 +109,8 @@ None. Schemas take no options; the routes that use them are configured in `@mari
 
 None. The root entry exports only `PLATFORM_PACKAGE`; every schema is an extension point of its slice and is catalogued in that slice's README (`schema` kind), for example [the Doctor's](src/doctor/README.md#extension-point-catalog).
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../docs/EXTENDING.md).
+
 ## Data
 
 None. The package holds schemas of HTTP payloads, not database models; models live in `@marinoscar/platform-db`.

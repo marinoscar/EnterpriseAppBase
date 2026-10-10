@@ -53,6 +53,8 @@ const after = (slot: ComposeSlot) =>
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 One exported seam, and two seams that are files and a command rather than exports (below). Every row links a working use in the reference app.
 
 | Name | Kind | Signature | When to use | Stability | Example |

@@ -104,6 +104,8 @@ None at the package level. Each slice documents its own options: `DoctorModule.f
 
 None. The root export is only the package name; the extension points live in the slice catalogs ([core](src/core/README.md#extension-point-catalog), [testing](src/testing/README.md#extension-point-catalog), [doctor](src/doctor/README.md#extension-point-catalog), [otel-core](src/otel-core/README.md#extension-point-catalog)).
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../docs/EXTENDING.md).
+
 ## Data
 
 None yet. A slice that owns models documents them here and in its own README; the schema fragments and migrations ship in `@marinoscar/platform-db`.

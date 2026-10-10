@@ -57,6 +57,8 @@ The app's permissions and settings reach the seed through its registries, never 
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `PlatformSeedInput` | option | `{ roles, permissions, roleGrants, systemSettingsDefaults, initialAdminEmail?, defaultOrganization? }` | Hand the platform seed an app's roles, permissions, grants and settings defaults; later slices add optional fields (org roles) without breaking callers | experimental | [example](../../../../apps/api/prisma/seed.ts) |

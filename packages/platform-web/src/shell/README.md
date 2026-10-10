@@ -69,6 +69,8 @@ The smallest app needs no binding file at all (the starter's `App.tsx`):
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `ShellNavigation` | slot | `{ destinations; destinationRoutes?; settingsSurfaces?; console?; homePath?; useRailPreference? }` | Declare the app's destinations, settings surfaces and Console once | experimental | [example](../../../../apps/web/src/config/shell.ts) |

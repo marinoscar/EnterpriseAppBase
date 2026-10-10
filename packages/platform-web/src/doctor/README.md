@@ -62,6 +62,8 @@ Status colours come from the theme-token contract `palette.status.{ok,warn,crit,
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `doctorSettingsPage` | component | `PlatformSettingsPage<never>` | Register the Doctor as one admin card and one route | experimental | [example](../../../../apps/web/src/config/adminSections.tsx) |

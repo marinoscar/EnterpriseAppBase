@@ -83,6 +83,8 @@ The hooks take `{ api?: PlatformApiClient }` (default: the `PlatformHostProvider
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `SettingsHub` | component | `SettingsHub(props: SettingsHubProps): ReactElement` | Render a settings surface (admin or per-user) from a section registry | stable | [example](../../../../apps/web/src/pages/Admin/SettingsHubPage.tsx) |

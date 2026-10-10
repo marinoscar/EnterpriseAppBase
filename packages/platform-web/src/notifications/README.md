@@ -70,6 +70,8 @@ Everything else (whether the browser channel is on, which events are suppressed,
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `configureNotificationsWeb` | option | `configureNotificationsWeb(config: NotificationsWebConfig): void` | Bind the slice to the app's transport, base URL and SSE connector at startup | experimental | [example](../../../../apps/web/src/platform/notifications.ts) |

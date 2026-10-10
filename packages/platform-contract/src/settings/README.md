@@ -39,6 +39,8 @@ None. Schemas and constants take no options.
 
 None. The contract declares shapes; extending what a settings document holds is a namespace registration in `@marinoscar/platform-api/settings`, not a contract change.
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 Supporting exports (stable unless noted): `THEME_PREFERENCES`, `PROFILE_IMAGE_SOURCES`, `PROFILE_DISPLAY_NAME_MAX`, the `DATA_TABLE_*` bounds, `themePreferenceSchema`, `profileImageSourceSchema`, `userProfileSettingsSchema`, `userProfileSettingsPatchSchema`, the `dataTable*` and `navigation*` schemas and their types; experimental: `SystemSettingsResponseBase`, `UserSettingsResponseBase`, `ORG_SETTINGS_READ_PERMISSION`, `ORG_SETTINGS_WRITE_PERMISSION`, `ORG_SETTINGS_FIELD_KINDS`, `ORG_SETTINGS_MERGE_MODES`, `orgSettingsFieldSchema`, `orgSettingsNamespaceSchema`, `orgSettingsResponseSchema`, `patchOrgSettingsSchema` and their types.
 
 ## Data

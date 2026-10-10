@@ -41,6 +41,8 @@ None. Schemas and constants take no options; the route's path and permission are
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `doctorReportSchema` | schema | `ZodObject<{ verdict; generatedAt; durationMs; checks }>` | Validate or `.extend()` the whole report in app code (a stricter test, an app-side field) | stable | [example](../../../../apps/api/test/doctor/doctor.integration.spec.ts) |

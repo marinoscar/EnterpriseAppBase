@@ -235,6 +235,8 @@ No port. Packaged code logs with `new Logger(Context)` from `@nestjs/common`, wh
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 Thirteen symbols are extension points; the other exports are the contracts, functions, types and constants that go with them (listed below the table).
 
 | Name | Kind | Signature | When to use | Stability | Example |

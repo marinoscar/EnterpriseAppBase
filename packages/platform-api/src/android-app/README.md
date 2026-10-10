@@ -61,6 +61,8 @@ No environment variable. The trusted list is runtime data (`/admin/settings/andr
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `AndroidAppModule.forRoot` | option | `forRoot(options: AndroidAppModuleOptions): DynamicModule` | Mount the slice once, with the product name and the APK stem | experimental | [example](../../../../apps/api/src/platform/android-app/android-app.config.ts) |

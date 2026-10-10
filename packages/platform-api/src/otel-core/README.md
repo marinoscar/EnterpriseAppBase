@@ -125,6 +125,8 @@ Environment variables read (all pre-existing, none runtime-configured): `OTEL_EN
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `initializeOtel` | option | `initializeOtel(options?: InitializeOtelOptions): NodeSDK \| null` | Install the SDK from the file the entry point loads first | experimental | [example](../../../../apps/api/src/instrumentation.ts) |

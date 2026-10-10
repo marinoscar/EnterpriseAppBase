@@ -603,6 +603,8 @@ built-ins ([EXTENDING.md](../../../../docs/EXTENDING.md#coming-in-pp-146-add-an-
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `AiModule.forRoot` | option | `forRoot({ imports?, providers?, perUserDefaultModel? }): DynamicModule` | Configure the slice once, with the host-port modules; import the result everywhere | experimental | [example](../../../../apps/api/src/platform/ai/ai.config.ts) |

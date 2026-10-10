@@ -53,6 +53,8 @@ None. Schemas and constants take no options.
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `currentUserSchema` | schema | `ZodObject<{ id; email; displayName; profileImageUrl; providerProfileImageUrl; hasUploadedProfileImage; isActive; roles; permissions; tenancyMode; activeOrg; memberships }>` | Validate or `.extend()` the `/api/auth/me` payload in app code (a stricter test, an app-side field on the client) | stable | [example](../../../../apps/api/test/auth/auth.integration.spec.ts) |

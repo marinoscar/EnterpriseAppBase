@@ -81,6 +81,8 @@ Call `forRoot` once, after the app's manifests ran: the request bodies of the sy
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `SettingsModule.forRoot` | option | `forRoot(options?: SettingsModuleOptions): DynamicModule` | Mount the slice once, after the app's namespace manifests | experimental | [example](../../../../apps/api/src/platform/settings/settings.config.ts) |

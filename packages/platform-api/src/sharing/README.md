@@ -94,6 +94,8 @@ Resource types (`registerResourceType`, rung 2) are validated at registration wi
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `SharingModule.forRoot` | option | `forRoot(options: SharingModuleOptions): DynamicModule` | Mount the slice once in the app's root module; override `groups`, `grants` and `links` (the table above) | experimental | [example](../../../../apps/api/src/platform/sharing/sharing.config.ts), [overrides](../../../../apps/api/test/examples/sharing/sharing-options.example.ts) |
