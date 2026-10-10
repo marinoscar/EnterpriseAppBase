@@ -25,7 +25,7 @@ import './greptime.store';
 
 const READER_URL = process.env.GREPTIME_TEST_URL;
 
-function connectionFor(readerUrl: string, available = true): TelemetryConnectionService {
+function connectionFor(readerUrl: string): TelemetryConnectionService {
   const reader = new URL(readerUrl);
   const config = {
     host: reader.hostname,
@@ -35,10 +35,20 @@ function connectionFor(readerUrl: string, available = true): TelemetryConnection
     readerPassword: decodeURIComponent(reader.password),
     adminUser: '',
     adminPassword: '',
-    available,
+    available: true,
   };
 
   return new TelemetryConnectionService({ get: () => config } as never, {} as never, {} as never);
+}
+
+/**
+ * A connection with nothing configured. Its configuration is an explicit empty
+ * `greptime` block served by a stub `ConfigService`, so no `GREPTIME_*`
+ * variable of the ambient environment (this job sets `GREPTIME_TEST_URL`) can
+ * leak in: an empty host is the "no store" state.
+ */
+function unconfiguredConnection(): TelemetryConnectionService {
+  return new TelemetryConnectionService({ get: () => ({}) } as never, {} as never, {} as never);
 }
 
 describeTelemetryStoreConformance('greptime', {
@@ -52,6 +62,6 @@ describeTelemetryStoreConformance('greptime', {
     'DELETE FROM opentelemetry_logs',
     'DROP TABLE opentelemetry_logs',
   ],
-  unconfigured: { connection: connectionFor(READER_URL ?? 'postgres://reader:reader@localhost:4003/public', false) },
+  unconfigured: { connection: unconfiguredConnection() },
   skip: ['timeout', 'dashboard'],
 });
