@@ -2,19 +2,17 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 
 import { CredentialsService } from '../../credentials/index';
 import { SystemSettingsService } from '../../settings/index';
-import type {
-  StorageProviderKind,
-  SystemStorageValue,
-} from '@marinoscar/platform-contract/storage';
+import type { StorageProviderKind, SystemStorageValue } from '@marinoscar/platform-contract/storage';
 import {
-  STORAGE_CREDENTIAL_NAME,
-  STORAGE_CREDENTIAL_PURPOSE,
-} from '../storage-credential.constants';
-import {
-  resolveStorageConfig,
-  type ResolvedStorageConfig,
-  type StorageConfigResolution,
-} from './storage-config';
+  getStorageDriver,
+  missingStorageFields,
+  storageLocationOf,
+  storageSecretAddress,
+  type StorageDriverDefinition,
+} from '../drivers/storage-driver';
+import type { ResolvedStorageConfig, StorageConfigResolution } from './storage-config';
+// The built-in drivers register on import: whatever resolves a driver by id finds them.
+import '../drivers/builtin-storage-drivers';
 
 // =============================================================================
 // StorageConfigService — the live storage configuration (issue #373, epic #372)
@@ -22,9 +20,11 @@ import {
 //
 // Joins the two halves of a storage configuration, per call:
 //
-//     system_settings.storage        (provider, bucket, region, endpoint,
-//                                     accountId, accessKeyId, forcePathStyle)
-//   + credentials(storage, default)  (the secret access key, decrypted)
+//     system_settings.storage        (provider + drivers.<provider>: the active
+//                                     driver's non-secret settings)
+//   + credentials(<driver's purpose>) (the driver's secrets, decrypted; the
+//                                     built-ins' secret access key lives at
+//                                     (storage, default))
 //   → ResolvedStorageConfig | "not configured, here is what is missing"
 //
 // -----------------------------------------------------------------------------
@@ -284,23 +284,70 @@ export class StorageConfigService implements OnModuleInit {
    * from a value up to five seconds stale, however cheap that would be. It is
    * the same option, with the same meaning, as `MaintenanceModeService.resolve`.
    *
-   * Never returns a partially-built config: the completeness rules live in
-   * `resolveStorageConfig`, in one place, and this method's only job is to
-   * gather the two inputs they judge.
+   * Never returns a partially-built config: the completeness rules are the
+   * ACTIVE DRIVER's (`StorageDriver.missing`; for the built-ins,
+   * `drivers/s3/s3-config.ts`), in one place per driver, and this method's only
+   * job is to gather the inputs they judge. A provider id no driver is
+   * registered for (a package that was removed) is "not configured", missing
+   * `driver`, never a crash.
    */
   async resolve(
     options: { fresh?: boolean } = {},
   ): Promise<StorageConfigResolution> {
     const policy = await this.readPolicy(options);
+    const driver = getStorageDriver(policy.provider);
 
+    if (!driver) {
+      return { configured: false, provider: policy.provider, missing: ['driver'] };
+    }
+
+    const settings = policy.drivers[policy.provider] ?? {};
     // Read on EVERY resolve, cached nowhere. See the file header — this is the
     // line that makes a key rotation take effect on the next call.
-    const secretAccessKey = await this.credentials.getSecret(
-      STORAGE_CREDENTIAL_PURPOSE,
-      STORAGE_CREDENTIAL_NAME,
-    );
+    const secrets = await this.readSecrets(driver);
+    const present = Object.fromEntries((driver.secrets ?? []).map((secret) => [secret.name, secrets[secret.name] !== undefined]));
+    const missing = missingStorageFields(driver, settings, present);
 
-    return resolveStorageConfig(policy, secretAccessKey);
+    if (missing.length > 0) {
+      return { configured: false, provider: policy.provider, missing };
+    }
+
+    const location = storageLocationOf(driver, settings);
+
+    return {
+      configured: true,
+      config: {
+        provider: policy.provider,
+        bucket: location.bucket,
+        region: location.region ?? '',
+        // Absent, not empty: see `ResolvedStorageConfig.endpoint`.
+        ...(location.endpoint ? { endpoint: location.endpoint } : {}),
+        settings,
+        secrets,
+      },
+    };
+  }
+
+  /** The active driver's location, or `undefined` when no driver is registered for the provider. */
+  private locationOf(policy: SystemStorageValue): ReturnType<typeof storageLocationOf> | undefined {
+    const driver = getStorageDriver(policy.provider);
+    return driver ? storageLocationOf(driver, policy.drivers[policy.provider] ?? {}) : undefined;
+  }
+
+  /**
+   * The driver's declared secrets, decrypted, by name. A secret with no stored
+   * value is absent from the result (a blank is never a value).
+   */
+  private async readSecrets(driver: StorageDriverDefinition<any>): Promise<Record<string, string>> {
+    const secrets: Record<string, string> = {};
+
+    for (const spec of driver.secrets ?? []) {
+      const address = storageSecretAddress(driver, spec.name);
+      const value = await this.credentials.getSecret(address.purpose, address.name);
+      if (value) secrets[spec.name] = value;
+    }
+
+    return secrets;
   }
 
   /**
@@ -411,8 +458,9 @@ export class StorageConfigService implements OnModuleInit {
     // whether it came from a resolve, the startup warm or a `fresh` admin read
     // — rather than at the end of a complete resolution. See
     // `lastPolicyBucket` for why the credential's presence is not a condition.
-    if (value.bucket) {
-      this.lastPolicyBucket = value.bucket;
+    const bucket = this.locationOf(value)?.bucket;
+    if (bucket) {
+      this.lastPolicyBucket = bucket;
     }
 
     return value;

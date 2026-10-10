@@ -27,7 +27,7 @@ export function decideStorageConfig(resolution: StorageConfigResolution): Doctor
 
   return {
     status: 'pass',
-    detail: `${provider} bucket "${bucket}" in ${region}`,
+    detail: region ? `${provider} bucket "${bucket}" in ${region}` : `${provider} bucket "${bucket}"`,
     data: { provider, bucket, region },
   };
 }

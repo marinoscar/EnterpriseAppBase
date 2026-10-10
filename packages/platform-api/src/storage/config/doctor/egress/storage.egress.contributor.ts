@@ -7,14 +7,11 @@ import {
   egressDependency,
 } from '../../../../doctor/index';
 
+import { BUILTIN_STORAGE_PROVIDER_KINDS } from '@marinoscar/platform-contract/storage';
+
+import { getStorageDriver } from '../../../drivers/storage-driver';
 import { StorageConfigAdminService } from '../../storage-config-admin.service';
 import { STORAGE_SETTINGS_PATH } from '../../storage-not-configured.error';
-
-const PROVIDER_LABEL: Readonly<Record<string, string>> = {
-  s3: 'Amazon S3',
-  r2: 'Cloudflare R2',
-  s3compatible: 'S3-compatible',
-};
 
 /**
  * `storage.s3` (#773): the object store. Direction `both`: the API reads and
@@ -22,11 +19,12 @@ const PROVIDER_LABEL: Readonly<Record<string, string>> = {
  * and downloads.
  *
  * Reads `StorageConfigAdminService.describeForAdmin()`, the admin view, whose
- * `effectiveEndpoint` is the host an S3 client is pointed at (R2's derived
- * endpoint included) and whose secret is known only as "set". NOT
- * `StorageConfigService.resolveActiveConfig()`, which decrypts the secret
- * access key. With no endpoint the client uses AWS's regional host,
- * `s3.<region>.amazonaws.com`.
+ * secrets are known only as "set", and asks the ACTIVE DRIVER which hosts it
+ * calls (`egressHosts`): the S3 family answers with the endpoint a client is
+ * pointed at (R2's derived endpoint included, or AWS's regional host
+ * `s3.<region>.amazonaws.com`), a driver an app registers with its own. NOT
+ * `StorageConfigService.resolveActiveConfig()`, which decrypts the secrets. A
+ * driver with no hosts (a local filesystem) contributes no row.
  *
  * @stability experimental
  */
@@ -46,16 +44,22 @@ export class StorageEgressContributor implements EgressContributor, OnModuleInit
 
   async describe(): Promise<EgressDependency[]> {
     const view = await this.storageAdmin.describeForAdmin();
-    const host = view.effectiveEndpoint || (view.region ? `s3.${view.region}.amazonaws.com` : 's3.amazonaws.com');
+    const driver = getStorageDriver(view.provider);
+    const hosts = driver?.egressHosts?.(view.drivers[view.provider] ?? {}) ?? [];
+
+    // A driver that calls nowhere (the filesystem) has nothing to list; one that
+    // is no longer registered has no hosts to name either.
+    if (hosts.length === 0) return [];
 
     return [
       egressDependency({
-        id: 'storage.s3',
-        capability: `Object storage (${PROVIDER_LABEL[view.provider] ?? view.provider})`,
+        // The id the S3 family has always had; another driver gets its own.
+        id: (BUILTIN_STORAGE_PROVIDER_KINDS as readonly string[]).includes(view.provider) ? 'storage.s3' : `storage.${view.provider}`,
+        capability: `Object storage (${driver?.label ?? view.provider})`,
         direction: 'both',
         enabled: view.configured,
         required: false,
-        hosts: [host],
+        hosts: [...hosts],
         degradation: 'File uploads, downloads, profile pictures and database backups fail',
         settingsPath: STORAGE_SETTINGS_PATH,
       }),

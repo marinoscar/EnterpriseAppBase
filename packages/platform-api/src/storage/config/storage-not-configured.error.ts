@@ -1,7 +1,5 @@
 import { ServiceUnavailableException } from '@nestjs/common';
 
-import type { MissingStorageConfigField } from './storage-config';
-import type { StorageProviderKind } from '@marinoscar/platform-contract/storage';
 
 // =============================================================================
 // StorageNotConfiguredError — what a call gets when there is no storage (#373)
@@ -90,8 +88,8 @@ export class StorageNotConfiguredError extends ServiceUnavailableException {
     details: {
       reason: StorageNotConfiguredReason;
       remedy: string;
-      provider?: StorageProviderKind;
-      missing?: MissingStorageConfigField[];
+      provider?: string;
+      missing?: string[];
     },
   ) {
     super({ message, details });
@@ -109,8 +107,8 @@ export class StorageNotConfiguredError extends ServiceUnavailableException {
    * know from the public settings schema.
    */
   static missing(
-    provider: StorageProviderKind,
-    missing: MissingStorageConfigField[],
+    provider: string,
+    missing: string[],
   ): StorageNotConfiguredError {
     return new StorageNotConfiguredError(
       `Object storage is not configured for this deployment: the ${provider} ` +

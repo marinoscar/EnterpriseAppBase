@@ -22,7 +22,11 @@
  *
  * Run inside the image, it calls the application's own cipher, its own
  * `StorageConfigService` and its own `STORAGE_KEY_PREFIXES`, with the SDK
- * already present. Credentials arrive by name through compose's `env_file`;
+ * already present. WHAT A PURGE OF THE ACTIVE BACKEND MEANS IS THE ACTIVE
+ * DRIVER'S: the S3 family's is version-aware (`drivers/s3/s3-purge.ts`), a
+ * driver that only lists keys (`StorageDriver.listKeys`) is purged by deleting
+ * each key through its provider, and a driver that offers neither is reported
+ * as `unsupported`. Credentials arrive by name through compose's `env_file`;
  * the secret access key never leaves the container.
  *
  * =============================================================================
@@ -51,22 +55,23 @@
  * Assuming the cheaper answer is exactly what produces silent retention, and
  * silent retention is the one outcome a purge must never produce.
  */
-import {
-  DeleteObjectsCommand,
-  GetBucketVersioningCommand,
-  ListObjectVersionsCommand,
-  ListObjectsV2Command,
-  S3Client,
-  type GetBucketVersioningCommandOutput,
-  type ListObjectVersionsCommandOutput,
-  type ListObjectsV2CommandOutput,
-} from '@aws-sdk/client-s3';
-import type { INestApplicationContext } from '@nestjs/common';
+import { Logger, type INestApplicationContext } from '@nestjs/common';
 
 import type { ResolvedStorageConfig } from '../config/storage-config';
 import { StorageConfigService } from '../config/storage-config.service';
-import { buildS3ClientConfig, type S3StorageProviderConfig } from '../providers/s3/s3-storage.provider';
+import {
+  requireStorageDriver,
+  type StorageDriver,
+  type StorageDriverContext,
+  type StorageDriverPurgeResult,
+} from '../drivers/storage-driver';
 import { allKeyPrefixes } from '../storage-key-prefix.registry';
+import { DEFAULT_STORAGE_PART_SIZE_BYTES } from '../storage.options';
+
+export type { StoragePurgeClient } from '../drivers/s3/s3-purge';
+import type { StoragePurgeClient } from '../drivers/s3/s3-purge';
+// The built-in drivers register on import: whatever resolves a driver by id finds them.
+import '../drivers/builtin-storage-drivers';
 
 /**
  * What the purge found (and, when not a dry run, deleted) under one prefix.
@@ -89,9 +94,9 @@ export interface StoragePurgePrefixReport {
  * @stability experimental
  */
 export interface StoragePurgeReport {
-  /** The live bucket. */
+  /** The live bucket (or container, or directory). */
   bucket: string;
-  /** The live provider kind. */
+  /** The live driver id. */
   provider: string;
   /** The live endpoint, or `null` for the SDK's own host. */
   endpoint: string | null;
@@ -113,16 +118,6 @@ export interface StoragePurgeReport {
 }
 
 /**
- * The S3 client calls the purge makes: `send` of the four commands above.
- *
- * @stability experimental
- */
-export interface StoragePurgeClient {
-  /** Sends one command; resolves to its output. */
-  send(command: unknown): Promise<any>;
-}
-
-/**
  * Options of {@link runStoragePurge}.
  *
  * @stability experimental
@@ -132,7 +127,7 @@ export interface StoragePurgeOptions {
   confirm?: boolean;
   /** `--bucket <typed>`: the bucket name the operator typed. */
   bucket?: string;
-  /** Builds the S3 client from the live configuration; tests pass a fake. Default: the driver's own `buildS3ClientConfig`. */
+  /** Builds the active driver's own client from the live configuration; tests pass a fake. Default: the driver builds its own. */
   createClient?: (config: ResolvedStorageConfig) => StoragePurgeClient;
 }
 
@@ -153,6 +148,12 @@ export type StoragePurgeOutcome =
       typed: string | undefined;
       /** The live bucket. */
       bucket: string;
+    }
+  | {
+      /** The active driver can neither purge nor list its keys: nothing was done. */
+      kind: 'unsupported';
+      /** The live driver id. */
+      provider: string;
     }
   | {
       /** The dry-run or deletion report. */
@@ -195,12 +196,78 @@ export async function runStoragePurge(
     return { kind: 'refused', typed: opts.bucket, bucket: config.bucket };
   }
 
-  // Reuses the driver's own client builder rather than re-deriving endpoint,
-  // region and forcePathStyle. A second construction here would be a second
-  // opinion about how to reach this bucket.
-  const client =
-    opts.createClient?.(config) ?? new S3Client(buildS3ClientConfig(config as S3StorageProviderConfig));
-  return { kind: 'report', report: await purge(client, config, { dryRun: !confirm }) };
+  const driver = requireStorageDriver(config.provider);
+  // The purge runs in a bare application context with no HTTP request: the
+  // driver gets its settings, its secrets and the default part size.
+  const ctx: StorageDriverContext = {
+    settings: config.settings as Record<string, unknown>,
+    secret: async (name) => config.secrets[name] ?? null,
+    logger: new Logger('StoragePurge'),
+    partSize: DEFAULT_STORAGE_PART_SIZE_BYTES,
+  };
+  const input = { prefixes: allKeyPrefixes(), dryRun: !confirm };
+
+  let result: StorageDriverPurgeResult;
+
+  if (driver.purge) {
+    result = await driver.purge(ctx, { ...input, ...(opts.createClient ? { client: opts.createClient(config) } : {}) });
+  } else if (driver.listKeys) {
+    result = await purgeByListing(driver, ctx, input);
+  } else {
+    return { kind: 'unsupported', provider: config.provider };
+  }
+
+  return {
+    kind: 'report',
+    report: {
+      bucket: config.bucket,
+      provider: config.provider,
+      endpoint: config.endpoint ?? null,
+      versioning: result.versioning,
+      prefixes: result.prefixes,
+      totals: {
+        objects: result.prefixes.reduce((sum, entry) => sum + entry.objects, 0),
+        bytes: result.prefixes.reduce((sum, entry) => sum + entry.bytes, 0),
+      },
+      deleted: result.deleted,
+      dryRun: input.dryRun,
+    },
+  };
+}
+
+/**
+ * The generic purge: list every key under each prefix with the driver's
+ * `listKeys`, and (unless a dry run) delete each through the provider the
+ * driver builds. Sizes are not known without a `HEAD` per key, so `bytes` is 0.
+ */
+async function purgeByListing(
+  driver: StorageDriver,
+  ctx: StorageDriverContext,
+  input: { prefixes: readonly string[]; dryRun: boolean },
+): Promise<StorageDriverPurgeResult> {
+  const provider = input.dryRun ? undefined : await driver.build(ctx);
+  const prefixes: StoragePurgePrefixReport[] = [];
+  let deleted = 0;
+
+  try {
+    for (const prefix of input.prefixes) {
+      const report: StoragePurgePrefixReport = { prefix, objects: 0, bytes: 0 };
+
+      for await (const key of (driver.listKeys as NonNullable<StorageDriver['listKeys']>)(ctx, prefix)) {
+        report.objects += 1;
+        if (provider) {
+          await provider.delete(key);
+          deleted += 1;
+        }
+      }
+
+      prefixes.push(report);
+    }
+  } finally {
+    (provider as { destroy?: () => void } | undefined)?.destroy?.();
+  }
+
+  return { versioning: 'unversioned', prefixes, deleted };
 }
 
 /**
@@ -211,7 +278,7 @@ export async function runStoragePurge(
  * @param app - the booted application context.
  * @param argv - the process arguments (`process.argv`).
  * @param io - where to write; defaults to the process streams.
- * @returns the exit code: 0, or 2 for a refused confirmation.
+ * @returns the exit code: 0, 2 for a refused confirmation, or 3 when the active driver can neither purge nor list its keys.
  *
  * @stability experimental
  */
@@ -246,163 +313,10 @@ export async function runStoragePurgeCli(
     io.stderr(`Refusing: --bucket was ${String(outcome.typed)} but this deployment's bucket is ${outcome.bucket}.\n`);
     return 2;
   }
+  if (outcome.kind === 'unsupported') {
+    io.stderr(`The ${outcome.provider} storage driver can neither purge nor list its keys; nothing was done.\n`);
+    return 3;
+  }
   io.stdout(`${JSON.stringify(outcome.report, null, 2)}\n`);
   return 0;
-}
-
-async function purge(
-  client: StoragePurgeClient,
-  config: ResolvedStorageConfig,
-  options: { dryRun: boolean },
-): Promise<StoragePurgeReport> {
-  const versioning = await readVersioning(client, config.bucket);
-
-  const prefixes: StoragePurgePrefixReport[] = [];
-  let deleted = 0;
-
-  // ⚠ Targets come ONLY from the application's own list (every prefix in the
-  // storage key-prefix registry, platform and app), never from a listing of
-  // the whole bucket filtered afterwards. A filter can be inverted by a later
-  // edit; enumerating a fixed list cannot be. Root prefixes cover both key
-  // layouts (legacy `uploads/<timestamp>/` and `uploads/<orgId>/`).
-  for (const prefix of allKeyPrefixes()) {
-    const report: StoragePurgePrefixReport = { prefix, objects: 0, bytes: 0 };
-
-    if (versioning === 'unversioned') {
-      deleted += await sweepObjects(client, config.bucket, prefix, report, options.dryRun);
-    } else {
-      // Versioned, OR the status could not be read. Every version and delete
-      // marker goes by id: a plain DeleteObject on a versioned bucket adds a
-      // marker and leaves the data, while reporting success.
-      deleted += await sweepVersions(client, config.bucket, prefix, report, options.dryRun);
-    }
-
-    prefixes.push(report);
-  }
-
-  return {
-    bucket: config.bucket,
-    provider: config.provider,
-    endpoint: config.endpoint ?? null,
-    versioning,
-    prefixes,
-    totals: {
-      objects: prefixes.reduce((sum, entry) => sum + entry.objects, 0),
-      bytes: prefixes.reduce((sum, entry) => sum + entry.bytes, 0),
-    },
-    deleted,
-    dryRun: options.dryRun,
-  };
-}
-
-/**
- * The bucket's versioning status.
- *
- * ⚠ AN UNREADABLE ANSWER IS TREATED AS VERSIONED. Assuming the cheaper answer
- * is exactly what produces silent retention -- the purge would report complete
- * having left every version in place -- and silent retention is the one outcome
- * this must never produce. Reported as `unknown` so the operator sees which
- * branch was taken.
- */
-async function readVersioning(
-  client: StoragePurgeClient,
-  bucket: string,
-): Promise<'enabled' | 'suspended' | 'unversioned' | 'unknown'> {
-  try {
-    const result: GetBucketVersioningCommandOutput = await client.send(new GetBucketVersioningCommand({ Bucket: bucket }));
-    if (result.Status === 'Enabled') return 'enabled';
-    if (result.Status === 'Suspended') return 'suspended';
-    return 'unversioned';
-  } catch {
-    return 'unknown';
-  }
-}
-
-/** Plain objects, for a bucket known not to be versioned. */
-async function sweepObjects(
-  client: StoragePurgeClient,
-  bucket: string,
-  prefix: string,
-  report: StoragePurgePrefixReport,
-  dryRun: boolean,
-): Promise<number> {
-  let token: string | undefined;
-  let deleted = 0;
-
-  do {
-    const page: ListObjectsV2CommandOutput = await client.send(
-      new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, ContinuationToken: token }),
-    );
-
-    const objects = page.Contents ?? [];
-    for (const object of objects) {
-      report.objects += 1;
-      report.bytes += object.Size ?? 0;
-    }
-
-    if (!dryRun && objects.length > 0) {
-      await client.send(
-        new DeleteObjectsCommand({
-          Bucket: bucket,
-          Delete: { Objects: objects.map((object) => ({ Key: object.Key as string })) },
-        }),
-      );
-      deleted += objects.length;
-    }
-
-    token = page.IsTruncated === true ? page.NextContinuationToken : undefined;
-  } while (token !== undefined);
-
-  return deleted;
-}
-
-/** Every version and delete marker, by id. */
-async function sweepVersions(
-  client: StoragePurgeClient,
-  bucket: string,
-  prefix: string,
-  report: StoragePurgePrefixReport,
-  dryRun: boolean,
-): Promise<number> {
-  let keyMarker: string | undefined;
-  let versionMarker: string | undefined;
-  let deleted = 0;
-
-  do {
-    const page: ListObjectVersionsCommandOutput = await client.send(
-      new ListObjectVersionsCommand({
-        Bucket: bucket,
-        Prefix: prefix,
-        KeyMarker: keyMarker,
-        VersionIdMarker: versionMarker,
-      }),
-    );
-
-    const versions = page.Versions ?? [];
-    // Delete markers carry no bytes but MUST still be removed, or the bucket
-    // keeps a tombstone for every object the purge claimed to have deleted.
-    const markers = page.DeleteMarkers ?? [];
-
-    for (const version of versions) {
-      report.objects += 1;
-      report.bytes += version.Size ?? 0;
-    }
-
-    const targets = [...versions, ...markers].map((entry) => ({
-      Key: entry.Key as string,
-      VersionId: entry.VersionId as string,
-    }));
-
-    if (!dryRun && targets.length > 0) {
-      await client.send(
-        new DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: targets } }),
-      );
-      deleted += targets.length;
-    }
-
-    keyMarker = page.IsTruncated === true ? page.NextKeyMarker : undefined;
-    versionMarker = page.IsTruncated === true ? page.NextVersionIdMarker : undefined;
-  } while (keyMarker !== undefined || versionMarker !== undefined);
-
-  return deleted;
 }

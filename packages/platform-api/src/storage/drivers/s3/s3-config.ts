@@ -1,14 +1,20 @@
-import { createHash } from 'node:crypto';
 
 import {
   MISSING_STORAGE_CONFIG_FIELDS as CONTRACT_MISSING_STORAGE_CONFIG_FIELDS,
-  type StorageProviderKind,
-  type SystemStorageValue,
+  type BuiltinStorageProviderKind,
 } from '@marinoscar/platform-contract/storage';
 
 // =============================================================================
-// Is this deployment's object storage usable, and with what? (issue #373)
+// Is this S3-family storage configuration usable, and with what? (issue #373)
 // =============================================================================
+//
+// PP-14.7 (#925): THIS FILE IS THE S3 FAMILY'S, NOT THE SLICE'S. The three
+// built-in drivers (`s3`, `r2`, `s3compatible`) share it; the slice itself
+// asks each driver whether it is configured (`StorageDriver.missing`) and never
+// reads these rules. What a provider "requires" is a field of its
+// `S3FlavourSpec`, so there is no per-kind `switch` and nothing to extend when
+// an app registers another driver. It moved here from `config/storage-config.ts`
+// with its comments; behaviour is unchanged.
 //
 // Part 1 (#373) declared the `storage` settings namespace and deliberately left
 // ONE question open — see the block comment on `systemStorageSchema`:
@@ -138,9 +144,9 @@ export function deriveR2Endpoint(accountId: string): string {
  *
  * @stability experimental
  */
-export interface ResolvedStorageConfig {
+export interface ResolvedS3Config {
   /** Which vendor's flavour of the S3 protocol this points at. */
-  provider: StorageProviderKind;
+  provider: string;
   /** The bucket objects are written to and read from. Never empty. */
   bucket: string;
   /** Signing region. Never empty — R2 falls back to {@link R2_DEFAULT_REGION}. */
@@ -191,7 +197,7 @@ export const MISSING_STORAGE_CONFIG_FIELDS: typeof CONTRACT_MISSING_STORAGE_CONF
  * A field the configuration needs and does not have.
  *
  * DERIVED FROM the tuple above rather than written out a second time, exactly
- * as `StorageProviderKind` is derived from `STORAGE_PROVIDER_KINDS`. The tuple
+ * as `BuiltinStorageProviderKind` is derived from `BUILTIN_STORAGE_PROVIDER_KINDS`. The tuple
  * exists because #375's admin response has to VALIDATE this list on the way out
  * (`z.enum(...)` needs values, not a type), and a hand-maintained second copy in
  * a DTO is a list that silently stops matching the day a seventh field is added
@@ -206,7 +212,7 @@ export type MissingStorageConfigField =
  * The result of asking whether storage is usable: yes with a config, or no with
  * the list of reasons.
  *
- * A DISCRIMINATED UNION RATHER THAN `ResolvedStorageConfig | null`, because the
+ * A DISCRIMINATED UNION RATHER THAN `ResolvedS3Config | null`, because the
  * `null` branch is the one that has to be explained to a person. An operator
  * whose uploads have started returning 503 needs "bucket, secretAccessKey",
  * and a bare `null` forces whoever writes the error to re-derive that list from
@@ -216,18 +222,18 @@ export type MissingStorageConfigField =
  *
  * @stability experimental
  */
-export type StorageConfigResolution =
+export type S3ConfigResolution =
   | {
       /** Usable. */
       configured: true;
       /** The resolved configuration a client is built from. */
-      config: ResolvedStorageConfig;
+      config: ResolvedS3Config;
     }
   | {
       /** Not usable. */
       configured: false;
       /** Which provider's requirements were checked. */
-      provider: StorageProviderKind;
+      provider: string;
       /** Every missing field, not just the first — see `resolveStorageConfig`. */
       missing: MissingStorageConfigField[];
     };
@@ -291,53 +297,30 @@ export type StorageConfigResolution =
  * is part 3's connection test, and conflating the two would put a network call
  * on the path of every upload.
  *
- * @param policy - The `storage` settings namespace, as stored.
+ * @param flavour - The built-in driver's rules (what it requires, how it
+ *   derives an endpoint, its fallback region).
+ * @param policy - The driver's settings, as stored.
  * @param secretAccessKey - The credential store's plaintext, or `null` when no
  *   row exists at `(storage, default)`.
  *
  * @stability experimental
  */
-export function resolveStorageConfig(
-  policy: SystemStorageValue,
+export function resolveS3Config(
+  flavour: S3FlavourSpec,
+  policy: S3FamilySettings,
   secretAccessKey: string | null,
-): StorageConfigResolution {
+): S3ConfigResolution {
   const missing: MissingStorageConfigField[] = [];
 
   if (!policy.bucket) {
     missing.push('bucket');
   }
 
-  // Per-provider requirement. A `switch` over the derived union rather than a
-  // chain of `if`s, so adding a kind to `STORAGE_PROVIDER_KINDS` makes THIS
-  // decision a compile error (`noFallthroughCasesInSwitch` plus the exhaustive
-  // `never` below) instead of silently landing in a branch that asks for
-  // nothing and builds a client pointed at AWS.
-  switch (policy.provider) {
-    case 's3':
-      // `endpoint` is optional here on purpose: empty means "the SDK's own
-      // regional host", which is the correct and commonest configuration.
-      if (!policy.region) {
-        missing.push('region');
-      }
-      break;
-    case 'r2':
-      // Only when nothing was typed — an explicit endpoint makes `accountId`
-      // unnecessary, and demanding both would reject a working configuration.
-      if (!policy.endpoint && !policy.accountId) {
-        missing.push('accountId');
-      }
-      break;
-    case 's3compatible':
-      if (!policy.endpoint) {
-        missing.push('endpoint');
-      }
-      break;
-    default: {
-      // Unreachable while the switch is exhaustive; this line is what makes
-      // "exhaustive" a compiler guarantee rather than a comment.
-      const unhandled: never = policy.provider;
-      throw new Error(`Unhandled storage provider kind: ${String(unhandled)}`);
-    }
+  // The per-provider requirement is the flavour's own, not a `switch` here:
+  // adding a flavour means writing its `S3FlavourSpec`, and nothing in this
+  // function changes.
+  for (const field of flavour.requires(policy)) {
+    missing.push(field);
   }
 
   if (!policy.accessKeyId) {
@@ -353,7 +336,7 @@ export function resolveStorageConfig(
   }
 
   if (missing.length > 0) {
-    return { configured: false, provider: policy.provider, missing };
+    return { configured: false, provider: flavour.id, missing };
   }
 
   // Restating what the list above already decided, because the compiler cannot
@@ -365,35 +348,33 @@ export function resolveStorageConfig(
   if (!secretAccessKey) {
     return {
       configured: false,
-      provider: policy.provider,
+      provider: flavour.id,
       missing: ['secretAccessKey'],
     };
   }
 
-  // Endpoint precedence, in one expression: what the operator typed, else R2's
-  // derived host, else nothing (and the SDK builds AWS's).
-  const endpoint =
-    policy.endpoint ||
-    (policy.provider === 'r2' ? deriveR2Endpoint(policy.accountId) : '');
+  // Endpoint precedence, in one expression: what the operator typed, else the
+  // flavour's derived host (R2), else nothing (and the SDK builds AWS's).
+  const endpoint = policy.endpoint || flavour.deriveEndpoint?.(policy) || '';
 
   return {
     configured: true,
     config: {
-      provider: policy.provider,
+      provider: flavour.id,
       bucket: policy.bucket,
       // `s3` never reaches a fallback — an empty region is already in `missing`
       // above, so the `||` below can only fire for the two endpoint-addressed
-      // providers. That is not a coincidence: a region is what tells the SDK
+      // flavours. That is not a coincidence: a region is what tells the SDK
       // WHERE to send an AWS request, and is only part of the signature scope
       // when an endpoint has already answered that question.
-      region: policy.region || fallbackRegionFor(policy.provider),
+      region: policy.region || flavour.fallbackRegion,
       // Absent, not empty — `S3Client` rejects `''` as a URL. See the field's
-      // note on `ResolvedStorageConfig`.
+      // note on `ResolvedS3Config`.
       ...(endpoint ? { endpoint } : {}),
       accessKeyId: policy.accessKeyId,
       secretAccessKey,
       // Passed through as stored, `null` included — see the field's note on
-      // `ResolvedStorageConfig`. The vendor convention is the driver's to
+      // `ResolvedS3Config`. The vendor convention is the driver's to
       // apply, and it can only apply it if "unset" survives this far.
       forcePathStyle: policy.forcePathStyle,
     },
@@ -401,97 +382,99 @@ export function resolveStorageConfig(
 }
 
 /**
- * The region to sign with when the operator typed none.
+ * The settings of a built-in (S3 family) driver: what its `settingsSchema`
+ * parses to. `accountId` is `''` for the flavours that do not use it.
  *
- * Only ever consulted for a provider addressed through an endpoint; `s3`
- * returns `''` here because it can never get this far (an empty region is
- * already a `missing` field for it). Returning `''` rather than throwing keeps
- * this total — a helper that threw on an unreachable branch would be a crash
- * waiting for a future edit to the requirement list above.
+ * @stability experimental
  */
-function fallbackRegionFor(provider: StorageProviderKind): string {
-  switch (provider) {
-    case 'r2':
-      return R2_DEFAULT_REGION;
-    case 's3compatible':
-      return S3_COMPATIBLE_DEFAULT_REGION;
-    case 's3':
-      return '';
-    default: {
-      const unhandled: never = provider;
-      throw new Error(`Unhandled storage provider kind: ${String(unhandled)}`);
-    }
+export type S3FamilySettings = {
+  /** The bucket objects are written to; empty means not configured. */
+  bucket: string;
+  /** Signing region; empty means not stated. */
+  region: string;
+  /** Explicit origin; empty means derive it (R2) or use the SDK's host. */
+  endpoint: string;
+  /** The Cloudflare account id (R2 only). */
+  accountId: string;
+  /** The identifier half of the credential. */
+  accessKeyId: string;
+  /** Tri-state: `null` is "use this vendor's convention". */
+  forcePathStyle: boolean | null;
+};
+
+/**
+ * What distinguishes one built-in S3 flavour from another. The three
+ * built-ins' specs are in `./s3-family.ts`.
+ *
+ * @stability experimental
+ */
+export interface S3FlavourSpec {
+  /** The driver id (`s3`, `r2`, `s3compatible`). */
+  id: BuiltinStorageProviderKind;
+  /** The settings that must be present on top of `bucket`, `accessKeyId` and the secret. */
+  requires(settings: S3FamilySettings): MissingStorageConfigField[];
+  /** The host to use when no endpoint was typed (R2), else `undefined` for the SDK's own. */
+  deriveEndpoint?(settings: S3FamilySettings): string;
+  /** The signing region used when the operator typed none ('' for `s3`, which requires one). */
+  fallbackRegion: string;
+}
+
+/**
+ * The flat policy shape `resolveStorageConfig` has always taken: a provider id
+ * and the S3 family's settings.
+ *
+ * @stability experimental
+ */
+export type S3StoragePolicy = S3FamilySettings & { provider: string };
+
+/**
+ * Decide whether a flat built-in policy has usable object storage, and resolve it.
+ *
+ * Kept for callers written before drivers were pluggable: it looks the built-in
+ * flavour up by `policy.provider` and applies {@link resolveS3Config}. A
+ * provider that is not a built-in throws.
+ *
+ * @param policy - A provider id and the S3 family's settings.
+ * @param secretAccessKey - The credential store's plaintext, or `null`.
+ *
+ * @deprecated Use the driver: `StorageConfigService.resolve()` answers for the active driver, and `getStorageDriver(id).missing(...)` for any one.
+ * @stability experimental
+ */
+export function resolveStorageConfig(policy: S3StoragePolicy, secretAccessKey: string | null): S3ConfigResolution {
+  const flavour = S3_FLAVOURS[policy.provider as BuiltinStorageProviderKind];
+  if (!flavour) {
+    throw new Error(`"${policy.provider}" is not a built-in S3 storage provider (${Object.keys(S3_FLAVOURS).join(', ')}).`);
   }
+  return resolveS3Config(flavour, policy, secretAccessKey);
 }
 
 /**
- * A stable, non-reversible identity for a resolved configuration.
- *
- * WHAT IT IS FOR: `ResolvingStorageProvider` keeps a built `S3Client` and needs
- * to know, per call, whether the configuration that produced it is still the
- * configuration in force. Comparing fingerprints answers that in constant time
- * and — crucially — ACROSS A SECRET ROTATION: the secret is an input, so a key
- * rotated in the credential store yields a different fingerprint, the old
- * client is discarded, and the new key is in use on the very next call rather
- * than at the next restart. A stale client after a rotation is a genuinely
- * baffling failure: the operator fixes the credential, the errors continue, and
- * nothing on screen explains why.
- *
- * WHY A HASH RATHER THAN THE VALUES JOINED. Keying on the raw tuple would park
- * a plaintext copy of the secret access key on a long-lived instance field for
- * the life of the process, where a heap dump or a careless
- * `JSON.stringify(this)` in a debug log would find it. SHA-256 detects change
- * exactly as well and carries nothing back out. (The `S3Client` itself must
- * hold the secret in order to sign; that is unavoidable, and it is not a reason
- * to add a second copy beside it.) This is the same reasoning, and the same
- * shape, as `SmtpEmailProvider`'s transport fingerprint.
- *
- * ⚠ NEVER LOG THE RETURN VALUE. It is a hash of a secret; publishing it invites
- * exactly the offline guessing attack the hash is otherwise immune to. Use
- * {@link describeStorageConfig} for anything a human will read.
- *
- * Every field that changes the bytes on the wire is an input, and nothing else
- * is: two configurations with the same fingerprint are two configurations the
- * same client can serve.
+ * The three built-in flavours' rules, by id. A `Record` over the built-in
+ * list (not a `switch`): a built-in added to `BUILTIN_STORAGE_PROVIDER_KINDS`
+ * must be given a spec here to compile, and a driver an app registers needs no
+ * entry at all.
  *
  * @stability experimental
  */
-export function fingerprintStorageConfig(config: ResolvedStorageConfig): string {
-  return createHash('sha256')
-    .update(
-      JSON.stringify([
-        config.provider,
-        config.bucket,
-        config.region,
-        // `?? null` rather than leaving the key absent: `JSON.stringify` drops
-        // `undefined` from an array as `null` anyway, and saying so here means
-        // the tuple's arity cannot change with the data.
-        config.endpoint ?? null,
-        config.forcePathStyle,
-        config.accessKeyId,
-        config.secretAccessKey,
-      ]),
-    )
-    .digest('hex');
-}
-
-/**
- * A one-line, SECRET-FREE description of a configuration, for log lines.
- *
- * Exists so that "which storage is this process using?" is answerable from the
- * logs without anybody being tempted to interpolate the config object itself —
- * which would put the secret access key in the log pipeline, in whatever
- * aggregator ships it, and in every retention window downstream.
- *
- * `accessKeyId` is included deliberately: it is an identifier that travels in
- * the clear in every SigV4 `Authorization` header, and it is the one field that
- * distinguishes "the key was rotated" from "the key was mistyped" when both
- * look the same from the outside. See `storage-credential.constants.ts`.
- *
- * @stability experimental
- */
-export function describeStorageConfig(config: ResolvedStorageConfig): string {
-  const where = config.endpoint ?? `${config.region} (AWS)`;
-
-  return `${config.provider} bucket=${config.bucket} at=${where} keyId=${config.accessKeyId}`;
-}
+export const S3_FLAVOURS: Readonly<Record<BuiltinStorageProviderKind, S3FlavourSpec>> = {
+  s3: {
+    id: 's3',
+    // `endpoint` is optional here on purpose: empty means "the SDK's own
+    // regional host", which is the correct and commonest configuration.
+    requires: (settings) => (settings.region ? [] : ['region']),
+    fallbackRegion: '',
+  },
+  r2: {
+    id: 'r2',
+    // Only when nothing was typed — an explicit endpoint makes `accountId`
+    // unnecessary, and demanding both would reject a working configuration.
+    requires: (settings) => (!settings.endpoint && !settings.accountId ? ['accountId'] : []),
+    deriveEndpoint: (settings) => (settings.accountId ? deriveR2Endpoint(settings.accountId) : ''),
+    fallbackRegion: R2_DEFAULT_REGION,
+  },
+  s3compatible: {
+    id: 's3compatible',
+    requires: (settings) => (settings.endpoint ? [] : ['endpoint']),
+    fallbackRegion: S3_COMPATIBLE_DEFAULT_REGION,
+  },
+};

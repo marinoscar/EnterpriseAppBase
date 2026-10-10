@@ -6,21 +6,8 @@
  * behind them, and the 503 raised when it does not.
  */
 
-export {
-  R2_ENDPOINT_HOST_SUFFIX,
-  R2_DEFAULT_REGION,
-  S3_COMPATIBLE_DEFAULT_REGION,
-  deriveR2Endpoint,
-  describeStorageConfig,
-  fingerprintStorageConfig,
-  resolveStorageConfig,
-  MISSING_STORAGE_CONFIG_FIELDS,
-} from './storage-config';
-export type {
-  MissingStorageConfigField,
-  ResolvedStorageConfig,
-  StorageConfigResolution,
-} from './storage-config';
+export { describeStorageConfig, fingerprintStorageConfig } from './storage-config';
+export type { ResolvedStorageConfig, StorageConfigResolution } from './storage-config';
 export {
   StorageConfigService,
   STORAGE_POLICY_CACHE_MS,
