@@ -52,6 +52,18 @@ describe('OrgAiKeysPage (package)', () => {
     expect(screen.getByText(/deployment key on the AI settings page/)).toBeInTheDocument();
   });
 
+  it('lists a provider an app registered (#924): the rows come from the API, not from a constant', async () => {
+    renderPage(['org_ai_config:read'], {
+      'GET /admin/ai/org-keys': [
+        ...KEYS,
+        { provider: 'example-transcribe', displayName: 'Example Transcribe', configured: false, hint: null, verifiedAt: null },
+      ],
+    });
+    const row = await screen.findByTestId('org-ai-key-example-transcribe');
+    expect(within(row).getByText('Example Transcribe')).toBeInTheDocument();
+    expect(within(row).getByText('No organization key')).toBeInTheDocument();
+  });
+
   it('is read-only without org_ai_config:write', async () => {
     renderPage(['org_ai_config:read']);
     expect(await screen.findByText(/\(read-only\)/)).toBeInTheDocument();
