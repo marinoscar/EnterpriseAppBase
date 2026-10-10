@@ -1,3 +1,27 @@
+// =============================================================================
+// DO NOT COPY THIS PROVIDER AS-IS: it is a fake, built to run without a network
+// =============================================================================
+//
+// A real provider must add, at least:
+//
+//   - the full token checks the fake skips: `iss` and `aud` equal to your issuer
+//     and client id, `iat`, a `jti` that is not replayed, and a BOUNDED `exp`
+//     (here any future `exp` is accepted), with the issuer's own signature
+//     (here an HMAC both sides know);
+//   - the token OUT of the URL query: an `id_token` in `?id_token=` lands in
+//     logs, history and referrers (a real flow exchanges an authorization code
+//     server to server);
+//   - login-CSRF protection. The slice adds NO `state` and NO PKCE, and
+//     `passport-oauth2`'s `state: true` without a `store` throws "requires
+//     session support" on every sign-in here (no session plugin). Pass
+//     `store: createCookieStateStore({ secret })` of
+//     `@marinoscar/platform-api/identity`, or a store of your own;
+//   - a type check on every claim before it is used (the `groups` claim below
+//     is checked with `Array.isArray` before `.includes`);
+//   - `linkExistingByEmail` stays OFF unless the issuer is trusted to vouch for
+//     the address; it also gates the `INITIAL_ADMIN_EMAIL` bootstrap. A
+//     multi-tenant issuer needs a sign-in policy that accepts only your tenants.
+//
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
 import {
@@ -185,7 +209,9 @@ export class ExampleOidcSignInPolicy implements SignInPolicy {
     if (!profile.email?.toLowerCase().endsWith(`@${EXAMPLE_OIDC_DOMAIN}`)) {
       return { allow: false, reason: 'access_denied' };
     }
-    const groups = (profile.raw?.groups as string[] | undefined) ?? [];
+    // A claim is untrusted input: check its type before using it.
+    const claim = profile.raw?.groups;
+    const groups = Array.isArray(claim) ? claim : [];
     return groups.includes('org-admins') ? { allow: true, roles: ['org_admin'] } : { allow: true };
   }
 }

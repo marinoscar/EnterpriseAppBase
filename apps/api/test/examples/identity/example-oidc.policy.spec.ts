@@ -195,6 +195,20 @@ describe('ExampleOidcSignInPolicy bound through IdentityModule.forRoot (PP-14.9)
     expect(prismaMock.membership.upsert).not.toHaveBeenCalledWith(expect.objectContaining({ create: expect.objectContaining({ roleId: 'role-org_admin' }) }));
   });
 
+  it.each([['a string', 'org-admins'], ['an object', { 0: 'org-admins' }], ['a number', 1]])(
+    'maps no role from a groups claim that is %s, not an array',
+    (_name, groups) => {
+      const decision = new ExampleOidcSignInPolicy().beforeLogin({
+        provider: 'example-oidc',
+        subject: 's',
+        email: 'staff@example.test',
+        emailVerified: true,
+        raw: { groups },
+      });
+      expect(decision).toEqual({ allow: true });
+    },
+  );
+
   it('waves another provider through, so binding it cannot change Google', () => {
     const decision = new ExampleOidcSignInPolicy().beforeLogin({
       provider: 'google',

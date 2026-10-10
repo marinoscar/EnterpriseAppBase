@@ -23,7 +23,9 @@ import { respondToSignIn } from './sign-in-response';
  *
  * Reachable during a maintenance window for the same reason `AuthController` is
  * (signing in is how an administrator ends a window). A provider that is
- * unknown, `custom` or not configured is a 404 (see `ExternalProviderGuard`).
+ * unknown, `custom` or not configured is a 404 on the start route and, on the
+ * callback route, a 302 to `error=authentication_failed` (the callback's filter
+ * turns every guard failure into the closed-set redirect; see `ExternalProviderGuard`).
  *
  * @internal
  */
@@ -76,7 +78,7 @@ export class AuthProviderController {
   @ApiResponse({
     status: 302,
     description:
-      'Redirects to frontend with the token in query params, or with error set to one of not_allowlisted, account_disabled, access_denied, authentication_failed, server_misconfigured, no_organization',
+      'Redirects to frontend with the token in query params, or with error set to one of not_allowlisted, account_disabled, access_denied, authentication_failed, server_misconfigured, no_organization. An unknown, custom or not configured provider is also a 302, with error=authentication_failed (not a 404).',
   })
   async callback(@Req() req: FastifyRequest & { user?: unknown }, @Res() res: FastifyReply) {
     const appUrl = this.configService.get<string>('appUrl');
