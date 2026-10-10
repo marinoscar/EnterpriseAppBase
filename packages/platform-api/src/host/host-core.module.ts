@@ -6,8 +6,9 @@
 // API needs around its slices (all of it was the reference app's own code):
 //
 //   - `EVENT_BUS` (and `EVENT_BUS_SELECTION`): the cross-replica event bus,
-//     `in-process` or `postgres` by `EVENT_BUS_ADAPTER`, with its
-//     `core.event-bus` Doctor check;
+//     `in-process` or `postgres` by `EVENT_BUS_ADAPTER` (or any adapter the app
+//     registered with `registerEventBusAdapter`, or a whole bus bound with the
+//     `eventBus` option), with its `core.event-bus` Doctor check;
 //   - `AppMetricsService`: the platform's typed metric recorders and the
 //     generic `add`/`record`, on otel-core's metrics host, plus the platform's
 //     `app.*` metric declarations (`registerPlatformHostAppMetrics`);
@@ -53,6 +54,7 @@ import {
   type DynamicModule,
   type MiddlewareConsumer,
   type NestModule,
+  type Provider,
 } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
@@ -72,7 +74,7 @@ import { DeploymentModeDoctorCheck } from './doctor/deployment-mode.doctor-check
 import { EncryptionKeyDoctorCheck } from './doctor/encryption-key.doctor-check';
 import { RlsRoleDoctorCheck } from './doctor/rls-role.doctor-check';
 import { EventBusDoctorCheck } from './event-bus/doctor/event-bus.doctor-check';
-import { EVENT_BUS_SELECTION, type EventBusSelection } from './event-bus/event-bus.config';
+import { BOUND_EVENT_BUS_SELECTION, EVENT_BUS_SELECTION, type EventBusSelection } from './event-bus/event-bus.config';
 import { createEventBus, selectEventBus } from './event-bus/event-bus.factory';
 import { EVENT_BUS } from './event-bus/event-bus.interface';
 import type { EventBusSqlPublisher } from './event-bus/postgres-event-bus';
@@ -162,14 +164,29 @@ export class PlatformHostCoreModule implements NestModule {
           provide: EVENT_BUS_SELECTION,
           inject: [PLATFORM_HOST_CORE_OPTIONS],
           useFactory: (opts: ResolvedPlatformHostCoreOptions): EventBusSelection =>
-            selectEventBus(opts.eventBusAdapter ?? process.env.EVENT_BUS_ADAPTER),
+            opts.eventBus
+              ? BOUND_EVENT_BUS_SELECTION
+              : // The option is code: an id nobody registered fails the boot. The
+                // environment variable stays fail-safe (one warning, `in-process`).
+                opts.eventBusAdapter !== undefined
+                ? selectEventBus(opts.eventBusAdapter, { strict: true })
+                : selectEventBus(process.env.EVENT_BUS_ADAPTER),
         },
-        {
-          provide: EVENT_BUS,
-          inject: [EVENT_BUS_SELECTION, { token: PLATFORM_PRISMA, optional: true }, AppMetricsService],
-          useFactory: (selection: EventBusSelection, sql: EventBusSqlPublisher | undefined, metrics: AppMetricsService) =>
-            createEventBus(selection, sql ?? undefined, metrics),
-        },
+        // A bound bus (`eventBus`) replaces the adapter lookup entirely. It is
+        // provided HERE, in the global module every consumer resolves `EVENT_BUS`
+        // from, which is what makes the override reach them (PP-14.2).
+        resolved.eventBus
+          ? ({ provide: EVENT_BUS, ...resolved.eventBus } as Provider)
+          : {
+              provide: EVENT_BUS,
+              inject: [EVENT_BUS_SELECTION, { token: PLATFORM_PRISMA, optional: true }, AppMetricsService, ConfigService],
+              useFactory: (
+                selection: EventBusSelection,
+                sql: EventBusSqlPublisher | undefined,
+                metrics: AppMetricsService,
+                config: ConfigService,
+              ) => createEventBus(selection, sql ?? undefined, metrics, config),
+            },
         // The deployment facts (`DEPLOYMENT_MODE`, `DEPLOYMENT_NETWORK`) and the
         // generic Doctor checks, in the order the report lists them within the
         // `core` category: the event bus, the deployment mode, then the

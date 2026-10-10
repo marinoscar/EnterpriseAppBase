@@ -155,6 +155,11 @@ export class EventBusDispatcher {
     };
   }
 
+  /** Drops every handler. Used by an adapter's `close()`. */
+  clear(): void {
+    this.handlers.clear();
+  }
+
   /** Number of handlers on a channel. Diagnostics and tests only. */
   handlerCount(channel: string): number {
     return this.handlers.get(channel)?.size ?? 0;

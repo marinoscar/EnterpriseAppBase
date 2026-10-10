@@ -215,9 +215,9 @@ describe('PlatformHostCoreModule', () => {
       await moduleRef.close();
     });
 
-    it('builds the Postgres adapter for postgres, and refuses postgres without a client', () => {
+    it('builds the Postgres adapter for postgres, and refuses postgres without a client', async () => {
       const selection = { adapter: 'postgres' as const, recognised: true, configured: 'postgres' };
-      const bus = createEventBus(selection, { $executeRaw: jest.fn() });
+      const bus = await createEventBus(selection, { $executeRaw: jest.fn() });
       expect(bus).toBeInstanceOf(PostgresEventBus);
       expect(bus.health().connected).toBe(false);
       expect(() => createEventBus(selection, undefined)).toThrow(/PLATFORM_PRISMA/);

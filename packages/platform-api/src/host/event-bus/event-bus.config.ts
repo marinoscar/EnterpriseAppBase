@@ -1,4 +1,6 @@
-import { EVENT_BUS_ADAPTERS, type EventBusAdapterName } from './event-bus.interface';
+import './builtin-event-bus-adapters';
+import { eventBusAdapterRegistry } from './event-bus-adapter.registry';
+import type { EventBusAdapterName } from './event-bus.interface';
 
 // =============================================================================
 // `EVENT_BUS_ADAPTER` (PP-1.11, issue #682)
@@ -11,7 +13,10 @@ import { EVENT_BUS_ADAPTERS, type EventBusAdapterName } from './event-bus.interf
 // `configuration.ts` (`eventBus.adapter`).
 //
 // FAILS SAFE TOWARDS `in-process`, the same direction as `JOBS_WORKER_MODE`: an
-// unrecognised value logs ONE warning and runs the single-process bus. Losing
+// unregistered value of the ENVIRONMENT VARIABLE logs ONE warning and runs the
+// single-process bus. (The `eventBusAdapter` OPTION of `forRoot` is code, so a
+// wrong id there is a programming error and fails the boot instead: see
+// `selectEventBus`.) Losing
 // cross-replica liveness is a degradation (every consumer has a durable
 // fallback); refusing to boot over a typo would be an outage. The Doctor's
 // `core.event-bus` check keeps the typo visible after the boot log scrolls away.
@@ -32,6 +37,18 @@ export const DEFAULT_EVENT_BUS_ADAPTER: EventBusAdapterName = 'in-process';
 export const EVENT_BUS_SELECTION: unique symbol = Symbol.for('@marinoscar/platform/EVENT_BUS_SELECTION');
 
 /**
+ * The selection reported when the app bound a whole bus (`forRoot({ eventBus })`):
+ * no adapter was looked up, so there is nothing to recognise or misconfigure.
+ *
+ * @stability experimental
+ */
+export const BOUND_EVENT_BUS_SELECTION: EventBusSelection = Object.freeze({
+  adapter: 'bound',
+  recognised: true,
+  configured: 'eventBus binding',
+});
+
+/**
  * Which adapter this process runs, and what was configured.
  *
  * @stability experimental
@@ -39,7 +56,7 @@ export const EVENT_BUS_SELECTION: unique symbol = Symbol.for('@marinoscar/platfo
 export interface EventBusSelection {
   /** The adapter in use. */
   adapter: EventBusAdapterName;
-  /** False when the configured value was not one of the adapters (and `in-process` was used). */
+  /** False when the configured value was not a registered adapter (and `in-process` was used). */
   recognised: boolean;
   /** What was configured, trimmed. Empty when unset. Never secret material. */
   configured: string;
@@ -47,7 +64,9 @@ export interface EventBusSelection {
 
 /**
  * The adapter for a configured value. Unset or blank is the default (and is
- * recognised); anything else must match an adapter name, case-insensitively.
+ * recognised); anything else must be the id of a REGISTERED adapter
+ * (`eventBusAdapterRegistry`: the built-ins and whatever the app registered),
+ * case-insensitively.
  *
  * @param raw - the configured value (`EVENT_BUS_ADAPTER`).
  * @returns the selection; never throws.
@@ -61,9 +80,8 @@ export function parseEventBusAdapter(raw: unknown): EventBusSelection {
   }
 
   const value = configured.toLowerCase();
-  const match = EVENT_BUS_ADAPTERS.find((adapter) => adapter === value);
 
-  return match
-    ? { adapter: match, recognised: true, configured }
+  return eventBusAdapterRegistry.has(value)
+    ? { adapter: value, recognised: true, configured }
     : { adapter: DEFAULT_EVENT_BUS_ADAPTER, recognised: false, configured };
 }

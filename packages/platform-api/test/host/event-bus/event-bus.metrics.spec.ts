@@ -54,7 +54,7 @@ describe('event bus metrics (#680)', () => {
     const metrics = new AppMetricsService(undefined, undefined, {
       meter: new MeterProvider({ readers: [reader] }).getMeter('app'),
     });
-    const bus = createEventBus(
+    const bus = await createEventBus(
       { adapter: 'in-process', recognised: true, configured: 'in-process' },
       undefined,
       metrics,
