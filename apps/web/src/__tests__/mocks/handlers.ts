@@ -526,6 +526,10 @@ export const handlers = [
             apiStyle: next.apiStyle ?? null,
             deployments: next.deployments && Object.keys(next.deployments).length > 0 ? next.deployments : null,
             requiresKey: next.requiresKey ?? null,
+            // The provider's stored settings: what the PUT carried, besides `enabled` (#924).
+            settings: Object.fromEntries(
+              Object.entries(next).filter(([field, value]) => field !== 'enabled' && value != null && value !== ''),
+            ),
           };
         }),
         version: mockAiAdminConfig.version + 1,
