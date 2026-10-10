@@ -349,6 +349,7 @@ function makeHarness(options: HarnessOptions = {}) {
   };
 
   const storage = {
+    kind: options.activeProvider ?? 's3',
     getBucket: jest.fn(() => 'test-bucket'),
     upload:
       options.uploadImpl ??
