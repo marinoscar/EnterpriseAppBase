@@ -79,6 +79,8 @@ function makeService(
     row?: NotificationBroadcast | null;
     canceledCount?: number;
     browserEnabled?: boolean;
+    /** Per-channel switches of the policy (PP-14.10). */
+    channels?: Record<string, { enabled: boolean }>;
   } = {}
 ) {
   const create = jest.fn().mockImplementation(async ({ data }: any) => broadcastRow(data));
@@ -109,6 +111,7 @@ function makeService(
   const getNotificationsPolicy = jest.fn().mockResolvedValue({
     browserEnabled: options.browserEnabled ?? true,
     disabledEvents: [],
+    ...(options.channels ? { channels: options.channels } : {}),
   });
   const systemSettings = { getNotificationsPolicy } as unknown as SystemSettingsService;
 
@@ -278,8 +281,27 @@ describe('BroadcastsService', () => {
       const result = await service.create({ ...composition, channels: ['email'] }, ADMIN_ID);
 
       expect(result.warnings).toEqual([]);
-      // Not even read: nothing about an email-only send depends on it.
-      expect(getNotificationsPolicy).not.toHaveBeenCalled();
+      // Read, since an administrator can switch any channel off (PP-14.10), but
+      // the browser kill switch says nothing about an email-only send.
+      expect(getNotificationsPolicy).toHaveBeenCalled();
+    });
+
+    it('warns that a channel an administrator switched off will deliver nothing (PP-14.10)', async () => {
+      const { service } = makeService({ channels: { email: { enabled: false } } });
+
+      const result = await service.create({ ...composition, channels: ['browser', 'email'] }, ADMIN_ID);
+
+      expect(result.warnings).toHaveLength(1);
+      expect(result.warnings[0]).toContain('Email channel is currently switched off');
+      expect(result.broadcast.id).toBe(BROADCAST_ID);
+    });
+
+    it('does not warn about a channel that is on, or that the policy does not mention', async () => {
+      const { service } = makeService({ channels: { push: { enabled: false } } });
+
+      const result = await service.create({ ...composition, channels: ['browser', 'email'] }, ADMIN_ID);
+
+      expect(result.warnings).toEqual([]);
     });
 
     it('still creates when the policy cannot be read', async () => {

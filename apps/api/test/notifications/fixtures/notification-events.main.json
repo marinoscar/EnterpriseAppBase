@@ -47,12 +47,14 @@
     "channels": [
       "email",
       "browser",
-      "push"
+      "push",
+      "webhook"
     ],
     "declaredChannels": [
       "email",
       "browser",
-      "push"
+      "push",
+      "webhook"
     ],
     "defaultEnabled": true,
     "mandatory": false
@@ -64,12 +66,14 @@
     "channels": [
       "email",
       "browser",
-      "push"
+      "push",
+      "webhook"
     ],
     "declaredChannels": [
       "email",
       "browser",
-      "push"
+      "push",
+      "webhook"
     ],
     "defaultEnabled": true,
     "mandatory": true
@@ -201,6 +205,19 @@
     "declaredChannels": [
       "browser",
       "push"
+    ],
+    "defaultEnabled": true,
+    "mandatory": false
+  },
+  {
+    "key": "example.webhook_test",
+    "label": "Webhook test message",
+    "description": "A message sent to your webhook handle when an administrator checks that the webhook channel works.",
+    "channels": [
+      "webhook"
+    ],
+    "declaredChannels": [
+      "webhook"
     ],
     "defaultEnabled": true,
     "mandatory": false

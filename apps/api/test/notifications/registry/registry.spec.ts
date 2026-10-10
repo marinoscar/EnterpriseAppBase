@@ -50,7 +50,7 @@ import {
 // pinned over HTTP by test/notifications/notification-registry.integration.spec.ts.
 // =============================================================================
 
-/** The platform events, in the order `main` declared them before #678. */
+/** The registered events, in the order `main` declared them before #678, then the app's. */
 const PLATFORM_EVENT_KEYS = [
   'user.welcome',
   'allowlist.invitation',
@@ -70,6 +70,9 @@ const PLATFORM_EVENT_KEYS = [
   // The exports slice (#744).
   'export.ready',
   'export.failed',
+  // The reference app's own webhook example (PP-14.10), registered from
+  // `app-registrations/notifications.ts`.
+  'example.webhook_test',
 ];
 
 /** A valid app event; tests spread it and break one field. */
@@ -116,8 +119,8 @@ describe('notification registries (#678)', () => {
   // ==========================================================================
 
   describe('platform entries, in order', () => {
-    it('registers the three platform channels in the old literal order, then the Android app channel (#746)', () => {
-      expect(notificationChannelRegistry.ids()).toEqual(['email', 'browser', 'push', 'android_app']);
+    it('registers the three platform channels in the old literal order, then the Android app channel (#746) and the app\'s webhook example', () => {
+      expect(notificationChannelRegistry.ids()).toEqual(['email', 'browser', 'push', 'android_app', 'webhook']);
     });
 
     it('registers the nine platform events in the old array order, then org.invitation (#726), groups.invitation (#728), sharing.shared_with_you (#729) and export.ready / export.failed (#744)', () => {
@@ -421,6 +424,7 @@ describe('notification registries (#678)', () => {
           APP_NOTIFICATION_CHANNELS: [],
           APP_EMAIL_TEMPLATES: [],
           APP_NOTIFICATIONS: [],
+          adaptPlatformBroadcasts: (registrations: unknown) => registrations,
           ...app,
         }));
         try {
@@ -444,12 +448,13 @@ describe('notification registries (#678)', () => {
               emailTemplate: 'coach-weekly-review',
             },
           ],
+          adaptPlatformBroadcasts: (registrations: unknown) => registrations,
         }));
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const fresh = require('../support/notifications') as typeof import('../support/notifications');
         keys = fresh.notificationEventRegistry.ids();
       });
-      expect(keys).toEqual([...PLATFORM_EVENT_KEYS, APP_EVENT.key]);
+      expect(keys).toEqual([...PLATFORM_EVENT_KEYS.filter((key) => key !== 'example.webhook_test'), APP_EVENT.key]);
     });
 
     it.each<[string, Record<string, unknown>, string]>([
