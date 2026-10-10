@@ -48,8 +48,8 @@ import {
 // recording-event-bus.ts`, registered by `src/app-registrations/host.ts`.
 // =============================================================================
 
-const KEY: PrincipalCacheKey = { userId: 'user-1', orgId: 'org-1', tokenKind: 'jwt' } as PrincipalCacheKey;
-const OTHER: PrincipalCacheKey = { userId: 'user-2', orgId: 'org-1', tokenKind: 'jwt' } as PrincipalCacheKey;
+const KEY: PrincipalCacheKey = { userId: 'user-1', orgId: 'org-1', tokenKind: 'session' };
+const OTHER: PrincipalCacheKey = { userId: 'user-2', orgId: 'org-1', tokenKind: 'session' };
 const principal = (id: string) => ({ id, email: `${id}@example.test`, roles: [], permissions: [] }) as never;
 
 /** The global settings slice, as far as maintenance reads it. */

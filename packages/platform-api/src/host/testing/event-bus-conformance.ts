@@ -27,9 +27,9 @@ import type { EventBus, EventBusMeta } from '../event-bus/event-bus.interface';
  */
 export interface EventBusConformanceHarness {
   /** The runner's `describe`. */
-  describe: (name: string, fn: () => void) => void;
-  /** The runner's `it`. */
-  it: (name: string, fn: () => void | Promise<void>) => void;
+  describe: (name: string, fn: () => void) => unknown;
+  /** The runner's `it`. Every case body the kit passes is an async function. */
+  it: (name: string, fn: () => Promise<void>) => unknown;
   /** The runner's `expect`. */
   expect: (actual: unknown) => any;
 }
