@@ -419,8 +419,9 @@ describe('local-fs, selected by an administrator, serves every storage consumer'
     await expect(runner.assertStorageProviderUsable('azure-blob')).rejects.toThrow(/azure-blob/);
 
     const run = await runner.startBackup({ trigger: 'manual', createdById: 'admin-1' });
-    for (let attempt = 0; attempt < 400 && rows.get(run.id)?.status !== 'completed'; attempt += 1) {
-      await new Promise((resolve) => setImmediate(resolve));
+    // The run is detached and does real file I/O: wait for its terminal row, not for a tick count.
+    for (let attempt = 0; attempt < 500 && rows.get(run.id)?.status !== 'completed'; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
     }
 
     expect(rows.get(run.id)).toMatchObject({ status: 'completed', storageProvider: LOCAL_FS_DRIVER_ID, bucket: directory });
