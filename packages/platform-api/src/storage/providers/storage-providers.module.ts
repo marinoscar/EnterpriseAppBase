@@ -37,13 +37,12 @@ import { STORAGE_PROVIDER, type StorageProvider } from './storage-provider.inter
  *     consumer a visible line in a diff" — and this line is that diff.
  *
  * `StorageConfigService` IS EXPORTED, and part 3 of #373 is the change that
- * made it so — the one-line change this comment predicted, made where the need
- * became visible. Three services outside this module
- * (`ObjectsService`, `ProfileImageService`, `DatabaseBackupRunnerService`)
- * record the ACTIVE PROVIDER ID onto a row, and until part 3 all three wrote
- * the literal `'s3'`. They now ask `StorageConfigService.activeProvider()`,
- * which is the same settings read the bucket comes from, so a row cannot name
- * one configuration's bucket and another's provider.
+ * made it so: the services that record the ACTIVE PROVIDER ID onto a row asked
+ * `StorageConfigService.activeProvider()`, so a row cannot name one
+ * configuration's bucket and another's provider. Since PP-14.1 (#919) the rows
+ * record `STORAGE_PROVIDER`'s own `kind` instead (so an app backend is not
+ * recorded as `s3`); the export remains for the admin routes, the status route
+ * and `DatabaseBackupRunnerService`'s freshness read.
  *
  * ⚠ EXPORTED, NOT `@Global()`. A consumer takes it by adding this module to its
  * `imports` — a visible line in a diff — exactly as `CredentialsModule`

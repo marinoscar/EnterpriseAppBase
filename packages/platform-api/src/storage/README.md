@@ -9,7 +9,7 @@ One place that decides where a deployment's bytes go, moves them without passing
 | Part | Source | What it is |
 |---|---|---|
 | Module | `storage.module.ts`, `storage.options.ts` | `StorageModule.forRoot(options)`: the objects API, the status route, the cleanup cron (enqueue only) and the two job handlers; registers the slice's key prefixes. |
-| Provider | `providers/` | `STORAGE_PROVIDER`, `StorageProvider`, `ResolvingStorageProvider` (resolves the configuration per call), `S3StorageProvider` (`s3`, `r2`, `s3compatible`), `StorageProvidersModule`. |
+| Provider | `providers/` | `STORAGE_PROVIDER`, `StorageProvider` (with `kind`, the id rows record), `ResolvingStorageProvider` (the default: resolves the configuration per call), `S3StorageProvider` (`s3`, `r2`, `s3compatible`), `StorageProvidersModule`, `StorageProviderBindingModule` (holds the app's `provider` binding). |
 | Configuration | `config/` | `StorageConfigService` (the `storage` settings namespace plus the credential store, cached 5 s), `StorageNotConfiguredError` (503), `StorageConfigModule` (admin routes, connection test, bucket provisioning, the `storage.config` and `storage.bucket` Doctor checks, the egress contributor), `STORAGE_SYSTEM_SETTINGS`. |
 | Objects | `objects/`, `status/` | `ObjectsService` and its controller: simple and resumable uploads (presigned part URLs), list, metadata, download URL, delete; `org.id` on the span of create, download and delete. |
 | Processing | `processing/`, `handlers/storage-object-process.handler.ts` | `ObjectProcessorRegistry` (processors self-register), `ObjectProcessingService`, the server-only `storage.object.process` job. |
@@ -21,7 +21,7 @@ One place that decides where a deployment's bytes go, moves them without passing
 | Ports and data | `ports.ts`, `data/storage-db.ts` | `STORAGE_SYSTEM_DATA` (the bypass client) and the structural rows of the `storage` fragment. |
 | Test seams | `testing/` (`/storage/testing`) | The `storage` conformance suite. |
 
-Not here: a non-S3 driver (an Azure Blob provider is deferred; override `STORAGE_PROVIDER`), AI output keys (`ai-outputs/`, owned by the AI slice, #739), database backup keys (`database-backups/`, the db-backup slice, #740), deleting an organization's objects (org offboarding, #743; it uses `orgKeyPrefixes`), and moving existing objects to new keys (never: `storage_objects.storage_key` is stored per row).
+Not here: a non-S3 driver (an Azure Blob provider is deferred; bind your own with `StorageModule.forRoot({ provider })`, and see the driver registry of PP-14.7), AI output keys (`ai-outputs/`, owned by the AI slice, #739), database backup keys (`database-backups/`, the db-backup slice, #740), deleting an organization's objects (org offboarding, #743; it uses `orgKeyPrefixes`), and moving existing objects to new keys (never: `storage_objects.storage_key` is stored per row).
 
 ## Install and peer dependencies
 
@@ -51,7 +51,7 @@ export { StorageConfigModule } from '@marinoscar/platform-api/storage';
 { provide: STORAGE_SYSTEM_DATA, useExisting: PrismaSystemService }
 ```
 
-`main.ts` caps the simple upload with the slice's ceiling: `simpleUploadFileSizeLimit(config.get('storage.maxFileSize'), app.get(STORAGE_OPTIONS).maxSimpleUploadBytes)`. A feature that moves bytes imports `StorageProvidersModule` and injects `STORAGE_PROVIDER`; a feature that records the provider of a row injects `StorageConfigService.activeProvider()`.
+`main.ts` caps the simple upload with the slice's ceiling: `simpleUploadFileSizeLimit(config.get('storage.maxFileSize'), app.get(STORAGE_OPTIONS).maxSimpleUploadBytes)`. A feature that moves bytes imports `StorageProvidersModule` and injects `STORAGE_PROVIDER`; a feature that records the provider of a row writes `provider.kind` of the injected `STORAGE_PROVIDER` (the configured `s3`/`r2`/`s3compatible` for the default provider, the app backend's id for a bound one). `StorageConfigService.activeProvider()` stays for code that needs the configured kind itself.
 
 ## Configuration
 
@@ -63,6 +63,7 @@ export { StorageConfigModule } from '@marinoscar/platform-api/storage';
 | `partSizeBytes` | `number` (at least 5 MiB) | the deployment's `storage.partSize` (`STORAGE_PART_SIZE`), else 10 MiB | The resumable upload's part size. |
 | `staleUploadHours` | `number` | `24` (`DEFAULT_STALE_UPLOAD_HOURS`) | How long an unfinished upload is left before the cleanup job reclaims it. |
 | `imports` | `ModuleMetadata['imports']` | `[]` | Modules imported next to the slice: the app's host module binding `STORAGE_SYSTEM_DATA`. |
+| `provider` | `PortBinding<StorageProvider>` | absent: `ResolvingStorageProvider` | Replaces the object store for **every** package consumer (rung 3, below). Exactly one of `useExisting`, `useClass`, `useFactory`; its dependencies come from `imports` and global modules. Code, not configuration: the one option that is not a value. |
 
 `ProfileImageModule.forRoot()` takes no option. The deployment limits stay the app's configuration keys (`storage.maxFileSize`, `storage.allowedMimeTypes`, `storage.signedUrlExpiry`, `storage.partSize`; see Infra).
 
@@ -72,7 +73,8 @@ export { StorageConfigModule } from '@marinoscar/platform-api/storage';
 |---|---|---|---|---|---|
 | `StorageModule.forRoot` | option | `forRoot(options?: StorageModuleOptions): DynamicModule` | Mount the objects API, its jobs and the cleanup cron once, with deployment tuning | experimental | [example](../../../../apps/api/src/platform/storage/storage.config.ts) |
 | `ProfileImageModule.forRoot` | option | `forRoot(): DynamicModule` | Mount the profile-image routes, after the user-settings namespaces are registered | experimental | [example](../../../../apps/api/src/platform/storage/storage.config.ts) |
-| `STORAGE_PROVIDER` | token | `{ provide: STORAGE_PROVIDER, useClass: YourProvider }` | Rung 3: a non-S3 backend (Azure Blob, local disk); there is deliberately no driver registry | stable | [example](../../../../apps/api/test/storage/storage-extension-points.spec.ts) |
+| `StorageModuleOptions.provider` | option | `provider?: PortBinding<StorageProvider>` (`{ useClass }`, `{ useExisting }` or `{ useFactory, inject }`) | Rung 3: a non-S3 backend (Azure Blob, local disk) for every package consumer; there is deliberately no driver registry yet | experimental | [example](../../../../apps/api/src/platform-extensions/storage/in-memory-storage.provider.ts) |
+| `STORAGE_PROVIDER` | token | `@Inject(STORAGE_PROVIDER) storage: StorageProvider` | Inject the object store (the app's `provider`, else the resolving provider). Read it; do **not** provide it in an app module (invisible to package modules) | stable | [example](../../../../apps/api/test/examples/storage/storage-provider-override.spec.ts) |
 | `STORAGE_SYSTEM_DATA` | token | `{ provide: STORAGE_SYSTEM_DATA, useExisting: PrismaSystemService }` | Bind the bypass client the four cross-organization paths use | experimental | [example](../../../../apps/api/src/platform/storage/storage-host.module.ts) |
 | `nodeObjectStoreBinding` | token | `ExistingProvider` (`NODE_OBJECT_STORE` to `STORAGE_PROVIDER`) | Let the nodes slice sign its GET and PUT through the app's storage provider | experimental | [example](../../../../apps/api/src/platform/jobs/jobs-host.module.ts) |
 | `ObjectProcessorRegistry` | registry | `registry.register(processor: ObjectProcessor): void` | Add a post-upload processor (`registerObjectProcessor`): call it from the processor's `onModuleInit` | experimental | [example](../../../../apps/api/src/examples/storage/example-metadata.processor.ts) |
@@ -90,7 +92,9 @@ Supporting exports (experimental unless noted): the module options, `STORAGE_OPT
 
 1. **Option.** `forRoot({ maxSimpleUploadBytes, partSizeBytes, staleUploadHours })`: deployment tuning, no code.
 2. **Registry.** A post-upload processor registers itself with `ObjectProcessorRegistry` from `onModuleInit` (the pattern of `JobHandlerRegistry` and `DoctorCheckRegistry`): lower `priority` runs first, `canProcess` is a synchronous, I/O-free predicate over the row, and an upload that no processor wants is `ready` at once. A writer under a new key prefix declares it with `registerKeyPrefix({ id, prefix, owner, scope, description })` (a malformed, duplicate or overlapping prefix is refused at registration) and builds its keys with `buildObjectKey`.
-3. **Token.** A non-S3 backend overrides `STORAGE_PROVIDER` with its own `StorageProvider`. No driver registry exists (Azure Blob is deferred until a consumer needs it); file a seam request if you need one.
+3. **Binding.** A non-S3 backend is passed as `StorageModule.forRoot({ provider: { useClass: YourProvider } })`, and every package consumer (the objects API, profile images, exports, user-data, database backups, the AI output writer, the nodes data plane) is injected with it. Implement the whole `StorageProvider`, including `kind` (the id written to `storage_objects.storage_provider` and the backup rows) and the synchronous `getBucket()`. No driver registry exists (the full one, with per-driver settings and a form, is PP-14.7); file a seam request if you need more. A working in-memory provider and the test that boots the real consumers: [`apps/api/src/platform-extensions/storage/`](../../../../apps/api/src/platform-extensions/storage/in-memory-storage.provider.ts), [`apps/api/test/examples/storage/storage-provider-override.spec.ts`](../../../../apps/api/test/examples/storage/storage-provider-override.spec.ts).
+
+   **Providing `STORAGE_PROVIDER` in an app module does not work**, and an earlier version of this recipe said it did. Every package module imports `StorageProvidersModule`, and Nest resolves a token from the consuming module's own providers and imports first, so an app-level (or even `@Global()`) provider of the token is never seen by them. How the option reaches them without editing the sixteen importers: `forRoot({ provider })` imports `StorageProviderBindingModule`, a `@Global()` module providing one private token (`STORAGE_PROVIDER_BINDING`); `StorageProvidersModule` provides `STORAGE_PROVIDER` as that binding when present and `ResolvingStorageProvider` otherwise. Rejected: making `StorageProvidersModule` itself dynamic, because a bare `StorageProvidersModule` and a configured one are two different modules to Nest, so each of the sixteen importers would have to take the same configured instance.
 
 ### Writing a processor
 
@@ -161,6 +165,7 @@ New subpath in this version. From the reference app's local `src/storage/` (#736
 - `STORAGE_KEY_PREFIXES` (the frozen view) is the app's now (`platform/storage/storage-key-prefix.view.ts`); the purge reads `allKeyPrefixes()` of the booted app. `StorageKeyPrefixDef` gains an optional `scope` (absent means `deployment`, the pre-#736 behaviour).
 - New uploads are `uploads/<orgId>/…`. Existing objects keep their keys; nothing to migrate.
 - `STORAGE_PROVIDER` is a `Symbol.for(...)` key now; inject it by the exported constant as before.
+- PP-14.1 (#919): `StorageModule.forRoot({ provider })` replaces the object store for every package consumer; the earlier "provide `STORAGE_PROVIDER` in your app module" recipe never reached them and is removed. `StorageProvider` gains the required `kind: string` (a custom provider must add it; `S3StorageProvider.providerId` stays as a deprecated alias of `kind`). Rows record `provider.kind`. `ObjectsService`, `ProfileImageService` and `ExportRunHandler` no longer take `StorageConfigService` (constructor change only for code that builds them by hand). Without `provider`, behaviour and the API are unchanged.
 - `npm run storage:purge` runs `node dist/storage-purge.main.js`; its flags and JSON output are unchanged.
 - Job type strings (`storage.cleanup.stale-uploads`, `storage.object.process`), routes, permissions, the settings namespace, the credential address and audit actions are unchanged.
 
