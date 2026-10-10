@@ -10,6 +10,8 @@ sessions. Every call runs one gate pipeline that enforces the kill switch,
 provider and model enablement, capabilities, the key policy and rate limits,
 and records a usage row. Provider keys never leave the server. Five providers
 ship: `openai`, `anthropic`, `gemini`, `azure-openai` and `openai-compatible`.
+An app or a package it installs adds its own with `registerAiProvider`, and it
+is configured, keyed, metered and limited like the built-ins (§4).
 
 ## 1. Purpose
 
@@ -61,13 +63,16 @@ Configuration lives in four places, split by sensitivity:
 // ai namespace (defaults in comments)
 { enabled: boolean /*false*/,
   keyPolicy: 'byok' | 'byok_with_org_fallback' /*'byok'*/,   // AI_KEY_POLICIES
-  providers: {
+  providers: {                       // a RECORD keyed by provider id (below)
     openai:    { enabled /*false*/, baseUrl? },
     anthropic: { enabled /*false*/, baseUrl? },
     gemini:    { enabled /*false*/, baseUrl? },
     'azure-openai': { enabled, baseUrl? /*https*/, apiVersion?, apiStyle?: 'responses'|'chat_completions',
                       deployments?: Record<modelId, deploymentName> },
-    'openai-compatible': { enabled, baseUrl? /*http(s)*/, apiStyle?, requiresKey?: boolean /*true*/ } },
+    'openai-compatible': { enabled, baseUrl? /*http(s)*/, apiStyle?, requiresKey?: boolean /*true*/ },
+    // ...and one slot per provider an app or package registered:
+    // [id]: { enabled /*false*/ } & the provider's own non-secret settings
+  },
   defaults: { maxOutputTokensCap?: number, allowBackgroundRuns: boolean /*true*/,
               allowRealtime: boolean /*false*/ },
   logPromptContent: boolean /*false*/,
@@ -77,8 +82,20 @@ Configuration lives in four places, split by sensitivity:
   limits: { perUser?, orgKey?, perModel? } /*{} — unlimited, §2.22*/ }
 ```
 
-- Provider ids are `AI_PROVIDER_IDS` in
-  `apps/api/src/common/schemas/settings.schema.ts`.
+- A provider id is any string matching `AI_PROVIDER_ID_PATTERN`
+  (`^[a-z][a-z0-9-]{1,47}$`, `@marinoscar/platform-contract/ai`);
+  `BUILTIN_AI_PROVIDER_IDS` names the five the platform ships.
+  `ai.providers` is a record, built from the provider registry
+  (`registerAiProvider`): every registered provider always has a slot, which a
+  fresh install reads as switched off with the provider's defaults.
+- A slot carries `enabled` and only the provider's own non-secret settings,
+  validated on every write by the `settingsSchema` of its definition (§4). A
+  setting named like a secret is refused at registration.
+- A read never fails on stored data. A slot stored for a provider that is no
+  longer registered is dropped with one warning naming every such id, and a
+  slot that no longer parses falls back to the provider's defaults. The next
+  save drops the stale slot for good, so removing a provider cannot brick the
+  row.
 - The admin key is never in `system_settings`, because
   `GET /api/system-settings` returns the whole document.
 - The two cipher purposes (`'ai'`, `'ai_user_key'`) derive different
@@ -95,8 +112,8 @@ Three keys can pay for a call:
   discovery and the admin connection test use it. It serves user requests
   only under `byok_with_org_fallback`, and for a holder of `ai_config:write`
   under either policy, and only while `ai.deploymentKeyServesOrgs` is on
-  (default `true`, #739).
-- **Organization key** (#739): one per organization and provider, in the
+  (default `true`).
+- **Organization key**: one per organization and provider, in the
   organization credential store (`org_credentials`, purpose `ai`, tier
   `org`), set by the organization's own administrator at
   `/admin/settings/ai/organization-keys` (`org_ai_config:write`). It serves
@@ -111,7 +128,7 @@ principal's active organization, or a background job's own:
 
 ```ts
 resolve(userId, provider, { orgId }): Promise<{ apiKey; keySource: 'user' | 'org' | 'none'; tier: 'user' | 'org' | 'deployment' | 'none' }>
-// 0. provider slot has requiresKey: false                         -> { none }  (AI_KEYLESS_API_KEY marker)
+// 0. the provider is keyless (its definition or its slot says requiresKey: false) -> { none }  (AI_KEYLESS_API_KEY marker)
 // 1. user key exists                                              -> { user }
 // 2. org key exists AND (effective fallback OR org_ai_config:write in orgId)  -> { org, tier: org }
 // 3. deploymentKeyServesOrgs AND deployment key exists
@@ -137,10 +154,12 @@ which stores the key unverified and queues its recheck.
   resolution (`AiConfigWriterLookup`), never from a token claim, and only when
   the user has no key of their own; revoking the role ends rule 2 on the next
   call. These calls record `keySource: 'org'`.
-- **Rule 0 is an administrator's opt-in**, only on the `openai-compatible`
-  slot, for a self-hosted server that authenticates nobody. No key is read,
-  the adapter sends no credential, and usage records `keySource: 'none'`. It
-  holds under either policy, since nothing is billed.
+- **Rule 0 is keyless access**, in two forms: an administrator's opt-in on the
+  `openai-compatible` slot (`requiresKey: false`) for a self-hosted server that
+  authenticates nobody, or a provider whose definition declares
+  `requiresKey: false` (§4). No key is read, the adapter sends no credential,
+  and usage records `keySource: 'none'`. It holds under either policy, since
+  nothing is billed.
 - `ai_usage_events.keySource` also has `'admin_discovery'` for the platform's
   own catalog calls. The resolver never returns it.
 
@@ -563,7 +582,7 @@ is the single-model check and the one origin of `AI_MODEL_NOT_ENABLED`,
 - The catalog cron enqueues nothing while disabled.
 - The web app hides every AI card, route and navigation entry.
 
-### 2.19a The organization tier (#739)
+### 2.19a The organization tier
 
 An organization narrows the deployment's AI policy through the settings
 slice's org layer of the `ai` namespace (`orgAiSettingsSchema`, edited at
@@ -639,7 +658,7 @@ shape:
 
 ```ts
 { range: { from: 'YYYY-MM-DD', to: 'YYYY-MM-DD' },   // UTC days, inclusive
-  groupBy: 'day' | 'user' | 'model' | 'provider' | 'keySource' | 'org',   // 'org': admin report only (#739)
+  groupBy: 'day' | 'user' | 'model' | 'provider' | 'keySource' | 'org',   // 'org': admin report only
   totals: Bucket, series: Array<Bucket & { key: string; label: string }> }
 // Bucket = { requests, failed, inputTokens, outputTokens, reasoningTokens, cachedInputTokens,
 //            units: Record<string, number>, orgKeyRequests, orgKeyInputTokens, orgKeyOutputTokens }
@@ -684,8 +703,8 @@ never carry prompt text or keys.
 | `orgKey.tokensPerDayPerUser` | UTC day | input + output tokens of those calls |
 | `perModel['<provider>:<modelId>'].requestsPerMinutePerUser` | sliding 60 s | the user's calls to that model |
 | `perModel['<provider>:<modelId>'].maxOutputTokens` | — | an output cap (gate step 5) |
-| `perOrg.requestsPerDay` (#739) | UTC day | every call made in the organization, whoever's key pays; `details.scope: 'org'` |
-| `perOrg.outputTokensPerDay` (#739) | UTC day | output tokens of those calls |
+| `perOrg.requestsPerDay` | UTC day | every call made in the organization, whoever's key pays; `details.scope: 'org'` |
+| `perOrg.outputTokensPerDay` | UTC day | output tokens of those calls |
 
 - An organization's own `ai` layer may set `perOrg` lower than the
   deployment's (or set one the deployment left unlimited), never higher.
@@ -740,19 +759,27 @@ The admin refresh route (`POST /api/admin/ai/models/refresh`) answers `AI_DISABL
 reaches `JSON.stringify`. In a job, `throw err.toRateLimitError() ?? err`
 defers on a throttle instead of spending an attempt.
 
-`PUT /api/admin/ai/config` validates each provider against its own slot. Its
+`PUT /api/admin/ai/config` validates each provider against its own definition
+(§4), and so do `PATCH`/`PUT /api/system-settings` for the `ai` namespace. The
 refusals are plain `400`s with `details.reason` and `details.provider`:
 
 | `details.reason` | When |
 |---|---|
-| `AI_UNKNOWN_PROVIDER` | No settings slot for that id. |
+| `AI_UNKNOWN_PROVIDER` | No provider registered under that id (`registerAiProvider`), or an adapter registered without a definition. |
 | `AI_PROVIDER_NOT_REGISTERED` | Enabling a provider with no registered adapter. |
 | `AI_KEY_REQUIRED` | Fallback policy while an enabled, key-requiring provider has no admin key. |
-| `AI_PROVIDER_FIELD_UNSUPPORTED` | A field the slot does not have (`details.field`). |
-| `AI_PROVIDER_SETTINGS_INVALID` | The slot fails its schema (`details.fields`). |
-| `AI_BASE_URL_REQUIRED` | Enabling `azure-openai` or `openai-compatible` without `baseUrl`. |
+| `AI_PROVIDER_FIELD_UNSUPPORTED` | A field the provider's `settingsSchema` does not declare (`details.field`). |
+| `AI_PROVIDER_SETTINGS_INVALID` | The slot fails the provider's `settingsSchema` (`details.fields`). |
+| `AI_BASE_URL_REQUIRED` | Enabling a provider whose definition sets `requiresBaseUrl` (`azure-openai`, `openai-compatible`, or an app's own) without `baseUrl`. |
 
-### 2.24 The five providers
+### 2.24 The five built-in providers
+
+These ship in the package under `providers/<provider>/` and register their
+definitions through the same `registerAiProvider` an app uses
+(`providers/builtin-ai-providers.ts`): no private fast path. A provider an app
+adds (§4) is an adapter plus a definition and has no section here; the
+reference app's worked example is `example-transcribe`, a transcription-only
+stand-in for AssemblyAI.
 
 **`openai`** (`providers/openai/`). The Responses API with every port:
 `responses`, `images`, `audio`, `embeddings`, `realtime`. The only provider
@@ -838,7 +865,7 @@ features call them for ordinary users.
 
 - `ai_config:read` / `ai_config:write` — deployment-wide AI configuration.
   Seeded Admin only.
-- `org_ai_config:read` / `org_ai_config:write` (#739, org scope) — the
+- `org_ai_config:read` / `org_ai_config:write` (org scope) — the
   organization's own keys, usage report and `ai` layer. Granted to the
   `org_admin` membership role.
 - `ai:use` — call AI with one's own key (or the org fallback). Seeded to
@@ -859,8 +886,8 @@ Usage** (both `feature: 'ai'`), all gated on `ai_config:read`, then
 
 | Route | Purpose | Permission |
 |---|---|---|
-| `GET /api/admin/ai/config` | Namespace plus per-provider `enabled`, `baseUrl`, `settingsFields`, slot fields, masked `keyStatus`, `supportedCapabilities`; never the key | `ai_config:read` |
-| `PUT /api/admin/ai/config` | Replace config; `If-Match` (409 on mismatch); omitted `usageRetentionDays`/`hostedTools`/`limits` kept | `ai_config:write` |
+| `GET /api/admin/ai/config` | Namespace plus, for every registered provider, `enabled`, `baseUrl`, `settingsFields`, `settings` (its stored non-secret values), `requiresBaseUrl`, `help`, masked `keyStatus`, `supportedCapabilities`, and one generated-form `descriptors` entry per provider; never the key | `ai_config:read` |
+| `PUT /api/admin/ai/config` | Replace config; each provider's settings validated by its definition (§2.23); `If-Match` (409 on mismatch); omitted `usageRetentionDays`/`hostedTools`/`limits` kept | `ai_config:write` |
 | `PUT /api/admin/ai/providers/{provider}/key` | Set admin key; verified first, 400 `AI_KEY_INVALID` stores nothing | `ai_config:write` |
 | `DELETE /api/admin/ai/providers/{provider}/key` | Remove admin key; body `{"confirmation":"REMOVE"}`; warns `ORG_FALLBACK_WITHOUT_KEY` | `ai_config:write` |
 | `POST /api/admin/ai/providers/{provider}/test` | `credentials`, `list_models`, `responses_smoke` (billed); always 200 | `ai_config:write` |
@@ -903,69 +930,169 @@ To **use** AI in a feature, follow the recipe in
 [packages/platform-api/src/ai/README.md](../../packages/platform-api/src/ai/README.md): import
 `AiModule`, inject `AiService`, call `forUser(userId)`.
 
-To **add a provider to the platform package**, implement an adapter against
-the existing contract. Nothing in the registry, the gate pipeline, the admin
-API or the HTTP surface changes. Copy the closest worked example: `providers/openai/`
-(Responses API, every port), `providers/anthropic/` (Messages API,
-stateless), `providers/gemini/` (`generateContent`, metadata-enriched
-classifier), or compose the OpenAI pieces as `providers/azure-openai/` and
-`providers/openai-compatible/` do for an OpenAI-wire server.
+To **add a provider**, there are two places, and the first needs no edit under
+`packages/`:
 
-1. **Implement `AiProviderAdapter`** (`ai/core/provider-adapter.interface.ts`)
-   in `packages/platform-api/src/ai/providers/<provider>/`: `id` (permanent once jobs,
-   usage or keys reference it), `displayName`, `listModels`, `verifyKey`,
-   `classifyModel`, and only the ports the provider genuinely supports.
-   Declare `supportsPreviousResponseId: false` if it stores no responses and
+- [Add a provider from an app or package](#add-a-provider-from-an-app-or-package):
+  an app, or an npm package an app installs, such as AssemblyAI for transcripts.
+- [Add a built-in provider](#add-a-built-in-provider): a provider that ships in
+  `@marinoscar/platform-api` itself.
+
+Both implement the same adapter contract and register the same definition.
+Nothing in the gate pipeline, the admin API or the HTTP surface changes.
+
+### Add a provider from an app or package
+
+The numbered walkthrough, with every file, is
+[EXTENDING.md, Add an AI provider (the AssemblyAI case)](../EXTENDING.md#add-an-ai-provider-the-assemblyai-case).
+The contract is here. The reference app's worked example is
+`example-transcribe` (`apps/api/src/platform-extensions/ai/example-transcribe/`),
+a transcription-only provider over a fake transport, registered from
+`apps/api/src/app-registrations/ai.ts`. A provider is two things:
+
+- **The adapter** talks to the vendor. It implements `AiProviderAdapter`
+  (`ai/core/provider-adapter.interface.ts`) with only the capability ports the
+  vendor has (presence is the declaration: `audio.transcribe` alone gives
+  `audio_transcription` and nothing else, and the gate pipeline refuses every
+  other operation before the adapter is reached). It reads the key from
+  `AiCallContext.apiKey` and its settings from `AiCallContext.providerSettings`,
+  holds neither, sets `defaultBaseUrl` for the Doctor's egress inventory, and
+  fails only with `AiError`. Its Nest module imports `AiCoreModule` and the
+  adapter registers itself from `onModuleInit`:
+
+  ```ts
+  onModuleInit(): void {
+    this.registry.register(this);
+  }
+  ```
+
+  The last registration wins, with a warning, as in `JobHandlerRegistry`.
+- **The definition** tells the rest of the slice what the provider is before
+  its adapter runs: an `AiProviderDefinition`, registered with
+  `registerAiProvider` (both from `@marinoscar/platform-api/ai`) at import
+  time, before the application bootstraps (the registry freezes then, and a
+  later registration fails with `FROZEN`). `platform/ai/ai.config.ts` imports
+  `app-registrations/ai.ts` before it calls `AiModule.forRoot()`.
+
+| Definition field | Meaning |
+|---|---|
+| `id` | `^[a-z][a-z0-9-]{1,47}$` (`AI_PROVIDER_ID_PATTERN`), equal to the adapter's `id`. The key of `ai.providers`, the credential name of the deployment key, `UserAiKey.provider` and the provider part of an `ai.limits.perModel` key. Permanent |
+| `label`, `description?` | What the admin pages show |
+| `module` | The Nest module whose provider registers the adapter |
+| `settingsSchema` | A `z.object` of the provider's **non-secret** settings, stored beside `enabled` in `ai.providers.<id>`. `.describe('help')` is a field's help text and `.meta({ label })` its label in the generated form. A field named like a secret (`apiKey`, `key`, `token`, `secret`, `password`, ...), `enabled` or `hasKey` is refused |
+| `defaults` | The settings on a fresh install, without `enabled` (which starts `false`). Must parse with `settingsSchema` |
+| `requiresKey` | `true` needs a key for every call and shows a write-only key field. `false` is a provider that authenticates another way: calls resolve with `keySource: 'none'` (§2.2, rule 0) |
+| `requiresBaseUrl?` | The provider cannot be enabled before `settings.baseUrl` is set; `settingsSchema` must declare `baseUrl` |
+| `help?` | `{ key?, baseUrl? }`: the text under the key and the endpoint fields |
+| `sdkPackages?` | The npm packages the adapter imports (`['assemblyai']`), banned everywhere except the provider's own folder |
+
+A malformed definition throws at registration (a bad id, a secret-looking
+field, defaults that do not parse, `requiresBaseUrl` without a `baseUrl`
+field), and a duplicate id throws `DUPLICATE_ID`.
+
+**Registering is all the wiring.** `AiModule.forRoot` loads the `module` of
+every registered definition (or only the ids in its `providers` option; an id
+nobody registered throws at boot, naming the registered ones). The provider is
+off until an administrator enables it and stores a key, and it has:
+
+- a slot in the `ai` namespace, validated on every write by its
+  `settingsSchema` (§2.1, §2.23);
+- a descriptor in `GET /api/admin/ai/config` and a generated form on
+  `/admin/settings/ai`;
+- its keys through the existing routes and the existing credentials purpose
+  `ai`: the deployment key at `PUT /api/admin/ai/providers/{provider}/key`
+  (verified by the adapter's `verifyKey` before it is stored, under the
+  credential name equal to the provider id), the user key at
+  `PUT /api/ai/keys/{provider}` and the organization key at
+  `PUT /api/admin/ai/org-keys/{provider}`; no new purpose, route or table;
+- the same gate pipeline, usage rows, rate limits, kill switches and Doctor
+  checks as a built-in.
+
+**The SDK stays in its folder.** The adapter, its transport and its module live
+in one app folder (`platform-extensions/ai/<id>/`), the only place that may
+import the vendor's SDK. The app passes that folder as `providerDirs` to the
+`ai-no-sdk-leak` suite (`aiNoSdkLeak: { ..., providerDirs: ['platform-extensions/ai/'] }`
+in `apps/api/test/conformance.spec.ts`): paths are relative to each `apiTrees`
+root and end in `/`, and each must hold a source file, so a typo cannot exempt
+nothing. The suite then bans every registered `sdkPackages` entry anywhere
+else (the app, the web, the contract), and a `package.json` may declare an SDK
+a registered definition owns.
+
+**The web needs no code.** The admin AI page draws every provider from its
+descriptor (the Enabled switch, one control per settings field through
+`PluggableConfigForm`, a write-only key field), and the user and organization
+key pages list providers from the API. `registerAiProviderCard(id, Component)`
+(`@marinoscar/platform-web/ai/ui/provider-cards`) replaces the generated card
+for one provider; wrapping `AiGenericProviderCard` adds to it
+([the web README](../../packages/platform-web/src/ai/README.md#a-provider-an-app-added)).
+
+**Tests.**
+
+- `describeAiProviderConformance`
+  (`packages/platform-api/src/ai/testing/conformance.ts`) runs over a mocked
+  transport that validates what the real API validates. It asserts that
+  `listModels` returns ids, `verifyKey` maps ok and invalid correctly,
+  `classifyModel` returns schema-valid capabilities or `null`, and that each
+  port the adapter carries behaves: for `responses`, `create` returns
+  `outputText`, `stream` emits `response.created … response.completed` with
+  deltas that equal the final text, structured output yields a valid `parsed`,
+  a function-tool round trip works and an unsupported capability is
+  `AI_CAPABILITY_UNSUPPORTED`; for `audio`, `transcribe` returns text, accepts a
+  streamed input and refuses an input over `transcriptionMaxBytes` with
+  `AI_INVALID_REQUEST`. Every error is an `AiError`. The scenarios of a port
+  the adapter does not carry have nothing to check and pass.
+- `createAiRuntimeHarness({ extraProviders, extraAdapters, models,
+  extraProviderSettings })` (`@marinoscar/platform-api/ai/testing`) runs the
+  real `AiService`, key resolver, usage recorder and run state machine over
+  in-memory tables, with the extra provider enabled and a `HARNESS_USER` key
+  reaching its models, so a test proves the kill switch, key policy, limits and
+  usage over the provider.
+- The seven `ai-*` suites (§5) discover routes and job types, so they cover the
+  provider with no change; only `ai-no-sdk-leak` takes `providerDirs`.
+
+### Add a built-in provider
+
+To add a provider to the platform package, implement an adapter against the
+existing contract and register its definition inside the package. Copy the
+closest worked example: `providers/openai/` (Responses API, every port),
+`providers/anthropic/` (Messages API, stateless), `providers/gemini/`
+(`generateContent`, metadata-enriched classifier), or compose the OpenAI pieces
+as `providers/azure-openai/` and `providers/openai-compatible/` do for an
+OpenAI-wire server.
+
+1. **Implement `AiProviderAdapter`** in
+   `packages/platform-api/src/ai/providers/<provider>/`, as above. Declare
+   `supportsPreviousResponseId: false` if it stores no responses and
    `supportsHostedTools: false` if it has none of the hosted tools. Declare
    `fileInputStrategy` if it accepts stored inputs. Import the provider's SDK
    only in this folder.
-2. **Self-register** from `onModuleInit()`:
-
-   ```ts
-   onModuleInit(): void {
-     this.registry.register(this);
-   }
-   ```
-
-   The last registration wins, with a warning, as in `JobHandlerRegistry`.
+2. **Self-register** from `onModuleInit()` in the folder's `<provider>.module.ts`,
+   as above.
 3. **Write a classifier**: a curated rule table over known model-id shapes,
    returning `AiModelCapabilities` (`ai/core/capabilities.ts`) or `null` for
    an unknown id. If the listing carries facts, return them as
    `AiDiscoveredModel.metadata` and use `classifyModel`'s optional second
    argument to enrich the table.
 4. **Map every error onto `AiErrorCode`** (`ai/core/ai-error.ts`) with
-   `AiError.wrap(err, code, message)` or a specific `AiError`. Put only
-   status, provider error type and request id in `details`, never provider
-   text.
-5. **Run the conformance kit** (`describeAiProviderConformance`,
-   `packages/platform-api/src/ai/testing/conformance.ts`) over a mocked transport that
-   validates what the real API validates (the real SDK with an injected
-   `fetch`). It asserts: `listModels` returns ids; `verifyKey` maps ok and
-   invalid correctly; `classifyModel` returns schema-valid capabilities or
-   `null`; if `responses` exists, `create` returns `outputText`, `stream`
-   emits `response.created … response.completed` with deltas that equal the
-   final text, structured output yields a valid `parsed`, a function-tool
-   round trip works (chained, or replayed per the declared flag), and an
-   unsupported capability is `AI_CAPABILITY_UNSUPPORTED`; and every error is
-   an `AiError`.
-6. **Register the provider id**: add it to `AI_PROVIDER_IDS`
-   (`common/schemas/settings.schema.ts`), give it a `providers.<id>` slot
-   in each schema the `ai` namespace names (`settings.schema.ts`,
-   `settings/dto/system-settings-wire.schemas.ts`,
-   `settings/dto/system-settings-response.schemas.ts`) and in its defaults
-   and merge (`ai/ai.system-settings.ts`); `settings-parity.spec.ts` checks
-   one slot per id. Then run `npm run catalog:settings --workspace=api`. Add `<provider>.module.ts` to `AiModule`'s imports, and
-   add an SDK boundary spec like `providers/gemini/gemini-sdk-boundary.spec.ts`.
-
-**From an app or another package this is not supported yet** (PP-14.6). An
-adapter an app registers with `AiProviderRegistry.register` is listed and can
-be keyed and tested with `describeAiProviderConformance`, but it cannot be
-enabled: the `ai` settings namespace has a fixed slot per built-in provider
-id (step 6), `AiModule.forRoot` accepts only the five built-in provider
-modules, and the admin form has no fields for it. Until the provider
-definition registry ships, a provider is added by following the steps above
-inside the package, or filed as a seam request. The app-side recipe will be
-[EXTENDING.md](../EXTENDING.md#coming-in-pp-146-add-an-ai-provider).
+   `AiError.wrap(err, code, message)` or a specific `AiError`. Put only status,
+   provider error type and request id in `details`, never provider text.
+5. **Run the conformance kit** over a mocked transport (the real SDK with an
+   injected `fetch`).
+6. **Declare the provider.** Add `<provider>.provider-definition.ts` (an
+   `AiProviderDefinition` whose `settingsSchema` is the provider's slot fields)
+   and append it to `BUILTIN_AI_PROVIDER_DEFINITIONS` in
+   `providers/builtin-ai-providers.ts`, which registers it through
+   `registerAiProvider` in that order (the admin page's order). Append the id
+   to `BUILTIN_AI_PROVIDER_IDS`
+   (`packages/platform-contract/src/ai/constants.ts`) and its default slot to
+   `AI_SYSTEM_DEFAULTS.providers` in `ai/ai.system-settings.ts`
+   (`settings-parity.spec.ts` pins the defaults to the built-in ids), then run
+   `npm run catalog:settings --workspace=api`. Export the module from
+   `ai/index.ts`. Add an SDK boundary spec like
+   `providers/gemini/gemini-sdk-boundary.spec.ts`; `aiPackageProviderDirs`
+   picks the new folder up by itself. The admin card is generated, or add a
+   bespoke one to `BUILTIN_AI_PROVIDER_CARD_IDS` in
+   `packages/platform-web/src/ai/ui/admin/builtinAiProviderCards.ts`.
 
 A new AI route needs `AiEnabledGuard` plus `ai:use` (consumer) or
 `ai_config:*` (admin, no guard). A new AI job type must stay server-only.
@@ -982,7 +1109,7 @@ guardrails below discover all of these automatically.
 | Sentinel keys (admin, this user, another user) never appear in bodies, headers, logs, audit `meta`, usage rows, run rows or errors; the ephemeral secret only in `data.clientSecret` | `ai-secret-egress` |
 | The byok/fallback/keyless resolution rule over every inference route, sync and queued | `ai-key-policy` |
 | Every `ai.*` job type is in `JobHandlerRegistry.serverOnlyTypes()` | `ai-jobs-server-only` |
-| No file outside `ai/providers/<provider>/` imports a provider SDK, in the app, the web, the contract or the package (the trees the app passes) | `ai-no-sdk-leak` |
+| No file outside `ai/providers/<provider>/` imports a provider SDK, in the app, the web, the contract or the package (the trees the app passes), except the app folders passed as `providerDirs`; every registered definition's `sdkPackages` is banned outside them | `ai-no-sdk-leak` |
 | `@langchain/*` only under the allowed orchestration roots; no banned orchestration package installed or imported | `ai-orchestration-boundary` (`runOrchestrationBoundarySuite` from `/ai/testing`) |
 | The organization tier: the org kill switch, org keys never served under an effective `byok` to a non-administrator, org-key sentinels never egress | the `ai-kill-switch`, `ai-key-policy` and `ai-secret-egress` suites above, plus `apps/api/test/ai/ai-org-keys.integration.spec.ts` and `ai-org-usage.db.spec.ts` |
 | No provider SDK in `ai/core` | `packages/platform-api/src/ai/core/no-provider-sdk.spec.ts` |
@@ -995,7 +1122,12 @@ guardrails below discover all of these automatically.
 | AI crons only enqueue | `cron-enqueue-only` |
 | Streaming nginx location unbuffered | `apps/api/test/ai/ai-stream-nginx.spec.ts` |
 | Seed grants (Viewer lacks `ai:use`) | `apps/api/test/prisma/seed-data.spec.ts` |
-| One provider slot per id | `apps/api/src/common/schemas/settings-parity.spec.ts` |
+| `ai.providers` is an open record in every schema source, and the defaults carry exactly the built-in ids | `apps/api/src/common/schemas/settings-parity.spec.ts` |
+| A definition is refused for a bad id, a secret-looking or reserved settings field, defaults that do not parse, or `requiresBaseUrl` without a `baseUrl` field; the built-ins register through the same function | `packages/platform-api/src/ai/providers/ai-provider-definition.spec.ts` |
+| The `ai` namespace is built from the registry: today's stored shape loads unchanged, a stale slot is dropped with one warning, a write is validated by the provider's own schema | `packages/platform-api/src/ai/ai.system-settings.spec.ts`, `apps/api/test/examples/ai/ai-stored-settings.spec.ts` |
+| The harness runs the gates over an app's provider (`extraProviders`, `extraAdapters`) | `packages/platform-api/test/ai/testing/ai-runtime-harness.extra-provider.spec.ts` |
+| An app-side provider needs no package edit: it passes the adapter kit, is configured, keyed and metered through the existing routes, and is drawn by the admin page with no web code | `apps/api/test/examples/ai/example-transcribe.conformance.spec.ts`, `example-transcribe.e2e.spec.ts`, `apps/web/src/__tests__/examples/ai/example-provider-card.test.tsx` |
+| The generated card renders a descriptor and keeps the key write-only | `packages/platform-web/test/ai/components/AiGenericProviderCard.test.tsx`, `packages/platform-web/test/ai/pages/AiConfigPage.custom-provider.test.tsx` |
 | Each adapter passes the conformance kit | `packages/platform-api/src/ai/testing/fake-ai-provider.conformance.spec.ts`, `packages/platform-api/src/ai/providers/*/*.adapter.conformance.spec.ts` |
 
 The seven `ai-*` suites are the same suites in every app that consumes the AI slice: an app imports `@marinoscar/platform-api/ai/testing`, passes one fixture describing how it boots (`AiConformanceFixture`, [the reference](../../apps/api/test/conformance/ai-fixture.ts)) and the source trees it ships, and opts out of a suite only with a reason (`{ skip: 'reason' }`). None names a path; each is proved against a planted violation in `packages/platform-api/test/ai/testing/`. See [the testing README](../../packages/platform-api/src/testing/README.md#conformance-suite) for the options.
@@ -1047,6 +1179,26 @@ The seven `ai-*` suites are the same suites in every app that consumes the AI sl
 - **Hosted tools not mapped for Gemini.** Its grounding citations and code
   execution results do not fit the neutral result types; an honest refusal
   beats a lossy mapping.
+- **A provider is a definition plus an adapter, not an adapter alone.** The
+  adapter registry already let an app add one, but the `ai` namespace had a
+  fixed slot per built-in id, so the provider could be keyed and never enabled.
+  The definition (`registerAiProvider`) is what the namespace, the admin form
+  and the key routes are built from. Rejected: a slot per id in the contract
+  (a package edit per provider), and deriving settings from the adapter (it
+  does not exist until its module boots, and the namespace is read before).
+- **`ai.providers` is a record validated by the registry, not an object with
+  one key per id.** The contract validates the shape (a pattern id and
+  `enabled`); each slot's own fields are validated where the registry lives.
+  A read never fails: an unregistered slot is dropped with one warning, so
+  removing a provider cannot brick the settings row.
+- **The built-ins register through the same function.** A private fast path
+  would let the app-side path rot unnoticed. The five definitions keep their
+  current settings fields, so the stored rows, the admin cards and the
+  defaults catalog are unchanged.
+- **The web draws a provider from its descriptor.** One generated card
+  (`PluggableConfigForm`) serves every provider without a registered card, so
+  an app adds no web code. Rejected: a card component required per provider,
+  and a plugin list in the browser bundle.
 
 ## 7. Verification
 
@@ -1055,6 +1207,9 @@ cd apps/api
 npm test -- src/ai test/ai
 npm run test:db -- ai-usage
 cd ../web && npm test -- ai
+# the app-side provider, end to end (from the repository root)
+npx jest --config apps/api/test/jest.config.js --rootDir apps/api test/examples/ai
+cd apps/web && npx vitest run src/__tests__/examples/ai
 ```
 
 By hand, following the [runbook](../runbooks/ai-configuration.md):
@@ -1067,6 +1222,10 @@ By hand, following the [runbook](../runbooks/ai-configuration.md):
 4. `/admin/settings/ai/usage` shows the request.
 5. Switch AI off. `/ai` disappears and `POST /api/ai/responses` answers
    `403` with `details.reason: "AI_DISABLED"`.
+6. In the reference app, `/admin/settings/ai` lists **Example Transcribe**
+   (the registered worked example) switched off, with a Region select and a
+   key field. Enable it with a key, and `GET /api/admin/ai/config` returns its
+   `descriptors` entry and `settings.region`.
 
 ## History
 
@@ -1088,3 +1247,10 @@ By hand, following the [runbook](../runbooks/ai-configuration.md):
   the organization tier (org keys, the org layer and kill switch,
   `deploymentKeyServesOrgs`, per-org caps and usage), the feature registry,
   `AI_TARGET_RESOLVER` and `importKey`.
+- #924 (PP-14.6): `registerAiProvider` and `AiProviderDefinition`; `ai.providers`
+  as an open record built from the provider registry; the five built-ins
+  registered through the same function; `AiModule.forRoot` loading every
+  registered module; descriptors in the admin config; `providerDirs` for
+  `ai-no-sdk-leak`; `extraProviders`/`extraAdapters` for the runtime harness;
+  the web provider card registry and generated card; the `example-transcribe`
+  worked example.
