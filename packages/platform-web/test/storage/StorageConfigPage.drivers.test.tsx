@@ -127,7 +127,7 @@ describe('StorageConfigPage — drivers from descriptors', () => {
     await user.click(saveButton());
 
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
-    expect(save.mock.calls[0][0]).toEqual({
+    expect(save.mock.calls[0]![0]).toEqual({
       provider: 'local-fs',
       drivers: { 'local-fs': { directory: '/var/lib/objects' } },
     });
@@ -159,7 +159,7 @@ describe('StorageConfigPage — drivers from descriptors', () => {
     await user.click(saveButton());
 
     await waitFor(() => expect(save).toHaveBeenCalled());
-    expect(save.mock.calls[0][0]).toEqual({ provider: 'local-fs', drivers: { 'local-fs': { directory: '' } } });
+    expect(save.mock.calls[0]![0]).toEqual({ provider: 'local-fs', drivers: { 'local-fs': { directory: '' } } });
   });
 
   it('keeps a driver\'s edits when the admin switches away and back', async () => {
@@ -190,7 +190,7 @@ describe('StorageConfigPage — drivers from descriptors', () => {
 
     await user.click(saveButton());
     await waitFor(() => expect(save).toHaveBeenCalled());
-    const body = save.mock.calls[0][0];
+    const body = save.mock.calls[0]![0];
     expect(body.secrets).toEqual({ 'vault-blob': { connectionString: TYPED_SECRET } });
     expect(JSON.stringify(body.drivers)).not.toContain(TYPED_SECRET);
     expect(body).not.toHaveProperty('secretAccessKey');
@@ -209,7 +209,7 @@ describe('StorageConfigPage — drivers from descriptors', () => {
     await user.click(saveButton());
 
     await waitFor(() => expect(save).toHaveBeenCalled());
-    expect(save.mock.calls[0][0]).not.toHaveProperty('secrets');
+    expect(save.mock.calls[0]![0]).not.toHaveProperty('secrets');
     expect(screen.getByLabelText(/Connection string/)).not.toBeRequired();
   });
 
@@ -335,7 +335,7 @@ describe('StorageConfigPage — an app\'s own panel and the edge cases', () => {
     await user.click(saveButton());
 
     await waitFor(() => expect(save).toHaveBeenCalled());
-    expect(save.mock.calls[0][0].drivers).toEqual({ 'local-fs': { directory: '/from-panel' } });
+    expect(save.mock.calls[0]![0].drivers).toEqual({ 'local-fs': { directory: '/from-panel' } });
   });
 
   it('blocks Save, Test and the provisioning action while the registered validator reports errors', async () => {
@@ -348,7 +348,10 @@ describe('StorageConfigPage — an app\'s own panel and the edge cases', () => {
           {errors.directory && <p role="alert">{errors.directory}</p>}
         </>
       ),
-      { validate: (value) => (String(value.directory ?? '').startsWith('/') || !value.directory ? {} : { directory: 'Must be absolute.' }) },
+      {
+        validate: (value): Record<string, string> =>
+          String(value.directory ?? '').startsWith('/') || !value.directory ? {} : { directory: 'Must be absolute.' },
+      },
     );
     setHook(storageConfigWithCustomDrivers());
     render(<StorageConfigPage />);

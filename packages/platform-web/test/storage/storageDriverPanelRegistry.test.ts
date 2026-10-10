@@ -70,7 +70,7 @@ describe('the storage driver panel registry', () => {
 
   it('hands the page the validator registered with the panel', () => {
     registerStorageDriverPanel('local-fs', AppPanel, {
-      validate: (value) => (value.directory === 'bad' ? { directory: 'No.' } : {}),
+      validate: (value): Record<string, string> => (value.directory === 'bad' ? { directory: 'No.' } : {}),
     });
 
     expect(getStorageDriverPanelValidator('local-fs')?.({ directory: 'bad' })).toEqual({ directory: 'No.' });
