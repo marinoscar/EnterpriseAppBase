@@ -82,6 +82,8 @@ export const mockAiAdminConfig: AiAdminConfig = {
       enabled: false,
       baseUrl: null,
       settingsFields: ['baseUrl'],
+      settings: {},
+      requiresBaseUrl: false,
       apiVersion: null,
       apiStyle: null,
       deployments: null,
@@ -123,6 +125,16 @@ export const mockAiAdminConfigWithCompatible: AiAdminConfig = {
       enabled: true,
       baseUrl: 'https://contoso.openai.azure.com',
       settingsFields: ['baseUrl', 'apiVersion', 'apiStyle', 'deployments'],
+      settings: {
+        baseUrl: 'https://contoso.openai.azure.com',
+        apiVersion: '2024-10-21',
+        deployments: { 'gpt-4o': 'contoso-gpt-4o' },
+      },
+      requiresBaseUrl: true,
+      help: {
+        baseUrl:
+          'Your Azure OpenAI resource endpoint, e.g. https://my-resource.openai.azure.com. Must use https. Required to enable the provider.',
+      },
       apiVersion: '2024-10-21',
       apiStyle: null,
       deployments: { 'gpt-4o': 'contoso-gpt-4o' },
@@ -137,12 +149,69 @@ export const mockAiAdminConfigWithCompatible: AiAdminConfig = {
       enabled: false,
       baseUrl: null,
       settingsFields: ['baseUrl', 'apiStyle', 'requiresKey'],
+      settings: {},
+      requiresBaseUrl: true,
+      help: {
+        baseUrl:
+          "The server's API root, including /v1 — e.g. http://ollama:11434/v1 or https://vllm.internal.example.com/v1. Required to enable the provider.",
+      },
       apiVersion: null,
       apiStyle: null,
       deployments: null,
       requiresKey: null,
       keyStatus: { configured: false, hint: null, updatedAt: null, updatedByUserId: null },
       supportedCapabilities: ['responses', 'tools', 'streaming'],
+    },
+  ],
+};
+
+/**
+ * The admin view with a provider an app registered (`example-transcribe`, the
+ * reference app's AssemblyAI stand-in, PP-14.6) beside OpenAI: one `region`
+ * setting, a deployment key, and the descriptor the API serves for it.
+ */
+export const mockAiAdminConfigWithExample: AiAdminConfig = {
+  ...mockAiAdminConfig,
+  providers: [
+    ...mockAiAdminConfig.providers,
+    {
+      id: 'example-transcribe',
+      displayName: 'Example Transcribe',
+      registered: true,
+      enabled: false,
+      baseUrl: null,
+      settingsFields: ['region'],
+      settings: { region: 'us' },
+      requiresBaseUrl: false,
+      apiVersion: null,
+      apiStyle: null,
+      deployments: null,
+      requiresKey: null,
+      keyStatus: { configured: false, hint: null, updatedAt: null, updatedByUserId: null },
+      supportedCapabilities: ['audio_transcription'],
+    },
+  ],
+  descriptors: [
+    {
+      kind: 'ai-provider',
+      id: 'openai',
+      label: 'OpenAI',
+      description: "OpenAI's Responses API, embeddings, images, audio and realtime.",
+      fields: [
+        { kind: 'boolean', name: 'enabled', label: 'Enabled', help: 'Switch the provider on for this deployment.' },
+        { kind: 'string', name: 'baseUrl', label: 'baseUrl' },
+        { kind: 'secret', name: 'apiKey', label: 'API key', hasValue: true, required: true },
+      ],
+    },
+    {
+      kind: 'ai-provider',
+      id: 'example-transcribe',
+      label: 'Example Transcribe',
+      fields: [
+        { kind: 'boolean', name: 'enabled', label: 'Enabled', help: 'Switch the provider on for this deployment.' },
+        { kind: 'enum', name: 'region', label: 'Region', help: 'Processing region', options: ['us', 'eu'] },
+        { kind: 'secret', name: 'apiKey', label: 'API key', hasValue: false, required: true },
+      ],
     },
   ],
 };

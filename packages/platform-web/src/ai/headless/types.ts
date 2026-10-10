@@ -1,3 +1,5 @@
+import type { PluggableDescriptor } from '@marinoscar/platform-contract/settings';
+
 // =============================================================================
 // Shared vocabulary
 // =============================================================================
@@ -274,6 +276,20 @@ export interface AiAdminProvider {
    * so an older API that omits it still works — absent means `['baseUrl']`.
    */
   settingsFields?: AiProviderSettingsField[];
+  /**
+   * The provider's settings as stored, besides `enabled`: the values of
+   * exactly the `settingsFields` (PP-14.6, #924). A provider an app or package
+   * registered with `registerAiProvider` has only these (no typed field
+   * below); read its values from here. Absent from an API older than #924.
+   */
+  settings?: Record<string, unknown>;
+  /**
+   * Whether the provider cannot be enabled before its `baseUrl` is set (it has
+   * no default host). Absent from an API older than #924 — read as `false`.
+   */
+  requiresBaseUrl?: boolean;
+  /** The provider's own help texts for its key and endpoint fields, when it declares any (#924). */
+  help?: AiProviderHelp;
   /** Azure OpenAI `api-version`; `null` for the default ({@link AI_AZURE_DEFAULT_API_VERSION}). */
   apiVersion?: string | null;
   /** Wire API; `null` for the provider's default (see {@link aiDefaultApiStyle}). */
@@ -289,12 +305,53 @@ export interface AiAdminProvider {
 }
 
 /**
- * A provider settings field besides `enabled` (#448) — `AiAdminProvider.settingsFields`.
+ * The help texts a provider's definition declares (PP-14.6, #924).
  *
  * @stability experimental
  */
-export type AiProviderSettingsField =
+export interface AiProviderHelp {
+  /** Under the key field. */
+  key?: string;
+  /** Under the endpoint (`baseUrl`) field. */
+  baseUrl?: string;
+}
+
+/**
+ * The settings fields the five built-in providers carry (#448); the form
+ * models and the bespoke cards know these by name.
+ *
+ * @stability experimental
+ */
+export type BuiltinAiProviderSettingsField =
   'baseUrl' | 'apiVersion' | 'apiStyle' | 'deployments' | 'requiresKey';
+
+/**
+ * A provider settings field besides `enabled` — `AiAdminProvider.settingsFields`.
+ * Any string since #924 (PP-14.6): a provider an app registered declares its
+ * own; the built-ins' are {@link BuiltinAiProviderSettingsField}.
+ *
+ * @stability experimental
+ */
+export type AiProviderSettingsField = string;
+
+const BUILTIN_SETTINGS_FIELDS: ReadonlySet<string> = new Set<BuiltinAiProviderSettingsField>([
+  'baseUrl',
+  'apiVersion',
+  'apiStyle',
+  'deployments',
+  'requiresKey',
+]);
+
+/**
+ * Whether `field` is one of the five built-in providers' named settings
+ * ({@link BuiltinAiProviderSettingsField}); any other is a provider's own.
+ *
+ * @param field - a settings field name.
+ * @stability experimental
+ */
+export function isBuiltinAiProviderSettingsField(field: string): field is BuiltinAiProviderSettingsField {
+  return BUILTIN_SETTINGS_FIELDS.has(field);
+}
 
 /**
  * Which wire API an OpenAI-shaped adapter speaks (#448).
@@ -371,6 +428,8 @@ export interface AiProviderSettingsInput {
   deployments?: Record<string, string> | null;
   /** Whether requires key. */
   requiresKey?: boolean | null;
+  /** A setting only a provider an app registered declares (#924); sent as is. */
+  [setting: string]: unknown;
 }
 
 /**
@@ -398,6 +457,12 @@ export function aiProviderSettingsToInput(
     deployments?: Record<string, string> | null;
     /** Whether requires key. */
     requiresKey?: boolean | null;
+    /**
+     * The values of the provider's OWN settings (#924), by field name: the
+     * ones its `settingsFields` lists beyond the five built-in names. An
+     * empty (`undefined`, `null`, `''`) value is left out, the provider default.
+     */
+    own?: Record<string, unknown> | undefined;
   }
 ): AiProviderSettingsInput {
   const fields = aiProviderSettingsFields(provider);
@@ -415,6 +480,11 @@ export function aiProviderSettingsToInput(
   }
   if (fields.includes('requiresKey') && typeof values.requiresKey === 'boolean') {
     input.requiresKey = values.requiresKey;
+  }
+  for (const field of fields) {
+    if (isBuiltinAiProviderSettingsField(field)) continue;
+    const own = values.own?.[field];
+    if (own !== undefined && own !== null && own !== '') input[field] = own;
   }
   return input;
 }
@@ -454,6 +524,13 @@ export interface AiAdminConfig {
   deploymentKeyServesOrgs?: boolean;
   /** The providers. */
   providers: AiAdminProvider[];
+  /**
+   * One generated-form description per provider that has a definition, in the
+   * order of `providers` (PP-14.6, #924): `enabled`, the provider's settings
+   * fields, then a write-only `apiKey` secret when it needs a key. Absent from
+   * an API older than #924.
+   */
+  descriptors?: PluggableDescriptor[];
   /** The version. */
   version: number;
   /** When updated happened (ISO-8601). */
@@ -528,7 +605,7 @@ export interface AiAdminConfigInput {
 export function aiAdminConfigToInput(config: AiAdminConfig): AiAdminConfigInput {
   const providers: AiAdminConfigInput['providers'] = {};
   for (const provider of config.providers) {
-    providers[provider.id] = aiProviderSettingsToInput(provider, provider);
+    providers[provider.id] = aiProviderSettingsToInput(provider, { ...provider, own: provider.settings });
   }
   return {
     enabled: config.enabled,

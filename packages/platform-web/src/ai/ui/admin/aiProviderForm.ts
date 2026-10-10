@@ -10,8 +10,14 @@
  * `settingsFields`. A field a provider does not list is a 400
  * `AI_PROVIDER_FIELD_UNSUPPORTED`, so the three built-in providers (openai,
  * anthropic, gemini) keep sending exactly `{ enabled, baseUrl }`, as before.
+ *
+ * A provider an app or package registered (PP-14.6, #924) has its own
+ * settings fields; their values travel in `AiProviderFormValue.settings` and
+ * go into the entry as they are (`aiProviderSettingsToInput`'s `own`). Whether
+ * an endpoint is required comes from the API (`requiresBaseUrl`), not from a
+ * list of ids here.
  */
-import { AI_AZURE_DEPLOYMENTS_MAX, AI_AZURE_MODEL_ID_MAX, AI_AZURE_NAME_PATTERN, aiProviderSettingsFields, aiProviderSettingsToInput } from '../../headless/types.js';
+import { AI_AZURE_DEPLOYMENTS_MAX, AI_AZURE_MODEL_ID_MAX, AI_AZURE_NAME_PATTERN, aiProviderSettingsFields, aiProviderSettingsToInput, isBuiltinAiProviderSettingsField } from '../../headless/types.js';
 import type { AiAdminProvider, AiApiStyle, AiProviderSettingsInput } from '../../headless/types.js';
 
 /** Longest base URL the form accepts. */
@@ -35,6 +41,12 @@ export interface AiProviderFormValue {
   deployments: AiDeploymentRow[];
   /** OpenAI-compatible; on unless the admin opted in to a keyless server. */
   requiresKey: boolean;
+  /**
+   * The values of the provider's OWN settings (PP-14.6, #924): the fields of
+   * `settingsFields` beyond the five built-in names, as the generic card
+   * edits them. Absent for the built-in providers.
+   */
+  settings?: Record<string, unknown>;
 }
 
 /** Field-level problems the card shows inline; any entry blocks Save. */
@@ -47,13 +59,26 @@ export interface AiProviderFormErrors {
   deploymentRows?: Record<number, { modelId?: string; deployment?: string }>;
 }
 
-/** Providers that cannot be enabled without an endpoint — mirrors the API. */
-const PROVIDERS_REQUIRING_BASE_URL = new Set(['azure-openai', 'openai-compatible']);
-
-/** Providers whose endpoint must be `https` — mirrors the API. */
+/**
+ * Built-in providers whose endpoint must be `https` — mirrors the API's own
+ * rule for Azure. A thin client-side courtesy for the bespoke card only: a
+ * provider an app registered is checked by the API (`AI_PROVIDER_SETTINGS_INVALID`).
+ */
 const HTTPS_ONLY_PROVIDERS = new Set(['azure-openai']);
 
+/** The settings fields beyond the five built-in names, with their stored values. */
+function ownSettings(provider: Pick<AiAdminProvider, 'settingsFields' | 'settings'>): Record<string, unknown> | undefined {
+  const own: Record<string, unknown> = {};
+  for (const field of aiProviderSettingsFields(provider)) {
+    if (isBuiltinAiProviderSettingsField(field)) continue;
+    const stored = provider.settings?.[field];
+    if (stored !== undefined && stored !== null) own[field] = structuredClone(stored);
+  }
+  return Object.keys(own).length > 0 ? own : undefined;
+}
+
 export function toProviderFormValue(provider: AiAdminProvider): AiProviderFormValue {
+  const settings = ownSettings(provider);
   return {
     enabled: provider.enabled,
     baseUrl: provider.baseUrl ?? '',
@@ -64,7 +89,52 @@ export function toProviderFormValue(provider: AiAdminProvider): AiProviderFormVa
       deployment,
     })),
     requiresKey: provider.requiresKey ?? true,
+    ...(settings ? { settings } : {}),
   };
+}
+
+/**
+ * One setting of the form value by field name, as the generic card's
+ * `PluggableConfigForm` reads it: a built-in name reads its typed member,
+ * any other the provider's own `settings`. Blank reads as `undefined`.
+ */
+export function providerSettingValue(value: AiProviderFormValue, field: string): unknown {
+  switch (field) {
+    case 'enabled':
+      return value.enabled;
+    case 'baseUrl':
+      return value.baseUrl || undefined;
+    case 'apiVersion':
+      return value.apiVersion || undefined;
+    case 'apiStyle':
+      return value.apiStyle || undefined;
+    case 'requiresKey':
+      return value.requiresKey;
+    default:
+      return value.settings?.[field];
+  }
+}
+
+/** The form value with one setting changed; `undefined` clears it. The inverse of {@link providerSettingValue}. */
+export function withProviderSetting(value: AiProviderFormValue, field: string, next: unknown): AiProviderFormValue {
+  switch (field) {
+    case 'enabled':
+      return { ...value, enabled: next === true };
+    case 'baseUrl':
+      return { ...value, baseUrl: typeof next === 'string' ? next : '' };
+    case 'apiVersion':
+      return { ...value, apiVersion: typeof next === 'string' ? next : '' };
+    case 'apiStyle':
+      return { ...value, apiStyle: next === 'responses' || next === 'chat_completions' ? next : '' };
+    case 'requiresKey':
+      return { ...value, requiresKey: next !== false };
+    default: {
+      const settings = { ...value.settings };
+      if (next === undefined) delete settings[field];
+      else settings[field] = next;
+      return { ...value, settings };
+    }
+  }
 }
 
 export const EMPTY_PROVIDER_FORM_VALUE: AiProviderFormValue = {
@@ -94,6 +164,7 @@ export function toProviderInput(
   value: AiProviderFormValue,
 ): AiProviderSettingsInput {
   return aiProviderSettingsToInput(provider, {
+    own: value.settings,
     enabled: value.enabled,
     baseUrl: value.baseUrl,
     apiVersion: value.apiVersion,
@@ -103,10 +174,15 @@ export function toProviderInput(
   });
 }
 
-function baseUrlError(providerId: string, text: string, enabled: boolean): string | undefined {
+function baseUrlError(
+  providerId: string,
+  text: string,
+  enabled: boolean,
+  requiresBaseUrl: boolean,
+): string | undefined {
   const baseUrl = text.trim();
   if (!baseUrl) {
-    return enabled && PROVIDERS_REQUIRING_BASE_URL.has(providerId)
+    return enabled && requiresBaseUrl
       ? providerId === 'azure-openai'
         ? 'An endpoint is required to enable Azure OpenAI.'
         : 'A base URL is required to enable this provider.'
@@ -140,14 +216,14 @@ function baseUrlError(providerId: string, text: string, enabled: boolean): strin
 
 /** Thin client-side validation of one provider — only for the fields it renders. */
 export function validateProviderForm(
-  provider: Pick<AiAdminProvider, 'id' | 'settingsFields'>,
+  provider: Pick<AiAdminProvider, 'id' | 'settingsFields' | 'requiresBaseUrl'>,
   value: AiProviderFormValue,
 ): AiProviderFormErrors {
   const fields = aiProviderSettingsFields(provider);
   const errors: AiProviderFormErrors = {};
 
   if (fields.includes('baseUrl')) {
-    const error = baseUrlError(provider.id, value.baseUrl, value.enabled);
+    const error = baseUrlError(provider.id, value.baseUrl, value.enabled, provider.requiresBaseUrl === true);
     if (error) errors.baseUrl = error;
   }
 
