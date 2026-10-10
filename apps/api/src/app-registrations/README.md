@@ -62,6 +62,12 @@ registry:
 |---|---|---|
 | `telemetry.ts` | Telemetry Dashboard metric groups (`APP_METRIC_GROUPS`) and `app.*` metrics (`APP_METRICS`); one file for both, because a group usually charts the app's own metrics | [runbooks/telemetry.md §8.4](../../../../docs/runbooks/telemetry.md#84-adding-an-app-metric-group) |
 
+registry:
+
+| File | Registry | Recipe |
+|---|---|---|
+| `host.ts` | `eventBusAdapterRegistry` (`@marinoscar/platform-api/host`, PP-14.2): event bus adapters, registered at import time with `registerEventBusAdapter(...)` and selected by `EVENT_BUS_ADAPTER` or `forRoot({ eventBusAdapter })`. Unlike the pure-data files it makes the `register` call itself, because `platform/host-core.config.ts` imports it before the bus is built. Upstream registers the worked example (`recording`) | [host/README.md, "Adding an event bus adapter"](../../../../packages/platform-api/src/host/README.md#adding-an-event-bus-adapter) |
+
 ## What goes here, and what does not
 
 | Goes here | Does not |
