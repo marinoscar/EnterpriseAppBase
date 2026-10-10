@@ -9,6 +9,7 @@ import { EmailEgressContributor } from './doctor/egress/email.egress.contributor
 import { EMAIL_OPTIONS, resolveEmailModuleOptions, type EmailModuleOptions } from './email.options';
 import { SesEmailProvider } from './providers/ses-email.provider';
 import { SmtpEmailProvider } from './providers/smtp-email.provider';
+import { EmailTransportResolver } from './transports/email-transport.resolver';
 import { listEmailTemplateOverrides, registerPlatformEmailTemplates } from './templates/email-template.registry';
 import { configureEmailRendering } from './templates/render-context';
 
@@ -102,7 +103,8 @@ export class EmailModule {
    *
    * @param options - see {@link EmailModuleOptions}.
    * @returns the dynamic module. It exports `EmailSettingsService`,
-   *   `SesEmailProvider`, `SmtpEmailProvider` and `EMAIL_OPTIONS`.
+   *   `EmailTransportResolver`, `SesEmailProvider`, `SmtpEmailProvider` and
+   *   `EMAIL_OPTIONS`.
    * @throws Error when an option is invalid (a missing `appName`, a theme
    *   colour that is not hex, a malformed brand mark).
    *
@@ -140,6 +142,9 @@ export class EmailModule {
         EmailTestSendService,
         SesEmailProvider,
         SmtpEmailProvider,
+        // The configured transport, resolved from the registry (PP-14.8):
+        // the ONE thing the notification channel and the test send depend on.
+        EmailTransportResolver,
         // Doctor check (#634): reads the admin view, never sends.
         EmailConfigDoctorCheck,
         // Egress inventory (#773): the SMTP relay or the SES regional endpoint.
@@ -148,7 +153,7 @@ export class EmailModule {
       ],
       // EmailTestSendService is deliberately NOT exported: sending a test
       // message is an admin action reached through this module's controller.
-      exports: [EMAIL_OPTIONS, EmailSettingsService, SesEmailProvider, SmtpEmailProvider],
+      exports: [EMAIL_OPTIONS, EmailSettingsService, EmailTransportResolver, SesEmailProvider, SmtpEmailProvider],
     };
   }
 }

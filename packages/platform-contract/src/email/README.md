@@ -1,10 +1,10 @@
 # @marinoscar/platform-contract/email
 
-The wire contract of the email slice's admin routes (issue #737, PP-8.4), as zod schemas with their inferred types, plus the zod-free transport list and SMTP ports: the stored settings (`emailSettingsSchema`), the `PUT /api/email-settings` body (`updateEmailSettingsSchema`), the `GET`/`PUT` response (`emailSettingsResponseSchema`) and the `POST /api/email-settings/test` result (`testEmailResultSchema`). `@marinoscar/platform-api/email` wraps them as DTOs; `@marinoscar/platform-web/email` reads their types. It depends on no other slice (`packages/platform-slices.json`).
+The wire contract of the email slice's admin routes (issue #737, PP-8.4), as zod schemas with their inferred types, plus the zod-free built-in transport list, the transport id pattern and the SMTP ports: the stored settings (`emailSettingsSchema`), the `PUT /api/email-settings` body (`updateEmailSettingsSchema`), the `GET`/`PUT` response (`emailSettingsResponseSchema`) and the `POST /api/email-settings/test` result (`testEmailResultSchema`). `@marinoscar/platform-api/email` wraps them as DTOs; `@marinoscar/platform-web/email` reads their types. 
 
 ## Purpose and scope
 
-One definition of what crosses the wire for email configuration, so the API's validation, its OpenAPI document and the web page's types cannot drift. `constants.ts` holds `EMAIL_PROVIDER_KINDS` (`ses`, `smtp`; closed), `DEFAULT_SMTP_PORT` (587) and `IMPLICIT_TLS_SMTP_PORT` (465), zod-free.
+One definition of what crosses the wire for email configuration, so the API's validation, its OpenAPI document and the web page's types cannot drift. `constants.ts` holds `BUILTIN_EMAIL_PROVIDER_KINDS` (`ses`, `smtp`; the transports the platform ships, not a closed set, with `EMAIL_PROVIDER_KINDS` as a deprecated alias), `EMAIL_TRANSPORT_ID_PATTERN`, the legacy flat-field map, `DEFAULT_SMTP_PORT` (587) and `IMPLICIT_TLS_SMTP_PORT` (465), zod-free. It depends on the `settings` slice for the descriptor shape (`packages/platform-slices.json`).
 
 Not here: the transports, the templates and the settings row (the API slice), the page (the web slice).
 
@@ -13,7 +13,7 @@ Not here: the transports, the templates and the settings row (the API slice), th
 Ships inside `@marinoscar/platform-contract`; import it by its subpath:
 
 ```ts
-import { emailSettingsResponseSchema, EMAIL_PROVIDER_KINDS } from '@marinoscar/platform-contract/email';
+import { emailSettingsResponseSchema, BUILTIN_EMAIL_PROVIDER_KINDS } from '@marinoscar/platform-contract/email';
 import type { EmailSettingsResponse, UpdateEmailSettingsInput } from '@marinoscar/platform-contract/email';
 ```
 
@@ -36,7 +36,11 @@ None. Schemas and constants take no options.
 
 ## Extension-point catalog
 
-None. The shapes are the closed contract of one admin route; the transport list is closed on purpose (a new transport is a seam request, see the API slice's README).
+The shapes are the contract of one admin route; what is open is the transport id. A transport an app or package registers (`registerEmailTransport` of `@marinoscar/platform-api/email`) is a valid `provider` everywhere, with its own settings under `transports.<id>` and its own write-only secrets under `secrets.<id>`.
+
+| Name | Kind | Signature | When to use | Stability | Example |
+|---|---|---|---|---|---|
+| `emailTransportIdSchema` | option | `z.ZodString` matching `EMAIL_TRANSPORT_ID_PATTERN` | Validate a transport id on the wire (the API checks it against the registry) | experimental | [example](../../../../apps/api/src/app-registrations/email.ts) |
 
 The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
 
@@ -62,7 +66,7 @@ None. The package emits nothing at run time.
 
 ## Security notes
 
-No secret is representable in the stored settings or in the response: `EMAIL_SETTINGS_CARRIES_NO_SECRET` and `EMAIL_SETTINGS_RESPONSE_CARRIES_NO_SECRET` are compile-time proofs that fail the build the moment a secret-named field (`smtpPassword`, `password`, `secret`, `apiKey`, `accessKeyId`, `secretAccessKey`, `ciphertext`) is added. The PUT body's `smtpPassword` and `sesSecretAccessKey` are write-only (blank preserves the stored secret); the response describes each as a masked status (`configured`, the store's `hint`, provenance) only. `test/email.test.ts` asserts it at run time too.
+No secret is representable in the stored settings or in the response (`secretStatuses` and the two legacy statuses are masked statuses, never values): `EMAIL_SETTINGS_CARRIES_NO_SECRET` and `EMAIL_SETTINGS_RESPONSE_CARRIES_NO_SECRET` are compile-time proofs that fail the build the moment a secret-named field (`smtpPassword`, `password`, `secret`, `apiKey`, `accessKeyId`, `secretAccessKey`, `ciphertext`) is added. The PUT body's `smtpPassword` and `sesSecretAccessKey` are write-only (blank preserves the stored secret); the response describes each as a masked status (`configured`, the store's `hint`, provenance) only. `test/email.test.ts` asserts it at run time too.
 
 ## Conformance suite
 
@@ -70,7 +74,7 @@ The API slice's `email` suite (`@marinoscar/platform-api/email/testing`) scans `
 
 ## Upgrade notes
 
-New in this version. The shapes are unchanged from the reference app's `src/email/email-settings.schema.ts` and `src/email/dto/`; the OpenAPI document is identical.
+New in this version, from the reference app's `src/email/email-settings.schema.ts` and `src/email/dto/`. The transport became an open id (PP-14.8): `provider` is a pattern-checked string instead of an enum, the response gains `transports`, `descriptors` and `secretStatuses`, the PUT body gains `transports` and `secrets`, and the flat `ses*` / `smtp*` fields stay as a deprecated read view and aliases. The OpenAPI document changes only there (an enum becomes a pattern, new optional request fields, new response fields).
 
 ## Troubleshooting
 

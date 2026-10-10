@@ -11,11 +11,18 @@
 // =============================================================================
 
 export {
+  BUILTIN_EMAIL_PROVIDER_KINDS,
   DEFAULT_EMAIL_SETTINGS,
   DEFAULT_SMTP_PORT,
   EMAIL_PROVIDER_KINDS,
   EMAIL_SETTINGS_CARRIES_NO_SECRET,
+  EMAIL_TRANSPORT_ID_PATTERN,
   IMPLICIT_TLS_SMTP_PORT,
   emailSettingsSchema,
 } from '@marinoscar/platform-contract/email';
-export type { EmailProviderKind, EmailSettings, EmailSettingsCarriesNoSecret } from '@marinoscar/platform-contract/email';
+export type {
+  BuiltinEmailProviderKind,
+  EmailProviderKind,
+  EmailSettings,
+  EmailSettingsCarriesNoSecret,
+} from '@marinoscar/platform-contract/email';

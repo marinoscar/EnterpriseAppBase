@@ -197,7 +197,7 @@ This is the single home for the list of checks. Thirty-four checks ship. `depend
 
 | Id | Label | `dependsOn` | What it verifies | Rules |
 |---|---|---|---|---|
-| `email.config` | Email delivery | none | The email settings are complete, read from the admin view. Never sends. Settings page `/admin/settings/email`. | pass: SMTP or SES complete and switched on. warn: no provider chosen (notifications are in-app only), or configured but switched off. fail: the stored row does not validate, or fields missing (from address, SMTP host, an SMTP username with no stored password, SES region, an SES key id with no stored secret). |
+| `email.config` | Email delivery | none | The email settings are complete, read from the admin view. Never sends. Settings page `/admin/settings/email`. | pass: the selected transport (SES, SMTP, or one an app registered) is complete and switched on. warn: no provider chosen (notifications are in-app only), or configured but switched off. fail: the stored row does not validate, the selected transport is not registered, or fields missing (the from address, then what the transport reports: for SMTP the host or an SMTP username with no stored password, for SES the region or a key id with no stored secret). |
 
 #### push
 

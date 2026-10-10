@@ -53,7 +53,7 @@ The rule has three consequences:
 
 - **Do not document, and do not rely on, "provide TOKEN in your app module"** for a token the slice provides itself. A token that appears in a slice's catalog as a **host port** (`AI_OBJECT_STORE`, `NODE_OBJECT_STORE`, `JOBS_METRICS`, …) is different: the slice does not provide it, the app does, in a module it passes to the slice's `forRoot({ imports })` (the reference app's `*-host.module.ts` files).
 - **A new override ships with a test that boots two real consumers** of the token and asserts both receive the app's instance. [`storage-provider-override.spec.ts`](../apps/api/test/examples/storage/storage-provider-override.spec.ts) boots `StorageModule.forRoot` with the profile-image, exports and database-backup modules; [`event-bus-adapter.spec.ts`](../apps/api/test/examples/host/event-bus-adapter.spec.ts) boots `PlatformHostCoreModule.forRoot` with the identity slice's `PrincipalCache`.
-- **A slice that cannot be overridden yet says so** in its README (the email transport: "not supported yet, see PP-14.8") and in the audit, instead of describing an override that does not work.
+- **A slice that cannot be overridden yet says so** in its README (for example the sign-in provider: "not supported yet") and in the audit, instead of describing an override that does not work.
 
 ### Static and Nest-held registries
 
@@ -339,6 +339,98 @@ What `local-fs` does not do, and a fork that selects it must add: its signed dow
 
 What is still closed (audit: [storage](EXTENSIBILITY-AUDIT.md#storage)): slots on the page (`Sections`), a flag on the descriptor saying whether a driver implements `provision` (the page learns it only from the answer to **Create bucket**), a driver `message` that is more than a plain string, and a `secretStatus` that describes more than the active driver's first declared secret (every driver's presence is in `descriptors`).
 
+### Add an email transport
+
+Available now. An app, or an `@acme/email-sendgrid` package an app installs, adds a way of sending mail (SendGrid, Postmark, a log for local development) that an administrator configures at runtime, with its own settings, encrypted secrets and admin form, and that the notification channel, broadcasts and the admin **Send test email** then use, with no edit under `packages/`. It is [a pluggable kind](#writing-a-pluggable-implementation) (`emailTransportKind`, kind id `email-transport`) behind one function, `registerEmailTransport`. The worked example is [`log`](../apps/api/src/platform-extensions/email/log-transport.ts): messages kept in memory and one redacted line in the application log, no mail server. The reference for every member is the [email README](../packages/platform-api/src/email/README.md#adding-an-email-transport).
+
+1. **Implement the transport**: an `EmailTransport` (`send`, and optionally `verify` and `destroy`). Extend `BaseEmailProvider` and write `deliver`; it implements `send` once, so `send` **never throws** (every failure is `{ success: false, error }`), the error text is scrubbed of each secret you pass to `redact.protect(...)` and length-capped, and a thrown throttle is classified (`rateLimited`, `retryAfterMs`) with the classifier the app gave `EmailModule.forRoot`. Implementing `EmailProvider` directly loses all three.
+
+   ```ts
+   import { BaseEmailProvider, type EmailMessage, type EmailSendResult, type SecretRedactor } from '@marinoscar/platform-api/email';
+
+   class SendgridTransport extends BaseEmailProvider {
+     protected readonly transportName = 'SendGrid';
+     constructor(private readonly apiBase: string, private readonly apiKey: () => Promise<string | null>, protected readonly logger: Logger, classify?: GenericRateLimitClassifier) {
+       super();
+       this.rateLimitClassifier = classify;
+     }
+     protected async deliver(msg: EmailMessage, redact: SecretRedactor): Promise<EmailSendResult> {
+       const key = await this.apiKey();
+       redact.protect(key);                       // BEFORE anything that might throw with it in the text
+       // ...POST msg (to, from, subject, html, text, headers, attachments) to the vendor...
+       return { success: true, messageId };
+     }
+   }
+   ```
+
+2. **Define the transport** (`EmailTransportDefinition`), the part the rest of the slice reads before any transport exists:
+
+   ```ts
+   import { z } from 'zod';
+   import type { EmailTransportDefinition } from '@marinoscar/platform-api/email';
+
+   export const sendgridTransport: EmailTransportDefinition<{ apiBase: string }> = {
+     id: 'sendgrid',
+     label: 'SendGrid',
+     settingsSchema: z.object({ apiBase: z.string().trim().describe('API base URL').meta({ label: 'API base URL' }) }),
+     defaults: { apiBase: 'https://api.sendgrid.com' },
+     secrets: [{ name: 'apiKey', label: 'API key', required: true }],
+     build: ({ settings, secret, logger, classifyRateLimit }) => new SendgridTransport(settings.apiBase, () => secret('apiKey'), logger, classifyRateLimit),
+     egressHosts: (settings) => [new URL(settings.apiBase).host],
+   };
+   ```
+
+   - **`id`** matches `^[a-z][a-z0-9-]{1,47}$` and is permanent once a row exists: it is the key of `transports`, the value of `provider` and the suffix of the credential purpose.
+   - **`settingsSchema`** is a `z.object` of the **non-secret** settings only. `.describe('help')` is a field's help text and `.meta({ label })` its label. A field named like a secret (`apiKey`, `password`, `token`, `secret`, ...) is refused at registration.
+   - **`defaults`** parse with `settingsSchema`.
+   - **`secrets`** (`{ name, label, required, help? }[]`) are kept encrypted at the credential purpose `email_<id>`, which `registerEmailTransport` registers for you (`credentialAddress` overrides it, as the built-ins do to keep `smtp` and `email_ses`). Read one with `await secret('name')` **at send time**, not once at build: a rotation then takes effect on the next message.
+   - **`build`** returns the transport. It runs when the transport's settings change (the previous one is `destroy()`ed), not per message. `classifyRateLimit` is the app's generic throttle classifier.
+   - **Optional hooks.** `verify` (a pre-flight the admin test runs before sending; never throws), `missing` (what the Doctor reports as unset; default: every required secret that is absent), `summary` (the Doctor's phrase for a complete configuration), `egressCapability` and `egressHosts` (the network-egress view).
+3. **Register it at import time**, in [`apps/api/src/app-registrations/email.ts`](../apps/api/src/app-registrations/email.ts):
+
+   ```ts
+   import { registerEmailTransport } from '@marinoscar/platform-api/email';
+
+   registerEmailTransport(sendgridTransport);
+   ```
+
+   [`platform/email/email.config.ts`](../apps/api/src/platform/email/email.config.ts) imports that file before it builds the email module. The registry freezes when the application bootstraps, so a later registration fails with `FROZEN`; a duplicate id or a malformed definition (a bad id, a secret-named setting, defaults that do not parse, a missing `build`) throws at registration. A package exposes the same call behind an entry the app imports (`import '@acme/email-sendgrid/register'`), as in [How to ship an extension as its own npm package](#how-to-ship-an-extension-as-its-own-npm-package).
+4. **There is nothing else to wire.** Registering gives the transport:
+   - **A settings record.** `transports.sendgrid = { apiBase }` in the `email` row, validated by the schema on every write: an unregistered id is `400` with `details.reason` `EMAIL_UNKNOWN_TRANSPORT`, a setting the schema refuses `EMAIL_TRANSPORT_SETTINGS_INVALID`, a secret it never declared `EMAIL_UNKNOWN_SECRET`. A read never fails on a transport that is no longer registered: its record is ignored, and a send or the Doctor reports the missing transport.
+   - **An entry in the transport list**, off until an administrator selects it and saves: a fresh install keeps what it had.
+   - **Every sender.** `EmailTransportResolver` (provided and exported once by `EmailModule`) builds the transport the settings' `provider` names; `EmailNotificationChannel` (notifications, broadcasts) and the admin **Send test email** depend on it, never on the SES and SMTP classes. The Doctor's `email.config` check judges it by its own `missing` and `summary`, and `network.egress` lists `egressHosts` under `email.<id>`.
+5. **The web needs no code.** `GET /api/email-settings` serves a descriptor per transport (`descriptors`, and every transport's settings in `transports`), and the admin Email page lists one radio per transport and draws a generated form: a control per setting and a write-only field per secret. To replace the generated form, register a panel at module scope (a presentation choice; the API still validates every save):
+
+   ```tsx
+   import { EmailGenericTransportPanel, registerEmailTransportPanel } from '@marinoscar/platform-web/email/ui/transport-panels';
+
+   registerEmailTransportPanel('sendgrid', (props) => <EmailGenericTransportPanel {...props} />);
+   ```
+
+   Wrap `EmailGenericTransportPanel` to add to the generated form, or render your own markup from `EmailTransportPanelProps`; `{ validate, toForm, toInput }` are optional client-side helpers.
+6. **Prove it with the kit and a test that boots the real app.**
+   - **The transport.** `describeEmailTransportConformance` of `@marinoscar/platform-api/email/testing`: `send` never throws (a network error, a thrown string and a thrown object are failed results), the error text carries no secret and no message content, attachments and headers are passed through to exactly one recipient, a throttle is classified. It needs no network: point the transport at a fake and hand the kit a `backend` that accepts or fails on demand.
+
+     ```ts
+     import '../../../src/app-registrations/email';
+     import { describeEmailTransportConformance } from '@marinoscar/platform-api/email/testing';
+
+     describeEmailTransportConformance('sendgrid', { describe, it, expect, settings: {}, secrets: { apiKey: 'SG.example' }, backend });
+     ```
+
+   - **The consumers.** [`log-transport.spec.ts`](../apps/api/test/examples/email/log-transport.spec.ts) selects the transport through the real admin route, sends the admin test email, delivers a notification with an email channel, reads the Doctor and the egress view, and asserts a failure comes back as a result with the credential redacted.
+   - **The web.** [`log-transport-panel.test.tsx`](../apps/web/src/__tests__/examples/email/log-transport-panel.test.tsx): the admin page lists the transport with no web code, saves `{ provider, transports }`, takes a secret write-only under `secrets.<id>.<name>`, and draws a panel the app registered.
+7. **Check it.**
+
+   ```bash
+   npx jest --config apps/api/test/jest.config.js --rootDir apps/api test/examples/email
+   npm run test:run --workspace=web -- src/__tests__/examples/email
+   ```
+
+An old `email` row (the flat `sesRegion`, `smtpHost`, ... fields) still loads: the fields are read into `transports.ses` and `transports.smtp`, served in the old flat shape on the response, and rewritten in the new shape on the next save; `PUT` still accepts the flat fields and `smtpPassword` / `sesSecretAccessKey` as aliases.
+
+What is still closed (audit: [email](EXTENSIBILITY-AUDIT.md#email)): slots on the page (`Sections`), a `verify` that the Doctor runs (the Doctor never touches the network), and a descriptor field kind richer than the five of `describeConfigFields`.
+
 ### Add an event bus adapter
 
 Available now. Full recipe: [the host README](../packages/platform-api/src/host/README.md#adding-an-event-bus-adapter). Example: [`recording-event-bus.ts`](../apps/api/src/platform-extensions/host/recording-event-bus.ts), registered by [`app-registrations/host.ts`](../apps/api/src/app-registrations/host.ts), proven by [`event-bus-adapter.spec.ts`](../apps/api/test/examples/host/event-bus-adapter.spec.ts).
@@ -359,7 +451,7 @@ Available now. Full recipe: [the host README](../packages/platform-api/src/host/
 
 ### Writing a pluggable implementation
 
-Available now. A **pluggable kind** is the one shape every slice with a swappable part (AI provider, storage driver, email transport, sign-in provider, notification channel, telemetry store, backup target) is moving to, so you learn it once. The primitive is `definePluggableKind` of `@marinoscar/platform-api/core`; the AI providers and the storage drivers use it ([Add an AI provider](#add-an-ai-provider-the-assemblyai-case), [Add a storage driver](#add-a-storage-driver)), the stories PP-14.8 to PP-14.12 apply it to each remaining slice, and until a slice's story lands, its kind is not yet registered there (see the placeholders below). The full reference is [the core README, Pluggable kinds](../packages/platform-api/src/core/README.md#pluggable-kinds). Worked example, with no consumer slice: [`greeter.kind.ts`](../apps/api/src/platform-extensions/core/greeter.kind.ts), registered by [`app-registrations/core.ts`](../apps/api/src/app-registrations/core.ts), proven by [`pluggable-kind.spec.ts`](../apps/api/test/examples/core/pluggable-kind.spec.ts) on the API side and [`pluggable-config-form.test.tsx`](../apps/web/src/__tests__/examples/settings/pluggable-config-form.test.tsx) on the web side.
+Available now. A **pluggable kind** is the one shape every slice with a swappable part (AI provider, storage driver, email transport, sign-in provider, notification channel, telemetry store, backup target) is moving to, so you learn it once. The primitive is `definePluggableKind` of `@marinoscar/platform-api/core`; the AI providers, the storage drivers and the email transports use it ([Add an AI provider](#add-an-ai-provider-the-assemblyai-case), [Add a storage driver](#add-a-storage-driver), [Add an email transport](#add-an-email-transport)), the stories PP-14.9 to PP-14.12 apply it to each remaining slice, and until a slice's story lands, its kind is not yet registered there (see the placeholders below). The full reference is [the core README, Pluggable kinds](../packages/platform-api/src/core/README.md#pluggable-kinds). Worked example, with no consumer slice: [`greeter.kind.ts`](../apps/api/src/platform-extensions/core/greeter.kind.ts), registered by [`app-registrations/core.ts`](../apps/api/src/app-registrations/core.ts), proven by [`pluggable-kind.spec.ts`](../apps/api/test/examples/core/pluggable-kind.spec.ts) on the API side and [`pluggable-config-form.test.tsx`](../apps/web/src/__tests__/examples/settings/pluggable-config-form.test.tsx) on the web side.
 
 1. **Pick the kind.** Import the kind a slice exposes. For a swappable part of your own, define one once, at module scope, in the file that owns it (`import { definePluggableKind } from '@marinoscar/platform-api/core'`):
 
@@ -504,10 +596,6 @@ What is still closed (audit: [ai](EXTENSIBILITY-AUDIT.md#ai)): a new capability 
 
 Each placeholder names the story that replaces it; each is built on [the pluggable kind](#writing-a-pluggable-implementation). Until then the audit row is the record of what is closed.
 
-### Coming in PP-14.8: add an email transport
-
-An email transport (SendGrid, Postmark) that notifications and the admin test send use, with settings, credentials and a conformance kit. **Not supported yet.** A provider of `SmtpEmailProvider` in the app module does not reach `EmailNotificationChannel` or `EmailTestSendService`; the selectable transports are `ses` and `smtp` (audit: [email](EXTENSIBILITY-AUDIT.md#email)).
-
 ### Coming in PP-14.9: add a sign-in provider
 
 A sign-in provider (GitHub, Entra, a generic OIDC) completed from an app: provider-neutral profile, generic routes, a sign-in policy hook, async enablement with credentials from the credential store, and a conformance kit. **Not supported yet.** `registerAuthProvider` supplies a strategy and a guard but mounts no routes and has no login-completion seam (audit: [identity](EXTENSIBILITY-AUDIT.md#identity)).
@@ -550,7 +638,8 @@ A kit is a function an extension author calls with the implementation and the te
 | `runPlatformConformance` | `@marinoscar/platform-api/testing` | The platform's invariants over the app's source and registrations; a slice's suites register by importing its `…/testing` entry | Available |
 | `describePluggableKindConformance(kind, { describe, it, expect }, options?)` | `@marinoscar/platform-api/core/testing` | For each registered implementation of a pluggable kind: a valid id and label, defaults that parse, a descriptor that validates with secrets as presence flags only, no secret-looking setting, a `build` function | Available |
 | `describeStorageDriverConformance(driver, { describe, it, expect, settings, secrets })` | `@marinoscar/platform-api/storage/testing` | A valid definition (id, label, defaults that parse); the full `StorageProvider` surface with `kind` equal to the driver id; put, head, read and delete real bytes; a 6 MiB streamed upload; the signed URL; key listing; `testConnection` never throws and never returns a secret; `provision`, `location` and `missing` when defined. It cannot detect a driver that buffers a whole stream | Available |
-| Email transport, auth provider, notification sender, telemetry store, backup target | the slice's `…/testing` entry | Each ships with its story (PP-14.8 to PP-14.12) | Coming |
+| `describeEmailTransportConformance(transport, { describe, it, expect, settings, secrets, backend })` | `@marinoscar/platform-api/email/testing` | A valid definition (id, label, defaults that parse, declared secrets); an accepted message is `{ success: true }`; `send` never throws (network error, thrown string, thrown object); no secret material and no message content in the error text; attachments and headers passed through to one recipient; a throttle classified; `verify`, when defined, never throws | Available |
+| Auth provider, notification sender, telemetry store, backup target | the slice's `…/testing` entry | Each ships with its story (PP-14.9 to PP-14.12) | Coming |
 | Doctor check, job handler | `@marinoscar/platform-api/doctor/testing`, `…/jobs/testing` | Read-only checks; handler profile, idempotence and node-eligibility pairing | Coming (PP-14.26) |
 
 An app adds its own suite with `conformanceSuites.register` and a `declare module '@marinoscar/platform-api/testing'` augmentation of `PlatformConformanceSuiteOptions`; the android-app slice's `testing/conformance.ts` is the model. More: [TESTING.md](TESTING.md#platform-conformance).

@@ -1,13 +1,12 @@
 import { PLATFORM_PRISMA } from '@marinoscar/platform-api/core';
 import { Test, TestingModule } from '@nestjs/testing';
 import { IDENTITY_APP_PORTS } from '../helpers/identity-ports.helper';
+import { emailTransportResolverProvider } from '../helpers/email-transports.helper';
 import { ConfigService } from '@nestjs/config';
 import { NotificationDeliveryStatus } from '@prisma/client';
 
 import {
   EmailSettingsService,
-  SesEmailProvider,
-  SmtpEmailProvider,
   type EmailSettings,
 } from '@marinoscar/platform-api/email';
 import { PrismaService } from '../../src/prisma/prisma.service';
@@ -194,8 +193,7 @@ describe('a notification send failure never fails or rolls back its trigger', ()
           provide: EmailSettingsService,
           useValue: { get: jest.fn().mockResolvedValue(WORKING_EMAIL_SETTINGS) },
         },
-        { provide: SesEmailProvider, useValue: ses },
-        { provide: SmtpEmailProvider, useValue: { send: jest.fn() } },
+        emailTransportResolverProvider({ ses, smtp: { send: jest.fn() } }),
         {
           provide: NOTIFICATION_CHANNEL_SENDERS,
           useFactory: (

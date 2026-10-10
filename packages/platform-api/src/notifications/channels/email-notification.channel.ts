@@ -2,15 +2,12 @@ import { Injectable, Logger } from '@nestjs/common';
 
 import {
   EmailSettingsService,
-  SesEmailProvider,
-  SmtpEmailProvider,
+  EmailTransportResolver,
   findEmailTemplate,
   formatFromHeader,
 } from '../../email/index';
 import type {
   EmailMessage,
-  EmailProvider,
-  EmailProviderKind,
   EmailSettings,
   EmailTemplateName,
   RenderedEmail,
@@ -93,28 +90,13 @@ export class EmailNotificationChannel implements NotificationChannelSender {
 
   private readonly logger = new Logger(EmailNotificationChannel.name);
 
-  /**
-   * Transport kind -\> transport.
-   *
-   * A `Record<EmailProviderKind, EmailProvider>` rather than a `switch`, for
-   * the reason spelled out on the identical map in `EmailTestSendService`:
-   * adding a kind to `EMAIL_PROVIDER_KINDS` makes this fail to compile until
-   * the transport is wired, where a `switch` would fall through and deliver
-   * nothing with no error to explain it.
-   *
-   * Resolved per send from the SETTINGS, not chosen at construction: an admin
-   * can switch provider without a restart, so a construction-time choice would
-   * be stale the moment they did.
-   */
-  private readonly providers: Record<EmailProviderKind, EmailProvider>;
-
   constructor(
     private readonly emailSettings: EmailSettingsService,
-    ses: SesEmailProvider,
-    smtp: SmtpEmailProvider,
-  ) {
-    this.providers = { ses, smtp };
-  }
+    // The configured transport, resolved from the registry per send by the
+    // settings' `provider`: an admin can switch transport without a restart,
+    // and an app's transport is used here exactly as `ses` and `smtp` are.
+    private readonly transports: EmailTransportResolver,
+  ) {}
 
   /**
    * The address this channel would send to.
@@ -233,7 +215,7 @@ export class EmailNotificationChannel implements NotificationChannelSender {
     // `BaseEmailProvider` rather than promised. Adding one here would suggest
     // the guarantee is in doubt and would produce a worse message than the one
     // the base class already builds (redacted and length-capped).
-    const result = await this.providers[settings.provider].send(message);
+    const result = await this.transports.send(settings, message);
 
     if (!result.success) {
       const error = result.error ?? 'The transport reported a failure with no message.';

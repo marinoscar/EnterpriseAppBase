@@ -16,6 +16,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { render, mockAdminUser } from '../../utils/test-utils';
+import { withTransportFields } from '../../mocks/fixtures/email';
 import type { EmailSettings, EmailTestResult } from '@marinoscar/platform-web/email/headless';
 
 // The page lives in @marinoscar/platform-web/email/ui since #737; mocking the
@@ -52,7 +53,7 @@ function setPermissions(granted: string[]) {
   });
 }
 
-const baseSettings: EmailSettings = {
+const baseFlat = {
   provider: 'smtp',
   enabled: true,
   fromAddress: 'no-reply@example.com',
@@ -68,12 +69,29 @@ const baseSettings: EmailSettings = {
     updatedAt: '2024-01-01T00:00:00.000Z',
     updatedByUserId: 'admin-user-id',
   },
-  sesSecretAccessKeyStatus: { configured: false, hint: null, updatedAt: null, updatedByUserId: null },
+  sesSecretAccessKeyStatus: {
+    configured: false,
+    hint: null,
+    updatedAt: null,
+    updatedByUserId: null,
+  },
   settingsError: null,
   version: 3,
   updatedAt: '2024-01-01T00:00:00.000Z',
   updatedBy: { id: 'admin-user-id', email: 'admin@example.com' },
 };
+
+/** The page's baseline response: the old flat fields completed with the transport fields, as the API serves it. */
+const baseSettings: EmailSettings = withTransportFields(baseFlat);
+
+/** A response whose flat fields are `baseFlat` with `overrides`, completed the same way. */
+function settingsWith(
+  overrides: Partial<typeof baseFlat> & Record<string, unknown> = {}
+): EmailSettings {
+  return withTransportFields({ ...baseFlat, ...overrides } as Parameters<
+    typeof withTransportFields
+  >[0]);
+}
 
 function setHook(overrides: Partial<ReturnType<typeof useEmailSettings>> = {}) {
   const save = vi.fn().mockResolvedValue(true);
@@ -96,7 +114,8 @@ function setHook(overrides: Partial<ReturnType<typeof useEmailSettings>> = {}) {
   return { save, sendTest };
 }
 
-const renderAsAdmin = () => render(<EmailSettingsPage />, { wrapperOptions: { user: mockAdminUser } });
+const renderAsAdmin = () =>
+  render(<EmailSettingsPage />, { wrapperOptions: { user: mockAdminUser } });
 
 describe('EmailSettingsPage', () => {
   beforeEach(() => {
@@ -189,7 +208,7 @@ describe('EmailSettingsPage', () => {
       const button = screen.getByRole('button', { name: /send test email/i });
       expect(button).toBeDisabled();
       expect(
-        screen.getByText(/saving — wait for the save to finish, then test/i),
+        screen.getByText(/saving — wait for the save to finish, then test/i)
       ).toBeInTheDocument();
     });
 
@@ -211,7 +230,7 @@ describe('EmailSettingsPage', () => {
       const button = screen.getByRole('button', { name: /send test email/i });
       await waitFor(() => expect(button).toBeDisabled());
       expect(
-        screen.getByText(/save your changes first.*test uses the saved configuration/i),
+        screen.getByText(/save your changes first.*test uses the saved configuration/i)
       ).toBeInTheDocument();
     });
 
@@ -224,19 +243,19 @@ describe('EmailSettingsPage', () => {
       const button = screen.getByRole('button', { name: /send test email/i });
       expect(button).toBeDisabled();
       expect(
-        screen.getByText(/sending a test needs permission to change system settings/i),
+        screen.getByText(/sending a test needs permission to change system settings/i)
       ).toBeInTheDocument();
     });
 
     it('is disabled when no provider is configured, with a stated reason', () => {
-      setHook({ settings: { ...baseSettings, provider: null } });
+      setHook({ settings: settingsWith({ provider: null }) });
 
       renderAsAdmin();
 
       const button = screen.getByRole('button', { name: /send test email/i });
       expect(button).toBeDisabled();
       expect(
-        screen.getByText(/no provider is configured, so there is nothing to send with/i),
+        screen.getByText(/no provider is configured, so there is nothing to send with/i)
       ).toBeInTheDocument();
     });
 
@@ -256,20 +275,19 @@ describe('EmailSettingsPage', () => {
   describe('settingsError banner', () => {
     it('renders a warning explaining the fields are defaults, not stored config', () => {
       setHook({
-        settings: {
-          ...baseSettings,
+        settings: settingsWith({
           settingsError:
             'The stored email configuration is invalid at: provider. Correct those fields and save to repair it.',
-        },
+        }),
       });
 
       renderAsAdmin();
 
       expect(
-        screen.getByText('The stored email configuration could not be read'),
+        screen.getByText('The stored email configuration could not be read')
       ).toBeInTheDocument();
       expect(
-        screen.getByText(/fields below are\s*defaults rather than your saved values/i),
+        screen.getByText(/fields below are\s*defaults rather than your saved values/i)
       ).toBeInTheDocument();
     });
 
@@ -279,7 +297,7 @@ describe('EmailSettingsPage', () => {
       renderAsAdmin();
 
       expect(
-        screen.queryByText('The stored email configuration could not be read'),
+        screen.queryByText('The stored email configuration could not be read')
       ).not.toBeInTheDocument();
     });
   });
@@ -290,7 +308,7 @@ describe('EmailSettingsPage', () => {
 
   describe('provider and enabled mapping', () => {
     it('provider: null selects no radio', () => {
-      setHook({ settings: { ...baseSettings, provider: null, enabled: false } });
+      setHook({ settings: settingsWith({ provider: null, enabled: false }) });
 
       renderAsAdmin();
 
@@ -300,7 +318,7 @@ describe('EmailSettingsPage', () => {
 
     it('choosing a provider does NOT flip enabled', async () => {
       const user = userEvent.setup();
-      setHook({ settings: { ...baseSettings, provider: null, enabled: false } });
+      setHook({ settings: settingsWith({ provider: null, enabled: false }) });
 
       renderAsAdmin();
 
@@ -317,7 +335,7 @@ describe('EmailSettingsPage', () => {
     });
 
     it('an already-configured provider keeps its radio checked', () => {
-      setHook({ settings: { ...baseSettings, provider: 'ses', enabled: true } });
+      setHook({ settings: settingsWith({ provider: 'ses', enabled: true }) });
 
       renderAsAdmin();
 
@@ -332,7 +350,7 @@ describe('EmailSettingsPage', () => {
 
   describe('smtpUseTls default', () => {
     it('defaults the Require TLS switch to ON when smtpUseTls is absent from the settings', () => {
-      setHook({ settings: { ...baseSettings, provider: 'smtp', smtpUseTls: undefined } });
+      setHook({ settings: settingsWith({ provider: 'smtp', smtpUseTls: undefined }) });
 
       renderAsAdmin();
 
@@ -341,7 +359,7 @@ describe('EmailSettingsPage', () => {
     });
 
     it('the control is labelled about requiring TLS, not about port 465', () => {
-      setHook({ settings: { ...baseSettings, provider: 'smtp' } });
+      setHook({ settings: settingsWith({ provider: 'smtp' }) });
 
       renderAsAdmin();
 
@@ -353,7 +371,7 @@ describe('EmailSettingsPage', () => {
     });
 
     it('reflects smtpUseTls: false when the API explicitly stored it off', () => {
-      setHook({ settings: { ...baseSettings, provider: 'smtp', smtpUseTls: false } });
+      setHook({ settings: settingsWith({ provider: 'smtp', smtpUseTls: false }) });
 
       renderAsAdmin();
 
@@ -369,7 +387,11 @@ describe('EmailSettingsPage', () => {
   describe('SES access key id', () => {
     it('renders the stored access key id when SES is the chosen provider', () => {
       setHook({
-        settings: { ...baseSettings, provider: 'ses', sesRegion: 'us-east-1', sesAccessKeyId: 'AKIAEXAMPLE' },
+        settings: settingsWith({
+          provider: 'ses',
+          sesRegion: 'us-east-1',
+          sesAccessKeyId: 'AKIAEXAMPLE',
+        }),
       });
 
       renderAsAdmin();
@@ -379,7 +401,9 @@ describe('EmailSettingsPage', () => {
 
     it('updates as the admin types', async () => {
       const user = userEvent.setup();
-      setHook({ settings: { ...baseSettings, provider: 'ses', sesRegion: 'us-east-1', sesAccessKeyId: '' } });
+      setHook({
+        settings: settingsWith({ provider: 'ses', sesRegion: 'us-east-1', sesAccessKeyId: '' }),
+      });
 
       renderAsAdmin();
       const field = screen.getByLabelText(/access key id/i);
@@ -391,20 +415,19 @@ describe('EmailSettingsPage', () => {
     it('is required when SES is enabled and chosen, with a stated error', async () => {
       const user = userEvent.setup();
       setHook({
-        settings: {
-          ...baseSettings,
+        settings: settingsWith({
           provider: 'ses',
           enabled: true,
           sesRegion: 'us-east-1',
           sesAccessKeyId: 'AKIAEXAMPLE',
-        },
+        }),
       });
 
       renderAsAdmin();
       await user.clear(screen.getByLabelText(/access key id/i));
 
       await waitFor(() =>
-        expect(screen.getByText('An access key ID is required.')).toBeInTheDocument(),
+        expect(screen.getByText('An access key ID is required.')).toBeInTheDocument()
       );
       expect(screen.getByRole('button', { name: /save changes/i })).toBeDisabled();
     });
@@ -418,8 +441,7 @@ describe('EmailSettingsPage', () => {
   describe('SES secret access key', () => {
     it('renders empty regardless of whether a secret is stored (blank-preserves, never round-trips plaintext)', () => {
       setHook({
-        settings: {
-          ...baseSettings,
+        settings: settingsWith({
           provider: 'ses',
           sesRegion: 'us-east-1',
           sesAccessKeyId: 'AKIAEXAMPLE',
@@ -429,7 +451,7 @@ describe('EmailSettingsPage', () => {
             updatedAt: '2024-01-02T00:00:00.000Z',
             updatedByUserId: 'admin-user-id',
           },
-        },
+        }),
       });
 
       renderAsAdmin();
@@ -439,26 +461,29 @@ describe('EmailSettingsPage', () => {
 
     it('shows "no secret access key is saved yet" when none is configured', () => {
       setHook({
-        settings: {
-          ...baseSettings,
+        settings: settingsWith({
           provider: 'ses',
           sesRegion: 'us-east-1',
           sesAccessKeyId: 'AKIAEXAMPLE',
-          sesSecretAccessKeyStatus: { configured: false, hint: null, updatedAt: null, updatedByUserId: null },
-        },
+          sesSecretAccessKeyStatus: {
+            configured: false,
+            hint: null,
+            updatedAt: null,
+            updatedByUserId: null,
+          },
+        }),
       });
 
       renderAsAdmin();
 
       expect(
-        screen.getByText(/no secret access key is saved yet\. ses cannot send until one is/i),
+        screen.getByText(/no secret access key is saved yet\. ses cannot send until one is/i)
       ).toBeInTheDocument();
     });
 
     it('states a secret is saved, including its hint, when one is configured', () => {
       setHook({
-        settings: {
-          ...baseSettings,
+        settings: settingsWith({
           provider: 'ses',
           sesRegion: 'us-east-1',
           sesAccessKeyId: 'AKIAEXAMPLE',
@@ -468,33 +493,41 @@ describe('EmailSettingsPage', () => {
             updatedAt: '2024-01-02T00:00:00.000Z',
             updatedByUserId: 'admin-user-id',
           },
-        },
+        }),
       });
 
       renderAsAdmin();
 
       expect(
-        screen.getByText(/a secret access key is saved \(••••x9fQ\).*leave this blank to keep it/i),
+        screen.getByText(/a secret access key is saved \(••••x9fQ\).*leave this blank to keep it/i)
       ).toBeInTheDocument();
     });
 
     it('typing into the secret field is a change (counts as dirty) even though every other field matches', async () => {
       const user = userEvent.setup();
       setHook({
-        settings: { ...baseSettings, provider: 'ses', sesRegion: 'us-east-1', sesAccessKeyId: 'AKIAEXAMPLE' },
+        settings: settingsWith({
+          provider: 'ses',
+          sesRegion: 'us-east-1',
+          sesAccessKeyId: 'AKIAEXAMPLE',
+        }),
       });
 
       renderAsAdmin();
       await user.type(screen.getByLabelText(/secret access key/i), 'new-secret-value');
 
       await waitFor(() =>
-        expect(screen.getByRole('button', { name: /save changes/i })).not.toBeDisabled(),
+        expect(screen.getByRole('button', { name: /save changes/i })).not.toBeDisabled()
       );
     });
 
     it('is not required by client-side validation: leaving it blank does not block save', () => {
       setHook({
-        settings: { ...baseSettings, provider: 'ses', sesRegion: 'us-east-1', sesAccessKeyId: 'AKIAEXAMPLE' },
+        settings: settingsWith({
+          provider: 'ses',
+          sesRegion: 'us-east-1',
+          sesAccessKeyId: 'AKIAEXAMPLE',
+        }),
       });
 
       renderAsAdmin();

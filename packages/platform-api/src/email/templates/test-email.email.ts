@@ -1,4 +1,5 @@
 import type { EmailProviderKind } from '../email-settings.schema';
+import { labelOfEmailTransport } from '../transports/email-transport';
 import { SafeHtml, html, plainText, renderLayout } from './layout';
 import { resolveEmailRenderContext, type EmailRenderContext } from './render-context';
 import {
@@ -70,20 +71,6 @@ export interface TestEmailData {
 }
 
 /**
- * Human labels for the transports. The stored value (`ses`) is an
- * implementation key; an admin reading their inbox should see the product name
- * they chose in the dropdown.
- *
- * TYPED `Record<EmailProviderKind, string>`, so adding a transport to
- * `EMAIL_PROVIDER_KINDS` fails to compile here until it is named — rather than
- * rendering a blank where the diagnostic fact should be.
- */
-const PROVIDER_LABELS: Record<EmailProviderKind, string> = {
-  ses: 'Amazon SES',
-  smtp: 'SMTP',
-};
-
-/**
  * ISO 8601, in UTC, with the `Z` left on.
  *
  * NOT LOCALISED, deliberately. The server does not know the reader's time
@@ -125,7 +112,7 @@ function factRow(label: string, value: string): SafeHtml {
 export function testEmail(data: TestEmailData, ctx?: EmailRenderContext): RenderedEmail {
   const context = resolveEmailRenderContext(ctx);
   const appName = context.appName;
-  const providerLabel = PROVIDER_LABELS[data.providerKind];
+  const providerLabel = labelOfEmailTransport(data.providerKind);
   const timestamp = formatTimestamp(data.sentAt);
 
   // The timestamp is IN THE SUBJECT, which looks like clutter and is not.

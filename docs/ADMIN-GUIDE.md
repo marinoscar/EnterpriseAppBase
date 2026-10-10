@@ -299,7 +299,7 @@ Saving a different bucket or provider while objects still point at the old one a
 - **Where:** Email, `/admin/settings/email`.
 - **Who:** `system_settings:read` to view; `system_settings:write` to save and send a test.
 
-1. Open the page and choose the transport, SES or SMTP.
+1. Open the page and choose the transport: SES, SMTP, or one your application added.
 2. Fill in the connection and the sender address. Secrets are write-only; leave one blank to keep the stored value.
 3. Switch email on.
 4. Save.

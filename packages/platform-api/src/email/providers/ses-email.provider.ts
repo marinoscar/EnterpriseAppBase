@@ -70,13 +70,17 @@ export class SesEmailProvider extends BaseEmailProvider {
   private readonly options: Pick<ResolvedEmailModuleOptions, 'classifyRateLimit' | 'sesRegionFallback'>;
 
   constructor(
-    private readonly emailSettings: EmailSettingsService,
+    // Narrowed to the one method used (PP-14.8), so the `ses` transport can
+    // build this class from its own settings and secret
+    // (`../transports/builtin-email-transports.ts`) while Nest still injects
+    // the real services when the class is a provider.
+    @Inject(EmailSettingsService) private readonly emailSettings: Pick<EmailSettingsService, 'get'>,
     // The SES secret access key's only home, matching `SmtpEmailProvider`'s
     // use of the same service for the SMTP password. Only `getSecret` is
     // called from here, at the moment a client is built for a send -- never
     // `setSecret`/`describe`, which are `EmailSettingsService`'s job on the
     // write/admin-read paths.
-    private readonly credentials: CredentialsService,
+    @Inject(CredentialsService) private readonly credentials: Pick<CredentialsService, 'getSecret'>,
     // The module options (#737): the SES region fallback and the generic
     // rate-limit classifier. Optional so a hand-built provider still works.
     @Optional() @Inject(EMAIL_OPTIONS) options?: Pick<ResolvedEmailModuleOptions, 'classifyRateLimit' | 'sesRegionFallback'>,
@@ -84,6 +88,12 @@ export class SesEmailProvider extends BaseEmailProvider {
     super();
     this.options = options ?? UNCONFIGURED_EMAIL_OPTIONS;
     this.rateLimitClassifier = this.options.classifyRateLimit;
+  }
+
+  /** Closes the cached client (the transport was replaced or the application is shutting down). */
+  destroy(): void {
+    this.cached?.client.destroy();
+    this.cached = null;
   }
 
   /**

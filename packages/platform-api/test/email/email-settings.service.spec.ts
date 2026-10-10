@@ -9,6 +9,8 @@ import {
 import { PLATFORM_PRISMA } from '../../src/core/index';
 import { CredentialsService } from '../../src/credentials/index';
 import { SystemSettingsRowStore } from '../../src/settings/index';
+// The built-in transports register on import; the service validates against the registry.
+import '../../src/email/transports/builtin-email-transports';
 
 /**
  * The tables the email settings path reaches through the row store and the
@@ -124,7 +126,8 @@ describe('EmailSettingsService', () => {
       const value = { provider: 'ses', enabled: true, sesRegion: 'us-east-1' };
       mockPrisma.systemSettings.findUnique.mockResolvedValue({ value } as any);
 
-      await expect(service.get()).resolves.toEqual(value);
+      // The flat `sesRegion` is read into `transports.ses` (and still served as the deprecated view).
+      await expect(service.get()).resolves.toEqual({ ...value, transports: { ses: { region: 'us-east-1' } } });
     });
 
     it('strips unknown keys via Zod parsing rather than passing them through', async () => {
@@ -149,7 +152,7 @@ describe('EmailSettingsService', () => {
   describe('when a stored row fails validation', () => {
     it('throws rather than silently falling back to defaults', async () => {
       mockPrisma.systemSettings.findUnique.mockResolvedValue({
-        value: { provider: 'sendgrid', enabled: true }, // not in EMAIL_PROVIDER_KINDS
+        value: { provider: 'Not A Provider', enabled: true }, // not a well-formed transport id
       } as any);
 
       await expect(service.get()).rejects.toThrow();
@@ -157,14 +160,14 @@ describe('EmailSettingsService', () => {
 
     it('names the failing field path in the thrown message', async () => {
       mockPrisma.systemSettings.findUnique.mockResolvedValue({
-        value: { provider: 'sendgrid', enabled: true },
+        value: { provider: 'Not A Provider', enabled: true },
       } as any);
 
       await expect(service.get()).rejects.toThrow(/provider/);
     });
 
     it('never includes the invalid stored value in the thrown error message', async () => {
-      const suspiciousValue = 'not-a-real-provider-but-suspicious-value-xyz';
+      const suspiciousValue = 'Not A Real Provider But Suspicious Value XYZ';
       mockPrisma.systemSettings.findUnique.mockResolvedValue({
         value: { provider: suspiciousValue, enabled: true },
       } as any);
@@ -201,8 +204,9 @@ describe('EmailSettingsService', () => {
 
       expect(thrown).toBeInstanceOf(Error);
       const message = (thrown as Error).message;
-      expect(message).toContain('smtpPort');
       expect(message).toContain('fromAddress');
+      // The flat port is read as the SMTP transport's `port`, which that transport's own schema refuses.
+      expect(message).toContain('transports.smtp.port');
     });
 
     it('the thrown error tells the admin to re-save the configuration, without echoing the bad value', async () => {
@@ -269,7 +273,7 @@ describe('EmailSettingsService', () => {
         version: 4,
         updatedAt: new Date(),
         updatedByUser: null,
-        value: { provider: 'not-a-real-provider', enabled: true },
+        value: { provider: 'Not A Real Provider', enabled: true },
       } as any);
       mockCredentials.describe.mockResolvedValue(null);
 
@@ -648,9 +652,15 @@ describe('EmailSettingsService', () => {
         meta: {
           key: 'email',
           version: 3,
-          newValue: { provider: 'smtp', enabled: true, smtpHost: 'smtp.example.com' },
+          // The legacy `smtpHost` alias is stored as the SMTP transport's `host`.
+          newValue: {
+            provider: 'smtp',
+            enabled: true,
+            transports: { smtp: { host: 'smtp.example.com', port: 587, useTls: true, username: '' } },
+          },
           smtpPasswordChanged: true,
           sesSecretAccessKeyChanged: false,
+          secretsChanged: ['smtp.password'],
         },
       });
       expect(JSON.stringify(audit)).not.toContain('Correct-Horse-9');

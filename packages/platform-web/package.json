@@ -111,6 +111,10 @@
       "types": "./dist/email/ui/index.d.ts",
       "default": "./dist/email/ui/index.js"
     },
+    "./email/ui/transport-panels": {
+      "types": "./dist/email/ui/transport-panels.d.ts",
+      "default": "./dist/email/ui/transport-panels.js"
+    },
     "./nodes/headless": {
       "types": "./dist/nodes/headless/index.d.ts",
       "default": "./dist/nodes/headless/index.js"

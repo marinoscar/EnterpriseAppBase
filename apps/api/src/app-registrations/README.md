@@ -66,6 +66,7 @@ registry:
 
 | File | Registry | Recipe |
 |---|---|---|
+| `email.ts` | `emailTransportKind` (`@marinoscar/platform-api/email`, PP-14.8): email transports, registered at import time with `registerEmailTransport(...)` and selected at `/admin/settings/email`. Makes the `register` call itself, because `platform/email/email.config.ts` imports it before the email module is built. Upstream registers the worked example (`log`) | [email/README.md, "Adding an email transport"](../../../../packages/platform-api/src/email/README.md#adding-an-email-transport) |
 | `host.ts` | `eventBusAdapterRegistry` (`@marinoscar/platform-api/host`, PP-14.2): event bus adapters, registered at import time with `registerEventBusAdapter(...)` and selected by `EVENT_BUS_ADAPTER` or `forRoot({ eventBusAdapter })`. Unlike the pure-data files it makes the `register` call itself, because `platform/host-core.config.ts` imports it before the bus is built. Upstream registers the worked example (`recording`) | [host/README.md, "Adding an event bus adapter"](../../../../packages/platform-api/src/host/README.md#adding-an-event-bus-adapter) |
 
 registry:

@@ -3,6 +3,7 @@ import {
   EmailNotificationChannel,
 } from '../support/notifications';
 import { NOTIFICATION_EVENTS } from '../support/notifications';
+import { emailTransportResolverStub } from '../../helpers/email-transports.helper';
 import type { NotificationEventDef } from '../support/notifications';
 import type {
   NotificationDispatchContext,
@@ -25,8 +26,8 @@ import type {
 //      That path is no longer reachable through the seeded registry, so it is
 //      exercised with a synthetic event def instead of a real key.
 //
-// `EmailSettingsService`/`SesEmailProvider`/`SmtpEmailProvider` are injected
-// as bare `{ get: jest.fn() }`/`{ send: jest.fn() }` stand-ins, following
+// `EmailSettingsService` and the two transports behind `EmailTransportResolver`
+// are bare `{ get: jest.fn() }`/`{ send: jest.fn() }` stand-ins, following
 // email-test-send.service.spec.ts's pattern — this suite is about the
 // channel's own branching, not the transports underneath it.
 // =============================================================================
@@ -50,8 +51,7 @@ describe('EmailNotificationChannel', () => {
 
     channel = new EmailNotificationChannel(
       mockEmailSettings as never,
-      mockSes as never,
-      mockSmtp as never,
+      emailTransportResolverStub({ ses: mockSes, smtp: mockSmtp }) as never,
     );
   });
 

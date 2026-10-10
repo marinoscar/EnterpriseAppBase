@@ -27,6 +27,7 @@
     "src/onboarding/ui/index.ts",
     "src/email/headless/index.ts",
     "src/email/ui/index.ts",
+    "src/email/ui/transport-panels.ts",
     "src/nodes/headless/index.ts",
     "src/nodes/ui/index.ts",
     "src/jobs/headless/index.ts",

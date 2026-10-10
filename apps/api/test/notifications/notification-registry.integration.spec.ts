@@ -16,7 +16,7 @@ import { createMockAdminUser, authHeader } from '../helpers/auth-mock.helper';
 import { AppModule } from '../../src/app.module';
 import { RegistryError, withTemporaryEntries } from '@marinoscar/platform-api/core';
 import { EmailSettingsService } from '@marinoscar/platform-api/email';
-import { SmtpEmailProvider } from '@marinoscar/platform-api/email';
+import { emailTransportResolverProvider } from '../helpers/email-transports.helper';
 import type { EmailTemplate } from '@marinoscar/platform-api/email';
 import { JobWorker } from '@marinoscar/platform-api/jobs';
 import { NotificationsModule } from './support/notifications';
@@ -193,7 +193,7 @@ describe('Notification registry: an app notification is delivered (#678)', () =>
     context = await createTestApp({
       useMockDatabase: true,
       overrideProviders: [
-        { provide: SmtpEmailProvider, useValue: smtp },
+        emailTransportResolverProvider({ smtp }),
         { provide: EmailSettingsService, useValue: emailSettings },
       ],
     });

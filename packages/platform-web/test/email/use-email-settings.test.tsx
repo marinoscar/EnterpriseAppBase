@@ -10,19 +10,9 @@ import { useEmailSettings } from '../../src/email/headless/index.js';
 import type { EmailSettings } from '../../src/email/headless/index.js';
 import { createTestApiError, createTestPlatformHost } from '../../src/testing/index.js';
 import type { TestPlatformHost } from '../../src/testing/index.js';
+import { emailSettingsFixture } from './fixtures.js';
 
-const STATUS = { configured: false, hint: null, updatedAt: null, updatedByUserId: null };
-const SETTINGS: EmailSettings = {
-  provider: 'smtp',
-  enabled: true,
-  smtpHost: 'smtp.example.test',
-  smtpPasswordStatus: STATUS,
-  sesSecretAccessKeyStatus: STATUS,
-  settingsError: null,
-  version: 3,
-  updatedAt: null,
-  updatedBy: null,
-};
+const SETTINGS: EmailSettings = emailSettingsFixture({ fromAddress: undefined, fromName: undefined, smtpUsername: undefined });
 
 function wrap(host: TestPlatformHost) {
   return ({ children }: { children: ReactNode }) => <PlatformHostProvider host={host}>{children}</PlatformHostProvider>;

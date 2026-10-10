@@ -14,8 +14,7 @@ import {
   authHeader,
 } from '../helpers/auth-mock.helper';
 import { CredentialsService } from '@marinoscar/platform-api/credentials';
-import { SesEmailProvider } from '@marinoscar/platform-api/email';
-import { SmtpEmailProvider } from '@marinoscar/platform-api/email';
+import { EmailTransportResolver } from '@marinoscar/platform-api/email';
 
 // =============================================================================
 // Email Settings Integration (issue #124, epic #109)
@@ -31,9 +30,10 @@ import { SmtpEmailProvider } from '@marinoscar/platform-api/email';
 //   * the test endpoint is gated on system_settings:WRITE, not :read
 //   * a stored-but-invalid row degrades the GET to 200 + defaults, never 500
 //
-// `CredentialsService`, `SesEmailProvider` and `SmtpEmailProvider` are
-// overridden with controllable stubs so this suite drives the provider
-// outcome directly, while `EmailSettingsController`, `EmailSettingsService`
+// `CredentialsService` and `EmailTransportResolver` are overridden with
+// controllable stubs (the resolver hands out `mockSes` / `mockSmtp` by the
+// settings' `provider`, as the real one builds the registered transport) so
+// this suite drives the provider outcome directly, while `EmailSettingsController`, `EmailSettingsService`
 // and `EmailTestSendService` are the REAL classes wired by `AppModule` — the
 // same boundary a production request crosses.
 // =============================================================================
@@ -57,8 +57,17 @@ describe('Email Settings Integration', () => {
       useMockDatabase: true,
       overrideProviders: [
         { provide: CredentialsService, useValue: mockCredentials },
-        { provide: SesEmailProvider, useValue: mockSes },
-        { provide: SmtpEmailProvider, useValue: mockSmtp },
+        {
+          provide: EmailTransportResolver,
+          useValue: {
+            resolve: async (settings: { provider: string | null }) => ({
+              ok: true,
+              id: settings.provider,
+              label: settings.provider,
+              transport: settings.provider === 'ses' ? mockSes : mockSmtp,
+            }),
+          },
+        },
       ],
     });
   });

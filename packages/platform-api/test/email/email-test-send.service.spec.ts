@@ -4,8 +4,7 @@ import { EmailTestSendService, formatFromHeader } from '../../src/email/email-te
 import { EmailSettingsService } from '../../src/email/email-settings.service';
 import { AUDIT_SINK } from '../../src/core/index';
 import { EMAIL_OPTIONS } from '../../src/email/email.options';
-import { SesEmailProvider } from '../../src/email/providers/ses-email.provider';
-import { SmtpEmailProvider } from '../../src/email/providers/smtp-email.provider';
+import { EmailTransportResolver } from '../../src/email/transports/email-transport.resolver';
 import type { EmailSettings } from '../../src/email/email-settings.schema';
 import type { EmailSendResult } from '../../src/email/email.types';
 import { configureTestEmail } from './support';
@@ -22,8 +21,8 @@ configureTestEmail();
 // a pre-flight failure (no provider, disabled, no from address) must reach the
 // admin in exactly the same shape as a provider rejection.
 //
-// `SesEmailProvider` and `SmtpEmailProvider` are injected as bare
-// `{ send: jest.fn() }` stand-ins rather than the real classes: the point of
+// The two transports are `{ send: jest.fn() }` stand-ins behind a fake
+// `EmailTransportResolver` rather than the real classes: the point of
 // this suite is EmailTestSendService's own branching (which provider gets
 // called, what happens when it fails, what happens before it is ever reached),
 // not the transports themselves — those have their own spec files.
@@ -36,6 +35,7 @@ describe('EmailTestSendService', () => {
   let mockSes: { send: jest.Mock };
   let mockSmtp: { send: jest.Mock };
   let mockConfig: { appUrl: jest.Mock };
+  let mockResolve: jest.Mock;
 
   const actor = { id: 'user-1', email: 'admin@example.com' };
 
@@ -54,6 +54,12 @@ describe('EmailTestSendService', () => {
     mockSes = { send: jest.fn() };
     mockSmtp = { send: jest.fn() };
     mockConfig = { appUrl: jest.fn().mockReturnValue('https://app.example.com') };
+    mockResolve = jest.fn(async (settings: { provider: string | null }) => ({
+      ok: true,
+      id: settings.provider,
+      label: settings.provider,
+      transport: settings.provider === 'ses' ? mockSes : mockSmtp,
+    }));
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -63,8 +69,9 @@ describe('EmailTestSendService', () => {
         // assertions below read, in the shape the app's sink persists.
         { provide: AUDIT_SINK, useValue: { record: (event: unknown) => mockPrisma.auditEvent.create({ data: event }) } },
         { provide: EmailSettingsService, useValue: mockEmailSettings },
-        { provide: SesEmailProvider, useValue: mockSes },
-        { provide: SmtpEmailProvider, useValue: mockSmtp },
+        // The configured transport, resolved by the settings' `provider`
+        // (PP-14.8); the two mocks stand in for what each id builds.
+        { provide: EmailTransportResolver, useValue: { resolve: mockResolve } },
       ],
     }).compile();
 
@@ -266,6 +273,58 @@ describe('EmailTestSendService', () => {
   // ==========================================================================
   // Pre-flight order: provider chosen -> enabled -> from address -> send
   // ==========================================================================
+
+  describe('the transport (PP-14.8)', () => {
+    it('is resolved from the settings, so any registered transport is used, not only ses and smtp', async () => {
+      mockEmailSettings.get.mockResolvedValue({ ...smtpSettings, provider: 'log' });
+      const custom = { send: jest.fn().mockResolvedValue({ success: true, messageId: 'log-1' }) };
+      mockResolve.mockResolvedValue({ ok: true, id: 'log', label: 'Log', transport: custom });
+
+      const result = await service.sendTest(actor);
+
+      expect(mockResolve).toHaveBeenCalledWith(expect.objectContaining({ provider: 'log' }));
+      expect(custom.send).toHaveBeenCalledTimes(1);
+      expect(result).toMatchObject({ success: true, providerKind: 'log', messageId: 'log-1' });
+    });
+
+    it('a transport that cannot be resolved is a failed diagnosis in the usual shape, and nothing is sent', async () => {
+      mockResolve.mockResolvedValue({ ok: false, error: 'Email transport "smtp" could not be built: boom' });
+
+      const result = await service.sendTest(actor);
+
+      expect(result).toMatchObject({ success: false, providerKind: 'smtp', error: 'Email transport "smtp" could not be built: boom' });
+      expect(mockSmtp.send).not.toHaveBeenCalled();
+      expect(mockPrisma.auditEvent.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ meta: expect.objectContaining({ success: false }) }) }),
+      );
+    });
+
+    it('runs the transport verify first, and reports its message instead of sending when it is not ok', async () => {
+      const verify = jest.fn().mockResolvedValue({ ok: false, message: 'The API key was rejected.' });
+      mockResolve.mockResolvedValue({ ok: true, id: 'smtp', label: 'SMTP', transport: { ...mockSmtp, verify } });
+
+      const result = await service.sendTest(actor);
+
+      expect(result).toMatchObject({ success: false, error: 'The API key was rejected.' });
+      expect(mockSmtp.send).not.toHaveBeenCalled();
+    });
+
+    it('treats a verify that throws as a failed diagnosis, never a rejection', async () => {
+      const verify = jest.fn().mockRejectedValue(new Error('verify exploded'));
+      mockResolve.mockResolvedValue({ ok: true, id: 'smtp', label: 'SMTP', transport: { ...mockSmtp, verify } });
+
+      await expect(service.sendTest(actor)).resolves.toMatchObject({ success: false, error: 'verify exploded' });
+    });
+
+    it('sends when verify says ok', async () => {
+      const verify = jest.fn().mockResolvedValue({ ok: true, message: 'ready' });
+      mockSmtp.send.mockResolvedValue({ success: true, messageId: 'm-1' });
+      mockResolve.mockResolvedValue({ ok: true, id: 'smtp', label: 'SMTP', transport: { send: mockSmtp.send, verify } });
+
+      await expect(service.sendTest(actor)).resolves.toMatchObject({ success: true, messageId: 'm-1' });
+      expect(verify).toHaveBeenCalledTimes(1);
+    });
+  });
 
   describe('pre-flight ordering', () => {
     it('checks "enabled" before requiring a from address, so the error names the actual blocker', async () => {

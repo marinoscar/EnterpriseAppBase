@@ -1,3 +1,7 @@
+// The app's own email transports (PP-14.8), registered at import time like the
+// storage drivers: the registry freezes once the application has bootstrapped.
+import '../../app-registrations/email';
+
 import { EmailModule as PlatformEmailModule } from '@marinoscar/platform-api/email';
 
 import { EMAIL_MODULE_OPTIONS } from './email.options';

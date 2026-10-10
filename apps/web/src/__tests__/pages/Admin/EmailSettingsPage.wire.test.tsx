@@ -1,6 +1,10 @@
 /**
  * `/admin/settings/email` — the blank-password WIRE contract (issue #124,
- * epic #109, restating #115).
+ * epic #109, restating #115; secrets by transport since PP-14.8).
+ *
+ * A typed secret goes out as `secrets.<transport>.<name>` (the SMTP password
+ * is `secrets.smtp.password`); a blank one is not sent at all, so blank
+ * PRESERVES the stored one.
  *
  * Deliberately NOT mocking `useEmailSettings`: the key-omission behaviour
  * lives in the page's own `toInput()`, which the hook just forwards
@@ -15,10 +19,11 @@ import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { render, mockAdminUser } from '../../utils/test-utils';
 import { server } from '../../mocks/server';
+import { withTransportFields } from '../../mocks/fixtures/email';
 import EmailSettingsPage from '@marinoscar/platform-web/email/ui';
 import type { EmailSettings } from '@marinoscar/platform-web/email/headless';
 
-const storedSettings: EmailSettings = {
+const storedSettings: EmailSettings = withTransportFields({
   provider: 'smtp',
   enabled: true,
   fromAddress: 'no-reply@example.com',
@@ -37,7 +42,7 @@ const storedSettings: EmailSettings = {
   version: 3,
   updatedAt: '2024-01-01T00:00:00.000Z',
   updatedBy: { id: 'admin-user-id', email: 'admin@example.com' },
-};
+});
 
 function mockGet() {
   server.use(
@@ -63,7 +68,7 @@ describe('EmailSettingsPage — save request wire contract', () => {
     mockGet();
   });
 
-  it('submitting with the password field left empty omits smtpPassword from the request body entirely', async () => {
+  it('submitting with the password field left empty omits the secret from the request body entirely', async () => {
     let capturedBody: Record<string, unknown> | null = null;
     mockPut((body) => {
       capturedBody = body;
@@ -82,12 +87,12 @@ describe('EmailSettingsPage — save request wire contract', () => {
 
     await waitFor(() => expect(capturedBody).not.toBeNull());
     expect(capturedBody).not.toBeNull();
-    expect(Object.prototype.hasOwnProperty.call(capturedBody as object, 'smtpPassword')).toBe(
-      false,
-    );
+    expect(Object.prototype.hasOwnProperty.call(capturedBody as object, 'secrets')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(capturedBody as object, 'smtpPassword')).toBe(false);
+    expect(JSON.stringify(capturedBody)).not.toContain('password');
   });
 
-  it('typing a new password DOES include smtpPassword, with the typed value, in the request body', async () => {
+  it('typing a new password DOES include it, under secrets.smtp.password, with the typed value', async () => {
     let capturedBody: Record<string, unknown> | null = null;
     mockPut((body) => {
       capturedBody = body;
@@ -102,8 +107,31 @@ describe('EmailSettingsPage — save request wire contract', () => {
     await user.click(screen.getByRole('button', { name: /save changes/i }));
 
     await waitFor(() => expect(capturedBody).not.toBeNull());
-    expect((capturedBody as unknown as { smtpPassword?: string })?.smtpPassword).toBe(
-      'a-freshly-typed-password',
-    );
+    expect((capturedBody as unknown as { secrets?: unknown })?.secrets).toEqual({
+      smtp: { password: 'a-freshly-typed-password' },
+    });
+  });
+
+  it('saves { provider, enabled, from*, transports: { <selected>: settings } }: only the selected transport', async () => {
+    let capturedBody: Record<string, unknown> | null = null;
+    mockPut((body) => {
+      capturedBody = body;
+    });
+
+    const user = userEvent.setup();
+    render(<EmailSettingsPage />, { wrapperOptions: { user: mockAdminUser } });
+    await screen.findByLabelText(/from name/i);
+
+    await user.type(screen.getByLabelText(/from name/i), ' Edited');
+    await user.click(screen.getByRole('button', { name: /save changes/i }));
+
+    await waitFor(() => expect(capturedBody).not.toBeNull());
+    expect(capturedBody).toEqual({
+      provider: 'smtp',
+      enabled: true,
+      fromAddress: 'no-reply@example.com',
+      fromName: 'Example App Edited',
+      transports: { smtp: { host: 'smtp.example.com', port: 587, useTls: true, username: 'relay-user' } },
+    });
   });
 });
