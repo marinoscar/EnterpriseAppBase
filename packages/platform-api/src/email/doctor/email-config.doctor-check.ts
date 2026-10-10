@@ -3,7 +3,10 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import { DoctorCheck, DoctorCheckOutcome } from '../../doctor/index';
 import { DoctorCheckRegistry } from '../../doctor/index';
 import { EmailSettingsAdminView, EmailSettingsService } from '../email-settings.service';
-import { DEFAULT_SMTP_PORT } from '../email-settings.schema';
+import { parsedTransportSettings } from '../email-settings-compat';
+import { emailTransportKind, missingEmailTransportFields } from '../transports/email-transport';
+// The built-in transports register on import: the Doctor judges them like any other.
+import '../transports/builtin-email-transports';
 
 /**
  * The admin page every email finding links to.
@@ -15,11 +18,28 @@ export const EMAIL_SETTINGS_PATH = '/admin/settings/email';
 const REMEDY_OPEN = `Complete the email settings at ${EMAIL_SETTINGS_PATH}, then use "Send test email" there.`;
 
 /**
+ * Which of a transport's declared secrets the admin view says are stored. Reads
+ * `secretStatuses`, and the two legacy statuses for a view an older caller built.
+ */
+function storedSecrets(view: EmailSettingsAdminView, id: string): Record<string, boolean> {
+  const present: Record<string, boolean> = {};
+  for (const [name, status] of Object.entries(view.secretStatuses?.[id] ?? {})) present[name] = status.configured;
+  if (id === 'smtp' && present.password === undefined && view.smtpPasswordStatus) present.password = view.smtpPasswordStatus.configured;
+  if (id === 'ses' && present.secretAccessKey === undefined && view.sesSecretAccessKeyStatus) {
+    present.secretAccessKey = view.sesSecretAccessKeyStatus.configured;
+  }
+  return present;
+}
+
+/**
  * Pure: judges the admin view of the email settings.
  *
  * The view carries credential STATUS (configured or not), never material —
  * `describeForAdmin` does not select the ciphertext — so nothing here can leak
- * a password. The access key id is not reported either.
+ * a password. The access key id is not reported either. The selected
+ * transport decides what "complete" means (`EmailTransportDefinition.missing`)
+ * and how it is summarised (`summary`), so a transport an app registered is
+ * judged exactly as `ses` and `smtp` are.
  *
  * @stability experimental
  */
@@ -32,21 +52,27 @@ export function decideEmailConfig(view: EmailSettingsAdminView): DoctorCheckOutc
     return {
       status: 'warn',
       detail: 'Email is not configured; notifications are delivered in-app only',
-      remedy: `Choose SMTP or Amazon SES at ${EMAIL_SETTINGS_PATH}.`,
+      remedy: `Choose a transport at ${EMAIL_SETTINGS_PATH}.`,
     };
   }
+
+  if (!emailTransportKind.has(view.provider)) {
+    return {
+      status: 'fail',
+      detail: `Email transport "${view.provider}" is selected but not registered (registered: ${emailTransportKind.ids().join(', ') || '(none)'})`,
+      remedy: `Choose a registered transport at ${EMAIL_SETTINGS_PATH}, or register "${view.provider}" with registerEmailTransport.`,
+      data: { provider: view.provider, enabled: view.enabled },
+    };
+  }
+
+  const transport = emailTransportKind.get(view.provider);
+  const settings = parsedTransportSettings(view, view.provider);
 
   const missing: string[] = [];
 
   if (!view.fromAddress) missing.push('from address');
 
-  if (view.provider === 'smtp') {
-    if (!view.smtpHost) missing.push('SMTP host');
-    if (view.smtpUsername && !view.smtpPasswordStatus.configured) missing.push('SMTP password');
-  } else {
-    if (!view.sesRegion) missing.push('SES region');
-    if (view.sesAccessKeyId && !view.sesSecretAccessKeyStatus.configured) missing.push('SES secret access key');
-  }
+  missing.push(...missingEmailTransportFields(transport as never, settings, storedSecrets(view, view.provider)));
 
   const data = { provider: view.provider, enabled: view.enabled };
 
@@ -59,10 +85,8 @@ export function decideEmailConfig(view: EmailSettingsAdminView): DoctorCheckOutc
     };
   }
 
-  const via =
-    view.provider === 'smtp'
-      ? `SMTP via ${view.smtpHost}:${view.smtpPort ?? DEFAULT_SMTP_PORT}`
-      : `Amazon SES in ${view.sesRegion}`;
+  const summarise = (transport as { summary?: (settings: Record<string, unknown>) => string }).summary;
+  const via = summarise ? summarise(settings) : transport.label;
 
   if (!view.enabled) {
     return {

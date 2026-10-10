@@ -1,4 +1,5 @@
 import { ConflictException, Inject, Injectable, Logger } from '@nestjs/common';
+import type { PluggableDescriptor } from '@marinoscar/platform-contract/settings';
 import { z } from 'zod';
 
 import { PLATFORM_PRISMA } from '../core/index';
@@ -10,15 +11,23 @@ import {
   emailSettingsSchema,
 } from './email-settings.schema';
 import {
-  SMTP_CREDENTIAL_LABEL,
-  SMTP_CREDENTIAL_NAME,
-  SMTP_CREDENTIAL_PURPOSE,
-} from './smtp-credential.constants';
+  foldLegacyEmailFields,
+  invalidTransportPaths,
+  isRecord,
+  legacyAliasPatch,
+  legacyFlatView,
+  transportRejection,
+  unknownSecretRejection,
+  unknownTransportRejection,
+  type EmailTransportsRecord,
+} from './email-settings-compat';
 import {
-  SES_CREDENTIAL_LABEL,
-  SES_CREDENTIAL_NAME,
-  SES_CREDENTIAL_PURPOSE,
-} from './ses-credential.constants';
+  describeEmailTransports,
+  emailTransportKind,
+  emailTransportSecretAddress,
+  requireEmailTransport,
+  type EmailTransportDefinition,
+} from './transports/email-transport';
 import type { UpdateEmailSettingsInput } from './dto/update-email-settings.dto';
 
 /**
@@ -164,10 +173,19 @@ export type SmtpPasswordStatus = CredentialStatus;
  * @stability experimental
  */
 export interface EmailSettingsAdminView extends EmailSettings {
-  /** The SMTP password's masked status. */
+  /** Every REGISTERED transport's own settings, keyed by id, with its defaults filled. */
+  transports: EmailTransportsRecord;
+
+  /** One descriptor per registered transport: its fields, and a write-only field per declared secret with only a presence flag. */
+  descriptors: PluggableDescriptor[];
+
+  /** The masked status of every declared secret of every registered transport: `{ <id>: { <secret>: status } }`. */
+  secretStatuses: Record<string, Record<string, CredentialStatus>>;
+
+  /** @deprecated `secretStatuses.smtp.password`. The SMTP password's masked status. */
   smtpPasswordStatus: CredentialStatus;
 
-  /** Same shape as {@link CredentialStatus}, for the SES secret access key. */
+  /** @deprecated `secretStatuses.ses.secretAccessKey`. Same shape as {@link CredentialStatus}, for the SES secret access key. */
   sesSecretAccessKeyStatus: CredentialStatus;
 
   /**
@@ -259,6 +277,58 @@ function isBlankSecret(value: string | null | undefined): boolean {
   return value === undefined || value === null || value === '';
 }
 
+/** One secret to store: which transport, which declared secret, where, and the typed value. */
+interface SecretWrite {
+  transport: string;
+  secret: string;
+  address: ReturnType<typeof emailTransportSecretAddress>;
+  value: string;
+}
+
+/**
+ * The secrets a PUT body asks to store: `secrets.<transport>.<name>` for any
+ * transport, plus the two legacy aliases (`smtpPassword`, `sesSecretAccessKey`),
+ * which `secrets` overrides. A BLANK value is not a write (blank preserves the
+ * stored secret), but a secret NAME no registered transport declares is a 400
+ * either way, so a typo is never silently ignored.
+ */
+function collectSecretWrites(input: {
+  secrets: Record<string, Record<string, string | null | undefined>> | undefined;
+  smtpPassword: string | null | undefined;
+  sesSecretAccessKey: string | null | undefined;
+}): SecretWrite[] {
+  const typed = new Map<string, Map<string, string>>();
+  const put = (transport: string, name: string, value: string | null | undefined): void => {
+    if (isBlankSecret(value)) return;
+    if (!typed.has(transport)) typed.set(transport, new Map());
+    typed.get(transport)?.set(name, value as string);
+  };
+
+  put('smtp', 'password', input.smtpPassword);
+  put('ses', 'secretAccessKey', input.sesSecretAccessKey);
+
+  for (const [transport, values] of Object.entries(input.secrets ?? {})) {
+    if (!emailTransportKind.has(transport)) unknownTransportRejection(transport);
+    const definition = requireEmailTransport(transport);
+    const declared = (definition.secrets ?? []).map((spec) => spec.name);
+    for (const [name, value] of Object.entries(values)) {
+      if (!declared.includes(name)) unknownSecretRejection(transport, name, declared);
+      put(transport, name, value);
+    }
+  }
+
+  const writes: SecretWrite[] = [];
+  for (const [transport, values] of typed) {
+    if (!emailTransportKind.has(transport)) continue;
+    const definition = requireEmailTransport(transport);
+    for (const [secret, value] of values) {
+      if (!(definition.secrets ?? []).some((spec) => spec.name === secret)) continue;
+      writes.push({ transport, secret, address: emailTransportSecretAddress(definition, secret), value });
+    }
+  }
+  return writes;
+}
+
 /**
  * Reads and writes the `email` settings row (through `SystemSettingsRowStore`)
  * and the two email secrets (through `CredentialsService`): `get` for the send
@@ -310,9 +380,9 @@ export class EmailSettingsService {
       return DEFAULT_EMAIL_SETTINGS;
     }
 
-    const parsed = emailSettingsSchema.safeParse(row.snapshot.value);
+    const parsed = this.parseRow(row.snapshot.value);
 
-    if (!parsed.success) {
+    if (!parsed.ok) {
       // THROW, DO NOT FALL BACK TO DEFAULTS. Silently substituting defaults
       // for a stored-but-invalid configuration reports the system as "email
       // not configured" when what actually happened is that a hand-edited row,
@@ -325,18 +395,42 @@ export class EmailSettingsService {
       // construction, but an error message that echoes stored configuration is
       // a habit that stops being safe the moment the schema grows. `zod`'s own
       // `message` strings can quote the received value, so only `path` is used.
-      const paths = describeInvalidPaths(parsed.error);
-
       this.logger.error(
-        `Stored email settings are invalid at: ${paths}. Email is unusable until they are saved again.`,
+        `Stored email settings are invalid at: ${parsed.paths}. Email is unusable until they are saved again.`,
       );
 
       throw new Error(
-        `Stored email settings are invalid at: ${paths}. Re-save the email configuration.`,
+        `Stored email settings are invalid at: ${parsed.paths}. Re-save the email configuration.`,
       );
     }
 
-    return parsed.data;
+    return parsed.settings;
+  }
+
+  /**
+   * The stored row, read in the current shape: a row written before
+   * transports were pluggable (flat `ses*`/`smtp*` fields) is folded into
+   * `transports` first, then the row is validated, then each REGISTERED
+   * transport's stored settings are validated by that transport's own schema
+   * (an entry for a transport nobody registers any more is kept and ignored,
+   * so removing a plugin never bricks the row). The result also carries the
+   * deprecated flat view, so a reader written against the old shape keeps working.
+   */
+  private parseRow(value: unknown): { ok: true; settings: EmailSettings } | { ok: false; paths: string } {
+    const folded = foldLegacyEmailFields(value);
+    const parsed = emailSettingsSchema.safeParse(folded);
+
+    if (!parsed.success) {
+      // Report the transports' own failures beside the row's, so one repair
+      // covers everything that is wrong.
+      const own = isRecord(folded) && isRecord(folded.transports) ? invalidTransportPaths(folded.transports as EmailTransportsRecord) : [];
+      return { ok: false, paths: [describeInvalidPaths(parsed.error), ...own].join(', ') };
+    }
+
+    const invalid = invalidTransportPaths(parsed.data.transports);
+    if (invalid.length > 0) return { ok: false, paths: invalid.join(', ') };
+
+    return { ok: true, settings: { ...parsed.data, ...legacyFlatView(parsed.data.transports) } };
   }
 
   // ---------------------------------------------------------------------------
@@ -375,16 +469,16 @@ export class EmailSettingsService {
     let settingsError: string | null = null;
 
     if (row.exists) {
-      const parsed = emailSettingsSchema.safeParse(row.snapshot.value);
+      const parsed = this.parseRow(row.snapshot.value);
 
-      if (parsed.success) {
-        settings = parsed.data;
+      if (parsed.ok) {
+        settings = parsed.settings;
       } else {
         // FIELD PATHS ONLY, NEVER VALUES -- the same rule as `get`. No secret
         // is in this schema by construction, but a message that echoes stored
         // configuration stops being safe the moment the schema grows, and
         // zod's own `message` strings can quote the received value.
-        const paths = describeInvalidPaths(parsed.error);
+        const paths = parsed.paths;
 
         this.logger.error(
           `Stored email settings are invalid at: ${paths}. Serving defaults to the settings page so they can be re-saved.`,
@@ -459,16 +553,34 @@ export class EmailSettingsService {
     // structural guarantee -- but relying on a silent strip to keep a secret
     // out of a persisted blob is a guarantee nobody reading the call site can
     // see.
-    const { smtpPassword, sesSecretAccessKey, ...submitted } = input;
+    const { smtpPassword, sesSecretAccessKey, secrets, transports: transportsPatch, ...submitted } = input;
 
-    const settings = emailSettingsSchema.parse(
-      stripUnsetSettingFields(submitted),
-    );
+    // The four settings every transport shares. Blank forms are "absent".
+    const common = stripUnsetSettingFields({
+      provider: submitted.provider,
+      enabled: submitted.enabled,
+      fromAddress: submitted.fromAddress,
+      fromName: submitted.fromName,
+    });
 
-    // Read the current row once, for the concurrency check. `version` starts
-    // at 0 for "no row yet" so a first save can be guarded with `If-Match: 0`
-    // rather than having no way to express "I believe nothing is stored".
-    const currentVersion = (await this.readRow()).snapshot.version;
+    // Rejected up front, before anything is persisted: an unregistered
+    // transport cannot be selected.
+    if (typeof common.provider === 'string' && !emailTransportKind.has(common.provider)) {
+      unknownTransportRejection(common.provider);
+    }
+
+    // Read the current row once, for the concurrency check and for the
+    // stored transports the patch merges over. `version` starts at 0 for "no
+    // row yet" so a first save can be guarded with `If-Match: 0` rather than
+    // having no way to express "I believe nothing is stored".
+    const row = await this.readRow();
+    const currentVersion = row.snapshot.version;
+
+    const storedTransports = this.storedTransports(row.exists ? row.snapshot.value : undefined);
+    const transports = this.mergeTransports(storedTransports, legacyAliasPatch(submitted), transportsPatch ?? {});
+    const toWrite = collectSecretWrites({ secrets, smtpPassword, sesSecretAccessKey });
+
+    const settings = emailSettingsSchema.parse({ ...common, transports });
 
     if (expectedVersion !== undefined && currentVersion !== expectedVersion) {
       throw new ConflictException(
@@ -476,32 +588,24 @@ export class EmailSettingsService {
       );
     }
 
-    // See the header: secrets first, and only when actually typed. The SMTP
-    // password and the SES secret access key are independent writes -- only
-    // one provider is active at a time, but nothing stops storing both, and
-    // there is no ordering dependency between the two.
-    const passwordSubmitted = !isBlankSecret(smtpPassword);
-    const sesSecretSubmitted = !isBlankSecret(sesSecretAccessKey);
-
-    if (passwordSubmitted) {
+    // See the header: secrets first, and only when actually typed. Each
+    // transport's secrets are independent writes -- only one transport is
+    // active at a time, but nothing stops storing several, and there is no
+    // ordering dependency between them.
+    for (const write of toWrite) {
       await this.credentials.setSecret(
-        SMTP_CREDENTIAL_PURPOSE,
-        SMTP_CREDENTIAL_NAME,
+        write.address.purpose,
+        write.address.name,
         // Passed through UNTOUCHED. See the blank-preserves note above.
-        smtpPassword,
-        { label: SMTP_CREDENTIAL_LABEL, updatedByUserId: userId },
+        write.value,
+        { label: write.address.label, updatedByUserId: userId },
       );
     }
 
-    if (sesSecretSubmitted) {
-      await this.credentials.setSecret(
-        SES_CREDENTIAL_PURPOSE,
-        SES_CREDENTIAL_NAME,
-        // Passed through UNTOUCHED. See the blank-preserves note above.
-        sesSecretAccessKey,
-        { label: SES_CREDENTIAL_LABEL, updatedByUserId: userId },
-      );
-    }
+    const changed = (transport: string, name: string): boolean =>
+      toWrite.some((write) => write.transport === transport && write.secret === name);
+    const passwordSubmitted = changed('smtp', 'password');
+    const sesSecretSubmitted = changed('ses', 'secretAccessKey');
 
     // The row store validates against the schema, refuses a stale `If-Match`
     // with the same 409 as the check above (the second guard closes the gap
@@ -519,23 +623,50 @@ export class EmailSettingsService {
         // WHETHER each secret changed, never what it changed to.
         smtpPasswordChanged: passwordSubmitted,
         sesSecretAccessKeyChanged: sesSecretSubmitted,
+        // The same fact for every transport, as `transport.secret` NAMES.
+        secretsChanged: toWrite.map((write) => `${write.transport}.${write.secret}`),
       },
     });
 
     // userId only. No settings values, no recipient, and above all no
     // secret: application logs are shipped, indexed and retained far more
     // widely than this table is.
-    const updatedParts = [
-      passwordSubmitted ? 'SMTP password updated' : null,
-      sesSecretSubmitted ? 'SES secret access key updated' : null,
-    ].filter((part): part is string => part !== null);
+    const updatedParts = toWrite.map((write) => `${write.transport} ${write.secret} updated`);
 
     this.logger.log(
       `Email settings replaced by user ${userId}` +
         (updatedParts.length > 0 ? ` (${updatedParts.join(', ')})` : ''),
     );
 
-    return this.toAdminView(settings, null, written);
+    return this.toAdminView({ ...settings, ...legacyFlatView(settings.transports) }, null, written);
+  }
+
+  /** The stored `transports` of a raw row value, with the legacy flat fields folded in. */
+  private storedTransports(value: unknown): EmailTransportsRecord {
+    const folded = foldLegacyEmailFields(value);
+    return isRecord(folded) && isRecord(folded.transports) ? (folded.transports as EmailTransportsRecord) : {};
+  }
+
+  /**
+   * The stored `transports` with a submitted patch merged in. A legacy flat
+   * alias is overridden by `transports.<id>` for the same setting; `null`
+   * removes a transport's stored settings. A registered transport's patched
+   * entry is validated by its own schema; anything it refuses is a 400.
+   */
+  private mergeTransports(
+    stored: EmailTransportsRecord,
+    aliases: Record<string, Record<string, unknown>>,
+    patch: Record<string, Record<string, unknown> | null>,
+  ): EmailTransportsRecord {
+    const combined: Record<string, Record<string, unknown> | null> = {};
+    for (const [id, value] of Object.entries(aliases)) combined[id] = value;
+    for (const [id, value] of Object.entries(patch)) combined[id] = value === null ? null : { ...combined[id], ...value };
+
+    try {
+      return emailTransportKind.mergeSettingsRecord(stored, combined);
+    } catch (error) {
+      return transportRejection(error);
+    }
   }
 
   /**
@@ -558,33 +689,59 @@ export class EmailSettingsService {
     settingsError: string | null,
     row: SystemSettingsRowSnapshot<unknown> | null,
   ): Promise<EmailSettingsAdminView> {
+    const definitions = emailTransportKind.list() as readonly EmailTransportDefinition<any>[];
+
     // The masked read. NOT `getSecret` -- `describe` returns `CredentialInfo`,
     // which has no field capable of carrying secret material, so there is
-    // nothing on this path that could be widened into a leak.
-    const [smtpInfo, sesInfo, updatedBy] = await Promise.all([
-      this.credentials.describe(SMTP_CREDENTIAL_PURPOSE, SMTP_CREDENTIAL_NAME),
-      this.credentials.describe(SES_CREDENTIAL_PURPOSE, SES_CREDENTIAL_NAME),
-      this.findUpdatedBy(row?.updatedByUserId ?? null),
-    ]);
+    // nothing on this path that could be widened into a leak. One lookup per
+    // declared secret of each registered transport.
+    const lookups = definitions.flatMap((definition) =>
+      (definition.secrets ?? []).map(async (spec) => {
+        const address = emailTransportSecretAddress(definition, spec.name);
+        const info = await this.credentials.describe(address.purpose, address.name);
+        return { transport: definition.id, secret: spec.name, info };
+      }),
+    );
+    const [found, updatedBy] = await Promise.all([Promise.all(lookups), this.findUpdatedBy(row?.updatedByUserId ?? null)]);
 
-    return {
-      ...settings,
-      smtpPasswordStatus: {
-        configured: smtpInfo !== null,
+    const secretStatuses: Record<string, Record<string, CredentialStatus>> = {};
+    for (const definition of definitions) secretStatuses[definition.id] = {};
+    for (const { transport, secret, info } of found) {
+      (secretStatuses[transport] ??= {})[secret] = {
+        configured: info !== null,
         // The store's own mask ('••••' plus at most four trailing
         // characters, and nothing at all below eight). Derived on write by
         // `CredentialsService`; never computed here, because computing it
         // would mean holding the plaintext to compute it from.
-        hint: smtpInfo?.hint ?? null,
-        updatedAt: smtpInfo?.updatedAt ?? null,
-        updatedByUserId: smtpInfo?.updatedByUserId ?? null,
-      },
-      sesSecretAccessKeyStatus: {
-        configured: sesInfo !== null,
-        hint: sesInfo?.hint ?? null,
-        updatedAt: sesInfo?.updatedAt ?? null,
-        updatedByUserId: sesInfo?.updatedByUserId ?? null,
-      },
+        hint: info?.hint ?? null,
+        updatedAt: info?.updatedAt ?? null,
+        updatedByUserId: info?.updatedByUserId ?? null,
+      };
+    }
+
+    const NOT_CONFIGURED: CredentialStatus = { configured: false, hint: null, updatedAt: null, updatedByUserId: null };
+
+    // Every registered transport's settings, defaults filled; an entry that
+    // no longer parses falls back to the defaults (the invalid case was
+    // already reported through `settingsError`), an entry for an unregistered
+    // transport is dropped with one warning.
+    const read = emailTransportKind.readSettingsRecord(settings.transports ?? {}, (message) => this.logger.warn(message));
+    const transports: EmailTransportsRecord = {};
+    for (const definition of definitions) {
+      transports[definition.id] = read[definition.id] ?? emailTransportKind.parseSettings(definition.id, {});
+    }
+
+    const descriptors = describeEmailTransports((id) => ({
+      secrets: Object.fromEntries(Object.entries(secretStatuses[id] ?? {}).map(([name, status]) => [name, status.configured])),
+    }));
+
+    return {
+      ...settings,
+      transports,
+      descriptors,
+      secretStatuses,
+      smtpPasswordStatus: secretStatuses.smtp?.password ?? NOT_CONFIGURED,
+      sesSecretAccessKeyStatus: secretStatuses.ses?.secretAccessKey ?? NOT_CONFIGURED,
       settingsError,
       version: row?.version ?? 0,
       updatedAt: row?.updatedAt ?? null,

@@ -110,14 +110,24 @@ export class SmtpEmailProvider extends BaseEmailProvider {
   private cached: { fingerprint: string; transport: Transporter } | null = null;
 
   constructor(
-    private readonly emailSettings: EmailSettingsService,
-    private readonly credentials: CredentialsService,
+    // Narrowed to the one method each is used for (PP-14.8), so the `smtp`
+    // transport can build this class from its own settings and secret
+    // (`../transports/builtin-email-transports.ts`) while Nest still injects
+    // the real services when the class is a provider.
+    @Inject(EmailSettingsService) private readonly emailSettings: Pick<EmailSettingsService, 'get'>,
+    @Inject(CredentialsService) private readonly credentials: Pick<CredentialsService, 'getSecret'>,
     // The module options (#737): the generic rate-limit classifier. Optional
     // so a hand-built provider still works.
     @Optional() @Inject(EMAIL_OPTIONS) options?: Pick<ResolvedEmailModuleOptions, 'classifyRateLimit'>,
   ) {
     super();
     this.rateLimitClassifier = options?.classifyRateLimit;
+  }
+
+  /** Closes the cached transporter (the transport was replaced or the application is shutting down). */
+  destroy(): void {
+    this.cached?.transport.close();
+    this.cached = null;
   }
 
   /**

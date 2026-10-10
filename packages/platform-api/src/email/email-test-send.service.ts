@@ -5,9 +5,7 @@ import { EMAIL_OPTIONS, UNCONFIGURED_EMAIL_OPTIONS, type ResolvedEmailModuleOpti
 import { EmailSettingsService } from './email-settings.service';
 import type { EmailProviderKind, EmailSettings } from './email-settings.schema';
 import type { EmailMessage } from './email.types';
-import type { EmailProvider } from './providers/email-provider.interface';
-import { SesEmailProvider } from './providers/ses-email.provider';
-import { SmtpEmailProvider } from './providers/smtp-email.provider';
+import { EmailTransportResolver } from './transports/email-transport.resolver';
 import { renderEmailTemplate } from './templates';
 import type { TestEmailResult } from './dto/test-email-result.dto';
 
@@ -140,21 +138,6 @@ export interface TestSendActor {
 export class EmailTestSendService {
   private readonly logger = new Logger(EmailTestSendService.name);
 
-  /**
-   * Transport kind → transport.
-   *
-   * A `Record<EmailProviderKind, EmailProvider>` rather than a `switch`:
-   * adding a kind to `EMAIL_PROVIDER_KINDS` makes this object fail to compile
-   * until the new transport is wired, where a `switch` would fall through and
-   * report "nothing was sent" with no error to explain it — the exact failure
-   * mode the registries elsewhere in this epic are built to prevent.
-   *
-   * Built in the constructor rather than resolved per send: both providers are
-   * already singletons and neither touches the network until its first send,
-   * so this costs nothing and keeps the mapping in one readable place.
-   */
-  private readonly providers: Record<EmailProviderKind, EmailProvider>;
-
   private readonly options: Pick<ResolvedEmailModuleOptions, 'appUrl'>;
 
   constructor(
@@ -162,11 +145,11 @@ export class EmailTestSendService {
     // direct `audit_events` write).
     @Inject(AUDIT_SINK) private readonly auditSink: AuditSink,
     private readonly emailSettings: EmailSettingsService,
-    ses: SesEmailProvider,
-    smtp: SmtpEmailProvider,
+    // The configured transport, resolved from the registry by the settings'
+    // `provider`: an app's transport is used here exactly as `ses` and `smtp` are.
+    private readonly transports: EmailTransportResolver,
     @Optional() @Inject(EMAIL_OPTIONS) options?: Pick<ResolvedEmailModuleOptions, 'appUrl'>,
   ) {
-    this.providers = { ses, smtp };
     this.options = options ?? UNCONFIGURED_EMAIL_OPTIONS;
   }
 
@@ -205,7 +188,7 @@ export class EmailTestSendService {
         actor,
         null,
         attemptedAt,
-        'No email provider is selected. Choose SES or SMTP, save, then test again.',
+        'No email provider is selected. Choose a transport, save, then test again.',
       );
     }
 
@@ -239,6 +222,26 @@ export class EmailTestSendService {
       );
     }
 
+    const resolved = await this.transports.resolve(settings);
+    if (!resolved.ok) {
+      return this.failure(actor, providerKind, attemptedAt, resolved.error);
+    }
+
+    // The transport's own pre-flight, when it has one: a rejected credential or
+    // an unreachable host reads better here than as a failed send. It reports,
+    // it never throws; a transport that throws anyway is a failed diagnosis.
+    if (resolved.transport.verify) {
+      let verdict: { ok: boolean; message: string };
+      try {
+        verdict = await resolved.transport.verify();
+      } catch (err) {
+        verdict = { ok: false, message: err instanceof Error ? err.message : 'The transport could not be verified.' };
+      }
+      if (!verdict.ok) {
+        return this.failure(actor, providerKind, attemptedAt, verdict.message);
+      }
+    }
+
     const rendered = renderEmailTemplate('test-email', {
       recipientEmail: actor.email,
       providerKind,
@@ -264,7 +267,7 @@ export class EmailTestSendService {
     // `BaseEmailProvider`, so there is deliberately no try/catch here. Adding
     // one would suggest the guarantee is in doubt and would produce a worse
     // error message than the one the base class already builds.
-    const result = await this.providers[providerKind].send(message);
+    const result = await resolved.transport.send(message);
 
     if (!result.success) {
       // VERBATIM. `result.error` has already been through `SecretRedactor` and

@@ -9,10 +9,9 @@
 // credential store; the response DTO and `EmailSettingsAdminView` carry
 // compile-time proofs that they have no secret-bearing field.
 //
-// `BaseEmailProvider` is exported because a replacement transport (the
-// provider-token override, rung 3) extends it and inherits the never-throw
-// guarantee; implementing `EmailProvider` directly is how that guarantee gets
-// lost.
+// `BaseEmailProvider` is exported because a transport an app registers with
+// `registerEmailTransport` extends it and inherits the never-throw guarantee;
+// implementing `EmailProvider` directly is how that guarantee gets lost.
 
 // ---- the module and its options (rung 1) ----------------------------------------------
 import type { PlatformEmailTemplateDataMap } from './templates/platform-email-templates';
@@ -52,13 +51,48 @@ export type { EmailSettingsResponse } from './dto/email-settings-response.dto';
 export { TestEmailResultDto, testEmailResultSchema } from './dto/test-email-result.dto';
 export type { TestEmailResult } from './dto/test-email-result.dto';
 export {
+  BUILTIN_EMAIL_PROVIDER_KINDS,
   DEFAULT_EMAIL_SETTINGS,
   DEFAULT_SMTP_PORT,
   EMAIL_PROVIDER_KINDS,
+  EMAIL_TRANSPORT_ID_PATTERN,
   IMPLICIT_TLS_SMTP_PORT,
   emailSettingsSchema,
 } from './email-settings.schema';
-export type { EmailProviderKind, EmailSettings } from './email-settings.schema';
+export type { BuiltinEmailProviderKind, EmailProviderKind, EmailSettings } from './email-settings.schema';
+
+// ---- pluggable transports (rung 2): register one from an app or a package -------------------
+export {
+  describeEmailTransports,
+  emailTransportCredentialPurpose,
+  emailTransportDefinitions,
+  emailTransportIds,
+  emailTransportKind,
+  emailTransportSecretAddress,
+  getEmailTransport,
+  labelOfEmailTransport,
+  missingEmailTransportFields,
+  registerEmailTransport,
+  requireEmailTransport,
+} from './transports/email-transport';
+export type {
+  EmailTransport,
+  EmailTransportBuildContext,
+  EmailTransportBuildInput,
+  EmailTransportDefinition,
+  EmailTransportEgressOptions,
+  EmailTransportSecretAddress,
+  EmailTransportSettings,
+} from './transports/email-transport';
+export { EmailTransportResolver } from './transports/email-transport.resolver';
+export type { ActiveEmailTransport, EmailTransportResolution } from './transports/email-transport.resolver';
+export {
+  BUILTIN_EMAIL_TRANSPORT_IDS,
+  registerBuiltinEmailTransports,
+  sesEmailTransport,
+  smtpEmailTransport,
+} from './transports/builtin-email-transports';
+export type { SesTransportSettings, SmtpTransportSettings } from './transports/builtin-email-transports';
 
 // ---- transports ------------------------------------------------------------------------
 export { BaseEmailProvider, SecretRedactor } from './base-email.provider';
