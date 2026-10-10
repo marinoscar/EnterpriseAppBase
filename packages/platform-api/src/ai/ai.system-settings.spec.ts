@@ -122,6 +122,16 @@ describe('the ai namespace over the provider registry (PP-14.6)', () => {
       expect(warn).toHaveBeenCalledTimes(1);
     });
 
+    it('a missing or unusable namespace still gives every registered provider its default slot, an app provider included', () => {
+      for (const stored of [undefined, null, 'x', [], 42]) {
+        const value = read(stored);
+
+        expect(Object.keys(value.providers)).toEqual([...aiProviderKind.ids()]);
+        expect(value.providers['zed-provider']).toEqual({ enabled: false, region: 'us' });
+        expect(value.enabled).toBe(false);
+      }
+    });
+
     it('a damaged or missing providers block degrades to every registered provider switched off', () => {
       for (const providers of [undefined, null, 'x', [], 42]) {
         const value = read({ ...TODAYS_ROW, providers });

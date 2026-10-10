@@ -189,9 +189,9 @@ const storedAiSchema = systemAiSchema.extend({ providers: registeredProvidersSch
  * `allowBackgroundRuns` beside it.
  */
 function withAiSlots(stored: unknown, helpers: SettingsReadHelpers): unknown {
-  const source = helpers.asPlainObject(stored);
-
-  if (!source) return stored;
+  // A missing or unusable namespace reads as an empty one: every registered
+  // provider still gets its default slot (the static defaults know only the built-ins).
+  const source = helpers.asPlainObject(stored) ?? {};
 
   const known = aiProviderKind.readSettingsRecord(helpers.asPlainObject(source.providers) ?? {}, warnOnce);
   const storedDefaults = helpers.asPlainObject(source.defaults);
