@@ -402,3 +402,92 @@ export const patchOrgSettingsSchema = z.record(
  * @stability experimental
  */
 export type PatchOrgSettingsBody = z.infer<typeof patchOrgSettingsSchema>;
+
+// =============================================================================
+// Pluggable kinds: the descriptor a generated configuration form renders
+// (PP-14.5, issue #923)
+// =============================================================================
+
+const configFieldBase = {
+  /** The field's key inside the implementation's settings (or the secret's name). */
+  name: z.string(),
+  /** The human label the form shows. */
+  label: z.string(),
+  /** One sentence of help, shown under the control. */
+  help: z.string().optional(),
+};
+
+/**
+ * One configuration field of a pluggable implementation, described for a
+ * generated form. Discriminated by `kind`. The five non-secret kinds are the
+ * organization settings kinds ({@link orgSettingsFieldSchema}) plus `label`
+ * and `help`; `secret` is write-only: it carries whether a value is stored
+ * (`hasValue`) and whether one is required, never the value.
+ *
+ * @extensionPoint schema
+ * @stability experimental
+ */
+export const configFieldSchema = z.discriminatedUnion('kind', [
+  z.object({ ...configFieldBase, kind: z.literal('boolean') }),
+  z.object({ ...configFieldBase, kind: z.literal('enum'), options: z.array(z.string()) }),
+  z.object({
+    ...configFieldBase,
+    kind: z.literal('number'),
+    /** The lower bound, when the schema declares one. */
+    min: z.number().optional(),
+    /** The upper bound, when the schema declares one. */
+    max: z.number().optional(),
+    /** Whether the value must be an integer. */
+    integer: z.boolean().optional(),
+  }),
+  z.object({
+    ...configFieldBase,
+    kind: z.literal('string'),
+    /** The longest value, when the schema declares one. */
+    maxLength: z.number().int().optional(),
+  }),
+  z.object({ ...configFieldBase, kind: z.literal('other') }),
+  z.object({
+    ...configFieldBase,
+    kind: z.literal('secret'),
+    /** Whether a value is stored. The value itself never leaves the server. */
+    hasValue: z.boolean(),
+    /** Whether the implementation cannot work without one. */
+    required: z.boolean(),
+  }),
+]);
+
+/**
+ * One configuration field descriptor.
+ *
+ * @stability experimental
+ */
+export type ConfigField = z.infer<typeof configFieldSchema>;
+
+/**
+ * One implementation of a pluggable kind, described for a generated form: its
+ * identity and its fields (the non-secret settings in declaration order, then
+ * one `secret` field per declared secret).
+ *
+ * @extensionPoint schema
+ * @stability experimental
+ */
+export const pluggableDescriptorSchema = z.object({
+  /** The kind it implements (`ai-provider`, `storage-driver`, ...). */
+  kind: z.string(),
+  /** The implementation id; permanent once stored. */
+  id: z.string(),
+  /** The human label. */
+  label: z.string(),
+  /** One sentence on what it is. */
+  description: z.string().optional(),
+  /** Its configuration fields. */
+  fields: z.array(configFieldSchema),
+});
+
+/**
+ * One implementation descriptor.
+ *
+ * @stability experimental
+ */
+export type PluggableDescriptor = z.infer<typeof pluggableDescriptorSchema>;

@@ -168,3 +168,34 @@ export const ORG_SETTINGS_MERGE_MODES = ['override', 'tighten'] as const;
  * @stability experimental
  */
 export type OrgSettingsMergeMode = (typeof ORG_SETTINGS_MERGE_MODES)[number];
+
+// =============================================================================
+// Pluggable kinds (PP-14.5, issue #923)
+// =============================================================================
+
+/**
+ * The kinds of field a pluggable implementation's configuration form can
+ * render. The first five are the organization settings kinds
+ * ({@link ORG_SETTINGS_FIELD_KINDS}); `secret` is write-only: the wire carries
+ * whether a value is stored, never the value.
+ *
+ * @stability experimental
+ */
+export const CONFIG_FIELD_KINDS = ['boolean', 'enum', 'number', 'string', 'other', 'secret'] as const;
+
+/**
+ * One configuration field kind.
+ *
+ * @stability experimental
+ */
+export type ConfigFieldKind = (typeof CONFIG_FIELD_KINDS)[number];
+
+/**
+ * The shape of a pluggable implementation id and of a pluggable kind id: a
+ * lower-case slug of 2 to 48 characters starting with a letter
+ * (`openai`, `azure-blob`, `ai-provider`). An implementation id is permanent
+ * once a settings row stores configuration under it.
+ *
+ * @stability experimental
+ */
+export const PLUGGABLE_ID_PATTERN = /^[a-z][a-z0-9-]{1,47}$/;

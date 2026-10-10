@@ -8,6 +8,7 @@
 // (`"sideEffects": false`).
 
 export {
+  CONFIG_FIELD_KINDS,
   DATA_TABLE_DENSITIES,
   DATA_TABLE_ID_PATTERN,
   DATA_TABLE_MAX_ID_LENGTH,
@@ -19,11 +20,13 @@ export {
   ORG_SETTINGS_MERGE_MODES,
   ORG_SETTINGS_READ_PERMISSION,
   ORG_SETTINGS_WRITE_PERMISSION,
+  PLUGGABLE_ID_PATTERN,
   PROFILE_DISPLAY_NAME_MAX,
   PROFILE_IMAGE_SOURCES,
   THEME_PREFERENCES,
 } from './constants.js';
 export type {
+  ConfigFieldKind,
   DataTableDensityValue,
   OrgSettingsFieldKind,
   OrgSettingsMergeMode,
@@ -32,6 +35,7 @@ export type {
 } from './constants.js';
 export type { SystemSettingsResponseBase, UserSettingsResponseBase } from './types.js';
 export {
+  configFieldSchema,
   dataTableDensitySchema,
   dataTableEntrySchema,
   dataTableIdSchema,
@@ -45,6 +49,7 @@ export {
   orgSettingsNamespaceSchema,
   orgSettingsResponseSchema,
   patchOrgSettingsSchema,
+  pluggableDescriptorSchema,
   profileImageSourceSchema,
   themePreferenceSchema,
   userProfileSettingsPatchSchema,
@@ -57,6 +62,7 @@ export type {
   OrgSettingsMergeModeEnum,
   ProfileImageSourceEnum,
   ThemePreferenceEnum,
+  ConfigField,
   DataTableDensity,
   DataTableEntry,
   DataTableSort,
@@ -68,6 +74,7 @@ export type {
   OrgSettingsNamespace,
   OrgSettingsResponse,
   PatchOrgSettingsBody,
+  PluggableDescriptor,
   UserProfileSettingsPatchValue,
   UserProfileSettingsValue,
 } from './schemas.js';
