@@ -35,6 +35,13 @@ export const aiAdminProviderSchema = z.object({
    * which case it cannot be enabled.
    */
   registered: z.boolean(),
+  /**
+   * `false` for a registered adapter that has no settings slot yet (#921): an
+   * app registered it under a new id, so the `ai` namespace cannot store its
+   * settings and it cannot be enabled. Absent means configurable. A form shows
+   * such a provider read-only and does not send it back on save.
+   */
+  configurable: z.boolean().optional(),
   /** The `ai.providers.<id>.enabled` switch, as stored. */
   enabled: z.boolean(),
   /**
