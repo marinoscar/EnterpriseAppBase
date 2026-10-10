@@ -131,9 +131,9 @@ your own role, suspending or removing yourself is `403`. Re-inviting an
 address that is already a member is `409` (`ALREADY_MEMBER`, or
 `INVITE_ACCEPTED` when its invitation was accepted).
 
-### Google sign-in redirects
+### Sign-in redirects
 
-The two Google routes answer with redirects, not the JSON envelope.
+The two Google routes, and the same two routes of every other registered `redirect` provider (`GET /api/auth/<providerId>` and `/callback`), answer with redirects, not the JSON envelope. An unknown, `custom` or not configured provider id is a 404 on the first route.
 
 | Route | Redirects to |
 |---|---|

@@ -33,16 +33,34 @@ import type { CookieReply } from './cookie-http';
 export const REFRESH_TOKEN_COOKIE = 'refresh_token';
 
 /**
+ * The attributes of the refresh-token cookie.
+ *
+ * @stability experimental
+ */
+export interface RefreshTokenCookieOptions {
+  /** Always `true`: script cannot read the cookie. */
+  httpOnly: true;
+  /** `true` when `NODE_ENV` is `production` (read at load). */
+  secure: boolean;
+  /** Always `lax`. */
+  sameSite: 'lax';
+  /** Always `/api/auth`: the cookie goes only to the auth routes. */
+  path: string;
+  /** Lifetime in seconds (the cookie spec counts seconds): 14 days. */
+  maxAge: number;
+}
+
+/**
  * The refresh-token cookie's attributes: HttpOnly, `SameSite=Lax`,
  * `Path=/api/auth`, 14 days (seconds, as the cookie spec counts), `Secure` when
  * `NODE_ENV` is `production` (read at load).
  *
  * @stability experimental
  */
-export const REFRESH_TOKEN_COOKIE_OPTIONS = Object.freeze({
+export const REFRESH_TOKEN_COOKIE_OPTIONS: Readonly<RefreshTokenCookieOptions> = Object.freeze({
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',
-  sameSite: 'lax' as const,
+  sameSite: 'lax',
   path: '/api/auth',
   maxAge: 14 * 24 * 60 * 60,
 });

@@ -15,7 +15,7 @@ The audit record of the extension seams of every platform slice. A closed point 
 
 Evidence paths are written `api:`, `web:`, `contract:`, `cli:`, `db:` and `infra:` for `packages/platform-api/src/`, `packages/platform-web/src/`, `packages/platform-contract/src/`, `packages/platform-cli/src/`, `packages/platform-db/` and `packages/platform-infra/`; a path under `apps/` or `docs/` is from the repository root. A story is written PP-14.n (its issue number follows).
 
-As of this version: 114 closed points in 29 sections, 21 fixed and 93 open.
+As of this version: 114 closed points in 29 sections, 27 fixed and 87 open.
 
 ## Verdicts
 
@@ -42,7 +42,7 @@ As of this version: 114 closed points in 29 sections, 21 fixed and 93 open.
 | [testing (api and web)](#testing-api-and-web) | Mostly open | 2 | 0 | 2 | PP-14.26 |
 | [ai](#ai) | Mostly open | 10 | 6 | 4 | PP-14.3, PP-14.6, PP-14.17, PP-14.24 |
 | [storage](#storage) | Mostly open | 5 | 4 | 1 | PP-14.1, PP-14.7, PP-14.24 |
-| [identity](#identity) | Partly closed | 8 | 0 | 8 | PP-14.9, PP-14.15, PP-14.25 |
+| [identity](#identity) | Partly closed | 8 | 6 | 2 | PP-14.9, PP-14.15, PP-14.25 |
 | [email](#email) | Partly closed | 5 | 4 | 1 | PP-14.8, PP-14.24 |
 | [host](#host) | Partly closed | 8 | 1 | 7 | PP-14.2, PP-14.13, PP-14.24 |
 | [datatable](#datatable) | Partly closed | 2 | 0 | 2 | PP-14.20 |
@@ -65,7 +65,7 @@ The 28 stories of the epic, in order. Phase 1 makes the existing seams real; pha
 | PP-14.6 | #924 | ai: let an app or package add an AI provider (the AssemblyAI case) | 2 | 14.5, 14.3 | no | This change |
 | PP-14.7 | #925 | storage: pluggable storage drivers (Azure Blob, GCS, local) | 2 | 14.1, 14.5 | verify | This change |
 | PP-14.8 | #926 | email: pluggable email transports (SendGrid, Postmark) | 2 | 14.5 | no | This change |
-| PP-14.9 | #927 | identity: add a sign-in provider (GitHub, Entra, OIDC) | 2 | 14.5 | no | Open |
+| PP-14.9 | #927 | identity: add a sign-in provider (GitHub, Entra, OIDC) | 2 | 14.5 | no | This change |
 | PP-14.10 | #928 | notifications: first-class app channels (Slack, SMS, Teams, webhook) | 2 | 14.5 | no | Open |
 | PP-14.11 | #929 | telemetry: a TELEMETRY_STORE port so the time-series store is replaceable | 2 | 14.5 | no | Open |
 | PP-14.12 | #930 | db-backup: pluggable backup target, schedule policy and restore gates | 2 | 14.1 (14.7) | verify | Open |
@@ -382,18 +382,18 @@ Closed points: none recorded at the audit commit.
 
 ### identity
 
-**Verdict:** Partly closed · **Packages:** api, web, contract · **Closed points:** 8 (0 fixed, 8 open) · **Stories:** PP-14.9, PP-14.15, PP-14.25
+**Verdict:** Partly closed · **Packages:** api, web, contract · **Closed points:** 8 (6 fixed, 2 open) · **Stories:** PP-14.9, PP-14.15, PP-14.25
 
-**Open points.** `IdentityModule.forRoot`, `registerAuthProvider` (strategy, guard, `isEnabled`), the `IDENTITY_*` ports, `IDENTITY_EVENTS`, the guards and decorators, `identityConformanceSuite`, the web `AuthProvider`, `LoginPage` slots (`Logo`, `Title`, `Footer`, `ProviderButton`) and the packaged pages.
+**Open points.** `IdentityModule.forRoot` (and its `signInPolicy` binding), `registerAuthProvider` (`AuthProviderDefinition`: strategy and guard classes or `createStrategy`, async `isEnabled`, `mapProfile`, `egressHosts`, `doctorRemedy`), `AuthService.completeExternalLogin`, `respondToSignIn`, the `IDENTITY_*` ports (including `IDENTITY_SIGNIN_POLICY` and `IDENTITY_AUTH_CREDENTIALS`), `IDENTITY_EVENTS`, the guards and decorators, `identityConformanceSuite`, `describeAuthProviderConformance`, the web `AuthProvider`, `LoginPage` slots (`Logo`, `Title`, `Footer`, `ProviderButton`, `BeforeProviders`, `AfterProviders`) and the packaged pages. Roles and the user and organization pages are not open.
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
-| identity-1 | A sign-in provider cannot be completed from an app: the registry mounts no routes and has no login-completion seam. | api: `identity/auth/providers/auth-provider.registry.ts:11-13, :79` | `ExternalProfile`, `AuthService.completeExternalLogin`, generic routes `/auth/:providerId` and `/auth/:providerId/callback` for every registered redirect provider. | PP-14.9 (#927) | Open |
-| identity-2 | The only profile-to-session path is `handleGoogleLogin(profile: GoogleProfile)`, hard-coding `provider: 'google'` and `source: 'google'`; a GitHub subject would be stored as a Google identity. | api: `identity/auth/auth.service.ts:150, :173, :206, :470, :565` | `handleGoogleLogin` becomes a wrapper of `completeExternalLogin`; Google registers through the public path; `source` is the provider id. | PP-14.9 (#927) | Open |
-| identity-3 | The refresh cookie and redirect logic are private to `AuthController`. | api: `identity/auth/auth.controller.ts:48-55, :161-215` | One exported cookie and redirect helper. | PP-14.9 (#927) | Open |
-| identity-4 | `isEnabled` is synchronous and secrets come only from env/`ConfigService` (strategies take them at construction); `IdentityLoginOutcome`, the Doctor remedy and the egress contributor are Google-only. | api: `identity/ports.ts:228`; `identity/auth/providers/auth-provider.registry.ts:36-41`; `identity/auth/doctor/auth-providers.doctor-check.ts:36`; `identity/auth/doctor/egress/google-auth.egress.contributor.ts:42` | Async `isEnabled` with a credentials resolver (purpose `auth_<id>`), a generic `auth.providers` check, egress hosts from definitions. | PP-14.9 (#927) | Open |
-| identity-5 | There is no sign-in policy hook (veto, role mapping, domain or org restriction) and no `identity.login.succeeded` or `identity.org.created` event; the allowlist is the only gate. | api: `identity/auth/auth.service.ts:155-166`; `identity/identity.events.ts:40-47` | `IDENTITY_SIGNIN_POLICY` bound by `IdentityModule.forRoot({ signInPolicy })`; the two events. | PP-14.9 (#927) | Open |
-| identity-6 | The web `login()` always navigates to `/api/auth/<id>`, `AuthCallbackPage` defaults to `google`, and `LoginPage` has no slot around the provider buttons. | web: `identity/headless/auth-context.tsx:199` | `login(providerId)` by descriptor mode; `LoginPage` `BeforeProviders` and `AfterProviders`; the callback provider from the route. | PP-14.9 (#927) | Open |
+| identity-1 | A sign-in provider cannot be completed from an app: the registry mounts no routes and has no login-completion seam. | api: `identity/auth/providers/auth-provider.registry.ts:11-13, :79` | `ExternalProfile`, `AuthService.completeExternalLogin`, generic routes `/auth/:providerId` and `/auth/:providerId/callback` for every registered redirect provider. | PP-14.9 (#927) | Fixed |
+| identity-2 | The only profile-to-session path is `handleGoogleLogin(profile: GoogleProfile)`, hard-coding `provider: 'google'` and `source: 'google'`; a GitHub subject would be stored as a Google identity. | api: `identity/auth/auth.service.ts:150, :173, :206, :470, :565` | `handleGoogleLogin` becomes a wrapper of `completeExternalLogin`; Google registers through the public path; `source` is the provider id. | PP-14.9 (#927) | Fixed |
+| identity-3 | The refresh cookie and redirect logic are private to `AuthController`. | api: `identity/auth/auth.controller.ts:48-55, :161-215` | One exported cookie and redirect helper. | PP-14.9 (#927) | Fixed |
+| identity-4 | `isEnabled` is synchronous and secrets come only from env/`ConfigService` (strategies take them at construction); `IdentityLoginOutcome`, the Doctor remedy and the egress contributor are Google-only. | api: `identity/ports.ts:228`; `identity/auth/providers/auth-provider.registry.ts:36-41`; `identity/auth/doctor/auth-providers.doctor-check.ts:36`; `identity/auth/doctor/egress/google-auth.egress.contributor.ts:42` | Async `isEnabled` with a credentials resolver (purpose `auth_<id>`), a generic `auth.providers` check, egress hosts from definitions. | PP-14.9 (#927) | Fixed |
+| identity-5 | There is no sign-in policy hook (veto, role mapping, domain or org restriction) and no `identity.login.succeeded` or `identity.org.created` event; the allowlist is the only gate. | api: `identity/auth/auth.service.ts:155-166`; `identity/identity.events.ts:40-47` | `IDENTITY_SIGNIN_POLICY` bound by `IdentityModule.forRoot({ signInPolicy })`; the two events. | PP-14.9 (#927) | Fixed |
+| identity-6 | The web `login()` always navigates to `/api/auth/<id>`, `AuthCallbackPage` defaults to `google`, and `LoginPage` has no slot around the provider buttons. | web: `identity/headless/auth-context.tsx:199` | `login(providerId)` by descriptor mode; `LoginPage` `BeforeProviders` and `AfterProviders`; the callback provider from the route. | PP-14.9 (#927) | Fixed |
 | identity-7 | Org roles are closed in three layers: the contract list feeds `z.enum`s (update-member, create-invite), and the web has its own lists, labels and a `viewer` default. A role registered by an app (for example `coach`) is rejected by the invite and member routes and never shown. The test login accepts three fixed roles. | contract: `identity/constants.ts:106`; `identity/schemas.ts:125, :659, :719`; web: `identity/headless/api.ts:297`; `identity/ui/users/userListColumns.tsx:47`; `identity/ui/users/ManageRolesDialog.tsx:70, :82`; `identity/ui/org/orgLabels.ts:8`; `identity/ui/org/InviteMemberDialog.tsx:33`; api: `identity/testing/dto/test-login.dto.ts:6` | `GET /roles?scope=`, `roleIdSchema` as a pattern, role registry `assignable` and `label`, `ROLE_NOT_ASSIGNABLE`; the web dialogs read the endpoint. | PP-14.15 (#933) | Open |
 | identity-8 | `UsersPage`, `UserList`, `OrganizationPage` and `OrgMembersPanel` take no slots; `buildUserColumns()` is exported but called internally; `/auth/me` and `UserListItem` have no enrichment seam. | web: `identity/ui/users/userListColumns.tsx:82` | `TableSlots<UserListItem>`, `registerCurrentUserExtension` and `registerUserListExtension` (optional `extensions` on the wire). | PP-14.25 (#943) | Open |
 

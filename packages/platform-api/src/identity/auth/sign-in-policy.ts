@@ -46,25 +46,43 @@ export interface SignInContext {
 }
 
 /**
- * A policy's answer.
- *
- * - `allow`: continue. `roles` are applied ONLY when this sign-in creates the
- *   user (so an administrator's later role edits stick): a role whose scope is
- *   `org` becomes the new membership's role in the default organization (at
- *   most one; the initial administrator keeps `org_admin`), a role whose scope
- *   is `system` is added to the user's system roles. An unknown role name fails
- *   the sign-in closed (`authentication_failed`) before anything is written.
- * - `deny`: refuse with one of the closed login-denied reasons; the redirect
- *   carries only the code, never text.
+ * An allowing answer: continue. `roles` are applied ONLY when this sign-in
+ * creates the user (so an administrator's later role edits stick): a role whose
+ * scope is `org` becomes the new membership's role in the default organization
+ * (at most one; the initial administrator keeps `org_admin`), a role whose scope
+ * is `system` is added to the user's system roles. An unknown role name fails
+ * the sign-in closed (`authentication_failed`) before anything is written.
  *
  * Map roles only from claims the provider vouches for; a role granted from an
  * unverified field is a privilege escalation.
  *
  * @stability experimental
  */
-export type SignInDecision =
-  | { readonly allow: true; readonly roles?: readonly string[] }
-  | { readonly allow: false; readonly reason: AuthLoginDeniedReason };
+export interface SignInAllow {
+  /** Always `true`. */
+  readonly allow: true;
+  /** Role names to apply to a user this sign-in creates. */
+  readonly roles?: readonly string[];
+}
+
+/**
+ * A refusing answer: the redirect carries only the closed code, never text.
+ *
+ * @stability experimental
+ */
+export interface SignInDeny {
+  /** Always `false`. */
+  readonly allow: false;
+  /** One of the closed login-denied reasons. */
+  readonly reason: AuthLoginDeniedReason;
+}
+
+/**
+ * A policy's answer: {@link SignInAllow} or {@link SignInDeny}.
+ *
+ * @stability experimental
+ */
+export type SignInDecision = SignInAllow | SignInDeny;
 
 /**
  * The app's sign-in policy.

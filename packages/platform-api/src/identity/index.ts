@@ -100,7 +100,7 @@ export type {
 export { assertExternalProfile, externalProfileProblem, googleProfileToExternal } from './auth/external-profile';
 export type { ExternalProfile } from './auth/external-profile';
 export { IDENTITY_SIGNIN_POLICY } from './auth/sign-in-policy';
-export type { SignInContext, SignInDecision, SignInPolicy } from './auth/sign-in-policy';
+export type { SignInAllow, SignInContext, SignInDecision, SignInDeny, SignInPolicy } from './auth/sign-in-policy';
 export {
   REFRESH_TOKEN_COOKIE,
   REFRESH_TOKEN_COOKIE_OPTIONS,
@@ -108,7 +108,8 @@ export {
   respondToSignIn,
   setRefreshTokenCookie,
 } from './auth/sign-in-response';
-export type { RespondToSignInInput } from './auth/sign-in-response';
+export type { RefreshTokenCookieOptions, RespondToSignInInput } from './auth/sign-in-response';
+export type { CookieReply, CookieReplyMethods, IdentityCookieOptions } from './auth/cookie-http';
 export { createPassportProviderGuard } from './auth/guards/external-provider.guard';
 
 // ---- roles and permissions, as data for the app's permission registry -----------------

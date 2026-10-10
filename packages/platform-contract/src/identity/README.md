@@ -62,7 +62,7 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 Supporting exports (stable):
 
 - Constants: `AUTH_ERROR_CODES` (the closed sign-in failure set, the single source), `DEFAULT_AUTH_ERROR_CODE`, `isAuthErrorCode()`, `TENANCY_MODES`, `ASSIGNABLE_ORG_ROLES`, `ORG_SLUG_PATTERN`, `ORG_MEMBER_STATUSES`, `ORG_INVITE_STATUSES`, `PAT_DURATION_UNITS`, `PAT_LIMITS`, `DEVICE_TOKEN_TYPES`, `DEVICE_USER_CODE_PATTERN`, `DEVICE_TOKEN_ERROR_CODES`, `DEVICE_SESSION_STATUSES`, and their union types.
-- Sign-in: `authErrorCodeSchema`, `authProviderSchema`, `authProvidersResponseSchema`, `authRoleSchema`, `activeOrgSchema`, `authMembershipSchema`, `tokenResponseSchema`, `switchOrgSchema`.
+- Sign-in: `authErrorCodeSchema`, `authProviderSchema` (`name`, `enabled`, and `mode: 'custom'` for a provider that owns its sign-in flow), `authProvidersResponseSchema`, `authRoleSchema`, `activeOrgSchema`, `authMembershipSchema`, `tokenResponseSchema`, `switchOrgSchema`.
 - Personal access tokens: `createPatSchema`, `patCreatedResponseSchema`, `patListItemSchema`.
 - Device flow: `deviceTokenTypeSchema`, `deviceClientInfoSchema`, `deviceCodeRequestSchema`, `deviceCodeResponseSchema`, `deviceTokenRequestSchema`, `deviceTokenResponseSchema`, `deviceTokenErrorSchema`, `deviceAuthorizeRequestSchema`, `deviceAuthorizeResponseSchema`, `deviceActivateResponseSchema`, `deviceSessionSchema`, `deviceSessionsResponseSchema`.
 - Organizations: `organizationListQuerySchema`, `createOrganizationSchema`, `renameOrganizationSchema`, `organizationResponseSchema`, `orgMemberListQuerySchema`, `updateOrgMemberSchema`, `orgMemberResponseSchema`, `orgInviteListQuerySchema`, `createOrgInviteSchema`, `orgInviteResponseSchema`.
