@@ -243,7 +243,7 @@ In a real terminal with no arguments it opens an interactive ink menu. `appctl d
 
 ### 5.10 AI platform
 
-The AI platform is an admin-governed, bring-your-own-key capability over five providers: `openai`, `anthropic`, `gemini`, `azure-openai` and `openai-compatible`. It offers responses (plain, streaming, structured output, function-calling tool loops), embeddings, image generation and editing, transcription, text-to-speech and realtime voice sessions, plus background runs and usage reporting.
+The AI platform is an admin-governed, bring-your-own-key capability over five built-in providers: `openai`, `anthropic`, `gemini`, `azure-openai` and `openai-compatible`; an app or package adds its own with `registerAiProvider` ([EXTENDING.md](EXTENDING.md#add-an-ai-provider-the-assemblyai-case)). It offers responses (plain, streaming, structured output, function-calling tool loops), embeddings, image generation and editing, transcription, text-to-speech and realtime voice sessions, plus background runs and usage reporting.
 
 The platform is the `@marinoscar/platform-api/ai` slice (with `@marinoscar/platform-contract/ai` and `@marinoscar/platform-web/ai`, #739), configured once by the app (`apps/api/src/platform/ai/ai.config.ts`, which binds its host ports). A feature uses AI by injecting `AiService` and calling `forUser(userId, { orgId, feature })`. That client runs one gate pipeline for every call: kill switch (the deployment's, then the organization's own), provider and model enablement, capability match (and fit to a registered AI feature), key resolution (the user's own key; then the organization's own key, then the deployment's, under the effective `byok_with_org_fallback` or for an administrator), rate limits (per user, per org key, per organization, per model) and output caps. It records one `ai_usage_events` row per provider round trip. Provider SDKs are imported only inside `packages/platform-api/src/ai/providers/<provider>/`. Every provider call happens on the server; the only credential an AI route ever returns is a realtime session's ephemeral secret. Media and background runs are server-only queue jobs, never node-eligible. The web app includes an admin-only AI Playground at `/ai`.
 
@@ -898,7 +898,7 @@ Health endpoints (public, reachable during maintenance):
 | A background job type | [jobs/handlers/README.md](../packages/platform-api/src/jobs/handlers/README.md) |
 | A notification event, email template or channel | [notifications/README.md](../packages/platform-api/src/notifications/README.md) (app entries in `app-registrations/notifications.ts`) |
 | AI in a feature | [ai/README.md](../packages/platform-api/src/ai/README.md) |
-| An AI provider | [specs/ai-platform.md](specs/ai-platform.md) |
+| An AI provider | [EXTENDING.md](EXTENDING.md#add-an-ai-provider-the-assemblyai-case) (app or package), [specs/ai-platform.md §4](specs/ai-platform.md#4-extending-it-in-a-fork) (the contract; a built-in provider) |
 | A user key type (bring your own key) | [specs/user-credentials.md](specs/user-credentials.md) |
 | A Doctor check | [specs/doctor.md §4](specs/doctor.md#4-extending-it-in-a-fork) |
 | A packaged slice's access to the app (auth, audit, settings, Prisma; web transport and viewer) | [platform-api core README, Host ports](../packages/platform-api/src/core/README.md#host-ports), [platform-web core README](../packages/platform-web/src/core/README.md) |

@@ -15,7 +15,7 @@ The audit record of the extension seams of every platform slice. A closed point 
 
 Evidence paths are written `api:`, `web:`, `contract:`, `cli:`, `db:` and `infra:` for `packages/platform-api/src/`, `packages/platform-web/src/`, `packages/platform-contract/src/`, `packages/platform-cli/src/`, `packages/platform-db/` and `packages/platform-infra/`; a path under `apps/` or `docs/` is from the repository root. A story is written PP-14.n (its issue number follows).
 
-As of this version: 114 closed points in 29 sections, 8 fixed and 106 open.
+As of this version: 114 closed points in 29 sections, 13 fixed and 101 open.
 
 ## Verdicts
 
@@ -40,7 +40,7 @@ As of this version: 114 closed points in 29 sections, 8 fixed and 106 open.
 | [platform-cli](#platform-cli) | Mostly open | 7 | 0 | 7 | PP-14.22 |
 | [platform-infra](#platform-infra) | Mostly open | 2 | 0 | 2 | PP-14.22 |
 | [testing (api and web)](#testing-api-and-web) | Mostly open | 2 | 0 | 2 | PP-14.26 |
-| [ai](#ai) | Partly closed | 10 | 1 | 9 | PP-14.3, PP-14.6, PP-14.17, PP-14.24 |
+| [ai](#ai) | Mostly open | 10 | 6 | 4 | PP-14.3, PP-14.6, PP-14.17, PP-14.24 |
 | [identity](#identity) | Partly closed | 8 | 0 | 8 | PP-14.9, PP-14.15, PP-14.25 |
 | [storage](#storage) | Partly closed | 5 | 1 | 4 | PP-14.1, PP-14.7, PP-14.24 |
 | [email](#email) | Partly closed | 5 | 0 | 5 | PP-14.8, PP-14.24 |
@@ -62,7 +62,7 @@ The 28 stories of the epic, in order. Phase 1 makes the existing seams real; pha
 | PP-14.3 | #921 | ai: a registered provider without a settings slot must not break the admin AI page | 1 | none | no | Merged (PR #949) |
 | PP-14.4 | #922 | docs: extension author guide, audit record and corrected recipes | 1 | none | no | This change |
 | PP-14.5 | #923 | core: the pluggable-kind primitive (registry, per-implementation settings, secrets, descriptors, generic form, kit) | 2 | none | no | This change |
-| PP-14.6 | #924 | ai: let an app or package add an AI provider (the AssemblyAI case) | 2 | 14.5, 14.3 | no | Open |
+| PP-14.6 | #924 | ai: let an app or package add an AI provider (the AssemblyAI case) | 2 | 14.5, 14.3 | no | This change |
 | PP-14.7 | #925 | storage: pluggable storage drivers (Azure Blob, GCS, local) | 2 | 14.1, 14.5 | verify | Open |
 | PP-14.8 | #926 | email: pluggable email transports (SendGrid, Postmark) | 2 | 14.5 | no | Open |
 | PP-14.9 | #927 | identity: add a sign-in provider (GitHub, Entra, OIDC) | 2 | 14.5 | no | Open |
@@ -343,18 +343,18 @@ Closed points: none recorded at the audit commit.
 
 ### ai
 
-**Verdict:** Partly closed · **Packages:** api, web, contract · **Closed points:** 10 (1 fixed, 9 open) · **Stories:** PP-14.3, PP-14.6, PP-14.17, PP-14.24
+**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 10 (6 fixed, 4 open) · **Stories:** PP-14.3, PP-14.6, PP-14.17, PP-14.24
 
-**Open points.** The adapter contract (`AiProviderAdapter`), `AiProviderRegistry.register`, `registerAiFeature`, the `AI_SYSTEM_PRISMA`, `AI_OBJECT_STORE`, `AI_METRICS` and `AI_TARGET_RESOLVER` ports, `describeAiProviderConformance` and the seven `ai-*` conformance suites.
+**Open points.** The adapter contract (`AiProviderAdapter`), `AiProviderRegistry.register`, `registerAiProvider` (the provider definition: its settings, key requirement, endpoint rule, help and SDK packages) with `AiModule.forRoot({ providers })`, `registerAiProviderCard` and the generated provider card on the web, `registerAiFeature`, the `AI_SYSTEM_PRISMA`, `AI_OBJECT_STORE`, `AI_METRICS` and `AI_TARGET_RESOLVER` ports, `describeAiProviderConformance`, `createAiRuntimeHarness({ extraProviders, extraAdapters })` and the seven `ai-*` conformance suites (`ai-no-sdk-leak` with `providerDirs`).
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
 | ai-1 | A registered adapter under a new id makes every admin AI save fail: `describeForAdmin` lists the registry, the web form sends every listed provider back, and `buildNext` answers `400 AI_UNKNOWN_PROVIDER` for an id without a settings slot. | api: `ai/config/ai-config-admin.service.ts:~294, :336`; web: `ai/ui/AiConfigPage.tsx:264-267` | `configurable: false` on a slotless provider, ignored when submitted as listed; the form does not submit it. | PP-14.3 (#921) | Fixed (PR #949) |
-| ai-2 | A provider cannot be enabled from an app: `AiProviderModuleId` and `PROVIDER_MODULES` are closed and `forRoot` throws on any other id. | api: `ai/ai.module.ts:25, :28, :107-108` | `registerAiProvider(AiProviderDefinition)` backed by the pluggable-kind primitive; `AiModule.forRoot({ providers })` defaults to every registered definition. | PP-14.6 (#924) | Open |
-| ai-3 | The provider ids and the per-id settings keys are fixed in the contract: `AI_PROVIDER_IDS`, and one zod key per id in the stored, patch, response and org schemas. | contract: `ai/constants.ts:34`; `ai/schemas.ts:439, :707, :935, ~:1088` | `aiProviderIdSchema` (a pattern), `BUILTIN_AI_PROVIDER_IDS`, `providers` as a record; descriptors in the admin response. | PP-14.6 (#924) | Open |
-| ai-4 | The defaults, merge and slot helpers iterate the fixed id list, and `assertProviderEnabled` needs `slot?.enabled`. | api: `ai/ai.system-settings.ts:51, :127, :190-230`; `ai/config/ai-config.service.ts:~311` | Namespace schema, defaults and merge built from the registry (system and org); unknown stored ids dropped with one warning. | PP-14.6 (#924) | Open |
-| ai-5 | Provider-specific settings are a fixed field list mirrored in the DTO and the web type; the base-URL requirement and the help text switch on provider id in both packages. | api: `ai/config/ai-config.service.ts:81`; `ai/config/ai-config-admin.service.ts:83`; web: `ai/headless/types.ts:290`; `ai/ui/admin/aiProviderForm.ts:51`; `ai/ui/admin/AiProviderCard.tsx:167` | `settingsSchema`, `requiresBaseUrl` and `help` on the provider definition; `registerAiProviderCard(id, Component)` and the generic `PluggableConfigForm` card. | PP-14.6 (#924) | Open |
-| ai-6 | The runtime harness pins one provider and fixed slots; `ai-no-sdk-leak` forbids an SDK import in the app unless `sdkDirs` or `extraSdkPackages` are passed. | api: `ai/testing/ai-runtime-harness.ts:94, :509-519`; `ai/testing/conformance/ai-no-sdk-leak.suite.ts:92, :110, :299` | `createAiRuntimeHarness({ extraProviders, extraAdapters })`; `sdkPackages` on the definition and a `providerDirs` option. | PP-14.6 (#924) | Open |
+| ai-2 | A provider cannot be enabled from an app: `AiProviderModuleId` and `PROVIDER_MODULES` are closed and `forRoot` throws on any other id. | api: `ai/ai.module.ts:25, :28, :107-108` | `registerAiProvider(AiProviderDefinition)` backed by the pluggable-kind primitive; `AiModule.forRoot({ providers })` defaults to every registered definition. | PP-14.6 (#924) | Fixed |
+| ai-3 | The provider ids and the per-id settings keys are fixed in the contract: `AI_PROVIDER_IDS`, and one zod key per id in the stored, patch, response and org schemas. | contract: `ai/constants.ts:34`; `ai/schemas.ts:439, :707, :935, ~:1088` | `aiProviderIdSchema` (a pattern), `BUILTIN_AI_PROVIDER_IDS`, `providers` as a record; descriptors in the admin response. | PP-14.6 (#924) | Fixed |
+| ai-4 | The defaults, merge and slot helpers iterate the fixed id list, and `assertProviderEnabled` needs `slot?.enabled`. | api: `ai/ai.system-settings.ts:51, :127, :190-230`; `ai/config/ai-config.service.ts:~311` | Namespace schema, defaults and merge built from the registry (system and org); unknown stored ids dropped with one warning. | PP-14.6 (#924) | Fixed |
+| ai-5 | Provider-specific settings are a fixed field list mirrored in the DTO and the web type; the base-URL requirement and the help text switch on provider id in both packages. | api: `ai/config/ai-config.service.ts:81`; `ai/config/ai-config-admin.service.ts:83`; web: `ai/headless/types.ts:290`; `ai/ui/admin/aiProviderForm.ts:51`; `ai/ui/admin/AiProviderCard.tsx:167` | `settingsSchema`, `requiresBaseUrl` and `help` on the provider definition; `registerAiProviderCard(id, Component)` and the generic `PluggableConfigForm` card. | PP-14.6 (#924) | Fixed |
+| ai-6 | The runtime harness pins one provider and fixed slots; `ai-no-sdk-leak` forbids an SDK import in the app unless `sdkDirs` or `extraSdkPackages` are passed. | api: `ai/testing/ai-runtime-harness.ts:94, :509-519`; `ai/testing/conformance/ai-no-sdk-leak.suite.ts:92, :110, :299` | `createAiRuntimeHarness({ extraProviders, extraAdapters })`; `sdkPackages` on the definition and a `providerDirs` option. | PP-14.6 (#924) | Fixed |
 | ai-7 | `AI_CAPABILITIES`, `AiUsageOperation` and `TRACKED_OPERATIONS` are closed (and mirrored on the web), so diarization, moderation, rerank or OCR need a package edit. | api: `ai/core/capabilities.ts:31`; `ai/runtime/ai-usage.recorder.ts:35`; `ai/runtime/ai.service.ts:~447`; web: `ai/ui/shared/aiCapabilities.ts` | `registerAiCapability`, `registerAiOperation`, a custom-operation port `AiService.forUser(...).run(operationId, input)` through the same gate pipeline. | PP-14.17 (#935) | Open |
 | ai-8 | `AiTranscriptionResult` has no speakers or segments, the transcription DTO does not expose `providerOptions`, `feature` is never persisted on `ai_usage_events` or `ai_runs`, the playground modes are a fixed tuple, and there is no pricing seam. | api: `ai/core/types/media.types.ts:325`; web: `ai/ui/playground/aiPlaygroundModes.ts:28` | `extras` on the result, `providerOptions` (bounded), a migration adding `feature`, `registerAiPlaygroundMode`, the `AI_PRICING` port. | PP-14.17 (#935) | Open |
 | ai-9 | The documented override of `AI_TARGET_RESOLVER` (a `@Global()` module passed to `AiModule.forRoot({ imports })`) is unproven: `AiModule` does not provide the token, so a global provider should reach `AiService`, but the example test builds a test module holding only the token and hands the resolver to the harness by hand, so DI resolution through the real `AiModule` is never exercised. The epic requires every documented override to be proven with the real package modules. | api: `ai/runtime/target-resolver.ts:17`; `apps/api/test/examples/ai/example-summary.spec.ts:45` | A test that boots the real `AiModule.forRoot` and asserts `AiService` resolves through the app's resolver. | none yet (epic success criterion) | Open |
