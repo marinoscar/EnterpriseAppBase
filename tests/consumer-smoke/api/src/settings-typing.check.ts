@@ -24,10 +24,10 @@ export async function typedReads(settings: SystemSettingsService): Promise<unkno
   const archiveAfterDays: number = notes.archiveAfterDays;
   const purgeEnabled: boolean = jobs.history.purgeEnabled;
   const brokerEnabled: boolean = nodes.jobSecretBrokerEnabled;
-  const bucket: string = storage.bucket;
+  const provider: string = storage.provider;
   // @ts-expect-error a key no augmentation declares (unused, the build fails).
   await settings.getNamespace('neverDeclared');
-  return [archiveAfterDays, purgeEnabled, brokerEnabled, bucket];
+  return [archiveAfterDays, purgeEnabled, brokerEnabled, provider];
 }
 
 /**
