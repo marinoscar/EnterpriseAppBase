@@ -66,6 +66,8 @@ Place it where `/api/admin/maintenance` belongs in the generated document: paths
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `PlatformHostCoreModule.forRoot` | option | `forRoot(options?: PlatformHostCoreOptions): DynamicModule` | Mount the host core once, in the root module | experimental | [example](../../../../apps/api/src/platform/host-core.config.ts) |

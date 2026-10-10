@@ -71,6 +71,8 @@ With a `PlatformHostProvider` above it the layout is kept in the user's settings
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `DataTable` | component | `DataTable<Row>(props: DataTableProps<Row>): ReactElement` | Any list of rows, on every breakpoint | experimental | [example](../../../../apps/web/src/platform/identityAdapters.ts) |

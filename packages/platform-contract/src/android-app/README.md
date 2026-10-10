@@ -40,6 +40,8 @@ None. Schemas and constants take no options.
 
 None. The contract declares shapes; the seams (the device-source registry, the `android_app` channel) are in `@marinoscar/platform-api/android-app` and `@marinoscar/platform-api/notifications`.
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 Supporting exports (experimental): the constants `ANDROID_APP_SETTINGS_KEY`, `ANDROID_APP_SETTINGS_PATH`, `ANDROID_APP_ADMIN_PATH`, `ASSET_LINKS_API_PATH`, `ASSET_LINKS_CACHE_CONTROL`, `ASSET_LINKS_RELATION`, `MAX_TRUSTED_ANDROID_APPS`, `ANDROID_PACKAGE_NAME_PATTERN`, `SHA256_FINGERPRINT_PATTERN`, `TRUSTED_APPS_ERROR_REASONS`, `ANDROID_RELEASES_KEY_PREFIX`, `MAX_APK_BYTES`, `MIN_VERSION_CODE`, `MAX_VERSION_CODE`, `MAX_VERSION_NAME_LENGTH`, `MAX_RELEASE_NOTES_LENGTH`, `VERSION_NAME_PATTERN`, `APK_MIME_TYPE`, `APK_FILE_FIELD`, `DOWNLOAD_LINK_TTL_SECONDS`, `DOWNLOAD_ROUTE_PREFIX`, `ANDROID_RELEASE_REASONS`, `ANDROID_APP_TEST_REASONS`, `ANDROID_APP_TEST_STATUSES`, `TWA_LAUNCH_PARAMS`; the helpers `normalizeSha256Fingerprint`, `trustedAppKey`, `dedupeTrustedApps`; the schemas `androidPackageNameSchema`, `sha256FingerprintSchema`, `trustedAndroidAppSchema`, `trustedAndroidAppsSchema`, `androidAppSettingsValueSchema`, `updateAndroidAppSchema`, `reportedAndroidAppSchema`, `assetLinkStatementSchema`, `androidPushSubscriptionCountsSchema`, `androidAppResponseSchema`, `releaseUploadFieldsSchema`, `publicReleaseSchema`, `adminReleaseSchema`, `downloadLinkSchema`, `androidAppTestNotificationRequestSchema`, `androidAppTestResultRowSchema`, `androidAppTestNotificationResponseSchema`, and their types.
 
 ## Data

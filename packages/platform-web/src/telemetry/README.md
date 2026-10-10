@@ -76,6 +76,8 @@ EvoPath mapping: set `palette.chart.series` from its `theme/chartPalette.ts` ser
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `withTelemetryTokens` | theme-token | `withTelemetryTokens(theme: Theme): Theme` | Give the app's themes the telemetry tokens, keeping any the app set | experimental | [example](../../../../apps/web/src/theme/index.ts) |

@@ -50,6 +50,8 @@ and binds the two pages as registry cards and routes:
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `OnboardingProvider` | component | `OnboardingProvider(props: { children; appName?; client? }): ReactElement` | Run the one onboarding fetch around the authenticated shell | experimental | [example](../../../../apps/web/src/App.tsx) |

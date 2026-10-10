@@ -51,6 +51,8 @@ runPlatformConformance({
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `runPlatformConformance` | option | `runPlatformConformance(options: CliPlatformConformanceOptions): void` | Prove the app's env fragments and node executors keep the CLI's invariants | experimental | [example](../../../../apps/cli/src/conformance.test.ts) |

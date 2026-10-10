@@ -48,6 +48,8 @@ The page takes no props.
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `useStorageConfig` | hook | `useStorageConfig(options?: { api? }): UseStorageConfigReturn` | Build your own storage settings page over the same load, save, test and provision contract | experimental | [example](../../../../apps/web/src/__tests__/pages/Admin/StorageConfigPage.test.tsx) |

@@ -130,6 +130,8 @@ The resolved options (defaults applied, frozen) are provided under `DOCTOR_MODUL
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `DoctorModule.forRoot` | option | `forRoot(options: DoctorModuleOptions): DynamicModule` | Mount the Doctor once in the app's root module | stable | [example](../../../../apps/api/src/doctor/doctor.config.ts) |

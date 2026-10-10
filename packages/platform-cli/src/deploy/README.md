@@ -53,6 +53,8 @@ The step's `DeployStepContext`: `pipeline`, `deployRoot`, `checkoutPath` (`<depl
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `registerDeployStep` | registry | `registerDeployStep(registration: DeployStepRegistration): void` | Do one more thing in `deploy install` or `update` (EvoPath's Android APK release) without forking the pipeline | experimental | [example](../../../../apps/cli/src/examples/announce.deploy-step.ts) |

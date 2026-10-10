@@ -52,6 +52,8 @@ The package's own Doctor tests (`packages/platform-web/test/doctor/`) are the co
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 The test doubles are not extension points; apps extend nothing there. The conformance harness is:
 
 | Name | Kind | Signature | When to use | Stability | Example |

@@ -42,7 +42,9 @@ None. Schemas and constants take no options.
 
 ## Extension-point catalog
 
-None. The schemas describe the platform's own namespace and routes; a fork adding a provider appends to `AI_PROVIDER_IDS` and its slot in the schemas (docs/specs/ai-platform.md §4).
+None. The schemas describe the platform's own namespace and routes; a built-in provider added to the package appends to `AI_PROVIDER_IDS` and its slot in the schemas (docs/specs/ai-platform.md §4); an app cannot add one yet (PP-14.6).
+
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
 
 ## Data
 

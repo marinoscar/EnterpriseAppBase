@@ -38,6 +38,8 @@ None. Schemas and constants take no options.
 
 None. The shapes are the closed contract of one admin route; the transport list is closed on purpose (a new transport is a seam request, see the API slice's README).
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 ## Data
 
 No tables. `emailSettingsSchema` is the value of the `email` row of `system_settings`; `version`, `updatedAt` and `updatedBy` in the response come from that row. Always-present response fields are `.nullable()`; dates are ISO strings.

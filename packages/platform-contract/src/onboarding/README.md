@@ -38,6 +38,8 @@ None. Schemas and constants take no options.
 
 None. The contract declares shapes; extending what the namespace holds is `extendOnboardingSettings` in `@marinoscar/platform-api/onboarding`, not a contract change.
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 Supporting exports (experimental): `ONBOARDING_AUDIENCES`, `ONBOARDING_TIERS`, `ONBOARDING_STATUSES`, `ONBOARDING_SETTINGS_KEY`, `ONBOARDING_SKIPPED_MAX`, `ONBOARDING_STEP_ID_MAX`, `ONBOARDING_STEP_ID_PATTERN`, `ONBOARDING_METRICS_DAYS_DEFAULT`, `ONBOARDING_METRICS_DAYS_MAX`, `ONBOARDING_PATH`, `ONBOARDING_METRICS_PATH`, `ONBOARDING_READ_PERMISSION`, `ONBOARDING_ADMIN_PERMISSION`; the schemas `onboardingSettingsShape`, `onboardingSettingsSchema`, `onboardingSettingsPatchSchema`, `onboardingQuerySchema`, `onboardingStepSchema`, `onboardingBlockSchema`, `onboardingStateSchema`, `onboardingResponseSchema`, `onboardingMetricsQuerySchema`, `onboardingMilestoneMetricSchema`, `onboardingFunnelStepSchema`, `onboardingMetricsResponseSchema`, and their types.
 
 ## Data

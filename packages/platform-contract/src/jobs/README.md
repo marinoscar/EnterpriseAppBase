@@ -38,6 +38,8 @@ None. Schemas and constants take no options.
 
 None. The schemas describe the platform's own routes; an app that adds a field to its own job route extends a schema with `.extend()` in app code.
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 Supporting exports (experimental unless tagged stable): the constants above, every `*Schema` of `schemas.ts` and of `settings-schemas.ts` (stable) the inferred types `JobListQuery`, `JobInsightsQuery`, `JobDurationStats`, `JobStatusCounts`, `JobStatusName`, `ProcessedWithin`, `JobEtaBasis`, and the enum entry types `JobStatusEnum`, `JobReasonEnum`, `ProcessedWithinEnum`, `JobEtaBasisEnum`, `JobBooleanFlagEnum`.
 
 ## Data

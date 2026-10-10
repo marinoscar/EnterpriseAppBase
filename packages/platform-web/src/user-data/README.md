@@ -43,6 +43,8 @@ None beyond props: `onCompleted` and `pollIntervalMs` (default 1500 ms) on both 
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `dangerZoneLastViolations` | hook | `(sections, expectedPath) => string[]` | Assert both Danger Zone groups are last (web conformance) | experimental | [settingsCards.test.ts](../../../../apps/web/src/__tests__/config/settingsCards.test.ts) |

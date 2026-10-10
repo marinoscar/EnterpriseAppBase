@@ -89,6 +89,8 @@ The options and the `register*` functions feed the same registries: string ids, 
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `CreateCliOptions` | option | `createCli(options: CreateCliOptions): CliInstance` | Build the app's CLI: its identity and version, plus its commands, TUI screens, deploy steps, node executors and env-spec fragments | experimental | [example](../../apps/cli/src/app.ts) |

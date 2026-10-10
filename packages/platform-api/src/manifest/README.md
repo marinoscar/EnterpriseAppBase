@@ -94,6 +94,8 @@ userOwnedData: {
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `registerPlatformPermissions` | registry | `registerPlatformPermissions(options?: PlatformPermissionOptions): void` | Fill the role and permission registries once, from the app's permission manifest, with the platform's declarations and the app's | experimental | [example](../../../../apps/api/src/common/permissions/permission.manifest.ts) |

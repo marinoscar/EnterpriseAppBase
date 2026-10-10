@@ -34,6 +34,8 @@ None. The registries take no options; behaviour is fixed and documented in the c
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `registerCliCommand` | registry | `registerCliCommand(register: (program: Command) => void): void` | Add an app command to the host CLI; listed after the built-ins, in registration order. A name or alias taken by a built-in, an earlier app command or `help` throws when applied. | experimental | [example](../../../../apps/cli/src/examples/hello.command.ts) |

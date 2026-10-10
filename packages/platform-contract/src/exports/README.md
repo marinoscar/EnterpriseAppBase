@@ -38,6 +38,8 @@ None. Schemas and constants take no options.
 
 None. The contract declares shapes; a new source or format is `registerExportSource` / `registerExportWriter` in `@marinoscar/platform-api/exports`, not a contract change. Every object schema is exported so an app can `.extend()` it.
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 Supporting exports (experimental): `EXPORTS_PATH`, `EXPORTS_SOURCES_PATH`, `EXPORT_STATUSES`, `EXPORT_SCOPES`, `EXPORT_COLUMN_TYPES`, `EXPORT_REQUEST_FIELD_KINDS`, `EXPORT_ID_PATTERN`, `EXPORT_DATASET_PATTERN`, `EXPORT_FILE_NAME_PATTERN`, `EXPORT_LIST_LIMIT`, `EXPORT_FAILED_MESSAGE`, `EXPORT_JSON_SCHEMA_VERSION`; the schemas `exportCellSchema`, `exportColumnSchema`, `exportJsonDatasetSchema`, `exportJsonFileSchema`, `exportRequestFieldSchema`, `exportRequestFieldOptionSchema`, `exportFormatDescriptorSchema`, `exportSourceDescriptorSchema`, `exportSourcesResponseSchema`, `createExportSchema`, `exportDownloadSchema`, `exportSchema`, `exportListResponseSchema`, the enum schemas, and their types.
 
 ## Data

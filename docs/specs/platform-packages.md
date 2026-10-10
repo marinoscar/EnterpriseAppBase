@@ -349,7 +349,7 @@ These are the 31 base models, each assigned to exactly one slice; the organizati
 
 ### The Extension Contract
 
-**PROPOSED.** Every package must satisfy it. It is the rule that stops apps from editing platform files.
+**Implemented** (decision P2 awaits the owner's confirmation). Every package satisfies it: the ladder below is what the catalogs, the registries and the `forRoot` options of the six packages implement. It is the rule that stops apps from editing platform files. The author guide is [EXTENDING.md](../EXTENDING.md); the points of the contract that are still closed, with the story that opens each, are tracked in [EXTENSIBILITY-AUDIT.md](../EXTENSIBILITY-AUDIT.md).
 
 #### The extension ladder
 
@@ -359,7 +359,7 @@ Prefer earlier rungs. Move down only when the earlier rung cannot express the ne
 |---|---|---|
 | 1 | **Options** in `forRoot()`, merged over defaults | Tune values: any verdict threshold (`dashboard.verdictThresholds`; EvoPath's equal the defaults, so it sets none) |
 | 2 | **Registries** (`register...()`), additive and typed | `registerMetricGroup(coachGroup)`, `registerPermissions()`, `registerSettingsNamespace(zodSchema)`, `registerStorageKeyPrefixes()` (storage key prefixes), notification events, templates and channels, a user-owned-data registry, doctor checks, job handlers |
-| 3 | **Injection tokens** so an app overrides one provider | A `VerdictPolicy` token |
+| 3 | **Injection tokens** so an app overrides one provider, bound through the slice's `forRoot` option (never an app-module provider) | A `VerdictPolicy` token (`dashboard.verdictPolicy`), the object store (`StorageModule.forRoot({ provider })`), the event bus (`PlatformHostCoreModule.forRoot({ eventBus })`) |
 | 4 | **Events and hooks**: react without replacing | A hook on user creation |
 | 5 | **Composition**: the app builds its own module on exported primitives | A custom module built from `core` primitives |
 | 6 | **Eject**: vendor or patch one piece | Temporary, with a ticket to add the missing seam |
@@ -436,7 +436,7 @@ The packaged UI is mostly admin and settings surfaces, where style divergence is
 
 **DECIDED principle; PROPOSED mechanics.** This section is written for the developer of a future app, one that does not exist yet and whose author has never read the platform's internals. It explains how to get what the app needs without editing platform code. It builds on [The Extension Contract](#the-extension-contract) and does not repeat it: the ladder, the decision rule and the guardrails live there.
 
-Signatures below are illustrative until the packages exist. Once they do, each package's extension-point catalog ([Package documentation standard](#package-documentation-standard)) is authoritative.
+Each package's extension-point catalog ([Package documentation standard](#package-documentation-standard)) is authoritative for names and signatures; the step-by-step recipes are in [EXTENDING.md](../EXTENDING.md).
 
 ### The decision flow
 
@@ -474,21 +474,25 @@ All of these are additive calls made from the app's own module. None of them tou
 
 ```ts
 // Rung 2: registries (additive, typed, string ids)
-registerPermissions([{ id: 'workouts:read', description: 'Read own workouts', defaultGrants: ['admin', 'viewer'] }]);
-registerSettingsNamespace('coach', coachSettingsSchema);          // a zod schema
+// Static registries are filled at import time, from the app's registration files:
+//   app-registrations/permissions.ts   APP_PERMISSIONS = [{ id: 'workouts:read', description: 'Read own workouts', defaultGrants: ['admin', 'viewer'] }]
+//   app-registrations/settings.ts      APP_SYSTEM_SETTINGS_NAMESPACES = [coachSettingsNamespace]   // a zod-backed declaration
 registerNotification({ event: coachWeeklyReview, emailTemplate: 'coach-weekly-review' }); // via app-registrations/notifications.ts
-registerJobHandler(new WeeklyReviewHandler());                    // job type id is permanent
-registerDoctorCheck(new CoachProviderCheck());
+// Registries held by Nest are filled by the provider, from onModuleInit:
+this.jobHandlers.register(this);   // JobHandlerRegistry; the job type id is permanent
+this.doctorChecks.register(this);  // DoctorCheckRegistry
 
 // Rung 1: options override defaults (an app that tunes a threshold; EvoPath's equal the defaults)
 TelemetryModule.forRoot({ dashboard: { verdictThresholds: coachThresholds } });
 
-// Rung 3: override one provider through its injection token
+// Rung 3: override one provider through the slice's forRoot binding
 TelemetryModule.forRoot({ dashboard: { verdictPolicy: { useClass: CoachVerdictPolicy } } });
+StorageModule.forRoot({ provider: { useClass: AzureBlobProvider } });
+PlatformHostCoreModule.forRoot({ eventBus: { useClass: RedisEventBus } });
 // (in a test: .overrideProvider(VERDICT_POLICY).useClass(CoachVerdictPolicy))
 ```
 
-The telemetry slice binds `VERDICT_POLICY` itself (to `DefaultVerdictPolicy`), so an app's own `{ provide: VERDICT_POLICY, ... }` in an imported module would be shadowed by the slice's provider; the slice therefore takes the binding as the `dashboard.verdictPolicy` option, in the `PortBinding` shape of the core host ports (#703).
+**An override goes through the slice's `forRoot` binding, never through a provider in the app's own module.** NestJS resolves a token from the consuming module's own providers and imports first. The telemetry slice binds `VERDICT_POLICY` itself (to `DefaultVerdictPolicy`), so an app's own `{ provide: VERDICT_POLICY, ... }` in an imported module is shadowed by the slice's provider; the slice therefore takes the binding as the `dashboard.verdictPolicy` option, in the `PortBinding` shape of the core host ports (#703). The storage and event-bus overrides follow the same shape for the same reason: a package module that imports the slice's providers module never sees a provider declared elsewhere. A host port the slice does not provide itself (`AI_OBJECT_STORE`, `NODE_OBJECT_STORE`) is bound in a module the app passes to the slice's `forRoot({ imports })`.
 
 Existing precedent in the base: Doctor checks and job handlers already register themselves this way ([doctor spec](doctor.md), [job queue spec](job-queue.md)). Permissions and roles are the first static registry: each slice declares its permissions as data typed with `PermissionDeclaration` (scope and default grants included), the registries are `roleRegistry` and `permissionRegistry` of `@marinoscar/platform-api/core`, and `registerPlatformPermissions({ slices?, app })` of `@marinoscar/platform-api/manifest` registers the platform roles, the app's roles, every slice's permissions in seed order and then the app's (#866). An app declares its own as data in `apps/api/src/app-registrations/permissions.ts` ([permissions README](../../apps/api/src/common/permissions/README.md)); a seed that imports its packages composes the same catalog with `platformPermissionCatalog()` and hands it to `seedPlatform`. The platform's user-owned model inventory ships beside it (`registerPlatformUserOwnedModels(appModels)`), so the `userOwnedData` suite checks platform and app models together in any app.
 
@@ -508,16 +512,18 @@ The Prisma relation to a package-owned model is written in the app's fragment as
 
 ```tsx
 // Rung 2: a registry entry renders inside the app's own shell
-registerAdminSection({ id: 'coach', title: 'Coach', permission: 'coach:write', route: '/admin/settings/coach', element: <CoachSettings /> });
+// apps/web/src/config/adminSections.tsx (ADMIN_SECTIONS), plus the page's route in App.tsx:
+{ title: 'Coach', description: '…', Icon: CoachIcon, path: '/admin/settings/coach', permission: 'coach:write' }
 
 // Token contract: the app owns the theme and applies platform defaults to it
 const theme = withTelemetryTokens(createTheme(appThemeOptions));
 
 // Slots: restyle or replace one part of a packaged component
-<LoginPage slots={{ Logo: AppLogo, Footer: AppLegalLinks }} />
+<LoginPage slots={{ Logo: AppLogo, Footer: AppLegalLinks }} />   // from '@marinoscar/platform-web/identity/ui'
 
 // Headless: keep the package's behaviour, supply your own markup
-const { user, can } = useAuth();   // from '@marinoscar/platform-web/headless'
+const { user } = useAuth();                  // from '@marinoscar/platform-web/identity/headless'
+const { hasPermission } = usePermissions();
 ```
 
 #### Infra

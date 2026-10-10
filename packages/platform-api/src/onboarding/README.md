@@ -70,6 +70,8 @@ Call `forRoot` after the app's manifest ran; at bootstrap the service fails the 
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `OnboardingModule.forRoot` | option | `forRoot(options?: OnboardingModuleOptions): DynamicModule` | Mount the slice once, after the app's onboarding manifest | experimental | [example](../../../../apps/api/src/platform/onboarding/onboarding.config.ts) |

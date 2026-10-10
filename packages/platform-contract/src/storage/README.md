@@ -36,7 +36,9 @@ None. Schemas and constants take no options.
 
 ## Extension-point catalog
 
-None. The shapes are the closed contract of the slice's routes and its settings namespace; the provider list is closed on purpose (a non-S3 backend overrides `STORAGE_PROVIDER` in the API slice, it is not a new kind).
+None. The shapes are the closed contract of the slice's routes and its settings namespace; the provider list is closed on purpose (a non-S3 backend is bound with `StorageModule.forRoot({ provider })` in the API slice, it is not a new kind).
+
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
 
 ## Data
 

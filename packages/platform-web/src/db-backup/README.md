@@ -37,6 +37,8 @@ The page needs `PlatformHostProvider` (the transport and the viewer's permission
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `DbBackupPage` | component | `DbBackupPage(): ReactElement` | Route `/admin/settings/db-backup` | experimental | [example](../../../../apps/web/src/App.tsx) |

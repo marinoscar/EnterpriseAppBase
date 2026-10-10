@@ -90,6 +90,8 @@ runPlatformConformance({
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `runPlatformConformance` | option | `runPlatformConformance(options: PlatformConformanceOptions): void` | Register the enabled suites at the top level of a spec file | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |

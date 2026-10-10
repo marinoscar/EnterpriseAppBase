@@ -92,6 +92,8 @@ Props, all optional unless marked. Every component also takes `sx` and `classNam
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `groupsSettingsPage` | component | `PlatformSettingsPage<never>` | Register the groups page as one user card (`groups:read`) and its routes | experimental | [example](../../../../apps/web/src/config/userSettingsSections.tsx) |

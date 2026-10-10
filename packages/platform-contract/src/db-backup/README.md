@@ -38,6 +38,8 @@ None. Schemas and constants take no options.
 
 None. The shapes are the closed contract of the slice's routes, its settings namespace and its node result. A fork extends the restore with a carry-over (`RestoreCarryOver`, in the API slice), never by widening these shapes.
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 ## Data
 
 No tables. `systemDatabaseBackupSchema` is the `databaseBackup` value of the `global` system-settings row. `bytesWritten` and `sizeBytes` are decimal strings on the way out (`JSON.stringify` refuses a `bigint`), and the node result's `bytes` is a decimal string on the way in (a JSON number loses precision above 2^53, exactly on the largest dumps). Dates are ISO strings.

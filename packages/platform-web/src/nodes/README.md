@@ -62,6 +62,8 @@ Every hook takes an optional `NodesApi` as its last argument (the adapters' clie
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `NodesApi` | option | `{ getWorkerNodes; getWorkerNode; deleteWorkerNode; getNodeCredentials; createNodeCredential; revokeNodeCredential }` | Route the fleet calls through the app's own client, or fake them in a test | experimental | [example](../../../../apps/web/src/platform/nodesAdapters.ts) |

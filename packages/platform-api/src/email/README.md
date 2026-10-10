@@ -77,6 +77,8 @@ With no `layout` option every platform template renders byte for byte what the p
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `EmailModule.forRoot` | option | `forRoot(options: EmailModuleOptions): DynamicModule` | Mount the slice once, with the product name, URL, look and classifier | experimental | [example](../../../../apps/api/src/platform/email/email.config.ts) |
@@ -102,7 +104,7 @@ Supporting exports (experimental unless noted): the module options and `EMAIL_OP
 
 1. **Option.** `forRoot({ appName, layout: { theme, brandMark, footerHtml } })`: a different look for every message, no code.
 2. **Registry.** `registerEmailTemplate('coach-weekly-review', template)` plus the `EmailTemplateDataMap` augmentation adds a message; `{ override: true }` replaces a platform one (EvoPath restyles `broadcast` this way). A duplicate without `override` throws `DUPLICATE_ID` naming the template; each override is logged once at bootstrap (`Email template "broadcast" is overridden by acme.`). **Template names are stable ids** once a notification event maps to them (bindings and delivery records persist them): add a name, never rename one.
-3. **Token.** A different transport replaces a provider class in the app's own module (`{ provide: SmtpEmailProvider, useClass: PostmarkEmailProvider }`, extending `BaseEmailProvider` to keep the never-throw rule). No transport registry exists (no consumer has asked); file a seam request if you need one.
+3. **Token.** Not supported yet, see PP-14.8 (#926). A provider of `SmtpEmailProvider` (or `SesEmailProvider`) in the app's own module does not reach the package's consumers (`EmailNotificationChannel`, `EmailTestSendService`): they take the concrete classes from `EmailModule`, and Nest resolves them there first. No transport registry exists until PP-14.8 adds one; the selectable transports are `ses` and `smtp`. [EXTENDING.md](../../../../docs/EXTENDING.md#coming-in-pp-148-add-an-email-transport) tracks the recipe.
 
 ### Writing a template
 

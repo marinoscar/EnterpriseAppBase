@@ -42,6 +42,8 @@ The reference app reaches it through the built-in `api` command ([`cli.ts`](../.
 
 None. The client is a library, not an extension point; an app uses it as is.
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 ## Data
 
 None. The slice holds no data model and persists nothing.

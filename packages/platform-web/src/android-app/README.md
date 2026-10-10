@@ -50,6 +50,8 @@ No environment variable.
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `captureTwaLaunch` | hook | `captureTwaLaunch(search?: string, prefix?: string): void` | Remember a TWA launch and the installed build once, before the router drops the query string | experimental | [example](../../../../apps/web/src/main.tsx) |

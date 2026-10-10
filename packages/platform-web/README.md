@@ -85,6 +85,8 @@ None at the package level. `PlatformHostProvider`'s host is documented in the [c
 
 None. The root export is only the package name; the extension points live in the slice catalogs ([core](src/core/README.md#extension-point-catalog), [doctor](src/doctor/README.md#extension-point-catalog)).
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../docs/EXTENDING.md).
+
 ## Data
 
 None. The browser holds no data model; it reads and writes through the API.

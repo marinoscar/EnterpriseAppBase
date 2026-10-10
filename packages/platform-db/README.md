@@ -104,6 +104,8 @@ The programmatic API takes the same three folders as `ComposeOptions` (`platform
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../docs/EXTENDING.md).
+
 The one seam of the data layer is the `extend model` block, written in the app's fragment folder (`ComposeOptions.appFragmentsDir`). The row below names the option that locates it.
 
 | Name | Kind | Signature | When to use | Stability | Example |
@@ -143,6 +145,7 @@ The migration tooling adds no row to the catalog. How an app extends the migrati
 
 - **The app's own migrations live after the installed ones.** `platform db sync` names every installed directory after the newest directory already in `prisma/migrations`, so an app-authored migration and an installed one never reorder. The app keeps authoring with `prisma migrate dev`; those directories are not in `platform.lock`.
 - **App-owned raw-SQL indexes** go in `platform.lock` under `rawSqlIndexes` (`name` and `pg_indexes.indexdef`); `platform db drift` asserts them next to the package's own.
+- **App-owned row-level-security policies** go in `platform.lock` under `rlsPolicies` (`name` and `table`); `platform db drift` asserts them next to the package's own ([App tables with row-level security](#app-tables-with-row-level-security)).
 - **A comment-only difference** between an installed file and its package origin is recorded in the lock entry as `localSha256` plus `note`; any further edit is still caught.
 - **`platform db promote` is platform-internal.** It is how a maintainer turns a migration generated in the base app into a package migration; an app that only consumes the package never runs it.
 
@@ -265,7 +268,7 @@ Prisma's schema language cannot express a partial index or an expression index, 
 - a listed one is not created, or its table, uniqueness or `createdIn` disagrees,
 - a schema fragment declares `@@unique`, `@@index` or `@unique` under a listed index's name or on its table and key columns.
 
-An app's own raw-SQL indexes go in its `platform.lock` under `rawSqlIndexes`; the drift test asserts them too.
+An app's own raw-SQL indexes go in its `platform.lock` under `rawSqlIndexes`, as `{ "name", "definition" }` with the definition exactly as `pg_indexes.indexdef` prints it; the drift test asserts them too ([example lock entry](#app-tables-with-row-level-security)).
 
 ### Row-level security policies
 
@@ -286,6 +289,54 @@ Prisma's schema language cannot express a policy either, and `prisma migrate dif
 `rls-policies.json` is the one list (`name`, `table`, `reason`, `doc`, `createdIn`), exported as `RLS_POLICIES` beside `RAW_SQL_INDEXES`. `platform db drift` reads `pg_policies` and `pg_class` and reports `POLICY_MISSING` (a listed policy is not in the database), `POLICY_UNLISTED` (the database has one nobody listed), `RLS_NOT_ENABLED`, `RLS_NOT_FORCED` (the table does not `FORCE` it, so the owner, which is the application role, bypasses the policy) and `RLS_FORCED_WITHOUT_POLICY` (everything would be denied). `assertRlsPolicies` is the offline tripwire (`runDbConformance` runs it as `rls-policies`): it scans the manifest migrations and fails on `UNLISTED_POLICY`, `LISTED_POLICY_NOT_FOUND`, `LISTED_POLICY_MISMATCH` (`createdIn` disagrees) and a policy whose table the migrations never `ENABLE` / `FORCE`. The policy text and the settings it reads (`app.org_id`, `app.user_id`, `app.rls_bypass`, always `set_config(..., true)`) are specified in [SECURITY-ARCHITECTURE.md §18](../../docs/SECURITY-ARCHITECTURE.md#18-tenant-isolation-rls); the clients that set them are `PrismaService.forOrg` / `runInOrg` and `PrismaSystemService` in the reference app, built on the row-level-security helpers of `@marinoscar/platform-api/core` ([core README](../platform-api/src/core/README.md)).
 
 A migration that enables row-level security carries `"rls": true` in the manifest (`platform db promote --rls`), and, because it changes what a connection can see, a partial `platform db baseline` that stops before it does so deliberately: a baseline through or past it needs `--allow-rls`, which is the operator's statement that the application role is already `NOSUPERUSER NOBYPASSRLS` (error `RLS_OPT_IN_REQUIRED` otherwise). `--touches <slices>` on promote records the other slices' tables a migration changes (`0025` touches `ai` and `identity` from the `storage` slice), so a baseline of a subset of slices can tell.
+
+### App tables with row-level security
+
+An app table that carries `org_id` is isolated the way the platform's `org` tables are, and the app declares it in two places that `platform db drift` reads: the migration that creates the policy, and `rlsPolicies` in `platform.lock`. Prisma cannot express the policy, so it is intentional drift in the app too: never "fix" it with a schema change.
+
+1. **The model.** In the app's fragment, a NOT NULL `orgId` with a `Cascade` relation to `Organization`, and the back-relation as `extend model Organization { workouts Workout[] }` (`Organization` is `// @extensible`). A link to another org-owned table is a composite foreign key that includes `org_id` (`@relation(fields: [parentId, orgId], references: [id, orgId])`, with `@@unique([id, orgId])` on the parent), because a foreign-key check runs without row-level security.
+2. **The migration.** `prisma migrate dev --create-only`, then append the three statements to the generated SQL. The policy is the platform's own (copy it unchanged, only the names differ):
+
+   ```sql
+   ALTER TABLE "workouts" ENABLE ROW LEVEL SECURITY;
+   ALTER TABLE "workouts" FORCE ROW LEVEL SECURITY;
+   CREATE POLICY "workouts_org_isolation" ON "workouts"
+     USING      ("org_id" = NULLIF(current_setting('app.org_id', true), '')::uuid
+                 OR current_setting('app.rls_bypass', true) = 'on')
+     WITH CHECK ("org_id" = NULLIF(current_setting('app.org_id', true), '')::uuid
+                 OR current_setting('app.rls_bypass', true) = 'on');
+   ```
+
+   A migration that reads or writes rows of an org table (a backfill, a data fix) wraps its statements, because under `FORCE` an unscoped statement silently affects zero rows:
+
+   ```sql
+   BEGIN;
+   SELECT set_config('app.rls_bypass', 'on', true);
+   -- the backfill, the policy statements above
+   COMMIT;
+   ```
+
+   The setting is always `set_config(..., true)` (transaction-local), never a session-level `SET`. Creating a new, empty table needs no bypass; the wrapper is harmless there.
+3. **The lock.** List the policy in the app's `prisma/platform.lock` (the file is JSON; `rlsPolicies` and `rawSqlIndexes` are optional keys, and `platform db sync` and `baseline` carry them through unchanged):
+
+   ```json
+   {
+     "lockVersion": 1,
+     "platformVersion": "0.1.0",
+     "migrations": [],
+     "rawSqlIndexes": [
+       { "name": "workouts_active_uniq_idx", "definition": "CREATE UNIQUE INDEX workouts_active_uniq_idx ON public.workouts USING btree (org_id, slug) WHERE (archived_at IS NULL)" }
+     ],
+     "rlsPolicies": [
+       { "name": "workouts_org_isolation", "table": "workouts" }
+     ]
+   }
+   ```
+
+   An entry is exactly `name` and `table` (the lock refuses another key). It is the app's statement that the policy is intentional.
+4. **Check it.** `platform db drift` diffs the replayed migrations against the schema in a shadow database, then asserts in the migrated database it is given (`DATABASE_URL`) each listed policy in `pg_policies` and that its table has row-level security enabled **and** forced. It reports `POLICY_MISSING`, `RLS_NOT_ENABLED` and `RLS_NOT_FORCED` for a listed policy that is not (fully) in place, `POLICY_UNLISTED` for a policy in the database that neither list names, and `RLS_FORCED_WITHOUT_POLICY` for a forced table no listed policy protects. Today the check is against a live database only; `runDbConformance` and `assertRlsPolicies` still read the package's list, not the lock's.
+
+The application role must be an ordinary role that owns the tables (`NOSUPERUSER NOBYPASSRLS`); a superuser ignores every policy. The runtime clients (`PrismaService.forOrg` / `runInOrg`) and the model-ownership registration an `org` model needs are in the reference app's [ownership README](../../apps/api/src/prisma/ownership/README.md); the step-by-step recipe is [EXTENDING.md](../../docs/EXTENDING.md#add-an-rls-protected-app-table).
 
 The exported functions (`planSync`, `applySync`, `checkLock`, `checkLedger`, `promote`, `readLock`, `readManifest`, `serializeLock`, `RAW_SQL_INDEXES`, `assertRawSqlIndexes`, `runDbConformance`) are `experimental` and documented in the API reference (`npm run docs:packages`).
 

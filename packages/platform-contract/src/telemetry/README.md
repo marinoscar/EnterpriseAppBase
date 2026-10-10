@@ -53,6 +53,8 @@ None. Schemas and constants take no options; the routes' paths and permissions a
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `telemetryInstanceIdSchema` | schema | `ZodString` (regex) | Validate an instance id in an app-side schema of its own | stable | [example](../../../../apps/api/src/common/schemas/settings.schema.ts) |

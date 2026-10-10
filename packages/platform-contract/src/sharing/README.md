@@ -40,6 +40,8 @@ None. Schemas and constants take no options; the routes, their permissions and t
 
 None. The schemas are the wire contract of the API slice, not a seam: an app that needs more fields on a group keeps them in `metadata` (`groupMetadataSchema`), never in a new column, and a grant's role is a plain string the app's resource type declares (`registerResourceType` in the [API slice](../../../platform-api/src/sharing/README.md#extension-point-catalog)), so no schema is extended per app.
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 ## Data
 
 No tables. The shapes mirror the `sharing` fragment of `@marinoscar/platform-db` (`groups`, `group_members`, `group_invites`):

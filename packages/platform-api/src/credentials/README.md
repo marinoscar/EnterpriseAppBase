@@ -86,6 +86,8 @@ A stored key that will not decrypt throws; it never falls through to the next ti
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `CredentialsModule` | token | `@Module` providing `CredentialsService` | Import it in a module that reads or writes a deployment credential | experimental | [example](../../../../apps/api/src/platform/email/email.config.ts) |

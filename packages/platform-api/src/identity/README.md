@@ -75,6 +75,8 @@ There is NO global JWT guard: a route with neither `@Auth(...)` nor `@Public()` 
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 Order follows the extension ladder: options (rung 1), registries (rung 2), tokens (rung 3), events (rung 4). Every host port is `experimental` (ports are replaced as the slices behind them are packaged); the guards and decorators are `stable` and are not extension points (Supporting exports).
 
 | Name | Kind | Signature | When to use | Stability | Example |

@@ -60,6 +60,8 @@ Every hook takes an optional `JobsApi` as its last argument (the adapters' clien
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `JobsApi` | option | `{ getJobs; getJobStats; retryJob; deleteJob; ...; revokeNodeCredential }` | Route the jobs and fleet calls through the app's own client, or fake them in a test | experimental | [example](../../../../apps/web/src/platform/jobsAdapters.ts) |

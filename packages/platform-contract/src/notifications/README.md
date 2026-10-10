@@ -44,6 +44,8 @@ None. Schemas and constants take no options.
 
 ## Extension-point catalog
 
+The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `createBroadcastSchema` | schema | `z.object({ title, body, link?, ctaLabel?, channels, scheduledFor?, critical, targetOrgId? })` | Compose or validate a broadcast; `targetOrgId` addresses one organization's active members | stable | [example](../../../../apps/api/test/broadcasts/org-broadcasts.integration.spec.ts) |
