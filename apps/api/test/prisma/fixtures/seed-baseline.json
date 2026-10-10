@@ -1,5 +1,5 @@
 {
-  "$comment": "Captured from the database the PRE-change prisma/seed.ts produced (issue #712, PP-5.5): roles, permissions and role_permissions by name, the global system_settings row, and the row counts. seed-platform.db.spec.ts proves the registry-driven seed writes exactly this. Do not regenerate it to make a test pass: when seeded data changes on purpose, edit it here in the same commit so the change shows in review. Edited on purpose by issue #723 (PP-6.3): the org_admin role, the four org_* permissions, admin's org grants moved to org_admin, and the scoped role descriptions. Edited on purpose by issue #726 (PP-6.7): the two system permissions organizations:read and organizations:write, granted to admin. Edited on purpose by issue #728 (PP-7.1): the three org permissions groups:read (every org role), groups:write (org_admin, contributor) and groups:admin (org_admin). Edited on purpose by issue #729 (PP-7.2): the three org permissions sharing:read (every org role), sharing:write (org_admin, contributor) and sharing:admin (org_admin). Edited on purpose by issue #733 (PP-8.1): the two org permissions org_settings:read and org_settings:write, granted to org_admin. Edited on purpose by issue #738 (PP-8.5): the two org permissions org_broadcasts:read and org_broadcasts:write, granted to org_admin. Edited on purpose by issue #743 (PP-9.1): the two system permissions system:factory_reset and orgs:offboard, granted to admin.",
+  "$comment": "Captured from the database the PRE-change prisma/seed.ts produced (issue #712, PP-5.5): roles, permissions and role_permissions by name, the global system_settings row, and the row counts. seed-platform.db.spec.ts proves the registry-driven seed writes exactly this. Do not regenerate it to make a test pass: when seeded data changes on purpose, edit it here in the same commit so the change shows in review. Edited on purpose by issue #723 (PP-6.3): the org_admin role, the four org_* permissions, admin's org grants moved to org_admin, and the scoped role descriptions. Edited on purpose by issue #726 (PP-6.7): the two system permissions organizations:read and organizations:write, granted to admin. Edited on purpose by issue #728 (PP-7.1): the three org permissions groups:read (every org role), groups:write (org_admin, contributor) and groups:admin (org_admin). Edited on purpose by issue #729 (PP-7.2): the three org permissions sharing:read (every org role), sharing:write (org_admin, contributor) and sharing:admin (org_admin). Edited on purpose by issue #733 (PP-8.1): the two org permissions org_settings:read and org_settings:write, granted to org_admin. Edited on purpose by issue #738 (PP-8.5): the two org permissions org_broadcasts:read and org_broadcasts:write, granted to org_admin. Edited on purpose by issue #743 (PP-9.1): the two system permissions system:factory_reset and orgs:offboard, granted to admin. Edited on purpose by issue #925 (PP-14.7): the storage namespace is stored as { provider, drivers } (one entry per built-in driver, all empty / not configured) instead of the flat bucket, region, endpoint, accountId, accessKeyId and forcePathStyle fields; legacy flat rows still load through the read-time adapter, but the seed writes the new shape.",
   "counts": {
     "roles": 4,
     "permissions": 51,
@@ -360,13 +360,31 @@
         "offlineStaleMultiplier": 4
       },
       "storage": {
-        "bucket": "",
-        "region": "",
-        "endpoint": "",
         "provider": "s3",
-        "accountId": "",
-        "accessKeyId": "",
-        "forcePathStyle": null
+        "drivers": {
+          "s3": {
+            "bucket": "",
+            "region": "",
+            "endpoint": "",
+            "accessKeyId": "",
+            "forcePathStyle": null
+          },
+          "r2": {
+            "bucket": "",
+            "accountId": "",
+            "region": "",
+            "endpoint": "",
+            "accessKeyId": "",
+            "forcePathStyle": null
+          },
+          "s3compatible": {
+            "bucket": "",
+            "region": "",
+            "endpoint": "",
+            "accessKeyId": "",
+            "forcePathStyle": null
+          }
+        }
       },
       "retention": {
         "aiRuns": {

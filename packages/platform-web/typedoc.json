@@ -33,6 +33,7 @@
     "src/jobs/ui/index.ts",
     "src/storage/headless/index.ts",
     "src/storage/ui/index.ts",
+    "src/storage/ui/driver-panels.ts",
     "src/notifications/headless/index.ts",
     "src/notifications/headless/service-worker.ts",
     "src/notifications/ui/index.ts",

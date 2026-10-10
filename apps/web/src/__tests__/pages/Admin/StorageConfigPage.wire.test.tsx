@@ -29,32 +29,34 @@ import { render, mockAdminUser } from '../../utils/test-utils';
 import { server } from '../../mocks/server';
 import StorageConfigPage from '@marinoscar/platform-web/storage/ui';
 import type { StorageConfigView } from '@marinoscar/platform-web/storage/headless';
+import { builtinDrivers, storageConfigFixture } from '../../mocks/fixtures/storage';
 
-const storedConfig: StorageConfigView = {
+const storedConfig: StorageConfigView = storageConfigFixture({
   provider: 's3compatible',
+  drivers: builtinDrivers({
+    s3compatible: {
+      bucket: 'app-objects',
+      region: 'us-east-1',
+      endpoint: 'https://minio.example.com:9000',
+      accessKeyId: 'AKIAEXAMPLE',
+      forcePathStyle: null,
+    },
+  }),
   bucket: 'app-objects',
-  region: 'us-east-1',
   endpoint: 'https://minio.example.com:9000',
-  accountId: '',
-  accessKeyId: 'AKIAEXAMPLE',
-  forcePathStyle: null,
   effectiveEndpoint: 'https://minio.example.com:9000',
-  configured: true,
-  missing: [],
-  secretStatus: {
-    configured: true,
-    hint: '••••ab12',
-    updatedAt: '2026-01-01T00:00:00.000Z',
-    updatedByUserId: 'admin-user-id',
-  },
   version: 5,
-  updatedAt: '2026-01-01T00:00:00.000Z',
-  updatedBy: { id: 'admin-user-id', email: 'admin@example.com' },
-};
+});
 
 interface CapturedRequest {
   body: Record<string, unknown>;
   ifMatch: string | null;
+}
+
+/** The active driver's settings in a write body: `drivers.s3compatible`. */
+function settingsOf(body: Record<string, unknown>): Record<string, unknown> {
+  expect(body.provider).toBe('s3compatible');
+  return (body.drivers as Record<string, Record<string, unknown>>).s3compatible;
 }
 
 function mockGet(config: StorageConfigView = storedConfig) {
@@ -98,8 +100,9 @@ describe('StorageConfigPage — save request wire contract', () => {
     await user.click(screen.getByRole('button', { name: /save changes/i }));
 
     await waitFor(() => expect(captured).toHaveLength(1));
-    expect(Object.prototype.hasOwnProperty.call(captured[0].body, 'secretAccessKey')).toBe(false);
-    expect(captured[0].body.bucket).toBe('app-objects-edited');
+    expect(captured[0].body).not.toHaveProperty('secrets');
+    expect(captured[0].body).not.toHaveProperty('secretAccessKey');
+    expect(settingsOf(captured[0].body).bucket).toBe('app-objects-edited');
   });
 
   it('DOES include secretAccessKey, with the typed value, when one is typed', async () => {
@@ -111,7 +114,7 @@ describe('StorageConfigPage — save request wire contract', () => {
     await user.click(screen.getByRole('button', { name: /save changes/i }));
 
     await waitFor(() => expect(captured).toHaveLength(1));
-    expect(captured[0].body.secretAccessKey).toBe('rotated-secret-value');
+    expect(captured[0].body.secrets).toEqual({ s3compatible: { secretAccessKey: 'rotated-secret-value' } });
   });
 
   it('sends the loaded version as If-Match', async () => {
@@ -136,8 +139,8 @@ describe('StorageConfigPage — save request wire contract', () => {
     await user.click(screen.getByRole('button', { name: /save changes/i }));
 
     await waitFor(() => expect(captured).toHaveLength(1));
-    expect(Object.prototype.hasOwnProperty.call(captured[0].body, 'forcePathStyle')).toBe(true);
-    expect(captured[0].body.forcePathStyle).toBeNull();
+    expect(Object.prototype.hasOwnProperty.call(settingsOf(captured[0].body), 'forcePathStyle')).toBe(true);
+    expect(settingsOf(captured[0].body).forcePathStyle).toBeNull();
   });
 
   it('puts an explicit "force off" on the wire as false, which is NOT the same value', async () => {
@@ -149,7 +152,7 @@ describe('StorageConfigPage — save request wire contract', () => {
     await user.click(screen.getByRole('button', { name: /save changes/i }));
 
     await waitFor(() => expect(captured).toHaveLength(1));
-    expect(captured[0].body.forcePathStyle).toBe(false);
+    expect(settingsOf(captured[0].body).forcePathStyle).toBe(false);
   });
 
   it('sends the unsaved form to POST /test, so a new bucket can be proved before committing to it', async () => {
@@ -187,7 +190,7 @@ describe('StorageConfigPage — save request wire contract', () => {
     await user.click(screen.getByRole('button', { name: /test connection/i }));
 
     await waitFor(() => expect(testBody).not.toBeNull());
-    expect(testBody!.bucket).toBe('not-saved-yet');
+    expect(settingsOf(testBody!).bucket).toBe('not-saved-yet');
 
     // And a 200 carrying `success: false` renders as the diagnosis, not as a
     // success — the mistake that would make this whole page useless.

@@ -284,7 +284,7 @@ Procedure: [runbooks/doctor.md](runbooks/doctor.md). Design: [specs/doctor.md](s
 - **Where:** Storage, `/admin/settings/storage`.
 - **Who:** `storage_config:read` to view; `storage_config:write` to change.
 
-Object storage holds uploads, backups, exports and APKs. It is configured here at runtime, never by environment variable. Providers are S3, Cloudflare R2 and any S3-compatible store.
+Object storage holds uploads, backups, exports and APKs. It is configured here at runtime, never by environment variable. Providers are S3, Cloudflare R2 and any S3-compatible store, plus any storage driver your developers added (it appears in the same list).
 
 1. Open the page and choose the provider.
 2. Enter the bucket, region (required for S3), endpoint where the provider needs one, and the access key pair.

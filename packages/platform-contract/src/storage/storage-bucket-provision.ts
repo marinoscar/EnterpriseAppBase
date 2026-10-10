@@ -50,7 +50,8 @@
 
 import { z } from 'zod';
 
-import { STORAGE_PROVIDER_KINDS, type StorageEnum } from './constants.js';
+import { type StorageEnum } from './constants.js';
+import { storageDriverIdSchema } from './settings-schemas.js';
 import { testStorageConfigSchema } from './storage-connection-test.js';
 
 // ---------------------------------------------------------------------------
@@ -216,9 +217,9 @@ export const storageBucketProvisionResultSchema = z.object({
   /** ⚠ THE ANSWER. Never inferred from the status code, which is always 200. */
   outcome: (z.enum(STORAGE_BUCKET_OUTCOMES) as z.ZodEnum<StorageEnum<typeof STORAGE_BUCKET_OUTCOMES>>),
 
-  /** Which provider: `s3`, `r2` or `s3compatible`. */
-  provider: (z.enum(STORAGE_PROVIDER_KINDS) as z.ZodEnum<StorageEnum<typeof STORAGE_PROVIDER_KINDS>>),
-  /** The bucket name; empty means not configured. */
+  /** Which driver. */
+  provider: storageDriverIdSchema,
+  /** The bucket (or container, or directory) name; empty means not configured. */
   bucket: z.string(),
   /** The region (`auto` for R2); empty means not configured. */
   region: z.string(),
@@ -227,6 +228,12 @@ export const storageBucketProvisionResultSchema = z.object({
 
   /** Always all four, in attempt order, whatever the outcome. */
   steps: z.array(storageBucketStepSchema),
+
+  /**
+   * One sentence for the whole run, authored by the driver. Present for every
+   * driver; a driver without a bucket concept says so here.
+   */
+  message: z.string().optional(),
 
   /** Present exactly when `outcome` is `guided`. */
   guidance: guidedBucketInstructionsSchema.nullable(),

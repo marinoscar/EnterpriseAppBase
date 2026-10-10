@@ -4,18 +4,22 @@ import { CredentialsService } from '../../credentials/index';
 import { SystemSettingsService } from '../../settings/index';
 import type { SystemStorageValue } from '@marinoscar/platform-contract/storage';
 import {
-  STORAGE_CREDENTIAL_LABEL,
-  STORAGE_CREDENTIAL_NAME,
-  STORAGE_CREDENTIAL_PURPOSE,
-} from '../storage-credential.constants';
-import { resolveStorageConfig } from './storage-config';
+  describeStorageDrivers,
+  getStorageDriver,
+  missingStorageFields,
+  storageDriverIds,
+  storageLocationOf,
+  storageSecretAddress,
+  type StorageDriverDefinition,
+} from '../drivers/storage-driver';
 import { StorageConfigService } from './storage-config.service';
-import { displayEndpoint } from './storage-probe.support';
 import type { StorageConfigResponse } from './dto/storage-config-response.dto';
 import {
   STORAGE_SWITCH_CONFIRMATION,
   type UpdateStorageConfigInput,
 } from './dto/update-storage-config.dto';
+import { mergeStorageSettings } from './storage.system-settings';
+import { submittedSecretValues, unknownDriverRejection } from './storage-settings-compat';
 import { PLATFORM_PRISMA } from '../../core/index';
 import { STORAGE_SYSTEM_DATA, type StorageSystemData } from '../ports';
 import { StorageObjectStatus } from '../data/storage-db';
@@ -28,8 +32,8 @@ import type { StorageInputJsonValue, StoragePrisma } from '../data/storage-db';
 // The two halves of a storage configuration, joined for an ADMINISTRATOR rather
 // than for a client that is about to move bytes:
 //
-//     system_settings.global -> `storage` namespace   (seven non-secret fields)
-//   + credentials(storage, default)                   (masked, never decrypted)
+//     system_settings.global -> `storage` namespace   (provider + every driver's non-secret settings)
+//   + the active driver's credentials                 (masked, never decrypted)
 //   -> what `GET /api/admin/storage-config` renders
 //
 // `StorageConfigService` is the other consumer of the same two halves, and the
@@ -85,28 +89,6 @@ import type { StorageInputJsonValue, StoragePrisma } from '../data/storage-db';
 // =============================================================================
 
 /**
- * A stand-in for the stored secret, used ONLY to ask `resolveStorageConfig`
- * whether a credential is present.
- *
- * ⚠ WHY THIS EXISTS AND WHY IT IS SAFE. `resolveStorageConfig` is the single
- * definition of "configured", and it needs the secret for exactly two things:
- * deciding whether `secretAccessKey` belongs in the missing-field list, and
- * copying it into the resolved config. This path needs the first answer and MUST
- * NOT obtain the second — an admin read has no business decrypting a credential
- * (see `CredentialsService.getSecret`'s contract, and `StorageConfigService`'s
- * startup warm, which declines the same read for the same reason).
- *
- * So presence is signalled with a value that is not the secret, and the resolved
- * `config` is discarded unread — only `configured` and `missing` are used. The
- * alternative was to re-derive "is the secret missing?" here, which is a second
- * copy of a rule that has exactly one definition today.
- *
- * REJECTED: `''`. It reads as "present but empty" to a human and as "absent" to
- * `resolveStorageConfig`, which is the kind of near-miss that survives review.
- */
-const CREDENTIAL_PRESENCE_PROBE = '[credential present]';
-
-/**
  * What the switch gate counts, and reports in its 409.
  *
  * @stability experimental
@@ -118,6 +100,13 @@ export interface StorageLocationUsage {
   databaseBackupRuns: number;
   /** Convenience: `storageObjects + databaseBackupRuns`. */
   total: number;
+}
+
+/** Where objects live, for the switch gate: the driver id, its bucket and its endpoint. */
+interface StorageLocation {
+  provider: string;
+  bucket: string;
+  endpoint: string | null;
 }
 
 /**
@@ -154,21 +143,25 @@ export class StorageConfigAdminService {
    * DOES NOT THROW ON A DAMAGED ROW, matching
    * `PushConfigService.describeForAdmin` and for the same reason: this is the repair path, and a
    * 500 here would take down the one screen capable of fixing the row.
-   * `getStoragePolicy` already degrades field by field to
-   * `DEFAULT_SYSTEM_SETTINGS.storage` — the unconfigured state — so a corrupt
-   * `region` still renders the bucket an operator typed.
+   * `getStoragePolicy` already degrades field by field to the drivers'
+   * defaults — the unconfigured state — so a corrupt `region` still renders the
+   * bucket an operator typed.
    */
   async describeForAdmin(): Promise<StorageConfigResponse> {
-    const [policy, row, secretInfo] = await Promise.all([
+    const [policy, row] = await Promise.all([
       // `fresh` is irrelevant here — `getStoragePolicy` is the uncached
       // accessor — but the row read below is what carries `version`, and the
       // two must describe the same write. See `readRow`.
       this.systemSettings.getStoragePolicy(),
       this.readRow(),
-      this.credentials.describe(STORAGE_CREDENTIAL_PURPOSE, STORAGE_CREDENTIAL_NAME),
     ]);
 
-    return this.toResponse(policy, row, secretInfo);
+    // One masked status per declared secret of every registered driver: the
+    // descriptors say whether each is stored, the response says it for the
+    // active driver's primary secret with its hint and provenance.
+    const infos = await this.describeSecrets(storageDriverIds());
+
+    return this.toResponse(policy, row, infos);
   }
 
   // ---------------------------------------------------------------------------
@@ -176,8 +169,8 @@ export class StorageConfigAdminService {
   // ---------------------------------------------------------------------------
 
   /**
-   * `PUT /api/admin/storage-config` — full replace of the seven settings fields,
-   * plus an optional secret rotation.
+   * `PUT /api/admin/storage-config` — the active driver, its settings and an
+   * optional secret rotation.
    *
    * Order of operations, and every step is load-bearing:
    *
@@ -188,7 +181,7 @@ export class StorageConfigAdminService {
    *      why this check exists here as well as inside `patchSettings`.
    *   3. The switch gate. A `409` naming the row counts, unless the body carries
    *      the typed confirmation.
-   *   4. The credential, if the body carried one. Blank preserves.
+   *   4. The credential(s), if the body carried any. Blank preserves.
    *   5. The settings namespace, through `patchSettings`.
    *   6. ⚠ `invalidateCache()`, SYNCHRONOUSLY, before the audit write.
    *   7. The audit row.
@@ -198,8 +191,10 @@ export class StorageConfigAdminService {
    * call, this instance would still answer storage questions from a value it
    * read up to five seconds ago, and an administrator who saved a corrected
    * bucket and immediately retried an upload would watch it fail against the old
-   * one. Anything that awaits in between — an audit row, a notification, a log
-   * flush — widens that window for no benefit.
+   * one. Anything that awaits in between widens that window for no benefit.
+   *
+   * @throws BadRequestException (400) for an unregistered driver, settings the driver refuses, or a flat alias contradicting `drivers`.
+   * @throws ConflictException (409) for a stale `If-Match`, or a relocation that strands objects without the `SWITCH` confirmation.
    */
   async replace(
     input: UpdateStorageConfigInput,
@@ -216,61 +211,61 @@ export class StorageConfigAdminService {
       );
     }
 
-    const next: SystemStorageValue = {
+    const driver = this.requireDriver(input.provider);
+
+    // The same merge a PATCH of the namespace performs: it validates the driver
+    // id and every named driver's settings (400), folds the legacy flat aliases
+    // into the driver they belong to and refuses a contradiction.
+    const patch = {
       provider: input.provider,
-      bucket: input.bucket,
-      region: input.region,
-      endpoint: input.endpoint,
-      accountId: input.accountId,
-      accessKeyId: input.accessKeyId,
-      forcePathStyle: input.forcePathStyle,
+      ...(input.drivers === undefined ? {} : { drivers: input.drivers }),
+      ...(input.bucket === undefined ? {} : { bucket: input.bucket }),
+      ...(input.region === undefined ? {} : { region: input.region }),
+      ...(input.endpoint === undefined ? {} : { endpoint: input.endpoint }),
+      ...(input.accountId === undefined ? {} : { accountId: input.accountId }),
+      ...(input.accessKeyId === undefined ? {} : { accessKeyId: input.accessKeyId }),
+      ...(input.forcePathStyle === undefined ? {} : { forcePathStyle: input.forcePathStyle }),
     };
+    const next = mergeStorageSettings(current, patch);
 
     await this.assertSwitchAcknowledged(current, next, input.confirmation);
 
-    // BLANK PRESERVES, and the check is here rather than left to `setSecret`
-    // because `setSecret` raises a 400 when a blank secret is written to an
-    // address that does not exist yet — which is precisely the first save of a
-    // half-filled form, the one case that must not be an error. Not calling it
-    // at all is the same outcome ("leave the stored secret alone") without the
-    // exception, and it keeps a no-op write off the credential row entirely.
-    const rotatesSecret = Boolean(input.secretAccessKey);
+    // Blank preserves: only a typed, non-empty secret is written.
+    const typed = submittedSecretValues(driver.id, input as unknown as Record<string, unknown>);
+    const rotated = Object.keys(typed);
 
-    if (rotatesSecret) {
-      await this.credentials.setSecret(
-        STORAGE_CREDENTIAL_PURPOSE,
-        STORAGE_CREDENTIAL_NAME,
-        input.secretAccessKey,
-        { label: STORAGE_CREDENTIAL_LABEL, updatedByUserId: userId },
-      );
+    for (const name of rotated) {
+      const address = storageSecretAddress(driver, name);
+      const spec = (driver.secrets ?? []).find((candidate) => candidate.name === name);
+
+      await this.credentials.setSecret(address.purpose, address.name, typed[name], {
+        label: address.label ?? spec?.label ?? `${driver.label} ${name}`,
+        updatedByUserId: userId,
+      });
     }
 
-    // The whole `storage` namespace, every field, so this really is a replace.
-    // `patchSettings` merges namespace by namespace, so the seven fields here
-    // replace the seven stored ones and every OTHER namespace — and every
-    // unknown key a fork has put in this row — is carried forward untouched.
     await this.systemSettings.patchSettings(
-      { storage: next },
+      { storage: patch },
       userId,
-      // Re-checked against the same row, closing the window between step 2 and
-      // here. The first check is what keeps a loser from having already rotated
-      // the credential; this one is what actually serialises the writers.
       expectedVersion,
     );
 
-    // ⚠ SYNCHRONOUS, AND BEFORE THE AUDIT WRITE. See this method's header.
+    // SYNCHRONOUS, and BEFORE the audit write. See step 6 above.
     this.storageConfig.invalidateCache();
 
     await this.audit(userId, 'storage_config:replace', {
-      settings: next,
-      secretRotated: rotatesSecret,
+      settings: this.auditableSettings(next),
+      secretRotated: rotated.length > 0,
+      ...(rotated.length > 0 ? { secretsRotated: rotated } : {}),
       switchConfirmed: input.confirmation === STORAGE_SWITCH_CONFIRMATION,
     });
 
+    const location = this.locationOf(next);
+
     this.logger.log(
       `Storage configuration replaced by user ${userId} ` +
-        `(provider=${next.provider} bucket=${next.bucket || '(none)'} ` +
-        `secretRotated=${rotatesSecret})`,
+        `(provider=${next.provider} bucket=${location.bucket || '(none)'} ` +
+        `secretRotated=${rotated.length > 0})`,
     );
 
     return this.describeForAdmin();
@@ -281,48 +276,15 @@ export class StorageConfigAdminService {
   // ---------------------------------------------------------------------------
 
   /**
-   * Refuse a save that repoints a deployment whose rows still name the old
-   * location, unless the caller typed the word.
+   * Refuses (409) a save that would repoint a deployment still holding objects.
    *
-   * ── WHAT COUNTS AS A SWITCH ────────────────────────────────────────────────
+   * Compares the LOCATION the stored settings point at with the one the new
+   * settings will: the driver, its bucket (container, directory) and its
+   * endpoint. Changing a field that does not move the bytes (a region
+   * correction, a rotated key) is not a relocation. A deployment that never had
+   * a bucket has nothing to strand and sails through.
    *
-   * `provider`, `bucket`, or the EFFECTIVE endpoint. Effective rather than the
-   * raw `endpoint` field on purpose: an R2 deployment stores an empty `endpoint`
-   * and derives its host from `accountId`, so comparing the raw field would let
-   * "move to a different Cloudflare account" — which is every bit a relocation —
-   * through without a word. `region`, `accessKeyId` and `forcePathStyle` are NOT
-   * a switch: they change how the same bytes are reached, not where they are.
-   *
-   * ── WHY IT IS A `409` AND NOT A SILENT SUCCESS ─────────────────────────────
-   *
-   * Because SAVING A NEW LOCATION DOES NOT COPY A SINGLE OBJECT, and there is no
-   * other moment at which anybody is told. Every `storage_objects` row keeps its
-   * `storage_key`, every avatar keeps its URL, every `database_backup_runs` row
-   * keeps the archive it points at — and all of them now address a bucket this
-   * deployment no longer talks to. Downloads 404, backups become unrestorable,
-   * and nothing in the application logs an error, because nothing is broken from
-   * the object store's point of view: it simply does not have those keys.
-   *
-   * The counts are IN the error because "are you sure?" is not a question anyone
-   * can answer. "1,284 objects and 30 backups still point at `old-bucket`" is.
-   *
-   * ── WHY THERE IS NO MIGRATION BEHIND THIS BUTTON ───────────────────────────
-   *
-   * ⚠ REJECTED, and worth naming so it is not proposed as an obvious follow-up:
-   * copying the objects as part of the save. A bucket-to-bucket copy of an
-   * unbounded amount of data is, by this repository's own MANDATORY rule, a
-   * queue job — not something an HTTP request does. It would also have to be
-   * resumable, it would have to reconcile keys that exist in both places, and it
-   * would have to decide what happens to uploads that arrive while it runs. That
-   * is a feature, not a clause in a settings save, and pretending otherwise is
-   * how a "helpful" save becomes a half-copied bucket.
-   *
-   * ── WHY IT DOES NOT FIRE ON A FIRST CONFIGURATION ──────────────────────────
-   *
-   * An unconfigured deployment has no old location — `current.bucket` is `''` —
-   * so nothing can be stranded, and a confirmation dialog on the very first save
-   * is a dialog nobody reads. The gate is likewise silent when the counts are
-   * zero: there is nothing to strand.
+   * ⚠ IT ACKNOWLEDGES, IT DOES NOT MIGRATE. See `STORAGE_SWITCH_CONFIRMATION`.
    */
   private async assertSwitchAcknowledged(
     current: SystemStorageValue,
@@ -331,13 +293,11 @@ export class StorageConfigAdminService {
   ): Promise<void> {
     if (confirmation === STORAGE_SWITCH_CONFIRMATION) return;
 
-    // Nothing was ever configured, so nothing can be stranded.
-    if (!current.bucket) return;
+    const from = this.locationOf(current);
+    if (!from.bucket) return;
 
-    const relocated =
-      current.provider !== next.provider ||
-      current.bucket !== next.bucket ||
-      displayEndpoint(current) !== displayEndpoint(next);
+    const to = this.locationOf(next);
+    const relocated = from.provider !== to.provider || from.bucket !== to.bucket || from.endpoint !== to.endpoint;
 
     if (!relocated) return;
 
@@ -349,22 +309,14 @@ export class StorageConfigAdminService {
       code: 'STORAGE_LOCATION_IN_USE',
       message:
         `${usage.storageObjects} stored object(s) and ${usage.databaseBackupRuns} database ` +
-        `backup(s) still point at ${describeLocation(current)}. Changing the provider, ` +
+        `backup(s) still point at ${describeLocation(from)}. Changing the provider, ` +
         `bucket or endpoint does NOT copy them — they will remain where they are and this ` +
         `deployment will no longer be able to read them. Re-send with ` +
         `{"confirmation":"${STORAGE_SWITCH_CONFIRMATION}"} to save anyway.`,
       details: {
         confirmation: STORAGE_SWITCH_CONFIRMATION,
-        from: {
-          provider: current.provider,
-          bucket: current.bucket,
-          endpoint: displayEndpoint(current),
-        },
-        to: {
-          provider: next.provider,
-          bucket: next.bucket,
-          endpoint: displayEndpoint(next),
-        },
+        from: { provider: from.provider, bucket: from.bucket, endpoint: from.endpoint },
+        to: { provider: to.provider, bucket: to.bucket, endpoint: to.endpoint },
         storageObjects: usage.storageObjects,
         databaseBackupRuns: usage.databaseBackupRuns,
       },
@@ -372,43 +324,28 @@ export class StorageConfigAdminService {
   }
 
   /**
-   * How many rows still name `location`.
+   * How many rows still point at `location`.
    *
-   * ── WHAT IS COUNTED, AND WHY EACH EXCLUSION IS DELIBERATE ──────────────────
-   *
-   * `storage_objects`: everything except `failed`. A `failed` row is an upload
-   * that never completed; there are no bytes at the old location to lose, and
-   * counting them would mean a deployment with a pile of old failures could
-   * never change buckets without a confirmation it does not need.
-   * `pending`/`uploading`/`processing` ARE counted — a multipart upload in
-   * flight is pointed at the old bucket and will break mid-transfer.
-   *
-   * `database_backup_runs`: `pending`, `running` and `completed`. `failed` and
-   * `stale` runs are not offered for restore anywhere, so their archives (if any
-   * exist at all) are not something a switch can strand.
-   *
-   * ── WHY `bucket: null` COUNTS AS THE OLD LOCATION ──────────────────────────
-   *
-   * `storage_objects.bucket` is nullable and rows written before that column
-   * existed carry `null`. Those objects are in whatever bucket this deployment
-   * was using at the time — which is, by definition, the current one. Treating
-   * them as "somewhere else" would make the gate silent for exactly the oldest
-   * and least replaceable data in the deployment. `database_backup_runs.bucket`
-   * is non-nullable, so it needs no such clause.
+   * `storage_objects` rows with no recorded bucket (`null`) count: they predate
+   * the column and can only have been written to the then-only location. Failed
+   * uploads do not: nothing was stored. Backups count only while they are real
+   * (`pending`, `running`, `completed`).
    */
   async countLocationUsage(location: SystemStorageValue): Promise<StorageLocationUsage> {
+    const where = this.locationOf(location);
+
     const [storageObjects, databaseBackupRuns] = await Promise.all([
       this.system.asSystem('admin-aggregate').storageObject.count({
         where: {
-          storageProvider: location.provider,
-          OR: [{ bucket: location.bucket }, { bucket: null }],
+          storageProvider: where.provider,
+          OR: [{ bucket: where.bucket }, { bucket: null }],
           status: { not: StorageObjectStatus.failed },
         },
       }),
       this.prisma.databaseBackupRun.count({
         where: {
-          storageProvider: location.provider,
-          bucket: location.bucket,
+          storageProvider: where.provider,
+          bucket: where.bucket,
           status: { in: ['pending', 'running', 'completed'] },
         },
       }),
@@ -422,19 +359,67 @@ export class StorageConfigAdminService {
   }
 
   // ---------------------------------------------------------------------------
-  // Internals
+  // Plumbing
   // ---------------------------------------------------------------------------
 
+  /** The driver, or a 400 naming the registered ids. */
+  private requireDriver(id: string): StorageDriverDefinition<any> {
+    const driver = getStorageDriver(id);
+
+    return driver ?? unknownDriverRejection(id);
+  }
+
+  /** Where the settings point: the driver, its bucket and its endpoint (`null` for the SDK's own host). */
+  private locationOf(policy: SystemStorageValue): StorageLocation {
+    const driver = getStorageDriver(policy.provider);
+
+    if (!driver) return { provider: policy.provider, bucket: '', endpoint: null };
+
+    const location = storageLocationOf(driver, policy.drivers[policy.provider] ?? {});
+
+    return { provider: policy.provider, bucket: location.bucket, endpoint: location.endpoint ?? null };
+  }
+
   /**
-   * The `global` settings row's provenance columns, or `null` when it has never
-   * been written.
+   * The masked status of every declared secret of the given drivers.
    *
-   * ⚠ DELIBERATELY `findUnique`, NOT `SystemSettingsService.getSettings()`,
-   * which goes through `loadOrCreateRow` and INSERTS when the row is missing.
-   * A read must not materialise a settings row as a side effect of rendering a
-   * page — the same rule `getStoragePolicy` and `getNotificationsPolicy` already
-   * follow, and the same reason: a fresh install should be able to LOOK at its
-   * storage configuration without being written to.
+   * `describe` only: it returns `CredentialInfo`, a type with no field capable
+   * of carrying secret material. The plaintext is never read here.
+   */
+  private async describeSecrets(
+    ids: readonly string[],
+  ): Promise<Map<string, Map<string, { hint: string | null; updatedAt: Date; updatedByUserId: string | null }>>> {
+    const result = new Map<string, Map<string, { hint: string | null; updatedAt: Date; updatedByUserId: string | null }>>();
+
+    await Promise.all(
+      ids.map(async (id) => {
+        const driver = getStorageDriver(id);
+        const byName = new Map<string, { hint: string | null; updatedAt: Date; updatedByUserId: string | null }>();
+
+        for (const spec of driver?.secrets ?? []) {
+          const address = storageSecretAddress(driver as StorageDriverDefinition<any>, spec.name);
+          const info = await this.credentials.describe(address.purpose, address.name);
+          if (info) byName.set(spec.name, info);
+        }
+
+        result.set(id, byName);
+      }),
+    );
+
+    return result;
+  }
+
+  /** The settings for the audit row: every driver's, which hold no secret by construction. */
+  private auditableSettings(next: SystemStorageValue): Record<string, unknown> {
+    return { provider: next.provider, drivers: next.drivers };
+  }
+
+  /**
+   * The `system_settings.global` row's provenance, for `version`/`updatedAt`/`updatedBy`.
+   *
+   * A direct, narrow read: `SystemSettingsService.getSettings()` would CREATE
+   * the row as a side effect of rendering a form, and this read must never
+   * write.
    */
   private async readRow() {
     return this.prisma.systemSettings.findUnique({
@@ -447,7 +432,6 @@ export class StorageConfigAdminService {
     });
   }
 
-  /** Assemble the admin view. Shared by the read and every write. */
   private toResponse(
     policy: SystemStorageValue,
     row: {
@@ -455,28 +439,40 @@ export class StorageConfigAdminService {
       updatedAt: Date;
       updatedByUser: { id: string; email: string } | null;
     } | null,
-    secretInfo: { hint: string | null; updatedAt: Date; updatedByUserId: string | null } | null,
+    infos: Map<string, Map<string, { hint: string | null; updatedAt: Date; updatedByUserId: string | null }>>,
   ): StorageConfigResponse {
-    // ⚠ The resolved `config` is DISCARDED UNREAD — only the verdict is used.
-    // See CREDENTIAL_PRESENCE_PROBE for why a stand-in is passed in place of the
-    // secret, and why this file never decrypts one.
-    const resolution = resolveStorageConfig(
-      policy,
-      secretInfo ? CREDENTIAL_PRESENCE_PROBE : null,
-    );
+    const driver = getStorageDriver(policy.provider);
+    const settings = policy.drivers[policy.provider] ?? {};
+    const declared = driver?.secrets ?? [];
+    const present = Object.fromEntries(declared.map((secret) => [secret.name, infos.get(policy.provider)?.has(secret.name) === true]));
+
+    // The driver's own verdict, from presence flags: this path never decrypts.
+    const missing = driver ? missingStorageFields(driver, settings, present) : ['driver'];
+    const location = driver ? storageLocationOf(driver, settings) : { bucket: '', endpoint: null };
+    const primary = declared.length > 0 ? infos.get(policy.provider)?.get(declared[0].name) : undefined;
 
     return {
-      ...policy,
-      effectiveEndpoint: resolution.configured
-        ? (resolution.config.endpoint ?? null)
-        : displayEndpoint(policy),
-      configured: resolution.configured,
-      missing: resolution.configured ? [] : resolution.missing,
+      provider: policy.provider,
+      drivers: policy.drivers,
+      // The deprecated flat view of the active built-in (`getStoragePolicy`
+      // publishes it); empty when the active driver declares none of the fields.
+      bucket: policy.bucket ?? '',
+      region: policy.region ?? '',
+      endpoint: policy.endpoint ?? '',
+      accountId: policy.accountId ?? '',
+      accessKeyId: policy.accessKeyId ?? '',
+      forcePathStyle: policy.forcePathStyle ?? null,
+      descriptors: describeStorageDrivers((id) => ({
+        secrets: Object.fromEntries((getStorageDriver(id)?.secrets ?? []).map((secret) => [secret.name, infos.get(id)?.has(secret.name) === true])),
+      })),
+      effectiveEndpoint: location.endpoint ?? null,
+      configured: missing.length === 0,
+      missing,
       secretStatus: {
-        configured: secretInfo !== null,
-        hint: secretInfo?.hint ?? null,
-        updatedAt: secretInfo?.updatedAt.toISOString() ?? null,
-        updatedByUserId: secretInfo?.updatedByUserId ?? null,
+        configured: primary !== undefined,
+        hint: primary?.hint ?? null,
+        updatedAt: primary?.updatedAt.toISOString() ?? null,
+        updatedByUserId: primary?.updatedByUserId ?? null,
       },
       version: row?.version ?? 0,
       updatedAt: row?.updatedAt.toISOString() ?? null,
@@ -484,19 +480,6 @@ export class StorageConfigAdminService {
     };
   }
 
-  /**
-   * Record the change.
-   *
-   * `targetId` is the settings KEY rather than the row id: a first save on a
-   * fresh install can audit before anyone has read the row back, and `targetId`
-   * is non-nullable. `EmailTestSendService.audit` makes the same choice for the
-   * same reason.
-   *
-   * SAFE TO RECORD IN FULL: `meta.settings` is a `SystemStorageValue`, which
-   * carries a compile-time proof (in `settings.schema.ts`) that it has no
-   * secret-bearing field. `secretRotated` is a boolean about the secret, never
-   * the secret — that distinction is the whole reason it is a boolean.
-   */
   private async audit(
     userId: string,
     action: string,
@@ -514,12 +497,9 @@ export class StorageConfigAdminService {
   }
 }
 
-/** `r2 bucket "media" (acct.r2.cloudflarestorage.com)`, for an error message. */
-function describeLocation(policy: SystemStorageValue): string {
-  const endpoint = displayEndpoint(policy);
-
+function describeLocation(location: StorageLocation): string {
   return (
-    `${policy.provider} bucket "${policy.bucket}"` +
-    (endpoint ? ` (${endpoint})` : '')
+    `${location.provider} bucket "${location.bucket}"` +
+    (location.endpoint ? ` (${location.endpoint})` : '')
   );
 }

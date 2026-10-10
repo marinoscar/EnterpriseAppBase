@@ -1,4 +1,5 @@
 import type { ConfigService } from '@nestjs/config';
+import { z } from 'zod';
 
 import type {
   ResolvedStorageConfig,
@@ -7,6 +8,10 @@ import type {
 import type { StorageConfigService } from '../../../src/storage/config/storage-config.service';
 import { StorageNotConfiguredError } from '../../../src/storage/config/storage-not-configured.error';
 import { ResolvingStorageProvider } from '../../../src/storage/providers/resolving-storage.provider';
+
+// Registers the built-in drivers the provider builds through.
+import '../../../src/storage/drivers/builtin-storage-drivers';
+import { registerStorageDriver } from '../../../src/storage/drivers/storage-driver';
 
 // =============================================================================
 // ResolvingStorageProvider — tests (issue #373, epic #372)
@@ -39,17 +44,29 @@ const { S3StorageProvider } = jest.requireMock('../../../src/storage/providers/s
   S3StorageProvider: jest.Mock;
 };
 
+// The S3-shaped overrides this file has always used, mapped onto the generic
+// resolved configuration the active driver is built from (PP-14.7): the
+// driver's settings, its secrets and its location.
 function resolvedConfig(
-  overrides: Partial<ResolvedStorageConfig> = {},
+  overrides: {
+    provider?: string;
+    bucket?: string;
+    region?: string;
+    endpoint?: string;
+    accessKeyId?: string;
+    secretAccessKey?: string;
+    forcePathStyle?: boolean | null;
+  } = {},
 ): ResolvedStorageConfig {
+  const { provider = 's3', bucket = 'bucket-a', region = 'us-west-2', endpoint, accessKeyId = 'AKIA-A', secretAccessKey = 'secret-a', forcePathStyle = false } = overrides;
+
   return {
-    provider: 's3',
-    bucket: 'bucket-a',
-    region: 'us-west-2',
-    accessKeyId: 'AKIA-A',
-    secretAccessKey: 'secret-a',
-    forcePathStyle: false,
-    ...overrides,
+    provider,
+    bucket,
+    region,
+    ...(endpoint ? { endpoint } : {}),
+    settings: { bucket, region, endpoint: endpoint ?? '', accountId: '', accessKeyId, forcePathStyle },
+    secrets: { secretAccessKey },
   };
 }
 
@@ -236,6 +253,8 @@ describe('ResolvingStorageProvider', () => {
 
     expect(S3StorageProvider).toHaveBeenCalledTimes(3);
     // The first (oldest) delegate was evicted and destroyed.
+    await Promise.resolve();
+    await Promise.resolve();
     expect(createdInstances[0].destroy).toHaveBeenCalledTimes(1);
     // The two most recent survive.
     expect(createdInstances[1].destroy).not.toHaveBeenCalled();
@@ -336,6 +355,84 @@ describe('ResolvingStorageProvider', () => {
       const result = provider.getBucket();
 
       expect(result).toBe('sync-bucket');
+    });
+  });
+
+  // ===========================================================================
+  // A driver an app registered (PP-14.7): the provider does not know it is S3
+  // ===========================================================================
+
+  describe('a registered non-S3 driver', () => {
+    const toyBuild = jest.fn();
+
+    registerStorageDriver({
+      id: 'toy-store',
+      label: 'Toy store',
+      settingsSchema: z.object({ directory: z.string() }),
+      defaults: { directory: '' },
+      secrets: [{ name: 'token', label: 'Token', required: true }],
+      build: async (ctx) => toyBuild(ctx),
+      testConnection: async () => ({ ok: true, message: 'ok' }),
+    });
+
+    const toyConfig = (token = 'toy-token'): ResolvedStorageConfig => ({
+      provider: 'toy-store',
+      bucket: '/data',
+      region: '',
+      settings: { directory: '/data' },
+      secrets: { token },
+    });
+
+    beforeEach(() => {
+      toyBuild.mockReset();
+      toyBuild.mockImplementation(async () => ({ exists: jest.fn().mockResolvedValue(true) }));
+      storageConfig.resolve.mockResolvedValue(configured(toyConfig()));
+    });
+
+    it('builds it through ITS driver with its settings, a secret resolver and the part size', async () => {
+      await provider.exists('a');
+
+      expect(S3StorageProvider).not.toHaveBeenCalled();
+      expect(toyBuild).toHaveBeenCalledTimes(1);
+      const ctx = toyBuild.mock.calls[0][0];
+      expect(ctx.settings).toEqual({ directory: '/data' });
+      expect(await ctx.secret('token')).toBe('toy-token');
+      expect(await ctx.secret('other')).toBeNull();
+      expect(ctx.partSize).toBe(10 * 1024 * 1024);
+    });
+
+    it('shares one build between concurrent first calls, and reuses it afterwards', async () => {
+      await Promise.all([provider.exists('a'), provider.exists('b'), provider.exists('c')]);
+      await provider.exists('d');
+
+      expect(toyBuild).toHaveBeenCalledTimes(1);
+    });
+
+    it('rebuilds when a secret is rotated', async () => {
+      await provider.exists('a');
+      storageConfig.resolve.mockResolvedValue(configured(toyConfig('rotated')));
+      await provider.exists('b');
+
+      expect(toyBuild).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not cache a failed build: the next call tries again', async () => {
+      toyBuild.mockRejectedValueOnce(new Error('credential rejected'));
+
+      await expect(provider.exists('a')).rejects.toThrow('credential rejected');
+      await expect(provider.exists('b')).resolves.toBe(true);
+
+      expect(toyBuild).toHaveBeenCalledTimes(2);
+    });
+
+    it('evicts a provider that has no destroy() without complaint', async () => {
+      for (const token of ['one', 'two', 'three']) {
+        storageConfig.resolve.mockResolvedValue(configured(toyConfig(token)));
+        await provider.exists(token);
+      }
+      await Promise.resolve();
+
+      expect(toyBuild).toHaveBeenCalledTimes(3);
     });
   });
 });

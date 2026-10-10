@@ -13,6 +13,12 @@
 // #739 added `ai.deploymentKeyServesOrgs` (default true, today's behaviour),
 // appended at the end of the `ai` namespace.
 //
+// PP-14.7 (#925) replaced the six flat `storage` defaults with the storage
+// drivers' own: `storage` now stores `provider` plus a `drivers` record (one
+// entry per built-in driver, each the same empty "not configured" settings
+// the flat fields were). The flat fields are a deprecated read alias and are
+// never written, so they are not defaults.
+//
 // A failure here means a namespace declaration changed a default or the
 // manifest changed the registration order. If the change is deliberate, update
 // the literal in the same commit and say why in the commit body.
@@ -94,12 +100,30 @@ const BASELINE_DEFAULT_SYSTEM_SETTINGS = {
   },
   "storage": {
     "provider": "s3",
-    "bucket": "",
-    "region": "",
-    "endpoint": "",
-    "accountId": "",
-    "accessKeyId": "",
-    "forcePathStyle": null
+    "drivers": {
+      "s3": {
+        "bucket": "",
+        "region": "",
+        "endpoint": "",
+        "accessKeyId": "",
+        "forcePathStyle": null
+      },
+      "r2": {
+        "bucket": "",
+        "accountId": "",
+        "region": "",
+        "endpoint": "",
+        "accessKeyId": "",
+        "forcePathStyle": null
+      },
+      "s3compatible": {
+        "bucket": "",
+        "region": "",
+        "endpoint": "",
+        "accessKeyId": "",
+        "forcePathStyle": null
+      }
+    }
   },
   "ai": {
     "enabled": false,

@@ -57,7 +57,8 @@
 
 import { z } from 'zod';
 
-import { STORAGE_PROVIDER_KINDS, type StorageEnum } from './constants.js';
+import { type StorageEnum } from './constants.js';
+import { storageDriverIdSchema } from './settings-schemas.js';
 import { updateStorageConfigSchema } from './storage-config-update.js';
 
 // ---------------------------------------------------------------------------
@@ -236,8 +237,8 @@ export const storageConnectionTestResultSchema = z.object({
    */
   success: z.boolean(),
 
-  /** Which vendor was tested — the SUBMITTED one, not necessarily the saved one. */
-  provider: (z.enum(STORAGE_PROVIDER_KINDS) as z.ZodEnum<StorageEnum<typeof STORAGE_PROVIDER_KINDS>>),
+  /** Which driver was tested - the SUBMITTED one, not necessarily the saved one. */
+  provider: storageDriverIdSchema,
 
   /** The bucket that was tested. */
   bucket: z.string(),
@@ -257,8 +258,21 @@ export const storageConnectionTestResultSchema = z.object({
    */
   usedStoredSecret: z.boolean(),
 
-  /** The four checks, always all four, in attempt order. */
+  /**
+   * The checks, in attempt order. The built-in (S3 family) drivers report all
+   * four; a driver an app registers reports whatever it can, possibly none
+   * (read `message` then).
+   */
   checks: z.array(storageConnectionCheckSchema),
+
+  /**
+   * One sentence for the whole run, authored by the driver: what worked or what
+   * to fix. Present for every driver; the built-ins summarise their checks.
+   */
+  message: z.string().optional(),
+
+  /** Small non-secret facts the driver wants shown (a directory, a container). Never a secret. */
+  details: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
 
   /** When it ran (ISO). */
   attemptedAt: z.iso.datetime(),

@@ -6,7 +6,7 @@
 // it exactly as the running application would, build a client from it, and
 // report what an object store said. Everything both of them need to do that —
 // and nothing either of them does with the answer — lives here, pure and
-// Nest-free, for the same reason `storage-config.ts` is pure: the rules can then
+// Nest-free, for the same reason `s3-config.ts` is pure: the rules can then
 // be exercised with a literal and a string.
 //
 // ⚠ NOTHING HERE READS `process.env`. A probe reports on THE CONFIGURATION IT
@@ -17,75 +17,36 @@
 
 import type { S3ServiceException } from '@aws-sdk/client-s3';
 
-import type {
-  StorageProviderKind,
-  SystemStorageValue,
-} from '@marinoscar/platform-contract/storage';
 import {
   deriveR2Endpoint,
   resolveStorageConfig,
-  type StorageConfigResolution,
-} from './storage-config';
+  type S3ConfigResolution,
+  type S3StoragePolicy,
+} from './s3-config';
 
 /**
- * The seven settings fields a probe request carries.
- *
- * Structurally `SystemStorageValue`, and deliberately declared as a separate
- * name: the DTOs are what the wire actually carries, and tying this signature to
- * the settings type would make a future settings-only field look like something
- * a probe accepts.
+ * The flat settings a probe request carries for a built-in driver: its id and
+ * the S3 family's settings. Declared under its own name: the DTOs are what the
+ * wire carries, and tying the signature to the stored settings would make a
+ * future settings-only field look like something a probe accepts.
  *
  * @stability experimental
  */
-export type SubmittedStoragePolicy = SystemStorageValue;
-
-/**
- * Turn a probe request body into the `storage` settings namespace shape, so it
- * can go through the SAME `resolveStorageConfig` a saved configuration does.
- *
- * ⚠ THE WHOLE POINT. A test endpoint that re-derived R2's endpoint, or decided
- * for itself that six non-empty fields means "ready", would be a second
- * definition of "configured" — and the failure mode of the second copy is a
- * settings page reporting a green tick for a configuration every upload path
- * refuses. There is one definition, it is in `storage-config.ts`, and this
- * function's only job is to hand it the right shape.
- *
- * @stability experimental
- */
-export function submittedStoragePolicy(input: {
-  provider: StorageProviderKind;
-  bucket: string;
-  region: string;
-  endpoint: string;
-  accountId: string;
-  accessKeyId: string;
-  forcePathStyle: boolean | null;
-}): SubmittedStoragePolicy {
-  return {
-    provider: input.provider,
-    bucket: input.bucket,
-    region: input.region,
-    endpoint: input.endpoint,
-    accountId: input.accountId,
-    accessKeyId: input.accessKeyId,
-    forcePathStyle: input.forcePathStyle,
-  };
-}
+export type SubmittedStoragePolicy = S3StoragePolicy;
 
 /**
  * Resolve a submitted configuration against a secret.
  *
- * A one-line pass-through to `resolveStorageConfig`, and named so that the two
- * probe endpoints read as testing a SUBMITTED configuration rather than the
- * saved one. There is exactly one definition of "configured" — see this file's
- * header.
+ * A one-line pass-through to `resolveStorageConfig`, and named so that the
+ * probes read as testing a SUBMITTED configuration rather than the saved one.
+ * There is exactly one definition of "configured" for the S3 family (`s3-config.ts`).
  *
  * @stability experimental
  */
 export function resolveSubmittedStorageConfig(
   policy: SubmittedStoragePolicy,
   secretAccessKey: string | null,
-): StorageConfigResolution {
+): S3ConfigResolution {
   return resolveStorageConfig(policy, secretAccessKey);
 }
 
@@ -97,15 +58,15 @@ export function resolveSubmittedStorageConfig(
  * only for the case `resolveStorageConfig` deliberately refuses to answer: a
  * half-filled form on a settings page, which still has to render "this is the
  * host you are about to talk to" while the admin is typing. It mirrors two of
- * that function's rules and no more — an explicit endpoint always wins, and R2's
- * host is derived from the account id — and it returns `null` rather than
+ * that function's rules and no more - an explicit endpoint always wins, and R2's
+ * host is derived from the account id - and it returns `null` rather than
  * inventing anything for the two cases that genuinely have no answer yet
  * (`s3` uses the SDK's own regional host; `s3compatible` has no endpoint until
  * one is typed).
  *
  * @stability experimental
  */
-export function displayEndpoint(policy: SubmittedStoragePolicy): string | null {
+export function displayEndpoint(policy: Pick<SubmittedStoragePolicy, 'provider' | 'endpoint' | 'accountId'>): string | null {
   if (policy.endpoint) return policy.endpoint;
   if (policy.provider === 'r2' && policy.accountId) {
     return deriveR2Endpoint(policy.accountId);

@@ -9,7 +9,7 @@ import {
   BUCKET_REGION_CODES,
   CREDENTIAL_REJECTION_CODES,
   describeStorageError,
-} from '../storage-probe.support';
+} from '../../drivers/s3/s3-probe.support';
 import { STORAGE_SETTINGS_PATH } from '../storage-not-configured.error';
 
 /**

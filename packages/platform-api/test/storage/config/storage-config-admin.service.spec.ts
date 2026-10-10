@@ -1,9 +1,12 @@
-import { ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 
 import { StorageConfigAdminService } from '../../../src/storage/config/storage-config-admin.service';
 import { STORAGE_SWITCH_CONFIRMATION } from '../../../src/storage/config/dto/update-storage-config.dto';
 import type { UpdateStorageConfigInput } from '../../../src/storage/config/dto/update-storage-config.dto';
 import type { SystemStorageValue } from '@marinoscar/platform-contract/storage';
+import { z } from 'zod';
+import { STORAGE_SYSTEM_SETTINGS } from '../../../src/storage/config/storage.system-settings';
+import { registerStorageDriver } from '../../../src/storage/drivers/storage-driver';
 
 // =============================================================================
 // StorageConfigAdminService — tests (issue #375, epic #372)
@@ -42,7 +45,35 @@ const SETTINGS_ROW = {
   updatedByUser: { id: 'admin-1', email: 'admin@example.com' },
 };
 
-function policy(overrides: Partial<SystemStorageValue> = {}): SystemStorageValue {
+// What `getStoragePolicy()` returns: the namespace's own `read` over a stored
+// row in the current shape (PP-14.7). `overrides` are the active driver's
+// settings, plus `provider`.
+function policy(overrides: Record<string, unknown> = {}): SystemStorageValue {
+  const { provider = 's3', ...settings } = overrides;
+
+  return STORAGE_SYSTEM_SETTINGS.read(
+    {
+      provider,
+      drivers: {
+        [provider as string]: {
+          bucket: 'live-bucket',
+          region: 'us-west-2',
+          endpoint: '',
+          accountId: '',
+          accessKeyId: 'AKIAEXAMPLE',
+          forcePathStyle: null,
+          ...settings,
+        },
+      },
+    },
+    {
+      asPlainObject: (value: unknown) => (typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined),
+    } as never,
+  );
+}
+
+// The flat body the web page has always sent (the legacy aliases of the active driver's settings).
+function body(overrides: Partial<UpdateStorageConfigInput> = {}): UpdateStorageConfigInput {
   return {
     provider: 's3',
     bucket: 'live-bucket',
@@ -51,18 +82,26 @@ function policy(overrides: Partial<SystemStorageValue> = {}): SystemStorageValue
     accountId: '',
     accessKeyId: 'AKIAEXAMPLE',
     forcePathStyle: null,
-    ...overrides,
-  };
-}
-
-function body(overrides: Partial<UpdateStorageConfigInput> = {}): UpdateStorageConfigInput {
-  return {
-    ...policy(),
     secretAccessKey: undefined,
     confirmation: undefined,
     ...overrides,
   };
 }
+
+// A driver an app registered: a directory, one required secret, no bucket.
+registerStorageDriver({
+  id: 'toy-store',
+  label: 'Toy store',
+  settingsSchema: z.object({ directory: z.string() }),
+  defaults: { directory: '' },
+  secrets: [{ name: 'token', label: 'Token', required: true }],
+  build: () => {
+    throw new Error('not built here');
+  },
+  testConnection: async () => ({ ok: true, message: 'ok' }),
+  location: (settings) => ({ bucket: String(settings.directory) }),
+  missing: (settings, secrets) => [...(settings.directory ? [] : ['directory']), ...(secrets.token ? [] : ['token'])],
+});
 
 describe('StorageConfigAdminService', () => {
   let service: StorageConfigAdminService;
@@ -217,7 +256,7 @@ describe('StorageConfigAdminService', () => {
       await service.replace(body(), 'admin-1', 7);
 
       expect(systemSettings.patchSettings).toHaveBeenCalledWith(
-        { storage: policy() },
+        { storage: expect.objectContaining({ provider: 's3', bucket: 'live-bucket' }) },
         'admin-1',
         7,
       );
@@ -448,8 +487,95 @@ describe('StorageConfigAdminService', () => {
       expect(data.targetType).toBe('system_settings');
       // Not a row id: a first save can audit before anyone has read the row back.
       expect(data.targetId).toBe('storage');
-      expect(data.meta.settings.region).toBe('eu-west-1');
+      expect(data.meta.settings.drivers.s3.region).toBe('eu-west-1');
+      expect(data.meta.settings.provider).toBe('s3');
       expect(data.meta.settings).not.toHaveProperty('secretAccessKey');
+    });
+  });
+
+  // ==========================================================================
+  // Drivers an app registered (PP-14.7)
+  // ==========================================================================
+
+  describe('a registered non-S3 driver', () => {
+    const toyBody = (overrides: Record<string, unknown> = {}): UpdateStorageConfigInput =>
+      ({ provider: 'toy-store', drivers: { 'toy-store': { directory: '/data/objects' } }, ...overrides }) as UpdateStorageConfigInput;
+
+    it('describes every registered driver, with secret presence per driver and never a value', async () => {
+      systemSettings.getStoragePolicy.mockResolvedValue(policy({ provider: 'toy-store', directory: '/data/objects' }));
+      credentials.describe.mockImplementation(async (purpose: string) => (purpose === 'storage_toy-store' ? { ...SECRET_INFO, purpose } : null));
+
+      const result = await service.describeForAdmin();
+
+      expect(result.provider).toBe('toy-store');
+      expect(result.configured).toBe(true);
+      expect(result.missing).toEqual([]);
+      expect(result.drivers['toy-store']).toEqual({ directory: '/data/objects' });
+      expect(result.drivers.s3).toBeDefined();
+      expect(result.descriptors.map((descriptor) => descriptor.id)).toEqual(expect.arrayContaining(['s3', 'r2', 's3compatible', 'toy-store']));
+      const toy = result.descriptors.find((descriptor) => descriptor.id === 'toy-store');
+      expect(toy?.fields).toEqual([
+        expect.objectContaining({ name: 'directory', kind: 'string' }),
+        { name: 'token', label: 'Token', kind: 'secret', hasValue: true, required: true },
+      ]);
+      // The built-ins keep their secret at the address it has always had.
+      expect(result.descriptors.find((descriptor) => descriptor.id === 's3')?.fields.at(-1)).toMatchObject({ name: 'secretAccessKey', kind: 'secret', hasValue: false });
+      expect(result.secretStatus).toMatchObject({ configured: true, hint: '••••x9fQ' });
+      // The deprecated flat view is empty for a driver that declares none of those fields.
+      expect(result).toMatchObject({ bucket: '', region: '', endpoint: '', accountId: '', accessKeyId: '', forcePathStyle: null });
+      expect(credentials.getSecret).not.toHaveBeenCalled();
+    });
+
+    it('names the driver\'s own missing fields', async () => {
+      systemSettings.getStoragePolicy.mockResolvedValue(policy({ provider: 'toy-store', directory: '' }));
+      credentials.describe.mockResolvedValue(null);
+
+      expect((await service.describeForAdmin()).missing).toEqual(['directory', 'token']);
+    });
+
+    it('saves the driver\'s settings through `drivers`, and its secret at its own purpose', async () => {
+      await service.replace(toyBody({ secrets: { 'toy-store': { token: 'brand-new-token' } } }), 'admin-1');
+
+      expect(credentials.setSecret).toHaveBeenCalledWith('storage_toy-store', 'token', 'brand-new-token', {
+        label: 'Token',
+        updatedByUserId: 'admin-1',
+      });
+      expect(systemSettings.patchSettings).toHaveBeenCalledWith(
+        { storage: { provider: 'toy-store', drivers: { 'toy-store': { directory: '/data/objects' } } } },
+        'admin-1',
+        undefined,
+      );
+      expect(JSON.stringify(prisma.auditEvent.create.mock.calls[0][0].data)).not.toContain('brand-new-token');
+    });
+
+    it('a blank per-driver secret keeps the stored one', async () => {
+      await service.replace(toyBody({ secrets: { 'toy-store': { token: '' } } }), 'admin-1');
+
+      expect(credentials.setSecret).not.toHaveBeenCalled();
+    });
+
+    it('relocating to it is gated by the same SWITCH confirmation, comparing driver and location', async () => {
+      prisma.storageObject.count.mockResolvedValue(12);
+
+      const error = await service.replace(toyBody(), 'admin-1').catch((thrown) => thrown);
+
+      expect(error).toBeInstanceOf(ConflictException);
+      expect(error.getResponse().details).toMatchObject({
+        from: { provider: 's3', bucket: 'live-bucket' },
+        to: { provider: 'toy-store', bucket: '/data/objects' },
+      });
+      expect(systemSettings.patchSettings).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['an unregistered driver', toyBody({ provider: 'nope' })],
+      ['settings the driver refuses', toyBody({ drivers: { 'toy-store': { directory: 42 } } })],
+      ['a flat alias contradicting drivers.<provider>', body({ drivers: { s3: { bucket: 'other' } } })],
+    ])('refuses %s with a 400 before anything is written', async (_label, input) => {
+      await expect(service.replace(input as UpdateStorageConfigInput, 'admin-1')).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(credentials.setSecret).not.toHaveBeenCalled();
+      expect(systemSettings.patchSettings).not.toHaveBeenCalled();
     });
   });
 });

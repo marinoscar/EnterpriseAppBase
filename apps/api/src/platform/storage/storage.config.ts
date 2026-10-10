@@ -10,13 +10,17 @@
 //
 // ORDER IS LOAD-BEARING: the key-prefix manifest registers the platform's six
 // prefixes in their historical purge order before `forRoot()` registers the
-// slice's own (a no-op then), and the settings registry is loaded before
+// slice's own (a no-op then), the settings registry is loaded before
 // `ProfileImageModule.forRoot()` builds the controller whose response embeds
-// the composed user-settings schema.
+// the composed user-settings schema, and the app's storage drivers register
+// before the application bootstraps (`app-registrations/storage.ts`).
 // =============================================================================
 
 import '../../settings/registry';
 import './storage-key-prefix.manifest';
+// The app's own storage drivers (PP-14.7), registered at import time like the
+// key prefixes above: the registry freezes once the application has bootstrapped.
+import '../../app-registrations/storage';
 
 import {
   ProfileImageModule as PlatformProfileImageModule,

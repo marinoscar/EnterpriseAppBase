@@ -135,6 +135,10 @@
       "types": "./dist/storage/ui/index.d.ts",
       "default": "./dist/storage/ui/index.js"
     },
+    "./storage/ui/driver-panels": {
+      "types": "./dist/storage/ui/driver-panels.d.ts",
+      "default": "./dist/storage/ui/driver-panels.js"
+    },
     "./notifications/headless": {
       "types": "./dist/notifications/headless/index.d.ts",
       "default": "./dist/notifications/headless/index.js"

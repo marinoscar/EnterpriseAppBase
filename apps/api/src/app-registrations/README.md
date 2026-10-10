@@ -80,6 +80,12 @@ registry:
 |---|---|---|
 | `ai.ts` | `aiProviderKind` (`@marinoscar/platform-api/ai`, PP-14.6): AI providers, registered at import time with `registerAiProvider(...)`. `platform/ai/ai.config.ts` imports it before `AiModule.forRoot()`, which loads the module of every registered provider. Upstream registers the worked example (`example-transcribe`, an AssemblyAI stand-in that only transcribes over a fake transport); it is off until an administrator switches it on | [ai/README.md, "Adding a provider from an app or package"](../../../../packages/platform-api/src/ai/README.md) |
 
+registry:
+
+| File | Registry | Recipe |
+|---|---|---|
+| `storage.ts` | `storageDriverKind` (`@marinoscar/platform-api/storage`, PP-14.7): storage drivers, registered at import time with `registerStorageDriver(...)`. `platform/storage/storage.config.ts` imports it before the storage module is built. Upstream registers the worked example (`local-fs`, objects as files in a folder on the API host); it is off until an administrator selects it | [storage/README.md, "Adding a storage driver from an app or package"](../../../../packages/platform-api/src/storage/README.md) |
+
 ## What goes here, and what does not
 
 | Goes here | Does not |

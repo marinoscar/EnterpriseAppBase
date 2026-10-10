@@ -45,17 +45,8 @@ export type { StorageProviderIsNodeObjectStore } from './node-object-store.bindi
 
 // ---- the runtime configuration ------------------------------------------------------------
 export { STORAGE_POLICY_CACHE_MS, StorageConfigService } from './config/storage-config.service';
-export {
-  MISSING_STORAGE_CONFIG_FIELDS,
-  R2_DEFAULT_REGION,
-  R2_ENDPOINT_HOST_SUFFIX,
-  S3_COMPATIBLE_DEFAULT_REGION,
-  deriveR2Endpoint,
-  describeStorageConfig,
-  fingerprintStorageConfig,
-  resolveStorageConfig,
-} from './config/storage-config';
-export type { MissingStorageConfigField, ResolvedStorageConfig, StorageConfigResolution } from './config/storage-config';
+export { describeStorageConfig, fingerprintStorageConfig } from './config/storage-config';
+export type { ResolvedStorageConfig, StorageConfigResolution } from './config/storage-config';
 export { STORAGE_SETTINGS_PATH, StorageNotConfiguredError } from './config/storage-not-configured.error';
 export type { StorageNotConfiguredReason } from './config/storage-not-configured.error';
 export { STORAGE_SYSTEM_SETTINGS, mergeStorageSettings } from './config/storage.system-settings';
@@ -72,11 +63,63 @@ export { ProvisionStorageBucketDto, StorageBucketProvisionResultDto } from './co
 export { StorageConfigAdminService } from './config/storage-config-admin.service';
 export type { StorageLocationUsage } from './config/storage-config-admin.service';
 export { StorageConnectionTestService, STORAGE_PROBE_KEY_PREFIX } from './config/storage-connection-test.service';
+export { StorageSubmissionService } from './config/storage-submission.service';
+export type { PreparedStorageSubmission } from './config/storage-submission.service';
 export { StorageBucketProvisionService } from './config/storage-bucket-provision.service';
 export { StorageConfigController } from './config/storage-config.controller';
 export { StorageConfigDoctorCheck, decideStorageConfig } from './config/doctor/storage-config.doctor-check';
 export { STORAGE_DOCTOR_PROBE_KEY, StorageBucketDoctorCheck, decideStorageProbeError } from './config/doctor/storage-bucket.doctor-check';
 export { StorageEgressContributor } from './config/doctor/egress/storage.egress.contributor';
+
+// ---- storage drivers: the `storage-driver` pluggable kind (rung 2, PP-14.7) ---------------
+export {
+  STORAGE_BUCKET_STEP_LABELS,
+  describeStorageDrivers,
+  getStorageDriver,
+  missingStorageFields,
+  registerStorageDriver,
+  requireStorageDriver,
+  storageDriverCredentialPurpose,
+  storageDriverDefinitions,
+  storageDriverIds,
+  storageDriverKind,
+  storageLocationOf,
+  storageSecretAddress,
+} from './drivers/storage-driver';
+export type {
+  StorageDriver,
+  StorageDriverBuildContext,
+  StorageDriverContext,
+  StorageDriverDefinition,
+  StorageDriverGuidance,
+  StorageDriverLocation,
+  StorageDriverProvisionResult,
+  StorageDriverPurgePrefixReport,
+  StorageDriverPurgeResult,
+  StorageDriverSettings,
+  StorageDriverTestResult,
+  StorageSecretAddress,
+} from './drivers/storage-driver';
+export { BUILTIN_STORAGE_DRIVERS } from './drivers/builtin-storage-drivers';
+export { r2StorageDriver, s3CompatibleStorageDriver, s3StorageDriver } from './drivers/s3/s3-family';
+export {
+  MISSING_STORAGE_CONFIG_FIELDS,
+  R2_DEFAULT_REGION,
+  R2_ENDPOINT_HOST_SUFFIX,
+  S3_COMPATIBLE_DEFAULT_REGION,
+  S3_FLAVOURS,
+  deriveR2Endpoint,
+  resolveS3Config,
+  resolveStorageConfig,
+} from './drivers/s3/s3-config';
+export type {
+  MissingStorageConfigField,
+  ResolvedS3Config,
+  S3ConfigResolution,
+  S3FamilySettings,
+  S3FlavourSpec,
+  S3StoragePolicy,
+} from './drivers/s3/s3-config';
 
 // ---- the objects API, its jobs and its processors (rung 2: the processor registry) --------
 export { ObjectsService } from './objects/objects.service';

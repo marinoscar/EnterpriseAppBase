@@ -43,6 +43,7 @@ vi.mock('@marinoscar/platform-web/identity/headless', async (importOriginal) => 
 import { useStorageConfig } from '@marinoscar/platform-web/storage/headless';
 import { usePermissions } from '@marinoscar/platform-web/identity/headless';
 import StorageConfigPage from '@marinoscar/platform-web/storage/ui';
+import { builtinDrivers, storageConfigFixture } from '../../mocks/fixtures/storage';
 
 const mockUseStorageConfig = vi.mocked(useStorageConfig);
 const mockUsePermissions = vi.mocked(usePermissions);
@@ -70,27 +71,7 @@ function setPermissions(granted: string[]) {
   });
 }
 
-const s3Config: StorageConfigView = {
-  provider: 's3',
-  bucket: 'app-objects',
-  region: 'us-east-1',
-  endpoint: '',
-  accountId: '',
-  accessKeyId: 'AKIAEXAMPLE',
-  forcePathStyle: null,
-  effectiveEndpoint: null,
-  configured: true,
-  missing: [],
-  secretStatus: {
-    configured: true,
-    hint: '••••ab12',
-    updatedAt: '2026-01-01T00:00:00.000Z',
-    updatedByUserId: 'admin-user-id',
-  },
-  version: 3,
-  updatedAt: '2026-01-01T00:00:00.000Z',
-  updatedBy: { id: 'admin-user-id', email: 'admin@example.com' },
-};
+const s3Config: StorageConfigView = storageConfigFixture();
 
 function check(overrides: Partial<StorageConnectionCheck>): StorageConnectionCheck {
   return {
@@ -288,7 +269,13 @@ describe('StorageConfigPage', () => {
     it('renders a stored explicit false as "force off", NOT as the vendor default', () => {
       // #374's bug in miniature: collapsing `false` into "unset" would let a
       // save turn an operator's explicit answer back into the default.
-      setHook({ config: { ...s3Config, forcePathStyle: false } });
+      setHook({
+        config: {
+          ...s3Config,
+          forcePathStyle: false,
+          drivers: builtinDrivers({ s3: { ...s3Config.drivers.s3, forcePathStyle: false } }),
+        },
+      });
       renderAsAdmin();
       expect(screen.getByRole('radio', { name: /force path-style off/i })).toBeChecked();
       expect(
@@ -298,21 +285,27 @@ describe('StorageConfigPage', () => {
 
     it('sends null when the vendor default is chosen, and false when off is chosen', async () => {
       const user = userEvent.setup();
-      const { save } = setHook({ config: { ...s3Config, forcePathStyle: true } });
+      const { save } = setHook({
+        config: {
+          ...s3Config,
+          forcePathStyle: true,
+          drivers: builtinDrivers({ s3: { ...s3Config.drivers.s3, forcePathStyle: true } }),
+        },
+      });
       renderAsAdmin();
 
       await user.click(screen.getByRole('radio', { name: /use this provider's convention/i }));
       await user.click(screen.getByRole('button', { name: /save changes/i }));
 
       await waitFor(() => expect(save).toHaveBeenCalled());
-      expect(save.mock.calls[0][0].forcePathStyle).toBeNull();
+      expect(save.mock.calls[0][0].drivers.s3.forcePathStyle).toBeNull();
 
       save.mockClear();
       await user.click(screen.getByRole('radio', { name: /force path-style off/i }));
       await user.click(screen.getByRole('button', { name: /save changes/i }));
 
       await waitFor(() => expect(save).toHaveBeenCalled());
-      expect(save.mock.calls[0][0].forcePathStyle).toBe(false);
+      expect(save.mock.calls[0][0].drivers.s3.forcePathStyle).toBe(false);
     });
 
     it('names the vendor convention it is deferring to, which differs by provider', async () => {
@@ -341,7 +334,7 @@ describe('StorageConfigPage', () => {
       await waitFor(() => expect(test).toHaveBeenCalled());
       // The UNSAVED value is what gets tested — the whole workflow these
       // endpoints exist for.
-      expect(test.mock.calls[0][0].bucket).toBe('brand-new-bucket');
+      expect(test.mock.calls[0][0].drivers.s3.bucket).toBe('brand-new-bucket');
     });
 
     it('renders each of the four checks as its own row, with its own code', () => {
@@ -417,7 +410,7 @@ describe('StorageConfigPage', () => {
       await user.click(screen.getByTestId('storage-create-bucket'));
 
       await waitFor(() => expect(createBucket).toHaveBeenCalled());
-      expect(createBucket.mock.calls[0][0].bucket).toBe('app-objects');
+      expect(createBucket.mock.calls[0][0].drivers.s3.bucket).toBe('app-objects');
     });
 
     it('renders a guided outcome as INFORMATION with a copyable command block, never as an error', () => {
@@ -521,9 +514,8 @@ describe('StorageConfigPage', () => {
       await user.click(screen.getByRole('button', { name: /save changes/i }));
 
       await waitFor(() => expect(save).toHaveBeenCalled());
-      expect(
-        Object.prototype.hasOwnProperty.call(save.mock.calls[0][0], 'secretAccessKey'),
-      ).toBe(false);
+      expect(save.mock.calls[0][0]).not.toHaveProperty('secrets');
+      expect(save.mock.calls[0][0]).not.toHaveProperty('secretAccessKey');
     });
 
     it('states that blank preserves, and shows the stored mask rather than a fixed placeholder', () => {
@@ -578,11 +570,11 @@ describe('StorageConfigPage', () => {
       await user.click(screen.getByRole('button', { name: /save changes/i }));
       await waitFor(() => expect(save).toHaveBeenCalled());
 
-      expect(save.mock.calls[0][0].secretAccessKey).toBe(FORBIDDEN_SECRET_MATERIAL);
+      expect(save.mock.calls[0][0].secrets).toEqual({ s3: { secretAccessKey: FORBIDDEN_SECRET_MATERIAL } });
       // And it is not smuggled into any other field on the way out.
-      const { secretAccessKey, ...rest } = save.mock.calls[0][0];
+      const { secrets, ...rest } = save.mock.calls[0][0];
       expect(JSON.stringify(rest)).not.toContain(FORBIDDEN_SECRET_MATERIAL);
-      expect(secretAccessKey).toBe(FORBIDDEN_SECRET_MATERIAL);
+      expect(secrets.s3.secretAccessKey).toBe(FORBIDDEN_SECRET_MATERIAL);
     });
 
     it('NEGATIVE SECURITY INVARIANT: a typed secret never reaches the probe body by any other name', async () => {
@@ -596,8 +588,8 @@ describe('StorageConfigPage', () => {
       await waitFor(() => expect(test).toHaveBeenCalled());
       const body = test.mock.calls[0][0] as Record<string, unknown>;
       for (const [key, value] of Object.entries(body)) {
-        if (key === 'secretAccessKey') continue;
-        expect(String(value)).not.toContain(FORBIDDEN_SECRET_MATERIAL);
+        if (key === 'secrets') continue;
+        expect(JSON.stringify(value)).not.toContain(FORBIDDEN_SECRET_MATERIAL);
       }
     });
   });
@@ -609,6 +601,7 @@ describe('StorageConfigPage', () => {
           ...s3Config,
           bucket: '',
           accessKeyId: '',
+          drivers: builtinDrivers({ s3: { ...s3Config.drivers.s3, bucket: '', accessKeyId: '' } }),
           configured: false,
           missing: ['bucket', 'accessKeyId', 'secretAccessKey'],
           secretStatus: { configured: false, hint: null, updatedAt: null, updatedByUserId: null },

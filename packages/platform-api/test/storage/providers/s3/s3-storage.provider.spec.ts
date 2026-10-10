@@ -1,8 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { Readable } from 'node:stream';
 
-import type { SystemStorageValue } from '@marinoscar/platform-contract/storage';
-import { resolveStorageConfig } from '../../../../src/storage/config/storage-config';
+import { resolveStorageConfig, type S3StoragePolicy } from '../../../../src/storage/drivers/s3/s3-config';
 
 // =============================================================================
 // S3StorageProvider — tests (issue #374, epic #372)
@@ -115,7 +114,7 @@ import {
 const SECRET = 'super-secret-access-key-value';
 
 /** The `storage` settings namespace as an administrator saves it. */
-function policy(overrides: Partial<SystemStorageValue> = {}): SystemStorageValue {
+function policy(overrides: Partial<S3StoragePolicy> = {}): S3StoragePolicy {
   return {
     provider: 's3',
     bucket: 'my-bucket',
@@ -138,7 +137,7 @@ function policy(overrides: Partial<SystemStorageValue> = {}): SystemStorageValue
  * → constructor. See the header for why the chain is not short-circuited.
  */
 function fromSettings(
-  overrides: Partial<SystemStorageValue> = {},
+  overrides: Partial<S3StoragePolicy> = {},
 ): S3StorageProvider {
   const resolution = resolveStorageConfig(policy(overrides), SECRET);
 

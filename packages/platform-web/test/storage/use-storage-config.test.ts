@@ -47,6 +47,7 @@ import type {
 } from '../../src/storage/headless/index.js';
 import type { PlatformApiClient } from '../../src/core/index.js';
 import { createTestApiError } from '../../src/testing/index.js';
+import { storageConfigFixture } from './fixtures.js';
 
 /** The hook needs a transport; the client built from it is stubbed above. */
 const api = {} as PlatformApiClient;
@@ -55,27 +56,7 @@ const api = {} as PlatformApiClient;
 const apiError = (message: string, status: number, code?: string, details?: unknown) =>
   createTestApiError(status, message, code, details);
 
-const storedConfig: StorageConfigView = {
-  provider: 's3',
-  bucket: 'app-objects',
-  region: 'us-east-1',
-  endpoint: '',
-  accountId: '',
-  accessKeyId: 'AKIAEXAMPLE',
-  forcePathStyle: null,
-  effectiveEndpoint: null,
-  configured: true,
-  missing: [],
-  secretStatus: {
-    configured: true,
-    hint: '••••ab12',
-    updatedAt: '2026-01-01T00:00:00.000Z',
-    updatedByUserId: 'admin-user-id',
-  },
-  version: 3,
-  updatedAt: '2026-01-01T00:00:00.000Z',
-  updatedBy: { id: 'admin-user-id', email: 'admin@example.com' },
-};
+const storedConfig: StorageConfigView = storageConfigFixture();
 
 const input: StorageConfigInput = {
   provider: 's3',

@@ -3,7 +3,10 @@
 // re-checks a typed bucket against the LIVE configuration before deleting.
 // The S3 client is a fake; the prefix list is the real registry.
 
+import { z } from 'zod';
+
 import { withTemporaryEntries } from '../../../src/core/index';
+import { registerStorageDriver } from '../../../src/storage/drivers/storage-driver';
 import { runStoragePurge, runStoragePurgeCli, type StoragePurgeClient } from '../../../src/storage/purge/run-storage-purge';
 import { allKeyPrefixes, storageKeyPrefixRegistry } from '../../../src/storage/storage-key-prefix.registry';
 import { ensureStorageSliceKeyPrefixes } from '../../../src/storage/storage-key-prefixes';
@@ -38,7 +41,7 @@ function fakeClient(opts: { versioning?: 'Enabled' | 'unreadable' } = {}): { cli
   return { client, sent };
 }
 
-const CONFIG = { provider: 's3', bucket: 'the-bucket', region: 'us-east-1' };
+const CONFIG = { provider: 's3', bucket: 'the-bucket', region: 'us-east-1', settings: { bucket: 'the-bucket' }, secrets: {} };
 
 /** A booted app context, as far as the purge reads it. */
 function appWith(config: unknown) {
@@ -125,5 +128,75 @@ describe('runStoragePurgeCli', () => {
 
     expect(code).toBe(0);
     expect(JSON.parse(out.join(''))).toEqual({ configured: false, reason: 'object storage is not configured for this deployment' });
+  });
+});
+
+// A driver an app registered, which only knows how to list its keys (PP-14.7):
+// the purge deletes each one through the provider the driver builds.
+describe('runStoragePurge for a registered driver', () => {
+  const deleted: string[] = [];
+  const destroyed = jest.fn();
+
+  registerStorageDriver({
+    id: 'toy-list',
+    label: 'Toy list',
+    settingsSchema: z.object({ directory: z.string() }),
+    defaults: { directory: '' },
+    build: () => ({ delete: async (key: string) => void deleted.push(key), destroy: destroyed }) as never,
+    testConnection: async () => ({ ok: true, message: 'ok' }),
+    async *listKeys(_ctx, prefix) {
+      yield `${prefix}a`;
+      yield `${prefix}b`;
+    },
+  });
+  registerStorageDriver({
+    id: 'toy-opaque',
+    label: 'Toy opaque',
+    settingsSchema: z.object({}),
+    defaults: {},
+    build: () => ({}) as never,
+    testConnection: async () => ({ ok: true, message: 'ok' }),
+  });
+
+  const config = (provider: string) => ({ provider, bucket: '/data', region: '', settings: { directory: '/data' }, secrets: {} });
+
+  beforeEach(() => {
+    deleted.length = 0;
+    destroyed.mockClear();
+  });
+
+  it('a dry run lists every registered prefix and deletes nothing', async () => {
+    const outcome = await runStoragePurge(appWith(config('toy-list')));
+
+    expect(outcome).toMatchObject({ kind: 'report', report: { provider: 'toy-list', bucket: '/data', versioning: 'unversioned', deleted: 0, dryRun: true } });
+    if (outcome.kind !== 'report') return;
+    expect(outcome.report.prefixes).toEqual(allKeyPrefixes().map((prefix) => ({ prefix, objects: 2, bytes: 0 })));
+    expect(deleted).toEqual([]);
+  });
+
+  it('--confirm deletes each listed key through the driver\'s provider and releases it', async () => {
+    const outcome = await runStoragePurge(appWith(config('toy-list')), { confirm: true, bucket: '/data' });
+
+    expect(outcome).toMatchObject({ kind: 'report', report: { dryRun: false, deleted: allKeyPrefixes().length * 2 } });
+    expect(deleted).toEqual(allKeyPrefixes().flatMap((prefix) => [`${prefix}a`, `${prefix}b`]));
+    expect(destroyed).toHaveBeenCalledTimes(1);
+  });
+
+  it('still re-checks the typed bucket against the live one', async () => {
+    expect(await runStoragePurge(appWith(config('toy-list')), { confirm: true, bucket: 'elsewhere' })).toEqual({
+      kind: 'refused',
+      typed: 'elsewhere',
+      bucket: '/data',
+    });
+    expect(deleted).toEqual([]);
+  });
+
+  it('reports a driver that can neither purge nor list as unsupported, and the CLI exits 3', async () => {
+    expect(await runStoragePurge(appWith(config('toy-opaque')))).toEqual({ kind: 'unsupported', provider: 'toy-opaque' });
+
+    const err: string[] = [];
+    const code = await runStoragePurgeCli(appWith(config('toy-opaque')), [], { stdout: () => undefined, stderr: (t) => err.push(t) });
+    expect(code).toBe(3);
+    expect(err.join('')).toContain('toy-opaque');
   });
 });

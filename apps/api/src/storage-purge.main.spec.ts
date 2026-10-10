@@ -71,7 +71,14 @@ async function runPurge(argv: string[]): Promise<{ stdout: string; sent: SentCom
         NestFactory: {
           createApplicationContext: async () => ({
             get: () => ({
-              resolveActiveConfig: async () => ({ provider: 's3', bucket: 'the-bucket', region: 'us-east-1' }),
+              resolveActiveConfig: async () => ({
+                provider: 's3',
+                bucket: 'the-bucket',
+                region: 'us-east-1',
+                // The active driver's settings and secrets (PP-14.7): the S3 driver builds its own client from them.
+                settings: { bucket: 'the-bucket', region: 'us-east-1', endpoint: '', accountId: '', accessKeyId: 'AKIAEXAMPLE', forcePathStyle: null },
+                secrets: { secretAccessKey: 'not-a-real-secret' },
+              }),
             }),
             close: async () => closed(),
           }),

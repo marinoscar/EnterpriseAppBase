@@ -7,12 +7,10 @@ import {
   fingerprintStorageConfig,
   type ResolvedStorageConfig,
 } from '../config/storage-config';
+import { storageDriverContext } from '../config/storage-driver-context';
 import { StorageConfigService } from '../config/storage-config.service';
 import { StorageNotConfiguredError } from '../config/storage-not-configured.error';
-import {
-  DEFAULT_S3_PART_SIZE,
-  S3StorageProvider,
-} from './s3/s3-storage.provider';
+import { requireStorageDriver } from '../drivers/storage-driver';
 import type { StorageProvider } from './storage-provider.interface';
 import type {
   MultipartUploadInit,
@@ -90,7 +88,8 @@ const DELEGATE_CACHE_LIMIT = 2;
 interface CachedDelegate {
   /** See `fingerprintStorageConfig` — a hash, never loggable. */
   fingerprint: string;
-  provider: S3StorageProvider;
+  /** A promise, because a driver's `build` may be asynchronous and two callers must share one build. */
+  provider: Promise<StorageProvider>;
   /** Secret-free description, for the eviction log line. */
   label: string;
 }
@@ -299,8 +298,6 @@ export class ResolvingStorageProvider implements StorageProvider {
     const resolution = await this.storageConfig.resolve();
 
     if (!resolution.configured) {
-      // The missing FIELD NAMES travel to the caller; no value does. See
-      // `StorageNotConfiguredError`.
       throw StorageNotConfiguredError.missing(
         resolution.provider,
         resolution.missing,
@@ -310,24 +307,13 @@ export class ResolvingStorageProvider implements StorageProvider {
     return this.delegateFor(resolution.config);
   }
 
-  /**
-   * Get or build the client for exactly this configuration.
-   *
-   * The fingerprint — which includes the SECRET — is what makes a rotation take
-   * effect without a restart: a new key produces a new fingerprint, misses the
-   * cache, and builds a client with the new credential on the very next call.
-   * See `fingerprintStorageConfig` for why it is a hash and not the values.
-   */
-  private delegateFor(config: ResolvedStorageConfig): StorageProvider {
+  private delegateFor(config: ResolvedStorageConfig): Promise<StorageProvider> {
     const fingerprint = fingerprintStorageConfig(config);
     const index = this.delegates.findIndex(
       (entry) => entry.fingerprint === fingerprint,
     );
 
     if (index >= 0) {
-      // Move to front: with a limit of two, "least recently used" and "the one
-      // we are not using" are the same thing, and this is what keeps an
-      // in-flight upload's client from being the one evicted.
       const [hit] = this.delegates.splice(index, 1);
       this.delegates.unshift(hit);
 
@@ -338,49 +324,33 @@ export class ResolvingStorageProvider implements StorageProvider {
 
     this.logger.log(`Building storage client: ${label}`);
 
-    const provider = new S3StorageProvider({
-      // #374: the kind travels WITH the configuration rather than being
-      // inferred from it downstream. It is what selects R2's checksum flags and
-      // what `S3StorageProvider.kind` answers with; the endpoint and the
-      // region in this same object were already resolved per provider by
-      // `resolveStorageConfig`, so the driver never re-derives either.
-      provider: config.provider,
-      bucket: config.bucket,
-      region: config.region,
-      ...(config.endpoint ? { endpoint: config.endpoint } : {}),
-      accessKeyId: config.accessKeyId,
-      secretAccessKey: config.secretAccessKey,
-      // Passed through EXACTLY as resolved, `null` included: `null` is the
-      // stored setting's "unset", and the per-vendor convention behind the
-      // driver's `??` is the only place that decides what unset means. A
-      // `?? false` here would be this layer answering a question it has no
-      // basis to answer — the #374 regression, in one operator.
-      forcePathStyle: config.forcePathStyle,
-      // Deploy-time tuning, NOT an administrator setting: part size is about
-      // this process's memory and the network between it and the provider, not
-      // about which bucket is in use. It stays in `configuration.ts` beside the
-      // other `storage.*` knobs that did not move into the settings row.
-      partSize: this.configService.get<number>(
-        'storage.partSize',
-        DEFAULT_S3_PART_SIZE,
+    // The ACTIVE DRIVER builds the provider (`StorageDriver.build`): this class
+    // knows nothing about which object store it is. The secrets travel in the
+    // closure only for the duration of the build.
+    const driver = requireStorageDriver(config.provider);
+    const provider = Promise.resolve(
+      driver.build(
+        storageDriverContext({
+          settings: config.settings,
+          secret: async (name) => config.secrets[name] ?? null,
+          logger: this.logger,
+          config: this.configService,
+        }),
       ),
-    });
+    );
 
-    this.delegates.unshift({ fingerprint, provider, label });
+    const entry: CachedDelegate = { fingerprint, provider, label };
+    this.delegates.unshift(entry);
     this.evictOverflow();
+
+    // A failed build must not be cached: the next call tries again.
+    provider.catch(() => {
+      this.delegates = this.delegates.filter((candidate) => candidate !== entry);
+    });
 
     return provider;
   }
 
-  /**
-   * Drop clients past the limit, closing their sockets.
-   *
-   * `destroy()` is not optional housekeeping: an `S3Client` holds an HTTP agent
-   * with a keep-alive pool, so a deployment whose key is rotated weekly would
-   * accumulate one dead pool per rotation for the life of the process. Same
-   * failure, same fix, as `SmtpEmailProvider` closing the transporter it
-   * replaces.
-   */
   private evictOverflow(): void {
     while (this.delegates.length > DELEGATE_CACHE_LIMIT) {
       const evicted = this.delegates.pop();
@@ -391,19 +361,18 @@ export class ResolvingStorageProvider implements StorageProvider {
 
       this.logger.log(`Releasing superseded storage client: ${evicted.label}`);
 
-      try {
-        evicted.provider.destroy();
-      } catch (error) {
-        // A client that cannot be destroyed is a leaked socket pool, not a
-        // failed request: the caller is in the middle of an upload that has
-        // nothing to do with this. Log and carry on rather than turning
-        // somebody else's successful configuration change into a 500.
-        this.logger.warn(
-          `Failed to release a superseded storage client: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
+      // A provider that cannot be destroyed is a leaked socket pool, not a
+      // failed request: the caller is in the middle of an upload that has
+      // nothing to do with this. Log and carry on rather than turning
+      // somebody else's successful configuration change into a 500. Not every
+      // driver's provider holds anything to release, so `destroy` is optional.
+      void evicted.provider
+        .then((built) => (built as { destroy?: () => void }).destroy?.())
+        .catch((error: unknown) =>
+          this.logger.warn(
+            `Failed to release a superseded storage client: ${error instanceof Error ? error.message : String(error)}`,
+          ),
         );
-      }
     }
   }
 }

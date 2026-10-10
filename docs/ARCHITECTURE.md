@@ -59,7 +59,7 @@ This document is the map of how those pieces fit together today. It is written f
                            queue, JSONB   │    calls only)              │
                            settings)      ▼                             │
                                    Object storage  ◄────────────────────┘
-                                   (AWS S3, Cloudflare R2, S3-compatible)
+                                   (S3, R2, S3-compatible, or a driver you add)
 
    api ── OTLP ──► otel-collector ──► GreptimeDB :4000/:4003  (telemetry.compose.yml)
 ```
@@ -191,13 +191,13 @@ In the web app, every settings page is a card in a registry: `ADMIN_SECTIONS` (`
 
 ### 5.6 Object storage
 
-Files live in an S3-compatible object store: AWS S3, Cloudflare R2, or any S3-compatible endpoint. Which one is resolved at runtime, per call, from the `storage` system-settings namespace plus an encrypted secret access key. Every consumer injects the `STORAGE_PROVIDER` token, bound to a resolving provider that delegates to an S3 client built for the configuration in force. An unconfigured deployment answers storage calls with `503`.
+Files live in an object store chosen by a **storage driver**. The platform ships three, all speaking the S3 protocol: AWS S3, Cloudflare R2, or any S3-compatible endpoint; an app or package adds another (Azure Blob, Google Cloud Storage, a local disk) with `registerStorageDriver` ([EXTENDING.md](EXTENDING.md#add-a-storage-driver)). Which driver is active is resolved at runtime, per call, from the `storage` system-settings namespace (the active driver's id and each driver's own settings) plus the driver's encrypted secrets. Every consumer injects the `STORAGE_PROVIDER` token, bound to a resolving provider that delegates to the provider the active driver builds for the configuration in force; the connection test, bucket provisioning, the purge and the Doctor egress row are the driver's too. An unconfigured deployment answers storage calls with `503`.
 
 Uploads come in two shapes. A simple upload (`POST /api/storage/objects`, up to 100 MB) streams through the API. A resumable upload initializes a multipart upload, lets the client send parts directly to the bucket through presigned URLs, then completes it. A completed upload checks, in the same transaction, whether any registered processor applies: if none does the object is marked `ready` immediately; otherwise the object is marked `processing` and the `storage.object.process` job runs the applicable processors (for example, metadata extraction) and stores their results on the object. Profile pictures and AI outputs are storage objects too. Abandoned uploads are swept by the `storage.cleanup.stale-uploads` job. Post-upload processors register with `ObjectProcessorRegistry` from their `onModuleInit`. Every key prefix a writer uses is declared in the storage key-prefix registry with a scope (`org`, `user` or `deployment`; apps add theirs in `app-registrations/storage-prefixes.ts`), and `npm run storage:purge` deletes only under those prefixes (`allKeyPrefixes()` of the booted app).
 
 **Key layout.** New objects of an org-scoped prefix are written under `<prefix><orgId>/…`: uploads are `uploads/<orgId>/<timestamp>/<uuid><ext>`, so one organization's objects are one listable prefix per root (`orgKeyPrefixes(orgId)`, for org offboarding). Objects written before #736 keep `uploads/<timestamp>/<uuid><ext>`; every read, download and delete uses the row's stored `storage_key`, never a rebuilt one, and the purge's root prefixes cover both layouts. Avatars stay user-scoped (`avatars/<userId>/…`); probes, node outputs and backups are deployment-scoped; AI outputs are `ai-outputs/<userId>/<runId>/…`; data exports are `exports/users/<userId>/<exportId>.<ext>` (user-scoped) and `exports/orgs/<orgId>/<exportId>.<ext>` (org-scoped, #744).
 
-- **Code:** `packages/platform-api/src/storage/` (`@marinoscar/platform-api/storage`: `objects/`, `config/`, `providers/`, `processing/`, `profile-image/`, the key-prefix registry, `purge/`), `packages/platform-contract/src/storage/`, `packages/platform-web/src/storage/` (the page); the reference app's wiring in `apps/api/src/platform/storage/`, its processor example in `apps/api/src/examples/storage/`
+- **Code:** `packages/platform-api/src/storage/` (`@marinoscar/platform-api/storage`: `objects/`, `config/`, `drivers/`, `providers/`, `processing/`, `profile-image/`, the key-prefix registry, `purge/`), `packages/platform-contract/src/storage/`, `packages/platform-web/src/storage/` (the page); the reference app's wiring in `apps/api/src/platform/storage/`, its processor example in `apps/api/src/examples/storage/`
 - **UI:** `/admin/settings/storage`
 - **Permissions:** `storage_config:read/write` for configuration; object routes see [§7](#7-authorization)
 - **Read more:** [specs/storage-providers.md](specs/storage-providers.md), [runbooks/storage-configuration.md](runbooks/storage-configuration.md), [slice README](../packages/platform-api/src/storage/README.md)
@@ -907,6 +907,7 @@ Health endpoints (public, reachable during maintenance):
 | A registry entry (permission, setting, …) | [registry/README.md](../packages/platform-api/src/core/registry/README.md) |
 | A permission or role (platform module or app) | [permissions/README.md](../apps/api/src/common/permissions/README.md) |
 | An object-storage key prefix | [specs/storage-providers.md §4](specs/storage-providers.md#4-extending-it-in-a-fork) |
+| A storage driver (Azure Blob, Google Cloud Storage, a local disk) | [EXTENDING.md](EXTENDING.md#add-a-storage-driver) (app or package), [specs/storage-providers.md §2.8](specs/storage-providers.md) (the contract) |
 | A user-owned model (any model with a `User` relation) | [prisma/ownership/README.md](../apps/api/src/prisma/ownership/README.md) |
 | An app metric or dashboard metric group | [runbooks/telemetry.md §8.4](runbooks/telemetry.md#84-adding-an-app-metric-group) |
 | An OpenAPI tag (`@ApiTags`) from a slice or module | [core README](../packages/platform-api/src/core/README.md) (`openApiTags`) |

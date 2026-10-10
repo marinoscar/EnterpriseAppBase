@@ -64,8 +64,14 @@ jest.mock('@aws-sdk/s3-request-presigner', () => ({
   getSignedUrl: jest.fn((...args: unknown[]) => getSignedUrlMock(...args)),
 }));
 
+import { BadRequestException } from '@nestjs/common';
+import { z } from 'zod';
+import { registerStorageDriver } from '../../../src/storage/drivers/storage-driver';
 import { StorageConnectionTestService } from '../../../src/storage/config/storage-connection-test.service';
+import { StorageSubmissionService } from '../../../src/storage/config/storage-submission.service';
 import type { TestStorageConfigInput } from '../../../src/storage/config/dto/storage-connection-test.dto';
+// Registers the built-in drivers the service tests through.
+import '../../../src/storage/drivers/builtin-storage-drivers';
 
 const STORED_SECRET = 'stored-secret-access-key-0123456789';
 const PRESIGNED_URL = 'https://example-bucket.s3.us-west-2.amazonaws.com/probe?X-Amz-Signature=abc';
@@ -161,10 +167,15 @@ describe('StorageConnectionTestService', () => {
 
     getSignedUrlMock.mockResolvedValue(PRESIGNED_URL);
 
-    service = new StorageConnectionTestService(
-      prisma as never,
+    // The real submission resolver over mocked stores: nothing stored for the
+    // driver, so the body alone describes the configuration under test.
+    const submission = new StorageSubmissionService(
       credentials as never,
+      { getStoragePolicy: jest.fn().mockResolvedValue({ provider: 's3', drivers: {} }) } as never,
+      { get: (_key: string, fallback?: unknown) => fallback } as never,
     );
+
+    service = new StorageConnectionTestService(prisma as never, submission);
   });
 
   /** Index the four checks by id, so assertions read by name rather than by position. */
@@ -609,6 +620,124 @@ describe('StorageConnectionTestService', () => {
       // Provider error text belongs in the response an admin is reading, not in
       // a table that outlives the incident.
       expect(JSON.stringify(data.meta)).not.toContain('a message that must not be stored');
+    });
+  });
+
+  // ==========================================================================
+  // A driver an app registered (PP-14.7): the service only assembles the answer
+  // ==========================================================================
+
+  describe('a registered non-S3 driver', () => {
+    const toyTest = jest.fn();
+
+    registerStorageDriver({
+      id: 'toy-store',
+      label: 'Toy store',
+      settingsSchema: z.object({ directory: z.string() }),
+      defaults: { directory: '' },
+      secrets: [{ name: 'token', label: 'Token', required: true }],
+      build: () => {
+        throw new Error('not built here');
+      },
+      testConnection: async (ctx) => toyTest(ctx),
+      location: (settings) => ({ bucket: String(settings.directory), endpoint: 'http://toy.internal:9000', region: 'toy-1' }),
+    });
+
+    const toyInput = (overrides: Record<string, unknown> = {}) =>
+      ({ provider: 'toy-store', drivers: { 'toy-store': { directory: '/data' } }, secrets: { 'toy-store': { token: 'typed-toy-token-123' } }, ...overrides }) as TestStorageConfigInput;
+
+    beforeEach(() => {
+      toyTest.mockReset();
+      toyTest.mockResolvedValue({ ok: true, message: 'Wrote and read back a probe object.', details: { directory: '/data', writable: true } });
+    });
+
+    it('hands the driver its settings and the typed secret, and relays the verdict', async () => {
+      const result = await service.test(toyInput(), 'admin-1');
+
+      const ctx = toyTest.mock.calls[0][0];
+      expect(ctx.settings).toEqual({ directory: '/data' });
+      expect(await ctx.secret('token')).toBe('typed-toy-token-123');
+      expect(credentials.getSecret).not.toHaveBeenCalled();
+      expect(result).toMatchObject({
+        success: true,
+        provider: 'toy-store',
+        bucket: '/data',
+        region: 'toy-1',
+        effectiveEndpoint: 'http://toy.internal:9000',
+        usedStoredSecret: false,
+        checks: [],
+        message: 'Wrote and read back a probe object.',
+        details: { directory: '/data', writable: true },
+      });
+      // No S3 client was ever built for it.
+      expect(s3ConstructorMock).not.toHaveBeenCalled();
+    });
+
+    it('uses the stored secret at the driver\'s own address when the body leaves it blank', async () => {
+      credentials.getSecret.mockResolvedValue('stored-toy-token-456');
+      toyTest.mockImplementation(async (ctx) => ({ ok: true, message: `token is ${(await ctx.secret('token'))?.length} chars` }));
+
+      const result = await service.test(toyInput({ secrets: { 'toy-store': { token: '' } } }), 'admin-1');
+
+      expect(credentials.getSecret).toHaveBeenCalledWith('storage_toy-store', 'token');
+      expect(result.usedStoredSecret).toBe(true);
+      expect(result.message).toBe('token is 20 chars');
+    });
+
+    it('is a failed result, never a throw, when the driver says no', async () => {
+      toyTest.mockResolvedValue({ ok: false, message: 'The directory is read-only.' });
+
+      const result = await service.test(toyInput(), 'admin-1');
+
+      expect(result.success).toBe(false);
+      expect(result.message).toBe('The directory is read-only.');
+    });
+
+    it('turns a driver that throws anyway into a failed result with the secret redacted', async () => {
+      toyTest.mockImplementation(async (ctx) => {
+        throw new Error(`rejected token ${await ctx.secret('token')} at /data`);
+      });
+
+      const result = await service.test(toyInput(), 'admin-1');
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain('rejected token [redacted] at /data');
+      expect(JSON.stringify(result)).not.toContain('typed-toy-token-123');
+    });
+
+    it('redacts a secret a driver echoes in its message, details or checks', async () => {
+      toyTest.mockImplementation(async (ctx) => {
+        const token = await ctx.secret('token');
+        return {
+          ok: false,
+          message: `bad token ${token}`,
+          details: { echoed: `Bearer ${token}` },
+          checks: [{ id: 'credentials', label: 'Credentials', status: 'failed', code: 'credentials_rejected', detail: `sent ${token}`, error: `${token} refused` }],
+        };
+      });
+
+      const result = await service.test(toyInput(), 'admin-1');
+
+      expect(JSON.stringify(result)).not.toContain('typed-toy-token-123');
+      expect(result.message).toBe('bad token [redacted]');
+      expect(result.checks[0]).toMatchObject({ detail: 'sent [redacted]', error: '[redacted] refused' });
+    });
+
+    it('audits the verdict only: never a message, a detail or a secret', async () => {
+      await service.test(toyInput(), 'admin-1');
+
+      const data = prisma.auditEvent.create.mock.calls[0][0].data;
+      expect(data.action).toBe('storage_config:test');
+      expect(data.meta).toEqual({ provider: 'toy-store', bucket: '/data', success: true, usedStoredSecret: false, checks: [] });
+    });
+
+    it.each([
+      ['an unregistered driver', { provider: 'nope' }],
+      ['settings the driver refuses', { drivers: { 'toy-store': { directory: 42 } } }],
+    ])('answers %s with a 400, before the driver is called', async (_label, overrides) => {
+      await expect(service.test(toyInput(overrides), 'admin-1')).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(toyTest).not.toHaveBeenCalled();
     });
   });
 });

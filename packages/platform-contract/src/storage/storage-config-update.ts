@@ -1,53 +1,51 @@
 // =============================================================================
-// PUT /api/admin/storage-config — request body (issue #375, epic #372)
+// PUT /api/admin/storage-config - request body (issue #375, epic #372; drivers: PP-14.7)
 // =============================================================================
 //
-// The seven `storage` settings fields, plus the two things that are NOT settings
-// fields and are the whole reason this DTO exists rather than reusing
-// `systemStoragePatchSchema`:
+// The active driver, its settings, its write-only secrets and the typed
+// confirmation. A save names the active driver (`provider`) and then supplies
+// settings in either of two spellings:
 //
-//   * `secretAccessKey` — WRITE-ONLY. It is never in a response, it is never in
-//     the stored settings document, and blank means "keep the stored one".
-//   * `confirmation`    — the typed acknowledgement that switching a configured
-//                         deployment's provider/bucket/endpoint does not move
-//                         the bytes that are already there.
+//   * `drivers`  - `{ <driverId>: { ...that driver's settings } }`. The shape
+//                  every driver, built-in or registered by an app, uses. Each
+//                  entry is merged over the driver's stored settings (a setting
+//                  it omits keeps its stored value), then validated by the
+//                  driver; `null` resets a driver to its defaults.
+//   * the flat fields (`bucket`, `region`, `endpoint`, `accountId`,
+//     `accessKeyId`, `forcePathStyle`) - the shape this route had before drivers
+//                  were pluggable. They are the settings of the built-in driver
+//                  named by `provider`, so a client written against the old
+//                  contract keeps working. A flat field present in the body
+//                  replaces that setting; one omitted keeps the stored value.
+//                  `drivers.<provider>` wins over a flat field for the same
+//                  setting.
 //
-// -----------------------------------------------------------------------------
-// THIS IS A FULL REPLACE, AND EVERY SETTINGS FIELD IS REQUIRED
-// -----------------------------------------------------------------------------
-//
-// A PATCH shape was rejected. The page this backs renders all seven fields at
-// once and submits all seven, and the one operation an operator most needs from
-// it is CLEARING a field — emptying `endpoint` to fall back to the vendor's own
-// host, emptying `accountId` after moving off R2. Under a partial body, `''`
-// and "absent" both arrive as "the admin left this alone" unless every single
-// field is carefully distinguished with `!== undefined`, and the failure mode
-// of getting one of them wrong is a deployment that keeps writing to the bucket
-// it was told to stop writing to. Requiring the whole object makes "clear this
-// field" the ordinary case — send `''` — and makes it impossible to express by
-// accident.
-//
-// `forcePathStyle` is the exception that proves it: it is TRI-STATE
-// (`true`/`false`/`null`, where `null` is "use this vendor's convention"), so
-// it is required-and-nullable rather than optional. `null` is a value an
-// operator can mean, and there has to be a body that says it.
+// An empty string still CLEARS a text field (that is how an operator drops an
+// endpoint override, or un-configures storage by clearing `bucket`), and
+// `forcePathStyle` is still TRI-STATE (`null` is "use this vendor's
+// convention").
 //
 // -----------------------------------------------------------------------------
-// WHY THE SECRET IS ON THIS BODY AT ALL, RATHER THAN ITS OWN ENDPOINT
+// SECRETS ARE WRITE-ONLY, AND BLANK PRESERVES
 // -----------------------------------------------------------------------------
 //
-// Because the access key id and the secret access key are one credential, and
-// they are pasted from one screen at one moment. Splitting them across two
-// requests means every rotation has a window in which the saved key id and the
-// saved secret are from different key pairs — which is exactly the state that
-// breaks every upload in the deployment, reached by following the UI correctly.
-// `EmailSettingsController` makes the same call for `smtpPassword`, and this
-// file copies its blank-preserves contract verbatim.
+// `secretAccessKey` is the built-in drivers' secret. A driver an app registers
+// declares its own (`secrets: [{ name: 'connectionString' }]`) and the admin
+// form sends them in `secrets`, keyed by driver id and secret name. Omitted,
+// `null` or `''` means "the admin did not retype it" and the stored value stays.
+// There is deliberately no way to erase a stored secret through this endpoint;
+// an admin who wants storage off empties the driver's location (`bucket`).
+//
+// WHY THE SECRET IS ON THIS BODY AT ALL, rather than its own endpoint: the key
+// id and the secret are one credential, pasted from one screen at one moment.
+// Splitting them across two requests means every rotation has a window in which
+// the saved key id and the saved secret are from different key pairs.
+// `EmailSettingsController` makes the same call for `smtpPassword`.
 // =============================================================================
 
 import { z } from 'zod';
 
-import { STORAGE_PROVIDER_KINDS, type StorageEnum } from './constants.js';
+import { storageDriverIdSchema, storageDriversPatchSchema } from './settings-schemas.js';
 
 /**
  * The word `PUT /api/admin/storage-config` requires when the save would point
@@ -71,87 +69,75 @@ import { STORAGE_PROVIDER_KINDS, type StorageEnum } from './constants.js';
 export const STORAGE_SWITCH_CONFIRMATION = 'SWITCH';
 
 /**
- * The `PUT /api/admin/storage-config` body: the seven settings fields, the write-only secret, the optional confirmation.
+ * The `PUT /api/admin/storage-config` body: the active driver, its settings (`drivers`, or the legacy flat fields for the built-ins), the write-only secrets and the optional confirmation.
  *
  * @stability experimental
  */
 export const updateStorageConfigSchema = z.object({
-  /** Which vendor's flavour of the S3 protocol to talk to. */
-  provider: (z.enum(STORAGE_PROVIDER_KINDS) as z.ZodEnum<StorageEnum<typeof STORAGE_PROVIDER_KINDS>>),
+  /** The id of the storage driver to make active (a built-in, or one an app registered). */
+  provider: storageDriverIdSchema,
 
   /**
-   * The bucket every object is written to and read from.
-   *
-   * NO `.min(1)`, matching `systemStorageSchema`: `''` is the legal, persisted
-   * "not configured" state and is how an operator un-configures storage
-   * entirely. Completeness is decided by `resolveStorageConfig`, in one place,
-   * and not by this schema — see that file, and the block comment on
-   * `systemStorageSchema`.
+   * Driver settings, per driver id, merged over the stored ones and validated
+   * by each driver. `null` resets a driver to its defaults. See the header.
    */
-  bucket: z.string().trim().max(255),
-
-  /** Signing region. `''` is "not stated"; R2 wants the literal `auto`. */
-  region: z.string().trim().max(255),
-
-  /** Explicit origin, or `''` to derive it (R2) or use the SDK's host (S3). */
-  endpoint: z.string().trim().max(512),
-
-  /** R2 account id, from which its endpoint is derived. `''` for other kinds. */
-  accountId: z.string().trim().max(255),
+  drivers: storageDriversPatchSchema.optional(),
 
   /**
-   * The identifier half of the credential.
-   *
-   * NOT A SECRET, and it is in both the request and the response on purpose —
-   * it travels in the clear in the `Authorization` header of every SigV4
-   * request, authorises nothing on its own, and an administrator who cannot see
-   * which key id is configured cannot tell a rotated key from a mistyped one.
-   * See `storage/storage-credential.constants.ts`.
+   * Alias of `drivers.<provider>.bucket` (built-in drivers). No `.min(1)`:
+   * `''` is the legal, persisted "not configured" state and is how an operator
+   * un-configures storage entirely. Completeness is decided by the driver.
    */
-  accessKeyId: z.string().trim().max(255),
+  bucket: z.string().trim().max(255).optional(),
+
+  /** Alias of `drivers.<provider>.region`. `''` is "not stated"; R2 wants the literal `auto`. */
+  region: z.string().trim().max(255).optional(),
+
+  /** Alias of `drivers.<provider>.endpoint`. Explicit origin, or `''` to derive it (R2) or use the SDK's host (S3). */
+  endpoint: z.string().trim().max(512).optional(),
+
+  /** Alias of `drivers.<provider>.accountId`. R2 account id, from which its endpoint is derived. */
+  accountId: z.string().trim().max(255).optional(),
 
   /**
-   * ⚠ WRITE-ONLY, AND BLANK PRESERVES.
-   *
-   * Omitted, `null` or `''` means "the admin did not retype the secret", and
-   * the stored one is left exactly as it is. That is
-   * `CredentialsService.setSecret`'s own contract and this endpoint does not reinterpret it: the
-   * form always renders this field empty, so getting it backwards would destroy
-   * a working configuration the first time somebody corrects a typo in the
-   * region.
-   *
-   * There is deliberately NO way to erase the stored secret through this
-   * endpoint. Erasing is `deleteSecret`, which nothing in #375 exposes — an
-   * admin who wants storage off empties `bucket`.
-   *
-   * ⚠ NEVER ECHOED BACK. No response schema in this feature has a field capable
-   * of carrying it, and `storage-config.integration.spec.ts` asserts that
-   * property against every route.
+   * Alias of `drivers.<provider>.accessKeyId`. The identifier half of the
+   * credential: NOT A SECRET, in both the request and the response on purpose
+   * (it travels in the clear in every SigV4 `Authorization` header).
+   */
+  accessKeyId: z.string().trim().max(255).optional(),
+
+  /**
+   * WRITE-ONLY, AND BLANK PRESERVES. The built-in drivers' secret access key.
+   * Omitted, `null` or `''` means "the admin did not retype the secret" and the
+   * stored one is left exactly as it is. NEVER ECHOED BACK: no response schema
+   * has a field capable of carrying it.
    */
   secretAccessKey: z.string().max(512).nullish(),
 
   /**
-   * `https://host/bucket/key` (true) over `https://bucket.host/key` (false), or
-   * `null` for "use this vendor's convention".
-   *
-   * REQUIRED AND NULLABLE, not optional — see this file's header. `null` is the
-   * shipped default and a real answer an operator can choose, so there has to
-   * be a body that expresses it.
+   * WRITE-ONLY secrets of any driver: `{ <driverId>: { <secretName>: value } }`,
+   * the names the driver declares (`descriptors[].fields` of kind `secret`).
+   * A blank value keeps the stored one. Never echoed back.
    */
-  forcePathStyle: z.boolean().nullable(),
+  secrets: z.record(storageDriverIdSchema, z.record(z.string(), z.string().max(4096).nullish())).optional(),
+
+  /**
+   * Alias of `drivers.<provider>.forcePathStyle`: `https://host/bucket/key`
+   * (true) over `https://bucket.host/key` (false), or `null` for "use this
+   * vendor's convention".
+   */
+  forcePathStyle: z.boolean().nullable().optional(),
 
   /**
    * The literal string `SWITCH`, required only when this save would repoint a
    * deployment that still has objects at the old location.
    *
-   * Optional because the ordinary save — a first configuration, a corrected
-   * region, a rotated key — needs no acknowledgement at all. The service
-   * decides whether it was needed and answers `409` with the row counts when it
-   * was missing; see `StorageConfigAdminService.assertSwitchAcknowledged`.
+   * Optional because the ordinary save needs no acknowledgement at all. The
+   * service decides whether it was needed and answers `409` with the row counts
+   * when it was missing.
    *
-   * ⚠ IT ACKNOWLEDGES, IT DOES NOT MIGRATE. Saving a new location does not copy
-   * a single object. That is the sentence the confirmation exists to make
-   * someone read.
+   * IT ACKNOWLEDGES, IT DOES NOT MIGRATE. Saving a new location does not copy a
+   * single object.
    */
   confirmation: z.literal(STORAGE_SWITCH_CONFIRMATION).optional(),
 });

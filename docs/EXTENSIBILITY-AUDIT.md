@@ -15,7 +15,7 @@ The audit record of the extension seams of every platform slice. A closed point 
 
 Evidence paths are written `api:`, `web:`, `contract:`, `cli:`, `db:` and `infra:` for `packages/platform-api/src/`, `packages/platform-web/src/`, `packages/platform-contract/src/`, `packages/platform-cli/src/`, `packages/platform-db/` and `packages/platform-infra/`; a path under `apps/` or `docs/` is from the repository root. A story is written PP-14.n (its issue number follows).
 
-As of this version: 114 closed points in 29 sections, 13 fixed and 101 open.
+As of this version: 114 closed points in 29 sections, 16 fixed and 98 open.
 
 ## Verdicts
 
@@ -41,8 +41,8 @@ As of this version: 114 closed points in 29 sections, 13 fixed and 101 open.
 | [platform-infra](#platform-infra) | Mostly open | 2 | 0 | 2 | PP-14.22 |
 | [testing (api and web)](#testing-api-and-web) | Mostly open | 2 | 0 | 2 | PP-14.26 |
 | [ai](#ai) | Mostly open | 10 | 6 | 4 | PP-14.3, PP-14.6, PP-14.17, PP-14.24 |
+| [storage](#storage) | Mostly open | 5 | 4 | 1 | PP-14.1, PP-14.7, PP-14.24 |
 | [identity](#identity) | Partly closed | 8 | 0 | 8 | PP-14.9, PP-14.15, PP-14.25 |
-| [storage](#storage) | Partly closed | 5 | 1 | 4 | PP-14.1, PP-14.7, PP-14.24 |
 | [email](#email) | Partly closed | 5 | 0 | 5 | PP-14.8, PP-14.24 |
 | [host](#host) | Partly closed | 8 | 1 | 7 | PP-14.2, PP-14.13, PP-14.24 |
 | [datatable](#datatable) | Partly closed | 2 | 0 | 2 | PP-14.20 |
@@ -63,7 +63,7 @@ The 28 stories of the epic, in order. Phase 1 makes the existing seams real; pha
 | PP-14.4 | #922 | docs: extension author guide, audit record and corrected recipes | 1 | none | no | This change |
 | PP-14.5 | #923 | core: the pluggable-kind primitive (registry, per-implementation settings, secrets, descriptors, generic form, kit) | 2 | none | no | This change |
 | PP-14.6 | #924 | ai: let an app or package add an AI provider (the AssemblyAI case) | 2 | 14.5, 14.3 | no | This change |
-| PP-14.7 | #925 | storage: pluggable storage drivers (Azure Blob, GCS, local) | 2 | 14.1, 14.5 | verify | Open |
+| PP-14.7 | #925 | storage: pluggable storage drivers (Azure Blob, GCS, local) | 2 | 14.1, 14.5 | verify | This change |
 | PP-14.8 | #926 | email: pluggable email transports (SendGrid, Postmark) | 2 | 14.5 | no | Open |
 | PP-14.9 | #927 | identity: add a sign-in provider (GitHub, Entra, OIDC) | 2 | 14.5 | no | Open |
 | PP-14.10 | #928 | notifications: first-class app channels (Slack, SMS, Teams, webhook) | 2 | 14.5 | no | Open |
@@ -96,7 +96,7 @@ The closed points fall into six repeating patterns. Each is removed once, in one
 | 2 | Documented token overrides that a package-internal consumer never sees (NestJS module scoping) | Bindings through `forRoot` (PP-14.1, PP-14.2 and the phase 2 stories). The rule is [overrides go through `forRoot`](EXTENDING.md#the-extension-ladder). |
 | 3 | Packaged web pages with no slots, or a `Header` slot only | The packaged-page slot contract (PP-14.23 to PP-14.25). |
 | 4 | Settings extension is top-level only (no nested paths, no org layer, no core `profile` or `theme`) | PP-14.21. |
-| 5 | No test kit for extension authors (except AI providers) | Each phase 2 story ships its kit; PP-14.26 covers the rest. |
+| 5 | No test kit for extension authors (except AI providers and storage drivers) | Each phase 2 story ships its kit; PP-14.26 covers the rest. |
 | 6 | Data model: few platform models accept app relations, no JSONB `metadata` on `User` or `Organization` | PP-14.27. |
 
 ## Slices
@@ -360,6 +360,26 @@ Closed points: none recorded at the audit commit.
 | ai-9 | The documented override of `AI_TARGET_RESOLVER` (a `@Global()` module passed to `AiModule.forRoot({ imports })`) is unproven: `AiModule` does not provide the token, so a global provider should reach `AiService`, but the example test builds a test module holding only the token and hands the resolver to the harness by hand, so DI resolution through the real `AiModule` is never exercised. The epic requires every documented override to be proven with the real package modules. | api: `ai/runtime/target-resolver.ts:17`; `apps/api/test/examples/ai/example-summary.spec.ts:45` | A test that boots the real `AiModule.forRoot` and asserts `AiService` resolves through the app's resolver. | none yet (epic success criterion) | Open |
 | ai-10 | `AiWebAdapters` has only `Spinner`; `AiConfigPage`, `AiProviderCard`, `UserAiKeysPage` and `AiModelsPage` take no slots. | web: `ai/headless/adapters.tsx:38` | `ProviderCardExtra`, `Sections`, `TableSlots<Row>` per page. | PP-14.24 (#942) | Open |
 
+### storage
+
+**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 5 (4 fixed, 1 open) · **Stories:** PP-14.1, PP-14.7, PP-14.24
+
+**Open points.** `registerStorageDriver` (a driver: its settings, secrets, `build`, `testConnection`, optional `provision`, `listKeys` and `purge`; the three S3 drivers register through it) with `describeStorageDriverConformance`, `registerStorageDriverPanel` and the generated driver panel on the web, `StorageModule.forRoot({ provider })` (the object store reaches every package consumer), `STORAGE_PROVIDER`, `ObjectProcessorRegistry`, `registerStorageKeyPrefixes`, `runStoragePurge`, `storageConformanceSuite`. Worked examples: `apps/api/src/platform-extensions/storage/` (the `local-fs` driver and an in-memory provider).
+
+| # | Closed point | Evidence | Proposed fix | Story | Status |
+|---|---|---|---|---|---|
+| storage-1 | The documented rung-3 override ("provide `STORAGE_PROVIDER` in your app module") did not reach any of the 16 package modules that import `StorageProvidersModule`; the only test built a toy module with no package consumers; rows recorded the configured kind even for a custom backend. | api: `storage/providers/storage-providers.module.ts:64-75`; `apps/api/test/storage/storage-extension-points.spec.ts:61-70`; api: `db-backup/db-backup-runner.service.ts:1302` | `StorageModule.forRoot({ provider })` through a global binding module; `StorageProvider.kind` written to rows. | PP-14.1 (#919) | Fixed (PR #947) |
+| storage-2 | The provider kind is closed (`s3`, `r2`, `s3compatible`), used as `z.enum` in four schemas plus a literal copy; Azure and GCS need different fields. | contract: `storage/constants.ts:32`; `storage/settings-schemas.ts:89, :139, :189, :225, :263` | `storageDriverIdSchema` (a pattern), `BUILTIN_STORAGE_PROVIDER_KINDS`, settings `provider: string` plus `drivers: Record<id, settings>` with read-compat for the flat fields. | PP-14.7 (#925) | Fixed |
+| storage-3 | Per-kind `switch` with a `never` default and a region fallback; the S3 SDK is wired outside the provider (connection test, bucket provisioning, purge, Doctor egress labels). | api: `storage/config/storage-config.ts:316-338, :412`; `storage/config/storage-connection-test.service.ts:196`; `storage/config/storage-bucket-provision.service.ts:334, :461, :764`; `storage/purge/run-storage-purge.ts:202`; `storage/config/doctor/egress/storage.egress.contributor.ts:16` | `StorageDriver` (`build`, `testConnection`, optional `provision` and `listKeys`); the S3 code moves inside the built-in drivers. | PP-14.7 (#925) | Fixed |
+| storage-4 | `StorageConfigPage` has hard-coded radios, a provider label record and per-provider blocks, and takes no props. There is no `StorageProvider` contract test for a custom driver. | web: `storage/ui/StorageConfigPage.tsx:140, :665-681, :737-821`; api: `storage/testing/conformance.ts:173-187` | `registerStorageDriverPanel(id, Component)`, the page from descriptors; `describeStorageDriverConformance`. | PP-14.7 (#925) | Fixed |
+| storage-5 | `StorageConfigPage` takes no slots. | web: `storage/ui/StorageConfigPage.tsx` | `Sections`. | PP-14.24 (#942) | Open |
+
+**Remaining gaps of the storage driver contract** (PP-14.7 ships it as specified; these are small additions that were found while building it and are not tracked as rows):
+
+- A descriptor carries no flag saying whether a driver implements `provision`, so the page offers **Create bucket** after a failed test that reported no checks and learns the answer from the result.
+- A driver's `message` (test and provisioning) is a plain string: no structured remedy, link or severity.
+- `secretStatus` of the admin view describes only the active driver's first declared secret; every driver's presence is in `descriptors`.
+
 ### identity
 
 **Verdict:** Partly closed · **Packages:** api, web, contract · **Closed points:** 8 (0 fixed, 8 open) · **Stories:** PP-14.9, PP-14.15, PP-14.25
@@ -376,20 +396,6 @@ Closed points: none recorded at the audit commit.
 | identity-6 | The web `login()` always navigates to `/api/auth/<id>`, `AuthCallbackPage` defaults to `google`, and `LoginPage` has no slot around the provider buttons. | web: `identity/headless/auth-context.tsx:199` | `login(providerId)` by descriptor mode; `LoginPage` `BeforeProviders` and `AfterProviders`; the callback provider from the route. | PP-14.9 (#927) | Open |
 | identity-7 | Org roles are closed in three layers: the contract list feeds `z.enum`s (update-member, create-invite), and the web has its own lists, labels and a `viewer` default. A role registered by an app (for example `coach`) is rejected by the invite and member routes and never shown. The test login accepts three fixed roles. | contract: `identity/constants.ts:106`; `identity/schemas.ts:125, :659, :719`; web: `identity/headless/api.ts:297`; `identity/ui/users/userListColumns.tsx:47`; `identity/ui/users/ManageRolesDialog.tsx:70, :82`; `identity/ui/org/orgLabels.ts:8`; `identity/ui/org/InviteMemberDialog.tsx:33`; api: `identity/testing/dto/test-login.dto.ts:6` | `GET /roles?scope=`, `roleIdSchema` as a pattern, role registry `assignable` and `label`, `ROLE_NOT_ASSIGNABLE`; the web dialogs read the endpoint. | PP-14.15 (#933) | Open |
 | identity-8 | `UsersPage`, `UserList`, `OrganizationPage` and `OrgMembersPanel` take no slots; `buildUserColumns()` is exported but called internally; `/auth/me` and `UserListItem` have no enrichment seam. | web: `identity/ui/users/userListColumns.tsx:82` | `TableSlots<UserListItem>`, `registerCurrentUserExtension` and `registerUserListExtension` (optional `extensions` on the wire). | PP-14.25 (#943) | Open |
-
-### storage
-
-**Verdict:** Partly closed · **Packages:** api, web, contract · **Closed points:** 5 (1 fixed, 4 open) · **Stories:** PP-14.1, PP-14.7, PP-14.24
-
-**Open points.** `StorageModule.forRoot({ provider })` (the object store reaches every package consumer), `STORAGE_PROVIDER`, `ObjectProcessorRegistry`, `registerStorageKeyPrefixes`, `runStoragePurge`, `storageConformanceSuite`. Worked example: `apps/api/src/platform-extensions/storage/`.
-
-| # | Closed point | Evidence | Proposed fix | Story | Status |
-|---|---|---|---|---|---|
-| storage-1 | The documented rung-3 override ("provide `STORAGE_PROVIDER` in your app module") did not reach any of the 16 package modules that import `StorageProvidersModule`; the only test built a toy module with no package consumers; rows recorded the configured kind even for a custom backend. | api: `storage/providers/storage-providers.module.ts:64-75`; `apps/api/test/storage/storage-extension-points.spec.ts:61-70`; api: `db-backup/db-backup-runner.service.ts:1302` | `StorageModule.forRoot({ provider })` through a global binding module; `StorageProvider.kind` written to rows. | PP-14.1 (#919) | Fixed (PR #947) |
-| storage-2 | The provider kind is closed (`s3`, `r2`, `s3compatible`), used as `z.enum` in four schemas plus a literal copy; Azure and GCS need different fields. | contract: `storage/constants.ts:32`; `storage/settings-schemas.ts:89, :139, :189, :225, :263` | `storageDriverIdSchema` (a pattern), `BUILTIN_STORAGE_PROVIDER_KINDS`, settings `provider: string` plus `drivers: Record<id, settings>` with read-compat for the flat fields. | PP-14.7 (#925) | Open |
-| storage-3 | Per-kind `switch` with a `never` default and a region fallback; the S3 SDK is wired outside the provider (connection test, bucket provisioning, purge, Doctor egress labels). | api: `storage/config/storage-config.ts:316-338, :412`; `storage/config/storage-connection-test.service.ts:196`; `storage/config/storage-bucket-provision.service.ts:334, :461, :764`; `storage/purge/run-storage-purge.ts:202`; `storage/config/doctor/egress/storage.egress.contributor.ts:16` | `StorageDriver` (`build`, `testConnection`, optional `provision` and `listKeys`); the S3 code moves inside the built-in drivers. | PP-14.7 (#925) | Open |
-| storage-4 | `StorageConfigPage` has hard-coded radios, a provider label record and per-provider blocks, and takes no props. There is no `StorageProvider` contract test for a custom driver. | web: `storage/ui/StorageConfigPage.tsx:140, :665-681, :737-821`; api: `storage/testing/conformance.ts:173-187` | `registerStorageDriverPanel(id, Component)`, the page from descriptors; `describeStorageDriverConformance`. | PP-14.7 (#925) | Open |
-| storage-5 | `StorageConfigPage` takes no slots. | web: `storage/ui/StorageConfigPage.tsx` | `Sections`. | PP-14.24 (#942) | Open |
 
 ### email
 

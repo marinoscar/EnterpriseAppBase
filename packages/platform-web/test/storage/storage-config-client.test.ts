@@ -30,13 +30,17 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  provisionStorageBucketSchema,
   storageBucketProvisionResultSchema,
   storageConfigResponseSchema,
   storageConnectionCheckSchema,
+  storageConnectionTestResultSchema,
+  testStorageConfigSchema,
   updateStorageConfigSchema,
 } from '@marinoscar/platform-contract/storage';
 
 import {
+  BUILTIN_STORAGE_PROVIDER_KINDS,
   MISSING_STORAGE_CONFIG_FIELDS,
   STORAGE_BUCKET_OUTCOMES,
   STORAGE_PROVIDER_KINDS,
@@ -51,28 +55,15 @@ import type {
   StorageConnectionTestResult,
 } from '../../src/storage/headless/index.js';
 import { createTestPlatformHost, type TestPlatformHost } from '../../src/testing/index.js';
+import { storageConfigFixture, storageConfigWithCustomDrivers } from './fixtures.js';
 
-const storedConfig: StorageConfigView = {
+const storedConfig: StorageConfigView = storageConfigFixture({
   provider: 's3compatible',
   bucket: 'app-objects',
-  region: 'us-east-1',
   endpoint: 'https://minio.example.com:9000',
-  accountId: '',
-  accessKeyId: 'AKIAEXAMPLE',
-  forcePathStyle: null,
   effectiveEndpoint: 'https://minio.example.com:9000',
-  configured: true,
-  missing: [],
-  secretStatus: {
-    configured: true,
-    hint: '••••ab12',
-    updatedAt: '2026-01-01T00:00:00.000Z',
-    updatedByUserId: 'admin-user-id',
-  },
   version: 7,
-  updatedAt: '2026-01-01T00:00:00.000Z',
-  updatedBy: { id: 'admin-user-id', email: 'admin@example.com' },
-};
+});
 
 const input: StorageConfigInput = {
   provider: 's3compatible',
@@ -110,7 +101,7 @@ describe('the storage-config client — the wire contract', () => {
     expect(host.requests.at(-1)).toMatchObject({ method: 'GET', path: '/admin/storage-config' });
   });
 
-  it('PUT sends the seven fields and the current version as If-Match', async () => {
+  it('PUT sends the body as given and the current version as If-Match', async () => {
     const capturedHost = hostFor(storedConfig);
 
     await createStorageConfigClient(capturedHost.api).update(input, 7);
@@ -226,6 +217,97 @@ describe('the storage-config client — the wire contract', () => {
   });
 });
 
+describe('the storage-config client — pluggable drivers (PP-14.7)', () => {
+  const driverInput: StorageConfigInput = {
+    provider: 'local-fs',
+    drivers: { 'local-fs': { directory: '/var/lib/objects' }, s3: null },
+    secrets: { 'vault-blob': { connectionString: 'typed-secret' } },
+  };
+
+  it('PUT carries provider, drivers (a null resets a driver) and write-only secrets, and nothing flat', async () => {
+    const host = hostFor(storedConfig);
+
+    await createStorageConfigClient(host.api).update(driverInput, 7);
+
+    expect(last(host).body).toEqual(driverInput);
+    expect(last(host).body.drivers).toHaveProperty('s3', null);
+    expect(last(host).body).not.toHaveProperty('bucket');
+    expect(last(host).body).not.toHaveProperty('secretAccessKey');
+  });
+
+  it('POST /test and POST /bucket take the same body', async () => {
+    const testHost = hostFor({ success: true });
+    await createStorageConfigClient(testHost.api).test(driverInput);
+    expect(testHost.requests.at(-1)).toMatchObject({ method: 'POST', path: '/admin/storage-config/test' });
+    expect(last(testHost).body).toEqual(driverInput);
+
+    const bucketHost = hostFor({ outcome: 'failed' });
+    await createStorageConfigClient(bucketHost.api).provisionBucket(driverInput);
+    expect(last(bucketHost).body).toEqual(driverInput);
+  });
+
+  it('the bodies the client builds are accepted by the API schemas', () => {
+    expect(updateStorageConfigSchema.safeParse({ ...driverInput, confirmation: STORAGE_SWITCH_CONFIRMATION }).success).toBe(true);
+    expect(testStorageConfigSchema.safeParse(driverInput).success).toBe(true);
+    expect(provisionStorageBucketSchema.safeParse(driverInput).success).toBe(true);
+    // Only `provider` is required.
+    expect(updateStorageConfigSchema.safeParse({ provider: 'local-fs' }).success).toBe(true);
+  });
+
+  it('the view types match what the API serves: drivers, descriptors and string[] missing', () => {
+    const view = storageConfigWithCustomDrivers({ missing: ['directory', 'connectionString'] });
+
+    const parsed = storageConfigResponseSchema.parse(view);
+
+    expect(Object.keys(parsed.drivers)).toEqual(['s3', 'r2', 's3compatible', 'local-fs', 'vault-blob']);
+    expect(parsed.descriptors.map((descriptor) => descriptor.id)).toEqual(['s3', 'r2', 's3compatible', 'local-fs', 'vault-blob']);
+    expect(parsed.missing).toEqual(['directory', 'connectionString']);
+  });
+
+  it('a descriptor secret carries presence only — no value, in the type or on the wire', () => {
+    const view = storageConfigWithCustomDrivers();
+    const vault = view.descriptors.find((descriptor) => descriptor.id === 'vault-blob')!;
+    const secret = vault.fields.find((field) => field.kind === 'secret')!;
+
+    expect(Object.keys(secret).sort()).toEqual(['hasValue', 'kind', 'label', 'name', 'required']);
+  });
+
+  it('a test result of a driver with no checks carries message and details', () => {
+    const result: StorageConnectionTestResult = {
+      success: true,
+      provider: 'local-fs',
+      bucket: '/var/lib/objects',
+      region: '',
+      effectiveEndpoint: null,
+      usedStoredSecret: false,
+      checks: [],
+      message: 'Wrote, read and deleted a probe file.',
+      details: { directory: '/var/lib/objects', free: 12, writable: true },
+      attemptedAt: '2026-01-01T00:00:00.000Z',
+    };
+
+    expect(storageConnectionTestResultSchema.safeParse(result).success).toBe(true);
+    expect(reportsBucketMissing(result)).toBe(false);
+  });
+
+  it('a provisioning result of a driver that cannot provision carries a message and skipped steps', () => {
+    const result = {
+      outcome: 'failed',
+      provider: 'local-fs',
+      bucket: '/var/lib/objects',
+      region: '',
+      effectiveEndpoint: null,
+      steps: [{ id: 'create', label: 'Create', status: 'skipped', detail: 'Not supported.', error: null }],
+      message: 'The local-fs driver cannot create its folder.',
+      guidance: null,
+      corsOrigin: null,
+      attemptedAt: '2026-01-01T00:00:00.000Z',
+    };
+
+    expect(storageBucketProvisionResultSchema.safeParse(result).success).toBe(true);
+  });
+});
+
 describe('reportsBucketMissing', () => {
   function withCode(code: string): StorageConnectionTestResult {
     return {
@@ -270,9 +352,14 @@ describe('the constants mirror the wire contract the API validates with', () => 
     expect(updateStorageConfigSchema.shape.confirmation.unwrap().value).toBe(STORAGE_SWITCH_CONFIRMATION);
   });
 
-  it('lists every provider kind the API accepts', () => {
-    expect([...STORAGE_PROVIDER_KINDS]).toEqual(updateStorageConfigSchema.shape.provider.options);
-    expect([...STORAGE_PROVIDER_KINDS]).toEqual(['s3', 'r2', 's3compatible']);
+  it('lists the built-in drivers, and the API accepts any registered driver id besides', () => {
+    expect([...BUILTIN_STORAGE_PROVIDER_KINDS]).toEqual(['s3', 'r2', 's3compatible']);
+    // The deprecated alias stays.
+    expect([...STORAGE_PROVIDER_KINDS]).toEqual([...BUILTIN_STORAGE_PROVIDER_KINDS]);
+    for (const id of [...BUILTIN_STORAGE_PROVIDER_KINDS, 'local-fs', 'azure-blob']) {
+      expect(updateStorageConfigSchema.shape.provider.safeParse(id).success).toBe(true);
+    }
+    expect(updateStorageConfigSchema.shape.provider.safeParse('Not An Id').success).toBe(false);
   });
 
   it('lists every check code the API can report, bucket_missing and bucket_forbidden included', () => {
@@ -285,7 +372,8 @@ describe('the constants mirror the wire contract the API validates with', () => 
     expect([...STORAGE_BUCKET_OUTCOMES]).toEqual(storageBucketProvisionResultSchema.shape.outcome.options);
   });
 
-  it('lists every field the API can report as missing', () => {
-    expect([...MISSING_STORAGE_CONFIG_FIELDS]).toEqual(storageConfigResponseSchema.shape.missing.element.options);
+  it('keeps the built-ins\' missing-field vocabulary; the API reports any driver\'s as strings', () => {
+    expect([...MISSING_STORAGE_CONFIG_FIELDS]).toEqual(['bucket', 'region', 'endpoint', 'accountId', 'accessKeyId', 'secretAccessKey']);
+    expect(storageConfigResponseSchema.shape.missing.element.safeParse('directory').success).toBe(true);
   });
 });

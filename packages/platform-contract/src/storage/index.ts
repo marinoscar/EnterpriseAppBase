@@ -6,16 +6,23 @@
 // Explicit named exports only. constants.ts is zod-free.
 
 export {
+  BUILTIN_STORAGE_PROVIDER_KINDS,
+  LEGACY_STORAGE_FLAT_FIELDS,
   MISSING_STORAGE_CONFIG_FIELDS,
+  STORAGE_DRIVER_ID_PATTERN,
   STORAGE_OBJECT_STATUSES,
   STORAGE_PROVIDER_KINDS,
   STORAGE_SECRET_FIELD_NAMES,
 } from './constants.js';
-export type { StorageEnum, StorageObjectStatusName, StorageProviderKind } from './constants.js';
+export type { BuiltinStorageProviderKind, StorageEnum, StorageObjectStatusName, StorageProviderKind } from './constants.js';
 
 // ---- the `storage` system-settings namespace --------------------------------------------
 export {
   STORAGE_SETTINGS_CARRIES_NO_SECRET,
+  storageDriverIdSchema,
+  storageDriverSettingsSchema,
+  storageDriversPatchSchema,
+  storageDriversSchema,
   storageResponseSchema,
   storageSettingsPatchSchema,
   storageSettingsSchema,

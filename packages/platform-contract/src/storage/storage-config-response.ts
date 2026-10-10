@@ -25,8 +25,8 @@
 
 import { z } from 'zod';
 
-import { STORAGE_PROVIDER_KINDS, type StorageEnum } from './constants.js';
-import { MISSING_STORAGE_CONFIG_FIELDS } from './constants.js';
+import { pluggableDescriptorSchema } from '../settings/index.js';
+import { storageDriverIdSchema, storageDriversSchema } from './settings-schemas.js';
 
 /**
  * The masked view of the stored secret access key.
@@ -68,8 +68,8 @@ export const storageSecretStatusSchema = z.object({
 });
 
 /**
- * The `GET` / `PUT /api/admin/storage-config` view: the seven settings
- * fields, the resolution verdict, the masked secret status and provenance.
+ * The `GET` / `PUT /api/admin/storage-config` view: the active driver, every
+ * driver's settings and descriptor, the resolution verdict, the masked secret status and provenance.
  *
  * @stability experimental
  */
@@ -78,20 +78,34 @@ export const storageConfigResponseSchema = z.object({
   // The `storage` settings namespace, verbatim
   // ---------------------------------------------------------------------------
 
-  /** Which provider: `s3`, `r2` or `s3compatible`. */
-  provider: (z.enum(STORAGE_PROVIDER_KINDS) as z.ZodEnum<StorageEnum<typeof STORAGE_PROVIDER_KINDS>>),
-  /** The bucket name; empty means not configured. */
+  /** The id of the active storage driver: a built-in (`s3`, `r2`, `s3compatible`) or one an app registered. */
+  provider: storageDriverIdSchema,
+  /**
+   * Every registered driver's own non-secret settings, keyed by driver id, with
+   * its defaults filled. The shape drivers an app registers are configured in.
+   */
+  drivers: storageDriversSchema,
+  /** @deprecated The active built-in driver's `bucket`; empty means not configured (or the active driver is not a built-in). */
   bucket: z.string(),
-  /** The region (`auto` for R2); empty means not configured. */
+  /** @deprecated The active built-in driver's `region` (`auto` for R2). */
   region: z.string(),
-  /** The endpoint override; empty means derive it (R2) or use the SDK's host. */
+  /** @deprecated The active built-in driver's `endpoint` override; empty means derive it (R2) or use the SDK's host. */
   endpoint: z.string(),
-  /** The Cloudflare account id (R2 only); the endpoint is derived from it. */
+  /** @deprecated The active built-in driver's Cloudflare account id (R2 only). */
   accountId: z.string(),
-  /** An identifier, not a credential. See this file's header. */
+  /** @deprecated The active built-in driver's access key id. An identifier, not a credential. See this file's header. */
   accessKeyId: z.string(),
-  /** Tri-state: `true`/`false`, or `null` for "use this vendor's convention". */
+  /** @deprecated The active built-in driver's tri-state `forcePathStyle`: `true`/`false`, or `null` for "use this vendor's convention". */
   forcePathStyle: z.boolean().nullable(),
+
+  /**
+   * One descriptor per REGISTERED storage driver, in registration order: its
+   * id and label, its non-secret settings fields and one `secret` field per
+   * declared secret carrying only whether a value is stored (`hasValue`),
+   * never the value. The admin page renders any driver without hard-coded
+   * knowledge of it.
+   */
+  descriptors: z.array(pluggableDescriptorSchema),
 
   // ---------------------------------------------------------------------------
   // Derived, read-only
@@ -126,14 +140,22 @@ export const storageConfigResponseSchema = z.object({
    * Every field the configuration needs and does not have. Empty when
    * `configured` is true.
    *
+   * The built-in drivers name `bucket`, `region`, `endpoint`, `accountId`,
+   * `accessKeyId` and `secretAccessKey` (`MISSING_STORAGE_CONFIG_FIELDS`); a
+   * driver an app registers names its own settings and secrets.
+   *
    * INCLUDES `secretAccessKey`, which is not a settings field: from the point
    * of view of "can this deployment store a file?", a missing credential row and
    * an empty bucket are the same kind of problem. It names the field, never its
    * value.
    */
-  missing: z.array((z.enum(MISSING_STORAGE_CONFIG_FIELDS) as z.ZodEnum<StorageEnum<typeof MISSING_STORAGE_CONFIG_FIELDS>>)),
+  missing: z.array(z.string()),
 
-  /** The masked status of the stored secret. See the header. */
+  /**
+   * The masked status of the ACTIVE driver's primary secret (the first one it
+   * declares: the secret access key for the built-ins). Every driver's secret
+   * presence is in `descriptors`. See the header.
+   */
   secretStatus: storageSecretStatusSchema,
 
   // ---------------------------------------------------------------------------
