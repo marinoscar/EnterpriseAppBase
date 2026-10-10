@@ -1,10 +1,13 @@
 import type { CredentialsService } from '../../../src/credentials/index';
 import type { SystemSettingsService } from '../../../src/settings/index';
 import type { SystemStorageValue } from '@marinoscar/platform-contract/storage';
+import { z } from 'zod';
 import {
   STORAGE_CREDENTIAL_NAME,
   STORAGE_CREDENTIAL_PURPOSE,
 } from '../../../src/storage/storage-credential.constants';
+import { STORAGE_SYSTEM_SETTINGS } from '../../../src/storage/config/storage.system-settings';
+import { registerStorageDriver } from '../../../src/storage/drivers/storage-driver';
 import {
   STORAGE_POLICY_CACHE_MS,
   StorageConfigService,
@@ -23,18 +26,45 @@ import {
 // reads that named a bucket.
 // =============================================================================
 
-function policy(overrides: Partial<SystemStorageValue> = {}): SystemStorageValue {
-  return {
-    provider: 's3',
-    bucket: 'configured-bucket',
-    region: 'us-west-2',
-    endpoint: '',
-    accountId: '',
-    accessKeyId: 'AKIAEXAMPLE',
-    forcePathStyle: false,
-    ...overrides,
+// What `getStoragePolicy()` returns: the namespace's own `read`, over a stored
+// row in the current shape. `overrides` are the active driver's settings, plus
+// `provider`.
+function policy(overrides: Record<string, unknown> = {}): SystemStorageValue {
+  const { provider = 's3', ...settings } = overrides;
+  const stored = {
+    provider,
+    drivers: {
+      [provider as string]: {
+        bucket: 'configured-bucket',
+        region: 'us-west-2',
+        endpoint: 'https://object-store.internal',
+        accountId: 'acct',
+        accessKeyId: 'AKIAEXAMPLE',
+        forcePathStyle: false,
+        ...settings,
+      },
+    },
   };
+
+  return STORAGE_SYSTEM_SETTINGS.read(stored, {
+    asPlainObject: (value: unknown) => (typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined),
+  } as never);
 }
+
+// A driver an app would register: no bucket, no region, one required secret.
+registerStorageDriver({
+  id: 'toy-store',
+  label: 'Toy store',
+  settingsSchema: z.object({ directory: z.string() }),
+  defaults: { directory: '' },
+  secrets: [{ name: 'token', label: 'Token', required: true }],
+  build: () => {
+    throw new Error('not built here');
+  },
+  testConnection: async () => ({ ok: true, message: 'ok' }),
+  location: (settings) => ({ bucket: String(settings.directory) }),
+  missing: (settings, secrets) => [...(settings.directory ? [] : ['directory']), ...(secrets.token ? [] : ['token'])],
+});
 
 describe('StorageConfigService', () => {
   let systemSettings: { getStoragePolicy: jest.Mock };
@@ -287,6 +317,55 @@ describe('StorageConfigService', () => {
       systemSettings.getStoragePolicy.mockRejectedValue(new Error('db down'));
 
       await expect(service.resolve()).rejects.toThrow('db down');
+    });
+  });
+
+  // ===========================================================================
+  // A driver an app registered (PP-14.7)
+  // ===========================================================================
+
+  describe('a registered non-S3 driver', () => {
+    const toy = (settings: Record<string, unknown> = {}) =>
+      policy({ provider: 'toy-store', directory: '/data/objects', ...settings });
+
+    beforeEach(() => {
+      systemSettings.getStoragePolicy.mockResolvedValue(toy());
+    });
+
+    it('is resolved with ITS settings, its location and its own secret address', async () => {
+      credentials.getSecret.mockResolvedValue('toy-token');
+
+      const resolution = await service.resolve();
+
+      expect(resolution).toMatchObject({
+        configured: true,
+        config: { provider: 'toy-store', bucket: '/data/objects', settings: { directory: '/data/objects' }, secrets: { token: 'toy-token' } },
+      });
+      expect(credentials.getSecret).toHaveBeenCalledWith('storage_toy-store', 'token');
+      expect(credentials.getSecret).not.toHaveBeenCalledWith(STORAGE_CREDENTIAL_PURPOSE, STORAGE_CREDENTIAL_NAME);
+    });
+
+    it("reports the driver's own missing fields, not the S3 ones", async () => {
+      credentials.getSecret.mockResolvedValue(null);
+      systemSettings.getStoragePolicy.mockResolvedValue(toy({ directory: '' }));
+
+      expect(await service.resolve()).toEqual({ configured: false, provider: 'toy-store', missing: ['directory', 'token'] });
+    });
+
+    it('feeds the synchronous snapshots: kind and bucket follow the active driver', async () => {
+      await service.resolve();
+
+      expect(service.lastKnownProvider()).toBe('toy-store');
+      expect(service.lastKnownBucket()).toBe('/data/objects');
+    });
+  });
+
+  describe('a provider no driver is registered for (a removed package)', () => {
+    it('is "not configured", missing `driver`, never a crash', async () => {
+      systemSettings.getStoragePolicy.mockResolvedValue({ ...policy(), provider: 'azure-blob' });
+
+      expect(await service.resolve()).toEqual({ configured: false, provider: 'azure-blob', missing: ['driver'] });
+      expect(credentials.getSecret).not.toHaveBeenCalled();
     });
   });
 });

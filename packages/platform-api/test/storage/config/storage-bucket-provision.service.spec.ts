@@ -64,6 +64,11 @@ jest.mock('@aws-sdk/s3-request-presigner', () => ({
 }));
 
 import { StorageBucketProvisionService } from '../../../src/storage/config/storage-bucket-provision.service';
+import { z } from 'zod';
+import { registerStorageDriver } from '../../../src/storage/drivers/storage-driver';
+import { StorageSubmissionService } from '../../../src/storage/config/storage-submission.service';
+// Registers the built-in drivers the service provisions through.
+import '../../../src/storage/drivers/builtin-storage-drivers';
 import type { ProvisionStorageBucketInput } from '../../../src/storage/config/dto/storage-bucket-provision.dto';
 
 const APP_URL = 'https://app.example.com';
@@ -129,12 +134,20 @@ describe('StorageBucketProvisionService', () => {
     prisma = { auditEvent: { create: jest.fn().mockResolvedValue({}) } };
     credentials = { getSecret: jest.fn().mockResolvedValue('stored-secret-value-123') };
 
-    service = new StorageBucketProvisionService(
-      prisma as never,
-      credentials as never,
-      { get: jest.fn().mockReturnValue(APP_URL) } as never,
-    );
+    service = makeService(APP_URL);
   });
+
+  // The real submission resolver over mocked stores: nothing stored for the
+  // driver, so the body alone describes the configuration under test.
+  function makeService(appUrl: string): StorageBucketProvisionService {
+    const submission = new StorageSubmissionService(
+      credentials as never,
+      { getStoragePolicy: jest.fn().mockResolvedValue({ provider: 's3', drivers: {} }) } as never,
+      { get: jest.fn((key: string, fallback?: unknown) => (key === 'appUrl' ? appUrl : fallback)) } as never,
+    );
+
+    return new StorageBucketProvisionService(prisma as never, submission);
+  }
 
   function byId(steps: Array<{ id: string }>): Record<string, any> {
     return Object.fromEntries(steps.map((step) => [step.id, step]));
@@ -161,11 +174,7 @@ describe('StorageBucketProvisionService', () => {
     });
 
     it('normalises APP_URL to an origin — a trailing path would match nothing', async () => {
-      service = new StorageBucketProvisionService(
-        prisma as never,
-        credentials as never,
-        { get: jest.fn().mockReturnValue('https://app.example.com/some/path/') } as never,
-      );
+      service = makeService('https://app.example.com/some/path/');
 
       await service.provision(input(), 'admin-1');
 
@@ -468,6 +477,111 @@ describe('StorageBucketProvisionService', () => {
       await service.provision(input(), 'admin-1');
 
       expect(s3DestroyMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ==========================================================================
+  // A driver an app registered (PP-14.7)
+  // ==========================================================================
+
+  describe('a registered non-S3 driver', () => {
+    const toyProvision = jest.fn();
+
+    registerStorageDriver({
+      id: 'toy-store',
+      label: 'Toy store',
+      settingsSchema: z.object({ directory: z.string() }),
+      defaults: { directory: '' },
+      build: () => {
+        throw new Error('not built here');
+      },
+      testConnection: async () => ({ ok: true, message: 'ok' }),
+      provision: async (ctx) => toyProvision(ctx),
+      location: (settings) => ({ bucket: String(settings.directory) }),
+    });
+    // A backend with no bucket concept.
+    registerStorageDriver({
+      id: 'toy-flat',
+      label: 'Toy flat',
+      settingsSchema: z.object({}),
+      defaults: {},
+      build: () => {
+        throw new Error('not built here');
+      },
+      testConnection: async () => ({ ok: true, message: 'ok' }),
+    });
+
+    const toyInput = (overrides: Record<string, unknown> = {}) =>
+      ({ provider: 'toy-store', drivers: { 'toy-store': { directory: '/data' } }, ...overrides }) as never;
+
+    beforeEach(() => {
+      toyProvision.mockReset();
+      toyProvision.mockResolvedValue({ created: true, message: 'Created /data.' });
+    });
+
+    it('maps created/not-created onto the outcome and gives a driver without steps one create step', async () => {
+      const result = await service.provision(toyInput(), 'admin-1');
+
+      expect(toyProvision.mock.calls[0][0].settings).toEqual({ directory: '/data' });
+      expect(result).toMatchObject({ outcome: 'created', provider: 'toy-store', bucket: '/data', message: 'Created /data.', guidance: null, corsOrigin: null });
+      expect(result.steps.map((step) => [step.id, step.status])).toEqual([
+        ['create', 'passed'],
+        ['publicAccessBlock', 'skipped'],
+        ['encryption', 'skipped'],
+        ['cors', 'skipped'],
+      ]);
+
+      toyProvision.mockResolvedValue({ created: false, message: '/data already existed.' });
+      expect((await service.provision(toyInput(), 'admin-1')).outcome).toBe('already_exists');
+      expect(s3SendMock).not.toHaveBeenCalled();
+    });
+
+    it('passes the deployment origin to a driver that sets a CORS rule', async () => {
+      await service.provision(toyInput(), 'admin-1');
+
+      expect(toyProvision.mock.calls[0][0].appOrigin).toBe(APP_URL);
+    });
+
+    it('relays a driver\'s own steps, outcome and guidance', async () => {
+      toyProvision.mockResolvedValue({
+        created: false,
+        message: 'Cannot create it.',
+        outcome: 'guided',
+        steps: [{ id: 'create', label: 'Create the bucket', status: 'failed', detail: 'forbidden', error: null }],
+        guidance: { reason: 'no rights', commands: 'toyctl create /data', runbook: null },
+      });
+
+      const result = await service.provision(toyInput(), 'admin-1');
+
+      expect(result.outcome).toBe('guided');
+      expect(result.guidance).toEqual({ reason: 'no rights', commands: 'toyctl create /data', runbook: null });
+      expect(result.steps).toHaveLength(1);
+    });
+
+    it('answers `failed`, not a throw, for a driver that throws', async () => {
+      toyProvision.mockRejectedValue(new Error('disk on fire'));
+
+      const result = await service.provision(toyInput(), 'admin-1');
+
+      expect(result.outcome).toBe('failed');
+      expect(result.steps[0]).toMatchObject({ id: 'create', status: 'failed' });
+      expect(result.steps[0].detail).toContain('disk on fire');
+    });
+
+    it('says so, with a 200 `failed`, for a driver with no bucket concept', async () => {
+      const result = await service.provision({ provider: 'toy-flat' } as never, 'admin-1');
+
+      expect(result.outcome).toBe('failed');
+      expect(result.steps.every((step) => step.status === 'skipped')).toBe(true);
+      expect(result.steps[0].detail).toContain('no bucket or container to create');
+    });
+
+    it('audits the verdict only', async () => {
+      await service.provision(toyInput(), 'admin-1');
+
+      const data = prisma.auditEvent.create.mock.calls[0][0].data;
+      expect(data.action).toBe('storage_config:provision_bucket');
+      expect(data.meta).toMatchObject({ provider: 'toy-store', bucket: '/data', outcome: 'created' });
     });
   });
 });
