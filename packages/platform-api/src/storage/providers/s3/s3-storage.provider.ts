@@ -121,7 +121,7 @@ export interface S3StorageProviderConfig {
  *
  * It decides the PATH-STYLE DEFAULT and the CHECKSUM FLAGS. It deliberately
  * does NOT decide the endpoint or the region: both are already resolved, per
- * provider, by `resolveStorageConfig` in `../../config/storage-config.ts` —
+ * provider, by `resolveS3Config` in `../../drivers/s3/s3-config.ts` —
  * R2's account-scoped host from `deriveR2Endpoint`, R2's `auto` and an
  * S3-compatible endpoint's `us-east-1` from the two exported fallback
  * constants. Re-deriving either here would be a second copy of a rule that has
@@ -287,7 +287,7 @@ export class S3StorageProvider implements StorageProvider {
 
     // There is deliberately no "bucket not configured" warning here any more.
     // Completeness is decided in exactly one place — `resolveStorageConfig` in
-    // `../../config/storage-config.ts` — which refuses to produce a config
+    // `../../drivers/s3/s3-config.ts` — which refuses to produce a config
     // without a bucket at all, so this branch became unreachable. A second,
     // weaker copy of the check is how a half-configured client comes to be
     // built anyway, with only a log line to show for it.

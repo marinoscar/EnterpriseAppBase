@@ -174,7 +174,7 @@ import { STORAGE_SYSTEM_SETTINGS } from '@marinoscar/platform-api/storage';
 export const STORAGE_KEY = STORAGE_SYSTEM_SETTINGS.key;
 
 export async function storageBucket(settings: SystemSettingsService): Promise<string> {
-  return (await settings.getNamespace('storage')).bucket;
+  return (await settings.getNamespace('storage')).provider;
 }
 `;
   const imports = (list: string[]) => list.map((m) => `import '${m}';`).join('\n') + '\n';
