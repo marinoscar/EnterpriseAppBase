@@ -55,6 +55,7 @@ export async function setupExternalLoginHarness(
     isEmailAllowed: jest.fn().mockResolvedValue(true),
     markEmailClaimed: jest.fn().mockResolvedValue(undefined),
   };
+  const adminBootstrap = { shouldGrantAdminRole: jest.fn().mockResolvedValue(false), assignAdminRole: jest.fn() };
   const metrics = { authLogin: jest.fn(), authRefresh: jest.fn(), add: jest.fn() };
 
   const roles = new Map<string, HarnessRole>([
@@ -88,7 +89,7 @@ export async function setupExternalLoginHarness(
         useValue: { sign: jest.fn().mockReturnValue('jwt'), signAsync: jest.fn().mockResolvedValue('jwt'), verify: jest.fn() },
       },
       { provide: ConfigService, useValue: configService },
-      { provide: AdminBootstrapService, useValue: { shouldGrantAdminRole: jest.fn().mockResolvedValue(false), assignAdminRole: jest.fn() } },
+      { provide: AdminBootstrapService, useValue: adminBootstrap },
       { provide: AllowlistService, useValue: allowlist },
       PrincipalCache,
       OrganizationsService,
@@ -103,7 +104,7 @@ export async function setupExternalLoginHarness(
     ],
   }).compile();
 
-  return { service: module.get(AuthService), prisma, events, metrics, allowlist, config, roles };
+  return { service: module.get(AuthService), prisma, events, metrics, allowlist, config, roles, adminBootstrap };
 }
 
 /** The system roles the harness's `userRole.upsert` was asked to add, as the reloaded user's `userRoles`. */

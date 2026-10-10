@@ -91,6 +91,43 @@ export function externalProfileProblem(value: unknown): string | null {
   return null;
 }
 
+/** The longest picture URL stored. */
+const MAX_PICTURE_URL_LENGTH = 2048;
+
+/** The longest display name stored. */
+const MAX_DISPLAY_NAME_LENGTH = 255;
+
+/**
+ * Drops an optional value that is out of bounds instead of failing the
+ * sign-in: a `pictureUrl` that is not an `https:` URL of at most 2048
+ * characters, and a `displayName` longer than 255. The values are stored and
+ * later rendered (an `<img src>`), so a `javascript:` or `data:` URL or an
+ * unbounded string from a provider must not reach the database. Call it on a
+ * profile that already passed {@link assertExternalProfile}.
+ *
+ * @param profile - a well-formed profile.
+ * @returns the profile without the out-of-bounds optional values.
+ *
+ * @stability experimental
+ */
+export function normalizeExternalProfile(profile: ExternalProfile): ExternalProfile {
+  const { pictureUrl, displayName, ...rest } = profile;
+  return {
+    ...rest,
+    ...(displayName !== undefined && displayName.length <= MAX_DISPLAY_NAME_LENGTH ? { displayName } : {}),
+    ...(pictureUrl !== undefined && isHttpsUrl(pictureUrl) ? { pictureUrl } : {}),
+  };
+}
+
+function isHttpsUrl(value: string): boolean {
+  if (value.length > MAX_PICTURE_URL_LENGTH) return false;
+  try {
+    return new URL(value).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Throws when a value is not a well-formed {@link ExternalProfile}.
  *

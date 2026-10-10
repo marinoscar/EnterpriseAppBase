@@ -75,6 +75,42 @@ describe('AuthService.completeExternalLogin', () => {
     });
   });
 
+  describe('optional profile fields are bounded, and a bad one is dropped, not fatal', () => {
+    const stored = () => (h.prisma.user.create.mock.calls[0]![0] as any).data;
+
+    it.each([
+      ['a javascript: URL', 'javascript:alert(1)'],
+      ['a data: URL', 'data:image/png;base64,AAAA'],
+      ['an http: URL', 'http://example.com/p.png'],
+      ['not a URL', 'octo.png'],
+      ['a URL over 2048 characters', `https://example.com/${'a'.repeat(2100)}`],
+    ])('drops pictureUrl that is %s and still signs in', async (_name, pictureUrl) => {
+      await withGithub(async () => {
+        await expect(h.service.completeExternalLogin(profile({ pictureUrl }))).resolves.toBeDefined();
+        expect(stored().providerProfileImageUrl).toBeNull();
+      });
+    });
+
+    it('drops a display name over 255 characters and keeps one at the limit', async () => {
+      await withGithub(async () => {
+        await h.service.completeExternalLogin(profile({ displayName: 'x'.repeat(256) }));
+        expect(stored().providerDisplayName).toBeUndefined();
+      });
+      h.prisma.user.create.mockClear();
+      await withGithub(async () => {
+        await h.service.completeExternalLogin(profile({ subject: 'gh-43', displayName: 'x'.repeat(255) }));
+        expect(stored().providerDisplayName).toHaveLength(255);
+      });
+    });
+
+    it('keeps an https picture', async () => {
+      await withGithub(async () => {
+        await h.service.completeExternalLogin(profile());
+        expect(stored().providerProfileImageUrl).toBe('https://example.com/octo.png');
+      });
+    });
+  });
+
   describe('a returning user', () => {
     it('resolves by (provider, subject), creates nothing and says isNewUser: false', async () => {
       await withGithub(async () => {
@@ -124,15 +160,93 @@ describe('AuthService.completeExternalLogin', () => {
       });
     });
 
-    it('still applies the allowlist, and INITIAL_ADMIN_EMAIL still bypasses it', async () => {
+    it('still applies the allowlist to a provider that does not vouch for addresses', async () => {
       await withGithub(async () => {
         h.allowlist.isEmailAllowed.mockResolvedValue(false);
         const error = await refusal(profile());
         expect((error as AuthLoginDeniedException).reason).toBe('not_allowlisted');
         expect(h.prisma.user.create).not.toHaveBeenCalled();
+      });
+    });
 
+    describe('INITIAL_ADMIN_EMAIL (a bootstrap only a trusted provider may trigger)', () => {
+      beforeEach(() => {
         h.config.values.INITIAL_ADMIN_EMAIL = 'octo@example.com';
-        await expect(h.service.completeExternalLogin(profile())).resolves.toBeDefined();
+        h.adminBootstrap.shouldGrantAdminRole.mockResolvedValue(true);
+      });
+
+      it('does NOT bypass the allowlist for a provider that is not trusted to vouch for the address', async () => {
+        await withGithub(async () => {
+          h.allowlist.isEmailAllowed.mockResolvedValue(false);
+          const error = await refusal(profile());
+          expect((error as AuthLoginDeniedException).reason).toBe('not_allowlisted');
+          expect(h.prisma.user.create).not.toHaveBeenCalled();
+        });
+      });
+
+      it('does NOT grant admin to an allowlisted address from such a provider', async () => {
+        await withGithub(async () => {
+          await h.service.completeExternalLogin(profile());
+          // The bootstrap is never even asked, and no system role is written.
+          expect(h.adminBootstrap.shouldGrantAdminRole).not.toHaveBeenCalled();
+          expect(h.prisma.userRole.upsert).not.toHaveBeenCalled();
+          expect(JSON.stringify(h.prisma.membership.upsert.mock.calls)).not.toContain('role-org_admin');
+        });
+      });
+
+      it('does not treat the sign-in as the initial administrator for tenancy or the policy either', async () => {
+        const policy: SignInPolicy = { beforeLogin: jest.fn().mockResolvedValue({ allow: true }) };
+        const harness = await setupExternalLoginHarness({ policy });
+        harness.config.values.INITIAL_ADMIN_EMAIL = 'octo@example.com';
+        await withGithub(async () => {
+          await harness.service.completeExternalLogin(profile());
+          expect(policy.beforeLogin).toHaveBeenCalledWith(expect.anything(), { existingUserId: null, isInitialAdmin: false });
+        });
+      });
+
+      it('still bypasses the allowlist and bootstraps the administrator for a trusted provider', async () => {
+        await withTemporaryEntries(authProviderRegistry, [{ ...github, linkExistingByEmail: true }], async () => {
+          h.allowlist.isEmailAllowed.mockResolvedValue(false);
+          await expect(h.service.completeExternalLogin(profile())).resolves.toBeDefined();
+          expect(h.adminBootstrap.shouldGrantAdminRole).toHaveBeenCalledWith('octo@example.com');
+          expect(h.prisma.userRole.upsert).toHaveBeenCalled();
+        });
+      });
+
+      it('is unchanged for Google', async () => {
+        h.allowlist.isEmailAllowed.mockResolvedValue(false);
+        await expect(
+          h.service.handleGoogleLogin({ id: 'g-1', email: 'octo@example.com', displayName: 'O' }),
+        ).resolves.toBeDefined();
+        expect(h.adminBootstrap.shouldGrantAdminRole).toHaveBeenCalledWith('octo@example.com');
+      });
+    });
+
+    it('finds an existing account case-insensitively for a provider that does not link, and refuses', async () => {
+      await withGithub(async () => {
+        h.prisma.user.findUnique.mockResolvedValue(null);
+        h.prisma.user.findFirst.mockResolvedValue({ id: 'owner', email: 'octo@example.com', isActive: true, userRoles: [] } as any);
+
+        const error = await refusal(profile({ email: 'Octo@Example.com' }));
+
+        expect((error as AuthLoginDeniedException).reason).toBe('access_denied');
+        expect(h.prisma.user.findFirst).toHaveBeenCalledWith(
+          expect.objectContaining({ where: { email: { equals: 'Octo@Example.com', mode: 'insensitive' } } }),
+        );
+        expect(h.prisma.user.create).not.toHaveBeenCalled();
+      });
+    });
+
+    it('leaves Google\'s lookup exactly as it was: no case-insensitive query', async () => {
+      await h.service.handleGoogleLogin({ id: 'g-9', email: 'Person@Example.com', displayName: 'P' });
+      expect(h.prisma.user.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('creates the account when no address matches, however it is cased', async () => {
+      await withGithub(async () => {
+        h.prisma.user.findFirst.mockResolvedValue(null);
+        await h.service.completeExternalLogin(profile({ email: 'New@Example.com' }));
+        expect(h.prisma.user.create).toHaveBeenCalled();
       });
     });
 

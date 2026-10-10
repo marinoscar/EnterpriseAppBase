@@ -40,7 +40,12 @@ import {
   type AuthProviderCredentials,
   type AuthProviderDefinition,
 } from './providers/auth-provider.registry';
-import { assertExternalProfile, googleProfileToExternal, type ExternalProfile } from './external-profile';
+import {
+  assertExternalProfile,
+  googleProfileToExternal,
+  normalizeExternalProfile,
+  type ExternalProfile,
+} from './external-profile';
 import { IDENTITY_SIGNIN_POLICY, type SignInDecision, type SignInPolicy } from './sign-in-policy';
 import { AdminBootstrapService } from './admin-bootstrap.service';
 import { AllowlistService } from '../allowlist/allowlist.service';
@@ -208,7 +213,7 @@ export class AuthService {
         `completeExternalLogin: "${profile.provider}" is not a registered sign-in provider (registerAuthProvider).`,
       );
     }
-    return this.signInWith(profile, {
+    return this.signInWith(normalizeExternalProfile(profile), {
       label: definition.label ?? definition.id,
       linkExistingByEmail: definition.linkExistingByEmail === true,
     });
@@ -219,6 +224,8 @@ export class AuthService {
     profile: ExternalProfile,
     rules: { label: string; linkExistingByEmail: boolean },
   ): Promise<FullTokenResponse> {
+    // `linkExistingByEmail` is the provider's "trusted to vouch for the address"
+    // flag: it gates linking by address AND the INITIAL_ADMIN_EMAIL bootstrap.
     this.logger.log(`${rules.label} login attempt for email: ${profile.email}`);
 
     // The address is the key to the allowlist, the initial-admin bootstrap and
@@ -234,7 +241,12 @@ export class AuthService {
     // Check allowlist before any user lookup/creation
     const email = verified.email.toLowerCase();
     const isAllowed = await this.allowlistService.isEmailAllowed(email);
-    const isInitialAdmin = this.isInitialAdminEmail(email);
+    // INITIAL_ADMIN_EMAIL bypasses the allowlist and bootstraps the first
+    // administrator, so only a provider trusted to vouch for the address may
+    // trigger it (`linkExistingByEmail`: Google). A multi-tenant issuer
+    // (Entra, a shared OIDC issuer) lets a tenant present any address, so for
+    // it the allowlist is the only gate and it is never made an administrator.
+    const isInitialAdmin = rules.linkExistingByEmail && this.isInitialAdminEmail(email);
 
     if (!isAllowed && !isInitialAdmin) {
       this.logger.warn(`Login denied - email not in allowlist: ${email}`);
@@ -273,10 +285,22 @@ export class AuthService {
 
     if (!user) {
       // Check if user exists by email (identity linking case)
-      const existingUser = await this.prisma.user.findUnique<AuthenticatedUser>({
+      let existingUser = await this.prisma.user.findUnique<AuthenticatedUser>({
         where: { email: verified.email },
         include: PRINCIPAL_USER_INCLUDE,
       });
+
+      // `users.email` is a case-sensitive unique and the allowlist lowercases,
+      // so `Alice@corp.com` would otherwise get a second account next to
+      // `alice@corp.com`. For a provider that does not link, look the address up
+      // case-insensitively too and apply the same refusal. Google's lookup is
+      // deliberately left exactly as it was.
+      if (!existingUser && !rules.linkExistingByEmail) {
+        existingUser = await this.prisma.user.findFirst<AuthenticatedUser>({
+          where: { email: { equals: verified.email, mode: 'insensitive' } },
+          include: PRINCIPAL_USER_INCLUDE,
+        });
+      }
 
       if (existingUser) {
         // An address already owned by an account that has no identity at this
@@ -323,7 +347,7 @@ export class AuthService {
       } else {
         // Create new user with identity
         this.logger.log(`Creating new user: ${verified.email}`);
-        user = await this.createNewUser(verified, isInitialAdmin, decision.roles);
+        user = await this.createNewUser(verified, isInitialAdmin, decision.roles, rules.linkExistingByEmail);
         userWasCreated = true;
 
         // Mark email as claimed in allowlist
@@ -588,10 +612,13 @@ export class AuthService {
     profile: VerifiedProfile,
     isInitialAdmin: boolean,
     policyRoles?: readonly string[],
+    trustedEmail = true,
   ): Promise<AuthenticatedUser> {
-    // Check if this should be the initial admin
+    // Check if this should be the initial admin. Only for a provider trusted to
+    // vouch for the address: otherwise an address presented by another tenant
+    // could become the first administrator.
     const shouldGrantAdmin =
-      await this.adminBootstrapService.shouldGrantAdminRole(profile.email);
+      trustedEmail && (await this.adminBootstrapService.shouldGrantAdminRole(profile.email));
 
     // Roles the app's sign-in policy mapped for this NEW user (resolved before
     // anything is written; an unknown or conflicting name fails the sign-in).
