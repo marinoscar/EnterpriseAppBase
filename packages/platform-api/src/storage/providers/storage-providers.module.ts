@@ -3,7 +3,8 @@ import { Module } from '@nestjs/common';
 import { CredentialsModule } from '../../credentials/index';
 import { StorageConfigService } from '../config/storage-config.service';
 import { ResolvingStorageProvider } from './resolving-storage.provider';
-import { STORAGE_PROVIDER } from './storage-provider.interface';
+import { STORAGE_PROVIDER_BINDING } from './storage-provider.binding';
+import { STORAGE_PROVIDER, type StorageProvider } from './storage-provider.interface';
 
 /**
  * Storage Providers Module
@@ -48,12 +49,17 @@ import { STORAGE_PROVIDER } from './storage-provider.interface';
  * `imports` — a visible line in a diff — exactly as `CredentialsModule`
  * requires of its own.
  *
- * To add an alternative provider (local filesystem, Azure Blob, etc.), teach
- * `ResolvingStorageProvider.delegateFor` to build it from the resolved
- * configuration's `provider` field.
+ * To add an alternative provider (local filesystem, Azure Blob, etc.), pass it
+ * as `StorageModule.forRoot({ provider })`. That binding is held by a global
+ * module (`StorageProviderBindingModule`) and `STORAGE_PROVIDER` below prefers
+ * it, so it reaches every module that imports this one with no change to any
+ * of them. Providing `STORAGE_PROVIDER` in an app module does NOT work (Nest
+ * resolves a token from the consuming module's imports first). Without the
+ * option, the token is the `ResolvingStorageProvider`, as before.
  */
 /**
- * The storage provider: `STORAGE_PROVIDER` (a {@link ResolvingStorageProvider}
+ * The storage provider: `STORAGE_PROVIDER` (the app's `provider` binding when
+ * `StorageModule.forRoot` was given one, else a {@link ResolvingStorageProvider}
  * reading the `storage` settings namespace and the credential store per call)
  * and `StorageConfigService`. Imported by every module that moves bytes or
  * records which provider holds them. `SettingsModule.forRoot()` is global, so
@@ -65,9 +71,12 @@ import { STORAGE_PROVIDER } from './storage-provider.interface';
   imports: [CredentialsModule],
   providers: [
     StorageConfigService,
+    ResolvingStorageProvider,
     {
       provide: STORAGE_PROVIDER,
-      useClass: ResolvingStorageProvider,
+      useFactory: (binding: StorageProvider | undefined, resolving: ResolvingStorageProvider): StorageProvider =>
+        binding ?? resolving,
+      inject: [{ token: STORAGE_PROVIDER_BINDING, optional: true }, ResolvingStorageProvider],
     },
   ],
   exports: [STORAGE_PROVIDER, StorageConfigService],

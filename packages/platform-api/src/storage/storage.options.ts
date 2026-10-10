@@ -7,9 +7,14 @@
 // store, edited at `/admin/settings/storage` with no restart; none of them is
 // an option here and none ever may be (CLAUDE.md: never `STORAGE_PROVIDER`,
 // `S3_BUCKET`, `S3_REGION`, `S3_ENDPOINT`). The defaults are today's values.
+// The one exception is `provider`: not a configuration value but the CODE of an
+// app's own backend (a class binding), replacing the S3 driver wholesale.
 // =============================================================================
 
 import type { ModuleMetadata } from '@nestjs/common';
+
+import type { PortBinding } from '../core/index';
+import type { StorageProvider } from './providers/storage-provider.interface';
 
 /**
  * Injection token of the resolved {@link StorageModuleOptions}. Optional to
@@ -64,6 +69,28 @@ export interface StorageModuleOptions {
    * module binding `STORAGE_SYSTEM_DATA`.
    */
   imports?: ModuleMetadata['imports'];
+  /**
+   * Replaces the default object store (`ResolvingStorageProvider`: S3, R2 or an
+   * S3-compatible service from the `storage` settings) for EVERY package
+   * consumer: the objects API, profile images, data exports, database backups,
+   * user-data purges, the AI output writer and the nodes data plane. Give the
+   * binding of an app backend (Azure Blob, a local disk): `{ useClass }`,
+   * `{ useExisting }` or `{ useFactory, inject }`. Its dependencies come from
+   * `imports` and from global modules.
+   *
+   * The provider's `kind` is what rows record as the storage provider.
+   * Without this option nothing changes. Providing `STORAGE_PROVIDER` in an
+   * app module instead does not work (see `STORAGE_PROVIDER`).
+   *
+   * @example
+   * ```ts
+   * StorageModule.forRoot({ imports: [StorageHostModule], provider: { useClass: AzureBlobStorageProvider } });
+   * ```
+   *
+   * @extensionPoint option
+   * @stability experimental
+   */
+  provider?: PortBinding<StorageProvider>;
 }
 
 /**
@@ -81,6 +108,8 @@ export interface ResolvedStorageModuleOptions {
   readonly staleUploadHours: number;
   /** The modules imported next to the slice. */
   readonly imports: NonNullable<ModuleMetadata['imports']>;
+  /** The app's provider binding, when one was given. */
+  readonly provider?: PortBinding<StorageProvider>;
 }
 
 function positive(name: string, value: number | undefined, min = 1): void {
@@ -95,7 +124,7 @@ function positive(name: string, value: number | undefined, min = 1): void {
  *
  * @param options - what the app passed.
  * @returns the resolved options (frozen).
- * @throws Error when a value is not a positive finite number, or `partSizeBytes` is below 5 MiB.
+ * @throws Error when a value is not a positive finite number, `partSizeBytes` is below 5 MiB, or `provider` does not have exactly one of `useExisting`, `useClass` or `useFactory`.
  *
  * @stability experimental
  */
@@ -103,11 +132,20 @@ export function resolveStorageModuleOptions(options: StorageModuleOptions = {}):
   positive('maxSimpleUploadBytes', options.maxSimpleUploadBytes);
   positive('partSizeBytes', options.partSizeBytes, 5 * 1024 * 1024);
   positive('staleUploadHours', options.staleUploadHours);
+  if (options.provider !== undefined) {
+    const shape = options.provider as unknown;
+    const kinds =
+      shape && typeof shape === 'object' ? ['useExisting', 'useClass', 'useFactory'].filter((k) => k in (shape as object)) : [];
+    if (kinds.length !== 1) {
+      throw new Error('StorageModule.forRoot(): `provider` needs exactly one of useExisting, useClass or useFactory');
+    }
+  }
   return Object.freeze({
     maxSimpleUploadBytes: options.maxSimpleUploadBytes ?? DEFAULT_MAX_SIMPLE_UPLOAD_BYTES,
     ...(options.partSizeBytes !== undefined ? { partSizeBytes: options.partSizeBytes } : {}),
     staleUploadHours: options.staleUploadHours ?? DEFAULT_STALE_UPLOAD_HOURS,
     imports: [...(options.imports ?? [])],
+    ...(options.provider !== undefined ? { provider: options.provider } : {}),
   });
 }
 

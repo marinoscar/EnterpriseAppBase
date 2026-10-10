@@ -5,6 +5,7 @@ import { StorageObjectProcessHandler } from './handlers/storage-object-process.h
 import { ObjectsController } from './objects/objects.controller';
 import { ObjectsService } from './objects/objects.service';
 import { ObjectProcessingModule } from './processing/object-processing.module';
+import { StorageProviderBindingModule } from './providers/storage-provider.binding';
 import { StorageProvidersModule } from './providers/storage-providers.module';
 import { StorageStatusController } from './status/storage-status.controller';
 import { registerStorageSliceKeyPrefixes } from './storage-key-prefixes';
@@ -48,7 +49,7 @@ export class StorageModule {
    * prefixes (`uploads`, `avatars`, `node-outputs`, `storage-config-test`;
    * idempotent).
    *
-   * @param options - deployment tuning only; see {@link StorageModuleOptions}.
+   * @param options - deployment tuning, and the `provider` binding that replaces the default object store; see {@link StorageModuleOptions}.
    * @returns the dynamic module. It exports `ObjectsService` and `STORAGE_OPTIONS`.
    * @throws Error when an option is invalid.
    *
@@ -66,7 +67,14 @@ export class StorageModule {
 
     return {
       module: StorageModule,
-      imports: [...resolved.imports, StorageProvidersModule, ObjectProcessingModule],
+      imports: [
+        ...resolved.imports,
+        // The app's object store, visible to every package consumer of
+        // STORAGE_PROVIDER (global; see `storage-provider.binding.ts`).
+        ...(resolved.provider ? [StorageProviderBindingModule.forBinding(resolved.provider, resolved.imports)] : []),
+        StorageProvidersModule,
+        ObjectProcessingModule,
+      ],
       controllers: [ObjectsController, StorageStatusController],
       providers: [
         { provide: STORAGE_OPTIONS, useValue: resolved },
