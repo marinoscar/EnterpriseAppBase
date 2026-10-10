@@ -50,7 +50,7 @@ export class AuthProviderController {
     description:
       'Redirects to the sign-in provider named by `providerId` (any provider an app registered with `registerAuthProvider` in `redirect` mode; the provider ids a deployment offers are listed by `GET /api/auth/providers`). 404 for an unknown, `custom` or not configured provider.',
   })
-  @ApiParam({ name: 'providerId', description: 'The registered provider id, e.g. `github`.', example: 'github' })
+  @ApiParam({ name: 'providerId', description: 'The registered provider id, e.g. `github`.', schema: { type: 'string', example: 'github' } })
   @ApiResponse({ status: 302, description: 'Redirects to the sign-in provider' })
   @ApiResponse({ status: 404, description: 'Unknown, custom or not configured provider' })
   async start() {
@@ -72,7 +72,7 @@ export class AuthProviderController {
     description:
       'Handles the callback from a registered sign-in provider and redirects to the frontend /auth/callback page: with the access token on success (the refresh token is set in the HttpOnly `refresh_token` cookie, exactly as for Google), or with error=<code> on any failure.',
   })
-  @ApiParam({ name: 'providerId', description: 'The registered provider id, e.g. `github`.', example: 'github' })
+  @ApiParam({ name: 'providerId', description: 'The registered provider id, e.g. `github`.', schema: { type: 'string', example: 'github' } })
   @ApiResponse({
     status: 302,
     description:

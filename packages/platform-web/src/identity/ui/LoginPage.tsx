@@ -9,6 +9,7 @@ import type { ComponentType, ReactElement } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Alert, Box, Card, CardContent, CircularProgress, Divider, Stack, Typography, useTheme } from '@mui/material';
 import { useAuth, useIdentityWebAdapters } from '../headless/index.js';
+import type { AuthProviderInfo, LoginOptions } from '../headless/index.js';
 import { OAuthButton } from './OAuthButton.js';
 import type { OAuthButtonProps } from './OAuthButton.js';
 
@@ -17,8 +18,22 @@ interface LocationState {
 }
 
 /**
+ * What the two provider slots of {@link LoginPageSlots} receive, so an app's
+ * own control (an SSO domain field, a magic-link form, a popup button) can start
+ * a sign-in and know what the API offers.
+ *
+ * @stability experimental
+ */
+export interface LoginProvidersSlotProps {
+  /** The sign-in providers the API offers. */
+  providers: AuthProviderInfo[];
+  /** Start a sign-in with a provider (`useAuth().login`). */
+  login: (provider: string, options?: LoginOptions) => void;
+}
+
+/**
  * The replaceable parts of {@link LoginPage}. Each slot defaults to the
- * package's own rendering.
+ * package's own rendering (nothing, for the two provider slots).
  *
  * @stability experimental
  */
@@ -31,6 +46,10 @@ export interface LoginPageSlots {
   Footer?: ComponentType;
   /** One provider's button (default: {@link OAuthButton}). */
   ProviderButton?: ComponentType<OAuthButtonProps>;
+  /** Rendered above the "Sign in with" divider and the provider buttons (nothing by default). */
+  BeforeProviders?: ComponentType<LoginProvidersSlotProps>;
+  /** Rendered under the provider buttons, above the footer (nothing by default). */
+  AfterProviders?: ComponentType<LoginProvidersSlotProps>;
 }
 
 /**
@@ -94,7 +113,7 @@ export function LoginPage({ slots = {} }: LoginPageProps = {}): ReactElement {
   const navigate = useNavigate();
   const location = useLocation();
   const theme = useTheme();
-  const { Logo, Title = DefaultTitle, Footer = DefaultFooter, ProviderButton = OAuthButton } = slots;
+  const { Logo, Title = DefaultTitle, Footer = DefaultFooter, ProviderButton = OAuthButton, BeforeProviders, AfterProviders } = slots;
 
   // The return URL from location state (set by RequireAuth)
   const state = location.state as LocationState | null;
@@ -143,6 +162,8 @@ export function LoginPage({ slots = {} }: LoginPageProps = {}): ReactElement {
             </Alert>
           )}
 
+          {BeforeProviders && <BeforeProviders providers={providers} login={login} />}
+
           <Divider sx={{ mb: 3 }}>
             <Typography variant="body2" color="text.secondary">
               Sign in with
@@ -161,6 +182,8 @@ export function LoginPage({ slots = {} }: LoginPageProps = {}): ReactElement {
               </Typography>
             )}
           </Stack>
+
+          {AfterProviders && <AfterProviders providers={providers} login={login} />}
 
           {/* Footer */}
           <Box sx={{ mt: 4, textAlign: 'center' }}>

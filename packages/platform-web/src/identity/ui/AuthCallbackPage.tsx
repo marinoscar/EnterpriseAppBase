@@ -5,9 +5,9 @@
 
 import { useEffect, useState } from 'react';
 import type { ReactElement } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Box, CircularProgress, Typography } from '@mui/material';
-import { useAuth } from '../headless/index.js';
+import { lastAuthProvider, useAuth, validAuthProviderId } from '../headless/index.js';
 import { SignInErrorView } from './SignInErrorView.js';
 import { DEFAULT_SIGN_IN_ERROR_CODE, resolveSignInErrorCode, type SignInErrorCode } from './sign-in-error-content.js';
 
@@ -18,9 +18,12 @@ import { DEFAULT_SIGN_IN_ERROR_CODE, resolveSignInErrorCode, type SignInErrorCod
  */
 export interface AuthCallbackPageProps {
   /**
-   * The provider the error screen's retry buttons restart.
+   * The provider the error screen's retry buttons restart. When omitted it is
+   * read, in order, from the route (a `:provider` segment, for an app that
+   * mounts `/auth/callback/:provider`), then from the provider the current
+   * sign-in started with (remembered by `login`), then `'google'`.
    *
-   * @defaultValue `'google'`
+   * @defaultValue the route's `provider`, the remembered provider, then `'google'`
    */
   provider?: string;
 }
@@ -34,8 +37,10 @@ export interface AuthCallbackPageProps {
  * @extensionPoint component
  * @stability stable
  */
-export function AuthCallbackPage({ provider = 'google' }: AuthCallbackPageProps = {}): ReactElement {
+export function AuthCallbackPage({ provider: providerProp }: AuthCallbackPageProps = {}): ReactElement {
   const [searchParams] = useSearchParams();
+  const routeProvider = useParams().provider;
+  const provider = providerProp ?? validAuthProviderId(routeProvider) ?? lastAuthProvider() ?? 'google';
   const navigate = useNavigate();
   const { refreshUser, login, setAccessToken } = useAuth();
   // Only ever a known code: the `?error=` value is never rendered (#652).

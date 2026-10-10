@@ -18,6 +18,9 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import type { ReactElement, ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
+import { getRegisteredAuthProvider } from './auth-provider-registry.js';
+import { rememberAuthProvider } from './last-provider.js';
+
 import type {
   AuthContextValue,
   AuthProviderInfo,
@@ -194,11 +197,27 @@ export function AuthProvider({
       // which carries no `from` state. Keep the return URL stored by the
       // original attempt instead of resetting it to '/'.
 
+      // Remember which provider started this sign-in, so the callback page's
+      // retry buttons restart the same one (the API's redirect names none).
+      rememberAuthProvider(provider);
+
+      // A provider that owns its flow (`mode: 'custom'`): the registered look
+      // starts it; there is no redirect route to navigate to.
+      if (providers.find((candidate) => candidate.name === provider)?.mode === 'custom') {
+        const start = getRegisteredAuthProvider(provider)?.start;
+        if (start) {
+          void Promise.resolve(start()).catch((error: unknown) => console.error('Sign-in start failed:', error));
+        } else {
+          console.error(`The sign-in provider "${provider}" is custom but no start() is registered for it.`);
+        }
+        return;
+      }
+
       // Redirect to the OAuth provider
       const query = options?.selectAccount ? '?select_account=1' : '';
       window.location.href = `/api/auth/${provider}${query}`;
     },
-    [location.state, location.pathname, callbackPath],
+    [location.state, location.pathname, callbackPath, providers],
   );
 
   const logout = useCallback(async () => {
