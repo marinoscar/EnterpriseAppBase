@@ -89,7 +89,7 @@ describe('StorageConfigPage — drivers from descriptors', () => {
 
     const labels = screen.getAllByRole('radio').map((el) => el.closest('label')?.textContent);
     // The three path-style radios are not drivers; the provider group is the first four.
-    expect(labels.slice(0, 5)).toEqual(['Amazon S3', 'Cloudflare R2', 'S3-compatible', 'Local filesystem', 'Vault Blob']);
+    expect(labels.slice(0, 5)).toEqual(['Amazon S3', 'Cloudflare R2', 'S3-compatible (MinIO, Wasabi, Backblaze B2…)', 'Local filesystem', 'Vault Blob']);
     expect(radio('Amazon S3')).toBeChecked();
     expect(radio('Local filesystem')).not.toBeChecked();
   });

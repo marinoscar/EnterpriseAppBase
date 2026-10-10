@@ -38,7 +38,7 @@ export const builtinDescriptors = (): PluggableDescriptor[] => [
       ...s3Fields().slice(1),
     ],
   },
-  { kind: 'storage-driver', id: 's3compatible', label: 'S3-compatible', description: 'MinIO and friends.', fields: s3Fields() },
+  { kind: 'storage-driver', id: 's3compatible', label: 'S3-compatible (MinIO, Wasabi, Backblaze B2…)', description: 'MinIO and friends.', fields: s3Fields() },
 ];
 
 /** The reference app's example driver: objects as files in a folder; no secret. */

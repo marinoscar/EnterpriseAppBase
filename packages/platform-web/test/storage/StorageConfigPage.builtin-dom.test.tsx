@@ -8,12 +8,11 @@
  * `StorageConfigPage`), so passing means the form an administrator sees for each
  * built-in is, element for element and class for class, the one they had.
  *
- * Normalised on purpose: the radio label and the path-style sentence name the
- * S3-compatible driver. They came from a hard-coded label table ("S3-compatible
- * (MinIO, Wasabi, Backblaze B2…)") and now come from the driver's own label
- * ("S3-compatible", what the API serves); the table's text is folded to the
- * driver's before comparing. Re-record the snapshot only for a deliberate change
- * of the built-in forms.
+ * Nothing is normalised: the radio label and the path-style sentence that names the
+ * S3-compatible driver now come from the driver's own label, and the API serves
+ * exactly the string the old hard-coded table held ("S3-compatible (MinIO,
+ * Wasabi, Backblaze B2…)"), so the text is identical. Re-record the snapshot
+ * only for a deliberate change of the built-in forms.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -50,7 +49,7 @@ function mount(config: StorageConfigView): string {
     refresh: vi.fn(),
   });
   const { container, unmount } = render(<StorageConfigPage />);
-  const html = container.innerHTML.replaceAll('S3-compatible (MinIO, Wasabi, Backblaze B2…)', 'S3-compatible');
+  const html = container.innerHTML;
   unmount();
   return html;
 }

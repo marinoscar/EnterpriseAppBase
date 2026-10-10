@@ -103,7 +103,7 @@ describe('local-fs on the admin storage page (#925)', () => {
     expect(within(group).getAllByRole('radio').map((el) => el.closest('label')?.textContent)).toEqual([
       'Amazon S3',
       'Cloudflare R2',
-      'S3-compatible',
+      'S3-compatible (MinIO, Wasabi, Backblaze B2…)',
       'Local filesystem',
       'Vault Blob',
     ]);

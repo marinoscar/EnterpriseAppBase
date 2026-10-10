@@ -117,7 +117,7 @@ type TypedSecretsById = Record<string, Record<string, string>>;
 const FALLBACK_DRIVER_LABELS: Record<string, string> = {
   s3: 'Amazon S3',
   r2: 'Cloudflare R2',
-  s3compatible: 'S3-compatible',
+  s3compatible: 'S3-compatible (MinIO, Wasabi, Backblaze B2…)',
 };
 
 /** A copy of every driver's settings, to edit without touching the loaded configuration. */
