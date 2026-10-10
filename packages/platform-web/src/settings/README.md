@@ -1,6 +1,6 @@
 # @marinoscar/platform-web/settings
 
-The settings slice of the web package (issue #733, PP-8.1): `SettingsHub`, the one component every settings surface renders, the section registry's types and helpers, the open deployment-feature registry the cards are gated on, the headless hooks of `/api/system-settings`, `/api/user-settings` and `/api/org-settings`, and (since #892) the Organization settings, Profile and Appearance pages. Two entries: `/settings/ui` (the hub, the registry helpers and the pages) and `/settings/headless` (the hooks and the feature registry). It depends on `core`, `testing`, `identity` and `onboarding` (`packages/platform-slices.json`): the Profile page reads the signed-in user and renders the storage notice, the Organization page names the active organization.
+The settings slice of the web package (issue #733, PP-8.1): `SettingsHub`, the one component every settings surface renders, the section registry's types and helpers, the open deployment-feature registry the cards are gated on, the headless hooks of `/api/system-settings`, `/api/user-settings` and `/api/org-settings`, and (since #892) the Organization settings, Profile and Appearance pages. Two entries: `/settings/ui` (the hub, the registry helpers and the pages) and `/settings/headless` (the hooks and the feature registry). It depends on `core`, `testing`, `identity`, `onboarding` and `credentials` (`packages/platform-slices.json`): the Profile page reads the signed-in user and renders the storage notice, the Organization page names the active organization, and the pluggable configuration form renders the credentials slice's write-only `SecretField`.
 
 ## Purpose and scope
 
@@ -11,6 +11,8 @@ The settings hub and its card types are platform structure: every slice's web pa
 - **An OPEN feature key** (rung 2): `SettingsFeatureRegistry` declares `ai` and `telemetry`; an app augments it with its own key and registers how to read it with `registerSettingsFeature(key, useIsOn)`. `useSettingsFeatures()` asks every registered resolver.
 - **The hooks**: `useSystemSettings`, `useUserSettings` (moved) and `useOrgSettings` (new), each with the house fetch contract (a mounted guard, 403 named, a 409 refetches and throws, `If-Match` from the loaded version).
 - **The pages** (#892), moved WITHOUT change of DOM, `sx`, copy or permissions: `OrgSettingsPage` (the `Organization settings` card, `org_settings:read`, `feature: 'orgs'`; a form generated from the namespace descriptors), `UserProfilePage` (display name and picture: none, provider or upload, with the storage notice) and `UserAppearancePage` (light, dark, system). The Profile and Appearance pages share `UserSettingsSection` (spinner, fetch-error alert, per-page snackbars). `createProfileImageClient` / `useProfileImageClient` are the picture calls (`/user-settings/profile-image`) and `useStorageStatus` the fail-open `GET /storage/status` read.
+
+- **The pluggable configuration form** (#923, PP-14.5): `PluggableConfigForm` (`/settings/ui`) renders a `PluggableDescriptor` (`@marinoscar/platform-contract/settings`), the description the API's pluggable-kind primitive (`@marinoscar/platform-api/core`, `describe`/`describeAll`) serves for one implementation, and `usePluggableConfigForm` (`/settings/headless`) holds its state. One form for every swappable part (AI providers, storage drivers, e-mail transports, ...): a Switch for a `boolean`, a select for an `enum`, a text or number input for `string` and `number`, a note for `other`, and the credentials slice's write-only `SecretField` for `secret`. It is controlled and presentational: no save button, no fetch, no permission check. The page that mounts it owns those.
 
 Not here: the app's registries and routes (Settings UI Pattern rule 1), the other pages behind the cards (each slice's own), the app's theme context (the app passes its setter as the host's `applyTheme`, which the Appearance page and `UserSettingsSection` hand to `useUserSettings`).
 
@@ -64,6 +66,38 @@ const UserProfilePage = lazy(() =>
 
 The host must provide the optional ports the pages use: `api.postFormData` and `api.getBlob` (the picture), `applyTheme` (the Appearance page), and `PlatformHostProvider` plus the identity `AuthProvider` above the routes.
 
+### The pluggable configuration form
+
+A page that configures one implementation of a pluggable kind fetches its descriptor and stored settings from the API, then:
+
+```tsx
+import { usePluggableConfigForm } from '@marinoscar/platform-web/settings/headless';
+import { PluggableConfigForm } from '@marinoscar/platform-web/settings/ui';
+
+const form = usePluggableConfigForm(descriptor, stored); // stored: the non-secret settings the API returned
+<PluggableConfigForm
+  descriptor={descriptor}
+  value={form.value}
+  onChange={form.setField}
+  secrets={form.secrets}
+  onSecretChange={form.setSecret}
+  disabled={!canWrite}
+/>;
+<Button disabled={!canWrite || !form.dirty} onClick={() => save(form.payload())}>Save</Button>;
+```
+
+A runnable example against the `greeter` example kind: [`GreeterSettings.example.tsx`](../../../../apps/web/src/__tests__/examples/settings/GreeterSettings.example.tsx) and its [test](../../../../apps/web/src/__tests__/examples/settings/pluggable-config-form.test.tsx).
+
+Rules the form keeps:
+
+- **Secrets are write-only.** The descriptor carries only `hasValue` and `required` for a `secret` field, never a value. The field always starts blank and renders as a password input; a stored secret is shown as "A signing key is saved. Leave this blank to keep it, or type a new one to replace it." A required secret that is not stored yet is marked required. The hook seeds `secrets` with nothing, and `payload()` leaves a blank secret out (`secretForSubmit`), so the API keeps the stored one. A typed secret is sent byte for byte.
+- **The settings half is whole.** `payload().settings` is every non-secret descriptor field that has a value (an `other` field passes through from `initial` untouched); a cleared number or text field is absent (`undefined`), not `''` or `null`. Send it as that implementation's whole settings object: the API parses it against the implementation's schema and fills defaults.
+- **Field order is the descriptor's:** the non-secret settings in declaration order, then the declared secrets.
+- **State lifecycle.** The hook reads `initial` on mount and on `reset()`. After a save, refetch and call `reset()` (or `key` the component by implementation id so switching implementations gives each its own state).
+- **Writes are gated by the page** (`disabled`), never by hiding the form (Settings UI Pattern rule 3). The API enforces the permission.
+
+Slots (`PluggableConfigFormSlots`, all optional; without them the rendering is the default): `renderField(context)` replaces the control of one field (return `undefined` to keep the default; `context.defaultControl` is the control to wrap), `textField` props spread onto the text, number and select fields, `secretField` (the `SecretField` slots) and `otherNote(field)` for the note of an `other` field.
+
 ## Configuration
 
 `SettingsHub` props:
@@ -95,13 +129,16 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | `OrgSettingsPage` | component | `OrgSettingsPage(): ReactElement` | Route the `Organization settings` card (`org_settings:read`, `feature: 'orgs'`) | experimental | [example](../../../../apps/web/src/App.tsx) |
 | `UserProfilePage` | component | `UserProfilePage(): ReactElement` | Route the `Profile` card (`/settings/profile`, no permission) | experimental | [example](../../../../apps/web/src/App.tsx) |
 | `UserAppearancePage` | component | `UserAppearancePage(): ReactElement` | Route the `Appearance` card (`/settings/appearance`, no permission) | experimental | [example](../../../../apps/web/src/App.tsx) |
+| `PluggableConfigForm` | component | `PluggableConfigForm(props: PluggableConfigFormProps): ReactElement` | Render the configuration form of one pluggable implementation from its `PluggableDescriptor`; secrets are write-only | experimental | [example](../../../../apps/web/src/__tests__/examples/settings/GreeterSettings.example.tsx) |
+| `usePluggableConfigForm` | hook | `usePluggableConfigForm(descriptor, initial?): UsePluggableConfigFormResult` | Hold that form's state: `value`, `secrets`, `dirty`, `setField`, `setSecret`, `reset`, `payload()` (omits untouched secrets) | experimental | [example](../../../../apps/web/src/__tests__/examples/settings/GreeterSettings.example.tsx) |
+| `PluggableConfigFormProps` | slot | `{ descriptor; value; onChange(name, next); secrets; onSecretChange(name, next); disabled?; slots?: { renderField?, textField?, secretField?, otherNote? } }` | Replace one field's control, restyle the text fields, or reword the `other` note; the default rendering is unchanged | experimental | [example](../../../../apps/web/src/__tests__/examples/settings/GreeterSettings.example.tsx) |
 | `settingsRegistryGatesSuite` | registry | `WebConformanceSuite` (id `settings-registry-gates`) | Read the suite's id; it runs for every app that imports `/settings/testing` | experimental | [example](../../../../apps/web/src/__tests__/conformance.test.ts) |
 | `settingsRegistryShapeSuite` | registry | `WebConformanceSuite` (id `settings-registry-shape`) | Read the suite's id | experimental | [example](../../../../apps/web/src/__tests__/conformance.test.ts) |
 | `settingsAiCardsSuite` | registry | `WebConformanceSuite` (id `settings-ai-cards`) | Read the suite's id | experimental | [example](../../../../apps/web/src/__tests__/conformance.test.ts) |
 | `settingsCardRoutesSuite` | registry | `WebConformanceSuite` (id `settings-card-routes`) | Read the suite's id | experimental | [example](../../../../apps/web/src/__tests__/conformance.test.ts) |
 | `settingsRouteOwnershipSuite` | registry | `WebConformanceSuite` (id `settings-route-ownership`) | Read the suite's id | experimental | [example](../../../../apps/web/src/__tests__/conformance.test.ts) |
 
-Supporting exports: `SettingsCardDef`, `SettingsSectionDef`, `visibleSettingsSections`, `settingsPageTitle`, `isFeatureEnabled` (stable); `ImageUpload`, `PROFILE_IMAGE_TYPES`, `PROFILE_IMAGE_MAX_BYTES`, `createProfileImageClient`, `ProfileImageMutationResponse`, `UserSettingsSaveMessages` and the pages' prop types (experimental); `SettingsFeatureRegistry`, `SettingsFeatureKey`, `SettingsFeatures`, `useSettingsFeatures`, `registeredSettingsFeatures`, the hook option and result types (experimental).
+Supporting exports: `SettingsCardDef`, `SettingsSectionDef`, `visibleSettingsSections`, `settingsPageTitle`, `isFeatureEnabled` (stable); `ImageUpload`, `PROFILE_IMAGE_TYPES`, `PROFILE_IMAGE_MAX_BYTES`, `createProfileImageClient`, `ProfileImageMutationResponse`, `UserSettingsSaveMessages` and the pages' prop types (experimental); `SettingsFeatureRegistry`, `SettingsFeatureKey`, `SettingsFeatures`, `useSettingsFeatures`, `registeredSettingsFeatures`, the hook option and result types (experimental); `PluggableConfigFormProps`, `PluggableConfigFormSlots`, `PluggableFieldRenderContext`, `PluggableConfigPayload`, `PluggableSettingsValue`, `UsePluggableConfigFormResult` (experimental).
 
 ## Data
 
@@ -113,7 +150,7 @@ The hub mirrors permissions, it never invents one: a card's `permission` is the 
 
 ## UI
 
-`SettingsHub`, and the three pages above. `OrgSettingsPage` ([`OrgSettingsPage.tsx`](./ui/OrgSettingsPage.tsx)) is built on `useOrgSettings` and renders a form generated from the namespace descriptors the API returns. The pages are mobile-first (the Organization page's padding tightens below `sm`). Accessibility (from the hub's spec): the search field has an explicit accessible name, inert cards are not tab stops, the compact list and the grid are chosen by mounting (never both in the DOM).
+`SettingsHub`, the three pages above and the generated `PluggableConfigForm`. `OrgSettingsPage` ([`OrgSettingsPage.tsx`](./ui/OrgSettingsPage.tsx)) is built on `useOrgSettings` and renders a form generated from the namespace descriptors the API returns. The pages are mobile-first (the Organization page's padding tightens below `sm`). Accessibility (from the hub's spec): the search field has an explicit accessible name, inert cards are not tab stops, the compact list and the grid are chosen by mounting (never both in the DOM).
 
 ## Infra
 
@@ -165,11 +202,15 @@ From the reference app's local copies (#733): `components/settings/SettingsHub.t
 
 #892: `OrgSettingsPage`, `UserProfilePage`, `UserAppearancePage` and `UserSettingsSection` moved from `apps/web/src/pages`, `ProfileSettings`, `ThemeSettings` and `ImageUpload` from `components/settings`. Route the packaged pages (import from `/settings/ui`), set `applyTheme` on your host (your theme context's setter) and give your transport `postFormData` (core's `createPlatformApiClient` does). The app's `hooks/useStorageStatus` and the profile image calls in `services/api.ts` are gone. The packaged `FeatureUnavailableNotice` (onboarding) replaces the app's copy in the Profile page; it shows the library's default info icon.
 
+#923 (PP-14.5): additive. `PluggableConfigForm` and `usePluggableConfigForm` are new, and the slice now depends on `credentials` (a sibling edge inside the one package; no new peer dependency).
+
 ## Troubleshooting
 
 - **`registerSettingsFeature("x"): the feature set is fixed`.** A NEW key was registered after the first `useSettingsFeatures()` render; register at module scope (re-registering an existing key is allowed).
 - **Every permission-gated card is missing.** The hub renders outside a `PlatformHostProvider` and no `hasPermission` prop was passed.
 - **`Settings hooks need a transport`.** Mount `PlatformHostProvider` or pass `{ api }`.
+- **A secret field shows "is saved" but I cannot read the value.** By design: the API reports presence only (`hasValue`). Type a replacement, or leave it blank to keep it.
+- **The form kept my edits after a save.** Call `form.reset()` once the refetched settings are the hook's `initial`.
 - **The Appearance page saves but the app's theme does not change.** The host has no `applyTheme`; pass your theme context's setter (a stable function).
 - **"This transport cannot send multipart/form-data".** The host's `api` has no `postFormData`; build it with `createPlatformApiClient`.
 

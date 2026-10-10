@@ -6,6 +6,12 @@
 export { ImageUpload, PROFILE_IMAGE_MAX_BYTES, PROFILE_IMAGE_TYPES } from './ImageUpload.js';
 export type { ImageUploadProps } from './ImageUpload.js';
 export { OrgSettingsPage } from './OrgSettingsPage.js';
+export { PluggableConfigForm } from './PluggableConfigForm.js';
+export type {
+  PluggableConfigFormProps,
+  PluggableConfigFormSlots,
+  PluggableFieldRenderContext,
+} from './PluggableConfigForm.js';
 export { ProfileSettings } from './ProfileSettings.js';
 export type { ProfilePatch, ProfileSettingsProps } from './ProfileSettings.js';
 export { ThemeSettings } from './ThemeSettings.js';

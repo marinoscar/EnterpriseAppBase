@@ -68,6 +68,12 @@ registry:
 |---|---|---|
 | `host.ts` | `eventBusAdapterRegistry` (`@marinoscar/platform-api/host`, PP-14.2): event bus adapters, registered at import time with `registerEventBusAdapter(...)` and selected by `EVENT_BUS_ADAPTER` or `forRoot({ eventBusAdapter })`. Unlike the pure-data files it makes the `register` call itself, because `platform/host-core.config.ts` imports it before the bus is built. Upstream registers the worked example (`recording`) | [host/README.md, "Adding an event bus adapter"](../../../../packages/platform-api/src/host/README.md#adding-an-event-bus-adapter) |
 
+registry:
+
+| File | Registry | Recipe |
+|---|---|---|
+| `core.ts` | The implementations of a pluggable kind (`definePluggableKind` of `@marinoscar/platform-api/core`, PP-14.5): one registry per kind, `pluggable.<kind>`. Makes the `register` call itself, at import time. Upstream registers the worked example, the toy `greeter` kind; nothing in the running app imports it | [core/README.md, "Pluggable kinds"](../../../../packages/platform-api/src/core/README.md#pluggable-kinds) |
+
 ## What goes here, and what does not
 
 | Goes here | Does not |
