@@ -80,7 +80,6 @@ export type ChannelTemplateRender = (data: never, context: ChannelTemplateContex
 /**
  * One binding: the template for an event over a channel.
  *
- * @extensionPoint registry
  * @stability experimental
  */
 export interface ChannelTemplateBinding {

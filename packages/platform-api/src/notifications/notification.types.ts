@@ -330,7 +330,6 @@ export interface NotifyNowResult {
  * A per-user destination on one channel: what an app's table holds for a user
  * and a channel (PP-14.10).
  *
- * @extensionPoint contract
  * @stability experimental
  */
 export interface RecipientHandle {
@@ -345,7 +344,6 @@ export interface RecipientHandle {
  * destination and the row's redacted label. The same shape as
  * {@link RecipientHandle}.
  *
- * @extensionPoint contract
  * @stability experimental
  */
 export type ResolvedRecipient = RecipientHandle;
@@ -432,7 +430,7 @@ export interface NotificationChannelSender {
    * @param context - the event, the channel and the handle lookup.
    * @returns the destination, or `null`.
    *
-   * @extensionPoint contract
+   * @extensionPoint hook
    * @stability experimental
    */
   resolveRecipient?(recipient: NotificationRecipient, context: ResolveRecipientContext): Promise<ResolvedRecipient | null>;

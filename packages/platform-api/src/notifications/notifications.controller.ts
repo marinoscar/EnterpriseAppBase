@@ -27,6 +27,7 @@ import { ApiDataResponse } from '../core/index';
 import { Auth, CurrentUser, type RequestUser } from '../identity/index';
 import { listNotificationEvents } from './notification-events';
 import { describeNotificationChannels } from './registry/channel.registry';
+import { BROADCAST_EVENT_KEY } from './broadcasts/broadcasts.service';
 import { NotificationChannelDescriptorDto, type NotificationChannelDescriptorResponse } from './dto/notification-channel.dto';
 import { policyChannels } from './notification-policy';
 import { NotificationPolicyService } from './notification-policy.service';
@@ -179,7 +180,8 @@ export class NotificationsController {
     description:
       'Every delivery channel this application registered, in registration order, with ' +
       'the label to draw, whether a user may toggle it, whether a critical broadcast may ' +
-      'rely on it (`criticalCapable`) and whether a new broadcast starts with it selected. ' +
+      'rely on it (`criticalCapable`), whether a broadcast can be sent over it (`broadcastCapable`: ' +
+      'the broadcast events declare it) and whether a new broadcast starts with it selected. ' +
       'Clients hold no list of channels of their own: the broadcast composer, the ' +
       'preferences matrix and the administrator\'s channel switches all read this. ' +
       'Readable by **any authenticated user** (the preferences matrix needs the labels); it ' +
@@ -192,7 +194,7 @@ export class NotificationsController {
     description: 'The notification channel registry',
   })
   listChannels(): NotificationChannelDescriptorResponse[] {
-    return describeNotificationChannels();
+    return describeNotificationChannels({ broadcastEventKey: BROADCAST_EVENT_KEY });
   }
 
   /**

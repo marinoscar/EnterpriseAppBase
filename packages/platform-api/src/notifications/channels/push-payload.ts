@@ -49,7 +49,7 @@ export type PushUrgency = 'very-low' | 'low' | 'normal' | 'high';
  * const extras: Partial<PushPayloadExtras> = { tag: 'invoice', urgency: 'high' };
  * ```
  *
- * @extensionPoint contract
+ * @extensionPoint schema
  * @stability experimental
  */
 export interface PushPayloadExtras {
@@ -79,16 +79,32 @@ export interface PushPayloadExtras {
  */
 export type PushPayloadHook = (event: NotificationEventDef, data: unknown) => Partial<PushPayloadExtras> | null | undefined;
 
-/** The most action buttons a push carries (browsers show two or fewer). */
+/**
+ * The most action buttons a push carries (browsers show two or fewer).
+ *
+ * @stability experimental
+ */
 export const PUSH_MAX_ACTIONS = 2;
 
-/** The longest `action`, `title` and `tag`. */
+/**
+ * The longest `action`, `title` and `tag`.
+ *
+ * @stability experimental
+ */
 export const PUSH_EXTRA_TEXT_MAX = 64;
 
-/** The longest `icon`, `badge` and action icon. */
+/**
+ * The longest `icon`, `badge` and action icon.
+ *
+ * @stability experimental
+ */
 export const PUSH_EXTRA_URL_MAX = 500;
 
-/** The largest serialized payload sent; a larger one is sent without its extras. */
+/**
+ * The largest serialized payload sent; a larger one is sent without its extras.
+ *
+ * @stability experimental
+ */
 export const PUSH_MAX_PAYLOAD_BYTES = 3_800;
 
 const URGENCIES: readonly string[] = ['very-low', 'low', 'normal', 'high'];
@@ -106,13 +122,29 @@ function imageUrl(value: unknown): string | undefined {
 }
 
 /**
+ * The fields of {@link PushPayloadExtras} that travel in the push payload.
+ *
+ * @stability experimental
+ */
+export interface PushPayloadFields {
+  /** Up to two action buttons. */
+  actions?: PushAction[];
+  /** The notification icon. */
+  icon?: string;
+  /** The status-bar badge. */
+  badge?: string;
+  /** The collapse tag. */
+  tag?: string;
+}
+
+/**
  * What survives the allowlist: the payload fields and the delivery urgency.
  *
  * @stability experimental
  */
 export interface SanitizedPushExtras {
   /** Fields merged into the payload JSON. */
-  readonly payload: { actions?: PushAction[]; icon?: string; badge?: string; tag?: string };
+  readonly payload: PushPayloadFields;
   /** The `Urgency` option for the push service, when valid. */
   readonly urgency?: PushUrgency;
 }
@@ -135,7 +167,7 @@ export interface SanitizedPushExtras {
 export function sanitizePushExtras(raw: unknown): SanitizedPushExtras {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return { payload: {} };
   const input = raw as Record<string, unknown>;
-  const payload: { actions?: PushAction[]; icon?: string; badge?: string; tag?: string } = {};
+  const payload: PushPayloadFields = {};
 
   const icon = imageUrl(input.icon);
   if (icon) payload.icon = icon;

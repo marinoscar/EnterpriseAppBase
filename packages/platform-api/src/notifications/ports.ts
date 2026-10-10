@@ -202,7 +202,7 @@ export const NOTIFICATION_RECIPIENT_HANDLES: unique symbol = Symbol.for('@marino
  * }
  * ```
  *
- * @extensionPoint contract
+ * @extensionPoint hook
  * @stability experimental
  */
 export interface RecipientHandleSource {

@@ -138,7 +138,6 @@ export type NotificationsPatchValue = z.infer<typeof notificationsPatchSchema>;
  * One channel's deployment-wide switch (the value of one `channels` entry of
  * the `notifications` system namespace).
  *
- * @extensionPoint schema
  * @stability experimental
  */
 export const notificationChannelPolicySchema = z.object({
@@ -395,6 +394,8 @@ export const notificationChannelDescriptorSchema = z.object({
   userConfigurable: z.boolean(),
   /** Whether a critical broadcast may rely on this channel (it leaves a durable record a recipient can go back and read; `browser`). */
   criticalCapable: z.boolean(),
+  /** Whether the broadcast events declare this channel, so a broadcast can be sent over it. */
+  broadcastCapable: z.boolean(),
   /** Whether a new broadcast starts with this channel selected. */
   broadcastDefault: z.boolean(),
   /** Registration order, from 0: the order every client lists channels in. */
@@ -412,7 +413,6 @@ export type NotificationChannelDescriptorResponse = z.infer<typeof notificationC
  * `GET /api/notifications/channels`: every registered delivery channel, in
  * registration order.
  *
- * @extensionPoint schema
  * @stability experimental
  */
 export const notificationChannelsResponseSchema = z.array(notificationChannelDescriptorSchema);

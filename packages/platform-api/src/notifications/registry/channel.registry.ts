@@ -31,6 +31,7 @@
 // =============================================================================
 
 import { defineRegistry } from '../../core/index';
+import { notificationEventRegistry } from './event.registry';
 import {
   NOTIFICATION_CHANNEL_ID_PATTERN as WIRE_CHANNEL_ID_PATTERN,
   type NotificationChannelDescriptorResponse,
@@ -243,6 +244,8 @@ export function collapseOverlappingChannels<C extends string>(channels: readonly
  * per registered channel, in registration order, with the defaults applied
  * (PP-14.10). Clients draw channels from this and hold no list of their own.
  *
+ * @param options - `broadcastEventKey`: the registered event a broadcast is sent as
+ *   (`admin.broadcast`); a channel it declares is `broadcastCapable`. Omitted: none is.
  * @returns a fresh array of descriptors; `order` is the registration index.
  *
  * @example
@@ -250,16 +253,21 @@ export function collapseOverlappingChannels<C extends string>(channels: readonly
  * describeNotificationChannels().map((channel) => channel.label); // ['Email', 'Browser', 'Push']
  * ```
  *
- * @extensionPoint registry
  * @stability experimental
  */
-export function describeNotificationChannels(): NotificationChannelDescriptorResponse[] {
+export function describeNotificationChannels(
+  options: { broadcastEventKey?: string } = {},
+): NotificationChannelDescriptorResponse[] {
+  const broadcastChannels = options.broadcastEventKey
+    ? (notificationEventRegistry.get(options.broadcastEventKey)?.channels ?? [])
+    : [];
   return notificationChannelRegistry.list().map((channel, order) => ({
     id: channel.id,
     label: channel.label,
     description: channel.description,
     userConfigurable: channel.userConfigurable !== false,
     criticalCapable: channel.criticalCapable === true,
+    broadcastCapable: broadcastChannels.includes(channel.id),
     broadcastDefault: channel.broadcastDefault === true,
     order,
   }));

@@ -140,7 +140,7 @@ export {
 } from './notification-preferences';
 export type { ChannelPreferences, NotificationPreferences } from './notification-preferences';
 export { DEFAULT_NOTIFICATION_POLICY, isBrowserToastAllowed, isChannelSwitchedOn, policyChannels } from './notification-policy';
-export type { NotificationPolicy } from './notification-policy';
+export type { NotificationChannelPolicy, NotificationPolicy } from './notification-policy';
 export { NOTIFICATIONS_SYSTEM_SETTINGS, tightenNotificationsPolicy } from './notifications.system-settings';
 export { NOTIFICATIONS_USER_SETTINGS, notificationsPatchSchema } from './notifications.user-settings';
 
@@ -149,6 +149,7 @@ export { PUSH_MAX_ACTIONS, PUSH_MAX_PAYLOAD_BYTES, sanitizePushExtras } from './
 export type {
   PushAction,
   PushPayloadExtras,
+  PushPayloadFields,
   PushPayloadHook,
   PushUrgency,
   SanitizedPushExtras,

@@ -66,6 +66,16 @@ import type {
 // =============================================================================
 
 /**
+ * One channel's switch in {@link NotificationPolicy.channels}.
+ *
+ * @stability experimental
+ */
+export interface NotificationChannelPolicy {
+  /** Whether the channel delivers at all. `false` drops it from every dispatch. */
+  readonly enabled: boolean;
+}
+
+/**
  * The deployment-wide browser-notification policy, as this module needs it.
  *
  * STRUCTURALLY COMPATIBLE WITH `SystemNotificationsValue` (see
@@ -110,7 +120,7 @@ export interface NotificationPolicy {
    * {@link browserEnabled}; the two are kept in step on write and the stricter
    * one wins on read.
    */
-  channels?: Readonly<Record<string, { readonly enabled: boolean }>>;
+  channels?: Readonly<Record<string, NotificationChannelPolicy>>;
 }
 
 /**
