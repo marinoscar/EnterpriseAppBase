@@ -5,7 +5,7 @@ import {
   DB_BACKUP_MIRROR_TARGETS,
   DB_BACKUP_TARGET,
   StorageProviderBackupTarget,
-  assertBackupTarget,
+  validateBackupTargets,
   type BackupTarget,
 } from './backup-target';
 import { DbBackupEvents } from './db-backup-events';
@@ -291,18 +291,7 @@ class DbBackupTargetValidator {
     @Inject(DB_BACKUP_TARGET) primary: BackupTarget,
     @Optional() @Inject(DB_BACKUP_MIRROR_TARGETS) mirrors?: readonly BackupTarget[],
   ) {
-    assertBackupTarget(primary, 'DbBackupModule.forRoot({ target })');
-    const seen = new Set<string>([primary.id]);
-    (mirrors ?? []).forEach((mirror, index) => {
-      assertBackupTarget(mirror, `DbBackupModule.forRoot({ mirrorTargets[${index}] })`);
-      if (seen.has(mirror.id)) {
-        throw new Error(
-          `DbBackupModule.forRoot(): mirror target "${mirror.id}" has the same id as another target. ` +
-            'Every target needs its own id (the primary\'s id is recorded on each run).',
-        );
-      }
-      seen.add(mirror.id);
-    });
+    validateBackupTargets(primary, mirrors ?? []);
   }
 }
 

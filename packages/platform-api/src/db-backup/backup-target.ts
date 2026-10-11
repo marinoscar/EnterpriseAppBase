@@ -330,3 +330,38 @@ export function assertBackupTarget(target: unknown, where: string): asserts targ
     if (typeof t[member] !== 'function') throw new Error(`${where}: a BackupTarget needs ${member}() (target "${t.id}").`);
   }
 }
+
+/**
+ * Validates the bound targets at boot: each is well formed and no two share an
+ * id. The default adapter is the platform's own class (its members exist) and
+ * its id is the storage provider's CURRENT kind, which follows the `storage`
+ * settings and is not settled at boot, so it is recorded for the collision
+ * check only when it can be read.
+ *
+ * @param primary - the primary target.
+ * @param mirrors - the mirror targets.
+ * @throws Error naming the malformed target or the duplicated id.
+ */
+export function validateBackupTargets(primary: BackupTarget, mirrors: readonly BackupTarget[]): void {
+  const seen = new Set<string>();
+  if (isStorageBackedTarget(primary)) {
+    try {
+      seen.add(primary.id);
+    } catch {
+      // not readable yet; a mirror cannot collide with an id that is not known
+    }
+  } else {
+    assertBackupTarget(primary, 'DbBackupModule.forRoot({ target })');
+    seen.add(primary.id);
+  }
+  mirrors.forEach((mirror, index) => {
+    assertBackupTarget(mirror, `DbBackupModule.forRoot({ mirrorTargets[${index}] })`);
+    if (seen.has(mirror.id)) {
+      throw new Error(
+        `DbBackupModule.forRoot(): mirror target "${mirror.id}" has the same id as another target. ` +
+          "Every target needs its own id (the primary's id is recorded on each run).",
+      );
+    }
+    seen.add(mirror.id);
+  });
+}

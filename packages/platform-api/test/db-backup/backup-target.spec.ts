@@ -16,6 +16,7 @@ import {
   DB_BACKUP_TARGET,
   StorageProviderBackupTarget,
   assertBackupTarget,
+  validateBackupTargets,
   isStorageBackedTarget,
   type BackupSink,
   type BackupTarget,
@@ -433,6 +434,23 @@ describe('target options', () => {
     expect(() => assertBackupTarget({ id: 'x' }, 'test')).toThrow(/openWrite/);
     expect(() => assertBackupTarget({ id: 'Bad Id', openWrite() {}, openRead() {}, delete() {}, list() {} }, 'test')).toThrow(/lowercase id/);
     expect(() => assertBackupTarget(new DirTarget('/tmp'), 'test')).not.toThrow();
+  });
+});
+
+describe('validateBackupTargets', () => {
+  it('refuses a mirror that shares the primary id, and a malformed mirror', () => {
+    expect(() => validateBackupTargets(new DirTarget('/a'), [new DirTarget('/b')])).toThrow(/same id/);
+    expect(() => validateBackupTargets(new DirTarget('/a'), [{ id: 'x' } as never])).toThrow(/mirrorTargets\[0\]/);
+    expect(() => validateBackupTargets(new DirTarget('/a'), [])).not.toThrow();
+  });
+
+  it('does not read the default adapter beyond what the storage provider answers (a provider whose kind cannot be read yet does not fail boot)', () => {
+    const unreadable = new StorageProviderBackupTarget({
+      get kind(): string {
+        throw new TypeError('settings not loaded');
+      },
+    } as never);
+    expect(() => validateBackupTargets(unreadable, [new DirTarget('/b')])).not.toThrow();
   });
 });
 
