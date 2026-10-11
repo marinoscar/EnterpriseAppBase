@@ -13,6 +13,7 @@
 //   - the settings manifest runs first too, so the `maintenance` namespace
 //     keeps its place in the system settings document (`forRoot()` registers
 //     it only when nothing did);
+//   - the app's access decorators (`platformHost`) guard the maintenance routes;
 //   - `EVENT_BUS_ADAPTER` and `OTEL_ENABLED` are read by the package itself
 //     (the defaults), so there is nothing to pass; `EVENT_BUS_ADAPTER` accepts
 //     any adapter registered in `app-registrations/host.ts` too.
@@ -35,4 +36,11 @@ import '../app-registrations/host';
 
 import { PlatformHostCoreModule } from '@marinoscar/platform-api/host';
 
-export const hostCoreModule = PlatformHostCoreModule.forRoot();
+import { platformHost } from './platform-host';
+
+// `host`: the maintenance routes and the health probes carry the app's own
+// access decorators (`PlatformHost.access`), and the maintenance permissions
+// default to `system_settings:read` / `system_settings:write`
+// (`permissions: { maintenanceRead, maintenanceWrite }` changes them; the
+// Maintenance settings card's `permission` must then change too).
+export const hostCoreModule = PlatformHostCoreModule.forRoot({ host: platformHost });
