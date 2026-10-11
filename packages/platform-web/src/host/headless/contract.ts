@@ -138,10 +138,11 @@ export interface AboutApi {
   /** The API process's own version. */
   version: string;
   /**
-   * `DEPLOYMENT_MODE` as the API parsed it at startup (#685). `saas` means
-   * in-app database restore is disabled. Optional: an older API omits it.
+   * `DEPLOYMENT_MODE` as the API parsed it at startup (#685): `self-hosted`,
+   * `saas` (in-app database restore is disabled) or the id of a mode the app
+   * registered. Optional: an older API omits it.
    */
-  deploymentMode?: 'self-hosted' | 'saas';
+  deploymentMode?: 'self-hosted' | 'saas' | (string & {});
 }
 
 /** @stability experimental */
@@ -305,6 +306,21 @@ export interface AboutRuntime {
  */
 export type DeployInfoStatus = 'ok' | 'absent' | 'invalid';
 
+/**
+ * One group of facts the app contributed to the report
+ * (`registerAboutContributor` on the API), shown as its own section.
+ *
+ * @stability experimental
+ */
+export interface AboutExtra {
+  /** The contributor's id. */
+  id: string;
+  /** The section heading. */
+  label: string;
+  /** The facts, name to value. */
+  facts: Record<string, string | number | boolean>;
+}
+
 /** @stability experimental */
 export interface AboutResponse {
   /** The API process's own version and deployment mode. */
@@ -357,4 +373,10 @@ export interface AboutResponse {
   database: AboutDatabase | null;
   /** Why the database probe failed; `null` when it answered. */
   databaseError: string | null;
+  /**
+   * Groups of facts the app contributed with `registerAboutContributor`, in
+   * registration order. Absent when none is registered (and from an older API);
+   * the page renders each as an extra section after the database.
+   */
+  extras?: AboutExtra[];
 }

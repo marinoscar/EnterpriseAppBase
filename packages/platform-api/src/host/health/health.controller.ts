@@ -10,21 +10,6 @@ import {
 } from '../maintenance/maintenance.guard';
 import { MaintenanceModeService } from '../maintenance/maintenance-mode.service';
 
-/**
- * The OpenAPI shape of one indicator's entry: its status plus the bounded
- * details it chose to report (primitive values only; see `HealthIndicatorOutcome`).
- */
-const INDICATOR_UP_SCHEMA = {
-  type: 'object',
-  properties: { status: { type: 'string', example: 'up' } },
-  additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] },
-};
-const INDICATOR_DOWN_SCHEMA = {
-  type: 'object',
-  properties: { status: { type: 'string', example: 'down' }, message: { type: 'string' } },
-  additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] },
-};
-
 /** What the health controller exposes (the shape tests and wiring rely on). */
 export interface HealthControllerInstance {
   /** `GET /api/health/live`. */
@@ -130,8 +115,6 @@ export function createHealthController(host?: PlatformHost): HealthControllerCla
         type: 'object',
         properties: {
           status: { type: 'string', example: 'ok' },
-          // One entry per registered indicator that is up (`database` always;
-          // `registerHealthIndicator` adds more). Details are bounded.
           info: {
             type: 'object',
             properties: {
@@ -142,7 +125,6 @@ export function createHealthController(host?: PlatformHost): HealthControllerCla
                 },
               },
             },
-            additionalProperties: INDICATOR_UP_SCHEMA,
           },
           timestamp: { type: 'string', format: 'date-time' },
         },
@@ -155,7 +137,6 @@ export function createHealthController(host?: PlatformHost): HealthControllerCla
         type: 'object',
         properties: {
           status: { type: 'string', example: 'error' },
-          // One entry per critical indicator that is down.
           error: {
             type: 'object',
             properties: {
@@ -167,7 +148,6 @@ export function createHealthController(host?: PlatformHost): HealthControllerCla
                 },
               },
             },
-            additionalProperties: INDICATOR_DOWN_SCHEMA,
           },
           timestamp: { type: 'string', format: 'date-time' },
         },
@@ -221,20 +201,7 @@ export function createHealthController(host?: PlatformHost): HealthControllerCla
       summary: 'Full health check',
       description: 'Comprehensive health check including all dependencies.',
     })
-    @ApiResponse({
-      status: 200,
-      description: 'All checks passed',
-      schema: {
-        type: 'object',
-        properties: {
-          status: { type: 'string', example: 'ok' },
-          info: { type: 'object', additionalProperties: INDICATOR_UP_SCHEMA },
-          error: { type: 'object', additionalProperties: INDICATOR_DOWN_SCHEMA },
-          details: { type: 'object', additionalProperties: INDICATOR_UP_SCHEMA },
-          timestamp: { type: 'string', format: 'date-time' },
-        },
-      },
-    })
+    @ApiResponse({ status: 200, description: 'All checks passed' })
     @ApiResponse({ status: 503, description: 'One or more checks failed' })
     async fullHealth(): Promise<HealthCheckResult & { timestamp: string }> {
       // EVERY registered indicator (`registerHealthIndicator`), critical or not.
