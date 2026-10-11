@@ -37,6 +37,10 @@ import {
   DatabaseBackupStorageProviderError,
 } from '../../src/db-backup/db-backup.errors';
 import type { PgProcess } from '../../src/db-backup/pg-dump.util';
+import type { BackupSink, BackupTarget } from '../../src/db-backup/backup-target';
+import { DbBackupEvents } from '../../src/db-backup/db-backup-events';
+import { MIRROR_AUDIT_COMPLETED, MIRROR_AUDIT_FAILED } from '../../src/db-backup/db-backup.constants';
+import { PassThrough, Writable } from 'node:stream';
 import type { PgVersionCheck } from '../../src/db-backup/pg-version.util';
 
 // =============================================================================
@@ -185,6 +189,12 @@ interface HarnessOptions {
   activeBackupJob?: { id: string; backupRun: { id: string } | null } | null;
   /** #351: rows `databaseBackupRun.findUnique` answers with, keyed by `jobId`. */
   runsByJobId?: Record<string, Record<string, unknown>>;
+  /** PP-14.12: the primary backup target (default: the adapter over `storage`). */
+  target?: BackupTarget;
+  /** PP-14.12: the mirror targets. */
+  mirrors?: BackupTarget[];
+  /** PP-14.12: the event emitter the run's events go to. */
+  events?: DbBackupEvents;
 }
 
 function makeHarness(options: HarnessOptions = {}) {
@@ -273,6 +283,10 @@ function makeHarness(options: HarnessOptions = {}) {
         order.push('job.findFirst');
         return options.activeBackupJob ?? null;
       }),
+    },
+    // PP-14.12: the mirror results are `audit_events` rows.
+    auditEvent: {
+      create: jest.fn(async (_args: unknown) => ({})),
     },
     // Tagged-template double: the audit reads are best-effort, so answering
     // both with a plausible row proves they land on the row rather than that
@@ -445,7 +459,12 @@ function makeHarness(options: HarnessOptions = {}) {
     config,
     jobs,
     engine,
-    timers
+    timers,
+    undefined,
+    undefined,
+    options.target,
+    options.mirrors,
+    options.events
   );
 
   return {
@@ -2010,5 +2029,314 @@ describe('completeNodeRun: one write, two paths', () => {
     await expect(h.service.completeNodeRun(NODE_JOB, nodeResult())).rejects.toThrow(
       /no backup run row/
     );
+  });
+});
+
+// =============================================================================
+// PP-14.12: the target port, mirrors and the run event
+// =============================================================================
+
+/** A target whose sink collects what it is given, with switches for the ways a copy can fail. */
+function recordingTarget(
+  id: string,
+  behaviour: { failWrite?: boolean; corrupt?: boolean; location?: string } = {}
+) {
+  const stored = new Map<string, Buffer>();
+  const writes: Array<{ key: string; meta: unknown }> = [];
+  const deleted: string[] = [];
+  const target: BackupTarget = {
+    id,
+    ...(behaviour.location !== undefined ? { location: behaviour.location } : {}),
+    openWrite(key, meta): BackupSink {
+      writes.push({ key, meta });
+      const chunks: Buffer[] = [];
+      let finish!: () => void;
+      let fail!: (error: Error) => void;
+      const done = new Promise<void>((resolve, reject) => {
+        finish = resolve;
+        fail = reject;
+      });
+      done.catch(() => undefined);
+      const stream = new Writable({
+        write(chunk: Buffer, _encoding, callback) {
+          chunks.push(Buffer.from(chunk));
+          callback();
+        },
+        final(callback) {
+          if (behaviour.failWrite) {
+            const error = new Error(`${id} is unreachable`);
+            fail(error);
+            callback(error);
+            return;
+          }
+          const body = Buffer.concat(chunks);
+          stored.set(key, behaviour.corrupt ? Buffer.concat([body, Buffer.from('!')]) : body);
+          finish();
+          callback();
+        },
+        destroy(error, callback) {
+          if (error) fail(error);
+          callback(error);
+        },
+      });
+      return { stream, done };
+    },
+    async openRead(key) {
+      const body = stored.get(key);
+      if (body === undefined) throw new Error(`no such object ${key}`);
+      return Readable.from([body]);
+    },
+    async delete(key) {
+      deleted.push(key);
+      stored.delete(key);
+    },
+    async *list() {
+      /* not used */
+    },
+  };
+  return { target, stored, writes, deleted };
+}
+
+async function takeBackup(h: ReturnType<typeof makeHarness>, bytes = 'archive-bytes') {
+  const run = await h.service.startBackup({ trigger: 'manual', createdById: 'admin-1' });
+  const dump = await h.firstDump();
+  dump.push(Buffer.from(bytes));
+  dump.finish();
+  await h.settled;
+  return run;
+}
+
+const mirrorAudits = (h: ReturnType<typeof makeHarness>) =>
+  (h.prisma.auditEvent.create as jest.Mock).mock.calls.map(
+    ([args]) => (args as { data: Record<string, unknown> }).data
+  );
+
+describe('the target port (PP-14.12)', () => {
+  it('writes through the target\'s streaming sink and records the target\'s id and location on the run', async () => {
+    const primary = recordingTarget('vault', { location: '/mnt/vault' });
+    const h = makeHarness({ target: primary.target, policy: { storageProvider: '' } });
+
+    const run = await takeBackup(h);
+
+    expect(run.storageProvider).toBe('vault');
+    expect(run.bucket).toBe('/mnt/vault');
+    expect(primary.writes).toHaveLength(1);
+    expect(primary.writes[0].key).toBe(run.storageKey);
+    // The provider was never asked to upload: the target owns the bytes.
+    expect(h.uploads).toHaveLength(0);
+    expect(primary.stored.get(run.storageKey)?.toString()).toBe('archive-bytes');
+  });
+
+  it('reads the archive back from the TARGET to verify it', async () => {
+    const primary = recordingTarget('vault');
+    const readBack = jest.spyOn(primary.target, 'openRead');
+    const h = makeHarness({ target: primary.target, policy: { storageProvider: '' } });
+
+    const run = await takeBackup(h);
+
+    expect(readBack).toHaveBeenCalledWith(run.storageKey);
+    expect(h.order).not.toContain('download');
+    expect(h.order).toContain('readTocEntryCount');
+  });
+
+  it('judges databaseBackup.storageProvider against the target\'s id', async () => {
+    const primary = recordingTarget('vault');
+    const h = makeHarness({ target: primary.target, policy: { storageProvider: 's3' } });
+
+    await expect(h.service.queueBackup({ trigger: 'manual' })).rejects.toBeInstanceOf(
+      DatabaseBackupStorageProviderError
+    );
+
+    const matching = makeHarness({ target: primary.target, policy: { storageProvider: 'vault' } });
+    await expect(matching.service.queueBackup({ trigger: 'manual' })).resolves.toBeDefined();
+  });
+
+  it('offers node offload only for the default storage-backed target', () => {
+    expect(makeHarness().service.supportsNodeOffload()).toBe(true);
+    expect(makeHarness({ target: recordingTarget('vault').target, policy: { storageProvider: '' } }).service.supportsNodeOffload()).toBe(false);
+  });
+
+  it('deletes a partial archive from the target when the dump dies', async () => {
+    const primary = recordingTarget('vault');
+    const h = makeHarness({ target: primary.target, policy: { storageProvider: '' } });
+
+    const run = await h.service.startBackup({ trigger: 'manual' });
+    const dump = await h.firstDump();
+    dump.push(Buffer.from('half'));
+    dump.die(new Error('pg_dump exited with code 1'));
+    await h.settled;
+
+    expect(primary.deleted).toContain(run.storageKey);
+    expect(h.rows.get(run.id)?.status).toBe('failed');
+  });
+});
+
+describe('mirror targets (PP-14.12)', () => {
+  it('copies the verified archive to every mirror AFTER the run is completed, and records each result', async () => {
+    const one = recordingTarget('local-dir');
+    const two = recordingTarget('cold-store');
+    const h = makeHarness({ mirrors: [one.target, two.target] });
+
+    const run = await takeBackup(h);
+    await waitFor(() => mirrorAudits(h).length === 2, 'both mirror results');
+
+    // The key is the primary's, and the bytes are what the primary served.
+    expect(one.stored.get(run.storageKey)?.toString()).toBe(`archive-of-${run.storageKey}`);
+    expect(two.stored.get(run.storageKey)?.toString()).toBe(`archive-of-${run.storageKey}`);
+    expect(mirrorAudits(h).map((audit) => audit.action)).toEqual([MIRROR_AUDIT_COMPLETED, MIRROR_AUDIT_COMPLETED]);
+    expect(mirrorAudits(h)[0]).toMatchObject({
+      targetType: 'database_backup_run',
+      targetId: run.id,
+      meta: { targetId: 'local-dir', status: 'ok', storageKey: run.storageKey },
+    });
+    // After the `completed` write: the primary was restorable before the copy began.
+    expect(h.order.indexOf('update:completed')).toBeGreaterThan(-1);
+    expect(h.rows.get(run.id)?.status).toBe('completed');
+  });
+
+  it('streams the copy: the mirror sink receives a stream\'s chunks, never a prebuilt buffer', async () => {
+    const mirror = recordingTarget('local-dir');
+    const open = jest.spyOn(mirror.target, 'openWrite');
+    const h = makeHarness({ mirrors: [mirror.target] });
+
+    await takeBackup(h);
+    await waitFor(() => mirrorAudits(h).length === 1, 'the mirror result');
+
+    expect(open).toHaveBeenCalledTimes(1);
+    const sink = open.mock.results[0].value as BackupSink;
+    expect(sink.stream).toBeInstanceOf(Writable);
+  });
+
+  it('a mirror that fails never fails the run: it is recorded, and the partial copy is deleted', async () => {
+    const broken = recordingTarget('cold-store', { failWrite: true });
+    const h = makeHarness({ mirrors: [broken.target] });
+
+    const run = await takeBackup(h);
+    await waitFor(() => mirrorAudits(h).length === 1, 'the mirror result');
+
+    expect(h.rows.get(run.id)?.status).toBe('completed');
+    expect(mirrorAudits(h)[0]).toMatchObject({
+      action: MIRROR_AUDIT_FAILED,
+      meta: { targetId: 'cold-store', status: 'failed', sizeBytes: 0 },
+    });
+    expect((mirrorAudits(h)[0].meta as { error: string }).error).toContain('unreachable');
+    expect(broken.deleted).toContain(run.storageKey);
+    // No failure notification: the backup itself succeeded.
+    expect(h.notifyPermissionHolders).not.toHaveBeenCalled();
+  });
+
+  it('a copy that reads back different from the primary is a failed mirror', async () => {
+    const corrupt = recordingTarget('local-dir', { corrupt: true });
+    const h = makeHarness({ mirrors: [corrupt.target] });
+
+    const run = await takeBackup(h);
+    await waitFor(() => mirrorAudits(h).length === 1, 'the mirror result');
+
+    expect(mirrorAudits(h)[0].action).toBe(MIRROR_AUDIT_FAILED);
+    expect((mirrorAudits(h)[0].meta as { error: string }).error).toContain('differs');
+    expect(corrupt.deleted).toContain(run.storageKey);
+    expect(h.rows.get(run.id)?.status).toBe('completed');
+  });
+
+  it('a failed mirror does not stop the next one', async () => {
+    const broken = recordingTarget('cold-store', { failWrite: true });
+    const good = recordingTarget('local-dir');
+    const h = makeHarness({ mirrors: [broken.target, good.target] });
+
+    const run = await takeBackup(h);
+    await waitFor(() => mirrorAudits(h).length === 2, 'both mirror results');
+
+    expect(mirrorAudits(h).map((audit) => audit.action)).toEqual([MIRROR_AUDIT_FAILED, MIRROR_AUDIT_COMPLETED]);
+    expect(good.stored.has(run.storageKey)).toBe(true);
+  });
+
+  it('a failing audit write is only logged', async () => {
+    const mirror = recordingTarget('local-dir');
+    const h = makeHarness({ mirrors: [mirror.target] });
+    (h.prisma.auditEvent.create as jest.Mock).mockRejectedValue(new Error('audit down'));
+
+    const run = await takeBackup(h);
+    await waitFor(() => (h.prisma.auditEvent.create as jest.Mock).mock.calls.length === 1, 'the audit attempt');
+
+    expect(h.rows.get(run.id)?.status).toBe('completed');
+  });
+
+  it('copies nothing when the primary failed', async () => {
+    const mirror = recordingTarget('local-dir');
+    const h = makeHarness({ mirrors: [mirror.target] });
+
+    await h.service.startBackup({ trigger: 'manual' });
+    const dump = await h.firstDump();
+    dump.die(new Error('pg_dump exited with code 1'));
+    await h.settled;
+    await tick();
+
+    expect(mirror.writes).toHaveLength(0);
+    expect(mirrorAudits(h)).toHaveLength(0);
+  });
+});
+
+describe('db_backup.run.completed (PP-14.12)', () => {
+  function recordingEvents() {
+    const emitted: Array<{ name: string; payload: Record<string, unknown> }> = [];
+    const events = new DbBackupEvents({
+      emit: (name: string, payload: Record<string, unknown>) => {
+        emitted.push({ name, payload });
+        return true;
+      },
+    } as never);
+    return { events, emitted };
+  }
+
+  it('is raised once the run is completed, with the documented payload', async () => {
+    const { events, emitted } = recordingEvents();
+    const h = makeHarness({ events });
+
+    const run = await takeBackup(h, 'twelve-bytes');
+
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].name).toBe('db_backup.run.completed');
+    expect(emitted[0].payload).toMatchObject({
+      runId: run.id,
+      status: 'completed',
+      targetId: 's3',
+      sizeBytes: 12,
+    });
+    expect(typeof emitted[0].payload.durationMs).toBe('number');
+    expect(Object.keys(emitted[0].payload).sort()).toEqual(['durationMs', 'runId', 'sizeBytes', 'status', 'targetId']);
+    // After the completing write, never before it.
+    expect(h.rows.get(run.id)?.status).toBe('completed');
+  });
+
+  it('is raised with status failed for a run that failed, with no archive size', async () => {
+    const { events, emitted } = recordingEvents();
+    const h = makeHarness({ events });
+
+    const run = await h.service.startBackup({ trigger: 'manual' });
+    const dump = await h.firstDump();
+    dump.die(new Error('pg_dump exited with code 1'));
+    await h.settled;
+
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].payload).toMatchObject({ runId: run.id, status: 'failed', sizeBytes: 0 });
+  });
+
+  it('a listener that throws cannot change the run', async () => {
+    const events = new DbBackupEvents({
+      emit: () => {
+        throw new Error('listener bug');
+      },
+    } as never);
+    const h = makeHarness({ events });
+
+    const run = await takeBackup(h);
+
+    expect(h.rows.get(run.id)?.status).toBe('completed');
+  });
+
+  it('is a no-op with no emitter bound', () => {
+    expect(() =>
+      new DbBackupEvents().runCompleted({ runId: 'r', status: 'completed', targetId: 's3', sizeBytes: 1, durationMs: 1 })
+    ).not.toThrow();
   });
 });
