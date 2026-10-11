@@ -233,9 +233,9 @@ Procedures: [runbooks/vapid-keys.md](runbooks/vapid-keys.md). Design: [specs/bro
 - **Where:** Database Backup, `/admin/settings/db-backup`.
 - **Who:** `db_backup:read` to view; `db_backup:write` to change the policy and to start, cancel or delete backups; `db_backup:restore` to restore or roll back. All are system permissions held by `admin`.
 
-Backups stream into object storage, so configure Storage first.
+Backups stream into object storage (or the backup target your developers bound), so configure Storage first.
 
-1. Open the page and set the schedule: enabled, frequency, time of day and time zone, and how many backups to keep.
+1. Open the page and set the schedule: enabled, frequency (daily, weekly, monthly, or a cron expression at least an hour apart), time of day and time zone, and how many backups to keep. Age-based retention and a second copy of each archive on a mirror target are set by your developers; the Doctor's `backup.mirrors` check warns when a copy fails.
 2. Choose **Back up now** for an immediate backup.
 3. Watch the run; download the archive, cancel or delete a run from its row.
 4. To restore, choose **Restore from this backup** on a completed run, read the pre-flight checks, acknowledge and type the confirmation phrase.

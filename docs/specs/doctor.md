@@ -230,6 +230,7 @@ This is the single home for the list of checks. Thirty-four checks ship. `depend
 | Id | Label | `dependsOn` | What it verifies | Rules |
 |---|---|---|---|---|
 | `backup.schedule` | Database backups | `db.connection` | Backups are scheduled and recently succeeded, from the config and the latest runs. Settings page `/admin/settings/db-backup`. | pass: enabled and the last success is at most 48 h old. fail: the latest terminal run failed or went stale (error carried, cut at 300 characters). warn: schedule off, enabled but never completed, or last success over 48 h old. |
+| `backup.mirrors` | Backup mirrors | `db.connection` | Every configured mirror target received the latest backup: the newest `db_backup.mirror.completed` / `.failed` audit row per mirror id (one bounded `findMany`, read-only). `data`: `mirrors`, `failing`, `awaitingFirstCopy`. | pass: no mirror is configured, or each mirror's latest copy landed. warn: a mirror's latest copy failed (the primary backup is fine; the error is carried, cut at 300 characters) or a configured mirror has never received a copy. Never fails. |
 | `backup.rls-bypass` | Backups carry every organization | `db.connection` | A dump's connection sees every row of the organization-owned tables: four counts with the system client and the same four over a short-lived `pg` connection carrying the dump's `app.rls_bypass` startup option. Read-only. `data`: `system.<table>` and `startupOption.<table>`. | pass: every count matches. fail: a count differs (the dump would write an archive with missing rows). warn: the connection with the startup option could not be opened (a transaction-mode pooler rejects it; dump and restore need a direct connection). |
 | `backup.pg-client` | PostgreSQL client (`pg_dump`) | none | This process's `pg_dump` can dump the server: runs `pg_dump --version` and reads `server_version_num`. Timeout 12 s. | pass: client can dump the server. warn: `pg_dump` not found or silent (backups cannot run on this API; a worker node may do them). fail: client older than the server, or older than the pinned major (17). Remedies link [the client-version runbook](../runbooks/postgres-client-version.md). |
 
@@ -283,7 +284,7 @@ Every check is registered by the package module that owns its capability, never 
 | notifications | `push.vapid` |
 | ai | `ai.enabled`, `ai.providers` |
 | jobs, nodes | `jobs.worker`, `jobs.backlog`, `nodes.fleet` |
-| db-backup | `backup.schedule`, `backup.pg-client`, `backup.rls-bypass` |
+| db-backup | `backup.schedule`, `backup.pg-client`, `backup.rls-bypass`, `backup.mirrors` |
 | sharing | `sharing.groups.orphaned` |
 | telemetry | the five `telemetry.*` checks |
 | android-app | `android.assetlinks`, `android.releases` |
@@ -585,3 +586,4 @@ By hand, with the app running and signed in as an Admin:
 - PP-6.2 (#722) added `tenancy.mode` (the `auth` category, registered by `OrganizationsModule`).
 - PP-6.5 (#725) added `db.rls_role` (the `core` category, registered by `OrganizationsModule`) and `backup.rls-bypass` (the `backup` category). Both read through the system client with the reason `doctor` and stay read-only.
 - PP-8.7 (#740) moved the three `backup.*` checks into the packaged db-backup slice (`packages/platform-api/src/db-backup/doctor/`), registered by `DbBackupModule.forRoot()`. `backup.rls-bypass` reads the system client through the slice's `DB_BACKUP_SYSTEM_DATA` host port, still with the reason `doctor`; ids, verdicts and remedies are unchanged.
+- PP-14.12 (#930) added `backup.mirrors` (the `backup` category, registered by `DbBackupModule.forRoot()`): read-only, one bounded `findMany` over the `audit_events` rows the backup engine writes per mirror copy; it warns, never fails.

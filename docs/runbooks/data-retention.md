@@ -15,7 +15,7 @@ Every control below is a system setting, changed at runtime through `PATCH /api/
 | `jobs.history` (`retentionDays`, `purgeEnabled`) | on, 30 days | Finished jobs (`jobs`), after folding them into `job_stats_rollup`. Pending and running jobs are never deleted. | `job.history.purge` | Daily, midnight |
 | `ai.usageRetentionDays` | 180 days | AI accounting rows (`ai_usage_events`) | `ai.usage.purge` | Daily, 05:00 |
 | `nodes.offlineRetentionDays` | 30 days | Worker-node records offline longer than the window | `nodes.fleet.prune` | Daily, 03:00 |
-| `databaseBackup.retentionCount` | 7 backups | Backup archives and their runs beyond the newest N (plus the pre-restore age rule) | `db.backup.sweep` | Every 10 minutes, with the backup scheduler |
+| `databaseBackup.retentionCount` (alias `databaseBackup.retention.count`), and optionally `databaseBackup.retention.maxAgeDays` | 7 backups; no age bound | Backup archives and their runs beyond the newest N, and ordinary archives older than the age bound (the newest completed one is never deleted), with their mirror copies (plus the pre-restore age rule) | `db.backup.sweep` | Every 10 minutes, with the backup scheduler |
 | `telemetry.retentionDays` | 30 days | GreptimeDB data, through the database's TTL (telemetry itself ships off) | `telemetry.retention.apply` | Daily, 04:00, and after every telemetry settings save |
 
 The four `retention.*` policies each take `{ "enabled": boolean, "days": 1–3650 }`. All times are the API server's local time (UTC in the shipped containers).

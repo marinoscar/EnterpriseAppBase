@@ -15,7 +15,7 @@ The audit record of the extension seams of every platform slice. A closed point 
 
 Evidence paths are written `api:`, `web:`, `contract:`, `cli:`, `db:` and `infra:` for `packages/platform-api/src/`, `packages/platform-web/src/`, `packages/platform-contract/src/`, `packages/platform-cli/src/`, `packages/platform-db/` and `packages/platform-infra/`; a path under `apps/` or `docs/` is from the repository root. A story is written PP-14.n (its issue number follows).
 
-As of this version: 114 closed points in 29 sections, 34 fixed and 80 open.
+As of this version: 114 closed points in 29 sections, 37 fixed and 77 open.
 
 ## Verdicts
 
@@ -42,11 +42,11 @@ As of this version: 114 closed points in 29 sections, 34 fixed and 80 open.
 | [testing (api and web)](#testing-api-and-web) | Mostly open | 2 | 0 | 2 | PP-14.26 |
 | [ai](#ai) | Mostly open | 10 | 6 | 4 | PP-14.3, PP-14.6, PP-14.17, PP-14.24 |
 | [storage](#storage) | Mostly open | 5 | 4 | 1 | PP-14.1, PP-14.7, PP-14.24 |
+| [db-backup](#db-backup) | Mostly open | 4 | 3 | 1 | PP-14.12, PP-14.23 |
 | [identity](#identity) | Partly closed | 8 | 6 | 2 | PP-14.9, PP-14.15, PP-14.25 |
 | [email](#email) | Partly closed | 5 | 4 | 1 | PP-14.8, PP-14.24 |
 | [host](#host) | Partly closed | 8 | 1 | 7 | PP-14.2, PP-14.13, PP-14.24 |
 | [datatable](#datatable) | Partly closed | 2 | 0 | 2 | PP-14.20 |
-| [db-backup](#db-backup) | Partly closed | 4 | 0 | 4 | PP-14.12, PP-14.23 |
 | [android-app](#android-app) | Partly closed | 1 | 0 | 1 | PP-14.24 |
 | [testing (CLI runner)](#testing-cli-runner) | Closed | 1 | 0 | 1 | PP-14.22 |
 | [docs (cross-cutting)](#docs-cross-cutting) | Documentation | 2 | 2 | 0 | PP-14.4 |
@@ -68,7 +68,7 @@ The 28 stories of the epic, in order. Phase 1 makes the existing seams real; pha
 | PP-14.9 | #927 | identity: add a sign-in provider (GitHub, Entra, OIDC) | 2 | 14.5 | no | This change |
 | PP-14.10 | #928 | notifications: first-class app channels (Slack, SMS, Teams, webhook) | 2 | 14.5 | no | This change |
 | PP-14.11 | #929 | telemetry: a TELEMETRY_STORE port so the time-series store is replaceable | 2 | 14.5 | no | This change |
-| PP-14.12 | #930 | db-backup: pluggable backup target, schedule policy and restore gates | 2 | 14.1 (14.7) | verify | Open |
+| PP-14.12 | #930 | db-backup: pluggable backup target, schedule policy and restore gates | 2 | 14.1 (14.7) | no | This change |
 | PP-14.13 | #931 | host: health indicators, maintenance bypass, About contributors, deployment capabilities and app guards | 3 | 14.2 | no | Open |
 | PP-14.14 | #932 | core: open the access-reason, principal and error-code vocabularies | 3 | none | no | Open |
 | PP-14.15 | #933 | roles: app roles become assignable, and apps can grant platform permissions to them | 3 | none | no | Open |
@@ -441,16 +441,16 @@ Closed points: none recorded at the audit commit.
 
 ### db-backup
 
-**Verdict:** Partly closed · **Packages:** api, web, contract · **Closed points:** 4 (0 fixed, 4 open) · **Stories:** PP-14.12, PP-14.23
+**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 4 (3 fixed, 1 open) · **Stories:** PP-14.12, PP-14.23
 
-**Open points.** `DbBackupModule.forRoot`, `registerRestoreCarryOver`, the `DB_BACKUP_*` ports, `DbBackupPage` and `DbBackupWebAdaptersProvider`.
+**Open points.** `DbBackupModule.forRoot` with `target` and `mirrorTargets` (the primary backup target and the copies written after it: `BackupTarget`, `DB_BACKUP_TARGET`, `DB_BACKUP_MIRROR_TARGETS`, `StorageProviderBackupTarget`), `registerRestoreGate` and the gate registry (read-only gates after the eight built-ins), the `db_backup.run.completed` and `db_backup.restore.completed` events, `frequency: 'cron'` and `retention.maxAgeDays`, `registerRestoreCarryOver`, the `DB_BACKUP_*` ports, `describeBackupTargetConformance`, `describeRestoreGateConformance`, `DbBackupPage` with `slots.Sections` and `DbBackupWebAdaptersProvider`. Worked examples: `apps/api/src/platform-extensions/db-backup/` (the `local-dir` mirror and the `cdn-quiesced` gate) and `apps/web/src/platform-extensions/db-backup/` (a `Sections` panel).
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
-| db-backup-1 | Every backup service injects the single `STORAGE_PROVIDER`; `databaseBackup.storageProvider` must equal the active provider, and there is no second or offsite target. | api: `db-backup/db-backup-runner.service.ts:699`; `db-backup/db-backup-admin.service.ts:271`; `db-backup/db-backup-retention.service.ts:159` | `DB_BACKUP_TARGET` (streaming, never buffered) bound by `DbBackupModule.forRoot({ target })`, `mirrorTargets`. | PP-14.12 (#930) | Open |
-| db-backup-2 | The schedule frequency is `daily`, `weekly` or `monthly`, and retention is a count only. | contract: `db-backup/constants.ts:231`; `db-backup/settings-schemas.ts:85`; api: `db-backup/schedule.util.ts` | `frequency: 'cron'` (minimum one hour) and `retention: { count?, maxAgeDays? }` with read-compat. | PP-14.12 (#930) | Open |
-| db-backup-3 | The restore pre-flight gates are a closed id list and a hard-coded array; there is no backup or restore completion event. | contract: `db-backup/constants.ts:197`; api: `db-backup/restore-preflight.service.ts:566` | `registerRestoreGate` (read-only); `db_backup.run.completed` and `db_backup.restore.completed`. | PP-14.12 (#930) | Open |
-| db-backup-4 | `DbBackupPage()` takes no props or slots. | web: `db-backup/ui/DbBackupPage.tsx:189` | `PageSlotsBase` and `RunRowActions`. | PP-14.23 (#941) | Open |
+| db-backup-1 | Every backup service injects the single `STORAGE_PROVIDER`; `databaseBackup.storageProvider` must equal the active provider, and there is no second or offsite target. | api: `db-backup/db-backup-runner.service.ts:699`; `db-backup/db-backup-admin.service.ts:271`; `db-backup/db-backup-retention.service.ts:159` | `DB_BACKUP_TARGET` (streaming, never buffered) bound by `DbBackupModule.forRoot({ target })`, `mirrorTargets`. | PP-14.12 (#930) | Fixed |
+| db-backup-2 | The schedule frequency is `daily`, `weekly` or `monthly`, and retention is a count only. | contract: `db-backup/constants.ts:231`; `db-backup/settings-schemas.ts:85`; api: `db-backup/schedule.util.ts` | `frequency: 'cron'` (minimum one hour) and `retention: { count?, maxAgeDays? }` with read-compat. | PP-14.12 (#930) | Fixed |
+| db-backup-3 | The restore pre-flight gates are a closed id list and a hard-coded array; there is no backup or restore completion event. | contract: `db-backup/constants.ts:197`; api: `db-backup/restore-preflight.service.ts:566` | `registerRestoreGate` (read-only); `db_backup.run.completed` and `db_backup.restore.completed`. | PP-14.12 (#930) | Fixed |
+| db-backup-4 | `DbBackupPage()` had no props or slots. `slots.Sections` now exists (additive, markup unchanged when unused); the standard slot names and `RunRowActions` wait for the slot contract. | web: `db-backup/ui/DbBackupPage.tsx` | `PageSlotsBase` and `RunRowActions`. | PP-14.23 (#941) | Open |
 
 ### android-app
 

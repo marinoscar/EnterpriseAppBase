@@ -4,7 +4,7 @@ The wire contract of the database backup and restore slice (issue #740, PP-8.7),
 
 ## Purpose and scope
 
-One definition of what crosses the wire for backups and restores, so the API's validation, its OpenAPI document, the node's result and the web page's types cannot drift. `constants.ts` holds the status, trigger and restore-status lists, the two confirmation words (`RESTORE`, `ROLLBACK`), the restore and rollback modes, the pre-flight gate ids (`RESTORE_GATE_IDS`, `rls_bypass` included) and the schedule's `HH:MM` pattern, zod-free.
+One definition of what crosses the wire for backups and restores, so the API's validation, its OpenAPI document, the node's result and the web page's types cannot drift. `constants.ts` holds the status, trigger and restore-status lists, the two confirmation words (`RESTORE`, `ROLLBACK`), the restore and rollback modes, the built-in pre-flight gate ids (`BUILTIN_RESTORE_GATE_IDS`, `rls_bypass` included; `RESTORE_GATE_IDS` is its deprecated alias) with the open gate-id pattern, the schedule's `HH:MM` and cron patterns, and the names and payloads of the two completion events, zod-free.
 
 Not here: the engine, the services and the routes (the API slice), the page (the web slice), the row-to-response projections (`toRunDto`, `toPreflightView`, ...), which read the Prisma row and stay in the API slice.
 
@@ -36,7 +36,16 @@ None. Schemas and constants take no options.
 
 ## Extension-point catalog
 
-None. The shapes are the closed contract of the slice's routes, its settings namespace and its node result. A fork extends the restore with a carry-over (`RestoreCarryOver`, in the API slice), never by widening these shapes.
+The shapes are the contract of the slice's routes, its settings namespace and its node result, with three open points: the restore gate id, the event names and the schedule policy. A fork extends the restore with a carry-over (`RestoreCarryOver`) or a gate (`registerRestoreGate`), both in the API slice, never by widening a shape.
+
+| Name | Kind | Signature | When to use | Stability | Example |
+|---|---|---|---|---|---|
+| `restoreGateIdSchema` | contract | `z.string().regex(RESTORE_GATE_ID_PATTERN)` | A restore gate's id on the wire: the eight built-ins and any id an app registered | experimental | [example](../../../../apps/api/src/platform-extensions/db-backup/cdn-quiesced.gate.ts) |
+| `RESTORE_GATE_ID_PATTERN` | contract | `/^[a-z][a-z0-9_-]{1,63}$/` | Validate an id before registering a gate | experimental | [example](../../../../apps/api/src/platform-extensions/db-backup/cdn-quiesced.gate.ts) |
+| `DB_BACKUP_RUN_COMPLETED_EVENT` | event | `'db_backup.run.completed'`, payload `DbBackupRunCompletedEvent` | Subscribe to a settled backup run | experimental | [example](../../../../apps/api/test/examples/db-backup/local-dir.target.spec.ts) |
+| `DB_BACKUP_RESTORE_COMPLETED_EVENT` | event | `'db_backup.restore.completed'`, payload `DbBackupRestoreCompletedEvent` | Subscribe to a settled restore | experimental | [example](../../../../apps/api/test/examples/db-backup/local-dir.target.spec.ts) |
+| `BACKUP_FREQUENCIES` | contract | `['daily', 'weekly', 'monthly', 'cron']` | The schedule frequencies; `cron` needs `databaseBackup.cron` | stable | [example](../../../platform-api/test/db-backup/schedule.util.spec.ts) |
+| `backupRetentionSchema` | contract | `{ count?: number; maxAgeDays?: number }` | The retention object beside the `retentionCount` alias | experimental | [example](../../../platform-api/test/db-backup/db-backup.system-settings.spec.ts) |
 
 The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
 
@@ -69,6 +78,8 @@ The restore and rollback bodies require a typed literal (`RESTORE`, `ROLLBACK`),
 None of its own. The API slice's specs pin the restore-status and gate-id lists against the services that emit them.
 
 ## Upgrade notes
+
+PP-14.12 is additive. `frequency` gains `cron` and the stored, patch, put and response shapes gain optional `cron` (digits, `*`, `/`, `,`, `-` and spaces, at most 120 characters; the API parses it with the scheduler's parser and holds it to a one-hour minimum) and `retention`; a row stored before them parses and round-trips unchanged and `retentionCount` stays required and the alias of `retention.count`. The gate id in `restoreGateSchema` and `startRestoreBlocked.block` is a pattern rather than an enum of eight, `RESTORE_GATE_IDS` is renamed `BUILTIN_RESTORE_GATE_IDS` (alias kept) and a gate's `kind` gains `app`. The OpenAPI document changes in exactly those places.
 
 New in this version. The shapes are unchanged from the reference app's `db-backup/dto/`, `jobs/contracts/db-backup-run.contract.ts` and `common/schemas/`; the OpenAPI document is identical except for the new `rls_bypass` gate id.
 

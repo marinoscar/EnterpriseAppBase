@@ -2,7 +2,7 @@
 
 > **Audience:** developers of an app built on the `@marinoscar/platform-*` packages, and authors of an extension package an app installs · **Contract:** [The Extension Contract](specs/platform-packages.md#the-extension-contract) · **Audit:** [EXTENSIBILITY-AUDIT.md](EXTENSIBILITY-AUDIT.md) (what is still closed) · **Catalogs:** the Extension-point catalog of each slice README, indexed in [SLICES.md](SLICES.md)
 
-How to add to a platform slice from your own app, or from a package your app installs, without editing a file under `packages/platform-*`. The page gives the ladder of mechanisms and the rule that decides which one an override uses, then one numbered recipe per common extension. Every recipe names its imports and the file in the reference app that does the same thing. Extensions that need a seam the platform has not opened yet are placeholders headed "Coming in PP-14.n"; [EXTENSIBILITY-AUDIT.md](EXTENSIBILITY-AUDIT.md) lists each closed point and the story that opens it.
+How to add to a platform slice from your own app, or from a package your app installs, without editing a file under `packages/platform-*`. The page gives the ladder of mechanisms and the rule that decides which one an override uses, then one numbered recipe per common extension. Every recipe names its imports and the file in the reference app that does the same thing. An extension that needs a seam the platform has not opened yet has no recipe here; [EXTENSIBILITY-AUDIT.md](EXTENSIBILITY-AUDIT.md) lists each closed point and the story that opens it.
 
 ## Contents
 
@@ -10,10 +10,9 @@ How to add to a platform slice from your own app, or from a package your app ins
 2. [The extension ladder](#the-extension-ladder)
 3. [Open an id vocabulary](#open-an-id-vocabulary)
 4. [Recipes that work today](#recipes-that-work-today)
-5. [Coming in later stories](#coming-in-later-stories)
-6. [How to ship an extension as its own npm package](#how-to-ship-an-extension-as-its-own-npm-package)
-7. [Conformance kits](#conformance-kits)
-8. [See also](#see-also)
+5. [How to ship an extension as its own npm package](#how-to-ship-an-extension-as-its-own-npm-package)
+6. [Conformance kits](#conformance-kits)
+7. [See also](#see-also)
 
 ## Before you start
 
@@ -563,6 +562,89 @@ Available now. An app, or an `@acme/telemetry-clickhouse` package an app install
 
 Not covered here: **replacing the OpenTelemetry collector's exporter**, which writes the telemetry into the store, is an infra overlay (the collector config is `@marinoscar/platform-infra/telemetry`; [telemetry runbook §2.4](runbooks/telemetry.md#24-add-your-own-collector-pipelines-app-overlay)). The API only reads. What is still closed (audit: [telemetry](EXTENSIBILITY-AUDIT.md#telemetry)): the assistant's own SQL and system prompt describe GreptimeDB (DataFusion) SQL, the metric catalog's series still read the OpenTelemetry-on-GreptimeDB table layout, and the Doctor's tables check names GreptimeDB in its text.
 
+### Add a backup target, a mirror or a restore gate
+
+Available now. An app, or an `@acme/backup-vault` package an app installs, changes where database backups are written, keeps a second copy of each archive elsewhere, or adds a check that must pass before a restore, with no edit under `packages/`. All three are on the `db-backup` slice; the reference for every member is the [db-backup README](../packages/platform-api/src/db-backup/README.md) and the design is [the backup spec](specs/database-backup.md) and [the restore spec](specs/database-restore.md). The worked examples are [`local-dir.target.ts`](../apps/api/src/platform-extensions/db-backup/local-dir.target.ts) (an archive per file under a directory) and [`cdn-quiesced.gate.ts`](../apps/api/src/platform-extensions/db-backup/cdn-quiesced.gate.ts) (block a restore until the CDN is paused), both registered or bound from [`app-registrations/db-backup.ts`](../apps/api/src/app-registrations/db-backup.ts).
+
+**Four things hold for every one of them, and the kits assert them:** an archive is **never buffered** (a target's write is a stream the dump is piped into, and the write AND the dump's exit code are awaited); the dump and the restore still carry both RLS flags (`--enable-row-security` and `PGOPTIONS=-c app.rls_bypass=on`, in the environment) whatever the target is; **no restore pre-flight creates, drops, renames or alters anything**, so a gate is read-only; and long-running work stays a queue job (a mirror copy runs inside the existing `db.backup.run` job, after the primary succeeded).
+
+1. **Implement `BackupTarget`** (`import type { BackupTarget } from '@marinoscar/platform-api/db-backup'`).
+
+   ```ts
+   class VaultBackupTarget implements BackupTarget {
+     readonly id = 'vault';                    // recorded on every run; lowercase
+     openWrite(key: string): BackupSink {      // a streaming sink: { stream: Writable, done: Promise<void> }
+       const stream = new PassThrough();
+       const done = pipeline(stream, this.vault.putStream(key));   // settles when stored; rejects on a destroyed stream
+       done.catch(() => undefined);
+       return { stream, done };
+     }
+     async openRead(key: string): Promise<Readable> { return this.vault.getStream(key); }   // rejects when missing
+     async delete(key: string): Promise<void> { await this.vault.remove(key); }             // a missing key is not an error
+     async *list(prefix: string) { for await (const o of this.vault.list(prefix)) yield { key: o.key, sizeBytes: o.size }; }
+   }
+   ```
+
+   The key is the server's (`database-backups/<slug>/<yyyy>/<mm>/<file>.dump`): never derive, rewrite or accept one from elsewhere, and refuse a key that leaves your root. Optional members: `location` (recorded as the run's `bucket`), `refresh()` (re-read settings your `id` depends on), `signedDownloadUrl(key, { expiresInSeconds, filename })` (without it the download route answers `400 backup_target_cannot_sign`; the archive is still restorable). Keep credentials in the credential store, never in an environment variable or a log line.
+2. **Bind it, as the primary or as a mirror** (`apps/api/src/app-registrations/db-backup.ts`, imported by `platform/db-backup/db-backup.config.ts`):
+
+   ```ts
+   export const APP_BACKUP_TARGET = { useClass: VaultBackupTarget };                         // replaces the default adapter over STORAGE_PROVIDER
+   export const APP_BACKUP_MIRROR_TARGETS = [localDirMirror('/mnt/backup-mirror')];          // each gets a copy after the primary is proven
+   ```
+
+   Exactly one of `useClass`, `useExisting`, `useFactory` per binding; its dependencies come from the slice's `imports` and global modules. Every consumer receives it: the runner, retention, the stale sweep, the admin download and delete and the restore. What changes with a target:
+   - **A primary target** is recorded on each run (`storage_provider` = its `id`); `databaseBackup.storageProvider`, when set, must equal that id. A worker node cannot take a backup for it (its presigned PUT writes through the storage provider), so node offload is withheld and the in-process worker streams the dump into your target.
+   - **A mirror** is copied to after the run is `completed`: the primary's bytes stream into the mirror, the copy is read back and its SHA-256 compared, and the result is an `audit_events` row (`db_backup.mirror.completed` / `.failed`). A failed mirror never fails the backup; the Doctor's `backup.mirrors` check warns. Retention and the admin delete remove the copy with the original. Ids must be unique.
+3. **Schedule and retention need no code.** `databaseBackup.frequency: 'cron'` with `cron` (`0 */6 * * *`; lists, ranges and steps, at least an hour between runs, validated on write) and `retention: { count?, maxAgeDays? }` (`retentionCount` stays its alias) are settings an administrator or `PATCH /api/system-settings` writes. A row stored before them loads unchanged.
+4. **Add a restore gate.**
+
+   ```ts
+   import { registerRestoreGate } from '@marinoscar/platform-api/db-backup';
+
+   registerRestoreGate({
+     id: 'cdn-quiesced',                       // letters, digits, _ and -
+     label: 'CDN quiesced',                    // the row heading in the restore dialog
+     async check(ctx) {                        // read-only: ctx is frozen; ctx.settings.get(namespace) reads a registered system namespace
+       const cdn = await ctx.settings.get('cdn');
+       if (cdn === undefined) return { status: 'pass', message: 'No CDN is configured.' };   // inert until the app registers the namespace
+       return cdn.quiesced === true
+         ? { status: 'pass', message: 'The CDN is quiesced.' }
+         : { status: 'fail', message: 'The CDN is still serving.', action: 'Pause or purge the CDN, then retry.' };
+     },
+   });
+   ```
+
+   Register at import time (the registry freezes at bootstrap). The eight built-ins run first, then yours in registration order. `pass` and `warn` proceed (a `warn` is shown); a `fail` blocks the restore outright with no override (`overrideSchemaCheck` answers the schema gate only); a throw, a malformed answer or ten seconds without one is a block that names your gate. The dialog shows your gate beside the built-ins with no web code.
+5. **React to the outcome.** `db_backup.run.completed` and `db_backup.restore.completed` (`DB_BACKUP_RUN_COMPLETED_EVENT`, `DB_BACKUP_RESTORE_COMPLETED_EVENT`) carry `{ runId, status, targetId, sizeBytes, durationMs }` on the application's event emitter, after the settling write commits and outside any transaction:
+
+   ```ts
+   @OnEvent(DB_BACKUP_RUN_COMPLETED_EVENT)
+   onBackup(event: DbBackupRunCompletedEvent): void { void this.chat.post(`Backup ${event.runId}: ${event.status}`).catch(log); }
+   ```
+
+   A listener must not do I/O in its body (the `on-event-no-io` suite): enqueue a job or start a contained dispatch.
+6. **Add a section to the page** (optional). `<DbBackupPage slots={{ Sections: RestoreDrillSection }} />` renders your component below the run history with the policy, the runs on screen, `canWrite`, `canRestore` and a `refresh`; see [`RestoreDrillSection.example.tsx`](../apps/web/src/platform-extensions/db-backup/RestoreDrillSection.example.tsx). With no slot the page's markup is unchanged.
+7. **Prove it with the kits and a test that boots the real module.**
+   - **The target.** `describeBackupTargetConformance` of `@marinoscar/platform-api/db-backup/testing` streams 20 MiB through it and fails a target that buffers (Buffer memory grows with the object, the sink queues more than 4 MiB, or the read arrives as one chunk), reads back byte for byte, fails a destroyed write through `done`, lists exactly a prefix, deletes idempotently and, with `rejectsEscapingKeys: true`, refuses `../`.
+   - **The gate.** `describeRestoreGateConformance` runs your scenarios against a context that records every write, with `watch` counters for your own side effects (each must stay at zero), twice for repeatability, and through the registry's evaluator.
+
+   ```ts
+   describeBackupTargetConformance(() => new LocalDirBackupTarget(dir), { describe, it, expect, rejectsEscapingKeys: true });
+   describeRestoreGateConformance(cdnQuiescedGate, { describe, it, expect, scenarios: [{ name: 'quiesced', settings: { cdn: { quiesced: true } }, expectStatus: 'pass' }] });
+   ```
+
+   - **The consumers.** [`local-dir.target.spec.ts`](../apps/api/test/examples/db-backup/local-dir.target.spec.ts) binds the mirror the way a fork would (`APP_BACKUP_MIRROR_TARGETS`) in the real application, takes a backup, and asserts the copy is written after the primary with the same key and bytes, a failing mirror is recorded without failing the backup, the event reaches a listener and the Doctor check is registered. [`cdn-quiesced.gate.spec.ts`](../apps/api/test/examples/db-backup/cdn-quiesced.gate.spec.ts) runs the real pre-flight and restore service: inert without a namespace, blocking until quiesced, `startRestore` refusing and queueing nothing, the cluster receiving no DDL. [`mirror-doctor.db.spec.ts`](../apps/api/test/examples/db-backup/mirror-doctor.db.spec.ts) is the real-database proof of the Doctor read.
+   - **The web.** [`restore-drill-section.test.tsx`](../apps/web/src/__tests__/examples/db-backup/restore-drill-section.test.tsx) renders the packaged page with the slot, a cron schedule and an app gate.
+8. **Check it.**
+
+   ```bash
+   npx jest --config apps/api/test/jest.config.js --rootDir apps/api test/examples/db-backup
+   npm run test:run --workspace=web -- src/__tests__/examples/db-backup
+   ```
+
+What is still closed (audit: [db-backup](EXTENSIBILITY-AUDIT.md#db-backup)): `RunRowActions` and the rest of the page-slot contract (PP-14.23). A mirror is copied one after another inside the backup job, so a very slow mirror lengthens the job (the job's six-hour ceiling applies) but never delays the primary's availability.
+
 ### Add an event bus adapter
 
 Available now. Full recipe: [the host README](../packages/platform-api/src/host/README.md#adding-an-event-bus-adapter). Example: [`recording-event-bus.ts`](../apps/api/src/platform-extensions/host/recording-event-bus.ts), registered by [`app-registrations/host.ts`](../apps/api/src/app-registrations/host.ts), proven by [`event-bus-adapter.spec.ts`](../apps/api/test/examples/host/event-bus-adapter.spec.ts).
@@ -583,7 +665,7 @@ Available now. Full recipe: [the host README](../packages/platform-api/src/host/
 
 ### Writing a pluggable implementation
 
-Available now. A **pluggable kind** is the one shape every slice with a swappable part (AI provider, storage driver, email transport, sign-in provider, notification channel, telemetry store, backup target) is moving to, so you learn it once. The primitive is `definePluggableKind` of `@marinoscar/platform-api/core`; the AI providers, the storage drivers and the email transports use it ([Add an AI provider](#add-an-ai-provider-the-assemblyai-case), [Add a storage driver](#add-a-storage-driver), [Add an email transport](#add-an-email-transport)), the telemetry stores use it too ([Replace the telemetry store](#replace-the-telemetry-store)), the story PP-14.12 applies it to the remaining slice, and until that story lands its kind is not yet registered there (see the placeholder below). Sign-in providers keep identity's own registry (`registerAuthProvider`), extended compatibly: a provider has no admin settings form to generate (its secrets are credentials, its enablement is whether they exist), so [Add a sign-in provider](#add-a-sign-in-provider) is its own recipe. Notification channels keep the notifications registries for the same reason (a channel's configuration is the app's, and its administrator control is one switch per channel): [Add a notification channel](#add-a-notification-channel). The full reference is [the core README, Pluggable kinds](../packages/platform-api/src/core/README.md#pluggable-kinds). Worked example, with no consumer slice: [`greeter.kind.ts`](../apps/api/src/platform-extensions/core/greeter.kind.ts), registered by [`app-registrations/core.ts`](../apps/api/src/app-registrations/core.ts), proven by [`pluggable-kind.spec.ts`](../apps/api/test/examples/core/pluggable-kind.spec.ts) on the API side and [`pluggable-config-form.test.tsx`](../apps/web/src/__tests__/examples/settings/pluggable-config-form.test.tsx) on the web side.
+Available now. A **pluggable kind** is the one shape every slice with a swappable part (AI provider, storage driver, email transport, sign-in provider, notification channel, telemetry store, backup target) is moving to, so you learn it once. The primitive is `definePluggableKind` of `@marinoscar/platform-api/core`; the AI providers, the storage drivers and the email transports use it ([Add an AI provider](#add-an-ai-provider-the-assemblyai-case), [Add a storage driver](#add-a-storage-driver), [Add an email transport](#add-an-email-transport)), the telemetry stores use it too ([Replace the telemetry store](#replace-the-telemetry-store)). Backup targets are the one swappable part that does not use it: a target has no administrator settings form to generate (where archives go is the deployment's, bound in code), so it binds through `DbBackupModule.forRoot` like an event bus adapter does: [Add a backup target, a mirror or a restore gate](#add-a-backup-target-a-mirror-or-a-restore-gate). Sign-in providers keep identity's own registry (`registerAuthProvider`), extended compatibly: a provider has no admin settings form to generate (its secrets are credentials, its enablement is whether they exist), so [Add a sign-in provider](#add-a-sign-in-provider) is its own recipe. Notification channels keep the notifications registries for the same reason (a channel's configuration is the app's, and its administrator control is one switch per channel): [Add a notification channel](#add-a-notification-channel). The full reference is [the core README, Pluggable kinds](../packages/platform-api/src/core/README.md#pluggable-kinds). Worked example, with no consumer slice: [`greeter.kind.ts`](../apps/api/src/platform-extensions/core/greeter.kind.ts), registered by [`app-registrations/core.ts`](../apps/api/src/app-registrations/core.ts), proven by [`pluggable-kind.spec.ts`](../apps/api/test/examples/core/pluggable-kind.spec.ts) on the API side and [`pluggable-config-form.test.tsx`](../apps/web/src/__tests__/examples/settings/pluggable-config-form.test.tsx) on the web side.
 
 1. **Pick the kind.** Import the kind a slice exposes. For a swappable part of your own, define one once, at module scope, in the file that owns it (`import { definePluggableKind } from '@marinoscar/platform-api/core'`):
 
@@ -805,14 +887,6 @@ Available now. An app, or an `@acme/auth-github` package an app installs, adds a
 
 What is still closed (audit: [identity](EXTENSIBILITY-AUDIT.md#identity)): app roles in the invite and member routes (PP-14.15) and slots on the Users and Organization pages (PP-14.25). **Login CSRF is yours to prevent: the slice adds no `state` and no PKCE.** With `passport-oauth2`, `state: true` or `pkce: true` without a `store` throws "requires session support" on every sign-in here, because this app registers no session plugin. A real OAuth 2.0 provider must pass `store: createCookieStateStore({ secret: config.get('jwt.secret') })` (a signed, short-lived HttpOnly cookie; it does not do PKCE) or a store of its own. The example strategy has none only because it never leaves the process, and it is not a template for that part.
 
-## Coming in later stories
-
-Each placeholder names the story that replaces it; each is built on [the pluggable kind](#writing-a-pluggable-implementation). Until then the audit row is the record of what is closed.
-
-### Coming in PP-14.12: add a backup target
-
-A backup target port (with mirror targets), a cron schedule, age-based retention, app restore gates and completion events. **Not supported yet.** Backups write through the single `STORAGE_PROVIDER`, so [Replace the object store](#replace-the-object-store) changes where they go, for backups and everything else.
-
 ## How to ship an extension as its own npm package
 
 An extension package (`@acme/ai-assemblyai`, `@acme/storage-azure`) is a package that an app installs next to `@marinoscar/platform-*` and that registers or binds its parts through the same seams an app uses. The platform packages are its host, so the package follows the rules that keep one copy of each.
@@ -843,7 +917,8 @@ A kit is a function an extension author calls with the implementation and the te
 | `describeAuthProviderConformance(definition, { describe, it, expect, rawProfile, expectedSubject, enabledWith?, host? })` | `@marinoscar/platform-api/identity/testing` | A well-formed definition; `mapProfile` returns a valid `ExternalProfile` (and survives a sparse payload); `isEnabled` is false without configuration and true with it; the strategy builds; the route is mounted; a full login creates a `UserIdentity` for this provider and subject; the allowlist applies; an unverified address is refused; a policy denial returns its reason | Available |
 | `describeNotificationSenderConformance(sender, { describe, it, expect, recipient, handles?, secrets?, breakTransport? })` | `@marinoscar/platform-api/notifications/testing` | The channel is registered and the sender has a resolver; a reachable recipient resolves to a destination with a redacted display that carries no secret; an unreachable one resolves to `null`; `deliver` never throws (any payload, a down transport, an empty destination) and reports a failure with a reason; no secret in the display, `error` or `messageId`; the channel switch drops the channel, mandatory events included | Available |
 | `describeTelemetryStoreConformance(store, { describe, it, expect, settings?, secrets?, writeStatements?, timeout?, unconfigured?, fixture? })` | `@marinoscar/platform-api/telemetry/testing` | A valid definition (id, label, defaults, no secret-looking setting, a form descriptor); `query` refuses writes and answers a read afterwards, honours its timeout and abort signal; `schema()` has the explorer shape, sorted; `ping()` never throws and leaks no secret; an unconfigured store refuses with a typed error; `close()` twice; the dialect renders every construct; given a fixture, every dashboard statement built with the dialect runs against the store | Available |
-| Backup target | the slice's `…/testing` entry | Ships with its story (PP-14.12) | Coming |
+| `describeBackupTargetConformance(target, { describe, it, expect, rejectsEscapingKeys?, skip? })` | `@marinoscar/platform-api/db-backup/testing` | A valid id and the four members; write, read back, a missing key fails to read, idempotent delete; a 20 MiB stream that is not buffered (queued bytes, Buffer memory, chunked reads) and matches by SHA-256; a destroyed write rejects `done`; exact prefix listing; a signed URL when defined; `../` refused when declared | Available |
+| `describeRestoreGateConformance(gate, { describe, it, expect, scenarios, watch? })` | `@marinoscar/platform-api/db-backup/testing` | A valid definition; answers `{ status, message }` per scenario; read-only (a context that records every write, plus watched side-effect counters); repeatable; evaluates to a pre-flight row with the gate's id and label | Available |
 | Doctor check, job handler | `@marinoscar/platform-api/doctor/testing`, `…/jobs/testing` | Read-only checks; handler profile, idempotence and node-eligibility pairing | Coming (PP-14.26) |
 
 An app adds its own suite with `conformanceSuites.register` and a `declare module '@marinoscar/platform-api/testing'` augmentation of `PlatformConformanceSuiteOptions`; the android-app slice's `testing/conformance.ts` is the model. More: [TESTING.md](TESTING.md#platform-conformance).
