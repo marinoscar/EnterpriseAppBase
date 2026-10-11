@@ -53,9 +53,14 @@ describe('backup.mirrors', () => {
   describe('the check', () => {
     const target = (id: string): BackupTarget => ({ id }) as unknown as BackupTarget;
     const prismaReturning = (rows: unknown[]) => {
-      const $queryRaw = jest.fn(async (..._args: unknown[]) => rows);
-      return { prisma: { $queryRaw } as unknown as PrismaService, $queryRaw };
+      const findMany = jest.fn(async (..._args: unknown[]) => rows);
+      return { prisma: { auditEvent: { findMany } } as unknown as PrismaService, findMany };
     };
+    const row = (action: string, targetId: string, error?: string) => ({
+      action,
+      createdAt: at,
+      meta: { targetId, status: action === MIRROR_AUDIT_FAILED ? 'failed' : 'ok', ...(error ? { error } : {}) },
+    });
 
     it('registers itself under backup / backup.mirrors, after the database', () => {
       const registry = new DoctorCheckRegistry();
@@ -69,19 +74,22 @@ describe('backup.mirrors', () => {
     });
 
     it('reads nothing when no mirror is configured', async () => {
-      const { prisma, $queryRaw } = prismaReturning([]);
+      const { prisma, findMany } = prismaReturning([]);
       const check = new BackupMirrorsDoctorCheck(new DoctorCheckRegistry(), prisma);
 
       await expect(check.run()).resolves.toMatchObject({ status: 'pass', detail: 'No mirror targets are configured' });
-      expect($queryRaw).not.toHaveBeenCalled();
+      expect(findMany).not.toHaveBeenCalled();
     });
 
     it('judges each configured mirror by its latest recorded audit row', async () => {
+      // Newest first, as the query orders them: the first row seen per target is its latest.
       const { prisma } = prismaReturning([
-        { target_id: 'local-dir', action: MIRROR_AUDIT_COMPLETED, created_at: at, error: null },
-        { target_id: 'cold', action: MIRROR_AUDIT_FAILED, created_at: at, error: 'cold store unreachable' },
+        row(MIRROR_AUDIT_COMPLETED, 'local-dir'),
+        row(MIRROR_AUDIT_FAILED, 'cold', 'cold store unreachable'),
+        // An older success for `cold` is superseded by the newer failure above.
+        row(MIRROR_AUDIT_COMPLETED, 'cold'),
         // A mirror that is no longer configured is ignored.
-        { target_id: 'retired', action: MIRROR_AUDIT_FAILED, created_at: at, error: 'gone' },
+        row(MIRROR_AUDIT_FAILED, 'retired', 'gone'),
       ]);
       const check = new BackupMirrorsDoctorCheck(new DoctorCheckRegistry(), prisma, [target('local-dir'), target('cold')]);
 
@@ -93,18 +101,28 @@ describe('backup.mirrors', () => {
       expect(outcome.error).toBe('cold store unreachable');
     });
 
-    it('is read-only: one SELECT over audit_events, no write', async () => {
-      const { prisma, $queryRaw } = prismaReturning([]);
+    it('is read-only: one bounded findMany over the mirror actions, no write', async () => {
+      const { prisma, findMany } = prismaReturning([]);
       const check = new BackupMirrorsDoctorCheck(new DoctorCheckRegistry(), prisma, [target('cold')]);
 
       await check.run();
 
-      expect($queryRaw).toHaveBeenCalledTimes(1);
-      const sql = ($queryRaw.mock.calls[0][0] as TemplateStringsArray).join('?');
-      expect(sql).toMatch(/^\s*SELECT/i);
-      expect(sql).toContain('audit_events');
-      expect(sql).not.toMatch(/INSERT|UPDATE|DELETE|DROP|ALTER/i);
-      expect(Object.keys(prisma)).toEqual(['$queryRaw']);
+      expect(findMany).toHaveBeenCalledTimes(1);
+      expect(findMany.mock.calls[0][0]).toEqual({
+        where: { action: { in: [MIRROR_AUDIT_COMPLETED, MIRROR_AUDIT_FAILED] } },
+        orderBy: { createdAt: 'desc' },
+        take: 500,
+        select: { action: true, createdAt: true, meta: true },
+      });
+      // Nothing but the one read exists on the client it was given.
+      expect(Object.keys((prisma as unknown as { auditEvent: object }).auditEvent)).toEqual(['findMany']);
+    });
+
+    it('ignores a row whose meta has no target id', async () => {
+      const { prisma } = prismaReturning([{ action: MIRROR_AUDIT_FAILED, createdAt: at, meta: null }]);
+      const check = new BackupMirrorsDoctorCheck(new DoctorCheckRegistry(), prisma, [target('cold')]);
+
+      await expect(check.run()).resolves.toMatchObject({ status: 'warn', detail: expect.stringContaining('No copy to "cold"') });
     });
   });
 });

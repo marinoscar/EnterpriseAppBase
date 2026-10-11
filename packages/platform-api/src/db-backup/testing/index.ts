@@ -34,6 +34,11 @@ export type {
   RestoreGateScenario,
 } from './restore-gate-conformance';
 
+// ---- the Doctor checks --------------------------------------------------------------------
+export { BackupMirrorsDoctorCheck, decideBackupMirrors } from '../doctor/backup-mirrors.doctor-check';
+/** @stability experimental */
+export type { MirrorFact } from '../doctor/backup-mirrors.doctor-check';
+
 // ---- services, handlers and the controller ------------------------------------------------
 export { DatabaseBackupAdminService, BACKUP_DOWNLOAD_URL_EXPIRY_SECONDS } from '../db-backup-admin.service';
 /** @stability experimental */

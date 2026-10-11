@@ -178,10 +178,12 @@ export interface DbBackupTx extends JobsTx {
     /** `findUnique`. */
     findUnique(args: JobsQueryArgs): Promise<DbBackupUserRow | null>;
   };
-  /** `audit_events`; `create` only. */
+  /** `audit_events`: `create`, and `findMany` for the `backup.mirrors` Doctor check's read. */
   auditEvent: {
     /** `create`. */
     create(args: JobsQueryArgs): Promise<unknown>;
+    /** `findMany`: read-only; the mirror results the engine recorded. */
+    findMany(args: JobsQueryArgs): Promise<Array<{ action: string; createdAt: Date; meta: unknown }>>;
   };
 }
 

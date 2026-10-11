@@ -11,6 +11,9 @@ import { BACKUP_SETTINGS_PATH } from './backup-schedule.doctor-check';
 /** How much of a mirror's error the report carries. */
 const MAX_ERROR_LENGTH = 300;
 
+/** How many of the newest mirror rows the check reads. */
+const MAX_ROWS = 500;
+
 /**
  * The most recent result recorded for one mirror target.
  *
@@ -82,7 +85,7 @@ export function decideBackupMirrors(facts: readonly MirrorFact[]): DoctorCheckOu
 /**
  * `backup` / `backup.mirrors`: every mirror target received the latest
  * backup. Read-only: it reads the `audit_events` rows the runner wrote
- * (`db_backup.mirror.completed` / `.failed`); it never touches a target.
+ * (`db_backup.mirror.completed` / `.failed`) with one bounded `findMany`; it never touches a target.
  *
  * @stability experimental
  */
@@ -111,18 +114,27 @@ export class BackupMirrorsDoctorCheck implements DoctorCheck, OnModuleInit {
   async run(): Promise<DoctorCheckOutcome> {
     if (this.mirrors.length === 0) return decideBackupMirrors([]);
 
-    // The latest result per mirror id: one row each, newest first.
-    const rows = await this.prisma.$queryRaw<
-      Array<{ target_id: string; action: string; created_at: Date; error: string | null }>
-    >`
-      SELECT DISTINCT ON (meta->>'targetId')
-        meta->>'targetId' AS target_id, action, created_at, meta->>'error' AS error
-      FROM audit_events
-      WHERE action IN (${MIRROR_AUDIT_COMPLETED}, ${MIRROR_AUDIT_FAILED})
-      ORDER BY meta->>'targetId', created_at DESC
-    `;
+    // The newest mirror results first. A bounded read: the latest row of every
+    // configured mirror is among the newest few hundred unless a mirror has
+    // never reported, which is the case the check names.
+    const rows = await this.prisma.auditEvent.findMany({
+      where: { action: { in: [MIRROR_AUDIT_COMPLETED, MIRROR_AUDIT_FAILED] } },
+      orderBy: { createdAt: 'desc' },
+      take: MAX_ROWS,
+      select: { action: true, createdAt: true, meta: true },
+    });
 
-    const latest = new Map(rows.map((row) => [row.target_id, row]));
+    // Newest first, so the first row seen for a target id is its latest.
+    const latest = new Map<string, { action: string; createdAt: Date; error: string | null }>();
+    for (const row of rows) {
+      const meta = (row.meta ?? {}) as { targetId?: unknown; error?: unknown };
+      if (typeof meta.targetId !== 'string' || latest.has(meta.targetId)) continue;
+      latest.set(meta.targetId, {
+        action: row.action,
+        createdAt: row.createdAt,
+        error: typeof meta.error === 'string' ? meta.error : null,
+      });
+    }
 
     return decideBackupMirrors(
       this.mirrors.map((mirror) => {
@@ -130,7 +142,7 @@ export class BackupMirrorsDoctorCheck implements DoctorCheck, OnModuleInit {
         return {
           targetId: mirror.id,
           status: row === undefined ? null : row.action === MIRROR_AUDIT_FAILED ? 'failed' : 'ok',
-          at: row?.created_at ?? null,
+          at: row?.createdAt ?? null,
           error: row?.error ?? null,
         };
       }),
