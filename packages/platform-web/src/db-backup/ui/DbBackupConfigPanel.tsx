@@ -75,8 +75,13 @@ import type {
   UpdateDbBackupConfigInput,
 } from '../headless/index.js';
 
-/** The editable half of `DbBackupConfig` — the computed fields are not settable. */
-type ConfigForm = Required<
+/**
+ * The editable half of `DbBackupConfig` — the computed fields are not settable.
+ * `cron` is held as text (empty when the row has none) and sent only under the
+ * `cron` frequency, so a save under any other frequency carries exactly the
+ * fields it always did.
+ */
+type ConfigForm = { cron: string } & Required<
   Pick<
     DbBackupConfig,
     | 'enabled'
@@ -96,6 +101,7 @@ const FREQUENCY_LABELS: Record<DbBackupFrequency, string> = {
   daily: 'Every day',
   weekly: 'Every week',
   monthly: 'Every month',
+  cron: 'On a cron schedule',
 };
 
 const ROLLBACK_MODE_LABELS: Record<RestoreRollbackMode, string> = {
@@ -132,7 +138,14 @@ function toForm(config: DbBackupConfig): ConfigForm {
     compressionLevel: config.compressionLevel,
     restoreRollbackMode: config.restoreRollbackMode,
     oldDatabaseRetentionHours: config.oldDatabaseRetentionHours,
+    cron: config.cron ?? '',
   };
+}
+
+/** The body to save: the form, with `cron` only under the cron frequency. */
+function toInput(form: ConfigForm): UpdateDbBackupConfigInput {
+  const { cron, ...rest } = form;
+  return form.frequency === 'cron' ? { ...rest, cron: cron.trim() } : rest;
 }
 
 /** @stability experimental */
@@ -187,7 +200,7 @@ export function DbBackupConfigPanel({
     // a diff would work — but a diff computed in the browser is a second source
     // of truth about what changed, and a policy half-applied because one field
     // was thought unchanged is worse than a redundant field on the wire.
-    const ok = await onSave(form);
+    const ok = await onSave(toInput(form));
     if (ok) onSaved('Backup policy saved');
   };
 
@@ -236,6 +249,25 @@ export function DbBackupConfigPanel({
             </TextField>
           </Grid>
 
+          {/* A cron schedule is its own expression: no day or time pickers
+              beside it (they would change nothing). Rendered only under the
+              `cron` frequency, so every other schedule's form is as it was. */}
+          {form.frequency === 'cron' && (
+            <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+              <TextField
+                fullWidth
+                label="Cron expression"
+                value={form.cron}
+                onChange={(event) => update('cron', event.target.value)}
+                disabled={disabled}
+                placeholder="0 */6 * * *"
+                // Validated by the API with the scheduler's own parser, whose
+                // answer is shown verbatim above if it refuses.
+                helperText="Five fields, in the timezone below, at least an hour apart"
+              />
+            </Grid>
+          )}
+
           {/* The day field FOLLOWS the frequency: a weekday picker above a
               "every day" schedule is a control that changes nothing, and an
               operator who sets it will reasonably believe it applied. */}
@@ -276,17 +308,19 @@ export function DbBackupConfigPanel({
             </Grid>
           )}
 
-          <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-            <TextField
-              fullWidth
-              label="Time of day"
-              value={form.timeOfDay}
-              onChange={(event) => update('timeOfDay', event.target.value)}
-              disabled={disabled}
-              placeholder="02:30"
-              helperText="24-hour HH:mm, in the timezone below"
-            />
-          </Grid>
+          {form.frequency !== 'cron' && (
+            <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+              <TextField
+                fullWidth
+                label="Time of day"
+                value={form.timeOfDay}
+                onChange={(event) => update('timeOfDay', event.target.value)}
+                disabled={disabled}
+                placeholder="02:30"
+                helperText="24-hour HH:mm, in the timezone below"
+              />
+            </Grid>
+          )}
 
           <Grid size={{ xs: 12, sm: 6, md: 4 }}>
             <TextField

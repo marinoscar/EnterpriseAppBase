@@ -7,6 +7,8 @@
 // ../README.md. Explicit named exports only.
 
 export { default, default as DbBackupPage } from './DbBackupPage.js';
+/** @stability experimental */
+export type { DbBackupPageProps, DbBackupSectionsProps } from './DbBackupPage.js';
 export { DbBackupConfigPanel } from './DbBackupConfigPanel.js';
 /** @stability experimental */
 export type { DbBackupConfigPanelProps } from './DbBackupConfigPanel.js';

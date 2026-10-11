@@ -39,7 +39,6 @@ const CONFIG: DbBackupConfig = {
   compressionLevel: 6,
   restoreRollbackMode: 'retain_database',
   oldDatabaseRetentionHours: 48,
-  nodeOffloadEnabled: false,
   nextRunAt: '2026-03-03T02:30:00.000Z',
   activeRunId: null,
   restore: { available: true, reason: null },

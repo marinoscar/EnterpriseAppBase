@@ -106,6 +106,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { ComponentType } from 'react';
 import {
   Alert,
   AlertTitle,
@@ -153,7 +154,7 @@ import {
   isRestoreInFlight,
   isRollbackAvailable,
 } from '../headless/index.js';
-import type { DbBackupRun, DbBackupRunListParams } from '../headless/index.js';
+import type { DbBackupConfig, DbBackupRun, DbBackupRunListParams } from '../headless/index.js';
 import {
   STATUS_COLUMN_ID,
   TABLE_ID,
@@ -171,6 +172,51 @@ const PAGE_TITLE = DB_BACKUP_PAGE_TITLE;
 const PAGE_DESCRIPTION = DB_BACKUP_PAGE_DESCRIPTION;
 
 /**
+ * What {@link DbBackupPageProps.slots}'s `Sections` receives: the data the page
+ * already holds, read-only, so an app's own panel (a mirror status, a restore
+ * drill checklist) draws from the same state instead of fetching it again.
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export interface DbBackupSectionsProps {
+  /** The policy, once loaded; `null` until then. */
+  config: DbBackupConfig | null;
+  /** The run history rows currently on screen (the page, as filtered). */
+  runs: readonly DbBackupRun[];
+  /** Whether the viewer holds `db_backup:write`. */
+  canWrite: boolean;
+  /** Whether the viewer holds `db_backup:restore` AND this deployment offers restore. */
+  canRestore: boolean;
+  /** Re-reads the policy and the history and re-dates the page. */
+  refresh: () => void;
+}
+
+/**
+ * Props of {@link DbBackupPage}. Every member is optional: with none, the page
+ * renders exactly as it always has.
+ *
+ * @example
+ * ```tsx
+ * <DbBackupPage slots={{ Sections: MirrorStatusPanel }} />
+ * ```
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export interface DbBackupPageProps {
+  /** Replaceable and additional parts of the page. */
+  slots?: {
+    /**
+     * Extra sections rendered below the run history, inside the page's
+     * container and above the restore dialog. Nothing is rendered for an
+     * absent slot, so the page's markup is unchanged.
+     */
+    Sections?: ComponentType<DbBackupSectionsProps>;
+  };
+}
+
+/**
  * The `/admin/settings/db-backup` page: the backup policy, the run history and
  * the restore and rollback actions. Gated on `db_backup:read` (the card's
  * permission); writes need `db_backup:write`, and restoring `db_backup:restore`
@@ -186,7 +232,8 @@ const PAGE_DESCRIPTION = DB_BACKUP_PAGE_DESCRIPTION;
  * @extensionPoint component
  * @stability experimental
  */
-export default function DbBackupPage() {
+export default function DbBackupPage(props: DbBackupPageProps = {}) {
+  const Sections = props.slots?.Sections;
   const { hasPermission } = usePlatformViewer();
   const dbBackupApi = useDbBackupApi();
 
@@ -627,6 +674,16 @@ export default function DbBackupPage() {
             seconds while this tab is in front.
           </Typography>
         </Paper>
+
+        {Sections && (
+          <Sections
+            config={config}
+            runs={runs}
+            canWrite={canWrite}
+            canRestore={canRestore}
+            refresh={refreshAll}
+          />
+        )}
 
         <DbBackupRestoreDialog
           open={dialogIntent !== null}

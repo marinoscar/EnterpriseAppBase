@@ -62,8 +62,8 @@ import {
   BACKUP_FREQUENCIES,
   BACKUP_STATUSES,
   BACKUP_TRIGGERS,
+  BUILTIN_RESTORE_GATE_IDS,
   RESTORE_CONFIRMATION,
-  RESTORE_GATE_IDS,
   RESTORE_ROLLBACK_MODES,
   RESTORE_SCHEMA_OVERRIDE_FIELD,
   RESTORE_STATUSES,
@@ -157,16 +157,29 @@ export type RestoreStatus = (typeof RESTORE_STATUSES)[number];
  * reported on every restore attempt, passes included — see
  * `RestorePreflight.gates`.
  */
-export { RESTORE_GATE_IDS };
-/** @stability experimental */
-export type RestoreGateId = (typeof RESTORE_GATE_IDS)[number];
+export { BUILTIN_RESTORE_GATE_IDS };
+/**
+ * The same eight ids under their former name.
+ *
+ * @deprecated Renamed {@link BUILTIN_RESTORE_GATE_IDS}: the gate id is open now (an app registers its own gates).
+ * @stability experimental
+ */
+export const RESTORE_GATE_IDS = BUILTIN_RESTORE_GATE_IDS;
+/**
+ * A gate id: one of the eight built-ins, or the id an app registered with
+ * `registerRestoreGate` (`cdn-quiesced`). Open, so a gate the app added is
+ * rendered like any other.
+ *
+ * @stability experimental
+ */
+export type RestoreGateId = (typeof BUILTIN_RESTORE_GATE_IDS)[number] | (string & {});
 
 /**
  * What KIND of thing a gate checks; it decides what a failure can be answered with.
  *
  * @stability experimental
  */
-export type RestoreGateKind = 'capability' | 'disk' | 'replicas' | 'overridable';
+export type RestoreGateKind = 'capability' | 'disk' | 'replicas' | 'overridable' | 'app';
 
 /**
  * One gate's answer. `warning` is a real verdict, not a soft failure.
@@ -199,6 +212,20 @@ export const OVERRIDE_SCHEMA_CHECK_PARAMETER: typeof RESTORE_SCHEMA_OVERRIDE_FIE
 // =============================================================================
 
 /**
+ * `databaseBackup.retention`: how many ordinary archives to keep and, when set,
+ * how old one may get. An archive is pruned when either rule says so; the
+ * newest completed archive never is.
+ *
+ * @stability experimental
+ */
+export interface DbBackupRetention {
+  /** Keep this many newest ordinary completed archives (the alias of `retentionCount`). */
+  count?: number;
+  /** Delete ordinary completed archives older than this many days. */
+  maxAgeDays?: number;
+}
+
+/**
  * The policy, plus the two computed fields the GET adds
  * (`DatabaseBackupConfigDto`).
  *
@@ -225,8 +252,15 @@ export interface DbBackupConfig {
   timeOfDay: string;
   /** An IANA zone name. The API validates it by PERFORMING the projection — see below. */
   timezone: string;
-  /** How many completed archives to keep. */
+  /** How many completed archives to keep. The alias of `retention.count`. */
   retentionCount: number;
+  /**
+   * The cron expression of `frequency: 'cron'` (five fields, in `timezone`, at
+   * least an hour apart). Absent until an operator writes one.
+   */
+  cron?: string;
+  /** The retention rules: a count and, optionally, a maximum age in days. Absent on a row that never set it. */
+  retention?: DbBackupRetention;
   /** Empty means "whatever storage provider is active". */
   storageProvider: string;
   /** How long a run may go without a heartbeat before the sweep calls it `stale`. */

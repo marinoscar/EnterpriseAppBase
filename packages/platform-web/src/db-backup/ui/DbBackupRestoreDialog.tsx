@@ -392,6 +392,11 @@ export function DbBackupRestoreDialog({
 
   const hasResult = restoreResult !== null || rollbackResult !== null;
   const blocked = restoreResult?.mode === 'blocked' ? restoreResult.block : null;
+  /** The blocking gate when an APP registered it (`kind: 'app'`); `null` for a built-in. */
+  const blockingAppGate =
+    restoreResult?.mode === 'blocked' && blocked
+      ? (restoreResult.preflight.gates.find((gate) => gate.id === blocked.gateId && gate.kind === 'app') ?? null)
+      : null;
   const canOverride =
     blocked !== null &&
     blocked.overridable &&
@@ -565,22 +570,30 @@ export function DbBackupRestoreDialog({
         {restoreResult?.mode === 'blocked' && blocked && (
           <Stack spacing={2}>
             <Alert severity="warning" data-testid="restore-blocked">
-              <AlertTitle>Refused by the {blocked.gateId.replace(/_/g, ' ')} check</AlertTitle>
+              {/* A gate the app registered is named by its own title (its id is
+                  a slug the app chose); the built-ins keep the words they
+                  always had. */}
+              <AlertTitle>
+                Refused by the {blockingAppGate ? blockingAppGate.title : blocked.gateId.replace(/_/g, ' ')} check
+              </AlertTitle>
               {blocked.message} Nothing has been started and nothing has changed.
             </Alert>
 
-            {/* The two values the operator has to compare to make the call. */}
-            <Paper variant="outlined" sx={{ p: 2 }} data-testid="restore-schema-mismatch">
-              <Typography variant="subtitle2" gutterBottom>
-                Schema
-              </Typography>
-              <Typography variant="body2">
-                Archive: <code>{restoreResult.preflight.archiveMigration ?? 'unknown'}</code>
-              </Typography>
-              <Typography variant="body2">
-                Live database: <code>{restoreResult.preflight.liveMigration ?? 'unknown'}</code>
-              </Typography>
-            </Paper>
+            {/* The two values the operator has to compare to make the call.
+                Not for an app gate: its block says nothing about the schema. */}
+            {!blockingAppGate && (
+              <Paper variant="outlined" sx={{ p: 2 }} data-testid="restore-schema-mismatch">
+                <Typography variant="subtitle2" gutterBottom>
+                  Schema
+                </Typography>
+                <Typography variant="body2">
+                  Archive: <code>{restoreResult.preflight.archiveMigration ?? 'unknown'}</code>
+                </Typography>
+                <Typography variant="body2">
+                  Live database: <code>{restoreResult.preflight.liveMigration ?? 'unknown'}</code>
+                </Typography>
+              </Paper>
+            )}
 
             <PreflightGateList preflight={restoreResult.preflight} />
 
