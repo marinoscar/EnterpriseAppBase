@@ -96,7 +96,17 @@
 
 import { z } from 'zod';
 
-import { RESTORE_CONFIRMATION, RESTORE_GATE_IDS, ROLLBACK_CONFIRMATION, type DbBackupEnum } from './constants.js';
+import { RESTORE_CONFIRMATION, RESTORE_GATE_ID_PATTERN, ROLLBACK_CONFIRMATION, type DbBackupEnum } from './constants.js';
+
+/**
+ * A restore gate id on the wire: any id matching {@link RESTORE_GATE_ID_PATTERN}
+ * (the eight built-ins and the ids an app registered with `registerRestoreGate`).
+ * An open vocabulary: it was a closed enum of the eight.
+ *
+ * @extensionPoint contract
+ * @stability experimental
+ */
+export const restoreGateIdSchema = z.string().regex(RESTORE_GATE_ID_PATTERN);
 
 
 // ---------------------------------------------------------------------------
@@ -179,14 +189,14 @@ export type RollbackRestoreRequest = z.output<typeof rollbackRestoreRequestSchem
  */
 export const restoreGateSchema = z.object({
   /** Id. */
-  id: (z.enum(RESTORE_GATE_IDS) as z.ZodEnum<DbBackupEnum<typeof RESTORE_GATE_IDS>>),
+  id: restoreGateIdSchema,
 
   /**
    * What kind of problem this gate reports, which is what decides how a failure
    * is handled — and therefore whether `overrideSchemaCheck` can do anything
    * about it. Only `overridable` can.
    */
-  kind: (z.enum(['capability', 'disk', 'replicas', 'overridable']) as z.ZodEnum<DbBackupEnum<['capability', 'disk', 'replicas', 'overridable']>>),
+  kind: (z.enum(['capability', 'disk', 'replicas', 'overridable', 'app']) as z.ZodEnum<DbBackupEnum<['capability', 'disk', 'replicas', 'overridable', 'app']>>),
 
   /** `warning` is a pass that says something; it does not stop a restore. */
   verdict: (z.enum(['pass', 'warning', 'block']) as z.ZodEnum<DbBackupEnum<['pass', 'warning', 'block']>>),
@@ -409,7 +419,7 @@ export const startRestoreBlockedSchema = z.object({
   /** Block. */
   block: z.object({
     /** Which gate refused. */
-    gateId: (z.enum(RESTORE_GATE_IDS) as z.ZodEnum<DbBackupEnum<typeof RESTORE_GATE_IDS>>),
+    gateId: restoreGateIdSchema,
 
     /** What it found, in one or two sentences. */
     message: z.string(),

@@ -15,7 +15,46 @@
 
 import { z } from 'zod';
 
-import { BACKUP_TIME_OF_DAY_PATTERN, type DbBackupEnum } from './constants.js';
+import {
+  BACKUP_CRON_PATTERN,
+  BACKUP_FREQUENCIES,
+  BACKUP_TIME_OF_DAY_PATTERN,
+  type DbBackupEnum,
+} from './constants.js';
+
+/**
+ * The retention policy of the `databaseBackup` namespace: how many ordinary
+ * `completed` archives to keep (`count`) and how old one may get
+ * (`maxAgeDays`). Both are optional; an archive is pruned when EITHER rule
+ * says so, and the newest completed archive is never pruned. `retentionCount`
+ * stays beside it as the alias of `count` (read and write): see
+ * `mergeDatabaseBackupSettings` for how the two stay in step.
+ *
+ * @stability experimental
+ */
+export const backupRetentionSchema = z.object({
+  /** Keep this many newest ordinary `completed` archives. */
+  count: z.number().int().min(1).max(365).optional(),
+  /** Delete ordinary `completed` archives older than this many days. */
+  maxAgeDays: z.number().int().min(1).max(3650).optional(),
+});
+
+/**
+ * The retention policy.
+ *
+ * @stability experimental
+ */
+export type BackupRetention = z.infer<typeof backupRetentionSchema>;
+
+/**
+ * The `cron` field: a five-field expression made of digits, `*`, `/`, `,` and
+ * `-`. A SHAPE check; the API parses it with the scheduler's own parser and
+ * enforces the one-hour minimum interval when it is written.
+ */
+const backupCronSchema = z
+  .string()
+  .max(120)
+  .regex(BACKUP_CRON_PATTERN, 'Expected a five-field cron expression such as "0 */6 * * *"');
 
 /**
  * Database backup and restore policy (`databaseBackup`).
@@ -82,7 +121,7 @@ export const systemDatabaseBackupSchema = z.object({
   /** Enabled. */
   enabled: z.boolean(),
   /** Frequency. */
-  frequency: (z.enum(['daily', 'weekly', 'monthly']) as z.ZodEnum<DbBackupEnum<['daily', 'weekly', 'monthly']>>),
+  frequency: (z.enum(BACKUP_FREQUENCIES) as z.ZodEnum<DbBackupEnum<typeof BACKUP_FREQUENCIES>>),
   /** Day of week. */
   dayOfWeek: z.number().int().min(0).max(6),
   /** Day of month. */
@@ -95,6 +134,10 @@ export const systemDatabaseBackupSchema = z.object({
   timezone: z.string().min(1).max(64),
   /** Retention count. */
   retentionCount: z.number().int().min(1).max(365),
+  /** Cron expression; read only when `frequency` is `cron`. */
+  cron: backupCronSchema.optional(),
+  /** Retention policy; `retentionCount` is the alias of `retention.count`. */
+  retention: backupRetentionSchema.optional(),
   /**
    * NO `.min(1)`: the empty string is the one spelling of "unset", and it is
    * the SHIPPED DEFAULT. See the block comment above.
@@ -131,7 +174,7 @@ export const systemDatabaseBackupPatchSchema = z.object({
   /** Enabled. */
   enabled: z.boolean().optional(),
   /** Frequency. */
-  frequency: (z.enum(['daily', 'weekly', 'monthly']) as z.ZodEnum<DbBackupEnum<['daily', 'weekly', 'monthly']>>).optional(),
+  frequency: (z.enum(BACKUP_FREQUENCIES) as z.ZodEnum<DbBackupEnum<typeof BACKUP_FREQUENCIES>>).optional(),
   /** Day of week. */
   dayOfWeek: z.number().int().min(0).max(6).optional(),
   /** Day of month. */
@@ -145,6 +188,10 @@ export const systemDatabaseBackupPatchSchema = z.object({
   timezone: z.string().min(1).max(64).optional(),
   /** Retention count. */
   retentionCount: z.number().int().min(1).max(365).optional(),
+  /** Cron expression; read only when `frequency` is `cron`. */
+  cron: backupCronSchema.optional(),
+  /** Retention policy; `retentionCount` is the alias of `retention.count`. */
+  retention: backupRetentionSchema.optional(),
   /**
    * No `.min(1)`, matching `systemDatabaseBackupSchema`: `""` CLEARS the pin
    * back to "whatever provider is active" (absent is how a caller says "leave
@@ -175,7 +222,7 @@ export const databaseBackupSettingsSchema = z.object({
   /** Enabled. */
   enabled: z.boolean(),
   /** Frequency. */
-  frequency: (z.enum(['daily', 'weekly', 'monthly']) as z.ZodEnum<DbBackupEnum<['daily', 'weekly', 'monthly']>>),
+  frequency: (z.enum(BACKUP_FREQUENCIES) as z.ZodEnum<DbBackupEnum<typeof BACKUP_FREQUENCIES>>),
   /** Day of week. */
   dayOfWeek: z.number().int().min(0).max(6),
   /** Day of month. */
@@ -188,6 +235,10 @@ export const databaseBackupSettingsSchema = z.object({
   timezone: z.string().min(1).max(64),
   /** Retention count. */
   retentionCount: z.number().int().min(1).max(365),
+  /** Cron expression; read only when `frequency` is `cron`. */
+  cron: backupCronSchema.optional(),
+  /** Retention policy; `retentionCount` is the alias of `retention.count`. */
+  retention: backupRetentionSchema.optional(),
   /**
    * No `.min(1)`: `""` is the one spelling of "unset" and is the SHIPPED
    * DEFAULT — it means "whatever provider `storage.provider` names right now".
@@ -219,7 +270,7 @@ export const databaseBackupSettingsPatchSchema = z.object({
   /** Enabled. */
   enabled: z.boolean().optional(),
   /** Frequency. */
-  frequency: (z.enum(['daily', 'weekly', 'monthly']) as z.ZodEnum<DbBackupEnum<['daily', 'weekly', 'monthly']>>).optional(),
+  frequency: (z.enum(BACKUP_FREQUENCIES) as z.ZodEnum<DbBackupEnum<typeof BACKUP_FREQUENCIES>>).optional(),
   /** Day of week. */
   dayOfWeek: z.number().int().min(0).max(6).optional(),
   /** Day of month. */
@@ -233,6 +284,10 @@ export const databaseBackupSettingsPatchSchema = z.object({
   timezone: z.string().min(1).max(64).optional(),
   /** Retention count. */
   retentionCount: z.number().int().min(1).max(365).optional(),
+  /** Cron expression; read only when `frequency` is `cron`. */
+  cron: backupCronSchema.optional(),
+  /** Retention policy; `retentionCount` is the alias of `retention.count`. */
+  retention: backupRetentionSchema.optional(),
   /**
    * No `.min(1)`, matching the PUT schema above: `""` CLEARS the pin back
    * to "whatever provider is active", absent leaves it alone. Rejecting
@@ -261,7 +316,7 @@ export const databaseBackupResponseSchema = z.object({
   /** Enabled. */
   enabled: z.boolean(),
   /** Frequency. */
-  frequency: (z.enum(['daily', 'weekly', 'monthly']) as z.ZodEnum<DbBackupEnum<['daily', 'weekly', 'monthly']>>),
+  frequency: (z.enum(BACKUP_FREQUENCIES) as z.ZodEnum<DbBackupEnum<typeof BACKUP_FREQUENCIES>>),
   /** Day of week. */
   dayOfWeek: z.number(),
   /** Day of month. */
@@ -272,6 +327,10 @@ export const databaseBackupResponseSchema = z.object({
   timezone: z.string(),
   /** Retention count. */
   retentionCount: z.number(),
+  /** Cron expression; read only when `frequency` is `cron`. */
+  cron: backupCronSchema.optional(),
+  /** Retention policy; `retentionCount` is the alias of `retention.count`. */
+  retention: backupRetentionSchema.optional(),
   /** Storage provider. */
   storageProvider: z.string(),
   /** Run stale minutes. */

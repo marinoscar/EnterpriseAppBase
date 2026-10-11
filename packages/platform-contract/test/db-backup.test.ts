@@ -4,7 +4,9 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  BACKUP_FREQUENCIES,
   BACKUP_STATUSES,
+  BUILTIN_RESTORE_GATE_IDS,
   BACKUP_TRIGGERS,
   RESTORE_CONFIRMATION,
   RESTORE_GATE_IDS,
@@ -13,7 +15,9 @@ import {
   databaseBackupConfigSchema,
   databaseBackupSettingsPatchSchema,
   dbBackupRunResultSchema,
+  restoreGateIdSchema,
   restoreGateSchema,
+  updateDatabaseBackupConfigSchema,
   rollbackRestoreRequestSchema,
   startRestoreRequestSchema,
   systemDatabaseBackupSchema,
@@ -85,5 +89,44 @@ describe('@marinoscar/platform-contract/db-backup', () => {
     };
     expect(dbBackupRunResultSchema.safeParse(result).success).toBe(true);
     expect(dbBackupRunResultSchema.safeParse({ ...result, bytes: 1234 }).success).toBe(false);
+  });
+
+  it('renames the closed gate list to the built-ins and keeps the old name as an alias', () => {
+    expect(RESTORE_GATE_IDS).toBe(BUILTIN_RESTORE_GATE_IDS);
+    expect(BUILTIN_RESTORE_GATE_IDS).toHaveLength(8);
+  });
+
+  it('takes an app gate id on a gate and refuses a malformed one', () => {
+    const gate = { id: 'cdn-quiesced', kind: 'app', verdict: 'block', title: 'CDN quiesced', detail: 'd', action: null };
+    expect(restoreGateSchema.parse(gate).id).toBe('cdn-quiesced');
+    expect(restoreGateIdSchema.safeParse('Not A Gate').success).toBe(false);
+    expect(restoreGateIdSchema.safeParse('').success).toBe(false);
+    for (const id of BUILTIN_RESTORE_GATE_IDS) expect(restoreGateIdSchema.safeParse(id).success).toBe(true);
+  });
+
+  describe('the schedule and retention policy', () => {
+    it('loads a row stored before cron and retention existed, and returns it unchanged', () => {
+      const parsed = systemDatabaseBackupSchema.parse(STORED);
+      expect(parsed).toEqual(STORED);
+      expect(parsed).not.toHaveProperty('cron');
+      expect(parsed).not.toHaveProperty('retention');
+    });
+
+    it('accepts the cron frequency with an expression and refuses a malformed one', () => {
+      expect(BACKUP_FREQUENCIES).toEqual(['daily', 'weekly', 'monthly', 'cron']);
+      const cron = { ...STORED, frequency: 'cron', cron: '0 */6 * * *' };
+      expect(systemDatabaseBackupSchema.parse(cron)).toEqual(cron);
+      expect(systemDatabaseBackupSchema.safeParse({ ...cron, cron: '@hourly' }).success).toBe(false);
+      expect(systemDatabaseBackupSchema.safeParse({ ...cron, cron: 'a'.repeat(121) }).success).toBe(false);
+    });
+
+    it('takes retention beside the retentionCount alias, on the stored, patch and config shapes', () => {
+      const retention = { count: 10, maxAgeDays: 30 };
+      expect(systemDatabaseBackupSchema.parse({ ...STORED, retention }).retention).toEqual(retention);
+      expect(databaseBackupSettingsPatchSchema.parse({ retention: { maxAgeDays: 14 } }).retention).toEqual({ maxAgeDays: 14 });
+      expect(updateDatabaseBackupConfigSchema.parse({ retentionCount: 3 })).toEqual({ retentionCount: 3 });
+      expect(systemDatabaseBackupSchema.safeParse({ ...STORED, retention: { maxAgeDays: 0 } }).success).toBe(false);
+      expect(systemDatabaseBackupSchema.safeParse({ ...STORED, retention: { count: 366 } }).success).toBe(false);
+    });
   });
 });
