@@ -2,7 +2,7 @@ import { SupportBundleRegistry, isSupportBundleOmission } from '../doctor/index'
 import type { SupportBundleSectionContext } from '../doctor/index';
 
 import type { TelemetryDashboardService } from './dashboard/telemetry-dashboard.service';
-import type { GreptimeClient } from './greptime/greptime.client';
+import type { GreptimeClient } from './stores/greptime/greptime.client';
 import type { TelemetryStackService } from './stack/telemetry-stack.service';
 import type { TelemetrySettingsService } from './telemetry-settings.service';
 import type { TelemetryStatusService } from './telemetry-status.service';

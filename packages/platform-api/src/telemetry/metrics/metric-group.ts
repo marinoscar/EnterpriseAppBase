@@ -1,5 +1,6 @@
 import type { DashboardSqlFilters } from '../dashboard/telemetry-dashboard.sql';
-import type { TelemetryQueryResult } from '../greptime/greptime.client';
+import { GREPTIME_SQL_DIALECT } from '../stores/greptime/greptime.dialect';
+import type { TelemetryQueryResult, TelemetrySqlDialect } from '../stores/telemetry-store';
 import {
   familiesOf,
   familyByKey,
@@ -734,8 +735,11 @@ export async function computeMetricGroup(input: {
   runner: MetricRunner;
   now: Date;
   freshMs?: number;
+  /** The store's SQL dialect; default the built-in GreptimeDB one. */
+  dialect?: TelemetrySqlDialect;
 }): Promise<MetricGroupResult> {
   const { group, window, filters, tables, runner } = input;
+  const dialect = input.dialect ?? GREPTIME_SQL_DIALECT;
   const bucketSeconds = metricBucketSeconds(window.bucketSeconds);
   const bucketMs = bucketSeconds * 1000;
   const seriesWindow = { from: window.previousFrom, to: window.to, bucketSeconds };
@@ -747,8 +751,8 @@ export async function computeMetricGroup(input: {
   const families = familiesOf(group);
   const familySql = families.map((f) => {
     const info = tables.get(f.table) ?? null;
-    if (f.kind === 'gauge') return gaugeSeriesSql(f, info, seriesWindow, filters);
-    if (f.kind === 'counter') return counterSeriesSql(f, info, seriesWindow, filters);
+    if (f.kind === 'gauge') return gaugeSeriesSql(f, info, seriesWindow, filters, undefined, dialect);
+    if (f.kind === 'counter') return counterSeriesSql(f, info, seriesWindow, filters, undefined, dialect);
     return histogramIncreaseSql(
       f,
       info,

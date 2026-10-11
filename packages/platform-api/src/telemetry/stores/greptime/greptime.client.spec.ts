@@ -1,7 +1,7 @@
 import type { ConfigService } from '@nestjs/config';
 import type { PoolConfig } from 'pg';
 
-import { TelemetryConnectionService } from '../connection/telemetry-connection.service';
+import { TelemetryConnectionService } from '../../connection/telemetry-connection.service';
 
 import {
   GreptimeClient,
@@ -18,7 +18,7 @@ import {
   TelemetryQueryAbortedError,
   TelemetryQueryFailedError,
   TelemetryQueryTimeoutError,
-} from './greptime.errors';
+} from '../telemetry-store.errors';
 import type { HostCheckOptions } from './greptime-host';
 
 const CONFIGURED: GreptimeConfig = {

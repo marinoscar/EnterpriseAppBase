@@ -44,3 +44,14 @@ export type {
 } from './conformance';
 export { createStubTelemetryPorts } from './stub-ports';
 export type { StubTelemetryPortsOptions, StubTelemetryPortsState } from './stub-ports';
+
+// The telemetry store conformance kit (PP-14.11): run it on a store you register.
+export { describeTelemetryStoreConformance } from './store-conformance';
+export type {
+  TelemetryStoreConformanceHarness,
+  TelemetryStoreConformanceOptions,
+  TelemetryStoreConformanceScenario,
+  TelemetryStoreFixture,
+  TelemetryStoreTimeoutScenario,
+  TelemetryStoreUnconfiguredScenario,
+} from './store-conformance';

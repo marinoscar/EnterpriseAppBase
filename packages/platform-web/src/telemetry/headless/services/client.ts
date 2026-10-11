@@ -13,6 +13,7 @@
  *   - `GET  /admin/telemetry/status`            (`telemetry:read`)
  *   - `GET|PUT|DELETE /admin/telemetry/connection`, `POST …/connection/test`
  *                                               (`telemetry:read` / `telemetry:write`)
+ *   - `GET|PUT /admin/telemetry/store`          (`telemetry:read` / `telemetry:write`)
  *   - `GET  /admin/telemetry/stack`, `POST …/stack/deploy`
  *                                               (`system_settings:read` / `system_settings:write`)
  *   - `POST /admin/telemetry/query`, `GET …/schema`, `POST …/export`
@@ -51,6 +52,8 @@ import type {
   TelemetrySettingsUpdate,
   TelemetryStack,
   TelemetryStatus,
+  TelemetryStoreConfig,
+  TelemetryStoreInput,
 } from './telemetry.js';
 import { dashboardSearchParams } from './telemetryDashboard.js';
 import type {
@@ -106,6 +109,10 @@ export interface TelemetryClient {
   resetTelemetryConnection(expectedVersion?: number): Promise<TelemetryConnection>;
   /** `POST /admin/telemetry/connection/test`: a diagnosis, always 200. */
   testTelemetryConnection(input: TelemetryConnectionInput): Promise<TelemetryConnectionTestResult>;
+  /** `GET /admin/telemetry/store`: the active store and, for a generated-form store, its descriptor and settings. */
+  getTelemetryStore(): Promise<TelemetryStoreConfig>;
+  /** `PUT /admin/telemetry/store`, `If-Match` from `expectedVersion`: the store's settings and write-only secrets. */
+  updateTelemetryStore(input: TelemetryStoreInput, expectedVersion?: number): Promise<TelemetryStoreConfig>;
   /** `GET /admin/telemetry/stack`. */
   getTelemetryStack(): Promise<TelemetryStack>;
   /** `POST /admin/telemetry/stack/deploy`: enqueue a (re)deploy of the telemetry services. */
@@ -219,6 +226,10 @@ export function createTelemetryClient(api: PlatformApiClient): TelemetryClient {
       api.delete<TelemetryConnection>('/admin/telemetry/connection', ifMatch(expectedVersion)),
     testTelemetryConnection: (input) =>
       api.post<TelemetryConnectionTestResult>('/admin/telemetry/connection/test', input),
+
+    getTelemetryStore: () => api.get<TelemetryStoreConfig>('/admin/telemetry/store'),
+    updateTelemetryStore: (input, expectedVersion) =>
+      api.put<TelemetryStoreConfig>('/admin/telemetry/store', input, ifMatch(expectedVersion)),
 
     getTelemetryStack: () => api.get<TelemetryStack>('/admin/telemetry/stack'),
     deployTelemetryStack: () => api.post<TelemetryStackDeployAccepted>('/admin/telemetry/stack/deploy'),

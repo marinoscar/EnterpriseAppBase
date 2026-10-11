@@ -10,7 +10,7 @@
 
 import type { TelemetrySchema } from '../dto/telemetry-query.dto';
 import { DASHBOARD_RANGE_MS } from '../dto/telemetry-dashboard.dto';
-import type { TelemetryQueryResult } from '../greptime/greptime.client';
+import type { TelemetryQueryResult } from '../stores/greptime/greptime.client';
 import { METRIC_FAMILIES, METRIC_GROUPS, metricTablesOf } from '../metrics/metric-catalog';
 import { computeMetricGroup, tableParts, type MetricTable } from '../metrics/metric-group';
 import { latestByKeySql } from '../metrics/metric-sql';

@@ -10,7 +10,12 @@ import { TelemetryConnectionService } from './connection/telemetry-connection.se
 import { createTelemetryDashboardController } from './dashboard/telemetry-dashboard.controller';
 import { TelemetryDashboardService } from './dashboard/telemetry-dashboard.service';
 import { TelemetryExportService } from './export/telemetry-export.service';
-import { GreptimeClient } from './greptime/greptime.client';
+import { GreptimeClient } from './stores/greptime/greptime.client';
+import { GREPTIME_SQL_DIALECT } from './stores/greptime/greptime.dialect';
+import { createTelemetryStoreController } from './stores/telemetry-store.controller';
+import { TelemetryStoreResolver, delegatingDialect } from './stores/telemetry-store.resolver';
+import { TelemetryStoreSettingsService } from './stores/telemetry-store-settings.service';
+import { BUILTIN_TELEMETRY_STORE_ID, TELEMETRY_SQL_DIALECT, TELEMETRY_STORE } from './stores/telemetry-store';
 import { TelemetryRetentionHandler } from './handlers/telemetry-retention.handler';
 import { TelemetryQueryService } from './query/telemetry-query.service';
 import { TelemetrySchemaService } from './query/telemetry-schema.service';
@@ -92,6 +97,14 @@ import {
 //
 // `GreptimeClient`, `TelemetrySettingsService` and the two query services are
 // exported for it.
+//
+// The store (PP-14.11): every service reads the telemetry store through the
+// `TELEMETRY_STORE` port and its SQL spelling through `TELEMETRY_SQL_DIALECT`,
+// never through `GreptimeClient`. `forRoot({ store })` selects the
+// implementation (default `greptime`): the built-in binds the port to
+// `GreptimeClient` (its connection stays the runtime-configured
+// `TelemetryConnectionService` one); any other registered store is built by
+// `TelemetryStoreResolver` from its `telemetry_store` settings and its secrets.
 // =============================================================================
 
 const PROVIDERS = [
@@ -127,6 +140,8 @@ const PROVIDERS = [
   // Support-bundle section (#772): telemetry health as aggregates only,
   // gated on telemetry:query. Registers itself with SupportBundleRegistry.
   TelemetrySupportBundleSection,
+  // The settings and secrets of a non-built-in store (PP-14.11).
+  TelemetryStoreSettingsService,
 ];
 
 /**
@@ -144,12 +159,12 @@ export class TelemetryModule {
    * ports bound by `options.imports`.
    *
    * @param options - the module options.
-   * @returns the dynamic module. It exports `GreptimeClient`,
+   * @returns the dynamic module. It exports `GreptimeClient`, `TELEMETRY_STORE`, `TELEMETRY_SQL_DIALECT`,
    *   `TelemetrySettingsService`, `TelemetryQueryService`, `TelemetrySchemaService`,
    *   `MetricGroupRegistry`, `DefaultVerdictPolicy`, `VERDICT_POLICY` and
    *   `TELEMETRY_VERDICT_THRESHOLDS`.
    * @throws Error when an option is invalid (a bad verdict threshold names the
-   *   field); RegistryError when an extra metric group is refused (a duplicate id
+   *   field; a `store` nobody registered names the registered ids); RegistryError when an extra metric group is refused (a duplicate id
    *   or family key fails boot here).
    *
    * @example
@@ -179,6 +194,7 @@ export class TelemetryModule {
         createTelemetryConnectionController(resolved),
         createTelemetryStackController(resolved),
         createTelemetryDashboardController(resolved),
+        createTelemetryStoreController(resolved),
       ],
       providers: [
         { provide: TELEMETRY_OPTIONS, useValue: resolved },
@@ -190,10 +206,28 @@ export class TelemetryModule {
         // app policy can inject it and delegate.
         DefaultVerdictPolicy,
         { provide: VERDICT_POLICY, ...(resolved.verdictPolicy ?? { useExisting: DefaultVerdictPolicy }) } as Provider,
+        // The store port (PP-14.11): the built-in is the GreptimeClient; any
+        // other registered store is built from its settings by the resolver.
+        ...(resolved.store === BUILTIN_TELEMETRY_STORE_ID
+          ? [
+              { provide: TELEMETRY_STORE, useExisting: GreptimeClient },
+              { provide: TELEMETRY_SQL_DIALECT, useValue: GREPTIME_SQL_DIALECT },
+            ]
+          : [
+              TelemetryStoreResolver,
+              { provide: TELEMETRY_STORE, useExisting: TelemetryStoreResolver },
+              {
+                provide: TELEMETRY_SQL_DIALECT,
+                useFactory: (resolver: TelemetryStoreResolver) => delegatingDialect(resolver),
+                inject: [TelemetryStoreResolver],
+              },
+            ]),
         ...PROVIDERS,
       ],
       exports: [
         GreptimeClient,
+        TELEMETRY_STORE,
+        TELEMETRY_SQL_DIALECT,
         TelemetrySettingsService,
         TelemetryQueryService,
         TelemetrySchemaService,

@@ -46,6 +46,8 @@ export { useTelemetryAdmin } from './hooks/useTelemetryAdmin.js';
 export type { UseTelemetryAdminReturn } from './hooks/useTelemetryAdmin.js';
 export { useTelemetryConnection } from './hooks/useTelemetryConnection.js';
 export type { UseTelemetryConnectionReturn } from './hooks/useTelemetryConnection.js';
+export { useTelemetryStore } from './hooks/useTelemetryStore.js';
+export type { UseTelemetryStoreReturn } from './hooks/useTelemetryStore.js';
 export {
   TELEMETRY_STACK_ACTIVE_POLL_MS,
   TELEMETRY_STACK_IDLE_POLL_MS,

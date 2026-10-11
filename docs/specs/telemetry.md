@@ -296,8 +296,8 @@ derived from the calls telemetry makes:
 | Port | What telemetry uses it for | Reference app adapter (`apps/api/src/platform/telemetry/`) |
 |---|---|---|
 | `TELEMETRY_AUDIT_SINK` | every audit row (queries, dashboard reads, config, connection and stack writes, assistant turns) | `telemetry-audit-sink.adapter.ts` (`audit_events`) |
-| `TELEMETRY_SETTINGS_STORE` | the `telemetry` namespace and its provenance, the `telemetry_connection` row, the assistant's feature flags | `telemetry-settings-store.adapter.ts` (`SystemSettingsService`; only the keys telemetry owns) |
-| `TELEMETRY_CREDENTIAL_STORE` | the two GreptimeDB passwords (`telemetry_greptime`) | `CredentialsService`, unadapted |
+| `TELEMETRY_SETTINGS_STORE` | the `telemetry` namespace and its provenance, the `telemetry_connection` and `telemetry_store` rows, the assistant's feature flags | `telemetry-settings-store.adapter.ts` (`SystemSettingsService`; only the keys telemetry owns) |
+| `TELEMETRY_CREDENTIAL_STORE` | the two GreptimeDB passwords (`telemetry_greptime`) and the secrets of a registered store (`telemetry_<id>`) | `CredentialsService`, unadapted |
 | `TELEMETRY_JOBS` | enqueues, the housekeeping enqueue, handler registration, the deploy job's row | `telemetry-jobs.adapter.ts` |
 | `TELEMETRY_AI` | the assistant's tool loop (`AiService.forUser(userId).runTools`) and the kill switch | `telemetry-ai.adapter.ts` |
 | `TELEMETRY_APP_INFO` | the slug (default `app.instance.id`), service name, version and deploy document | `telemetry-app-info.adapter.ts` |
@@ -2590,6 +2590,109 @@ deliberately broken fixture. Web permission parity runs in the app's web
 tests and infra drift in CI. Rejected: leaving the tests in the platform
 repository (an adopting app would silently stop being checked).
 
+### 12.4 Replacing the store
+
+GreptimeDB is the store the platform ships; it is not the only one the slice
+can query. The explorer, the export, the assistant's statements, the
+dashboard, the status page, the retention job, the Doctor checks and the
+support bundle depend on two injection tokens and never on the GreptimeDB
+client:
+
+| Token | Interface | What it is |
+|---|---|---|
+| `TELEMETRY_STORE` | `TelemetryStore` | The connection: `query(sql, params, { readOnly: true, timeoutMs, signal })`, `schema()`, `ping()`, `close()`, `isConfigured()`, `configurationProblem()`, `database`, and an optional `retention` control |
+| `TELEMETRY_SQL_DIALECT` | `TelemetrySqlDialect` | The spelling of the constructs the server-authored SQL cannot write portably |
+
+`greptime` is the built-in implementation, registered with
+`registerTelemetryStore` (a pluggable kind, [EXTENDING.md](../EXTENDING.md#writing-a-pluggable-implementation))
+under `packages/platform-api/src/telemetry/stores/greptime/`: the `pg` client
+that was `GreptimeClient`, its `GREPTIME_SQL_DIALECT`, its retention control
+(`ALTER DATABASE ... SET 'ttl'`) and its schema read (`information_schema`). An
+app registers another at import time and selects it with
+`TelemetryModule.forRoot({ store: 'id' })`; recipe:
+[EXTENDING.md, Replace the telemetry store](../EXTENDING.md#replace-the-telemetry-store).
+
+**Where the line is.** The platform keeps everything that is policy: the
+explorer's guard (`analyzeStatement`: one read-only statement; `applyRowCap`:
+a top-level `LIMIT`; the policy's timeout; the audit row), the dashboard's
+templates, cache and verdict, the assistant's tool loop and the Doctor. A
+store supplies the connection and the dialect. A store therefore never sees a
+write from a route; it is still required to refuse one (`readOnly: true` is
+passed on every call), because the guard is the first control, not the only
+one: the built-in logs in as a GreptimeDB read-only user.
+
+**The GreptimeDB-specific constructs of the dashboard SQL.** Verified by
+reading `dashboard/telemetry-dashboard.sql.ts`, `metrics/metric-sql.ts` and
+`assistant/telemetry-assistant.sql.ts`:
+
+| Construct | GreptimeDB spelling | In the dialect |
+|---|---|---|
+| Epoch-aligned time bucket | `date_bin(INTERVAL 'n seconds', col)` | `timeBucket(column, seconds)` |
+| Quantile aggregate (ignores NULL) | `approx_percentile_cont(0.95) WITHIN GROUP (ORDER BY x)` | `percentile(fraction, expr)` |
+| Regular-expression replace | `regexp_replace(x, p, r, 'g')` | `regexpReplaceAll(expr, pattern, replacement)` |
+| JSON column key read | `json_get_string(resource_attributes, '["service.name"]')` | `jsonString(column, key)` |
+| Case-insensitive substring | `body ILIKE '%q%' ESCAPE '\'` | `containsIgnoreCase(expr, escapedPattern)` |
+| Full-precision text cast | `CAST("timestamp" AS STRING)` | `castText(expr)` |
+| Row cap | `LIMIT n` | `limit(rows)` |
+| Metric tables' time index and value | `greptime_timestamp`, `greptime_value` | `timestampColumn`, `valueColumn` |
+
+Everything else is ANSI-flavoured and is not abstracted. Two things stay
+GreptimeDB-shaped on purpose: the OpenTelemetry table layout the collector's
+exporter writes (`opentelemetry_traces`, `opentelemetry_logs`, the flattened
+`"span_attributes.*"` columns, the metric tables' tag columns, which the
+catalog also names with `METRIC_TIME_COLUMN` and `METRIC_VALUE_COLUMN`), and
+the assistant's own SQL (`telemetry-assistant.sql.ts`) and system prompt, which
+describe DataFusion SQL. A store over another layout maps it in its query layer.
+
+**Settings and secrets.** A store brings its own `settingsSchema`, `defaults`
+and `secrets`. Its non-secret settings are one entry (`{ <id>: settings }`) of the
+`telemetry_store` system-settings row, with its own version counter, validated
+with that schema on write and dropped with a warning on read when the store is
+no longer registered. Its secrets are in the credential purpose
+`telemetry_<id>`, write-only. `GET` / `PUT /api/admin/telemetry/store` describe
+and save them (`telemetry:read` / `telemetry:write`, `If-Match`; a save is
+audited by name as `telemetry:store_update`), and the settings page draws a
+generated form. The built-in store keeps the `telemetry_connection` row, the
+`telemetry_greptime` purpose and the Connection section exactly as before.
+
+**One store per deployment, chosen in code.** The store is an option of
+`forRoot`, not a runtime setting: every instance agrees, the services' SQL is
+built with one dialect, and a mistyped id fails boot instead of silently
+falling back. A non-built-in store is built by `TelemetryStoreResolver`, which
+rebuilds it (closing the old one) when the settings row version or a declared
+secret's update time moves, checked every five seconds, so a save reaches every
+instance without a restart. A store that cannot be built leaves telemetry
+unconfigured and says why on the settings page; it never fails boot.
+
+**Rejected.** A store chosen at runtime from a select (the dialect and the
+OpenTelemetry layout are code, so the choice is code, and two instances could
+disagree for five seconds). Query parameters through the port (the built-in's
+wire protocol has none, and the platform quotes literals itself; `params` is in
+the signature so a store that has them can use them). A dialect that builds
+whole statements (the dashboard has about twenty, and they would all be forked
+per store). Moving the guard into the store (a store author would have to
+re-implement the row cap and the audit, and a forgotten check would be a
+write).
+
+**Out of scope: the collector's exporter.** Writing the telemetry into another
+store is the OpenTelemetry collector's exporter, an infra overlay
+(`infra/otel/app-collector.yaml`, [runbook section 2.4](../runbooks/telemetry.md#24-add-your-own-collector-pipelines-app-overlay));
+the API only reads. A store replacement is the pair: an overlay that exports
+into it and a registered store that reads it.
+
+**Guardrails.** `describeTelemetryStoreConformance`
+(`@marinoscar/platform-api/telemetry/testing`) is the kit every store runs: it
+checks that `query` refuses writes and honours its timeout and abort signal,
+that `schema()` has the explorer's shape, that `ping()` never throws or leaks
+a secret, an unconfigured store, `close()`, the dialect, and, over a fixture,
+every dashboard statement built with the store's dialect. It runs for the
+built-in in the live-database tier (`npm run test:greptime`) and for the
+reference app's in-memory example
+(`apps/api/test/examples/telemetry/memory-store.spec.ts`), which also boots
+the real module and calls the dashboard and explorer routes.
+`packages/platform-api/test/telemetry/telemetry-store.module.spec.ts` asserts
+that seven consumers hold the one store `forRoot` selected.
+
 ## History
 
 - #528: epic, Telemetry Explorer on GreptimeDB.
@@ -2672,3 +2775,6 @@ repository (an adopting app would silently stop being checked).
 - #704: the telemetry UI becomes the `telemetry` slice of `@marinoscar/platform-web` (`/telemetry/headless`, `/telemetry/ui` and a subpath per page): the client over the app's `PlatformApiClient` (which gains request options, `postBlob` and `postSse`), `TelemetryWebAdapters` for AI on/off and the model catalogue, `telemetryAdminCards` placed in the app registry where its literals were, and the token contract with its augmentation. Behaviour, texts, colours and test ids unchanged.
 - #702 to #706: the telemetry slice is extracted into `@marinoscar/platform-contract`, `-api`, `-web`, `-infra` and `-cli`; the API reaches the app through six host ports (§1).
 - #707: packaging documented (§12): slice READMEs per the documentation standard, a reference-app example for every extension point (the "App activity" group, an example verdict policy, an example CLI command), the telemetry conformance suite and a coach-shaped readiness test.
+- #929: the telemetry store port (`TELEMETRY_STORE`, `TelemetrySqlDialect`,
+  `registerTelemetryStore`), `GreptimeClient` becoming its built-in
+  implementation, the store settings route and form, and the conformance kit.

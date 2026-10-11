@@ -1,6 +1,6 @@
 import { TelemetryConnectionTestService, type TelemetryProbeClient } from './telemetry-connection-test.service';
 import type { TestTelemetryConnectionInput } from './dto/telemetry-connection.dto';
-import type { HostCheckOptions } from '../greptime/greptime-host';
+import type { HostCheckOptions } from '../stores/greptime/greptime-host';
 
 // =============================================================================
 // TelemetryConnectionTestService — tests (issue #558, epic #528)

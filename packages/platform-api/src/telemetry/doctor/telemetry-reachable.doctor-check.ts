@@ -1,13 +1,14 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
 
 import { DoctorCheck, DoctorCheckOutcome } from '../../doctor/index';
 import { DoctorCheckRegistry } from '../../doctor/index';
-import { GREPTIME_PING_TIMEOUT_MS, GreptimeClient } from '../greptime/greptime.client';
+import { GREPTIME_PING_TIMEOUT_MS } from '../stores/greptime/greptime.client';
+import { TELEMETRY_STORE, type TelemetryStore } from '../stores/telemetry-store';
 import { TELEMETRY_SETTINGS_PATH } from './telemetry-export.doctor-check';
 
 /**
  * `telemetry` / `telemetry.reachable` — GreptimeDB answers `SELECT version()`
- * as the reader. `GreptimeClient.ping()` never throws. NOT the connection
+ * as the reader. `TelemetryStore.ping()` never throws. NOT the connection
  * test service, which audits the attempt.
  */
 @Injectable()
@@ -21,7 +22,7 @@ export class TelemetryReachableDoctorCheck implements DoctorCheck, OnModuleInit 
 
   constructor(
     private readonly registry: DoctorCheckRegistry,
-    private readonly greptime: GreptimeClient,
+    @Inject(TELEMETRY_STORE) private readonly store: TelemetryStore,
   ) {}
 
   onModuleInit(): void {
@@ -30,7 +31,7 @@ export class TelemetryReachableDoctorCheck implements DoctorCheck, OnModuleInit 
 
   async run(): Promise<DoctorCheckOutcome> {
     const started = Date.now();
-    const ping = await this.greptime.ping();
+    const ping = await this.store.ping();
     const latencyMs = Date.now() - started;
 
     if (!ping.reachable) {

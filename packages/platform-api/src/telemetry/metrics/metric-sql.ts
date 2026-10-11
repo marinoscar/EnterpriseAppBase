@@ -1,7 +1,9 @@
 import type { DashboardSqlFilters } from '../dashboard/telemetry-dashboard.sql';
+import { GREPTIME_SQL_DIALECT } from '../stores/greptime/greptime.dialect';
+import type { TelemetrySqlDialect } from '../stores/telemetry-store';
 import {
+  assertBucketSeconds,
   between,
-  bucketInterval,
   bucketRowLimit,
   ident,
   literal,
@@ -163,7 +165,8 @@ export function gaugeSeriesSql(
   info: MetricTableInfo | null,
   window: MetricSqlWindow,
   filters: DashboardSqlFilters,
-  maxGroups = METRIC_MAX_GROUPS
+  maxGroups = METRIC_MAX_GROUPS,
+  dialect: TelemetrySqlDialect = GREPTIME_SQL_DIALECT
 ): string | null {
   if (
     !hasColumns(info, [
@@ -175,8 +178,9 @@ export function gaugeSeriesSql(
     return null;
   }
   const value = family.valueSql ?? VALUE;
+  assertBucketSeconds(window.bucketSeconds);
   return (
-    `SELECT date_bin(${bucketInterval(window.bucketSeconds)}, ts) AS t, k AS g, ${aggregate(family.bucketAggregate, 'v')} AS v FROM (` +
+    `SELECT ${dialect.timeBucket('ts', window.bucketSeconds)} AS t, k AS g, ${aggregate(family.bucketAggregate, 'v')} AS v FROM (` +
     `SELECT ${TS} AS ts, ${keyExpr(family.groupBy)} AS k, ${aggregate(family.seriesAggregate, value)} AS v ` +
     `FROM ${ident(family.table)} WHERE ${whereOf(info, window.from, window.to, family.where, family.filters, filters)} ` +
     'GROUP BY ts, k' +
@@ -194,7 +198,8 @@ export function counterSeriesSql(
   info: MetricTableInfo | null,
   window: MetricSqlWindow,
   filters: DashboardSqlFilters,
-  maxGroups = METRIC_MAX_GROUPS
+  maxGroups = METRIC_MAX_GROUPS,
+  dialect: TelemetrySqlDialect = GREPTIME_SQL_DIALECT
 ): string | null {
   if (
     !hasColumns(info, [
@@ -205,8 +210,9 @@ export function counterSeriesSql(
   ) {
     return null;
   }
+  assertBucketSeconds(window.bucketSeconds);
   return (
-    `SELECT date_bin(${bucketInterval(window.bucketSeconds)}, ts) AS t, k AS g, sum(${COUNTER_DELTA}) AS v FROM (` +
+    `SELECT ${dialect.timeBucket('ts', window.bucketSeconds)} AS t, k AS g, sum(${COUNTER_DELTA}) AS v FROM (` +
     `SELECT ${TS} AS ts, ${keyExpr(family.groupBy)} AS k, ${VALUE} AS v, ${lagOver(info)} AS p ` +
     `FROM ${ident(family.table)} WHERE ${whereOf(info, window.from, window.to, family.where, family.filters, filters)}` +
     `) GROUP BY t, g ORDER BY g, t LIMIT ${groupRowLimit(window, maxGroups)}`

@@ -60,7 +60,7 @@ registry:
 
 | File | Registries it feeds | Recipe |
 |---|---|---|
-| `telemetry.ts` | Telemetry Dashboard metric groups (`APP_METRIC_GROUPS`) and `app.*` metrics (`APP_METRICS`); one file for both, because a group usually charts the app's own metrics | [runbooks/telemetry.md §8.4](../../../../docs/runbooks/telemetry.md#84-adding-an-app-metric-group) |
+| `telemetry.ts` | Telemetry Dashboard metric groups (`APP_METRIC_GROUPS`) and `app.*` metrics (`APP_METRICS`); one file for both, because a group usually charts the app's own metrics. Also `telemetryStoreKind` (`@marinoscar/platform-api/telemetry`, PP-14.11): telemetry stores, registered at import time with `registerTelemetryStore(...)` and selected by `TelemetryModule.forRoot({ store })`; this file makes the `register` call itself, because `platform/telemetry/telemetry.config.ts` imports it before the module is built. Upstream registers the worked example (`memory`, rows in process memory); it is inert until `forRoot` selects it | [runbooks/telemetry.md §8.4](../../../../docs/runbooks/telemetry.md#84-adding-an-app-metric-group) |
 
 registry:
 

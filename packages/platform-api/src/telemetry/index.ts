@@ -100,20 +100,60 @@ export type { TelemetrySettings } from '@marinoscar/platform-contract/telemetry'
 // Every other provider is internal; an app's test reaches one through the
 // configured module's `providers` (the reference app: `telemetryProviders` in
 // apps/api/src/platform/telemetry/telemetry.config.ts).
-export { GreptimeClient } from './greptime/greptime.client';
-export type {
-  GreptimePool,
-  TelemetryField,
-  TelemetryPingResult,
-  TelemetryQueryOptions,
-  TelemetryQueryResult,
-} from './greptime/greptime.client';
-export type { HostCheckOptions } from './greptime/greptime-host';
+export { GreptimeClient } from './stores/greptime/greptime.client';
+export type { GreptimePool } from './stores/greptime/greptime.client';
+export type { HostCheckOptions } from './stores/greptime/greptime-host';
 export { TelemetrySettingsService } from './telemetry-settings.service';
 export { TelemetryQueryService } from './query/telemetry-query.service';
 export type { TelemetryQueryRunOptions, TelemetryQuerySource } from './query/telemetry-query.service';
 export { TelemetrySchemaService } from './query/telemetry-schema.service';
 export { TELEMETRY_ASSISTANT_AUDIT_ACTION } from './assistant/telemetry-assistant.service';
+
+// ---- the telemetry store port and its registry (rung 2; PP-14.11) ----------------
+// What the services depend on instead of `GreptimeClient`: the connection
+// (`TelemetryStore`), the SQL spelling (`TelemetrySqlDialect`) and the
+// `registerTelemetryStore` registry; `greptime` is the built-in implementation.
+// The kit is `@marinoscar/platform-api/telemetry/testing`.
+export {
+  BUILTIN_TELEMETRY_STORE_ID,
+  TELEMETRY_SQL_DIALECT,
+  TELEMETRY_STORE,
+  describeTelemetryStore,
+  quoteSqlIdent,
+  quoteSqlLiteral,
+  registerTelemetryStore,
+  requireTelemetryStore,
+  rowsAsObjects,
+  telemetryStoreCredentialPurpose,
+  telemetryStoreIds,
+  telemetryStoreKind,
+} from './stores/telemetry-store';
+export type {
+  TelemetryField,
+  TelemetryPingResult,
+  TelemetryQueryOptions,
+  TelemetryQueryResult,
+  TelemetryRetentionControl,
+  TelemetrySchemaSnapshot,
+  TelemetrySqlDialect,
+  TelemetryStore,
+  TelemetryStoreBuildContext,
+  TelemetryStoreBuildInput,
+  TelemetryStoreDefinition,
+  TelemetryStoreInstance,
+  TelemetryStoreQueryOptions,
+} from './stores/telemetry-store';
+export {
+  TelemetryMultiStatementError,
+  TelemetryNotConfiguredError,
+  TelemetryQueryAbortedError,
+  TelemetryQueryFailedError,
+  TelemetryQueryTimeoutError,
+  TelemetryStoreError,
+} from './stores/telemetry-store.errors';
+export { GREPTIME_SQL_DIALECT } from './stores/greptime/greptime.dialect';
+export { TELEMETRY_STORE_SETTINGS_KEY } from './stores/telemetry-store.resolver';
+export { TELEMETRY_STORE_UPDATE_AUDIT_ACTION } from './stores/telemetry-store-settings.service';
 
 // ---- the job types (permanent strings; both server-only) --------------------------
 export { TELEMETRY_RETENTION_TYPE } from './handlers/telemetry-retention.handler';

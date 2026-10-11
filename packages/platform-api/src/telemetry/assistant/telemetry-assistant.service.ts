@@ -21,7 +21,7 @@ import {
 } from '../dto/telemetry-assistant.dto';
 import type { TelemetryQueryRunResult, TelemetrySchema } from '../dto/telemetry-query.dto';
 import { TELEMETRY_SQL_MAX_LENGTH } from '../dto/telemetry-query.dto';
-import { GreptimeClient, type TelemetryQueryResult } from '../greptime/greptime.client';
+import { TELEMETRY_STORE, type TelemetryQueryResult, type TelemetryStore } from '../stores/telemetry-store';
 import { metricGroupIds, metricGroups, metricTablesOf, type MetricGroup, type MetricTables } from '../metrics/metric-catalog';
 import { buildTable, computeMetricGroup, tableParts, type MetricRunner } from '../metrics/metric-group';
 import { latestByKeySql } from '../metrics/metric-sql';
@@ -373,7 +373,7 @@ export class TelemetryAssistantService {
 
   constructor(
     @Inject(TELEMETRY_AI) private readonly ai: TelemetryAiPort,
-    private readonly greptime: GreptimeClient,
+    @Inject(TELEMETRY_STORE) private readonly store: TelemetryStore,
     private readonly settings: TelemetrySettingsService,
     private readonly queries: TelemetryQueryService,
     private readonly schema: TelemetrySchemaService,
@@ -392,7 +392,7 @@ export class TelemetryAssistantService {
    * route's `TelemetryAiEnabledGuard`.
    */
   async assertReady(): Promise<SystemTelemetryValue & { assistant: { provider: string; modelId: string } }> {
-    const policy = await requireQueryablePolicy(this.greptime, this.settings);
+    const policy = await requireQueryablePolicy(this.store, this.settings);
 
     if (!policy.assistant.enabled) {
       throw new TelemetryHttpError(
@@ -1057,7 +1057,7 @@ export class TelemetryAssistantService {
         actorUserId: userId,
         action: TELEMETRY_ASSISTANT_AUDIT_ACTION,
         targetType: 'telemetry_store',
-        targetId: this.greptime.database,
+        targetId: this.store.database,
         meta,
       });
     } catch (err) {

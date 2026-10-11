@@ -310,6 +310,8 @@ const ROUTE_RULES: ReadonlyArray<{ shape: RegExp; permissions: readonly string[]
   { shape: /^GET admin\/telemetry\/connection$/, permissions: [READ] },
   { shape: /^(PUT|DELETE) admin\/telemetry\/connection$/, permissions: [WRITE] },
   { shape: /^POST admin\/telemetry\/connection\/test$/, permissions: [WRITE] },
+  { shape: /^GET admin\/telemetry\/store$/, permissions: [READ] },
+  { shape: /^PUT admin\/telemetry\/store$/, permissions: [WRITE] },
   { shape: /^GET admin\/telemetry\/stack$/, permissions: [SYSTEM_SETTINGS_READ] },
   { shape: /^POST admin\/telemetry\/stack\/deploy$/, permissions: [SYSTEM_SETTINGS_WRITE] },
   { shape: /^POST admin\/telemetry\/assistant\/stream$/, permissions: [QUERY, AI_USE], guard: TelemetryAiEnabledGuard },
@@ -470,6 +472,8 @@ export interface StubAppInput {
   ports?: StubTelemetryPortsOptions;
   /** The `greptime` configuration namespace (the deployment default), or none. */
   greptime?: Record<string, unknown>;
+  /** The telemetry store to select (`forRoot({ store })`); default `greptime`. Register it before booting. */
+  store?: string;
 }
 
 /**
@@ -503,7 +507,7 @@ export const bootStubApp: CreateConformanceApp = async (input) => {
         load: [() => ({ otel: { enabled: false }, ...(input.greptime ? { greptime: input.greptime } : {}) })],
       }),
       DoctorModule.forRoot({ host, supportBundle: false }),
-      TelemetryModule.forRoot({ host, imports: [module] }),
+      TelemetryModule.forRoot({ host, imports: [module], ...(input.store ? { store: input.store } : {}) }),
     ],
   })
   class ConformanceAppModule {}
@@ -544,8 +548,8 @@ export const CONFORMANCE_SECRETS: ConformanceSecrets = {
 };
 
 /**
- * Check 4: `GET /admin/telemetry/connection` and `GET /admin/telemetry/config`
- * never carry a stored password. Boots the module with known passwords in the
+ * Check 4: `GET /admin/telemetry/connection`, `/config` and `/store` never carry
+ * a stored password. Boots the module with known passwords in the
  * credential store (and in the `greptime` deployment default), a stored custom
  * connection row, and asserts none of the four appears in the serialised
  * responses. `TELEMETRY_CONNECTION_CARRIES_NO_SECRET` (the contract's
@@ -582,7 +586,7 @@ export async function checkNoSecretsInResponses(createApp: CreateConformanceApp 
     },
   });
   try {
-    for (const url of ['/admin/telemetry/connection', '/admin/telemetry/config']) {
+    for (const url of ['/admin/telemetry/connection', '/admin/telemetry/config', '/admin/telemetry/store']) {
       const response = await app.inject({ method: 'GET', url, headers: { [TEST_PERMISSIONS_HEADER]: TELEMETRY_PERMISSIONS.READ } });
       if (response.statusCode !== 200) {
         out.push(finding(FILE_SECRETS, `GET ${url} answered ${response.statusCode}, not 200, so it proves nothing`));

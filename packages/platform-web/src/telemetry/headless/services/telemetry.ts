@@ -52,6 +52,9 @@ import type {
   TelemetryConnectionHostMode as ContractTelemetryConnectionHostMode,
   TelemetryConnectionProbe as ContractTelemetryConnectionProbe,
   TelemetryConnectionResponse,
+  TelemetryStoreResponse,
+  TelemetryStoreSummary as ContractTelemetryStoreSummary,
+  UpdateTelemetryStoreInput,
   TelemetryConnectionSkipped as ContractTelemetryConnectionSkipped,
   TelemetryConnectionSource as ContractTelemetryConnectionSource,
   TelemetryConnectionTestResult as ContractTelemetryConnectionTestResult,
@@ -144,6 +147,41 @@ export type TelemetrySettingsUpdate = UpdateTelemetryConfigInput;
 // Passwords are WRITE-ONLY: they appear in request bodies and never in a
 // response, which carries only a masked `credentials.<login>` status. Its
 // `version` is the stored connection's own counter — NOT `/config`'s.
+
+// ---- the telemetry store (PP-14.11) -----------------------------------------------------
+//
+//   - `GET /admin/telemetry/store`  (`telemetry:read`)
+//   - `PUT /admin/telemetry/store`  (`telemetry:write`, If-Match)
+//
+// The settings of the store the deployment selected with
+// `TelemetryModule.forRoot({ store })`, for a store that is not the built-in
+// GreptimeDB (whose form is the connection above). The store brings its own
+// settings and secrets, drawn as a generated form from `descriptor`. Secrets are
+// WRITE-ONLY: sent, never read back (the descriptor carries presence only).
+
+/**
+ * One registered telemetry store: its id and label.
+ *
+ * @stability experimental
+ */
+export type TelemetryStoreSummary = ContractTelemetryStoreSummary;
+
+/**
+ * `GET /admin/telemetry/store` (and the `PUT` response): the active store, the
+ * registered ones, the generated form's descriptor (`null` for GreptimeDB) and
+ * the settings in force.
+ *
+ * @stability experimental
+ */
+export type TelemetryStoreConfig = TelemetryStoreResponse;
+
+/**
+ * The `PUT /admin/telemetry/store` body: a patch of the store's settings and
+ * its secrets by name (a string stores one, `null` or `''` removes it).
+ *
+ * @stability experimental
+ */
+export type TelemetryStoreInput = UpdateTelemetryStoreInput;
 
 export { TELEMETRY_CONNECTION_SOURCES };
 /**

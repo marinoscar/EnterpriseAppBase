@@ -35,13 +35,19 @@ function build(options: { configured?: boolean; policy?: SystemTelemetryValue; v
     isConfigured: jest.fn().mockReturnValue(options.configured ?? true),
     isAdminConfigured: jest.fn().mockReturnValue(options.configured ?? true),
   };
+  // The service reads the store port: configured, and whether its retention control can act.
+  const store = {
+    id: 'greptime',
+    isConfigured: greptime.isConfigured,
+    retention: { isApplicable: greptime.isAdminConfigured },
+  };
   const jobs = { enqueueHousekeepingJob: jest.fn().mockResolvedValue(undefined) };
   const appInfo = { slug: APP_SLUG };
 
   const service = new TelemetrySettingsService(
     audit as never,
     systemSettings as never,
-    greptime as never,
+    store as never,
     jobs as never,
     appInfo as never,
   );

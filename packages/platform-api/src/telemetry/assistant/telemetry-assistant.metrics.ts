@@ -1,6 +1,6 @@
 import { resolveWindow } from '../dashboard/telemetry-dashboard.service';
 import { DEFAULT_VERDICT_THRESHOLDS, type VerdictInput, type VerdictThresholds } from '../dashboard/telemetry-dashboard.verdict';
-import type { TelemetryQueryResult } from '../greptime/greptime.client';
+import type { TelemetryQueryResult } from '../stores/telemetry-store';
 import {
   familiesOf,
   metricGroupIds,

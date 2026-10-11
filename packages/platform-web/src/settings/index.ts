@@ -22,3 +22,7 @@ export type { SettingsSectionDef } from './ui/registry.js';
 // provider an app registered with it.
 export { PluggableConfigForm } from './ui/PluggableConfigForm.js';
 export type { PluggableConfigFormProps, PluggableConfigFormSlots } from './ui/PluggableConfigForm.js';
+// The state of that form (PP-14.11): the telemetry settings page keeps a
+// registered store's settings and write-only secrets in it.
+export { usePluggableConfigForm } from './headless/use-pluggable-config-form.js';
+export type { PluggableConfigPayload, PluggableSettingsValue, UsePluggableConfigFormResult } from './headless/use-pluggable-config-form.js';

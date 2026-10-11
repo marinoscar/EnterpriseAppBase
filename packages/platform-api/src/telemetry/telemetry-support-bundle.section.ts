@@ -31,7 +31,7 @@
 // the dashboard's existing behaviour, not a new write.
 // =============================================================================
 
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
 import { SupportBundleRegistry, omitSupportBundleSection } from '../doctor/index';
 import type {
   SupportBundleOmission,
@@ -43,7 +43,7 @@ import { z } from 'zod';
 import { TELEMETRY_PERMISSIONS } from './telemetry.permissions';
 import { TelemetryDashboardService } from './dashboard/telemetry-dashboard.service';
 import { VERDICT_LEVELS } from './dashboard/telemetry-dashboard.verdict';
-import { GreptimeClient } from './greptime/greptime.client';
+import { TELEMETRY_STORE, type TelemetryStore } from './stores/telemetry-store';
 import { metricGroupIds } from './metrics/metric-catalog';
 import { STACK_SERVICE_HEALTH, STACK_SERVICE_STATES } from './stack/stack-agent.client';
 import { TELEMETRY_STACK_AGENT_STATES } from './stack/dto/telemetry-stack.dto';
@@ -126,7 +126,7 @@ export class TelemetrySupportBundleSection implements SupportBundleSection<Telem
 
   constructor(
     private readonly registry: SupportBundleRegistry,
-    private readonly greptime: GreptimeClient,
+    @Inject(TELEMETRY_STORE) private readonly store: TelemetryStore,
     private readonly settings: TelemetrySettingsService,
     private readonly status: TelemetryStatusService,
     private readonly stack: TelemetryStackService,
@@ -138,7 +138,7 @@ export class TelemetrySupportBundleSection implements SupportBundleSection<Telem
   }
 
   async collect(ctx: SupportBundleSectionContext): Promise<TelemetrySectionData | SupportBundleOmission> {
-    if (!this.greptime.isConfigured()) return omitSupportBundleSection('no telemetry store is configured');
+    if (!this.store.isConfigured()) return omitSupportBundleSection('no telemetry store is configured');
     const policy = await this.settings.getPolicy();
     if (!policy.enabled) return omitSupportBundleSection('telemetry is switched off');
 

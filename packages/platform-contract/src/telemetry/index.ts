@@ -136,6 +136,8 @@ export {
   telemetryStackServiceSchema,
   telemetryStackStatusSchema,
   telemetryStatusSchema,
+  telemetryStoreResponseSchema,
+  telemetryStoreSummarySchema,
   telemetryTableSchema,
   telemetryTtlSchema,
   telemetryUserSchema,
@@ -145,6 +147,7 @@ export {
   unknownRouteSchema,
   updateTelemetryConfigSchema,
   updateTelemetryConnectionSchema,
+  updateTelemetryStoreSchema,
 } from './schemas.js';
 export type {
   DashboardWindowInput,
@@ -216,10 +219,13 @@ export type {
   TelemetryStackService,
   TelemetryStackStatus,
   TelemetryStatus,
+  TelemetryStoreResponse,
+  TelemetryStoreSummary,
   TelemetryTable,
   TelemetryTtl,
   TestTelemetryConnectionInput,
   UpdateTelemetryConfigInput,
   UpdateTelemetryConnectionInput,
   UpdateTelemetryConnectionRequest,
+  UpdateTelemetryStoreInput,
 } from './schemas.js';

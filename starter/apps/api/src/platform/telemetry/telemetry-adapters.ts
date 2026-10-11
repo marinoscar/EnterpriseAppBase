@@ -49,8 +49,11 @@ export class TelemetryAuditSinkAdapter implements TelemetryAuditSink {
   }
 }
 
-/** The keyed `system_settings` rows telemetry may read and write. */
-export const TELEMETRY_OWNED_ROW_KEYS: readonly string[] = ['telemetry_connection'];
+/**
+ * The keyed `system_settings` rows telemetry may read and write: the GreptimeDB
+ * connection and the settings of a non-built-in store (`telemetry_store`).
+ */
+export const TELEMETRY_OWNED_ROW_KEYS: readonly string[] = ['telemetry_connection', 'telemetry_store'];
 
 const PROVENANCE_SELECT = {
   version: true,

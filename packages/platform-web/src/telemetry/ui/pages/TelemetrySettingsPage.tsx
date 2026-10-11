@@ -24,6 +24,14 @@
  * real gate either way. Saves send `If-Match: <version>`; a 409 means someone
  * else saved first and the page offers a reload.
  *
+ * THE STORE (PP-14.11). The deployment selects its telemetry store in code
+ * (`TelemetryModule.forRoot({ store })`) and `GET /admin/telemetry/config` says
+ * which. For the built-in `greptime` the page is exactly as above: the
+ * Telemetry services section and the GreptimeDB Connection section. For any
+ * other registered store the Connection section is replaced by the Store
+ * section, a generated form over the store's own descriptor, and the services
+ * section (the GreptimeDB containers) is left out.
+ *
  * NOT behind `RequireTelemetryEnabled`: this is where telemetry is switched on.
  */
 import { useContext, useEffect, useMemo, useState } from 'react';
@@ -72,6 +80,7 @@ import {
   TelemetryConnectionSection,
 } from '../components/TelemetryConnectionSection.js';
 import { TelemetryServicesSection } from '../components/TelemetryServicesSection.js';
+import { TELEMETRY_STORE_SECTION_ID, TelemetryStoreSection } from '../components/TelemetryStoreSection.js';
 import { telemetryTokens } from '../../theme/telemetryTokens.js';
 import {
   TELEMETRY_INSTANCE_ID_PATTERN,
@@ -205,19 +214,22 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-/** An in-page link to the Connection section. */
-function ConnectionLink({ children }: { children: ReactNode }) {
-  return <Link href={`#${TELEMETRY_CONNECTION_SECTION_ID}`}>{children}</Link>;
+/** An in-page link to the Connection section (the Store section for any other store). */
+function ConnectionLink({ children, builtin = true }: { children: ReactNode; builtin?: boolean }) {
+  return <Link href={`#${builtin ? TELEMETRY_CONNECTION_SECTION_ID : TELEMETRY_STORE_SECTION_ID}`}>{children}</Link>;
 }
 
 function StatusCard({
   status,
   error,
   onRefresh,
+  store,
 }: {
   status: TelemetryStatus | null;
   error: string | null;
   onRefresh: () => void;
+  /** The deployment's store when it is not the built-in GreptimeDB; the card names it. */
+  store?: { id: string; label: string };
 }) {
   return (
     <Section title="Status">
@@ -228,11 +240,22 @@ function StatusCard({
       )}
       {status && !status.configured && (
         <Alert severity="warning" sx={{ mb: 2 }} data-testid="telemetry-not-configured">
-          <AlertTitle>GreptimeDB not configured</AlertTitle>
-          The API has no connection to a telemetry store. Enter the GreptimeDB logins in
-          the <ConnectionLink>Connection</ConnectionLink> section and save. GreptimeDB is
-          deployed with this application; settings saved here take effect once it is reachable,
-          with no restart needed.
+          {store ? (
+            <>
+              <AlertTitle>{store.label} not configured</AlertTitle>
+              The API has no connection to the {store.label} telemetry store. Configure it in the{' '}
+              <ConnectionLink builtin={false}>Store</ConnectionLink> section and save; settings saved
+              there take effect within seconds, with no restart needed.
+            </>
+          ) : (
+            <>
+              <AlertTitle>GreptimeDB not configured</AlertTitle>
+              The API has no connection to a telemetry store. Enter the GreptimeDB logins in
+              the <ConnectionLink>Connection</ConnectionLink> section and save. GreptimeDB is
+              deployed with this application; settings saved here take effect once it is reachable,
+              with no restart needed.
+            </>
+          )}
         </Alert>
       )}
       {status && (
@@ -482,6 +505,9 @@ export default function TelemetrySettingsPage() {
   // which enforce `system_settings:read` / `system_settings:write`.
   const canViewServices = hasPermission('system_settings:read');
   const canDeployServices = hasPermission('system_settings:write');
+  // The deployment's store: the built-in GreptimeDB (the default, and what a
+  // server that predates pluggable stores always used) or one an app registered.
+  const otherStore = config?.store && config.store.id !== 'greptime' ? config.store : undefined;
 
   if (isLoading && !form) {
     return <TelemetrySpinner />;
@@ -552,7 +578,7 @@ export default function TelemetrySettingsPage() {
           </Alert>
         )}
 
-        {canViewServices && (
+        {canViewServices && !otherStore && (
           <TelemetryServicesSection
             canDeploy={canDeployServices}
             onDeployed={() => {
@@ -565,19 +591,32 @@ export default function TelemetrySettingsPage() {
           />
         )}
 
-        <TelemetryConnectionSection
-          canWrite={canWrite}
-          refreshToken={connectionRefresh}
-          onChanged={(message) => {
-            setSavedMessage(message);
-            // The connection decides `available`, `retentionApplicable` and the
-            // status, so refresh all three — and the shell's shared flag.
-            void reload();
-            void sharedTelemetryConfig?.refresh();
-          }}
-        />
+        {otherStore ? (
+          <TelemetryStoreSection
+            canWrite={canWrite}
+            onChanged={(message) => {
+              setSavedMessage(message);
+              // The store decides `available`, `retentionApplicable` and the
+              // status, so refresh all three — and the shell's shared flag.
+              void reload();
+              void sharedTelemetryConfig?.refresh();
+            }}
+          />
+        ) : (
+          <TelemetryConnectionSection
+            canWrite={canWrite}
+            refreshToken={connectionRefresh}
+            onChanged={(message) => {
+              setSavedMessage(message);
+              // The connection decides `available`, `retentionApplicable` and the
+              // status, so refresh all three — and the shell's shared flag.
+              void reload();
+              void sharedTelemetryConfig?.refresh();
+            }}
+          />
+        )}
 
-        <StatusCard status={status} error={statusError} onRefresh={() => void refreshStatus()} />
+        <StatusCard status={status} error={statusError} onRefresh={() => void refreshStatus()} store={otherStore} />
 
         {form && config && (
           <Box component="form" onSubmit={handleSubmit} noValidate>
@@ -600,9 +639,19 @@ export default function TelemetrySettingsPage() {
               </FormHelperText>
               {!config.available && (
                 <Alert severity="info" sx={{ mt: 2 }}>
-                  No telemetry store is configured yet, so this switch has no effect until a
-                  GreptimeDB connection is saved in the{' '}
-                  <ConnectionLink>Connection</ConnectionLink> section.
+                  {otherStore ? (
+                    <>
+                      No telemetry store is configured yet, so this switch has no effect until the{' '}
+                      {otherStore.label} store is configured in the{' '}
+                      <ConnectionLink builtin={false}>Store</ConnectionLink> section.
+                    </>
+                  ) : (
+                    <>
+                      No telemetry store is configured yet, so this switch has no effect until a
+                      GreptimeDB connection is saved in the{' '}
+                      <ConnectionLink>Connection</ConnectionLink> section.
+                    </>
+                  )}
                 </Alert>
               )}
               <Box sx={{ mt: 3, maxWidth: { sm: 480 } }}>

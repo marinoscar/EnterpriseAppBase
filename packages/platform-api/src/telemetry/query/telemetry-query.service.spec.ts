@@ -6,7 +6,7 @@ import {
   TelemetryNotConfiguredError,
   TelemetryQueryFailedError,
   TelemetryQueryTimeoutError,
-} from '../greptime/greptime.errors';
+} from '../stores/telemetry-store.errors';
 import { TelemetryHttpError } from './telemetry-query.errors';
 import {
   columnTypeName,
@@ -38,7 +38,14 @@ function setup(overrides: { configured?: boolean; policy?: Partial<SystemTelemet
   };
   const settings = { getPolicy: jest.fn().mockResolvedValue({ ...POLICY, ...overrides.policy }) };
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
-  const service = new TelemetryQueryService(greptime as never, settings as never, audit as never);
+  // The service talks to the store port; this adapter keeps the assertions on the
+  // GreptimeDB-facing `queryReader` call the port's `query` ends up making.
+  const store = {
+    ...greptime,
+    query: (sql: string, _params: unknown[], options: { timeoutMs: number; signal?: AbortSignal }) =>
+      greptime.queryReader(sql, { timeoutMs: options.timeoutMs, signal: options.signal }),
+  };
+  const service = new TelemetryQueryService(store as never, settings as never, audit as never);
 
   const auditMeta = () => audit.record.mock.calls.at(-1)?.[0];
 
