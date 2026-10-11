@@ -95,8 +95,8 @@ export interface RestoreGateOutcome {
 /**
  * One gate's verdict in the pre-flight result. `warning` is a pass that says
  * something. (A gate's own answer is a {@link RestoreGateOutcome}; this is that
- * answer as the result and the wire carry it: `pass`, `warn` -> `warning`,
- * `fail` -> `block`.)
+ * answer as the result and the wire carry it: `pass` stays `pass`, `warn` becomes
+ * `warning` and `fail` becomes `block`.)
  *
  * @stability experimental
  */

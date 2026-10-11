@@ -194,7 +194,7 @@ export const RESTORE_SCHEMA_OVERRIDE_FIELD = 'overrideSchemaCheck';
  *
  * Not a closed list of every gate: an app registers its own with
  * `registerRestoreGate` (`@marinoscar/platform-api/db-backup`), which run after
- * these and report under their own ids (see {@link restoreGateIdSchema}). This
+ * these and report under their own ids (see `restoreGateIdSchema`). This
  * list names the eight the platform ships, for labels and defaults.
  *
  * @stability stable
