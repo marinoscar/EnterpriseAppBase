@@ -103,7 +103,7 @@ import { RESTORE_CONFIRMATION, RESTORE_GATE_ID_PATTERN, ROLLBACK_CONFIRMATION, t
  * (the eight built-ins and the ids an app registered with `registerRestoreGate`).
  * An open vocabulary: it was a closed enum of the eight.
  *
- * @extensionPoint contract
+ * @extensionPoint schema
  * @stability experimental
  */
 export const restoreGateIdSchema = z.string().regex(RESTORE_GATE_ID_PATTERN);

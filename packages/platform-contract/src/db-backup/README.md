@@ -40,12 +40,11 @@ The shapes are the contract of the slice's routes, its settings namespace and it
 
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
-| `restoreGateIdSchema` | contract | `z.string().regex(RESTORE_GATE_ID_PATTERN)` | A restore gate's id on the wire: the eight built-ins and any id an app registered | experimental | [example](../../../../apps/api/src/platform-extensions/db-backup/cdn-quiesced.gate.ts) |
-| `RESTORE_GATE_ID_PATTERN` | contract | `/^[a-z][a-z0-9_-]{1,63}$/` | Validate an id before registering a gate | experimental | [example](../../../../apps/api/src/platform-extensions/db-backup/cdn-quiesced.gate.ts) |
+| `restoreGateIdSchema` | schema | `z.string().regex(RESTORE_GATE_ID_PATTERN)` | A restore gate's id on the wire: the eight built-ins and any id an app registered | experimental | [example](../../../../apps/api/src/platform-extensions/db-backup/cdn-quiesced.gate.ts) |
 | `DB_BACKUP_RUN_COMPLETED_EVENT` | event | `'db_backup.run.completed'`, payload `DbBackupRunCompletedEvent` | Subscribe to a settled backup run | experimental | [example](../../../../apps/api/test/examples/db-backup/local-dir.target.spec.ts) |
 | `DB_BACKUP_RESTORE_COMPLETED_EVENT` | event | `'db_backup.restore.completed'`, payload `DbBackupRestoreCompletedEvent` | Subscribe to a settled restore | experimental | [example](../../../../apps/api/test/examples/db-backup/local-dir.target.spec.ts) |
-| `BACKUP_FREQUENCIES` | contract | `['daily', 'weekly', 'monthly', 'cron']` | The schedule frequencies; `cron` needs `databaseBackup.cron` | stable | [example](../../../platform-api/test/db-backup/schedule.util.spec.ts) |
-| `backupRetentionSchema` | contract | `{ count?: number; maxAgeDays?: number }` | The retention object beside the `retentionCount` alias | experimental | [example](../../../platform-api/test/db-backup/db-backup.system-settings.spec.ts) |
+
+Supporting exports: `RESTORE_GATE_ID_PATTERN` (validate an id before registering a gate), `BACKUP_FREQUENCIES` (`daily`, `weekly`, `monthly`, `cron`; `cron` needs `databaseBackup.cron`; stable), `backupRetentionSchema` (`{ count?, maxAgeDays? }`, the object beside the `retentionCount` alias; see `packages/platform-api/test/db-backup/db-backup.system-settings.spec.ts`), `BACKUP_CRON_MIN_INTERVAL_MINUTES` and `BACKUP_CRON_PATTERN`.
 
 The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
 

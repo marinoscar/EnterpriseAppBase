@@ -116,6 +116,7 @@ export type {
   DatabaseBackupRunDelegate,
   DatabaseBackupRunUpdateData,
   DatabaseBackupRunWhere,
+  DbBackupAuditRow,
   DbBackupPrisma,
   DbBackupTx,
   DbBackupUserRow,
@@ -126,6 +127,8 @@ export { DB_BACKUP_PERMISSIONS } from './db-backup.permissions';
 /** @stability experimental */
 export type { DbBackupPermissionDeclaration } from './db-backup.permissions';
 export { DATABASE_BACKUP_SYSTEM_SETTINGS, mergeDatabaseBackupSettings, resolveBackupRetention } from './db-backup.system-settings';
+/** @stability experimental */
+export type { ResolvedBackupRetention } from './db-backup.system-settings';
 export { DATABASE_BACKUPS_KEY_PREFIX, DB_BACKUP_KEY_PREFIX, registerDbBackupKeyPrefix } from './db-backup-key-prefix';
 export {
   DB_BACKUP_APP_METRICS,

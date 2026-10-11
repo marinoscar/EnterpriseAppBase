@@ -148,7 +148,7 @@ export interface BackupSignedUrlOptions {
  * }
  * ```
  *
- * @extensionPoint port
+ * @extensionPoint token
  * @stability experimental
  */
 export interface BackupTarget {

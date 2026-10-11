@@ -110,6 +110,18 @@ export function mergeDatabaseBackupSettings(
 }
 
 /**
+ * The retention rules in force, as {@link resolveBackupRetention} returns them.
+ *
+ * @stability experimental
+ */
+export interface ResolvedBackupRetention {
+  /** How many completed archives to keep. */
+  count: number;
+  /** Delete a completed archive older than this many days; absent for no age bound. */
+  maxAgeDays?: number;
+}
+
+/**
  * The retention rules in force: the count (`retention.count`, else the
  * `retentionCount` alias) and, when set, the age bound in days.
  *
@@ -120,7 +132,7 @@ export function mergeDatabaseBackupSettings(
  */
 export function resolveBackupRetention(
   policy: Pick<SystemDatabaseBackupValue, 'retentionCount' | 'retention'>,
-): { count: number; maxAgeDays?: number } {
+): ResolvedBackupRetention {
   const maxAgeDays = policy.retention?.maxAgeDays;
   return {
     count: policy.retention?.count ?? policy.retentionCount,

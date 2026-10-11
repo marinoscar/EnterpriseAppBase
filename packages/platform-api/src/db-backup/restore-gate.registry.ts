@@ -171,7 +171,14 @@ export interface RestoreClusterFacts {
   /** Distinct client addresses holding sessions on the live database. */
   readonly distinctClientAddresses: number | null;
   /** How the session's role lifts row-level security; `null` when not read. */
-  readonly rlsBypass: { readonly superuser: boolean; readonly bypassRls: boolean; readonly optionApplied: boolean } | null;
+  readonly rlsBypass: {
+    /** The session's role is a superuser. */
+    readonly superuser: boolean;
+    /** The session's role has `BYPASSRLS`. */
+    readonly bypassRls: boolean;
+    /** `app.rls_bypass` was accepted by the connection. */
+    readonly optionApplied: boolean;
+  } | null;
 }
 
 /**

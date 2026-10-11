@@ -32,6 +32,7 @@ export type {
   RestoreGateConformanceHarness,
   RestoreGateConformanceOptions,
   RestoreGateScenario,
+  RestoreGateWatch,
 } from './restore-gate-conformance';
 
 // ---- the Doctor checks --------------------------------------------------------------------

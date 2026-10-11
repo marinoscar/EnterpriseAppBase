@@ -107,6 +107,7 @@ export class BackupMirrorsDoctorCheck implements DoctorCheck, OnModuleInit {
     this.mirrors = mirrors ?? [];
   }
 
+  /** Registers the check with the Doctor registry. */
   onModuleInit(): void {
     this.registry.register(this);
   }

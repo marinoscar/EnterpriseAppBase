@@ -85,6 +85,18 @@ export interface RestoreGateScenario {
 }
 
 /**
+ * A counter of one side-effecting dependency of a gate.
+ *
+ * @stability experimental
+ */
+export interface RestoreGateWatch {
+  /** Names the dependency in a failure message. */
+  name: string;
+  /** How many times the dependency was used so far. */
+  calls(): number;
+}
+
+/**
  * Options of {@link describeRestoreGateConformance}.
  *
  * @stability experimental
@@ -96,7 +108,7 @@ export interface RestoreGateConformanceOptions extends RestoreGateConformanceHar
    * Counters of the gate's own side-effecting dependencies (`calls()` reads how
    * many times each was used). Each must be zero after every case.
    */
-  watch?: ReadonlyArray<{ name: string; calls(): number }>;
+  watch?: ReadonlyArray<RestoreGateWatch>;
 }
 
 const KINDS: readonly RestoreGateKind[] = ['capability', 'disk', 'replicas', 'overridable', 'app'];

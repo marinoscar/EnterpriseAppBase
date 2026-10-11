@@ -133,18 +133,24 @@ export class InvalidTimezoneError extends Error {
 /**
  * Thrown when an expression is outside the subset this module understands.
  *
- * That subset is exactly what {@link backupScheduleToCron} emits: a numeric
- * minute and hour, and `*` or a single number for day-of-month and
- * day-of-week, with at most one of those two restricted. Lists (`1,15`),
- * ranges (`1-5`), step values and named days are REJECTED rather than
- * approximated - a scheduler that silently mis-reads an expression fires at
- * the wrong time forever, and nobody looks at a backup's schedule again after
- * the day they set it.
+ * That subset is five fields: minute and hour, then day-of-month and
+ * day-of-week, each `*`, a number, a range (`1-5`), a step (`0-12/2`, `*` over
+ * `6`) or a comma list of those; the month is `*`, and at most one of the two
+ * day fields is restricted. Named days and months, `L`, `W`, `#` and `?` are
+ * REJECTED rather than approximated - a scheduler that silently mis-reads an
+ * expression fires at the wrong time forever, and nobody looks at a backup's
+ * schedule again after the day they set it.
  *
  * @stability experimental
  */
 export class InvalidCronExpressionError extends Error {
-  constructor(readonly expression: string) {
+  /**
+   * @param expression - the rejected expression.
+   */
+  constructor(
+    /** The rejected expression. */
+    readonly expression: string,
+  ) {
     super(
       `Unsupported cron expression '${expression}'. This scheduler understands ` +
         '`<minute> <hour> <day-of-month|*> * <day-of-week|*>`, where each field is `*`, a number, ' +
@@ -341,7 +347,7 @@ function parseCronField(field: string, min: number, max: number): number[] | nul
  * Parses a `frequency: 'cron'` expression: five fields, each `*`, a number, a
  * range (`1-5`), a step (`0-12/2`, or a `*` followed by `/6`) or a comma list of those. The month
  * field is `*`, and at most one of the two day fields is restricted (the OR-vs-AND
- * ambiguity in the header). A superset of what {@link parseCronExpression} reads.
+ * ambiguity in the header). A superset of what `parseCronExpression` reads.
  *
  * @param expression - the expression.
  * @returns the parsed schedule.
@@ -376,9 +382,12 @@ export function parseBackupCron(expression: string): BackupCronSchedule {
  */
 export class CronIntervalTooShortError extends Error {
   constructor(
+    /** The expression. */
     readonly expression: string,
+    /** The shortest gap found between two runs, in minutes. */
     readonly intervalMinutes: number,
-    readonly minimumMinutes: number
+    /** The minimum the schedule must leave. */
+    readonly minimumMinutes: number,
   ) {
     super(
       `The cron expression '${expression}' can fire ${intervalMinutes} minute(s) after its previous run; ` +
@@ -390,7 +399,7 @@ export class CronIntervalTooShortError extends Error {
 
 /**
  * The smallest gap, in minutes, between two consecutive fires of a parsed
- * expression, measured over {@link SCHEDULE_SEARCH_LIMIT_DAYS} calendar days
+ * expression, measured over `SCHEDULE_SEARCH_LIMIT_DAYS` calendar days
  * in civil time (no zone, no DST: the gap is a property of the expression).
  * `Infinity` when it fires at most once in that window.
  *
@@ -455,7 +464,7 @@ export function assertBackupCron(
  * processes computing the same boundary from the same settings agree by
  * construction.
  *
- * @returns `null` when nothing was due within {@link SCHEDULE_SEARCH_LIMIT_DAYS}.
+ * @returns `null` when nothing was due within `SCHEDULE_SEARCH_LIMIT_DAYS`.
  * @throws {@link InvalidTimezoneError} for a timezone this runtime does not know.
  * @throws {@link InvalidCronExpressionError} for an unsupported expression.
  *
@@ -472,7 +481,7 @@ export function previousFireBoundary(
 /**
  * The next instant strictly after `from` at which `expression` is due.
  *
- * @returns `null` when nothing is due within {@link SCHEDULE_SEARCH_LIMIT_DAYS}.
+ * @returns `null` when nothing is due within `SCHEDULE_SEARCH_LIMIT_DAYS`.
  * @throws {@link InvalidTimezoneError} for a timezone this runtime does not know.
  * @throws {@link InvalidCronExpressionError} for an unsupported expression.
  *
