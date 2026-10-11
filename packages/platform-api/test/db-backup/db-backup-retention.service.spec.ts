@@ -62,6 +62,8 @@ interface HarnessOptions {
   deleteImpl?: (key: string) => Promise<void>;
   deleteRowImpl?: (id: string) => Promise<void>;
   settingsImpl?: () => Promise<SystemDatabaseBackupValue>;
+  /** PP-14.12: copies on mirror targets, deleted with the original. */
+  mirrors?: Array<{ id: string; delete: (key: string) => Promise<void> }>;
 }
 
 /**
@@ -88,6 +90,7 @@ function makeHarness(options: HarnessOptions = {}) {
       if (where.createdAt?.lt !== undefined && !(entry.createdAt < where.createdAt.lt)) {
         return false;
       }
+      if (where.id?.not !== undefined && entry.id === where.id.not) return false;
 
       return true;
     });
@@ -103,6 +106,15 @@ function makeHarness(options: HarnessOptions = {}) {
     return rows.map((entry) => ({ ...entry }));
   });
 
+  // PP-14.12: the newest ordinary completed run, for the age rule's safety net.
+  const findFirst = jest.fn(async (args: any) => {
+    calls.push('findFirst');
+    const rows = [...table.values()]
+      .filter((entry) => entry.status === args.where.status && entry.trigger !== args.where.trigger?.not)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    return rows[0] ? { id: rows[0].id } : null;
+  });
+
   const deleteRow = jest.fn(async ({ where }: { where: { id: string } }) => {
     calls.push(`row:${where.id}`);
     if (options.deleteRowImpl) await options.deleteRowImpl(where.id);
@@ -112,7 +124,7 @@ function makeHarness(options: HarnessOptions = {}) {
   });
 
   const prisma = {
-    databaseBackupRun: { findMany, delete: deleteRow },
+    databaseBackupRun: { findMany, findFirst, delete: deleteRow },
   } as unknown as PrismaService;
 
   const settings = {
@@ -129,7 +141,7 @@ function makeHarness(options: HarnessOptions = {}) {
   const storage = { delete: deleteObject } as unknown as StorageProvider;
 
   return {
-    service: new DatabaseBackupRetentionService(prisma, settings, storage),
+    service: new DatabaseBackupRetentionService(prisma, settings, storage, undefined, options.mirrors as never),
     calls,
     table,
     findMany,
@@ -414,5 +426,136 @@ describe('retention never throws', () => {
 
     expect(result.prunedByCount).toBe(2);
     expect(result.prunedByAge).toBe(0);
+  });
+});
+
+// =============================================================================
+// PP-14.12: the retention object, the age bound and mirror copies
+// =============================================================================
+
+describe('retention.count and the retentionCount alias', () => {
+  it('uses retention.count when the policy sets it, over the alias', async () => {
+    const h = makeHarness({ rows: nightlies(6), policy: { retentionCount: 5, retention: { count: 2 } } });
+
+    const result = await h.service.prune(NOW);
+
+    expect(result.prunedByCount).toBe(4);
+    expect(h.remaining()).toEqual(['night-5', 'night-6']);
+  });
+
+  it('falls back to retentionCount when retention carries no count', async () => {
+    const h = makeHarness({ rows: nightlies(6), policy: { retentionCount: 4, retention: { maxAgeDays: 3650 } } });
+
+    const result = await h.service.prune(NOW);
+
+    expect(result.prunedByCount).toBe(2);
+    expect(h.remaining()).toEqual(['night-3', 'night-4', 'night-5', 'night-6']);
+  });
+});
+
+describe('retention.maxAgeDays', () => {
+  const aged = (id: string, daysOld: number, overrides: Partial<Row> = {}): Row =>
+    row(id, { createdAt: new Date(NOW.getTime() - daysOld * 86_400_000), ...overrides });
+
+  it('does not run, and does not change the result shape, without the bound', async () => {
+    const h = makeHarness({ rows: [aged('old', 400), aged('new', 1)], policy: { retentionCount: 50 } });
+
+    const result = await h.service.prune(NOW);
+
+    expect(result.prunedByMaxAge).toBeUndefined();
+    expect(h.remaining()).toEqual(['old', 'new']);
+    expect(h.calls).not.toContain('findFirst');
+  });
+
+  it('deletes ordinary completed runs older than the bound, oldest first, even when the count would keep them', async () => {
+    const h = makeHarness({
+      rows: [aged('a', 90), aged('b', 40), aged('c', 20), aged('d', 1)],
+      policy: { retentionCount: 50, retention: { maxAgeDays: 30 } },
+    });
+
+    const result = await h.service.prune(NOW);
+
+    expect(result.prunedByMaxAge).toBe(2);
+    expect(h.remaining()).toEqual(['c', 'd']);
+    expect(h.calls.filter((call) => call.startsWith('object:'))).toEqual(['object:backups/a.dump', 'object:backups/b.dump']);
+  });
+
+  it('NEVER deletes the newest completed run, however old: a stalled schedule must not empty the catalog', async () => {
+    const h = makeHarness({
+      rows: [aged('ancient', 400), aged('old', 100)],
+      policy: { retentionCount: 50, retention: { maxAgeDays: 7 } },
+    });
+
+    const result = await h.service.prune(NOW);
+
+    expect(result.prunedByMaxAge).toBe(1);
+    expect(h.remaining()).toEqual(['old']);
+  });
+
+  it('leaves failed rows and pre_restore archives to their own rules', async () => {
+    const h = makeHarness({
+      rows: [
+        aged('failed', 100, { status: 'failed' }),
+        aged('rollback', 100, { trigger: 'pre_restore' }),
+        aged('nightly-old', 100),
+        aged('nightly-new', 1),
+      ],
+      policy: { retentionCount: 50, oldDatabaseRetentionHours: 100_000, retention: { maxAgeDays: 30 } },
+    });
+
+    await h.service.prune(NOW);
+
+    expect(h.remaining()).toEqual(['failed', 'rollback', 'nightly-new']);
+  });
+
+  it('keeps a row whose archive could not be deleted, and counts it', async () => {
+    const h = makeHarness({
+      rows: [aged('a', 90), aged('b', 1)],
+      policy: { retentionCount: 50, retention: { maxAgeDays: 30 } },
+      deleteImpl: async () => {
+        throw new Error('bucket refused');
+      },
+    });
+
+    const result = await h.service.prune(NOW);
+
+    expect(result.prunedByMaxAge).toBe(0);
+    expect(result.keptAfterFailedDelete).toBe(1);
+    expect(h.remaining()).toEqual(['a', 'b']);
+  });
+});
+
+describe('mirror copies are deleted with the original', () => {
+  it('deletes the same key on every mirror, after the primary', async () => {
+    const order: string[] = [];
+    const mirrors = [
+      { id: 'local-dir', delete: jest.fn(async (key: string) => void order.push(`local-dir:${key}`)) },
+      { id: 'cold', delete: jest.fn(async (key: string) => void order.push(`cold:${key}`)) },
+    ];
+    const h = makeHarness({ rows: nightlies(4), mirrors });
+
+    await h.service.prune(NOW);
+
+    // retentionCount 3 in the harness policy: one run (night-1) is deleted.
+    expect(order).toEqual(['local-dir:backups/night-1.dump', 'cold:backups/night-1.dump']);
+    expect(h.calls.indexOf('object:backups/night-1.dump')).toBeLessThan(h.calls.indexOf('row:night-1'));
+  });
+
+  it('a mirror that cannot delete never keeps the row or stops the prune', async () => {
+    const mirrors = [
+      {
+        id: 'cold',
+        delete: jest.fn(async () => {
+          throw new Error('cold store unreachable');
+        }),
+      },
+    ];
+    const h = makeHarness({ rows: nightlies(5), mirrors });
+
+    const result = await h.service.prune(NOW);
+
+    expect(result.prunedByCount).toBe(2);
+    expect(result.keptAfterFailedDelete).toBe(0);
+    expect(h.remaining()).toEqual(['night-3', 'night-4', 'night-5']);
   });
 });

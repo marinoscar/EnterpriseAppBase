@@ -35,6 +35,12 @@ import {
   type AdminConnection,
   type AdminQueryClient,
 } from './admin-connection.util';
+import {
+  DB_BACKUP_TARGET,
+  StorageProviderBackupTarget,
+  type BackupTarget,
+} from './backup-target';
+import { DbBackupEvents, eventBytes } from './db-backup-events';
 import { DatabaseBackupRunnerService } from './db-backup-runner.service';
 import {
   DatabaseRestoreArchiveError,
@@ -1189,7 +1195,7 @@ export class DatabaseRestoreService {
   constructor(
     @Inject(PLATFORM_PRISMA) private readonly prisma: DbBackupPrisma,
     private readonly settings: SystemSettingsService,
-    @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
+    @Inject(STORAGE_PROVIDER) storage: StorageProvider,
     // The pre-flight is a REQUIRED collaborator, not a courtesy. See
     // `startRestore`: a restore that could be started without the gates having
     // run is a restore whose gates are a UI decoration.
@@ -1212,10 +1218,19 @@ export class DatabaseRestoreService {
     // #685. The deployment-mode gate: in `saas` every restore entry point
     // refuses before it does anything at all. See `startRestore`.
     private readonly deployment: DbBackupRestoreGate,
-    @Optional() @Inject(DATABASE_RESTORE_SEAM) seam?: DatabaseRestoreSeam
+    @Optional() @Inject(DATABASE_RESTORE_SEAM) seam?: DatabaseRestoreSeam,
+    // PP-14.12. The target the archive is read from (the default is the active
+    // storage provider), and the event a settled restore raises. Optional: a
+    // hand-built instance keeps working on the storage provider alone.
+    @Optional() @Inject(DB_BACKUP_TARGET) target?: BackupTarget,
+    @Optional() private readonly events?: DbBackupEvents
   ) {
     this.seam = seam ?? defaultDatabaseRestoreSeam;
+    this.target = target ?? new StorageProviderBackupTarget(storage);
   }
+
+  /** Where the archive is read from. */
+  private readonly target: BackupTarget;
 
   // =========================================================================
   // Starting a restore
@@ -1549,6 +1564,14 @@ export class DatabaseRestoreService {
 
       await this.recordFailure(run.id, actorUserId, failure);
 
+      this.events?.restoreCompleted({
+        runId: run.id,
+        status: 'failed',
+        targetId: run.storageProvider,
+        sizeBytes: eventBytes(run.sizeBytes),
+        durationMs: Math.max(0, this.seam.now().getTime() - startedAt.getTime()),
+      });
+
       // ⚠ RETHROWN, AFTER THE ROW HAS BEEN WRITTEN AND THE SCRATCH DATABASE
       // GIVEN BACK. Both of those are this method's contract and neither may be
       // skipped by a throw travelling earlier: the queue's `lastError` is a
@@ -1578,7 +1601,7 @@ export class DatabaseRestoreService {
    * @throws {@link DatabaseRestoreArchiveError} before anything has been created.
    */
   private async downloadAndVerifyArchive(run: DatabaseBackupRun, path: string): Promise<void> {
-    const source = await this.storage.download(run.storageKey);
+    const source = await this.target.openRead(run.storageKey);
     const { bytes, sha256 } = await this.seam.writeArchiveToFile(source, path);
 
     if (run.checksumSha256 !== null && run.checksumSha256 !== sha256) {
@@ -1906,6 +1929,17 @@ export class DatabaseRestoreService {
     // an operator who triggered the restore through `db_backup:restore` need not
     // also hold `db_backup:read` to hear that their own restore finished.
     await this.announceRestoreCompleted(context, swappedAt, preRestoreRunId);
+
+    // `db_backup.restore.completed`: SYNCHRONOUS, and before the exit that
+    // follows (an async publish would be torn down with the process). After the
+    // renames committed and outside any transaction.
+    this.events?.restoreCompleted({
+      runId: run.id,
+      status: 'completed',
+      targetId: run.storageProvider,
+      sizeBytes: eventBytes(run.sizeBytes),
+      durationMs: Math.max(0, swappedAt.getTime() - context.startedAt.getTime()),
+    });
 
     this.seam.exitProcess(0);
   }

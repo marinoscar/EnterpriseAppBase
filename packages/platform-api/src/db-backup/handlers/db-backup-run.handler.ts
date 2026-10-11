@@ -340,6 +340,12 @@ export class DatabaseBackupRunHandler implements JobHandler, OnModuleInit {
    * before node offload existed and is never worse than not backing up.
    */
   async nodeOffloadEnabled(): Promise<boolean> {
+    // A node writes the archive through the storage provider's presigned PUT.
+    // With an app-bound primary target (`DbBackupModule.forRoot({ target })`) the
+    // archive does not belong there, so the type is never offered to a node and
+    // the in-process worker streams it into the target (PP-14.12).
+    if (this.runner.supportsNodeOffload?.() === false) return false;
+
     try {
       const policy = await this.settings.getDatabaseBackupPolicy();
 

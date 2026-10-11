@@ -66,8 +66,10 @@ and a *successful* restore leaves the application down.
 The pre-flight is side-effect free: it creates nothing, drops nothing, renames
 nothing. Run it as often as you like.
 
-It reports **eight gates**, each with a verdict and, when there is something to
-do, an action:
+It reports **eight built-in gates**, plus any gate your deployment's developers
+added (a check for something outside the database, such as a CDN that must be
+paused first; it appears after the eight with its own title), each with a
+verdict and, when there is something to do, an action:
 
 | Gate | What it means when it is unhappy |
 | --- | --- |
@@ -87,7 +89,9 @@ And **one of three outcomes**:
   paste-ready command block for doing it yourself. **This is a normal outcome,
   not an error.** Managed PostgreSQL denies `CREATEDB` as a matter of course.
 - **`blocked`** — something would break. Only the schema gate can be
-  overridden.
+  overridden. A gate your developers added that reports a failure blocks the
+  restore and cannot be overridden: resolve what it says and run the
+  pre-flight again.
 
 ### 2.1 Running it from the API
 

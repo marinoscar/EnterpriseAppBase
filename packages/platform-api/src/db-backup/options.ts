@@ -13,6 +13,8 @@
 
 import type { ModuleMetadata } from '@nestjs/common';
 
+import type { PortBinding } from '../core/index';
+import type { BackupTarget } from './backup-target';
 import type { RestoreCarryOver } from './carry-over.registry';
 
 /**
@@ -77,6 +79,39 @@ export interface DbBackupModuleOptions {
    */
   extraCarryOver?: readonly RestoreCarryOver[];
   /**
+   * Where archives live: the primary backup target (PP-14.12). Default: an
+   * adapter over the active `STORAGE_PROVIDER`, which is what the engine did
+   * before the port existed. An app target replaces it (its `id` is recorded on
+   * every run and must equal `databaseBackup.storageProvider` when that is set);
+   * a worker node can take a backup only for the default target, so with an app
+   * target node offload is never offered. The binding is resolved in the
+   * slice's own module: its dependencies come from `imports` and global
+   * modules. See `backup-target.ts`.
+   *
+   * @example
+   * ```ts
+   * DbBackupModule.forRoot({ target: { useClass: VaultBackupTarget }, imports: [VaultModule] });
+   * ```
+   *
+   * @extensionPoint option
+   */
+  target?: PortBinding<BackupTarget>;
+  /**
+   * Targets that receive a copy of every archive after the primary's write was
+   * verified (PP-14.12). A failed mirror never fails the run: it is recorded and
+   * the `backup.mirrors` Doctor check warns. Retention and the admin delete
+   * remove the copies with the original (best effort). Each id must be unique
+   * and different from the primary's.
+   *
+   * @example
+   * ```ts
+   * DbBackupModule.forRoot({ mirrorTargets: [{ useClass: LocalDirBackupTarget }] });
+   * ```
+   *
+   * @extensionPoint option
+   */
+  mirrorTargets?: readonly PortBinding<BackupTarget>[];
+  /**
    * Modules to import next to the slice: typically the app's `@Global()` host
    * module binding `DB_BACKUP_NOTIFIER`, `DB_BACKUP_MAINTENANCE`,
    * `DB_BACKUP_METRICS`, `DB_BACKUP_DEPLOYMENT_MODE` and `DB_BACKUP_SYSTEM_DATA`.
@@ -102,6 +137,10 @@ export interface ResolvedDbBackupModuleOptions {
   readonly restoreEnabled?: boolean;
   /** The scheduler override, when the app passed one. */
   readonly scheduleEnabled?: boolean;
+  /** The primary target's binding, or `undefined` for the default adapter over `STORAGE_PROVIDER`. */
+  readonly target?: PortBinding<BackupTarget>;
+  /** The mirror targets' bindings (empty when none). */
+  readonly mirrorTargets: readonly PortBinding<BackupTarget>[];
   /** The modules imported next to the slice. */
   readonly imports: NonNullable<ModuleMetadata['imports']>;
 }
@@ -132,6 +171,19 @@ export function resolveDbBackupModuleOptions(options: DbBackupModuleOptions = {}
       `DbBackupModule.forRoot(): deploymentMode must be 'self-hosted' or 'saas' (got ${String(options.deploymentMode)})`,
     );
   }
+  const checkBinding = (binding: unknown, where: string): void => {
+    const kinds =
+      binding !== null && typeof binding === 'object'
+        ? ['useExisting', 'useClass', 'useFactory'].filter((kind) => kind in (binding as object))
+        : [];
+    if (kinds.length !== 1) {
+      throw new Error(`DbBackupModule.forRoot(): ${where} needs exactly one of useExisting, useClass or useFactory`);
+    }
+  };
+  if (options.target !== undefined) checkBinding(options.target, '`target`');
+  const mirrorTargets = options.mirrorTargets ?? [];
+  if (!Array.isArray(mirrorTargets)) throw new Error('DbBackupModule.forRoot(): `mirrorTargets` must be an array of bindings');
+  mirrorTargets.forEach((binding, index) => checkBinding(binding, `\`mirrorTargets[${index}]\``));
   const version = options.appVersion;
   return Object.freeze({
     appName: options.appName && options.appName.trim() !== '' ? options.appName : DEFAULT_DB_BACKUP_APP_NAME,
@@ -139,6 +191,8 @@ export function resolveDbBackupModuleOptions(options: DbBackupModuleOptions = {}
     ...(options.deploymentMode !== undefined ? { deploymentMode: options.deploymentMode } : {}),
     ...(options.restoreEnabled !== undefined ? { restoreEnabled: options.restoreEnabled } : {}),
     ...(options.scheduleEnabled !== undefined ? { scheduleEnabled: options.scheduleEnabled } : {}),
+    ...(options.target !== undefined ? { target: options.target } : {}),
+    mirrorTargets: Object.freeze([...mirrorTargets]),
     imports: options.imports ?? [],
   });
 }

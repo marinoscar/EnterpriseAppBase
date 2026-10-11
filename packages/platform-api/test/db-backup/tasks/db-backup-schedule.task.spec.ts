@@ -745,3 +745,38 @@ describe('the cron wrapper', () => {
     expect(h.queueBackup).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('frequency: cron (PP-14.12)', () => {
+  it('fires at each boundary of a multi-fire expression and only once per boundary', async () => {
+    const h = makeHarness({ policy: { frequency: 'cron', cron: '0 */6 * * *', timezone: 'UTC' } });
+
+    // 06:03 is past the 06:00 boundary and nothing covers it yet.
+    await expect(h.fireAt('2026-09-07T06:03:00.000Z')).resolves.toBe('fired');
+    // The next tick finds that run covering the boundary.
+    await expect(h.fireAt('2026-09-07T06:13:00.000Z')).resolves.toBe('not_due');
+    // 12:03 is the next boundary.
+    await expect(h.fireAt('2026-09-07T12:03:00.000Z')).resolves.toBe('fired');
+
+    expect(h.queueBackup).toHaveBeenCalledTimes(2);
+  });
+
+  it('stands down on an expression the parser cannot read, logging it once per value', async () => {
+    const error = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const h = makeHarness({ policy: { frequency: 'cron', cron: 'every tuesday' } });
+
+    await expect(h.fireAt('2026-09-07T02:03:00.000Z')).resolves.toBe('bad_cron');
+    await expect(h.fireAt('2026-09-07T02:13:00.000Z')).resolves.toBe('bad_cron');
+
+    expect(h.queueBackup).not.toHaveBeenCalled();
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(error.mock.calls[0][0]).toContain('databaseBackup.cron');
+    error.mockRestore();
+  });
+
+  it('does not treat a bad cron under another frequency as a cron problem', async () => {
+    // A stale `cron` value beside `frequency: daily` is ignored, not read.
+    const h = makeHarness({ policy: { frequency: 'daily', cron: 'every tuesday', timeOfDay: '02:00' } });
+
+    await expect(h.fireAt('2026-09-07T02:03:00.000Z')).resolves.toBe('fired');
+  });
+});

@@ -16,6 +16,9 @@
 // =============================================================================
 
 import '../storage/storage-key-prefix.manifest';
+// The app's restore gates register as a side effect of this import, before the
+// module is built; its target bindings are passed to `forRoot` below.
+import { APP_BACKUP_MIRROR_TARGETS, APP_BACKUP_TARGET } from '../../app-registrations/db-backup';
 
 import { APP_NAME } from '@app/shared';
 import { DbBackupModule as PlatformDbBackupModule } from '@marinoscar/platform-api/db-backup';
@@ -23,9 +26,13 @@ import { DbBackupModule as PlatformDbBackupModule } from '@marinoscar/platform-a
 import { resolveApiVersion } from '../../openapi/version';
 import { DbBackupHostModule } from './db-backup-host.module';
 
-/** Backups, restores, their four job types, the admin routes and three Doctor checks. */
+/** Backups, restores, their four job types, the admin routes and four Doctor checks. */
 export const DbBackupModule = PlatformDbBackupModule.forRoot({
   appName: APP_NAME,
   appVersion: resolveApiVersion,
+  // PP-14.12. Both are empty upstream: the archive goes to the active storage
+  // provider and no copy is kept elsewhere. See `app-registrations/db-backup.ts`.
+  ...(APP_BACKUP_TARGET !== undefined ? { target: APP_BACKUP_TARGET } : {}),
+  mirrorTargets: APP_BACKUP_MIRROR_TARGETS,
   imports: [DbBackupHostModule],
 });

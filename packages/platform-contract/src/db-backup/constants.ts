@@ -188,13 +188,18 @@ export type RollbackMode = (typeof ROLLBACK_MODES)[number];
 export const RESTORE_SCHEMA_OVERRIDE_FIELD = 'overrideSchemaCheck';
 
 /**
- * The restore pre-flight's gates, in the order they are evaluated and reported.
- * `rls_bypass` (#740) reports how the restore session gets past row-level
- * security, on pass as well as on failure.
+ * The restore pre-flight's BUILT-IN gates, in the order they are evaluated and
+ * reported. `rls_bypass` (#740) reports how the restore session gets past
+ * row-level security, on pass as well as on failure.
+ *
+ * Not a closed list of every gate: an app registers its own with
+ * `registerRestoreGate` (`@marinoscar/platform-api/db-backup`), which run after
+ * these and report under their own ids (see `restoreGateIdSchema`). This
+ * list names the eight the platform ships, for labels and defaults.
  *
  * @stability stable
  */
-export const RESTORE_GATE_IDS = [
+export const BUILTIN_RESTORE_GATE_IDS = [
   'pg_client_version',
   'admin_connection',
   'createdb_privilege',
@@ -206,11 +211,39 @@ export const RESTORE_GATE_IDS = [
 ] as const;
 
 /**
- * One {@link RESTORE_GATE_IDS} value.
+ * The same eight ids under their former name.
+ *
+ * @deprecated Renamed {@link BUILTIN_RESTORE_GATE_IDS}: the gate id is an open
+ * vocabulary now, so this is no longer "every gate id". Kept as an alias for
+ * one release.
+ * @stability stable
+ */
+export const RESTORE_GATE_IDS = BUILTIN_RESTORE_GATE_IDS;
+
+/**
+ * One built-in restore gate id.
  *
  * @stability stable
  */
-export type RestoreGateId = (typeof RESTORE_GATE_IDS)[number];
+export type BuiltinRestoreGateId = (typeof BUILTIN_RESTORE_GATE_IDS)[number];
+
+/**
+ * A restore gate id: one of the built-ins, or an id an app registered.
+ * Widened to `string` (an open vocabulary); narrow with
+ * {@link BuiltinRestoreGateId} where only the platform's own gates matter.
+ *
+ * @stability stable
+ */
+export type RestoreGateId = BuiltinRestoreGateId | (string & {});
+
+/**
+ * The shape of a restore gate id: lowercase letters, digits, `_` and `-`,
+ * starting with a letter. Every built-in id matches, and so does an app's
+ * `cdn-quiesced`.
+ *
+ * @stability experimental
+ */
+export const RESTORE_GATE_ID_PATTERN = /^[a-z][a-z0-9_-]{1,63}$/;
 
 /**
  * `databaseBackup.timeOfDay`: 24-hour `HH:MM`, zero-padded.
@@ -228,7 +261,26 @@ export const BACKUP_TIME_OF_DAY_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
  *
  * @stability stable
  */
-export const BACKUP_FREQUENCIES = ['daily', 'weekly', 'monthly'] as const;
+export const BACKUP_FREQUENCIES = ['daily', 'weekly', 'monthly', 'cron'] as const;
+
+/**
+ * The shortest gap, in minutes, a `frequency: 'cron'` expression may leave
+ * between two fires (one hour). The scheduler ticks every ten minutes and a
+ * dump is a whole-database read, so a finer cadence would stack dumps rather
+ * than protect anything.
+ *
+ * @stability experimental
+ */
+export const BACKUP_CRON_MIN_INTERVAL_MINUTES = 60;
+
+/**
+ * The characters a `cron` expression may contain: digits, `*`, `/`, `,`, `-`
+ * and spaces. A shape check only; the API validates the expression with the
+ * scheduler's own parser (and the minimum interval) when it is written.
+ *
+ * @stability experimental
+ */
+export const BACKUP_CRON_PATTERN = /^[0-9*/,\-\s]+$/;
 
 /**
  * What a restore does with the database it displaced
@@ -248,3 +300,82 @@ export const RESTORE_ROLLBACK_MODES = ['retain_database', 'drop_database'] as co
  * @stability experimental
  */
 export type DbBackupEnum<T extends readonly string[]> = { [K in T[number]]: K };
+
+/**
+ * The event emitted once a backup run settles (`completed`, `failed`,
+ * `stale`), after the row is written and outside any transaction. The payload
+ * is {@link DbBackupRunCompletedEvent}. Permanent: a listener subscribes by
+ * this string.
+ *
+ * @extensionPoint event
+ * @stability experimental
+ */
+export const DB_BACKUP_RUN_COMPLETED_EVENT = 'db_backup.run.completed';
+
+/**
+ * The event emitted once a restore settles (`completed` after the swap,
+ * `failed`), after the audit write and outside any transaction. The payload is
+ * {@link DbBackupRestoreCompletedEvent}. Permanent.
+ *
+ * @extensionPoint event
+ * @stability experimental
+ */
+export const DB_BACKUP_RESTORE_COMPLETED_EVENT = 'db_backup.restore.completed';
+
+/**
+ * What `db_backup.run.completed` carries. JSON-safe (it also travels the
+ * cross-replica event bus), and free of secrets.
+ *
+ * @stability experimental
+ */
+export interface DbBackupRunCompletedEvent {
+  /** The `database_backup_runs` row. */
+  runId: string;
+  /** How the run ended: `completed`, `failed` or `stale`. */
+  status: BackupStatusName;
+  /** The id of the target the archive was written to (the run's `storageProvider`). */
+  targetId: string;
+  /** The archive's size in bytes (`0` when none was written). A JSON number: exact up to 2^53. */
+  sizeBytes: number;
+  /** Wall-clock milliseconds from start to settle (`0` when the run never started). */
+  durationMs: number;
+}
+
+/**
+ * What `db_backup.restore.completed` carries: the same shape as
+ * {@link DbBackupRunCompletedEvent}, for the restore of the archive `runId`.
+ * `status` is `completed` or `failed`; `sizeBytes` is the archive's size and
+ * `durationMs` the restore's own duration.
+ *
+ * @stability experimental
+ */
+export interface DbBackupRestoreCompletedEvent {
+  /** The backup run whose archive was restored. */
+  runId: string;
+  /** `completed` (the swap landed) or `failed`. */
+  status: 'completed' | 'failed';
+  /** The id of the target the archive was read from. */
+  targetId: string;
+  /** The archive's size in bytes. */
+  sizeBytes: number;
+  /** Milliseconds from the restore's start to its end. */
+  durationMs: number;
+}
+
+/**
+ * How one mirror target fared for one run (the `meta` of its
+ * `db_backup.mirror.*` audit row, and what the `backup.mirrors` Doctor check
+ * reads).
+ *
+ * @stability experimental
+ */
+export interface BackupMirrorResult {
+  /** The mirror target's id. */
+  targetId: string;
+  /** `ok` when the copy landed and was read back; `failed` otherwise. */
+  status: 'ok' | 'failed';
+  /** Bytes written to the mirror (`0` on failure). */
+  sizeBytes: number;
+  /** Why it failed; absent on success. Never carries a credential. */
+  error?: string;
+}

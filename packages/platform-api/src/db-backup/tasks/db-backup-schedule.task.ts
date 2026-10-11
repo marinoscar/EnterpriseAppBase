@@ -15,6 +15,7 @@ import { DatabaseBackupRunnerService } from '../db-backup-runner.service';
 import { DatabaseBackupAlreadyRunningError } from '../db-backup.errors';
 import {
   backupScheduleToCron,
+  InvalidCronExpressionError,
   InvalidTimezoneError,
   previousFireBoundary,
 } from '../schedule.util';
@@ -195,7 +196,9 @@ export type BackupFireOutcome =
   /** Something already holds the active slot — the guard did its job. */
   | 'already_running'
   /** `databaseBackup.timezone` is not a zone this runtime knows. */
-  | 'bad_timezone';
+  | 'bad_timezone'
+  /** `databaseBackup.cron` is not an expression the scheduler can read (PP-14.12). */
+  | 'bad_cron';
 
 /** Anything thrown, as an `Error`. JavaScript lets you throw a string. */
 function toError(value: unknown): Error {
@@ -228,6 +231,9 @@ export class DatabaseBackupScheduleTask {
    * — a runtime downgrade, an ICU build without full data — is loud again.
    */
   private reportedBadTimezone: string | null = null;
+
+  /** The last unreadable cron expression reported, so it is logged once. */
+  private reportedBadCron: string | null = null;
 
   constructor(
     @Inject(PLATFORM_PRISMA) private readonly prisma: DbBackupPrisma,
@@ -353,6 +359,17 @@ export class DatabaseBackupScheduleTask {
         return 'bad_timezone';
       }
 
+      // A `frequency: 'cron'` expression the parser cannot read (a hand-edited
+      // row: the write path refuses these). Reported once and stood down on,
+      // exactly like a bad timezone: the expression is the operator's, so a
+      // repeating stack trace every ten minutes would only bury the sentence
+      // that says what to fix.
+      if (error instanceof InvalidCronExpressionError && policy.frequency === 'cron') {
+        this.reportBadCron(error);
+
+        return 'bad_cron';
+      }
+
       // Anything else (an expression outside the supported subset) is a bug in
       // `backupScheduleToCron`, not a configuration mistake, and must stay
       // loud: it reaches the tick's `catch` and is logged as an error.
@@ -362,6 +379,7 @@ export class DatabaseBackupScheduleTask {
     // The zone works. Clear the latch so a LATER failure of the same zone is
     // reported again rather than swallowed by a stale one.
     this.reportedBadTimezone = null;
+    this.reportedBadCron = null;
 
     if (boundary === null) {
       // Nothing due inside `SCHEDULE_SEARCH_LIMIT_DAYS`. Not reachable from
@@ -458,6 +476,19 @@ export class DatabaseBackupScheduleTask {
       `Scheduled database backups are standing down: ${error.message} Fix ` +
         'databaseBackup.timezone in system settings; nothing will be backed up on a ' +
         'schedule until it names a zone this runtime knows. (Logged once per value.)'
+    );
+  }
+
+  /** Logs an unreadable cron expression ONCE per value. */
+  private reportBadCron(error: InvalidCronExpressionError): void {
+    if (this.reportedBadCron === error.expression) return;
+
+    this.reportedBadCron = error.expression;
+
+    this.logger.error(
+      `Scheduled database backups are standing down: ${error.message} Fix ` +
+        'databaseBackup.cron in system settings; nothing will be backed up on a schedule ' +
+        'until it is a five-field expression the scheduler can read. (Logged once per value.)'
     );
   }
 

@@ -8,13 +8,19 @@
 
 export {
   ACTIVE_BACKUP_STATUSES,
+  BACKUP_CRON_MIN_INTERVAL_MINUTES,
+  BACKUP_CRON_PATTERN,
   BACKUP_FREQUENCIES,
   BACKUP_STATUSES,
   BACKUP_TIME_OF_DAY_PATTERN,
   BACKUP_TRIGGERS,
+  BUILTIN_RESTORE_GATE_IDS,
   CANCEL_OUTCOMES,
+  DB_BACKUP_RESTORE_COMPLETED_EVENT,
+  DB_BACKUP_RUN_COMPLETED_EVENT,
   NODE_CREDENTIAL_PREFLIGHT_OUTCOMES,
   RESTORE_CONFIRMATION,
+  RESTORE_GATE_ID_PATTERN,
   RESTORE_GATE_IDS,
   RESTORE_MODES,
   RESTORE_ROLLBACK_MODES,
@@ -24,11 +30,23 @@ export {
   ROLLBACK_CONFIRMATION,
   ROLLBACK_MODES,
 } from './constants.js';
-export type { BackupStatusName, BackupTriggerName, DbBackupEnum, RestoreGateId, RestoreMode, RestoreStatusName, RollbackMode } from './constants.js';
+export type {
+  BackupMirrorResult,
+  BackupStatusName,
+  BackupTriggerName,
+  BuiltinRestoreGateId,
+  DbBackupEnum,
+  DbBackupRestoreCompletedEvent,
+  DbBackupRunCompletedEvent,
+  RestoreGateId,
+  RestoreMode,
+  RestoreStatusName,
+  RollbackMode,
+} from './constants.js';
 
 // ---- ./settings-schemas.ts
-export { databaseBackupResponseSchema, databaseBackupSettingsPatchSchema, databaseBackupSettingsSchema, systemDatabaseBackupPatchSchema, systemDatabaseBackupSchema } from './schemas.js';
-export type { DatabaseBackupSettingsPatchInput, SystemDatabaseBackupValue } from './schemas.js';
+export { backupRetentionSchema, databaseBackupResponseSchema, databaseBackupSettingsPatchSchema, databaseBackupSettingsSchema, systemDatabaseBackupPatchSchema, systemDatabaseBackupSchema } from './schemas.js';
+export type { BackupRetention, DatabaseBackupSettingsPatchInput, SystemDatabaseBackupValue } from './schemas.js';
 
 // ---- ./config.ts
 export { databaseBackupConfigSchema, updateDatabaseBackupConfigSchema } from './schemas.js';
@@ -47,7 +65,7 @@ export { backupDownloadUrlSchema, cancelBackupResultSchema, deleteBackupResultSc
 export type { BackupDownloadUrl, CancelBackupResult, DeleteBackupResult } from './schemas.js';
 
 // ---- ./restore.ts
-export { restoreGateSchema, restorePreflightSchema, restoreRollbackPlanSchema, rollbackRenamedSchema, rollbackRestoreRequestSchema, rollbackRestoreResponseSchema, rollbackRestoreStartedSchema, rollbackUnavailableSchema, startRestoreBlockedSchema, startRestoreGuidedSchema, startRestoreRequestSchema, startRestoreResponseSchema, startRestoreRunningSchema } from './schemas.js';
+export { restoreGateIdSchema, restoreGateSchema, restorePreflightSchema, restoreRollbackPlanSchema, rollbackRenamedSchema, rollbackRestoreRequestSchema, rollbackRestoreResponseSchema, rollbackRestoreStartedSchema, rollbackUnavailableSchema, startRestoreBlockedSchema, startRestoreGuidedSchema, startRestoreRequestSchema, startRestoreResponseSchema, startRestoreRunningSchema } from './schemas.js';
 export type { RestorePreflightView, RollbackRestoreRequest, RollbackRestoreResponse, StartRestoreRequest, StartRestoreResponse } from './schemas.js';
 
 // ---- ./node-credential.ts

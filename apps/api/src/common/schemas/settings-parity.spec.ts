@@ -230,10 +230,17 @@ function expectSameKeys(actual: string[], expected: string[], context: string) {
  * `storage` flat fields are deprecated aliases of its current shape; the
  * `notifications` `channels` record is a sparse per-channel switch where an
  * absent channel is enabled (PP-14.10), so the default is no record at all.
+ * The `databaseBackup` `cron` and `retention` are optional extensions of the
+ * schedule and the retention count (PP-14.12).
  */
 const DEPRECATED_ALIASES: Readonly<Record<string, readonly string[]>> = {
   storage: LEGACY_STORAGE_FLAT_FIELDS,
   notifications: ['channels'],
+  // The cron schedule and the retention object (PP-14.12): optional beside the
+  // fields every earlier row already stores (`frequency` gained `cron`,
+  // `retentionCount` gained `retention.count` as its alias), absent until an
+  // operator writes one, so a stored row from before them loads unchanged.
+  databaseBackup: ['cron', 'retention'],
 };
 
 describe('system settings parity across the places a namespace must be declared', () => {

@@ -178,11 +178,27 @@ export interface DbBackupTx extends JobsTx {
     /** `findUnique`. */
     findUnique(args: JobsQueryArgs): Promise<DbBackupUserRow | null>;
   };
-  /** `audit_events`; `create` only. */
+  /** `audit_events`: `create`, and `findMany` for the `backup.mirrors` Doctor check's read. */
   auditEvent: {
     /** `create`. */
     create(args: JobsQueryArgs): Promise<unknown>;
+    /** `findMany`: read-only; the mirror results the engine recorded. */
+    findMany(args: JobsQueryArgs): Promise<DbBackupAuditRow[]>;
   };
+}
+
+/**
+ * One `audit_events` row as the `backup.mirrors` Doctor check reads it.
+ *
+ * @stability experimental
+ */
+export interface DbBackupAuditRow {
+  /** The audit action (`db_backup.mirror.completed` or `.failed`). */
+  action: string;
+  /** When it was recorded. */
+  createdAt: Date;
+  /** The row's metadata (the mirror target id and, for a failure, the error). */
+  meta: unknown;
 }
 
 /**

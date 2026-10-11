@@ -345,6 +345,30 @@ describe('DatabaseBackupRunHandler', () => {
         expect(getDatabaseBackupPolicy).toHaveBeenCalledTimes(2);
       });
 
+      it('is withheld when the primary target is not the storage provider: a node can only write through its presigned PUT', async () => {
+        const offDefault = new DatabaseBackupRunHandler(
+          registry,
+          { supportsNodeOffload: () => false } as unknown as DatabaseBackupRunnerService,
+          { getDatabaseBackupPolicy } as unknown as SystemSettingsService,
+          broker
+        );
+
+        await expect(offDefault.nodeOffloadEnabled()).resolves.toBe(false);
+        // The setting is not even read: the answer does not depend on it.
+        expect(getDatabaseBackupPolicy).not.toHaveBeenCalled();
+      });
+
+      it('is offered for the default target when the setting allows it', async () => {
+        const onDefault = new DatabaseBackupRunHandler(
+          registry,
+          { supportsNodeOffload: () => true } as unknown as DatabaseBackupRunnerService,
+          { getDatabaseBackupPolicy } as unknown as SystemSettingsService,
+          broker
+        );
+
+        await expect(onDefault.nodeOffloadEnabled()).resolves.toBe(true);
+      });
+
       it('FAILS CLOSED when the settings read throws — the in-process worker takes the backup', async () => {
         getDatabaseBackupPolicy.mockRejectedValue(new Error('settings row unreadable'));
 

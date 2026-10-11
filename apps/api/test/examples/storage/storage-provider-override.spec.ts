@@ -37,6 +37,12 @@ function injected(consumer: object, field: string): unknown {
   return (consumer as Record<string, unknown>)[field];
 }
 
+// The backup runner reaches the storage provider through its backup target (PP-14.12): the
+// default target is an adapter that holds the provider, so the provider is one hop further.
+function backupRunnerStorage(runner: object): unknown {
+  return injected(injected(runner, 'target') as object, 'storage');
+}
+
 async function boot(storage: ReturnType<typeof StorageModule.forRoot>): Promise<TestingModule> {
   return Test.createTestingModule({
     imports: [
@@ -57,15 +63,15 @@ describe('StorageModule.forRoot({ provider }): the override reaches every packag
     const appProvider = new InMemoryStorageProvider();
     const moduleRef = await boot(StorageModule.forRoot({ provider: { useFactory: () => appProvider } }));
 
-    const consumers: Array<[string, object, string]> = [
-      ['ObjectsService', moduleRef.get(ObjectsService, { strict: false }), 'storageProvider'],
-      ['ProfileImageService', moduleRef.get(ProfileImageService, { strict: false }), 'storageProvider'],
-      ['ExportRunHandler', moduleRef.get(ExportRunHandler, { strict: false }), 'storage'],
-      ['DatabaseBackupRunnerService', moduleRef.get(DatabaseBackupRunnerService, { strict: false }), 'storage'],
+    const consumers: Array<[string, unknown]> = [
+      ['ObjectsService', injected(moduleRef.get(ObjectsService, { strict: false }), 'storageProvider')],
+      ['ProfileImageService', injected(moduleRef.get(ProfileImageService, { strict: false }), 'storageProvider')],
+      ['ExportRunHandler', injected(moduleRef.get(ExportRunHandler, { strict: false }), 'storage')],
+      ['DatabaseBackupRunnerService', backupRunnerStorage(moduleRef.get(DatabaseBackupRunnerService, { strict: false }))],
     ];
 
-    for (const [name, consumer, field] of consumers) {
-      expect([name, injected(consumer, field)]).toEqual([name, appProvider]);
+    for (const [name, held] of consumers) {
+      expect([name, held]).toEqual([name, appProvider]);
     }
     expect(moduleRef.get<StorageProvider>(STORAGE_PROVIDER, { strict: false }).kind).toBe(IN_MEMORY_STORAGE_KIND);
     await moduleRef.close();
@@ -92,10 +98,10 @@ describe('StorageModule.forRoot() without `provider`: the default path is unchan
       [moduleRef.get(ObjectsService, { strict: false }), 'storageProvider'],
       [moduleRef.get(ProfileImageService, { strict: false }), 'storageProvider'],
       [moduleRef.get(ExportRunHandler, { strict: false }), 'storage'],
-      [moduleRef.get(DatabaseBackupRunnerService, { strict: false }), 'storage'],
     ] as const) {
       expect(injected(consumer, field)).toBe(resolving);
     }
+    expect(backupRunnerStorage(moduleRef.get(DatabaseBackupRunnerService, { strict: false }))).toBe(resolving);
     await moduleRef.close();
   });
 });

@@ -28,3 +28,26 @@ export const PERMISSIONS = Object.freeze({
  * @stability experimental
  */
 export const ROLES = IDENTITY_ROLE_IDS;
+
+/**
+ * The `audit_events.action` of a mirror copy that landed and was read back.
+ * Its `meta` is a `BackupMirrorResult` (`@marinoscar/platform-contract/db-backup`).
+ * Permanent: the `backup.mirrors` Doctor check reads it.
+ *
+ * @stability experimental
+ */
+export const MIRROR_AUDIT_COMPLETED = 'db_backup.mirror.completed';
+
+/**
+ * The `audit_events.action` of a mirror copy that failed. The run is unaffected.
+ *
+ * @stability experimental
+ */
+export const MIRROR_AUDIT_FAILED = 'db_backup.mirror.failed';
+
+/**
+ * The `audit_events.target_type` of both mirror rows (`target_id` is the run id).
+ *
+ * @stability experimental
+ */
+export const MIRROR_AUDIT_TARGET_TYPE = 'database_backup_run';

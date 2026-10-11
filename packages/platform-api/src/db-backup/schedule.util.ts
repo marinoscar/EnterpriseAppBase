@@ -55,6 +55,8 @@
 // February - eleven backups a year from a setting that reads like twelve.
 // =============================================================================
 
+import { BACKUP_CRON_MIN_INTERVAL_MINUTES } from '@marinoscar/platform-contract/db-backup';
+
 /**
  * Cron's own day-of-month ceiling for this feature. See the header.
  *
@@ -88,12 +90,14 @@ export const DEFAULT_BACKUP_TIME_OF_DAY = '02:00';
 export const SCHEDULE_SEARCH_LIMIT_DAYS = 400;
 
 /** @stability experimental */
-export type BackupFrequency = 'daily' | 'weekly' | 'monthly';
+export type BackupFrequency = 'daily' | 'weekly' | 'monthly' | 'cron';
 
 /** @stability experimental */
 export interface BackupScheduleInput {
   /** Frequency. */
   frequency: BackupFrequency;
+  /** The expression of `frequency: 'cron'` (five fields; see {@link parseBackupCron}). */
+  cron?: string;
   /** 0 (Sunday) - 6 (Saturday). Used by `weekly` only. */
   dayOfWeek?: number;
   /** 1 - 28. Used by `monthly` only. */
@@ -129,22 +133,29 @@ export class InvalidTimezoneError extends Error {
 /**
  * Thrown when an expression is outside the subset this module understands.
  *
- * That subset is exactly what {@link backupScheduleToCron} emits: a numeric
- * minute and hour, and `*` or a single number for day-of-month and
- * day-of-week, with at most one of those two restricted. Lists (`1,15`),
- * ranges (`1-5`), step values and named days are REJECTED rather than
- * approximated - a scheduler that silently mis-reads an expression fires at
- * the wrong time forever, and nobody looks at a backup's schedule again after
- * the day they set it.
+ * That subset is five fields: minute and hour, then day-of-month and
+ * day-of-week, each `*`, a number, a range (`1-5`), a step (`0-12/2`, `*` over
+ * `6`) or a comma list of those; the month is `*`, and at most one of the two
+ * day fields is restricted. Named days and months, `L`, `W`, `#` and `?` are
+ * REJECTED rather than approximated - a scheduler that silently mis-reads an
+ * expression fires at the wrong time forever, and nobody looks at a backup's
+ * schedule again after the day they set it.
  *
  * @stability experimental
  */
 export class InvalidCronExpressionError extends Error {
-  constructor(readonly expression: string) {
+  /**
+   * @param expression - the rejected expression.
+   */
+  constructor(
+    /** The rejected expression. */
+    readonly expression: string,
+  ) {
     super(
       `Unsupported cron expression '${expression}'. This scheduler understands ` +
-        '`<minute> <hour> <day-of-month|*> * <day-of-week|*>` with at most one of the two ' +
-        'day fields restricted.'
+        '`<minute> <hour> <day-of-month|*> * <day-of-week|*>`, where each field is `*`, a number, ' +
+        'a range (`1-5`), a step (`0-12/2`, or a `*` followed by `/6`) or a comma list of those, the month is `*`, and ' +
+        'at most one of the two day fields is restricted.'
     );
     this.name = 'InvalidCronExpressionError';
   }
@@ -182,6 +193,15 @@ export function backupScheduleToCron(schedule: BackupScheduleInput): string {
   // frequency that loses the least: a schedule that should have been weekly
   // taking a backup every night is wasteful, the reverse is a gap.
   switch (schedule.frequency) {
+    case 'cron': {
+      // The operator's own expression, verbatim. A blank one (a row switched to
+      // `cron` with nothing in the field) degrades to the daily default below
+      // rather than throwing, like every other malformed input here; the write
+      // path refuses it (`assertBackupCron`), so only a hand-edited row gets here.
+      const expression = schedule.cron?.trim();
+      if (expression) return expression;
+      return `${minute} ${hour} * * *`;
+    }
     case 'weekly':
       return `${minute} ${hour} * * ${clampDayOfWeek(schedule.dayOfWeek)}`;
     case 'monthly':
@@ -276,6 +296,165 @@ export function parseCronExpression(expression: string): ParsedCronExpression {
 }
 
 /**
+ * A parsed `frequency: 'cron'` expression: the minutes and hours it fires at
+ * (ascending, unique) and the days it may fire on (`null` = every day).
+ *
+ * @stability experimental
+ */
+export interface BackupCronSchedule {
+  /** Minutes of the hour, 0-59. */
+  minutes: number[];
+  /** Hours of the day, 0-23. */
+  hours: number[];
+  /** Days of the month, 1-31, or `null` for `*`. */
+  daysOfMonth: number[] | null;
+  /** Days of the week, 0 (Sunday) - 6, or `null` for `*`. */
+  daysOfWeek: number[] | null;
+}
+
+/** One cron field: `*`, a number, a range, a step, or a comma list of those. `null` when malformed. */
+function parseCronField(field: string, min: number, max: number): number[] | null {
+  const values = new Set<number>();
+
+  for (const part of field.split(',')) {
+    const match = /^(?:(\*)|(\d{1,2})(?:-(\d{1,2}))?)(?:\/(\d{1,2}))?$/.exec(part);
+    if (match === null) return null;
+
+    const [, star, from, to, stepText] = match;
+    const step = stepText === undefined ? 1 : Number.parseInt(stepText, 10);
+    if (step < 1) return null;
+
+    let low: number;
+    let high: number;
+
+    if (star !== undefined) {
+      low = min;
+      high = max;
+    } else {
+      low = Number.parseInt(from, 10);
+      // `a/n` runs from a to the field's top; a bare `a` is just a.
+      high = to !== undefined ? Number.parseInt(to, 10) : stepText !== undefined ? max : low;
+    }
+
+    if (low < min || high > max || low > high) return null;
+    for (let value = low; value <= high; value += step) values.add(value);
+  }
+
+  return values.size === 0 ? null : [...values].sort((a, b) => a - b);
+}
+
+/**
+ * Parses a `frequency: 'cron'` expression: five fields, each `*`, a number, a
+ * range (`1-5`), a step (`0-12/2`, or a `*` followed by `/6`) or a comma list of those. The month
+ * field is `*`, and at most one of the two day fields is restricted (the OR-vs-AND
+ * ambiguity in the header). A superset of what `parseCronExpression` reads.
+ *
+ * @param expression - the expression.
+ * @returns the parsed schedule.
+ * @throws {@link InvalidCronExpressionError} for anything else.
+ *
+ * @stability experimental
+ */
+export function parseBackupCron(expression: string): BackupCronSchedule {
+  const fields = expression.trim().split(/\s+/);
+  if (fields.length !== 5) throw new InvalidCronExpressionError(expression);
+
+  const [minuteField, hourField, domField, monthField, dowField] = fields;
+  if (monthField !== '*') throw new InvalidCronExpressionError(expression);
+
+  const minutes = parseCronField(minuteField, 0, 59);
+  const hours = parseCronField(hourField, 0, 23);
+  if (minutes === null || hours === null) throw new InvalidCronExpressionError(expression);
+
+  const daysOfMonth = domField === '*' ? null : parseCronField(domField, 1, 31);
+  const daysOfWeek = dowField === '*' ? null : parseCronField(dowField, 0, 6);
+  if (domField !== '*' && daysOfMonth === null) throw new InvalidCronExpressionError(expression);
+  if (dowField !== '*' && daysOfWeek === null) throw new InvalidCronExpressionError(expression);
+  if (daysOfMonth !== null && daysOfWeek !== null) throw new InvalidCronExpressionError(expression);
+
+  return { minutes, hours, daysOfMonth, daysOfWeek };
+}
+
+/**
+ * The expression fires closer together than the minimum interval.
+ *
+ * @stability experimental
+ */
+export class CronIntervalTooShortError extends Error {
+  constructor(
+    /** The expression. */
+    readonly expression: string,
+    /** The shortest gap found between two runs, in minutes. */
+    readonly intervalMinutes: number,
+    /** The minimum the schedule must leave. */
+    readonly minimumMinutes: number,
+  ) {
+    super(
+      `The cron expression '${expression}' can fire ${intervalMinutes} minute(s) after its previous run; ` +
+        `a database backup schedule must leave at least ${minimumMinutes} minutes between runs.`
+    );
+    this.name = 'CronIntervalTooShortError';
+  }
+}
+
+/**
+ * The smallest gap, in minutes, between two consecutive fires of a parsed
+ * expression, measured over `SCHEDULE_SEARCH_LIMIT_DAYS` calendar days
+ * in civil time (no zone, no DST: the gap is a property of the expression).
+ * `Infinity` when it fires at most once in that window.
+ *
+ * @param cron - a parsed expression.
+ * @returns the minimum interval in minutes.
+ *
+ * @stability experimental
+ */
+export function minimumCronIntervalMinutes(cron: BackupCronSchedule): number {
+  // 2026-01-05 is a Monday; any anchor works, the window is a full year plus.
+  const anchor: CivilDay = { year: 2026, month: 1, day: 5, weekday: 1 };
+  let previous: number | null = null;
+  let smallest = Number.POSITIVE_INFINITY;
+
+  for (let offset = 0; offset <= SCHEDULE_SEARCH_LIMIT_DAYS; offset += 1) {
+    const day = addCivilDays(anchor, offset);
+    if (!matchesBackupDay(cron, day)) continue;
+
+    for (const hour of cron.hours) {
+      for (const minute of cron.minutes) {
+        const at = offset * 1440 + hour * 60 + minute;
+        if (previous !== null) smallest = Math.min(smallest, at - previous);
+        previous = at;
+      }
+    }
+  }
+
+  return smallest;
+}
+
+/**
+ * Validates a `frequency: 'cron'` expression for the write path: it parses with
+ * {@link parseBackupCron} and leaves at least `minimumMinutes` (default one
+ * hour, `BACKUP_CRON_MIN_INTERVAL_MINUTES`) between runs.
+ *
+ * @param expression - the expression.
+ * @param minimumMinutes - the shortest gap allowed.
+ * @returns the parsed schedule.
+ * @throws {@link InvalidCronExpressionError} when it does not parse.
+ * @throws {@link CronIntervalTooShortError} when it can fire too often.
+ *
+ * @stability experimental
+ */
+export function assertBackupCron(
+  expression: string,
+  minimumMinutes: number = BACKUP_CRON_MIN_INTERVAL_MINUTES
+): BackupCronSchedule {
+  const parsed = parseBackupCron(expression);
+  const interval = minimumCronIntervalMinutes(parsed);
+  if (interval < minimumMinutes) throw new CronIntervalTooShortError(expression, interval, minimumMinutes);
+
+  return parsed;
+}
+
+/**
  * The most recent instant at or before `now` at which `expression` was due.
  *
  * This is the "boundary" a run is recorded against: #282 compares the last
@@ -285,7 +464,7 @@ export function parseCronExpression(expression: string): ParsedCronExpression {
  * processes computing the same boundary from the same settings agree by
  * construction.
  *
- * @returns `null` when nothing was due within {@link SCHEDULE_SEARCH_LIMIT_DAYS}.
+ * @returns `null` when nothing was due within `SCHEDULE_SEARCH_LIMIT_DAYS`.
  * @throws {@link InvalidTimezoneError} for a timezone this runtime does not know.
  * @throws {@link InvalidCronExpressionError} for an unsupported expression.
  *
@@ -302,7 +481,7 @@ export function previousFireBoundary(
 /**
  * The next instant strictly after `from` at which `expression` is due.
  *
- * @returns `null` when nothing is due within {@link SCHEDULE_SEARCH_LIMIT_DAYS}.
+ * @returns `null` when nothing is due within `SCHEDULE_SEARCH_LIMIT_DAYS`.
  * @throws {@link InvalidTimezoneError} for a timezone this runtime does not know.
  * @throws {@link InvalidCronExpressionError} for an unsupported expression.
  *
@@ -335,7 +514,11 @@ function walk(
   timezone: string,
   direction: 'forward' | 'backward'
 ): Date | null {
-  const cron = parseCronExpression(expression);
+  const cron = parseBackupCron(expression);
+  // Every (hour, minute) of a matching day, ascending; reversed to look backward.
+  const times: Array<{ hour: number; minute: number }> = [];
+  for (const hour of cron.hours) for (const minute of cron.minutes) times.push({ hour, minute });
+  if (direction === 'backward') times.reverse();
 
   // An Invalid Date would make every comparison below false and the walk
   // return `null` after 400 useless iterations; saying so immediately is both
@@ -350,17 +533,19 @@ function walk(
 
   for (let offset = 0; offset <= SCHEDULE_SEARCH_LIMIT_DAYS; offset += 1) {
     const day = addCivilDays(start, offset * step);
-    if (!matchesDay(cron, day)) continue;
+    if (!matchesBackupDay(cron, day)) continue;
 
-    const candidate = zonedCivilToUtc(day.year, day.month, day.day, cron.hour, cron.minute, timezone);
-    const candidateMs = candidate.getTime();
+    for (const time of times) {
+      const candidate = zonedCivilToUtc(day.year, day.month, day.day, time.hour, time.minute, timezone);
+      const candidateMs = candidate.getTime();
 
-    // Strictly after for `next`, at-or-before for `previous`. The asymmetry is
-    // deliberate: a boundary computed exactly at its own fire time is that
-    // boundary (so a run triggered on time records the right one), while "the
-    // next fire" must never return the instant you are standing on.
-    if (direction === 'forward' ? candidateMs > referenceMs : candidateMs <= referenceMs) {
-      return candidate;
+      // Strictly after for `next`, at-or-before for `previous`. The asymmetry is
+      // deliberate: a boundary computed exactly at its own fire time is that
+      // boundary (so a run triggered on time records the right one), while "the
+      // next fire" must never return the instant you are standing on.
+      if (direction === 'forward' ? candidateMs > referenceMs : candidateMs <= referenceMs) {
+        return candidate;
+      }
     }
   }
 
@@ -375,11 +560,11 @@ interface CivilDay {
   weekday: number;
 }
 
-function matchesDay(cron: ParsedCronExpression, day: CivilDay): boolean {
-  // An AND is safe here only because {@link parseCronExpression} guarantees at
+function matchesBackupDay(cron: BackupCronSchedule, day: CivilDay): boolean {
+  // An AND is safe here only because {@link parseBackupCron} guarantees at
   // most one of the two is restricted - see the header's note on OR-vs-AND.
-  if (cron.dayOfMonth !== null && day.day !== cron.dayOfMonth) return false;
-  if (cron.dayOfWeek !== null && day.weekday !== cron.dayOfWeek) return false;
+  if (cron.daysOfMonth !== null && !cron.daysOfMonth.includes(day.day)) return false;
+  if (cron.daysOfWeek !== null && !cron.daysOfWeek.includes(day.weekday)) return false;
 
   return true;
 }

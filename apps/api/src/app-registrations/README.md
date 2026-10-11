@@ -87,6 +87,12 @@ registry:
 |---|---|---|
 | `storage.ts` | `storageDriverKind` (`@marinoscar/platform-api/storage`, PP-14.7): storage drivers, registered at import time with `registerStorageDriver(...)`. `platform/storage/storage.config.ts` imports it before the storage module is built. Upstream registers the worked example (`local-fs`, objects as files in a folder on the API host); it is off until an administrator selects it | [storage/README.md, "Adding a storage driver from an app or package"](../../../../packages/platform-api/src/storage/README.md) |
 
+registry:
+
+| File | Registry | Recipe |
+|---|---|---|
+| `db-backup.ts` | `restoreGateRegistry` (`@marinoscar/platform-api/db-backup`, PP-14.12): restore pre-flight gates, registered at import time with `registerRestoreGate(...)` (the eight built-ins run first). Also `APP_BACKUP_TARGET` (the primary backup target; unset keeps the active storage provider) and `APP_BACKUP_MIRROR_TARGETS` (copies written after the primary), passed to `DbBackupModule.forRoot` by `platform/db-backup/db-backup.config.ts`, which imports this file before building the module. Upstream registers the worked example gate (`cdn-quiesced`, inert until the app has a `cdn` settings namespace) and binds no target or mirror | [EXTENDING.md, "Add a backup target, a mirror or a restore gate"](../../../../docs/EXTENDING.md#add-a-backup-target-a-mirror-or-a-restore-gate) |
+
 ## What goes here, and what does not
 
 | Goes here | Does not |

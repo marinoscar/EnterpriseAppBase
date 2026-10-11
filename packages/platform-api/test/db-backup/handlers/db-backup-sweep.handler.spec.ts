@@ -1,3 +1,5 @@
+import type { BackupTarget } from '../../../src/db-backup/backup-target';
+import { DbBackupEvents } from '../../../src/db-backup/db-backup-events';
 import { Logger } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import type { Job } from '../../../src/jobs/index';
@@ -80,6 +82,10 @@ interface RunRow {
 }
 
 interface HarnessOptions {
+  /** PP-14.12: the primary target, the mirrors and the events a stale run raises. */
+  target?: BackupTarget;
+  mirrors?: BackupTarget[];
+  events?: DbBackupEvents;
   policy?: Partial<SystemDatabaseBackupValue>;
   /**
    * #352: job ids the queue reports as `running` with a lease that has NOT
@@ -232,7 +238,10 @@ function makeHarness(options: HarnessOptions = {}) {
     retention,
     storage,
     config,
-    notifications
+    notifications,
+    options.target,
+    options.mirrors,
+    options.events
   );
 
   return {
@@ -743,5 +752,62 @@ describe('DatabaseBackupSweepHandler.process', () => {
     const h = makeHarness();
 
     await expect(h.handler.process(JOB)).resolves.toBeUndefined();
+  });
+});
+
+describe('a stale run, with targets and events (PP-14.12)', () => {
+  const target = (id: string, deleted: string[]): BackupTarget =>
+    ({
+      id,
+      delete: jest.fn(async (key: string) => void deleted.push(`${id}:${key}`)),
+    }) as unknown as BackupTarget;
+
+  it('deletes the partial archive from the primary target and every mirror', async () => {
+    const deleted: string[] = [];
+    const h = makeHarness({
+      rows: [runningRow('zombie', { lastHeartbeatAt: new Date('2026-09-07T02:00:20.000Z') })],
+      target: target('vault', deleted),
+      mirrors: [target('local-dir', deleted)],
+    });
+
+    await h.sweepAt('2026-09-07T05:00:00.000Z');
+
+    const key = h.table.get('zombie')?.storageKey;
+    expect(deleted).toEqual([`vault:${key}`, `local-dir:${key}`]);
+  });
+
+  it('raises db_backup.run.completed with status stale after the row transitioned', async () => {
+    const emitted: Array<{ name: string; payload: Record<string, unknown> }> = [];
+    const events = new DbBackupEvents({
+      emit: (name: string, payload: Record<string, unknown>) => {
+        emitted.push({ name, payload });
+        return true;
+      },
+    } as never);
+    const h = makeHarness({
+      rows: [runningRow('zombie', { lastHeartbeatAt: new Date('2026-09-07T02:00:20.000Z') })],
+      events,
+    });
+
+    await h.sweepAt('2026-09-07T05:00:00.000Z');
+
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].name).toBe('db_backup.run.completed');
+    expect(emitted[0].payload).toMatchObject({ runId: 'zombie', status: 'stale' });
+    expect(h.table.get('zombie')?.status).toBe('stale');
+  });
+
+  it('raises nothing for a run that settled between the read and the write', async () => {
+    const emitted: unknown[] = [];
+    const events = new DbBackupEvents({ emit: (...args: unknown[]) => emitted.push(args) } as never);
+    const h = makeHarness({
+      rows: [runningRow('finished-meanwhile', { lastHeartbeatAt: new Date('2026-09-07T02:00:20.000Z') })],
+      settleDuringSweep: ['finished-meanwhile'],
+      events,
+    });
+
+    await h.sweepAt('2026-09-07T05:00:00.000Z');
+
+    expect(emitted).toEqual([]);
   });
 });

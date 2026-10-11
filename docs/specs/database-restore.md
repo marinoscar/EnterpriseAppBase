@@ -92,8 +92,14 @@ against `CREATE DATABASE|DROP DATABASE|ALTER DATABASE|pg_terminate_backend`.
 
 ### The gates
 
-Eight gates, evaluated in one session and **all reported**, passes included.
-Each verdict is `pass`, `warning` or `block` with its own `action` item.
+The gates are a registry (`registerRestoreGate`,
+`packages/platform-api/src/db-backup/restore-gate.registry.ts`). Eight built-in
+gates register through the same function an app uses (`restore-gates.builtin.ts`,
+`BUILTIN_RESTORE_GATE_IDS`), and an app's gates run after them in registration
+order whatever the import order. They are evaluated against one set of cluster
+probes and **all reported**, passes included. Each verdict is `pass`, `warning`
+or `block` with its own `action` item (a gate's own answer is `pass`, `warn` or
+`fail`: `warn` is a `warning`, `fail` a `block`).
 
 | Gate | Kind | On failure |
 |---|---|---|
@@ -105,6 +111,30 @@ Each verdict is `pass`, `warning` or `block` with its own `action` item.
 | `disk_space` (free ≥ ~1× database, +1× when retaining) | disk | **downgrades** the rollback mode, never refuses |
 | `replicas` (distinct client addresses) | replicas | warning only |
 | `schema_compatibility` (archive vs live migration) | overridable | blocks unless overridden |
+
+**App gates.** A gate has an id (lowercase letters, digits, `_` and `-`), a
+label (the row heading) and `check(ctx)` returning `{ status, message, action? }`.
+
+- **Read-only, always.** The context is frozen and carries only read handles:
+  the run (id, key, provider, size, migration), the `databaseBackup` policy, the
+  clock, the target and live migration, `settings.get(namespace)` (a registered
+  system settings namespace, or `undefined`, so a gate that depends on an app
+  setting stays inert until the app registers it) and the probes the pre-flight
+  already ran (never the password). A gate creates, drops, renames and alters
+  nothing, locally or remotely.
+- **Fail closed.** A gate that throws, answers something that is not
+  `{ status, message }`, or does not answer within ten seconds
+  (`RESTORE_GATE_TIMEOUT_MS`) is a `block` that names the gate.
+- **A `fail` blocks outright.** An app gate's kind is `app`: it is not in the
+  `guided` set, it is not overridable, and `overrideSchemaCheck` answers the
+  schema gate only, so a request that sends it still sees the block. A `warn`
+  proceeds and is shown. The restore dialog names the gate by its label and
+  offers no override.
+- **The proof.** `describeRestoreGateConformance` runs a gate against a context
+  that records every write, against watched counters of the gate's own side
+  effects, twice for repeatability, and through the registry's evaluator; the
+  pre-flight spec re-runs the "creates, drops and renames nothing" assertions
+  with an app gate registered.
 
 - **`createdb_privilege`**: `SELECT (rolsuper OR rolcreatedb) FROM pg_roles
   WHERE rolname = current_user`. Managed PostgreSQL withholds `CREATEDB` as a
@@ -208,6 +238,9 @@ a worker calls `executeRestoreJob`.
 
 ### Download and re-verification
 
+- **Read through the backup target.** The archive comes from the primary
+  `BackupTarget` (`openRead(storageKey)`), which is the active storage provider
+  unless the app bound its own (see [database-backup.md](database-backup.md)).
 - **Downloaded to a file, not streamed.** `pg_restore -j N` seeks, and refuses
   `-j` with stdin. The file uses `JOB_TEMP_PREFIX` from
   `apps/api/src/jobs/job-temp.ts`, so the temp-file janitor sweeps it after a
@@ -532,6 +565,15 @@ actions), `ui/DbBackupRestoreDialog.tsx`, `ui/DbBackupConfigPanel.tsx`,
 - The policy form omits `storageProvider` and `runStaleMinutes`; both remain
   settable through `PUT /api/admin/db-backup/config`.
 
+### Completion event
+
+A settled restore raises `db_backup.restore.completed` with `{ runId, status,
+targetId, sizeBytes, durationMs }` (`status` is `completed` or `failed`) on the
+application's event emitter. After a swap it is raised synchronously after the
+renames and the notification, **before** `process.exit(0)`, so it is not lost
+with the process; a failure raises it after the failure is recorded. A throwing
+listener is caught and logged and cannot fail a completed restore.
+
 ### Notification
 
 `db_backup.restore_completed` is **mandatory** (users cannot mute it). It is
@@ -587,10 +629,13 @@ refuses both routes for every caller ([Deployment mode](#deployment-mode)).
   `DbBackupModule.forRoot()`. `apps/api/src/examples/db-backup/release-artifacts.carry-over.ts`
   is a worked example (not registered). The slice's conformance suite
   (`dbBackup`) checks every registered carry's `reinsertSql` takes `$1`.
-- **Additional pre-flight gates** go in `restore-preflight.service.ts`. A gate
-  must only read, must report on pass as well as failure, and must decide which
-  outcome it feeds (`guided` for capabilities, `blocked` for correctness,
-  warning for heuristics). Add a case to the "no create/drop/rename" test.
+- **Additional pre-flight gates** are registered, not edited in:
+  `registerRestoreGate({ id, label, check })` at import time from the app's
+  `app-registrations/db-backup.ts`. A gate must only read, must report on pass
+  as well as failure, and answers `pass`, `warn` or `fail` (an app gate's `fail`
+  blocks outright). `apps/api/src/platform-extensions/db-backup/cdn-quiesced.gate.ts`
+  is the worked example; run `describeRestoreGateConformance` on it
+  ([EXTENDING.md](../EXTENDING.md#add-a-backup-target-a-mirror-or-a-restore-gate)).
 - **Anything that mutates the cluster** goes through the existing helpers in
   `admin-connection.util.ts`, so it inherits the identifier allowlist and the
   connection contract.
@@ -607,6 +652,9 @@ refuses both routes for every caller ([Deployment mode](#deployment-mode)).
 |---|---|
 | `packages/platform-api/test/db-backup/admin-connection.util.spec.ts` | Connection always closed; `statement_timeout` 0; `template1` fallback; identifier allowlist; long names keep their suffix |
 | `packages/platform-api/test/db-backup/restore-preflight.service.spec.ts` | Each gate's outcome; guided block asserted by string; override scope; disk downgrade; **no pre-flight path creates, drops or renames** |
+| `packages/platform-api/test/db-backup/restore-gate.registry.spec.ts` | The eight built-ins register through `registerRestoreGate` in order whatever the import order; app gates validate, fail closed on a throw, a nonsense answer and a hang; the gate kit passes a good gate and FAILS a gate that writes its context, has a watched side effect, answers differently twice or answers the wrong shape |
+| `packages/platform-api/test/db-backup/restore-preflight.service.spec.ts` (app gates) | App gates run after the built-ins, a `fail` blocks without an override, the schema override does not clear it, the context carries no password, the pre-flight still changes nothing |
+| `apps/api/test/examples/db-backup/cdn-quiesced.gate.spec.ts` | The reference gate through the real pre-flight and restore service: inert with no `cdn` namespace, blocking until quiesced, `startRestore` refuses and queues nothing |
 | `packages/platform-api/test/db-backup/database-restore.service.spec.ts` | Failure at each phase leaves live untouched; inner recovery; carry-over rules; `allowAdmins: false`; re-verification; rollback modes; row-driven drop |
 | `apps/api/test/db-backup/database-restore.db.spec.ts` | Against real PostgreSQL: rename refused onto a taken name, inner recovery, no leaked session, subselect FK yields `NULL`, self-FK second pass |
 | `packages/platform-api/test/db-backup/handlers/db-restore-run.handler.spec.ts` | `db.restore.run` has no node members and is in `serverOnlyTypes()` |
@@ -710,6 +758,9 @@ rehearsal is for.
 - #725 (platform-packages PP-6.5): `pg_restore` runs with `--enable-row-security`
   and the `app.rls_bypass` startup option so the restored tenant tables keep
   every row and their forced policies.
+- PP-14.12 (extensibility, epic #918): the gate registry (`registerRestoreGate`,
+  open gate ids, the `app` kind), the archive read through the backup target and
+  the `db_backup.restore.completed` event.
 - #740 (platform-packages PP-8.7): the slice moved into
   `@marinoscar/platform-api/db-backup`, `@marinoscar/platform-web/db-backup`
   and `@marinoscar/platform-contract/db-backup`; the `rls_bypass` gate; the

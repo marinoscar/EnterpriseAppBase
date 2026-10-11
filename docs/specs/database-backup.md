@@ -13,10 +13,11 @@ job, either in the API process or on a worker node. Each attempt is one row in
 
 - **What it is.** A self-contained recovery point for an app built from this
   template: scheduled and manual `pg_dump` archives (custom format), stored in
-  the bucket configured at `/admin/settings/storage`, listed and downloadable
-  from the admin UI.
+  the bucket configured at `/admin/settings/storage` (or any other backup
+  target an app binds), listed and downloadable from the admin UI.
 - **What it is not.** Not point-in-time recovery, WAL archiving or a replica.
-  Not multi-destination: one deployment binds one storage provider. Restore
+  Not a replica: a second copy of each archive is written to a mirror target
+  after the first one is proven, not streamed to two places at once. Restore
   is a separate feature with its own spec, [database-restore.md](database-restore.md);
   this document covers taking, keeping and deleting backups.
 - **Problem it solves.** A fork gets a backup that is never buffered in memory,
@@ -194,28 +195,79 @@ There is no separate "cancelled" teardown.
 
 A run that is already terminal is a `400`.
 
-### Storage destination
+### Storage destination: the backup target port
 
-- The runner injects the `STORAGE_PROVIDER` DI token (not an env var) and
-  reads `getBucket()`. It imports
-  `StorageProvidersModule`, not `StorageModule`, so archives never get a
-  user-facing `storage_objects` row.
-- **The server chooses the key:**
+Where an archive lives is the `DB_BACKUP_TARGET` port (`BackupTarget`:
+`openWrite(key, meta)` returns a streaming sink `{ stream, done }`,
+`openRead(key)`, `delete(key)`, `list(prefix)`, plus optional `refresh()`,
+`location` and `signedDownloadUrl()`). The engine, the retention service, the
+stale sweep, the admin download and delete and the restore all go through it.
+
+- **The default target is an adapter over `STORAGE_PROVIDER`** (a DI token, not
+  an env var; `getBucket()` is the run's `bucket`, the provider's `kind` its
+  `storage_provider`). `DbBackupModule` imports `StorageProvidersModule`, not
+  `StorageModule`, so archives never get a user-facing `storage_objects` row.
+  With no `target` option the behaviour is what it was before the port existed.
+- **`forRoot({ target })` replaces it** with a `PortBinding<BackupTarget>`
+  (`useClass`, `useExisting` or `useFactory`; its dependencies come from
+  `imports` and global modules). The target's `id` is recorded on every run, its
+  `location` is the run's `bucket`, and a worker node cannot take a backup for
+  it: the node's presigned PUT writes through the storage provider, so
+  `nodeOffloadEnabled()` answers `false` and the in-process worker streams the
+  dump into the target. A target without `signedDownloadUrl` answers the
+  download route with `400 backup_target_cannot_sign` (the archive is still
+  restorable).
+- **The server chooses the key. Always.**
   ```
   database-backups/<slug>/<YYYY>/<MM>/<slug>-<YYYYMMDDTHHMMSSZ>-<runId>.dump
   ```
   `<slug>` is the `appName` option of `DbBackupModule.forRoot()` slugified
   (the reference app passes `APP_NAME`), so two apps can share a bucket. Month
   partitions keep listings cheap; the UTC timestamp sorts in time order; the
-  run id makes the key unique.
+  run id makes the key unique. A target receives the key and never derives,
+  rewrites or accepts one from a request; a directory target refuses a key that
+  would leave its root.
+- **A target keeps the streaming contract.** `openWrite` is a sink the dump is
+  piped into (`pipeline`, so a failure on either side destroys the other) and
+  `done` is awaited next to the dump's exit code; nothing collects the archive.
+  `describeBackupTargetConformance` streams 20 MiB through a candidate and fails
+  one whose buffer memory grows with the object, whose sink queues more than
+  4 MiB, or whose reads arrive in one chunk.
 - `databaseBackup.storageProvider` is a pin: empty (the default) means
-  "whatever provider is active"; a non-empty value must equal the active
-  provider or the request is a `400`. The same helper
-  (`db-backup-storage.ts`) checks it on `PUT config` and in the runner.
+  "whatever target is primary"; a non-empty value must equal the primary
+  target's `id` (the active provider's kind for the default) or the request is a
+  `400`. The same helper (`db-backup-storage.ts`) checks it on `PUT config` and
+  in the runner.
 - **The `database-backups/` prefix is registered** in the storage slice's
   key-prefix registry as `DB_BACKUP_KEY_PREFIX` (owner `db-backup`, scope
-  `deployment`), by `DbBackupModule.forRoot()` (#740). The registry is how the
-  storage slice and the data-reset purge know the prefix is not a user's.
+  `deployment`), by `DbBackupModule.forRoot()`. The registry is how the storage
+  slice and the data-reset purge know the prefix is not a user's.
+
+### Mirror targets
+
+`forRoot({ mirrorTargets })` binds targets that receive a copy of every archive.
+
+1. The primary's archive is written, read back through `pg_restore --list` and
+   the run is recorded `completed`: it is restorable.
+2. Only then, inside the same `db.backup.run` job (so the lease keeps renewing
+   and nothing runs detached), each mirror in turn gets the archive: the
+   primary's bytes are streamed through `openRead` into the mirror's
+   `openWrite` (the dump is not run twice and nothing is buffered), the copy is
+   read back from the mirror and its SHA-256 and size are compared with what the
+   primary served. A failed or differing copy is deleted from the mirror.
+3. Each result is an `audit_events` row (`db_backup.mirror.completed` /
+   `db_backup.mirror.failed`, `target_type` `database_backup_run`, `target_id`
+   the run, `meta` `{ targetId, status, sizeBytes, error?, storageKey }`) and a
+   log line. A failed mirror never fails the run and never raises
+   `db_backup.backup_failed`; the `backup.mirrors` Doctor check warns while the
+   latest copy of any configured mirror failed or has never run.
+4. Retention, the stale sweep and the admin delete remove the copy with the
+   original, best effort (an orphaned copy is logged and never keeps the
+   primary's row alive).
+
+Both RLS flags are unchanged by any of this: the dump and the restore still
+carry `--enable-row-security` and `PGOPTIONS=-c app.rls_bypass=on`, whatever the
+target is.
 
 ### Scheduling
 
@@ -244,6 +296,18 @@ fire only if latest.started_at < boundary
 - **DST** is handled by `schedule.util.ts` walking civil days. Spring forward:
   a non-existent 02:00 runs at the instant the clock jumped to. Fall back: an
   ambiguous 01:30 fires on the first pass only.
+- **`frequency: 'cron'`** takes the expression in `databaseBackup.cron`: five
+  fields, each `*`, a number, a range (`1-5`), a step (`0-12/2` or a star
+  followed by `/6`) or a comma list of those; the month is `*`; at most one of
+  the two day fields is restricted (implementations disagree about both). The
+  write path (`PUT config`) parses it with the scheduler's own parser
+  (`parseBackupCron`) and refuses one that can fire less than an hour after
+  its previous run (`400`, `details.reason` `cron_interval_too_short` or
+  `invalid_cron`), or `cron_required` when the frequency is `cron` and no
+  expression is stored. The same walk answers `nextRunAt` and the boundary, so
+  `0 */6 * * *` fires at 00:00, 06:00, 12:00 and 18:00 in the configured zone,
+  once per boundary, DST-correct. A stored expression the parser cannot read
+  (a hand-edited row) stands the scheduler down with one log line per value.
 - `databaseBackup.enabled: false` stops the firing, **not** the sweep, so a
   run orphaned before the switch-off cannot block manual backups.
 - A backup scheduled for 02:00 starts within `[02:00, 02:10)`. If the sweep
@@ -255,13 +319,20 @@ Applied by `DatabaseBackupRetentionService` inside `db.backup.sweep`.
 
 | Population | Rule | Setting |
 |---|---|---|
-| `completed`, trigger not `pre_restore` | Keep the newest N; delete the rest oldest first | `retentionCount` |
+| `completed`, trigger not `pre_restore` | Keep the newest N; delete the rest oldest first | `retention.count` (alias `retentionCount`) |
+| `completed`, trigger not `pre_restore` | Also delete once older than N days, oldest first; the newest completed run is never deleted | `retention.maxAgeDays` (optional) |
 | `completed`, trigger `pre_restore` | Delete once older than the bound | `oldDatabaseRetentionHours` |
 
 - `pre_restore` runs are neither deleted by the count rule nor counted in its
   N slots: under `restoreRollbackMode: 'drop_database'` that dump is the only
   way back from a restore. They expire with the same bound as a retained old
   database.
+- **`retentionCount` and `retention.count` are one value under two names**:
+  every write moves both, and a row stored before `retention` existed reads
+  and writes exactly as it did. The age rule runs only when
+  `retention.maxAgeDays` is set, and a stalled schedule can never empty the
+  catalog (the newest completed run is exempt). Mirror copies are deleted with
+  the original.
 - **Oldest first**, so an interrupted prune still leaves the newest intact.
 - `failed` and `stale` rows are never pruned. Their objects are already gone,
   and the row is the record that a backup did not happen.
@@ -370,6 +441,25 @@ through `POST /api/nodes/{id}/jobs/{jobId}/secret`:
 - **Route order.** Every literal route is declared above every parameterised
   one in `db-backup.controller.ts`; Nest matches in declaration order.
 
+### Completion events
+
+A settled run raises `db_backup.run.completed`, a settled restore
+`db_backup.restore.completed`, on the application's event emitter (the
+`@OnEvent` mechanism, like `nodes.node.offline`). The payload is JSON-safe and
+holds no secret: `{ runId, status, targetId, sizeBytes, durationMs }`
+(`DbBackupRunCompletedEvent`, `DbBackupRestoreCompletedEvent`).
+
+- A run's `status` is `completed`, `failed` or `stale`; a restore's is
+  `completed` or `failed`. `targetId` is the run's `storage_provider`.
+- Raised AFTER the settling write commits and outside any transaction, so the
+  event reports a fact a rollback cannot take back. The restore's event is
+  raised synchronously before the process exits after a swap.
+- A listener that throws is caught and logged; the outcome does not depend on
+  it. A listener must not do I/O in its body (the `on-event-no-io` suite):
+  enqueue a job or start a contained dispatch. The slice raises no notification
+  from them (`db_backup.backup_failed` and `db_backup.restore_completed` are
+  unchanged).
+
 ### Notifications
 
 - `db_backup.backup_failed` goes to holders of `db_backup:read` when a run is
@@ -391,12 +481,14 @@ namespace declaration and defaults in
 | Key | Type / range | Default |
 |---|---|---|
 | `enabled` | boolean | `false` |
-| `frequency` | `daily \| weekly \| monthly` | `daily` |
+| `frequency` | `daily \| weekly \| monthly \| cron` | `daily` |
 | `dayOfWeek` | 0–6 (always stored, used when weekly) | `0` |
 | `dayOfMonth` | 1–28 (so "monthly" means every month) | `1` |
 | `timeOfDay` | `HH:MM`, 24-hour | `02:00` |
 | `timezone` | IANA name, ≤ 64 chars | `UTC` |
-| `retentionCount` | 1–365 | `7` |
+| `cron` | five-field expression (lists, ranges, steps), at least an hour between runs; read when `frequency` is `cron` | absent |
+| `retentionCount` | 1–365; the alias of `retention.count` | `7` |
+| `retention` | `{ count?: 1–365, maxAgeDays?: 1–3650 }`; absent on a row that never set it | absent |
 | `storageProvider` | ≤ 64 chars; empty = active provider | `''` |
 | `runStaleMinutes` | 1–10080 | `120` |
 | `compressionLevel` | 0–9 | `6` |
@@ -427,6 +519,8 @@ The slice is `DbBackupModule.forRoot(options)` from
 | `restoreEnabled` | Overrides the mode for restore | derived from the mode |
 | `scheduleEnabled` | This process runs the scheduler | `DB_BACKUP_SCHEDULE_ENABLED !== 'false'` |
 | `extraCarryOver` | `RestoreCarryOver` entries (see [database-restore.md](database-restore.md#catalog-carry-over)) | none |
+| `target` | `PortBinding<BackupTarget>`: the primary backup target | an adapter over `STORAGE_PROVIDER` |
+| `mirrorTargets` | `PortBinding<BackupTarget>[]`: targets that receive a copy of every archive | none |
 | `imports` | The app's module binding the host ports | `[]` |
 
 Host ports, bound by the app (`apps/api/src/platform/db-backup/db-backup-host.module.ts`):
@@ -477,9 +571,14 @@ All three are seeded Admin-only, and every route also requires the Admin role.
 
 ## 4. Extending it in a fork
 
-- **Another backup destination.** `databaseBackup.storageProvider` and the
-  `storage_provider` column already exist. Add a provider registry and select
-  from it using that field; the key layout and row shape stay the same.
+- **Another backup destination, or a second copy.** Implement `BackupTarget`
+  and bind it with `forRoot({ target })` or `forRoot({ mirrorTargets })`; run
+  `describeBackupTargetConformance` on it. The key layout and row shape stay
+  the same. The worked example is
+  `apps/api/src/platform-extensions/db-backup/local-dir.target.ts`; recipe in
+  [EXTENDING.md](../EXTENDING.md#add-a-backup-target-a-mirror-or-a-restore-gate).
+- **A restore pre-flight check.** `registerRestoreGate`; see
+  [database-restore.md §4](database-restore.md#4-extending-it-in-a-fork).
 - **A different archive format or `pg_dump` flags.** Change
   `pg-dump.util.ts` and keep its argv test in step. Keep `--no-owner --no-acl`,
   or the SELECT-only node role stops being enough.
@@ -533,6 +632,12 @@ All three are seeded Admin-only, and every route also requires the Admin role.
 | `apps/api/test/conformance.spec.ts` (suite `cron-enqueue-only`) | The scheduler only enqueues |
 | `packages/platform-api/test/db-backup/slice.spec.ts` | `forRoot()` defaults and refusals, the deployment-mode gate (option, port, neither), the `RestoreCarryOver` registry (order, duplicates, `$1`, frozen), the key prefix's registration, the conformance suite on a good and a broken slice |
 | `apps/api/test/db-backup/db-backup-conformance.spec.ts` | The reference app's composition passes the `dbBackup` conformance suite |
+| `packages/platform-api/test/db-backup/backup-target.spec.ts` | The target kit passes a directory target and the default adapter, and FAILS a target that buffers the object, reports a destroyed write as done or follows `../`; the adapter's key, metadata and signed URL; the `target` / `mirrorTargets` option validation |
+| `packages/platform-api/test/db-backup/db-backup-runner.service.spec.ts` (PP-14.12 blocks) | The archive goes through the target's sink; mirrors are copied only after `completed`, streamed, read back and compared; a failed mirror never fails the run; `db_backup.run.completed` after the write |
+| `packages/platform-api/test/db-backup/schedule.util.spec.ts`, `db-backup-admin.service.spec.ts` | Cron parsing, the one-hour minimum, the walk over multi-fire expressions and zones; `PUT config` refusals |
+| `packages/platform-api/test/db-backup/db-backup.system-settings.spec.ts` | A row stored before `cron` / `retention` loads and round-trips; the alias moves with `retention.count`; the defaults are unchanged |
+| `packages/platform-api/test/db-backup/doctor/backup-mirrors.doctor-check.spec.ts`, `apps/api/test/examples/db-backup/mirror-doctor.db.spec.ts` | `backup.mirrors` warns on a failed or missing copy; the audit rows round-trip through the real JSONB column |
+| `apps/api/test/examples/db-backup/local-dir.target.spec.ts` | The reference mirror through the real application: copied after the primary, recorded, a failing mirror recorded without failing the backup, the event, the Doctor check |
 | `apps/api/test/db-backup/db-backup-restore-saas-mode.integration.spec.ts` | `DEPLOYMENT_MODE=saas`: both restore routes `403` with `details.reason`, `restore.available: false` |
 
 The runner's unit suite uses the engine seam; `test/integration/db-backup-round-trip.db.spec.ts`,
@@ -616,6 +721,12 @@ The runner's unit suite uses the engine seam; `test/integration/db-backup-round-
   `app.rls_bypass` startup option; the `backup.rls-bypass` Doctor check; the
   broker creates job roles `NOBYPASSRLS` and re-issues from a non-superuser
   `CREATEROLE` role.
+- PP-14.12 (extensibility, epic #918): the `BackupTarget` port with mirror
+  targets, `frequency: 'cron'`, `retention.maxAgeDays` beside the
+  `retentionCount` alias, the restore gate registry (see
+  [database-restore.md](database-restore.md)), the two completion events and
+  the `backup.mirrors` Doctor check; the kits `describeBackupTargetConformance`
+  and `describeRestoreGateConformance`.
 - #740 (platform-packages PP-8.7): the slice moved into
   `@marinoscar/platform-api/db-backup` (engine, routes, jobs, Doctor checks),
   `@marinoscar/platform-web/db-backup` (page, hooks, client) and

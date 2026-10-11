@@ -5,6 +5,7 @@
 // `useDbBackupRuns` and `useDbBackupActions`. Documented in ../README.md.
 
 export {
+  BUILTIN_RESTORE_GATE_IDS,
   DB_BACKUP_FREQUENCIES,
   DB_BACKUP_RUN_STATUSES,
   DB_BACKUP_TRIGGERS,
@@ -31,6 +32,7 @@ export type {
   DbBackupApi,
   DbBackupConfig,
   DbBackupFrequency,
+  DbBackupRetention,
   DbBackupRestoreAvailability,
   DbBackupRestoreUnavailableReason,
   DbBackupRun,

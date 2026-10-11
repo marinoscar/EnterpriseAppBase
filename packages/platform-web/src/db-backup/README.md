@@ -4,7 +4,7 @@ The database backup and restore page (issue #740, PP-8.7): the `/admin/settings/
 
 ## Purpose and scope
 
-An administrator schedules backups, reviews what has been taken (progress, size, checksum, provenance), downloads an archive, cancels or deletes a run, and restores or rolls back the database. Every decision is the API's: the page renders the pre-flight's gates (all of them, passes included, `rls_bypass` among them), the `guided` command block and the `blocked` override exactly as the API returns them, and requires the typed `RESTORE` / `ROLLBACK` confirmation.
+An administrator schedules backups, reviews what has been taken (progress, size, checksum, provenance), downloads an archive, cancels or deletes a run, and restores or rolls back the database. Every decision is the API's: the page renders the pre-flight's gates (all of them, passes included, `rls_bypass` among them and any gate an app registered, named by its own title), the `guided` command block and the `blocked` override exactly as the API returns them, and requires the typed `RESTORE` / `ROLLBACK` confirmation.
 
 Not here: the engine and the routes (the API slice), the settings hub (`@marinoscar/platform-web/settings`).
 
@@ -33,6 +33,8 @@ The page needs `PlatformHostProvider` (the transport and the viewer's permission
 
 ## Configuration
 
+`DbBackupPage` takes one optional prop, `slots.Sections` (a component receiving `DbBackupSectionsProps`: the policy, the runs on screen, `canWrite`, `canRestore` and a `refresh`), rendered below the run history. With no slot the markup is the one recorded before the slot existed (`test/db-backup/DbBackupPage.builtin-dom.test.tsx`).
+
 `DbBackupWebAdaptersProvider` takes the app's `DataTable` and, optionally, its own `DbBackupApi`. The hooks take an optional `{ api }` (default: the adapters' `api`, else `createDbBackupApi` over the platform host's transport).
 
 ## Extension-point catalog
@@ -41,7 +43,9 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
-| `DbBackupPage` | component | `DbBackupPage(): ReactElement` | Route `/admin/settings/db-backup` | experimental | [example](../../../../apps/web/src/App.tsx) |
+| `DbBackupPage` | component | `DbBackupPage(props?: DbBackupPageProps): ReactElement` | Route `/admin/settings/db-backup` | experimental | [example](../../../../apps/web/src/App.tsx) |
+| `DbBackupPageProps` | slot | `{ slots?: { Sections?: ComponentType<DbBackupSectionsProps> } }` | Add an app section (a mirror status, a restore drill checklist) below the run history | experimental | [example](../../../../apps/web/src/platform-extensions/db-backup/RestoreDrillSection.example.tsx) |
+| `DbBackupSectionsProps` | slot | `{ config: DbBackupConfig \| null; runs: readonly DbBackupRun[]; canWrite: boolean; canRestore: boolean; refresh(): void }` | What a `Sections` component draws from; read-only | experimental | [example](../../../../apps/web/src/__tests__/examples/db-backup/restore-drill-section.test.tsx) |
 | `DbBackupWebAdaptersProvider` | component | `DbBackupWebAdaptersProvider(props: { adapters: DbBackupWebAdapters; children: ReactNode }): ReactElement` | Hand the page the app's table (and optionally its client) | experimental | [example](../../../../apps/web/src/App.tsx) |
 | `DbBackupWebAdapters` | option | `{ DataTable?: DbBackupDataTableComponent; api?: DbBackupApi }` | The app's table and client for the page | experimental | [example](../../../../apps/web/src/platform/dbBackupAdapters.ts) |
 | `dbBackupAdminSections` | component | `{ operations: readonly DbBackupSettingsCard[] }` | Spread the `Database Backup` card into the admin hub at its position | experimental | [example](../../../../apps/web/src/config/adminSections.tsx) |
@@ -58,7 +62,7 @@ The card and the route: `db_backup:read`. Inside the page, writes need `db_backu
 
 ## UI
 
-`/ui`: the page (default and named export), `DbBackupConfigPanel`, `DbBackupRestoreDialog` and `dbBackupAdminSections`. The page title and the card share `DB_BACKUP_PAGE_TITLE`.
+`/ui`: the page (default and named export) with its `Sections` slot, `DbBackupConfigPanel`, `DbBackupRestoreDialog` and `dbBackupAdminSections`. The page title and the card share `DB_BACKUP_PAGE_TITLE`.
 
 ## Infra
 
@@ -77,6 +81,8 @@ The page never decides a restore: the confirmation literal is the contract's, th
 None of its own. The hook and table suites live in `packages/platform-web/test/db-backup/`; the page suite stays in the reference app ([`DbBackupPage.test.tsx`](../../../../apps/web/src/__tests__/pages/Admin/DbBackupPage.test.tsx), saas rendering included), as the jobs page suites do, and the app's `settingsCards.test.ts` pins the card's permission to the controller.
 
 ## Upgrade notes
+
+PP-14.12 is additive. The frequency list gains `cron`: choosing it shows a cron expression field in place of the time of day, and a save sends `cron` only under that frequency (every other save carries the fields it always did). `RestoreGateId` is open (the eight built-ins or an app's id) and `RESTORE_GATE_IDS` is a deprecated alias of `BUILTIN_RESTORE_GATE_IDS`; a gate's `kind` gains `app`, and a block by an app gate is named by the gate's title, shows no schema panel and offers no override. `DbBackupConfig` gains optional `cron` and `retention`.
 
 New in this version: moved from the reference app's `pages/Admin/DbBackupPage.tsx`, `dbBackupTable.tsx`, `components/admin/DbBackup*.tsx`, `hooks/useDbBackup.ts` and `services/dbBackup.ts`. The module-level request functions became the methods of `createDbBackupApi`.
 
