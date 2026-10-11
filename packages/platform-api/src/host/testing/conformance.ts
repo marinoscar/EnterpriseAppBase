@@ -7,10 +7,13 @@
 // of the app's module graph, from its root module, with no database and no
 // boot:
 //
-//   1. the graph registers EXACTLY ONE `APP_GUARD`, and it is
-//      `MaintenanceGuard`: there is no global JWT guard, so a route without
-//      `@Auth()` is public (CLAUDE.md, architecture principle 3) and the
-//      maintenance window applies to every Nest route;
+//   1. `MaintenanceGuard` is registered as an `APP_GUARD` exactly once and it
+//      is the FIRST one, and every other `APP_GUARD` is listed in the suite's
+//      `allowedAppGuards` with a written reason: there is no global JWT guard,
+//      so a route without `@Auth()` is public (CLAUDE.md, architecture
+//      principle 3) and the maintenance window applies to every Nest route, so
+//      nothing may run in front of it. An app's own global guard (a throttler,
+//      a tenant guard) is allowed that way and no other;
 //   2. `PlatformHostCoreModule.forRoot()` is imported exactly once (one event
 //      bus per process: two would each treat the other's messages as remote);
 //   3. the `{ data }` envelope (`TransformInterceptor`) and core's
@@ -43,6 +46,18 @@ declare module '../../testing/index' {
 export interface HostConformanceOptions {
   /** The app's root module; every module reachable from it is walked. */
   readonly rootModule: Type<unknown> | DynamicModule;
+  /**
+   * Global guards the app registers on purpose, besides `MaintenanceGuard`: a
+   * throttler, a tenant guard. Each entry names the guard CLASS (`name` is
+   * `Class.name`) and says why a global guard is right for it (`why`, required:
+   * an empty one throws). An entry that matches no registered guard is a finding,
+   * so a deleted guard cannot leave a standing exemption. Every listed guard must
+   * still be registered AFTER `MaintenanceGuard`, so the maintenance window is
+   * decided first.
+   *
+   * @extensionPoint option
+   */
+  readonly allowedAppGuards?: ReadonlyArray<{ readonly name: string; readonly why: string }>;
 }
 
 /**
@@ -150,24 +165,53 @@ export function discoverHostModuleGraph(root: Type<unknown> | DynamicModule): Ho
  *
  * @stability experimental
  */
-export function checkHostModuleGraph(graph: HostModuleGraph): ConformanceFinding[] {
+export function checkHostModuleGraph(
+  graph: HostModuleGraph,
+  allowedAppGuards: HostConformanceOptions['allowedAppGuards'] = [],
+): ConformanceFinding[] {
   const findings: ConformanceFinding[] = [];
   const of = (token: string) => graph.enhancers.filter((enhancer) => enhancer.token === token);
 
+  // An allowance without a reason is not an allowance: it is the silent skip
+  // this list exists to replace.
+  for (const allowed of allowedAppGuards) {
+    if (typeof allowed?.name !== 'string' || allowed.name.trim() === '') {
+      throw new Error('host conformance: an allowedAppGuards entry needs the guard class name');
+    }
+    if (typeof allowed.why !== 'string' || allowed.why.trim() === '') {
+      throw new Error(`host conformance: allowedAppGuards entry "${allowed.name}" needs a written \`why\` (why a global guard, and why it may run in the app)`);
+    }
+  }
+  const allowedNames = new Set(allowedAppGuards.map((allowed) => allowed.name));
+
   const guards = of('APP_GUARD');
   for (const guard of guards) {
-    if (guard.target !== MaintenanceGuard) {
+    if (guard.target !== MaintenanceGuard && !allowedNames.has(nameOf(guard.target))) {
       findings.push({
         file: 'app-guard',
-        message: `${guard.module} registers APP_GUARD ${nameOf(guard.target)}: the only global guard is MaintenanceGuard (there is no global JWT guard; a route declares @Auth() or @Public())`,
+        message: `${guard.module} registers APP_GUARD ${nameOf(guard.target)}: the only global guard is MaintenanceGuard unless the app lists the guard in allowedAppGuards with a written reason (there is no global JWT guard; a route declares @Auth() or @Public())`,
       });
     }
   }
-  if (guards.filter((guard) => guard.target === MaintenanceGuard).length !== 1) {
+  const maintenanceGuards = guards.filter((guard) => guard.target === MaintenanceGuard);
+  if (maintenanceGuards.length !== 1) {
     findings.push({
       file: 'app-guard',
-      message: `MaintenanceGuard is registered as APP_GUARD ${guards.filter((guard) => guard.target === MaintenanceGuard).length} time(s), expected exactly once (PlatformHostCoreModule.forRoot())`,
+      message: `MaintenanceGuard is registered as APP_GUARD ${maintenanceGuards.length} time(s), expected exactly once (PlatformHostCoreModule.forRoot())`,
     });
+  } else if (guards[0].target !== MaintenanceGuard) {
+    findings.push({
+      file: 'app-guard',
+      message: `${guards[0].module} registers APP_GUARD ${nameOf(guards[0].target)} before MaintenanceGuard: MaintenanceGuard must run first, so import PlatformHostCoreModule.forRoot() before the module that registers it`,
+    });
+  }
+  for (const name of allowedNames) {
+    if (!guards.some((guard) => nameOf(guard.target) === name)) {
+      findings.push({
+        file: 'app-guard',
+        message: `allowedAppGuards lists ${name}, but no module registers it as an APP_GUARD: remove the stale entry`,
+      });
+    }
   }
 
   if (graph.hostCoreImports !== 1) {
@@ -199,19 +243,19 @@ export const hostConformanceSuite: ConformanceSuite<HostConformanceOptions> = {
   id: 'host',
   title: 'the host core keeps its invariants',
   description:
-    'Exactly one APP_GUARD and it is MaintenanceGuard (no global JWT guard), one PlatformHostCoreModule, and the { data } envelope and exception filter registered once.',
+    'MaintenanceGuard is the first APP_GUARD and no other global guard exists unless the app lists it (with a reason) in allowedAppGuards, one PlatformHostCoreModule, and the { data } envelope and exception filter registered once.',
   check(_context, options): ConformanceReport {
     const graph = discoverHostModuleGraph(options.rootModule);
     return {
       scanned: { modules: graph.modules.length, globalEnhancers: graph.enhancers.length },
       scannedFiles: { modules: graph.modules },
-      findings: checkHostModuleGraph(graph),
+      findings: checkHostModuleGraph(graph, options.allowedAppGuards),
     };
   },
   cases(): ConformanceCase[] {
     return [
       {
-        name: 'app-guard: the only APP_GUARD is MaintenanceGuard (no global JWT guard)',
+        name: 'app-guard: MaintenanceGuard is the first APP_GUARD and every other global guard is allowed with a reason (no global JWT guard)',
         run: (report, expect) => {
           expect(report.findings.filter((finding) => finding.file === 'app-guard')).toEqual([]);
         },

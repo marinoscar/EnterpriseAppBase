@@ -13,15 +13,17 @@
 //     generic `add`/`record`, on otel-core's metrics host, plus the platform's
 //     `app.*` metric declarations (`registerPlatformHostAppMetrics`);
 //   - maintenance mode: `MaintenanceModeService`, `/api/admin/maintenance`, the
-//     `maintenance.mode` Doctor check and `MaintenanceGuard` as the
-//     application's ONLY `APP_GUARD` (there is no global JWT guard);
+//     `maintenance.mode` Doctor check and `MaintenanceGuard` as the platform's
+//     `APP_GUARD`, which runs first (there is no global JWT guard; an app's own
+//     global guard, a throttler, is declared to the `host` conformance suite);
 //   - the `{ data }` response envelope (`TransformInterceptor`), the request
 //     log line (`LoggingInterceptor`) and core's `HttpExceptionFilter`, as
 //     global enhancers;
 //   - request ids (`RequestIdMiddleware`, every route);
 //   - the health probes (`GET /api/health`, `/live`, `/ready`: public, reachable
-//     during maintenance, the readiness probe a `SELECT 1` through
-//     `PLATFORM_PRISMA`; #901);
+//     during maintenance; they run the indicators registered with
+//     `registerHealthIndicator`, the built-in `database` one a `SELECT 1`
+//     through `PLATFORM_PRISMA`; #901);
 //   - the deployment facts (`DeploymentModeService` for `DEPLOYMENT_MODE`,
 //     `DeploymentNetworkService` for `DEPLOYMENT_NETWORK`, bound as the doctor
 //     slice's `DEPLOYMENT_NETWORK_SOURCE`) and the generic Doctor checks:
@@ -85,13 +87,14 @@ import {
   type ResolvedPlatformHostCoreOptions,
 } from './host-core.options';
 import { DatabaseHealthIndicator } from './health/database.indicator';
-import { HealthController } from './health/health.controller';
+import { createHealthController } from './health/health.controller';
+import { HealthIndicatorRunner } from './health/health-indicator.runner';
 import { LoggingInterceptor } from './http/logging.interceptor';
 import { RequestIdMiddleware } from './http/request-id.middleware';
 import { TransformInterceptor } from './http/transform.interceptor';
 import { MaintenanceModeDoctorCheck } from './maintenance/doctor/maintenance-mode.doctor-check';
 import { MaintenanceModeService } from './maintenance/maintenance-mode.service';
-import { MaintenanceController } from './maintenance/maintenance.controller';
+import { createMaintenanceController } from './maintenance/maintenance.controller';
 import { MaintenanceGuard } from './maintenance/maintenance.guard';
 import { MAINTENANCE_SYSTEM_SETTINGS } from './maintenance/maintenance.system-settings';
 import { AppMetricsService } from './metrics/app-metrics.service';
@@ -99,7 +102,7 @@ import { registerPlatformHostAppMetrics } from './metrics/register';
 
 /**
  * The API host core: the event bus, the platform's app metrics, maintenance
- * mode (the only `APP_GUARD`), the `{ data }` envelope, the request log line,
+ * mode (the platform's `APP_GUARD`), the `{ data }` envelope, the request log line,
  * the exception filter and request ids. Global.
  *
  * @stability experimental
@@ -157,7 +160,14 @@ export class PlatformHostCoreModule implements NestModule {
       ],
       // Health first: `/api/health` has always preceded
       // `/api/admin/maintenance` in the generated OpenAPI document.
-      controllers: [HealthController, MaintenanceController],
+      controllers: [
+        createHealthController(resolved.host),
+        createMaintenanceController({
+          host: resolved.host,
+          readPermission: resolved.permissions.maintenanceRead,
+          writePermission: resolved.permissions.maintenanceWrite,
+        }),
+      ],
       providers: [
         { provide: PLATFORM_HOST_CORE_OPTIONS, useValue: resolved },
         {
@@ -203,11 +213,14 @@ export class PlatformHostCoreModule implements NestModule {
         NetworkEgressDoctorCheck,
         AppMetricsService,
         DatabaseHealthIndicator,
+        HealthIndicatorRunner,
         MaintenanceModeService,
         MaintenanceGuard,
         MaintenanceModeDoctorCheck,
-        // The application's ONLY global guard. `useExisting`, so the instance
-        // is the one constructed here, next to its JwtService.
+        // The platform's global guard, and the first one: this module is imported
+        // once, ahead of the app's own guards (the `host` conformance suite checks
+        // the order). `useExisting`, so the instance is the one constructed here,
+        // next to its JwtService.
         { provide: APP_GUARD, useExisting: MaintenanceGuard },
         { provide: APP_FILTER, useClass: HttpExceptionFilter },
         // Order matters: the log line wraps the envelope.

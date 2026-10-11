@@ -9,23 +9,31 @@ import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import { ALLOW_DURING_MAINTENANCE_KEY } from '../../core/index';
 import { IDENTITY_ROLES } from '../../identity/index';
+import { withTimeout } from '../internal/bounded';
+import {
+  MAINTENANCE_BYPASS_TIMEOUT_MS,
+  maintenanceBypassRegistry,
+  type MaintenanceBypassPrincipal,
+  type MaintenanceBypassRequest,
+} from './maintenance-bypass.registry';
 import { MaintenanceModeService } from './maintenance-mode.service';
 
 // =============================================================================
-// MaintenanceGuard — the application's ONLY APP_GUARD (#257, epic #254)
+// MaintenanceGuard — the platform's APP_GUARD, and it runs first (#257, epic #254)
 // =============================================================================
 //
 // Registered globally by `PlatformHostCoreModule.forRoot()` (packaged by #867;
 // it was the reference app's `common/maintenance/`), so it runs on EVERY Nest
 // route before any route-level `UseGuards`. There is no global JWT guard: a
 // route without `@Auth()` is public, and the host conformance suite fails an
-// app whose module graph registers any other `APP_GUARD`. Two consequences
-// follow from running first, and both shape this file:
+// app whose module graph registers an `APP_GUARD` the app has not listed (with
+// a written reason) in its `allowedAppGuards`, or one that would run first.
+// Two consequences follow from running first, and both shape this file:
 //
 //   1. `request.user` DOES NOT EXIST YET. `JwtAuthGuard` has not run — it
 //      cannot have, it is a route-level guard — so honouring `allowAdmins`
 //      means verifying the bearer token here, on our own. See
-//      `resolveAdminBearer`.
+//      `resolvePrincipal`.
 //
 //   2. IT IS NOT THE ONLY THING IN FRONT OF THE APPLICATION.
 //      `registerPlatformDocs` (../openapi/register-docs-routes.ts) mounts `/api/docs` and
@@ -91,6 +99,15 @@ export const MAINTENANCE_RETRY_AFTER_SECONDS = 30;
  */
 export const OPAQUE_BEARER_PREFIXES = ['pat_', 'nod_'] as const;
 
+/** The request fields the guard reads; a Fastify request has all of them. */
+interface GuardRequest {
+  method?: unknown;
+  url?: unknown;
+  raw?: { url?: unknown };
+  ip?: unknown;
+  headers?: Record<string, unknown>;
+}
+
 /** The claim set this guard reads. Matches the identity slice's `jwt.strategy.ts`. */
 interface MaintenanceJwtClaims {
   sub?: string;
@@ -145,7 +162,20 @@ export class MaintenanceGuard implements CanActivate {
 
     const request = context.switchToHttp().getRequest();
 
-    if (state.allowAdmins && this.isAdminBearer(request)) {
+    // The principal is resolved at most once, and only when something asks:
+    // verifying a JWT is the expensive step of a blocked request.
+    let principal: MaintenanceBypassPrincipal | undefined;
+    const principalOf = (): MaintenanceBypassPrincipal => (principal ??= this.resolvePrincipal(request));
+
+    // 1. The built-in rule, unchanged: a verified admin session JWT.
+    if (state.allowAdmins && principalOf().roles.includes(IDENTITY_ROLES.ADMIN.id)) {
+      return true;
+    }
+
+    // 2. The app's bypasses (`registerMaintenanceBypass`), only for a request
+    //    that is otherwise about to be refused, so they can add an allowance
+    //    and never remove or change one.
+    if (maintenanceBypassRegistry.list().length > 0 && (await this.bypassed(request, principalOf()))) {
       return true;
     }
 
@@ -172,7 +202,50 @@ export class MaintenanceGuard implements CanActivate {
   }
 
   /**
-   * Whether the request carries a VERIFIED session JWT with the admin role.
+   * Whether a registered bypass lets this blocked request through. FAIL CLOSED:
+   * only a predicate that returns exactly `true` within the time limit allows;
+   * a throw, a rejection, a timeout or any other value moves on to the next.
+   * The predicates see frozen copies, never the request.
+   */
+  private async bypassed(request: GuardRequest, principal: MaintenanceBypassPrincipal): Promise<boolean> {
+    const view = this.requestView(request);
+    for (const bypass of maintenanceBypassRegistry.list()) {
+      try {
+        const allowed = await withTimeout(bypass.allows(view, principal), MAINTENANCE_BYPASS_TIMEOUT_MS);
+        if (allowed === true) {
+          this.logger.debug(`Maintenance bypass "${bypass.id}" admitted ${view.method} ${view.path}`);
+          return true;
+        }
+      } catch (error) {
+        this.logger.warn(
+          `Maintenance bypass "${bypass.id}" failed and was treated as "not bypassed": ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+    return false;
+  }
+
+  /** A frozen, read-only copy of what a predicate may look at. */
+  private requestView(request: GuardRequest): MaintenanceBypassRequest {
+    const url = typeof request.raw?.url === 'string' ? request.raw.url : typeof request.url === 'string' ? request.url : '';
+    const headers: Record<string, string | string[] | undefined> = {};
+    for (const [name, value] of Object.entries(request.headers ?? {})) {
+      if (typeof value === 'string' || Array.isArray(value) || value === undefined) {
+        headers[name.toLowerCase()] = Array.isArray(value) ? [...value] : (value as string | undefined);
+      }
+    }
+    return Object.freeze({
+      method: typeof request.method === 'string' ? request.method.toUpperCase() : '',
+      path: url.split('?')[0],
+      headers: Object.freeze(headers),
+      ip: typeof request.ip === 'string' ? request.ip : undefined,
+    });
+  }
+
+  /**
+   * What the guard can establish about the caller: a VERIFIED session JWT's
+   * subject and roles, an opaque bearer, or nothing. Its `roles` decide the
+   * built-in admin rule.
    *
    * THREE RULES, all deliberate:
    *
@@ -193,33 +266,38 @@ export class MaintenanceGuard implements CanActivate {
    *
    *   * OPAQUE BEARERS SHORT-CIRCUIT. See {@link OPAQUE_BEARER_PREFIXES}.
    */
-  private isAdminBearer(request: {
-    headers?: Record<string, unknown>;
-  }): boolean {
+  private resolvePrincipal(request: GuardRequest): MaintenanceBypassPrincipal {
+    const anonymous: MaintenanceBypassPrincipal = Object.freeze({ kind: 'anonymous', userId: null, roles: Object.freeze([]) });
+
     const header = request.headers?.authorization;
     if (typeof header !== 'string' || !header.startsWith('Bearer ')) {
-      return false;
+      return anonymous;
     }
 
     const token = header.slice('Bearer '.length).trim();
     if (!token) {
-      return false;
+      return anonymous;
     }
 
     if (OPAQUE_BEARER_PREFIXES.some((prefix) => token.startsWith(prefix))) {
-      return false;
+      return Object.freeze({ kind: 'opaque', userId: null, roles: Object.freeze([]) });
     }
 
     try {
       const claims = this.jwtService.verify<MaintenanceJwtClaims>(token);
-      return (
-        Array.isArray(claims?.roles) && claims.roles.includes(IDENTITY_ROLES.ADMIN.id)
-      );
+      const roles = Array.isArray(claims?.roles)
+        ? claims.roles.filter((role): role is string => typeof role === 'string')
+        : [];
+      return Object.freeze({
+        kind: 'session',
+        userId: typeof claims?.sub === 'string' ? claims.sub : null,
+        roles: Object.freeze(roles),
+      });
     } catch {
       // Expired, wrong signature, not a JWT at all. All of them mean the same
       // thing here, and none of them is worth a log line on a path that runs
       // for every blocked request of a window.
-      return false;
+      return anonymous;
     }
   }
 }

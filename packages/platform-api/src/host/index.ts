@@ -1,6 +1,6 @@
 // `@marinoscar/platform-api/host`: the API host core every slice assumes
 // (issue #867): `PlatformHostCoreModule.forRoot()` with the event bus, the
-// platform's app metrics, maintenance mode (the only APP_GUARD), the `{ data }`
+// platform's app metrics, maintenance mode (the platform's APP_GUARD), the `{ data }`
 // envelope, the request log line, the exception filter and request ids; plus
 // the OpenAPI document and `/api/docs` (`registerPlatformDocs`). All of it was
 // the reference app's own code. Documented in ./README.md.
@@ -11,6 +11,7 @@ export { PLATFORM_HOST_CORE_OPTIONS, resolvePlatformHostCoreOptions } from './ho
 export type {
   PlatformHostCoreImport,
   PlatformHostCoreOptions,
+  PlatformHostCorePermissions,
   ResolvedPlatformHostCoreOptions,
 } from './host-core.options';
 
@@ -68,15 +69,28 @@ export type {
 
 // ---- Deployment facts and the generic Doctor checks (#685, #773, #879) --------
 export {
+  BUILTIN_DEPLOYMENT_MODES,
   DEFAULT_DEPLOYMENT_MODE,
+  DEPLOYMENT_CAPABILITY_ID_PATTERN,
   DEPLOYMENT_MODES,
   DEPLOYMENT_MODE_ENV_VAR,
+  DEPLOYMENT_MODE_ID_PATTERN,
   capabilitiesFor,
+  deploymentCapabilityRegistry,
+  deploymentModeRegistry,
   describeDeploymentMode,
   parseDeploymentMode,
+  registerDeploymentCapability,
+  registerDeploymentMode,
   verifyDeploymentModeAtStartup,
 } from './deployment/deployment-mode';
-export type { DeploymentCapabilities, DeploymentMode } from './deployment/deployment-mode';
+export type {
+  BuiltinDeploymentMode,
+  DeploymentCapabilities,
+  DeploymentCapabilityDef,
+  DeploymentMode,
+  DeploymentModeDef,
+} from './deployment/deployment-mode';
 export { DEPLOYMENT_MODE_CONFIG_KEY, DeploymentModeService } from './deployment/deployment-mode.service';
 export {
   DEFAULT_DEPLOYMENT_NETWORK,
@@ -150,6 +164,29 @@ export {
   MaintenanceGuard,
   OPAQUE_BEARER_PREFIXES,
 } from './maintenance/maintenance.guard';
+// The bypass registry (PP-14.13): predicates for requests that must pass an open window.
+export {
+  MAINTENANCE_BYPASS_ID_PATTERN,
+  MAINTENANCE_BYPASS_TIMEOUT_MS,
+  maintenanceBypassRegistry,
+  registerMaintenanceBypass,
+} from './maintenance/maintenance-bypass.registry';
+export type {
+  MaintenanceBypassDef,
+  MaintenanceBypassPrincipal,
+  MaintenanceBypassRequest,
+} from './maintenance/maintenance-bypass.registry';
+export {
+  DEFAULT_MAINTENANCE_READ_PERMISSION,
+  DEFAULT_MAINTENANCE_WRITE_PERMISSION,
+  MaintenanceController,
+  createMaintenanceController,
+} from './maintenance/maintenance.controller';
+export type {
+  MaintenanceControllerClass,
+  MaintenanceControllerInstance,
+  MaintenanceControllerOptions,
+} from './maintenance/maintenance.controller';
 export {
   MaintenanceStatusDto,
   UpdateMaintenanceDto,
@@ -168,16 +205,44 @@ export {
 export type { HostEnum, SystemMaintenanceValue } from './maintenance/maintenance.schemas';
 
 // ---- The HTTP layer: envelope, request log line, request ids -----------------
-export { TransformInterceptor } from './http/transform.interceptor';
+export {
+  RESPONSE_META_MAX_KEYS,
+  RESPONSE_META_MAX_KEYS_PER_CONTRIBUTOR,
+  RESPONSE_META_MAX_VALUE_LENGTH,
+  TransformInterceptor,
+  buildResponseMeta,
+} from './http/transform.interceptor';
 export type { ApiEnvelope } from './http/transform.interceptor';
+// The response `meta` contributor registry (PP-14.13).
+export {
+  RESPONSE_META_CONTRIBUTOR_ID_PATTERN,
+  registerResponseMetaContributor,
+  responseMetaContributorRegistry,
+} from './http/response-meta.registry';
+export type { ResponseMetaContributorDef, ResponseMetaRequest } from './http/response-meta.registry';
 export { LoggingInterceptor } from './http/logging.interceptor';
 export { RequestIdMiddleware } from './http/request-id.middleware';
 export { InvalidCorsOriginError, buildCorsOptions, isSameOriginOnly } from './http/cors-options';
-export type { AllowlistCorsOptions, CorsOptions, SameOriginCorsOptions } from './http/cors-options';
+export type { AllowlistCorsOptions, CorsOptions, ExtraCorsOptions, SameOriginCorsOptions } from './http/cors-options';
 
-// ---- Health probes (#901) ----------------------------------------------------
+// ---- Health probes (#901) and the indicator registry (PP-14.13) --------------
+export {
+  HEALTH_INDICATOR_DEFAULT_TIMEOUT_MS,
+  HEALTH_INDICATOR_ID_PATTERN,
+  HEALTH_INDICATOR_MAX_TIMEOUT_MS,
+  healthIndicatorRegistry,
+  registerHealthIndicator,
+} from './health/health-indicator.registry';
+export type {
+  HealthIndicatorContext,
+  HealthIndicatorDef,
+  HealthIndicatorOutcome,
+} from './health/health-indicator.registry';
+export { DATABASE_HEALTH_INDICATOR, DATABASE_HEALTH_INDICATOR_ID } from './health/builtin-health-indicators';
 // Reference-app wiring and tests only; not stable extension points (`@internal`).
-export { HealthController } from './health/health.controller';
+export { HealthController, createHealthController } from './health/health.controller';
+export type { HealthControllerClass, HealthControllerInstance } from './health/health.controller';
+export { HealthIndicatorRunner } from './health/health-indicator.runner';
 export { DatabaseHealthIndicator } from './health/database.indicator';
 
 // ---- OpenAPI and /api/docs (#53) ---------------------------------------------
@@ -219,7 +284,16 @@ export type { DocOperation, DocPathItem, MutableDocument } from './openapi/types
 // ---- About: what is deployed here (#401, packaged by #891) -------------------
 export { AboutModule } from './about/about.module';
 export type { AboutModuleOptions } from './about/about.options';
+// The About contributor registry (PP-14.13): groups of facts served as `extras`.
+export {
+  ABOUT_CONTRIBUTOR_ID_PATTERN,
+  ABOUT_CONTRIBUTOR_TIMEOUT_MS,
+  aboutContributorRegistry,
+  registerAboutContributor,
+} from './about/about-contributor.registry';
+export type { AboutContributorDef } from './about/about-contributor.registry';
 // Reference-app wiring and tests only; not stable extension points (`@internal`).
 export { AboutService } from './about/about.service';
-export { AboutController } from './about/about.controller';
+export { AboutController, DEFAULT_ABOUT_PERMISSION, createAboutController } from './about/about.controller';
+export type { AboutControllerClass, AboutControllerInstance, AboutControllerOptions } from './about/about.controller';
 export { DEFAULT_DEPLOY_INFO_PATH, readDeployInfo, resolveDeployInfoPath } from './about/deploy-info';
