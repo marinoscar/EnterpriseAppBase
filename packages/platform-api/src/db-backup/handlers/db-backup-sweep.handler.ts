@@ -88,7 +88,7 @@
 // deployment-wide timeout and attempt budget are right, and a retry is free.
 // =============================================================================
 
-import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Job } from '../../jobs/index';
 import type { DatabaseBackupStatus, DatabaseBackupTrigger } from '../data/db-backup-db';
@@ -107,6 +107,13 @@ import {
   type StorageProvider,
 } from '../../storage/index';
 import { DatabaseBackupRetentionService } from '../db-backup-retention.service';
+import {
+  DB_BACKUP_MIRROR_TARGETS,
+  DB_BACKUP_TARGET,
+  StorageProviderBackupTarget,
+  type BackupTarget,
+} from '../backup-target';
+import { DbBackupEvents, eventBytes } from '../db-backup-events';
 
 /**
  * The handler key, and therefore the `Job.type` every backup-sweep row carries.
@@ -137,15 +144,29 @@ export class DatabaseBackupSweepHandler implements JobHandler, OnModuleInit {
     @Inject(PLATFORM_PRISMA) private readonly prisma: DbBackupPrisma,
     private readonly settings: SystemSettingsService,
     private readonly retention: DatabaseBackupRetentionService,
-    @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
+    @Inject(STORAGE_PROVIDER) storage: StorageProvider,
     private readonly config: ConfigService,
     // #288 (epic #254). `db_backup.backup_failed` is raised from BOTH give-up
     // paths — the runner\'s own `markFailed` and this sweep — because they are
     // genuinely different events: one is a run that reported an error, the
     // other is a run whose executing process went away and was never heard from
     // again. The `outcome` field on the payload is what tells them apart.
-    @Inject(DB_BACKUP_NOTIFIER) private readonly notifications: DbBackupNotifier
-  ) {}
+    @Inject(DB_BACKUP_NOTIFIER) private readonly notifications: DbBackupNotifier,
+    // PP-14.12. The primary target (and the mirrors holding copies of the same
+    // keys) the partial archive of a stale run is deleted from, and the event
+    // a stale run raises. All optional: a hand-built instance keeps working on
+    // the storage provider alone.
+    @Optional() @Inject(DB_BACKUP_TARGET) target?: BackupTarget,
+    @Optional() @Inject(DB_BACKUP_MIRROR_TARGETS) mirrors?: readonly BackupTarget[],
+    @Optional() private readonly events?: DbBackupEvents
+  ) {
+    this.target = target ?? new StorageProviderBackupTarget(storage);
+    this.mirrors = mirrors ?? [];
+  }
+
+  private readonly target: BackupTarget;
+
+  private readonly mirrors: readonly BackupTarget[];
 
   /** Self-registration — the only wiring a handler needs. */
   onModuleInit(): void {
@@ -188,10 +209,11 @@ export class DatabaseBackupSweepHandler implements JobHandler, OnModuleInit {
     try {
       const pruned = await this.retention.prune(now);
 
-      if (pruned.prunedByCount > 0 || pruned.prunedByAge > 0) {
+      if (pruned.prunedByCount > 0 || pruned.prunedByAge > 0 || (pruned.prunedByMaxAge ?? 0) > 0) {
         this.logger.log(
           `Database backup sweep ${job.id}: retention removed ${pruned.prunedByCount} ` +
-            `expired backup(s) and ${pruned.prunedByAge} expired pre-restore backup(s).`
+            `expired backup(s), ${pruned.prunedByMaxAge ?? 0} backup(s) past their maximum age and ` +
+            `${pruned.prunedByAge} expired pre-restore backup(s).`
         );
       }
     } catch (error) {
@@ -284,6 +306,10 @@ export class DatabaseBackupSweepHandler implements JobHandler, OnModuleInit {
         // still holding it. See `withLiveExecutor` for why this is not
         // optional politeness.
         jobId: true,
+        // PP-14.12: what `db_backup.run.completed` reports for a stale run.
+        storageProvider: true,
+        bytesWritten: true,
+        createdAt: true,
       },
     });
 
@@ -409,6 +435,16 @@ export class DatabaseBackupSweepHandler implements JobHandler, OnModuleInit {
       // the sweep nothing and cannot fail it.
       this.announceStale(candidate, message, now);
 
+      // The event of a run that ended without a word from its executor: after
+      // the `stale` row committed, never inside a transaction, never throwing.
+      this.events?.runCompleted({
+        runId: candidate.id,
+        status: 'stale',
+        targetId: candidate.storageProvider ?? this.target.id,
+        sizeBytes: eventBytes(candidate.bytesWritten),
+        durationMs: Math.max(0, now.getTime() - (candidate.startedAt ?? candidate.createdAt ?? now).getTime()),
+      });
+
       // ⚠ AND OBJECT CLEANUP FOLLOWS, NEVER PRECEDES.
       //
       // Same ordering as the runner's failure path and the retention sweep,
@@ -422,14 +458,16 @@ export class DatabaseBackupSweepHandler implements JobHandler, OnModuleInit {
       //
       // Best-effort, and it never fails the sweep: the slot is already free,
       // which is the part that had to happen.
-      try {
-        await this.storage.delete(candidate.storageKey);
-      } catch (error) {
-        this.logger.warn(
-          `Marked database backup run ${candidate.id} stale but could not delete its ` +
-            `partial object "${candidate.storageKey}"; it may need removing by hand: ` +
-            `${toError(error).message}`
-        );
+      for (const target of [this.target, ...this.mirrors]) {
+        try {
+          await target.delete(candidate.storageKey);
+        } catch (error) {
+          this.logger.warn(
+            `Marked database backup run ${candidate.id} stale but could not delete its ` +
+              `partial object "${candidate.storageKey}" on "${target.id}"; it may need removing by hand: ` +
+              `${toError(error).message}`
+          );
+        }
       }
     }
 

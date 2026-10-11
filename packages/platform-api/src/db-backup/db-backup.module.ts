@@ -1,6 +1,14 @@
-import { DynamicModule, Module } from '@nestjs/common';
+import { DynamicModule, Injectable, Inject, Module, Optional, type Provider } from '@nestjs/common';
 
-import { StorageProvidersModule } from '../storage/index';
+import { STORAGE_PROVIDER, StorageConfigService, StorageProvidersModule, type StorageProvider } from '../storage/index';
+import {
+  DB_BACKUP_MIRROR_TARGETS,
+  DB_BACKUP_TARGET,
+  StorageProviderBackupTarget,
+  assertBackupTarget,
+  type BackupTarget,
+} from './backup-target';
+import { DbBackupEvents } from './db-backup-events';
 import { registerRestoreCarryOvers } from './carry-over.registry';
 import { registerDbBackupKeyPrefix } from './db-backup-key-prefix';
 import { configureBackupNameSlug } from './db-backup-storage';
@@ -21,6 +29,7 @@ import { DatabaseBackupScheduleTask } from './tasks/db-backup-schedule.task';
 import { BackupPgClientDoctorCheck } from './doctor/backup-pg-client.doctor-check';
 import { BackupRlsDoctorCheck } from './doctor/backup-rls.doctor-check';
 import { BackupScheduleDoctorCheck } from './doctor/backup-schedule.doctor-check';
+import { BackupMirrorsDoctorCheck } from './doctor/backup-mirrors.doctor-check';
 
 // =============================================================================
 // DbBackupModule (issues #281, #282, #283 and #284, epic #254)
@@ -272,11 +281,37 @@ import { BackupScheduleDoctorCheck } from './doctor/backup-schedule.doctor-check
 // =============================================================================
 
 /**
+ * Fails boot when a bound target is malformed or two targets share an id.
+ * Instantiated with the module (it injects the targets, so a `useClass` target
+ * is built and checked at startup rather than at the first backup).
+ */
+@Injectable()
+class DbBackupTargetValidator {
+  constructor(
+    @Inject(DB_BACKUP_TARGET) primary: BackupTarget,
+    @Optional() @Inject(DB_BACKUP_MIRROR_TARGETS) mirrors?: readonly BackupTarget[],
+  ) {
+    assertBackupTarget(primary, 'DbBackupModule.forRoot({ target })');
+    const seen = new Set<string>([primary.id]);
+    (mirrors ?? []).forEach((mirror, index) => {
+      assertBackupTarget(mirror, `DbBackupModule.forRoot({ mirrorTargets[${index}] })`);
+      if (seen.has(mirror.id)) {
+        throw new Error(
+          `DbBackupModule.forRoot(): mirror target "${mirror.id}" has the same id as another target. ` +
+            'Every target needs its own id (the primary\'s id is recorded on each run).',
+        );
+      }
+      seen.add(mirror.id);
+    });
+  }
+}
+
+/**
  * The database backup and restore slice: the backup engine, its schedule and
  * retention, the restore (pre-flight, swap, rollback), the four job types
  * (`db.backup.run`, `db.backup.sweep`, `db.restore.run`,
  * `db.restore.old-db-drop`), the `/api/admin/db-backup` routes and three
- * Doctor checks (`backup.schedule`, `backup.pg-client`, `backup.rls-bypass`).
+ * Doctor checks (`backup.schedule`, `backup.pg-client`, `backup.rls-bypass`, `backup.mirrors`).
  *
  * Needs, from the app: `JobsModule.forRoot()` and `SettingsModule.forRoot()`
  * (global), the core `PlatformHostModule` (`PLATFORM_PRISMA`), the
@@ -311,6 +346,9 @@ export class DbBackupModule {
     registerDbBackupKeyPrefix();
     registerRestoreCarryOvers(options.extraCarryOver ?? []);
     configureBackupNameSlug(resolved.appName);
+    const mirrorTokens = resolved.mirrorTargets.map((_binding, index) =>
+      Symbol.for(`@marinoscar/platform/db-backup/MIRROR_TARGET/${index}`),
+    );
 
     return {
       module: DbBackupModule,
@@ -318,6 +356,23 @@ export class DbBackupModule {
       controllers: [DatabaseBackupController],
       providers: [
         { provide: DB_BACKUP_OPTIONS, useValue: resolved },
+        // PP-14.12. The primary target: the app's binding, else the adapter over
+        // the active STORAGE_PROVIDER (today's behaviour).
+        (resolved.target !== undefined
+          ? { provide: DB_BACKUP_TARGET, ...resolved.target }
+          : {
+              provide: DB_BACKUP_TARGET,
+              useFactory: (storage: StorageProvider, storageConfig: StorageConfigService) =>
+                new StorageProviderBackupTarget(storage, storageConfig),
+              inject: [STORAGE_PROVIDER, StorageConfigService],
+            }) as Provider,
+        // The mirrors: one token each (module-scoped), collected into one array.
+        ...resolved.mirrorTargets.map(
+          (binding, index) => ({ provide: mirrorTokens[index], ...binding }) as Provider,
+        ),
+        { provide: DB_BACKUP_MIRROR_TARGETS, useFactory: (...mirrors: BackupTarget[]) => mirrors, inject: mirrorTokens },
+        DbBackupTargetValidator,
+        DbBackupEvents,
         DbBackupRestoreGate,
         DatabaseBackupRunnerService,
         DatabaseBackupRetentionService,
@@ -337,8 +392,16 @@ export class DbBackupModule {
         BackupScheduleDoctorCheck,
         BackupPgClientDoctorCheck,
         BackupRlsDoctorCheck,
+        BackupMirrorsDoctorCheck,
       ],
-      exports: [DB_BACKUP_OPTIONS, DbBackupRestoreGate, DatabaseBackupRunnerService, DatabaseBackupRetentionService],
+      exports: [
+        DB_BACKUP_OPTIONS,
+        DB_BACKUP_TARGET,
+        DB_BACKUP_MIRROR_TARGETS,
+        DbBackupRestoreGate,
+        DatabaseBackupRunnerService,
+        DatabaseBackupRetentionService,
+      ],
     };
   }
 }

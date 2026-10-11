@@ -20,6 +20,67 @@ export {
 export type { DbBackupModuleOptions, ResolvedDbBackupModuleOptions } from './options';
 export { DbBackupRestoreGate, restoreGateFor } from './restore-gate';
 
+// ---- the backup target port (PP-14.12) ----------------------------------------------------
+export {
+  DB_BACKUP_MIRROR_TARGETS,
+  DB_BACKUP_TARGET,
+  StorageProviderBackupTarget,
+  assertBackupTarget,
+  isStorageBackedTarget,
+} from './backup-target';
+/** @stability experimental */
+export type {
+  BackupSignedUrlOptions,
+  BackupSink,
+  BackupTarget,
+  BackupTargetObject,
+  BackupWriteMeta,
+} from './backup-target';
+
+// ---- the restore gate registry (PP-14.12) --------------------------------------------------
+export {
+  RESTORE_GATE_TIMEOUT_MS,
+  evaluateRestoreGate,
+  evaluateRestoreGates,
+  registerRestoreGate,
+  restoreGateRegistry,
+} from './restore-gate.registry';
+/** @stability experimental */
+export type {
+  RestoreClusterFacts,
+  RestoreGateContext,
+  RestoreGateDefinition,
+  RestoreGateKind,
+  RestoreGateOutcome,
+  RestoreGateResult,
+  RestoreGateRun,
+  RestoreGateSettings,
+  RestoreGateVerdict,
+  RestorePreflightFacts,
+} from './restore-gate.registry';
+// Importing this registers the eight built-in gates (they register through the same function an app uses).
+export { BUILTIN_RESTORE_GATES } from './restore-gates.builtin';
+
+// ---- the events a settled run and restore raise (PP-14.12) ----------------------------------
+export {
+  DB_BACKUP_RESTORE_COMPLETED_EVENT,
+  DB_BACKUP_RUN_COMPLETED_EVENT,
+  DbBackupEvents,
+} from './db-backup-events';
+/** @stability experimental */
+export type { DbBackupRestoreCompletedEvent, DbBackupRunCompletedEvent } from './db-backup-events';
+
+// ---- the cron schedule (PP-14.12) ------------------------------------------------------------
+export {
+  CronIntervalTooShortError,
+  InvalidCronExpressionError,
+  assertBackupCron,
+  minimumCronIntervalMinutes,
+  parseBackupCron,
+} from './schedule.util';
+/** @stability experimental */
+export type { BackupCronSchedule } from './schedule.util';
+
 // ---- host ports (rung 3) ---------------------------------------------------------------
 export {
   DB_BACKUP_DEPLOYMENT_MODE,
@@ -64,7 +125,7 @@ export type {
 export { DB_BACKUP_PERMISSIONS } from './db-backup.permissions';
 /** @stability experimental */
 export type { DbBackupPermissionDeclaration } from './db-backup.permissions';
-export { DATABASE_BACKUP_SYSTEM_SETTINGS, mergeDatabaseBackupSettings } from './db-backup.system-settings';
+export { DATABASE_BACKUP_SYSTEM_SETTINGS, mergeDatabaseBackupSettings, resolveBackupRetention } from './db-backup.system-settings';
 export { DATABASE_BACKUPS_KEY_PREFIX, DB_BACKUP_KEY_PREFIX, registerDbBackupKeyPrefix } from './db-backup-key-prefix';
 export {
   DB_BACKUP_APP_METRICS,

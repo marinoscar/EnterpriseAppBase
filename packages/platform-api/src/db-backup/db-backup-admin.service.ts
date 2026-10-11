@@ -153,6 +153,7 @@ import {
   Logger,
   NotFoundException,
   ConflictException,
+  Optional,
 } from '@nestjs/common';
 
 import { DbBackupRestoreGate } from './restore-gate';
@@ -165,6 +166,12 @@ import {
   STORAGE_PROVIDER,
   type StorageProvider,
 } from '../storage/index';
+import {
+  DB_BACKUP_MIRROR_TARGETS,
+  DB_BACKUP_TARGET,
+  StorageProviderBackupTarget,
+  type BackupTarget,
+} from './backup-target';
 import { DatabaseBackupRunnerService } from './db-backup-runner.service';
 import { DatabaseRestoreService } from './database-restore.service';
 import type {
@@ -178,7 +185,14 @@ import {
   DatabaseRestoreRunNotFoundError,
 } from './db-backup.errors';
 import { PgJobRoleBroker } from './pg-job-role.broker';
-import { backupScheduleToCron, InvalidTimezoneError, nextFireAt } from './schedule.util';
+import {
+  assertBackupCron,
+  backupScheduleToCron,
+  CronIntervalTooShortError,
+  InvalidCronExpressionError,
+  InvalidTimezoneError,
+  nextFireAt,
+} from './schedule.util';
 import {
   ACTIVE_BACKUP_STATUSES,
   toRunDto,
@@ -268,7 +282,7 @@ export class DatabaseBackupAdminService {
     // interactive object API would give every archive a user-facing object
     // record an administrator could delete outside the retention policy that
     // owns its lifetime.
-    @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
+    @Inject(STORAGE_PROVIDER) storage: StorageProvider,
     // The PostgreSQL job-role broker (#350, epic #345), for ONE read: whether
     // this deployment could mint a node credential. Injected whole rather than
     // reimplemented, so the verdict an administrator reads and the verdict a
@@ -278,8 +292,20 @@ export class DatabaseBackupAdminService {
     private readonly jobRoles: PgJobRoleBroker,
     // #685. Read for `getConfig`'s `restore` block, and asserted first by both
     // restore entry points below.
-    private readonly deployment: DbBackupRestoreGate
-  ) {}
+    private readonly deployment: DbBackupRestoreGate,
+    // PP-14.12. The primary target (the archive's download and delete go
+    // through it) and the mirrors holding copies of the same keys. Optional:
+    // a hand-built instance keeps working on the storage provider alone.
+    @Optional() @Inject(DB_BACKUP_TARGET) target?: BackupTarget,
+    @Optional() @Inject(DB_BACKUP_MIRROR_TARGETS) mirrors?: readonly BackupTarget[]
+  ) {
+    this.target = target ?? new StorageProviderBackupTarget(storage);
+    this.mirrors = mirrors ?? [];
+  }
+
+  private readonly target: BackupTarget;
+
+  private readonly mirrors: readonly BackupTarget[];
 
   // =========================================================================
   // Config
@@ -397,6 +423,36 @@ export class DatabaseBackupAdminService {
       }
 
       throw error;
+    }
+
+    // 1b. The cron expression, when the schedule uses (or is being given) one.
+    //     Parsed with the scheduler's own parser and held to the one-hour
+    //     minimum: an expression the scheduler cannot read would silently
+    //     never fire, and one that fires every minute would stack dumps.
+    const cronToCheck = patch.cron ?? (effective.frequency === 'cron' ? effective.cron : undefined);
+    if (effective.frequency === 'cron' && (effective.cron === undefined || effective.cron.trim() === '')) {
+      throw new BadRequestException({
+        message: "The 'cron' frequency needs a cron expression in the 'cron' field.",
+        details: { field: 'cron', reason: 'cron_required' },
+      });
+    }
+    if (cronToCheck !== undefined) {
+      try {
+        assertBackupCron(cronToCheck);
+      } catch (error) {
+        if (error instanceof InvalidCronExpressionError || error instanceof CronIntervalTooShortError) {
+          throw new BadRequestException({
+            message: error.message,
+            details: {
+              field: 'cron',
+              cron: cronToCheck,
+              reason: error instanceof CronIntervalTooShortError ? 'cron_interval_too_short' : 'invalid_cron',
+            },
+          });
+        }
+
+        throw error;
+      }
     }
 
     // 2. The timezone, checked by performing the projection itself. See the
@@ -601,14 +657,23 @@ export class DatabaseBackupAdminService {
       });
     }
 
-    const url = await this.storage.getSignedDownloadUrl(run.storageKey, {
-      expiresIn: BACKUP_DOWNLOAD_URL_EXPIRY_SECONDS,
+    if (typeof this.target.signedDownloadUrl !== 'function') {
+      throw new BadRequestException({
+        message:
+          `The backup target "${this.target.id}" cannot sign download links, so database backup run ${id} ` +
+          'cannot be downloaded through the API. The archive is still restorable; fetch it from the target directly.',
+        details: { runId: id, targetId: this.target.id, reason: 'backup_target_cannot_sign' },
+      });
+    }
+
+    const url = await this.target.signedDownloadUrl(run.storageKey, {
+      expiresInSeconds: BACKUP_DOWNLOAD_URL_EXPIRY_SECONDS,
       // The stored key's own last segment, so the saved file is named after the
       // run it came from. Derived from the key rather than composed here: the
       // key already carries the slugified application name, the timestamp and
       // the run id (see `buildBackupStorageKey`), and nothing in this
       // repository may hard-code an application name.
-      responseContentDisposition: `attachment; filename="${basename(run.storageKey)}"`,
+      filename: basename(run.storageKey),
     });
 
     this.logger.log(
@@ -1002,7 +1067,20 @@ export class DatabaseBackupAdminService {
    */
   private async deleteArchive(storageKey: string): Promise<boolean> {
     try {
-      await this.storage.delete(storageKey);
+      await this.target.delete(storageKey);
+
+      // The copies go with the original, best effort: an orphan copy is logged,
+      // and never keeps the run undeletable.
+      for (const mirror of this.mirrors) {
+        try {
+          await mirror.delete(storageKey);
+        } catch (error) {
+          this.logger.warn(
+            `Could not delete the copy of "${storageKey}" on the mirror target "${mirror.id}"; ` +
+              `it may need removing by hand: ${toError(error).message}`
+          );
+        }
+      }
 
       return true;
     } catch (error) {

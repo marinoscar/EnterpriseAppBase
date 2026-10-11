@@ -18,6 +18,22 @@ export {
 /** @stability experimental */
 export type { DbBackupConformanceOptions } from './conformance';
 
+// ---- the extension-author kits (PP-14.12) -----------------------------------------------------
+export { describeBackupTargetConformance } from './backup-target-conformance';
+/** @stability experimental */
+export type {
+  BackupTargetConformanceHarness,
+  BackupTargetConformanceOptions,
+  BackupTargetConformanceScenario,
+} from './backup-target-conformance';
+export { buildRestoreGateContext, describeRestoreGateConformance } from './restore-gate-conformance';
+/** @stability experimental */
+export type {
+  RestoreGateConformanceHarness,
+  RestoreGateConformanceOptions,
+  RestoreGateScenario,
+} from './restore-gate-conformance';
+
 // ---- services, handlers and the controller ------------------------------------------------
 export { DatabaseBackupAdminService, BACKUP_DOWNLOAD_URL_EXPIRY_SECONDS } from '../db-backup-admin.service';
 /** @stability experimental */

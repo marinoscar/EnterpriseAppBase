@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 import { Readable, Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import type { DbBackupRunResult } from '@marinoscar/platform-contract/db-backup';
+import type { BackupMirrorResult, DbBackupRunResult } from '@marinoscar/platform-contract/db-backup';
 import { enqueueHousekeepingJob } from '../jobs/index';
 import { buildDedupKey } from '../jobs/index';
 import { DB_BACKUP_SWEEP_TYPE } from './handlers/db-backup-sweep.handler';
@@ -40,7 +41,20 @@ import {
   BACKUP_CONTENT_TYPE,
   buildBackupStorageKey,
 } from './db-backup-storage';
-import { PERMISSIONS } from './db-backup.constants';
+import {
+  MIRROR_AUDIT_COMPLETED,
+  MIRROR_AUDIT_FAILED,
+  MIRROR_AUDIT_TARGET_TYPE,
+  PERMISSIONS,
+} from './db-backup.constants';
+import {
+  DB_BACKUP_MIRROR_TARGETS,
+  DB_BACKUP_TARGET,
+  StorageProviderBackupTarget,
+  isStorageBackedTarget,
+  type BackupTarget,
+} from './backup-target';
+import { DbBackupEvents, eventBytes } from './db-backup-events';
 import type { BackupFailedEmailData } from '../email/index';
 import {
   DatabaseBackupAlreadyRunningError,
@@ -695,14 +709,14 @@ export class DatabaseBackupRunnerService {
     // table, its own key space and its own lifecycle, and routing it through
     // the interactive object API would give every backup a user-facing object
     // record that an administrator could delete by hand.
-    @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider,
+    @Inject(STORAGE_PROVIDER) storage: StorageProvider,
     // #373 (epic #372). The token above moves the archive and names its kind
     // (`storage.kind`, PP-14.1); this is read first only to REFRESH the
     // settings snapshot the default provider answers `kind` from, so the pair
     // on a backup row (bucket, provider) still describes one fresh
     // configuration. A backup row that named the wrong provider is a row a
     // restore cannot act on — see `db-backup-storage.ts`'s header.
-    private readonly storageConfig: StorageConfigService,
+    storageConfig: StorageConfigService,
     // Retention is a REQUIRED collaborator, not an optional seam like the two
     // below it. A runner that could be constructed without one is a runner a
     // fork can wire up so that nothing ever deletes an archive — and that
@@ -724,11 +738,36 @@ export class DatabaseBackupRunnerService {
     @Optional() @Inject(DB_BACKUP_METRICS) private readonly metrics: DbBackupMetrics = NOOP_DB_BACKUP_METRICS,
     // #740. The `forRoot()` options: the app version stamped on every run.
     @Optional() @Inject(DB_BACKUP_OPTIONS) options?: ResolvedDbBackupModuleOptions,
+    // PP-14.12. WHERE THE ARCHIVE GOES: the primary target (default: an adapter
+    // over `storage` above, which is exactly what this engine did before targets
+    // existed), the mirrors copied to after the primary succeeded, and the
+    // event a settled run raises. All optional so a hand-built instance (a
+    // test, a script) keeps working on the storage provider alone.
+    @Optional() @Inject(DB_BACKUP_TARGET) target?: BackupTarget,
+    @Optional() @Inject(DB_BACKUP_MIRROR_TARGETS) mirrors?: readonly BackupTarget[],
+    @Optional() private readonly events?: DbBackupEvents,
   ) {
     this.engine = engine ?? systemDatabaseBackupEngine;
     this.timers = timers ?? systemBackupTimers;
     this.metrics = metrics ?? NOOP_DB_BACKUP_METRICS;
     this.appVersion = options?.appVersion ?? defaultAppVersion;
+    this.target = target ?? new StorageProviderBackupTarget(storage, storageConfig);
+    this.mirrors = mirrors ?? [];
+  }
+
+  /** Where every archive is written, read back and deleted. */
+  private readonly target: BackupTarget;
+
+  /** Where copies are written after the primary succeeded. */
+  private readonly mirrors: readonly BackupTarget[];
+
+  /**
+   * Whether a worker node can take this deployment's backups: its presigned PUT
+   * writes through the storage provider, so only the default target qualifies.
+   * `DatabaseBackupRunHandler.nodeOffloadEnabled` withholds the type otherwise.
+   */
+  supportsNodeOffload(): boolean {
+    return isStorageBackedTarget(this.target);
   }
 
   /** The application version recorded on a run (`DbBackupModuleOptions.appVersion`). */
@@ -746,8 +785,8 @@ export class DatabaseBackupRunnerService {
    * `activeProvider()` call it replaces.
    */
   private async activeProviderKind(): Promise<string> {
-    await this.storageConfig.activeProvider();
-    return this.storage.kind;
+    await this.target.refresh?.();
+    return this.target.id;
   }
 
   /**
@@ -851,7 +890,7 @@ export class DatabaseBackupRunnerService {
     // under configuration noise.
     await this.assertStorageProviderUsable(policy.storageProvider);
 
-    const bucket = this.storage.getBucket();
+    const bucket = this.target.location ?? this.target.id;
     // Resolved once, OUTSIDE the retry loop and outside the transaction below:
     // it is a settings read, and a transaction is the last place to put one.
     // Both halves of the pair are taken here so every attempt writes the same
@@ -1170,7 +1209,7 @@ export class DatabaseBackupRunnerService {
       data: {
         ...this.buildRunData(payload, {
           id,
-          bucket: this.storage.getBucket(),
+          bucket: this.target.location ?? this.target.id,
           provider: await this.activeProviderKind(),
           at: startedAt,
         }),
@@ -1221,7 +1260,7 @@ export class DatabaseBackupRunnerService {
    * already active" atomic with the insert that would violate it.
    */
   private async claimRun(input: StartBackupInput): Promise<DatabaseBackupRun> {
-    const bucket = this.storage.getBucket();
+    const bucket = this.target.location ?? this.target.id;
     // Once, before the loop — see `queueBackup`: one settings read, and every
     // attempt records the same pair.
     const provider = await this.activeProviderKind();
@@ -1462,10 +1501,13 @@ export class DatabaseBackupRunnerService {
         meter.destroy(toError(error));
       });
 
-      const upload = this.storage.upload(storageKey, meter, {
-        mimeType: BACKUP_CONTENT_TYPE,
-        // Deliberately no `contentLength`: a streamed dump's size is unknown
-        // until the last byte, which is exactly why it is streamed.
+      // The archive goes into the TARGET's streaming sink: `openWrite` returns a
+      // writable the meter is piped into, and `done` settles once the target
+      // holds every byte. Nothing here collects the bytes (property 2).
+      const sink = this.target.openWrite(storageKey, {
+        contentType: BACKUP_CONTENT_TYPE,
+        // Deliberately no size: a streamed dump's size is unknown until the
+        // last byte, which is exactly why it is streamed.
 
         // Provenance ON THE OBJECT as well as on the row: an operator staring
         // at a bucket with `aws s3api head-object` can find the run this file
@@ -1473,6 +1515,14 @@ export class DatabaseBackupRunnerService {
         // most likely to be happening in.
         metadata: { runId, trigger: run.trigger },
       });
+      const upload = sink.done;
+
+      // `pipeline` rather than `pipe`: a failure on EITHER side destroys the
+      // other, so a dead sink stops the meter and a destroyed meter (a dead
+      // dump, a cancel) fails the sink. The error itself is not lost here; it
+      // travels to the `catch` below through `Promise.all`.
+      const piped = pipeline(meter, sink.stream).catch(() => undefined);
+      void piped;
 
       // ...AND A DEAD UPLOAD MUST TEAR THE DUMP DOWN, or `pg_dump` keeps
       // reading a whole database to produce an archive nobody is storing.
@@ -1488,11 +1538,19 @@ export class DatabaseBackupRunnerService {
       await Promise.all([upload, dump.done]);
 
       // VERIFY WHAT ARRIVED, not what we sent.
-      const stored = await this.storage.download(storageKey);
+      const stored = await this.target.openRead(storageKey);
       const tocEntries = await this.engine.readTocEntryCount(stored);
 
       if (tocEntries <= 0) {
         throw new DatabaseBackupVerificationError(storageKey, tocEntries);
+      }
+
+      // The archive is stored and proven: stop the progress heartbeat now, so it
+      // cannot write to a row `completeRun` is about to settle (and so it does
+      // not keep ticking through the mirror copies that follow).
+      if (heartbeat !== undefined) {
+        this.timers.clearInterval(heartbeat);
+        heartbeat = undefined;
       }
 
       // ⚠ THE COMPLETING WRITE IS A SHARED METHOD, AND THAT IS THE #352 RULE.
@@ -1611,6 +1669,17 @@ export class DatabaseBackupRunnerService {
         `"${storageKey}" (${input.tocEntries} archive entries verified).`
     );
 
+    // `db_backup.run.completed`: AFTER the `completed` write committed and
+    // outside any transaction, so it reports a fact that is already durable. It
+    // never throws (`DbBackupEvents`).
+    this.events?.runCompleted({
+      runId,
+      status: 'completed',
+      targetId: completed?.storageProvider ?? this.target.id,
+      sizeBytes: eventBytes(bytes),
+      durationMs: Math.max(0, runDurationMs(completed?.startedAt, at) ?? 0),
+    });
+
     // -------------------------------------------------------------------------
     // QUEUE THE PRUNE HERE, AND NOWHERE ELSE (#353, epic #345).
     // -------------------------------------------------------------------------
@@ -1664,6 +1733,137 @@ export class DatabaseBackupRunnerService {
         `Could not queue retention after database backup run ${runId} completed (the ` +
           `backup itself is fine; storage will be reclaimed by the scheduler's next ` +
           `tick): ${toError(error).message}`
+      );
+    }
+
+    // -------------------------------------------------------------------------
+    // MIRRORS, LAST, AND ONLY NOW (PP-14.12).
+    // -------------------------------------------------------------------------
+    //
+    // The primary's archive is written, read back and recorded `completed`: it
+    // is restorable. Copying it elsewhere is a second line of defence, so it
+    // runs AFTER that fact is durable and inside this same job (the lease keeps
+    // renewing while the copy streams), and nothing it does can change the
+    // run's outcome. See `mirrorArchive`.
+    await this.mirrorArchive(runId, storageKey, completed?.trigger ?? 'manual');
+  }
+
+  /**
+   * Copies a verified archive to every mirror target, one at a time, and
+   * records each result. NEVER THROWS, and never changes the run.
+   *
+   * Each copy STREAMS the primary's bytes (`openRead`) into the mirror's sink
+   * (`openWrite`): the dump is not run twice and the archive is not buffered.
+   * The copy is then read back from the mirror and its SHA-256 compared with
+   * the one computed over what the primary served, so a mirror holds a proven
+   * copy or a recorded failure, never a silent half-file (a failed copy is
+   * deleted from the mirror). The result of each is an `audit_events` row
+   * (`db_backup.mirror.completed` / `.failed`) that the `backup.mirrors` Doctor
+   * check reads, plus a log line.
+   */
+  private async mirrorArchive(runId: string, storageKey: string, trigger: string): Promise<void> {
+    for (const mirror of this.mirrors) {
+      try {
+        const result = await this.copyToMirror(mirror, runId, storageKey, trigger);
+        await this.recordMirrorResult(runId, storageKey, mirror, result);
+      } catch (error) {
+        // `copyToMirror` and `recordMirrorResult` contain their own failures;
+        // this is the net for anything unforeseen, so the next mirror still runs.
+        this.logger.error(
+          `Mirroring database backup run ${runId} to "${mirror.id}" hit an unexpected error ` +
+            `(the run is unaffected): ${toError(error).message}`
+        );
+      }
+    }
+  }
+
+  /** One mirror copy: stream, read back, compare. Resolves the outcome; never throws. */
+  private async copyToMirror(
+    mirror: BackupTarget,
+    runId: string,
+    storageKey: string,
+    trigger: string
+  ): Promise<BackupMirrorResult> {
+    const sourceHash = createHash('sha256');
+    let bytes = 0n;
+
+    try {
+      const source = await this.target.openRead(storageKey);
+      const tap = new Transform({
+        transform(chunk: Buffer, _encoding, callback) {
+          sourceHash.update(chunk);
+          bytes += BigInt(chunk.length);
+          callback(null, chunk);
+        },
+      });
+      const sink = mirror.openWrite(storageKey, {
+        contentType: BACKUP_CONTENT_TYPE,
+        metadata: { runId, trigger },
+      });
+      const stored = sink.done.then(() => undefined);
+      // Both halves, as for the primary: the stream finished AND the target says
+      // every byte is stored. A rejection on either rejects the whole.
+      await Promise.all([pipeline(source, tap, sink.stream), stored]);
+
+      // Read it BACK from the mirror and hash what it holds.
+      const copyHash = createHash('sha256');
+      let copyBytes = 0n;
+      for await (const chunk of await mirror.openRead(storageKey)) {
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string);
+        copyHash.update(buffer);
+        copyBytes += BigInt(buffer.length);
+      }
+
+      if (copyBytes !== bytes || copyHash.digest('hex') !== sourceHash.digest('hex')) {
+        throw new Error(
+          `the copy read back from the mirror differs from the primary archive (${copyBytes} bytes, expected ${bytes})`
+        );
+      }
+
+      return { targetId: mirror.id, status: 'ok', sizeBytes: eventBytes(bytes) };
+    } catch (error) {
+      // A failed copy must not leave a plausible-looking partial archive behind.
+      try {
+        await mirror.delete(storageKey);
+      } catch {
+        // Best effort; the failure below is what the operator needs.
+      }
+
+      return { targetId: mirror.id, status: 'failed', sizeBytes: 0, error: toError(error).message };
+    }
+  }
+
+  /** Records one mirror result: a log line and an audit row (best effort). */
+  private async recordMirrorResult(
+    runId: string,
+    storageKey: string,
+    mirror: BackupTarget,
+    result: BackupMirrorResult
+  ): Promise<void> {
+    if (result.status === 'ok') {
+      this.logger.log(
+        `Database backup run ${runId} was mirrored to "${mirror.id}" (${result.sizeBytes} bytes at "${storageKey}").`
+      );
+    } else {
+      this.logger.warn(
+        `Database backup run ${runId} could NOT be mirrored to "${mirror.id}" (the run itself is fine; ` +
+          `the backup.mirrors Doctor check reports it): ${result.error ?? 'unknown error'}`
+      );
+    }
+
+    try {
+      await this.prisma.auditEvent.create({
+        data: {
+          actorUserId: null,
+          action: result.status === 'ok' ? MIRROR_AUDIT_COMPLETED : MIRROR_AUDIT_FAILED,
+          targetType: MIRROR_AUDIT_TARGET_TYPE,
+          targetId: runId,
+          meta: { ...result, storageKey },
+        },
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Could not record the mirror result of run ${runId} for "${mirror.id}": ${toError(error).message}`
       );
     }
   }
@@ -1849,7 +2049,7 @@ export class DatabaseBackupRunnerService {
     let tocEntries: number;
 
     try {
-      const stored = await this.storage.download(run.storageKey);
+      const stored = await this.target.openRead(run.storageKey);
       tocEntries = await this.engine.readTocEntryCount(stored);
     } catch (error) {
       await this.failNodeRun(run, toError(error));
@@ -1978,7 +2178,7 @@ export class DatabaseBackupRunnerService {
    */
   private async deletePartialObject(storageKey: string): Promise<void> {
     try {
-      await this.storage.delete(storageKey);
+      await this.target.delete(storageKey);
     } catch (error) {
       this.logger.warn(
         `Could not delete the partial backup object "${storageKey}"; it may need ` +
@@ -2030,6 +2230,16 @@ export class DatabaseBackupRunnerService {
     }
 
     this.metrics.backupSettled('failed', runDurationMs(failed?.startedAt, failed?.finishedAt));
+
+    // `db_backup.run.completed` with `status: 'failed'`: after the row is
+    // written, outside any transaction, never throwing.
+    this.events?.runCompleted({
+      runId,
+      status: 'failed',
+      targetId: failed?.storageProvider ?? this.target.id,
+      sizeBytes: eventBytes(failed?.sizeBytes),
+      durationMs: Math.max(0, runDurationMs(failed?.startedAt, failed?.finishedAt) ?? 0),
+    });
 
     // ⚠ AFTER THE COMMIT, AND OUTSIDE ANY TRANSACTION. The `failed` row above
     // is the fact; this is the report of it, and the report must not be able to

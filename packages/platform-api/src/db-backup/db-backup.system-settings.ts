@@ -56,6 +56,17 @@ const DATABASE_BACKUP_SYSTEM_DEFAULTS: SystemDatabaseBackupValue = {
  * stored one, an absent field is kept (`''` for `storageProvider` clears the
  * pin back to "whatever provider is active").
  *
+ * `retentionCount` and `retention.count` are ONE value under two names, kept in
+ * step on every write so an older client that only knows `retentionCount` and
+ * a newer one that sends `retention` both read back what they wrote:
+ *
+ *   - a patch that sets `retention.count` also sets `retentionCount` (and wins
+ *     over a `retentionCount` in the same patch);
+ *   - a patch that sets `retentionCount` alone also moves a stored
+ *     `retention.count`;
+ *   - `retention` replaces the stored object whole (`retention: {}` clears the
+ *     age rule), as every other field of the namespace is replaced.
+ *
  * @param current - the stored value.
  * @param patch - the PATCH body's `databaseBackup` branch, when present.
  * @returns the merged value.
@@ -66,14 +77,22 @@ export function mergeDatabaseBackupSettings(
   current: SystemDatabaseBackupValue,
   patch?: DatabaseBackupSettingsPatchInput,
 ): SystemDatabaseBackupValue {
-    return {
+    const patchedCount = patch?.retention?.count;
+    const retentionCount = patchedCount ?? patch?.retentionCount ?? current.retentionCount;
+
+    let retention = patch?.retention !== undefined ? patch.retention : current.retention;
+    if (patch?.retention === undefined && patch?.retentionCount !== undefined && retention?.count !== undefined) {
+      retention = { ...retention, count: patch.retentionCount };
+    }
+
+    const merged: SystemDatabaseBackupValue = {
       enabled: patch?.enabled ?? current.enabled,
       frequency: patch?.frequency ?? current.frequency,
       dayOfWeek: patch?.dayOfWeek ?? current.dayOfWeek,
       dayOfMonth: patch?.dayOfMonth ?? current.dayOfMonth,
       timeOfDay: patch?.timeOfDay ?? current.timeOfDay,
       timezone: patch?.timezone ?? current.timezone,
-      retentionCount: patch?.retentionCount ?? current.retentionCount,
+      retentionCount,
       storageProvider: patch?.storageProvider ?? current.storageProvider,
       runStaleMinutes: patch?.runStaleMinutes ?? current.runStaleMinutes,
       compressionLevel: patch?.compressionLevel ?? current.compressionLevel,
@@ -81,6 +100,32 @@ export function mergeDatabaseBackupSettings(
       oldDatabaseRetentionHours: patch?.oldDatabaseRetentionHours ?? current.oldDatabaseRetentionHours,
       nodeOffloadEnabled: patch?.nodeOffloadEnabled ?? current.nodeOffloadEnabled,
     };
+
+    // Absent stays absent: a row that never had these keeps its stored shape.
+    const cron = patch?.cron ?? current.cron;
+    if (cron !== undefined) merged.cron = cron;
+    if (retention !== undefined) merged.retention = retention;
+
+    return merged;
+}
+
+/**
+ * The retention rules in force: the count (`retention.count`, else the
+ * `retentionCount` alias) and, when set, the age bound in days.
+ *
+ * @param policy - the stored `databaseBackup` value.
+ * @returns the effective rules.
+ *
+ * @stability experimental
+ */
+export function resolveBackupRetention(
+  policy: Pick<SystemDatabaseBackupValue, 'retentionCount' | 'retention'>,
+): { count: number; maxAgeDays?: number } {
+  const maxAgeDays = policy.retention?.maxAgeDays;
+  return {
+    count: policy.retention?.count ?? policy.retentionCount,
+    ...(maxAgeDays !== undefined ? { maxAgeDays } : {}),
+  };
 }
 
 /**

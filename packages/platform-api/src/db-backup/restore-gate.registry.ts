@@ -48,7 +48,7 @@
 //      only. A built-in gate's `fail` follows its own kind (see `RestoreGateKind`).
 // =============================================================================
 
-import { RESTORE_GATE_ID_PATTERN } from '@marinoscar/platform-contract/db-backup';
+import { BUILTIN_RESTORE_GATE_IDS, RESTORE_GATE_ID_PATTERN } from '@marinoscar/platform-contract/db-backup';
 import type { SystemDatabaseBackupValue } from '@marinoscar/platform-contract/db-backup';
 
 import { defineRegistry, type Registry } from '../core/index';
@@ -281,10 +281,15 @@ function assertGate(gate: RestoreGateDefinition): void {
   }
 }
 
+function gateRank(gate: RestoreGateDefinition): number {
+  const index = (BUILTIN_RESTORE_GATE_IDS as readonly string[]).indexOf(gate.id);
+  return index === -1 ? BUILTIN_RESTORE_GATE_IDS.length : index;
+}
+
 /**
- * The registry of {@link RestoreGateDefinition} entries, in registration order:
- * the eight built-ins first, then the app's. A duplicate id is refused; frozen
- * after bootstrap.
+ * The registry of {@link RestoreGateDefinition} entries: the eight built-ins in
+ * their evaluation order, then the app's gates in registration order. A
+ * duplicate id is refused; frozen after bootstrap.
  *
  * @extensionPoint registry
  * @stability experimental
@@ -294,6 +299,10 @@ export const restoreGateRegistry: Registry<RestoreGateDefinition> = defineRegist
   idOf: (gate) => gate.id,
   idPattern: RESTORE_GATE_ID_PATTERN,
   validate: (gate) => assertGate(gate),
+  // The built-ins first, in their historical order, WHATEVER THE IMPORT ORDER
+  // was; every other gate after them, in registration order (the sort is
+  // stable, so equal ranks keep it).
+  order: (a, b) => gateRank(a) - gateRank(b),
 });
 
 /**

@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 
 import { PLATFORM_PRISMA } from '../core/index';
 import type { DbBackupPrisma } from './data/db-backup-db';
@@ -8,6 +8,13 @@ import {
   type StorageProvider,
 } from '../storage/index';
 import type { SystemDatabaseBackupValue } from '@marinoscar/platform-contract/db-backup';
+import {
+  DB_BACKUP_MIRROR_TARGETS,
+  DB_BACKUP_TARGET,
+  StorageProviderBackupTarget,
+  type BackupTarget,
+} from './backup-target';
+import { resolveBackupRetention } from './db-backup.system-settings';
 
 // =============================================================================
 // Backup retention: two clocks, deliberately (issue #282, epic #254)
@@ -129,6 +136,13 @@ export interface BackupPruneResult {
   prunedByAge: number;
 
   /**
+   * Rows deleted by the `retention.maxAgeDays` rule (ordinary `completed`
+   * runs older than the bound). Present only when the policy sets that bound,
+   * so a deployment that does not use it sees the shape it always had.
+   */
+  prunedByMaxAge?: number;
+
+  /**
    * Candidates left in place because their object could not be deleted.
    *
    * NOT an error, and not zero-by-design: it is the visible half of the
@@ -156,8 +170,22 @@ export class DatabaseBackupRetentionService {
     private readonly settings: SystemSettingsService,
     // The ACTIVE provider, exactly as the runner injects it: a backup is not a
     // `storage_objects` row, so there is no `ObjectsService` to route through.
-    @Inject(STORAGE_PROVIDER) private readonly storage: StorageProvider
-  ) {}
+    @Inject(STORAGE_PROVIDER) storage: StorageProvider,
+    // PP-14.12. The primary target, and the mirrors that hold copies of the
+    // same keys. Both optional so a hand-built instance (a test, a script)
+    // keeps working on the storage provider alone.
+    @Optional() @Inject(DB_BACKUP_TARGET) target?: BackupTarget,
+    @Optional() @Inject(DB_BACKUP_MIRROR_TARGETS) mirrors?: readonly BackupTarget[]
+  ) {
+    this.target = target ?? new StorageProviderBackupTarget(storage);
+    this.mirrors = mirrors ?? [];
+  }
+
+  /** Where the archives live. */
+  private readonly target: BackupTarget;
+
+  /** Where their copies live; deleted with them, best effort. */
+  private readonly mirrors: readonly BackupTarget[];
 
   /**
    * Applies both retention rules.
@@ -184,6 +212,7 @@ export class DatabaseBackupRetentionService {
       // meaningless — the offset would be counting rows the age rule owns.
       await this.pruneByCount(policy, result);
       await this.pruneByAge(policy, now, result);
+      await this.pruneByMaxAge(policy, now, result);
     } catch (error) {
       // The catch of last resort. Every per-row failure is already handled
       // inside `deleteRun`, so reaching here means the SETTINGS READ or one of
@@ -221,7 +250,7 @@ export class DatabaseBackupRetentionService {
       // duration of one dump, which cannot reorder anything at a retention
       // granularity of whole backups.
       orderBy: { createdAt: 'desc' },
-      skip: policy.retentionCount,
+      skip: resolveBackupRetention(policy).count,
       select: { id: true, storageKey: true, createdAt: true },
     });
 
@@ -282,6 +311,63 @@ export class DatabaseBackupRetentionService {
   }
 
   /**
+   * Rule 3 (optional): ordinary `completed` runs older than
+   * `retention.maxAgeDays` are removed, EXCEPT THE NEWEST COMPLETED RUN, which
+   * no rule may delete: an age bound on a deployment whose backups stopped
+   * must not empty the catalog. Runs only when the policy sets the bound.
+   */
+  private async pruneByMaxAge(
+    policy: SystemDatabaseBackupValue,
+    now: Date,
+    result: BackupPruneResult
+  ): Promise<void> {
+    const { maxAgeDays } = resolveBackupRetention(policy);
+    if (maxAgeDays === undefined) return;
+
+    result.prunedByMaxAge = 0;
+
+    const newest = await this.prisma.databaseBackupRun.findFirst({
+      where: { status: 'completed', trigger: { not: 'pre_restore' } },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    });
+
+    const cutoff = new Date(now.getTime() - maxAgeDays * 86_400_000);
+    const victims = await this.prisma.databaseBackupRun.findMany({
+      where: {
+        status: 'completed',
+        trigger: { not: 'pre_restore' },
+        createdAt: { lt: cutoff },
+        ...(newest?.id ? { id: { not: newest.id } } : {}),
+      },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, storageKey: true },
+    });
+
+    for (const run of victims) {
+      if (await this.deleteRun(run.id, run.storageKey)) {
+        result.prunedByMaxAge += 1;
+      } else {
+        result.keptAfterFailedDelete += 1;
+      }
+    }
+  }
+
+  /** Deletes the mirror copies of one archive. Never throws. */
+  private async deleteMirrorCopies(storageKey: string): Promise<void> {
+    for (const mirror of this.mirrors) {
+      try {
+        await mirror.delete(storageKey);
+      } catch (error) {
+        this.logger.warn(
+          `Retention could not delete the copy of "${storageKey}" on the mirror target "${mirror.id}"; ` +
+            `it may need removing by hand: ${toError(error).message}`
+        );
+      }
+    }
+  }
+
+  /**
    * Removes one archive: THE OBJECT FIRST, THEN THE ROW.
    *
    * @returns `true` when both halves landed. `false` KEEPS THE ROW, on
@@ -291,7 +377,7 @@ export class DatabaseBackupRetentionService {
    */
   private async deleteRun(runId: string, storageKey: string): Promise<boolean> {
     try {
-      await this.storage.delete(storageKey);
+      await this.target.delete(storageKey);
     } catch (error) {
       this.logger.warn(
         `Retention could not delete the backup object "${storageKey}"; keeping run ` +
@@ -300,6 +386,11 @@ export class DatabaseBackupRetentionService {
 
       return false;
     }
+
+    // The copies go with the original, best effort: a mirror that cannot
+    // delete leaves an orphan copy (logged), but must never keep the primary's
+    // row alive (the primary is the source of truth) or fail the prune.
+    await this.deleteMirrorCopies(storageKey);
 
     try {
       await this.prisma.databaseBackupRun.delete({ where: { id: runId } });
