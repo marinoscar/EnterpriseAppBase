@@ -2,14 +2,14 @@ import { ServiceUnavailableException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { HealthCheckService, HealthCheckResult } from '@nestjs/terminus';
 import { HealthController } from '../../../src/host/health/health.controller';
-import { DatabaseHealthIndicator } from '../../../src/host/health/database.indicator';
+import { HealthIndicatorRunner } from '../../../src/host/health/health-indicator.runner';
 import { MAINTENANCE_ERROR_MARKER } from '../../../src/host/maintenance/maintenance.guard';
 import { MaintenanceModeService } from '../../../src/host/maintenance/maintenance-mode.service';
 
 describe('HealthController', () => {
   let controller: HealthController;
   let mockHealthCheckService: jest.Mocked<HealthCheckService>;
-  let mockDatabaseIndicator: jest.Mocked<DatabaseHealthIndicator>;
+  let mockRunner: { functions: jest.Mock };
   let mockMaintenance: { isEnabled: jest.Mock };
 
   beforeEach(async () => {
@@ -17,9 +17,8 @@ describe('HealthController', () => {
       check: jest.fn(),
     } as any;
 
-    mockDatabaseIndicator = {
-      isHealthy: jest.fn(),
-    } as any;
+    // One indicator function per probe, as the runner hands them to Terminus.
+    mockRunner = { functions: jest.fn().mockReturnValue([jest.fn()]) };
 
     // Off by default: every existing expectation below describes an
     // application that is open for business.
@@ -29,7 +28,7 @@ describe('HealthController', () => {
       controllers: [HealthController],
       providers: [
         { provide: HealthCheckService, useValue: mockHealthCheckService },
-        { provide: DatabaseHealthIndicator, useValue: mockDatabaseIndicator },
+        { provide: HealthIndicatorRunner, useValue: mockRunner },
         { provide: MaintenanceModeService, useValue: mockMaintenance },
       ],
     }).compile();
@@ -76,6 +75,7 @@ describe('HealthController', () => {
 
       const result = await controller.readiness();
 
+      expect(mockRunner.functions).toHaveBeenCalledWith('ready');
       expect(mockHealthCheckService.check).toHaveBeenCalledWith([
         expect.any(Function),
       ]);
@@ -182,6 +182,7 @@ describe('HealthController', () => {
 
       const result = await controller.fullHealth();
 
+      expect(mockRunner.functions).toHaveBeenCalledWith('full');
       expect(mockHealthCheckService.check).toHaveBeenCalledWith([
         expect.any(Function),
       ]);
@@ -335,7 +336,7 @@ describe('HealthController', () => {
       await expect(controller.readiness()).rejects.toThrow();
 
       expect(mockHealthCheckService.check).not.toHaveBeenCalled();
-      expect(mockDatabaseIndicator.isHealthy).not.toHaveBeenCalled();
+      expect(mockRunner.functions).not.toHaveBeenCalled();
     });
 
     it('leaves the full health check to report on dependencies as usual', async () => {
