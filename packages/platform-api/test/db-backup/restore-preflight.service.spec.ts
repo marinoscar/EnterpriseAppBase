@@ -33,7 +33,10 @@ import type { DbBackupPrisma as PrismaService } from '../../src/db-backup/data/d
 import type { SystemSettingsService } from '../../src/settings/index';
 import * as adminConnection from '../../src/db-backup/admin-connection.util';
 import type { AdminConnection, AdminQueryClient } from '../../src/db-backup/admin-connection.util';
+import { withTemporaryEntries } from '../../src/core/index';
+import { restoreGateRegistry, type RestoreGateDefinition } from '../../src/db-backup/restore-gate.registry';
 import {
+  BUILTIN_RESTORE_GATE_IDS,
   DatabaseRestorePreflightService,
   RESTORE_GATE_IDS,
   RESTORE_RUNBOOK_PATH,
@@ -848,5 +851,147 @@ describe('DatabaseRestorePreflightService', () => {
 
       expect(sql.some((text) => text.includes(RUN.storageKey))).toBe(false);
     });
+  });
+});
+
+// =============================================================================
+// App gates through the registry (PP-14.12)
+// =============================================================================
+
+describe('app restore gates', () => {
+  const appGate = (
+    id: string,
+    check: RestoreGateDefinition['check'],
+    extra: Partial<RestoreGateDefinition> = {}
+  ): RestoreGateDefinition => ({ id, label: `Gate ${id}`, check, ...extra });
+
+  const withGates = async (
+    gates: RestoreGateDefinition[],
+    fn: () => Promise<void>
+  ): Promise<void> => withTemporaryEntries(restoreGateRegistry, gates, fn);
+
+  it('runs after the eight built-ins, in registration order, and reports each', async () => {
+    await withGates(
+      [
+        appGate('app-one', async () => ({ status: 'pass', message: 'one is fine' })),
+        appGate('app-two', async () => ({ status: 'warn', message: 'two is noisy', action: 'Look at two.' })),
+      ],
+      async () => {
+        const { service } = harness();
+
+        const result = await service.check(RUN, { now: NOW });
+
+        expect(result.gates.map((entry) => entry.id)).toEqual([...BUILTIN_RESTORE_GATE_IDS, 'app-one', 'app-two']);
+        expect(gate(result, 'app-one')).toMatchObject({ kind: 'app', verdict: 'pass', title: 'Gate app-one', detail: 'one is fine', action: null });
+        expect(gate(result, 'app-two')).toMatchObject({ verdict: 'warning', action: 'Look at two.' });
+        // A warning proceeds.
+        expect(result.outcome).toBe('ok');
+      }
+    );
+  });
+
+  it('a failing app gate BLOCKS the restore, and is not overridable', async () => {
+    await withGates([appGate('cdn-quiesced', async () => ({ status: 'fail', message: 'Quiesce the CDN.' }))], async () => {
+      const { service } = harness();
+
+      const result = await service.check(RUN, { now: NOW });
+
+      if (result.outcome !== 'blocked') throw new Error('expected blocked');
+      expect(result.block).toEqual({
+        gateId: 'cdn-quiesced',
+        message: 'Quiesce the CDN.',
+        overridable: false,
+        overrideParameter: null,
+      });
+    });
+  });
+
+  it('the schema override clears the schema gate and leaves an app gate blocking', async () => {
+    await withGates([appGate('cdn-quiesced', async () => ({ status: 'fail', message: 'Quiesce the CDN.' }))], async () => {
+      const { service } = harness({ liveMigration: '20260908000000_later_migration' });
+
+      const result = await service.check(RUN, { now: NOW, overrideSchemaMismatch: true });
+
+      expect(gate(result, 'schema_compatibility').verdict).toBe('warning');
+      if (result.outcome !== 'blocked') throw new Error('expected blocked');
+      expect(result.block.gateId).toBe('cdn-quiesced');
+    });
+  });
+
+  it('a gate that throws, or answers nonsense, is a block that names it (fail closed)', async () => {
+    await withGates(
+      [
+        appGate('throws', async () => {
+          throw new Error('the CDN API is down');
+        }),
+        appGate('nonsense', async () => ({ status: 'maybe', message: 'hm' }) as never),
+      ],
+      async () => {
+        const { service } = harness();
+
+        const result = await service.check(RUN, { now: NOW });
+
+        expect(gate(result, 'throws')).toMatchObject({ verdict: 'block' });
+        expect(gate(result, 'throws').detail).toContain('the CDN API is down');
+        expect(gate(result, 'nonsense').verdict).toBe('block');
+        expect(result.outcome).toBe('blocked');
+      }
+    );
+  });
+
+  it('gives a gate the run, the policy, the facts and a read-only settings reader', async () => {
+    let seen: Parameters<RestoreGateDefinition['check']>[0] | undefined;
+    await withGates(
+      [
+        appGate('inspect', async (ctx) => {
+          seen = ctx;
+          const cdn = await ctx.settings.get('cdn');
+          const unknown = await ctx.settings.get('no-such-namespace');
+          return { status: 'pass', message: `quiesced=${String(cdn?.quiesced)} unknown=${String(unknown)}` };
+        }),
+      ],
+      async () => {
+        const base = harness();
+        const getNamespace = jest.fn(async (key: string) => {
+          if (key === 'cdn') return { quiesced: true };
+          throw new Error(`namespace ${key} is not registered`);
+        });
+        const service = new DatabaseRestorePreflightService(
+          base.prisma,
+          { ...base.settings, getNamespace } as unknown as SystemSettingsService,
+          base.seam
+        );
+
+        const result = await service.check(RUN, { now: NOW });
+
+        expect(gate(result, 'inspect').detail).toBe('quiesced=true unknown=undefined');
+        expect(seen?.run).toMatchObject({ id: RUN.id, storageKey: RUN.storageKey, migrationName: RUN.migrationName });
+        expect(seen?.targetDatabase).toBe('appdb');
+        expect(seen?.policy.restoreRollbackMode).toBe('retain_database');
+        expect(seen?.facts.cluster.reachable).toBe(true);
+        // No password reaches a gate.
+        expect(JSON.stringify(seen?.facts, (_key, value) => (typeof value === 'bigint' ? value.toString() : value))).not.toContain('super-secret-password');
+        expect(Object.isFrozen(seen)).toBe(true);
+      }
+    );
+  });
+
+  it('⚠ a read-only app gate leaves the pre-flight changing nothing', async () => {
+    const spies = ['createDatabase', 'dropDatabase', 'renameDatabase', 'terminateConnections'].map((name) =>
+      jest.spyOn(adminConnection, name as 'createDatabase').mockImplementation(() => {
+        throw new Error(`${name} must never be called from pre-flight`);
+      })
+    );
+
+    await withGates([appGate('read-only', async (ctx) => ({ status: 'pass', message: ctx.targetDatabase }))], async () => {
+      const { service, sql } = harness();
+
+      await service.check(RUN, { now: NOW });
+
+      for (const spy of spies) expect(spy).not.toHaveBeenCalled();
+      expect(sql.filter((text) => MUTATING_SQL.test(text))).toEqual([]);
+    });
+
+    jest.restoreAllMocks();
   });
 });

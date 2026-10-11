@@ -177,7 +177,11 @@ export function buildRestoreGateContext(
  * caught as well.
  */
 function guarded<T extends object>(value: T, violations: string[], path: string): T {
-  return new Proxy(value, {
+  // A shallow COPY is the proxy target: a frozen object's read-only properties
+  // would otherwise force the proxy to return the original values unwrapped.
+  const copy = (Array.isArray(value) ? [...value] : { ...value }) as T;
+
+  return new Proxy(copy, {
     get(target, property, receiver) {
       const inner = Reflect.get(target, property, receiver);
       if (typeof property === 'symbol') return inner;

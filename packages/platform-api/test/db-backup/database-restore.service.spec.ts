@@ -27,6 +27,8 @@
 //      corrupt one fails before anything is created.
 // =============================================================================
 
+import type { BackupTarget } from '../../src/db-backup/backup-target';
+import { DbBackupEvents } from '../../src/db-backup/db-backup-events';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -178,6 +180,10 @@ function okPreflight(overrides: PreflightOverrides = {}): RestorePreflightResult
 // ---------------------------------------------------------------------------
 
 interface HarnessOptions {
+  /** PP-14.12: the target the archive is read from (default: the storage provider). */
+  target?: BackupTarget;
+  /** PP-14.12: the events the restore raises. */
+  events?: DbBackupEvents;
   /** #685: the deployment mode. Unset means `self-hosted`, every existing case. */
   deploymentMode?: DeploymentMode;
   /**
@@ -517,7 +523,9 @@ function makeHarness(options: HarnessOptions = {}) {
     config,
     jobs,
     deploymentModeFor(options.deploymentMode),
-    seam
+    seam,
+    options.target,
+    options.events
   );
 
   return {
@@ -2108,5 +2116,73 @@ describe('registered carry-overs (RestoreCarryOver, #740)', () => {
 
     expect(h.sql.some((line) => line.includes('carry_probe'))).toBe(false);
     expect(h.sql.some((line) => line.includes('app.rls_bypass'))).toBe(false);
+  });
+});
+
+// ===========================================================================
+// PP-14.12: the archive comes from the target, and the restore raises its event
+// ===========================================================================
+
+describe('the restore reads the archive through the backup target', () => {
+  it('opens the run\'s key on the TARGET instead of the storage provider', async () => {
+    const openRead = jest.fn(async () => Readable.from([ARCHIVE_BYTES]));
+    const target = { id: 'vault', openRead } as unknown as BackupTarget;
+    const h = makeHarness({ target });
+
+    await runRestore(h);
+
+    expect(openRead).toHaveBeenCalledWith(backupRow().storageKey);
+    expect(h.exitProcess).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('db_backup.restore.completed', () => {
+  function recordingEvents() {
+    const emitted: Array<{ name: string; payload: Record<string, unknown> }> = [];
+    const events = new DbBackupEvents({
+      emit: (name: string, payload: Record<string, unknown>) => {
+        emitted.push({ name, payload });
+        return true;
+      },
+    } as never);
+    return { events, emitted };
+  }
+
+  it('is raised once the swap landed, BEFORE the process exits, with the documented payload', async () => {
+    const { events, emitted } = recordingEvents();
+    const h = makeHarness({ events });
+
+    await runRestore(h);
+
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].name).toBe('db_backup.restore.completed');
+    expect(emitted[0].payload).toMatchObject({ runId: backupRow().id, status: 'completed' });
+    expect(Object.keys(emitted[0].payload).sort()).toEqual(['durationMs', 'runId', 'sizeBytes', 'status', 'targetId']);
+    // Synchronous: an async publish would be torn down with the process.
+    expect(h.exitProcess).toHaveBeenCalledTimes(1);
+  });
+
+  it('is raised with status failed when the restore failed', async () => {
+    const { events, emitted } = recordingEvents();
+    const h = makeHarness({ events, downloadError: new Error('the target is unreachable') });
+
+    await runRestore(h);
+
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].payload).toMatchObject({ runId: backupRow().id, status: 'failed' });
+    expect(h.exitProcess).not.toHaveBeenCalled();
+  });
+
+  it('a listener that throws cannot fail a completed restore', async () => {
+    const events = new DbBackupEvents({
+      emit: () => {
+        throw new Error('listener bug');
+      },
+    } as never);
+    const h = makeHarness({ events });
+
+    await runRestore(h);
+
+    expect(h.exitProcess).toHaveBeenCalledTimes(1);
   });
 });

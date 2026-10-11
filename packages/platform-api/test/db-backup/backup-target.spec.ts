@@ -385,7 +385,7 @@ describe('StorageProviderBackupTarget', () => {
     delete (FakeStorageProvider.prototype as unknown as Record<string, unknown>).list;
     try {
       const target = new StorageProviderBackupTarget(provider as unknown as StorageProvider);
-      await expect(target.list('database-backups/').next()).rejects.toThrow(/cannot list objects/);
+      await expect(target.list('database-backups/')[Symbol.asyncIterator]().next()).rejects.toThrow(/cannot list objects/);
     } finally {
       FakeStorageProvider.prototype.list = async function* () {
         /* restored for later specs in this file */

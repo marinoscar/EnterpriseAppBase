@@ -4,6 +4,7 @@ import type { DatabaseBackupRun } from '../../src/db-backup/data/db-backup-db';
 import type { DbBackupPrisma as PrismaService } from '../../src/db-backup/data/db-backup-db';
 import type { SystemSettingsService } from '../../src/settings/index';
 import type { StorageProvider } from '../../src/storage/index';
+import type { BackupTarget } from '../../src/db-backup/backup-target';
 import type { SystemDatabaseBackupValue } from '@marinoscar/platform-contract/db-backup';
 import {
   BACKUP_DOWNLOAD_URL_EXPIRY_SECONDS,
@@ -197,6 +198,10 @@ interface HarnessOptions {
   jobRolePreflight?: () => Promise<JobRolePreflightResult>;
   /** #350: the `nodes` policy half of the node-credential pre-flight. */
   nodesPolicy?: Record<string, unknown> | null;
+  /** PP-14.12: the primary backup target (default: the adapter over `storage`). */
+  target?: BackupTarget;
+  /** PP-14.12: the mirror targets whose copies go with the original. */
+  mirrors?: BackupTarget[];
 }
 
 function harness(options: HarnessOptions = {}) {
@@ -347,7 +352,9 @@ function harness(options: HarnessOptions = {}) {
     restore,
     storage,
     jobRoles,
-    deploymentModeFor(options.deploymentMode)
+    deploymentModeFor(options.deploymentMode),
+    options.target,
+    options.mirrors
   );
 
   return {
@@ -1232,6 +1239,155 @@ describe('DatabaseBackupAdminService', () => {
       await service.startRun(USER_ID);
 
       expect(runner.queueBackup).toHaveBeenCalled();
+    });
+  });
+});
+
+// =============================================================================
+// PP-14.12: cron validation, targets and mirror copies
+// =============================================================================
+
+describe('DatabaseBackupAdminService with the schedule policy and targets (PP-14.12)', () => {
+  const fakeTarget = (id: string, extra: Partial<BackupTarget> = {}): BackupTarget & { deleted: string[] } => {
+    const deleted: string[] = [];
+    return {
+      id,
+      deleted,
+      openWrite: jest.fn() as never,
+      openRead: jest.fn() as never,
+      delete: jest.fn(async (key: string) => void deleted.push(key)),
+      list: jest.fn() as never,
+      ...extra,
+    };
+  };
+
+  describe('updateConfig validates a cron schedule', () => {
+    it('accepts an hourly-or-slower expression and writes it', async () => {
+      const { service, patches } = harness();
+
+      const config = await service.updateConfig(
+        { frequency: 'cron', cron: '0 */6 * * *' },
+        USER_ID,
+        new Date('2026-09-07T12:00:00.000Z')
+      );
+
+      expect(patches[0]).toEqual({ databaseBackup: { frequency: 'cron', cron: '0 */6 * * *' } });
+      expect(config.nextRunAt).toBe('2026-09-07T18:00:00.000Z');
+    });
+
+    it.each([
+      ['an expression the scheduler cannot read', 'whenever', 'invalid_cron'],
+      ['an expression finer than an hour', '*/15 * * * *', 'cron_interval_too_short'],
+    ])('refuses %s with a 400 naming the field, before writing', async (_label, cron, reason) => {
+      const { service, settings } = harness();
+
+      const error = await service.updateConfig({ frequency: 'cron', cron }, USER_ID).catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(BadRequestException);
+      expect((error as BadRequestException).getResponse()).toMatchObject({ details: { field: 'cron', cron, reason } });
+      expect(settings.patchSettings).not.toHaveBeenCalled();
+    });
+
+    it('refuses frequency cron with no expression anywhere', async () => {
+      const { service, settings } = harness();
+
+      const error = await service.updateConfig({ frequency: 'cron' }, USER_ID).catch((e: unknown) => e);
+
+      expect((error as BadRequestException).getResponse()).toMatchObject({ details: { field: 'cron', reason: 'cron_required' } });
+      expect(settings.patchSettings).not.toHaveBeenCalled();
+    });
+
+    it('accepts frequency cron when the stored policy already holds the expression', async () => {
+      const { service, patches } = harness({ policy: { frequency: 'daily', cron: '0 3 * * 1-5' } });
+
+      await service.updateConfig({ frequency: 'cron' }, USER_ID);
+
+      expect(patches[0]).toEqual({ databaseBackup: { frequency: 'cron' } });
+    });
+
+    it('checks a cron given beside another frequency too, so a bad one is not stored for later', async () => {
+      const { service, settings } = harness();
+
+      await expect(service.updateConfig({ frequency: 'daily', cron: 'nope' }, USER_ID)).rejects.toBeInstanceOf(BadRequestException);
+      expect(settings.patchSettings).not.toHaveBeenCalled();
+    });
+
+    it('projects the next run of a cron policy in getConfig', async () => {
+      const { service } = harness({ policy: { enabled: true, frequency: 'cron', cron: '0 8,16 * * *', timezone: 'UTC' } });
+
+      const config = await service.getConfig(new Date('2026-09-07T12:00:00.000Z'));
+
+      expect(config.nextRunAt).toBe('2026-09-07T16:00:00.000Z');
+    });
+  });
+
+  describe('getDownloadUrl through the target', () => {
+    it('signs through a target that can, with the expiry and the archive\'s file name', async () => {
+      const signedDownloadUrl = jest.fn(async () => 'https://vault.example/dl');
+      const target = fakeTarget('vault', { signedDownloadUrl });
+      const { service } = harness({ target });
+
+      const result = await service.getDownloadUrl(RUN_ID);
+
+      expect(result.url).toBe('https://vault.example/dl');
+      expect(signedDownloadUrl).toHaveBeenCalledWith(run().storageKey, {
+        expiresInSeconds: BACKUP_DOWNLOAD_URL_EXPIRY_SECONDS,
+        filename: 'app-20260907T020000Z-run.dump',
+      });
+    });
+
+    it('answers a 400 naming the target when it cannot sign', async () => {
+      const { service } = harness({ target: fakeTarget('vault') });
+
+      const error = await service.getDownloadUrl(RUN_ID).catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(BadRequestException);
+      expect((error as BadRequestException).getResponse()).toMatchObject({
+        details: { runId: RUN_ID, targetId: 'vault', reason: 'backup_target_cannot_sign' },
+      });
+    });
+  });
+
+  describe('deleteRun removes the copies with the original', () => {
+    it('deletes the key on the primary target, then on every mirror, then the row', async () => {
+      const primary = fakeTarget('vault');
+      const mirror = fakeTarget('local-dir');
+      const { service, calls, rows } = harness({ target: primary, mirrors: [mirror] });
+
+      const result = await service.deleteRun(RUN_ID);
+
+      expect(result.objectDeleted).toBe(true);
+      expect(primary.deleted).toEqual([run().storageKey]);
+      expect(mirror.deleted).toEqual([run().storageKey]);
+      expect(calls).toEqual([`row:${RUN_ID}`]);
+      expect(rows).toHaveLength(0);
+    });
+
+    it('a mirror that cannot delete never fails the delete', async () => {
+      const mirror = fakeTarget('cold', {
+        delete: jest.fn(async () => {
+          throw new Error('cold store unreachable');
+        }),
+      });
+      const { service, rows } = harness({ target: fakeTarget('vault'), mirrors: [mirror] });
+
+      await expect(service.deleteRun(RUN_ID)).resolves.toEqual({ id: RUN_ID, objectDeleted: true });
+      expect(rows).toHaveLength(0);
+    });
+
+    it('does not touch the mirrors when the primary delete failed (the archive is still the source of truth)', async () => {
+      const mirror = fakeTarget('local-dir');
+      const primary = fakeTarget('vault', {
+        delete: jest.fn(async () => {
+          throw new Error('vault refused');
+        }),
+      });
+      const { service } = harness({ target: primary, mirrors: [mirror] });
+
+      const result = await service.deleteRun(RUN_ID);
+
+      expect(result.objectDeleted).toBe(false);
+      expect(mirror.deleted).toEqual([]);
     });
   });
 });

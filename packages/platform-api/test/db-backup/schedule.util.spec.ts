@@ -1,10 +1,14 @@
 import {
+  CronIntervalTooShortError,
   DEFAULT_BACKUP_TIME_OF_DAY,
   InvalidCronExpressionError,
   InvalidTimezoneError,
   MAX_BACKUP_DAY_OF_MONTH,
+  assertBackupCron,
   backupScheduleToCron,
+  minimumCronIntervalMinutes,
   nextFireAt,
+  parseBackupCron,
   parseCronExpression,
   parseTimeOfDay,
   previousFireBoundary,
@@ -265,5 +269,132 @@ describe('previousFireBoundary', () => {
     expect(() =>
       previousFireBoundary('0 2 * * *', new Date('2026-05-04T09:00:00Z'), 'Nowhere/Special')
     ).toThrow(InvalidTimezoneError);
+  });
+});
+
+// =============================================================================
+// frequency: 'cron' (PP-14.12)
+// =============================================================================
+
+describe('backupScheduleToCron with frequency cron', () => {
+  it('passes the operator\'s expression through, trimmed', () => {
+    expect(backupScheduleToCron({ frequency: 'cron', cron: '  0 */6 * * *  ', timeOfDay: '04:00' })).toBe('0 */6 * * *');
+  });
+
+  it('degrades a blank expression to the daily default rather than throwing', () => {
+    expect(backupScheduleToCron({ frequency: 'cron', cron: '   ', timeOfDay: '04:30' })).toBe('30 4 * * *');
+    expect(backupScheduleToCron({ frequency: 'cron' })).toBe('0 2 * * *');
+  });
+});
+
+describe('parseBackupCron', () => {
+  it('reads lists, ranges, steps and stars in every field it supports', () => {
+    expect(parseBackupCron('0 */6 * * *')).toEqual({ minutes: [0], hours: [0, 6, 12, 18], daysOfMonth: null, daysOfWeek: null });
+    expect(parseBackupCron('15,45 8-10 * * 1-5')).toEqual({ minutes: [15, 45], hours: [8, 9, 10], daysOfMonth: null, daysOfWeek: [1, 2, 3, 4, 5] });
+    expect(parseBackupCron('0 2 1,15 * *')).toEqual({ minutes: [0], hours: [2], daysOfMonth: [1, 15], daysOfWeek: null });
+    expect(parseBackupCron('0 0-12/4 */10 * *').hours).toEqual([0, 4, 8, 12]);
+    expect(parseBackupCron('0 2 */10 * *').daysOfMonth).toEqual([1, 11, 21, 31]);
+    expect(parseBackupCron('30 3/6 * * *').hours).toEqual([3, 9, 15, 21]);
+  });
+
+  it('is a superset of the subset the settings form emits', () => {
+    for (const expression of ['0 2 * * *', '45 23 * * 3', '5 4 15 * *']) {
+      const old = parseCronExpression(expression);
+      const parsed = parseBackupCron(expression);
+      expect(parsed.minutes).toEqual([old.minute]);
+      expect(parsed.hours).toEqual([old.hour]);
+    }
+  });
+
+  it.each([
+    ['too few fields', '0 2 * *'],
+    ['too many fields', '0 2 * * * *'],
+    ['a restricted month', '0 2 * 3 *'],
+    ['both day fields restricted', '0 2 15 * 1'],
+    ['a name', '0 2 * * MON'],
+    ['an out-of-range minute', '60 2 * * *'],
+    ['an out-of-range hour', '0 24 * * *'],
+    ['a reversed range', '0 10-2 * * *'],
+    ['a zero step', '*/0 * * * *'],
+    ['an empty list item', '0,,5 * * * *'],
+    ['day of week 7', '0 2 * * 7'],
+    ['day of month 0', '0 2 0 * *'],
+    ['a macro', '@hourly'],
+  ])('rejects %s', (_label, expression) => {
+    expect(() => parseBackupCron(expression)).toThrow(InvalidCronExpressionError);
+  });
+});
+
+describe('minimumCronIntervalMinutes and assertBackupCron', () => {
+  it.each([
+    ['0 * * * *', 60],
+    ['0 */6 * * *', 360],
+    ['0 2 * * *', 1440],
+    ['0 2 * * 1', 10080],
+    ['0 2,3 * * *', 60],
+    ['0 23,0 * * *', 60],
+    ['*/30 * * * *', 30],
+    ['* * * * *', 1],
+    ['0 1,2 * * 1', 60],
+    ['0 2 1,2 * *', 1440],
+  ])('%s fires at least %d minutes apart', (expression, minutes) => {
+    expect(minimumCronIntervalMinutes(parseBackupCron(expression))).toBe(minutes);
+  });
+
+  it('counts the gap across midnight between the last and the first fire of the next day', () => {
+    // 23:30 and 00:00 on consecutive days are 30 minutes apart.
+    expect(minimumCronIntervalMinutes(parseBackupCron('30,0 23,0 * * *'))).toBe(30);
+  });
+
+  it('treats a schedule that fires once in the window as unbounded', () => {
+    expect(minimumCronIntervalMinutes(parseBackupCron('0 2 29 * *'))).toBeGreaterThan(1440);
+  });
+
+  it('accepts an hourly expression and refuses anything finer, naming the interval', () => {
+    expect(assertBackupCron('0 * * * *').hours).toHaveLength(24);
+    expect(() => assertBackupCron('*/59 * * * *')).toThrow(CronIntervalTooShortError);
+    try {
+      assertBackupCron('*/15 * * * *');
+    } catch (error) {
+      expect((error as CronIntervalTooShortError).intervalMinutes).toBe(15);
+      expect((error as Error).message).toContain('at least 60 minutes');
+    }
+  });
+
+  it('takes the minimum as a parameter', () => {
+    expect(() => assertBackupCron('*/15 * * * *', 15)).not.toThrow();
+  });
+
+  it('rejects a malformed expression with the parser\'s error', () => {
+    expect(() => assertBackupCron('hourly')).toThrow(InvalidCronExpressionError);
+  });
+});
+
+describe('nextFireAt and previousFireBoundary over a multi-fire expression', () => {
+  it('walks several fires in one day', () => {
+    const at = (iso: string) => new Date(iso);
+
+    expect(nextFireAt('0 */6 * * *', at('2026-05-04T07:00:00Z'), 'UTC')?.toISOString()).toBe('2026-05-04T12:00:00.000Z');
+    expect(nextFireAt('0 */6 * * *', at('2026-05-04T18:00:00Z'), 'UTC')?.toISOString()).toBe('2026-05-05T00:00:00.000Z');
+    expect(previousFireBoundary('0 */6 * * *', at('2026-05-04T11:59:00Z'), 'UTC')?.toISOString()).toBe('2026-05-04T06:00:00.000Z');
+    expect(previousFireBoundary('0 */6 * * *', at('2026-05-04T12:00:00Z'), 'UTC')?.toISOString()).toBe('2026-05-04T12:00:00.000Z');
+    expect(previousFireBoundary('0 */6 * * *', at('2026-05-04T00:10:00Z'), 'UTC')?.toISOString()).toBe('2026-05-04T00:00:00.000Z');
+  });
+
+  it('looks back to the previous matching day when today has not fired yet', () => {
+    // Weekdays 08:00 and 16:00; asked on Monday 06:00, the boundary is Friday 16:00.
+    expect(previousFireBoundary('0 8,16 * * 1-5', new Date('2026-05-04T06:00:00Z'), 'UTC')?.toISOString()).toBe('2026-05-01T16:00:00.000Z');
+    expect(nextFireAt('0 8,16 * * 1-5', new Date('2026-05-01T16:00:00Z'), 'UTC')?.toISOString()).toBe('2026-05-04T08:00:00.000Z');
+  });
+
+  it('honours the zone for every fire of the day', () => {
+    // 09:00 and 17:00 New York in July (EDT, UTC-4).
+    expect(nextFireAt('0 9,17 * * *', new Date('2026-07-01T12:00:00Z'), NEW_YORK)?.toISOString()).toBe('2026-07-01T13:00:00.000Z');
+    expect(previousFireBoundary('0 9,17 * * *', new Date('2026-07-01T12:00:00Z'), NEW_YORK)?.toISOString()).toBe('2026-06-30T21:00:00.000Z');
+  });
+
+  it('still throws the typed errors', () => {
+    expect(() => nextFireAt('0 */6 * * *', new Date('2026-05-04T09:00:00Z'), 'Mars/Olympus')).toThrow(InvalidTimezoneError);
+    expect(() => nextFireAt('not a cron', new Date('2026-05-04T09:00:00Z'), 'UTC')).toThrow(InvalidCronExpressionError);
   });
 });
