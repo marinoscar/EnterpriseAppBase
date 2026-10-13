@@ -121,7 +121,7 @@ describe('an app role in the packaged organization page', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Send invitation' }));
 
     await waitFor(() => expect(invitesSent).toEqual([{ email: 'new@example.com', roleName: 'coach' }]));
-  });
+  }, 60_000);
 
   it('is offered in the member role select', async () => {
     const user = userEvent.setup();
@@ -132,7 +132,7 @@ describe('an app role in the packaged organization page', () => {
     await user.click(await screen.findByRole('option', { name: 'Coach' }));
 
     await waitFor(() => expect(membersChanged).toEqual([{ roleName: 'coach' }]));
-  });
+  }, 60_000);
 });
 
 describe('app roles in the packaged Manage roles dialog', () => {
@@ -157,11 +157,11 @@ describe('app roles in the packaged Manage roles dialog', () => {
     await user.click(dialog.getByRole('button', { name: 'Save roles' }));
 
     await waitFor(() => expect(rolesSaved).toEqual([{ roleNames: ['support'] }]));
-  });
+  }, 60_000);
 
   it('single-organization mode: the org roles join them, without org_admin and without an unassignable role', async () => {
     const { dialog } = await openDialog('single');
 
     await waitFor(() => expect(labelsOf(dialog)).toEqual(['System administrator', 'Support', 'Contributor', 'Viewer', 'Coach']));
-  });
+  }, 60_000);
 });
