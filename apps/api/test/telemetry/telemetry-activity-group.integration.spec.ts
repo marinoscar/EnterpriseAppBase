@@ -97,7 +97,14 @@ describe('the reference app group "activity" (a fresh stack: its tables do not e
     const res = await request(context.app.getHttpServer()).get(`${BASE}/metric-groups`).set(authHeader(admin.accessToken)).expect(200);
 
     expect(res.body.data.map((g: { id: string }) => g.id)).toEqual(['host', 'database', 'queue', 'nodes', 'uptime', 'pipeline', 'activity']);
-    expect(res.body.data.at(-1)).toEqual({ id: 'activity', label: 'App activity', title: 'App activity', order: 70 });
+    expect(res.body.data.at(-1)).toEqual({
+      id: 'activity',
+      label: 'App activity',
+      title: 'App activity',
+      order: 70,
+      presentation: ACTIVITY_METRIC_GROUP.presentation,
+      units: [{ id: 'usd', label: 'US dollars', format: 'currency', currency: 'USD', decimals: 2 }],
+    });
   });
 
   it('answers /metrics?group=activity as unavailable, every family skipped', async () => {
@@ -108,7 +115,7 @@ describe('the reference app group "activity" (a fresh stack: its tables do not e
       group: 'activity',
       available: false,
       tiles: [],
-      skipped: ACTIVITY_METRIC_GROUP.families.map((family) => family.key),
+      skipped: [...ACTIVITY_METRIC_GROUP.families.map((family) => family.key), ...(ACTIVITY_METRIC_GROUP.tables ?? []).map((table) => table.key)],
     });
   });
 });

@@ -93,6 +93,35 @@
 //     values. A cache entry built while its source was still pending is
 //     rebuilt once the source has settled.
 //
+// EXTENSIONS ARE GATED TOO (PP-14.18)
+// -----------------------------------------------------------------------------
+//
+// An app can add span processors, log record processors and metric readers to
+// `initializeOtel` (a console exporter in development, a second backend). It
+// hands the SDK objects whose exporters this file cannot see, so each one is
+// wrapped before the SDK gets it:
+//
+//   - `GatedSpanProcessor` / `GatedLogRecordProcessor` forward `onStart`,
+//     `onEnd` and `onEmit` only while the gate is open. Nothing reaches a
+//     wrapped processor while it is closed, so a `SimpleSpanProcessor` that
+//     exports on end exports nothing. `forceFlush` and `shutdown` always
+//     delegate, like the exporters': a flush sends only what was accepted while
+//     the gate was open.
+//
+//   - `GatedMetricReader` hands the inner reader a PRODUCER that answers an
+//     empty collection while the gate is closed (and stamps `app.instance.id`
+//     when it is open). Whatever the inner reader does with that (push it with a
+//     periodic exporter, serve it on a Prometheus scrape) it has nothing to
+//     send or serve while closed.
+//
+// The residual window is the same one the built-in batch processors have: a
+// processor that batches on its own timer may export a batch it accepted
+// shortly BEFORE the gate closed. Where that matters, build the processor over a
+// `GatedSpanExporter` / `GatedLogRecordExporter` / `GatedPushMetricExporter`
+// instead: those check the gate at the moment of export, and they stamp the
+// instance id. `test/otel-core/telemetry-gate.spec.ts` proves nothing exports
+// while the gate is closed, for every kind.
+//
 // SAFE TO IMPORT BEFORE THE SDK STARTS
 // -----------------------------------------------------------------------------
 //
@@ -111,15 +140,20 @@
 
 import { ExportResultCode, type ExportResult } from '@opentelemetry/core';
 import { resourceFromAttributes, type Resource } from '@opentelemetry/resources';
-import type { LogRecordExporter, ReadableLogRecord } from '@opentelemetry/sdk-logs';
+import type { Context } from '@opentelemetry/api';
+import type { LogRecordExporter, LogRecordProcessor, ReadableLogRecord, SdkLogRecord } from '@opentelemetry/sdk-logs';
 import {
   AggregationTemporality,
   InstrumentType,
+  MetricReader,
   type AggregationOption,
+  type CollectionResult,
+  type MetricCollectOptions,
+  type MetricProducer,
   type PushMetricExporter,
   type ResourceMetrics,
 } from '@opentelemetry/sdk-metrics';
-import type { ReadableSpan, SpanExporter } from '@opentelemetry/sdk-trace-base';
+import type { ReadableSpan, Span, SpanExporter, SpanProcessor } from '@opentelemetry/sdk-trace-base';
 
 import { ATTR_APP_INSTANCE_ID, DEFAULT_INSTANCE_ID } from './instance-id';
 
@@ -326,5 +360,155 @@ export class GatedPushMetricExporter implements PushMetricExporter {
   /** Always delegates, whatever the gate says. */
   forceFlush(): Promise<void> {
     return this.inner.forceFlush();
+  }
+}
+
+/**
+ * Wraps a span processor so it sees spans only while the telemetry gate is open:
+ * `onStart` and `onEnd` are forwarded when the gate is open and dropped when it
+ * is closed. `forceFlush` and `shutdown` always delegate (a flush sends what was
+ * accepted while the gate was open). For the strictest guarantee, build the
+ * processor over a {@link GatedSpanExporter}, which checks at export time.
+ *
+ * `initializeOtel({ spanProcessors })` wraps every processor it is given with
+ * this; use it yourself only when you register a processor another way.
+ *
+ * @example
+ * ```ts
+ * new GatedSpanProcessor(new SimpleSpanProcessor(new ConsoleSpanExporter()));
+ * ```
+ *
+ * @extensionPoint hook
+ * @stability experimental
+ */
+export class GatedSpanProcessor implements SpanProcessor {
+  constructor(private readonly inner: SpanProcessor) {}
+
+  /** Forwards the span start only while the gate is open. */
+  onStart(span: Span, parentContext: Context): void {
+    if (telemetryGate.isEnabled()) this.inner.onStart(span, parentContext);
+  }
+
+  /** Forwards the span's ending only while the gate is open. */
+  onEnding(span: Span): void {
+    if (telemetryGate.isEnabled()) this.inner.onEnding?.(span);
+  }
+
+  /** Forwards the finished span only while the gate is open. */
+  onEnd(span: ReadableSpan): void {
+    if (telemetryGate.isEnabled()) this.inner.onEnd(span);
+  }
+
+  /** Always delegates, whatever the gate says. */
+  forceFlush(): Promise<void> {
+    return this.inner.forceFlush();
+  }
+
+  /** Always delegates, whatever the gate says: a shutdown must flush even when export is off. */
+  shutdown(): Promise<void> {
+    return this.inner.shutdown();
+  }
+}
+
+/**
+ * Wraps a log record processor so it sees records only while the telemetry gate
+ * is open (`onEmit` forwards while open, drops while closed). `forceFlush` and
+ * `shutdown` always delegate. For the strictest guarantee, build the processor
+ * over a {@link GatedLogRecordExporter}.
+ *
+ * @extensionPoint hook
+ * @stability experimental
+ */
+export class GatedLogRecordProcessor implements LogRecordProcessor {
+  constructor(private readonly inner: LogRecordProcessor) {}
+
+  /** Forwards the record only while the gate is open. */
+  onEmit(logRecord: SdkLogRecord, context?: Context): void {
+    if (telemetryGate.isEnabled()) this.inner.onEmit(logRecord, context);
+  }
+
+  /** Always delegates, whatever the gate says. */
+  forceFlush(): Promise<void> {
+    return this.inner.forceFlush();
+  }
+
+  /** Always delegates, whatever the gate says. */
+  shutdown(): Promise<void> {
+    return this.inner.shutdown();
+  }
+}
+
+/** What a gated producer answers while the gate is closed: nothing collected, no error. */
+function emptyCollection(): CollectionResult {
+  return { resourceMetrics: { resource: resourceFromAttributes({}), scopeMetrics: [] }, errors: [] };
+}
+
+/**
+ * The metric producer a {@link GatedMetricReader} gives its inner reader: the
+ * SDK's own producer while the gate is open (its batches stamped with the
+ * instance id), an empty collection while it is closed.
+ */
+class GatedMetricProducer implements MetricProducer {
+  constructor(private readonly inner: MetricProducer) {}
+
+  async collect(options?: MetricCollectOptions): Promise<CollectionResult> {
+    if (!telemetryGate.isEnabled()) return emptyCollection();
+    const result = await this.inner.collect(options);
+    // The gate may have closed while the SDK was collecting: nothing leaves then.
+    if (!telemetryGate.isEnabled()) return emptyCollection();
+    return { ...result, resourceMetrics: { ...result.resourceMetrics, resource: stampResource(result.resourceMetrics.resource) } };
+  }
+}
+
+/**
+ * Wraps a metric reader so it reads nothing while the telemetry gate is closed.
+ * The inner reader (a periodic exporting reader, a Prometheus pull reader, your
+ * own) is handed a producer that answers an empty collection while the gate is
+ * closed, so there is nothing for it to push or to serve; open, its batches
+ * carry `app.instance.id`. The inner reader keeps its own aggregation,
+ * temporality and cardinality choices.
+ *
+ * ⚠ A push reader's gauges keep the temporality the inner exporter chose
+ * (cumulative by default); build it over a {@link GatedPushMetricExporter} to get
+ * the delta gauges the platform's own metrics use (see that class).
+ *
+ * `initializeOtel({ metricReaders })` wraps every reader it is given with this.
+ *
+ * @example
+ * ```ts
+ * new GatedMetricReader(new PeriodicExportingMetricReader({ exporter: new ConsoleMetricExporter(), exportIntervalMillis: 10_000 }));
+ * ```
+ *
+ * @extensionPoint hook
+ * @stability experimental
+ */
+export class GatedMetricReader extends MetricReader {
+  constructor(private readonly inner: MetricReader) {
+    super({
+      aggregationSelector: (instrumentType) => inner.selectAggregation(instrumentType),
+      aggregationTemporalitySelector: (instrumentType) => inner.selectAggregationTemporality(instrumentType),
+      cardinalitySelector: (instrumentType) => inner.selectCardinalityLimit(instrumentType),
+    });
+  }
+
+  /** Hands the inner reader the gated producer instead of the SDK's own. */
+  override setMetricProducer(metricProducer: MetricProducer): void {
+    super.setMetricProducer(metricProducer);
+    this.inner.setMetricProducer(new GatedMetricProducer(metricProducer));
+  }
+
+  /** Collects through the inner reader, hence through the gated producer. */
+  override collect(options?: Parameters<MetricReader['collect']>[0]): ReturnType<MetricReader['collect']> {
+    return this.inner.collect(options);
+  }
+
+  /** Shuts the inner reader down (always, whatever the gate says). */
+  protected async onShutdown(): Promise<void> {
+    await this.inner.shutdown();
+  }
+
+  /** Flushes the inner reader (always; what it flushes was collected while the gate was open). */
+  protected async onForceFlush(): Promise<void> {
+    await this.inner.forceFlush();
   }
 }

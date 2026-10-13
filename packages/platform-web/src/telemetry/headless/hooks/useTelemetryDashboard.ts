@@ -26,6 +26,8 @@ import {
   type DashboardMetricGroupMeta,
   type DashboardMetrics,
   type DashboardMetricsQuery,
+  type DashboardPanelData,
+  type DashboardPanelMeta,
   type DashboardQuery,
   type DashboardSummary,
   type DashboardTimeseries,
@@ -197,6 +199,45 @@ export function useDashboardMetricGroups() {
       ),
     0,
     'Failed to load the metric sections',
+  );
+}
+
+/**
+ * `GET …/panels` — the dashboard panels the API serves, in dashboard order
+ * (the platform's `api` and `logs`, and the app's own). Never refetched by the
+ * page's tick: the list changes only with a deploy.
+ *
+ * @stability experimental
+ */
+export function useDashboardPanels() {
+  const client = useTelemetryClient();
+  return useDashboardResource<DashboardPanelMeta[]>(
+    'panels',
+    async (signal) =>
+      [...(await client.getDashboardPanels({ signal }))].sort(
+        (a, b) => a.order - b.order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+      ),
+    0,
+    'Failed to load the dashboard panels',
+  );
+}
+
+/**
+ * `GET …/panels/:id` — one app panel's payload for the dashboard window.
+ *
+ * @param id - the panel id.
+ * @param query - the window and filters.
+ * @param tick - the page's refresh counter.
+ *
+ * @stability experimental
+ */
+export function useDashboardPanel(id: string, query: DashboardQuery, tick: number) {
+  const client = useTelemetryClient();
+  return useDashboardResource<DashboardPanelData>(
+    keyOf([id, query]),
+    (signal) => client.getDashboardPanel(id, query, { signal }),
+    tick,
+    'Failed to load the panel',
   );
 }
 

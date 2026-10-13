@@ -1,5 +1,5 @@
-import { Controller, Get, Inject, Query, Type } from '@nestjs/common';
-import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Controller, Get, Inject, Param, Query, Type } from '@nestjs/common';
+import { ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { createZodDto } from 'nestjs-zod';
 
 import { ErrorDto } from '../../core/index';
@@ -12,6 +12,8 @@ import {
   TelemetryDashboardEventsQueryDto,
   TelemetryDashboardFiltersDto,
   TelemetryDashboardMetricGroupsDto,
+  TelemetryDashboardPanelDataDto,
+  TelemetryDashboardPanelsDto,
   createTelemetryDashboardMetricsDtoSchema,
   createTelemetryDashboardMetricsQueryDtoSchema,
   TelemetryDashboardQueryDto,
@@ -21,9 +23,13 @@ import {
   TelemetryDashboardTopDto,
   TelemetryDashboardTopQueryDto,
   type TelemetryDashboardMetricGroups,
+  type TelemetryDashboardPanelData,
+  type TelemetryDashboardPanels,
 } from '../dto/telemetry-dashboard.dto';
 import { metricGroupIds, metricGroups, type MetricGroup } from '../metrics/metric-catalog';
+import { customUnitsOf } from '../metrics/metric-presentation';
 import { TelemetryDashboardService } from './telemetry-dashboard.service';
+import { TelemetryDashboardPanelService } from './panels/telemetry-dashboard-panel.service';
 import type { ResolvedTelemetryModuleOptions } from '../telemetry.options';
 import { TELEMETRY_PERMISSIONS } from '../telemetry.permissions';
 
@@ -38,6 +44,8 @@ import { TELEMETRY_PERMISSIONS } from '../telemetry.permissions';
 //   GET /api/admin/telemetry/dashboard/filters      telemetry:query
 //   GET /api/admin/telemetry/dashboard/metrics      telemetry:query   (#601)
 //   GET /api/admin/telemetry/dashboard/metric-groups telemetry:query  (#680)
+//   GET /api/admin/telemetry/dashboard/panels        telemetry:query  (PP-14.18)
+//   GET /api/admin/telemetry/dashboard/panels/:id    telemetry:query  (PP-14.18)
 //
 // Same permission as the explorer: these read telemetry DATA. Every statement
 // is a server-authored template (`telemetry-dashboard.sql.ts`); the exact SQL
@@ -102,7 +110,10 @@ export function createTelemetryDashboardController(options: ResolvedTelemetryMod
   @ApiTags('Telemetry')
   @Controller('admin/telemetry/dashboard')
   class TelemetryDashboardController {
-    constructor(@Inject(TelemetryDashboardService) private readonly dashboard: TelemetryDashboardService) {}
+    constructor(
+      @Inject(TelemetryDashboardService) private readonly dashboard: TelemetryDashboardService,
+      @Inject(TelemetryDashboardPanelService) private readonly panels: TelemetryDashboardPanelService,
+    ) {}
 
     @Get('summary')
     @(access.requirePermissions([TELEMETRY_PERMISSIONS.QUERY]))
@@ -231,14 +242,66 @@ export function createTelemetryDashboardController(options: ResolvedTelemetryMod
       description:
         'Every registered metric group (the six platform groups and any the application registers), in ' +
         'dashboard order: `id` (the `/metrics` `group` value), `label`, the dashboard section `title` and ' +
-        '`order`. Read from the in-memory metric-group registry: no telemetry store query, so it answers ' +
-        'even while the store is unconfigured or unreachable, and it is not audited.',
+        '`order`, then, when the group declares them, its `presentation` (data only: tiles, charts, tables ' +
+        'and computed columns the dashboard renders) and the `units` it uses that are not built in, with ' +
+        'how to format them. Read from the in-memory metric-group registry: no telemetry store query, so it ' +
+        'answers even while the store is unconfigured or unreachable, and it is not audited.',
     })
     @ApiResponse({ status: 200, description: 'The metric groups', type: TelemetryDashboardMetricGroupsDto })
     metricGroups(): TelemetryDashboardMetricGroups {
       return {
-        data: metricGroups().map(({ id, label, title, order }) => ({ id, label, title, order })),
+        data: metricGroups().map((group) => {
+          const units = customUnitsOf(group);
+          return {
+            id: group.id,
+            label: group.label,
+            title: group.title,
+            order: group.order,
+            ...(group.presentation ? { presentation: group.presentation } : {}),
+            ...(units.length > 0 ? { units } : {}),
+          };
+        }),
       };
+    }
+
+    @Get('panels')
+    @(access.requirePermissions([TELEMETRY_PERMISSIONS.QUERY]))
+    @ApiOperation({
+      summary: 'The dashboard panels (Admin only)',
+      description:
+        'Every registered dashboard panel (the platform\'s `api` and `logs`, and any the application ' +
+        'registers), in dashboard order: `id`, `label`, `order` and whether it is `builtin`. Read from the ' +
+        'in-memory panel registry: no telemetry store query, not audited.',
+    })
+    @ApiResponse({ status: 200, description: 'The panels', type: TelemetryDashboardPanelsDto })
+    listPanels(): TelemetryDashboardPanels {
+      return this.panels.list();
+    }
+
+    @Get('panels/:id')
+    @(access.requirePermissions([TELEMETRY_PERMISSIONS.QUERY]))
+    @ApiOperation({
+      summary: 'One dashboard panel\'s data (Admin only)',
+      description:
+        'Runs the registered panel\'s `data` function for the dashboard window and answers its JSON `payload` ' +
+        '(at most 262144 bytes). The panel reads the telemetry store only through the explorer\'s guarded ' +
+        'path (one read-only statement at a time, the row cap, the timeout, an audit row with source ' +
+        '`panel`). An unknown id is **404**; a panel that throws, outruns its 30 second budget or returns ' +
+        'something that is not bounded JSON is **500** with `details.reason: "TELEMETRY_PANEL_FAILED"` ' +
+        'and a generic message (the cause is in the server log).\n\n' +
+        COMMON_DOC,
+    })
+    @ApiParam({ name: 'id', description: 'The panel id from `/panels`.', schema: { type: 'string', pattern: '^[a-z][a-z0-9_-]{1,47}$' } })
+    @CommonQueries()
+    @ApiResponse({ status: 200, description: 'The panel\'s payload', type: TelemetryDashboardPanelDataDto })
+    @ApiResponse({ status: 404, description: 'No such panel', type: ErrorDto })
+    @ApiResponse({ status: 500, description: 'The panel failed', type: ErrorDto })
+    async readPanel(
+      @Param('id') id: string,
+      @Query() query: TelemetryDashboardQueryDto,
+      @ActorId() userId: string,
+    ): Promise<TelemetryDashboardPanelData> {
+      return this.panels.read(userId, id, query);
     }
   }
 

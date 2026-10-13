@@ -720,7 +720,7 @@ The walk-through below adds a `coach` group over one counter the app records
    --workspace=api` (the telemetry conformance suite, `apps/api/test/telemetry/telemetry-conformance.spec.ts`,
    checks every registered group: unique id, label, known units and filters,
    unique keys, and a clean degrade to `skipped` on an empty store): a malformed group (a key another group uses, a unit
-   outside `METRIC_UNITS`, a family whose `group` is not `coach`, a ratio
+   nobody registered, a family whose `group` is not `coach`, a ratio
    naming an unknown family) fails at import time, so the API does not
    start. Then:
    - `GET /api/admin/telemetry/dashboard/metric-groups` lists `coach`;
@@ -730,6 +730,18 @@ The walk-through below adds a `coach` group over one counter the app records
    - the dashboard shows a **Coach** section after Telemetry pipeline (every
      tile, one chart per series key, every table), and the assistant's
      `metrics_overview` tool offers `coach`.
+
+**Choosing how the section looks.** Without more, the section shows every
+tile, one chart per series key and every table. Add `presentation` to the
+group to choose the tiles and their order, a theme colour per series value, a
+Top N table and a computed ratio column, and `registerMetricUnit` for a value
+that is not a count, a size or a duration (the reference `activity` group does
+all of it: an "AI spend (estimate)" tile in US dollars and a Top 5 table of
+notification events with a failure rate). A card of the app's own, with a
+number or a chart that is not a metric group, is a dashboard panel, and the
+AI assistant can be taught a question about the app's data with an assistant
+tool; the walk-through is [Extending the platform, "Add a metric, a group and
+its UI"](../EXTENDING.md#add-a-metric-a-group-and-its-ui).
 
 **Limits.** A group adds tiles, charts and tables but no verdict reason; a
 verdict rule of the app's own is a policy (§8.5). `npm run openapi:dump` lists the new

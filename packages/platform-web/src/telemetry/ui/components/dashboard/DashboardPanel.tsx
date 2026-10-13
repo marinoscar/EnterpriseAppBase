@@ -38,12 +38,21 @@ import MoreVertIcon from '@mui/icons-material/MoreVert';
 import { telemetryErrorTitle, type TelemetryErrorInfo } from '../../../headless/hooks/useTelemetryExplorer.js';
 import { sqlList } from '../../../headless/services/telemetryDashboard.js';
 
+/**
+ * One action of a panel's header: a button with an icon.
+ *
+ * @stability experimental
+ */
 export interface PanelAction {
+  /** A stable key for the button. */
   key: string;
+  /** The accessible label. */
   label: string;
+  /** The icon. */
   icon: ReactNode;
   /** Receives the panel's SQL, primary statement first. */
   onClick: (sql: string[]) => void;
+  /** Whether the button is disabled. */
   disabled?: boolean;
 }
 
