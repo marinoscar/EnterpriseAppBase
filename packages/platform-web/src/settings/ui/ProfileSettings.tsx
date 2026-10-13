@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import type { ComponentType } from 'react';
 import {
   Alert,
   Avatar,
@@ -33,11 +34,46 @@ import { useStorageStatus } from '../headless/use-storage-status.js';
 import { ImageUpload } from './ImageUpload.js';
 
 /**
- * The profile fields a save may change.
+ * The profile fields a save may change. Beyond the core three, a field an
+ * app added with `extendUserProfile` (`timezone`): `null` deletes it.
  *
  * @stability experimental
  */
-export type ProfilePatch = Partial<UserSettingsResponseBase['profile']>;
+export type ProfilePatch = Partial<UserSettingsResponseBase['profile']> & Record<string, unknown>;
+
+/** The core profile fields; every other key of a stored profile belongs to an app's `extendUserProfile`. */
+const CORE_PROFILE_KEYS: readonly string[] = ['displayName', 'imageSource', 'imageObjectId'];
+
+/**
+ * What the `ExtraFields` slot of {@link ProfileSettings} receives: the app's
+ * own profile fields, drawn inside the card and saved with its button.
+ *
+ * @stability experimental
+ */
+export interface ProfileExtraFieldsProps {
+  /** The stored profile, the app's fields included. */
+  profile: UserSettingsResponseBase['profile'] & Record<string, unknown>;
+  /**
+   * The values to show: what is stored, with the edits not saved yet on top.
+   * Only the fields an app added (never `displayName` or the picture).
+   */
+  values: Readonly<Record<string, unknown>>;
+  /** Sets one field; `undefined`, `null` or `''` clears it (the save sends `null`). */
+  onChange: (name: string, value: unknown) => void;
+  /** Whether the card is disabled (a save or an upload is in flight). */
+  disabled: boolean;
+}
+
+/**
+ * The replaceable parts of {@link ProfileSettings}. With none, the card is
+ * exactly what it always was.
+ *
+ * @stability experimental
+ */
+export interface ProfileSettingsSlots {
+  /** Rendered under the display name (nothing by default): the fields an app added to the profile. */
+  ExtraFields?: ComponentType<ProfileExtraFieldsProps>;
+}
 
 /**
  * Props of {@link ProfileSettings}.
@@ -56,6 +92,30 @@ export interface ProfileSettingsProps {
   onSettingsReplaced?: (settings: UserSettingsResponseBase, successMessage?: string) => void;
   /** Disables every control (a save is in flight). */
   disabled?: boolean;
+  /** Part overrides. */
+  slots?: ProfileSettingsSlots;
+}
+
+/** A cleared control: nothing to store. */
+function isCleared(value: unknown): boolean {
+  return value === undefined || value === null || value === '';
+}
+
+/**
+ * The PATCH of the app's own fields: every touched field whose value differs
+ * from the stored one, `null` for a cleared one.
+ */
+function extraPatchOf(stored: Record<string, unknown>, draft: Record<string, unknown>): Record<string, unknown> {
+  const patch: Record<string, unknown> = {};
+  for (const [name, value] of Object.entries(draft)) {
+    const before = stored[name];
+    if (isCleared(value)) {
+      if (!isCleared(before)) patch[name] = null;
+    } else if (JSON.stringify(value) !== JSON.stringify(before)) {
+      patch[name] = value;
+    }
+  }
+  return patch;
 }
 
 interface SourceOption {
@@ -85,7 +145,9 @@ export function ProfileSettings({
   onSave,
   onSettingsReplaced,
   disabled = false,
+  slots,
 }: ProfileSettingsProps) {
+  const ExtraFields = slots?.ExtraFields;
   const { user, refreshUser } = useAuth();
   const baseId = useId();
   const profileImage = useProfileImageClient();
@@ -96,6 +158,14 @@ export function ProfileSettings({
   const hasUpload = Boolean(profile.imageObjectId);
 
   const [displayName, setDisplayName] = useState(profile.displayName || '');
+  // The app's own profile fields (`ExtraFields`): the stored ones, and the
+  // edits not saved yet (only the fields the user touched).
+  const storedExtras = useMemo(
+    () => Object.fromEntries(Object.entries(profile).filter(([key]) => !CORE_PROFILE_KEYS.includes(key))),
+    [profile],
+  );
+  const storedExtrasKey = JSON.stringify(storedExtras);
+  const [extraDraft, setExtraDraft] = useState<Record<string, unknown>>({});
   const [imageSource, setImageSource] = useState<ProfileImageSource>(savedSource);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -168,6 +238,11 @@ export function ProfileSettings({
     setImageSource(savedSource);
   }, [savedSource]);
 
+  // A saved (or replaced) document supersedes the edits.
+  useEffect(() => {
+    setExtraDraft({});
+  }, [storedExtrasKey]);
+
   const providerUrl = user?.providerProfileImageUrl ?? null;
   const uploadedUrl = hasUpload ? uploadPreviewUrl : null;
 
@@ -182,8 +257,11 @@ export function ProfileSettings({
   // upload endpoint sets the source itself once it succeeds.
   const awaitingUpload = imageSource === 'upload' && !hasUpload;
   const effectiveSource = awaitingUpload ? savedSource : imageSource;
+  const extraPatch = extraPatchOf(storedExtras, extraDraft);
   const hasChanges =
-    displayName !== (profile.displayName || '') || effectiveSource !== savedSource;
+    displayName !== (profile.displayName || '') ||
+    effectiveSource !== savedSource ||
+    Object.keys(extraPatch).length > 0;
 
   const isBusy = isSaving || isUploading || isRemoving;
   const controlsDisabled = disabled || isBusy;
@@ -230,7 +308,7 @@ export function ProfileSettings({
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      const patch: ProfilePatch = { displayName: displayName || undefined };
+      const patch: ProfilePatch = { displayName: displayName || undefined, ...extraPatch };
       if (effectiveSource !== savedSource) {
         patch.imageSource = effectiveSource;
       }
@@ -440,6 +518,15 @@ export function ProfileSettings({
             disabled={disabled}
             fullWidth
           />
+
+          {ExtraFields && (
+            <ExtraFields
+              profile={profile as ProfileExtraFieldsProps['profile']}
+              values={{ ...storedExtras, ...extraDraft }}
+              onChange={(name, value) => setExtraDraft((draft) => ({ ...draft, [name]: value }))}
+              disabled={controlsDisabled}
+            />
+          )}
 
           {/* Email (read-only) */}
           <TextField

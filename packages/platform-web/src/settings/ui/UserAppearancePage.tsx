@@ -17,13 +17,29 @@
  * (#95) and the page's own `h1` all name the page identically.
  */
 
+import { themePreferenceOptions } from '../headless/theme-options.js';
 import { ThemeSettings } from './ThemeSettings.js';
+import type { ThemeSettingsSlots } from './ThemeSettings.js';
 import { UserSettingsSection } from './UserSettingsSection.js';
 
 /**
- * Settings, Appearance (`/settings/appearance`): light, dark or system. The
- * stored preference reaches the app's theme through the host's `applyTheme`.
+ * Props of {@link UserAppearancePage}.
  *
+ * @stability experimental
+ */
+export interface UserAppearancePageProps {
+  /** Part overrides of the theme card (`ExtraFields`). */
+  slots?: ThemeSettingsSlots;
+}
+
+/**
+ * Settings, Appearance (`/settings/appearance`): light, dark or system, and
+ * any theme an app registered with `registerThemePreference` (listed in the
+ * settings document's `themeOptions`). The stored preference reaches the app's
+ * theme through the host's `applyTheme` (light, dark and system; an app applies
+ * a theme it registered itself).
+ *
+ * @param props - see {@link UserAppearancePageProps}.
  * @returns the page.
  *
  * @example
@@ -34,7 +50,7 @@ import { UserSettingsSection } from './UserSettingsSection.js';
  * @extensionPoint component
  * @stability experimental
  */
-export function UserAppearancePage() {
+export function UserAppearancePage({ slots }: UserAppearancePageProps = {}) {
   return (
     <UserSettingsSection
       title="Appearance"
@@ -54,6 +70,8 @@ export function UserAppearancePage() {
             );
           }}
           disabled={isSaving}
+          extraOptions={themePreferenceOptions(settings)}
+          slots={slots}
         />
       )}
     </UserSettingsSection>

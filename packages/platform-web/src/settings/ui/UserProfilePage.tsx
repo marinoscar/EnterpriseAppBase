@@ -14,13 +14,26 @@
  */
 
 import { ProfileSettings } from './ProfileSettings.js';
+import type { ProfileSettingsSlots } from './ProfileSettings.js';
 import { UserSettingsSection } from './UserSettingsSection.js';
 
 /**
- * Settings, Profile (`/settings/profile`): the display name and the profile
- * picture. Every user edits their own; the API grants it to all roles, so the
- * page carries no permission gate.
+ * Props of {@link UserProfilePage}.
  *
+ * @stability experimental
+ */
+export interface UserProfilePageProps {
+  /** Part overrides of the profile card (`ExtraFields`). */
+  slots?: ProfileSettingsSlots;
+}
+
+/**
+ * Settings, Profile (`/settings/profile`): the display name and the profile
+ * picture, and the fields an app added with `extendUserProfile` when it passes
+ * the `ExtraFields` slot. Every user edits their own; the API grants it to all
+ * roles, so the page carries no permission gate.
+ *
+ * @param props - see {@link UserProfilePageProps}.
  * @returns the page.
  *
  * @example
@@ -31,7 +44,7 @@ import { UserSettingsSection } from './UserSettingsSection.js';
  * @extensionPoint component
  * @stability experimental
  */
-export function UserProfilePage() {
+export function UserProfilePage({ slots }: UserProfilePageProps = {}) {
   return (
     <UserSettingsSection
       title="Profile"
@@ -51,6 +64,7 @@ export function UserProfilePage() {
           // keeps the stored `version` current for the next PATCH.
           onSettingsReplaced={replaceSettings}
           disabled={isSaving}
+          slots={slots}
         />
       )}
     </UserSettingsSection>
