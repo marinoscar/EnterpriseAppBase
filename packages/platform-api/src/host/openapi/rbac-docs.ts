@@ -63,6 +63,7 @@ export function describeRequirements(operation: DocOperation): string | null {
   const clauses: string[] = [];
   const roles = rbac.roles ?? [];
   const permissions = rbac.permissions ?? [];
+  const anyPermissions = rbac.anyPermissions ?? [];
 
   if (roles.length === 1) {
     clauses.push(`system role ${code(roles[0])}`);
@@ -76,6 +77,15 @@ export function describeRequirements(operation: DocOperation): string | null {
     // The guard requires ALL of them, so join with "and" rather than a bare
     // comma list that reads as alternatives.
     clauses.push(`permissions ${permissions.map(code).join(' and ')}`);
+  }
+
+  if (anyPermissions.length === 1) {
+    clauses.push(`permission ${code(anyPermissions[0])}`);
+  } else if (anyPermissions.length > 1) {
+    // `anyPermissions`: the guard admits a holder of AT LEAST ONE (a route two
+    // scopes reach, such as `users:read` for system roles and
+    // `org_members:read` for org roles).
+    clauses.push(`at least one of the permissions ${anyPermissions.map(code).join(' or ')}`);
   }
 
   if (clauses.length === 0) {

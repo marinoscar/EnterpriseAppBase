@@ -1,6 +1,13 @@
 // The app's own sign-in providers (PP-14.9), registered at import time: the
 // registry freezes once the application has bootstrapped.
 import '../../app-registrations/identity';
+// The roles, permissions and grants this app registers (PP-14.15). The invite,
+// member and user-role routes ask the role registry what may be assigned, so
+// it must be filled before the first request; it is filled once, here, as
+// `prisma.service.ts` fills the ownership registries. A process that did not
+// import it knows only the platform's four roles and refuses every other
+// (fail closed).
+import '../../common/permissions/permission.manifest';
 
 import { IdentityModule } from '@marinoscar/platform-api/identity';
 

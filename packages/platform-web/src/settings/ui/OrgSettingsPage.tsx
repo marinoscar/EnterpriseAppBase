@@ -38,6 +38,7 @@ import type { OrgSettingsField, OrgSettingsNamespace } from '@marinoscar/platfor
 import { PageSlotsFrame } from '../../core/index.js';
 import type { PageSlotsBase } from '../../core/index.js';
 import { useAuth, usePermissions } from '../../identity/index.js';
+import { orgSettingsFieldRenderer } from '../headless/org-field-renderers.js';
 import { useOrgSettings } from '../headless/use-org-settings.js';
 
 /** The page title (the card's title). */
@@ -46,12 +47,14 @@ const ORG_SETTINGS_TITLE = 'Organization settings';
 type Draft = Record<string, unknown>;
 
 function FieldControl({
+  namespace,
   field,
   value,
   inherited,
   disabled,
   onChange,
 }: {
+  namespace: string;
   field: OrgSettingsField;
   value: unknown;
   inherited: unknown;
@@ -112,12 +115,28 @@ function FieldControl({
           sx={{ minWidth: 280 }}
         />
       );
-    default:
+    default: {
+      // An app that added this field to an org layer draws it itself
+      // (`registerOrgSettingsFieldRenderer`); otherwise the note below.
+      const Renderer = orgSettingsFieldRenderer(namespace, field.name);
+      if (Renderer) {
+        return (
+          <Renderer
+            namespace={namespace}
+            field={field}
+            value={value}
+            inherited={inherited}
+            disabled={disabled}
+            onChange={onChange}
+          />
+        );
+      }
       return (
         <Typography variant="body2" color="text.secondary">
           {label}: managed by the {"slice's"} own settings page.
         </Typography>
       );
+    }
   }
 }
 
@@ -157,6 +176,7 @@ function NamespaceCard({
           {namespace.fields.map((field) => (
             <Box key={field.name}>
               <FieldControl
+                namespace={namespace.key}
                 field={field}
                 value={field.name in draft ? draft[field.name] : stored?.[field.name]}
                 inherited={effective?.[field.name]}

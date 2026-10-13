@@ -14,9 +14,9 @@ export type {
   PluggableFieldRenderContext,
 } from './PluggableConfigForm.js';
 export { ProfileSettings } from './ProfileSettings.js';
-export type { ProfilePatch, ProfileSettingsProps } from './ProfileSettings.js';
+export type { ProfileExtraFieldsProps, ProfilePatch, ProfileSettingsProps, ProfileSettingsSlots } from './ProfileSettings.js';
 export { ThemeSettings } from './ThemeSettings.js';
-export type { ThemeSettingsProps } from './ThemeSettings.js';
+export type { ThemeExtraFieldsProps, ThemeSettingsProps, ThemeSettingsSlots } from './ThemeSettings.js';
 export { UserAppearancePage } from './UserAppearancePage.js';
 export type { UserAppearancePageProps, UserAppearancePageSlots } from './UserAppearancePage.js';
 export { UserProfilePage } from './UserProfilePage.js';

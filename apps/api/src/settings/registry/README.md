@@ -24,7 +24,7 @@ Spec: [platform-packages.md](../../../../../docs/specs/platform-packages.md),
 
 | File | What it holds |
 |---|---|
-| `system-settings.manifest.ts`, `user-settings.manifest.ts` | The explicit lists: platform declarations in today's key order, then the app file |
+| `system-settings.manifest.ts`, `user-settings.manifest.ts` | The explicit lists: platform declarations in today's key order, then the contributions' (`app-registrations/settings-contributions.ts`), then the app file; extensions and defaults overrides applied |
 | `composed.ts` | Imports the manifests and builds every composed object once, at module load (the stored schemas, the request bodies, the responses, the defaults) |
 | `settings-catalog.ts` | The seed catalog's path (`prisma/catalog/system-settings-defaults.json`) and its staleness message, over the package's render and check |
 | `registry.spec.ts`, `no-cycles.spec.ts` | The registries over this app's namespaces; the import-cycle guard |
@@ -159,6 +159,20 @@ extension's `defaults` join the namespace's, and a base `read` keeps salvaging
 the base fields. An extension may only add fields, and names an existing
 namespace or the import fails. The added fields are not part of the platform's
 value type: read them through the app's own zod type.
+
+An extension can also name a dot `path` into a nested object
+(`{ key: 'telemetry', path: 'query', ... }` adds a field inside
+`telemetry.query`), carry an `org` block that makes the added fields
+organization-overridable (`override`, or `tighten` with a tightener per field),
+and the app can change a namespace's defaults with
+`APP_SYSTEM_SETTINGS_DEFAULT_OVERRIDES`. A package's namespaces and extensions
+arrive through `app-registrations/settings-contributions.ts`. The manifests
+call `assembleSystemSettingsNamespaces` / `assembleUserSettingsNamespaces`,
+which list the platform's namespaces, then the contributions' (import order),
+then the app's, fold the extensions and apply the defaults overrides. The
+contract, the security rules and the worked examples:
+[settings README](../../../../../packages/platform-api/src/settings/README.md#extending-a-namespace),
+[docs/EXTENDING.md](../../../../../docs/EXTENDING.md#extend-a-settings-namespace).
 
 ## Testing with a namespace
 

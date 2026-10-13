@@ -6,12 +6,17 @@ import { describe, expect, it } from 'vitest';
 import {
   DATA_TABLE_MAX_PAGE_SIZE,
   PROFILE_IMAGE_SOURCES,
+  THEME_OPTION_LABEL_MAX,
+  THEME_PREFERENCE_ID_PATTERN,
   THEME_PREFERENCES,
   dataTablesPatchSchema,
   dataTablesSchema,
   navigationPatchSchema,
   orgSettingsResponseSchema,
   patchOrgSettingsSchema,
+  themeOptionSchema,
+  themePreferenceIdSchema,
+  themePreferenceSchema,
   userProfileSettingsSchema,
 } from '../src/settings/index.js';
 
@@ -50,5 +55,23 @@ describe('settings contract', () => {
       updatedAt: null,
     });
     expect(parsed.namespaces[0]?.fields[0]?.kind).toBe('boolean');
+  });
+});
+
+describe('theme preference ids an app registers (PP-14.21)', () => {
+  it('keeps the built-in enum closed and accepts any id of the pattern in the id schema', () => {
+    expect(themePreferenceSchema.safeParse('high-contrast').success).toBe(false);
+    expect(themePreferenceIdSchema.safeParse('high-contrast').success).toBe(true);
+    for (const builtin of THEME_PREFERENCES) expect(THEME_PREFERENCE_ID_PATTERN.test(builtin)).toBe(true);
+    for (const bad of ['', 'a', 'High', '1abc', 'has space', 'x'.repeat(49)]) {
+      expect(themePreferenceIdSchema.safeParse(bad).success).toBe(false);
+    }
+  });
+
+  it('describes one registered theme as an id and a bounded label', () => {
+    expect(themeOptionSchema.parse({ id: 'sepia', label: 'Sepia' })).toEqual({ id: 'sepia', label: 'Sepia' });
+    expect(themeOptionSchema.safeParse({ id: 'sepia', label: '' }).success).toBe(false);
+    expect(themeOptionSchema.safeParse({ id: 'sepia', label: 'x'.repeat(THEME_OPTION_LABEL_MAX + 1) }).success).toBe(false);
+    expect(themeOptionSchema.safeParse({ id: 'Sepia', label: 'Sepia' }).success).toBe(false);
   });
 });

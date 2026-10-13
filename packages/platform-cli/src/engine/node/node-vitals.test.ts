@@ -13,6 +13,7 @@ import {
   NodeVitalsProvider,
   clampInt,
   clampNumber,
+  sanitizeExtraVitals,
   sanitizeVersion,
   type EngineVitalsInput,
   type VitalsSources,
@@ -264,5 +265,46 @@ describe('NodeVitalsProvider', () => {
       vitals.stop();
       vitals.stop(); // idempotent
     }
+  });
+});
+
+describe('sanitizeExtraVitals (PP-14.19)', () => {
+  it('keeps a bounded record of well-keyed finite numbers', () => {
+    expect(sanitizeExtraVitals({ 'transcode.fps': 29.97, temperature_c: -4, queue: 0 })).toEqual({
+      'transcode.fps': 29.97,
+      temperature_c: -4,
+      queue: 0,
+    });
+  });
+
+  it('drops a key outside the server pattern and a value that is not a finite number', () => {
+    expect(
+      sanitizeExtraVitals({ 'Bad Key': 1, x: 1, '1abc': 2, 'has-dash': 3, ok_key: 4, text: 'x', nan: NaN, inf: Infinity, nul: null, obj: { a: 1 } }),
+    ).toEqual({ ok_key: 4 });
+  });
+
+  it('clamps past the ceiling in either direction instead of dropping', () => {
+    expect(sanitizeExtraVitals({ big: 1e30, small: -1e30 })).toEqual({ big: 1e15, small: -1e15 });
+  });
+
+  it('keeps at most 16 keys', () => {
+    const many = Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`vital_${String(i).padStart(2, '0')}`, i]));
+    const out = sanitizeExtraVitals(many)!;
+
+    expect(Object.keys(out)).toHaveLength(16);
+    expect(Object.keys(out)[15]).toBe('vital_15');
+  });
+
+  it('is undefined for nothing, for a non-object and for an object with nothing valid', () => {
+    for (const raw of [undefined, null, 5, 'x', [], [1, 2], {}, { 'Bad Key': 1 }]) expect(sanitizeExtraVitals(raw)).toBeUndefined();
+  });
+
+  it('never lets a prototype key through, and never throws on a hostile object', () => {
+    const hostile = JSON.parse('{"__proto__": 1, "constructor": 2, "ok_key": 3}') as Record<string, unknown>;
+    expect(sanitizeExtraVitals(hostile)).toEqual({ constructor: 2, ok_key: 3 });
+    expect(({} as Record<string, unknown>)['ok_key']).toBeUndefined();
+
+    const throwing = new Proxy({}, { ownKeys: () => { throw new Error('boom'); } });
+    expect(sanitizeExtraVitals(throwing)).toBeUndefined();
   });
 });

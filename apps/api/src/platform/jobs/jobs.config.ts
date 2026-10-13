@@ -18,10 +18,18 @@
 import '../../settings/registry';
 
 import { APP_NAME } from '@app/shared';
-import { JobsModule as PlatformJobsModule } from '@marinoscar/platform-api/jobs';
-import { NodesModule as PlatformNodesModule } from '@marinoscar/platform-api/nodes';
+import { JobsModule as PlatformJobsModule, registerJobReason } from '@marinoscar/platform-api/jobs';
+import { NodesModule as PlatformNodesModule, registerNodeSpanAttribute } from '@marinoscar/platform-api/nodes';
 
+import { APP_JOB_REASONS, APP_NODE_SPAN_ATTRIBUTES } from '../../app-registrations/jobs';
 import { JobsHostModule } from './jobs-host.module';
+
+// The app's own job reasons and relayed span attributes (PP-14.19): registered
+// at import time, before the application bootstraps. (Its retention policies
+// are registered by the settings manifest, which composes the `retention`
+// namespace from them.) Upstream's arrays are empty.
+for (const reason of APP_JOB_REASONS) registerJobReason(reason);
+for (const attribute of APP_NODE_SPAN_ATTRIBUTES) registerNodeSpanAttribute(attribute);
 
 /** The queue: `JobsModule.forRoot()` with the app's name (the temp-file prefix) and its host ports. */
 export const JobsModule = PlatformJobsModule.forRoot({ appName: APP_NAME, imports: [JobsHostModule] });

@@ -98,19 +98,74 @@ export const TENANCY_MODES = ['single', 'multi'] as const;
 export type TenancyModeValue = (typeof TENANCY_MODES)[number];
 
 /**
- * The org roles an organization administrator can hand out, on a membership or
- * an invitation. `admin` is a SYSTEM role and is never assignable here.
+ * The org roles the platform ships and an organization administrator can hand
+ * out by default, highest first. A built-in list, no longer the set of
+ * assignable roles: an app or package registers more, and the API reports what
+ * a caller may assign at `GET /api/roles?scope=org`. `admin` is a SYSTEM role
+ * and is never assignable on a membership or an invitation.
  *
  * @stability stable
  */
-export const ASSIGNABLE_ORG_ROLES = ['org_admin', 'contributor', 'viewer'] as const;
+export const BUILTIN_ORG_ROLES = ['org_admin', 'contributor', 'viewer'] as const;
 
 /**
- * One assignable org role: a member of {@link ASSIGNABLE_ORG_ROLES}.
+ * The org roles an organization administrator can hand out, on a membership or
+ * an invitation.
+ *
+ * @deprecated Renamed {@link BUILTIN_ORG_ROLES}: the assignable set is open now
+ *   (read it from `GET /api/roles?scope=org`). Kept as an alias for one release.
+ * @stability stable
+ */
+export const ASSIGNABLE_ORG_ROLES = BUILTIN_ORG_ROLES;
+
+/**
+ * One built-in org role: a member of {@link BUILTIN_ORG_ROLES}.
  *
  * @stability stable
  */
-export type AssignableOrgRole = (typeof ASSIGNABLE_ORG_ROLES)[number];
+export type BuiltinOrgRole = (typeof BUILTIN_ORG_ROLES)[number];
+
+/**
+ * An org role id on the wire: a built-in one (autocompleted) or any string an
+ * app or package registered. The API checks it against the role registry and
+ * answers 400 (`code: ROLE_NOT_ASSIGNABLE`) for an unknown or
+ * non-assignable role.
+ *
+ * @stability stable
+ */
+export type AssignableOrgRole = BuiltinOrgRole | (string & {});
+
+/**
+ * The shape of a role id: lower-case letters, digits, `_` and `-`, starting
+ * with a letter, 1 to 64 characters. Every built-in id matches, and so does an
+ * app's `coach`.
+ *
+ * @stability experimental
+ */
+export const ROLE_ID_PATTERN: RegExp = /^[a-z][a-z0-9_-]{0,63}$/;
+
+/**
+ * The two scopes of a role: `system` (held in `user_roles`, operates the
+ * deployment) and `org` (held on a membership, operates one organization).
+ *
+ * @stability experimental
+ */
+export const ROLE_SCOPES = ['system', 'org'] as const;
+
+/**
+ * One role scope: a member of {@link ROLE_SCOPES}.
+ *
+ * @stability experimental
+ */
+export type RoleScopeValue = (typeof ROLE_SCOPES)[number];
+
+/**
+ * The error `code` (and `details.reason`) of the 400 the API answers when a
+ * role is unknown, of the wrong scope, or registered as not assignable.
+ *
+ * @stability experimental
+ */
+export const ROLE_NOT_ASSIGNABLE_REASON = 'ROLE_NOT_ASSIGNABLE';
 
 /**
  * An organization slug: 2 to 63 lower-case letters, digits or hyphens,

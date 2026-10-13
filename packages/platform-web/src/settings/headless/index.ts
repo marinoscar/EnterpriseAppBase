@@ -28,6 +28,9 @@ export type {
   UsePluggableConfigFormResult,
 } from './use-pluggable-config-form.js';
 export { useOrgSettings } from './use-org-settings.js';
+export { orgSettingsFieldRenderer, registerOrgSettingsFieldRenderer } from './org-field-renderers.js';
+export type { OrgSettingsFieldRendererProps } from './org-field-renderers.js';
+export { themePreferenceOptions, useThemePreferenceOptions } from './theme-options.js';
 export type { UseOrgSettingsResult } from './use-org-settings.js';
 
 // ---- `SettingsFeatureRegistry`: an augmentation target, declared here, never re-exported (#865) ----

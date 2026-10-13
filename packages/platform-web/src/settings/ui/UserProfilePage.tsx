@@ -15,12 +15,14 @@
 
 import type { PageSlotsBase } from '../../core/index.js';
 import { ProfileSettings } from './ProfileSettings.js';
+import type { ProfileSettingsSlots } from './ProfileSettings.js';
 import { UserSettingsSection } from './UserSettingsSection.js';
 
 /**
- * The slots of {@link UserProfilePage}: the page-slot contract. `Sections`
- * is where an app adds a section of its own (a public handle, a timezone)
- * above or below the profile card.
+ * The slots of {@link UserProfilePage}: the page-slot contract, and the profile
+ * card's own part overrides ({@link ProfileSettingsSlots}: `ExtraFields`, the
+ * fields an app added with `extendUserProfile`). `Sections` is where an app
+ * adds a section of its own (a public handle) above or below the profile card.
  *
  * @example
  * ```tsx
@@ -30,23 +32,25 @@ import { UserSettingsSection } from './UserSettingsSection.js';
  * @extensionPoint slot
  * @stability experimental
  */
-export type UserProfilePageSlots = PageSlotsBase;
+export interface UserProfilePageSlots extends PageSlotsBase, ProfileSettingsSlots {}
 
 /**
- * The props of {@link UserProfilePage}.
+ * Props of {@link UserProfilePage}.
  *
  * @stability experimental
  */
 export interface UserProfilePageProps {
-  /** Optional extension slots; omitted, the page renders exactly as it always did. */
+  /** The page-slot contract's slots and the profile card's part overrides (`ExtraFields`). */
   slots?: UserProfilePageSlots;
 }
 
 /**
  * Settings, Profile (`/settings/profile`): the display name and the profile
- * picture. Every user edits their own; the API grants it to all roles, so the
- * page carries no permission gate.
+ * picture, and the fields an app added with `extendUserProfile` when it passes
+ * the `ExtraFields` slot. Every user edits their own; the API grants it to all
+ * roles, so the page carries no permission gate.
  *
+ * @param props - see {@link UserProfilePageProps}.
  * @returns the page.
  *
  * @example
@@ -57,10 +61,10 @@ export interface UserProfilePageProps {
  * @extensionPoint component
  * @stability experimental
  */
-export function UserProfilePage(props: UserProfilePageProps = {}) {
+export function UserProfilePage({ slots }: UserProfilePageProps = {}) {
   return (
     <UserSettingsSection
-      slots={props.slots}
+      slots={slots}
       title="Profile"
       description="Your display name and profile image, and the email you signed in with."
     >
@@ -78,6 +82,7 @@ export function UserProfilePage(props: UserProfilePageProps = {}) {
           // keeps the stored `version` current for the next PATCH.
           onSettingsReplaced={replaceSettings}
           disabled={isSaving}
+          slots={slots}
         />
       )}
     </UserSettingsSection>

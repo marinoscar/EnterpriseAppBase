@@ -23,7 +23,6 @@
 import { z } from 'zod';
 
 import {
-  ASSIGNABLE_ORG_ROLES,
   AUTH_ERROR_CODES,
   DEVICE_SESSION_STATUSES,
   DEVICE_TOKEN_ERROR_CODES,
@@ -34,6 +33,8 @@ import {
   ORG_SLUG_PATTERN,
   PAT_DURATION_UNITS,
   PAT_LIMITS,
+  ROLE_ID_PATTERN,
+  ROLE_SCOPES,
   TENANCY_MODES,
 } from './constants.js';
 
@@ -57,11 +58,21 @@ export type AuthErrorCodeEnum = { [K in (typeof AUTH_ERROR_CODES)[number]]: K };
 export type TenancyModeEnum = { [K in (typeof TENANCY_MODES)[number]]: K };
 
 /**
- * The entries of an assignable-org-role enum: each role keyed by itself.
+ * The entries of a role-scope enum: each scope keyed by itself.
  *
+ * @stability experimental
+ */
+export type RoleScopeEnum = { [K in (typeof ROLE_SCOPES)[number]]: K };
+
+/**
+ * The entries of the former assignable-org-role enum: each built-in role keyed
+ * by itself.
+ *
+ * @deprecated The assignable set is open ({@link roleIdSchema}); this type only
+ *   names the built-in entries. Kept for one release.
  * @stability stable
  */
-export type AssignableOrgRoleEnum = { [K in (typeof ASSIGNABLE_ORG_ROLES)[number]]: K };
+export type AssignableOrgRoleEnum = { [K in 'org_admin' | 'contributor' | 'viewer']: K };
 
 /**
  * The entries of a personal-access-token duration-unit enum.
@@ -122,7 +133,7 @@ export type OrgInviteStatusFilterEnum = { [K in 'all' | (typeof ORG_INVITE_STATU
 // Factories, not shared instances: every field gets its own enum, exactly as
 // when each was written inline (the generated OpenAPI document is unchanged).
 const tenancyModeSchema = (): z.ZodEnum<TenancyModeEnum> => z.enum(TENANCY_MODES);
-const assignableOrgRoleSchema = (): z.ZodEnum<AssignableOrgRoleEnum> => z.enum(ASSIGNABLE_ORG_ROLES);
+const roleScopeSchema = (): z.ZodEnum<RoleScopeEnum> => z.enum(ROLE_SCOPES);
 const patDurationUnitSchema = (): z.ZodEnum<PatDurationUnitEnum> => z.enum(PAT_DURATION_UNITS);
 const deviceSessionStatusSchema = (): z.ZodEnum<DeviceSessionStatusEnum> => z.enum(DEVICE_SESSION_STATUSES);
 const deviceTokenErrorCodeSchema = (): z.ZodEnum<DeviceTokenErrorCodeEnum> => z.enum(DEVICE_TOKEN_ERROR_CODES);
@@ -635,6 +646,57 @@ export const organizationResponseSchema = z.object({
 });
 
 /**
+ * A role id on the wire: lower-case letters, digits, `_` and `-`, starting with
+ * a letter ({@link ROLE_ID_PATTERN}). Only the SHAPE is checked here; whether
+ * the role exists, has the right scope and may be assigned is decided by the
+ * API against the role registry (a 400 whose `details.reason` is
+ * `ROLE_NOT_ASSIGNABLE`).
+ *
+ * @stability experimental
+ */
+export const roleIdSchema = z
+  .string()
+  .regex(ROLE_ID_PATTERN, 'A role id is lower-case letters, digits, "_" and "-", starting with a letter')
+  .describe('A role id (for example `viewer` or an app role such as `coach`).');
+
+/**
+ * `GET /api/roles` query: the scope to list. Without it the API lists every
+ * scope the caller may read (`users:read` for `system`, `org_members:read`
+ * for `org`).
+ *
+ * @stability experimental
+ */
+export const roleListQuerySchema = z.object({
+  /** `system` or `org`. */
+  scope: roleScopeSchema().optional().describe('Only roles of this scope. Omit for every scope the caller may read.'),
+});
+
+/**
+ * One role as `GET /api/roles` describes it.
+ *
+ * @stability experimental
+ */
+export const roleDescriptorSchema = z.object({
+  /** The role id (`roles.name`). */
+  id: roleIdSchema,
+  /** A short display name. */
+  label: z.string(),
+  /** What the role is for. */
+  description: z.string(),
+  /** `system` (held in `user_roles`) or `org` (held on a membership). */
+  scope: roleScopeSchema(),
+  /** Whether a caller may assign it through the invite, member and user-role routes. */
+  assignable: z.boolean(),
+});
+
+/**
+ * `GET /api/roles` response data: the roles, in registration order.
+ *
+ * @stability experimental
+ */
+export const roleListResponseSchema = z.array(roleDescriptorSchema);
+
+/**
  * `GET /api/org/members` query: paging, a search and a status filter.
  *
  * @stability stable
@@ -658,7 +720,7 @@ export const orgMemberListQuerySchema = z.object({
 export const updateOrgMemberSchema = z
   .object({
     /** The new org role. */
-    roleName: assignableOrgRoleSchema().optional(),
+    roleName: roleIdSchema.optional(),
     /** The new status. */
     status: orgMemberStatusSchema().optional(),
   })
@@ -718,7 +780,7 @@ export const createOrgInviteSchema = z
       .email('Invalid email format')
       .transform((email) => email.toLowerCase()),
     /** The org role the invitee gets on accepting. */
-    roleName: assignableOrgRoleSchema(),
+    roleName: roleIdSchema,
     /** An optional note, up to 500 characters. */
     notes: z.string().max(500, 'Notes must be 500 characters or less').optional(),
   })
@@ -913,6 +975,18 @@ export type OrganizationResponse = z.infer<typeof organizationResponseSchema>;
  * @stability stable
  */
 export type OrgMemberListQuery = z.infer<typeof orgMemberListQuerySchema>;
+/**
+ * `GET /api/roles` query, as parsed.
+ *
+ * @stability experimental
+ */
+export type RoleListQuery = z.infer<typeof roleListQuerySchema>;
+/**
+ * One role as `GET /api/roles` describes it.
+ *
+ * @stability experimental
+ */
+export type RoleDescriptor = z.infer<typeof roleDescriptorSchema>;
 /**
  * `PATCH /api/org/members/:userId` body.
  *

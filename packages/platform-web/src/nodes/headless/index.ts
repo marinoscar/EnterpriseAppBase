@@ -27,6 +27,10 @@ export type {
   WorkerNode,
 } from './types.js';
 export { formatDateTime, formatDuration, shortId } from './format.js';
+export { formatNodeVital, nodeVitalFor, nodeVitalRows, registerNodeVital, registeredNodeVitals } from './node-vitals.js';
+export type { NodeVitalDef, NodeVitalRow, NodeVitalUnit } from './node-vitals.js';
+export { MAX_CAPABILITY_TEXT_LENGTH, MAX_LISTED_CAPABILITIES, nodeCapabilityItems } from './capabilities.js';
+export type { NodeCapabilityItem } from './capabilities.js';
 export { NodesWebAdaptersProvider, useNodesApi, useNodesWebAdapters } from './adapters.js';
 export type { NodesSpinnerProps, NodesWebAdapters } from './adapters.js';
 export type {

@@ -79,4 +79,20 @@ describe('useSystemSettings and useUserSettings', () => {
     await waitFor(() => expect(result.current.settings).not.toBeNull());
     expect(applyTheme).not.toHaveBeenCalled();
   });
+
+  it('applies only light, dark and system: a theme an app registered is the app\'s to apply', async () => {
+    const host = createTestPlatformHost({
+      responses: {
+        'GET /user-settings': { theme: 'high-contrast', themeOptions: [{ id: 'high-contrast', label: 'High contrast' }], profile: { imageSource: 'none', imageObjectId: null }, version: 1, updatedAt: '' },
+        'PATCH /user-settings': { theme: 'dark', profile: { imageSource: 'none', imageObjectId: null }, version: 2, updatedAt: '' },
+      },
+    });
+    const applyTheme = vi.fn();
+    const { result } = renderHook(() => useUserSettings({ api: host.api, applyTheme }));
+    await waitFor(() => expect(result.current.settings?.theme).toBe('high-contrast'));
+    expect(applyTheme).not.toHaveBeenCalled();
+    await act(() => result.current.updateTheme('sepia'));
+    expect(applyTheme).not.toHaveBeenCalled();
+    expect(host.requests.at(-1)).toMatchObject({ method: 'PATCH', body: { theme: 'sepia' } });
+  });
 });

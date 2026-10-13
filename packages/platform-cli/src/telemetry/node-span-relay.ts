@@ -1,4 +1,4 @@
-import type { NodeSpan, NodeSpanAttributes, NodeSpanName, NodeSpanSink } from './node-span.js';
+import { isNodeSpanName, type NodeSpan, type NodeSpanAttributes, type NodeSpanName, type NodeSpanSink } from './node-span.js';
 
 // =============================================================================
 // Job phase spans, recorded here and relayed to the server  (issue #608)
@@ -32,10 +32,17 @@ import type { NodeSpan, NodeSpanAttributes, NodeSpanName, NodeSpanSink } from '.
 // carry paths, hosts and signed URLs; the server would refuse them anyway,
 // and this side does not offer.
 //
-// ⚠ INTEGER-ONLY, ALLOWLISTED ATTRIBUTES. `bytes`, `attempt`, `exitCode` and
-// `httpStatus`, each range-checked (`cleanAttributes`); anything else, and
-// any value the server would refuse, is dropped before it is queued. There is
-// no string attribute, so no URL, path or credential can ride along in one.
+// ⚠ BOUNDED, ALLOWLISTED ATTRIBUTES. `bytes`, `attempt`, `exitCode` and
+// `httpStatus`, each range-checked, plus an executor's own attributes: a
+// non-negative integer or a short TOKEN-SHAPED string under a key of the
+// server's key shape, at most 16 in all (`cleanAttributes`). Anything else, and
+// any value the server would refuse, is dropped before it is queued. A string
+// cannot hold a space, slash, colon or quote, so no URL, path, message or
+// credential rides along in one.
+//
+// ⚠ AN EXECUTOR'S SPAN NAME is `job.app.<name>` or it is dropped here
+// (`isNodeSpanName`): a malformed name is never queued, so it cannot cost the
+// rest of a batch even on an older server that refuses the whole body.
 // =============================================================================
 
 /**
@@ -112,15 +119,36 @@ export function errorTypeOf(error: unknown): string {
   }
 }
 
-/** Keeps only safe, non-negative-where-required integers the server will take. */
+/** Mirrors the server's `NODE_SPAN_ATTRIBUTE_KEY_PATTERN`. */
+const APP_ATTRIBUTE_KEY_PATTERN = /^[a-z][A-Za-z0-9]{1,31}$/;
+/** Mirrors the server's `NODE_SPAN_ATTRIBUTE_STRING_PATTERN` and its 128-character ceiling. */
+const APP_ATTRIBUTE_STRING_PATTERN = /^[A-Za-z0-9_.+-]{1,128}$/;
+/** Mirrors the server's `MAX_NODE_SPAN_ATTRIBUTES`. */
+const MAX_ATTRIBUTES = 16;
+const BUILTIN_ATTRIBUTE_KEYS = ['bytes', 'attempt', 'exitCode', 'httpStatus'];
+
+/**
+ * Keeps only what the server will take: the four built-in integers in range,
+ * and app attributes under a valid key as a non-negative safe integer or a
+ * token-shaped string, at most 16 in all. Never throws.
+ */
 function cleanAttributes(attributes: NodeSpanAttributes | undefined): NodeSpanAttributes | undefined {
-  if (attributes === undefined) return undefined;
+  if (attributes === undefined || attributes === null || typeof attributes !== 'object') return undefined;
   const out: NodeSpanAttributes = {};
   const { bytes, attempt, exitCode, httpStatus } = attributes;
-  if (Number.isSafeInteger(bytes) && (bytes as number) >= 0) out.bytes = bytes;
-  if (Number.isSafeInteger(attempt) && (attempt as number) >= 0 && (attempt as number) <= 10_000) out.attempt = attempt;
-  if (Number.isSafeInteger(exitCode) && Math.abs(exitCode as number) <= 1024) out.exitCode = exitCode;
-  if (Number.isSafeInteger(httpStatus) && (httpStatus as number) >= 100 && (httpStatus as number) <= 599) out.httpStatus = httpStatus;
+  if (Number.isSafeInteger(bytes) && (bytes as number) >= 0) out.bytes = bytes as number;
+  if (Number.isSafeInteger(attempt) && (attempt as number) >= 0 && (attempt as number) <= 10_000) out.attempt = attempt as number;
+  if (Number.isSafeInteger(exitCode) && Math.abs(exitCode as number) <= 1024) out.exitCode = exitCode as number;
+  if (Number.isSafeInteger(httpStatus) && (httpStatus as number) >= 100 && (httpStatus as number) <= 599) out.httpStatus = httpStatus as number;
+
+  for (const key of Object.keys(attributes)) {
+    if (Object.keys(out).length >= MAX_ATTRIBUTES) break;
+    if (BUILTIN_ATTRIBUTE_KEYS.includes(key) || !APP_ATTRIBUTE_KEY_PATTERN.test(key)) continue;
+    const value = attributes[key];
+    if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) out[key] = value;
+    else if (typeof value === 'string' && APP_ATTRIBUTE_STRING_PATTERN.test(value)) out[key] = value;
+  }
+
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
@@ -179,6 +207,8 @@ export class JobSpanRecorder {
     attributes?: NodeSpanAttributes,
   ): void {
     try {
+      // A name the server would not take is never queued (see the header).
+      if (!isNodeSpanName(name)) return;
       const durationMs = Math.min(MAX_DURATION_MS, Math.max(0, Math.round(this.now() - startTimeUnixMs)));
       const clean = cleanAttributes(attributes);
       this.spans.push({

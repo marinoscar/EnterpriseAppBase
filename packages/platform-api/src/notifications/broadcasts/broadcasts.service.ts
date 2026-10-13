@@ -290,10 +290,10 @@ export class BroadcastsService {
     const job = await this.jobs.enqueue({
       type: BROADCAST_START_TYPE,
       // `backfill`, reused rather than extended, exactly as the start handler
-      // does when it enqueues the first chunk: `JobReason` is a Prisma enum,
-      // so a `broadcast` member would be a migration plus web-side churn for a
-      // display string. The friendly label in `job-type-labels.ts` is what
-      // carries the meaning to a human reading the dashboard.
+      // does when it enqueues the first chunk: a `broadcast` reason would be a
+      // registration plus a new stored value for a display string. The
+      // friendly type label is what carries the meaning to a human reading
+      // the dashboard.
       reason: 'backfill',
       subjectType: BROADCAST_SUBJECT_TYPE,
       subjectId: broadcast.id,

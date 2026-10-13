@@ -12,6 +12,7 @@
 // Imported for its side effect by `composed.ts`, never by a declaration file.
 // =============================================================================
 
+import '../../app-registrations/settings-contributions';
 import {
   APP_USER_SETTINGS_EXTENSIONS,
   APP_USER_SETTINGS_NAMESPACES,
@@ -22,8 +23,7 @@ import { ONBOARDING_USER_SETTINGS } from '@marinoscar/platform-api/onboarding';
 import {
   DATA_TABLES_USER_SETTINGS,
   NAVIGATION_USER_SETTINGS,
-  extendUserSettingsNamespace,
-  foldSettingsExtensions,
+  assembleUserSettingsNamespaces,
   registerUserSettingsNamespaces,
   type UserSettingsNamespace,
 } from '@marinoscar/platform-api/settings';
@@ -37,16 +37,14 @@ const PLATFORM_NAMESPACES: readonly UserSettingsNamespace[] = [
   ONBOARDING_USER_SETTINGS,
 ];
 
-// The app's extensions (`ai.training`, say) fold into the namespaces they name
-// before anything is registered.
-const { platform, app } = foldSettingsExtensions(
-  { platform: PLATFORM_NAMESPACES, app: APP_USER_SETTINGS_NAMESPACES },
-  APP_USER_SETTINGS_EXTENSIONS,
-  extendUserSettingsNamespace,
-  'user settings',
+// One assembly, in the same order as the system manifest: the platform's
+// namespaces, the contributions' (import order), the app's own; extensions
+// (`ai.training`, say) fold into the namespaces they name before anything is
+// registered.
+registerUserSettingsNamespaces(
+  assembleUserSettingsNamespaces({
+    platform: PLATFORM_NAMESPACES,
+    app: APP_USER_SETTINGS_NAMESPACES,
+    appExtensions: APP_USER_SETTINGS_EXTENSIONS,
+  }),
 );
-
-registerUserSettingsNamespaces(platform);
-
-// App-owned namespaces last, so a collision with a platform key names the app.
-registerUserSettingsNamespaces(app);

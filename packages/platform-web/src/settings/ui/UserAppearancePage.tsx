@@ -18,13 +18,16 @@
  */
 
 import type { PageSlotsBase } from '../../core/index.js';
+import { themePreferenceOptions } from '../headless/theme-options.js';
 import { ThemeSettings } from './ThemeSettings.js';
+import type { ThemeSettingsSlots } from './ThemeSettings.js';
 import { UserSettingsSection } from './UserSettingsSection.js';
 
 /**
- * The slots of {@link UserAppearancePage}: the page-slot contract. `Sections`
- * is where an app adds a section of its own (a public handle, a timezone)
- * above or below the profile card.
+ * The slots of {@link UserAppearancePage}: the page-slot contract, and the
+ * theme card's own part overrides ({@link ThemeSettingsSlots}). `Sections` is
+ * where an app adds a section of its own (a density or font-size preference)
+ * above or below the theme card.
  *
  * @example
  * ```tsx
@@ -34,22 +37,26 @@ import { UserSettingsSection } from './UserSettingsSection.js';
  * @extensionPoint slot
  * @stability experimental
  */
-export type UserAppearancePageSlots = PageSlotsBase;
+export interface UserAppearancePageSlots extends PageSlotsBase, ThemeSettingsSlots {}
 
 /**
- * The props of {@link UserAppearancePage}.
+ * Props of {@link UserAppearancePage}.
  *
  * @stability experimental
  */
 export interface UserAppearancePageProps {
-  /** Optional extension slots; omitted, the page renders exactly as it always did. */
+  /** The page-slot contract's slots and the theme card's part overrides. */
   slots?: UserAppearancePageSlots;
 }
 
 /**
- * Settings, Appearance (`/settings/appearance`): light, dark or system. The
- * stored preference reaches the app's theme through the host's `applyTheme`.
+ * Settings, Appearance (`/settings/appearance`): light, dark or system, and
+ * any theme an app registered with `registerThemePreference` (listed in the
+ * settings document's `themeOptions`). The stored preference reaches the app's
+ * theme through the host's `applyTheme` (light, dark and system; an app applies
+ * a theme it registered itself).
  *
+ * @param props - see {@link UserAppearancePageProps}.
  * @returns the page.
  *
  * @example
@@ -60,10 +67,10 @@ export interface UserAppearancePageProps {
  * @extensionPoint component
  * @stability experimental
  */
-export function UserAppearancePage(props: UserAppearancePageProps = {}) {
+export function UserAppearancePage({ slots }: UserAppearancePageProps = {}) {
   return (
     <UserSettingsSection
-      slots={props.slots}
+      slots={slots}
       title="Appearance"
       description="Choose a light, dark, or system-matched theme for this account."
     >
@@ -81,6 +88,8 @@ export function UserAppearancePage(props: UserAppearancePageProps = {}) {
             );
           }}
           disabled={isSaving}
+          extraOptions={themePreferenceOptions(settings)}
+          slots={slots}
         />
       )}
     </UserSettingsSection>
