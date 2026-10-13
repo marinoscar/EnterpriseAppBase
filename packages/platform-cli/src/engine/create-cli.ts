@@ -3,6 +3,7 @@ import type { Command } from 'commander';
 import { registerCliCommand, registerEnvSpecFragment, type CliCommandRegistration, type EnvSpecFragment } from '../core/index.js';
 
 import { ensurePlatformRegistrations } from './builtin-registrations.js';
+import { registerProxyStreamPath, type ProxyStreamPathRegistration } from './deploy/proxy-streams.js';
 import { registerDeployStep, type DeployStepRegistration } from './deploy/steps/registry.js';
 import { setCliIdentity, type CliIdentity } from './identity.js';
 import type { JobExecutor } from './node/executors/index.js';
@@ -50,6 +51,12 @@ export interface CreateCliOptions {
   nodeExecutors?: readonly JobExecutor[] | undefined;
   /** Env-key metadata for the app's own `.env.example` keys. Same as `registerEnvSpecFragment`. */
   envSpecFragments?: readonly EnvSpecFragment[] | undefined;
+  /**
+   * The VPS host proxy's view of the app. `streamPaths` are app routes the
+   * edge vhost serves unbuffered with a long timeout (an SSE route). Same as
+   * `registerProxyStreamPath`.
+   */
+  proxy?: { streamPaths?: ReadonlyArray<string | ProxyStreamPathRegistration> | undefined } | undefined;
 }
 
 /**
@@ -88,6 +95,7 @@ export function createCli(options: CreateCliOptions): CliInstance {
   for (const screen of options.tuiScreens ?? []) registerTuiScreen(screen);
   for (const step of options.deploySteps ?? []) registerDeployStep(step);
   for (const executor of options.nodeExecutors ?? []) registerNodeExecutor(executor);
+  for (const path of options.proxy?.streamPaths ?? []) registerProxyStreamPath(path);
 
   const program = buildProgram();
   freezeCliRegistries('createCli built the CLI');

@@ -2,18 +2,23 @@
 // built-in step ids, the dry-run plan, the hooks every step reports through,
 // and the env template helpers (#715).
 export {
+  DEFAULT_STREAM_TIMEOUT_SECONDS,
   DEPLOY_STATE_FILENAME,
   INSTALL_STEP_IDS,
   PLATFORM_DOCUMENTED_OPTIONAL_KEYS,
+  PLATFORM_STREAM_PATHS,
   PROXY_MANAGED_SENTINEL,
   UPDATE_STEP_IDS,
+  assertValidProxyPath,
   builtinDeployStepIds,
   commentedAssignments,
   composeEnvSpecs,
   listRegisteredDeploySteps,
+  listRegisteredProxyStreamPaths,
   parseEnvExample,
   planDeploySteps,
   registerDeployStep,
+  registerProxyStreamPath,
 } from '../engine/index.js';
 export type {
   AppDeployStep,
@@ -24,6 +29,8 @@ export type {
   DeployStepContext,
   DeployStepRegistration,
   EnvVarSpec,
+  ProxyExtraLocation,
+  ProxyStreamPathRegistration,
   StepOutcome,
   StepResult,
 } from '../engine/index.js';

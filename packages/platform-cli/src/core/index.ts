@@ -29,3 +29,6 @@ export {
   validateEmail,
   validatePort,
 } from './env-values.js';
+
+export { createCliRegistry } from './cli-registry.js';
+export type { CliRegistry, CliRegistryOptions } from './cli-registry.js';

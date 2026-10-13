@@ -366,6 +366,15 @@ export type {
   ResolvedProxyRuntime,
   ValidationResult,
 } from './deploy/proxy.js';
+export {
+  DEFAULT_STREAM_TIMEOUT_SECONDS,
+  MAX_PROXY_TIMEOUT_SECONDS,
+  PLATFORM_STREAM_PATHS,
+  assertValidProxyPath,
+  listRegisteredProxyStreamPaths,
+  registerProxyStreamPath,
+} from './deploy/proxy-streams.js';
+export type { ProxyExtraLocation, ProxyStreamPathRegistration } from './deploy/proxy-streams.js';
 
 // Health and the `status` command (#183). waitForHealthy is shared by install
 // and update rather than reimplemented in each.
