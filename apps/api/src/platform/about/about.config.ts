@@ -13,5 +13,6 @@
 import { AboutModule } from '@marinoscar/platform-api/host';
 
 import { resolveApiVersion } from '../../openapi/version';
+import { platformHost } from '../platform-host';
 
-export const aboutModule = AboutModule.forRoot({ apiVersion: resolveApiVersion });
+export const aboutModule = AboutModule.forRoot({ apiVersion: resolveApiVersion, host: platformHost });

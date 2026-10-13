@@ -39,7 +39,8 @@ import {
 } from '@mui/material';
 import type { ReactNode } from 'react';
 import { useId } from 'react';
-import { formatDateTime } from '../headless/index.js';
+import type { PageSlot } from '../../core/index.js';
+import { formatDateTime, nodeCapabilityItems, nodeVitalRows } from '../headless/index.js';
 import type { NodeVitalsCounters, WorkerNode } from '../headless/index.js';
 import {
   areVitalsStale,
@@ -61,6 +62,20 @@ interface NodeVitalsDialogProps {
   /** The page's single render clock — see `WorkersPage.tsx`. */
   now: Date;
   onClose: () => void;
+  /** The page's `slots.VitalsPanel`: extra content after the vitals. */
+  VitalsPanel?: PageSlot<NodeVitalsPanelSlotProps>;
+}
+
+/**
+ * What the Worker Nodes page passes its `VitalsPanel` slot: the node whose
+ * vitals dialog is open, as the fleet poll last read it (it updates while the
+ * dialog stays open).
+ *
+ * @stability experimental
+ */
+export interface NodeVitalsPanelSlotProps {
+  /** The node the dialog describes. */
+  node: WorkerNode;
 }
 
 /** The counters shown, in reading order, with the words an operator uses. */
@@ -129,7 +144,7 @@ function formatCount(value: number | undefined): string {
   return value === undefined ? '—' : value.toLocaleString();
 }
 
-export function NodeVitalsDialog({ node, now, onClose }: NodeVitalsDialogProps) {
+export function NodeVitalsDialog({ node, now, onClose, VitalsPanel }: NodeVitalsDialogProps) {
   const theme = useTheme();
   // The same `down('sm')` compact-window read the settings UI uses (CLAUDE.md
   // rule 5): a full screen on a phone rather than a dialog that scrolls inside
@@ -145,6 +160,10 @@ export function NodeVitalsDialog({ node, now, onClose }: NodeVitalsDialogProps) 
   const diskFree = vitals ? diskFreeRatio(vitals) : null;
   const slots = vitals ? ratio(vitals.slotsUsed, vitals.slotsTotal) : null;
   const lowDisk = isLowDisk(vitals);
+  // App-defined vitals (`vitals.extra`) and the node's reported capabilities:
+  // both self-reported and bounded, both printed as plain text.
+  const extraRows = vitals ? nodeVitalRows(vitals.extra) : [];
+  const capabilities = node ? nodeCapabilityItems(node.capabilities) : [];
 
   return (
     <Dialog
@@ -234,6 +253,32 @@ export function NodeVitalsDialog({ node, now, onClose }: NodeVitalsDialogProps) 
               <Field label="pg_dump version">{vitals.pgDumpVersion ?? '—'}</Field>
             </Stack>
 
+            {extraRows.length > 0 && (
+              <Box>
+                <Typography variant="subtitle2" component="h3" gutterBottom>
+                  Reported by this node&apos;s app
+                </Typography>
+                <Table size="small" aria-label="App vitals">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Vital</TableCell>
+                      <TableCell align="right">Value</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {extraRows.map(({ key, label, text }) => (
+                      <TableRow key={key}>
+                        <TableCell component="th" scope="row">
+                          {label}
+                        </TableCell>
+                        <TableCell align="right">{text}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Box>
+            )}
+
             <Box>
               <Typography variant="subtitle2" component="h3" gutterBottom>
                 Counters since the node process started
@@ -258,6 +303,38 @@ export function NodeVitalsDialog({ node, now, onClose }: NodeVitalsDialogProps) 
               </Table>
             </Box>
           </Stack>
+        )}
+
+        {node && capabilities.length > 0 && (
+          <Box sx={{ mt: vitals ? 3 : 0 }}>
+            <Typography variant="subtitle2" component="h3" id={`${titleId}-capabilities`} gutterBottom>
+              Capabilities reported by this node
+            </Typography>
+            <Box
+              component="ul"
+              aria-labelledby={`${titleId}-capabilities`}
+              sx={{ m: 0, pl: 2.5, typography: 'body2' }}
+              data-testid="node-capabilities"
+            >
+              {capabilities.map(({ key, version }) => (
+                <li key={key}>
+                  {key}
+                  {version !== undefined && (
+                    <Typography component="span" variant="body2" color="text.secondary">
+                      {' '}
+                      — {version}
+                    </Typography>
+                  )}
+                </li>
+              ))}
+            </Box>
+          </Box>
+        )}
+
+        {node && VitalsPanel && (
+          <Box component="section" aria-label="Additional vitals" sx={{ mt: 3 }}>
+            <VitalsPanel node={node} />
+          </Box>
         )}
       </DialogContent>
       <DialogActions>

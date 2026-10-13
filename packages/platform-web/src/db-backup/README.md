@@ -33,7 +33,15 @@ The page needs `PlatformHostProvider` (the transport and the viewer's permission
 
 ## Configuration
 
-`DbBackupPage` takes one optional prop, `slots.Sections` (a component receiving `DbBackupSectionsProps`: the policy, the runs on screen, `canWrite`, `canRestore` and a `refresh`), rendered below the run history. With no slot the markup is the one recorded before the slot existed (`test/db-backup/DbBackupPage.builtin-dom.test.tsx`).
+`DbBackupPage` takes one optional prop, `slots`: the page-slot contract of the web core ([Page slots](../core/README.md#page-slots)) plus `RunRowActions`. With no slot the markup is the one recorded before the slots existed (`test/db-backup/DbBackupPage.builtin-dom.test.tsx`).
+
+| Slot | Receives | Drawn |
+|---|---|---|
+| `Header` | `{ title, description, readOnly, actions }` (`actions` is `null`: "Back up now" stays in the body) | Replaces the `h1` and subtitle. `readOnly` means the viewer lacks `db_backup:write`. |
+| `BeforeContent` | none | Under the header. |
+| `Sections` | `DbBackupSectionsProps`: `position` (`'top'` or `'bottom'`), the policy, the runs on screen, `canWrite`, `canRestore` and a `refresh` | At both ends: `'top'` under the header and `BeforeContent`, `'bottom'` after the run history. Return `null` for the end you do not use. |
+| `AfterContent` | none | After the run history and the bottom `Sections`, before the restore dialog. |
+| `RunRowActions` | `DbBackupRunActionsProps`: the `run`, `canWrite`, `canRestore` and a `refresh` | An extra `More actions` column of the run history. Download, cancel, delete, restore and rollback are untouched; the API still enforces their permissions. |
 
 `DbBackupWebAdaptersProvider` takes the app's `DataTable` and, optionally, its own `DbBackupApi`. The hooks take an optional `{ api }` (default: the adapters' `api`, else `createDbBackupApi` over the platform host's transport).
 
@@ -44,13 +52,14 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `DbBackupPage` | component | `DbBackupPage(props?: DbBackupPageProps): ReactElement` | Route `/admin/settings/db-backup` | experimental | [example](../../../../apps/web/src/App.tsx) |
-| `DbBackupPageProps` | slot | `{ slots?: { Sections?: ComponentType<DbBackupSectionsProps> } }` | Add an app section (a mirror status, a restore drill checklist) below the run history | experimental | [example](../../../../apps/web/src/platform-extensions/db-backup/RestoreDrillSection.example.tsx) |
-| `DbBackupSectionsProps` | slot | `{ config: DbBackupConfig \| null; runs: readonly DbBackupRun[]; canWrite: boolean; canRestore: boolean; refresh(): void }` | What a `Sections` component draws from; read-only | experimental | [example](../../../../apps/web/src/__tests__/examples/db-backup/restore-drill-section.test.tsx) |
+| `DbBackupPageProps` | slot | `{ slots?: DbBackupPageSlots }` | Pass the page its slots | experimental | [example](../../../../apps/web/src/platform-extensions/db-backup/RestoreDrillSection.example.tsx) |
+| `DbBackupPageSlots` | slot | `PageSlotsBase & { Sections?: PageSlot<DbBackupSectionsProps>; RunRowActions?: PageSlot<DbBackupRunActionsProps> }` | Add a banner, a section (a mirror status, a restore drill checklist) at either end, or an action per backup run; replace the header | experimental | [example](../../../../apps/web/src/platform-extensions/db-backup/CopyArchiveKeyAction.example.tsx) |
+| `DbBackupSectionsProps` | slot | `{ position: 'top' \| 'bottom'; config: DbBackupConfig \| null; runs: readonly DbBackupRun[]; canWrite: boolean; canRestore: boolean; refresh(): void }` | What a `Sections` component draws from; read-only | experimental | [example](../../../../apps/web/src/__tests__/examples/db-backup/restore-drill-section.test.tsx) |
 | `DbBackupWebAdaptersProvider` | component | `DbBackupWebAdaptersProvider(props: { adapters: DbBackupWebAdapters; children: ReactNode }): ReactElement` | Hand the page the app's table (and optionally its client) | experimental | [example](../../../../apps/web/src/App.tsx) |
 | `DbBackupWebAdapters` | option | `{ DataTable?: DbBackupDataTableComponent; api?: DbBackupApi }` | The app's table and client for the page | experimental | [example](../../../../apps/web/src/platform/dbBackupAdapters.ts) |
 | `dbBackupAdminSections` | component | `{ operations: readonly DbBackupSettingsCard[] }` | Spread the `Database Backup` card into the admin hub at its position | experimental | [example](../../../../apps/web/src/config/adminSections.tsx) |
 
-Supporting exports (experimental): `createDbBackupApi`, `useDbBackupApi`, `useDbBackupConfig`, `useDbBackupRuns`, `useDbBackupActions`, `DB_BACKUP_POLL_INTERVAL_MS`, the predicates (`isBackupRunActive`, `isBackupDownloadable`, `isBackupRestorable`, `isBackupDeletable`, `isBackupCancelable`, `isRestoreInFlight`, `isRollbackAvailable`, `parseByteCount`), the value lists (the contract's), the wire types, `DbBackupConfigPanel`, `DbBackupRestoreDialog`, `DB_BACKUP_PAGE_TITLE` and `DB_BACKUP_PAGE_DESCRIPTION`.
+Supporting exports (experimental): `createDbBackupApi`, `useDbBackupApi`, `useDbBackupConfig`, `useDbBackupRuns`, `useDbBackupActions`, `DB_BACKUP_POLL_INTERVAL_MS`, the predicates (`isBackupRunActive`, `isBackupDownloadable`, `isBackupRestorable`, `isBackupDeletable`, `isBackupCancelable`, `isRestoreInFlight`, `isRollbackAvailable`, `parseByteCount`), the value lists (the contract's), the wire types, `DbBackupConfigPanel`, `DbBackupRestoreDialog`, `DbBackupRunActionsProps` (what `RunRowActions` receives), `DB_BACKUP_PAGE_TITLE` and `DB_BACKUP_PAGE_DESCRIPTION`.
 
 ## Data
 
@@ -62,7 +71,7 @@ The card and the route: `db_backup:read`. Inside the page, writes need `db_backu
 
 ## UI
 
-`/ui`: the page (default and named export) with its `Sections` slot, `DbBackupConfigPanel`, `DbBackupRestoreDialog` and `dbBackupAdminSections`. The page title and the card share `DB_BACKUP_PAGE_TITLE`.
+`/ui`: the page (default and named export) with its slots, `DbBackupConfigPanel`, `DbBackupRestoreDialog` and `dbBackupAdminSections`. The page title and the card share `DB_BACKUP_PAGE_TITLE`.
 
 ## Infra
 
@@ -81,6 +90,8 @@ The page never decides a restore: the confirmation literal is the contract's, th
 None of its own. The hook and table suites live in `packages/platform-web/test/db-backup/`; the page suite stays in the reference app ([`DbBackupPage.test.tsx`](../../../../apps/web/src/__tests__/pages/Admin/DbBackupPage.test.tsx), saas rendering included), as the jobs page suites do, and the app's `settingsCards.test.ts` pins the card's permission to the controller.
 
 ## Upgrade notes
+
+PP-14.23: the page takes the page-slot contract. One behaviour change on the one slot that existed: `Sections` is rendered at both ends of the page (`position: 'top'` under the header and `'bottom'` after the run history) instead of once at the bottom, so a `Sections` component written for the old page returns `null` when `position` is `'top'`; `DbBackupSectionsProps` gains `position`. With no slot the markup is unchanged.
 
 PP-14.12 is additive. The frequency list gains `cron`: choosing it shows a cron expression field in place of the time of day, and a save sends `cron` only under that frequency (every other save carries the fields it always did). `RestoreGateId` is open (the eight built-ins or an app's id) and `RESTORE_GATE_IDS` is a deprecated alias of `BUILTIN_RESTORE_GATE_IDS`; a gate's `kind` gains `app`, and a block by an app gate is named by the gate's title, shows no schema panel and offers no override. `DbBackupConfig` gains optional `cron` and `retention`.
 

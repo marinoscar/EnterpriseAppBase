@@ -661,9 +661,8 @@ export class BroadcastChunkHandler implements JobHandler, OnModuleInit {
 
     const nextJob = await this.jobs.enqueue({
       type: BROADCAST_CHUNK_TYPE,
-      // `backfill` — see the note in `broadcast-start.handler.ts`. `JobReason`
-      // is a Prisma enum with three values and adding a fourth is a migration
-      // plus web and OpenAPI churn for a display string.
+      // `backfill` — see the note in `broadcast-start.handler.ts`: a fourth
+      // platform reason is not worth a display string.
       reason: 'backfill',
       subjectType: BROADCAST_SUBJECT_TYPE,
       subjectId: broadcast.id,

@@ -125,6 +125,33 @@ Full recipe: [the job handlers README](../packages/platform-api/src/jobs/handler
 6. **Decide node eligibility.** A handler is node-eligible when it carries both `nodeResultSchema` and `persistNodeResult`; one without the other is server-only. `ai.*` types are server-only permanently.
 7. **Work inside the queue rules.** A `@Cron` only decides whether work is due and enqueues (`enqueueHousekeepingJob`); an `@OnEvent` body does no I/O. `apps/api/test/conformance.spec.ts` enforces both.
 8. **Add the type** and its label to `REGISTERED_JOB_TYPES` in `apps/api/test/jobs/job-type-snapshot.spec.ts`, which pins every registered type.
+9. **Prove it** with the kit, beside the handler: `describeJobHandlerConformance(name, () => handler, { payloads })` from `@marinoscar/platform-api/jobs/testing`. It checks the static contract (a dotted type, a label, a profile of exactly two numbers inside sane ceilings, the node pair both-or-neither, `ai.*` server-only), then per payload that the job settles through `createFakeJobQueue()`, that running it twice leaves the same result (give the payload an `observe()` snapshot, or an `assertIdempotent` for a handler that is additive by design), that a payload it must reject makes it throw (`expectFailure`), that duplicates collapse, and that `canDelete` is honoured. A service test injects `queue.asJobsService()` instead of a mocked `JobsService` and runs `queue.drain()`. Examples: [`example-handlers.conformance.spec.ts`](../apps/api/test/examples/jobs/example-handlers.conformance.spec.ts); the static half runs over every registered handler in [`job-handlers-contract.spec.ts`](../apps/api/test/jobs/job-handlers-contract.spec.ts), so yours is covered with no edit.
+
+### Add a job reason
+
+Examples: [`import.job-reason.ts`](../apps/api/src/platform-extensions/jobs/import.job-reason.ts), proved by [`job-reason.example.spec.ts`](../apps/api/test/examples/jobs/job-reason.example.spec.ts). `jobs.reason` is `TEXT`, so a reason of your own needs no migration.
+
+1. **Declare it** (`import { registerJobReason } from '@marinoscar/platform-api/jobs'`): `{ id, label }`. The id is 2 to 48 lower-case letters, digits, `_`, `.` or `-`, starting with a letter, and permanent once rows carry it. In the reference app, list it in `APP_JOB_REASONS` (`apps/api/src/app-registrations/jobs.ts`); `platform/jobs/jobs.config.ts` registers the list at import time, before the application bootstraps.
+2. **Enqueue with it**: `JobsService.enqueue({ type, reason: 'import', ... })`. An unregistered reason throws, naming the registered ones, so a typo is a bug rather than a new reason.
+3. **Read it**: the admin job list publishes `reason` and `reasonLabel` (the registered label, or the id itself when the registration was removed; a stored row is never rejected).
+
+### Put an app table on the nightly retention
+
+Examples: [`import-rows.retention.ts`](../apps/api/src/platform-extensions/jobs/import-rows.retention.ts), proved by [`import-rows-retention.example.spec.ts`](../apps/api/test/examples/jobs/import-rows-retention.example.spec.ts). Spec: [job-queue.md, Retention policies](specs/job-queue.md#retention-policies).
+
+1. **Declare the policy** (`registerRetentionPolicy` from `@marinoscar/platform-api/jobs`): a permanent `key` (`importRows`), a `label`, `defaultDays`, optional `minDays`/`maxDays` (within 1 to 3650) and `purge: { type, what }`, the job that enforces it. It ships OFF unless you set `defaultEnabled: true`: deleting rows is an operator decision. In the reference app, list it in `APP_RETENTION_POLICIES` (`app-registrations/jobs.ts`); the settings manifest registers the list before it registers the `retention` namespace. Registering after the namespace is composed throws.
+2. **Write the purge handler**: a server-only `JobHandler` (neither node member) whose `type` is `purge.type`. Read its own policy per run (`getRetentionPolicy()[key]`) and delete with `runRetentionPolicyPurge`, which batches oldest first, by the exact ids read, and is a logged no-op while the policy is off. The table is yours: put it behind a port the app binds to its Prisma model.
+3. **Mount it**: provide the handler in a module that is loaded. The 01:00 task enqueues one job per enabled policy whose handler is mounted; it needs no `RetentionPurgeRegistry.register` call (a handler may still declare one, which wins).
+4. **Regenerate the settings catalog** (`npm run catalog:settings --workspace=api`) and commit it: the `retention` defaults now include your key. Reading an older stored row fills your key with its default; a key whose registration is removed is ignored with one warning and kept in the row.
+
+### Report an executor's requirements, spans and vitals
+
+Examples: [`transcode.executor.ts`](../apps/cli/src/examples/transcode.executor.ts) (the executor), [`transcode.span-attributes.ts`](../apps/api/src/platform-extensions/nodes/transcode.span-attributes.ts) (the API half), [`transcode.vitals.ts`](../apps/web/src/platform-extensions/nodes/transcode.vitals.ts) (the browser half). Spec: [worker-nodes.md](specs/worker-nodes.md#capability-probing).
+
+1. **Declare what the machine needs** (CLI, `@marinoscar/platform-cli/node`): `registerProbedBinary('ffmpeg', { versionArgs: ['-version'] })` and `registerJobRequirement('app.transcode', { required: [binaryCapability('ffmpeg')], degradable: [...] })`. The startup self-test refuses to claim the type without a required tool, and `node doctor` lists the tool and its version. Call both before the node starts.
+2. **Emit your own span** from the executor: `context.phase('job.app.transcode', work, (result) => ({ frames: result.frames, codec: result.codec }))`. The name must be `job.app.<name>`; attributes are non-negative integers or short token-shaped strings.
+3. **Let the API relay the attributes** (`registerNodeSpanAttribute({ key, type, maxLength? })` from `@marinoscar/platform-api/nodes`, listed in `APP_NODE_SPAN_ATTRIBUTES`): an attribute nobody registered is dropped from the span, which is kept. They are emitted as `job.app.<key>`.
+4. **Report numbers**: give the executor `vitals()` returning `Record<string, number>` (cheap, synchronous, at most 16 keys fleet-wide, keys `^[a-z][a-z0-9_.]{1,47}$`). They arrive as `vitals.extra` and show in the fleet page's vitals dialog; word them with `registerNodeVital({ key, label, unit })` from `@marinoscar/platform-web/nodes/headless` (an unregistered key still shows, by its key).
 
 ### Add a doctor check
 
@@ -136,6 +163,18 @@ Full recipe: [the Doctor README](../packages/platform-api/src/doctor/README.md#q
 4. **Provide it** in the feature module that owns the capability. `DoctorModule` is global; the feature module imports nothing of it.
 5. **Add the check id** to the pinned list in `apps/api/test/doctor/registered-checks.integration.spec.ts`.
 6. Optionally describe the outbound hosts of the capability with an `EgressContributor` (`EgressRegistry.register` from `onModuleInit`).
+7. Optionally put the check's facts in `data` (small scalars, never secret) and draw them in the check's row on the web with `registerDoctorCheckRenderer` ([Add a slot to a packaged page](#add-a-slot-to-a-packaged-page)).
+8. **Prove it** with the kit, in the check's own spec: `describeDoctorCheckConformance(name, ({ prisma, storage }) => new MyCheck(registry, prisma.client), { scenarios })` from `@marinoscar/platform-api/doctor/testing`. It builds the check per test over a recording Prisma client and a write-failing storage provider, and per scenario checks its identity, that the run completes in time and never throws, that the outcome is valid with a remedy on `warn` and `fail` and no seeded secret, the statuses the scenario expects, and that nothing was written. Example: [`example-capability.conformance.spec.ts`](../apps/api/test/examples/doctor/example-capability.conformance.spec.ts). The `doctor-read-only` suite of `apps/api/test/conformance.spec.ts` runs the same proof over every registered check, so a check that writes fails the app's build even if its author never ran the kit.
+
+### Add a conformance suite of your own
+
+An invariant over what your app declares is a suite: the API's through `conformanceSuites` and a `declare module` augmentation of `PlatformConformanceSuiteOptions`, the web's through `webConformanceSuites` and a third `options` argument. Full recipe with code: [the API testing README](../packages/platform-api/src/testing/README.md#adding-a-suite-from-an-app-or-a-package) and [the web testing README](../packages/platform-web/src/testing/README.md#adding-a-web-suite-from-an-app-or-a-package). Examples: [`app-routes.suite.ts`](../apps/web/src/__tests__/examples/testing/app-routes.suite.ts) (a web suite with options and a planted-violation test); the android-app slice's [`testing/conformance.ts`](../packages/platform-api/src/android-app/testing/conformance.ts) and the Doctor's [`doctor-read-only.suite.ts`](../packages/platform-api/src/doctor/testing/doctor-read-only.suite.ts) (an API scan suite and an API suite that boots the app).
+
+1. **Write the suite**: an `id`, a `title`, a `description`, and either `check` and `cases` (scan once, assert on the report) or, for an app-suite, `register(api, context, options)`. Discover what you check from the router, a registry or the source tree; a suite that lists names is a test of those names.
+2. **Register it at import time**, once (`if (!conformanceSuites.has(id)) conformanceSuites.register(suite)`), and import the file before `runPlatformConformance`; the registry freezes on its first run. The web registry throws on a duplicate id.
+3. **Add its options key** by augmenting the public specifier (`declare module '@marinoscar/platform-api/testing' { interface PlatformConformanceSuiteOptions { orderRoutes?: OrderRoutesOptions } }`). The option key is the camelCase form of the id. A web suite needs no augmentation: `suites: { 'order-routes': { ... } }`.
+4. **Plant a violation** in a test and assert the suite names it. A suite that cannot fail is not a tripwire.
+5. **Opt out with a reason** (`{ skip: 'why' }`) where an app does not need it; an empty reason throws.
 
 ### Add a notification event and template
 
@@ -206,6 +245,23 @@ Full rule: [settings-ui.md §4](specs/settings-ui.md#4-extending-it-in-a-fork) a
 6. **Add the permission** to `DEFAULT_PERMISSIONS` in `apps/web/visual/main.tsx` if it is new to both registries.
 7. **Never add a tab** to an existing settings page for a new destination; a tab is for parallel content inside one page.
 8. **Run the registry suites**: `cd apps/web && npx vitest run src/__tests__/config` (`settings-registry-shape`, `settings-card-routes`, `settings-route-ownership`).
+
+### Add a slot to a packaged page
+
+Full contract: [Page slots](../packages/platform-web/src/core/README.md#page-slots) in the web core README; page-specific slots in the README of the page's slice ([jobs](../packages/platform-web/src/jobs/README.md), [nodes](../packages/platform-web/src/nodes/README.md), [db-backup](../packages/platform-web/src/db-backup/README.md), [doctor](../packages/platform-web/src/doctor/README.md)). Examples, each with a test over the real packaged page: an extra jobs column ([`WaitedColumn.example.tsx`](../apps/web/src/platform-extensions/jobs/WaitedColumn.example.tsx)), a worker row action ([`CopyHostnameAction.example.tsx`](../apps/web/src/platform-extensions/nodes/CopyHostnameAction.example.tsx)), a backup run action ([`CopyArchiveKeyAction.example.tsx`](../apps/web/src/platform-extensions/db-backup/CopyArchiveKeyAction.example.tsx)) and a Doctor check renderer ([`ExampleCapabilityFacts.example.tsx`](../apps/web/src/platform-extensions/doctor/ExampleCapabilityFacts.example.tsx)); the tests are in [`apps/web/src/__tests__/examples/`](../apps/web/src/__tests__/examples/).
+
+Every packaged page takes an optional `slots` prop typed to `PageSlotsBase` (`Header`, `BeforeContent`, `Sections`, `AfterContent`), and a page with a table adds `TableSlots<Row>` (`Columns`, `RowActions`, `DetailPanel`, `Toolbar`). With no slot the page's markup is unchanged.
+
+1. **Pick the slot** from the page's README. Prefer the narrowest one: a `Columns` function over a copied page, `RowActions` over a custom table.
+2. **Write a function component.** It receives data (the row, the check, the state the page holds), never an API client. If it must call the API, use `usePlatformApi()` and let the server enforce permissions.
+3. **Pass it at the route**: `<Route path="/admin/settings/jobs" element={<JobsPage slots={{ Columns, RowActions }} />} />`. Keep the `slots` object, or its members, stable (module scope or `useMemo`): a page re-derives its columns when a table slot changes identity.
+4. **Add a column** by wrapping `Columns`: `(base) => [...base, { id: 'owner', label: 'Owner', priority: 'secondary', value: (job) => ownerOf(job) }]`. The column type is the slice's (`JobsTableColumn<Job>`, `NodesTableColumn<WorkerNode>`).
+5. **Render `Sections` with a position.** It is rendered at both ends of the body; return `null` for the end you do not want.
+6. **Doctor.** `registerDoctorCheckRenderer(checkId, Component)` (from `@marinoscar/platform-web/doctor/headless`, at module scope, so the main chunk does not import the page) draws a check's `data` inside its row (the API's `example.capability` check reports `data: { configured, enabled }`); `slots.CheckRowActions` adds a button to every row.
+7. **Test it** by rendering the real page with your slot, over `createTestPlatformHost` from `@marinoscar/platform-web/testing`, and assert the slot's output beside the page's own.
+8. **A page of your own** follows the same contract: type its `slots` as `interface MyPageSlots extends PageSlotsBase`. The package's CI check (`test/page-slots.contract.test.ts`) enforces this for the packaged pages only.
+
+What is still closed: the pages not yet migrated are listed, each with the story that migrates it, in `packages/platform-web/test/page-slots.exempt.json`.
 
 ### Add a side table with an `extend model` relation
 
@@ -663,6 +719,34 @@ Available now. Full recipe: [the host README](../packages/platform-api/src/host/
 4. **Or hand over a finished bus** with `PlatformHostCoreModule.forRoot({ eventBus: { useClass: RedisEventBus } })` (`useExisting` or `useFactory` also work). It wins over the id and needs no registry entry.
 5. **Run the kit**: `describeEventBusConformance(() => new RedisEventBus(...), { describe, it, expect })` from `@marinoscar/platform-api/host/testing`.
 
+### Extend the host: health, maintenance, About, deployment modes and app guards
+
+Available now. Full recipes: [the host README](../packages/platform-api/src/host/README.md#adding-a-health-indicator-a-maintenance-bypass-or-an-about-section); the design and the security reasoning: [the maintenance spec](specs/maintenance-mode.md). Examples live in [`platform-extensions/host/`](../apps/api/src/platform-extensions/host/), are registered (opt in, because each changes what every fork serves) by `registerHostExamples()` in [`app-registrations/host.ts`](../apps/api/src/app-registrations/host.ts), and are proven against the real host core by [`host-extension-points.integration.spec.ts`](../apps/api/test/examples/host/host-extension-points.integration.spec.ts) and [`app-guard.example.spec.ts`](../apps/api/test/examples/host/app-guard.example.spec.ts). Every registry below freezes at bootstrap: register at import time from `app-registrations/host.ts`.
+
+1. **A health indicator** joins `GET /api/health` (every indicator) and, with `critical: true`, `GET /api/health/ready` (any critical one down is `503`). `/live` runs none.
+
+   ```ts
+   import { registerHealthIndicator } from '@marinoscar/platform-api/host';
+
+   registerHealthIndicator({ id: 'broker', critical: true, timeoutMs: 1000, check: async () => ({ status: (await ping()) ? 'up' : 'down', details: { depth: 3 } }) });
+   ```
+
+   The probes are **public**: `details` is bounded (16 keys, strings up to 200 characters, credential-looking keys dropped) and a thrown error's text never leaves the process. Keep secrets and hostnames out of it anyway. Example: [`queue-readiness.indicator.ts`](../apps/api/src/platform-extensions/host/queue-readiness.indicator.ts).
+2. **A maintenance bypass** lets a request through an open window that the built-in rule would refuse (a payment provider's webhook). It is fail-closed: only `true` allows; a throw, a rejection, a timeout or any other value blocks. It runs only after the built-in admin rule, never widens what an admin sees, and passes the window only: the route still authenticates its caller.
+
+   ```ts
+   registerMaintenanceBypass({ id: 'payments-webhook', allows: (request) => request.method === 'POST' && request.path === '/api/webhooks/payments' });
+   ```
+
+   `@AllowDuringMaintenance()` on a route you own is still the first choice; use a bypass for a route you cannot decorate or a rule that depends on the request. Example: [`payments-webhook.bypass.ts`](../apps/api/src/platform-extensions/host/payments-webhook.bypass.ts).
+3. **An About contributor** adds a section to `GET /api/admin/about` (`extras: [{ id, label, facts }]`, absent when none is registered) and to the web About page, which renders one section per group with no slot needed. `registerAboutContributor({ id: 'transcription', label: 'Transcription', describe })`. A contributor that throws or takes over two seconds is left out. Example: [`transcription.about-contributor.ts`](../apps/api/src/platform-extensions/host/transcription.about-contributor.ts).
+4. **A deployment mode or capability.** `registerDeploymentMode({ id: 'byoc', capabilities: { inAppRestore: false } })` makes `DEPLOYMENT_MODE=byoc` valid; `registerDeploymentCapability({ id: 'bulkExport', default: true, byMode: { saas: false } })` adds a switch read with `DeploymentModeService.can('bulkExport')`. Register both before `main.ts` parses the variable. `inAppRestore` stays the platform's capability. Example: [`byoc.deployment-mode.ts`](../apps/api/src/platform-extensions/host/byoc.deployment-mode.ts).
+5. **A global guard of your own** (a throttler, a tenant guard). `MaintenanceGuard` stays the platform's `APP_GUARD` and must run first, so import `PlatformHostCoreModule.forRoot()` before the module that registers yours. Declare the guard to the `host` conformance suite, with the reason: `runPlatformConformance({ sourceRoots, suites: { host: { rootModule: AppModule, allowedAppGuards: [{ name: 'ThrottlerGuard', why: 'rate limiting is app-wide by policy' }] } } })`. An entry with an empty `why` throws, an entry nobody registers is a finding, and a guard registered ahead of `MaintenanceGuard` is a finding. Example: [`example-throttler.guard.ts`](../apps/api/src/platform-extensions/host/example-throttler.guard.ts).
+6. **The maintenance routes' access and permissions.** `PlatformHostCoreModule.forRoot({ host, permissions: { maintenanceRead, maintenanceWrite } })` guards `GET`/`PUT /api/admin/maintenance` with the app's own access decorators and permission strings (default `system_settings:read` and `write`). The card in your admin registry must declare the same string.
+7. **CORS and the response `meta`.** `buildCorsOptions(process.env.CORS_ORIGIN, { exposedHeaders: ['x-api-revision'], maxAge: 600 })` adds `methods`, `allowedHeaders`, `exposedHeaders` or `maxAge` and never touches the origin policy. `registerResponseMetaContributor({ id: 'api-revision', contribute: () => ({ revision: '2026-10' }) })` adds bounded keys (no credential-looking key, no more than a few short JSON values; `timestamp` is the platform's) to the `meta` of every enveloped response; it is synchronous and must not do I/O. Example: [`api-revision.response-meta.ts`](../apps/api/src/platform-extensions/host/api-revision.response-meta.ts).
+
+What is still closed (audit: [host](EXTENSIBILITY-AUDIT.md#host)): the web pages' slots (PP-14.24), the CLI deploy wizard's `DEPLOYMENT_MODE` validator and the factory reset's `saas` comparison.
+
 ### Writing a pluggable implementation
 
 Available now. A **pluggable kind** is the one shape every slice with a swappable part (AI provider, storage driver, email transport, sign-in provider, notification channel, telemetry store, backup target) is moving to, so you learn it once. The primitive is `definePluggableKind` of `@marinoscar/platform-api/core`; the AI providers, the storage drivers and the email transports use it ([Add an AI provider](#add-an-ai-provider-the-assemblyai-case), [Add a storage driver](#add-a-storage-driver), [Add an email transport](#add-an-email-transport)), the telemetry stores use it too ([Replace the telemetry store](#replace-the-telemetry-store)). Backup targets are the one swappable part that does not use it: a target has no administrator settings form to generate (where archives go is the deployment's, bound in code), so it binds through `DbBackupModule.forRoot` like an event bus adapter does: [Add a backup target, a mirror or a restore gate](#add-a-backup-target-a-mirror-or-a-restore-gate). Sign-in providers keep identity's own registry (`registerAuthProvider`), extended compatibly: a provider has no admin settings form to generate (its secrets are credentials, its enablement is whether they exist), so [Add a sign-in provider](#add-a-sign-in-provider) is its own recipe. Notification channels keep the notifications registries for the same reason (a channel's configuration is the app's, and its administrator control is one switch per channel): [Add a notification channel](#add-a-notification-channel). The full reference is [the core README, Pluggable kinds](../packages/platform-api/src/core/README.md#pluggable-kinds). Worked example, with no consumer slice: [`greeter.kind.ts`](../apps/api/src/platform-extensions/core/greeter.kind.ts), registered by [`app-registrations/core.ts`](../apps/api/src/app-registrations/core.ts), proven by [`pluggable-kind.spec.ts`](../apps/api/test/examples/core/pluggable-kind.spec.ts) on the API side and [`pluggable-config-form.test.tsx`](../apps/web/src/__tests__/examples/settings/pluggable-config-form.test.tsx) on the web side.
@@ -934,6 +1018,69 @@ registerPermissionSet({
 
 `registerPlatformPermissions()` then registers the set after the platform's own and before the app's, in the seed catalog and in the registries, and then freezes the set registry so a package that registers too late fails with `FROZEN` instead of missing the seed. `slices` selects it by id like a platform slice (`identity` stays mandatory). The slice id cannot be a platform slice's.
 
+### Add an env group, a generated value or an override of a platform key
+
+Imports: `@marinoscar/platform-cli/core`. Examples: [`coach.env-group.ts`](../apps/cli/src/examples/coach.env-group.ts), [`coach.env-generator.ts`](../apps/cli/src/examples/coach.env-generator.ts), [`coach.env-annotation.ts`](../apps/cli/src/examples/coach.env-annotation.ts). Each is also a `createCli` option (`envGroups`, `envGenerators`, `envAnnotations`), and the same either way.
+
+1. **Declare the keys** in `infra/compose/app.env.example` (an explanation above each, never a commented `KEY=value` line), then `npm run platform:infra:sync`.
+2. **Register the group**: `registerEnvGroup({ id, label, description, defaultEnabled })`, then put keys in it with `registerEnvSpecFragment({ id, metadata: { KEY: { group: 'id' } } })`. The wizard asks a group's keys only when `deploy install --group <id>` (or the TUI's group question) enabled it; `defaultEnabled: true` adds it to every deployment, as the telemetry group is. A fragment naming an unregistered group throws and lists the registered ones.
+3. **Register a generator** for a value with a shape of its own: `registerEnvGenerator({ kind, generate })`, then `generate: 'kind'` in the key's metadata (with `autoGenerate: true` to generate it unasked). A generator is a synchronous function, never a command, and its value must be 1 to 512 characters of letters, digits and `+ / = _ . : @ -`; anything else is refused before it reaches `.env`.
+4. **Override a platform key** with `annotateEnvKey(key, { fixed?, help? })`. The app wins for those two fields. Nothing else of the owner's metadata changes, `fixed` on a secret key throws, and a key that is `never` written stays unwritten.
+5. **Test it**: `metadataFor(key)` and `effectiveGroups(groups)` from `@marinoscar/platform-cli/deploy` show the group, the generator kind and the enabled groups, and `generateWithKind(kind)` from `/core` makes a value, as [the example test](../apps/cli/src/examples/coach.env-group.test.ts) does.
+
+### Add a deploy check, or place a deploy step
+
+Imports: `@marinoscar/platform-cli/deploy`. Examples: [`coach.deploy-check.ts`](../apps/cli/src/examples/coach.deploy-check.ts), [`coach.deploy-step-placement.ts`](../apps/cli/src/examples/coach.deploy-step-placement.ts), [`announce.deploy-step.ts`](../apps/cli/src/examples/announce.deploy-step.ts).
+
+1. **A check** is a `DeployCheck`: `registerDeployCheck({ id, title, severity, requires?, run })`, or `createCli({ deployChecks })`. `run` receives a narrow `DeployCheckContext` (`deployRoot`, `bindPort`, `proxyRoot`, `domain`, `skipProxy` and an `env` that withholds secrets like a step's). It never throws, a `fail` carries a `remedy` that names a command or a path, and it is read-only. `required` blocks `deploy install` and `deploy update` and makes `doctor` exit non-zero; `recommended` is advice. It runs after the built-ins in `doctor`, in both preflights and in the TUI.
+2. **A step** takes exactly one anchor: `after`, `before` or `replaces`. `skipWhen(context)` skips the replaced step; with no `step` it is a conditional skip of the built-in. The built-in step ids are a stable surface ([`INSTALL_STEP_IDS`](../packages/platform-cli/README.md), `UPDATE_STEP_IDS`). Replacing a built-in is your responsibility: later steps read what it prepared.
+3. **Read the configuration** from `context.env` and `context.answers`. They are read-only and withhold secrets: `get` returns `undefined` for a key annotated secret or named like one (`*_SECRET`, `*PASSWORD*`, `*TOKEN*`, `*API_KEY*`), `has` still reports presence.
+4. **Test a step** without a pipeline using `testDeployStepContext(overrides, values)` from `@marinoscar/platform-cli/testing`.
+
+### Stream an app route through the VPS host proxy
+
+Imports: `@marinoscar/platform-cli` (`createCli`), `@marinoscar/platform-cli/deploy`. Example: [`coach.proxy-stream.ts`](../apps/cli/src/examples/coach.proxy-stream.ts); runbook: [deploy-to-vps.md](runbooks/deploy-to-vps.md#63-stream-an-app-route-through-the-host-proxy).
+
+An SSE or other long-lived route has two hops to configure. The app's own nginx: a location in `infra/nginx/app.d/locations/` that includes `platform/sse-proxy.conf` (see `stream-route.conf.example` there). The shared host proxy in front of it: the path declared to the CLI, or the route is buffered and cut at 60 seconds only on a VPS.
+
+1. **Declare the path**: `createCli({ proxy: { streamPaths: ['/api/coach/chat/stream'] } })` or `registerProxyStreamPath(path)`. A path object takes `timeoutSeconds` (default one hour).
+2. **Redeploy.** `deploy install` and `deploy update` render one unbuffered location per path with the directives of the platform's SSE locations.
+3. **Paths are validated** because the vhost is shared by every site on the server: a leading `/`, letters, digits and `. _ ~ / : @ + , = -` only. A newline, `;`, quote, brace, `$`, `#` or space throws before any file is written. An app that declares no path gets a byte-identical vhost.
+
+### Extend the CSP without copying it
+
+Files: `infra/nginx/app.d/csp/`, [`connect-src.conf.example`](../infra/nginx/app.d/csp/connect-src.conf.example).
+
+1. **Add sources to a directive**: copy the example to `app.d/csp/connect-src.conf` (also `img-src`, `media-src`, `font-src`, `style-src`) and write one line, `default " wss://realtime.example.com";`, with a leading space. It is appended to that directive of the default policy.
+2. **Add a directive the policy lacks** (`frame-src`, `child-src`) in `app.d/csp/extra.conf`: `default "; frame-src https://www.youtube.com";`. A repeated directive is ignored by browsers, so this cannot widen a directive the policy already has.
+3. **What is deliberately not open**: `script-src`, `default-src`, `object-src`, `base-uri`, `form-action` and `frame-ancestors` have no hook, and the `/api/docs` policy is not extended. Widening those is an edit of the policy, not an include. The reference file is [`csp.conf`](../infra/nginx/csp.conf).
+4. **Check it**: `nginx -t` on the composed configuration (the CI step, or `runInfraConformance`).
+
+### Check an app compose overlay, a compose mode or a single-file mount
+
+Imports: `@marinoscar/platform-infra`, `@marinoscar/platform-infra/testing`, `@marinoscar/platform-cli/deploy`. Examples: [`staging.compose-mode.ts`](../apps/cli/src/examples/staging.compose-mode.ts), [`coach.edge-config.ts`](../apps/cli/src/examples/coach.edge-config.ts), [`infra-conformance.test.ts`](../apps/cli/src/infra-conformance.test.ts).
+
+1. **Overlays**: `infra/compose/app.<name>.compose.yml` applies to every mode built on `base.compose.yml`; `app.<scope>.<name>.compose.yml` to that scope (`dev`, `devdb`, `prod`, `vps`, `worker`, `test`). `app.test.*` reaches the disposable test database only.
+2. **A mode of your own**: `registerComposeMode({ id, files })`. Its id is its overlay scope. `composeFilesForMode(id, { overlays })` returns the files, the overlays last.
+3. **A single-file bind mount** into nginx pins an inode, so a `git checkout` leaves the container reading old bytes. Register the file with `registerEdgeConfigFile({ checkout, container })` and `deploy update` hashes it in the checkout and in the container and recreates nginx once on a difference. A directory mount needs none.
+4. **Prove they work**: `runInfraConformance({ appRoot, testApi })` runs `platform-infra sync --check`, `docker compose config` over each mode with your overlays, and `nginx -t` over `app.d/` with both CSP files. A missing Docker or nginx registers a passing case named with the reason; `skip: { compose: 'why' }` opts out and needs a reason.
+
+### Add a section to the node and deploy TUI screens
+
+Imports: `@marinoscar/platform-cli/tui`. Example: [`fleet-note.tui-section.tsx`](../apps/cli/src/examples/fleet-note.tui-section.tsx).
+
+1. **Write an ink component** taking `TuiSectionProps` (`{ screen }`).
+2. **Register it**: `registerTuiScreenSection('node' | 'deploy', Component, { id })`, or `{ id, load }` to load it when the screen opens, or `createCli({ tuiSections })`. Only `node` and `deploy` have a slot.
+3. **It renders below the screen's top-level list**, in registration order. A section that throws, or whose `load` rejects, shows a one-line notice and leaves the screen working.
+
+### Add a CLI conformance suite
+
+Imports: `@marinoscar/platform-cli/testing`. Example: [`coach.conformance-suite.ts`](../apps/cli/src/examples/coach.conformance-suite.ts); the run: [`conformance.test.ts`](../apps/cli/src/conformance.test.ts).
+
+1. **Register the suite**: `registerCliConformanceSuite({ id, title, description, register(api, options) })`. Its option key is the camelCase of the id.
+2. **Run it**: `runPlatformConformance({ suites: { yourSuite: options } })`. Every suite the app names gets its options or `{ skip: 'reason' }`; an empty reason, or `false`, throws, and the run prints which suites ran and which were skipped.
+3. **The built-ins** are `cli` (env template fragments, executor credential hygiene) and `deployRegistrations` (every env key's group and generator is registered, both deploy plans resolve, no duplicate edge-config file, the vhost renders with your stream paths).
+
 ### Add a system access reason
 
 Available now. A background job of your own needs cross-organization access (a re-index, a data repair) and names a reason the platform does not know. Registering the reason makes the label valid; it grants no access. Worked example: [`transcript-reindex.job.ts`](../apps/api/src/platform-extensions/core/transcript-reindex.job.ts), registered by [`app-registrations/core.ts`](../apps/api/src/app-registrations/core.ts), proven by [`open-vocabularies.spec.ts`](../apps/api/test/examples/core/open-vocabularies.spec.ts).
@@ -1023,7 +1170,7 @@ An extension package (`@acme/ai-assemblyai`, `@acme/storage-azure`) is a package
 
 ## Conformance kits
 
-A kit is a function an extension author calls with the implementation and the test runner's `describe`, `it` and `expect`, so it works under Jest and Vitest.
+A kit is a function an extension author calls with the implementation and the test runner's `describe`, `it` and `expect`, so it works under Jest and Vitest. The Doctor and job-handler kits take them as an optional `testApi` and default to the runner's globals.
 
 | Kit | Import | Checks | Status |
 |---|---|---|---|
@@ -1040,9 +1187,15 @@ A kit is a function an extension author calls with the implementation and the te
 | `describeTelemetryStoreConformance(store, { describe, it, expect, settings?, secrets?, writeStatements?, timeout?, unconfigured?, fixture? })` | `@marinoscar/platform-api/telemetry/testing` | A valid definition (id, label, defaults, no secret-looking setting, a form descriptor); `query` refuses writes and answers a read afterwards, honours its timeout and abort signal; `schema()` has the explorer shape, sorted; `ping()` never throws and leaks no secret; an unconfigured store refuses with a typed error; `close()` twice; the dialect renders every construct; given a fixture, every dashboard statement built with the dialect runs against the store | Available |
 | `describeBackupTargetConformance(target, { describe, it, expect, rejectsEscapingKeys?, skip? })` | `@marinoscar/platform-api/db-backup/testing` | A valid id and the four members; write, read back, a missing key fails to read, idempotent delete; a 20 MiB stream that is not buffered (queued bytes, Buffer memory, chunked reads) and matches by SHA-256; a destroyed write rejects `done`; exact prefix listing; a signed URL when defined; `../` refused when declared | Available |
 | `describeRestoreGateConformance(gate, { describe, it, expect, scenarios, watch? })` | `@marinoscar/platform-api/db-backup/testing` | A valid definition; answers `{ status, message }` per scenario; read-only (a context that records every write, plus watched side-effect counters); repeatable; evaluates to a pre-flight row with the gate's id and label | Available |
-| Doctor check, job handler | `@marinoscar/platform-api/doctor/testing`, `…/jobs/testing` | Read-only checks; handler profile, idempotence and node-eligibility pairing | Coming (PP-14.26) |
+| `runPlatformConformance({ suites })` (CLI) | `@marinoscar/platform-cli/testing` | The `cli` and `deployRegistrations` suites, and any suite registered with `registerCliConformanceSuite`; a skip needs a reason | Available |
+| `runInfraConformance({ appRoot })` | `@marinoscar/platform-infra/testing` | `sync --check`, `docker compose config` per mode with the app's overlays, `nginx -t` over `app.d/` and both CSP files | Available |
+| `describeDoctorCheckConformance(name, factory, { scenarios?, defaultTimeoutMs?, testApi? })` | `@marinoscar/platform-api/doctor/testing` | Per scenario: a dotted id, category, label, root-relative `settingsPath`, positive `timeoutMs`; the run completes within its timeout and never throws; a valid outcome (status, detail, a real remedy on `warn` and `fail`, scalar `data`); the statuses the scenario expects; no seeded secret and no secret-shaped value in the result; read-only against a recording Prisma client and a write-failing storage provider. It cannot see a write that reaches neither double (an HTTP POST, a file) | Available |
+| `doctor-read-only` suite (`doctorReadOnly: { fixture, minChecks?, exempt?, forbiddenServices? }`) | `@marinoscar/platform-api/doctor/testing`, run by `runPlatformConformance` | The same proof over every check of the booted app's registry: no Prisma write (including a raw write, a job enqueue, an audit row), no storage write, no held side-effecting "test" service, a valid outcome for every check whose `dependsOn` passed; an exemption needs a reason and a stale one is a finding | Available |
+| `describeJobHandlerConformance(name, handler \| () => handler, { payloads, canDelete?, ... })` | `@marinoscar/platform-api/jobs/testing` | A dotted permanent type, a label, a profile of exactly `{ maxRuntimeMs, maxAttempts }` inside the ceilings, `nodeResultSchema` and `persistNodeResult` both or neither, `ai.*` server-only; per payload: settles through `createFakeJobQueue()`, idempotent over two runs (`observe`, `assertIdempotent`), throws on a payload it must reject, duplicates collapse, an org-scoped payload carries a subject; `canDelete` answers `null` or a reason and the queue follows it. `findJobHandlerContractViolations` is the static half, without a runner | Available |
+| `createFakeJobQueue(options?)` | `@marinoscar/platform-api/jobs/testing` | Not a kit but the double for one: an in-memory queue with the real dedup rule, claim order, attempt budget and delete decision; `asJobsService()` for a service under test | Available |
+| `runPlatformWebConformance` with a registered suite | `@marinoscar/platform-web/testing` | The web harness runs your own `WebConformanceSuite<Options>` next to the platform's; the options are the third argument, ids are unique, the matcher subset is `toEqual`, `toBe`, `toMatchObject`, `toHaveLength`, `toThrow`, `toContain`, `toBeGreaterThanOrEqual` | Available |
 
-An app adds its own suite with `conformanceSuites.register` and a `declare module '@marinoscar/platform-api/testing'` augmentation of `PlatformConformanceSuiteOptions`; the android-app slice's `testing/conformance.ts` is the model. More: [TESTING.md](TESTING.md#platform-conformance).
+An app adds its own suite with `conformanceSuites.register` and a `declare module '@marinoscar/platform-api/testing'` augmentation of `PlatformConformanceSuiteOptions`; the android-app slice's `testing/conformance.ts` is the model, and [the recipe above](#add-a-conformance-suite-of-your-own) has the steps. More: [TESTING.md](TESTING.md#platform-conformance).
 
 ## See also
 

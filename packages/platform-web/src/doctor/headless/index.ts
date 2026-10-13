@@ -21,3 +21,6 @@ export type {
   UseSupportBundleDownloadOptions,
   UseSupportBundleDownloadReturn,
 } from './use-support-bundle-download.js';
+// The per-check renderer registry (PP-14.23): draws a check's `data` inside its row.
+export { getDoctorCheckRenderer, registerDoctorCheckRenderer } from './check-renderers.js';
+export type { DoctorCheckRenderer, DoctorCheckRendererProps } from './check-renderers.js';

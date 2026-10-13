@@ -58,81 +58,141 @@
 // allowlist by construction rather than by a check somebody has to remember.
 // =============================================================================
 
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Inject } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
-import { AllowDuringMaintenance } from '../../core/index';
-import { Auth } from '../../identity/index';
+import { AllowDuringMaintenance, type PlatformHost } from '../../core/index';
 import { SETTINGS_PERMISSIONS } from '../../settings/index';
+import { resolveHostAccess } from '../internal/host-access';
 import { AboutService } from './about.service';
 import { AboutResponseDto } from './dto/about-response.dto';
 
 /**
- * `GET /api/admin/about`.
+ * The permission `GET /api/admin/about` requires unless the app configures another.
+ *
+ * @stability experimental
+ */
+export const DEFAULT_ABOUT_PERMISSION: string = SETTINGS_PERMISSIONS.SYSTEM_SETTINGS_READ.id;
+
+/**
+ * What `createAboutController` takes.
+ *
+ * @stability experimental
+ */
+export interface AboutControllerOptions {
+  /** The app's access decorators; omitted, the identity slice's `@Auth()`. */
+  host?: PlatformHost;
+  /** The permission the route requires. Default `system_settings:read`. */
+  permission?: string;
+}
+
+/**
+ * The about controller's handler.
+ *
+ * @stability experimental
+ */
+export interface AboutControllerInstance {
+  /**
+   * `GET /api/admin/about`. Resolves the deployment report (shape: the
+   * contract's `aboutResponseSchema`).
+   */
+  getAbout(): Promise<object>;
+}
+
+/**
+ * The about controller class.
+ *
+ * @stability experimental
+ */
+export type AboutControllerClass = new (about: AboutService) => AboutControllerInstance;
+
+/**
+ * Creates `GET /api/admin/about`'s controller, guarded by the app's access
+ * decorators (`PlatformHost.access`) and, by default, `system_settings:read`.
+ * `AboutModule.forRoot()` calls it.
  *
  * Exported for the reference app's wiring and tests; not a stable extension point (reach the report through `AboutModule.forRoot`).
  *
+ * @param options - see {@link AboutControllerOptions}.
+ * @returns the controller class.
+ *
  * @internal
  */
-@ApiTags('About')
-// ⚠ READABLE DURING A MAINTENANCE WINDOW, deliberately.
-//
-// Every other admin surface is blocked while a window is open, and that is
-// right: they CHANGE things. This one only reports, and the moment an operator
-// most needs it is precisely the moment a window is open -- a deploy failed
-// partway, somebody opened the window to stop traffic, and the question they
-// now have is "what is actually on this box?". Answering 503 to that question
-// withholds the one page that could answer it, from the one person entitled to
-// ask.
-//
-// It is safe to exempt on the same grounds the health probes are: it performs
-// no network I/O, writes nothing, and already reports an unreachable database
-// as a field rather than an error -- which is the state a window is often
-// covering for. It remains gated on `system_settings:read`, so the exemption
-// widens no surface to anyone who could not already read it.
-@AllowDuringMaintenance()
-@Controller('admin/about')
-export class AboutController {
-  constructor(private readonly about: AboutService) {}
+export function createAboutController(options: AboutControllerOptions = {}): AboutControllerClass {
+  const requireAccess = resolveHostAccess(options.host).requirePermissions([
+    options.permission ?? DEFAULT_ABOUT_PERMISSION,
+  ]);
 
-  @Get()
-  @Auth({ permissions: [SETTINGS_PERMISSIONS.SYSTEM_SETTINGS_READ.id] })
-  @ApiOperation({
-    summary: 'Report what is deployed here (Admin only)',
-    description:
-      'Reports this deployment: the API version the process resolved for itself, the deploy ' +
-      'document `appctl deploy` left on disk, and a database liveness fact.\n\n' +
-      '**Always answers `200`.** A missing document is `deployInfoStatus: "absent"`, an ' +
-      'unreadable or malformed one is `"invalid"`, and a database that does not answer is ' +
-      '`database: null` with a `databaseError` string. None of the three is an error status: ' +
-      'this endpoint is read when something has gone wrong, so every failure it can have is a ' +
-      'field rather than a status code.\n\n' +
-      '**Three deploy states, not two.** Beyond `ok` and `absent`, a document can be complete ' +
-      'AND describe a run that failed — `deployInfoStatus: "ok"` with `run.outcome: "failure"` ' +
-      'and `run.failedStep` naming where it stopped. That run still deployed something, so ' +
-      'every fact it recorded is reported.\n\n' +
-      '**Never performs network I/O.** `remote` is copied from the document as-is; this route ' +
-      'does not contact the deploy remote, run git, or refresh anything. The document is read ' +
-      'from disk on every request, so rewriting it needs no restart.\n\n' +
-      '`deployInfoPath` is the exact path that was read, and on an `absent` answer it is the ' +
-      'actionable fact — the file may simply be at a different path, on an unattached bind ' +
-      'mount, or from a run that stopped before writing it.\n\n' +
-      '**Deployment details (issue #392).** `lastCommand`, `bindPort`, `proxy`, `host` and ' +
-      '`history` (successful runs, newest first, at most 20) are also read from the document, ' +
-      'leniently: an invalid sub-field is `null` and an invalid history entry is dropped. `host` ' +
-      'and `proxy.certificateExpiresAt` are as the CLI observed them when it wrote the file, not ' +
-      'live. `runtime` (`processStartedAt`, `nodeVersion`, `environment`) is the one live object, ' +
-      'describing this API process.\n\n' +
-      'Requires `system_settings:read`.',
-  })
-  @ApiResponse({
-    status: 200,
-    description:
-      'The deployment report. Returned for every authorized caller, whatever the state of ' +
-      'the deploy document or the database.',
-    type: AboutResponseDto,
-  })
-  async getAbout(): Promise<AboutResponseDto> {
-    return this.about.describe();
+  @ApiTags('About')
+  // ⚠ READABLE DURING A MAINTENANCE WINDOW, deliberately.
+  //
+  // Every other admin surface is blocked while a window is open, and that is
+  // right: they CHANGE things. This one only reports, and the moment an operator
+  // most needs it is precisely the moment a window is open -- a deploy failed
+  // partway, somebody opened the window to stop traffic, and the question they
+  // now have is "what is actually on this box?". Answering 503 to that question
+  // withholds the one page that could answer it, from the one person entitled to
+  // ask.
+  //
+  // It is safe to exempt on the same grounds the health probes are: it performs
+  // no network I/O, writes nothing, and already reports an unreachable database
+  // as a field rather than an error -- which is the state a window is often
+  // covering for. It remains gated on `system_settings:read`, so the exemption
+  // widens no surface to anyone who could not already read it.
+  @AllowDuringMaintenance()
+  @Controller('admin/about')
+  class AboutController implements AboutControllerInstance {
+    constructor(@Inject(AboutService) private readonly about: AboutService) {}
+
+    @Get()
+    @requireAccess
+    @ApiOperation({
+      summary: 'Report what is deployed here (Admin only)',
+      description:
+        'Reports this deployment: the API version the process resolved for itself, the deploy ' +
+        'document `appctl deploy` left on disk, and a database liveness fact.\n\n' +
+        '**Always answers `200`.** A missing document is `deployInfoStatus: "absent"`, an ' +
+        'unreadable or malformed one is `"invalid"`, and a database that does not answer is ' +
+        '`database: null` with a `databaseError` string. None of the three is an error status: ' +
+        'this endpoint is read when something has gone wrong, so every failure it can have is a ' +
+        'field rather than a status code.\n\n' +
+        '**Three deploy states, not two.** Beyond `ok` and `absent`, a document can be complete ' +
+        'AND describe a run that failed — `deployInfoStatus: "ok"` with `run.outcome: "failure"` ' +
+        'and `run.failedStep` naming where it stopped. That run still deployed something, so ' +
+        'every fact it recorded is reported.\n\n' +
+        '**Never performs network I/O.** `remote` is copied from the document as-is; this route ' +
+        'does not contact the deploy remote, run git, or refresh anything. The document is read ' +
+        'from disk on every request, so rewriting it needs no restart.\n\n' +
+        '`deployInfoPath` is the exact path that was read, and on an `absent` answer it is the ' +
+        'actionable fact — the file may simply be at a different path, on an unattached bind ' +
+        'mount, or from a run that stopped before writing it.\n\n' +
+        '**Deployment details (issue #392).** `lastCommand`, `bindPort`, `proxy`, `host` and ' +
+        '`history` (successful runs, newest first, at most 20) are also read from the document, ' +
+        'leniently: an invalid sub-field is `null` and an invalid history entry is dropped. `host` ' +
+        'and `proxy.certificateExpiresAt` are as the CLI observed them when it wrote the file, not ' +
+        'live. `runtime` (`processStartedAt`, `nodeVersion`, `environment`) is the one live object, ' +
+        'describing this API process.\n\n' +
+        'Requires `system_settings:read`.',
+    })
+    @ApiResponse({
+      status: 200,
+      description:
+        'The deployment report. Returned for every authorized caller, whatever the state of ' +
+        'the deploy document or the database.',
+      type: AboutResponseDto,
+    })
+    async getAbout(): Promise<AboutResponseDto> {
+      return this.about.describe();
+    }
   }
+
+  return AboutController;
 }
+
+/**
+ * The about controller with the default permission and the identity slice's `@Auth()`.
+ *
+ * @internal
+ */
+export const AboutController: AboutControllerClass = createAboutController();
+export type AboutController = AboutControllerInstance;

@@ -196,7 +196,10 @@ TLS checks run when `--domain` is given.
   container mode.
 - **Publishing** renders `conf.d/<domain>.conf` (HTTP-01 challenge location,
   redirect to HTTPS, `proxy_pass http://127.0.0.1:<APP_BIND_PORT>`, and
-  `X-Forwarded-Proto` set at this outermost hop), issues the certificate with
+  `X-Forwarded-Proto` set at this outermost hop, and the unbuffered streaming
+  locations: the platform's three SSE paths plus the app's declared
+  `streamPaths`, [runbook §6.3](../runbooks/deploy-to-vps.md#63-stream-an-app-route-through-the-host-proxy)),
+  issues the certificate with
   certbot's **webroot** method (the dockerised `certbot/certbot:latest` in
   container mode), runs `nginx -t` (inside the container in container mode),
   and reloads only if validation passed. Any failure restores the previous

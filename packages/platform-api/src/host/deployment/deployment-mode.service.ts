@@ -47,6 +47,23 @@ export class DeploymentModeService {
     this.capabilities = Object.freeze(capabilitiesFor(this.mode));
   }
 
+  /**
+   * Whether this deployment's mode permits a capability: a platform one
+   * (`inAppRestore`) or one the app registered with `registerDeploymentCapability`.
+   *
+   * @param capabilityId - the capability's id.
+   * @returns whether it is permitted.
+   * @throws Error when nobody registered `capabilityId`.
+   */
+  can(capabilityId: string): boolean {
+    if (!Object.hasOwn(this.capabilities, capabilityId)) {
+      throw new Error(
+        `Unknown deployment capability "${capabilityId}". Register it with registerDeploymentCapability() at import time.`
+      );
+    }
+    return this.capabilities[capabilityId];
+  }
+
   /** Whether the application may restore its own database here. */
   get inAppRestoreEnabled(): boolean {
     return this.capabilities.inAppRestore;

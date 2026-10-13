@@ -51,6 +51,7 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `registerTuiScreen` | registry | `registerTuiScreen(screen: TuiScreenRegistration): void` | Add an app screen to the TUI menu (EvoPath's Android release screen) | experimental | [example](../../../../apps/cli/src/examples/about.tui.ts) |
+| `registerTuiScreenSection` | registry | `registerTuiScreenSection(screenId: string, section: ComponentType<TuiSectionProps> \| { id: string; load: () => Promise<ComponentType<TuiSectionProps>> }, options?: { id?: string }): void` | Add an ink section below the `node` or `deploy` screen's list (a fleet note, a release hint); a section that throws shows a notice and the screen keeps working | experimental | [example](../../../../apps/cli/src/examples/fleet-note.tui-section.tsx) |
 
 ## Data
 

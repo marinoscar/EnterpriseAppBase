@@ -10,6 +10,7 @@ export {
   errorTypeOf,
 } from './node-span-relay.js';
 export type { NodeSpanRelayOptions } from './node-span-relay.js';
-export type { NodeSpan, NodeSpanAttributes, NodeSpanName, NodeSpanSink } from './node-span.js';
+export { NODE_APP_SPAN_NAME_PATTERN, isNodeSpanName } from './node-span.js';
+export type { BuiltinNodeSpanName, NodeSpan, NodeSpanAttributes, NodeSpanName, NodeSpanSink } from './node-span.js';
 export { telemetryEnvSpecFragment } from './env-fragment.js';
 export type { TelemetryEnvGroup, TelemetryEnvSpecFragment, TelemetryEnvVarMetadata } from './env-fragment.js';

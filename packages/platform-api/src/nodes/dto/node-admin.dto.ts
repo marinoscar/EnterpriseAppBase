@@ -220,6 +220,16 @@ export class NodeVitalsDto implements NodeVitals {
     maxLength: 64,
   })
   pgDumpVersion?: string;
+
+  /** App-defined numeric vitals */
+  @ApiPropertyOptional({
+    description:
+      'App-defined numeric vitals an executor or the node\u2019s app reports beyond the closed fields: ' +
+      'at most 16 keys, each a lower-case dotted identifier, each a finite number. Display only.',
+    type: 'object',
+    additionalProperties: { type: 'number' },
+  })
+  extra?: Record<string, number>;
 }
 
 /**

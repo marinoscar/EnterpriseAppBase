@@ -2,7 +2,7 @@ import { DynamicModule, Module } from '@nestjs/common';
 
 import { AboutSupportBundleSection } from './about-support-bundle.section';
 import { ABOUT_OPTIONS, type AboutModuleOptions } from './about.options';
-import { AboutController } from './about.controller';
+import { createAboutController } from './about.controller';
 import { AboutService } from './about.service';
 
 // =============================================================================
@@ -43,11 +43,15 @@ export class AboutModule {
    * @stability experimental
    */
   static forRoot(options: AboutModuleOptions): DynamicModule {
+    if (options.permission !== undefined && (typeof options.permission !== 'string' || options.permission.trim() === '')) {
+      throw new Error('AboutModule.forRoot: permission must be a non-empty string');
+    }
+    const { host, permission, ...resolved } = options;
     return {
       module: AboutModule,
-      controllers: [AboutController],
+      controllers: [createAboutController({ host, permission })],
       providers: [
-        { provide: ABOUT_OPTIONS, useValue: Object.freeze({ ...options }) },
+        { provide: ABOUT_OPTIONS, useValue: Object.freeze({ ...resolved }) },
         AboutService,
         // The `versions` support-bundle section (#772) registers itself with the
         // global `SupportBundleRegistry` (`@marinoscar/platform-api/doctor`).

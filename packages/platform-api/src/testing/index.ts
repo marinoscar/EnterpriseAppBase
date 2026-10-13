@@ -10,6 +10,7 @@ import type { UserOwnedDataOptions } from './suites/user-owned-data';
 export { formatConformanceSummary, runPlatformConformance } from './run-platform-conformance';
 export type { ConformanceSummaryEntry, PlatformConformanceOptions } from './run-platform-conformance';
 export { conformanceSuites } from './conformance-suites';
+export { resolveConformanceTestApi } from './test-api';
 export type {
   ConformanceAppSuite,
   ConformanceCase,

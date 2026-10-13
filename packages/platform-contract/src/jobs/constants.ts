@@ -37,15 +37,50 @@ export const JOB_STATUSES = [
 export type JobStatusName = (typeof JOB_STATUSES)[number];
 
 /**
- * The three `JobReason` values, for the same reason and with the same guards.
+ * The built-in job reasons: why a job was queued. The vocabulary is OPEN: an
+ * app adds its own with `registerJobReason` (`@marinoscar/platform-api/jobs`),
+ * and `jobs.reason` is a plain string, so these three are the platform's, not
+ * the only values a row can hold. Use {@link JobReasonName} for "any reason".
  *
  * @stability experimental
  */
-export const JOB_REASONS = [
+export const BUILTIN_JOB_REASONS = [
   'upload',
   'rerun',
   'backfill',
 ] as const;
+
+/**
+ * One built-in job reason: `upload`, `rerun` or `backfill`.
+ *
+ * @stability experimental
+ */
+export type BuiltinJobReasonName = (typeof BUILTIN_JOB_REASONS)[number];
+
+/**
+ * The three built-in job reasons, under their original name.
+ *
+ * @deprecated Use {@link BUILTIN_JOB_REASONS}; the vocabulary is open and this list is no longer every reason a row can hold.
+ * @stability experimental
+ */
+export const JOB_REASONS = BUILTIN_JOB_REASONS;
+
+/**
+ * What a job reason id must look like: a lower-case letter, then 1 to 47 of
+ * lower-case letters, digits, `_`, `.` or `-` (2 to 48 characters). The shape
+ * is the only contract the wire and the column hold; WHICH ids are valid is
+ * the registry's business (`registerJobReason`).
+ *
+ * @stability experimental
+ */
+export const JOB_REASON_PATTERN = /^[a-z][a-z0-9_.-]{1,47}$/;
+
+/**
+ * Any job reason: a built-in (autocompleted) or an app's registered one.
+ *
+ * @stability experimental
+ */
+export type JobReasonName = BuiltinJobReasonName | (string & {});
 
 /**
  * The activity windows the list offers, longest-lived value last.

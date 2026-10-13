@@ -22,7 +22,22 @@ import { CLI_VERSION } from './package-info.js';
 //   tuiScreens        a screen in the TUI menu            examples/about.screen.tsx
 //   deploySteps       a step in the install/update plan   examples/announce.deploy-step.ts
 //   nodeExecutors     a node-eligible job type            examples/echo.executor.ts
+//                     one that needs ffmpeg, emits a
+//                     job.app.* span and an app vital     examples/transcode.executor.ts
 //   envSpecFragments  metadata for app.env.example keys
+//   envGroups         an opt-in group of env keys          examples/coach.env-group.ts
+//   envGenerators     a kind of generated env value        examples/coach.env-generator.ts
+//   envAnnotations    fixed / help for a platform env key  examples/coach.env-annotation.ts
+//   deployChecks      a doctor / preflight check           examples/coach.deploy-check.ts
+//   deploySteps       also before / replaces / skipWhen    examples/coach.deploy-step-placement.ts
+//   proxy             stream paths for the VPS host proxy  examples/coach.proxy-stream.ts
+//   edgeConfigFiles   a single-file nginx mount to check   examples/coach.edge-config.ts
+//   tuiSections       a section of the node/deploy screens examples/fleet-note.tui-section.tsx
+//
+// The CLI conformance suites (`registerCliConformanceSuite`, examples/coach.conformance-suite.ts)
+// and the compose modes (`registerComposeMode` of @marinoscar/platform-infra,
+// examples/staging.compose-mode.ts) are registered from tests and tooling,
+// not from the options.
 //
 // The examples are compiled and tested (examples/*.test.ts) but NOT wired
 // here, so `appctl --help` and the TUI menu stay the platform's.

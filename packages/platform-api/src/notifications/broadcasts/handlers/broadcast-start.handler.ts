@@ -481,13 +481,12 @@ export class BroadcastStartHandler implements JobHandler, OnModuleInit {
     // no active job holds the key, so the retry's insert goes through.
     const chunkJob = await this.jobs.enqueue({
       type: BROADCAST_CHUNK_TYPE,
-      // `backfill`, reused rather than extended. `JobReason` has exactly three
-      // values (`upload` | `rerun` | `backfill`) and it is a Prisma enum, so
-      // adding `broadcast` would be a migration, plus the web-side
-      // `JOB_REASONS` array, plus DTO and OpenAPI churn — all for a display
-      // string. `job-history-purge.task.ts` already makes this trade for the
-      // same reason; the friendly type label in `job-type-labels.ts` is what
-      // actually carries the meaning to a human reading the dashboard.
+      // `backfill`, reused rather than extended. The platform's job reasons
+      // are `upload` | `rerun` | `backfill` (an app may register more), and a
+      // `broadcast` reason would be a registration plus a new stored value for
+      // a display string. `job-history-purge.task.ts` makes the same trade;
+      // the friendly type label is what actually carries the meaning to a
+      // human reading the dashboard.
       reason: 'backfill',
       subjectType: BROADCAST_SUBJECT_TYPE,
       subjectId: broadcastId,

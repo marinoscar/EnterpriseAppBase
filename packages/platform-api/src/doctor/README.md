@@ -1,12 +1,14 @@
 # @marinoscar/platform-api/doctor
 
-`@marinoscar/platform-api/doctor`: the admin Doctor, `GET /api/admin/doctor`. It runs small, read-only checks that the app's feature modules contribute and returns one report: is every capability of this deployment configured, reachable and healthy? The first slice extracted from the reference app (issue #696, Wave 1 of the platform program). Depends on the `core` slice only (`packages/platform-slices.json`): the registry primitive and the host ports.
+`@marinoscar/platform-api/doctor`: the admin Doctor, `GET /api/admin/doctor`. It runs small, read-only checks that the app's feature modules contribute and returns one report: is every capability of this deployment configured, reachable and healthy? The first slice extracted from the reference app (issue #696, Wave 1 of the platform program). Depends on the `core` slice (the registry primitive and the host ports) and, for its `doctor/testing` entry, the peer-free `testing` slice (`packages/platform-slices.json`).
 
 ## Purpose and scope
 
 Does: the check contract (`DoctorCheck`, the five rules), the check registry, the service that runs the checks (parallel, dependency-aware, time-boxed, normalised, cached), the query and report DTOs (nestjs-zod wrappers of the schemas in `@marinoscar/platform-contract/doctor`, #701), and the controller, created per app by `DoctorModule.forRoot({ host })` with the app's own access decorators. Since #773 also the egress inventory: `EgressRegistry`, where each module describes its outbound (internet) dependencies, a pure host classifier, and `NetworkEgressDoctorCheck` (`network.egress`), which grades that inventory when the deployment declares itself air-gapped.
 
 Also the **support bundle** (issue #772): `GET <path>/support-bundle`, one redacted JSON file for a support ticket. Its section registry (`SupportBundleRegistry`, the `SupportBundleSection` contract), the service that builds it (parallel sections under timeouts, strict schemas, the central redaction pass `redact.ts`, size caps, one audit row) and its controller. Three sections are built in and registered by `forRoot`: `meta` (installed platform package versions, section ids), `doctor` (the cached report) and `egress` (the egress inventory: hosts and scopes, never URLs). The app contributes the rest (`versions`, `telemetry` in the reference app). The envelope schema is `supportBundleSchema` in `@marinoscar/platform-contract/doctor`.
+
+Also the **extension-author test kit** (`@marinoscar/platform-api/doctor/testing`): `describeDoctorCheckConformance` proves one check against the contract, the doubles it runs over (a recording Prisma client, a write-failing storage provider) are exported, and the `doctor-read-only` conformance suite runs the same proof over every registered check ([Conformance suite](#conformance-suite)).
 
 Does not: register any check by itself. Checks are registry entries the app contributes from its own feature modules, under `<module>/doctor/`, and they move with their slices later; the one check class this slice ships, `NetworkEgressDoctorCheck`, is generic over the app's contributors and is registered by the host slice (`PlatformHostCoreModule`, #879), as are the database, secrets-key and deployment-mode checks. It does not own the permission system (the app's host does), the web page (`@marinoscar/platform-web/doctor/ui`) or a queue job (a Doctor run is a bounded request, never a job; see [docs/specs/doctor.md §2.5](../../../../docs/specs/doctor.md)).
 
@@ -148,8 +150,15 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | `SupportBundleSection` | registry | `{ id; label; permission?; schema; timeoutMs?; collect(ctx): Promise<T \| SupportBundleOmission> }` | Contribute a capability's facts to the support bundle | experimental | [example](../../../../apps/api/test/doctor/support-bundle.integration.spec.ts) |
 | `SupportBundleRegistry.register` | registry | `register(section: SupportBundleSection): void` | Add the section to the bundle from its own `onModuleInit` | experimental | [example](../../../../apps/api/test/doctor/support-bundle.integration.spec.ts) |
 | `DEPLOYMENT_NETWORK_SOURCE` | token | `unique symbol` -> `{ readonly network: 'online' \| 'air-gapped' }` | Bind the app's parsed `DEPLOYMENT_NETWORK` so `network.egress` grades the inventory | experimental | [example](../../../../apps/api/test/doctor/network-egress.integration.spec.ts) |
+| `describeDoctorCheckConformance` | hook | `describeDoctorCheckConformance(name, factory: (doubles) => DoctorCheck, options?): void` | Prove one check against the contract in the app's own spec: identity, a guarded run that never throws, a valid outcome, read-only against a recording Prisma client and a write-failing storage provider | experimental | [example](../../../../apps/api/test/examples/doctor/example-capability.conformance.spec.ts) |
+| `DoctorCheckConformanceOptions` | option | `{ scenarios?; defaultTimeoutMs?; testApi? }` | Run the kit in several worlds (configured, unconfigured, off), each with its expected statuses and seeded secrets | experimental | [example](../../../../apps/api/test/examples/doctor/example-capability.conformance.spec.ts) |
+| `DoctorReadOnlyOptions` | option | `{ fixture; minChecks?; exempt?; forbiddenServices?; defaultTimeoutMs? }` | Configure the `doctor-read-only` suite: how the app boots, the vacuity floor, argued exemptions, the app's own forbidden services | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
+| `DoctorConformanceFixture` | option | `{ createContext(doubles): Promise<{ app }>; closeContext(context): Promise<void> }` | Tell the suite how the app boots with the recording Prisma client and the write-failing storage installed under its tokens | experimental | [example](../../../../apps/api/test/conformance/doctor-fixture.ts) |
+| `doctorReadOnlySuite` | registry | `ConformanceAppSuite<DoctorReadOnlyOptions>` | The suite behind `runPlatformConformance({ suites: { doctorReadOnly } })`; registered by importing `@marinoscar/platform-api/doctor/testing` | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
 
 Supporting exports: `DoctorService` (`run({ category?, refresh? })`, `invalidate()`), `DoctorCheckRegistry.get` / `list`, `DoctorStatus`, `DOCTOR_STATUSES`, `DOCTOR_STATUS_RANK`, `worstStatus`, `DoctorCheckOutcome`, `DoctorDataValue`, `DoctorCategory`, `CoreDoctorCategory`, the defaults `DEFAULT_DOCTOR_PERMISSION`, `DEFAULT_DOCTOR_PATH`, `DOCTOR_DEFAULT_TIMEOUT_MS`, `DOCTOR_CACHE_TTL_MS`, `DOCTOR_FALLBACK_REMEDY`, the DTOs `DoctorQueryDto` and `DoctorReportDto` with their types `DoctorQuery`, `DoctorReport`, `DoctorCheckReport`, and `createDoctorController` (called by `forRoot`; an app never needs it). Egress (#773): `NetworkEgressDoctorCheck` (the `network.egress` check; the host slice registers it), `gradeEgress` (its pure verdict table), `describeEgress` (runs every contributor, a throw becomes one `unknown` entry; what a support bundle reads), `hostnameOf`, `scopeOfHosts`, `DEPLOYMENT_NETWORKS`, `DeploymentNetwork`, `DeploymentNetworkSource`, `EgressDependencyInput`, `EgressDirection`, `EgressScope`, `EGRESS_MAX_HOSTS`, `AIR_GAPPED_RUNBOOK`, `NETWORK_EGRESS_CHECK_ID`. Support bundle (#772, experimental): `SupportBundleService` (`build(actor)`, `download(actor)`), `SupportBundleRegistry.get` / `list`, `SupportBundleSectionContext`, `SupportBundlePrincipal`, `SupportBundleOmission`, `omitSupportBundleSection`, `isSupportBundleOmission`, `SupportBundleBuild`, `ResolvedSupportBundleOptions`, `defaultSupportBundlePrincipal`, the redaction pass `redactValue` / `redactString` with `RedactValueOptions`, `RedactionResult`, `SENSITIVE_KEY_PATTERN`, `COMMIT_SHA_ALLOWED_PATHS`, `REDACTED`, `SUPPORT_BUNDLE_REDACTION_VERSION`, the constants `SUPPORT_BUNDLE_SECTION_TIMEOUT_MS`, `SUPPORT_BUNDLE_SECTION_MAX_BYTES`, `SUPPORT_BUNDLE_MAX_BYTES`, `SUPPORT_BUNDLE_SUBPATH`, `SUPPORT_BUNDLE_AUDIT_ACTION`, the DTO `SupportBundleDto` and `createSupportBundleController` (called by `forRoot`).
+
+The test kit, from `@marinoscar/platform-api/doctor/testing` (all `@stability experimental`; Jest or Vitest with globals, never production code): `runDoctorCheck(check, { defaultTimeoutMs? })` (the service's guard, but a throw and a timeout are reported, not absorbed), `findOutcomeProblems` and `findIdentityProblems` (the contract as sentences), `createRecordingPrisma({ results?, refuseWrites? })` and `createWriteFailingStorage({ kind?, bucket?, existingKeys?, refuseWrites? })` with their `RecordingPrisma`, `WriteFailingStorage` and `ReadOnlyViolationError`, `DoctorCheckScenario`, `DoctorCheckDoubles`, `DoctorCheckFactory`, and for the suite `auditDoctorChecks`, `findReadOnlyViolations`, `DoctorCheckAudit`, `DoctorReadOnlyDoubles`, `DoctorReadOnlyExemption`, `DOCTOR_FORBIDDEN_SERVICES`.
 
 ## Data
 
@@ -193,7 +202,51 @@ The route always answers 200 for an authorised caller (a failing check is a row)
 
 ## Conformance suite
 
-None yet. A planned "doctor checks are read-only" suite (statically refusing the side-effecting test services in a check) will run through `runPlatformConformance()`. Until then the package's own tests (`test/doctor/`) and the reference app's `apps/api/test/doctor/doctor.integration.spec.ts` (RBAC, every module's checks wired, no secret on the wire) pin the behaviour.
+**`doctor-read-only`** (option key `doctorReadOnly`; `@marinoscar/platform-api/doctor/testing`). Rule 3 of the contract, run as a test: every check the booted app's `DoctorCheckRegistry` holds runs against a recording Prisma client and a storage provider that refuses writes. The checks are discovered at run time, so a check added tomorrow is covered with no edit. It fails when a check
+
+- wrote through Prisma: a `create`, `update`, `upsert`, `delete` or `*Many` call, an `$executeRaw`, or a raw query whose SQL is a write (a job enqueue, an audit write and a settings upsert-on-read all end in one of these);
+- wrote to object storage (an upload, a delete, a presigned PUT);
+- holds a side-effecting "test" service as a dependency (`StorageConnectionTestService`, `AiProviderTestService`, `EmailTestSendService`, `PushTestService`, `TelemetryConnectionTestService`; an app adds its own class name in `forbiddenServices`), which is how a check that spends tokens or sends mail is caught without running it;
+- throws, times out or returns an invalid outcome (no remedy on `warn`/`fail`, non-scalar `data`, a secret-shaped value). A check whose `dependsOn` did not pass is still run, to watch for writes, but its outcome is not graded: the service never calls it.
+
+```ts
+// apps/api/test/conformance.spec.ts
+import '@marinoscar/platform-api/doctor/testing'; // registers the suite
+import { doctorConformanceFixture } from './conformance/doctor-fixture';
+
+runPlatformConformance({
+  sourceRoots: [API_SOURCE_ROOT],
+  suites: { doctorReadOnly: { fixture: doctorConformanceFixture, minChecks: 30 } },
+});
+```
+
+The fixture is the one thing the suite asks of the app: boot it with the two doubles installed under its tokens (`PrismaService`, the system client, `STORAGE_PROVIDER`; the reference app's is [`doctor-fixture.ts`](../../../../apps/api/test/conformance/doctor-fixture.ts)). The doubles accept writes while the app boots, so a write at startup does not stop it, and refuse them from the first check.
+
+| Option | Type | Default | Meaning |
+|---|---|---|---|
+| `fixture` | `DoctorConformanceFixture` | required | How the app boots with the doubles. |
+| `minChecks` | `number` | `10` | Vacuity guard: at least this many checks must be registered. |
+| `exempt` | `Array<{ id, why }>` | none | A check allowed to break the rule. `why` is required (an empty one throws) and an id that is not registered is a finding, so the list cannot go stale. The built-in checks need none. |
+| `forbiddenServices` | `string[]` | the five services above | Class names a check must not hold. |
+| `defaultTimeoutMs` | `number` | `5000` | The ceiling for a check that declares no `timeoutMs`. |
+
+An app that does not want it opts out with a reason: `doctorReadOnly: { skip: 'why' }`. Leaving the key out runs nothing, so an app that never wired the suite keeps passing.
+
+**One check, in the author's own spec.** `describeDoctorCheckConformance(name, factory, { scenarios })` builds the check per test over the same two doubles (the factory receives them: bind `prisma.client` where the check takes `PLATFORM_PRISMA` or its slice's client) and registers, per scenario: identity (a dotted id, a category, a label, a root-relative `settingsPath`, a positive `timeoutMs`), a guarded run that completes, never throws and returns a valid outcome with a remedy on `warn`/`fail` and no seeded `secrets`, the statuses the scenario expects, and read-only against both doubles. The reference app runs it over its example check in [`example-capability.conformance.spec.ts`](../../../../apps/api/test/examples/doctor/example-capability.conformance.spec.ts).
+
+```ts
+describeDoctorCheckConformance('shipping.carrier', ({ prisma }) => new CarrierDoctorCheck(registry, prisma.client), {
+  scenarios: [
+    { name: 'carrier reachable', prisma: { results: { 'carrierSettings.findFirst': { enabled: true } } }, expectStatus: 'pass' },
+    { name: 'carrier off', expectStatus: 'skip' },
+    { name: 'a key is set', secrets: [SEEDED_API_KEY], expectStatus: ['pass', 'warn'] },
+  ],
+});
+```
+
+Both are proved against planted violations in `packages/platform-api/test/doctor/testing/` (a Prisma write, a raw delete, a storage write, a held test service one level down, a throw, a missing remedy, a leaked seeded secret, a stale exemption), and the suite runs green over the platform's own checks in the reference app.
+
+What neither can see: a write that reaches neither double (an HTTP POST from the check itself, a filesystem write) and a model call made without a held test service. The check's own spec covers what it does itself.
 
 ## Upgrade notes
 
@@ -220,6 +273,9 @@ Since #701 the schemas live in `@marinoscar/platform-contract/doctor`. `DoctorRe
 | `Duplicate egress contributor id "<id>"` at boot | Two egress contributors share an id; rename one. |
 | No `network.egress` row | The app does not import `PlatformHostCoreModule.forRoot()`, which registers `NetworkEgressDoctorCheck`. |
 | `network.egress` passes although the deployment is offline | `DEPLOYMENT_NETWORK` is unset or `online`, or no `DEPLOYMENT_NETWORK_SOURCE` is bound: online it is an inventory and always passes. |
+| `doctor-read-only` names `<check> wrote through Prisma: <model>.<op>` | The check wrote a row, enqueued a job or recorded an audit event. A Doctor run is read-only; read instead, or move the write to a job the operator starts. |
+| `doctor-read-only` names `<check> holds the side-effecting <Service>` | The check injected a "test" service. Read the settings or the stored status instead of probing through the service that writes. |
+| `<check> threw "..."` from `doctor-read-only` | The check let an error escape. Catch it and return `fail` with a `detail` and a `remedy`; if it assumes a dependency passed, declare it in `dependsOn`. |
 | `Nest can't resolve dependencies of <Check> (DoctorCheckRegistry, ...)` | `DoctorModule.forRoot()` is not imported in the root module (or in the test module). |
 | A bundle section is `error`, "section output did not match its schema" | `collect()` returned a field its strict schema does not list; the API log names the path. Add it to the schema on purpose, or stop returning it. |
 | The bundle route answers 403 "The caller could not be identified" | The default `principal` found no `requestUser`/`user` with `id` and `permissions`; pass `supportBundle.principal`. |

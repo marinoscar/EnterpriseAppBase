@@ -22,7 +22,7 @@ export class DefaultUserDataEnvironment implements UserDataEnvironment {
   ) {}
 
   /** The parsed `DEPLOYMENT_MODE`. */
-  deploymentMode(): 'self-hosted' | 'saas' {
+  deploymentMode(): 'self-hosted' | 'saas' | (string & {}) {
     return this.deployment.mode;
   }
 
