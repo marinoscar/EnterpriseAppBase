@@ -46,7 +46,47 @@ export interface InfraConformanceTestApi {
   /** One case. */
   it(name: string, body: () => unknown): void;
   /** The assertion entry point. */
-  expect(actual: unknown): { toEqual(expected: unknown): void };
+  expect(actual: unknown): InfraConformanceMatchers;
+}
+
+/**
+ * The one matcher the suite uses.
+ *
+ * @stability experimental
+ */
+export interface InfraConformanceMatchers {
+  /**
+   * Deep equality.
+   *
+   * @param expected - The expected value.
+   */
+  toEqual(expected: unknown): void;
+}
+
+/**
+ * How a program ended.
+ *
+ * @stability experimental
+ */
+export interface InfraExecResult {
+  /** The exit status, or `null` when the program could not run at all. */
+  status: number | null;
+  /** Everything it wrote to stdout and stderr, plus a spawn error's message. */
+  output: string;
+}
+
+/**
+ * An opt-out per check. Each value is the reason, required and non-empty.
+ *
+ * @stability experimental
+ */
+export interface InfraConformanceSkip {
+  /** Skip `platform-infra sync --check`. */
+  sync?: string;
+  /** Skip `docker compose config` over the modes. */
+  compose?: string;
+  /** Skip `nginx -t`. */
+  nginx?: string;
 }
 
 /**
@@ -58,7 +98,7 @@ export type InfraExec = (
   command: string,
   args: readonly string[],
   options: { cwd?: string; env?: Record<string, string> },
-) => { status: number | null; output: string };
+) => InfraExecResult;
 
 /**
  * Options of {@link runInfraConformance}.
@@ -77,7 +117,7 @@ export interface InfraConformanceOptions {
   /** Variables for `docker compose config`, over the dummy values for the platform's required ones. */
   env?: Readonly<Record<string, string>>;
   /** An opt-out per check, with the reason (required, non-empty). */
-  skip?: { sync?: string; compose?: string; nginx?: string };
+  skip?: InfraConformanceSkip;
   /** Defaults to the globals `describe`/`it`/`expect`. */
   testApi?: InfraConformanceTestApi;
   /** Runs a program. Defaults to `spawnSync`; tests inject a fake. */
