@@ -18,7 +18,7 @@ import { PLATFORM_PERMISSION_SLICES } from './platform-permissions';
 /**
  * The roles and permissions one slice outside the platform declares.
  *
- * @extensionPoint registry
+ * @extensionPoint option
  * @stability experimental
  */
 export interface PermissionSetRegistration {

@@ -82,7 +82,6 @@ export function describeRole(role: RoleDeclaration): RoleDescriptor {
  * listRoles('org').filter((role) => role.assignable); // what an organization administrator can hand out
  * ```
  *
- * @extensionPoint registry
  * @stability experimental
  */
 export function listRoles(scope?: RoleScopeValue): RoleDescriptor[] {
@@ -101,9 +100,12 @@ export function listRoles(scope?: RoleScopeValue): RoleDescriptor[] {
  * @stability experimental
  */
 export function roleNotAssignable(role: string): BadRequestException {
+  // The id is echoed so the caller can see which of several it was; a request
+  // body can carry any string, so it is cut short.
+  const shown = role.length > 64 ? `${role.slice(0, 64)}...` : role;
   return new BadRequestException({
-    message: `The role "${role}" cannot be assigned`,
-    details: { reason: ROLE_NOT_ASSIGNABLE_REASON, role },
+    message: `The role "${shown}" cannot be assigned`,
+    details: { reason: ROLE_NOT_ASSIGNABLE_REASON, role: shown },
   });
 }
 

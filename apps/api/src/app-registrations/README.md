@@ -34,7 +34,7 @@ registry.
 
 | File | Registry | Recipe |
 |---|---|---|
-| `permissions.ts` | Roles and permissions (`APP_ROLES`, `APP_PERMISSIONS`) | [common/permissions/README.md](../common/permissions/README.md) |
+| `permissions.ts` | Roles, permissions and grants of platform permissions to app roles (`APP_ROLES`, `APP_PERMISSIONS`, `APP_GRANTS`) | [common/permissions/README.md](../common/permissions/README.md) |
 registry:
 
 | File | Registry | Recipe |

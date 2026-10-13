@@ -107,6 +107,17 @@ describe('assertRoleAssignable (fail closed)', () => {
     });
   });
 
+  it('cuts a very long id short in the response', () => {
+    try {
+      assertRoleAssignable('x'.repeat(5000), 'org');
+      throw new Error('expected a 400');
+    } catch (err) {
+      const body = (err as BadRequestException).getResponse() as { message: string; details: { role: string } };
+      expect(body.details.role).toHaveLength(67);
+      expect(body.message.length).toBeLessThan(120);
+    }
+  });
+
   it('is not fooled by prototype keys or case', () => {
     for (const role of ['__proto__', 'constructor', 'toString', 'Viewer', 'VIEWER', 'viewer ', '']) {
       expect(reasonOf(() => assertRoleAssignable(role, 'org'))).toBe('ROLE_NOT_ASSIGNABLE');
