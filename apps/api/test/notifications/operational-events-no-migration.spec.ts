@@ -107,6 +107,9 @@ const MIGRATIONS_AT_288 = [
   // #746 (PP-9.4): android_app_releases and push_subscriptions.platform (the
   // android_app channel; the four operational events still need nothing).
   '20261008120000_add_android_app',
+  // PP-14.19 (#937): jobs.reason becomes TEXT (the open job-reason vocabulary;
+  // the four operational events still need nothing).
+  '20261013115831_open_job_reason',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');
