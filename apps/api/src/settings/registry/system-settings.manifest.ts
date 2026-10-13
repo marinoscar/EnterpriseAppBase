@@ -13,8 +13,12 @@
 // never by a declaration file (that would close an import cycle).
 // =============================================================================
 
+// Packages that contribute settings call `registerSettingsContribution` from a
+// side-effect import listed here; it runs BEFORE the assembly below.
+import '../../app-registrations/settings-contributions';
 import { APP_RETENTION_POLICIES } from '../../app-registrations/jobs';
 import {
+  APP_SYSTEM_SETTINGS_DEFAULT_OVERRIDES,
   APP_SYSTEM_SETTINGS_EXTENSIONS,
   APP_SYSTEM_SETTINGS_NAMESPACES,
 } from '../../app-registrations/settings';
@@ -27,8 +31,7 @@ import { NOTIFICATIONS_SYSTEM_SETTINGS } from '@marinoscar/platform-api/notifica
 import { STORAGE_SYSTEM_SETTINGS } from '../../platform/storage/storage.system-settings';
 import { TELEMETRY_SYSTEM_SETTINGS } from '../../platform/telemetry/telemetry.system-settings';
 import {
-  extendSystemSettingsNamespace,
-  foldSettingsExtensions,
+  assembleSystemSettingsNamespaces,
   registerSystemSettingsNamespaces,
   type SystemSettingsNamespace,
 } from '@marinoscar/platform-api/settings';
@@ -50,16 +53,16 @@ const PLATFORM_NAMESPACES: readonly SystemSettingsNamespace[] = [
   RETENTION_SYSTEM_SETTINGS as SystemSettingsNamespace,
 ];
 
-// The app's extensions fold into the namespaces they name (platform or app)
-// before anything is registered.
-const { platform, app } = foldSettingsExtensions(
-  { platform: PLATFORM_NAMESPACES, app: APP_SYSTEM_SETTINGS_NAMESPACES },
-  APP_SYSTEM_SETTINGS_EXTENSIONS,
-  extendSystemSettingsNamespace,
-  'system settings',
+// One assembly, in a documented order (the package README, "Contributions"):
+// the platform's namespaces, then the contributions' (import order), then the
+// app's own; extensions fold into the namespaces they name (the
+// contributions', then the app's); defaults overrides apply last. A key that
+// two of them declare fails at import time naming both owners.
+registerSystemSettingsNamespaces(
+  assembleSystemSettingsNamespaces({
+    platform: PLATFORM_NAMESPACES,
+    app: APP_SYSTEM_SETTINGS_NAMESPACES,
+    appExtensions: APP_SYSTEM_SETTINGS_EXTENSIONS,
+    appDefaults: APP_SYSTEM_SETTINGS_DEFAULT_OVERRIDES,
+  }),
 );
-
-registerSystemSettingsNamespaces(platform);
-
-// App-owned namespaces last, so a collision with a platform key names the app.
-registerSystemSettingsNamespaces(app);
