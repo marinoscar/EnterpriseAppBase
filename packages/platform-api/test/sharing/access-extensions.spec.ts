@@ -252,7 +252,7 @@ describe('"resources I can see" with access rules', () => {
   it('is byte-for-byte what it was with no rule registered', async () => {
     await withTypes([docType(new Map())], async () => {
       const before = sqlOf(accessibleSql(caller(['x'], [[GROUP, 'viewer']]), 'test_doc', 'r', { sqlKit: fakeSqlKit }));
-      await withTemporaryEntries(accessRuleRegistry, [rule({ id: 'other', resourceTypes: ['else'], sql: () => ({ allow: fakeSqlKit.sql`TRUE` }) })], () => {
+      await withTemporaryEntries(accessRuleRegistry, [rule({ id: 'other', resourceTypes: ['else'], sql: (ctx) => ({ allow: ctx.kit.sql`TRUE` }) })], () => {
         expect(sqlOf(accessibleSql(caller(['x'], [[GROUP, 'viewer']]), 'test_doc', 'r', { sqlKit: fakeSqlKit }))).toBe(before);
       });
     });
