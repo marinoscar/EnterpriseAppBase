@@ -174,13 +174,17 @@ export const presentationTopNSchema = z.union([
 export const presentationColumnDisplaySchema = z.discriminatedUnion('kind', [
   z
     .object({
+      /** A percentage drawn as a bar. */
       kind: z.literal('utilization-bar'),
+      /** The percentage from which the bar turns to the warning colour. */
       warnAt: z.number().min(0).max(100).optional(),
+      /** The percentage from which the bar turns to the critical colour. */
       criticalAt: z.number().min(0).max(100).optional(),
     })
     .strict(),
   z
     .object({
+      /** A boolean drawn as an icon and a word. */
       kind: z.literal('status'),
       /** The word for a good value (`Up`). */
       okText: z.string().trim().min(1).max(24),
@@ -192,9 +196,10 @@ export const presentationColumnDisplaySchema = z.discriminatedUnion('kind', [
     .strict(),
   z
     .object({
+      /** Two columns drawn as `first / second`. */
       kind: z.literal('fraction'),
       /** The two columns shown as `first / second`. */
-      of: z.tuple([key, key]),
+      of: z.array(key).length(2),
     })
     .strict(),
 ]);

@@ -108,7 +108,8 @@ function columnSpec(column: PresentationColumn): MetricTableColumnSpec {
         },
       };
     case 'fraction': {
-      const [used, total] = display.of;
+      const used = display.of[0] ?? '';
+      const total = display.of[1] ?? '';
       return {
         key: column.key,
         ...label,

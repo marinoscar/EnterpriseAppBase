@@ -772,8 +772,16 @@ export type PresentationTopN =
  * @stability experimental
  */
 export type PresentationColumnDisplayDef =
-  | { kind: 'utilization-bar'; warnAt?: number; criticalAt?: number }
   | {
+      /** A percentage drawn as a bar. */
+      kind: 'utilization-bar';
+      /** The percentage from which the bar turns to the warning colour. */
+      warnAt?: number;
+      /** The percentage from which the bar turns to the critical colour. */
+      criticalAt?: number;
+    }
+  | {
+      /** A boolean drawn as an icon and a word. */
       kind: 'status';
       /** The word for a good value (`Up`). */
       okText: string;
@@ -783,9 +791,10 @@ export type PresentationColumnDisplayDef =
       invert?: boolean;
     }
   | {
+      /** Two columns drawn as `first / second`. */
       kind: 'fraction';
-      /** The two columns shown as `first / second`. */
-      of: [string, string];
+      /** Exactly two columns, shown as `first / second`. */
+      of: string[];
     };
 
 /**

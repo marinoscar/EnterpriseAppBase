@@ -135,6 +135,10 @@ describe('metricGroupPresentationSchema', () => {
     expect(metricGroupPresentationSchema.safeParse(table({ sort: 'problems-first' })).success).toBe(true);
     expect(metricGroupPresentationSchema.safeParse(table({ columns: [{ key: 'a', display: { kind: 'html', value: '<b>' } }] })).success).toBe(false);
     expect(metricGroupPresentationSchema.safeParse(table({ columns: [{ key: 'a', display: { kind: 'status', okText: '', badText: 'x' } }] })).success).toBe(false);
+    const fraction = (of: string[]) => table({ columns: [{ key: 'slots', display: { kind: 'fraction', of } }] });
+    expect(metricGroupPresentationSchema.safeParse(fraction(['used', 'total'])).success).toBe(true);
+    expect(metricGroupPresentationSchema.safeParse(fraction(['used'])).success).toBe(false);
+    expect(metricGroupPresentationSchema.safeParse(fraction(['a', 'b', 'c'])).success).toBe(false);
     const virtual = (expression: string, of: string[]) => ({ virtualColumns: [{ id: 'v', label: 'V', expression, of }] });
     expect(metricGroupPresentationSchema.safeParse(virtual('ratio', ['a'])).success).toBe(false);
     expect(metricGroupPresentationSchema.safeParse(virtual('delta', ['a', 'b'])).success).toBe(true);
