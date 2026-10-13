@@ -56,7 +56,12 @@ export interface DashboardPanelContext {
   /** The dashboard's window. */
   readonly window: DashboardPanelWindow;
   /** The `service` / `instance` filters, each already checked against the values seen in the window. */
-  readonly filters: Readonly<{ service?: string; instance?: string }>;
+  readonly filters: Readonly<{
+    /** The selected service (`service.name`), when the viewer filtered by one. */
+    service?: string;
+    /** The selected instance (`app.instance.id`), when the viewer filtered by one. */
+    instance?: string;
+  }>;
   /** The guarded way to read the telemetry store. */
   readonly query: TelemetryQueryFacade;
   /** The platform's own series for the same window (`api` or `logs`), for a panel built on them. */
@@ -109,6 +114,7 @@ function compareCodeUnits(a: string, b: string): number {
  * Every registered dashboard panel, in dashboard order. Frozen once the Nest
  * application has bootstrapped.
  *
+ * @extensionPoint registry
  * @stability experimental
  */
 export const dashboardPanelRegistry: Registry<DashboardPanelDef> = defineRegistry<DashboardPanelDef>({

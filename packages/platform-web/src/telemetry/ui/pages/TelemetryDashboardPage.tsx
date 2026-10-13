@@ -333,10 +333,18 @@ function AppDashboardPanel({
   );
 }
 
-/** The `slots` of {@link TelemetryDashboardPage}: the packaged-page slot contract, no more. */
+/**
+ * The `slots` of {@link TelemetryDashboardPage}: the packaged-page slot contract, no more.
+ *
+ * @stability experimental
+ */
 export type TelemetryDashboardPageSlots = PageSlotsBase;
 
-/** The props of {@link TelemetryDashboardPage}. */
+/**
+ * The props of {@link TelemetryDashboardPage}.
+ *
+ * @stability experimental
+ */
 export interface TelemetryDashboardPageProps {
   /** Header, banner and extra sections around the dashboard (the packaged-page slot contract). */
   slots?: TelemetryDashboardPageSlots;

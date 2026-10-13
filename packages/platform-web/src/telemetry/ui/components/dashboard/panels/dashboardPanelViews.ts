@@ -45,6 +45,7 @@ export interface DashboardPanelHost {
    * @param panelId - the panel's DOM test id (`panel-signups`).
    * @param sql - the statement(s) the panel ran, primary first.
    * @param context - what "Ask assistant" describes, or `null`.
+   * @internal Used by the platform's own panels; a view that wants the frame's actions returns a `sql` in its payload instead.
    */
   actionsFor(panelId: string, sql: string | string[] | undefined, context: AssistantPanelContext | null): PanelAction[];
   /**
@@ -62,6 +63,7 @@ export interface DashboardPanelHost {
  *
  * @typeParam Payload - the shape the app's API panel returns (agreed between the two).
  *
+ * @extensionPoint component
  * @stability experimental
  */
 export interface DashboardPanelViewProps<Payload = unknown> {
@@ -96,7 +98,11 @@ export interface DashboardPanelViewOptions {
   frame?: 'page' | 'self';
 }
 
-/** A registered view. */
+/**
+ * A registered view.
+ *
+ * @stability experimental
+ */
 export interface RegisteredDashboardPanelView {
   /** The panel id. */
   readonly id: string;
@@ -181,6 +187,7 @@ export function getDashboardPanelView(id: string): RegisteredDashboardPanelView 
  *
  * @returns the views.
  *
+ * @extensionPoint registry
  * @stability experimental
  */
 export function dashboardPanelViews(): RegisteredDashboardPanelView[] {

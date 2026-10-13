@@ -59,7 +59,12 @@ export const FACADE_DEFAULT_ROWS = 100;
  */
 export interface TelemetryFacadeResult {
   /** Column names and simplified types, in order. */
-  readonly columns: ReadonlyArray<{ readonly name: string; readonly type: string }>;
+  readonly columns: ReadonlyArray<{
+    /** The column name. */
+    readonly name: string;
+    /** The simplified type (`text`, `number`, `timestamp`, ...). */
+    readonly type: string;
+  }>;
   /** Rows as positional arrays, JSON-safe (timestamps and big numbers as strings). */
   readonly rows: ReadonlyArray<ReadonlyArray<unknown>>;
   /** How many rows came back. */
@@ -137,7 +142,11 @@ const SQL_BUILDERS: TelemetrySqlBuilders = Object.freeze({
   between,
 });
 
-/** How a facade is made. */
+/**
+ * How a facade is made.
+ *
+ * @stability experimental
+ */
 export interface QueryFacadeOptions {
   /** The audit source (`panel`, `assistant`). */
   source: TelemetryQuerySource;

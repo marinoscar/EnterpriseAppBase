@@ -711,9 +711,27 @@ function safeJson(text: string): unknown {
  */
 export interface RegisteredExtensions {
   /** The dashboard panels (`id`, `label`, `order`, `data`). */
-  panels: ReadonlyArray<{ id: string; label: string; order: number; data: unknown }>;
+  panels: ReadonlyArray<{
+    /** The panel id. */
+    id: string;
+    /** The panel title. */
+    label: string;
+    /** The dashboard order. */
+    order: number;
+    /** The function that reads the panel's data. */
+    data: unknown;
+  }>;
   /** The assistant tools (`name`, `description`, `inputSchema`, `run`). */
-  tools: ReadonlyArray<{ name: string; description: string; inputSchema: unknown; run: unknown }>;
+  tools: ReadonlyArray<{
+    /** The tool name. */
+    name: string;
+    /** What the tool does, for the model. */
+    description: string;
+    /** The arguments schema (a zod object). */
+    inputSchema: unknown;
+    /** The function that runs the tool. */
+    run: unknown;
+  }>;
 }
 
 /**

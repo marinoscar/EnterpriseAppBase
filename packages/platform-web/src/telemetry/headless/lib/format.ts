@@ -84,7 +84,7 @@ export type MetricUnitFormats = ReadonlyMap<string, MetricUnitDescriptor>;
 export const BUILTIN_UNIT_IDS: ReadonlySet<string> = new Set<string>(BUILTIN_METRIC_UNITS);
 
 /**
- * `value` in an app's unit, split as {@link formatTileValue} splits: `number`
+ * `value` in an app's unit, split as `formatTileValue` splits: `number`
  * (grouped digits, `decimals`, `suffix`), `percent`, `bytes`, `duration-ms`,
  * `duration-s`, `currency` (the browser's `Intl` currency format; the whole
  * amount is in `value`), and `text`, `boolean`, `timestamp` as the built-ins.
@@ -100,7 +100,12 @@ export function formatWithDescriptor(
   value: number | string | null,
   unit: MetricUnitDescriptor,
   now: number = Date.now(),
-): { value: string; unit: string } {
+): {
+  /** The number or text, formatted. */
+  value: string;
+  /** The unit text shown beside it (empty when the format carries it). */
+  unit: string;
+} {
   switch (unit.format) {
     case 'text':
       return formatTileValue(value, 'text', now);

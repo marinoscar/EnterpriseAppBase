@@ -212,7 +212,12 @@ const FATAL_REASONS: ReadonlySet<TelemetryErrorReason> = new Set([
  */
 export interface TelemetryAssistantPromptExtension {
   /** The registered app tools, named and described. */
-  tools?: readonly { name: string; description: string }[];
+  tools?: readonly {
+    /** The tool name. */
+    name: string;
+    /** What the tool does, for the model. */
+    description: string;
+  }[];
   /** Notes from the application's developers (`TelemetryModule.forRoot({ assistant: { extraInstructions } })`). */
   extraInstructions?: string;
 }

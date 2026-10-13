@@ -225,7 +225,7 @@ export { PANEL_TIME_BUDGET_MS } from './dashboard/panels/telemetry-dashboard-pan
 
 // ---- assistant tools (rung 2; PP-14.18) ------------------------------------------------
 export { registerTelemetryAssistantTool, telemetryAssistantToolRegistry } from './assistant/telemetry-assistant-tool.registry';
-export type { TelemetryAssistantToolContext, TelemetryAssistantToolDef } from './assistant/telemetry-assistant-tool.registry';
+export type { AnyTelemetryAssistantToolDef, TelemetryAssistantToolContext, TelemetryAssistantToolDef } from './assistant/telemetry-assistant-tool.registry';
 export type { TelemetryAssistantPromptExtension } from './assistant/telemetry-assistant.service';
 
 // ---- the dashboard ------------------------------------------------------------------

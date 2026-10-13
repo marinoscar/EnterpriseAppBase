@@ -100,6 +100,7 @@ export { BUILTIN_UNIT_IDS, formatWithDescriptor } from './lib/format.js';
 export type { MetricUnitFormats } from './lib/format.js';
 export { colorOfToken, planTiles, presentationFor, sectionPlan, withVirtualColumns } from './lib/metrics/presentation.js';
 export type { ChartPlan, ColumnPlan, SectionPlan, TablePlan } from './lib/metrics/presentation.js';
+export type { DashboardState } from './lib/dashboardState.js';
 
 // Pure helpers apps reuse.
 export { formatBytes, formatDuration } from './lib/format.js';

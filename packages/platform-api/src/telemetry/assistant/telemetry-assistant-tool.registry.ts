@@ -94,7 +94,11 @@ export interface TelemetryAssistantToolDef<P extends z.ZodType = z.ZodType> {
   run(input: z.output<P>, ctx: TelemetryAssistantToolContext): Promise<unknown> | unknown;
 }
 
-/** The registry stores tools of any argument type. */
+/**
+ * The registry stores tools of any argument type.
+ *
+ * @stability experimental
+ */
 export type AnyTelemetryAssistantToolDef = TelemetryAssistantToolDef<z.ZodType>;
 
 const BUILTIN_NAMES: ReadonlySet<string> = new Set(BUILTIN_TELEMETRY_ASSISTANT_TOOLS);
@@ -103,6 +107,7 @@ const BUILTIN_NAMES: ReadonlySet<string> = new Set(BUILTIN_TELEMETRY_ASSISTANT_T
  * Every registered app tool, in registration order. Frozen once the Nest
  * application has bootstrapped.
  *
+ * @extensionPoint registry
  * @stability experimental
  */
 export const telemetryAssistantToolRegistry: Registry<AnyTelemetryAssistantToolDef> =

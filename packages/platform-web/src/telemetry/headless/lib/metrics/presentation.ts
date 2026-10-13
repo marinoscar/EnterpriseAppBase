@@ -73,8 +73,13 @@ export function colorOfToken(token: ThemeColorToken, tokens: TelemetryTokens): s
 
 // ---- the section plan ----------------------------------------------------------------
 
-/** One chart of a section. */
+/**
+ * One chart of a section.
+ *
+ * @stability experimental
+ */
 export interface ChartPlan {
+  /** The chart's title: its accessible name. */
   title: string;
   /** Series keys, in legend order; every series of a key (one per `groupBy`) is drawn. */
   keys: string[];
@@ -82,23 +87,49 @@ export interface ChartPlan {
   colors?: Record<string, ThemeColorToken>;
 }
 
-/** One column of a table in a section. */
+/**
+ * One column of a table in a section.
+ *
+ * @stability experimental
+ */
 export interface ColumnPlan extends PresentationColumn {}
 
-/** One table of a section. */
+/**
+ * One table of a section.
+ *
+ * @stability experimental
+ */
 export interface TablePlan {
+  /** The table key of the `/metrics` response. */
   key: string;
+  /** Replaces the table's label. */
   label?: string;
+  /** The columns drawn, in order; absent: every column of the response. */
   columns?: ColumnPlan[];
+  /** The row order. */
   sort?: PresentationTableSort;
-  topN?: { options: readonly (number | 'all')[]; default: number | 'all' };
+  /** The row limit offered; absent: every row. */
+  topN?: {
+    /** The counts offered, ascending, optionally ending in `'all'`. */
+    options: readonly (number | 'all')[];
+    /** The count shown until the viewer chooses. */
+    default: number | 'all';
+  };
 }
 
-/** What a section draws. */
+/**
+ * What a section draws.
+ *
+ * @stability experimental
+ */
 export interface SectionPlan {
+  /** The tiles, in order. */
   tiles: PresentationTile[];
+  /** The charts, in order. */
   charts: ChartPlan[];
+  /** The tables, in order. */
   tables: TablePlan[];
+  /** The columns the browser computes. */
   virtualColumns: PresentationVirtualColumn[];
 }
 

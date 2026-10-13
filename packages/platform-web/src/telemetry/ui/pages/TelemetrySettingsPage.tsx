@@ -466,10 +466,18 @@ function NumberInput({
   );
 }
 
-/** The `slots` of {@link TelemetrySettingsPage}: the packaged-page slot contract, no more. */
+/**
+ * The `slots` of {@link TelemetrySettingsPage}: the packaged-page slot contract, no more.
+ *
+ * @stability experimental
+ */
 export type TelemetrySettingsPageSlots = PageSlotsBase;
 
-/** The props of {@link TelemetrySettingsPage}. */
+/**
+ * The props of {@link TelemetrySettingsPage}.
+ *
+ * @stability experimental
+ */
 export interface TelemetrySettingsPageProps {
   /** Header, banner and extra sections around the settings (the packaged-page slot contract). */
   slots?: TelemetrySettingsPageSlots;

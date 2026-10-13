@@ -34,17 +34,30 @@ import {
 
 export const DASHBOARD_REFRESH_MS = 30_000;
 
+/**
+ * The dashboard's URL-held state: the window, the filters, the event filters and
+ * whether it refreshes itself.
+ *
+ * @stability experimental
+ */
 export interface DashboardState {
+  /** The selected range (`1h`, `24h`, ...); ignored while `from` and `to` zoom the window. */
   range: DashboardRange;
-  /** A zoomed window. Both set or both null. */
+  /** A zoomed window's start. Both set or both null. */
   from: string | null;
+  /** A zoomed window's end. Both set or both null. */
   to: string | null;
+  /** The selected service, or `null` for all. */
   service: string | null;
+  /** The selected instance, or `null` for all. */
   instance: string | null;
   /** A `/filters` `hosts` value; sent to `/metrics` only (the API applies it to collector tables). */
   host: string | null;
+  /** The log severities the events feed shows. */
   sev: DashboardSeverity[];
+  /** The events feed's search text. */
   q: string;
+  /** Whether the page refreshes itself every `DASHBOARD_REFRESH_MS`. */
   refresh: boolean;
 }
 

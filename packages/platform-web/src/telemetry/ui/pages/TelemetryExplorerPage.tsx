@@ -143,10 +143,18 @@ function truncateLabel(sql: string, max = 80): string {
   return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 }
 
-/** The `slots` of {@link TelemetryExplorerPage}: the packaged-page slot contract, no more. */
+/**
+ * The `slots` of {@link TelemetryExplorerPage}: the packaged-page slot contract, no more.
+ *
+ * @stability experimental
+ */
 export type TelemetryExplorerPageSlots = PageSlotsBase;
 
-/** The props of {@link TelemetryExplorerPage}. */
+/**
+ * The props of {@link TelemetryExplorerPage}.
+ *
+ * @stability experimental
+ */
 export interface TelemetryExplorerPageProps {
   /** Header, banner and extra sections around the explorer (the packaged-page slot contract). */
   slots?: TelemetryExplorerPageSlots;

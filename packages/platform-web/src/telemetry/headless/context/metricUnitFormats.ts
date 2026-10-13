@@ -16,6 +16,7 @@ const NO_UNIT_FORMATS: MetricUnitFormats = new Map();
 /**
  * The unit formats in effect; empty outside a provider.
  *
+ * @extensionPoint hook
  * @stability experimental
  */
 export const MetricUnitFormatsContext = createContext<MetricUnitFormats>(NO_UNIT_FORMATS);
