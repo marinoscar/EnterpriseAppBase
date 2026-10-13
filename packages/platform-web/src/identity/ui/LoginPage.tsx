@@ -8,6 +8,7 @@ import { useEffect } from 'react';
 import type { ComponentType, ReactElement } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Alert, Box, Card, CardContent, CircularProgress, Divider, Stack, Typography, useTheme } from '@mui/material';
+import type { PageSlotsBase } from '../../core/index.js';
 import { useAuth, useIdentityWebAdapters } from '../headless/index.js';
 import type { AuthProviderInfo, LoginOptions } from '../headless/index.js';
 import { OAuthButton } from './OAuthButton.js';
@@ -32,15 +33,25 @@ export interface LoginProvidersSlotProps {
 }
 
 /**
- * The replaceable parts of {@link LoginPage}. Each slot defaults to the
- * package's own rendering (nothing, for the two provider slots).
+ * The replaceable parts of {@link LoginPage}: the packaged-page slot contract
+ * plus the login layout's own slots. Each slot defaults to the package's own
+ * rendering (nothing, for the provider slots and the contract's content slots).
+ *
+ * Inside the card, top to bottom: `Logo`, the heading (`Header`, else `Title`,
+ * else "Welcome" and "Sign in to continue"), the session-expired notice,
+ * `BeforeContent`, `Sections` (top), `BeforeProviders`, the "Sign in with"
+ * divider and the provider buttons, `AfterProviders`, `Sections` (bottom),
+ * `AfterContent`, then `Footer`.
  *
  * @stability experimental
  */
-export interface LoginPageSlots {
+export interface LoginPageSlots extends PageSlotsBase {
   /** Rendered above the title (nothing by default). */
   Logo?: ComponentType;
-  /** The heading block (default: "Welcome" and "Sign in to continue"). */
+  /**
+   * The heading block (default: "Welcome" and "Sign in to continue"). Kept from
+   * before the slot contract; `Header` does the same and wins when both are set.
+   */
   Title?: ComponentType;
   /** The block under the providers (default: the terms caption). */
   Footer?: ComponentType;
@@ -113,7 +124,18 @@ export function LoginPage({ slots = {} }: LoginPageProps = {}): ReactElement {
   const navigate = useNavigate();
   const location = useLocation();
   const theme = useTheme();
-  const { Logo, Title = DefaultTitle, Footer = DefaultFooter, ProviderButton = OAuthButton, BeforeProviders, AfterProviders } = slots;
+  const {
+    Logo,
+    Title = DefaultTitle,
+    Footer = DefaultFooter,
+    ProviderButton = OAuthButton,
+    BeforeProviders,
+    AfterProviders,
+    Header,
+    BeforeContent,
+    Sections,
+    AfterContent,
+  } = slots;
 
   // The return URL from location state (set by RequireAuth)
   const state = location.state as LocationState | null;
@@ -152,7 +174,7 @@ export function LoginPage({ slots = {} }: LoginPageProps = {}): ReactElement {
           {/* Logo/Header */}
           <Box sx={{ textAlign: 'center', mb: 4 }}>
             {Logo && <Logo />}
-            <Title />
+            {Header ? <Header title="Welcome" description="Sign in to continue" actions={null} /> : <Title />}
           </Box>
 
           {/* The server refused to refresh a signed-in session. */}
@@ -161,6 +183,9 @@ export function LoginPage({ slots = {} }: LoginPageProps = {}): ReactElement {
               Your session expired. Please sign in again.
             </Alert>
           )}
+
+          {BeforeContent && <BeforeContent />}
+          {Sections && <Sections position="top" />}
 
           {BeforeProviders && <BeforeProviders providers={providers} login={login} />}
 
@@ -184,6 +209,9 @@ export function LoginPage({ slots = {} }: LoginPageProps = {}): ReactElement {
           </Stack>
 
           {AfterProviders && <AfterProviders providers={providers} login={login} />}
+
+          {Sections && <Sections position="bottom" />}
+          {AfterContent && <AfterContent />}
 
           {/* Footer */}
           <Box sx={{ mt: 4, textAlign: 'center' }}>

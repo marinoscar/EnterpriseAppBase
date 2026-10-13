@@ -32,11 +32,29 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
+import type { TableSlots } from '../../../core/index.js';
 import { useAuth } from '../../headless/index.js';
 import { usePermissions } from '../../headless/index.js';
 import { useOrgMembers, useRoles } from '../../headless/index.js';
 import type { OrgMember, UseRolesReturn } from '../../headless/index.js';
 import { MEMBER_STATUS_COLOR, formatDate, orgRoleLabel } from './orgLabels.js';
+
+/**
+ * The slots of {@link OrgMembersPanel}: the table slots that make sense for a
+ * list of member rows. `RowActions` adds controls to a member's action row,
+ * `DetailPanel` adds content under the member's row, `Toolbar` adds controls
+ * under the search box. There is no `Columns`: the panel is a list of cards that
+ * wrap at phone width, not a table with columns to add.
+ *
+ * @example
+ * ```tsx
+ * <OrgMembersPanel slots={{ RowActions: ({ row }) => <ResendWelcome userId={row.userId} /> }} />
+ * ```
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export type OrgMembersPanelSlots = Pick<TableSlots<OrgMember>, 'RowActions' | 'DetailPanel' | 'Toolbar'>;
 
 /**
  * Props of {@link OrgMembersPanel}.
@@ -49,6 +67,8 @@ export interface OrgMembersPanelProps {
    * it the panel reads its own.
    */
   roles?: UseRolesReturn;
+  /** Add per-member actions, a detail view or toolbar controls. */
+  slots?: OrgMembersPanelSlots;
 }
 
 /**
@@ -61,7 +81,10 @@ export interface OrgMembersPanelProps {
  *
  * @stability stable
  */
-export function OrgMembersPanel({ roles: rolesFromPage }: OrgMembersPanelProps = {}): ReactElement {
+export function OrgMembersPanel({ roles: rolesFromPage, slots }: OrgMembersPanelProps = {}): ReactElement {
+  const RowActions = slots?.RowActions;
+  const DetailPanel = slots?.DetailPanel;
+  const Toolbar = slots?.Toolbar;
   const ownRoles = useRoles('org', { enabled: rolesFromPage === undefined });
   const roles = rolesFromPage ?? ownRoles;
   const { user } = useAuth();
@@ -96,6 +119,8 @@ export function OrgMembersPanel({ roles: rolesFromPage }: OrgMembersPanelProps =
         onChange={(event) => setSearch(event.target.value)}
         sx={{ maxWidth: { sm: 360 } }}
       />
+
+      {Toolbar && <Toolbar />}
 
       {error && <Alert severity="error">{error}</Alert>}
 
@@ -184,8 +209,14 @@ export function OrgMembersPanel({ roles: rolesFromPage }: OrgMembersPanelProps =
                 >
                   Remove
                 </Button>
+                {RowActions && <RowActions row={member} />}
               </Stack>
             </Stack>
+            {DetailPanel && (
+              <Box sx={{ mt: 2 }}>
+                <DetailPanel row={member} />
+              </Box>
+            )}
           </Paper>
         );
       })}
