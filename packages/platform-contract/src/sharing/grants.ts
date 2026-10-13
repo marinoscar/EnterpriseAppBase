@@ -243,7 +243,7 @@ export const grantGranteeViewSchema = z.object({
   groupName: z.string().nullable(),
   /** The grantee reference of an app kind (`example.com` for `email-domain`); `null` for the built-in kinds. */
   ref: z.string().nullable(),
-  /** The kind's description of the grantee of an app kind ("Anyone at @example.com"); `null` for the built-in kinds. */
+  /** The kind's description of the grantee of an app kind ("Anyone at example.com"); `null` for the built-in kinds. */
   display: z.string().nullable(),
 });
 
