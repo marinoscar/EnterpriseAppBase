@@ -100,6 +100,7 @@ Order follows the extension ladder: options (rung 1), registries (rung 2), token
 | `IDENTITY_NODE_CREDENTIALS` | token | `unique symbol` -> `IdentityNodeCredentials` | Resolve `nod_` worker credentials in `JwtAuthGuard` (bind it globally) | experimental | [example](../../../../apps/api/src/platform/identity/identity-host.module.ts) |
 | `IDENTITY_EVENT_BUS` | token | `unique symbol` -> `IdentityEventBus` (optional) | Invalidate the principal cache across replicas | experimental | [example](../../../../apps/api/src/platform/identity/identity-host.module.ts) |
 | `IDENTITY_EVENTS` | event | `identity.user.created` (`source` is the provider id), `identity.login.succeeded`, `identity.membership.changed`, `identity.org.switched`, `identity.org.created` on `EventEmitter2` | React after commit: an app side table (a profile row) for a new user, a sign-in (`{ userId, provider, isNewUser }`), a membership change, an org switch, a new organization | experimental | [example](../../../../apps/api/src/identity-extensions/identity-user-created.listener.ts) |
+| `assertRoleAssignable` | registry | `assertRoleAssignable(role: string, scope: 'system' \| 'org'): void` | Guard an app route that gives someone a role: throws the 400 `ROLE_NOT_ASSIGNABLE` unless the role is registered, of that scope and not `assignable: false` (`isRoleAssignable` is the predicate, `listRoles(scope?)` the `GET /api/roles` list) | experimental | [example](../../../../apps/api/test/examples/manifest/coach-support.example.spec.ts) |
 
 Supporting exports (stable unless noted): `Auth`, `AuthOptions`, `Public`, `Roles`, `Permissions`, `CurrentUser`, `CurrentPrincipal`, `CurrentOrg`, `AuthCredential` and their metadata keys (`IS_PUBLIC_KEY`, `ROLES_KEY`, `PERMISSIONS_KEY`, `RBAC_EXTENSION_KEY`); `JwtAuthGuard`, `NODE_ROUTE_PREFIX`, `RolesGuard`, `PermissionsGuard`, `GoogleOAuthGuard`, `createPassportProviderGuard` (a Passport guard for a strategy registered by name), `authProviderStrategyName` (the `auth-provider:<id>` name a `createStrategy` provider's strategy is registered under; the ids `jwt` and `session` are reserved), `createCookieStateStore` (below); `ExternalProfile` helpers (`assertExternalProfile`, `externalProfileProblem`, `normalizeExternalProfile`, `googleProfileToExternal`); the policy types (`SignInPolicy`, `SignInDecision`, `SignInContext`); `AuthenticatedUser`, `RequestUser`, `toRequestUser`; `PrincipalCache` (call `invalidateUser` after a write that changes what a user's token resolves to) and `PrincipalCacheModule`; the sign-in errors (`AUTH_ERROR_CODES`, `AuthLoginDeniedException`, `resolveAuthErrorCode`, `buildAuthErrorRedirectUrl`); tenancy (`TenancyService`, `parseTenancyMode`, `verifyTenancyModeAtStartup`, `currentTenancyMode` (experimental)); org scope (`resolveOrgId`, `resolveJobOrgId`, `MissingOrgScopeError`; experimental); the role and permission declarations (`IDENTITY_ROLES`, `IDENTITY_PERMISSION_DECLARATIONS`, `USERS_PERMISSIONS`, `ALLOWLIST_PERMISSIONS`, `ORGANIZATIONS_PERMISSIONS`, `IDENTITY_ROLE_IDS`, `IDENTITY_PERMISSION_IDS`, `DEFAULT_ORG_ROLE`, `ORG_ADMIN_ROLE`) and the augmentable `IdentityPermissionIds` / `IdentityRoleIds` (experimental); `ORGANIZATIONS_APP_METRICS`; the port interfaces and notices; the event payloads; the job-type strings `AUTH_TOKEN_CLEANUP_TYPE` and `DEVICE_CODE_CLEANUP_TYPE`; `requireJwtSecret`. The services (`AuthService`, `UsersService`, `PatService`, `OrganizationsService`, ...) and the principal-graph internals are exported for the reference app's wiring and tests, tagged `@internal`, with no stability promise.
 
@@ -115,6 +116,19 @@ declare module '@marinoscar/platform-api/identity' {
   interface IdentityRoleIds extends Record<RoleName, true> {}
 }
 ```
+
+### Roles and who may assign them
+
+The role vocabulary is open: a role an app or a package registers (`registerPlatformPermissions({ app: { roles } })` or `registerPermissionSet`, see the [manifest README](../manifest/README.md)) is assignable end to end, with no edit to a package. Roles are stored as strings (`roles.name`); nothing in the database or the wire fixes the list.
+
+- **`GET /api/roles?scope=system|org`** lists the roles as `{ id, label, description, scope, assignable }`, platform roles first, then the registration order. `scope=system` needs `users:read`, `scope=org` needs `org_members:read`; without `scope` every scope the caller may read is listed; a scope the caller may not read is a 403. The packaged invite, member and Manage roles dialogs read it (`useRoles` of the web package), so a registered role appears with its `label` and no web edit.
+- **What may be assigned** is the registry's word, not the database's. A role declares `label` and `assignable` (default `true`) next to its `id`, `description` and `scope`; neither is seeded. `assertRoleAssignable(role, scope)` is the one check the invite (`POST /api/org/invites`), member (`PATCH /api/org/members/:userId`), user-role (`PUT /api/users/:id/roles`) and test-login routes run. It is **fail closed**: a role nobody registered, a role of the other scope (`admin` on an invitation, an org role as a system role) and a role registered `assignable: false` all answer `400` with `details.reason: 'ROLE_NOT_ASSIGNABLE'` and one message, so the answer says nothing about which. The platform's four roles are known even to an app that never ran `registerPlatformPermissions()`.
+- **Where it runs.** Before any read or write: a refused invite writes no invitation, no allowlist entry, no audit row and sends nothing; a refused member update takes no lock. A member update that names a non-assignable role is refused even when it equals the member's current role; a status-only change for such a member still works. An invitation whose role stopped being assignable after it was written (unregistered, or marked `assignable: false`) is not claimed at sign-in: it stays pending and grants nothing.
+- **`PUT /api/users/:id/roles` and app-managed system roles.** The request replaces the roles it can assign. A system role the user holds that is registered `assignable: false` is left in place (it cannot be named in the request, and the replace does not remove it).
+- **Grants.** A role holds permissions through `role_permissions`, written by the seed from the catalog: the permissions' own `defaultGrants`, plus the app's `grants` for a platform permission ([manifest README](../manifest/README.md)). The principal factory reads those rows for every request, so what the seed wrote is what the guards enforce.
+- **Test login.** `POST /api/auth/test/login` takes any registered role id (`role` is a string pattern): an org role becomes the default-organization membership's role, `admin` also gives `org_admin`, and another system role is held in `user_roles` next to the default org role.
+
+The worked example is [`coach-support.roles.ts`](../../../../apps/api/src/platform-extensions/identity/coach-support.roles.ts): an org role `coach`, a system role `support` granted `users:read`, and `service-bot` (`assignable: false`), driven over HTTP by [`coach-support.example.spec.ts`](../../../../apps/api/test/examples/manifest/coach-support.example.spec.ts).
 
 ### Adding a sign-in provider
 
@@ -148,7 +162,9 @@ An app may reference `User.id` and `Organization.id` from its own models (a back
 | `org_members:read`, `org_members:write` | org | `org_admin` | `/api/org/members` |
 | `org_invites:read`, `org_invites:write` | org | `org_admin` | `/api/org/invites` |
 
-Roles: `admin` (system, in `user_roles`) and the org roles `org_admin`, `contributor`, `viewer` (on a membership). A role is granted only permissions of its own scope. The slice declares these as data; the app registers and seeds them (`IDENTITY_PERMISSION_DECLARATIONS`, `IDENTITY_ROLES`). Identity reads no system-settings namespace.
+`GET /api/roles` declares no permission of its own: it admits a holder of `users:read` or `org_members:read` and narrows the answer to the scope each opens.
+
+Roles: `admin` (system, in `user_roles`) and the org roles `org_admin`, `contributor`, `viewer` (on a membership), plus any role the app or a package registers (see [Roles and who may assign them](#roles-and-who-may-assign-them)). A role is granted only permissions of its own scope. The slice declares these as data; the app registers and seeds them (`IDENTITY_PERMISSION_DECLARATIONS`, `IDENTITY_ROLES`). Identity reads no system-settings namespace.
 
 ## UI
 
@@ -174,6 +190,7 @@ Environment variables (names only; values and defaults: `infra/compose/.env.exam
 - An org id enters the auth path from request input only on `POST /api/auth/switch-org`, checked against the caller's memberships; every other request's org comes from the signed token.
 - `notify()` (through `IDENTITY_NOTIFIER`) and the domain events run after the triggering write commits, outside any transaction; a throwing listener is caught.
 - The test login is mounted only with `enableTestAuth`, refused in production.
+- Assignment is fail closed: a role is assignable only if the registry says so, in the scope the route assigns (`ROLE_NOT_ASSIGNABLE`, never a hint about why). No route can mint `admin` or an `assignable: false` role, and `app.grants` can neither target a platform role nor cross a scope.
 
 ## Conformance suite
 
@@ -223,6 +240,8 @@ New in this release (#727). The slice moved from the app with no behaviour chang
 
 Sign-in providers (PP-14.9): `AuthProviderRegistration` is now `AuthProviderDefinition` (the old name stays as an alias); `strategy` and `guard` became optional (one of that pair or `createStrategy` is required) and `isEnabled` may be asynchronous and receives `(config, ctx)` (a registration written as `isEnabled: (config) => ...` is unchanged). `GET /api/auth/providers` adds `mode: 'custom'` for a provider that owns its flow and is otherwise byte-identical. `AuthService.handleGoogleLogin` is a wrapper of `completeExternalLogin`'s shared path with Google's rules; a Google sign-in is unchanged in tokens, cookie attributes, redirects, events and metrics, and gains `identity.login.succeeded`. The callback no longer logs the redirect URL (it carried the access token). `GET /api/auth/{providerId}` and `/callback` are new routes (also reachable during a maintenance window).
 
+Roles (PP-14.15): `roleName` of `POST /api/org/invites` and `PATCH /api/org/members/:userId` is a string pattern in the OpenAPI document (it was an enum of `org_admin`, `contributor`, `viewer`); the API decides, and a role it will not assign is a `400` with `details.reason: 'ROLE_NOT_ASSIGNABLE'` (`admin` used to fail validation with a `400` listing the enum). `ASSIGNABLE_ORG_ROLES` of the contract is a deprecated alias of `BUILTIN_ORG_ROLES`. `PUT /api/users/:id/roles` refuses a role that is not registered, or is `assignable: false` (a role in the database but unknown to the registry used to be accepted). New route: `GET /api/roles`.
+
 Behaviour changes, deliberate: a missing `JWT_SECRET` now fails the boot (it used to fall back to a published key); `GET /api/auth/providers` reads the provider registry (same output for Google). A route's `@Auth` permissions are typed by the app's augmentation of `IdentityPermissionIds`.
 
 ## Troubleshooting
@@ -230,6 +249,7 @@ Behaviour changes, deliberate: a missing `JWT_SECRET` now fails the boot (it use
 - **`Nest can't resolve dependencies of the JwtAuthGuard (Reflector, PatService, ?)`.** `IDENTITY_NODE_CREDENTIALS` is not bound in a global module. Bind it in the `@Global()` host module passed to `forRoot({ imports })`.
 - **`Nest can't resolve dependencies of the AuthService (?, ...)` with `PLATFORM_PRISMA`.** Core's `PlatformHostModule.forRoot({ prisma })` is not imported; or, in a small test graph, provide `PLATFORM_PRISMA` (`createStubIdentityHost` does).
 - **`JWT_SECRET is not set` at boot.** Set it in the deployment environment; there is no fallback.
+- **`400 ROLE_NOT_ASSIGNABLE` for a role you registered.** The role is not in `roleRegistry` when the request runs (registered after bootstrap, or in a process that did not import the permission manifest), it is of the other scope, or it is declared `assignable: false`. `GET /api/roles` shows what the process knows.
 - **The OpenAPI document reordered after upgrading.** Pass the host modules in `forRoot({ imports })`, not as separate imports of the app's root module.
 - **A spy on `currentTenancyMode` has no effect.** The slice reads its own module binding; record the mode with `recordTenancyMode('multi')` and restore it.
 

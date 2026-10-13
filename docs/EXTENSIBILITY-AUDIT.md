@@ -15,7 +15,7 @@ The audit record of the extension seams of every platform slice. A closed point 
 
 Evidence paths are written `api:`, `web:`, `contract:`, `cli:`, `db:` and `infra:` for `packages/platform-api/src/`, `packages/platform-web/src/`, `packages/platform-contract/src/`, `packages/platform-cli/src/`, `packages/platform-db/` and `packages/platform-infra/`; a path under `apps/` or `docs/` is from the repository root. A story is written PP-14.n (its issue number follows).
 
-As of this version: 114 closed points in 29 sections, 37 fixed and 77 open.
+As of this version: 114 closed points in 29 sections, 40 fixed and 74 open.
 
 ## Verdicts
 
@@ -34,7 +34,7 @@ As of this version: 114 closed points in 29 sections, 37 fixed and 77 open.
 | [core](#core) | Mostly open | 6 | 1 | 5 | PP-14.14, PP-14.5, PP-14.23 |
 | [shell](#shell) | Mostly open | 2 | 0 | 2 | PP-14.25 |
 | [sharing](#sharing) | Mostly open | 4 | 0 | 4 | PP-14.16, PP-14.15, PP-14.25 |
-| [manifest](#manifest) | Mostly open | 2 | 0 | 2 | PP-14.15 |
+| [manifest](#manifest) | Open | 2 | 2 | 0 | PP-14.15 |
 | [user-data](#user-data) | Mostly open | 1 | 0 | 1 | PP-14.24 |
 | [platform-db](#platform-db) | Mostly open | 6 | 1 | 5 | PP-14.27, PP-14.4 |
 | [platform-cli](#platform-cli) | Mostly open | 7 | 0 | 7 | PP-14.22 |
@@ -43,7 +43,7 @@ As of this version: 114 closed points in 29 sections, 37 fixed and 77 open.
 | [ai](#ai) | Mostly open | 10 | 6 | 4 | PP-14.3, PP-14.6, PP-14.17, PP-14.24 |
 | [storage](#storage) | Mostly open | 5 | 4 | 1 | PP-14.1, PP-14.7, PP-14.24 |
 | [db-backup](#db-backup) | Mostly open | 4 | 3 | 1 | PP-14.12, PP-14.23 |
-| [identity](#identity) | Partly closed | 8 | 6 | 2 | PP-14.9, PP-14.15, PP-14.25 |
+| [identity](#identity) | Partly closed | 8 | 7 | 1 | PP-14.9, PP-14.15, PP-14.25 |
 | [email](#email) | Partly closed | 5 | 4 | 1 | PP-14.8, PP-14.24 |
 | [host](#host) | Partly closed | 8 | 1 | 7 | PP-14.2, PP-14.13, PP-14.24 |
 | [datatable](#datatable) | Partly closed | 2 | 0 | 2 | PP-14.20 |
@@ -71,7 +71,7 @@ The 28 stories of the epic, in order. Phase 1 makes the existing seams real; pha
 | PP-14.12 | #930 | db-backup: pluggable backup target, schedule policy and restore gates | 2 | 14.1 (14.7) | no | This change |
 | PP-14.13 | #931 | host: health indicators, maintenance bypass, About contributors, deployment capabilities and app guards | 3 | 14.2 | no | Open |
 | PP-14.14 | #932 | core: open the access-reason, principal and error-code vocabularies | 3 | none | no | Open |
-| PP-14.15 | #933 | roles: app roles become assignable, and apps can grant platform permissions to them | 3 | none | no | Open |
+| PP-14.15 | #933 | roles: app roles become assignable, and apps can grant platform permissions to them | 3 | none | no | This change |
 | PP-14.16 | #934 | sharing: pluggable grantee kinds and access rules | 3 | 14.15 | maybe | Open |
 | PP-14.17 | #935 | ai: open capabilities and operations, richer transcription results, per-feature usage | 3 | 14.6 | yes | Open |
 | PP-14.18 | #936 | telemetry and otel-core: app units, group presentation, dashboard panels, assistant tools, SDK extension | 3 | 14.11, 14.23 | no | Open |
@@ -264,19 +264,19 @@ Closed points: none recorded at the audit commit.
 |---|---|---|---|---|---|
 | sharing-1 | Grantee kinds are fixed (`user`, `group`, `link`) and the per-kind SQL is hard-coded; there is no team, role or email-domain grantee. | contract: `sharing/constants.ts:100`; api: `sharing/access/resource-types.ts:76`; `sharing/grants/grants.service.ts:253, :383-396` | `registerGranteeKind` (parameterised SQL fragment, composite `org_id` rules kept), `GET /sharing/grantee-kinds`, `registerGranteePicker`. | PP-14.16 (#934) | Open |
 | sharing-2 | The nine-step access decision order is fixed; a project-membership or time-window rule means replacing `AccessPolicy` wholesale. | api: `sharing/access/access-policy.service.ts:10-30, :78` | `registerAccessRule({ id, position, evaluate, sql? })`; `AccessVia` open. | PP-14.16 (#934) | Open |
-| sharing-3 | Group roles are a fixed list validated in the resource-type registry. | contract: `sharing/constants.ts:13`; api: `sharing/access/resource-types.ts:199` | `registerGroupRole({ id, label, actions })`. | PP-14.15 (#933) | Open |
+| sharing-3 | Group roles are a fixed list validated in the resource-type registry, and stored in the database enum `GroupRole` (`group_members.role`, `group_invites.role`), so a fourth role needs a migration. Kept closed by PP-14.15: the story is no-migration, and a registry for roles the tables cannot hold would fail on the first write. | contract: `sharing/constants.ts:13`; api: `sharing/access/resource-types.ts:199`; db: `schema/sharing.prisma:26` | A platform migration turning both columns into text, then `registerGroupRole({ id, label, actions })` and an open `groupRoleSchema`. | PP-14.15 (#933), follow-up | Open |
 | sharing-4 | `GroupsPage` and `GroupDetailPage` expose only `Header`, `ShareDialog` only `Title`. | web: `sharing/ui/GroupsPage.tsx:53`; `sharing/ui/GroupDetailPage.tsx:69`; `sharing/ui/ShareDialog.tsx:68` | `PageSlotsBase`, `MemberRowActions`, `Tabs`; `ShareDialog` `slots.Sections` and `slots.Footer`. | PP-14.25 (#943) | Open |
 
 ### manifest
 
-**Verdict:** Mostly open · **Packages:** api · **Closed points:** 2 (0 fixed, 2 open) · **Stories:** PP-14.15
+**Verdict:** Open · **Packages:** api · **Closed points:** 2 (2 fixed, 0 open) · **Stories:** PP-14.15
 
-**Open points.** `registerPlatformPermissions` (platform roles, every slice's permission set, then the app's), `platformPermissionCatalog`, `registerPlatformModelOwnership`, `registerPlatformUserOwnedModels`.
+**Open points.** `registerPlatformPermissions` (platform roles, roles of registered slices, the app's roles, every slice's permission set, the permissions of registered slices, the app's permissions, then the app's grants), `platformPermissionCatalog`, `registerPermissionSet` and `permissionSetRegistry` (a package slice's roles and permissions), `app.grants` and `grantPermissions` (an app role holds a platform permission), `registerPlatformModelOwnership`, `registerPlatformUserOwnedModels`.
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
-| manifest-1 | An app cannot grant a platform permission to its own role: `defaultGrants` lives on the declaration, and re-declaring a platform permission is `DUPLICATE_ID`. | api: `manifest/register-permissions.ts:~90`; `core/permissions/permission.registry.ts:189` | `registerPlatformPermissions({ app: { roles, permissions, grants } })`, validated and applied by the seed and the role resolver. | PP-14.15 (#933) | Open |
-| manifest-2 | `PLATFORM_PERMISSION_SLICES` is a fixed tuple and `slices` must include `identity`; a package slice added outside the platform has nowhere to declare. | api: `manifest/platform-permissions.ts:38`; `manifest/register-permissions.ts:~104` | `registerPermissionSet({ slice, permissions, roles })`; `identity` stays mandatory. | PP-14.15 (#933) | Open |
+| manifest-1 | An app cannot grant a platform permission to its own role: `defaultGrants` lives on the declaration, and re-declaring a platform permission is `DUPLICATE_ID`. | api: `manifest/register-permissions.ts:~90`; `core/permissions/permission.registry.ts:189` | `registerPlatformPermissions({ app: { roles, permissions, grants } })`, validated and applied by the seed and the role resolver. | PP-14.15 (#933) | Fixed |
+| manifest-2 | `PLATFORM_PERMISSION_SLICES` is a fixed tuple and `slices` must include `identity`; a package slice added outside the platform has nowhere to declare. | api: `manifest/platform-permissions.ts:38`; `manifest/register-permissions.ts:~104` | `registerPermissionSet({ slice, permissions, roles })`; `identity` stays mandatory. | PP-14.15 (#933) | Fixed |
 
 ### user-data
 
@@ -382,9 +382,9 @@ Closed points: none recorded at the audit commit.
 
 ### identity
 
-**Verdict:** Partly closed · **Packages:** api, web, contract · **Closed points:** 8 (6 fixed, 2 open) · **Stories:** PP-14.9, PP-14.15, PP-14.25
+**Verdict:** Partly closed · **Packages:** api, web, contract · **Closed points:** 8 (7 fixed, 1 open) · **Stories:** PP-14.9, PP-14.15, PP-14.25
 
-**Open points.** `IdentityModule.forRoot` (and its `signInPolicy` binding), `registerAuthProvider` (`AuthProviderDefinition`: strategy and guard classes or `createStrategy`, async `isEnabled`, `mapProfile`, `egressHosts`, `doctorRemedy`), `AuthService.completeExternalLogin`, `respondToSignIn`, the `IDENTITY_*` ports (including `IDENTITY_SIGNIN_POLICY` and `IDENTITY_AUTH_CREDENTIALS`), `IDENTITY_EVENTS`, the guards and decorators, `identityConformanceSuite`, `describeAuthProviderConformance`, the web `AuthProvider`, `LoginPage` slots (`Logo`, `Title`, `Footer`, `ProviderButton`, `BeforeProviders`, `AfterProviders`) and the packaged pages. Roles and the user and organization pages are not open.
+**Open points.** `IdentityModule.forRoot` (and its `signInPolicy` binding), `registerAuthProvider` (`AuthProviderDefinition`: strategy and guard classes or `createStrategy`, async `isEnabled`, `mapProfile`, `egressHosts`, `doctorRemedy`), `AuthService.completeExternalLogin`, `respondToSignIn`, the `IDENTITY_*` ports (including `IDENTITY_SIGNIN_POLICY` and `IDENTITY_AUTH_CREDENTIALS`), `IDENTITY_EVENTS`, the guards and decorators, `identityConformanceSuite`, `describeAuthProviderConformance`, the web `AuthProvider`, `LoginPage` slots (`Logo`, `Title`, `Footer`, `ProviderButton`, `BeforeProviders`, `AfterProviders`) `GET /api/roles`, role `label` and `assignable` (an app role is assignable on invitations, memberships and users and listed by the packaged dialogs, `useRoles`), `assertRoleAssignable`, and the packaged pages. The user and organization pages' slots are not open.
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
@@ -394,7 +394,7 @@ Closed points: none recorded at the audit commit.
 | identity-4 | `isEnabled` is synchronous and secrets come only from env/`ConfigService` (strategies take them at construction); `IdentityLoginOutcome`, the Doctor remedy and the egress contributor are Google-only. | api: `identity/ports.ts:228`; `identity/auth/providers/auth-provider.registry.ts:36-41`; `identity/auth/doctor/auth-providers.doctor-check.ts:36`; `identity/auth/doctor/egress/google-auth.egress.contributor.ts:42` | Async `isEnabled` with a credentials resolver (purpose `auth_<id>`), a generic `auth.providers` check, egress hosts from definitions. | PP-14.9 (#927) | Fixed |
 | identity-5 | There is no sign-in policy hook (veto, role mapping, domain or org restriction) and no `identity.login.succeeded` or `identity.org.created` event; the allowlist is the only gate. | api: `identity/auth/auth.service.ts:155-166`; `identity/identity.events.ts:40-47` | `IDENTITY_SIGNIN_POLICY` bound by `IdentityModule.forRoot({ signInPolicy })`; the two events. | PP-14.9 (#927) | Fixed |
 | identity-6 | The web `login()` always navigates to `/api/auth/<id>`, `AuthCallbackPage` defaults to `google`, and `LoginPage` has no slot around the provider buttons. | web: `identity/headless/auth-context.tsx:199` | `login(providerId)` by descriptor mode; `LoginPage` `BeforeProviders` and `AfterProviders`; the callback provider from the route. | PP-14.9 (#927) | Fixed |
-| identity-7 | Org roles are closed in three layers: the contract list feeds `z.enum`s (update-member, create-invite), and the web has its own lists, labels and a `viewer` default. A role registered by an app (for example `coach`) is rejected by the invite and member routes and never shown. The test login accepts three fixed roles. | contract: `identity/constants.ts:106`; `identity/schemas.ts:125, :659, :719`; web: `identity/headless/api.ts:297`; `identity/ui/users/userListColumns.tsx:47`; `identity/ui/users/ManageRolesDialog.tsx:70, :82`; `identity/ui/org/orgLabels.ts:8`; `identity/ui/org/InviteMemberDialog.tsx:33`; api: `identity/testing/dto/test-login.dto.ts:6` | `GET /roles?scope=`, `roleIdSchema` as a pattern, role registry `assignable` and `label`, `ROLE_NOT_ASSIGNABLE`; the web dialogs read the endpoint. | PP-14.15 (#933) | Open |
+| identity-7 | Org roles are closed in three layers: the contract list feeds `z.enum`s (update-member, create-invite), and the web has its own lists, labels and a `viewer` default. A role registered by an app (for example `coach`) is rejected by the invite and member routes and never shown. The test login accepts three fixed roles. | contract: `identity/constants.ts:106`; `identity/schemas.ts:125, :659, :719`; web: `identity/headless/api.ts:297`; `identity/ui/users/userListColumns.tsx:47`; `identity/ui/users/ManageRolesDialog.tsx:70, :82`; `identity/ui/org/orgLabels.ts:8`; `identity/ui/org/InviteMemberDialog.tsx:33`; api: `identity/testing/dto/test-login.dto.ts:6` | `GET /roles?scope=`, `roleIdSchema` as a pattern, role registry `assignable` and `label`, `ROLE_NOT_ASSIGNABLE`; the web dialogs read the endpoint. | PP-14.15 (#933) | Fixed |
 | identity-8 | `UsersPage`, `UserList`, `OrganizationPage` and `OrgMembersPanel` take no slots; `buildUserColumns()` is exported but called internally; `/auth/me` and `UserListItem` have no enrichment seam. | web: `identity/ui/users/userListColumns.tsx:82` | `TableSlots<UserListItem>`, `registerCurrentUserExtension` and `registerUserListExtension` (optional `extensions` on the wire). | PP-14.25 (#943) | Open |
 
 ### email
