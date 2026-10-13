@@ -178,8 +178,13 @@ function copyRewritten(from: string, to: string, rewrite: (text: string) => stri
 function nginxScratch(appRoot: string, csp: string): string {
   const source = join(appRoot, 'infra', 'nginx');
   const dir = mkdtempSync(join(tmpdir(), 'platform-infra-conformance-'));
+  // `nginx -t` binds every `listen` socket, so port 80 fails for an unprivileged user (a CI
+  // runner, a developer). Each plain `listen <port>;` becomes a loopback listener on a high
+  // port: the syntax, the includes and the CSP maps are validated exactly as before.
+  let nextPort = 20_000 + Math.floor(Math.random() * 30_000);
   const rewrite = (text: string): string =>
     text
+      .replace(/^(\s*)listen\s+\d+\s*;/gm, (_match, indent: string) => `${indent}listen 127.0.0.1:${nextPort++};`)
       .replaceAll('/etc/nginx/', `${dir}/etc/`)
       .replace(/server api:3000;/, 'server 127.0.0.1:3000;')
       .replace(/server web:5173;/, 'server 127.0.0.1:5173;')

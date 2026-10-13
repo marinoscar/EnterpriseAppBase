@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -125,6 +125,27 @@ describe('runInfraConformance', () => {
     expect(run).toMatch(/^docker run --rm --add-host api:127\.0\.0\.1 --add-host web:127\.0\.0\.1 /);
     expect(run).toContain(':/etc/nginx/app.d:ro nginx:');
     expect(run).toMatch(/ nginx -t$/);
+  });
+
+  it('tests a scratch copy whose listeners are unprivileged (nginx -t binds them)', async () => {
+    const r = recorder();
+    const listens: string[] = [];
+    runInfraConformance({
+      appRoot: REPO_ROOT,
+      testApi: r.api,
+      skip: { sync: 'x', compose: 'x' },
+      exec: fakeExec((line) => {
+        if (line.startsWith('nginx -t')) {
+          const conf = line.split(' ').at(-1) as string;
+          listens.push(...(readFileSync(conf, 'utf8').match(/^\s*listen\s+[^;]+;/gm) ?? []).map((l) => l.trim()));
+        }
+        return { status: 0 };
+      }),
+    });
+    expect(await r.runAll()).toEqual([]);
+    expect(listens.length).toBeGreaterThanOrEqual(4);
+    for (const listen of listens) expect(listen).toMatch(/^listen 127\.0\.0\.1:\d{5};$/);
+    expect(new Set(listens).size).toBe(listens.length);
   });
 
   it('reports a sync problem: a hand-edited generated file', async () => {
