@@ -24,7 +24,7 @@ import { DB_BACKUP_DEPLOYMENT_MODE, type DbBackupDeploymentMode } from './ports'
 @Injectable()
 export class DbBackupRestoreGate {
   /** The deployment mode the gate was decided from (the option, else the port, else `self-hosted`). */
-  readonly mode: 'self-hosted' | 'saas';
+  readonly mode: 'self-hosted' | 'saas' | (string & {});
 
   /** Whether the application may restore its own database here. */
   readonly inAppRestoreEnabled: boolean;
@@ -38,7 +38,7 @@ export class DbBackupRestoreGate {
     @Optional() @Inject(DB_BACKUP_DEPLOYMENT_MODE) deployment?: DbBackupDeploymentMode,
   ) {
     this.mode = options?.deploymentMode ?? deployment?.mode ?? 'self-hosted';
-    this.inAppRestoreEnabled = resolveRestoreEnabled(options ?? {}, deployment?.mode);
+    this.inAppRestoreEnabled = resolveRestoreEnabled(options ?? {}, deployment?.mode, deployment?.inAppRestoreEnabled);
   }
 
   /**
@@ -59,6 +59,6 @@ export class DbBackupRestoreGate {
  * @returns the gate.
  * @stability experimental
  */
-export function restoreGateFor(mode: 'self-hosted' | 'saas' = 'self-hosted'): DbBackupRestoreGate {
+export function restoreGateFor(mode: 'self-hosted' | 'saas' | (string & {}) = 'self-hosted'): DbBackupRestoreGate {
   return new DbBackupRestoreGate({ deploymentMode: mode } as ResolvedDbBackupModuleOptions);
 }

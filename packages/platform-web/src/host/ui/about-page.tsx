@@ -128,6 +128,7 @@ import { Navigate } from 'react-router-dom';
 import { useOptionalPlatformHost } from '../../core/index.js';
 import { usePermissions } from '../../identity/index.js';
 import type {
+  AboutExtra,
   AboutHistoryEntry,
   AboutHost,
   AboutResponse,
@@ -260,6 +261,31 @@ function SectionPaper({ title, children }: { title: string; children: ReactNode 
       <Divider sx={{ mb: 2 }} />
       {children}
     </Paper>
+  );
+}
+
+/**
+ * One group of facts an app contributed to the report. Values are strings,
+ * numbers and booleans (the API bounds them), shown as text.
+ */
+function ExtraSection({ extra }: { extra: AboutExtra }) {
+  const facts = extra.facts && typeof extra.facts === 'object' ? Object.entries(extra.facts) : [];
+  return (
+    <SectionPaper title={extra.label}>
+      {facts.length > 0 ? (
+        <FactList data-testid={`about-extra-${extra.id}`}>
+          {facts.map(([name, value]) => (
+            <Fact key={name} label={name}>
+              <Value value={String(value)} />
+            </Fact>
+          ))}
+        </FactList>
+      ) : (
+        <Typography variant="body2" color="text.secondary" data-testid={`about-extra-${extra.id}-empty`}>
+          Nothing to report.
+        </Typography>
+      )}
+    </SectionPaper>
   );
 }
 
@@ -904,6 +930,15 @@ export function AboutPage() {
                 </Alert>
               )}
             </SectionPaper>
+
+            {/* ------------------------------------------------------------
+                THE APP'S OWN SECTIONS (`registerAboutContributor` on the API),
+                one per contributor, in registration order. Nothing renders
+                when there are none, so the page is unchanged for an app that
+                registers no contributor.
+                ------------------------------------------------------------ */}
+            {Array.isArray(data.extras) &&
+              data.extras.map((extra) => <ExtraSection key={extra.id} extra={extra} />)}
 
             <Box>
               <Button

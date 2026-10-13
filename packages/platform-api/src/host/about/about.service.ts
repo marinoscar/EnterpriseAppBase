@@ -22,6 +22,8 @@ import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 
 import { PLATFORM_PRISMA, type PrismaClientLike } from '../../core/index';
 import { DeploymentModeService } from '../deployment/deployment-mode.service';
+import { boundFacts, withTimeout } from '../internal/bounded';
+import { ABOUT_CONTRIBUTOR_TIMEOUT_MS, aboutContributorRegistry } from './about-contributor.registry';
 import { ABOUT_OPTIONS, type ResolvedAboutOptions } from './about.options';
 import { readDeployInfo, resolveDeployInfoPath } from './deploy-info';
 import type { AboutResponse } from './dto/about-response.dto';
@@ -65,6 +67,7 @@ export class AboutService {
     const path = resolveDeployInfoPath();
     const deployInfo = await readDeployInfo(path);
     const { database, databaseError } = await this.probeDatabase();
+    const extras = await this.collectExtras();
 
     const document = deployInfo.document;
 
@@ -107,7 +110,38 @@ export class AboutService {
 
       database,
       databaseError,
+
+      // Only when an app registered a contributor and one answered, so a
+      // deployment with none answers exactly as it always did.
+      ...(extras.length > 0 ? { extras } : {}),
     };
+  }
+
+  /**
+   * The facts the app's contributors report (`registerAboutContributor`), in
+   * registration order, run in parallel.
+   *
+   * ⚠ A FAILING CONTRIBUTOR IS OMITTED, NEVER AN ERROR. Like the other two
+   * facts, a contributor must not take the report down: a throw or a timeout
+   * logs a warning and that group is left out. Each group's facts are bounded
+   * and secret-filtered (`boundFacts`) before they are returned.
+   */
+  private async collectExtras(): Promise<NonNullable<AboutResponse['extras']>> {
+    const contributors = aboutContributorRegistry.list();
+    if (contributors.length === 0) return [];
+
+    const settled = await Promise.all(
+      contributors.map(async (contributor) => {
+        try {
+          const facts = boundFacts(await withTimeout(contributor.describe(), ABOUT_CONTRIBUTOR_TIMEOUT_MS));
+          return { id: contributor.id, label: contributor.label, facts };
+        } catch (error) {
+          this.logger.warn(`About contributor "${contributor.id}" failed and was left out: ${describe(error)}`);
+          return null;
+        }
+      }),
+    );
+    return settled.filter((entry): entry is NonNullable<typeof entry> => entry !== null);
   }
 
   /**

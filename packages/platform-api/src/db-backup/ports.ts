@@ -199,8 +199,14 @@ export const DB_BACKUP_DEPLOYMENT_MODE: unique symbol = Symbol.for('@marinoscar/
  * @stability experimental
  */
 export interface DbBackupDeploymentMode {
-  /** `'self-hosted'` or `'saas'`. */
-  readonly mode: 'self-hosted' | 'saas';
+  /** `'self-hosted'`, `'saas'` or the id of a mode the app registered. */
+  readonly mode: 'self-hosted' | 'saas' | (string & {});
+  /**
+   * Whether the mode permits in-app restore (the host's `inAppRestore`
+   * capability, `DeploymentModeService.inAppRestoreEnabled`). When present it
+   * decides; when absent only `saas` turns restore off.
+   */
+  readonly inAppRestoreEnabled?: boolean;
 }
 
 // ---- the bypass client -------------------------------------------------------------------

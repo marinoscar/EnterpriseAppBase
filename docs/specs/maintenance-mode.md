@@ -94,9 +94,11 @@ load. A change needs a restart.
 
 `MaintenanceGuard` is registered as a global `APP_GUARD` by the host core
 (`PlatformHostCoreModule.forRoot()`, #867), so it runs before any route-level
-guard. It is the application's only `APP_GUARD`: there is no global JWT guard,
-and the `host` conformance suite fails an app that registers another one
-anywhere in its module graph. At that point `request.user` does not exist yet, so the
+guard. It is the platform's `APP_GUARD` and it runs first: there is no global
+JWT guard, and the `host` conformance suite fails an app that registers
+another one anywhere in its module graph unless the app lists it, with a
+written reason, in `allowedAppGuards` (a throttler, a tenant guard), and fails
+any guard that would run before it. At that point `request.user` does not exist yet, so the
 guard verifies the bearer token itself with its own `JwtService` and reads the
 `roles` claim.
 
@@ -110,6 +112,9 @@ guard verifies the bearer token itself with its own `JwtService` and reads the
 - Exemption is checked **before** the admin bypass. A `pat_` bearer can still
   call `GET`/`PUT /api/admin/maintenance`, so an operator can close a window
   from a shell.
+
+- **The order is fixed.** Exemption, then the window state, then the built-in
+  admin rule, then the app's bypasses (§2.9).
 
 The host core registers its own `JwtModule.registerAsync` against the
 same `jwt.secret` and does **not** import `AuthModule`. It does not re-export
@@ -145,13 +150,21 @@ and `MaintenanceGate` swaps the whole subtree for the maintenance page. A
 | Probe | During a window | Reason |
 |---|---|---|
 | `GET /api/health/live` | `200` | The process is not hung. An orchestrator must not restart it mid-upgrade. |
-| `GET /api/health/ready` | `503`, checked **before** the DB probe | Drain the instance, for the reason that is actually true. |
-| `GET /api/health` | unchanged | A diagnostic. Reports what its dependencies say. |
+| `GET /api/health/ready` | `503`, checked **before** any indicator | Drain the instance, for the reason that is actually true. |
+| `GET /api/health` | unchanged | A diagnostic. Reports what its indicators say. |
 
 The whole health controller carries `@AllowDuringMaintenance()`. The
 readiness `503` carries the marker but **no `Retry-After`**; that header is
 the guard's contract with API clients. `resolve()` never throws, so a
 database outage cannot turn the probe into a `500`.
+
+Outside a window the probes run the registered health indicators
+(`registerHealthIndicator`): `ready` the critical ones, `health` all of them,
+`live` none. `database` is the platform's critical built-in. The probes are
+public, so the runner bounds what an indicator reports (16 keys, primitive
+values, strings of at most 200 characters, credential-looking keys dropped, URL
+passwords redacted) and reports a throw or a timeout with a fixed message; the
+error text goes to the log only.
 
 ### 2.7 Routes reachable during a window
 
@@ -194,6 +207,31 @@ both. Re-sending `enabled: true` with a new message is an edit, not a new
 window, and keeps the original start. Neither field is accepted from the
 request body.
 
+### 2.9 Bypasses
+
+`registerMaintenanceBypass({ id, allows(request, principal) })` adds a
+predicate for a request that must pass an open window though it is neither
+`@AllowDuringMaintenance()` nor an admin session. The contract is fail-closed:
+
+- **When it runs.** Only for a request the guard is about to refuse: never when
+  no window is open, never on an exempt route, never for an admin the built-in
+  rule admitted (so it cannot change what an admin sees). With `allowAdmins`
+  off the built-in rule admits nobody and the predicate sees admins too.
+- **What it can do.** Add an allowance. It cannot block a request the built-in
+  rule admits. It receives frozen copies: `request` (`method`, `path` without
+  the query, lower-cased `headers`, `ip`) and `principal` (`kind`: `session` for
+  a bearer JWT that verified, with its `userId` and `roles`; `opaque` for
+  `pat_` / `nod_`; `anonymous`). It never receives the Fastify request.
+- **What counts.** Only `true`. `false`, `undefined`, a truthy non-boolean, a
+  throw, a rejection and a predicate that takes longer than a second are all
+  "not bypassed" (the next predicate is tried; a failure is logged at `warn`).
+- **What it does not do.** It passes the window and nothing else. The route's
+  own `@Auth()` or signature check still runs, so a bypass for a webhook is
+  paired with a webhook that verifies the provider's signature. The guard runs
+  before the body is read, so a predicate cannot check a body signature.
+
+Worked example: `apps/api/src/platform-extensions/host/payments-webhook.bypass.ts`.
+
 ## 3. Configuration and permissions
 
 | Setting | Where |
@@ -222,6 +260,13 @@ in [ARCHITECTURE.md](../ARCHITECTURE.md).
   `MaintenanceModeService.setInMemoryOverride({ enabled: true, ... })` before
   the risky step and `setInMemoryOverride(null)` in a `finally`. The override
   is process-local and unaudited, so keep it to short internal windows.
+- **To let a request through an open window** that is neither an
+  exempt route nor an admin (a payment provider's webhook), register a bypass
+  predicate (§2.9). The route still authenticates its caller.
+- **To use other permission strings** for the admin routes, or the app's own
+  access decorators, pass `host` and `permissions` to
+  `PlatformHostCoreModule.forRoot()`; the Maintenance settings card's
+  `permission` must change with them.
 - **A client** should check `details.reason === 'MAINTENANCE_MODE'` rather
   than the status code, and honour `Retry-After`.
 
@@ -232,7 +277,9 @@ in [ARCHITECTURE.md](../ARCHITECTURE.md).
 | Layer precedence; only `'true'`/`'false'` count (table-driven over `1`, `0`, `yes`, `no`, `TRUE`, `False`, `on`, `off`, `''`); audit rows | `packages/platform-api/test/host/maintenance/maintenance-mode.service.spec.ts` |
 | Never populates `request.user`; `pat_`/`nod_` never bypass | `packages/platform-api/test/host/maintenance/maintenance.guard.spec.ts` |
 | The host core does not import `AuthModule` nor re-export its `JwtModule`; the guard is its only `APP_GUARD` | `packages/platform-api/test/host/host-core.module.spec.ts` |
-| The guard is the app's only `APP_GUARD`, anywhere in the module graph | `apps/api/test/platform/host-conformance.spec.ts` (the `host` conformance suite) |
+| The guard is the first `APP_GUARD` anywhere in the module graph and the app lists any other with a reason | `apps/api/test/platform/host-conformance.spec.ts` (the `host` conformance suite), `packages/platform-api/test/host/conformance.spec.ts`, `apps/api/test/examples/host/app-guard.example.spec.ts` |
+| A bypass fails closed, runs only for a blocked request, never for an admin the built-in rule admitted, and sees frozen copies | `packages/platform-api/test/host/maintenance/maintenance-bypass.guard.spec.ts`, `apps/api/test/examples/host/host-extension-points.integration.spec.ts` |
+| The routes take the app's decorators and the configured permission strings | `packages/platform-api/test/host/host-core.access.spec.ts` |
 | Readiness answers `503` before the DB probe runs | `packages/platform-api/test/host/health/health.controller.spec.ts` |
 | Marker survives the real exception filter; `Retry-After`; env override end to end | `apps/api/test/maintenance/maintenance.integration.spec.ts` |
 | Exact reachable set, enumerated from the router; `/api/docs` stays readable | `apps/api/test/maintenance/maintenance-reachable-set.integration.spec.ts` |
@@ -291,3 +338,4 @@ By hand, with the app running:
 - #258 added the web client gate and the mirrored marker.
 - #285 made the database restore swap the in-memory layer's caller.
 - #401 made `GET /api/admin/about` reachable during a window.
+- #931 added the bypass registry, the health indicator registry, the app's access decorators and permission strings for the routes, and the `allowedAppGuards` option of the `host` conformance suite.
