@@ -221,6 +221,37 @@ describe('the doctor-read-only suite', () => {
       expect(findReadOnlyViolations(audits).services).toEqual([expect.stringContaining('OrderProbeService')]);
     });
 
+    it('does not grade the outcome of a check whose dependency did not pass, but still catches its writes', async () => {
+      const { audits } = await audit((doubles) => [
+        { ...checkWith(async () => ({ status: 'fail', detail: 'down', remedy: 'Open /admin/settings/x and fix the host.' }), doubles, 'dep.down') },
+        { ...checkWith(async () => Promise.reject(new Error('assumes dep.down passed')), doubles, 'needs.dep'), dependsOn: ['dep.down'] },
+        { ...checkWith(async () => (await doubles.prisma.client.audit.create({}), PASS), doubles, 'writes.when.blocked'), dependsOn: ['needs.dep'] },
+        { ...checkWith(async () => Promise.reject(new Error('dependency gone')), doubles, 'orphan'), dependsOn: ['not.registered'] },
+        { ...checkWith(async () => Promise.reject(new Error('really broken')), doubles, 'free.thrower') },
+      ]);
+      const found = findReadOnlyViolations(audits);
+
+      expect(audits.map((audit) => [audit.id, audit.blockedBy])).toEqual([
+        ['dep.down', undefined],
+        ['needs.dep', 'dep.down'],
+        ['writes.when.blocked', 'needs.dep'],
+        ['orphan', 'not.registered'],
+        ['free.thrower', undefined],
+      ]);
+      expect(found.outcomes).toEqual([expect.stringContaining('free.thrower threw "really broken"')]);
+      expect(found.prisma).toEqual(['writes.when.blocked wrote through Prisma: audit.create']);
+    });
+
+    it('grades a check whose dependency passed', async () => {
+      const { audits } = await audit((doubles) => [
+        checkWith(async () => PASS, doubles, 'dep.up'),
+        { ...checkWith(async () => Promise.reject(new Error('boom')), doubles, 'needs.dep'), dependsOn: ['dep.up'] },
+      ]);
+
+      expect(audits[1]!.blockedBy).toBeUndefined();
+      expect(findReadOnlyViolations(audits).outcomes).toEqual([expect.stringContaining('needs.dep threw "boom"')]);
+    });
+
     it('reports a throwing check and a stale exemption, and leaves an argued exemption out', async () => {
       const { audits } = await audit((doubles) => [
         checkWith(async () => Promise.reject(new Error('boom')), doubles, 'bad.throws'),

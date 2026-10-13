@@ -23,7 +23,9 @@
 //     `AiProviderTestService`, `EmailTestSendService`, `PushTestService`,
 //     `TelemetryConnectionTestService`) as a dependency, which is how a check that
 //     spends model tokens or sends mail is caught without running it;
-//   - throws, times out, or returns something that is not a valid outcome.
+//   - throws, times out, or returns something that is not a valid outcome (graded the
+//     way the service meets it: a check whose `dependsOn` did not pass is never called
+//     by the service, so its outcome is not graded, though it still runs for writes).
 //
 // WHAT IT CANNOT SEE. A write that reaches neither double (an HTTP POST from the
 // check itself, a file write) and a model call made without a held test service.
@@ -191,7 +193,14 @@ export interface DoctorCheckAudit {
   readonly storageWrites: readonly string[];
   /** The forbidden services the check holds, by class name. */
   readonly heldServices: readonly string[];
-  /** Contract problems of the outcome (see `findOutcomeProblems`). */
+  /**
+   * The id of a dependency (`dependsOn`) that is not registered, failed or was
+   * skipped. The service never calls such a check, so it may assume what it
+   * depends on holds; the suite still ran it, to watch for writes, but does not
+   * grade its outcome.
+   */
+  readonly blockedBy?: string;
+  /** Contract problems of the outcome (see `findOutcomeProblems`); always empty for a blocked check. */
   readonly outcomeProblems: readonly string[];
 }
 
@@ -216,6 +225,11 @@ function heldForbiddenServices(check: DoctorCheck, forbidden: ReadonlySet<string
 /**
  * Runs every check once over the doubles and records what each did.
  *
+ * Every check runs, so a write is seen whatever its dependencies did. Its
+ * OUTCOME is graded the way the service would meet it: a check whose
+ * `dependsOn` did not pass is `blockedBy` that dependency and is not graded, as
+ * the service reports it `skip` without ever calling `run()`.
+ *
  * @param checks - the registered checks.
  * @param doubles - the doubles the app was booted with.
  * @param options - forbidden service names and the default timeout.
@@ -229,25 +243,55 @@ export async function auditDoctorChecks(
   options: Pick<DoctorReadOnlyOptions, 'forbiddenServices' | 'defaultTimeoutMs'> = {},
 ): Promise<DoctorCheckAudit[]> {
   const forbidden = new Set(options.forbiddenServices ?? DOCTOR_FORBIDDEN_SERVICES);
-  const audits: DoctorCheckAudit[] = [];
+  const runs = new Map<string, DoctorCheckRun>();
+  const written = new Map<string, { prisma: string[]; storage: string[] }>();
 
   for (const check of checks) {
     const prismaBefore = doubles.prisma.violations().length;
     const storageBefore = doubles.storage.violations().length;
 
-    const run = await runDoctorCheck(check, { defaultTimeoutMs: options.defaultTimeoutMs });
-
-    audits.push({
-      id: check.id,
-      run,
-      prismaWrites: doubles.prisma.violations().slice(prismaBefore).map((operation) => operation.path),
-      storageWrites: doubles.storage.violations().slice(storageBefore).map((operation) => operation.method),
-      heldServices: heldForbiddenServices(check, forbidden),
-      outcomeProblems: findOutcomeProblems(check, run),
+    runs.set(check.id, await runDoctorCheck(check, { defaultTimeoutMs: options.defaultTimeoutMs }));
+    written.set(check.id, {
+      prisma: doubles.prisma.violations().slice(prismaBefore).map((operation) => operation.path),
+      storage: doubles.storage.violations().slice(storageBefore).map((operation) => operation.method),
     });
   }
 
-  return audits;
+  // The status the service would report: `skip` for a blocked check, else what it returned (`fail` for a throw or a hang).
+  const byId = new Map(checks.map((check) => [check.id, check]));
+  const blockers = new Map<string, string | undefined>();
+  const resolving = new Set<string>();
+  const blockerOf = (check: DoctorCheck): string | undefined => {
+    if (blockers.has(check.id)) return blockers.get(check.id);
+    if (resolving.has(check.id)) return check.id;
+    resolving.add(check.id);
+    let blocker: string | undefined;
+    for (const dependencyId of check.dependsOn ?? []) {
+      const dependency = byId.get(dependencyId);
+      const status = !dependency || blockerOf(dependency) !== undefined ? 'skip' : (runs.get(dependencyId)?.outcome?.status ?? 'fail');
+      if (status === 'fail' || status === 'skip') {
+        blocker = dependencyId;
+        break;
+      }
+    }
+    resolving.delete(check.id);
+    blockers.set(check.id, blocker);
+    return blocker;
+  };
+
+  return checks.map((check) => {
+    const run = runs.get(check.id)!;
+    const blockedBy = blockerOf(check);
+    return {
+      id: check.id,
+      run,
+      prismaWrites: written.get(check.id)!.prisma,
+      storageWrites: written.get(check.id)!.storage,
+      heldServices: heldForbiddenServices(check, forbidden),
+      ...(blockedBy === undefined ? {} : { blockedBy }),
+      outcomeProblems: blockedBy === undefined ? findOutcomeProblems(check, run) : [],
+    };
+  });
 }
 
 /**
