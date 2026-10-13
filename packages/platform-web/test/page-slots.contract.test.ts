@@ -28,8 +28,10 @@ import { beforeAll, describe, expect, expectTypeOf, it } from 'vitest';
 import type { PageSlotsBase, TableSlots } from '../src/core/index.js';
 import type { DbBackupPageProps } from '../src/db-backup/ui/index.js';
 import type { DoctorPageProps } from '../src/doctor/ui/index.js';
+import type { DataExportPageProps } from '../src/exports/ui/index.js';
 import type { JobInsightsPageProps, JobsPageProps } from '../src/jobs/ui/index.js';
 import type { WorkersPageProps } from '../src/nodes/ui/index.js';
+import type { GettingStartedPageProps, SetupGuidePageProps } from '../src/onboarding/ui/index.js';
 import type {
   ActivateDevicePageProps,
   AuthCallbackPageProps,
@@ -220,6 +222,14 @@ describe('the migrated pages (compile time)', () => {
     expectTypeOf<SlotsOf<GroupDetailPageProps>>().toExtend<PageSlotsBase>();
     expectTypeOf<PageSlotsBase>().toExtend<SlotsOf<GroupDetailPageProps>>();
     expectTypeOf<SlotsOf<PublicLinkPageProps>>().toExtend<PageSlotsBase>();
+
+    // The exports and onboarding pages (PP-14.24b): the last three pages off the exempt list.
+    expectTypeOf<SlotsOf<DataExportPageProps>>().toExtend<PageSlotsBase>();
+    expectTypeOf<PageSlotsBase>().toExtend<SlotsOf<DataExportPageProps>>();
+    expectTypeOf<SlotsOf<GettingStartedPageProps>>().toExtend<PageSlotsBase>();
+    expectTypeOf<PageSlotsBase>().toExtend<SlotsOf<GettingStartedPageProps>>();
+    expectTypeOf<SlotsOf<SetupGuidePageProps>>().toExtend<PageSlotsBase>();
+    expectTypeOf<PageSlotsBase>().toExtend<SlotsOf<SetupGuidePageProps>>();
 
     // The table pages also carry the table slots.
     expectTypeOf<SlotsOf<JobsPageProps>>().toExtend<Pick<TableSlots<unknown>, 'Toolbar'>>();
