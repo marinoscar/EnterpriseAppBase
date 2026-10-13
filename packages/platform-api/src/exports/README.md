@@ -8,6 +8,8 @@ The data export framework (issue #744, PP-9.2): it answers "give me my data" (a 
   - `user-data`: the caller's own data. One dataset per model the user-owned registry (#688/#699) marks `export: 'include'`, plus `account` (the caller's `User` row). Permission `user_settings:read`, which every role holds.
   - `org-data`: one organization's data. Every model of kind `org` in the ownership registry (#725), plus `organization` and `members`. Permission `org_members:read` (the organization's admins); `organizations:read` (a system administrator) may name another organization.
 - **Writers (rung 2).** `registerExportWriter(writer)`. Built in: `json` (a versioned envelope), `csv` (a zip of one RFC 4180 CSV per dataset) and `xlsx` (one sheet per dataset). There is no PDF writer: every PDF in the apps is domain layout, so an app registers its own, limited to its source with `sources`.
+- **Attached writers.** `attachTo: '*'` (or a list of source ids) offers a writer on sources that do not list it. The platform sources list no formats at all: their formats are the writers attached to them (json, csv and xlsx first, then the app's), so an app adds a format to `user-data` and `org-data` with one registration. A writer states the column types it can write (`columnTypes`) and `'*'` reaches only the sources whose columns fit; a source opts out with `acceptsAttachedWriters: false`.
+- **Column meta.** `ExportColumn.meta` (flat scalars, at most 16 keys) carries a source's typing for a custom writer (a Parquet logical type). The column types themselves stay closed; the built-in writers ignore `meta` and never write it.
 - **Document exporters.** `Exporter<TDoc>` and `ExporterRegistry<TDoc>`, with `optionsSchemaFor` and `hashExportRequest`, for an app that renders ONE document into several formats (kvox's transcripts and notes) rather than datasets.
 - **CSV helpers.** `UTF8_BOM`, `FORMULA_TRIGGER`, `csvField`, `neutralizeFormula`, `csvRecord`, `csvCell`, `CSV_LINE_END`: RFC 4180 quoting and formula-injection neutralisation for every CSV the platform writes.
 - **Jobs.** `export.run` (subject `user:<id>` or `organization:<id>`, `skipDedup`, an in-flight cap per subject) and `export.purge` (housekeeping). Both are server-only, and both type strings are permanent. The daily `@Cron` only enqueues.
@@ -90,6 +92,13 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | `ExportLegacyJobType` | option | `{ type: string; handles: 'run' \| 'purge'; label?; toPayload?(payload) }` | Keep an app's earlier export job types processing after adoption (`legacyJobTypes`) | experimental | [example](../../../../apps/api/src/platform/exports/exports.config.ts) |
 | `registerExportSource` | registry | `registerExportSource<Req>(source: ExportSource<Req>): void` | Add a domain source (EvoPath `health`, kvox `transcript`) | experimental | [example](../../../../apps/api/src/platform/exports/export-registrations.manifest.ts) |
 | `registerExportWriter` | registry | `registerExportWriter(writer: ExportWriter): void` | Add an output format, optionally limited to sources (a domain PDF) | experimental | [example](../../../../apps/api/src/platform/exports/export-registrations.manifest.ts) |
+| `ExportWriter.attachTo` | option | `attachTo?: '*' \| readonly string[]` | Offer a writer on every source whose columns it supports, or on named sources, without editing them (including the platform's `user-data` and `org-data`) | experimental | [example](../../../../apps/api/src/examples/exports/example-ndjson.writer.ts) |
+| `ExportWriter.columnTypes` | option | `columnTypes?: readonly ExportColumnType[]` | State the column types a writer can serialise, so `'*'` skips sources it cannot write and an export fails clearly on a column it cannot | experimental | [example](../../../../apps/api/src/examples/exports/exports-examples.spec.ts) |
+| `ExportSource.columnTypes` | option | `columnTypes?: readonly ExportColumnType[]` | Declare the column types a source's datasets use, so restricted writers attach to it | experimental | [example](../../../../apps/api/src/examples/exports/exports-examples.spec.ts) |
+| `ExportSource.acceptsAttachedWriters` | option | `acceptsAttachedWriters?: boolean` | Pin a source to the formats it lists (default `true`: attached writers follow) | experimental | [example](../../../../apps/api/src/examples/exports/exports-examples.spec.ts) |
+| `writersFor` | hook | `writersFor(source: ExportSource): ExportWriter[]` | The writers a source offers: its listed formats, then the attached ones | experimental | [example](../../../../apps/api/src/examples/exports/exports-examples.spec.ts) |
+| `writerSupportsSource` | hook | `writerSupportsSource(writer: ExportWriter, source: ExportSource): boolean` | Ask whether a restricted writer can write a source's declared column types | experimental | [example](../../../../apps/api/src/examples/exports/exports-examples.spec.ts) |
+| `guardWriterColumns` | hook | `guardWriterColumns(tables, writer): AsyncIterable<ExportTable>` | Wrap datasets so a writer never meets a column type it declared it cannot write (the run job does it; use it when driving a writer yourself) | experimental | [example](../../../../apps/api/src/examples/exports/exports-examples.spec.ts) |
 | `exportColumnsOf` | hook | `exportColumnsOf(model: ExportDatamodelModel, omit?: string[]): ExportColumn[]` | The columns a registered model exports: scalar fields minus the entry's `exportOmit` (the story's `exportRedact`) and minus the default redaction rule | experimental | [example](../../../../apps/api/src/app-registrations/user-owned-models.ts) |
 | `UTF8_BOM` | hook | `'﻿'` | Start a CSV file so Excel detects UTF-8 | stable | [example](../../../../apps/api/src/examples/exports/example-single-csv.writer.ts) |
 | `csvField` | hook | `csvField(text: string): string` | Quote one field as RFC 4180 requires | stable | [example](../../../../apps/api/src/examples/exports/example-single-csv.writer.ts) |
@@ -119,7 +128,9 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 - `crossOrgPermission`: `org` scope only; lets a caller name another organization.
 - `requestSchema`: zod. It is validated at the route AND when the job starts; make it `.strict()`.
 - `fields`: optional. Otherwise the dialog's fields are derived from the schema (`requestFieldsOf`: `z.iso.date()` gives a date picker, `z.boolean()` a checkbox, `z.enum` a select, any other string a text box).
-- `formats`: writer ids.
+- `formats`: writer ids, in display order. May be empty: the writers that attach to the source (`attachTo`) follow the listed ones. The platform sources list none.
+- `columnTypes`: optional; the column types its datasets use (the platform sources declare `string`, `number`, `boolean` and `datetime`).
+- `acceptsAttachedWriters`: optional, default `true`.
 - `collect(ctx, req)`: an `AsyncIterable<ExportTable>`, read-only.
 - `fileName?(ctx, req, ext)`: optional.
 
@@ -127,12 +138,12 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 
 ### The writer contract
 
-`ExportWriter` has `id`, `label`, `mimeType`, `extension`, an optional `sources` and `write(tables, out, ctx)`. `write`:
+`ExportWriter` has `id`, `label`, `mimeType`, `extension`, an optional `sources`, an optional `attachTo` and `columnTypes`, and `write(tables, out, ctx)`. `write`:
 - writes the whole file to `out` with backpressure (`writeChunk`) and ENDS it (`endStream`);
 - settles only once `out` finished;
 - on failure, rejects AND destroys `out` (`failStream`), so a half-written file never looks complete.
 
-It never returns a buffer.
+It never returns a buffer. It sees the rows its source produced and nothing else (the platform sources redact before any writer runs), so an attached writer cannot reach a column a built-in one cannot. A writer with `columnTypes` is wrapped by `guardWriterColumns` in the run job: a dataset with a column outside the set fails the export with the dataset, column and type named.
 
 ### PDF fonts (documentation only)
 
@@ -208,13 +219,15 @@ runPlatformConformance({ suites: { exports: { datamodel: Prisma.dmmf.datamodel, 
 ```
 
 Cases:
-1. **registry**: every source names a registered permission (and cross-organization permission) and offers a registered writer; a writer limited to sources names registered ones.
+1. **registry**: every source names a registered permission (and cross-organization permission) and offers a registered writer (an attached one counts); a writer limited to sources, or attached to sources, names registered ones (the platform source ids are always allowed: `platformSources` can switch one off).
 2. **policy**: every user-owned model exists in the datamodel, and its `exportOmit` names real fields.
-3. **secret-egress**: no forbidden sentinel in any output of `user-data` or `org-data`, with every writer. The fake client ignores `select`, so this holds even for a client that returns every column.
+3. **secret-egress**: no forbidden sentinel in any output of `user-data` or `org-data`, with every writer offered on them, an app's attached writer included. The fake client ignores `select`, so this holds even for a client that returns every column.
 
 The `cron-enqueue-only` suite scans this slice's source root (`apps/api/test/jobs/cron-source-roots.ts`): `ExportPurgeTask` only enqueues. `job-type-snapshot.spec.ts` pins both job types.
 
 ## Upgrade notes
+
+Changed with the open attach seam: the platform sources' `formats` is `[]` (their formats are the attached writers: json, csv and xlsx, in that order, then yours), and a source may list no format. An app that spread `USER_DATA_EXPORT_SOURCE` into its own source under another id lists the formats it wants (the platform writers attach to `user-data` and `org-data` only).
 
 New in #744. Adoption by EvoPath:
 - register `health` with `registerExportSource` (permission `health_data:read`; its request `from`, `to`, `datasets`, `includeHistory`, `labUnits`);
@@ -228,10 +241,11 @@ Its legacy `exports/<userId>/…` objects sit under the purge's root (`exports/`
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `POST /api/exports` answers 400 "has no format" | The source's `formats` names a writer that is not registered, or a writer limited to other sources | Register the writer; check its `sources` |
+| `POST /api/exports` answers 400 "has no format" | The source's `formats` names a writer that is not registered, a writer limited to other sources, or the writer attaches to other sources (`attachTo`) or cannot write the source's column types (`columnTypes`) | Register the writer; check its `sources`, `attachTo` and `columnTypes`, and the source's `columnTypes` |
 | `403 This credential has no active organization` | A user export needs the active organization to own the file's row | Sign in with an organization (every user has the default one in `single` mode) |
 | An export stays `pending` | No worker is running, or the queue is backed up | `/admin/jobs`; the Doctor's jobs checks |
 | An export is `failed` | The job threw on its last attempt (storage unreachable, a source error) | The job's `lastError` in the jobs console; the user sees only the fixed message |
+| A new writer is not offered on `user-data` | It is not registered before bootstrap, has no `attachTo`, or `attachTo` names other sources | Register it from `app-registrations/exports.ts` with `attachTo: '*'` (or `['user-data']`) |
 | A dataset is missing from `user-data` | The model is `export: 'exclude'`, or absent from the datamodel passed to `forRoot` | Change its user-owned registry entry; pass `Prisma.dmmf.datamodel` |
 | `RegistryError FROZEN` when registering a source | Registration ran after bootstrap | Register from a manifest imported before `forRoot` (`app-registrations/exports.ts`) |
 

@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  BUILTIN_ONBOARDING_AUDIENCES,
+  ONBOARDING_AUDIENCES,
+  ONBOARDING_AUDIENCE_ID_PATTERN,
   ONBOARDING_SKIPPED_MAX,
   ONBOARDING_STEP_ID_PATTERN,
+  onboardingAudienceSchema,
   onboardingMetricsQuerySchema,
   onboardingQuerySchema,
   onboardingResponseSchema,
@@ -53,5 +57,30 @@ describe('@marinoscar/platform-contract/onboarding', () => {
       admin: null,
     });
     expect(parsed.settings['goal']).toBe('strength');
+  });
+
+  it('keeps the original two audiences and adds org_admin to the built-ins', () => {
+    expect(ONBOARDING_AUDIENCES).toEqual(['admin', 'user']);
+    expect(BUILTIN_ONBOARDING_AUDIENCES).toEqual(['admin', 'user', 'org_admin']);
+  });
+
+  it('opens the audience vocabulary to ids matching the pattern', () => {
+    for (const id of ['admin', 'user', 'org_admin', 'coaches', 'app-coaches']) {
+      expect(onboardingAudienceSchema.safeParse(id).success).toBe(true);
+      expect(ONBOARDING_AUDIENCE_ID_PATTERN.test(id)).toBe(true);
+    }
+    for (const id of ['', 'A', 'Org Admin', '1abc', 'a', 'x'.repeat(49), 'a.b']) {
+      expect(onboardingAudienceSchema.safeParse(id).success).toBe(false);
+    }
+  });
+
+  it('carries the extra audiences as an optional record beside user and admin', () => {
+    const block = { steps: [], completed: 0, total: 0, requiredDone: true, allResolved: true };
+    const settings = { welcomeSeenAt: null, checklistDismissedAt: null, adminDismissedAt: null, skipped: [] };
+    const plain = onboardingResponseSchema.parse({ settings, user: block, admin: null });
+    expect('audiences' in plain).toBe(false);
+    const withExtra = onboardingResponseSchema.parse({ settings, user: block, admin: null, audiences: { org_admin: block } });
+    expect(Object.keys(withExtra.audiences ?? {})).toEqual(['org_admin']);
+    expect(onboardingResponseSchema.safeParse({ settings, user: block, admin: null, audiences: { 'Bad Id': block } }).success).toBe(false);
   });
 });

@@ -12,12 +12,14 @@
 //      registry, exactly.
 //   3. facts-once: one derivation, for a caller holding every permission,
 //      resolves each fact at most once.
+//   (the registry case also checks every step's audience is registered)
 //   4. no-io-in-evaluate: the evaluation phase makes no data-port call (the
 //      cost of the endpoint is the facts', never a per-step query).
 // =============================================================================
 
 import { conformanceSuites } from '../../testing/index';
 import type { ConformanceCase, ConformanceFinding, ConformanceReport, ConformanceSuite } from '../../testing/index';
+import { onboardingAudienceRegistry } from '../onboarding.audiences';
 import { evaluateOnboarding } from '../onboarding.engine';
 import {
   factIdsOf,
@@ -68,6 +70,9 @@ export function checkOnboardingRegistries(options: OnboardingConformanceOptions)
       if (!onboardingFactRegistry.has(id)) findings.push({ file: `step:${step.id}`, message: `reads unknown fact "${id}"` });
     }
     if (step.tier === 'required' && step.skippable) findings.push({ file: `step:${step.id}`, message: 'is required and skippable' });
+    if (!onboardingAudienceRegistry.has(step.audience)) {
+      findings.push({ file: `step:${step.id}`, message: `names unknown audience "${step.audience}"` });
+    }
     if (step.permission !== undefined && !permissions.has(step.permission)) {
       findings.push({ file: `step:${step.id}`, message: `permission ${step.permission} is not a registered permission` });
     }
@@ -137,6 +142,10 @@ export async function probeOnboardingDerivation(options: OnboardingConformanceOp
     facts,
     orderings: onboardingOrderingRegistry.list(),
     includeAdmin: true,
+    // Every registered audience is exercised: the probe caller holds the
+    // org_admin role, so org_admin steps are derived (and their facts counted) too.
+    audiences: onboardingAudienceRegistry.list(),
+    audienceContext: { adminPermission: 'system_settings:read' },
     skipped: [],
     onEvaluationPhase: (phase) => {
       evaluating = phase === 'start';
@@ -145,7 +154,7 @@ export async function probeOnboardingDerivation(options: OnboardingConformanceOp
       caller: {
         id: '00000000-0000-4000-8000-000000000000',
         permissions: options.permissions.map((p) => p.id),
-        roles: [],
+        roles: ['org_admin'],
         activeOrgId: '00000000-0000-4000-8000-000000000001',
       },
       refresh: false,
@@ -189,7 +198,7 @@ export const onboardingConformanceSuite: ConformanceSuite<OnboardingConformanceO
       {
         name: 'registry: every fact a step names is registered, no required step is skippable, and the app registered its steps',
         run: (report, expect) => {
-          expect(report.findings.filter((f) => /unknown fact|required and skippable|fewer than/.test(f.message))).toEqual([]);
+          expect(report.findings.filter((f) => /unknown fact|unknown audience|required and skippable|fewer than/.test(f.message))).toEqual([]);
         },
       },
       {

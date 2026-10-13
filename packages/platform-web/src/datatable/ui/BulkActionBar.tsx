@@ -15,7 +15,7 @@
 import { Paper, Stack, Button, Typography, Box } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import CloseIcon from '@mui/icons-material/Close';
-import type { DataTableBulkAction } from '../headless/types.js';
+import type { DataTableBulkAction, DataTableBulkBarSlotProps, DataTableSlots } from '../headless/types.js';
 
 /**
  * Props of {@link BulkActionBar}.
@@ -110,4 +110,25 @@ export function BulkActionBar({ ids, actions, onClear, total }: BulkActionBarPro
       </Stack>
     </Paper>
   );
+}
+
+/**
+ * The bulk-action bar, or the app's `BulkBar` slot in its place while rows are
+ * selected. With no slot this is {@link BulkActionBar} itself, so the markup
+ * does not change.
+ *
+ * @param props - the bar's props plus the table's `slots`.
+ * @returns the bar, the slot, or `null` when nothing is selected.
+ *
+ * @stability experimental
+ */
+export function SlottedBulkActionBar({
+  slots,
+  actions,
+  ...bar
+}: BulkActionBarProps & { slots?: DataTableSlots<any> }) {
+  const Slot = slots?.BulkBar;
+  if (!Slot || bar.ids.length === 0) return <BulkActionBar {...bar} actions={actions} />;
+  const props: DataTableBulkBarSlotProps = { ids: bar.ids, actions: actions ?? [], onClear: bar.onClear, total: bar.total };
+  return <Slot {...props} />;
 }

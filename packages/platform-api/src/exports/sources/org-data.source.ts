@@ -27,7 +27,7 @@ import { z } from 'zod';
 import { modelOwnershipRegistry, orgFieldOf, userOwnedModelRegistry } from '../../core/index';
 import { isDate, type ExportDatamodelModel } from '../datamodel';
 import type { ExportContext, ExportRow, ExportSource, ExportTable } from '../export.types';
-import { modelTable } from './model-table';
+import { MODEL_TABLE_COLUMN_TYPES, modelTable } from './model-table';
 
 /**
  * The source id. PERMANENT once jobs carry it.
@@ -146,6 +146,8 @@ export const ORG_DATA_EXPORT_SOURCE: ExportSource<Record<string, never>> = {
   permission: ORG_DATA_EXPORT_PERMISSION,
   crossOrgPermission: ORG_DATA_CROSS_ORG_PERMISSION,
   requestSchema: z.object({}).strict() as z.ZodType<Record<string, never>>,
-  formats: ['json', 'csv', 'xlsx'],
+  // Computed, not listed: the writers that attach to `org-data` are its formats.
+  formats: [],
+  columnTypes: MODEL_TABLE_COLUMN_TYPES,
   collect: (ctx) => orgDataTables(ctx),
 };

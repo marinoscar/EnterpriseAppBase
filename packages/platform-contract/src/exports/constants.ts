@@ -70,6 +70,20 @@ export const EXPORT_COLUMN_TYPES = ['string', 'number', 'boolean', 'date', 'date
 export type ExportColumnType = (typeof EXPORT_COLUMN_TYPES)[number];
 
 /**
+ * The most keys one column's `meta` may carry.
+ *
+ * @stability experimental
+ */
+export const EXPORT_COLUMN_META_MAX_KEYS = 16;
+
+/**
+ * The longest `meta` key, and the longest `meta` string value, in characters.
+ *
+ * @stability experimental
+ */
+export const EXPORT_COLUMN_META_MAX_LENGTH = 256;
+
+/**
  * The kind of one request field the export dialog draws: a date picker, a
  * checkbox, a select or a text box.
  *

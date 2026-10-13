@@ -7,20 +7,59 @@
 // =============================================================================
 
 /**
- * Who a step is for: `admin` steps form the Setup guide (the caller holds the
- * admin permission, `system_settings:read` by default), `user` steps the Get
- * started checklist every signed-in user sees.
+ * The two audiences the response has always had a block for: `admin` steps
+ * form the Setup guide (the caller holds the admin permission,
+ * `system_settings:read` by default), `user` steps the Get started checklist
+ * every signed-in user sees.
  *
+ * Kept for back-compat: the vocabulary is open now, see
+ * {@link BUILTIN_ONBOARDING_AUDIENCES} and `registerOnboardingAudience`.
+ *
+ * @deprecated Use {@link BUILTIN_ONBOARDING_AUDIENCES}; this list still names
+ *   only the audiences with a dedicated block in the response.
  * @stability experimental
  */
 export const ONBOARDING_AUDIENCES = ['admin', 'user'] as const;
 
 /**
- * One audience.
+ * The audiences the platform registers: `admin` (the Setup guide), `user`
+ * (Get started) and `org_admin` (the caller holds the `org_admin` role of
+ * their active organization; its steps arrive under `audiences.org_admin`).
+ * An app adds its own with `registerOnboardingAudience`.
  *
  * @stability experimental
  */
-export type OnboardingAudience = (typeof ONBOARDING_AUDIENCES)[number];
+export const BUILTIN_ONBOARDING_AUDIENCES = ['admin', 'user', 'org_admin'] as const;
+
+/**
+ * One audience the platform registers.
+ *
+ * @stability experimental
+ */
+export type BuiltinOnboardingAudience = (typeof BUILTIN_ONBOARDING_AUDIENCES)[number];
+
+/**
+ * One audience: a built-in or an id an app registered. Open on purpose; the
+ * `(string & {})` arm keeps editor completion for the built-ins.
+ *
+ * @stability experimental
+ */
+export type OnboardingAudience = BuiltinOnboardingAudience | (string & {});
+
+/**
+ * What an audience id looks like: lower case, letters, digits, `_` and `-`,
+ * 2 to 48 characters, starting with a letter (`org_admin`, `<app>-coaches`).
+ *
+ * @stability experimental
+ */
+export const ONBOARDING_AUDIENCE_ID_PATTERN = /^[a-z][a-z0-9_-]{1,47}$/;
+
+/**
+ * The membership role the `org_admin` audience is resolved from.
+ *
+ * @stability experimental
+ */
+export const ONBOARDING_ORG_ADMIN_ROLE = 'org_admin' as const;
 
 /**
  * How much a step matters, in display order: `required` (other people cannot
