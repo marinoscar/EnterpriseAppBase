@@ -23,6 +23,7 @@ import {
   METRIC_UNIT_FORMATS,
   METRIC_UNIT_ID_PATTERN,
   PRESENTATION_COLOR_TOKENS,
+  PRESENTATION_TABLE_SORTS,
   VIRTUAL_COLUMN_EXPRESSIONS,
   type MetricGroupPresentation,
   type MetricUnitDescriptor,
@@ -233,8 +234,8 @@ export const presentationTableSchema = z
     label: label.optional(),
     /** A "Top N" row limit. Absent: every row is drawn. */
     topN: presentationTopNSchema.optional(),
-    /** `problems-first`: failing rows before healthy ones; stable otherwise. Absent: the API's order. */
-    sort: wireEnum(['problems-first'] as const).optional(),
+    /** `problems-first`: failing rows before healthy ones; `value-desc`: the first value column, largest first. Stable. Absent: the API's order. */
+    sort: wireEnum(PRESENTATION_TABLE_SORTS).optional(),
     /** The columns, in order. Absent: every column of the response. */
     columns: z.array(presentationColumnSchema).min(1).max(LIMITS.columns).optional(),
   })

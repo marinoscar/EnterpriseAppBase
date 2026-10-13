@@ -5,6 +5,7 @@ import { PLATFORM_METRIC_PRESENTATIONS } from '@marinoscar/platform-contract/tel
 import { describe, expect, it } from 'vitest';
 
 import {
+  byFirstValueDesc,
   colorOfToken,
   normalizeTopN,
   planTiles,
@@ -199,5 +200,27 @@ describe('colorOfToken', () => {
     expect(colorOfToken('series-3', tokens)).toBe(tokens.chart.series[2]);
     const short = { ...tokens, chart: { series: ['#111', '#222'] } };
     expect(colorOfToken('series-3', short)).toBe('#111');
+  });
+});
+
+describe('byFirstValueDesc (sort: "value-desc")', () => {
+  it('orders rows by the first value column, largest first, stable, rows with no number last', () => {
+    const sorted = [...TABLE.rows].sort(byFirstValueDesc(TABLE)!).map((row) => row.key);
+    // failed: search 5, export 0, share null
+    expect(sorted).toEqual(['search', 'export', 'share']);
+    const ties: DashboardMetricTable = {
+      ...TABLE,
+      rows: [
+        { key: 'a', failed: 1 },
+        { key: 'b', failed: 1 },
+        { key: 'c', failed: 9 },
+        { key: 'd', failed: 'oops' },
+      ],
+    };
+    expect([...ties.rows].sort(byFirstValueDesc(ties)!).map((row) => row.key)).toEqual(['c', 'a', 'b', 'd']);
+  });
+
+  it('has nothing to sort by on a table with only a key', () => {
+    expect(byFirstValueDesc({ ...TABLE, columns: [TABLE.columns[0]!] })).toBeUndefined();
   });
 });

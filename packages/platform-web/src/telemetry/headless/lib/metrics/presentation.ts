@@ -12,6 +12,7 @@ import type {
   PresentationColumn,
   PresentationSeries,
   PresentationTable,
+  PresentationTableSort,
   PresentationTile,
   PresentationTopN,
   PresentationVirtualColumn,
@@ -89,7 +90,7 @@ export interface TablePlan {
   key: string;
   label?: string;
   columns?: ColumnPlan[];
-  sort?: 'problems-first';
+  sort?: PresentationTableSort;
   topN?: { options: readonly (number | 'all')[]; default: number | 'all' };
 }
 
@@ -223,4 +224,30 @@ export function withVirtualColumns(
 
 function round(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+/**
+ * The comparator for `sort: 'value-desc'` over `table`: the first column after
+ * the key, largest first, rows with no number last. Stable (equal values keep
+ * the API's order). `undefined` when the table has no value column.
+ *
+ * @param table - the response table the rows belong to.
+ * @returns the comparator, or `undefined`.
+ *
+ * @stability experimental
+ */
+export function byFirstValueDesc(
+  table: DashboardMetricTable,
+): ((a: Record<string, DashboardMetricCell>, b: Record<string, DashboardMetricCell>) => number) | undefined {
+  const column = table.columns.find((candidate) => candidate.key !== 'key')?.key;
+  if (column === undefined) return undefined;
+  const value = (row: Record<string, DashboardMetricCell>): number | null => toNumber(row[column] as number | string | null | undefined);
+  return (a, b) => {
+    const left = value(a);
+    const right = value(b);
+    if (left === null && right === null) return 0;
+    if (left === null) return 1;
+    if (right === null) return -1;
+    return right - left;
+  };
 }

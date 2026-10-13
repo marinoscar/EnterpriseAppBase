@@ -49,6 +49,7 @@ import {
 } from './MetricTable.js';
 import { metricPanelId, metricSectionAnchor, type MetricSectionMeta } from '../../../../headless/lib/metrics/metricSections.js';
 import {
+  byFirstValueDesc,
   colorOfToken,
   planTiles,
   presentationFor,
@@ -122,10 +123,10 @@ function columnSpec(column: PresentationColumn): MetricTableColumnSpec {
 }
 
 /** What the table component needs for a table plan. */
-function tableProps(plan: TablePlan): Pick<MetricTableProps, 'columns' | 'sortRows' | 'topN'> {
+function tableProps(plan: TablePlan, table: DashboardMetricTable): Pick<MetricTableProps, 'columns' | 'sortRows' | 'topN'> {
   return {
     columns: plan.columns?.map(columnSpec),
-    sortRows: plan.sort === 'problems-first' ? problemsFirst : undefined,
+    sortRows: plan.sort === 'problems-first' ? problemsFirst : plan.sort === 'value-desc' ? byFirstValueDesc(table) : undefined,
     topN: plan.topN,
   };
 }
@@ -264,7 +265,7 @@ function SectionBody({
           ))}
           {tables.map(({ table, tablePlan }) => (
             <Grid key={table.key} size={{ xs: 12, lg: both ? 7 : 12 }} sx={{ minWidth: 0 }}>
-              <MetricTable table={table} {...tableProps(tablePlan)} now={now} />
+              <MetricTable table={table} {...tableProps(tablePlan, table)} now={now} />
             </Grid>
           ))}
         </Grid>

@@ -131,6 +131,8 @@ describe('metricGroupPresentationSchema', () => {
     expect(metricGroupPresentationSchema.safeParse(table({ topN: { options: [5, 10], default: 20 } })).success).toBe(false);
     expect(metricGroupPresentationSchema.safeParse(table({ topN: 0 })).success).toBe(false);
     expect(metricGroupPresentationSchema.safeParse(table({ sort: 'random' })).success).toBe(false);
+    expect(metricGroupPresentationSchema.safeParse(table({ sort: 'value-desc' })).success).toBe(true);
+    expect(metricGroupPresentationSchema.safeParse(table({ sort: 'problems-first' })).success).toBe(true);
     expect(metricGroupPresentationSchema.safeParse(table({ columns: [{ key: 'a', display: { kind: 'html', value: '<b>' } }] })).success).toBe(false);
     expect(metricGroupPresentationSchema.safeParse(table({ columns: [{ key: 'a', display: { kind: 'status', okText: '', badText: 'x' } }] })).success).toBe(false);
     const virtual = (expression: string, of: string[]) => ({ virtualColumns: [{ id: 'v', label: 'V', expression, of }] });

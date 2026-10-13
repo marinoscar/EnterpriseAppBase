@@ -627,6 +627,23 @@ export const VIRTUAL_COLUMN_EXPRESSIONS = ['ratio', 'delta', 'rate'] as const;
 export type VirtualColumnExpression = (typeof VIRTUAL_COLUMN_EXPRESSIONS)[number];
 
 /**
+ * The row orders a presentation may ask of a table: `problems-first` (failing
+ * rows, `up === false` or a flag, before healthy ones) and `value-desc` (the
+ * table's first value column, largest first, rows with no value last; the
+ * order a "Top N" is meant for). Both are stable.
+ *
+ * @stability stable
+ */
+export const PRESENTATION_TABLE_SORTS = ['problems-first', 'value-desc'] as const;
+
+/**
+ * One of {@link PRESENTATION_TABLE_SORTS}.
+ *
+ * @stability stable
+ */
+export type PresentationTableSort = (typeof PRESENTATION_TABLE_SORTS)[number];
+
+/**
  * How a presentation renders a table cell: `utilization-bar` (a percentage as
  * a bar), `status` (a boolean as an icon and a word) or `fraction` (`used / total`).
  *
@@ -801,8 +818,8 @@ export interface PresentationTable {
   label?: string;
   /** A "Top N" row limit. Absent: every row is drawn. */
   topN?: PresentationTopN;
-  /** `problems-first`: failing rows before healthy ones; stable otherwise. Absent: the API's order. */
-  sort?: 'problems-first';
+  /** `problems-first`: failing rows before healthy ones; `value-desc`: the first value column, largest first. Stable. Absent: the API's order. */
+  sort?: PresentationTableSort;
   /** The columns, in order. Absent: every column of the response. */
   columns?: PresentationColumn[];
 }
