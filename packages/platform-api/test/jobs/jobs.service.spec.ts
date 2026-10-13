@@ -25,6 +25,7 @@ import { propagation } from '@opentelemetry/api';
 
 import { installTestTracing, TestTracing } from '../identity/support/otel-tracing.helper';
 import { buildDedupKey } from '../../src/jobs/job-keys';
+import { registerJobReason } from '../../src/jobs/job-reason';
 import { isActiveDedupConflict, JobsService } from '../../src/jobs/jobs.service';
 import type { EventBus } from './support/app-doubles';
 import { JOBS_ENQUEUED_CHANNEL } from '../../src/jobs/job-wake';
@@ -202,6 +203,26 @@ describe('JobsService', () => {
       expect(data.priority).toBeUndefined();
       expect(data.scheduledFor).toBeUndefined();
       expect(data.payload).toBeUndefined();
+    });
+  });
+
+  describe('the open reason vocabulary (PP-14.19)', () => {
+    it('writes a reason an app registered', async () => {
+      registerJobReason({ id: 'import-spec', label: 'Import (spec)' });
+      create.mockResolvedValue(jobRow());
+
+      await service.enqueue({ type: 'app.import.run', reason: 'import-spec' });
+
+      expect(create).toHaveBeenCalledWith({ data: expect.objectContaining({ reason: 'import-spec' }) });
+    });
+
+    it('refuses an unregistered reason before it touches the database, on both enqueue paths', async () => {
+      await expect(service.enqueue({ type: 'x.run', reason: 'nobody-registered' })).rejects.toThrow(/Unknown job reason "nobody-registered"/);
+      await expect(
+        service.enqueueWithin({ job: { create } } as unknown as JobsTx, { type: 'x.run', reason: 'nobody-registered' }),
+      ).rejects.toThrow(/Unknown job reason/);
+
+      expect(create).not.toHaveBeenCalled();
     });
   });
 

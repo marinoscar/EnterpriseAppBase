@@ -8,6 +8,11 @@
 // global Zod pipe (400 for an unknown key, a bad name, an oversized batch), a
 // node owned by somebody else is 403, and the `{ accepted, dropped }` answer
 // survives the response envelope.
+//
+// Since PP-14.19 a span that fails validation (an unknown name, a bad attribute
+// shape, a free-form errorType, a stale start) is DROPPED ON ITS OWN and counted,
+// not a 400 for the batch: only a body that is not a bounded `{ spans: [...] }`
+// is refused.
 // =============================================================================
 
 import { createHash, randomUUID } from 'crypto';
@@ -157,11 +162,7 @@ describe('Node span relay (Integration)', () => {
       ['an oversized batch', { spans: Array.from({ length: 51 }, () => span(HELD_JOB)) }],
       ['an empty batch', { spans: [] }],
       ['an unknown top-level key', { spans: [span(HELD_JOB)], nodeId: OTHER_NODE }],
-      ['an unknown span key', { spans: [span(HELD_JOB, { message: 'boom at /etc/passwd' })] }],
-      ['a span name outside the enum', { spans: [span(HELD_JOB, { name: 'job.anything' })] }],
-      ['a non-allowlisted attribute', { spans: [span(HELD_JOB, { attributes: { url: 1 } })] }],
-      ['a free-form errorType', { spans: [span(HELD_JOB, { status: 'error', errorType: 'no such file' })] }],
-      ['a start two days ago', { spans: [span(HELD_JOB, { startTimeUnixMs: Date.now() - 2 * 86_400_000 })] }],
+      ['spans that is not a list', { spans: 'job.execute' }],
     ];
 
     it.each(cases)('%s', async (_label, body) => {
@@ -173,6 +174,31 @@ describe('Node span relay (Integration)', () => {
       await request(server()).post(url).set(nodeHeader()).send(body as object).expect(400);
 
       expect(context.prismaMock.job.findMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('a span outside the contract is dropped on its own (200, counted), not the batch', () => {
+    const cases: Array<[string, Record<string, unknown>]> = [
+      ['an unknown span key', { message: 'boom at /etc/passwd' }],
+      ['a span name that is neither a phase nor job.app.<name>', { name: 'job.anything' }],
+      ['an attribute value that could hold a path', { name: 'job.app.thing', attributes: { codec: '/etc/passwd' } }],
+      ['a free-form errorType', { status: 'error', errorType: 'no such file' }],
+      ['a start two days ago', { startTimeUnixMs: Date.now() - 2 * 86_400_000 }],
+    ];
+
+    it.each(cases)('%s', async (_label, overrides) => {
+      const admin = await createMockAdminUser(context);
+      await givenNodeCredentialFor(admin.id);
+      givenNodeOwnedBy(admin.id);
+      givenJobs();
+
+      const response = await request(server())
+        .post(url)
+        .set(nodeHeader())
+        .send({ spans: [span(HELD_JOB), span(HELD_JOB, overrides)] })
+        .expect(200);
+
+      expect(response.body.data).toEqual({ accepted: 1, dropped: 1 });
     });
   });
 

@@ -41,6 +41,7 @@ export function job(overrides: Partial<Job> = {}): Job {
     dedupKey: null,
     status: 'pending',
     reason: 'upload',
+    reasonLabel: 'Upload',
     priority: 0,
     providerKey: null,
     modelVersion: null,

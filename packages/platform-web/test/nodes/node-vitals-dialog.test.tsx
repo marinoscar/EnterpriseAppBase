@@ -11,6 +11,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { NodeVitalsDialog, VITALS_COUNTER_ROWS } from '../../src/nodes/ui/NodeVitalsDialog.js';
+import { registerNodeVital } from '../../src/nodes/headless/index.js';
 import {
   fullVitals,
   lowDiskVitals,
@@ -144,5 +145,57 @@ describe('NodeVitalsDialog', () => {
     const onClose = renderDialog({ lastVitals: fullVitals });
     await user.click(screen.getByRole('button', { name: 'Close' }));
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  describe('app vitals and capabilities (PP-14.19)', () => {
+    it('prints vitals.extra under the labels and units an app registered, and an unregistered key by its key', () => {
+      registerNodeVital({ key: 'dialog.transcode_fps', label: 'Transcode frames per second', unit: 'frames/s' });
+      renderDialog({
+        lastVitals: { ...fullVitals, extra: { 'dialog.transcode_fps': 29.97, 'dialog.unregistered': 4 } },
+        lastVitalsAt: THREE_MIN_AGO,
+      });
+      const table = screen.getByRole('table', { name: 'App vitals' });
+
+      const value = (label: string) =>
+        within(within(table).getByRole('rowheader', { name: label }).closest('tr')!).getAllByRole('cell')[0];
+      expect(value('Transcode frames per second')).toHaveTextContent('29.97 frames/s');
+      expect(value('dialog.unregistered')).toHaveTextContent('4');
+    });
+
+    it('draws no app vitals table when the node reported none', () => {
+      renderDialog({ lastVitals: fullVitals, lastVitalsAt: THREE_MIN_AGO });
+
+      expect(screen.queryByRole('table', { name: 'App vitals' })).not.toBeInTheDocument();
+      expect(screen.queryByText("Reported by this node's app")).not.toBeInTheDocument();
+    });
+
+    it('lists the node’s reported capabilities as a read-only list, as plain text', () => {
+      renderDialog({
+        lastVitals: fullVitals,
+        lastVitalsAt: THREE_MIN_AGO,
+        capabilities: { probe: { capabilities: ['binary:ffmpeg', '<img src=x onerror=alert(1)>'], versions: { ffmpeg: 'ffmpeg version 6.1' } } },
+      });
+      const list = screen.getByTestId('node-capabilities');
+
+      expect(within(list).getAllByRole('listitem')).toHaveLength(2);
+      expect(list).toHaveTextContent('binary:ffmpeg — ffmpeg version 6.1');
+      // Rendered as text: the markup is shown, not interpreted, and nothing is a link or a control.
+      expect(list.querySelector('img')).toBeNull();
+      expect(within(list).queryByRole('link')).toBeNull();
+      expect(within(list).queryByRole('button')).toBeNull();
+    });
+
+    it('shows the capabilities even for a node that has not reported vitals yet', () => {
+      renderDialog({ lastVitals: null, capabilities: { probe: { capabilities: ['binary:ffmpeg'] } } });
+
+      expect(screen.getByTestId('node-vitals-empty')).toBeInTheDocument();
+      expect(screen.getByTestId('node-capabilities')).toHaveTextContent('binary:ffmpeg');
+    });
+
+    it('omits the capabilities section when the bag has none', () => {
+      renderDialog({ lastVitals: fullVitals, lastVitalsAt: THREE_MIN_AGO, capabilities: { custom: 'only' } });
+
+      expect(screen.queryByTestId('node-capabilities')).not.toBeInTheDocument();
+    });
   });
 });
