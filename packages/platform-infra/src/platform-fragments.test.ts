@@ -103,6 +103,9 @@ describe('syncInfra() with the compose, nginx and env fragments', () => {
         'infra/nginx/app.d/http/.gitkeep',
         'infra/nginx/app.d/server/.gitkeep',
         'infra/nginx/app.d/locations/.gitkeep',
+        'infra/nginx/app.d/csp/.gitkeep',
+        'infra/nginx/app.d/csp/connect-src.conf.example',
+        'infra/nginx/app.d/locations/stream-route.conf.example',
       ]),
     );
 
@@ -115,7 +118,7 @@ describe('syncInfra() with the compose, nginx and env fragments', () => {
     expect(again.written).toEqual([]);
     expect(read('infra/nginx/app.d/permissions-policy.conf')).toContain('geolocation=(self)');
     // A .gitkeep is only for an empty directory, and never reported missing.
-    expect(readdirSync(join(app, 'infra/nginx/app.d/locations'))).toEqual(['coach.conf']);
+    expect(readdirSync(join(app, 'infra/nginx/app.d/locations'))).toEqual(['coach.conf', 'stream-route.conf.example']);
     expect(checkInfra(options(app)).problems).toEqual([]);
   });
 

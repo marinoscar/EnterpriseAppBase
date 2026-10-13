@@ -6,18 +6,21 @@ Deployment configuration shipped as files, plus the small ESM API that orders an
 
 What the package owns:
 
-- the Compose files `base`, `dev`, `devdb`, `prod`, `vps` (with the stack agent), `worker`, `worker.build` and `test`, and the order Compose applies them in per mode (`composeFilesForMode()`), with the app's overlays last;
+- the Compose files `base`, `dev`, `devdb`, `prod`, `vps` (with the stack agent), `worker`, `worker.build` and `test`, and the order Compose applies them in per mode (`composeFilesForMode()`, `dev`, `devdb`, `prod`, `vps`, `worker` and `test`, plus the modes an app adds with `registerComposeMode`), with the app's overlays last;
 - `postgres-init/10-application-role.sh`, the executable init script `devdb` and `test` mount at `/docker-entrypoint-initdb.d`: it creates the ordinary (`NOSUPERUSER NOBYPASSRLS`) role the API runs as, so row-level security applies to it;
-- `nginx.conf` with four include points, the two CSP maps and the `platform/` snippets (`security-headers.conf`, `sse-proxy.conf`);
+- `nginx.conf` with its include points (`app.d/http`, `server`, `locations`, `csp` and the Permissions-Policy file), the two CSP maps and the `platform/` snippets (`security-headers.conf`, `sse-proxy.conf`);
 - the platform's environment variables (`env/base.env.example`) and the worker's (`env/worker.env.example`);
 - identity rendering: the app's CLI name, env prefix, service name, worker image and test database names written into those files (`deriveInfraIdentity()`, `renderInfraText()`);
-- the `platform-infra sync` command and its lock.
+- the `platform-infra sync` command and its lock;
+- `runInfraConformance` (`@marinoscar/platform-infra/testing`): the app's own test that its overlays merge and its `app.d/` is valid nginx.
 
 What it does not own: the app's overlays (`infra/compose/app.*.compose.yml`, `infra/nginx/app.d/`, `infra/compose/app.env.example`, `infra/otel/app-collector.yaml`), its `.env`, its Dockerfiles and images, and `apps/stack-agent` (still an app workspace; the `vps` fragment builds it from `apps/stack-agent/Dockerfile`). A Helm chart is deferred.
 
 Slices, each a subpath export with its own README:
 
 - [`@marinoscar/platform-infra/telemetry`](src/telemetry/README.md): the collector and GreptimeDB compose fragments, the platform collector config, the app-owned collector overlay and their typed manifest.
+
+The `@marinoscar/platform-infra/testing` subpath exports `runInfraConformance`. It is a module of the package root, not a slice, because it wraps the compose order and the sync check; see Conformance suite below.
 
 ## Install and peer dependencies
 
@@ -69,8 +72,10 @@ The exported seams, then the seams that are files and a command (below). Every r
 
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
-| `composeFilesForMode` | overlay | `(mode: ComposeMode, options?: ComposeFilesOptions) => string[]` | Build the `-f` list of a mode (dev, devdb, prod, vps, worker) with the app's overlays last, instead of hard-coding it | experimental | [an app overlay it appends](../../infra/compose/app.example.compose.yml) (called by `@marinoscar/platform-cli`'s `deploy` and `init`) |
+| `composeFilesForMode` | overlay | `(mode: ComposeMode, options?: ComposeFilesOptions) => string[]` | Build the `-f` list of a mode (dev, devdb, prod, vps, worker, test, or one registered) with the app's overlays last, instead of hard-coding it | experimental | [an app overlay it appends](../../infra/compose/app.example.compose.yml) (called by `@marinoscar/platform-cli`'s `deploy` and `init`) |
 | `appComposeOverlays` | overlay | `(names: readonly string[], mode: ComposeMode) => string[]` | Find which `app.*.compose.yml` files of a directory apply to a mode, sorted | experimental | [example overlay](../../infra/compose/app.example.compose.yml) |
+| `runInfraConformance` | option | `(options: InfraConformanceOptions) => void` (`@marinoscar/platform-infra/testing`) | Prove in the app's own tests that `sync --check` is clean, every mode's `docker compose config` renders with the app's overlays and `nginx -t` accepts `app.d/` with both CSP files | experimental | [example](../../apps/cli/src/infra-conformance.test.ts) |
+| `registerComposeMode` | registry | `(mode: ComposeModeRegistration) => void` | Add a stack of the app's own (a staging server built from the production files); its id is the overlay scope of `app.<id>.*.compose.yml` | experimental | [example](../../apps/cli/src/examples/staging.compose-mode.ts) |
 | `composeInfraFragment` | overlay | `PlatformInfraFragment` | Locate the generated compose files and the app's example overlay | experimental | [example overlay](../../infra/compose/app.example.compose.yml) |
 | `nginxInfraFragment` | overlay | `PlatformInfraFragment` | Locate the generated nginx files and the app-owned `app.d/` include points | experimental | [Permissions-Policy](../../infra/nginx/app.d/permissions-policy.conf) |
 | `envInfraFragment` | overlay | `PlatformInfraFragment` | Locate the env templates and the app-owned `app.env.example` appended to `.env.example` | experimental | [app variables](../../infra/compose/app.env.example) |
@@ -78,17 +83,18 @@ The exported seams, then the seams that are files and a command (below). Every r
 
 ### Compose overlays
 
-An app changes the stack with `infra/compose/app.*.compose.yml` files, appended after every platform file and sorted by file name, so an overlay always wins. `app.<name>.compose.yml` applies to every mode built on `base.compose.yml` (dev, devdb, prod, vps); `app.<scope>.<name>.compose.yml` (scope `dev`, `devdb`, `prod`, `vps` or `worker`) only to the modes whose platform files include `<scope>.compose.yml`: `app.prod.*` to prod and vps, `app.dev.*` to dev and devdb, `app.vps.*` to vps alone. A name ending in `.example.compose.yml` is never applied: the reference app's [`app.example.compose.yml`](../../infra/compose/app.example.compose.yml) is the documented example, and the reference stack runs without an overlay. The deploy (`composeFilesFor()` in [`compose-files.ts`](../../packages/platform-cli/src/engine/deploy/compose-files.ts)) and `init`'s printed start command include them. The tested fixtures: kvox's memory limits ([`app.prod.memory-limits.compose.yml`](test/fixtures/overlays/kvox/compose/app.prod.memory-limits.compose.yml)) and its stack-agent opt-out with `profiles: ["disabled"]` ([`app.vps.no-stack-agent.compose.yml`](test/fixtures/overlays/kvox/compose/app.vps.no-stack-agent.compose.yml)), rendered with `docker compose config` by [`reference-compose.test.ts`](src/reference-compose.test.ts).
+An app changes the stack with `infra/compose/app.*.compose.yml` files, appended after every platform file and sorted by file name, so an overlay always wins. `app.<name>.compose.yml` applies to every mode built on `base.compose.yml` (dev, devdb, prod, vps); `app.<scope>.<name>.compose.yml` (scope `dev`, `devdb`, `prod`, `vps`, `worker` or `test`, or the id of a mode registered with `registerComposeMode`) only to the modes whose platform files include `<scope>.compose.yml`: `app.prod.*` to prod and vps, `app.dev.*` to dev and devdb, `app.vps.*` to vps alone, `app.test.*` to the disposable test database alone (which has no `base.compose.yml`, so a plain `app.<name>` overlay never reaches it). A name ending in `.example.compose.yml` is never applied: the reference app's [`app.example.compose.yml`](../../infra/compose/app.example.compose.yml) is the documented example, and the reference stack runs without an overlay. The deploy (`composeFilesFor()` in [`compose-files.ts`](../../packages/platform-cli/src/engine/deploy/compose-files.ts)) and `init`'s printed start command include them. The tested fixtures: kvox's memory limits ([`app.prod.memory-limits.compose.yml`](test/fixtures/overlays/kvox/compose/app.prod.memory-limits.compose.yml)) and its stack-agent opt-out with `profiles: ["disabled"]` ([`app.vps.no-stack-agent.compose.yml`](test/fixtures/overlays/kvox/compose/app.vps.no-stack-agent.compose.yml)), rendered with `docker compose config` by [`reference-compose.test.ts`](src/reference-compose.test.ts).
 
 ### nginx include points
 
-`nginx.conf` includes four app-owned points under `/etc/nginx/app.d/` (the app's `infra/nginx/app.d/`, mounted by `base.compose.yml`), each created by the sync:
+`nginx.conf` and `csp.conf` include five app-owned points under `/etc/nginx/app.d/` (the app's `infra/nginx/app.d/`, mounted by `base.compose.yml`), each created by the sync:
 
 | Include point | Level | Use |
 |---|---|---|
 | `app.d/http/*.conf` | `http` | maps, upstreams, rate-limit zones |
 | `app.d/server/*.conf` | public `server` | server-level directives |
 | `app.d/locations/*.conf` | public `server`, before `location /api` | the app's locations |
+| `app.d/csp/*.conf` | `http`, in `csp.conf` (a `map` body per directive) | sources appended to the default policy, below |
 | `app.d/permissions-policy.conf` | in `platform/security-headers.conf` | the `Permissions-Policy` header; created from the platform default ([reference](../../infra/nginx/app.d/permissions-policy.conf)) |
 
 An empty directory is valid. An app's SSE route is one location whose body is [`platform/sse-proxy.conf`](../../infra/nginx/platform/sse-proxy.conf) (unbuffered proxy to the API, 600 s timeouts, the security headers):
@@ -98,6 +104,15 @@ location /api/coach/chat/stream { include /etc/nginx/platform/sse-proxy.conf; }
 ```
 
 EvoPath's two SSE routes and its `geolocation=(self)` are the tested fixture ([`test/fixtures/overlays/evopath/nginx/app.d/`](test/fixtures/overlays/evopath/nginx/app.d/permissions-policy.conf)): `nginx -t` passes on it and every response carries the security headers ([`reference-nginx.test.ts`](src/reference-nginx.test.ts), [`nginx-app-locations.spec.ts`](../../apps/api/test/nginx-app-locations.spec.ts)).
+
+**Extending the CSP without copying it.** The default policy of `csp.conf` and `csp.dev.conf` is composed from `$csp_*_extra` maps, each empty unless a file in `app.d/csp/` fills it. Name a file after the directive: `connect-src*.conf`, `img-src*.conf`, `media-src*.conf`, `font-src*.conf` or `style-src*.conf` append sources to that directive; `extra*.conf` appends whole directives the policy does not carry. Each file is the body of a map keyed on the request path, normally one line:
+
+```nginx
+# infra/nginx/app.d/csp/connect-src.conf: one more WebSocket host (connect-src already allows https:)
+default " wss://realtime.example.com";
+```
+
+The value is appended as written, so it starts with a space (`extra`: `; `). With no file the header is byte-identical to the policy the platform shipped. Additions only: a CSP ignores a repeated directive after the first, so `extra` cannot widen a directive the policy has; there is deliberately **no hook for `script-src`, `default-src`, `object-src`, `base-uri`, `form-action` or `frame-ancestors`**, and the `/api/docs` policy is not extended. Widening those is an edit of the policy (the override below), not an include. The additions live in the app's repository, so review sees them. [`connect-src.conf.example`](../../infra/nginx/app.d/csp/connect-src.conf.example) is created inert by the sync. The tested fixture is [`test/fixtures/overlays/csp/`](test/fixtures/overlays/csp/nginx/app.d/csp/connect-src.conf): `nginx -t` passes on it and the served header carries both additions ([`reference-nginx.test.ts`](src/reference-nginx.test.ts)), while [`csp-include.test.ts`](src/csp-include.test.ts) pins, without nginx, that the empty policy equals the shipped string.
 
 **The CSP override.** `csp.conf` is mounted at `/etc/nginx/csp.conf` by `base.compose.yml` and replaced by `csp.dev.conf` in `dev.compose.yml`; Compose merges `volumes` by container path, so an app replaces the policy with an overlay that mounts its own file at the same path, for example `- ../nginx/app.d/csp.conf:/etc/nginx/csp.conf:ro`. Precedence follows the file order: the app overlay comes after `dev.compose.yml`, so it wins in development too (provide a dev variant in an `app.dev.*` overlay if the app's policy is strict).
 
@@ -192,7 +207,15 @@ None. The package emits nothing at run time; the telemetry slice ships the colle
 
 ## Conformance suite
 
-None yet. The package ships no conformance suite; its invariants run as this package's tests (`docker compose config` snapshots, `nginx -t` and served headers) and as CI's `sync --check` and pinned-image `nginx -t`.
+`runInfraConformance({ appRoot, testApi })` from `@marinoscar/platform-infra/testing`, called from the app's own test file ([`apps/cli/src/infra-conformance.test.ts`](../../apps/cli/src/infra-conformance.test.ts)). Three checks:
+
+- `sync --check`: the generated files are the package's and match the lock.
+- `docker compose config` for each mode (`dev`, `devdb`, `prod`, `vps`, `test` by default; `modes` and `env` override) over the platform files and the app's overlays, so an overlay that does not merge fails here, not on the server.
+- `nginx -t` over the composed configuration with the app's `app.d/`, once for `csp.conf` and once for `csp.dev.conf`: with a local `nginx` binary in a scratch directory, else in the image `base.compose.yml` pins when a Docker daemon runs.
+
+Docker and nginx are tools, not dependencies. When one is missing the case is registered as a passing case whose name carries the reason (`compose config: skipped (docker compose is not available)`) and a warning is printed, so a missing tool is visible and never reads as a check. `skip: { sync, compose, nginx }` opts out of a check on purpose, and each opt-out needs a reason. The check is read-only: nothing starts a container or writes into the app.
+
+The package's own invariants also run as its tests (`docker compose config` snapshots, `nginx -t` and served headers) and as CI's `sync --check` and pinned-image `nginx -t`.
 
 ## Upgrade notes
 
@@ -205,6 +228,8 @@ From the files an app copied by hand (before #714): run `npx platform-infra sync
 - **`records a different checksum`.** The lock was edited or not rewritten (for example after `scripts/rename.mjs` changed a rendered value): run the sync.
 - **`is rendered with the app identity, and none was found`.** Add `packages/shared/identity.json` with `productName` and `cliName`, or pass `--identity <file>`.
 - **nginx: `open() "/etc/nginx/app.d/permissions-policy.conf" failed`.** The app-owned file is missing; the sync recreates it from the platform default.
+- **`Unknown compose mode "x"`.** `composeFilesForMode` got a mode that is neither built in nor registered: call `registerComposeMode({ id, files })` first.
+- **nginx: `unknown "csp_..._extra" variable` or a CSP line that did not change.** A file in `app.d/csp/` must be named after a directive (`connect-src*.conf` and the others listed above) and contain a `default "<value>";` line with a leading space (or `; ` for `extra`). A file ending in `.example` is inert.
 - **A changed `app.d/` file is not served.** The directory mount shows the new file at once, but nginx reads its configuration at start: recreate or reload nginx (`docker compose … up -d --force-recreate nginx`).
 
 Collector overlay failures are in the [telemetry slice README](src/telemetry/README.md#troubleshooting). Build and import problems common to every platform package are in [DEVELOPMENT.md § Platform packages](../../docs/DEVELOPMENT.md#platform-packages).

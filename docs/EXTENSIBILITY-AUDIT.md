@@ -15,7 +15,7 @@ The audit record of the extension seams of every platform slice. A closed point 
 
 Evidence paths are written `api:`, `web:`, `contract:`, `cli:`, `db:` and `infra:` for `packages/platform-api/src/`, `packages/platform-web/src/`, `packages/platform-contract/src/`, `packages/platform-cli/src/`, `packages/platform-db/` and `packages/platform-infra/`; a path under `apps/` or `docs/` is from the repository root. A story is written PP-14.n (its issue number follows).
 
-As of this version: 114 closed points in 29 sections, 41 fixed and 73 open.
+As of this version: 114 closed points in 29 sections, 51 fixed and 63 open.
 
 ## Verdicts
 
@@ -37,8 +37,8 @@ As of this version: 114 closed points in 29 sections, 41 fixed and 73 open.
 | [manifest](#manifest) | Mostly open | 2 | 0 | 2 | PP-14.15 |
 | [user-data](#user-data) | Mostly open | 1 | 0 | 1 | PP-14.24 |
 | [platform-db](#platform-db) | Mostly open | 6 | 1 | 5 | PP-14.27, PP-14.4 |
-| [platform-cli](#platform-cli) | Mostly open | 7 | 0 | 7 | PP-14.22 |
-| [platform-infra](#platform-infra) | Mostly open | 2 | 0 | 2 | PP-14.22 |
+| [platform-cli](#platform-cli) | Open | 7 | 7 | 0 | PP-14.22 |
+| [platform-infra](#platform-infra) | Open | 2 | 2 | 0 | PP-14.22 |
 | [testing (api and web)](#testing-api-and-web) | Mostly open | 2 | 0 | 2 | PP-14.26 |
 | [ai](#ai) | Mostly open | 10 | 6 | 4 | PP-14.3, PP-14.6, PP-14.17, PP-14.24 |
 | [storage](#storage) | Mostly open | 5 | 4 | 1 | PP-14.1, PP-14.7, PP-14.24 |
@@ -48,7 +48,7 @@ As of this version: 114 closed points in 29 sections, 41 fixed and 73 open.
 | [host](#host) | Partly closed | 8 | 1 | 7 | PP-14.2, PP-14.13, PP-14.24 |
 | [datatable](#datatable) | Partly closed | 2 | 0 | 2 | PP-14.20 |
 | [android-app](#android-app) | Partly closed | 1 | 0 | 1 | PP-14.24 |
-| [testing (CLI runner)](#testing-cli-runner) | Closed | 1 | 0 | 1 | PP-14.22 |
+| [testing (CLI runner)](#testing-cli-runner) | Open | 1 | 1 | 0 | PP-14.22 |
 | [docs (cross-cutting)](#docs-cross-cutting) | Documentation | 2 | 2 | 0 | PP-14.4 |
 
 ## Stories
@@ -78,7 +78,7 @@ The 28 stories of the epic, in order. Phase 1 makes the existing seams real; pha
 | PP-14.19 | #937 | jobs and nodes: app retention policies, open job reasons, node vitals and executor telemetry | 3 | none | yes | Open |
 | PP-14.20 | #938 | onboarding, datatable and exports: close the remaining small vocabularies | 3 | none | no | Open |
 | PP-14.21 | #939 | settings: nested and org-layer extensions, core profile and theme fields, package self-registration | 3 | none | no | Open |
-| PP-14.22 | #940 | cli and infra: app env groups, deploy checks and steps, proxy stream routes, CSP, compose modes, CLI conformance | 3 | none | no | Open |
+| PP-14.22 | #940 | cli and infra: app env groups, deploy checks and steps, proxy stream routes, CSP, compose modes, CLI conformance | 3 | none | no | This change |
 | PP-14.23 | #941 | web: the packaged-page slot contract, its CI check, and the operations pages | 4 | none | no | Open |
 | PP-14.24 | #942 | web: apply the slot contract to AI, storage, email, telemetry, android, host, profile, user-data and notifications pages | 4 | 14.23 (and the phase 2 story of each slice) | no | Open |
 | PP-14.25 | #943 | web: slots for identity and sharing pages, login layout, and shell navigation and themes | 4 | 14.23, 14.9, 14.15 | no | Open |
@@ -305,30 +305,30 @@ Closed points: none recorded at the audit commit.
 
 ### platform-cli
 
-**Verdict:** Mostly open · **Packages:** cli · **Closed points:** 7 (0 fixed, 7 open) · **Stories:** PP-14.22
+**Verdict:** Open · **Packages:** cli · **Closed points:** 7 (7 fixed, 0 open) · **Stories:** PP-14.22
 
-**Open points.** `registerCliCommand`, `registerEnvSpecFragment`, `registerDeployStep` (`after` only), `registerTuiScreen`, `registerNodeExecutor`, `createCli` identity.
+**Open points.** `registerCliCommand`, `registerEnvSpecFragment`, `registerEnvGroup`, `registerEnvGenerator`, `annotateEnvKey`, `registerDeployCheck`, `registerDeployStep` (`after`, `before`, `replaces`, `skipWhen`, and a secret-free `env` and `answers`), `registerProxyStreamPath` and `createCli({ proxy })`, `registerEdgeConfigFile`, `registerTuiScreen`, `registerTuiScreenSection`, `registerNodeExecutor`, `createCli` identity.
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
-| platform-cli-1 | `ENV_GROUPS` is a closed list and `fromFragment` throws for any other group; the TUI group record is closed, so an app cannot make its keys an opt-in group. | cli: `engine/deploy/env-metadata.ts:64, :285-290`; `engine/tui/screens/deploy/install.tsx:423` | `registerEnvGroup({ id, label, description, defaultEnabled })`. | PP-14.22 (#940) | Open |
-| platform-cli-2 | The deploy checks are a fixed array with no register function. | cli: `engine/deploy/checks/index.ts:21` | `registerDeployCheck(check)` exported from `@marinoscar/platform-cli/deploy`. | PP-14.22 (#940) | Open |
-| platform-cli-3 | `registerDeployStep` supports `after` only: no `before`, replace or skip; the step context has no env or answers; built-in command names are reserved. | cli: `engine/deploy/steps/registry.ts`; `engine/program.ts:49` | `before`, `replaces`, `skipWhen` and a read-only redacted `env` and `answers` on the context. | PP-14.22 (#940) | Open |
-| platform-cli-4 | The VPS host-proxy vhost hard-codes the three platform SSE locations and puts everything else under `location /` with 60 s timeouts and buffering. An app SSE route works at the inner nginx but is buffered and cut at 60 s at the VPS edge (a production bug). | cli: `engine/deploy/proxy.ts:346-470` (the SSE locations at :418, :440, :459, `location /` at :397, `ProxyTarget` at :62) | `ProxyTarget.streamPaths` and `extraLocations`, filled from `createCli({ proxy: { streamPaths } })` and `registerProxyStreamPath`. | PP-14.22 (#940) | Open |
-| platform-cli-5 | The compose mode union and scopes are closed (no `test` overlay scope), and the single-file mount list knows only `nginx.conf` and `csp.conf`. | infra: `compose-order.ts:41, :70`; cli: `engine/deploy/edge-config.ts:42` | `test` scope, `registerComposeMode` (or a documented reason) and `registerEdgeConfigFile(path)`. | PP-14.22 (#940) | Open |
-| platform-cli-6 | Built-in TUI screens have no slots. | cli: `tui/` | `registerTuiScreenSection(screenId, Section)` for the node and deploy screens. | PP-14.22 (#940) | Open |
-| platform-cli-7 | `GenerateKind` is `base64-32` or `hex-32`, and each env key has one owner with no app annotation of a platform key. | cli: `core/env-spec-registry.ts:32, :140` | `registerEnvGenerator({ kind, generate })` and `annotateEnvKey(key, { fixed?, help? })`. | PP-14.22 (#940) | Open |
+| platform-cli-1 | `ENV_GROUPS` is a closed list and `fromFragment` throws for any other group; the TUI group record is closed, so an app cannot make its keys an opt-in group. | cli: `engine/deploy/env-metadata.ts:64, :285-290`; `engine/tui/screens/deploy/install.tsx:423` | `registerEnvGroup({ id, label, description, defaultEnabled })`. | PP-14.22 (#940) | Fixed |
+| platform-cli-2 | The deploy checks are a fixed array with no register function. | cli: `engine/deploy/checks/index.ts:21` | `registerDeployCheck(check)` exported from `@marinoscar/platform-cli/deploy`. | PP-14.22 (#940) | Fixed |
+| platform-cli-3 | `registerDeployStep` supports `after` only: no `before`, replace or skip; the step context has no env or answers; built-in command names are reserved. | cli: `engine/deploy/steps/registry.ts`; `engine/program.ts:49` | `before`, `replaces`, `skipWhen` and a read-only redacted `env` and `answers` on the context. | PP-14.22 (#940) | Fixed |
+| platform-cli-4 | The VPS host-proxy vhost hard-codes the three platform SSE locations and puts everything else under `location /` with 60 s timeouts and buffering. An app SSE route works at the inner nginx but is buffered and cut at 60 s at the VPS edge (a production bug). | cli: `engine/deploy/proxy.ts:346-470` (the SSE locations at :418, :440, :459, `location /` at :397, `ProxyTarget` at :62) | `ProxyTarget.streamPaths` and `extraLocations`, filled from `createCli({ proxy: { streamPaths } })` and `registerProxyStreamPath`. | PP-14.22 (#940) | Fixed |
+| platform-cli-5 | The compose mode union and scopes are closed (no `test` overlay scope), and the single-file mount list knows only `nginx.conf` and `csp.conf`. | infra: `compose-order.ts:41, :70`; cli: `engine/deploy/edge-config.ts:42` | `test` scope, `registerComposeMode` (or a documented reason) and `registerEdgeConfigFile(path)`. | PP-14.22 (#940) | Fixed |
+| platform-cli-6 | Built-in TUI screens have no slots. | cli: `tui/` | `registerTuiScreenSection(screenId, Section)` for the node and deploy screens. | PP-14.22 (#940) | Fixed |
+| platform-cli-7 | `GenerateKind` is `base64-32` or `hex-32`, and each env key has one owner with no app annotation of a platform key. | cli: `core/env-spec-registry.ts:32, :140` | `registerEnvGenerator({ kind, generate })` and `annotateEnvKey(key, { fixed?, help? })`. | PP-14.22 (#940) | Fixed |
 
 ### platform-infra
 
-**Verdict:** Mostly open · **Packages:** infra · **Closed points:** 2 (0 fixed, 2 open) · **Stories:** PP-14.22
+**Verdict:** Open · **Packages:** infra · **Closed points:** 2 (2 fixed, 0 open) · **Stories:** PP-14.22
 
-**Open points.** App overlay points: `infra/compose/app[.<scope>].<name>.compose.yml`, `infra/nginx/app.d/{http,server,locations}/*.conf`, `app.d/permissions-policy.conf`, `infra/compose/app.env.example`, app-owned collector overlays, `platform-infra sync --check`.
+**Open points.** App overlay points: `infra/compose/app[.<scope>].<name>.compose.yml` (including `app.test.*`), `registerComposeMode`, `infra/nginx/app.d/{http,server,locations,csp}/*.conf`, `app.d/permissions-policy.conf`, `infra/compose/app.env.example`, app-owned collector overlays, `platform-infra sync --check` and `runInfraConformance`.
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
-| platform-infra-1 | The CSP is one `map $uri $csp_policy` of full strings, so allowing one extra host means copying the whole policy. | infra: `nginx/csp.conf:16` | `app.d/csp/*.conf` include point appended to each policy (a `$csp_extra` pattern) with an `nginx -t` fixture test. | PP-14.22 (#940) | Open |
-| platform-infra-2 | There is no infra conformance suite; an app cannot assert that its overlays merge. | infra: `` (none) | `runInfraConformance({ appRoot })`: `docker compose config` over the app overlays (skipped with a reason without Docker) and `nginx -t` over `app.d`. | PP-14.22 (#940) | Open |
+| platform-infra-1 | The CSP is one `map $uri $csp_policy` of full strings, so allowing one extra host means copying the whole policy. | infra: `nginx/csp.conf:16` | `app.d/csp/*.conf` include point appended to each policy (a `$csp_extra` pattern) with an `nginx -t` fixture test. | PP-14.22 (#940) | Fixed |
+| platform-infra-2 | There is no infra conformance suite; an app cannot assert that its overlays merge. | infra: `` (none) | `runInfraConformance({ appRoot })`: `docker compose config` over the app overlays (skipped with a reason without Docker) and `nginx -t` over `app.d`. | PP-14.22 (#940) | Fixed |
 
 ### testing (api and web)
 
@@ -464,13 +464,13 @@ Closed points: none recorded at the audit commit.
 
 ### testing (CLI runner)
 
-**Verdict:** Closed · **Packages:** cli · **Closed points:** 1 (0 fixed, 1 open) · **Stories:** PP-14.22
+**Verdict:** Open · **Packages:** cli · **Closed points:** 1 (1 fixed, 0 open) · **Stories:** PP-14.22
 
-**Open points.** None: the runner is hard-coded to one suite.
+**Open points.** `cliConformanceSuites` and `registerCliConformanceSuite`; a suite is run with its options or skipped with a required reason.
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
-| testing-cli-1 | The CLI conformance runner is hard-coded to one suite, and `cli: false` opts out without a reason. | cli: `engine/conformance.ts:93, :139, :146` | `cliConformanceSuites.register(...)` mirroring the API, `{ skip: 'reason' }` required (an empty reason or `false` throws), suites receive options. | PP-14.22 (#940) | Open |
+| testing-cli-1 | The CLI conformance runner is hard-coded to one suite, and `cli: false` opts out without a reason. | cli: `engine/conformance.ts:93, :139, :146` | `cliConformanceSuites.register(...)` mirroring the API, `{ skip: 'reason' }` required (an empty reason or `false` throws), suites receive options. | PP-14.22 (#940) | Fixed |
 
 ### docs (cross-cutting)
 

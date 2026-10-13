@@ -501,6 +501,48 @@ which keeps the security headers), maps and upstreams in `http/`, and the
 `Permissions-Policy` in `permissions-policy.conf`. The update's edge-config
 check compares `nginx.conf` and `csp.conf` only, so after changing a file in
 `app.d/` recreate nginx: `docker compose -p <project> <the same -f list> up -d --force-recreate nginx`.
+A single-file bind mount of your own into nginx is added to that check with
+`registerEdgeConfigFile` (see [Extending](../EXTENDING.md#check-an-app-compose-overlay-a-compose-mode-or-a-single-file-mount)).
+Sources the CSP should allow go in `app.d/csp/` instead of a copy of the policy
+([Extending](../EXTENDING.md#extend-the-csp-without-copying-it)).
+
+### 6.3 Stream an app route through the host proxy
+
+<a id="stream-routes"></a>
+
+An SSE route (or any response that must not be buffered) crosses two nginx
+hops. A location in `infra/nginx/app.d/locations/` that includes
+`platform/sse-proxy.conf` fixes the app's own nginx. The shared host proxy
+in front of the stack is configured by this CLI, and it knows only the
+platform's three streaming paths (`/api/notifications/stream`,
+`/api/ai/responses/stream`, `/api/admin/telemetry/assistant/stream`).
+**Every other path falls under `location /` there: buffered, and cut after 60
+seconds.** The symptom is a stream that works on `localhost:3535` and arrives in
+one lump, or dies mid-answer, only on the VPS.
+
+Declare the path in the app's `src/cli.ts` options:
+
+```ts
+createCli({
+  ...APP_CLI_OPTIONS,
+  proxy: { streamPaths: ['/api/coach/chat/stream', { path: '/api/ai/training/stream', timeoutSeconds: 600 }] },
+});
+```
+
+commit it and run `appctl deploy update` (the `publish` step rewrites the vhost, and
+an update that finds no new commit skips it, so the change ships with a release). The vhost gains one location per path with
+`proxy_buffering off`, `proxy_cache off`, `chunked_transfer_encoding off` and
+read and send timeouts of one hour (or the `timeoutSeconds` given), the
+directives of the platform's own streaming locations. The vhost file is
+rewritten and `nginx -t` runs before the proxy reloads, as for any vhost
+change.
+
+| Question | Answer |
+|---|---|
+| Which paths are accepted? | A leading `/`, then letters, digits and `. _ ~ / : @ + , = -`. The path is written into a config shared by every site on the server, so a newline, `;`, quote, brace, `$`, `#`, space or `..` is refused with an error before any file is written. |
+| Do I need both hops? | Yes. The `location` in `app.d/locations/` fixes the inner nginx, the declared path fixes the host proxy. |
+| How do I see it took effect? | `sudo cat /opt/infra/proxy/nginx/conf.d/<domain>.conf` shows the `location <path>` block; `curl -N https://<domain><path>` streams. |
+| Does it change an app that declares nothing? | No. Its vhost is byte-identical to what it was. |
 
 ## 7. Logs
 
