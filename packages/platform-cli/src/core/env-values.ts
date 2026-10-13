@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 
+import { generateWithKind } from './env-generator-registry.js';
 import type { GenerateKind } from './env-spec-registry.js';
 
 // =============================================================================
@@ -38,12 +39,13 @@ export function generateHexKey(): string {
 /**
  * Generates a value of the given kind.
  *
- * @param kind - `hex-32` or `base64-32`.
- * @returns A fresh random value.
+ * @param kind - A registered kind: `hex-32`, `base64-32`, or one added with `registerEnvGenerator`.
+ * @returns A fresh value.
+ * @throws Error when the kind is not registered, or its generator returned an unusable value.
  * @stability experimental
  */
 export function generateValue(kind: GenerateKind): string {
-  return kind === 'hex-32' ? generateHexKey() : generateBase64Key();
+  return generateWithKind(kind);
 }
 
 /**

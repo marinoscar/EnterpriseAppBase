@@ -46,6 +46,12 @@ import { trace } from '@opentelemetry/api';
 import { Prisma } from '@prisma/client/extension';
 
 import type { Scope } from '../principal/index';
+import {
+  BUILTIN_SYSTEM_ACCESS_REASONS,
+  isSystemAccessReason,
+  systemAccessReasonRegistry,
+  type BuiltinSystemAccessReason,
+} from './access-reason.registry';
 import { ScopedAccessError } from './scoped-access.error';
 
 /**
@@ -67,49 +73,26 @@ export const RLS_SETTINGS = Object.freeze({
 } as const);
 
 /**
- * Why code runs without an organisation scope. A closed list so a reviewer can
- * grep the reasons and a test can pin them.
+ * Why code runs without an organisation scope. The id of a REGISTERED access
+ * reason: the platform's nine ({@link BuiltinSystemAccessReason}) or one an app
+ * added with `registerSystemAccessReason`. The type is open so an app's own id
+ * compiles; the check is at run time ({@link systemScopeExtension},
+ * {@link runAsSystem}) and an unregistered reason throws `ScopedAccessError`.
  *
- * - `backup` / `restore`: the database dump and its replay.
- * - `purge`: deleting rows across organisations (storage purge, user and
- *   factory reset).
- * - `doctor`: read-only health checks that count rows across organisations.
- * - `retention`: the retention purge handlers.
- * - `admin-aggregate`: deployment-wide administrator views and aggregates, and
- *   display-only reads such as another user's avatar.
- * - `migration-tooling`: seeds and migration helpers.
- * - `link-resolution`: resolving a link-share token (issue #730): ONE row of
- *   `grants`, by its unique token hash, before any organization is known.
+ * Opening the reason does not open who may bypass: the system client is
+ * reachable only from the files on the injection allowlist.
  *
  * @stability experimental
  */
-export type SystemAccessReason =
-  | 'backup'
-  | 'restore'
-  | 'purge'
-  | 'doctor'
-  | 'retention'
-  | 'admin-aggregate'
-  | 'migration-tooling'
-  | 'link-resolution'
-  | 'export';
+export type SystemAccessReason = BuiltinSystemAccessReason | (string & {});
 
 /**
- * Every {@link SystemAccessReason}, for validation and tests.
+ * The platform's own access reasons, for validation and tests.
  *
+ * @deprecated Use {@link BUILTIN_SYSTEM_ACCESS_REASONS}; this list does not include the reasons an app registered. Read `systemAccessReasonRegistry.ids()` for those.
  * @stability experimental
  */
-export const SYSTEM_ACCESS_REASONS: readonly SystemAccessReason[] = Object.freeze([
-  'backup',
-  'restore',
-  'purge',
-  'doctor',
-  'retention',
-  'admin-aggregate',
-  'migration-tooling',
-  'link-resolution',
-  'export',
-]);
+export const SYSTEM_ACCESS_REASONS: readonly BuiltinSystemAccessReason[] = BUILTIN_SYSTEM_ACCESS_REASONS;
 
 /**
  * The scope of an org-scoped client: the organisation, and optionally the user
@@ -197,12 +180,13 @@ function validateOrgScope(scope: OrgScope): { orgId: string; userId: string } {
 }
 
 function validateReason(reason: unknown): SystemAccessReason {
-  if (typeof reason !== 'string' || !(SYSTEM_ACCESS_REASONS as readonly string[]).includes(reason)) {
+  if (!isSystemAccessReason(reason)) {
     throw new ScopedAccessError(
-      `A system access needs a reason from ${SYSTEM_ACCESS_REASONS.join(', ')}, got ${JSON.stringify(reason)}.`,
+      `A system access needs a registered reason (${systemAccessReasonRegistry.ids().join(', ')}), got ${JSON.stringify(reason)}. ` +
+        'Add one with registerSystemAccessReason() at import time.',
     );
   }
-  return reason as SystemAccessReason;
+  return reason;
 }
 
 /** The `set_config` statement for a scope: one round trip, two settings, both transaction-local. */
@@ -288,7 +272,7 @@ export function orgScopeExtension(base: RlsBaseClient, scope: OrgScope) {
  *
  * @param base - the system `PrismaClient`.
  * @param reason - why; recorded on the active span.
- * @throws ScopedAccessError for a reason outside {@link SYSTEM_ACCESS_REASONS}.
+ * @throws ScopedAccessError for a reason that is not registered ({@link systemAccessReasonRegistry}).
  *
  * @stability experimental
  */
@@ -378,7 +362,7 @@ export function forScope<C extends RlsBaseClient>(client: C, scope: Scope): OrgS
  *
  * @param client - the system `PrismaClient`.
  * @param reason - why; recorded on the active span.
- * @throws ScopedAccessError for a reason outside {@link SYSTEM_ACCESS_REASONS}.
+ * @throws ScopedAccessError for a reason that is not registered ({@link systemAccessReasonRegistry}).
  *
  * @stability experimental
  * @example
@@ -476,7 +460,7 @@ export function runInScope<C extends RlsRunnableClient, R>(
  * @param reason - why; recorded on the active span.
  * @param fn - the unit of work.
  * @param options - `maxWait` and `timeout`, forwarded to Prisma.
- * @throws ScopedAccessError for a reason outside {@link SYSTEM_ACCESS_REASONS}.
+ * @throws ScopedAccessError for a reason that is not registered ({@link systemAccessReasonRegistry}).
  *
  * @stability experimental
  * @example

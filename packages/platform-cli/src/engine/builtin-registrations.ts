@@ -1,4 +1,11 @@
-import { registerEnvSpecFragment, resetCommandRegistryForTests, resetEnvSpecRegistryForTests } from '../core/index.js';
+import {
+  registerEnvGroup,
+  registerEnvSpecFragment,
+  resetCommandRegistryForTests,
+  resetEnvGroupRegistryForTests,
+  resetEnvSpecRegistryForTests,
+  type EnvGroupRegistration,
+} from '../core/index.js';
 import { telemetryEnvSpecFragment } from '../telemetry/index.js';
 
 import { ENV_METADATA } from './deploy/env-metadata.js';
@@ -34,7 +41,29 @@ export const PLATFORM_ENV_FRAGMENT_ID = 'platform';
 let registered = false;
 let failure: unknown;
 
+/**
+ * The platform's feature groups, registered through the same function an app
+ * uses. `observability` is on for every deployment (#567); the rest are opt-in.
+ */
+export const PLATFORM_ENV_GROUPS: readonly EnvGroupRegistration[] = Object.freeze([
+  {
+    id: 'observability',
+    label: 'Observability',
+    description: 'The telemetry stack: OpenTelemetry collector and GreptimeDB. On for every deployment.',
+    defaultEnabled: true,
+  },
+  { id: 'email', label: 'Email', description: 'Outbound email through Amazon SES.', defaultEnabled: false },
+  {
+    id: 'microsoft-oauth',
+    label: 'Microsoft sign-in',
+    description: 'Sign in with a Microsoft account.',
+    defaultEnabled: false,
+  },
+]);
+
 function registerAll(): void {
+  // Groups before fragments: a fragment's `group` is checked against them.
+  for (const group of PLATFORM_ENV_GROUPS) registerEnvGroup(group);
   // The platform base first, so a collision always names it as the owner.
   registerEnvSpecFragment({ id: PLATFORM_ENV_FRAGMENT_ID, metadata: ENV_METADATA });
   // Slice fragments, in slice order.
@@ -60,6 +89,7 @@ export function ensurePlatformRegistrations(): void {
 /** Empties both core registries and forgets the registration. Tests only. */
 export function resetPlatformRegistrationsForTests(): void {
   resetEnvSpecRegistryForTests();
+  resetEnvGroupRegistryForTests();
   resetCommandRegistryForTests();
   registered = false;
   failure = undefined;

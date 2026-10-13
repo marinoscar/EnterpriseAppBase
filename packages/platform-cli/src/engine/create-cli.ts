@@ -1,8 +1,22 @@
 import type { Command } from 'commander';
 
-import { registerCliCommand, registerEnvSpecFragment, type CliCommandRegistration, type EnvSpecFragment } from '../core/index.js';
+import {
+  registerCliCommand,
+  annotateEnvKey,
+  registerEnvGenerator,
+  registerEnvGroup,
+  registerEnvSpecFragment,
+  type CliCommandRegistration,
+  type EnvGeneratorRegistration,
+  type EnvGroupRegistration,
+  type EnvKeyAnnotation,
+  type EnvSpecFragment,
+} from '../core/index.js';
 
 import { ensurePlatformRegistrations } from './builtin-registrations.js';
+import { registerEdgeConfigFile, type EdgeConfigFile } from './deploy/edge-config.js';
+import { registerDeployCheck, type DeployCheck } from './deploy/checks/registry.js';
+import { registerProxyStreamPath, type ProxyStreamPathRegistration } from './deploy/proxy-streams.js';
 import { registerDeployStep, type DeployStepRegistration } from './deploy/steps/registry.js';
 import { setCliIdentity, type CliIdentity } from './identity.js';
 import type { JobExecutor } from './node/executors/index.js';
@@ -10,6 +24,7 @@ import { registerNodeExecutor } from './node/executors/registry.js';
 import { buildProgram, run, type RunOptions } from './program.js';
 import { freezeCliRegistries } from './registries.js';
 import { registerTuiScreen, type TuiScreenRegistration } from './tui/screen-registry.js';
+import { registerTuiScreenSection, type TuiSectionRegistration } from './tui/section-registry.js';
 
 // =============================================================================
 // createCli: the one call an app makes  (PP-8.9, #715)
@@ -29,6 +44,20 @@ import { registerTuiScreen, type TuiScreenRegistration } from './tui/screen-regi
 // =============================================================================
 
 /**
+ * The app's view of the VPS host proxy, for {@link CreateCliOptions}.
+ *
+ * @stability experimental
+ */
+export interface CreateCliProxyOptions {
+  /**
+   * App routes the edge vhost serves unbuffered with a long timeout (an SSE
+   * route): a path, or a path with its own `timeoutSeconds`. Validated at
+   * `createCli`.
+   */
+  streamPaths?: ReadonlyArray<string | ProxyStreamPathRegistration> | undefined;
+}
+
+/**
  * Options of {@link createCli}: the app's identity and version, and what it
  * adds through the CLI's registries.
  *
@@ -44,12 +73,30 @@ export interface CreateCliOptions {
   extraCommands?: readonly CliCommandRegistration[] | undefined;
   /** Screens added to the TUI menu. Same as `registerTuiScreen`. */
   tuiScreens?: readonly TuiScreenRegistration[] | undefined;
+  /** Prerequisite checks added to `doctor` and the install/update preflight. Same as `registerDeployCheck`. */
+  deployChecks?: readonly DeployCheck[] | undefined;
+  /** Single-file nginx mounts of the app, checked for the stale-inode drift on update. Same as `registerEdgeConfigFile`. */
+  edgeConfigFiles?: readonly EdgeConfigFile[] | undefined;
+  /** Sections added to the `node` and `deploy` TUI screens. Same as `registerTuiScreenSection`. */
+  tuiSections?: ReadonlyArray<Pick<TuiSectionRegistration, 'screen' | 'id' | 'component' | 'load'>> | undefined;
   /** Steps inserted into `deploy install` / `deploy update`. Same as `registerDeployStep`. */
   deploySteps?: readonly DeployStepRegistration[] | undefined;
   /** Executors for the app's node-eligible job types. Same as `registerNodeExecutor`. */
   nodeExecutors?: readonly JobExecutor[] | undefined;
   /** Env-key metadata for the app's own `.env.example` keys. Same as `registerEnvSpecFragment`. */
   envSpecFragments?: readonly EnvSpecFragment[] | undefined;
+  /** Kinds of generated value for `EnvVarMetadata.generate`. Same as `registerEnvGenerator`; registered before the fragments that name them. */
+  envGenerators?: readonly EnvGeneratorRegistration[] | undefined;
+  /** App overrides of `fixed` / `help` on keys the platform owns (the app wins). Same as `annotateEnvKey`. */
+  envAnnotations?: Readonly<Record<string, EnvKeyAnnotation>> | undefined;
+  /** Opt-in feature groups of the app's env keys. Same as `registerEnvGroup`; registered before the fragments that name them. */
+  envGroups?: readonly EnvGroupRegistration[] | undefined;
+  /**
+   * The VPS host proxy's view of the app. `streamPaths` are app routes the
+   * edge vhost serves unbuffered with a long timeout (an SSE route). Same as
+   * `registerProxyStreamPath`.
+   */
+  proxy?: CreateCliProxyOptions | undefined;
 }
 
 /**
@@ -83,11 +130,20 @@ export interface CliInstance {
 export function createCli(options: CreateCliOptions): CliInstance {
   setCliIdentity(options.identity, options.version);
   ensurePlatformRegistrations();
+  for (const generator of options.envGenerators ?? []) registerEnvGenerator(generator);
+  for (const group of options.envGroups ?? []) registerEnvGroup(group);
   for (const fragment of options.envSpecFragments ?? []) registerEnvSpecFragment(fragment);
+  for (const [key, annotation] of Object.entries(options.envAnnotations ?? {})) annotateEnvKey(key, annotation);
   for (const command of options.extraCommands ?? []) registerCliCommand(command);
   for (const screen of options.tuiScreens ?? []) registerTuiScreen(screen);
+  for (const { screen, id, component, load } of options.tuiSections ?? []) {
+    registerTuiScreenSection(screen, component ?? { id, load: load as NonNullable<typeof load> }, { id });
+  }
+  for (const check of options.deployChecks ?? []) registerDeployCheck(check);
+  for (const file of options.edgeConfigFiles ?? []) registerEdgeConfigFile(file);
   for (const step of options.deploySteps ?? []) registerDeployStep(step);
   for (const executor of options.nodeExecutors ?? []) registerNodeExecutor(executor);
+  for (const path of options.proxy?.streamPaths ?? []) registerProxyStreamPath(path);
 
   const program = buildProgram();
   freezeCliRegistries('createCli built the CLI');

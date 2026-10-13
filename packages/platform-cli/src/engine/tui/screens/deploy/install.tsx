@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { useState, type ReactNode } from 'react';
 
+import { listEnvGroups } from '../../../../core/index.js';
+import { ensurePlatformRegistrations } from '../../../builtin-registrations.js';
 import type { EnvGroup } from '../../../deploy/env-metadata.js';
 import { parseEnvExample, type EnvVarSpec } from '../../../deploy/env-spec.js';
 import { runCommand, withSignal } from '../../../deploy/executor.js';
@@ -406,7 +408,7 @@ function installFlagFields(state: DeployState | undefined, seed: Seed): FieldSpe
     {
       key: '__group',
       label: 'group',
-      help: `Optional feature groups, comma-separated: ${GROUP_NAMES.join(', ')}. Their variables are skipped otherwise.`,
+      help: `Optional feature groups, comma-separated: ${groupNames().join(', ')}. Their variables are skipped otherwise.`,
       placeholder: (state?.groups ?? []).join(', '),
       secret: false,
       prefilled: (state?.groups ?? []).length > 0,
@@ -416,17 +418,13 @@ function installFlagFields(state: DeployState | undefined, seed: Seed): FieldSpe
 }
 
 /**
- * ⚠ Exhaustive BY CONSTRUCTION. `EnvGroup` is a union with no runtime list, so
- * this record is how a new member becomes a compile error here rather than a
- * value the screen silently refuses.
+ * The registered feature groups (`registerEnvGroup`), read when the form is
+ * built, so an app's group is offered and an unknown one refused.
  */
-const GROUP_RECORD: Readonly<Record<EnvGroup, true>> = Object.freeze({
-  observability: true,
-  email: true,
-  'microsoft-oauth': true,
-});
-
-const GROUP_NAMES: readonly string[] = Object.keys(GROUP_RECORD);
+function groupNames(): string[] {
+  ensurePlatformRegistrations();
+  return listEnvGroups().map((group) => group.id);
+}
 
 function splitGroups(value: string): string[] {
   return value
@@ -436,15 +434,15 @@ function splitGroups(value: string): string[] {
 }
 
 function validateGroups(value: string): string | undefined {
-  const unknown = splitGroups(value).filter((name) => !(name in GROUP_RECORD));
-  return unknown.length === 0
-    ? undefined
-    : `must name only ${GROUP_NAMES.join(', ')}; got ${unknown.join(', ')}`;
+  const known = groupNames();
+  const unknown = splitGroups(value).filter((name) => !known.includes(name));
+  return unknown.length === 0 ? undefined : `must name only ${known.join(', ')}; got ${unknown.join(', ')}`;
 }
 
 /** Narrowed rather than cast, so an unknown group cannot reach `runInstall`. */
 function selectedGroups(value: string): EnvGroup[] {
-  return splitGroups(value).filter((name): name is EnvGroup => name in GROUP_RECORD);
+  const known = groupNames();
+  return splitGroups(value).filter((name) => known.includes(name));
 }
 
 /**

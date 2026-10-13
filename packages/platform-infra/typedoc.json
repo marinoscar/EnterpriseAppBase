@@ -1,7 +1,13 @@
 {
-  "extends": ["../../typedoc.base.json"],
+  "extends": [
+    "../../typedoc.base.json"
+  ],
   "tsconfig": "tsconfig.build.json",
-  "entryPoints": ["src/index.ts", "src/telemetry/index.ts"],
+  "entryPoints": [
+    "src/index.ts",
+    "src/telemetry/index.ts",
+    "src/infra-conformance.ts"
+  ],
   "out": "docs-api",
   "json": "docs-api/api.json"
 }

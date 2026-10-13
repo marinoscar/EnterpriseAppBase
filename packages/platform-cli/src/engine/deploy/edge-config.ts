@@ -2,6 +2,9 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { createCliRegistry } from '../../core/index.js';
+import { UsageError } from '../errors.js';
+
 // =============================================================================
 // Is the running nginx serving the checkout's config?
 // =============================================================================
@@ -30,7 +33,11 @@ import { join } from 'node:path';
 // so they can be tested without docker; `update.ts` wires them to compose.
 // =============================================================================
 
-/** One config file: where the checkout holds it, where the container reads it. */
+/**
+ * One config file: where the checkout holds it, where the container reads it.
+ *
+ * @stability experimental
+ */
 export interface EdgeConfigFile {
   /** Relative to the checkout root. */
   checkout: string;
@@ -43,6 +50,84 @@ export const EDGE_CONFIG_FILES: readonly EdgeConfigFile[] = [
   { checkout: 'infra/nginx/nginx.conf', container: '/etc/nginx/nginx.conf' },
   { checkout: 'infra/nginx/csp.conf', container: '/etc/nginx/csp.conf' },
 ];
+
+// An app that mounts ANOTHER single file into nginx (an overlay mounting its
+// own `ssl.conf` or `maps.conf`) gets the stale-inode bug described above,
+// unchecked, because the list is the platform's two files. `registerEdgeConfigFile`
+// adds the app's file to the same comparison: hashed in the checkout and in the
+// container on every update, the container recreated when they differ.
+
+/** Container paths are handed to `sha256sum` as argv (no shell), but stay plain anyway. */
+const CONTAINER_PATH = /^\/[A-Za-z0-9._+/-]+$/;
+/** Checkout paths are relative, inside the checkout. */
+const CHECKOUT_PATH = /^[A-Za-z0-9._+-][A-Za-z0-9._+/-]*$/;
+
+const registry = createCliRegistry<EdgeConfigFile>({
+  name: 'edge config file',
+  registerFn: 'registerEdgeConfigFile',
+  idOf: (file) => file.container,
+  validate: (file) => {
+    if (typeof file?.container !== 'string' || !CONTAINER_PATH.test(file.container) || file.container.includes('//')) {
+      throw new UsageError(`Edge config container path ${JSON.stringify(file?.container)} must be an absolute path of plain characters.`);
+    }
+    if (
+      typeof file.checkout !== 'string' ||
+      !CHECKOUT_PATH.test(file.checkout) ||
+      file.checkout.split('/').includes('..') ||
+      file.checkout.includes('//')
+    ) {
+      throw new UsageError(
+        `Edge config checkout path ${JSON.stringify(file.checkout)} must be relative to the checkout root, without ".." segments.`,
+      );
+    }
+    if (EDGE_CONFIG_FILES.some((builtin) => builtin.container === file.container)) {
+      throw new UsageError(`${file.container} is already checked by the platform.`);
+    }
+  },
+});
+
+/**
+ * Adds a single-file bind mount of the app's nginx to the stale-inode check
+ * `deploy update` runs: the file is hashed in the checkout and inside the
+ * nginx container, and the container is recreated once when they differ.
+ *
+ * Only SINGLE-FILE mounts need this. A directory mount (`app.d/`) follows a
+ * rename and never goes stale.
+ *
+ * @param file - Where the checkout holds the file (relative) and where the container reads it (absolute).
+ * @throws UsageError on a path that is not plain, or one the platform already checks.
+ * @throws Error on a duplicate container path, or after `createCli` built the CLI.
+ * @stability experimental
+ * @extensionPoint registry
+ * @example
+ * ```ts
+ * registerEdgeConfigFile({ checkout: 'infra/nginx/ssl-extra.conf', container: '/etc/nginx/ssl-extra.conf' });
+ * ```
+ */
+export function registerEdgeConfigFile(file: EdgeConfigFile): void {
+  registry.register(Object.freeze({ checkout: file.checkout, container: file.container }));
+}
+
+/**
+ * The platform's edge config files followed by the app's registered ones.
+ *
+ * @returns The files `deploy update` compares, in order.
+ * @stability experimental
+ */
+export function edgeConfigFiles(): readonly EdgeConfigFile[] {
+  const registered = registry.list();
+  return registered.length === 0 ? EDGE_CONFIG_FILES : [...EDGE_CONFIG_FILES, ...registered];
+}
+
+/** Refuses later registrations; `createCli` calls it. */
+export function freezeEdgeConfigRegistry(by: string): void {
+  registry.freeze(by);
+}
+
+/** Empties the registry. Tests only. */
+export function resetEdgeConfigRegistryForTests(): void {
+  registry.reset();
+}
 
 /** The sha256 of a file's bytes, lowercase hex -- what `sha256sum` prints. */
 export function sha256OfFile(path: string): string {
@@ -58,7 +143,7 @@ export function sha256OfFile(path: string): string {
  */
 export function checkoutEdgeHashes(
   checkoutPath: string,
-  files: readonly EdgeConfigFile[] = EDGE_CONFIG_FILES,
+  files: readonly EdgeConfigFile[] = edgeConfigFiles(),
 ): Map<string, string> {
   const hashes = new Map<string, string>();
   for (const file of files) {

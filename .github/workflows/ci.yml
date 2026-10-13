@@ -163,6 +163,14 @@ jobs:
           cp -R packages/platform-infra/test/fixtures/overlays/evopath/nginx/app.d/. "$evopath/"
           chmod -R a+rX "$evopath"
           nginx_t "$evopath" "$PWD/infra/nginx/csp.conf"
+          # The app.d/csp/ include point: a connect-src source and an extra
+          # directive, layered on the reference app.d/, in both policies.
+          csp="$(mktemp -d)"
+          cp -R infra/nginx/app.d/. "$csp/"
+          cp -R packages/platform-infra/test/fixtures/overlays/csp/nginx/app.d/. "$csp/"
+          chmod -R a+rX "$csp"
+          nginx_t "$csp" "$PWD/infra/nginx/csp.conf"
+          nginx_t "$csp" "$PWD/infra/nginx/csp.dev.conf"
 
       # The documented commands still render (CLAUDE.md): the dev stack with
       # its database, and the disposable test database on 5433.

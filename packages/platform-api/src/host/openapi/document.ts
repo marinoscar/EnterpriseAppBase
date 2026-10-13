@@ -19,7 +19,7 @@ import type { INestApplication } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import type { OpenAPIObject } from '@nestjs/swagger';
 import { cleanupOpenApiDoc } from 'nestjs-zod';
-import { ErrorDto, openApiTagGroups, openApiTags } from '../../core/index';
+import { ErrorDto, FALLBACK_ERROR_CODE, errorCodeRegistry, openApiTagGroups, openApiTags } from '../../core/index';
 import { RBAC_EXTENSION_KEY } from '../../identity/index';
 import { applyDataEnvelope } from './data-envelope';
 import { buildApiDescription } from './description';
@@ -215,6 +215,7 @@ export function enrichOpenApiDocument<T extends MutableDocument>(document: T): T
   // envelope pass filters on the status code explicitly as well.
   applyDataEnvelope(document);
   applyDefaultErrorResponse(document);
+  applyErrorCodeExamples(document);
   applyTagGroups(document);
   // LAST, and it must stay last: every earlier pass may introduce schemas of
   // its own, and this one has to see all of them. A `nullable` that slips
@@ -325,6 +326,21 @@ function applyDefaultErrorResponse(document: MutableDocument): void {
       },
     };
   });
+}
+
+/**
+ * Lists every REGISTERED error code (the platform's and the app's, then the
+ * `ERROR` fallback) as the `examples` of `ErrorDto.code`, so the published
+ * document documents the same open vocabulary the filter enforces. `code` is a
+ * plain string schema, not an enum: a client must tolerate a code it does not
+ * know.
+ */
+function applyErrorCodeExamples(document: MutableDocument): void {
+  const schemas = (document.components as { schemas?: Record<string, { properties?: Record<string, Record<string, unknown>> }> } | undefined)
+    ?.schemas;
+  const code = schemas?.ErrorDto?.properties?.code;
+  if (!code) return;
+  code.examples = [...errorCodeRegistry.ids(), FALLBACK_ERROR_CODE];
 }
 
 /**

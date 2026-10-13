@@ -5,6 +5,7 @@ import { join, posix } from 'node:path';
 import { UsageError } from '../errors.js';
 import type { runCommand } from './executor.js';
 import type { DeployHooks } from './hooks.js';
+import { renderExtraLocation, resolveExtraLocations, type ProxyExtraLocation } from './proxy-streams.js';
 
 // =============================================================================
 // Publishing the app through the shared proxy  (issue #181, epic #168)
@@ -64,6 +65,21 @@ export interface ProxyTarget {
   bindPort: number;
   /** Default /opt/infra/proxy. */
   proxyRoot: string;
+  /**
+   * App routes the vhost streams (no buffering, long timeout), as URL path
+   * prefixes. Added to the routes registered with `registerProxyStreamPath`.
+   * Validated by `renderVhost` (a leading `/`, URL-safe characters only).
+   *
+   * @stability experimental
+   */
+  streamPaths?: readonly string[] | undefined;
+  /**
+   * App locations with their own timeout and buffering. Same validation as
+   * `streamPaths`.
+   *
+   * @stability experimental
+   */
+  extraLocations?: readonly ProxyExtraLocation[] | undefined;
 }
 
 export type ProxyMode = 'container' | 'host';
@@ -350,6 +366,12 @@ export function renderVhost(
 ): string {
   assertValidDomain(target.domain);
 
+  // App stream routes, validated and deduplicated. Empty for an app that
+  // declares none, which leaves the vhost byte-identical to the platform's own.
+  const appLocations = resolveExtraLocations(target)
+    .map((location) => `\n\n${renderExtraLocation(location, target.bindPort)}`)
+    .join('');
+
   const maxBody = options?.maxBodyBytes;
   const clientMaxBody = maxBody === undefined ? '100m' : `${Math.ceil(maxBody / (1024 * 1024))}m`;
 
@@ -471,7 +493,7 @@ server {
         chunked_transfer_encoding off;
         proxy_read_timeout 600s;
         proxy_send_timeout 600s;
-    }
+    }${appLocations}
 }
 `;
 }
