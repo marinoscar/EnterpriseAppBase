@@ -10,6 +10,7 @@ import {
 } from '../core/index.js';
 
 import { ensurePlatformRegistrations } from './builtin-registrations.js';
+import { registerDeployCheck, type DeployCheck } from './deploy/checks/registry.js';
 import { registerProxyStreamPath, type ProxyStreamPathRegistration } from './deploy/proxy-streams.js';
 import { registerDeployStep, type DeployStepRegistration } from './deploy/steps/registry.js';
 import { setCliIdentity, type CliIdentity } from './identity.js';
@@ -52,6 +53,8 @@ export interface CreateCliOptions {
   extraCommands?: readonly CliCommandRegistration[] | undefined;
   /** Screens added to the TUI menu. Same as `registerTuiScreen`. */
   tuiScreens?: readonly TuiScreenRegistration[] | undefined;
+  /** Prerequisite checks added to `doctor` and the install/update preflight. Same as `registerDeployCheck`. */
+  deployChecks?: readonly DeployCheck[] | undefined;
   /** Steps inserted into `deploy install` / `deploy update`. Same as `registerDeployStep`. */
   deploySteps?: readonly DeployStepRegistration[] | undefined;
   /** Executors for the app's node-eligible job types. Same as `registerNodeExecutor`. */
@@ -103,6 +106,7 @@ export function createCli(options: CreateCliOptions): CliInstance {
   for (const fragment of options.envSpecFragments ?? []) registerEnvSpecFragment(fragment);
   for (const command of options.extraCommands ?? []) registerCliCommand(command);
   for (const screen of options.tuiScreens ?? []) registerTuiScreen(screen);
+  for (const check of options.deployChecks ?? []) registerDeployCheck(check);
   for (const step of options.deploySteps ?? []) registerDeployStep(step);
   for (const executor of options.nodeExecutors ?? []) registerNodeExecutor(executor);
   for (const path of options.proxy?.streamPaths ?? []) registerProxyStreamPath(path);

@@ -293,7 +293,10 @@ export {
 export {
   ALL_CHECKS,
   HOST_CHECKS,
+  allChecks,
   checksPassed,
+  listRegisteredDeployChecks,
+  registerDeployCheck,
   isLoopbackPortFree,
   isPortListening,
   fetchServedCertificate,
@@ -305,6 +308,7 @@ export {
 export type {
   Check,
   CheckContext,
+  DeployCheck,
   CheckFs,
   CheckResult,
   CheckStatus,

@@ -1,3 +1,4 @@
+import { listRegisteredDeployChecks, setBuiltinCheckIds } from './registry.js';
 import type { Check, CheckContext } from './types.js';
 import { severityOf } from './types.js';
 import { DATABASE_CHECKS } from './database.js';
@@ -27,6 +28,18 @@ export const ALL_CHECKS: readonly Check[] = [
   ...TLS_CHECKS,
 ];
 
+setBuiltinCheckIds(() => ALL_CHECKS.map((check) => check.id));
+
+/**
+ * Every check a run evaluates: the built-ins (`ALL_CHECKS`), then the app's
+ * (`registerDeployCheck`). `doctor`, the install and update preflight and the
+ * TUI's doctor screen read this, never `ALL_CHECKS` directly.
+ */
+export function allChecks(): readonly Check[] {
+  const registered = listRegisteredDeployChecks();
+  return registered.length === 0 ? ALL_CHECKS : [...ALL_CHECKS, ...registered];
+}
+
 /**
  * The subset install and update must pass before they touch anything.
  *
@@ -48,6 +61,13 @@ export function requiredChecks(
 }
 
 export * from './types.js';
+export {
+  freezeDeployCheckRegistry,
+  listRegisteredDeployChecks,
+  registerDeployCheck,
+  resetDeployCheckRegistryForTests,
+  type DeployCheck,
+} from './registry.js';
 export { HOST_CHECKS, evaluateDf, probe } from './host.js';
 export {
   SOURCE_CHECKS,

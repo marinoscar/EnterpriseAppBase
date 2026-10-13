@@ -4,7 +4,8 @@ import { basename, join } from 'node:path';
 import { cliName, cliVersion } from '../identity.js';
 import { PreconditionError, UsageError } from '../errors.js';
 import {
-  ALL_CHECKS,
+  allChecks,
+  listRegisteredDeployChecks,
   SOURCE_CHECK_IDS,
   checksPassed,
   gitCredentialStateFor,
@@ -456,6 +457,7 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
         // A LIGHT preflight, not the full doctor. DNS and certificate checks
         // are install-time concerns; a site that is already serving does not
         // need them re-litigated on every update.
+        const appCheckIds = new Set(listRegisteredDeployChecks().map((check) => check.id));
         const wanted = new Set([
           'docker-installed',
           'docker-daemon',
@@ -492,10 +494,12 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
         };
 
         const results = await runChecks(
-          ALL_CHECKS.filter(
+          allChecks().filter(
             (check) =>
               wanted.has(check.id) ||
-              (SOURCE_CHECK_IDS.has(check.id) && severityOf(check, checkContext) === 'required'),
+              (SOURCE_CHECK_IDS.has(check.id) && severityOf(check, checkContext) === 'required') ||
+              // An app check (registerDeployCheck) that is required blocks an update too.
+              (appCheckIds.has(check.id) && severityOf(check, checkContext) === 'required'),
           ),
           checkContext,
         );
