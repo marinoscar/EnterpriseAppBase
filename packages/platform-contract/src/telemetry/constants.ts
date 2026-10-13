@@ -409,6 +409,23 @@ export const DASHBOARD_PANELS = ['api', 'logs'] as const;
 export type DashboardPanel = (typeof DASHBOARD_PANELS)[number];
 
 /**
+ * The pattern every dashboard panel id matches (`api`, `signups`): a lowercase
+ * letter, then up to 47 lowercase letters, digits, `_` or `-`. The panel set is
+ * open: the platform registers `api` and `logs`, an app registers its own
+ * (`registerDashboardPanel`).
+ *
+ * @stability stable
+ */
+export const DASHBOARD_PANEL_ID_PATTERN: RegExp = /^[a-z][a-z0-9_-]{1,47}$/;
+
+/**
+ * The most bytes a dashboard panel's `payload` may serialise to.
+ *
+ * @stability stable
+ */
+export const DASHBOARD_PANEL_PAYLOAD_MAX_BYTES = 262_144;
+
+/**
  * The `top` route's kinds: `routes` (by 5xx, then 4xx except 401, then p95)
  * or `errors` (log messages).
  *
@@ -439,11 +456,14 @@ export const VERDICT_LEVELS = ['healthy', 'degraded', 'critical', 'no_data'] as 
 export type VerdictLevel = (typeof VERDICT_LEVELS)[number];
 
 /**
- * The display units of metric tiles, series and table columns (`/metrics`).
+ * The display units the platform registers itself, as the `unit` of metric
+ * tiles, series and table columns (`/metrics`). The live set is the API's unit
+ * registry (`registerMetricUnit`): an app adds its own (`usd`, `tokens`), and
+ * the wire accepts any id matching {@link METRIC_UNIT_ID_PATTERN}.
  *
  * @stability stable
  */
-export const METRIC_UNITS = [
+export const BUILTIN_METRIC_UNITS = [
   '%',
   'bytes',
   'bytes/s',
@@ -462,11 +482,164 @@ export const METRIC_UNITS = [
 ] as const;
 
 /**
- * One of {@link METRIC_UNITS}.
+ * The platform's own display units; the same list as
+ * {@link BUILTIN_METRIC_UNITS}, kept under its original name.
+ *
+ * @deprecated Use {@link BUILTIN_METRIC_UNITS}; the unit set is open since an
+ *   app can register its own.
+ * @stability stable
+ */
+export const METRIC_UNITS = BUILTIN_METRIC_UNITS;
+
+/**
+ * One of {@link BUILTIN_METRIC_UNITS}.
  *
  * @stability stable
  */
-export type MetricUnit = (typeof METRIC_UNITS)[number];
+export type BuiltinMetricUnit = (typeof BUILTIN_METRIC_UNITS)[number];
+
+/**
+ * A metric unit id: a built-in one or any id an app registered. The union keeps
+ * the built-in ids in autocompletion and accepts any other string.
+ *
+ * @stability stable
+ */
+export type MetricUnit = BuiltinMetricUnit | (string & {});
+
+/**
+ * The pattern every metric unit id matches: a lowercase letter or `%`, then up
+ * to 31 lowercase letters, digits, `_`, `/`, `%` or `-`.
+ *
+ * @stability stable
+ */
+export const METRIC_UNIT_ID_PATTERN: RegExp = /^[a-z%][a-z0-9_/%-]{0,31}$/;
+
+/**
+ * How the web formats a value of a unit: `number` (grouped digits, `decimals`,
+ * `suffix`), `percent`, `bytes` (binary units), `duration-ms`, `duration-s`,
+ * `currency` (ISO 4217 `currency`), and the non-numeric `text`, `boolean` and
+ * `timestamp`.
+ *
+ * @stability stable
+ */
+export const METRIC_UNIT_FORMATS = [
+  'number',
+  'percent',
+  'bytes',
+  'duration-ms',
+  'duration-s',
+  'currency',
+  'text',
+  'boolean',
+  'timestamp',
+] as const;
+
+/**
+ * One of {@link METRIC_UNIT_FORMATS}.
+ *
+ * @stability stable
+ */
+export type MetricUnitFormat = (typeof METRIC_UNIT_FORMATS)[number];
+
+/**
+ * The bounds of a unit descriptor and of a group's presentation. The schemas
+ * are built from these numbers, so what the API enforces is what the web may
+ * rely on.
+ *
+ * @stability stable
+ */
+export const METRIC_PRESENTATION_LIMITS = {
+  /** The longest unit `label` or `suffix`, in characters. */
+  unitLabel: 40,
+  /** The longest unit `suffix`. */
+  unitSuffix: 12,
+  /** The most fraction digits a unit may ask for. */
+  unitDecimals: 6,
+  /** The longest label, title or status word in a presentation. */
+  label: 80,
+  /** The longest metric, table or column key. */
+  key: 64,
+  /** The most tiles. */
+  tiles: 24,
+  /** The most charts (`series` entries). */
+  charts: 8,
+  /** The most metrics in one chart. */
+  chartMetrics: 8,
+  /** The most colour overrides in one chart. */
+  chartColors: 8,
+  /** The most tables. */
+  tables: 8,
+  /** The most columns in one table. */
+  columns: 24,
+  /** The most virtual columns. */
+  virtualColumns: 8,
+  /** The most options in a table's "Top N" select. */
+  topNOptions: 6,
+  /** The largest N. */
+  topNMax: 500,
+} as const;
+
+/**
+ * The colours a presentation may name: a STATUS colour (`ok`, `warn`, `crit`,
+ * `info`, `neutral`: what a value means) or a categorical chart SERIES colour
+ * (`series-1` to `series-8`). They are theme tokens (`palette.status`,
+ * `palette.chart.series`), never a CSS colour, so an app restyles them in its
+ * theme and a presentation cannot inject a style.
+ *
+ * @stability stable
+ */
+export const PRESENTATION_COLOR_TOKENS = [
+  'ok',
+  'warn',
+  'crit',
+  'info',
+  'neutral',
+  'series-1',
+  'series-2',
+  'series-3',
+  'series-4',
+  'series-5',
+  'series-6',
+  'series-7',
+  'series-8',
+] as const;
+
+/**
+ * One of {@link PRESENTATION_COLOR_TOKENS}.
+ *
+ * @stability stable
+ */
+export type ThemeColorToken = (typeof PRESENTATION_COLOR_TOKENS)[number];
+
+/**
+ * The expressions of a virtual table column: `ratio` (`a / b` as a percentage),
+ * `delta` (`a - b`) and `rate` (`a` per second over the window).
+ *
+ * @stability stable
+ */
+export const VIRTUAL_COLUMN_EXPRESSIONS = ['ratio', 'delta', 'rate'] as const;
+
+/**
+ * One of {@link VIRTUAL_COLUMN_EXPRESSIONS}.
+ *
+ * @stability stable
+ */
+export type VirtualColumnExpression = (typeof VIRTUAL_COLUMN_EXPRESSIONS)[number];
+
+/**
+ * How a presentation renders a table cell: `utilization-bar` (a percentage as
+ * a bar), `status` (a boolean as an icon and a word) or `fraction` (`used / total`).
+ *
+ * @stability stable
+ */
+export const PRESENTATION_COLUMN_DISPLAYS = ['utilization-bar', 'status', 'fraction'] as const;
+
+/**
+ * One of {@link PRESENTATION_COLUMN_DISPLAYS}.
+ *
+ * @stability stable
+ */
+export type PresentationColumnDisplay = (typeof PRESENTATION_COLUMN_DISPLAYS)[number];
 
 /**
  * The pattern every metric group id matches (lower snake case). Group ids are
@@ -518,11 +691,13 @@ export const TELEMETRY_ASSISTANT_HISTORY_CONTENT_MAX = 8_000;
 export const TELEMETRY_ASSISTANT_TURN_ROLES = ['user', 'assistant'] as const;
 
 /**
- * The tools the assistant may call; each `step` event names one.
+ * The tools the platform gives the assistant; each `step` event names one. An
+ * app adds its own (`registerTelemetryAssistantTool`): a step event's `tool`
+ * may be any name matching {@link TELEMETRY_ASSISTANT_TOOL_NAME_PATTERN}.
  *
  * @stability stable
  */
-export const TELEMETRY_ASSISTANT_TOOLS = [
+export const BUILTIN_TELEMETRY_ASSISTANT_TOOLS = [
   'list_tables',
   'describe_table',
   'run_query',
@@ -534,11 +709,46 @@ export const TELEMETRY_ASSISTANT_TOOLS = [
 ] as const;
 
 /**
- * One of {@link TELEMETRY_ASSISTANT_TOOLS}.
+ * The platform's own assistant tools; the same list as
+ * {@link BUILTIN_TELEMETRY_ASSISTANT_TOOLS}, kept under its original name.
+ *
+ * @deprecated Use {@link BUILTIN_TELEMETRY_ASSISTANT_TOOLS}; the tool set is
+ *   open since an app can register its own.
+ * @stability stable
+ */
+export const TELEMETRY_ASSISTANT_TOOLS = BUILTIN_TELEMETRY_ASSISTANT_TOOLS;
+
+/**
+ * One of {@link BUILTIN_TELEMETRY_ASSISTANT_TOOLS}.
  *
  * @stability stable
  */
-export type TelemetryAssistantToolName = (typeof TELEMETRY_ASSISTANT_TOOLS)[number];
+export type BuiltinTelemetryAssistantToolName = (typeof BUILTIN_TELEMETRY_ASSISTANT_TOOLS)[number];
+
+/**
+ * A tool the assistant called: a built-in one or an app's. The union keeps the
+ * built-in names in autocompletion and accepts any other string.
+ *
+ * @stability stable
+ */
+export type TelemetryAssistantToolName = BuiltinTelemetryAssistantToolName | (string & {});
+
+/**
+ * The pattern every assistant tool name matches: a lowercase letter, then up to
+ * 47 lowercase letters, digits or `_` (a valid function name for every model
+ * provider).
+ *
+ * @stability stable
+ */
+export const TELEMETRY_ASSISTANT_TOOL_NAME_PATTERN: RegExp = /^[a-z][a-z0-9_]{1,47}$/;
+
+/**
+ * The longest `extraInstructions` an app may append to the assistant's system
+ * prompt, in characters.
+ *
+ * @stability stable
+ */
+export const TELEMETRY_ASSISTANT_EXTRA_INSTRUCTIONS_MAX = 4_000;
 
 /**
  * The outcome of an investigation, in its report's `status`.

@@ -40,11 +40,12 @@ import {
   DASHBOARD_RANGES,
   DASHBOARD_SEARCH_MAX_LENGTH,
   DASHBOARD_TOP_KINDS,
+  DASHBOARD_PANEL_ID_PATTERN,
   METRIC_GROUP_ID_PATTERN,
-  METRIC_UNITS,
   VERDICT_LEVELS,
 } from './constants.js';
 import { wireEnum } from './enum.js';
+import { metricGroupPresentationSchema, metricUnitDescriptorSchema, metricUnitIdSchema } from './presentation.js';
 
 // ---- queries -----------------------------------------------------------------
 
@@ -757,7 +758,8 @@ export type TelemetryDashboardFilters = z.infer<typeof telemetryDashboardFilters
 
 // ---- metrics (#601) ------------------------------------------------------------
 
-const metricUnit = wireEnum(METRIC_UNITS);
+/** A unit id: a built-in one or an app's registered one (the set is open). */
+const metricUnit = metricUnitIdSchema;
 
 /**
  * One point of a metric series: `t` (bucket start) and `v` (`null` where
@@ -941,7 +943,9 @@ export type TelemetryDashboardMetrics = z.infer<typeof telemetryDashboardMetrics
 // ---- metric groups (#680) ------------------------------------------------------
 
 /**
- * One registered metric group: `id`, `label`, `title` and `order`.
+ * One registered metric group: `id`, `label`, `title` and `order`, and, when
+ * the group declares them, its `presentation` and the descriptors of the
+ * `units` it uses that the platform does not define itself.
  *
  * @extensionPoint schema
  * @stability stable
@@ -955,6 +959,15 @@ export const telemetryDashboardMetricGroupSchema = z.object({
   title: z.string().describe('The dashboard section title (e.g. `Infrastructure`).'),
   /** Dashboard order, ascending; `data` is already sorted by it (ties by id). */
   order: z.number().describe('Dashboard order, ascending; `data` is already sorted by it (ties by id).'),
+  /** How the section looks (data only: tiles, charts, tables, computed columns). Absent: the dashboard's defaults. */
+  presentation: metricGroupPresentationSchema
+    .optional()
+    .describe("How the section looks (data only: tiles, charts, tables, computed columns). Absent: the dashboard's defaults."),
+  /** The units the group uses that are not built in, with how to format them. */
+  units: z
+    .array(metricUnitDescriptorSchema)
+    .optional()
+    .describe('The units the group uses that are not built in, with how to format them.'),
 });
 
 /**
@@ -984,3 +997,73 @@ export const telemetryDashboardMetricGroupsSchema = z.object({
  * @stability stable
  */
 export type TelemetryDashboardMetricGroups = z.infer<typeof telemetryDashboardMetricGroupsSchema>;
+
+// ---- dashboard panels (PP-14.18) -----------------------------------------------
+
+/**
+ * One dashboard panel the API serves: `id`, `label`, `order` and whether the
+ * platform defines it (`builtin`).
+ *
+ * @extensionPoint schema
+ * @stability experimental
+ */
+export const telemetryDashboardPanelSchema = z.object({
+  /** The panel id: the `…/panels/:id` value. */
+  id: z.string().regex(DASHBOARD_PANEL_ID_PATTERN).describe('The panel id: the `…/panels/:id` value.'),
+  /** The panel title. */
+  label: z.string().describe('The panel title.'),
+  /** Dashboard order, ascending; `data` is already sorted by it (ties by id). */
+  order: z.number().describe('Dashboard order, ascending; `data` is already sorted by it (ties by id).'),
+  /** `true` for the platform's own panels (`api`, `logs`). */
+  builtin: z.boolean().describe("`true` for the platform's own panels (`api`, `logs`)."),
+});
+
+/**
+ * One dashboard panel the API serves.
+ *
+ * @stability experimental
+ */
+export type TelemetryDashboardPanel = z.infer<typeof telemetryDashboardPanelSchema>;
+
+/**
+ * `GET …/dashboard/panels`: `data`, every registered panel in dashboard order.
+ *
+ * @extensionPoint schema
+ * @stability experimental
+ */
+export const telemetryDashboardPanelsSchema = z.object({
+  /** Every registered dashboard panel, in dashboard order. */
+  data: z.array(telemetryDashboardPanelSchema).describe('Every registered dashboard panel, in dashboard order.'),
+});
+
+/**
+ * `GET …/dashboard/panels`.
+ *
+ * @stability experimental
+ */
+export type TelemetryDashboardPanels = z.infer<typeof telemetryDashboardPanelsSchema>;
+
+/**
+ * `GET …/dashboard/panels/:id`: the panel's `id`, when it was read and its
+ * `payload`, whatever JSON the panel's `data` function returned (at most
+ * `DASHBOARD_PANEL_PAYLOAD_MAX_BYTES` once serialised). The shape of `payload`
+ * is a contract between the app's panel and the app's view.
+ *
+ * @extensionPoint schema
+ * @stability experimental
+ */
+export const telemetryDashboardPanelDataSchema = z.object({
+  /** The panel id. */
+  id: z.string().regex(DASHBOARD_PANEL_ID_PATTERN).describe('The panel id.'),
+  /** When the panel was read. */
+  generatedAt: z.string().describe('When the panel was read.'),
+  /** What the panel's data function returned (JSON). */
+  payload: z.unknown().describe("What the panel's data function returned (JSON)."),
+});
+
+/**
+ * `GET …/dashboard/panels/:id`.
+ *
+ * @stability experimental
+ */
+export type TelemetryDashboardPanelData = z.infer<typeof telemetryDashboardPanelDataSchema>;

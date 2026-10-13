@@ -109,6 +109,9 @@ export {
   telemetryDashboardMetricGroupsSchema,
   telemetryDashboardMetricsQuerySchema,
   telemetryDashboardMetricsSchema,
+  telemetryDashboardPanelDataSchema,
+  telemetryDashboardPanelSchema,
+  telemetryDashboardPanelsSchema,
   telemetryDashboardQuerySchema,
   telemetryDashboardSummarySchema,
   telemetryDashboardTileSchema,
@@ -141,6 +144,9 @@ export type {
   TelemetryDashboardMetricTable,
   TelemetryDashboardMetrics,
   TelemetryDashboardMetricsQuery,
+  TelemetryDashboardPanel,
+  TelemetryDashboardPanelData,
+  TelemetryDashboardPanels,
   TelemetryDashboardQuery,
   TelemetryDashboardSummary,
   TelemetryDashboardTile,
@@ -169,3 +175,28 @@ export type {
 } from './assistant.js';
 export { telemetryStoreResponseSchema, telemetryStoreSummarySchema, updateTelemetryStoreSchema } from './store.js';
 export type { TelemetryStoreResponse, TelemetryStoreSummary, UpdateTelemetryStoreInput } from './store.js';
+export {
+  PLATFORM_METRIC_PRESENTATIONS,
+  metricGroupPresentationSchema,
+  metricUnitDescriptorSchema,
+  metricUnitIdSchema,
+  presentationColumnDisplaySchema,
+  presentationColumnSchema,
+  presentationSeriesSchema,
+  presentationTableSchema,
+  presentationTileSchema,
+  presentationTopNSchema,
+  presentationVirtualColumnSchema,
+  themeColorTokenSchema,
+} from './presentation.js';
+export type {
+  MetricGroupPresentation,
+  MetricUnitDescriptor,
+  PresentationColumn,
+  PresentationColumnDisplayDef,
+  PresentationSeries,
+  PresentationTable,
+  PresentationTile,
+  PresentationTopN,
+  PresentationVirtualColumn,
+} from './presentation.js';
