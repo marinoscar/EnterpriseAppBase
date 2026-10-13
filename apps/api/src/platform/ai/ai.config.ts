@@ -15,7 +15,16 @@ import { AiModule as PlatformAiModule } from '@marinoscar/platform-api/ai';
 
 // Registers the app's own AI providers (side effect): `forRoot` loads every registered provider's module.
 import '../../app-registrations/ai';
+import { ExamplePricing } from '../../platform-extensions/ai/example-pricing/example-pricing';
 import { AiHostModule } from './ai-host.module';
 
-/** The AI platform: `AiModule.forRoot()` with the app's host ports. */
-export const AiModule = PlatformAiModule.forRoot({ imports: [AiHostModule] });
+/**
+ * The AI platform: `AiModule.forRoot()` with the app's host ports and, as the
+ * worked example of the pricing seam (PP-14.17, #935), a price list for the
+ * example provider only: the usage pages show a Cost column, and every other
+ * provider is unpriced.
+ */
+export const AiModule = PlatformAiModule.forRoot({
+  imports: [AiHostModule],
+  pricing: { useClass: ExamplePricing },
+});
