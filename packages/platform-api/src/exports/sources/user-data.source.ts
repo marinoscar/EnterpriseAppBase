@@ -27,7 +27,7 @@ import { z } from 'zod';
 import { userOwnedModelRegistry } from '../../core/index';
 import type { ExportDatamodelModel } from '../datamodel';
 import type { ExportContext, ExportSource, ExportTable } from '../export.types';
-import { modelTable } from './model-table';
+import { MODEL_TABLE_COLUMN_TYPES, modelTable } from './model-table';
 
 /**
  * The source id. PERMANENT once jobs carry it.
@@ -88,6 +88,9 @@ export const USER_DATA_EXPORT_SOURCE: ExportSource<Record<string, never>> = {
   description: 'Everything this application stores about you: your account, settings, tokens (without their secrets), memberships, notifications, files list and activity.',
   permission: USER_DATA_EXPORT_PERMISSION,
   requestSchema: z.object({}).strict() as z.ZodType<Record<string, never>>,
-  formats: ['json', 'csv', 'xlsx'],
+  // Computed, not listed: the writers that attach to `user-data` (json, csv and
+  // xlsx by default; an app's own with `attachTo`) are its formats.
+  formats: [],
+  columnTypes: MODEL_TABLE_COLUMN_TYPES,
   collect: (ctx) => userDataTables(ctx),
 };

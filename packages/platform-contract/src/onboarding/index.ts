@@ -4,11 +4,14 @@
 // Documented in ./README.md. Explicit named exports only.
 
 export {
+  BUILTIN_ONBOARDING_AUDIENCES,
   ONBOARDING_ADMIN_PERMISSION,
+  ONBOARDING_AUDIENCE_ID_PATTERN,
   ONBOARDING_AUDIENCES,
   ONBOARDING_METRICS_DAYS_DEFAULT,
   ONBOARDING_METRICS_DAYS_MAX,
   ONBOARDING_METRICS_PATH,
+  ONBOARDING_ORG_ADMIN_ROLE,
   ONBOARDING_PATH,
   ONBOARDING_READ_PERMISSION,
   ONBOARDING_SETTINGS_KEY,
@@ -18,7 +21,7 @@ export {
   ONBOARDING_STEP_ID_PATTERN,
   ONBOARDING_TIERS,
 } from './constants.js';
-export type { OnboardingAudience, OnboardingStatus, OnboardingTier } from './constants.js';
+export type { BuiltinOnboardingAudience, OnboardingAudience, OnboardingStatus, OnboardingTier } from './constants.js';
 export {
   onboardingAudienceSchema,
   onboardingRefreshSchema,

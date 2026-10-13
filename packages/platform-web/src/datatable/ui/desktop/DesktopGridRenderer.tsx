@@ -118,7 +118,7 @@ function SelectionCheckboxCell({
 }
 import { DataTableEmptyOverlay, DataTableLoadingOverlay } from './cells.js';
 import { RowActionsCell } from './RowActionsCell.js';
-import { BulkActionBar } from '../BulkActionBar.js';
+import { SlottedBulkActionBar } from '../BulkActionBar.js';
 import { useRowActionConfirm } from '../shared/rowActionConfirm.js';
 import { IndeterminateCheckbox } from '../shared/IndeterminateCheckbox.js';
 import { planGridVirtualization } from '../../headless/virtualization/gridVirtualization.js';
@@ -178,6 +178,7 @@ export function DesktopGridRenderer<Row>({
   selection,
   rowActions,
   bulkActions,
+  slots: tableSlots,
   density = 'standard',
   ariaLabel,
   height,
@@ -543,7 +544,8 @@ export function DesktopGridRenderer<Row>({
       )}
 
       {selectable && (
-        <BulkActionBar
+        <SlottedBulkActionBar
+          slots={tableSlots}
           ids={selectedIdList}
           actions={bulkActions}
           onClear={clearSelection}

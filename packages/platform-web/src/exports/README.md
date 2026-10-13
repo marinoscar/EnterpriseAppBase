@@ -37,6 +37,7 @@ The reference app appends the card and routes the page ([`apps/web/src/config/us
 |---|---|---|---|
 | `DataExportPage` `slots.form` | `Record<sourceId, ComponentType<ExportFormSlotProps>>` | none | A source's own request form instead of the generated fields |
 | `ExportDialog` `sources` | `ExportSourceDescriptor[]` | required | The sources to offer (`useExportSources().sources`) |
+| `ExportsList` `slots` | `ExportsListSlots` | none | `Columns` and `RowActions` (see UI) |
 | `ExportsList` `onDownload` | `(url, view) => void` | navigate to the URL | How a fresh signed URL is opened |
 | `useExports` / `useExport` `intervalMs` | `number` | `3000` | The poll interval while an export is in progress (paused while the tab is hidden) |
 
@@ -52,7 +53,8 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | `useCreateExport` | hook | `useCreateExport(): CreateExportState` | Request an export; a `429` in words | experimental | [example](../../../../apps/web/src/__tests__/platform/exports.test.tsx) |
 | `useExport` | hook | `useExport(id: string \| null, options?: { intervalMs? }): ExportState` | One export, polled until it settles | experimental | [example](../../../../apps/web/src/__tests__/platform/exports.test.tsx) |
 | `ExportDialog` | component | `ExportDialog(props: { open; onClose; sources; initialSourceId?; onCreated?; slots?: { form? } }): ReactElement` | Request an export from any page; a source's own form in `slots.form` | experimental | [example](../../../../apps/web/src/platform-extensions/exports/InboxRangeForm.example.tsx) |
-| `ExportsList` | component | `ExportsList(props: { exports; sources?; onDownload? }): ReactElement` | List exports with status in words and a fresh download | experimental | [example](../../../../apps/web/src/__tests__/platform/exports.test.tsx) |
+| `ExportsList` | component | `ExportsList(props: { exports; sources?; onDownload?; slots?: ExportsListSlots }): ReactElement` | List exports with status in words and a fresh download | experimental | [example](../../../../apps/web/src/__tests__/platform/exports.test.tsx) |
+| `ExportsListSlots` | slot | `{ Columns?: (base: ExportsListColumn[]) => ExportsListColumn[]; RowActions?: PageSlot<{ row: ExportView }> }` | Add or remove a column, or add a per-export action after Download, without a fork | experimental | [example](../../../../apps/web/src/platform-extensions/exports/ExportsListSlots.example.tsx) |
 | `DataExportPage` | component | `DataExportPage(props?: { slots?: { form? } }): ReactElement` | Route `/settings/data-export` | experimental | [example](../../../../apps/web/src/App.tsx) |
 | `dataExportSettingsPage` | component | `PlatformSettingsPage<never>` | The user card and route (no permission) | experimental | [example](../../../../apps/web/src/config/userSettingsSections.tsx) |
 
@@ -67,6 +69,7 @@ The card declares no `permission`, because the API grants the `user-data` source
 ## UI
 
 - **Page.** `DataExportPage` at `/settings/data-export`, under a "Your data" group appended to the user settings registry. A Danger Zone group (#743), when present, stays last.
+- **List slots.** `ExportsList` takes `slots` named as the packaged-page table contract names them. `Columns(base)` returns the columns to draw; the base columns are `export` (the title), `created`, `size` and `error` (the line under it, joined by middots) and `status` (the chip, in the right-hand group). A column is placed by `priority` (`primary`, `secondary`, `detail` on its own line) or `placement: 'trailing'`; `render(export)` returns text or a node, and a column that returns nothing for a row draws nothing there. `RowActions` draws after Download. With no slot the markup is exactly the list's own. `DataExportPage` does not forward them: render `ExportsList` yourself to use them.
 - **Status in words.** Queued, Preparing, Ready to download, Expired, Failed. Colour is never the only signal.
 - **Accessibility.** Buttons are at least 44 px high, the dialog is labelled, and the download buttons name what they download.
 

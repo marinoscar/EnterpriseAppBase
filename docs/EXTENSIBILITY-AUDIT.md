@@ -15,17 +15,17 @@ The audit record of the extension seams of every platform slice. A closed point 
 
 Evidence paths are written `api:`, `web:`, `contract:`, `cli:`, `db:` and `infra:` for `packages/platform-api/src/`, `packages/platform-web/src/`, `packages/platform-contract/src/`, `packages/platform-cli/src/`, `packages/platform-db/` and `packages/platform-infra/`; a path under `apps/` or `docs/` is from the repository root. A story is written PP-14.n (its issue number follows).
 
-As of this version: 115 closed points in 29 sections, 81 fixed and 34 open.
+As of this version: 115 closed points in 29 sections, 87 fixed and 28 open.
 
 ## Verdicts
 
 | Slice | Verdict | Closed points | Fixed | Open | Stories |
 |---|---|---|---|---|---|
-| [onboarding](#onboarding) | Open | 1 | 0 | 1 | PP-14.20 |
+| [onboarding](#onboarding) | Open | 1 | 1 | 0 | PP-14.20 |
 | [credentials](#credentials) | Open | 0 | 0 | 0 | none |
 | [settings](#settings) | Mostly open | 7 | 6 | 1 | PP-14.21, PP-14.5, PP-14.24 |
 | [notifications](#notifications) | Mostly open | 7 | 6 | 1 | PP-14.10, PP-14.8, PP-14.24 |
-| [exports](#exports) | Mostly open | 3 | 0 | 3 | PP-14.20 |
+| [exports](#exports) | Mostly open | 3 | 3 | 0 | PP-14.20 |
 | [jobs](#jobs) | Open | 4 | 4 | 0 | PP-14.19, PP-14.23, PP-14.26 |
 | [nodes](#nodes) | Mostly open | 4 | 4 | 0 | PP-14.19, PP-14.23 |
 | [doctor](#doctor) | Open | 2 | 2 | 0 | PP-14.23, PP-14.26 |
@@ -46,7 +46,7 @@ As of this version: 115 closed points in 29 sections, 81 fixed and 34 open.
 | [identity](#identity) | Partly closed | 8 | 7 | 1 | PP-14.9, PP-14.15, PP-14.25 |
 | [email](#email) | Partly closed | 5 | 4 | 1 | PP-14.8, PP-14.24 |
 | [host](#host) | Partly closed | 8 | 7 | 1 | PP-14.2, PP-14.13, PP-14.24 |
-| [datatable](#datatable) | Partly closed | 2 | 0 | 2 | PP-14.20 |
+| [datatable](#datatable) | Partly closed | 2 | 2 | 0 | PP-14.20 |
 | [android-app](#android-app) | Partly closed | 1 | 0 | 1 | PP-14.24 |
 | [testing (CLI runner)](#testing-cli-runner) | Open | 1 | 1 | 0 | PP-14.22 |
 | [docs (cross-cutting)](#docs-cross-cutting) | Documentation | 2 | 2 | 0 | PP-14.4 |
@@ -76,7 +76,7 @@ The 28 stories of the epic, in order. Phase 1 makes the existing seams real; pha
 | PP-14.17 | #935 | ai: open capabilities and operations, richer transcription results, per-feature usage | 3 | 14.6 | yes | Open |
 | PP-14.18 | #936 | telemetry and otel-core: app units, group presentation, dashboard panels, assistant tools, SDK extension | 3 | 14.11, 14.23 | no | Open |
 | PP-14.19 | #937 | jobs and nodes: app retention policies, open job reasons, node vitals and executor telemetry | 3 | none | yes | This change |
-| PP-14.20 | #938 | onboarding, datatable and exports: close the remaining small vocabularies | 3 | none | no | Open |
+| PP-14.20 | #938 | onboarding, datatable and exports: close the remaining small vocabularies | 3 | none | no | This change |
 | PP-14.21 | #939 | settings: nested and org-layer extensions, core profile and theme fields, package self-registration | 3 | none | no | This change |
 | PP-14.22 | #940 | cli and infra: app env groups, deploy checks and steps, proxy stream routes, CSP, compose modes, CLI conformance | 3 | none | no | This change |
 | PP-14.23 | #941 | web: the packaged-page slot contract, its CI check, and the operations pages | 4 | none | no | This change |
@@ -105,13 +105,13 @@ Sections follow the verdict, from the most open slice to the most closed.
 
 ### onboarding
 
-**Verdict:** Open · **Packages:** api, web, contract · **Closed points:** 1 (0 fixed, 1 open) · **Stories:** PP-14.20
+**Verdict:** Open · **Packages:** api, web, contract · **Closed points:** 1 (1 fixed, 0 open) · **Stories:** PP-14.20
 
-**Open points.** Step, fact, ordering and activation-milestone registries (`registerOnboardingStep`, `registerOnboardingFact`, `registerOnboardingOrdering`, `registerActivationMilestone`), `extendOnboardingSettings`, the `ONBOARDING_DATA` and `ONBOARDING_FEATURES` host ports, `registerFeatureNotice` and the `WelcomeDialog` slot on the web.
+**Open points.** Step, fact, ordering and activation-milestone registries (`registerOnboardingStep`, `registerOnboardingFact`, `registerOnboardingOrdering`, `registerActivationMilestone`), the audience registry (`registerOnboardingAudience`, with `org_admin` built in), `extendOnboardingSettings`, the `ONBOARDING_DATA` and `ONBOARDING_FEATURES` host ports, `registerFeatureNotice` and the `WelcomeDialog` slot on the web.
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
-| onboarding-1 | The audiences are `admin` and `user`; tiers and statuses are closed; there is no organization-administrator audience for a multi-org app, and `validateStep` rejects any other audience. | contract: `onboarding/constants.ts:16`; api: `onboarding/onboarding.registries.ts` | Add the built-in `org_admin` audience (from the `org_admin` membership role) and `registerOnboardingAudience`; audiences become `Builtin | (string & {})`. | PP-14.20 (#938) | Open |
+| onboarding-1 | The audiences are `admin` and `user`; tiers and statuses are closed; there is no organization-administrator audience for a multi-org app, and `validateStep` rejects any other audience. | contract: `onboarding/constants.ts:16`; api: `onboarding/onboarding.registries.ts` | Add the built-in `org_admin` audience (from the `org_admin` membership role) and `registerOnboardingAudience`; audiences become `Builtin | (string & {})`. | PP-14.20 (#938) | Fixed |
 
 ### credentials
 
@@ -155,15 +155,15 @@ Closed points: none recorded at the audit commit.
 
 ### exports
 
-**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 3 (0 fixed, 3 open) · **Stories:** PP-14.20
+**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 3 (3 fixed, 0 open) · **Stories:** PP-14.20
 
-**Open points.** `registerExportSource`, `registerExportWriter`, `ExporterRegistry`, the CSV helpers, the `EXPORTS_SYSTEM_DATA` and `EXPORTS_NOTIFIER` ports and the web dialog, list and page.
+**Open points.** `registerExportSource`, `registerExportWriter` (with `attachTo` and `columnTypes`), `ExportColumn.meta`, the `ExportsList` slots, `ExporterRegistry`, the CSV helpers, the `EXPORTS_SYSTEM_DATA` and `EXPORTS_NOTIFIER` ports and the web dialog, list and page.
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
-| exports-1 | A new writer cannot attach to the built-in sources: `writersFor` filters by `source.formats`, `writer.sources` can only narrow, and `user-data` and `org-data` hard-code `json`, `csv`, `xlsx`. | api: `exports/sources/user-data.source.ts:91`; `exports/sources/org-data.source.ts:149` | `registerExportWriter({ attachTo: '*' | string[] })`; built-in sources compute formats from attached writers. | PP-14.20 (#938) | Open |
-| exports-2 | `EXPORT_COLUMN_TYPES` is closed and a writer has nowhere to keep its own typing (Parquet logical types). | contract: `exports/constants.ts` | `ExportColumn.meta` (bounded scalars); the column types stay closed. | PP-14.20 (#938) | Open |
-| exports-3 | `ExportsList` has no column or row-action slots. | web: `exports/ui/` | `slots.Columns` and `slots.RowActions`. | PP-14.20 (#938) | Open |
+| exports-1 | A new writer cannot attach to the built-in sources: `writersFor` filters by `source.formats`, `writer.sources` can only narrow, and `user-data` and `org-data` hard-code `json`, `csv`, `xlsx`. | api: `exports/sources/user-data.source.ts:91`; `exports/sources/org-data.source.ts:149` | `registerExportWriter({ attachTo: '*' | string[] })`; built-in sources compute formats from attached writers. | PP-14.20 (#938) | Fixed |
+| exports-2 | `EXPORT_COLUMN_TYPES` is closed and a writer has nowhere to keep its own typing (Parquet logical types). | contract: `exports/constants.ts` | `ExportColumn.meta` (bounded scalars); the column types stay closed. | PP-14.20 (#938) | Fixed |
+| exports-3 | `ExportsList` has no column or row-action slots. | web: `exports/ui/` | `slots.Columns` and `slots.RowActions`. | PP-14.20 (#938) | Fixed |
 
 ### jobs
 
@@ -431,14 +431,14 @@ Closed points: none recorded at the audit commit.
 
 ### datatable
 
-**Verdict:** Partly closed · **Packages:** web · **Closed points:** 2 (0 fixed, 2 open) · **Stories:** PP-14.20
+**Verdict:** Partly closed · **Packages:** web · **Closed points:** 2 (2 fixed, 0 open) · **Stories:** PP-14.20
 
-**Open points.** `DataTable` and its column, sort, filter and selection parts, `/headless`, `/ui` and `/testing`, `DataTablePreferencesProvider` and `createUserSettingsPreferencesPort`.
+**Open points.** `DataTable` and its column, sort, filter and selection parts, `registerDataTableFilterType` and `DataTableColumn.filter`, the stored layout's `extra` and `savedViews`, the `Toolbar` and `BulkBar` slots, `/headless`, `/ui` and `/testing`, `DataTablePreferencesProvider` and `createUserSettingsPreferencesPort`.
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
-| datatable-1 | The filter types and operators are closed unions and records, and `FilterEditor` branches on the type; a column cannot plug its own editor (user picker, tag picker, date presets). | web: `datatable/headless/types.ts:31, :67`; `datatable/headless/filter/operators.ts:45`; `datatable/ui/filter/FilterEditor.tsx:224-315` | `DataTableColumn.filter`, `registerDataTableFilterType({ type, operators, Editor, matches })`; built-ins through it. | PP-14.20 (#938) | Open |
-| datatable-2 | The stored layout is fixed, so saved filters and views cannot persist; there are no toolbar or bulk-bar slots. | web: `datatable/headless/layout/layoutModel.ts:97-111` | `DataTableStoredLayout.extra` (bounded JSON) and `savedViews`; `Toolbar` and `BulkBar` slots. | PP-14.20 (#938) | Open |
+| datatable-1 | The filter types and operators are closed unions and records, and `FilterEditor` branches on the type; a column cannot plug its own editor (user picker, tag picker, date presets). | web: `datatable/headless/types.ts:31, :67`; `datatable/headless/filter/operators.ts:45`; `datatable/ui/filter/FilterEditor.tsx:224-315` | `DataTableColumn.filter`, `registerDataTableFilterType({ type, operators, Editor, matches })`; built-ins through it. | PP-14.20 (#938) | Fixed |
+| datatable-2 | The stored layout is fixed, so saved filters and views cannot persist; there are no toolbar or bulk-bar slots. | web: `datatable/headless/layout/layoutModel.ts:97-111` | `DataTableStoredLayout.extra` (bounded JSON) and `savedViews`; `Toolbar` and `BulkBar` slots. | PP-14.20 (#938) | Fixed |
 
 ### db-backup
 

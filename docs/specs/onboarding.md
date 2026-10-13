@@ -41,15 +41,29 @@ The namespace is registered through the settings slice's user-namespace registry
 
 ### 2.3 Steps, facts and the cost bound
 
-A **step** (`registerOnboardingStep`) is data plus two synchronous functions: `id` (permanent, `admin.*`, `user.*` or `<app>.*`), `audience` (`admin` or `user`), `tier` (`required`, `recommended`, `optional`), `order`, `title`, `description`, `actionLabel`, `href`, an optional `permission` and `feature`, `skippable` (never for `required`, refused at registration), the `facts` it reads, optional `doctorChecks` and `funnelSql`, `applies(facts)` and `evaluate(facts)`.
+A **step** (`registerOnboardingStep`) is data plus two synchronous functions: `id` (permanent, `admin.*`, `user.*` or `<app>.*`), `audience` (`admin`, `user`, `org_admin` or one the app registered), `tier` (`required`, `recommended`, `optional`), `order`, `title`, `description`, `actionLabel`, `href`, an optional `permission` and `feature`, `skippable` (never for `required`, refused at registration), the `facts` it reads, optional `doctorChecks` and `funnelSql`, `applies(facts)` and `evaluate(facts)`.
 
 A **fact** (`registerOnboardingFact`) is the only thing that reads: `resolve(ctx)` gets the caller, the `refresh` flag, the data port, the Doctor, the feature gate and `ctx.get(token)` for the app's own services. The engine runs in three phases:
 
-1. **Candidates.** Drop every step whose audience the caller does not get (the admin block needs `system_settings:read`), whose `permission` the caller lacks, whose `feature` is off, or one of whose `doctorChecks` is not registered. Omitted, never shown blocked.
+1. **Candidates.** Drop every step whose audience the caller does not get (the admin block needs `system_settings:read`; `org_admin` needs the `org_admin` role of an active organization; an app audience its own rule), whose `permission` the caller lacks, whose `feature` is off, or one of whose `doctorChecks` is not registered. Omitted, never shown blocked.
 2. **Facts.** The union of the candidates' and the orderings' facts, each resolved once, in parallel. A fact that rejects omits the steps that need it (logged); the response never fails for it.
 3. **Evaluation**, synchronous: `applies`, then `evaluate` (or the Doctor mapping), then the audience's ordering hook. A `blocked` step must carry `blockedReason`; one without it is omitted and logged.
 
 The conformance suite spies on the data port to prove the evaluation phase makes no call, and counts fact resolutions to prove each happens at most once.
+
+### 2.3.1 Audiences
+
+An **audience** (`registerOnboardingAudience({ id, label, matches(principal, ctx) })`) is a group of steps and the rule that says who sees them. The registry starts with three, registered through the same function an app uses:
+
+| Audience | Block in the response | Matches when |
+|---|---|---|
+| `user` | `user` | always |
+| `admin` | `admin` | the caller holds `adminPermission` (`system_settings:read` by default) |
+| `org_admin` | `audiences.org_admin` | the caller holds the `org_admin` role of an active organization |
+
+The rule reads the caller only (`permissions`, `roles`, `activeOrgId`; the roles are the system roles plus the active organization's role) and is synchronous, so it adds nothing to the cost of the endpoint. A rule that throws is "does not match" (logged). A step names an audience registered before it; an unregistered one is refused at registration with the fix in the message. The id is permanent (`ONBOARDING_AUDIENCE_ID_PATTERN`).
+
+The rule decides which block a step lands in and nothing else: a step's own `permission` and `feature` still apply in every audience, a caller outside an audience has none of its facts resolved, and `user` and `admin` keep the rules they always had. The engine ignores a rule registered for those two ids, and holding the `org_admin` role gives no Setup guide just as holding the admin permission gives no `org_admin` block. An organization's administrator in a multi-organization deployment holds no system permission, so the `org_admin` audience is how a step reaches them.
 
 ### 2.4 The platform's steps
 
@@ -74,12 +88,13 @@ GET /api/onboarding[?refresh=true|false]
 
 { settings: { welcomeSeenAt, checklistDismissedAt, adminDismissedAt, skipped, ...appFields },
   user:  { steps, completed, total, requiredDone, allResolved },
-  admin: { steps, completed, total, requiredDone, allResolved } | null }
+  admin: { steps, completed, total, requiredDone, allResolved } | null,
+  audiences?: { [audienceId]: { steps, completed, total, requiredDone, allResolved } } }
 Step = { id, audience, tier, status: 'done'|'todo'|'blocked', title, description,
          actionLabel, href, detail, blockedReason, skippable, skipped }
 ```
 
-`refresh` is a string enum, not a coerced boolean: `Boolean('false')` is `true`.
+`audiences` holds the block of every audience beyond `user` and `admin` that the caller matches and that has at least one step for them; the key is absent otherwise, so a deployment that registers no such step answers exactly as before. `refresh` is a string enum, not a coerced boolean: `Boolean('false')` is `true`.
 
 ### 2.6 Activation metrics
 
@@ -122,6 +137,10 @@ Register the fact (`resolve` reads through `ctx.get(YourService)` or the data po
 
 Prefer a [Doctor check](doctor.md#4-extending-it-in-a-fork) and `doctorChecks: ['<id>']`; the step then follows the check's status and remedy and is omitted where the check is not registered. `required` only when other people cannot succeed without it. Example: `admin-doctor-step.example.ts` (`db.rls_role`).
 
+### 4.2.1 Add a step for the organization administrator, or an audience of your own
+
+A step with `audience: 'org_admin'` reaches the holder of the `org_admin` role of their active organization; draw `state.audiences?.['org_admin']` with `OnboardingChecklist`. For any other group call `registerOnboardingAudience` before the steps that name it. Example: `org-admin-step.example.ts` ("Invite your team", over the platform's `orgInvites` fact).
+
 ### 4.3 Order steps, add a milestone, add a stored field
 
 `registerOnboardingOrdering({ audience, facts, order })` (one per audience; EvoPath orders by goal); `registerActivationMilestone(...)` (EvoPath: `first_workout`, 7 days); `extendOnboardingSettings({ goal: z.enum([...]).optional() })` listed in `APP_USER_SETTINGS_EXTENSIONS`, collected by a `WelcomeDialog` pane through `setExtra`. Example: `activation.example.ts` and `RoleWelcomePane.example.tsx`.
@@ -143,7 +162,8 @@ Prefer a [Doctor check](doctor.md#4-extending-it-in-a-fork) and `doctorChecks: [
 | Guard | Enforces |
 |---|---|
 | `packages/platform-api/test/onboarding/*.spec.ts` | Registries (duplicates, required-not-skippable, unknown facts), the engine (Doctor mapping, skip is not pass, omission, ordering, facts once), the namespace merge and `skipped` validation, the metrics SQL builder and arithmetic, the service |
-| `apps/api/test/onboarding/onboarding-conformance.spec.ts` | The `onboarding` conformance suite over the app's steps: facts registered, permissions exact, facts once, no I/O in `evaluate` |
+| `packages/platform-api/test/onboarding/audiences.spec.ts` | The audience registry, `org_admin` by role and active organization, user and admin visibility not widened (either way), a rule that throws, a rule registered for `user` or `admin` ignored, no fact read for a caller outside an audience |
+| `apps/api/test/onboarding/onboarding-conformance.spec.ts` | The `onboarding` conformance suite over the app's steps: facts registered, audiences registered, permissions exact, facts once (for a caller holding the `org_admin` role too), no I/O in `evaluate` |
 | `apps/api/test/onboarding/onboarding.integration.spec.ts` | Routes and permissions, `refresh` enum, no row written, `days` validation, the namespace through `PATCH /api/user-settings` with `If-Match` |
 | `apps/api/test/onboarding/onboarding.db.spec.ts` | The read-only GET and the metrics statement on real Postgres |
 | `apps/api/test/onboarding/onboarding-examples.spec.ts` | The reference examples |
@@ -158,6 +178,8 @@ Prefer a [Doctor check](doctor.md#4-extending-it-in-a-fork) and `doctorChecks: [
 - **Reuse the Doctor** rather than re-derive "is storage configured": one probe, one cache, one remedy. The cost is the Doctor's vocabulary (`skip` reads as `todo`).
 - **Omitted, not blocked**, for what the caller cannot do; `blocked` is for a step the caller will be able to do once something else happens, and carries the reason.
 - **One Doctor run per category, not one run of everything.** `DoctorService.run` filters by category, not by check id; running the categories the applicable checks span keeps the Doctor's cache shared with its own page and avoids probing unrelated capabilities.
+- **An audience is a rule over the caller, not a new permission.** Rejected: widening `adminPermission` to a list (it would give an organization administrator the Setup guide's system steps) and a per-step `roles` field (every step would repeat the rule and a role could not be renamed in one place). The audience keeps the block, the rule and the label together, and the three built-ins prove the registry.
+- **The response gains `audiences`, not `orgAdmin`.** The vocabulary is open, so a fixed key per audience would be another closed list; a record keyed by audience id is additive, and absent when empty, which keeps the original shape for every deployment that registers no such step.
 - **Aggregates computed on read, not events recorded**: no write path, no migration, no backfill; the metric cannot say when a step was done, only that it is done now.
 
 ## 7. Verification
@@ -175,3 +197,4 @@ By hand: as a fresh Admin the welcome opens; **Start setup** opens `/admin/setti
 ## History
 
 - #745 (PP-9.3) added the platform onboarding slice, merged from EvoPath (#203, #204, #212) and kvox.
+- #938 (PP-14.20) opened the audience vocabulary: the `org_admin` built-in, `registerOnboardingAudience` and the `audiences` record in the response.

@@ -12,7 +12,6 @@
 // =============================================================================
 
 import {
-  ONBOARDING_AUDIENCES,
   ONBOARDING_METRICS_DAYS_MAX,
   ONBOARDING_STEP_ID_MAX,
   ONBOARDING_STEP_ID_PATTERN,
@@ -20,6 +19,7 @@ import {
 } from '@marinoscar/platform-contract/onboarding';
 
 import { defineRegistry } from '../core/index';
+import { onboardingAudienceRegistry } from './onboarding.audiences';
 import type {
   ActivationMilestoneDef,
   OnboardingFactDef,
@@ -38,11 +38,18 @@ function nonEmpty(value: unknown, field: string): void {
   if (typeof value !== 'string' || value.trim() === '') throw new Error(`${field} is required`);
 }
 
+function assertAudienceRegistered(audience: string): void {
+  if (!onboardingAudienceRegistry.has(audience)) {
+    throw new Error(
+      `audience "${audience}" is not registered (registered: ${onboardingAudienceRegistry.ids().join(', ')}); ` +
+        'call registerOnboardingAudience before registering steps that name it',
+    );
+  }
+}
+
 function validateStep(step: OnboardingStepDef): void {
   if (step.id.length > ONBOARDING_STEP_ID_MAX) throw new Error(`id is longer than ${ONBOARDING_STEP_ID_MAX} characters`);
-  if (!(ONBOARDING_AUDIENCES as readonly string[]).includes(step.audience)) {
-    throw new Error(`audience must be one of ${ONBOARDING_AUDIENCES.join(', ')}`);
-  }
+  assertAudienceRegistered(step.audience);
   if (!(ONBOARDING_TIERS as readonly string[]).includes(step.tier)) {
     throw new Error(`tier must be one of ${ONBOARDING_TIERS.join(', ')}`);
   }
@@ -163,9 +170,7 @@ export const onboardingOrderingRegistry = defineRegistry<OnboardingOrderingDef>(
   name: 'onboarding-orderings',
   idOf: (ordering) => ordering.audience,
   validate: (ordering) => {
-    if (!(ONBOARDING_AUDIENCES as readonly string[]).includes(ordering.audience)) {
-      throw new Error(`audience must be one of ${ONBOARDING_AUDIENCES.join(', ')}`);
-    }
+    assertAudienceRegistered(ordering.audience);
     if (typeof ordering.order !== 'function') throw new Error('order must be a function');
     if (!Array.isArray(ordering.facts)) throw new Error('facts must be an array of fact ids');
   },
