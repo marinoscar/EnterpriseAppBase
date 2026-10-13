@@ -173,13 +173,17 @@ never the key itself.
 ### 2.3 Capabilities and ports
 
 ```ts
-export const AI_CAPABILITIES = ['responses','reasoning','tools','hosted_tools','structured_output','streaming',
+export const BUILTIN_AI_CAPABILITIES = ['responses','reasoning','tools','hosted_tools','structured_output','streaming',
   'vision_input','file_input','image_generation','image_edit','audio_transcription','audio_speech',
   'embeddings','realtime'] as const;
+type AiCapability = BuiltinAiCapability | (string & {});   // open: §2.26
 ```
 
-A model has capabilities (stored per `ai_models` row). A provider has
-**ports**: optional members of `AiProviderAdapter`.
+A model has capabilities (stored per `ai_models` row). The vocabulary is
+open: the fourteen above register through `registerAiCapability`, the same
+function an app uses to add its own (§2.26). A provider has **ports**:
+optional members of `AiProviderAdapter`, plus an `operations` map for kinds
+of call the platform has no port for.
 
 ```ts
 export interface AiProviderAdapter {
@@ -193,6 +197,7 @@ export interface AiProviderAdapter {
   readonly audio?: AiAudioPort;
   readonly embeddings?: AiEmbeddingsPort;
   readonly realtime?: AiRealtimePort;
+  readonly operations?: Record<operationId, AiOperationHandler>;   // custom operations (§2.26)
   readonly supportsPreviousResponseId?: boolean;   // absent = true (§2.10)
   readonly supportsHostedTools?: boolean;          // absent = true
   readonly fileInputStrategy?: { image, file };    // absent = no stored inputs (§2.9)
@@ -201,7 +206,9 @@ export interface AiProviderAdapter {
 
 - **Presence is the declaration.** There is no `supportedCapabilities`
   array. `AiProviderRegistry.supports(id, cap)` derives the answer from port
-  presence, the same idiom as `JobHandler.nodeResultSchema`.
+  presence (a built-in capability) or from an implemented, registered
+  operation of that capability (an app's), the same idiom as
+  `JobHandler.nodeResultSchema`.
 - A call needs the capability on the model **and** the port on the provider.
 - `AiModelCapabilities` also carries `reasoningEfforts`, `contextWindow`,
   `maxOutputTokens`, `inputModalities` and `voices` (for `audio_speech` and
@@ -230,7 +237,15 @@ and usage steps.
 
 With no `model` in the request, the caller's `user_settings.ai.defaultModel`
 applies (chat operations only). Queued operations run steps 1–4 when they
-enqueue and the whole pipeline again when the job executes.
+enqueue and the whole pipeline again when the job executes. A custom
+operation (`run`, §2.26) is not a second pipeline: it takes the same steps,
+with its own input validation first and its output validation after step 7.
+
+The `feature` a call is made for (`forUser(userId, { feature })`, validated by
+the feature registry) is checked against the model at step 3 and recorded on the
+usage row (step 8), on the span (step 9) and, for a queued operation, on the
+`ai_runs` row, from which the job's own round trip reads it back for its usage
+row. That read is attribution only: the gates ran when the run was queued.
 
 ### 2.5 Normalized request and response
 
@@ -444,8 +459,15 @@ and `editImage({ …, imageStorageObjectIds, maskStorageObjectId? })` →
   `video/mp4` or `video/webm`, at most the port's `transcriptionMaxBytes`
   (25 MiB for OpenAI). Checked at queue time from the row.
 - The job **streams** the recording through a size-capped reader.
-- Output: `{ type: 'transcription', provider, model, storageObjectId, text, language?, durationSeconds?, segments?, words?, usage }`.
-  Nothing is written to storage.
+- Output: `{ type: 'transcription', provider, model, storageObjectId, text, language?, durationSeconds?, segments?, words?, extras?, usage }`.
+  Nothing is written to storage. `extras` is what a provider reports beyond
+  the neutral fields (speaker-labelled `segments` of `{ start, end, text,
+  speaker? }`, `language`, any other JSON), at most 64 KiB serialised; extras
+  that are larger, not JSON or malformed are dropped (the transcript and the
+  usage row stay), and are never logged.
+- `providerOptions` (keyed by provider id) is a JSON object of at most 4 KiB.
+  It reaches the adapter and the run row that replays it, and is never
+  logged, never a span attribute and never on a usage row.
 - Usage: `operation: 'audio.transcribe'`, `units: { audioSeconds }` when
   reported.
 
@@ -648,8 +670,13 @@ org key must never be brokered to a worker node.
 Every provider round trip writes one `ai_usage_events` row:
 `{ userId?, provider, modelId, operation, keySource, inputTokens?, outputTokens?, reasoningTokens?, cachedInputTokens?, units?, latencyMs, status, errorCode?, providerRequestId?, jobId? }`.
 
-- `operation`: `responses | images | audio.transcribe | audio.speech | embeddings | realtime | catalog`.
-  `catalog` has no user and `keySource: 'admin_discovery'`.
+- `operation`: `responses | images | audio.transcribe | audio.speech | embeddings | realtime | catalog`,
+  or the id of an operation an app registered (`audio.diarize`, §2.26). The
+  column is plain text, so a new kind costs no migration. `catalog` has no
+  user and `keySource: 'admin_discovery'`.
+- `feature`: the registered feature (§2.4), `null` for a call made without
+  one, a catalogue sync and every row written before the column existed.
+  Indexed on `(org_id, feature, created_at)`.
 - `units` holds non-token meters: `{ images }`, `{ audioSeconds }`,
   `{ characters }`, `{ sessions: 1 }`.
 
@@ -658,12 +685,18 @@ shape:
 
 ```ts
 { range: { from: 'YYYY-MM-DD', to: 'YYYY-MM-DD' },   // UTC days, inclusive
-  groupBy: 'day' | 'user' | 'model' | 'provider' | 'keySource' | 'org',   // 'org': admin report only
+  groupBy: 'day' | 'user' | 'model' | 'provider' | 'keySource' | 'org' | 'feature' | 'operation',   // 'org': admin report only
+  priced?: boolean,                                      // admin and org reports, when a pricing port is bound (§2.26)
   totals: Bucket, series: Array<Bucket & { key: string; label: string }> }
 // Bucket = { requests, failed, inputTokens, outputTokens, reasoningTokens, cachedInputTokens,
-//            units: Record<string, number>, orgKeyRequests, orgKeyInputTokens, orgKeyOutputTokens }
+//            units: Record<string, number>, orgKeyRequests, orgKeyInputTokens, orgKeyOutputTokens,
+//            cost?: { amount, currency } | null }      // only when priced
 ```
 
+- The admin and organization reports take a `feature` filter and group by
+  `feature` (key: the feature id, label from the registry, `none` for calls
+  without one) or `operation` (key: the operation id, label from the registry).
+  `/me` groups by `day` or `model` only.
 - Default range 30 days; more than 90, or `from` after `to`, is
   `400 AI_USAGE_RANGE_INVALID`. `day` series are zero-filled; others are
   ordered by `requests`. The `user` label is the email.
@@ -838,7 +871,9 @@ features call them for ordinary users.
 - **Modes:** Chat, Image, Transcribe, Speech, Embeddings, Voice, each tied to
   one capability and listing only usable models that declare it
   (`packages/platform-web/src/ai/ui/playground/aiPlaygroundModes.ts`). A mode no model serves is
-  `aria-disabled` with a reason.
+  `aria-disabled` with a reason. The list is a registry: the six register
+  through `registerAiPlaygroundMode` (`builtinAiPlaygroundModes.ts`) and an app
+  adds its own after them with the same call (§2.26).
 - **Chat** streams or queues a run, attaches storage objects per the model's
   modalities, and offers hosted tools that are switched on (not MCP). For a
   provider that cannot chain it resends the conversation as `input`.
@@ -855,6 +890,79 @@ features call them for ordinary users.
   offer straight there; see [SECURITY-ARCHITECTURE.md
   §9](../SECURITY-ARCHITECTURE.md#security-headers).
 - Errors render through one `AiErrorAlert` mapping.
+
+### 2.26 Open capabilities, operations and per-feature usage
+
+The vocabularies of what a model can do and of what is metered are open: an
+app adds a kind of call such as diarization, moderation, rerank or OCR with
+three registrations (at import time, before the application bootstraps, in
+this order) and no edit under `packages/`.
+
+| Registration | What it declares | Id |
+|---|---|---|
+| `registerAiCapability({ id, label, description })` | What one model can do: a model declares it in its catalog row (the adapter's `classifyModel` or an administrator's override). | `^[a-z][a-z0-9_]{1,47}$`, permanent once stored |
+| `registerAiOperation({ id, label, capability, inputSchema, outputSchema, usageUnits? })` | One metered kind of call and the model capability it needs. Both schemas are required for an app's operation. | `AI_OPERATION_ID_PATTERN` (`audio.diarize`), permanent: it is the usage row's `operation` |
+| `registerAiFeature({ id, label, needs, ... })` | What an app feature needs from a model; `needs` may name an app capability once registered. | `^[a-z][a-z0-9_]{0,63}$` |
+
+The platform's own capabilities and its usage operations register through
+the same two functions (`core/capability-registry.ts`, `core/operation-registry.ts`),
+with no private fast path. Registries freeze at bootstrap.
+
+**The custom-operation port.** A provider implements an operation as an entry
+of `AiProviderAdapter.operations`, keyed by the operation id: `(input, ctx) =>
+Promise<output>`, where `ctx` is the call's `AiCallContext` plus `model` and
+`operation`. `AiService.forUser(userId, { orgId, feature }).run(operationId,
+input, { provider?, model?, signal? })` then runs, in order:
+
+1. the kill switch (`AI_DISABLED`);
+2. the operation is registered and has schemas (`AI_INVALID_REQUEST` for an
+   unregistered or built-in id), and `inputSchema` parses the input
+   (`AI_INVALID_REQUEST`; the error names paths and the schema's messages, never
+   the value);
+3. the target: the named `provider` and `model`, else the first usable model
+   that declares the operation's capability on a provider that implements the
+   operation;
+4. the provider is enabled; the model is enabled, declares the capability and is
+   reachable with the key that would pay; the feature's needs hold; the provider
+   implements this operation (`AI_PROVIDER_DISABLED`, `AI_MODEL_NOT_ENABLED`,
+   `AI_CAPABILITY_UNSUPPORTED`, `AI_KEY_REQUIRED`, `AI_MODEL_NOT_REACHABLE`,
+   `AI_INVALID_REQUEST`);
+5. key resolution and the rate limits (`AI_KEY_REQUIRED`, `AI_RATE_LIMITED`);
+6. the handler;
+7. `outputSchema` parses the output, and the output must not contain the key
+   (`AI_STRUCTURED_OUTPUT_INVALID`; the round trip is still recorded, failed);
+8. one usage row (`operation` = the operation id, `feature`, `units` from
+   `usageUnits`) and one `ai.request` span.
+
+**Secrets.** The input and the output are never logged or recorded; the debug
+prompt line names the operation only. An error from the handler whose message or
+details contain the key is replaced by a generic error of the same code, and a
+raw error becomes `AI_PROVIDER_UNAVAILABLE` with a generic message. Nothing about
+`run` is queued: it is synchronous. A queued operation is a job type of its own
+(AI jobs are server-only, permanently).
+
+**Discovery.** `GET /api/admin/ai/capabilities` (`ai_config:read`, not behind
+`AiEnabledGuard`) lists every capability and operation with `builtin` and, for an
+operation, `runnable`. The admin Models page and the usage page read their labels
+from it; `registerAiCapabilityLabel` gives the labels to a page a viewer without
+`ai_config:read` sees.
+
+**Per-feature usage.** `ai_usage_events.feature` and `ai_runs.feature` are
+nullable text (no reference: a feature is code, and a row outlives it). Only an
+id that matches the feature id pattern is stored; the feature registry has
+already refused an unregistered one. See §2.21 for the report.
+
+**Pricing.** `AiModule.forRoot({ pricing: PortBinding<AiPricing> })` binds the
+`AI_PRICING` port where the usage service can see it. `costFor(usage)` receives
+one `(provider, modelId, operation)` slice of a report group (summed requests,
+tokens and units) and answers `{ amount, currency }` or `null`. The admin and
+organization reports then carry `priced: true` and a `cost` per bucket (the sum
+of the priced slices; `null` for none, or for more than one currency); a user's
+own report is never priced. A throwing port is a missing price. No cost is
+stored.
+
+**Playground.** `registerAiPlaygroundMode({ id, label, operation, capability?,
+unavailableReason?, Panel })` adds a mode (§2.25).
 
 ## 3. Configuration and permissions
 
@@ -940,6 +1048,12 @@ To **add a provider**, there are two places, and the first needs no edit under
 
 Both implement the same adapter contract and register the same definition.
 Nothing in the gate pipeline, the admin API or the HTTP surface changes.
+
+To **add a kind of call** the platform has no port for (diarization,
+moderation, rerank, OCR), register a capability, an operation and a feature and
+implement the operation in the adapter's `operations` map: §2.26 and the recipe
+[Add an AI capability and operation](../EXTENDING.md#add-an-ai-capability-and-operation-diarization-moderation-rerank-ocr).
+To **price** usage, bind `AiModule.forRoot({ pricing })`.
 
 ### Add a provider from an app or package
 
@@ -1116,7 +1230,13 @@ guardrails below discover all of these automatically.
 | Each SDK confined to its folder(s) | `packages/platform-api/src/ai/providers/openai/openai-sdk-boundary.spec.ts`, `anthropic/anthropic-sdk-boundary.spec.ts`, `gemini/gemini-sdk-boundary.spec.ts` |
 | AI registry cards carry a permission the API enforces (from its generated catalog, and `x-rbac` when the OpenAPI document is available) and `feature: 'ai'` except the admin switch | `settings-ai-cards` (`@marinoscar/platform-web/settings/testing`, run by `apps/web/src/__tests__/conformance.test.ts`) |
 | Resolution matrix; org key never returned under `byok` | `packages/platform-api/src/ai/keys/ai-key-resolver.service.spec.ts` |
-| Capability support derived from ports only | `packages/platform-api/src/ai/core/provider-registry.spec.ts` |
+| Capability support derived from ports and implemented operations only | `packages/platform-api/src/ai/core/provider-registry.spec.ts`, `packages/platform-api/src/ai/core/open-vocabularies.spec.ts` |
+| A custom operation takes the same gates as a built-in port (kill switch, schemas, model and capability gates, key policy, rate limits, feature, one usage row), never logs or records its input or output, and never lets the key out in an output or an error | `packages/platform-api/src/ai/runtime/ai-operations.spec.ts`, `apps/api/test/examples/ai/example-diarize.spec.ts` |
+| An adapter's operations are registered, runnable and honest about keys and failures | the `operations.*` scenarios of `describeAiProviderConformance`, run by `apps/api/test/examples/ai/example-transcribe.conformance.spec.ts` |
+| The feature is persisted on usage rows and runs, filterable and groupable, and the priced report is built from real units | `packages/platform-api/src/ai/usage/ai-usage.service.spec.ts`, `packages/platform-api/src/ai/runtime/ai-transcription-extras.spec.ts`, `apps/api/test/examples/ai/ai-usage-by-feature.db.spec.ts` |
+| Transcription extras and `providerOptions` are bounded, and the options are never logged | `packages/platform-api/src/ai/runtime/ai-transcription-extras.spec.ts`, the transcription cases of the `ai-secret-egress` suite |
+| `forRoot({ pricing })` binds one port shape or fails at boot | `packages/platform-api/src/ai/ai.module.pricing.spec.ts` |
+| The playground mode registry: the built-ins register through it, an app mode appears after them and is gated by its capability | `packages/platform-web/test/ai/components/aiPlaygroundModeRegistry.test.tsx`, `apps/web/src/__tests__/examples/ai/example-playground-mode.test.tsx` |
 | `AiError` never serializes key material | `packages/platform-api/src/ai/core/ai-error.spec.ts` |
 | Catalog sync never overwrites `admin_override`, never enables, deprecates without deleting | `packages/platform-api/src/ai/catalog/ai-catalog.service.spec.ts` |
 | AI crons only enqueue | `cron-enqueue-only` |
@@ -1195,6 +1315,24 @@ The seven `ai-*` suites are the same suites in every app that consumes the AI sl
   would let the app-side path rot unnoticed. The five definitions keep their
   current settings fields, so the stored rows, the admin cards and the
   defaults catalog are unchanged.
+- **A custom operation is one port with schemas, not a plugin interface per
+  kind.** The runtime cannot know the shape of a diarization or a rerank, so the
+  operation declares its input and output as zod schemas and the runtime is the
+  validator on both sides. Rejected: an `operations` map of untyped handlers
+  (the output would reach the caller unchecked), and a new built-in port per
+  kind (a package edit per kind).
+- **Vocabularies are open by shape, closed by registry.** A stored capability
+  only has to match the id pattern, so a catalog row written under a plugin that
+  was later removed still reads back; a write (an administrator's override, a
+  feature's `needs`) must name a registered one. Rejected: `z.enum` of the
+  registry (it would brick a stored row when a plugin goes).
+- **The cost is computed, never stored.** Rates change and are the
+  deployment's contract with a provider; a stored cost would be wrong the day a
+  rate moves. The port prices a `(provider, model, operation)` slice because a
+  group key alone (a user, a day) cannot say which rate applies.
+- **The feature is a column, not a JSON key.** It is filtered and grouped in
+  SQL on every usage report, so it is indexed with the organization and the
+  time; a free-form key would not be.
 - **The web draws a provider from its descriptor.** One generated card
   (`PluggableConfigForm`) serves every provider without a registered card, so
   an app adds no web code. Rejected: a card component required per provider,
@@ -1210,6 +1348,8 @@ cd ../web && npm test -- ai
 # the app-side provider, end to end (from the repository root)
 npx jest --config apps/api/test/jest.config.js --rootDir apps/api test/examples/ai
 cd apps/web && npx vitest run src/__tests__/examples/ai
+# usage by feature and the priced report need a real Postgres
+cd apps/api && npm run test:db -- ai-usage-by-feature
 ```
 
 By hand, following the [runbook](../runbooks/ai-configuration.md):
@@ -1238,6 +1378,10 @@ By hand, following the [runbook](../runbooks/ai-configuration.md):
   reports, #444 usage UI, #445 Playground media modes.
 - Epic #421 (phase 3): #446 Anthropic, #447 Gemini, #448 Azure OpenAI and
   OpenAI-compatible, #449 realtime sessions, #450 rate limits.
+- Epic #918 (extensibility): #924 `registerAiProvider`; #935 open
+  capabilities and operations, the custom-operation port, transcription
+  extras, the feature on usage rows and runs (migration `0035_ai_usage_feature`),
+  the playground mode registry and the pricing port.
 - #499 removed `ai:use` from Viewer. #509 made `AI_STORAGE_UNAVAILABLE` a
   terminal run code.
 - #516: removed the unseeded `storage:read_any` bypass from the storage-input

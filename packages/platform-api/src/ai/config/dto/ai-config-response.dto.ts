@@ -1,9 +1,8 @@
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
-import { AI_KEY_POLICIES, AI_OPENAI_API_STYLES } from '@marinoscar/platform-contract/ai';
+import { AI_KEY_POLICIES, AI_OPENAI_API_STYLES, aiCapabilityIdSchema } from '@marinoscar/platform-contract/ai';
 import { pluggableDescriptorSchema } from '@marinoscar/platform-contract/settings';
-import { AI_CAPABILITIES } from '../../core/capabilities';
 
 // =============================================================================
 // GET /api/admin/ai/config — response (issue #428, epic #419)
@@ -92,7 +91,7 @@ export const aiAdminProviderSchema = z.object({
   requiresKey: z.boolean().nullable(),
   keyStatus: aiKeyStatusSchema,
   /** Capabilities the provider's ADAPTER supports (derived from its ports), not any one model's. */
-  supportedCapabilities: z.array(z.enum(AI_CAPABILITIES)),
+  supportedCapabilities: z.array(aiCapabilityIdSchema),
 });
 
 /**

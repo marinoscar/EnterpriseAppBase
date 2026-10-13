@@ -2,7 +2,7 @@
  * Pure helpers shared by the admin AI Usage page and the user's "Usage"
  * section (issue #444, epic #420).
  */
-import type { AiUsageCounters, AiUsageReport, AiUsageSeriesEntry } from '../../headless/types.js';
+import type { AiUsageCost, AiUsageCounters, AiUsageReport, AiUsageSeriesEntry } from '../../headless/types.js';
 
 const numberFormat = new Intl.NumberFormat('en-US');
 
@@ -25,6 +25,27 @@ export function formatUsageDay(isoDate: string): string {
   const date = new Date(`${isoDate}T00:00:00Z`);
   if (Number.isNaN(date.getTime())) return isoDate;
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
+
+/**
+ * A cost the deployment's pricing port reported (PP-14.17), as money: `$12.50`
+ * for an ISO 4217 code, `12.50 credits` for any other label, an em dash when
+ * there is none (no price for it, or mixed currencies).
+ */
+export function formatCost(cost: AiUsageCost | null | undefined): string {
+  if (!cost) return '—';
+  if (/^[A-Za-z]{3}$/.test(cost.currency)) {
+    try {
+      return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: cost.currency.toUpperCase(),
+        maximumFractionDigits: cost.amount !== 0 && Math.abs(cost.amount) < 0.01 ? 4 : 2,
+      }).format(cost.amount);
+    } catch {
+      // Not a currency the runtime knows: fall through to the plain form.
+    }
+  }
+  return `${cost.amount.toFixed(2)} ${cost.currency}`;
 }
 
 /** `units` as `images: 4 · audioSeconds: 31.4`, or `null` when there are none. */

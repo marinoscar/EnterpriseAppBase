@@ -15,7 +15,7 @@ The audit record of the extension seams of every platform slice. A closed point 
 
 Evidence paths are written `api:`, `web:`, `contract:`, `cli:`, `db:` and `infra:` for `packages/platform-api/src/`, `packages/platform-web/src/`, `packages/platform-contract/src/`, `packages/platform-cli/src/`, `packages/platform-db/` and `packages/platform-infra/`; a path under `apps/` or `docs/` is from the repository root. A story is written PP-14.n (its issue number follows).
 
-As of this version: 115 closed points in 29 sections, 87 fixed and 28 open.
+As of this version: 115 closed points in 29 sections, 95 fixed and 20 open.
 
 ## Verdicts
 
@@ -29,8 +29,8 @@ As of this version: 115 closed points in 29 sections, 87 fixed and 28 open.
 | [jobs](#jobs) | Open | 4 | 4 | 0 | PP-14.19, PP-14.23, PP-14.26 |
 | [nodes](#nodes) | Mostly open | 4 | 4 | 0 | PP-14.19, PP-14.23 |
 | [doctor](#doctor) | Open | 2 | 2 | 0 | PP-14.23, PP-14.26 |
-| [telemetry](#telemetry) | Mostly open | 7 | 2 | 5 | PP-14.11, PP-14.18, PP-14.24 |
-| [otel-core](#otel-core) | Mostly open | 1 | 0 | 1 | PP-14.18 |
+| [telemetry](#telemetry) | Mostly open | 7 | 7 | 0 | PP-14.11, PP-14.18 |
+| [otel-core](#otel-core) | Mostly open | 1 | 1 | 0 | PP-14.18 |
 | [core](#core) | Mostly open | 6 | 6 | 0 | PP-14.14, PP-14.5, PP-14.23 |
 | [shell](#shell) | Mostly open | 2 | 0 | 2 | PP-14.25 |
 | [sharing](#sharing) | Mostly open | 5 | 2 | 3 | PP-14.16, PP-14.15, PP-14.25 |
@@ -40,7 +40,7 @@ As of this version: 115 closed points in 29 sections, 87 fixed and 28 open.
 | [platform-cli](#platform-cli) | Open | 7 | 7 | 0 | PP-14.22 |
 | [platform-infra](#platform-infra) | Open | 2 | 2 | 0 | PP-14.22 |
 | [testing (api and web)](#testing-api-and-web) | Open | 2 | 2 | 0 | PP-14.26 |
-| [ai](#ai) | Mostly open | 10 | 6 | 4 | PP-14.3, PP-14.6, PP-14.17, PP-14.24 |
+| [ai](#ai) | Mostly open | 10 | 8 | 2 | PP-14.3, PP-14.6, PP-14.17, PP-14.24 |
 | [storage](#storage) | Mostly open | 5 | 4 | 1 | PP-14.1, PP-14.7, PP-14.24 |
 | [db-backup](#db-backup) | Mostly open | 4 | 4 | 0 | PP-14.12, PP-14.23 |
 | [identity](#identity) | Partly closed | 8 | 7 | 1 | PP-14.9, PP-14.15, PP-14.25 |
@@ -73,8 +73,8 @@ The 28 stories of the epic, in order. Phase 1 makes the existing seams real; pha
 | PP-14.14 | #932 | core: open the access-reason, principal and error-code vocabularies | 3 | none | no | This change |
 | PP-14.15 | #933 | roles: app roles become assignable, and apps can grant platform permissions to them | 3 | none | no | This change |
 | PP-14.16 | #934 | sharing: pluggable grantee kinds and access rules | 3 | 14.15 | no | This change |
-| PP-14.17 | #935 | ai: open capabilities and operations, richer transcription results, per-feature usage | 3 | 14.6 | yes | Open |
-| PP-14.18 | #936 | telemetry and otel-core: app units, group presentation, dashboard panels, assistant tools, SDK extension | 3 | 14.11, 14.23 | no | Open |
+| PP-14.17 | #935 | ai: open capabilities and operations, richer transcription results, per-feature usage | 3 | 14.6 | yes | This change |
+| PP-14.18 | #936 | telemetry and otel-core: app units, group presentation, dashboard panels, assistant tools, SDK extension | 3 | 14.11, 14.23 | no | This change |
 | PP-14.19 | #937 | jobs and nodes: app retention policies, open job reasons, node vitals and executor telemetry | 3 | none | yes | This change |
 | PP-14.20 | #938 | onboarding, datatable and exports: close the remaining small vocabularies | 3 | none | no | This change |
 | PP-14.21 | #939 | settings: nested and org-layer extensions, core profile and theme fields, package self-registration | 3 | none | no | This change |
@@ -204,29 +204,29 @@ Closed points: none recorded at the audit commit.
 
 ### telemetry
 
-**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 7 (2 fixed, 5 open) · **Stories:** PP-14.11, PP-14.18, PP-14.24
+**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 7 (7 fixed, 0 open) · **Stories:** PP-14.11, PP-14.18
 
-**Open points.** The telemetry store (`registerTelemetryStore`, `TelemetryStore`, `TelemetrySqlDialect`, `TELEMETRY_STORE`, `TELEMETRY_SQL_DIALECT`, `TelemetryModule.forRoot({ store })`, `describeTelemetryStoreConformance`), `TelemetryModule.forRoot` options, `metricGroups` and `registerMetricGroup`, the verdict thresholds and `VERDICT_POLICY` (bound by `dashboard.verdictPolicy`), the `TELEMETRY_*` host ports, `withTelemetryTokens` and the packaged dashboard, explorer and settings pages. The reference group is `apps/api/src/platform-extensions/telemetry/activity.metric-group.ts`.
+**Open points.** The telemetry store (`registerTelemetryStore`, `TelemetryStore`, `TelemetrySqlDialect`, `TELEMETRY_STORE`, `TELEMETRY_SQL_DIALECT`, `TelemetryModule.forRoot({ store })`, `describeTelemetryStoreConformance`), `TelemetryModule.forRoot` options (`assistant.extraInstructions` included), `metricGroups` and `registerMetricGroup`, `registerMetricUnit`, `MetricGroupDef.presentation`, `registerDashboardPanel` with `registerDashboardPanelView`, `registerTelemetryAssistantTool`, the guarded `TelemetryQueryFacade`, the verdict thresholds and `VERDICT_POLICY` (bound by `dashboard.verdictPolicy`), the `TELEMETRY_*` host ports, `withTelemetryTokens` and the packaged dashboard, explorer (`starterQueries`) and settings pages, which take page slots. The reference group is `apps/api/src/platform-extensions/telemetry/activity.metric-group.ts`.
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
 | telemetry-1 | The time-series store is a concrete class: `GreptimeClient` (a `pg` pool) is injected directly by the query and dashboard services and the module providers, and the dashboard SQL is GreptimeDB-specific (`date_bin`, `greptime_timestamp`). | api: `telemetry/query/telemetry-query.service.ts:140`; `telemetry/dashboard/telemetry-dashboard.service.ts:383, :409`; `telemetry/telemetry.module.ts:103, :196`; `telemetry/dashboard/telemetry-dashboard.sql.ts:347` | `TelemetryStore` and `TelemetrySqlDialect`, `registerTelemetryStore`, `TelemetryModule.forRoot({ store })`; Greptime becomes the built-in implementation. Every service injects `TELEMETRY_STORE` and `TELEMETRY_SQL_DIALECT`; the seven non-portable constructs of the dashboard SQL are the dialect's; the explorer's guard stays above the store. Still GreptimeDB-shaped by design: the OpenTelemetry table layout the collector writes, the metric catalog's `METRIC_*_COLUMN` names, the assistant's SQL and prompt and the Doctor's wording. | PP-14.11 (#929) | Fixed |
 | telemetry-2 | The only credential purpose is `telemetry_greptime`. | api: `telemetry/connection/telemetry-connection.schema.ts:72` | One purpose per store implementation: `telemetry_<id>`, registered by `registerTelemetryStore` for a store that declares secrets; `telemetry_greptime` is unchanged. | PP-14.11 (#929) | Fixed |
-| telemetry-3 | `METRIC_UNITS` is a closed 15-value list enforced by `assertUnit`; `kind` is `gauge`, `counter` or `histogram`. | contract: `telemetry/constants.ts:446`; api: `telemetry/metrics/metric-group.registry.ts`; `telemetry/metrics/metric-catalog.ts:174-223` | `registerMetricUnit({ id, label, format, currency?, decimals? })`. | PP-14.18 (#936) | Open |
-| telemetry-4 | Presentation is a module constant covering the six platform groups only; an app group gets default tiles (no colours, top-N or virtual columns). | web: `telemetry/ui/components/dashboard/metrics/MetricSections.tsx:83` | `MetricGroupDef.presentation` (bounded, validated, no code), served by `/metric-groups`. | PP-14.18 (#936) | Open |
-| telemetry-5 | `DASHBOARD_PANELS` (`api`, `logs`) and `DASHBOARD_TOP_KINDS` are closed; the three pages take no props or slots. | contract: `telemetry/constants.ts:402, :417`; web: `telemetry/ui/pages/TelemetryDashboardPage.tsx:279` | `registerDashboardPanel` (API) and `registerDashboardPanelView` (web); `Sections`, `Header`, explorer `starterQueries`. | PP-14.18 (#936) | Open |
-| telemetry-6 | The assistant has a fixed eight-tool list and a hard-coded system prompt. | contract: `telemetry/constants.ts:525`; api: `telemetry/assistant/telemetry-assistant.service.ts:1269` | `registerTelemetryAssistantTool` (read-only, guarded query facade only) and an `extraInstructions` option. | PP-14.18 (#936) | Open |
-| telemetry-7 | The dashboard, settings and explorer pages take no slots. | web: `telemetry/ui/pages/TelemetryDashboardPage.tsx:279` | `Sections`, `Header`, explorer `starterQueries` (the panel registry is PP-14.18). | PP-14.24 (#942) | Open |
+| telemetry-3 | `METRIC_UNITS` is a closed 15-value list enforced by `assertUnit`; `kind` is `gauge`, `counter` or `histogram`. | contract: `telemetry/constants.ts:446`; api: `telemetry/metrics/metric-group.registry.ts`; `telemetry/metrics/metric-catalog.ts:174-223` | `registerMetricUnit({ id, label, format, currency?, decimals?, suffix? })`; the 15 built-ins register through it (`BUILTIN_METRIC_UNITS`), `assertUnit` reads the registry, and `/metric-groups` serves the descriptors of the units a group uses beyond them so the browser formats an app unit with no web change. `kind` stays `gauge`, `counter` or `histogram` by design. | PP-14.18 (#936) | Fixed |
+| telemetry-4 | Presentation is a module constant covering the six platform groups only; an app group gets default tiles (no colours, top-N or virtual columns). | web: `telemetry/ui/components/dashboard/metrics/MetricSections.tsx:83` | `MetricGroupDef.presentation` (bounded, zod-validated, no code): tiles, charts with theme-token colours, tables with Top N and sort, ratio, delta and rate columns; served by `/metric-groups`. The six platform groups declare theirs (`PLATFORM_METRIC_PRESENTATIONS`) and draw with the DOM they always had. | PP-14.18 (#936) | Fixed |
+| telemetry-5 | `DASHBOARD_PANELS` (`api`, `logs`) and `DASHBOARD_TOP_KINDS` are closed; the three pages take no props or slots. | contract: `telemetry/constants.ts:402, :417`; web: `telemetry/ui/pages/TelemetryDashboardPage.tsx:279` | `registerDashboardPanel` (API: `GET dashboard/panels` and `panels/:id`, bounded payload, time budget) and `registerDashboardPanelView` (web); the platform's `api` and `logs` panels register through the same calls. `DASHBOARD_TOP_KINDS` (routes, errors) stays closed: it names the two ranked lists of the platform's own API panel. | PP-14.18 (#936) | Fixed |
+| telemetry-6 | The assistant has a fixed eight-tool list and a hard-coded system prompt. | contract: `telemetry/constants.ts:525`; api: `telemetry/assistant/telemetry-assistant.service.ts:1269` | `registerTelemetryAssistantTool` (read-only: the guarded query facade only, names that shadow a built-in refused, output bounded, `rows` output withheld while `shareResults` is off) and `TelemetryModule.forRoot({ assistant: { extraInstructions } })`, an `APPLICATION NOTES` section of developer text. | PP-14.18 (#936) | Fixed |
+| telemetry-7 | The dashboard, settings and explorer pages take no slots. | web: `telemetry/ui/pages/TelemetryDashboardPage.tsx:279` | The three pages take `slots` of the page-slot contract (`Header`, `BeforeContent`, `Sections`, `AfterContent`) and are off `page-slots.exempt.json`; the explorer also takes `starterQueries`. | PP-14.18 (#936) | Fixed |
 
 ### otel-core
 
-**Verdict:** Mostly open · **Packages:** api · **Closed points:** 1 (0 fixed, 1 open) · **Stories:** PP-14.18
+**Verdict:** Mostly open · **Packages:** api · **Closed points:** 1 (1 fixed, 0 open) · **Stories:** PP-14.18
 
 **Open points.** `initializeOtel`, the runtime export gate (`telemetryGate`), `registerAppMetrics` and the `appMetricRegistry`, `MetricsHostService.registerGaugeProvider`, `OtelMetricsModule.forRootAsync`, `registerRequestSpanAttributes` and `@Trace()`.
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
-| otel-core-1 | `initializeOtel` hard-wires OTLP/HTTP exporters to one endpoint; there is no way to add span processors, metric readers or views, a sampler, a propagator or resource attributes (the resource is fixed). | api: `otel-core/sdk/initialize-otel.ts:203-207, :210-236` | `InitializeOtelOptions` gains `spanProcessors`, `metricReaders`, `views`, `sampler`, `textMapPropagator`, `resourceAttributes`, all behind the export gate. | PP-14.18 (#936) | Open |
+| otel-core-1 | `initializeOtel` hard-wires OTLP/HTTP exporters to one endpoint; there is no way to add span processors, metric readers or views, a sampler, a propagator or resource attributes (the resource is fixed). | api: `otel-core/sdk/initialize-otel.ts:203-207, :210-236` | `InitializeOtelOptions` gains `spanProcessors`, `logRecordProcessors`, `metricReaders`, `views`, `sampler`, `textMapPropagator` and `resourceAttributes`; every processor and reader is wrapped in a gated one, so none exports while the runtime gate is closed. | PP-14.18 (#936) | Fixed |
 
 ### core
 
@@ -344,9 +344,9 @@ Closed points: none recorded at the audit commit.
 
 ### ai
 
-**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 10 (6 fixed, 4 open) · **Stories:** PP-14.3, PP-14.6, PP-14.17, PP-14.24
+**Verdict:** Mostly open · **Packages:** api, web, contract, db · **Closed points:** 10 (8 fixed, 2 open) · **Stories:** PP-14.3, PP-14.6, PP-14.17, PP-14.24
 
-**Open points.** The adapter contract (`AiProviderAdapter`), `AiProviderRegistry.register`, `registerAiProvider` (the provider definition: its settings, key requirement, endpoint rule, help and SDK packages) with `AiModule.forRoot({ providers })`, `registerAiProviderCard` and the generated provider card on the web, `registerAiFeature`, the `AI_SYSTEM_PRISMA`, `AI_OBJECT_STORE`, `AI_METRICS` and `AI_TARGET_RESOLVER` ports, `describeAiProviderConformance`, `createAiRuntimeHarness({ extraProviders, extraAdapters })` and the seven `ai-*` conformance suites (`ai-no-sdk-leak` with `providerDirs`).
+**Open points.** The adapter contract (`AiProviderAdapter`), `AiProviderRegistry.register`, `registerAiProvider` (the provider definition: its settings, key requirement, endpoint rule, help and SDK packages) with `AiModule.forRoot({ providers })`, `registerAiProviderCard` and the generated provider card on the web, `registerAiFeature`, `registerAiCapability` and `registerAiOperation` (with `AiProviderAdapter.operations` and `AiService.forUser(...).run(operationId, input)`), `registerAiPlaygroundMode` and `registerAiCapabilityLabel` on the web, `AiModule.forRoot({ pricing })` (the `AI_PRICING` port), the `AI_SYSTEM_PRISMA`, `AI_OBJECT_STORE`, `AI_METRICS` and `AI_TARGET_RESOLVER` ports, `describeAiProviderConformance`, `createAiRuntimeHarness({ extraProviders, extraAdapters })` and the seven `ai-*` conformance suites (`ai-no-sdk-leak` with `providerDirs`; `ai-secret-egress` covers the capabilities route and transcription extras and options). Worked examples: `apps/api/src/platform-extensions/ai/` (the `audio.diarize` operation on `example-transcribe` and an example price list) and `apps/web/src/platform-extensions/ai/` (a Diarize playground mode).
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
@@ -356,8 +356,8 @@ Closed points: none recorded at the audit commit.
 | ai-4 | The defaults, merge and slot helpers iterate the fixed id list, and `assertProviderEnabled` needs `slot?.enabled`. | api: `ai/ai.system-settings.ts:51, :127, :190-230`; `ai/config/ai-config.service.ts:~311` | Namespace schema, defaults and merge built from the registry (system and org); unknown stored ids dropped with one warning. | PP-14.6 (#924) | Fixed |
 | ai-5 | Provider-specific settings are a fixed field list mirrored in the DTO and the web type; the base-URL requirement and the help text switch on provider id in both packages. | api: `ai/config/ai-config.service.ts:81`; `ai/config/ai-config-admin.service.ts:83`; web: `ai/headless/types.ts:290`; `ai/ui/admin/aiProviderForm.ts:51`; `ai/ui/admin/AiProviderCard.tsx:167` | `settingsSchema`, `requiresBaseUrl` and `help` on the provider definition; `registerAiProviderCard(id, Component)` and the generic `PluggableConfigForm` card. | PP-14.6 (#924) | Fixed |
 | ai-6 | The runtime harness pins one provider and fixed slots; `ai-no-sdk-leak` forbids an SDK import in the app unless `sdkDirs` or `extraSdkPackages` are passed. | api: `ai/testing/ai-runtime-harness.ts:94, :509-519`; `ai/testing/conformance/ai-no-sdk-leak.suite.ts:92, :110, :299` | `createAiRuntimeHarness({ extraProviders, extraAdapters })`; `sdkPackages` on the definition and a `providerDirs` option. | PP-14.6 (#924) | Fixed |
-| ai-7 | `AI_CAPABILITIES`, `AiUsageOperation` and `TRACKED_OPERATIONS` are closed (and mirrored on the web), so diarization, moderation, rerank or OCR need a package edit. | api: `ai/core/capabilities.ts:31`; `ai/runtime/ai-usage.recorder.ts:35`; `ai/runtime/ai.service.ts:~447`; web: `ai/ui/shared/aiCapabilities.ts` | `registerAiCapability`, `registerAiOperation`, a custom-operation port `AiService.forUser(...).run(operationId, input)` through the same gate pipeline. | PP-14.17 (#935) | Open |
-| ai-8 | `AiTranscriptionResult` has no speakers or segments, the transcription DTO does not expose `providerOptions`, `feature` is never persisted on `ai_usage_events` or `ai_runs`, the playground modes are a fixed tuple, and there is no pricing seam. | api: `ai/core/types/media.types.ts:325`; web: `ai/ui/playground/aiPlaygroundModes.ts:28` | `extras` on the result, `providerOptions` (bounded), a migration adding `feature`, `registerAiPlaygroundMode`, the `AI_PRICING` port. | PP-14.17 (#935) | Open |
+| ai-7 | `AI_CAPABILITIES`, `AiUsageOperation` and `TRACKED_OPERATIONS` are closed (and mirrored on the web), so diarization, moderation, rerank or OCR need a package edit. | api: `ai/core/capabilities.ts:31`; `ai/runtime/ai-usage.recorder.ts:35`; `ai/runtime/ai.service.ts:~447`; web: `ai/ui/shared/aiCapabilities.ts` | `registerAiCapability`, `registerAiOperation`, a custom-operation port `AiService.forUser(...).run(operationId, input)` through the same gate pipeline. | PP-14.17 (#935) | Fixed |
+| ai-8 | `AiTranscriptionResult` has no speakers or segments, the transcription DTO does not expose `providerOptions`, `feature` is never persisted on `ai_usage_events` or `ai_runs`, the playground modes are a fixed tuple, and there is no pricing seam. | api: `ai/core/types/media.types.ts:325`; web: `ai/ui/playground/aiPlaygroundModes.ts:28` | `extras` on the result, `providerOptions` (bounded), a migration adding `feature`, `registerAiPlaygroundMode`, the `AI_PRICING` port. | PP-14.17 (#935) | Fixed |
 | ai-9 | The documented override of `AI_TARGET_RESOLVER` (a `@Global()` module passed to `AiModule.forRoot({ imports })`) is unproven: `AiModule` does not provide the token, so a global provider should reach `AiService`, but the example test builds a test module holding only the token and hands the resolver to the harness by hand, so DI resolution through the real `AiModule` is never exercised. The epic requires every documented override to be proven with the real package modules. | api: `ai/runtime/target-resolver.ts:17`; `apps/api/test/examples/ai/example-summary.spec.ts:45` | A test that boots the real `AiModule.forRoot` and asserts `AiService` resolves through the app's resolver. | none yet (epic success criterion) | Open |
 | ai-10 | `AiWebAdapters` has only `Spinner`; `AiConfigPage`, `AiProviderCard`, `UserAiKeysPage` and `AiModelsPage` take no slots. | web: `ai/headless/adapters.tsx:38` | `ProviderCardExtra`, `Sections`, `TableSlots<Row>` per page. | PP-14.24 (#942) | Open |
 

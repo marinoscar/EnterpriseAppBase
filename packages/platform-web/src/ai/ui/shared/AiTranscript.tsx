@@ -26,6 +26,9 @@ export interface AiTranscriptProps {
 export function AiTranscript({ output }: AiTranscriptProps) {
   const [copied, setCopied] = useState<'idle' | 'copied' | 'failed'>('idle');
   const segments = output.segments ?? [];
+  // PP-14.17: what a provider reports beyond the neutral fields. Shown only when
+  // it carries speaker-labelled segments; any other extra is for the app to use.
+  const speakerSegments = output.extras?.segments ?? [];
 
   const copy = async () => {
     try {
@@ -82,6 +85,27 @@ export function AiTranscript({ output }: AiTranscriptProps) {
                   <time dateTime={`PT${segment.startSeconds}S`}>{formatTimestamp(segment.startSeconds)}</time>–
                   <time dateTime={`PT${segment.endSeconds}S`}>{formatTimestamp(segment.endSeconds)}</time>
                 </Typography>
+                <Typography component="span" variant="body2" sx={{ wordBreak: 'break-word' }}>
+                  {segment.text}
+                </Typography>
+              </Box>
+            ))}
+          </Box>
+        )}
+        {speakerSegments.length > 0 && (
+          <Box component="ol" aria-label="Speakers" sx={{ m: 0, pl: 0, listStyle: 'none' }}>
+            {speakerSegments.map((segment, index) => (
+              <Box component="li" key={index} sx={{ display: 'flex', gap: 1.5, py: 0.25 }}>
+                <Typography
+                  component="span"
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ fontFamily: 'monospace', flexShrink: 0, pt: 0.25 }}
+                >
+                  <time dateTime={`PT${segment.start}S`}>{formatTimestamp(segment.start)}</time>–
+                  <time dateTime={`PT${segment.end}S`}>{formatTimestamp(segment.end)}</time>
+                </Typography>
+                {segment.speaker && <Chip size="small" variant="outlined" label={segment.speaker} />}
                 <Typography component="span" variant="body2" sx={{ wordBreak: 'break-word' }}>
                   {segment.text}
                 </Typography>

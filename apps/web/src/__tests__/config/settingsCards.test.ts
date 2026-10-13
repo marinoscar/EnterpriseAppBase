@@ -1079,8 +1079,8 @@ describe('the Observability group (#537)', () => {
       expect(dashboard?.feature).toBe('telemetry');
       const controller = readFileSync(resolve(TELEMETRY_SRC, 'dashboard/telemetry-dashboard.controller.ts'), 'utf8');
       const guards = controller.match(/@\(access\.require\w+\([^)]*\)\)/g) ?? [];
-      // summary, timeseries, top, events, filters, metrics and metric-groups (#680).
-      expect(guards).toHaveLength(7);
+      // summary, timeseries, top, events, filters, metrics and metric-groups (#680), panels and one panel (PP-14.18).
+      expect(guards).toHaveLength(9);
       for (const guard of guards) expect(guard).toBe('@(access.requirePermissions([TELEMETRY_PERMISSIONS.QUERY]))');
     });
 

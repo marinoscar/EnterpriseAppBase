@@ -277,6 +277,15 @@ model AiRun {
   // by nulling it; deleting an organization first purges its runs.
   orgId String @map("org_id") @db.Uuid
 
+  // The registered AI feature the run was started for (`registerAiFeature`,
+  // PP-14.17, #935): a bounded id the feature registry validated, NEVER free
+  // text. Nullable (a run started without a feature, and every row written
+  // before this column existed), and a plain string rather than a reference:
+  // a feature is code, not data, and a row must outlive the feature that
+  // wrote it. Carried onto the run's usage rows, so per-feature usage is
+  // answerable from the database.
+  feature String?
+
   // Relations
   //
   // SetNull — see the block comment above this section.
@@ -369,6 +378,14 @@ model AiUsageEvent {
   // client only.
   orgId String? @map("org_id") @db.Uuid
 
+  // The registered AI feature the call was made for (`registerAiFeature`,
+  // PP-14.17, #935), so usage can be filtered and grouped per feature from
+  // the database. Nullable: a call made without a feature, a catalogue sync,
+  // and every row written before this column existed have none. A plain
+  // string, never a reference, and never free text: only an id the feature
+  // registry validated is written.
+  feature String?
+
   // Relations
   user User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
   org  Organization? @relation(fields: [orgId], references: [id], onDelete: SetNull)
@@ -380,6 +397,9 @@ model AiUsageEvent {
   // usage window.
   @@index([orgId, userId, createdAt])
   @@index([orgId, createdAt])
+  // "This organization's usage of one feature in a window" (PP-14.17, #935):
+  // the per-feature filter and group-by of the usage report.
+  @@index([orgId, feature, createdAt])
   // "Usage across all users in a time window" — the deployment-wide
   // accounting/billing query, independent of any one user.
   @@index([createdAt])

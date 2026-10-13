@@ -30,16 +30,34 @@
 // starts CLOSED, so OTEL_ENABLED installs the SDK but nothing is exported
 // until the app opens the gate (the reference app: the `telemetry.enabled`
 // system setting, issue #532).
+//
+// AN APP CAN EXTEND THE PIPELINE (PP-14.18)
+// -----------------------------------------------------------------------------
+//
+// `spanProcessors`, `logRecordProcessors` and `metricReaders` add outputs next
+// to the OTLP ones; `views`, `sampler`, `textMapPropagator` and
+// `resourceAttributes` shape what is measured. Every processor and reader the
+// app passes is wrapped in its Gated* twin before the SDK sees it, so NOTHING
+// reaches it while the gate is closed: an app cannot add an output that leaks
+// past the administrator's `telemetry.enabled` switch by forgetting to wrap it.
+// With none of these options the SDK is configured exactly as before.
 // =============================================================================
 
-import { diag, DiagConsoleLogger, DiagLogLevel } from '@opentelemetry/api';
+import { diag, DiagConsoleLogger, DiagLogLevel, type TextMapPropagator } from '@opentelemetry/api';
+import type { LogRecordProcessor } from '@opentelemetry/sdk-logs';
+import type { MetricReader, ViewOptions } from '@opentelemetry/sdk-metrics';
 import type { NodeSDK } from '@opentelemetry/sdk-node';
+import type { Sampler, SpanProcessor } from '@opentelemetry/sdk-trace-base';
 
+import { ATTR_APP_INSTANCE_ID } from './instance-id';
 import { resolveServiceName } from './service-name';
 import {
   GatedLogRecordExporter,
+  GatedLogRecordProcessor,
+  GatedMetricReader,
   GatedPushMetricExporter,
   GatedSpanExporter,
+  GatedSpanProcessor,
   telemetryGate,
 } from './telemetry-gate';
 
@@ -129,6 +147,96 @@ export interface InitializeOtelOptions {
    * @defaultValue `true`
    */
   shutdownOnSigterm?: boolean;
+  /**
+   * Extra span processors, next to the OTLP one (a console exporter in
+   * development, a second backend). Each is wrapped in a `GatedSpanProcessor`:
+   * it sees no span while the telemetry gate is closed. Build a batching one
+   * over a `GatedSpanExporter` to check the gate at export time too.
+   */
+  spanProcessors?: readonly SpanProcessor[];
+  /**
+   * Extra log record processors, next to the OTLP one. Each is wrapped in a
+   * `GatedLogRecordProcessor`.
+   */
+  logRecordProcessors?: readonly LogRecordProcessor[];
+  /**
+   * Extra metric readers, next to the OTLP one (a console exporter, a
+   * Prometheus pull reader). Each is wrapped in a `GatedMetricReader`: it reads
+   * nothing while the gate is closed.
+   */
+  metricReaders?: readonly MetricReader[];
+  /** Metric views (rename an instrument, drop an attribute, change an aggregation); they shape what every reader sees. */
+  views?: readonly ViewOptions[];
+  /** The span sampler. Default: the SDK's (`OTEL_TRACES_SAMPLER`, else parent-based always-on). */
+  sampler?: Sampler;
+  /** The context propagator. Default: the SDK's (`OTEL_PROPAGATORS`, else W3C trace context and baggage). */
+  textMapPropagator?: TextMapPropagator;
+  /**
+   * Extra resource attributes (`deployment.region`, `k8s.pod.name`), stamped on
+   * every span, log record and metric batch. `deployment.environment` may be
+   * overridden; `service.name`, `service.version` (their own options) and
+   * `app.instance.id` (the gate stamps it) may not. At most
+   * {@link RESOURCE_ATTRIBUTES_MAX} attributes; keys of at most 256 and string
+   * values of at most 1 024 characters.
+   */
+  resourceAttributes?: Readonly<Record<string, string | number | boolean>>;
+}
+
+/**
+ * The most extra resource attributes `initializeOtel` accepts.
+ *
+ * @stability experimental
+ */
+export const RESOURCE_ATTRIBUTES_MAX = 32;
+
+const RESERVED_RESOURCE_ATTRIBUTES: ReadonlySet<string> = new Set(['service.name', 'service.version', ATTR_APP_INSTANCE_ID]);
+
+/**
+ * Checks the extra resource attributes: plain, bounded, none of the reserved
+ * keys. Exported for the spec.
+ *
+ * @param attributes - the app's `resourceAttributes`.
+ * @returns the attributes, unchanged.
+ * @throws Error naming the offending key.
+ *
+ * @stability experimental
+ */
+export function validateResourceAttributes(
+  attributes: Readonly<Record<string, string | number | boolean>> | undefined,
+): Readonly<Record<string, string | number | boolean>> {
+  if (attributes === undefined) return {};
+  if (attributes === null || typeof attributes !== 'object' || Array.isArray(attributes)) {
+    throw new Error('initializeOtel: `resourceAttributes` must be an object of attribute names and values.');
+  }
+  const keys = Object.keys(attributes);
+  if (keys.length > RESOURCE_ATTRIBUTES_MAX) {
+    throw new Error(`initializeOtel: \`resourceAttributes\` has ${keys.length} attributes; at most ${RESOURCE_ATTRIBUTES_MAX}.`);
+  }
+  for (const key of keys) {
+    if (key === '' || key.length > 256) throw new Error('initializeOtel: a `resourceAttributes` key must be 1 to 256 characters.');
+    if (RESERVED_RESOURCE_ATTRIBUTES.has(key)) {
+      throw new Error(
+        `initializeOtel: \`resourceAttributes\` may not set "${key}" ` +
+          `(${key === ATTR_APP_INSTANCE_ID ? 'the telemetry gate stamps it' : 'it has its own option'}).`,
+      );
+    }
+    const value = attributes[key];
+    const ok =
+      (typeof value === 'string' && value.length <= 1024) ||
+      (typeof value === 'number' && Number.isFinite(value)) ||
+      typeof value === 'boolean';
+    if (!ok) throw new Error(`initializeOtel: \`resourceAttributes\` "${key}" must be a string (at most 1 024 characters), a finite number or a boolean.`);
+  }
+  return attributes;
+}
+
+/** `list` must be an array of objects: the SDK would fail later and further from the cause. */
+function assertList(name: string, list: readonly unknown[] | undefined): readonly unknown[] {
+  if (list === undefined) return [];
+  if (!Array.isArray(list) || list.some((item) => item === null || typeof item !== 'object')) {
+    throw new Error(`initializeOtel: \`${name}\` must be an array of objects.`);
+  }
+  return list;
 }
 
 type Log = (message: string) => void;
@@ -164,6 +272,13 @@ type Log = (message: string) => void;
  * @stability experimental
  */
 export function initializeOtel(options: InitializeOtelOptions = {}): NodeSDK | null {
+  // A bad extension option fails here, enabled or not: it must not wait for the day OTEL_ENABLED flips.
+  const extraResourceAttributes = validateResourceAttributes(options.resourceAttributes);
+  const extraSpanProcessors = assertList('spanProcessors', options.spanProcessors) as readonly SpanProcessor[];
+  const extraLogProcessors = assertList('logRecordProcessors', options.logRecordProcessors) as readonly LogRecordProcessor[];
+  const extraMetricReaders = assertList('metricReaders', options.metricReaders) as readonly MetricReader[];
+  const views = assertList('views', options.views) as readonly ViewOptions[];
+
   // Enable OTEL diagnostics in development.
   if (process.env.NODE_ENV === 'development' && process.env.OTEL_DEBUG === 'true') {
     diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.INFO);
@@ -189,6 +304,8 @@ export function initializeOtel(options: InitializeOtelOptions = {}): NodeSDK | n
     require('@opentelemetry/exporter-logs-otlp-http') as typeof import('@opentelemetry/exporter-logs-otlp-http');
   const { PeriodicExportingMetricReader } =
     require('@opentelemetry/sdk-metrics') as typeof import('@opentelemetry/sdk-metrics');
+  const { BatchSpanProcessor } =
+    require('@opentelemetry/sdk-trace-base') as typeof import('@opentelemetry/sdk-trace-base');
   const { BatchLogRecordProcessor } = require('@opentelemetry/sdk-logs') as typeof import('@opentelemetry/sdk-logs');
   const { resourceFromAttributes } = require('@opentelemetry/resources') as typeof import('@opentelemetry/resources');
   const { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION, SEMRESATTRS_DEPLOYMENT_ENVIRONMENT } =
@@ -200,27 +317,49 @@ export function initializeOtel(options: InitializeOtelOptions = {}): NodeSDK | n
 
   if (options.instanceId) telemetryGate.setInstanceId(options.instanceId);
 
+  // The platform's attributes win over the app's: service.name and service.version
+  // are reserved (validated above); only deployment.environment may be replaced.
   const resource = resourceFromAttributes({
+    [SEMRESATTRS_DEPLOYMENT_ENVIRONMENT]: process.env.NODE_ENV || 'development',
+    ...extraResourceAttributes,
     [ATTR_SERVICE_NAME]: serviceName,
     [ATTR_SERVICE_VERSION]: options.serviceVersion ?? (process.env.npm_package_version || '0.0.1'),
-    [SEMRESATTRS_DEPLOYMENT_ENVIRONMENT]: process.env.NODE_ENV || 'development',
+  });
+
+  const otlpTraceExporter = new GatedSpanExporter(
+    new OTLPTraceExporter({
+      url: `${endpoint}/v1/traces`,
+    }),
+  );
+  const otlpMetricReader = new PeriodicExportingMetricReader({
+    exporter: new GatedPushMetricExporter(
+      new OTLPMetricExporter({
+        url: `${endpoint}/v1/metrics`,
+      }),
+    ),
+    exportIntervalMillis: METRIC_EXPORT_INTERVAL_MS,
   });
 
   const sdk = new NodeSdk({
     resource,
-    traceExporter: new GatedSpanExporter(
-      new OTLPTraceExporter({
-        url: `${endpoint}/v1/traces`,
-      }),
-    ),
-    metricReader: new PeriodicExportingMetricReader({
-      exporter: new GatedPushMetricExporter(
-        new OTLPMetricExporter({
-          url: `${endpoint}/v1/metrics`,
-        }),
-      ),
-      exportIntervalMillis: METRIC_EXPORT_INTERVAL_MS,
-    }),
+    // The SDK takes EITHER `traceExporter` OR `spanProcessors`: with extra
+    // processors the OTLP one is built here the way the SDK builds its own, and
+    // the app's follow it, each behind the gate. Without any the configuration
+    // is exactly what it always was.
+    ...(extraSpanProcessors.length > 0
+      ? {
+          spanProcessors: [
+            new BatchSpanProcessor(otlpTraceExporter),
+            ...extraSpanProcessors.map((processor) => new GatedSpanProcessor(processor)),
+          ],
+        }
+      : { traceExporter: otlpTraceExporter }),
+    ...(extraMetricReaders.length > 0
+      ? { metricReaders: [otlpMetricReader, ...extraMetricReaders.map((reader) => new GatedMetricReader(reader))] }
+      : { metricReader: otlpMetricReader }),
+    ...(views.length > 0 ? { views: [...views] } : {}),
+    ...(options.sampler ? { sampler: options.sampler } : {}),
+    ...(options.textMapPropagator ? { textMapPropagator: options.textMapPropagator } : {}),
     // Registers the global LoggerProvider. The pino instrumentation below
     // forwards every pino record to it ("log sending"); stdout is unchanged.
     logRecordProcessors: [
@@ -231,6 +370,7 @@ export function initializeOtel(options: InitializeOtelOptions = {}): NodeSDK | n
           }),
         ),
       }),
+      ...extraLogProcessors.map((processor) => new GatedLogRecordProcessor(processor)),
     ],
     instrumentations: [
       getNodeAutoInstrumentations(

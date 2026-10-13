@@ -11,17 +11,21 @@
 //   - refused with AI_INVALID_REQUEST when the feature is not registered, or
 //     when the chosen model lacks one of the feature's `needs` or
 //     `inputModalities`, or is on a provider outside its `providers`,
-//   - recorded as the span attribute `ai.feature`.
+//   - recorded as the span attribute `ai.feature`, and (PP-14.17, #935) as the
+//     `feature` column of the call's usage row and of a background run, so
+//     usage can be filtered and grouped per feature from the database.
 //
-// The feature id is never persisted as a column. `GET /api/ai/features` lists
-// the registry with, per feature, whether the caller has a usable model.
+// `GET /api/ai/features` lists the registry with, per feature, whether the
+// caller has a usable model.
 // =============================================================================
 
 import { defineRegistry, type Registry } from '../../core/index';
-import { AI_CAPABILITIES, AI_INPUT_MODALITIES, type AiCapability, type AiInputModality } from '../core/capabilities';
+import { AI_INPUT_MODALITIES, type AiCapability, type AiInputModality } from '../core/capabilities';
+import { isAiCapability } from '../core/capability-registry';
+import { AI_FEATURE_ID_PATTERN } from '@marinoscar/platform-contract/ai';
 
 /** A feature id: lower snake case, starting with a letter (`coach_chat`). */
-const FEATURE_ID_PATTERN = /^[a-z][a-z0-9_]{0,63}$/;
+const FEATURE_ID_PATTERN = AI_FEATURE_ID_PATTERN;
 
 /**
  * One AI feature of an app.
@@ -61,7 +65,9 @@ export const aiFeatureRegistry: Registry<AiFeatureDefinition> = defineRegistry<A
     if (typeof def.label !== 'string' || def.label.trim() === '') throw new Error('label is required');
     if (!Array.isArray(def.needs) || def.needs.length === 0) throw new Error('needs must name at least one capability');
     for (const need of def.needs) {
-      if (!(AI_CAPABILITIES as readonly string[]).includes(need)) throw new Error(`unknown capability "${String(need)}"`);
+      if (!isAiCapability(need)) {
+        throw new Error(`unknown capability "${String(need)}" (an app capability is registered with registerAiCapability first)`);
+      }
     }
     for (const modality of def.inputModalities ?? []) {
       if (!(AI_INPUT_MODALITIES as readonly string[]).includes(modality)) {

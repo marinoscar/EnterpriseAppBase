@@ -54,7 +54,11 @@ export class AiUsageAdminController {
       'organization, labelled with its name; events with none are keyed `none`). The `orgKey*` ' +
       'fields of every bucket are the part paid for by an administrator-managed key (the ' +
       "organization's own or the deployment's). `orgId` narrows the report to one " +
-      "organization's events.\n\n" +
+      "organization's events, and `feature` to one registered AI feature. `groupBy` also takes " +
+      '`feature` (key: the feature id, `none` for events recorded without one) and `operation` ' +
+      '(key: the operation id). When the deployment binds a pricing port ' +
+      '(`AiModule.forRoot({ pricing })`) the report carries `priced: true` and a `cost` on every ' +
+      'bucket.\n\n' +
       'Reachable while AI is disabled. Refused with **400** (`details.reason: ' +
       '"AI_USAGE_RANGE_INVALID"`) for a reversed or over-long range.',
   })
@@ -65,10 +69,11 @@ export class AiUsageAdminController {
   @ApiQuery({ name: 'provider', required: false, type: String, description: "Only this provider's events." })
   @ApiQuery({ name: 'model', required: false, type: String, description: "Only this provider model id's events." })
   @ApiQuery({ name: 'orgId', required: false, type: String, format: 'uuid', description: "Only this organization's events." })
+  @ApiQuery({ name: 'feature', required: false, type: String, description: 'Only events recorded for this registered AI feature.' })
   @ApiDataResponse(AiUsageReportDto, { description: 'The usage report' })
   @ApiResponse({ status: 400, description: 'Invalid query, or `AI_USAGE_RANGE_INVALID`', type: ErrorDto })
   async report(@Query() query: AiUsageAdminQueryDto): Promise<AiUsageReport> {
-    return this.usage.report(query);
+    return this.usage.report({ ...query, withCost: true });
   }
 
   @Get('org-usage')
@@ -87,10 +92,11 @@ export class AiUsageAdminController {
   @ApiQuery({ name: 'userId', required: false, type: String, format: 'uuid', description: "Only this member's events." })
   @ApiQuery({ name: 'provider', required: false, type: String, description: "Only this provider's events." })
   @ApiQuery({ name: 'model', required: false, type: String, description: "Only this provider model id's events." })
+  @ApiQuery({ name: 'feature', required: false, type: String, description: 'Only events recorded for this registered AI feature.' })
   @ApiDataResponse(AiUsageReportDto, { description: "The organization's usage report" })
   @ApiResponse({ status: 400, description: 'Invalid query, or `AI_USAGE_RANGE_INVALID`', type: ErrorDto })
   @ApiResponse({ status: 403, description: 'Missing `org_ai_config:read` in the active organization', type: ErrorDto })
   async orgReport(@Query() query: AiUsageOrgQueryDto, @CurrentOrg() orgId: string): Promise<AiUsageReport> {
-    return this.usage.report({ ...query, orgId }, new Date(), orgId);
+    return this.usage.report({ ...query, orgId, withCost: true }, new Date(), orgId);
   }
 }

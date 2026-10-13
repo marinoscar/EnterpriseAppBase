@@ -1,12 +1,17 @@
 import {
   DEFAULT_IGNORED_INCOMING_PATHS,
+  RESOURCE_ATTRIBUTES_MAX,
   initializeOtel,
   instrumentationConfig,
+  validateResourceAttributes,
 } from '../../src/otel-core/sdk/initialize-otel';
 import {
   GatedLogRecordExporter,
+  GatedLogRecordProcessor,
+  GatedMetricReader,
   GatedPushMetricExporter,
   GatedSpanExporter,
+  GatedSpanProcessor,
   telemetryGate,
 } from '../../src/otel-core/sdk/telemetry-gate';
 
@@ -230,5 +235,120 @@ describe('instrumentationConfig', () => {
     expect(config['@opentelemetry/instrumentation-fs']).toEqual({ enabled: true });
     expect(config['@opentelemetry/instrumentation-pg']).toEqual({ enhancedDatabaseReporting: true });
     expect(config['@opentelemetry/instrumentation-pino']).toEqual({ disableLogSending: false });
+  });
+});
+
+// -----------------------------------------------------------------------------
+// The extension options (PP-14.18)
+// -----------------------------------------------------------------------------
+
+describe('initializeOtel: extra processors, readers, views, sampler, propagator and resource attributes', () => {
+  const processor = () => ({
+    onStart: jest.fn(),
+    onEnd: jest.fn(),
+    forceFlush: jest.fn().mockResolvedValue(undefined),
+    shutdown: jest.fn().mockResolvedValue(undefined),
+  });
+  const logProcessor = () => ({
+    onEmit: jest.fn(),
+    forceFlush: jest.fn().mockResolvedValue(undefined),
+    shutdown: jest.fn().mockResolvedValue(undefined),
+  });
+  const reader = () => ({ collect: jest.fn(), shutdown: jest.fn(), forceFlush: jest.fn() }) as never;
+
+  function started(options: Parameters<typeof initializeOtel>[0]): Record<string, any> {
+    process.env.OTEL_ENABLED = 'true';
+    initializeOtel({ shutdownOnSigterm: false, ...options });
+    expect(NodeSDK).toHaveBeenCalledTimes(1);
+    return mockConstructed.NodeSDK[0] as Record<string, any>;
+  }
+
+  it('configures the SDK exactly as before when none of them is given', () => {
+    const config = started({});
+
+    expect(Object.keys(config).sort()).toEqual(['instrumentations', 'logRecordProcessors', 'metricReader', 'resource', 'traceExporter']);
+  });
+
+  it('wraps every extra span processor, log processor and metric reader in its gated twin, after the OTLP one', () => {
+    const spans = [processor(), processor()];
+    const logs = [logProcessor()];
+    const readers = [reader()];
+    const config = started({ spanProcessors: spans, logRecordProcessors: logs, metricReaders: readers });
+
+    // The SDK takes a traceExporter OR spanProcessors: the OTLP exporter becomes a batch processor first.
+    expect(config.traceExporter).toBeUndefined();
+    expect(config.spanProcessors).toHaveLength(3);
+    expect(config.spanProcessors[0]._exporter).toBeInstanceOf(GatedSpanExporter);
+    expect(config.spanProcessors[1]).toBeInstanceOf(GatedSpanProcessor);
+    expect(config.spanProcessors[2]).toBeInstanceOf(GatedSpanProcessor);
+
+    expect(config.logRecordProcessors).toHaveLength(2);
+    expect(config.logRecordProcessors[0]._exporter).toBeInstanceOf(GatedLogRecordExporter);
+    expect(config.logRecordProcessors[1]).toBeInstanceOf(GatedLogRecordProcessor);
+
+    expect(config.metricReader).toBeUndefined();
+    expect(config.metricReaders).toHaveLength(2);
+    expect(config.metricReaders[0]._exporter).toBeInstanceOf(GatedPushMetricExporter);
+    expect(config.metricReaders[1]).toBeInstanceOf(GatedMetricReader);
+  });
+
+  it('hands no extra reaching the SDK ungated: nothing the app passed is in the config except through a wrapper', () => {
+    const span = processor();
+    const log = logProcessor();
+    const metrics = reader();
+    const config = started({ spanProcessors: [span], logRecordProcessors: [log], metricReaders: [metrics] });
+
+    expect(config.spanProcessors).not.toContain(span);
+    expect(config.logRecordProcessors).not.toContain(log);
+    expect(config.metricReaders).not.toContain(metrics);
+  });
+
+  it('passes views, the sampler and the propagator through, only when given', () => {
+    const sampler = { shouldSample: jest.fn(), toString: () => 'mine' };
+    const propagator = { inject: jest.fn(), extract: jest.fn(), fields: () => [] };
+    const view = { instrumentName: 'http.server.duration', aggregation: { type: 'DROP' } };
+    const config = started({ views: [view as never], sampler: sampler as never, textMapPropagator: propagator as never });
+
+    expect(config.views).toEqual([view]);
+    expect(config.sampler).toBe(sampler);
+    expect(config.textMapPropagator).toBe(propagator);
+    expect(config.spanProcessors).toBeUndefined();
+  });
+
+  it('adds resource attributes beside the platform ones, which win; deployment.environment may be replaced', () => {
+    const config = started({
+      serviceName: 'svc',
+      serviceVersion: '1.2.3',
+      resourceAttributes: { 'deployment.region': 'eu-west-1', 'deployment.environment': 'staging', 'k8s.pod.name': 'api-7d9' },
+    });
+
+    expect(config.resource.attributes).toEqual({
+      'deployment.environment': 'staging',
+      'deployment.region': 'eu-west-1',
+      'k8s.pod.name': 'api-7d9',
+      'service.name': 'svc',
+      'service.version': '1.2.3',
+    });
+  });
+
+  it.each([
+    [{ 'service.name': 'other' }, /may not set "service.name"/],
+    [{ 'service.version': '9' }, /may not set "service.version"/],
+    [{ 'app.instance.id': 'x' }, /may not set "app.instance.id"/],
+    [{ '': 'x' }, /1 to 256 characters/],
+    [{ ['k'.repeat(257)]: 'x' }, /1 to 256 characters/],
+    [{ a: { nested: true } }, /must be a string/],
+    [{ a: Number.NaN }, /finite number/],
+    [{ a: 'x'.repeat(1025) }, /1 024 characters/],
+    [Object.fromEntries(Array.from({ length: RESOURCE_ATTRIBUTES_MAX + 1 }, (_, i) => [`a${i}`, 'v'])), /at most 32/],
+  ])('refuses the resource attributes %j', (attributes, message) => {
+    expect(() => validateResourceAttributes(attributes as never)).toThrow(message);
+  });
+
+  it('refuses a bad extension option even when the SDK is disabled, so it cannot wait for the day it flips', () => {
+    expect(() => initializeOtel({ enabled: false, resourceAttributes: { 'service.name': 'x' } })).toThrow(/service\.name/);
+    expect(() => initializeOtel({ enabled: false, spanProcessors: 'nope' as never })).toThrow(/`spanProcessors` must be an array of objects/);
+    expect(() => initializeOtel({ enabled: false, metricReaders: [null as never] })).toThrow(/`metricReaders` must be an array of objects/);
+    expect(NodeSDK).not.toHaveBeenCalled();
   });
 });

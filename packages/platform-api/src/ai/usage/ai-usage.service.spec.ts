@@ -1,7 +1,12 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, Logger } from '@nestjs/common';
 import type { Prisma } from '../data/prisma';
 
+import { registerAiCapability } from '../core/capability-registry';
+import { registerAiOperation } from '../core/operation-registry';
+import { registerAiFeature } from '../features/ai-feature.registry';
 import { AiProviderRegistry } from '../core/provider-registry';
+import type { AiPricing } from '../ports';
+import { z } from 'zod';
 import { FakeAiProvider } from '../testing/fake-ai-provider';
 import { AI_USAGE_NO_USER_KEY, AiUsageService, emptyBucket, resolveAiUsageRange } from './ai-usage.service';
 
@@ -232,5 +237,186 @@ describe('AiUsageService.report', () => {
 
     expect(sqlOf(0).sql).not.toContain('user_id =');
     expect(sqlOf(0).sql).toContain('GROUP BY GROUPING SETS ((key_source), ())');
+  });
+});
+
+// ---- PP-14.17 (#935): per-feature usage and the pricing seam ------------------------
+
+registerAiCapability({ id: 'usage_spec_capability', label: 'Usage spec', description: 'Only for this spec.' });
+registerAiOperation({
+  id: 'usage_spec.op',
+  label: 'Usage spec operation',
+  capability: 'usage_spec_capability',
+  inputSchema: z.object({}),
+  outputSchema: z.object({}),
+});
+registerAiFeature({ id: 'usage_spec_feature', label: 'Usage spec feature', needs: ['responses'] });
+
+describe('AiUsageService.report: features, operations and pricing', () => {
+  let queryRaw: jest.Mock;
+
+  function build(pricing?: AiPricing) {
+    queryRaw = jest.fn();
+    const registry = new AiProviderRegistry();
+
+    return new AiUsageService(
+      { $queryRaw: queryRaw, forOrg: () => ({ $queryRaw: queryRaw }), user: { findMany: jest.fn().mockResolvedValue([]) } } as never,
+      registry,
+      { asSystem: () => ({ $queryRaw: queryRaw }) } as never,
+      pricing,
+    );
+  }
+
+  const slice = (key: string | null, provider: string, model: string, operation: string, over: Record<string, number> = {}) => ({
+    key,
+    provider,
+    model_id: model,
+    operation,
+    requests: 1,
+    input_tokens: 0,
+    output_tokens: 0,
+    reasoning_tokens: 0,
+    cached_input_tokens: 0,
+    ...over,
+  });
+
+  it('groups by feature, labels a registered one, and keys events with none `none`', async () => {
+    const service = build();
+
+    queryRaw
+      .mockResolvedValueOnce([aggRow('usage_spec_feature', { requests: 3 }), aggRow(null, { requests: 2 }), aggRow('removed_feature', { requests: 1 })].map((r) => r))
+      .mockResolvedValueOnce([]);
+
+    const report = await service.report({ groupBy: 'feature' }, NOW);
+
+    expect(report.series.map((item) => [item.key, item.label])).toEqual([
+      ['usage_spec_feature', 'Usage spec feature'],
+      ['none', 'No feature'],
+      ['removed_feature', 'removed_feature'],
+    ]);
+  });
+
+  it('groups by operation and labels a registered operation', async () => {
+    const service = build();
+
+    queryRaw.mockResolvedValueOnce([aggRow('usage_spec.op', { requests: 4 }), aggRow('audio.transcribe', { requests: 2 })]).mockResolvedValueOnce([]);
+
+    const report = await service.report({ groupBy: 'operation' }, NOW);
+
+    expect(report.series.map((item) => [item.key, item.label])).toEqual([
+      ['usage_spec.op', 'Usage spec operation'],
+      ['audio.transcribe', 'Transcription'],
+    ]);
+  });
+
+  it('binds the feature filter as a parameter, never as SQL text', async () => {
+    const service = build();
+
+    queryRaw.mockResolvedValue([]);
+    await service.report({ groupBy: 'day', feature: "x'; DROP TABLE ai_usage_events; --" }, NOW);
+
+    const sql = queryRaw.mock.calls[0][0] as Prisma.Sql;
+
+    expect(sql.sql).toContain('AND feature = ?');
+    expect(sql.sql).not.toContain('DROP TABLE');
+    expect(sql.values).toContain("x'; DROP TABLE ai_usage_events; --");
+  });
+
+  it('carries no cost and no priced flag when no pricing port is bound', async () => {
+    const service = build();
+
+    queryRaw.mockResolvedValue([]);
+
+    const report = await service.report({ groupBy: 'provider', withCost: true }, NOW);
+
+    expect(report.priced).toBe(false);
+    expect(report.totals).not.toHaveProperty('cost');
+    expect(queryRaw).toHaveBeenCalledTimes(2);
+  });
+
+  it('prices a report that asks for cost: per group, per (provider, model, operation) slice, and in total', async () => {
+    const costFor = jest.fn(async (usage) => ({ amount: usage.inputTokens / 1000 + (usage.units.audioSeconds ?? 0) / 100, currency: 'USD' }));
+    const service = build({ costFor });
+
+    queryRaw
+      .mockResolvedValueOnce([aggRow(null, { requests: 3 }, 1), aggRow('usage_spec_feature', { requests: 2 }), aggRow(null, { requests: 1 })])
+      .mockResolvedValueOnce([])
+      // The slices at (group, provider, model, operation) grain, then their units.
+      .mockResolvedValueOnce([
+        slice('usage_spec_feature', 'openai', 'gpt-a', 'responses', { input_tokens: 2000 }),
+        slice('usage_spec_feature', 'example-transcribe', 'asr', 'audio.transcribe'),
+        slice(null, 'openai', 'gpt-a', 'responses', { input_tokens: 1000 }),
+      ])
+      .mockResolvedValueOnce([{ key: 'usage_spec_feature', provider: 'example-transcribe', model_id: 'asr', operation: 'audio.transcribe', unit: 'audioSeconds', amount: 50 }]);
+
+    const report = await service.report({ groupBy: 'feature', withCost: true }, NOW);
+
+    expect(report.priced).toBe(true);
+    expect(report.totals.cost).toEqual({ amount: 3.5, currency: 'USD' });
+    expect(Object.fromEntries(report.series.map((item) => [item.key, item.cost]))).toEqual({
+      usage_spec_feature: { amount: 2.5, currency: 'USD' },
+      none: { amount: 1, currency: 'USD' },
+    });
+    expect(costFor).toHaveBeenCalledWith({
+      provider: 'example-transcribe',
+      modelId: 'asr',
+      operation: 'audio.transcribe',
+      requests: 1,
+      inputTokens: 0,
+      outputTokens: 0,
+      reasoningTokens: 0,
+      cachedInputTokens: 0,
+      units: { audioSeconds: 50 },
+    });
+  });
+
+  it('a slice the port does not price, or prices in a second currency, never invents a cost', async () => {
+    const costFor = jest.fn(async (usage) => (usage.modelId === 'free' ? null : { amount: 1, currency: usage.modelId === 'euro' ? 'EUR' : 'USD' }));
+    const service = build({ costFor });
+
+    queryRaw
+      .mockResolvedValueOnce([aggRow('a', { requests: 1 }), aggRow('b', { requests: 1 }), aggRow('c', { requests: 1 })])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([slice('a', 'openai', 'free', 'responses'), slice('b', 'openai', 'euro', 'responses'), slice('b', 'openai', 'usd', 'responses'), slice('c', 'openai', 'usd', 'responses')])
+      .mockResolvedValueOnce([]);
+
+    const report = await service.report({ groupBy: 'model', withCost: true }, NOW);
+    const costs = Object.fromEntries(report.series.map((item) => [item.key, item.cost]));
+
+    expect(costs).toEqual({ a: null, b: null, c: { amount: 1, currency: 'USD' } });
+    expect(report.totals.cost).toBeNull();
+  });
+
+  it('a throwing port is a missing price, logged without the usage, and the report still answers', async () => {
+    const costFor = jest.fn(async () => {
+      throw new Error('rate card offline: SENSITIVE');
+    });
+    const service = build({ costFor });
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+
+    queryRaw
+      .mockResolvedValueOnce([aggRow('a', { requests: 1 })])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([slice('a', 'openai', 'gpt', 'responses')])
+      .mockResolvedValueOnce([]);
+
+    const report = await service.report({ groupBy: 'model', withCost: true }, NOW);
+
+    expect(report.series[0].cost).toBeNull();
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('SENSITIVE');
+    warn.mockRestore();
+  });
+
+  it('a user\'s own report (no withCost) is never priced even when a port is bound', async () => {
+    const costFor = jest.fn();
+    const service = build({ costFor });
+
+    queryRaw.mockResolvedValue([]);
+
+    const report = await service.report({ groupBy: 'day', userId: 'u1' }, NOW, 'org-1');
+
+    expect(report).not.toHaveProperty('priced');
+    expect(costFor).not.toHaveBeenCalled();
+    expect(queryRaw).toHaveBeenCalledTimes(2);
   });
 });

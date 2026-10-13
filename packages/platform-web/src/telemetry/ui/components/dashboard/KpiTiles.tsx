@@ -23,6 +23,7 @@ import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import { SparkLineChart } from '@mui/x-charts/SparkLineChart';
 import type { DashboardTile, DashboardUnknownRoutes } from '../../../headless/services/telemetryDashboard.js';
 import { formatTimestamp, formatTileValue, tileChange, tileDirection, type TileChange } from '../../../headless/lib/format.js';
+import { useMetricUnitFormats } from '../../../headless/context/metricUnitFormats.js';
 import { useTelemetryTokens, type TelemetryTokens } from '../../../theme/telemetryTokens.js';
 
 /** The change line's colour per tone: status tokens for good/bad, neutral chrome otherwise. */
@@ -104,8 +105,10 @@ function Tile({
   now,
   caption,
   highlight = false,
-}: { tile: DashboardTile; compact: boolean; now: number } & TileExtra) {
-  const formatted = formatTileValue(tile.value, tile.unit, now);
+  color,
+}: { tile: DashboardTile; compact: boolean; now: number; color?: string } & TileExtra) {
+  const formats = useMetricUnitFormats();
+  const formatted = formatTileValue(tile.value, tile.unit, now, formats);
   const isTimestamp = tile.unit === 'timestamp';
   const change = tileChange(tile.value, tile.previous, tileDirection(tile.key));
   const tokens = useTelemetryTokens();
@@ -132,7 +135,11 @@ function Tile({
           component="p"
           noWrap
           title={isTimestamp && typeof tile.value === 'string' ? formatTimestamp(tile.value) : undefined}
-          sx={{ fontWeight: 600, minWidth: 0, ...(highlight ? { color: tokens.status.warn } : {}) }}
+          sx={{
+            fontWeight: 600,
+            minWidth: 0,
+            ...(highlight ? { color: tokens.status.warn } : color ? { color } : {}),
+          }}
         >
           {formatted.value}
         </Typography>
@@ -171,6 +178,8 @@ export interface KpiTilesProps {
   now?: number;
   /** `data-testid` of the grid (the infrastructure sections, #602, reuse this component). */
   testId?: string;
+  /** Value colours by tile key, already resolved from a presentation's theme tokens (PP-14.18). Absent: the default text colour. */
+  colors?: Readonly<Record<string, string>>;
 }
 
 export function KpiTiles({
@@ -179,6 +188,7 @@ export function KpiTiles({
   unknownRoutes,
   now = Date.now(),
   testId = 'kpi-tiles',
+  colors,
 }: KpiTilesProps) {
   const theme = useTheme();
   const compact = useMediaQuery(theme.breakpoints.down('sm'));
@@ -190,6 +200,7 @@ export function KpiTiles({
             tile={tile}
             compact={compact}
             now={now}
+            {...(colors?.[tile.key] ? { color: colors[tile.key] } : {})}
             {...(tile.key === 'unknownRoutes' ? unknownRoutesTileExtra(unknownRoutes, compact) : {})}
           />
         </Grid>

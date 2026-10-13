@@ -164,7 +164,7 @@ None.
 | Part | Import paths | Depends on (slices) | Install beyond the required peers | README |
 |---|---|---|---|---|
 | API (`platform-api`) | `/telemetry`, `/telemetry/testing` | `core`, `doctor`, `otel-core`, `credentials` | `@nestjs/config`, `@nestjs/schedule`, `fastify`; `/testing` adds `@nestjs/platform-fastify` | [README](../packages/platform-api/src/telemetry/README.md) |
-| Web (`platform-web`) | `/telemetry/headless`, `/telemetry/ui`, `/telemetry/ui/dashboard-page`, `/telemetry/ui/explorer-page`, `/telemetry/ui/settings-page` | `core`, `settings` | `@codemirror/lang-sql`, `@mui/icons-material`, `@mui/x-charts`, `@mui/x-data-grid`, `@uiw/react-codemirror`, `react-router-dom` | [README](../packages/platform-web/src/telemetry/README.md) |
+| Web (`platform-web`) | `/telemetry/headless`, `/telemetry/ui`, `/telemetry/ui/dashboard-page`, `/telemetry/ui/dashboard-panels`, `/telemetry/ui/explorer-page`, `/telemetry/ui/settings-page` | `core`, `settings` | `@codemirror/lang-sql`, `@mui/icons-material`, `@mui/x-charts`, `@mui/x-data-grid`, `@uiw/react-codemirror`, `react-router-dom` | [README](../packages/platform-web/src/telemetry/README.md) |
 | Contract (`platform-contract`) | `/telemetry` | `settings` | none | [README](../packages/platform-contract/src/telemetry/README.md) |
 | CLI (`platform-cli`) | `/telemetry` | `core` | none | [README](../packages/platform-cli/src/telemetry/README.md) |
 | Infra (`platform-infra`) | `/telemetry` | none | none | [README](../packages/platform-infra/src/telemetry/README.md) |
@@ -520,7 +520,7 @@ None.
 | Part | Import paths | Depends on (slices) | Install beyond the required peers | README |
 |---|---|---|---|---|
 | API (`platform-api`) | `/ai`, `/ai/testing` | `core`, `doctor`, `otel-core`, `identity`, `settings`, `credentials`, `jobs`, `nodes`, `storage` | `@nestjs/config`, `@nestjs/event-emitter`, `@nestjs/jwt`, `@nestjs/passport`, `@nestjs/schedule`, `@prisma/client-runtime-utils`, `fastify`, `passport`; `/testing` adds `@types/supertest`, `supertest` | [README](../packages/platform-api/src/ai/README.md) |
-| Web (`platform-web`) | `/ai/headless`, `/ai/ui`, `/ai/ui/config-page`, `/ai/ui/keys-page`, `/ai/ui/models-page`, `/ai/ui/playground-page`, `/ai/ui/provider-cards`, `/ai/ui/require-ai-enabled`, `/ai/ui/usage-page` | `core`, `settings`, `storage`, `datatable` | `@mui/icons-material`, `@mui/x-data-grid`, `react-router-dom` | [README](../packages/platform-web/src/ai/README.md) |
+| Web (`platform-web`) | `/ai/headless`, `/ai/ui`, `/ai/ui/config-page`, `/ai/ui/keys-page`, `/ai/ui/models-page`, `/ai/ui/playground-modes`, `/ai/ui/playground-page`, `/ai/ui/provider-cards`, `/ai/ui/require-ai-enabled`, `/ai/ui/usage-page` | `core`, `settings`, `storage`, `datatable` | `@mui/icons-material`, `@mui/x-data-grid`, `react-router-dom` | [README](../packages/platform-web/src/ai/README.md) |
 | Contract (`platform-contract`) | `/ai` | none | none | [README](../packages/platform-contract/src/ai/README.md) |
 
 **Admin and settings cards.**

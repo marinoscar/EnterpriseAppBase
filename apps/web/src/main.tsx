@@ -7,6 +7,7 @@ import App from './App';
 import './identity/authProviders';
 import { registerAppGranteePickers } from './platform/granteePickers';
 import { registerAppLinkRenderers } from './platform/linkRenderers';
+import { registerSignupsPanelView } from './platform-extensions/telemetry/SignupsPanelView.example';
 import { captureTwaLaunch } from '@marinoscar/platform-web/android-app/headless';
 import { ANDROID_TWA_KEY_PREFIX } from './config/androidApp';
 
@@ -19,6 +20,10 @@ captureTwaLaunch(undefined, ANDROID_TWA_KEY_PREFIX);
 registerAppLinkRenderers();
 // The share dialog's grantee pickers (PP-14.16), registered and frozen likewise.
 registerAppGranteePickers();
+
+// The app's own Telemetry Dashboard card (PP-14.18): the view of the `signups`
+// panel the API registers (apps/api/src/app-registrations/telemetry.ts).
+registerSignupsPanelView();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

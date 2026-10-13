@@ -18,7 +18,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { AiError } from './ai-error';
-import { AI_CAPABILITIES, AiCapability } from './capabilities';
+import { BUILTIN_AI_CAPABILITIES, type AiCapability, type BuiltinAiCapability } from './capabilities';
+import { listAiCapabilities } from './capability-registry';
+import { getAiOperation } from './operation-registry';
 import { AiProviderAdapter } from './provider-adapter.interface';
 
 /**
@@ -27,7 +29,7 @@ import { AiProviderAdapter } from './provider-adapter.interface';
  * at the PROVIDER level, "can this provider reason / call tools / stream" is
  * the same question as "does it implement the responses port".
  */
-const CAPABILITY_PORT: Record<AiCapability, (adapter: AiProviderAdapter) => boolean> = {
+const CAPABILITY_PORT: Record<BuiltinAiCapability, (adapter: AiProviderAdapter) => boolean> = {
   responses: (a) => a.responses !== undefined,
   reasoning: (a) => a.responses !== undefined,
   tools: (a) => a.responses !== undefined,
@@ -46,12 +48,41 @@ const CAPABILITY_PORT: Record<AiCapability, (adapter: AiProviderAdapter) => bool
 };
 
 /**
- * The capabilities an adapter's ports make possible, in `AI_CAPABILITIES` order.
+ * Whether `adapter` serves `cap`. A built-in capability is derived from the
+ * port it needs; an app capability (`registerAiCapability`) from a registered
+ * operation (`registerAiOperation`) the adapter implements under
+ * `AiProviderAdapter.operations` (PP-14.17, #935). Presence is the declaration
+ * either way.
+ */
+function adapterServes(adapter: AiProviderAdapter, cap: AiCapability): boolean {
+  if (Object.hasOwn(CAPABILITY_PORT, cap)) return CAPABILITY_PORT[cap as BuiltinAiCapability](adapter);
+
+  return operationsOf(adapter).some((operation) => getAiOperation(operation)?.capability === cap);
+}
+
+/** The operation ids `adapter` implements (own, function-valued entries of `operations`). */
+function operationsOf(adapter: AiProviderAdapter): string[] {
+  const operations = adapter.operations;
+
+  if (!operations) return [];
+
+  return Object.keys(operations).filter((id) => typeof operations[id] === 'function');
+}
+
+/**
+ * The capabilities an adapter's ports and operations make possible: the
+ * built-in ones in `BUILTIN_AI_CAPABILITIES` order, then the app's in
+ * registration order.
  *
  * @stability experimental
  */
 export function adapterCapabilities(adapter: AiProviderAdapter): AiCapability[] {
-  return AI_CAPABILITIES.filter((cap) => CAPABILITY_PORT[cap](adapter));
+  const builtin = BUILTIN_AI_CAPABILITIES.filter((cap) => CAPABILITY_PORT[cap](adapter));
+  const custom = listAiCapabilities()
+    .map((definition) => definition.id)
+    .filter((id) => !Object.hasOwn(CAPABILITY_PORT, id) && adapterServes(adapter, id));
+
+  return [...builtin, ...custom];
 }
 
 /**
@@ -116,7 +147,17 @@ export class AiProviderRegistry {
   supports(id: string, cap: AiCapability): boolean {
     const adapter = this.adapters.get(id);
 
-    return adapter !== undefined && CAPABILITY_PORT[cap](adapter);
+    return adapter !== undefined && adapterServes(adapter, cap);
+  }
+
+  /**
+   * Whether provider `id` implements custom operation `operation`
+   * (`AiProviderAdapter.operations`). `false` for an unknown provider.
+   */
+  supportsOperation(id: string, operation: string): boolean {
+    const operations = this.adapters.get(id)?.operations;
+
+    return operations !== undefined && Object.hasOwn(operations, operation) && typeof operations[operation] === 'function';
   }
 
   /**

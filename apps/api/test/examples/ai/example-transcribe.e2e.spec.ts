@@ -173,7 +173,7 @@ describe('example-transcribe: configuration (admin routes over the real settings
       requiresBaseUrl: false,
       help: { key: expect.stringContaining('example-rejected-key') },
       keyStatus: { configured: false },
-      supportedCapabilities: ['audio_transcription'],
+      supportedCapabilities: ['audio_transcription', 'speaker_diarization'],
     });
     expect(config.providers.find((p: any) => p.id === PROVIDER)).not.toHaveProperty('configurable');
     expect(config.descriptors.find((d: any) => d.id === PROVIDER)).toEqual({
@@ -187,6 +187,32 @@ describe('example-transcribe: configuration (admin routes over the real settings
         { name: 'apiKey', kind: 'secret', label: 'API key', help: expect.any(String), hasValue: false, required: true },
       ],
     });
+  });
+
+  it('GET /api/admin/ai/capabilities lists the app capability and operation after the built-ins, with their labels (PP-14.17)', async () => {
+    const res = await request(server()).get(`${ADMIN}/capabilities`).set(authHeader(admin.accessToken)).expect(200);
+    const { capabilities, operations } = res.body.data;
+
+    expect(capabilities.filter((c: any) => c.builtin)).toHaveLength(14);
+    expect(capabilities.at(-1)).toEqual({
+      id: 'speaker_diarization',
+      label: 'Diarization',
+      description: 'Labels who spoke when in a recording.',
+      builtin: false,
+    });
+    expect(operations.at(-1)).toEqual({
+      id: 'audio.diarize',
+      label: 'Diarization',
+      capability: 'speaker_diarization',
+      builtin: false,
+      runnable: true,
+    });
+  });
+
+  it('a viewer without ai_config:read cannot read the vocabularies', async () => {
+    const viewer = await createMockTestUser(context, { roleName: 'viewer' });
+
+    await request(server()).get(`${ADMIN}/capabilities`).set(authHeader(viewer.accessToken)).expect(403);
   });
 
   it("an administrator enables it with region 'eu' from the form, and the built-in slots are untouched", async () => {
@@ -342,7 +368,7 @@ describe('example-transcribe: runtime (the real gate pipeline over the AI runtim
       output: { type: 'transcription', provider: PROVIDER, model: EXAMPLE_TRANSCRIBE_MODEL, text: 'example transcript (eu, 3200 bytes)', durationSeconds: 3.2 },
     });
     expect(transport.callsTo('transcribe')).toEqual([
-      { operation: 'transcribe', apiKey: TENANT_USER_KEY, region: 'eu', model: EXAMPLE_TRANSCRIBE_MODEL, bytes: 3200 },
+      { operation: 'transcribe', apiKey: TENANT_USER_KEY, region: 'eu', model: EXAMPLE_TRANSCRIBE_MODEL, bytes: 3200, diarize: false },
     ]);
     // The `ai_usage_events` row the recorder wrote (the harness's in-memory table; no Postgres in this tier).
     expect(t.harness.usageEvents).toEqual([
@@ -357,6 +383,52 @@ describe('example-transcribe: runtime (the real gate pipeline over the AI runtim
       }),
     ]);
     expect(JSON.stringify(run.body) + JSON.stringify(started.body)).not.toContain(TENANT_USER_KEY);
+  });
+
+  it("providerOptions reach the adapter, and the transcript's extras carry speaker-labelled segments (PP-14.17)", async () => {
+    const started = await request(server())
+      .post('/api/ai/audio/transcriptions')
+      .set(authHeader(token))
+      .send({
+        storageObjectId: recording().id,
+        provider: PROVIDER,
+        model: EXAMPLE_TRANSCRIBE_MODEL,
+        providerOptions: { [PROVIDER]: { diarize: true } },
+      })
+      .expect(202);
+
+    await runJob(started.body.data);
+
+    const run = await request(server()).get(`/api/ai/runs/${started.body.data.runId}`).set(authHeader(token)).expect(200);
+
+    expect(transport.callsTo('transcribe').at(-1)).toMatchObject({ diarize: true });
+    expect(run.body.data.output.extras).toEqual({
+      segments: [
+        { start: 0, end: 1, text: 'example transcript (eu, 3200 bytes) / A', speaker: 'A' },
+        { start: 1, end: 2, text: 'example transcript (eu, 3200 bytes) / B', speaker: 'B' },
+        { start: 2, end: 3, text: 'example transcript (eu, 3200 bytes) / A', speaker: 'A' },
+        { start: 3, end: 3.2, text: 'example transcript (eu, 3200 bytes) / B', speaker: 'B' },
+      ],
+    });
+    // Options are for the vendor: not in a usage row, a response or a log line.
+    expect(JSON.stringify(t.harness.usageEvents)).not.toContain('diarize');
+  });
+
+  it('refuses providerOptions over 4 KiB at the route, before anything is queued', async () => {
+    const res = await request(server())
+      .post('/api/ai/audio/transcriptions')
+      .set(authHeader(token))
+      .send({
+        storageObjectId: recording().id,
+        provider: PROVIDER,
+        model: EXAMPLE_TRANSCRIBE_MODEL,
+        providerOptions: { [PROVIDER]: { blob: 'x'.repeat(5000) } },
+      })
+      .expect(400);
+
+    expect(JSON.stringify(res.body)).not.toContain('xxxxxxxx');
+    expect(t.harness.runRows).toEqual([]);
+    expect(transport.calls).toEqual([]);
   });
 
   it('refuses every capability the provider does not carry, before any vendor call', async () => {

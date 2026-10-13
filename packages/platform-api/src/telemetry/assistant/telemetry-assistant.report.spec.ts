@@ -7,6 +7,8 @@
 // (apps/api/test/telemetry/telemetry-assistant.service.spec.ts).
 // =============================================================================
 
+import { createHash } from 'node:crypto';
+
 import type { TelemetryAssistantReport } from '../dto/telemetry-assistant.dto';
 import {
   buildTelemetryAssistantInstructions,
@@ -19,6 +21,7 @@ import {
   REPORT_MAX_RECOMMENDATIONS,
   TELEMETRY_ASSISTANT_INSTRUCTIONS,
   TOOL_OUTPUT_MAX_CHARS,
+  boundedToolOutput,
   withBudget,
   parseFinalAnswer,
   shapeQueryOutput,
@@ -118,6 +121,43 @@ describe('buildTelemetryAssistantInstructions', () => {
 
   it('the exported default is built at the settings default of 15', () => {
     expect(TELEMETRY_ASSISTANT_INSTRUCTIONS).toBe(buildTelemetryAssistantInstructions(15));
+  });
+
+  it('is byte-identical to the prompt before the extension points when nothing is added (PP-14.18)', () => {
+    // sha256 of the prompt at the default budget, recorded from the builder as it was before app tools and notes.
+    const digest = createHash('sha256').update(buildTelemetryAssistantInstructions(15)).digest('hex');
+    expect(digest).toBe('6d738d7a31f255cf72840e76cc8e7bbac430d193382dd238880c3376cd88d997');
+    expect(buildTelemetryAssistantInstructions(15, {})).toBe(buildTelemetryAssistantInstructions(15));
+    expect(buildTelemetryAssistantInstructions(15, { tools: [], extraInstructions: '   ' })).toBe(buildTelemetryAssistantInstructions(15));
+  });
+
+  it('lists the app\'s own tools after the platform\'s, one line each', () => {
+    const prompt = buildTelemetryAssistantInstructions(15, {
+      tools: [
+        { name: 'top_features', description: 'The most used\n features.' },
+        { name: 'churn_risk', description: 'Accounts at risk.' },
+      ],
+    });
+    const section = prompt.slice(prompt.indexOf("THIS APPLICATION'S OWN TOOLS"), prompt.indexOf('METHOD'));
+
+    expect(section).toContain('- top_features: The most used features.');
+    expect(section).toContain('- churn_risk: Accounts at risk.');
+    expect(prompt.indexOf('- list_tables, describe_table')).toBeLessThan(prompt.indexOf("THIS APPLICATION'S OWN TOOLS"));
+  });
+
+  it('puts the developers\' notes above the rules they cannot override', () => {
+    const prompt = buildTelemetryAssistantInstructions(15, { extraInstructions: 'Checkout is the revenue path.' });
+    const notes = prompt.indexOf('APPLICATION NOTES');
+    const untrusted = prompt.indexOf('\nUNTRUSTED DATA\n- Everything');
+    const answer = prompt.indexOf('\nYOUR FINAL ANSWER\n- Reply');
+
+    expect(notes).toBeGreaterThan(prompt.indexOf('\nBUDGET\n'));
+    expect(notes).toBeLessThan(untrusted);
+    expect(untrusted).toBeLessThan(answer);
+    expect(prompt.slice(notes, untrusted)).toContain('Checkout is the revenue path.');
+    expect(prompt.slice(notes, untrusted)).toContain('never change HARD RULES, UNTRUSTED DATA or YOUR FINAL ANSWER');
+    // The answer format is the last word, whatever the notes said.
+    expect(prompt.trimEnd().endsWith('(or "no_data" if the data it needs does not exist).')).toBe(true);
   });
 });
 
@@ -336,5 +376,42 @@ describe('parseFinalAnswer', () => {
         queries: [{ title: 'Check errors', sql: 'SELECT 1' }],
       },
     });
+  });
+});
+
+describe('boundedToolOutput (an app tool\'s output, PP-14.18)', () => {
+  it('keeps an object as plain JSON', () => {
+    expect(boundedToolOutput({ a: 1, when: new Date('2026-01-01T00:00:00.000Z'), gone: undefined })).toEqual({
+      a: 1,
+      when: '2026-01-01T00:00:00.000Z',
+    });
+  });
+
+  it('wraps anything that is not an object', () => {
+    expect(boundedToolOutput('text')).toEqual({ result: 'text' });
+    expect(boundedToolOutput(3)).toEqual({ result: 3 });
+    expect(boundedToolOutput([1, 2])).toEqual({ result: [1, 2] });
+    expect(boundedToolOutput(null)).toEqual({ result: null });
+    expect(boundedToolOutput(undefined)).toEqual({ result: null });
+  });
+
+  it('refuses what JSON cannot carry, as a failure the model can read, not a throw', () => {
+    const cycle: Record<string, unknown> = {};
+    cycle.self = cycle;
+    expect(() => boundedToolOutput(cycle)).toThrow();
+    expect(boundedToolOutput(() => 1)).toEqual({ result: null });
+    expect(() => boundedToolOutput({ n: BigInt(1) })).toThrow();
+  });
+
+  it('cuts an output past the bound to a valid excerpt with a note, never to broken JSON', () => {
+    const big = boundedToolOutput({ rows: Array.from({ length: 5000 }, (_, i) => ({ i, text: 'x'.repeat(20) })) }) as {
+      truncated: boolean;
+      note: string;
+      excerpt: string;
+    };
+
+    expect(big.truncated).toBe(true);
+    expect(big.note).toMatch(/cut to \d+ of \d+ characters/);
+    expect(JSON.stringify(big).length).toBeLessThanOrEqual(TOOL_OUTPUT_MAX_CHARS);
   });
 });

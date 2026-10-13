@@ -9,6 +9,8 @@ import {
   telemetryDashboardEventsSchema,
   telemetryDashboardFiltersSchema,
   telemetryDashboardMetricGroupsSchema,
+  telemetryDashboardPanelDataSchema,
+  telemetryDashboardPanelsSchema,
   telemetryDashboardQuerySchema,
   telemetryDashboardSummarySchema,
   telemetryDashboardTimeseriesQuerySchema,
@@ -30,6 +32,8 @@ import { isMetricGroup, METRIC_GROUPS, metricGroupIds, type MetricGroup } from '
 //   GET /api/admin/telemetry/dashboard/filters     → TelemetryDashboardFiltersDto
 //   GET /api/admin/telemetry/dashboard/metrics     → TelemetryDashboardMetricsDto (#601)
 //   GET /api/admin/telemetry/dashboard/metric-groups → TelemetryDashboardMetricGroupsDto (#680)
+//   GET /api/admin/telemetry/dashboard/panels      → TelemetryDashboardPanelsDto (PP-14.18)
+//   GET /api/admin/telemetry/dashboard/panels/:id  → TelemetryDashboardPanelDataDto (PP-14.18)
 //
 // The schemas and constants live in `@marinoscar/platform-contract/telemetry`
 // (#702), shared with the web app; this file wraps them as nestjs-zod DTOs and
@@ -73,6 +77,8 @@ export {
   telemetryDashboardEventsSchema,
   telemetryDashboardFiltersSchema,
   telemetryDashboardMetricGroupsSchema,
+  telemetryDashboardPanelDataSchema,
+  telemetryDashboardPanelsSchema,
   telemetryDashboardQuerySchema,
   telemetryDashboardSummarySchema,
   telemetryDashboardTimeseriesQuerySchema,
@@ -87,6 +93,8 @@ export type {
   TelemetryDashboardFilters,
   TelemetryDashboardMetricGroup,
   TelemetryDashboardMetricGroups,
+  TelemetryDashboardPanelData,
+  TelemetryDashboardPanels,
   TelemetryDashboardQuery,
   TelemetryDashboardSummary,
   TelemetryDashboardTile,
@@ -134,3 +142,6 @@ export class TelemetryDashboardMetricsDto extends createZodDto(telemetryDashboar
 export type TelemetryDashboardMetrics = z.infer<typeof telemetryDashboardMetricsSchema>;
 
 export class TelemetryDashboardMetricGroupsDto extends createZodDto(telemetryDashboardMetricGroupsSchema) {}
+
+export class TelemetryDashboardPanelsDto extends createZodDto(telemetryDashboardPanelsSchema) {}
+export class TelemetryDashboardPanelDataDto extends createZodDto(telemetryDashboardPanelDataSchema) {}

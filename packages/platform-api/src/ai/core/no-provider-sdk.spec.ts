@@ -12,8 +12,15 @@ const CORE_DIR = __dirname;
  * Bare module specifiers `ai/core` may import. Everything else must be relative.
  * `@marinoscar/platform-api/jobs` is the queue's public subpath since #734
  * (`ai-error.ts` reads `RateLimitError` from it, as it read `../../jobs/` before).
+ * `@marinoscar/platform-contract/ai` is the slice's own wire contract: the id
+ * patterns of the open capability and operation vocabularies (PP-14.17, #935).
  */
-const ALLOWED_PACKAGES = new Set(['zod', '@nestjs/common', '@marinoscar/platform-api/jobs']);
+const ALLOWED_PACKAGES = new Set([
+  'zod',
+  '@nestjs/common',
+  '@marinoscar/platform-api/jobs',
+  '@marinoscar/platform-contract/ai',
+]);
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((entry) => {

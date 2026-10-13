@@ -577,6 +577,11 @@ export const handlers = [
     return HttpResponse.json({ data: mockAiModelList });
   }),
 
+  // PP-14.17: the open capability vocabulary (the built-ins only; an app's capabilities come from its own handler).
+  http.get(`${API_BASE}/admin/ai/capabilities`, () => {
+    return HttpResponse.json({ data: { capabilities: [], operations: [] } });
+  }),
+
   http.post(`${API_BASE}/admin/ai/models/refresh`, () => {
     return HttpResponse.json({ data: { jobId: 'job-ai-refresh-1', status: 'pending' } });
   }),
