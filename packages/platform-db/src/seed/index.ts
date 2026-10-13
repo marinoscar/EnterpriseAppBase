@@ -6,6 +6,7 @@ export {
   assertSeedIdempotent,
   assertSeedSteps,
   readSeedStepResult,
+  type SeedIdempotenceResult,
   type SeedPlatformOptions,
   type SeedStep,
   type SeedStepContext,

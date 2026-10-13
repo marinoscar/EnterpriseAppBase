@@ -707,11 +707,11 @@ The tool is `platform db baseline` (a dry run unless `--apply`), specified by [A
 
 ### Known hard problem: relations to package-owned models
 
-Prisma requires relation fields on both sides. A `Workout` model with a relation to `User` needs a `workouts Workout[]` field on `User`, and the package owns `User`. The same applies to any package-owned model an app points at: `User`, `Job`, `StorageObject` and `Group`. Prisma also cannot extend one model across files (a model declared twice is error `P1012`).
+Prisma requires relation fields on both sides. A `Workout` model with a relation to `User` needs a `workouts Workout[]` field on `User`, and the package owns `User`. The same applies to any package-owned model an app points at: `User`, `Organization`, `Role`, `Job`, `Group`, `Grant`, `AiRun`, `StorageObject`, `Notification`, `NotificationDelivery` and `Credential`. Prisma also cannot extend one model across files (a model declared twice is error `P1012`).
 
 | Option | Description | Trade-off |
 |---|---|---|
-| 1 (**decided**, [ADR 0002](../adr/0002-database-packaging-and-rls.md) D2) | **Merge `extend model` fragments** into the models their owner marked `// @extensible` (`User`, `Job`, `StorageObject`; `Group` and `Organization` when they ship). The composer **merges explicit blocks and generates nothing**: the slice or app that owns the foreign key writes the back-relation | Keeps `include`, nested writes and relation filters; the generated schema is committed and checked |
+| 1 (**decided**, [ADR 0002](../adr/0002-database-packaging-and-rls.md) D2) | **Merge `extend model` fragments** into the models their owner marked `// @extensible` (`User`, `Organization`, `Role`, `Job`, `Group`, `Grant`, `AiRun`, `StorageObject`, `Notification`, `NotificationDelivery` and `Credential`; `Permission` stays closed on purpose). The composer **merges explicit blocks and generates nothing**: the slice or app that owns the foreign key writes the back-relation | Keeps `include`, nested writes and relation filters; the generated schema is committed and checked |
 | 2 (rejected) | Domain tables carry a plain `userId` with the foreign key added in raw SQL | Loses `include`; creates schema drift (Prisma plans to drop the hand-written key) |
 
 **How it works (shipped in `@marinoscar/platform-db`, issue #709).**

@@ -55,7 +55,11 @@ export interface MetadataNamespace<T = unknown> extends MetadataNamespaceDef<T> 
   readonly subject: MetadataSubject;
 }
 
-/** The namespace pattern: lower-case words joined by `.`, `-` or `_`. */
+/**
+ * The namespace pattern: lower-case words joined by `.`, `-` or `_`.
+ *
+ * @stability experimental
+ */
 export const METADATA_NAMESPACE_PATTERN = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/;
 
 const NAMESPACE_MAX_LENGTH = 63;

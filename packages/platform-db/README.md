@@ -6,7 +6,7 @@ The data layer of the platform: Prisma schema fragments (`schema/`), SQL migrati
 
 Schema fragments, migrations and seeds of the platform's data slices, and the **composer** that turns the fragments into the Prisma schema an app generates its client from.
 
-What ships today: the schema fragments (`schema/`, 41 models and 14 enums in nine slices), `platform db compose`, and the migration tooling (`platform db sync|check|promote|drift`, the `platform.lock` and `manifest.json` formats, the raw-SQL index list). The package also ships platform history v1: the base's 22 migrations as `migrations/0001_initial` to `0022_add_retention_created_at_indexes`, with a filled manifest, the raw-SQL index list `RAW_SQL_INDEXES` and its tripwire, and the offline `runDbConformance()` suite. The platform seed is shipped too: `seedPlatform` (the [`seed` slice](src/seed/README.md), `@marinoscar/platform-db/seed`). The package does not run migrations against a database itself; the app's `prisma:*` scripts do.
+What ships today: the schema fragments (`schema/`, 41 models and 14 enums in nine slices), `platform db compose`, and the migration tooling (`platform db sync|check|promote|drift|policies`, the `platform.lock` and `manifest.json` formats, the raw-SQL index list). The package also ships platform history v1: the base's 22 migrations as `migrations/0001_initial` to `0022_add_retention_created_at_indexes`, with a filled manifest, the raw-SQL index list `RAW_SQL_INDEXES` and its tripwire, and the offline `runDbConformance()` suite. The platform seed is shipped too: `seedPlatform` (the [`seed` slice](src/seed/README.md), `@marinoscar/platform-db/seed`). The package does not run migrations against a database itself; the app's `prisma:*` scripts do.
 
 Status: pre-release (the current channel and how to install it: the [release runbook](../../docs/runbooks/release-platform-packages.md)). The `extend model` seam is `experimental` until the extension contract is frozen.
 
@@ -97,6 +97,7 @@ The programmatic API takes the same three folders as `ComposeOptions` (`platform
 | `platform db check` | `--database` (also compare `_prisma_migrations`; needs `DATABASE_URL`), `--root`, `--package-dir` |
 | `platform db promote <localDir>` | `--id <slug>` (required), `--since <version>`, `--slice <slice>`, `--requires <slices>`, `--root`, `--package-dir` |
 | `platform db drift` | `--schema <path>` (default `prisma/schema`, else `prisma/schema.prisma`), `--shadow-database-url <url>`, `--root` |
+| `platform db policies` | `--root`, `--package-dir`: prints the row-level-security policies the app's migrations leave, as `platform.lock` `rlsPolicies` entries with their expression hashes |
 
 `--root` is the directory holding `prisma/` (default: the current directory). `--package-dir` is the package that holds `migrations/` (default: the installed one). Exit codes: `0` success, `1` a failed check or a refusal, `2` a usage error or a missing `DATABASE_URL`.
 
@@ -110,7 +111,7 @@ The one seam of the data layer is the `extend model` block, written in the app's
 
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
-| `ComposeOptions.appFragmentsDir` | option | `extend model <Model> { <back-relation field> }` in a `*.prisma` file of the folder | An app model points at a platform model (`User`, `Job`, `StorageObject`) and Prisma needs the back-relation field on the platform side | experimental | [example](../../apps/api/prisma/fragments/README.md) |
+| `ComposeOptions.appFragmentsDir` | option | `extend model <Model> { <back-relation field> }` in a `*.prisma` file of the folder | An app model points at a platform model (`User`, `Organization`, `Role`, `Notification`, `Grant`, ... see the table below) and Prisma needs the back-relation field on the platform side | experimental | [example](../../apps/api/test/examples/db/coach-notes.prisma) |
 
 Stability stays `experimental` until the extension contract is frozen (issue #727).
 
@@ -135,17 +136,36 @@ Run `npm run db:compose`, then `include: { workouts: true }` type-checks on the 
 
 Rules:
 
-- Only a model its owner marked `// @extensible` can be extended: `User`, `Job`, `StorageObject`, `Organization` and `Group` today. Everything else is closed; opening one more is a minor-version change reached through a seam request, never an app edit.
+- Only a model its owner marked `// @extensible` can be extended (the table below). Everything else is closed; opening one more is a minor-version change reached through a seam request, never an app edit. Marking a model adds no column, key or index: the generated SQL of every existing table is unchanged and no migration is needed for a back-relation.
 - An `extend` block holds back-relation fields only: no scalar field (it would add a column), no relation with `fields: [...]` (it would add a foreign key column), no `@@` attribute.
 - The slice or app that owns the foreign key writes the back-relation; the composer merges what is written and generates nothing.
 - Fragments are `prisma format` shaped: a block header is `<kind> <Name> {` on one line at column 0, and the block ends with `}` alone at column 0.
 - An app fragment named `base.prisma` replaces the package's `base.prisma` (the generator and datasource), which is how an app sets the generator `output` or `previewFeatures`. The composer warns when it does.
 
+**Which models are extensible, and what an app may hang on each**
+
+| Model | Table | Ownership | An app may relate | Never |
+|---|---|---|---|---|
+| `User` | `users` | system | its own per-user rows (a plain key on `id`); app fields that fit a document go in [`metadata`](#app-metadata-on-users-and-organizations) with no table at all | a column; the credential and token tables |
+| `Organization` | `organizations` | system | its own per-organization rows; org-owned app tables point here with a `Cascade` key on `org_id` | |
+| `Role` | `roles` | system | per-role app data (a plain key on `id`) | `role_permissions`: `seedPlatform` owns the grants |
+| `Group` | `groups` | org (row-level security) | app rows of a group: a composite key `(group_id, org_id)` -> `groups (id, org_id)` | a plain key on `id` alone |
+| `Grant` | `grants` | org (row-level security) | an annotation of a grant: a composite key `(grant_id, org_id)` -> `grants (id, org_id)` | a plain key on `id` alone; an `@@unique` over the two partial unique indexes' columns |
+| `AiRun` | `ai_runs` | org (row-level security) | an annotation of a run: a composite key `(ai_run_id, org_id)` -> `ai_runs (id, org_id)` | a copy of `request` (it holds the full prompt) |
+| `StorageObject` | `storage_objects` | org (row-level security) | app rows about a file: a composite key `(object_id, org_id)` | |
+| `Notification` | `notifications` | user | follow-up rows keyed by a notification (a plain key on `id`, `onDelete: Cascade` so the inbox purge keeps working) | |
+| `NotificationDelivery` | `notification_deliveries` | user, optional | app annotations of a delivery receipt | |
+| `Credential` | `credentials` | system | **non-secret bookkeeping only** (which feature uses it, when it was rotated) | the `secret` column: read plaintext through `CredentialsService`, never copy ciphertext or plaintext into an app table |
+| `Job` | `jobs` | system, no row-level security | app rows tied to a job | `subject_type` / `subject_id` stay polymorphic, not keys |
+| `Permission` | `permissions` | closed | nothing | **Deliberately closed.** A permission is a string the registry owns: `seedPlatform` upserts the rows by `name`, never deletes one, and a retired permission leaves through an expand/contract migration. A key from an app table would block that and tie app data to a row id no registry declares. An app refers to a permission by name in code |
+
+`ai_runs` and `grants` carry an `(id, org_id)` unique key (migration `0036_add_app_metadata`) so an org-owned app table can link with a composite key, as `groups` and `storage_objects` already allowed: a plain foreign key on `id` would let a row of one organization point at another's, because a foreign-key check runs without row-level security. The worked example is [`coach-notes.prisma`](../../apps/api/test/examples/db/coach-notes.prisma) and its [migration](../../apps/api/test/examples/db/coach-notes.migration.sql): a table with keys to `notifications` and `grants`, a partial unique index and a policy, with `extend model` blocks on `Notification`, `Grant` and `Organization`, composed against the real platform fragments by [`app-schema-objects.spec.ts`](../../apps/api/test/examples/db/app-schema-objects.spec.ts) and run against Postgres by [`app-extension.db.spec.ts`](../../apps/api/test/examples/db/app-extension.db.spec.ts).
+
 The migration tooling adds no row to the catalog. How an app extends the migration history, which is a convention rather than a code seam:
 
-- **The app's own migrations live after the installed ones.** `platform db sync` names every installed directory after the newest directory already in `prisma/migrations`, so an app-authored migration and an installed one never reorder. The app keeps authoring with `prisma migrate dev`; those directories are not in `platform.lock`.
-- **App-owned raw-SQL indexes** go in `platform.lock` under `rawSqlIndexes` (`name` and `pg_indexes.indexdef`); `platform db drift` asserts them next to the package's own.
-- **App-owned row-level-security policies** go in `platform.lock` under `rlsPolicies` (`name` and `table`); `platform db drift` asserts them next to the package's own ([App tables with row-level security](#app-tables-with-row-level-security)).
+- **The app's own migrations live after the installed ones.** `platform db sync` names every installed directory after the newest directory already in `prisma/migrations`, so an app-authored migration and an installed one never reorder. The app keeps authoring with `prisma migrate dev`; those directories are not in `platform.lock`. [App migrations and the installed history](#app-migrations-and-the-installed-history) says what `sync` and `check` refuse.
+- **App-owned raw-SQL indexes** go in `platform.lock` under `rawSqlIndexes` (`name` and `pg_indexes.indexdef`); `platform db drift` asserts them against the database next to the package's own, and `runDbConformance` asserts them offline against the migration SQL ([App schema objects, offline](#app-schema-objects-offline)).
+- **App-owned row-level-security policies** go in `platform.lock` under `rlsPolicies` (`name`, `table` and, optionally, the hashes of the `USING` and `WITH CHECK` expressions that `platform db policies` prints); `platform db drift` asserts them against the database next to the package's own, and `runDbConformance` offline ([App tables with row-level security](#app-tables-with-row-level-security)).
 - **A comment-only difference** between an installed file and its package origin is recorded in the lock entry as `localSha256` plus `note`; any further edit is still caught.
 - **`platform db promote` is platform-internal.** It is how a maintainer turns a migration generated in the base app into a package migration; an app that only consumes the package never runs it.
 
@@ -290,6 +310,27 @@ Prisma's schema language cannot express a policy either, and `prisma migrate dif
 
 A migration that enables row-level security carries `"rls": true` in the manifest (`platform db promote --rls`), and, because it changes what a connection can see, a partial `platform db baseline` that stops before it does so deliberately: a baseline through or past it needs `--allow-rls`, which is the operator's statement that the application role is already `NOSUPERUSER NOBYPASSRLS` (error `RLS_OPT_IN_REQUIRED` otherwise). `--touches <slices>` on promote records the other slices' tables a migration changes (`0025` touches `ai` and `identity` from the `storage` slice), so a baseline of a subset of slices can tell.
 
+### App schema objects, offline
+
+`platform db drift` asserts an app's own `rawSqlIndexes` and `rlsPolicies` (from `platform.lock`) against a live database. The same lists are also checked **offline**, against the migration SQL, by `runDbConformance` (test `app-schema-objects`, function `checkAppSchemaObjects` / `assertAppSchemaObjects`), so a typo or a forgotten migration fails the app's unit tests instead of the `smoke` job. It scans the app's whole `prisma/migrations` history in directory order (installed platform migrations included, so a later app migration that drops or rewrites something is seen) and fails when
+
+- a listed index or policy is created by no migration, or dropped by a later one (`APP_INDEX_NOT_FOUND`, `APP_POLICY_NOT_FOUND`),
+- a listed index's `definition` states another table, uniqueness or key columns than the migrations leave (`APP_INDEX_MISMATCH`),
+- a listed policy carries `usingSha256` or `checkSha256` and the migrations leave a different expression (`APP_POLICY_EXPRESSION_MISMATCH`): a policy weakened by a later `ALTER POLICY` or re-created with another body is caught without a database. The hash is the SHA-256 of the expression after `normaliseSqlExpression` (whitespace collapsed, case folded outside quotes, spaces inside parentheses and around commas dropped); `platform db policies` prints it. Both hashes are optional, so an existing lock entry keeps working,
+- a listed policy's table does not both `ENABLE` and `FORCE ROW LEVEL SECURITY` (`APP_POLICY_TABLE_NOT_ENABLED`, `APP_POLICY_TABLE_NOT_FORCED`),
+- the migrations leave a partial or expression index, or a policy, that neither the package's lists nor the lock lists (`UNLISTED_APP_RAW_INDEX`, `UNLISTED_APP_POLICY`): the lock is the app's allow-list, as `raw-sql-indexes.json` and `rls-policies.json` are the package's.
+
+The package's own entries are never judged here (the package tripwires do that) and need nothing in the lock. An app upgrading to this check lists any index or policy it already has in its lock first; `platform db policies` prints the policy entries.
+
+### App migrations and the installed history
+
+`platform db sync` and `platform db check` (and the `app-migrations` conformance test) compare the app-authored directories of `prisma/migrations` (those no `platform.lock` entry names) with the installed platform history, and refuse:
+
+- **`APP_MIGRATION_ID_COLLISION`**: an app directory named exactly like a package migration (`0036_add_app_metadata`). The history could not tell the two apart.
+- **`APP_MIGRATION_OUT_OF_ORDER`**: an app directory that sorts before the last installed platform migration but was not there at the last `sync`. `sync` installs a platform migration under a timestamp later than everything in the history, so an app migration that existed then sorts before it by design (an app's `add_notes` between two platform migrations is normal). One that appears afterwards with an older timestamp (a branch started before the sync, merged after) would run, on a fresh database, before platform migrations other databases applied first. The lock remembers the app directories present at the last sync in `appMigrations` (`sync` and `promote` write it); a lock without the field skips this rule until its next sync.
+
+`sync` throws `APP_MIGRATION_COLLISION` and installs nothing while either exists. The fix is a rename of a migration that was never applied (a timestamp after the last installed one), or, for one that was applied, `platform db sync` once it is the only reason the check fails.
+
 ### App tables with row-level security
 
 An app table that carries `org_id` is isolated the way the platform's `org` tables are, and the app declares it in two places that `platform db drift` reads: the migration that creates the policy, and `rlsPolicies` in `platform.lock`. Prisma cannot express the policy, so it is intentional drift in the app too: never "fix" it with a schema change.
@@ -340,6 +381,14 @@ The application role must be an ordinary role that owns the tables (`NOSUPERUSER
 
 The exported functions (`planSync`, `applySync`, `checkLock`, `checkLedger`, `promote`, `readLock`, `readManifest`, `serializeLock`, `RAW_SQL_INDEXES`, `assertRawSqlIndexes`, `runDbConformance`) are `experimental` and documented in the API reference (`npm run docs:packages`).
 
+### App metadata on users and organizations
+
+`users.metadata` and `organizations.metadata` (migration `0036_add_app_metadata`) are `JSONB NOT NULL DEFAULT '{}'` documents the **app** fills, one top-level key per namespace it registers (`registerUserMetadataSchema`, `registerOrganizationMetadataSchema` of `@marinoscar/platform-api/identity`). They are the sanctioned place for a per-user or per-organization app field, so an app does not add a column to a package-owned table or a side table for a handful of settings. Neither table has row-level security.
+
+- Not a secret store: the API refuses secret-named fields and keys, and nothing encrypts the document (it travels in backups and exports).
+- 16 KiB per row, enforced by the writer; a CHECK (`users_metadata_size_check`, `organizations_metadata_size_check`: a JSON object, at most 32 KiB of `jsonb` text) backs it whoever writes.
+- Never returned by a platform route. Details and the recipe: the [identity README](../platform-api/src/identity/README.md#app-metadata-on-users-and-organizations).
+
 ## Permissions and settings
 
 The data layer declares no permission or setting of its own; the API slices do. It **seeds** them: `seedPlatform` writes the roles, the permissions and the default grants an app's permission registry rendered into `prisma/catalog/permissions.json`, and the `global` system settings row from the settings namespaces' defaults in `prisma/catalog/system-settings-defaults.json` (stability `experimental`). A permission or a settings key is added in the registry plus a catalog regeneration (`npm run catalog:permissions`, `npm run catalog:settings` in the reference app), never in this package. Defaults are written once: the row is never overwritten, so a changed default reaches an existing deployment only through its own migration or the settings API.
@@ -370,6 +419,9 @@ The composer reads and writes schema text only: it opens no database connection 
 |---|---|
 | `raw-sql-indexes` | the raw-SQL index tripwire above is tripped |
 | `platform.lock` | an installed migration differs from the lock or the package, a package migration is not installed, or a locked directory is missing (the same check as `platform db check`) |
+| `rls-policies` | the policy tripwire above is tripped |
+| `app-schema-objects` | a raw-SQL index or policy listed in the lock is created by no migration (or dropped later), a listed policy's expression hash differs from the SQL, or an unlisted partial or expression index or policy exists ([App schema objects, offline](#app-schema-objects-offline)) |
+| `app-migrations` | an app-authored migration directory is named like a package migration or would reorder the installed history ([App migrations and the installed history](#app-migrations-and-the-installed-history)) |
 
 ```ts
 // apps/api/test/prisma/platform-db-conformance.spec.ts

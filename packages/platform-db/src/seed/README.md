@@ -1,19 +1,19 @@
 # @marinoscar/platform-db/seed
 
-`@marinoscar/platform-db/seed`: the platform's idempotent seed. `seedPlatform(prisma, input)` upserts the roles, permissions, default role grants, the `global` system settings row, the initial administrator's allowlist entry and the default organization; `platformSeedInputFrom(snapshot, env)` builds that input from the registries' plain-data snapshots. Part of the data layer, it depends on no other slice (`packages/platform-slices.json`), imports no Prisma client and no Nest.
+`@marinoscar/platform-db/seed`: the platform's idempotent seed. `seedPlatform(prisma, input, options?)` upserts the roles, permissions, default role grants, the `global` system settings row, the initial administrator's allowlist entry and the default organization, then runs the app's own seed steps (`options.extras`); `platformSeedInputFrom(snapshot, env)` builds that input from the registries' plain-data snapshots. Part of the data layer, it depends on no other slice (`packages/platform-slices.json`), imports no Prisma client and no Nest.
 
 ## Purpose and scope
 
 Does: the platform half of an app's `prisma/seed.ts`, with semantics identical to the script it replaced (issue #712): upserts only, sequential, in a fixed order, under the console lines operators read during `appctl deploy`. It also reads the two committed catalogs an app renders from its registries (`readSeedSnapshot`).
 
-Does not: seed an app's own data (the app's `seed-app.ts` does, after this runs), run migrations, create the Prisma client, or delete anything. Role scopes (`system` or `org`, issue #723) ride on the role and permission entries; moving an existing deployment's grants between scopes is the job of the `0024_split_system_org_roles` migration, not of the seed.
+Does not: invent an app's own data (the app's seed steps and `seed-app.ts` do, after the platform's), run migrations, create the Prisma client, or delete anything. Role scopes (`system` or `org`, issue #723) ride on the role and permission entries; moving an existing deployment's grants between scopes is the job of the `0024_split_system_org_roles` migration, not of the seed.
 
 ## Install and peer dependencies
 
 Ships inside `@marinoscar/platform-db`; import it by its subpath:
 
 ```ts
-import { platformSeedInputFrom, readSeedSnapshot, seedPlatform } from '@marinoscar/platform-db/seed';
+import { assertSeedIdempotent, platformSeedInputFrom, readSeedSnapshot, seedPlatform, type SeedStep } from '@marinoscar/platform-db/seed';
 ```
 
 No peer beyond the package's own ([README](../../README.md#install-and-peer-dependencies)). The slice never imports `@prisma/client`: it types the client it is handed structurally (`SeedPrisma`), so the app's generated client, a fake in a test, or a client of another generator output all fit.
@@ -32,8 +32,8 @@ import { SEED_SNAPSHOT } from './seed-data';
 const prisma = new PrismaClient({ adapter: new PrismaPg(process.env.DATABASE_URL!) });
 
 async function main() {
-  await seedPlatform(prisma, platformSeedInputFrom(SEED_SNAPSHOT, process.env), { info: console.log });
-  await seedApp(prisma); // the app's own seed data: apps/api/prisma/seed-app.ts
+  await seedPlatform(prisma, platformSeedInputFrom(SEED_SNAPSHOT, process.env), { log: { info: console.log }, extras: APP_SEED_STEPS });
+  await seedApp(prisma); // the app's own seed data that is not a step: apps/api/prisma/seed-app.ts
 }
 ```
 
@@ -41,7 +41,7 @@ The app's permissions and settings reach the seed through its registries, never 
 
 ## Configuration
 
-`seedPlatform(prisma, input, log?)` takes the `PlatformSeedInput`:
+`seedPlatform(prisma, input, options?)` takes the `PlatformSeedInput`; the third argument is `{ log?, extras? }` (a bare `SeedLogger`, the previous form, still works):
 
 | Option | Type | Default | Meaning |
 |---|---|---|---|
@@ -51,9 +51,10 @@ The app's permissions and settings reach the seed through its registries, never 
 | `systemSettingsDefaults` | `Record<string, unknown>` | required | The `global` row's value, composed from the settings namespaces; written only when the row is absent |
 | `initialAdminEmail` | `string` | none | Added to the allowlist lower-cased, with `update: {}`; absent means no allowlist write |
 | `defaultOrganization` | `{ name, slug }` | `Default organization`, `default` | Created only when no organization is flagged default (looked up by `isDefault`, so a renamed default is left alone); never updated afterwards |
-| `log` (third argument) | `SeedLogger` | silent | Receives one line per step |
+| `options.log` | `SeedLogger` | silent | Receives one line per step, the platform's and the extras' |
+| `options.extras` | `SeedStep[]` | none | The app's seed steps, run after the platform's own, in array order |
 
-`platformSeedInputFrom(snapshot, env)` reads `INITIAL_ADMIN_EMAIL` from the `env` it is handed (an unset or empty value means none). `seedPlatform` returns a `SeedSummary` (counts, `skippedGrants`, `allowlistedEmail`, `defaultOrganizationCreated`).
+`platformSeedInputFrom(snapshot, env)` reads `INITIAL_ADMIN_EMAIL` from the `env` it is handed (an unset or empty value means none). `seedPlatform` returns a `SeedSummary` (counts, `skippedGrants`, `allowlistedEmail`, `defaultOrganizationCreated`, and `extras`: `{ id, created, updated }` per step, present only when steps were given).
 
 ## Extension-point catalog
 
@@ -62,8 +63,20 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `PlatformSeedInput` | option | `{ roles, permissions, roleGrants, systemSettingsDefaults, initialAdminEmail?, defaultOrganization? }` | Hand the platform seed an app's roles, permissions, grants and settings defaults; later slices add optional fields (org roles) without breaking callers | experimental | [example](../../../../apps/api/prisma/seed.ts) |
+| `SeedStep` | option | `{ id: string; run(tx, ctx): Promise<{ created: number; updated: number }> }` | Add the app's own idempotent seed rows after the platform's, in a transaction of their own, under the shared log; `ctx` carries `log`, the platform `input` and its `platform` summary | experimental | [example](../../../../apps/api/src/platform-extensions/db/coach-defaults.seed-step.ts) |
+| `SeedPlatformOptions` | option | `{ log?: SeedLogger; extras?: SeedStep[] }` | The third argument of `seedPlatform`: where the log goes and which app steps run | experimental | [example](../../../../apps/api/prisma/seed.ts) |
 
-The app's own seed data is not an extension point of this package: it lives in the app's [`seed-app.ts`](../../../../apps/api/prisma/seed-app.ts), which `seed.ts` runs after `seedPlatform`.
+### App seed steps
+
+An app's own seed rows are `SeedStep`s, listed in the app's [`seed-app.ts`](../../../../apps/api/prisma/seed-app.ts) (`APP_SEED_STEPS`) and handed to `seedPlatform` as `extras`; `seed.ts` also runs `seedApp` after it for anything that is not a step. The contract:
+
+- **Order and isolation.** Steps run after the default organization, in array order, each inside `prisma.$transaction` when the client has one (`tx` is then the transaction client, and a failing step leaves none of its writes), else against the client itself (a test fake). A failing step stops the run, wrapped in a `SeedStepError` that names it and keeps the cause.
+- **Validated before anything is written.** An id must be lower-case words joined by `.`, `-` or `_` (`coach.defaults`), unique within the run, and not one of `PLATFORM_SEED_STEP_IDS` (`roles`, `permissions`, `role-permissions`, `system-settings`, `allowlist`, `default-organization`); a `run` that resolves to anything but `{ created, updated }` of non-negative integers is a `SeedStepError`.
+- **Idempotent, never destructive.** Every write is an upsert on a natural unique, never a `findFirst` followed by a `create`; a step never deletes and never overwrites a value an administrator may have edited (`update: {}`). A second run reports `created: 0`; `assertSeedIdempotent(() => seedPlatform(...))` runs the seed twice and throws, naming the steps (and the default organization) that created a row the second time. Call it from the app's real-database test.
+- **One log.** The loop prints `Seeding <id>...` and `✓ <id>: <created> created, <updated> updated` through the same `SeedLogger` as the platform's own steps; a step logs its own lines through `ctx.log`.
+- **Nest-free.** The seed runs under `ts-node --transpile-only` in an image with no `src/`; a step run by `seed.ts` imports nothing from there.
+
+The five fixed tables above are unchanged by the hook; a step writes whatever tables the app owns (or `allowed_emails`, as the example does).
 
 ## Data
 
@@ -97,7 +110,7 @@ The seed holds no secret and writes none: no credential column is among the six 
 
 ## Conformance suite
 
-None yet. The slice ships no conformance suite; `runPlatformConformance()` and the suites arrive with the platform's conformance harness. Its behaviour is pinned by `packages/platform-db/test/seed/` (a fake client) and, against a real database, by the reference app's `test/prisma/seed-platform.db.spec.ts`.
+None as a suite; the helper `assertSeedIdempotent` is the idempotence check an app runs on its own steps. Behaviour is pinned by `packages/platform-db/test/seed/` (a fake client) and, against a real database, by the reference app's `test/prisma/seed-platform.db.spec.ts` and `test/examples/db/app-extension.db.spec.ts`.
 
 ## Upgrade notes
 

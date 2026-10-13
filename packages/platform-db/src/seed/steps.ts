@@ -178,6 +178,18 @@ export function readSeedStepResult(id: string, value: unknown): SeedStepResult {
 }
 
 /**
+ * Both runs of {@link assertSeedIdempotent}.
+ *
+ * @stability experimental
+ */
+export interface SeedIdempotenceResult {
+  /** The summary of the first run. */
+  first: SeedSummary;
+  /** The summary of the second run, which created nothing. */
+  second: SeedSummary;
+}
+
+/**
  * The idempotence conformance helper: runs the seed twice over the same
  * database and fails when the second run creates a row. Call it from the
  * app's real-database test, with the same input and steps `seed.ts` uses.
@@ -192,7 +204,7 @@ export function readSeedStepResult(id: string, value: unknown): SeedStepResult {
  * ```
  * @stability experimental
  */
-export async function assertSeedIdempotent(seed: () => Promise<SeedSummary>): Promise<{ first: SeedSummary; second: SeedSummary }> {
+export async function assertSeedIdempotent(seed: () => Promise<SeedSummary>): Promise<SeedIdempotenceResult> {
   const first = await seed();
   const second = await seed();
   const offenders: string[] = [];

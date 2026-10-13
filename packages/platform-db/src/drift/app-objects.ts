@@ -1,9 +1,9 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PlatformLock } from '../lock/index.js';
-import { RAW_SQL_INDEXES } from './raw-sql-indexes.js';
+import { RAW_SQL_INDEXES, type PackageRawSqlIndex } from './raw-sql-indexes.js';
 import { columnsOfDefinition, scanAllIndexes } from './raw-sql-tripwire.js';
-import { RLS_POLICIES, scanRlsPolicies } from './rls-policies.js';
+import { RLS_POLICIES, scanRlsPolicies, type PackageRlsPolicy } from './rls-policies.js';
 import { sqlExpressionSha256 } from './sql-expression.js';
 
 /**
@@ -54,9 +54,9 @@ export interface AppSchemaObjectsInput {
   /** Every migration of the app's history, installed or app-authored, as `[directory, sql]` in history (directory name) order. */
   migrations: ReadonlyArray<readonly [string, string]>;
   /** The package's raw-SQL indexes; default {@link RAW_SQL_INDEXES}. Only the names are read. */
-  packageIndexes?: ReadonlyArray<{ name: string }>;
+  packageIndexes?: ReadonlyArray<Pick<PackageRawSqlIndex, 'name'>>;
   /** The package's policies; default {@link RLS_POLICIES}. Only the name and table are read. */
-  packagePolicies?: ReadonlyArray<{ name: string; table: string }>;
+  packagePolicies?: ReadonlyArray<Pick<PackageRlsPolicy, 'name' | 'table'>>;
 }
 
 const DEFINITION = /^CREATE\s+(UNIQUE\s+)?INDEX\s+("[^"]+"|[\w$]+)\s+ON\s+(?:ONLY\s+)?((?:"[^"]+"|[\w$]+)(?:\.(?:"[^"]+"|[\w$]+))?)\s+USING\b/i;
@@ -232,9 +232,9 @@ export interface AssertAppSchemaObjectsOptions {
   /** The app's `prisma/migrations` directory. */
   migrationsDir: string;
   /** The package's raw-SQL indexes; default {@link RAW_SQL_INDEXES}. */
-  packageIndexes?: ReadonlyArray<{ name: string }>;
+  packageIndexes?: ReadonlyArray<Pick<PackageRawSqlIndex, 'name'>>;
   /** The package's policies; default {@link RLS_POLICIES}. */
-  packagePolicies?: ReadonlyArray<{ name: string; table: string }>;
+  packagePolicies?: ReadonlyArray<Pick<PackageRlsPolicy, 'name' | 'table'>>;
 }
 
 /**

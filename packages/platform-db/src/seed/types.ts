@@ -1,6 +1,8 @@
 // Types of the platform seed (issue #712). Kept apart from the functions so the
 // structural `SeedPrisma` can be read, and mocked, without importing a client.
 
+import type { SeedStepSummary } from './steps.js';
+
 /**
  * A JSON value, the shape of a `SystemSettings.value` column.
  *
@@ -113,7 +115,7 @@ export interface SeedSummary {
   /** True when this run created the default organization; false when one already existed. */
   defaultOrganizationCreated: boolean;
   /** What each extra step did, in run order. Present only when the run was given `extras`. */
-  extras?: Array<{ id: string; created: number; updated: number }>;
+  extras?: SeedStepSummary[];
 }
 
 /**
