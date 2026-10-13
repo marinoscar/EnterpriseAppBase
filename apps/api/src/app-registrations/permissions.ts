@@ -9,12 +9,16 @@
 // a collision with a platform id fails at import time with `DUPLICATE_ID`,
 // and a grant naming an unknown role with `INVALID_ENTRY`.
 //
+// App roles are assignable on invitations, memberships and users as soon as they
+// are registered (they appear at `GET /api/roles`); `label` and `assignable` on a
+// role shape what the dialogs show and which routes may hand it out.
+//
 // After a change: `npm run catalog:permissions --workspace=api`, commit the
 // regenerated `prisma/catalog/permissions.json`, and re-seed
 // (`npm run prisma:seed`). Recipe: common/permissions/README.md.
 // =============================================================================
 
-import type { PermissionDeclaration, RoleDeclaration } from '@marinoscar/platform-api/core';
+import type { PermissionDeclaration, RoleDeclaration, RoleGrantDeclaration } from '@marinoscar/platform-api/core';
 
 /** This app's own roles, seeded after the platform's admin, contributor, viewer and org_admin. */
 export const APP_ROLES: readonly RoleDeclaration[] = [
@@ -24,6 +28,20 @@ export const APP_ROLES: readonly RoleDeclaration[] = [
 /** This app's own permissions, seeded after every platform permission. */
 export const APP_PERMISSIONS: readonly PermissionDeclaration[] = [
   // { id: 'workouts:read', description: 'Read own workouts', scope: 'org', defaultGrants: ['org_admin', 'contributor', 'viewer'] },
+];
+
+/**
+ * Permissions to give this app's own roles on top of the permissions' own
+ * `defaultGrants`: how an app role receives a PLATFORM permission, which an app
+ * cannot edit (`{ role: 'support', permissions: ['users:read'] }`). Each grant
+ * is validated at import time (the role and the permission exist, their scopes
+ * match, a platform role is not the target) and lands in the seed catalog's
+ * `rolePermissions`. A worked, tested example: `coach` (org role) and `support`
+ * (system role granted `users:read`) in
+ * `platform-extensions/identity/coach-support.roles.ts`.
+ */
+export const APP_GRANTS: readonly RoleGrantDeclaration[] = [
+  // { role: 'support', permissions: ['users:read'] },
 ];
 
 // Typed ids for `@Auth({ permissions: [...] })` and `@Roles(...)`: add each id

@@ -17,6 +17,9 @@ import {
   MAX_NODE_CREDENTIAL_DAYS,
   MAX_NODE_CREDENTIAL_NAME_LENGTH,
   MAX_NODE_ELIGIBLE_TYPES,
+  MAX_NODE_VITALS_EXTRA_KEYS,
+  MAX_NODE_VITALS_EXTRA_VALUE,
+  NODE_VITALS_EXTRA_KEY_PATTERN,
 } from './constants.js';
 
 /**
@@ -420,6 +423,26 @@ export const nodeVitalsCountersSchema = z
   .strict();
 
 /**
+ * App-defined numeric vitals: a bounded bag of `key -> number` an executor or
+ * the node's app reports beyond the closed fields (a transcoder's frames per
+ * second, a GPU's temperature). Still CLOSED IN SHAPE: at most
+ * {@link MAX_NODE_VITALS_EXTRA_KEYS} keys, each key matching
+ * {@link NODE_VITALS_EXTRA_KEY_PATTERN}, each value a finite number within
+ * +/-{@link MAX_NODE_VITALS_EXTRA_VALUE}. No strings, no nesting, so it stays
+ * the unbounded-JSONB-write-free surface the closed fields are. The CLI drops
+ * what would not pass before sending (a heartbeat the server refuses costs the
+ * node its liveness signal), and the fleet page labels a key through
+ * `registerNodeVital`.
+ *
+ * @stability experimental
+ */
+export const nodeVitalsExtraSchema = z
+  .record(z.string().regex(NODE_VITALS_EXTRA_KEY_PATTERN, 'Must be a vital key'), z.number().min(-MAX_NODE_VITALS_EXTRA_VALUE).max(MAX_NODE_VITALS_EXTRA_VALUE))
+  .refine((extra) => Object.keys(extra).length <= MAX_NODE_VITALS_EXTRA_KEYS, {
+    message: `At most ${MAX_NODE_VITALS_EXTRA_KEYS} extra vitals`,
+  });
+
+/**
  * A node's health snapshot, carried on its heartbeat; closed and bounded.
  *
  * @stability experimental
@@ -454,6 +477,8 @@ export const nodeVitalsSchema = z
     nodeVersion: vitalsVersion.optional(),
     /** The `pg_dump` version banner, when the node has one. */
     pgDumpVersion: vitalsVersion.optional(),
+    /** App-defined numeric vitals; see {@link nodeVitalsExtraSchema}. */
+    extra: nodeVitalsExtraSchema.optional(),
   })
   .strict();
 

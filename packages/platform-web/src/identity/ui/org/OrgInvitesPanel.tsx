@@ -21,22 +21,39 @@ import {
 } from '@mui/material';
 import { Add as AddIcon } from '@mui/icons-material';
 import { usePermissions } from '../../headless/index.js';
-import { useOrgInvites } from '../../headless/index.js';
-import type { OrgInviteStatus } from '../../headless/index.js';
+import { useOrgInvites, useRoles } from '../../headless/index.js';
+import type { OrgInviteStatus, UseRolesReturn } from '../../headless/index.js';
 import { INVITE_STATUS_COLOR, formatDate, orgRoleLabel } from './orgLabels.js';
 import { InviteMemberDialog } from './InviteMemberDialog.js';
 
 type StatusFilter = 'all' | OrgInviteStatus;
 
 /**
- * The current organization's invitations: invite and revoke
- * (`org_invites:write`). The Invites tab of {@link OrganizationPage}.
+ * Props of {@link OrgInvitesPanel}.
  *
+ * @stability experimental
+ */
+export interface OrgInvitesPanelProps {
+  /**
+   * The org roles (`useRoles('org')`), when the page already read them. Without
+   * it the panel reads its own.
+   */
+  roles?: UseRolesReturn;
+}
+
+/**
+ * The current organization's invitations: invite and revoke
+ * (`org_invites:write`). The Invites tab of {@link OrganizationPage}. The role
+ * choices and labels come from `GET /api/roles?scope=org`.
+ *
+ * @param props - see {@link OrgInvitesPanelProps}.
  * @returns the component.
  *
  * @stability stable
  */
-export function OrgInvitesPanel(): ReactElement {
+export function OrgInvitesPanel({ roles: rolesFromPage }: OrgInvitesPanelProps = {}): ReactElement {
+  const ownRoles = useRoles('org', { enabled: rolesFromPage === undefined });
+  const roles = rolesFromPage ?? ownRoles;
   const { hasPermission } = usePermissions();
   const canWrite = hasPermission('org_invites:write');
   const { invites, isLoading, error, fetchInvites, inviteMember, revokeInvite } = useOrgInvites();
@@ -86,7 +103,7 @@ export function OrgInvitesPanel(): ReactElement {
                 {invite.email}
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                {orgRoleLabel(invite.role)}
+                {orgRoleLabel(invite.role, roles.roles)}
                 {invite.invitedBy ? ` · invited by ${invite.invitedBy.email}` : ''}
               </Typography>
               <Typography variant="caption" color="text.secondary">
@@ -127,7 +144,12 @@ export function OrgInvitesPanel(): ReactElement {
         </Paper>
       ))}
 
-      <InviteMemberDialog open={dialogOpen} onClose={() => setDialogOpen(false)} onInvite={inviteMember} />
+      <InviteMemberDialog
+        open={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+        onInvite={inviteMember}
+        roles={roles.assignable}
+      />
     </Stack>
   );
 }

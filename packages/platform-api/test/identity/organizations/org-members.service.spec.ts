@@ -1,6 +1,7 @@
-import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { roleRegistry, withTemporaryEntries } from '../../../src/core';
 import { createMockPrismaService, MockPrismaService } from '../support/prisma.mock';
 import type { PrismaService } from '../support/app-doubles';
 import { notifierFromNotify } from '../support/app-doubles';
@@ -200,6 +201,57 @@ describe('OrgMembersService (#726)', () => {
       await expect(service.update(ACTOR, ORG, TARGET, { roleName: 'org_admin' })).rejects.toThrow(
         'Unknown organization role',
       );
+    });
+
+    describe('the role must be assignable (PP-14.15, fail closed)', () => {
+      const APP_ROLES = [
+        { id: 'coach', description: 'Reviews workouts', scope: 'org' as const },
+        { id: 'robot', description: 'Managed by the app', scope: 'org' as const, assignable: false },
+        { id: 'support', description: 'Support', scope: 'system' as const },
+      ];
+
+      it('moves a member to a registered app role', async () => {
+        prisma.membership.findUnique.mockResolvedValue(memberRow({ role: 'viewer' }) as never);
+        prisma.role.findUnique.mockResolvedValue({ id: 'role-coach', name: 'coach', scope: 'org' } as never);
+        prisma.membership.update.mockResolvedValue(memberRow({ role: 'coach' }) as never);
+
+        await withTemporaryEntries(roleRegistry, APP_ROLES, async () => {
+          const view = await service.update(ACTOR, ORG, TARGET, { roleName: 'coach' });
+          expect(view.role).toBe('coach');
+        });
+        expect(prisma.membership.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ roleId: 'role-coach' }) }));
+      });
+
+      it.each(['admin', 'robot', 'support', 'ghost'])(
+        'refuses %s with 400 ROLE_NOT_ASSIGNABLE before reading or writing anything',
+        async (roleName) => {
+          await withTemporaryEntries(roleRegistry, APP_ROLES, async () => {
+            const error = await service.update(ACTOR, ORG, TARGET, { roleName }).catch((err) => err);
+            expect(error).toBeInstanceOf(BadRequestException);
+            expect(error.getResponse().details.reason).toBe('ROLE_NOT_ASSIGNABLE');
+          });
+          expect(prisma.$transaction).not.toHaveBeenCalled();
+          expect(prisma.membership.update).not.toHaveBeenCalled();
+          expect(notifications.notify).not.toHaveBeenCalled();
+        },
+      );
+
+      it('refuses a non-assignable role even when it is the member current one', async () => {
+        prisma.membership.findUnique.mockResolvedValue(memberRow({ role: 'robot' }) as never);
+        await withTemporaryEntries(roleRegistry, APP_ROLES, async () => {
+          await expect(service.update(ACTOR, ORG, TARGET, { roleName: 'robot', status: 'suspended' })).rejects.toBeInstanceOf(BadRequestException);
+        });
+        expect(prisma.membership.update).not.toHaveBeenCalled();
+      });
+
+      it('still lets a status-only change through for a member who holds a non-assignable role', async () => {
+        prisma.membership.findUnique.mockResolvedValue(memberRow({ role: 'robot' }) as never);
+        prisma.membership.update.mockResolvedValue(memberRow({ role: 'robot', status: 'suspended' }) as never);
+        await withTemporaryEntries(roleRegistry, APP_ROLES, async () => {
+          await service.update(ACTOR, ORG, TARGET, { status: 'suspended' });
+        });
+        expect(prisma.membership.update).toHaveBeenCalled();
+      });
     });
 
     it('writes nothing when nothing changes', async () => {

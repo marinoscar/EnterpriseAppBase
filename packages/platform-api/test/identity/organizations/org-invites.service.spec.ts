@@ -1,6 +1,7 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { roleRegistry, withTemporaryEntries } from '../../../src/core';
 import { createMockPrismaService, MockPrismaService } from '../support/prisma.mock';
 import type { PrismaService } from '../support/app-doubles';
 import { notifierFromNotify } from '../support/app-doubles';
@@ -32,6 +33,12 @@ function inviteRow(overrides: Record<string, unknown> = {}) {
     ...overrides,
   };
 }
+
+const INTERNAL_ROLES = [
+  { id: 'coach', description: 'Reviews workouts', scope: 'org' as const },
+  { id: 'robot', description: 'Managed by the app', scope: 'org' as const, assignable: false },
+  { id: 'support', description: 'Support', scope: 'system' as const },
+];
 
 describe('OrgInvitesService (#726)', () => {
   let prisma: MockPrismaService;
@@ -174,6 +181,30 @@ describe('OrgInvitesService (#726)', () => {
         acceptedAt: null,
       });
     });
+  });
+
+  describe('create: the role must be assignable (PP-14.15, fail closed)', () => {
+    it('invites with a registered app role', async () => {
+      await withTemporaryEntries(roleRegistry, INTERNAL_ROLES, async () => {
+        await service.create(ACTOR, ORG, { email: EMAIL, roleName: 'coach' });
+        expect((prisma.invite.upsert.mock.calls[0][0] as any).create).toMatchObject({ roleId: 'role-coach' });
+      });
+    });
+
+    it.each(['admin', 'robot', 'support', 'ghost', 'ADMIN'])(
+      'refuses %s with 400 ROLE_NOT_ASSIGNABLE and writes, audits and sends nothing',
+      async (roleName) => {
+        await withTemporaryEntries(roleRegistry, INTERNAL_ROLES, async () => {
+          const error = await service.create(ACTOR, ORG, { email: EMAIL, roleName }).catch((err) => err);
+          expect(error).toBeInstanceOf(BadRequestException);
+          expect(error.getResponse().details.reason).toBe('ROLE_NOT_ASSIGNABLE');
+        });
+        expect(prisma.invite.upsert).not.toHaveBeenCalled();
+        expect(prisma.allowedEmail.create).not.toHaveBeenCalled();
+        expect(prisma.auditEvent.create).not.toHaveBeenCalled();
+        expect(notifications.notifyAddress).not.toHaveBeenCalled();
+      },
+    );
   });
 
   describe('revoke', () => {

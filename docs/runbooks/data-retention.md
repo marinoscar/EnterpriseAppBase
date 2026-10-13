@@ -18,11 +18,11 @@ Every control below is a system setting, changed at runtime through `PATCH /api/
 | `databaseBackup.retentionCount` (alias `databaseBackup.retention.count`), and optionally `databaseBackup.retention.maxAgeDays` | 7 backups; no age bound | Backup archives and their runs beyond the newest N, and ordinary archives older than the age bound (the newest completed one is never deleted), with their mirror copies (plus the pre-restore age rule) | `db.backup.sweep` | Every 10 minutes, with the backup scheduler |
 | `telemetry.retentionDays` | 30 days | GreptimeDB data, through the database's TTL (telemetry itself ships off) | `telemetry.retention.apply` | Daily, 04:00, and after every telemetry settings save |
 
-The four `retention.*` policies each take `{ "enabled": boolean, "days": 1–3650 }`. All times are the API server's local time (UTC in the shipped containers).
+The four `retention.*` policies each take `{ "enabled": boolean, "days": 1–3650 }`. An app can register more (its own tables join the same nightly run, off by default and with bounds of its own); they appear under `retention.<key>` in the same document. All times are the API server's local time (UTC in the shipped containers).
 
 ### How the `retention.*` purges run
 
-- The 01:00 task (`packages/platform-api/src/jobs/retention/retention-purge.task.ts`, the jobs slice) reads the four policies and enqueues one low-priority job for each enabled one whose handler is mounted. It deletes nothing itself.
+- The 01:00 task (`packages/platform-api/src/jobs/retention/retention-purge.task.ts`, the jobs slice) reads the registered policies (the four above, plus any the app registered) and enqueues one low-priority job for each enabled one whose handler is mounted. It deletes nothing itself.
 - Each job deletes in batches of at most 5000 rows, oldest first, by the exact ids it read. A run stops after 1000 batches (5 million rows) and logs a warning; the next night continues from the same cutoff.
 - Each job re-reads its policy when it runs. A job for a disabled policy (an admin rerun, say) logs that it is a no-op and deletes nothing.
 - Each run logs one summary line: rows deleted, cutoff, retention days, batches and job id.

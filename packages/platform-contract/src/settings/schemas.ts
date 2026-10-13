@@ -32,6 +32,8 @@ import {
   ORG_SETTINGS_MERGE_MODES,
   PROFILE_DISPLAY_NAME_MAX,
   PROFILE_IMAGE_SOURCES,
+  THEME_OPTION_LABEL_MAX,
+  THEME_PREFERENCE_ID_PATTERN,
   THEME_PREFERENCES,
 } from './constants.js';
 
@@ -86,6 +88,31 @@ export type OrgSettingsMergeModeEnum = { [K in (typeof ORG_SETTINGS_MERGE_MODES)
  * @stability stable
  */
 export const themePreferenceSchema: z.ZodEnum<ThemePreferenceEnum> = z.enum(THEME_PREFERENCES);
+
+/**
+ * A theme preference id of any registered theme: the pattern
+ * {@link THEME_PREFERENCE_ID_PATTERN}, not the closed list. The API accepts in
+ * `theme` only the built-in ids and the ones an app registered, so this schema
+ * types a registered id on the wire without validating membership.
+ *
+ * @extensionPoint schema
+ * @stability experimental
+ */
+export const themePreferenceIdSchema = z.string().regex(THEME_PREFERENCE_ID_PATTERN);
+
+/**
+ * One theme an app registered, as `themeOptions` lists it in the user
+ * settings response.
+ *
+ * @extensionPoint schema
+ * @stability experimental
+ */
+export const themeOptionSchema = z.object({
+  /** The id stored in `theme`. */
+  id: themePreferenceIdSchema,
+  /** The label the theme control shows. */
+  label: z.string().min(1).max(THEME_OPTION_LABEL_MAX),
+});
 
 /**
  * `profile.imageSource`.

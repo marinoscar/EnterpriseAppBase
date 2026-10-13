@@ -15,7 +15,7 @@ The audit record of the extension seams of every platform slice. A closed point 
 
 Evidence paths are written `api:`, `web:`, `contract:`, `cli:`, `db:` and `infra:` for `packages/platform-api/src/`, `packages/platform-web/src/`, `packages/platform-contract/src/`, `packages/platform-cli/src/`, `packages/platform-db/` and `packages/platform-infra/`; a path under `apps/` or `docs/` is from the repository root. A story is written PP-14.n (its issue number follows).
 
-As of this version: 114 closed points in 29 sections, 68 fixed and 46 open.
+As of this version: 114 closed points in 29 sections, 85 fixed and 29 open.
 
 ## Verdicts
 
@@ -23,27 +23,27 @@ As of this version: 114 closed points in 29 sections, 68 fixed and 46 open.
 |---|---|---|---|---|---|
 | [onboarding](#onboarding) | Open | 1 | 0 | 1 | PP-14.20 |
 | [credentials](#credentials) | Open | 0 | 0 | 0 | none |
-| [settings](#settings) | Mostly open | 7 | 1 | 6 | PP-14.21, PP-14.5, PP-14.24 |
+| [settings](#settings) | Mostly open | 7 | 6 | 1 | PP-14.21, PP-14.5, PP-14.24 |
 | [notifications](#notifications) | Mostly open | 7 | 6 | 1 | PP-14.10, PP-14.8, PP-14.24 |
 | [exports](#exports) | Mostly open | 3 | 0 | 3 | PP-14.20 |
-| [jobs](#jobs) | Mostly open | 4 | 1 | 3 | PP-14.19, PP-14.23, PP-14.26 |
-| [nodes](#nodes) | Mostly open | 4 | 1 | 3 | PP-14.19, PP-14.23 |
-| [doctor](#doctor) | Mostly open | 2 | 1 | 1 | PP-14.23, PP-14.26 |
+| [jobs](#jobs) | Open | 4 | 4 | 0 | PP-14.19, PP-14.23, PP-14.26 |
+| [nodes](#nodes) | Mostly open | 4 | 4 | 0 | PP-14.19, PP-14.23 |
+| [doctor](#doctor) | Open | 2 | 2 | 0 | PP-14.23, PP-14.26 |
 | [telemetry](#telemetry) | Mostly open | 7 | 7 | 0 | PP-14.11, PP-14.18 |
 | [otel-core](#otel-core) | Mostly open | 1 | 1 | 0 | PP-14.18 |
 | [core](#core) | Mostly open | 6 | 6 | 0 | PP-14.14, PP-14.5, PP-14.23 |
 | [shell](#shell) | Mostly open | 2 | 0 | 2 | PP-14.25 |
 | [sharing](#sharing) | Mostly open | 4 | 0 | 4 | PP-14.16, PP-14.15, PP-14.25 |
-| [manifest](#manifest) | Mostly open | 2 | 0 | 2 | PP-14.15 |
+| [manifest](#manifest) | Open | 2 | 2 | 0 | PP-14.15 |
 | [user-data](#user-data) | Mostly open | 1 | 0 | 1 | PP-14.24 |
 | [platform-db](#platform-db) | Mostly open | 6 | 1 | 5 | PP-14.27, PP-14.4 |
 | [platform-cli](#platform-cli) | Open | 7 | 7 | 0 | PP-14.22 |
 | [platform-infra](#platform-infra) | Open | 2 | 2 | 0 | PP-14.22 |
-| [testing (api and web)](#testing-api-and-web) | Mostly open | 2 | 0 | 2 | PP-14.26 |
+| [testing (api and web)](#testing-api-and-web) | Open | 2 | 2 | 0 | PP-14.26 |
 | [ai](#ai) | Mostly open | 10 | 6 | 4 | PP-14.3, PP-14.6, PP-14.17, PP-14.24 |
 | [storage](#storage) | Mostly open | 5 | 4 | 1 | PP-14.1, PP-14.7, PP-14.24 |
 | [db-backup](#db-backup) | Mostly open | 4 | 4 | 0 | PP-14.12, PP-14.23 |
-| [identity](#identity) | Partly closed | 8 | 6 | 2 | PP-14.9, PP-14.15, PP-14.25 |
+| [identity](#identity) | Partly closed | 8 | 7 | 1 | PP-14.9, PP-14.15, PP-14.25 |
 | [email](#email) | Partly closed | 5 | 4 | 1 | PP-14.8, PP-14.24 |
 | [host](#host) | Partly closed | 8 | 7 | 1 | PP-14.2, PP-14.13, PP-14.24 |
 | [datatable](#datatable) | Partly closed | 2 | 0 | 2 | PP-14.20 |
@@ -71,18 +71,18 @@ The 28 stories of the epic, in order. Phase 1 makes the existing seams real; pha
 | PP-14.12 | #930 | db-backup: pluggable backup target, schedule policy and restore gates | 2 | 14.1 (14.7) | no | This change |
 | PP-14.13 | #931 | host: health indicators, maintenance bypass, About contributors, deployment capabilities and app guards | 3 | 14.2 | no | This change |
 | PP-14.14 | #932 | core: open the access-reason, principal and error-code vocabularies | 3 | none | no | This change |
-| PP-14.15 | #933 | roles: app roles become assignable, and apps can grant platform permissions to them | 3 | none | no | Open |
+| PP-14.15 | #933 | roles: app roles become assignable, and apps can grant platform permissions to them | 3 | none | no | This change |
 | PP-14.16 | #934 | sharing: pluggable grantee kinds and access rules | 3 | 14.15 | maybe | Open |
 | PP-14.17 | #935 | ai: open capabilities and operations, richer transcription results, per-feature usage | 3 | 14.6 | yes | Open |
 | PP-14.18 | #936 | telemetry and otel-core: app units, group presentation, dashboard panels, assistant tools, SDK extension | 3 | 14.11, 14.23 | no | This change |
-| PP-14.19 | #937 | jobs and nodes: app retention policies, open job reasons, node vitals and executor telemetry | 3 | none | yes | Open |
+| PP-14.19 | #937 | jobs and nodes: app retention policies, open job reasons, node vitals and executor telemetry | 3 | none | yes | This change |
 | PP-14.20 | #938 | onboarding, datatable and exports: close the remaining small vocabularies | 3 | none | no | Open |
-| PP-14.21 | #939 | settings: nested and org-layer extensions, core profile and theme fields, package self-registration | 3 | none | no | Open |
+| PP-14.21 | #939 | settings: nested and org-layer extensions, core profile and theme fields, package self-registration | 3 | none | no | This change |
 | PP-14.22 | #940 | cli and infra: app env groups, deploy checks and steps, proxy stream routes, CSP, compose modes, CLI conformance | 3 | none | no | This change |
 | PP-14.23 | #941 | web: the packaged-page slot contract, its CI check, and the operations pages | 4 | none | no | This change |
 | PP-14.24 | #942 | web: apply the slot contract to AI, storage, email, telemetry, android, host, profile, user-data and notifications pages | 4 | 14.23 (and the phase 2 story of each slice) | no | Open |
 | PP-14.25 | #943 | web: slots for identity and sharing pages, login layout, and shell navigation and themes | 4 | 14.23, 14.9, 14.15 | no | Open |
-| PP-14.26 | #944 | testing: extension-author kits for doctor checks and job handlers, and configurable web suites | 5 | none | no | Open |
+| PP-14.26 | #944 | testing: extension-author kits for doctor checks and job handlers, and configurable web suites | 5 | none | no | This change |
 | PP-14.27 | #945 | db: app metadata on users and organizations, more extensible models, offline checks for app indexes and RLS policies, seed hook | 5 | 14.4 | yes | Open |
 | PP-14.28 | #946 | ci: a guardrail that stops new closed id lists in the packages | 5 | all other PP-14 stories | no | Open |
 
@@ -95,7 +95,7 @@ The closed points fall into six repeating patterns. Each is removed once, in one
 | 1 | Closed id lists for pluggable kinds (TypeScript unions, `z.enum`, a fixed settings key per implementation, a `switch` over ids) | The pluggable-kind primitive (PP-14.5, shipped: [Writing a pluggable implementation](EXTENDING.md#writing-a-pluggable-implementation)) applied by the phase 2 stories, and the open vocabularies of phase 3. The rule is [Open an id vocabulary](EXTENDING.md#open-an-id-vocabulary); the guardrail is PP-14.28. |
 | 2 | Documented token overrides that a package-internal consumer never sees (NestJS module scoping) | Bindings through `forRoot` (PP-14.1, PP-14.2 and the phase 2 stories). The rule is [overrides go through `forRoot`](EXTENDING.md#the-extension-ladder). |
 | 3 | Packaged web pages with no slots, or a `Header` slot only | The packaged-page slot contract (PP-14.23 to PP-14.25). |
-| 4 | Settings extension is top-level only (no nested paths, no org layer, no core `profile` or `theme`) | PP-14.21. |
+| 4 | Settings extension is top-level only (no nested paths, no org layer, no core `profile` or `theme`) | PP-14.21 (shipped: [Extend a settings namespace](EXTENDING.md#extend-a-settings-namespace)). |
 | 5 | No test kit for extension authors (except AI providers and storage drivers) | Each phase 2 story ships its kit; PP-14.26 covers the rest. |
 | 6 | Data model: few platform models accept app relations, no JSONB `metadata` on `User` or `Organization` | PP-14.27. |
 
@@ -123,19 +123,19 @@ Closed points: none recorded at the audit commit.
 
 ### settings
 
-**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 7 (1 fixed, 6 open) · **Stories:** PP-14.21, PP-14.5, PP-14.24
+**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 7 (6 fixed, 1 open) · **Stories:** PP-14.21, PP-14.5, PP-14.24
 
-**Open points.** System and user namespace registries (`registerSystemSettingsNamespaces`, `registerUserSettingsNamespaces`), the `app-registrations/settings.ts` extension lists, the org layer, `SettingsResolver`, `SystemSettingsRowStore`, `registerSettingsFeature` and the packaged hub and profile pages.
+**Open points.** System and user namespace registries (`registerSystemSettingsNamespaces`, `registerUserSettingsNamespaces`), the `app-registrations/settings.ts` extension lists, the org layer, `SettingsResolver`, `SystemSettingsRowStore`, `registerSettingsFeature` and the packaged hub and profile pages; since PP-14.21 also nested and org-layer extensions (`path`, `org`), `overrideSettingsNamespaceDefaults`, `registerSettingsContribution`, `extendUserProfile`, `registerThemePreference`, the `ExtraFields` slots of the profile and theme cards and `registerOrgSettingsFieldRenderer`.
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
-| settings-1 | A namespace extension adds top-level fields only and throws on an existing key; it cannot reach nested objects and does not extend the `org` layer. | api: `settings/registry/extend.ts:122` | Nested extension by dot path and an `org` block (`override` or `tighten`); same for user namespaces (no org layer). | PP-14.21 (#939) | Open |
-| settings-2 | A platform namespace's defaults, merge and org rules cannot be replaced (a key collision is `DUPLICATE_ID`). | api: `settings/registry/extend.ts:122` | `overrideSettingsNamespaceDefaults(id, partialDefaults)` (defaults only, validated against the schema). | PP-14.21 (#939) | Open |
-| settings-3 | The core user fields sit outside the registries: `theme` (light, dark, system), `profile` and the derived `security` block. No `profile.timezone`, no extra themes. | contract: `settings/constants.ts:21`; api: `settings/registry/compose.ts:236` (`UserSettingsCoreShape`) | `extendUserProfile({ fields })` and `registerThemePreference({ id, label })`; `security` stays closed on purpose. | PP-14.21 (#939) | Open |
-| settings-4 | `ProfileSettings` and `ThemeSettings` take fixed props; `OrgSettingsPage` renders `other` fields (objects, records) only as a link. | web: `settings/ui/` | `slots.ExtraFields`; `registerOrgSettingsFieldRenderer(namespace, field, Component)`. | PP-14.21 (#939) | Open |
-| settings-5 | A separately installed package cannot contribute a namespace: the manifests that fold and register them are app code. | api: `settings/registry/` | `registerSettingsContribution({ system, user, extensions })`, a pre-bootstrap collector folded in a documented order. | PP-14.21 (#939) | Open |
+| settings-1 | A namespace extension adds top-level fields only and throws on an existing key; it cannot reach nested objects and does not extend the `org` layer. | api: `settings/registry/extend.ts:122` | Nested extension by dot path and an `org` block (`override` or `tighten`); same for user namespaces (no org layer). | PP-14.21 (#939) | Fixed |
+| settings-2 | A platform namespace's defaults, merge and org rules cannot be replaced (a key collision is `DUPLICATE_ID`). | api: `settings/registry/extend.ts:122` | `overrideSettingsNamespaceDefaults(id, partialDefaults)` (defaults only, validated against the schema). | PP-14.21 (#939) | Fixed |
+| settings-3 | The core user fields sit outside the registries: `theme` (light, dark, system), `profile` and the derived `security` block. No `profile.timezone`, no extra themes. | contract: `settings/constants.ts:21`; api: `settings/registry/compose.ts:236` (`UserSettingsCoreShape`) | `extendUserProfile({ fields })` and `registerThemePreference({ id, label })`; `security` stays closed on purpose. | PP-14.21 (#939) | Fixed |
+| settings-4 | `ProfileSettings` and `ThemeSettings` take fixed props; `OrgSettingsPage` renders `other` fields (objects, records) only as a link. | web: `settings/ui/` | `slots.ExtraFields`; `registerOrgSettingsFieldRenderer(namespace, field, Component)`. | PP-14.21 (#939) | Fixed |
+| settings-5 | A separately installed package cannot contribute a namespace: the manifests that fold and register them are app code. | api: `settings/registry/` | `registerSettingsContribution({ system, user, extensions })`, a pre-bootstrap collector folded in a documented order. | PP-14.21 (#939) | Fixed |
 | settings-6 | The org-settings field descriptor knows five kinds and no secret; it is the base the generic form generalises. | api: `settings/org-settings/describe-fields.ts`; contract: `settings/schemas.ts:303, settings/constants.ts:147` | Move to `describeConfigFields` in core; add the write-only `secret` kind; `PluggableConfigForm` in the settings web slice (new slice edge `settings -> credentials`). | PP-14.5 (#923) | Fixed |
-| settings-7 | `UserProfilePage` and `UserAppearancePage` take no slots. | web: `settings/ui/` | `PageSlotsBase` on both. | PP-14.24 (#942) | Open |
+| settings-7 | `UserProfilePage` and `UserAppearancePage` take no slots. | web: `settings/ui/` | `PageSlotsBase` on both. (Since PP-14.21 both pass `slots.ExtraFields` through to the cards; the standard page slots remain.) | PP-14.24 (#942) | Open |
 
 ### notifications
 
@@ -167,40 +167,40 @@ Closed points: none recorded at the audit commit.
 
 ### jobs
 
-**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 4 (1 fixed, 3 open) · **Stories:** PP-14.19, PP-14.23, PP-14.26
+**Verdict:** Open · **Packages:** api, web, contract, db · **Closed points:** 4 (4 fixed, 0 open) · **Stories:** PP-14.19, PP-14.23, PP-14.26
 
-**Open points.** `JobHandlerRegistry.register`, `registerJobTypeLabel`, `JobSecretBroker`, `enqueueHousekeepingJob`, `RetentionPurgeRegistry`, `JobScope.run`, the `JOBS_*` ports and the packaged Jobs and Job Insights pages (`PageSlotsBase`, `TableSlots`, `Filters`).
+**Open points.** `JobHandlerRegistry.register`, `registerJobTypeLabel`, `JobSecretBroker`, `enqueueHousekeepingJob`, `RetentionPurgeRegistry`, `registerRetentionPolicy`, `registerJobReason`, `JobScope.run`, the `JOBS_*` ports, the handler kit (`createFakeJobQueue`, `describeJobHandlerConformance`, `findJobHandlerContractViolations`) and the packaged Jobs and Job Insights pages (`PageSlotsBase`, `TableSlots`, `Filters`).
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
-| jobs-1 | The retention policy keys and the four-key `retention` namespace are fixed; `RetentionPurgeRegistry.register` throws for any other key, so an app table cannot join the nightly retention. | contract: `jobs/retention-schemas.ts:39`; api: `jobs/retention/retention-purge.registry.ts:67`; api: `jobs/retention/retention.system-settings.ts:~60` | `registerRetentionPolicy({ key, label, defaultDays, minDays, maxDays, purge })`; the namespace is composed from the registry; the nightly task enqueues one job per policy. | PP-14.19 (#937) | Open |
-| jobs-2 | `JobReason` is a closed Prisma enum (`upload`, `rerun`, `backfill`) mirrored in the contract, and every enqueue requires one. | db: `schema/jobs.prisma:351`; contract: `jobs/constants.ts:44` | Migration: enum to text, values kept; `jobReasonSchema` as a pattern; `registerJobReason({ id, label })`. | PP-14.19 (#937) | Open |
+| jobs-1 | The retention policy keys and the four-key `retention` namespace are fixed; `RetentionPurgeRegistry.register` throws for any other key, so an app table cannot join the nightly retention. | contract: `jobs/retention-schemas.ts:39`; api: `jobs/retention/retention-purge.registry.ts:67`; api: `jobs/retention/retention.system-settings.ts:~60` | `registerRetentionPolicy({ key, label, defaultDays, minDays, maxDays, purge })`; the namespace is composed from the registry; the nightly task enqueues one job per policy. | PP-14.19 (#937) | Fixed |
+| jobs-2 | `JobReason` is a closed Prisma enum (`upload`, `rerun`, `backfill`) mirrored in the contract, and every enqueue requires one. | db: `schema/jobs.prisma:351`; contract: `jobs/constants.ts:44` | Migration: enum to text, values kept; `jobReasonSchema` as a pattern; `registerJobReason({ id, label })`. | PP-14.19 (#937) | Fixed |
 | jobs-3 | `JobsPage` and `JobInsightsPage` expose only `slots.Header`. | web: `jobs/ui/JobsPage.tsx:134, :197` | `PageSlotsBase`, `TableSlots<Job>` and `Filters` (the insights page: `TableSlots<JobTypeInsightRow>`). | PP-14.23 (#941) | Fixed |
-| jobs-4 | `jobs/testing` holds only the `on-event-no-io` suite; nothing exercises a handler's own contract (profile bounds, idempotence on retry, node-eligibility pairing, dedup). | api: `jobs/testing/index.ts` | `createFakeJobQueue()` and `describeJobHandlerConformance(handler, { payloads })`. | PP-14.26 (#944) | Open |
+| jobs-4 | `jobs/testing` held only the `on-event-no-io` suite; nothing exercised a handler's own contract (profile bounds, idempotence on retry, node-eligibility pairing, dedup). | api: `jobs/testing/index.ts` | `createFakeJobQueue()` and `describeJobHandlerConformance(handler, { payloads })`. | PP-14.26 (#944) | Fixed |
 
 ### nodes
 
-**Verdict:** Mostly open · **Packages:** api, web, contract, cli · **Closed points:** 4 (1 fixed, 3 open) · **Stories:** PP-14.19, PP-14.23
+**Verdict:** Mostly open · **Packages:** api, web, contract, cli · **Closed points:** 4 (4 fixed, 0 open) · **Stories:** PP-14.19, PP-14.23
 
-**Open points.** `NodesModule.forRoot`, the `NODE_OBJECT_STORE` and `NODE_JOB_INPUTS` ports, `NodeOfflineEvent`, `registerNodeExecutor` in the CLI and the Worker Nodes page (`PageSlotsBase`, `TableSlots`, `VitalsPanel`).
+**Open points.** `NodesModule.forRoot`, the `NODE_OBJECT_STORE` and `NODE_JOB_INPUTS` ports, `NodeOfflineEvent`, `registerNodeSpanAttribute`, `registerNodeExecutor`, `registerJobRequirement` and `registerProbedBinary` in the CLI, `registerNodeVital` in the browser and the Worker Nodes page (`PageSlotsBase`, `TableSlots`, `VitalsPanel`).
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
-| nodes-1 | Node vitals and counters are `.strict()`; the vitals dialog and fleet gauges are fixed and `capabilities` is not shown. | contract: `nodes/schemas.ts:420, :458` | `vitals.extra` (up to 16 numeric keys) and `registerNodeVital({ key, label, unit })`; capabilities as a read-only list. | PP-14.19 (#937) | Open |
-| nodes-2 | Executor span names are closed on both sides (a custom span gets a 400 for the whole batch); relayed attributes are four integer keys. | api: `nodes/dto/node-telemetry.dto.ts:45, :90`; cli: `telemetry/node-span.ts:17`; api: `nodes/node-telemetry.service.ts:74` | Allow `job.app.<name>` spans on both sides, drop an invalid span individually, `registerNodeSpanAttribute`. | PP-14.19 (#937) | Open |
-| nodes-3 | `JOB_TYPE_REQUIREMENTS` and `PROBED_BINARIES` are not exported, so an executor that needs `ffmpeg` cannot declare it and the node self-test cannot protect it. | cli: `engine/node/capabilities.ts:64, :101` | Export `registerJobRequirement(type, { required, degradable })` and `registerProbedBinary(name, { versionArgs })` from `@marinoscar/platform-cli/node`. | PP-14.19 (#937) | Open |
+| nodes-1 | Node vitals and counters are `.strict()`; the vitals dialog and fleet gauges are fixed and `capabilities` is not shown. | contract: `nodes/schemas.ts:420, :458` | `vitals.extra` (up to 16 numeric keys) and `registerNodeVital({ key, label, unit })`; capabilities as a read-only list. | PP-14.19 (#937) | Fixed |
+| nodes-2 | Executor span names are closed on both sides (a custom span gets a 400 for the whole batch); relayed attributes are four integer keys. | api: `nodes/dto/node-telemetry.dto.ts:45, :90`; cli: `telemetry/node-span.ts:17`; api: `nodes/node-telemetry.service.ts:74` | Allow `job.app.<name>` spans on both sides, drop an invalid span individually, `registerNodeSpanAttribute`. | PP-14.19 (#937) | Fixed |
+| nodes-3 | `JOB_TYPE_REQUIREMENTS` and `PROBED_BINARIES` are not exported, so an executor that needs `ffmpeg` cannot declare it and the node self-test cannot protect it. | cli: `engine/node/capabilities.ts:64, :101` | Export `registerJobRequirement(type, { required, degradable })` and `registerProbedBinary(name, { versionArgs })` from `@marinoscar/platform-cli/node`. | PP-14.19 (#937) | Fixed |
 | nodes-4 | `WorkersPage` exposes only `slots.Header`. | web: `nodes/ui/WorkersPage.tsx:202` | `PageSlotsBase`, `TableSlots<WorkerNode>` and `VitalsPanel`. | PP-14.23 (#941) | Fixed |
 
 ### doctor
 
-**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 2 (1 fixed, 1 open) · **Stories:** PP-14.23, PP-14.26
+**Verdict:** Open · **Packages:** api, web, contract · **Closed points:** 2 (2 fixed, 0 open) · **Stories:** PP-14.23, PP-14.26
 
-**Open points.** `DoctorCheck` and `DoctorCheckRegistry.register`, `EgressContributor`, `SupportBundleSection`, the `DEPLOYMENT_NETWORK_SOURCE` port, `categoryOrder`, `DoctorPage`'s `categories` prop and slots (`PageSlotsBase`, `CheckRowActions`) and `registerDoctorCheckRenderer`.
+**Open points.** `DoctorCheck` and `DoctorCheckRegistry.register`, `EgressContributor`, `SupportBundleSection`, the `DEPLOYMENT_NETWORK_SOURCE` port, `categoryOrder`, `DoctorPage`'s `categories` prop and slots (`PageSlotsBase`, `CheckRowActions`) and `registerDoctorCheckRenderer`, and the check kit (`describeDoctorCheckConformance`, the recording Prisma and write-failing storage doubles, the `doctor-read-only` suite).
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
 | doctor-1 | The Doctor `CheckRow` never renders `check.data` and has no slot; there is no per-check renderer or action. | web: `doctor/ui/check-row.tsx:100-175` | `PageSlotsBase`, `registerDoctorCheckRenderer(checkId, Component)` and `CheckRowActions`. | PP-14.23 (#941) | Fixed |
-| doctor-2 | "Doctor checks are read-only" is convention only: the conformance row says "None yet" and an extension author has no harness. | api: `doctor/README.md:194` | `doctor/testing`: `runDoctorCheck`, `describeDoctorCheckConformance` and the `doctor-read-only` suite in `runPlatformConformance`. | PP-14.26 (#944) | Open |
+| doctor-2 | "Doctor checks are read-only" was convention only: the conformance row said "None yet" and an extension author had no harness. | api: `doctor/README.md:194` | `doctor/testing`: `runDoctorCheck`, `describeDoctorCheckConformance` and the `doctor-read-only` suite in `runPlatformConformance`. | PP-14.26 (#944) | Fixed |
 
 ### telemetry
 
@@ -264,19 +264,19 @@ Closed points: none recorded at the audit commit.
 |---|---|---|---|---|---|
 | sharing-1 | Grantee kinds are fixed (`user`, `group`, `link`) and the per-kind SQL is hard-coded; there is no team, role or email-domain grantee. | contract: `sharing/constants.ts:100`; api: `sharing/access/resource-types.ts:76`; `sharing/grants/grants.service.ts:253, :383-396` | `registerGranteeKind` (parameterised SQL fragment, composite `org_id` rules kept), `GET /sharing/grantee-kinds`, `registerGranteePicker`. | PP-14.16 (#934) | Open |
 | sharing-2 | The nine-step access decision order is fixed; a project-membership or time-window rule means replacing `AccessPolicy` wholesale. | api: `sharing/access/access-policy.service.ts:10-30, :78` | `registerAccessRule({ id, position, evaluate, sql? })`; `AccessVia` open. | PP-14.16 (#934) | Open |
-| sharing-3 | Group roles are a fixed list validated in the resource-type registry. | contract: `sharing/constants.ts:13`; api: `sharing/access/resource-types.ts:199` | `registerGroupRole({ id, label, actions })`. | PP-14.15 (#933) | Open |
+| sharing-3 | Group roles are a fixed list validated in the resource-type registry, and stored in the database enum `GroupRole` (`group_members.role`, `group_invites.role`), so a fourth role needs a migration. Kept closed by PP-14.15: the story is no-migration, and a registry for roles the tables cannot hold would fail on the first write. | contract: `sharing/constants.ts:13`; api: `sharing/access/resource-types.ts:199`; db: `schema/sharing.prisma:26` | A platform migration turning both columns into text, then `registerGroupRole({ id, label, actions })` and an open `groupRoleSchema`. | PP-14.15 (#933), follow-up | Open |
 | sharing-4 | `GroupsPage` and `GroupDetailPage` expose only `Header`, `ShareDialog` only `Title`. | web: `sharing/ui/GroupsPage.tsx:53`; `sharing/ui/GroupDetailPage.tsx:69`; `sharing/ui/ShareDialog.tsx:68` | `PageSlotsBase`, `MemberRowActions`, `Tabs`; `ShareDialog` `slots.Sections` and `slots.Footer`. | PP-14.25 (#943) | Open |
 
 ### manifest
 
-**Verdict:** Mostly open · **Packages:** api · **Closed points:** 2 (0 fixed, 2 open) · **Stories:** PP-14.15
+**Verdict:** Open · **Packages:** api · **Closed points:** 2 (2 fixed, 0 open) · **Stories:** PP-14.15
 
-**Open points.** `registerPlatformPermissions` (platform roles, every slice's permission set, then the app's), `platformPermissionCatalog`, `registerPlatformModelOwnership`, `registerPlatformUserOwnedModels`.
+**Open points.** `registerPlatformPermissions` (platform roles, roles of registered slices, the app's roles, every slice's permission set, the permissions of registered slices, the app's permissions, then the app's grants), `platformPermissionCatalog`, `registerPermissionSet` and `permissionSetRegistry` (a package slice's roles and permissions), `app.grants` and `grantPermissions` (an app role holds a platform permission), `registerPlatformModelOwnership`, `registerPlatformUserOwnedModels`.
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
-| manifest-1 | An app cannot grant a platform permission to its own role: `defaultGrants` lives on the declaration, and re-declaring a platform permission is `DUPLICATE_ID`. | api: `manifest/register-permissions.ts:~90`; `core/permissions/permission.registry.ts:189` | `registerPlatformPermissions({ app: { roles, permissions, grants } })`, validated and applied by the seed and the role resolver. | PP-14.15 (#933) | Open |
-| manifest-2 | `PLATFORM_PERMISSION_SLICES` is a fixed tuple and `slices` must include `identity`; a package slice added outside the platform has nowhere to declare. | api: `manifest/platform-permissions.ts:38`; `manifest/register-permissions.ts:~104` | `registerPermissionSet({ slice, permissions, roles })`; `identity` stays mandatory. | PP-14.15 (#933) | Open |
+| manifest-1 | An app cannot grant a platform permission to its own role: `defaultGrants` lives on the declaration, and re-declaring a platform permission is `DUPLICATE_ID`. | api: `manifest/register-permissions.ts:~90`; `core/permissions/permission.registry.ts:189` | `registerPlatformPermissions({ app: { roles, permissions, grants } })`, validated and applied by the seed and the role resolver. | PP-14.15 (#933) | Fixed |
+| manifest-2 | `PLATFORM_PERMISSION_SLICES` is a fixed tuple and `slices` must include `identity`; a package slice added outside the platform has nowhere to declare. | api: `manifest/platform-permissions.ts:38`; `manifest/register-permissions.ts:~104` | `registerPermissionSet({ slice, permissions, roles })`; `identity` stays mandatory. | PP-14.15 (#933) | Fixed |
 
 ### user-data
 
@@ -332,14 +332,14 @@ Closed points: none recorded at the audit commit.
 
 ### testing (api and web)
 
-**Verdict:** Mostly open · **Packages:** api, web · **Closed points:** 2 (0 fixed, 2 open) · **Stories:** PP-14.26
+**Verdict:** Open · **Packages:** api, web · **Closed points:** 2 (2 fixed, 0 open) · **Stories:** PP-14.26
 
-**Open points.** `runPlatformConformance` and `conformanceSuites.register` (an app adds a suite with a `declare module` augmentation of `PlatformConformanceSuiteOptions`; the android-app slice is the model), `runPlatformWebConformance`, `webConformanceSuites`.
+**Open points.** `runPlatformConformance` and `conformanceSuites.register` (an app adds a suite with a `declare module` augmentation of `PlatformConformanceSuiteOptions`; the android-app slice is the model), `runPlatformWebConformance` with per-suite options, `webConformanceSuites` (a duplicate id throws) and the widened `expect` subset.
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
-| testing-1 | The web runner's options are skip-only, every suite receives only the settings-shaped context, `register()` silently ignores a duplicate id and the `expect` subset is tiny. | web: `testing/conformance.ts:251, :277` | `suites?: Record<string, Options | { skip }>`; `register` throws on a duplicate; suites receive `(api, context, options)`; widen `expect`. | PP-14.26 (#944) | Open |
-| testing-2 | The API testing README says a new suite "registers in `conformance-suites.ts`", which reads as an in-package edit although module augmentation works for an app. | api: `testing/README.md` (Extension-point catalog) | Document `conformanceSuites.register` plus `declare module` augmentation. | PP-14.26 (#944) | Open |
+| testing-1 | The web runner's options were skip-only, every suite received only the settings-shaped context, `register()` silently ignored a duplicate id and the `expect` subset was tiny. | web: `testing/conformance.ts:251, :277` | `suites?: Record<string, Options | { skip }>`; `register` throws on a duplicate; suites receive `(api, context, options)`; widen `expect`. | PP-14.26 (#944) | Fixed |
+| testing-2 | The API testing README said a new suite "registers in `conformance-suites.ts`", which read as an in-package edit although module augmentation works for an app. | api: `testing/README.md` (Extension-point catalog) | Document `conformanceSuites.register` plus `declare module` augmentation. | PP-14.26 (#944) | Fixed |
 
 ### ai
 
@@ -382,9 +382,9 @@ Closed points: none recorded at the audit commit.
 
 ### identity
 
-**Verdict:** Partly closed · **Packages:** api, web, contract · **Closed points:** 8 (6 fixed, 2 open) · **Stories:** PP-14.9, PP-14.15, PP-14.25
+**Verdict:** Partly closed · **Packages:** api, web, contract · **Closed points:** 8 (7 fixed, 1 open) · **Stories:** PP-14.9, PP-14.15, PP-14.25
 
-**Open points.** `IdentityModule.forRoot` (and its `signInPolicy` binding), `registerAuthProvider` (`AuthProviderDefinition`: strategy and guard classes or `createStrategy`, async `isEnabled`, `mapProfile`, `egressHosts`, `doctorRemedy`), `AuthService.completeExternalLogin`, `respondToSignIn`, the `IDENTITY_*` ports (including `IDENTITY_SIGNIN_POLICY` and `IDENTITY_AUTH_CREDENTIALS`), `IDENTITY_EVENTS`, the guards and decorators, `identityConformanceSuite`, `describeAuthProviderConformance`, the web `AuthProvider`, `LoginPage` slots (`Logo`, `Title`, `Footer`, `ProviderButton`, `BeforeProviders`, `AfterProviders`) and the packaged pages. Roles and the user and organization pages are not open.
+**Open points.** `IdentityModule.forRoot` (and its `signInPolicy` binding), `registerAuthProvider` (`AuthProviderDefinition`: strategy and guard classes or `createStrategy`, async `isEnabled`, `mapProfile`, `egressHosts`, `doctorRemedy`), `AuthService.completeExternalLogin`, `respondToSignIn`, the `IDENTITY_*` ports (including `IDENTITY_SIGNIN_POLICY` and `IDENTITY_AUTH_CREDENTIALS`), `IDENTITY_EVENTS`, the guards and decorators, `identityConformanceSuite`, `describeAuthProviderConformance`, the web `AuthProvider`, `LoginPage` slots (`Logo`, `Title`, `Footer`, `ProviderButton`, `BeforeProviders`, `AfterProviders`) `GET /api/roles`, role `label` and `assignable` (an app role is assignable on invitations, memberships and users and listed by the packaged dialogs, `useRoles`), `assertRoleAssignable`, and the packaged pages. The user and organization pages' slots are not open.
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
@@ -394,7 +394,7 @@ Closed points: none recorded at the audit commit.
 | identity-4 | `isEnabled` is synchronous and secrets come only from env/`ConfigService` (strategies take them at construction); `IdentityLoginOutcome`, the Doctor remedy and the egress contributor are Google-only. | api: `identity/ports.ts:228`; `identity/auth/providers/auth-provider.registry.ts:36-41`; `identity/auth/doctor/auth-providers.doctor-check.ts:36`; `identity/auth/doctor/egress/google-auth.egress.contributor.ts:42` | Async `isEnabled` with a credentials resolver (purpose `auth_<id>`), a generic `auth.providers` check, egress hosts from definitions. | PP-14.9 (#927) | Fixed |
 | identity-5 | There is no sign-in policy hook (veto, role mapping, domain or org restriction) and no `identity.login.succeeded` or `identity.org.created` event; the allowlist is the only gate. | api: `identity/auth/auth.service.ts:155-166`; `identity/identity.events.ts:40-47` | `IDENTITY_SIGNIN_POLICY` bound by `IdentityModule.forRoot({ signInPolicy })`; the two events. | PP-14.9 (#927) | Fixed |
 | identity-6 | The web `login()` always navigates to `/api/auth/<id>`, `AuthCallbackPage` defaults to `google`, and `LoginPage` has no slot around the provider buttons. | web: `identity/headless/auth-context.tsx:199` | `login(providerId)` by descriptor mode; `LoginPage` `BeforeProviders` and `AfterProviders`; the callback provider from the route. | PP-14.9 (#927) | Fixed |
-| identity-7 | Org roles are closed in three layers: the contract list feeds `z.enum`s (update-member, create-invite), and the web has its own lists, labels and a `viewer` default. A role registered by an app (for example `coach`) is rejected by the invite and member routes and never shown. The test login accepts three fixed roles. | contract: `identity/constants.ts:106`; `identity/schemas.ts:125, :659, :719`; web: `identity/headless/api.ts:297`; `identity/ui/users/userListColumns.tsx:47`; `identity/ui/users/ManageRolesDialog.tsx:70, :82`; `identity/ui/org/orgLabels.ts:8`; `identity/ui/org/InviteMemberDialog.tsx:33`; api: `identity/testing/dto/test-login.dto.ts:6` | `GET /roles?scope=`, `roleIdSchema` as a pattern, role registry `assignable` and `label`, `ROLE_NOT_ASSIGNABLE`; the web dialogs read the endpoint. | PP-14.15 (#933) | Open |
+| identity-7 | Org roles are closed in three layers: the contract list feeds `z.enum`s (update-member, create-invite), and the web has its own lists, labels and a `viewer` default. A role registered by an app (for example `coach`) is rejected by the invite and member routes and never shown. The test login accepts three fixed roles. | contract: `identity/constants.ts:106`; `identity/schemas.ts:125, :659, :719`; web: `identity/headless/api.ts:297`; `identity/ui/users/userListColumns.tsx:47`; `identity/ui/users/ManageRolesDialog.tsx:70, :82`; `identity/ui/org/orgLabels.ts:8`; `identity/ui/org/InviteMemberDialog.tsx:33`; api: `identity/testing/dto/test-login.dto.ts:6` | `GET /roles?scope=`, `roleIdSchema` as a pattern, role registry `assignable` and `label`, `ROLE_NOT_ASSIGNABLE`; the web dialogs read the endpoint. | PP-14.15 (#933) | Fixed |
 | identity-8 | `UsersPage`, `UserList`, `OrganizationPage` and `OrgMembersPanel` take no slots; `buildUserColumns()` is exported but called internally; `/auth/me` and `UserListItem` have no enrichment seam. | web: `identity/ui/users/userListColumns.tsx:82` | `TableSlots<UserListItem>`, `registerCurrentUserExtension` and `registerUserListExtension` (optional `extensions` on the wire). | PP-14.25 (#943) | Open |
 
 ### email

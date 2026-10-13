@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { DatabaseSeedException } from '../../../src/core/index';
+import { DatabaseSeedException, roleRegistry, withTemporaryEntries } from '../../../src/core/index';
 import { PrismaService } from '../support/app-doubles';
 import {
   createMockPrismaService,
@@ -343,6 +343,35 @@ describe('OrganizationsService', () => {
         data: expect.objectContaining({ action: 'org:invite_accepted', targetId: 'invite-1' }),
       });
       expect(principalCache.invalidateUser).toHaveBeenCalledWith('user-1');
+    });
+
+    it('claims an invitation for a registered app role', async () => {
+      prisma.invite.findMany.mockResolvedValue([invite({ role: { id: 'role-coach', name: 'coach' } })] as any);
+      prisma.membership.findUnique.mockResolvedValue(null);
+
+      await withTemporaryEntries(roleRegistry, [{ id: 'coach', description: 'Coach', scope: 'org' }], async () => {
+        await expect(service.claimPendingInvites('user-1', 'new@example.com')).resolves.toBe(1);
+      });
+      expect(prisma.membership.create).toHaveBeenCalledWith({
+        data: { orgId: 'org-b', userId: 'user-1', roleId: 'role-coach', lastActiveAt: expect.any(Date) },
+      });
+    });
+
+    it.each([
+      ['no longer registered', []],
+      ['registered assignable: false', [{ id: 'coach', description: 'Coach', scope: 'org' as const, assignable: false }]],
+      ['registered in the system scope', [{ id: 'coach', description: 'Coach', scope: 'system' as const }]],
+    ])('grants nothing and leaves the invitation pending when its role is %s (fail closed)', async (_why, registered) => {
+      prisma.invite.findMany.mockResolvedValue([invite({ role: { id: 'role-coach', name: 'coach' } })] as any);
+      prisma.membership.findUnique.mockResolvedValue(null);
+
+      await withTemporaryEntries(roleRegistry, registered, async () => {
+        await expect(service.claimPendingInvites('user-1', 'new@example.com')).resolves.toBe(0);
+      });
+      expect(prisma.invite.updateMany).not.toHaveBeenCalled();
+      expect(prisma.membership.create).not.toHaveBeenCalled();
+      expect(prisma.membership.update).not.toHaveBeenCalled();
+      expect(principalCache.invalidateUser).not.toHaveBeenCalled();
     });
 
     it('upgrades an existing lower membership role', async () => {

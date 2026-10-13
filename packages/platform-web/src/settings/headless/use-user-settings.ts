@@ -2,7 +2,8 @@
 // `hooks/useUserSettings.ts`, behaviour unchanged). The theme sync is the
 // app's: it passes `applyTheme` (its theme context's setter).
 
-import type { ThemePreference, UserSettingsResponseBase } from '@marinoscar/platform-contract/settings';
+import { THEME_PREFERENCES } from '@marinoscar/platform-contract/settings';
+import type { ThemePreference, ThemePreferenceId, UserSettingsResponseBase } from '@marinoscar/platform-contract/settings';
 import { useCallback, useEffect, useState } from 'react';
 
 import { isPlatformApiError } from '../../core/index.js';
@@ -16,8 +17,8 @@ import { useSettingsApi, type SettingsHookOptions } from './use-system-settings.
  * @stability experimental
  */
 export interface UserSettingsDocument {
-  /** The theme preference. */
-  theme: ThemePreference;
+  /** The theme preference: light, dark, system, or an id an app registered. */
+  theme: ThemePreferenceId;
   /** The profile preferences. */
   profile: unknown;
   /** The row version. */
@@ -30,8 +31,8 @@ export interface UserSettingsDocument {
  * @stability experimental
  */
 export interface UserSettingsUpdateBase {
-  /** A new theme preference. */
-  theme?: ThemePreference;
+  /** A new theme preference: light, dark, system, or an id an app registered. */
+  theme?: ThemePreferenceId;
   /** New profile preferences. */
   profile?: unknown;
 }
@@ -44,7 +45,8 @@ export interface UserSettingsUpdateBase {
 export interface UseUserSettingsOptions extends SettingsHookOptions {
   /**
    * Whether loading and saving push the stored theme into `applyTheme`.
-   * Default `true`. Pass `false` from always-present chrome (the AppBar, the
+   * Only light, dark and system are pushed: a theme an app registered is
+   * applied by the app's own theme registry. Default `true`. Pass `false` from always-present chrome (the AppBar, the
    * rail): there, syncing would stamp the stored theme back over a toggle the
    * user just flipped on every refetch.
    */
@@ -73,7 +75,7 @@ export interface UseUserSettingsResult<T extends UserSettingsDocument, U> {
   /** `PATCH` with the loaded version as `If-Match`; a 409 refetches and throws. */
   updateSettings: (updates: U) => Promise<void>;
   /** `PATCH { theme }`. */
-  updateTheme: (theme: ThemePreference) => Promise<void>;
+  updateTheme: (theme: ThemePreferenceId) => Promise<void>;
   /** `PATCH { profile }`. */
   updateProfile: (profile: T['profile']) => Promise<void>;
   /** Reloads the document. */
@@ -83,6 +85,11 @@ export interface UseUserSettingsResult<T extends UserSettingsDocument, U> {
    * upload), version included, so the next PATCH sends the current `If-Match`.
    */
   replaceSettings: (next: T) => void;
+}
+
+/** Whether `theme` is one of the three built-in preferences `applyTheme` understands. */
+function isBuiltinTheme(theme: unknown): theme is ThemePreference {
+  return (THEME_PREFERENCES as readonly unknown[]).includes(theme);
 }
 
 /**
@@ -119,7 +126,7 @@ export function useUserSettings<
       const data = await api.get<T>('/user-settings');
       if (isMounted()) {
         setSettings(data);
-        if (syncTheme && applyTheme) applyTheme(data.theme);
+        if (syncTheme && applyTheme && isBuiltinTheme(data.theme)) applyTheme(data.theme);
       }
     } catch (err) {
       if (isMounted()) setError(isPlatformApiError(err) ? err.message : 'Failed to load settings');
@@ -141,7 +148,7 @@ export function useUserSettings<
         const data = await api.patch<T>('/user-settings', updates, { ifMatch: settings.version.toString() });
         if (isMounted()) {
           setSettings(data);
-          if (syncTheme && applyTheme && updates.theme) applyTheme(updates.theme);
+          if (syncTheme && applyTheme && isBuiltinTheme(updates.theme)) applyTheme(updates.theme);
         }
       } catch (err) {
         if (isPlatformApiError(err) && err.status === 409) {
@@ -158,7 +165,7 @@ export function useUserSettings<
   );
 
   const updateTheme = useCallback(
-    async (theme: ThemePreference) => {
+    async (theme: ThemePreferenceId) => {
       await updateSettings({ theme } as U);
     },
     [updateSettings],

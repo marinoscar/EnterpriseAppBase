@@ -605,10 +605,10 @@ describe('useUsers', () => {
         }),
         http.put('*/api/users/:id/roles', async ({ params, request }) => {
           if (params.id === 'user-1') {
-            const body = await request.json() as { roles: string[] };
+            const body = await request.json() as { roleNames: string[] };
             return HttpResponse.json({
               ...mockUser1,
-              roles: body.roles,
+              roles: body.roleNames,
             });
           }
           return HttpResponse.json({ message: 'Not found' }, { status: 404 });

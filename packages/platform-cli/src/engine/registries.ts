@@ -13,6 +13,7 @@ import { freezeDeployCheckRegistry, resetDeployCheckRegistryForTests } from './d
 import { freezeEdgeConfigRegistry, resetEdgeConfigRegistryForTests } from './deploy/edge-config.js';
 import { freezeProxyStreamRegistry, resetProxyStreamRegistryForTests } from './deploy/proxy-streams.js';
 import { freezeDeployStepRegistry, resetDeployStepRegistryForTests } from './deploy/steps/registry.js';
+import { resetCapabilityRegistriesForTests } from './node/capabilities.js';
 import { freezeNodeExecutorRegistry, resetNodeExecutorRegistryForTests } from './node/executors/registry.js';
 import { freezeTuiSectionRegistry, resetTuiSectionRegistryForTests } from './tui/section-registry.js';
 import { freezeTuiScreenRegistry, resetTuiScreenRegistryForTests } from './tui/screen-registry.js';
@@ -53,6 +54,7 @@ export function resetCliRegistriesForTests(): void {
   resetTuiSectionRegistryForTests();
   resetDeployStepRegistryForTests();
   resetNodeExecutorRegistryForTests();
+  resetCapabilityRegistriesForTests();
   resetProxyStreamRegistryForTests();
   resetEnvGeneratorRegistryForTests();
   resetEnvAnnotationRegistryForTests();

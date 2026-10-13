@@ -3,7 +3,7 @@
 
 import { vi } from 'vitest';
 
-import type { AuthContextValue, AuthSessionClient, AuthUser, IdentityApi } from '../../src/identity/headless/index.js';
+import type { AuthContextValue, AuthSessionClient, AuthUser, IdentityApi, RoleDescriptor } from '../../src/identity/headless/index.js';
 
 export const USER: AuthUser = {
   id: 'u1',
@@ -77,6 +77,7 @@ export function authValue(overrides: Partial<AuthContextValue> = {}): AuthContex
 export type FakeIdentityApi = { [K in keyof IdentityApi]: ReturnType<typeof vi.fn> & IdentityApi[K] };
 
 const IDENTITY_API_MEMBERS: readonly (keyof IdentityApi)[] = [
+  'getRoles',
   'getUsers',
   'updateUser',
   'updateUserRoles',
@@ -106,5 +107,20 @@ const IDENTITY_API_MEMBERS: readonly (keyof IdentityApi)[] = [
  * `adapters`.
  */
 export function fakeIdentityApi(): FakeIdentityApi {
-  return Object.fromEntries(IDENTITY_API_MEMBERS.map((name) => [name, vi.fn()])) as unknown as FakeIdentityApi;
+  const api = Object.fromEntries(IDENTITY_API_MEMBERS.map((name) => [name, vi.fn()])) as unknown as FakeIdentityApi;
+  answerWithBuiltinRoles(api);
+  return api;
 }
+
+/** Makes `GET /api/roles` answer the platform's own roles again (a test that overrode it calls this in `beforeEach`). */
+export function answerWithBuiltinRoles(api: FakeIdentityApi): void {
+  vi.mocked(api.getRoles).mockImplementation(async (scope) => BUILTIN_ROLES.filter((role) => scope === undefined || role.scope === scope));
+}
+
+/** The four platform roles as `GET /api/roles` describes them. */
+export const BUILTIN_ROLES: RoleDescriptor[] = [
+  { id: 'admin', label: 'System administrator', description: 'System administrator', scope: 'system', assignable: true },
+  { id: 'contributor', label: 'Contributor', description: 'Organization member', scope: 'org', assignable: true },
+  { id: 'viewer', label: 'Viewer', description: 'Read-only organization member', scope: 'org', assignable: true },
+  { id: 'org_admin', label: 'Administrator', description: 'Organization administrator', scope: 'org', assignable: true },
+];

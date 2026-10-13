@@ -38,12 +38,15 @@ import type {
   IdentityTableRowAction as DataTableRowAction,
   IdentityTableSortState as DataTableSortState,
 } from '../../headless/index.js';
-import { useUsers } from '../../headless/index.js';
+import { useOptionalAuth, useRoles, useUsers } from '../../headless/index.js';
 import { usePermissions } from '../../headless/index.js';
 import { useIdentityApi } from '../../headless/index.js';
 import type { UserListItem } from '../../headless/index.js';
 import { ManageRolesDialog } from './ManageRolesDialog.js';
 import { TABLE_ID, asUserSortField, buildUserColumns } from './userListColumns.js';
+
+/** The org role an administrator holds because of `admin`; set by the API, not offered here. */
+const IMPLIED_BY_ADMIN = 'org_admin';
 
 /**
  * Read a single-operand `is` filter out of the model as a plain string.
@@ -81,7 +84,20 @@ export function UserList(): ReactElement {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [rolesDialogUser, setRolesDialogUser] = useState<UserListItem | null>(null);
 
-  const columns = useMemo(() => buildUserColumns(), []);
+  // The roles come from the API (`GET /api/roles`), never from a list in this
+  // file: the system roles, and, outside multi-organization mode, the org roles
+  // too (`PUT /users/:id/roles` sets the default-organization membership role in
+  // single mode). `org_admin` is not offered: `admin` implies it.
+  const tenancyMode = useOptionalAuth()?.user?.tenancyMode;
+  const systemRoles = useRoles('system');
+  const orgRoles = useRoles('org', { enabled: tenancyMode !== 'multi' });
+  const knownRoles = useMemo(
+    () => [...systemRoles.roles, ...orgRoles.roles.filter((role) => role.id !== IMPLIED_BY_ADMIN)],
+    [systemRoles.roles, orgRoles.roles],
+  );
+  const offeredRoles = useMemo(() => knownRoles.filter((role) => role.assignable), [knownRoles]);
+
+  const columns = useMemo(() => buildUserColumns(knownRoles), [knownRoles]);
 
   // --- Query params, flattened to scalars ------------------------------------
   const roleFilter = useMemo(() => readIsFilter(filters, 'roles'), [filters]);
@@ -238,6 +254,7 @@ export function UserList(): ReactElement {
 
       <ManageRolesDialog
         user={rolesDialogUser}
+        roles={offeredRoles}
         onClose={() => setRolesDialogUser(null)}
         onSave={updateUserRoles}
       />

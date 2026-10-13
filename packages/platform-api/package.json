@@ -38,6 +38,10 @@
       "types": "./dist/doctor/index.d.ts",
       "default": "./dist/doctor/index.js"
     },
+    "./doctor/testing": {
+      "types": "./dist/doctor/testing/index.d.ts",
+      "default": "./dist/doctor/testing/index.js"
+    },
     "./otel-core": {
       "types": "./dist/otel-core/index.d.ts",
       "default": "./dist/otel-core/index.js"

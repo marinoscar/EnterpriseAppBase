@@ -21,6 +21,16 @@ export type { JobsEventBus, JobsEventBusMeta, JobsMetrics, JobsOrgScope } from '
 
 // ---- the data, structurally ------------------------------------------------------------------
 export { JobReason, JobStatus, NodeStatus } from './data/jobs-db';
+export type { BuiltinJobReason } from './data/jobs-db';
+export {
+  assertJobReason,
+  isJobReason,
+  jobReasonLabel,
+  jobReasonRegistry,
+  listJobReasons,
+  registerJobReason,
+} from './job-reason';
+export type { JobReasonDefinition } from './job-reason';
 export type {
   Job,
   JobNodeSecret,
@@ -78,7 +88,15 @@ export type {
 export { RetentionPurgeRegistry } from './retention/retention-purge.registry';
 export type { RetentionPurgeEntry } from './retention/retention-purge.registry';
 export { RetentionPurgeTask } from './retention/retention-purge.task';
+export {
+  isRetentionPolicyKey,
+  listRetentionPolicies,
+  registerRetentionPolicy,
+  retentionPolicyRegistry,
+} from './retention/retention-policy.registry';
+export type { RetentionPolicyDefinition, RetentionPurgeHandler } from './retention/retention-policy.registry';
 export { RETENTION_SYSTEM_SETTINGS, mergeRetentionSettings } from './retention/retention.system-settings';
+export type { RetentionPolicyPatch, RetentionSettingsPatch, RetentionSettingsValue } from './retention/retention.system-settings';
 export { AUDIT_EVENTS_PURGE_TYPE, AuditEventsPurgeHandler } from './retention/audit-events-purge.handler';
 export type {
   AuditEventsPurgeBatch,

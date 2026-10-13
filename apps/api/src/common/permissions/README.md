@@ -26,7 +26,7 @@ Spec: [platform-packages.md](../../../../../docs/specs/platform-packages.md),
 
 | File | What it holds |
 |---|---|
-| `permission.manifest.ts` | One call: `registerPlatformPermissions({ app: { roles: [APP_ROLES], permissions: [APP_PERMISSIONS] } })`. |
+| `permission.manifest.ts` | One call: `registerPlatformPermissions({ app: { roles: [APP_ROLES], permissions: [APP_PERMISSIONS], grants: APP_GRANTS } })`. |
 | `permission-catalog.ts` | `renderPermissionCatalog()`, `checkPermissionCatalog()` and the catalog's path and regenerate command. |
 | `permission.types.ts` | The augmentable `AppPermissionIds` / `AppRoleIds`. Types only. |
 | `index.ts` | The barrel. Importing it runs the manifest, then re-exports core's (now full) registries and `buildPermissionCatalog`. |
@@ -52,7 +52,7 @@ in seed order (`PLATFORM_PERMISSION_SETS`):
 | `settings/settings.permissions.ts` (`ORG_SETTINGS_PERMISSIONS`) | `org_settings:read`, `org_settings:write` |
 | `notifications/notifications.permissions.ts` (`ORG_BROADCASTS_PERMISSIONS`) | `org_broadcasts:read`, `org_broadcasts:write` |
 | `user-data/user-data.permissions.ts` | `system:factory_reset`, `orgs:offboard` |
-| `app-registrations/permissions.ts` (app-owned) | `APP_ROLES`, `APP_PERMISSIONS`: empty upstream |
+| `app-registrations/permissions.ts` (app-owned) | `APP_ROLES`, `APP_PERMISSIONS`, `APP_GRANTS`: empty upstream |
 
 The four roles are the identity slice's `IDENTITY_ROLES` (`PLATFORM_ROLES`).
 
@@ -176,6 +176,24 @@ npm run catalog:permissions --workspace=api   # rewrites prisma/catalog/permissi
 git add apps/api/prisma/catalog/permissions.json
 npm run prisma:seed --workspace=api           # or let `appctl deploy update` run its seed step
 ```
+
+A role is assignable on invitations, memberships and users as soon as it is
+registered, with an optional `label` (`'Coach'`) and `assignable: false` for a
+role the application manages itself; the packaged dialogs read `GET /api/roles`.
+To give a role a PLATFORM permission (a platform permission's `defaultGrants`
+cannot name an app role), add it to `APP_GRANTS`:
+
+```typescript
+export const APP_GRANTS: readonly RoleGrantDeclaration[] = [
+  { role: 'support', permissions: ['users:read'] }, // `support` is a system role in APP_ROLES
+];
+```
+
+A grant is validated when the process starts (the role and the permission
+exist, their scopes match, the permission does not already grant it by default,
+the target is not a platform role) and lands in the catalog's `rolePermissions`.
+Worked example: `platform-extensions/identity/coach-support.roles.ts`, driven by
+`test/examples/manifest/coach-support.example.spec.ts`.
 
 App roles and permissions land after the platform's in the catalog, so the
 seed upserts the platform rows first. An app id that collides with a platform

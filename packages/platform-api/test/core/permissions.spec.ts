@@ -3,10 +3,12 @@ import {
   buildPermissionCatalog,
   catalogGrants,
   composePermissionCatalog,
+  grantPermissions,
   permissionIds,
   permissionRegistry,
   registerPermissions,
   registerRoles,
+  roleGrantRegistry,
   roleIds,
   roleRegistry,
   withTemporaryEntries,
@@ -213,5 +215,98 @@ describe('permissionIds and roleIds', () => {
     expect(literal).toBe('a:read');
     const role: 'admin' = roleIds({ ADMIN: { id: 'admin', description: 'a', scope: 'system' } } as const).ADMIN;
     expect(role).toBe('admin');
+  });
+});
+
+describe('explicit role grants (PP-14.15)', () => {
+  const declarations = {
+    roles: [
+      ROLES,
+      [
+        { id: 'support', description: 'Reads the user list', scope: 'system' as const, label: 'Support' },
+        { id: 'coach', description: 'Coaches', scope: 'org' as const },
+      ],
+    ],
+    permissions: [
+      [
+        { id: 'users:read', description: 'Read users', scope: 'system' as const, defaultGrants: ['admin'] },
+        { id: 'users:write', description: 'Write users', scope: 'system' as const, defaultGrants: ['admin'] },
+        { id: 'workouts:read', description: 'Read workouts', scope: 'org' as const, defaultGrants: ['org_admin', 'coach'] },
+      ],
+    ],
+  };
+
+  it('fold into the role permissions, after the defaults, in permission order', () => {
+    const catalog = composePermissionCatalog({
+      ...declarations,
+      grants: [[{ role: 'support', permissions: ['users:write', 'users:read'] }]],
+    });
+    expect(catalog.rolePermissions.support).toEqual(['users:read', 'users:write']);
+    expect(catalog.rolePermissions.admin).toEqual(['users:read', 'users:write']);
+    expect(catalog.rolePermissions.coach).toEqual(['workouts:read']);
+  });
+
+  it('leave the catalog byte-identical when there are none', () => {
+    const without = composePermissionCatalog(declarations);
+    expect(composePermissionCatalog({ ...declarations, grants: [] })).toEqual(without);
+    expect(without.rolePermissions.support).toEqual([]);
+    expect(without.roles.map((role) => Object.keys(role).sort())).toEqual(without.roles.map(() => ['description', 'name', 'scope']));
+  });
+
+  it.each([
+    ['an unknown role', [{ role: 'ghost', permissions: ['users:read'] }], /unknown role "ghost"/],
+    ['an unknown permission', [{ role: 'support', permissions: ['ghost:read'] }], /unknown permission "ghost:read"/],
+    ['a permission of the other scope', [{ role: 'support', permissions: ['workouts:read'] }], /only permissions of its own scope/],
+    ['a grant the permission already makes', [{ role: 'coach', permissions: ['workouts:read'] }], /already holds "workouts:read"/],
+    ['a declaration with no permission', [{ role: 'support', permissions: [] as string[] }], /names no permission/],
+  ])('refuse %s', (_name, grants, message) => {
+    expect(() => composePermissionCatalog({ ...declarations, grants: [grants] })).toThrow(message);
+  });
+
+  it('refuse the same grant twice, naming it', () => {
+    const error = registryErrorOf(() =>
+      composePermissionCatalog({
+        ...declarations,
+        grants: [[{ role: 'support', permissions: ['users:read'] }], [{ role: 'support', permissions: ['users:read'] }]],
+      }),
+    );
+    expect(error.code).toBe('DUPLICATE_ID');
+    expect(error.id).toBe('support|users:read');
+  });
+
+  it('register all or nothing in the static registry, and are read by buildPermissionCatalog()', async () => {
+    const withSupport: RoleDeclaration[] = [...ROLES, { id: 'support', description: 'Support', scope: 'system' }];
+    await withTemporaryEntries(roleRegistry, withSupport, async () => {
+      await withTemporaryEntries(permissionRegistry, [permission({ id: 'users:read' })], async () => {
+        await withTemporaryEntries(roleGrantRegistry, [], async () => {
+          expect(registryErrorOf(() => grantPermissions([{ role: 'support', permissions: ['users:read', 'nope:read'] }])).code).toBe('INVALID_ENTRY');
+          expect(roleGrantRegistry.size).toBe(0);
+
+          grantPermissions([{ role: 'support', permissions: ['users:read'] }]);
+          expect(roleGrantRegistry.ids()).toEqual(['support|users:read']);
+          expect(buildPermissionCatalog().rolePermissions.support).toEqual(['users:read']);
+        });
+      });
+    });
+  });
+});
+
+describe('role label and assignable (PP-14.15)', () => {
+  it('accept a label and an assignable flag, and refuse a blank label or a non-boolean flag', async () => {
+    await withTemporaryEntries(roleRegistry, [{ id: 'coach', description: 'Coach', scope: 'org', label: 'Coach', assignable: false }], () => {
+      expect(roleRegistry.require('coach').assignable).toBe(false);
+    });
+    expect(registryErrorOf(() => composePermissionCatalog({ roles: [[{ id: 'a', description: 'd', scope: 'org', label: '  ' }]], permissions: [] })).code).toBe('INVALID_ENTRY');
+    expect(
+      registryErrorOf(() => composePermissionCatalog({ roles: [[{ id: 'a', description: 'd', scope: 'org', assignable: 'no' as unknown as boolean }]], permissions: [] })).code,
+    ).toBe('INVALID_ENTRY');
+  });
+
+  it('never put the label or the flag in the seed catalog', () => {
+    const catalog = composePermissionCatalog({
+      roles: [[{ id: 'coach', description: 'Coach', scope: 'org', label: 'Coach', assignable: false }]],
+      permissions: [],
+    });
+    expect(catalog.roles).toEqual([{ name: 'coach', description: 'Coach', scope: 'org' }]);
   });
 });
