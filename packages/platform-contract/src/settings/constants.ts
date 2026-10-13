@@ -34,7 +34,6 @@ export type ThemePreference = (typeof THEME_PREFERENCES)[number];
  * characters starting with a letter (`high-contrast`, `solarized`). The three
  * built-in ids match it. A registered id is permanent once a user stored it.
  *
- * @extensionPoint schema
  * @stability experimental
  */
 export const THEME_PREFERENCE_ID_PATTERN = /^[a-z][a-z0-9-]{1,47}$/;

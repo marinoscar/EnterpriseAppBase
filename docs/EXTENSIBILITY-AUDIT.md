@@ -15,7 +15,7 @@ The audit record of the extension seams of every platform slice. A closed point 
 
 Evidence paths are written `api:`, `web:`, `contract:`, `cli:`, `db:` and `infra:` for `packages/platform-api/src/`, `packages/platform-web/src/`, `packages/platform-contract/src/`, `packages/platform-cli/src/`, `packages/platform-db/` and `packages/platform-infra/`; a path under `apps/` or `docs/` is from the repository root. A story is written PP-14.n (its issue number follows).
 
-As of this version: 114 closed points in 29 sections, 37 fixed and 77 open.
+As of this version: 114 closed points in 29 sections, 42 fixed and 72 open.
 
 ## Verdicts
 
@@ -23,7 +23,7 @@ As of this version: 114 closed points in 29 sections, 37 fixed and 77 open.
 |---|---|---|---|---|---|
 | [onboarding](#onboarding) | Open | 1 | 0 | 1 | PP-14.20 |
 | [credentials](#credentials) | Open | 0 | 0 | 0 | none |
-| [settings](#settings) | Mostly open | 7 | 1 | 6 | PP-14.21, PP-14.5, PP-14.24 |
+| [settings](#settings) | Mostly open | 7 | 6 | 1 | PP-14.21, PP-14.5, PP-14.24 |
 | [notifications](#notifications) | Mostly open | 7 | 6 | 1 | PP-14.10, PP-14.8, PP-14.24 |
 | [exports](#exports) | Mostly open | 3 | 0 | 3 | PP-14.20 |
 | [jobs](#jobs) | Mostly open | 4 | 0 | 4 | PP-14.19, PP-14.23, PP-14.26 |
@@ -77,7 +77,7 @@ The 28 stories of the epic, in order. Phase 1 makes the existing seams real; pha
 | PP-14.18 | #936 | telemetry and otel-core: app units, group presentation, dashboard panels, assistant tools, SDK extension | 3 | 14.11, 14.23 | no | Open |
 | PP-14.19 | #937 | jobs and nodes: app retention policies, open job reasons, node vitals and executor telemetry | 3 | none | yes | Open |
 | PP-14.20 | #938 | onboarding, datatable and exports: close the remaining small vocabularies | 3 | none | no | Open |
-| PP-14.21 | #939 | settings: nested and org-layer extensions, core profile and theme fields, package self-registration | 3 | none | no | Open |
+| PP-14.21 | #939 | settings: nested and org-layer extensions, core profile and theme fields, package self-registration | 3 | none | no | This change |
 | PP-14.22 | #940 | cli and infra: app env groups, deploy checks and steps, proxy stream routes, CSP, compose modes, CLI conformance | 3 | none | no | Open |
 | PP-14.23 | #941 | web: the packaged-page slot contract, its CI check, and the operations pages | 4 | none | no | Open |
 | PP-14.24 | #942 | web: apply the slot contract to AI, storage, email, telemetry, android, host, profile, user-data and notifications pages | 4 | 14.23 (and the phase 2 story of each slice) | no | Open |
@@ -95,7 +95,7 @@ The closed points fall into six repeating patterns. Each is removed once, in one
 | 1 | Closed id lists for pluggable kinds (TypeScript unions, `z.enum`, a fixed settings key per implementation, a `switch` over ids) | The pluggable-kind primitive (PP-14.5, shipped: [Writing a pluggable implementation](EXTENDING.md#writing-a-pluggable-implementation)) applied by the phase 2 stories, and the open vocabularies of phase 3. The rule is [Open an id vocabulary](EXTENDING.md#open-an-id-vocabulary); the guardrail is PP-14.28. |
 | 2 | Documented token overrides that a package-internal consumer never sees (NestJS module scoping) | Bindings through `forRoot` (PP-14.1, PP-14.2 and the phase 2 stories). The rule is [overrides go through `forRoot`](EXTENDING.md#the-extension-ladder). |
 | 3 | Packaged web pages with no slots, or a `Header` slot only | The packaged-page slot contract (PP-14.23 to PP-14.25). |
-| 4 | Settings extension is top-level only (no nested paths, no org layer, no core `profile` or `theme`) | PP-14.21. |
+| 4 | Settings extension is top-level only (no nested paths, no org layer, no core `profile` or `theme`) | PP-14.21 (shipped: [Extend a settings namespace](EXTENDING.md#extend-a-settings-namespace)). |
 | 5 | No test kit for extension authors (except AI providers and storage drivers) | Each phase 2 story ships its kit; PP-14.26 covers the rest. |
 | 6 | Data model: few platform models accept app relations, no JSONB `metadata` on `User` or `Organization` | PP-14.27. |
 
@@ -123,19 +123,19 @@ Closed points: none recorded at the audit commit.
 
 ### settings
 
-**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 7 (1 fixed, 6 open) · **Stories:** PP-14.21, PP-14.5, PP-14.24
+**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 7 (6 fixed, 1 open) · **Stories:** PP-14.21, PP-14.5, PP-14.24
 
-**Open points.** System and user namespace registries (`registerSystemSettingsNamespaces`, `registerUserSettingsNamespaces`), the `app-registrations/settings.ts` extension lists, the org layer, `SettingsResolver`, `SystemSettingsRowStore`, `registerSettingsFeature` and the packaged hub and profile pages.
+**Open points.** System and user namespace registries (`registerSystemSettingsNamespaces`, `registerUserSettingsNamespaces`), the `app-registrations/settings.ts` extension lists, the org layer, `SettingsResolver`, `SystemSettingsRowStore`, `registerSettingsFeature` and the packaged hub and profile pages; since PP-14.21 also nested and org-layer extensions (`path`, `org`), `overrideSettingsNamespaceDefaults`, `registerSettingsContribution`, `extendUserProfile`, `registerThemePreference`, the `ExtraFields` slots of the profile and theme cards and `registerOrgSettingsFieldRenderer`.
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
-| settings-1 | A namespace extension adds top-level fields only and throws on an existing key; it cannot reach nested objects and does not extend the `org` layer. | api: `settings/registry/extend.ts:122` | Nested extension by dot path and an `org` block (`override` or `tighten`); same for user namespaces (no org layer). | PP-14.21 (#939) | Open |
-| settings-2 | A platform namespace's defaults, merge and org rules cannot be replaced (a key collision is `DUPLICATE_ID`). | api: `settings/registry/extend.ts:122` | `overrideSettingsNamespaceDefaults(id, partialDefaults)` (defaults only, validated against the schema). | PP-14.21 (#939) | Open |
-| settings-3 | The core user fields sit outside the registries: `theme` (light, dark, system), `profile` and the derived `security` block. No `profile.timezone`, no extra themes. | contract: `settings/constants.ts:21`; api: `settings/registry/compose.ts:236` (`UserSettingsCoreShape`) | `extendUserProfile({ fields })` and `registerThemePreference({ id, label })`; `security` stays closed on purpose. | PP-14.21 (#939) | Open |
-| settings-4 | `ProfileSettings` and `ThemeSettings` take fixed props; `OrgSettingsPage` renders `other` fields (objects, records) only as a link. | web: `settings/ui/` | `slots.ExtraFields`; `registerOrgSettingsFieldRenderer(namespace, field, Component)`. | PP-14.21 (#939) | Open |
-| settings-5 | A separately installed package cannot contribute a namespace: the manifests that fold and register them are app code. | api: `settings/registry/` | `registerSettingsContribution({ system, user, extensions })`, a pre-bootstrap collector folded in a documented order. | PP-14.21 (#939) | Open |
+| settings-1 | A namespace extension adds top-level fields only and throws on an existing key; it cannot reach nested objects and does not extend the `org` layer. | api: `settings/registry/extend.ts:122` | Nested extension by dot path and an `org` block (`override` or `tighten`); same for user namespaces (no org layer). | PP-14.21 (#939) | Fixed |
+| settings-2 | A platform namespace's defaults, merge and org rules cannot be replaced (a key collision is `DUPLICATE_ID`). | api: `settings/registry/extend.ts:122` | `overrideSettingsNamespaceDefaults(id, partialDefaults)` (defaults only, validated against the schema). | PP-14.21 (#939) | Fixed |
+| settings-3 | The core user fields sit outside the registries: `theme` (light, dark, system), `profile` and the derived `security` block. No `profile.timezone`, no extra themes. | contract: `settings/constants.ts:21`; api: `settings/registry/compose.ts:236` (`UserSettingsCoreShape`) | `extendUserProfile({ fields })` and `registerThemePreference({ id, label })`; `security` stays closed on purpose. | PP-14.21 (#939) | Fixed |
+| settings-4 | `ProfileSettings` and `ThemeSettings` take fixed props; `OrgSettingsPage` renders `other` fields (objects, records) only as a link. | web: `settings/ui/` | `slots.ExtraFields`; `registerOrgSettingsFieldRenderer(namespace, field, Component)`. | PP-14.21 (#939) | Fixed |
+| settings-5 | A separately installed package cannot contribute a namespace: the manifests that fold and register them are app code. | api: `settings/registry/` | `registerSettingsContribution({ system, user, extensions })`, a pre-bootstrap collector folded in a documented order. | PP-14.21 (#939) | Fixed |
 | settings-6 | The org-settings field descriptor knows five kinds and no secret; it is the base the generic form generalises. | api: `settings/org-settings/describe-fields.ts`; contract: `settings/schemas.ts:303, settings/constants.ts:147` | Move to `describeConfigFields` in core; add the write-only `secret` kind; `PluggableConfigForm` in the settings web slice (new slice edge `settings -> credentials`). | PP-14.5 (#923) | Fixed |
-| settings-7 | `UserProfilePage` and `UserAppearancePage` take no slots. | web: `settings/ui/` | `PageSlotsBase` on both. | PP-14.24 (#942) | Open |
+| settings-7 | `UserProfilePage` and `UserAppearancePage` take no slots. | web: `settings/ui/` | `PageSlotsBase` on both. (Since PP-14.21 both pass `slots.ExtraFields` through to the cards; the standard page slots remain.) | PP-14.24 (#942) | Open |
 
 ### notifications
 

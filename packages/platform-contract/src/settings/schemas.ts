@@ -104,6 +104,7 @@ export const themePreferenceIdSchema = z.string().regex(THEME_PREFERENCE_ID_PATT
  * One theme an app registered, as `themeOptions` lists it in the user
  * settings response.
  *
+ * @extensionPoint schema
  * @stability experimental
  */
 export const themeOptionSchema = z.object({
