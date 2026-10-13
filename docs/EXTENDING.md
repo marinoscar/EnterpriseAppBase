@@ -887,6 +887,69 @@ Available now. An app, or an `@acme/auth-github` package an app installs, adds a
 
 What is still closed (audit: [identity](EXTENSIBILITY-AUDIT.md#identity)): app roles in the invite and member routes (PP-14.15) and slots on the Users and Organization pages (PP-14.25). **Login CSRF is yours to prevent: the slice adds no `state` and no PKCE.** With `passport-oauth2`, `state: true` or `pkce: true` without a `store` throws "requires session support" on every sign-in here, because this app registers no session plugin. A real OAuth 2.0 provider must pass `store: createCookieStateStore({ secret: config.get('jwt.secret') })` (a signed, short-lived HttpOnly cookie; it does not do PKCE) or a store of its own. The example strategy has none only because it never leaves the process, and it is not a template for that part.
 
+### Add an env group, a generated value or an override of a platform key
+
+Imports: `@marinoscar/platform-cli/core`. Examples: [`coach.env-group.ts`](../apps/cli/src/examples/coach.env-group.ts), [`coach.env-generator.ts`](../apps/cli/src/examples/coach.env-generator.ts), [`coach.env-annotation.ts`](../apps/cli/src/examples/coach.env-annotation.ts). Each is also a `createCli` option (`envGroups`, `envGenerators`, `envAnnotations`), and the same either way.
+
+1. **Declare the keys** in `infra/compose/app.env.example` (an explanation above each, never a commented `KEY=value` line), then `npm run platform:infra:sync`.
+2. **Register the group**: `registerEnvGroup({ id, label, description, defaultEnabled })`, then put keys in it with `registerEnvSpecFragment({ id, metadata: { KEY: { group: 'id' } } })`. The wizard asks a group's keys only when `deploy install --group <id>` (or the TUI's group question) enabled it; `defaultEnabled: true` adds it to every deployment, as the telemetry group is. A fragment naming an unregistered group throws and lists the registered ones.
+3. **Register a generator** for a value with a shape of its own: `registerEnvGenerator({ kind, generate })`, then `generate: 'kind'` in the key's metadata (with `autoGenerate: true` to generate it unasked). A generator is a synchronous function, never a command, and its value must be 1 to 512 characters of letters, digits and `+ / = _ . : @ -`; anything else is refused before it reaches `.env`.
+4. **Override a platform key** with `annotateEnvKey(key, { fixed?, help? })`. The app wins for those two fields. Nothing else of the owner's metadata changes, `fixed` on a secret key throws, and a key that is `never` written stays unwritten.
+5. **Test it**: `metadataFor(key)` and `effectiveGroups(groups)` from `@marinoscar/platform-cli/deploy` show the group, the generator kind and the enabled groups, and `generateWithKind(kind)` from `/core` makes a value, as [the example test](../apps/cli/src/examples/coach.env-group.test.ts) does.
+
+### Add a deploy check, or place a deploy step
+
+Imports: `@marinoscar/platform-cli/deploy`. Examples: [`coach.deploy-check.ts`](../apps/cli/src/examples/coach.deploy-check.ts), [`coach.deploy-step-placement.ts`](../apps/cli/src/examples/coach.deploy-step-placement.ts), [`announce.deploy-step.ts`](../apps/cli/src/examples/announce.deploy-step.ts).
+
+1. **A check** is a `DeployCheck`: `registerDeployCheck({ id, title, severity, requires?, run })`, or `createCli({ deployChecks })`. `run` receives a narrow `DeployCheckContext` (`deployRoot`, `bindPort`, `proxyRoot`, `domain`, `skipProxy` and an `env` that withholds secrets like a step's). It never throws, a `fail` carries a `remedy` that names a command or a path, and it is read-only. `required` blocks `deploy install` and `deploy update` and makes `doctor` exit non-zero; `recommended` is advice. It runs after the built-ins in `doctor`, in both preflights and in the TUI.
+2. **A step** takes exactly one anchor: `after`, `before` or `replaces`. `skipWhen(context)` skips the replaced step; with no `step` it is a conditional skip of the built-in. The built-in step ids are a stable surface ([`INSTALL_STEP_IDS`](../packages/platform-cli/README.md), `UPDATE_STEP_IDS`). Replacing a built-in is your responsibility: later steps read what it prepared.
+3. **Read the configuration** from `context.env` and `context.answers`. They are read-only and withhold secrets: `get` returns `undefined` for a key annotated secret or named like one (`*_SECRET`, `*PASSWORD*`, `*TOKEN*`, `*API_KEY*`), `has` still reports presence.
+4. **Test a step** without a pipeline using `testDeployStepContext(overrides, values)` from `@marinoscar/platform-cli/testing`.
+
+### Stream an app route through the VPS host proxy
+
+Imports: `@marinoscar/platform-cli` (`createCli`), `@marinoscar/platform-cli/deploy`. Example: [`coach.proxy-stream.ts`](../apps/cli/src/examples/coach.proxy-stream.ts); runbook: [deploy-to-vps.md](runbooks/deploy-to-vps.md#63-stream-an-app-route-through-the-host-proxy).
+
+An SSE or other long-lived route has two hops to configure. The app's own nginx: a location in `infra/nginx/app.d/locations/` that includes `platform/sse-proxy.conf` (see `stream-route.conf.example` there). The shared host proxy in front of it: the path declared to the CLI, or the route is buffered and cut at 60 seconds only on a VPS.
+
+1. **Declare the path**: `createCli({ proxy: { streamPaths: ['/api/coach/chat/stream'] } })` or `registerProxyStreamPath(path)`. A path object takes `timeoutSeconds` (default one hour).
+2. **Redeploy.** `deploy install` and `deploy update` render one unbuffered location per path with the directives of the platform's SSE locations.
+3. **Paths are validated** because the vhost is shared by every site on the server: a leading `/`, letters, digits and `. _ ~ / : @ + , = -` only. A newline, `;`, quote, brace, `$`, `#` or space throws before any file is written. An app that declares no path gets a byte-identical vhost.
+
+### Extend the CSP without copying it
+
+Files: `infra/nginx/app.d/csp/`, [`connect-src.conf.example`](../infra/nginx/app.d/csp/connect-src.conf.example).
+
+1. **Add sources to a directive**: copy the example to `app.d/csp/connect-src.conf` (also `img-src`, `media-src`, `font-src`, `style-src`) and write one line, `default " wss://realtime.example.com";`, with a leading space. It is appended to that directive of the default policy.
+2. **Add a directive the policy lacks** (`frame-src`, `child-src`) in `app.d/csp/extra.conf`: `default "; frame-src https://www.youtube.com";`. A repeated directive is ignored by browsers, so this cannot widen a directive the policy already has.
+3. **What is deliberately not open**: `script-src`, `default-src`, `object-src`, `base-uri`, `form-action` and `frame-ancestors` have no hook, and the `/api/docs` policy is not extended. Widening those is an edit of the policy, not an include. The reference file is [`csp.conf`](../infra/nginx/csp.conf).
+4. **Check it**: `nginx -t` on the composed configuration (the CI step, or `runInfraConformance`).
+
+### Check an app compose overlay, a compose mode or a single-file mount
+
+Imports: `@marinoscar/platform-infra`, `@marinoscar/platform-infra/testing`, `@marinoscar/platform-cli/deploy`. Examples: [`staging.compose-mode.ts`](../apps/cli/src/examples/staging.compose-mode.ts), [`coach.edge-config.ts`](../apps/cli/src/examples/coach.edge-config.ts), [`infra-conformance.test.ts`](../apps/cli/src/infra-conformance.test.ts).
+
+1. **Overlays**: `infra/compose/app.<name>.compose.yml` applies to every mode built on `base.compose.yml`; `app.<scope>.<name>.compose.yml` to that scope (`dev`, `devdb`, `prod`, `vps`, `worker`, `test`). `app.test.*` reaches the disposable test database only.
+2. **A mode of your own**: `registerComposeMode({ id, files })`. Its id is its overlay scope. `composeFilesForMode(id, { overlays })` returns the files, the overlays last.
+3. **A single-file bind mount** into nginx pins an inode, so a `git checkout` leaves the container reading old bytes. Register the file with `registerEdgeConfigFile({ checkout, container })` and `deploy update` hashes it in the checkout and in the container and recreates nginx once on a difference. A directory mount needs none.
+4. **Prove they work**: `runInfraConformance({ appRoot, testApi })` runs `platform-infra sync --check`, `docker compose config` over each mode with your overlays, and `nginx -t` over `app.d/` with both CSP files. A missing Docker or nginx registers a passing case named with the reason; `skip: { compose: 'why' }` opts out and needs a reason.
+
+### Add a section to the node and deploy TUI screens
+
+Imports: `@marinoscar/platform-cli/tui`. Example: [`fleet-note.tui-section.tsx`](../apps/cli/src/examples/fleet-note.tui-section.tsx).
+
+1. **Write an ink component** taking `TuiSectionProps` (`{ screen }`).
+2. **Register it**: `registerTuiScreenSection('node' | 'deploy', Component, { id })`, or `{ id, load }` to load it when the screen opens, or `createCli({ tuiSections })`. Only `node` and `deploy` have a slot.
+3. **It renders below the screen's top-level list**, in registration order. A section that throws, or whose `load` rejects, shows a one-line notice and leaves the screen working.
+
+### Add a CLI conformance suite
+
+Imports: `@marinoscar/platform-cli/testing`. Example: [`coach.conformance-suite.ts`](../apps/cli/src/examples/coach.conformance-suite.ts); the run: [`conformance.test.ts`](../apps/cli/src/conformance.test.ts).
+
+1. **Register the suite**: `registerCliConformanceSuite({ id, title, description, register(api, options) })`. Its option key is the camelCase of the id.
+2. **Run it**: `runPlatformConformance({ suites: { yourSuite: options } })`. Every suite the app names gets its options or `{ skip: 'reason' }`; an empty reason, or `false`, throws, and the run prints which suites ran and which were skipped.
+3. **The built-ins** are `cli` (env template fragments, executor credential hygiene) and `deployRegistrations` (every env key's group and generator is registered, both deploy plans resolve, no duplicate edge-config file, the vhost renders with your stream paths).
+
 ## How to ship an extension as its own npm package
 
 An extension package (`@acme/ai-assemblyai`, `@acme/storage-azure`) is a package that an app installs next to `@marinoscar/platform-*` and that registers or binds its parts through the same seams an app uses. The platform packages are its host, so the package follows the rules that keep one copy of each.
@@ -919,6 +982,8 @@ A kit is a function an extension author calls with the implementation and the te
 | `describeTelemetryStoreConformance(store, { describe, it, expect, settings?, secrets?, writeStatements?, timeout?, unconfigured?, fixture? })` | `@marinoscar/platform-api/telemetry/testing` | A valid definition (id, label, defaults, no secret-looking setting, a form descriptor); `query` refuses writes and answers a read afterwards, honours its timeout and abort signal; `schema()` has the explorer shape, sorted; `ping()` never throws and leaks no secret; an unconfigured store refuses with a typed error; `close()` twice; the dialect renders every construct; given a fixture, every dashboard statement built with the dialect runs against the store | Available |
 | `describeBackupTargetConformance(target, { describe, it, expect, rejectsEscapingKeys?, skip? })` | `@marinoscar/platform-api/db-backup/testing` | A valid id and the four members; write, read back, a missing key fails to read, idempotent delete; a 20 MiB stream that is not buffered (queued bytes, Buffer memory, chunked reads) and matches by SHA-256; a destroyed write rejects `done`; exact prefix listing; a signed URL when defined; `../` refused when declared | Available |
 | `describeRestoreGateConformance(gate, { describe, it, expect, scenarios, watch? })` | `@marinoscar/platform-api/db-backup/testing` | A valid definition; answers `{ status, message }` per scenario; read-only (a context that records every write, plus watched side-effect counters); repeatable; evaluates to a pre-flight row with the gate's id and label | Available |
+| `runPlatformConformance({ suites })` (CLI) | `@marinoscar/platform-cli/testing` | The `cli` and `deployRegistrations` suites, and any suite registered with `registerCliConformanceSuite`; a skip needs a reason | Available |
+| `runInfraConformance({ appRoot })` | `@marinoscar/platform-infra/testing` | `sync --check`, `docker compose config` per mode with the app's overlays, `nginx -t` over `app.d/` and both CSP files | Available |
 | Doctor check, job handler | `@marinoscar/platform-api/doctor/testing`, `…/jobs/testing` | Read-only checks; handler profile, idempotence and node-eligibility pairing | Coming (PP-14.26) |
 
 An app adds its own suite with `conformanceSuites.register` and a `declare module '@marinoscar/platform-api/testing'` augmentation of `PlatformConformanceSuiteOptions`; the android-app slice's `testing/conformance.ts` is the model. More: [TESTING.md](TESTING.md#platform-conformance).

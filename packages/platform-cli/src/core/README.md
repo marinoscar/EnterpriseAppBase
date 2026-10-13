@@ -1,6 +1,6 @@
 # `@marinoscar/platform-cli/core`
 
-The two registries an app's CLI extends that need no part of the CLI itself (commands and env-spec fragments, PP-4.5 #706), and the pure helpers behind env-key metadata. `createCli` ([package README](../../README.md)) feeds both and freezes them once the CLI is built (#715); the built-in commands are in [`/commands`](../commands/README.md).
+The registries an app's CLI extends that need no part of the CLI itself (commands, env-spec fragments, env groups, generators and annotations), and the pure helpers behind env-key metadata. `createCli` ([package README](../../README.md)) feeds both and freezes them once the CLI is built (#715); the built-in commands are in [`/commands`](../commands/README.md).
 
 ## Purpose and scope
 
@@ -8,6 +8,9 @@ The CLI's rung-2 registries ([Extension Contract](../../../../docs/specs/platfor
 
 - **Commands.** `registerCliCommand(fn)` queues a function that adds commands to the host's Commander `program`; the host calls `applyRegisteredCommands(program)` once, after its built-ins.
 - **Env-spec fragments.** `registerEnvSpecFragment(fragment)` contributes metadata (secret, essential, generate, autoGenerate, validate, derive, fixed, group, never, allowBlank) for environment keys; `resolveEnvMetadata(key)` and `listEnvSpecFragments()` read it back.
+- **Env groups.** `registerEnvGroup({ id, label, description, defaultEnabled })` makes a set of keys an opt-in group (the platform's three register through it); `listEnvGroups()` and `getEnvGroup(id)` read it back. A fragment key naming an unregistered group throws.
+- **Env generators.** `registerEnvGenerator({ kind, generate })` adds a kind of generated value for `EnvVarMetadata.generate`. A generator is a synchronous function, never a command, and its value is checked against a safe character set before it reaches `.env`.
+- **Env annotations.** `annotateEnvKey(key, { fixed?, help? })` overrides those two fields on a key a platform fragment owns. The app wins for them; nothing else of the owner's metadata changes.
 - The `EnvVarMetadata` types and the pure value helpers (`generateValue`, `isPlaceholderValue`, `needsAutoGenerate`, `validateBase64Key32`, `validateEmail`, `validatePort`).
 
 Not in scope: the built-in commands themselves (`init`, `login`, `api`, `config`, `node`, `deploy`, in [`/commands`](../commands/README.md)) and the TUI, deploy-step and node-executor registries ([`/tui`](../tui/README.md), [`/deploy`](../deploy/README.md), [`/node`](../node/README.md)). A fragment never adds a key: the question list comes from the app's `.env.example`.
@@ -39,9 +42,12 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `registerCliCommand` | registry | `registerCliCommand(register: (program: Command) => void): void` | Add an app command to the host CLI; listed after the built-ins, in registration order. A name or alias taken by a built-in, an earlier app command or `help` throws when applied. | experimental | [example](../../../../apps/cli/src/examples/hello.command.ts) |
+| `registerEnvGroup` | registry | `registerEnvGroup(group: EnvGroupRegistration): void` | Make the app's env keys an opt-in group: the wizard (and the TUI install form) asks them only when `--group <id>` enabled it; `defaultEnabled: true` adds it to every deployment | experimental | [example](../../../../apps/cli/src/examples/coach.env-group.ts) |
+| `registerEnvGenerator` | registry | `registerEnvGenerator(generator: EnvGeneratorRegistration): void` | Add a kind of generated env value (a token of an odd shape) beyond `base64-32` and `hex-32`; a function, never a command | experimental | [example](../../../../apps/cli/src/examples/coach.env-generator.ts) |
+| `annotateEnvKey` | registry | `annotateEnvKey(key: string, annotation: EnvKeyAnnotation): void` | Pin (`fixed`) or explain (`help`) an env key the platform owns; the app wins for those two fields; a secret cannot be fixed | experimental | [example](../../../../apps/cli/src/examples/coach.env-annotation.ts) |
 | `registerEnvSpecFragment` | registry | `registerEnvSpecFragment(fragment: EnvSpecFragment): void` | Annotate a set of environment keys the template declares. A duplicate fragment id, or a key another fragment owns, throws naming both owners; nothing is registered. | experimental | [example](../../../../apps/cli/src/app.ts) |
 
-Readers and test helpers: `applyRegisteredCommands(program)`, `listRegisteredCommands()`, `resolveEnvMetadata(key)`, `listEnvSpecFragments()`; `resetCommandRegistryForTests()` and `resetEnvSpecRegistryForTests()` are for tests only.
+Readers and test helpers: `applyRegisteredCommands(program)`, `listRegisteredCommands()`, `resolveEnvMetadata(key)`, `listEnvSpecFragments()`, `listEnvGroups()`, `getEnvGroup(id)`, `listEnvGenerators()`, `generateWithKind(kind)`, `getEnvAnnotation(key)`, `createCliRegistry(options)` (the id-keyed registry the newer extension points share); the `reset*ForTests()` functions are for tests only.
 
 ## Data
 

@@ -4,7 +4,7 @@ The deploy pipelines' extension surface: the step registry, the built-in step id
 
 ## Purpose and scope
 
-`deploy install` and `deploy update` are lists of steps. An app inserts its own with `registerDeployStep({ pipeline, id, after, step })` right after a named step; `--resume`, the journal, `DeployHooks` and the TUI's progress view treat it like any other. `planDeploySteps(pipeline)` lists a pipeline without running it.
+`deploy install` and `deploy update` are lists of steps. An app inserts its own with `registerDeployStep({ pipeline, id, after | before | replaces, step })` right after, right before or in place of a named step, or skips a built-in with `replaces` and `skipWhen`; `--resume`, the journal, `DeployHooks` and the TUI's progress view treat it like any other. `planDeploySteps(pipeline)` lists a pipeline without running it. `registerDeployCheck` adds a prerequisite check to `doctor` and the install and update preflight. `registerProxyStreamPath` (or `createCli({ proxy: { streamPaths } })`) makes the VPS host proxy stream an app route unbuffered, and `registerEdgeConfigFile` adds a single-file nginx mount to the stale-inode check of `deploy update`.
 
 Built-in step ids (a stable surface; renaming one is a breaking change):
 
@@ -47,9 +47,11 @@ planDeploySteps('install'); // [..., 'verify', 'announce', 'publish-version']
 
 ## Configuration
 
-`DeployStepRegistration`: `pipeline` (`install` or `update`), `id` (unique in the pipeline, lowercase `[a-z0-9-]`, recorded for `--resume`), `after` (a built-in id or an earlier app step of the pipeline; two steps after one target keep registration order) and `step` (`title`, optional `skip`, `run`).
+`DeployStepRegistration`: `pipeline` (`install` or `update`), `id` (unique in the pipeline, lowercase `[a-z0-9-]`, recorded for `--resume`), exactly one anchor (`after`, `before` or `replaces`: a built-in id or an earlier app step of the pipeline; two steps after one target keep registration order), `skipWhen` (with `replaces`: skip the replaced step when it returns true; with no `step`, a conditional skip of the built-in) and `step` (`title`, optional `skip`, `run`). Replacing or skipping a built-in is the app's responsibility, because later built-ins read what earlier ones prepared.
 
-The step's `DeployStepContext`: `pipeline`, `deployRoot`, `checkoutPath` (`<deployRoot>/repo`), `commitSha`, `hooks`, `log(line)`, `progress(message)` and `exec(argv, { cwd, timeoutMs, allowExitCodes })`, which runs a command journaled and redacted like a built-in step's and throws on an unexpected exit code.
+The step's `DeployStepContext`: `pipeline`, `deployRoot`, `checkoutPath` (`<deployRoot>/repo`), `commitSha`, `hooks`, `env` and `answers` (read-only `DeployStepValues`: `has`, `get`, `keys`; a secret key, annotated or named like one, is present but `get` returns `undefined`), `log(line)`, `progress(message)` and `exec(argv, { cwd, timeoutMs, allowExitCodes })`, which runs a command journaled and redacted like a built-in step's and throws on an unexpected exit code.
+
+`registerDeployCheck(check)`: a `DeployCheck` (`id`, `title`, `severity`, optional `requires`, `run(context)`); the doctor contract applies (never throws, a `fail` has a `remedy`, read-only). `run` gets a `DeployCheckContext`: `deployRoot`, `bindPort`, `proxyRoot`, `domain`, `skipProxy` and an `env` view that withholds secrets, like a step's. `registerProxyStreamPath(path | { path, timeoutSeconds })`: validated (leading `/`, letters, digits and `. _ ~ / : @ + , = -`); `renderVhost` adds an unbuffered location per path with the platform's SSE directives and a one-hour default timeout. `registerEdgeConfigFile({ checkout, container })`: relative checkout path, plain absolute container path.
 
 ## Extension-point catalog
 
@@ -57,9 +59,12 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
-| `registerDeployStep` | registry | `registerDeployStep(registration: DeployStepRegistration): void` | Do one more thing in `deploy install` or `update` (EvoPath's Android APK release) without forking the pipeline | experimental | [example](../../../../apps/cli/src/examples/announce.deploy-step.ts) |
+| `registerDeployStep` | registry | `registerDeployStep(registration: DeployStepRegistration): void` | Do one more thing in `deploy install` or `update` (EvoPath's Android APK release), before or in place of a built-in step, or skip one, without forking the pipeline | experimental | [example](../../../../apps/cli/src/examples/announce.deploy-step.ts), [placement](../../../../apps/cli/src/examples/coach.deploy-step-placement.ts) |
+| `registerDeployCheck` | registry | `registerDeployCheck(check: DeployCheck): void` | Add an app prerequisite to `doctor` and the install and update preflight; `required` blocks a deploy | experimental | [example](../../../../apps/cli/src/examples/coach.deploy-check.ts) |
+| `registerProxyStreamPath` | registry | `registerProxyStreamPath(entry: string \| ProxyStreamPathRegistration): void` | Stream an app SSE route unbuffered through the VPS host proxy instead of buffering and cutting it at 60 s | experimental | [example](../../../../apps/cli/src/examples/coach.proxy-stream.ts) |
+| `registerEdgeConfigFile` | registry | `registerEdgeConfigFile(file: EdgeConfigFile): void` | Add the app's own single-file nginx bind mount to the stale-inode check `deploy update` runs | experimental | [example](../../../../apps/cli/src/examples/coach.edge-config.ts) |
 
-Also exported: `INSTALL_STEP_IDS` and `UPDATE_STEP_IDS` (stable), `planDeploySteps`, `listRegisteredDeploySteps`, `DeployHooks`, `DEPLOY_STATE_FILENAME` and `PROXY_MANAGED_SENTINEL` (stable, fixed), `parseEnvExample`, `composeEnvSpecs`, `commentedAssignments` and `PLATFORM_DOCUMENTED_OPTIONAL_KEYS`.
+Also exported: `listDeployCheckIds`, `edgeConfigFiles`, `listRegisteredProxyStreamPaths`, `metadataFor` and `effectiveGroups` (for app tests), `INSTALL_STEP_IDS` and `UPDATE_STEP_IDS` (stable), `planDeploySteps`, `listRegisteredDeploySteps`, `DeployHooks`, `DEPLOY_STATE_FILENAME` and `PROXY_MANAGED_SENTINEL` (stable, fixed), `parseEnvExample`, `composeEnvSpecs`, `commentedAssignments` and `PLATFORM_DOCUMENTED_OPTIONAL_KEYS`.
 
 ## Data
 
