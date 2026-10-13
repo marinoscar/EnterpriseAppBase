@@ -40,6 +40,8 @@ export interface RecordedStorageOperation {
  * @stability experimental
  */
 export interface WriteFailingStorageOptions {
+  /** Whether a write rejects with `ReadOnlyViolationError` (default true); off, it is recorded and resolves to `undefined`. See `RecordingPrismaOptions.refuseWrites`. */
+  readonly refuseWrites?: boolean;
   /** The provider `kind` it reports (default `fake`). */
   readonly kind?: string;
   /** The bucket name `getBucket()` answers (default `doctor-read-only-bucket`). */
@@ -60,6 +62,8 @@ export interface WriteFailingStorage {
   operations(): readonly RecordedStorageOperation[];
   /** The calls that write; empty means the check never wrote to storage. */
   violations(): readonly RecordedStorageOperation[];
+  /** Turns the rejection of writes on or off (they are recorded either way). */
+  refuseWrites(on: boolean): void;
   /** Forgets every recorded call. */
   reset(): void;
 }
@@ -94,6 +98,7 @@ const WRITE_METHODS: readonly string[] = [
 export function createWriteFailingStorage(options: WriteFailingStorageOptions = {}): WriteFailingStorage {
   const operations: RecordedStorageOperation[] = [];
   const existing = new Set(options.existingKeys ?? []);
+  let refusing = options.refuseWrites !== false;
 
   const record = (method: string, key: unknown, write: boolean): void => {
     operations.push(typeof key === 'string' ? { method, key, write } : { method, write });
@@ -126,7 +131,8 @@ export function createWriteFailingStorage(options: WriteFailingStorageOptions = 
   for (const method of WRITE_METHODS) {
     provider[method] = async (key?: unknown) => {
       record(method, key, true);
-      throw new ReadOnlyViolationError('storage', method);
+      if (refusing) throw new ReadOnlyViolationError('storage', method);
+      return undefined;
     };
   }
 
@@ -134,6 +140,9 @@ export function createWriteFailingStorage(options: WriteFailingStorageOptions = 
     provider,
     operations: () => [...operations],
     violations: () => operations.filter((operation) => operation.write),
+    refuseWrites: (on) => {
+      refusing = on;
+    },
     reset: () => {
       operations.length = 0;
     },

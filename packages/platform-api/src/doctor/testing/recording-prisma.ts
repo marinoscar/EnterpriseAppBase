@@ -74,6 +74,14 @@ export class ReadOnlyViolationError extends Error {
  */
 export interface RecordingPrismaOptions {
   /**
+   * Whether a write rejects with {@link ReadOnlyViolationError} (default true).
+   * Off, a write is still recorded as a violation but resolves to `undefined`:
+   * the `doctor-read-only` suite boots the app with it off, so a write the app
+   * makes while starting does not stop it, then turns it on with
+   * {@link RecordingPrisma.refuseWrites} and `reset()` before the checks run.
+   */
+  readonly refuseWrites?: boolean;
+  /**
    * Scripted answers for reads, by dotted path: `{ 'job.count': 12, '$queryRaw': [{ ok: 1 }] }`.
    * A function is called with the call's arguments. A path with no entry answers
    * the default for its operation.
@@ -93,6 +101,8 @@ export interface RecordingPrisma {
   operations(): readonly RecordedPrismaOperation[];
   /** The calls that write; empty means the check stayed read-only. */
   violations(): readonly RecordedPrismaOperation[];
+  /** Turns the rejection of writes on or off (they are recorded either way). */
+  refuseWrites(on: boolean): void;
   /** Forgets every recorded call. */
   reset(): void;
 }
@@ -134,6 +144,12 @@ const INERT_PROPERTIES: ReadonlySet<string> = new Set([
   'inspect',
   'length',
   'name',
+  // Nest calls a lifecycle hook on any provider object that has one; the client has none.
+  'onModuleInit',
+  'onApplicationBootstrap',
+  'onModuleDestroy',
+  'beforeApplicationShutdown',
+  'onApplicationShutdown',
 ]);
 
 /** Best-effort SQL text of the arguments of `$queryRaw(...)`: a tagged template, a `Prisma.sql` object or a string. */
@@ -190,6 +206,11 @@ function defaultReadResult(operation: string): unknown {
  */
 export function createRecordingPrisma(options: RecordingPrismaOptions = {}): RecordingPrisma {
   const operations: RecordedPrismaOperation[] = [];
+  let refusing = options.refuseWrites !== false;
+
+  /** A refused write rejects; an allowed one is recorded and resolves to nothing. */
+  const refuse = (target: string): Promise<undefined> =>
+    refusing ? Promise.reject(new ReadOnlyViolationError('prisma', target)) : Promise.resolve(undefined);
 
   const record = (path: string, write: boolean, sql?: string): RecordedPrismaOperation => {
     const entry: RecordedPrismaOperation = sql === undefined ? { path, write } : { path, write, sql };
@@ -207,8 +228,12 @@ export function createRecordingPrisma(options: RecordingPrismaOptions = {}): Rec
   // transaction callback keep recording on the one client.
   let root: unknown;
 
-  const call = async (segments: readonly string[], args: unknown[]): Promise<unknown> => {
+  // Synchronous for the client's own helpers (`forOrg(id)` returns the client at
+  // once, as the real one does); a Promise for everything that is a query.
+  const call = (segments: readonly string[], args: unknown[]): unknown => {
     const path = segments.join('.');
+
+    if (segments.length === 0) return undefined;
 
     if (segments.length === 1) {
       const method = segments[0] as string;
@@ -216,46 +241,46 @@ export function createRecordingPrisma(options: RecordingPrismaOptions = {}): Rec
       if (method === '$transaction') {
         record(path, false);
         const [work] = args;
-        if (typeof work === 'function') return await (work as (tx: unknown) => unknown)(root);
-        if (Array.isArray(work)) return await Promise.all(work);
-        return undefined;
+        if (typeof work === 'function') return Promise.resolve().then(() => (work as (tx: unknown) => unknown)(root));
+        if (Array.isArray(work)) return Promise.all(work);
+        return Promise.resolve(undefined);
       }
 
       if (RAW_WRITE_METHODS.has(method)) {
         record(path, true, sqlOf(args) || undefined);
-        throw new ReadOnlyViolationError('prisma', path);
+        return refuse(path);
       }
 
       if (RAW_QUERY_METHODS.has(method)) {
         const sql = sqlOf(args);
         const write = WRITE_SQL.test(sql) || WRITE_SQL_ANYWHERE.test(sql);
         record(path, write, sql || undefined);
-        if (write) throw new ReadOnlyViolationError('prisma', `${path} (${sql.trim().slice(0, 60)})`);
+        if (write) return refuse(`${path} (${sql.trim().slice(0, 60)})`);
         const answer = scripted(path, args);
-        return answer.found ? answer.value : [];
+        return Promise.resolve(answer.found ? answer.value : []);
       }
 
       if (method.startsWith('$')) {
         record(path, false);
-        return method === '$extends' ? root : undefined;
+        return method === '$extends' ? root : Promise.resolve(undefined);
       }
 
       // `forOrg(id)`, `asSystem()`, `runInOrg(id, fn)`, `runAsSystem(reason, fn)`: stay on the recording client.
       record(path, false);
       const callback = [...args].reverse().find((arg) => typeof arg === 'function') as ((tx: unknown) => unknown) | undefined;
-      return callback ? await callback(root) : root;
+      return callback ? Promise.resolve().then(() => callback(root)) : root;
     }
 
     const operation = segments[segments.length - 1] as string;
 
     if (WRITE_OPERATIONS.has(operation)) {
       record(path, true);
-      throw new ReadOnlyViolationError('prisma', path);
+      return refuse(path);
     }
 
     record(path, false);
     const answer = scripted(path, args);
-    return answer.found ? answer.value : defaultReadResult(operation);
+    return Promise.resolve(answer.found ? answer.value : defaultReadResult(operation));
   };
 
   const node = (segments: readonly string[]): unknown =>
@@ -275,6 +300,9 @@ export function createRecordingPrisma(options: RecordingPrismaOptions = {}): Rec
     client: root,
     operations: () => [...operations],
     violations: () => operations.filter((operation) => operation.write),
+    refuseWrites: (on) => {
+      refusing = on;
+    },
     reset: () => {
       operations.length = 0;
     },

@@ -60,7 +60,11 @@ declare module '../../testing/index' {
  * @stability experimental
  */
 export interface DoctorReadOnlyDoubles {
-  /** Install `prisma.client` under every Prisma token the app binds (`PrismaService`, `PLATFORM_PRISMA`, the system client). */
+  /**
+   * Install `prisma.client` under every Prisma token the app binds (`PrismaService`,
+   * `PLATFORM_PRISMA`, the system client). It does not refuse writes while the app
+   * boots; the suite turns refusal on before the first check.
+   */
   readonly prisma: RecordingPrisma;
   /** Install `storage.provider` under `STORAGE_PROVIDER`. */
   readonly storage: WriteFailingStorage;
@@ -309,8 +313,16 @@ export const doctorReadOnlySuite: ConformanceAppSuite<DoctorReadOnlyOptions> = {
       let audits: DoctorCheckAudit[] = [];
 
       beforeAll(async () => {
-        const doubles: DoctorReadOnlyDoubles = { prisma: createRecordingPrisma(), storage: createWriteFailingStorage() };
+        // Lenient while the app boots (a write at startup is recorded, not fatal), strict from the first check.
+        const doubles: DoctorReadOnlyDoubles = {
+          prisma: createRecordingPrisma({ refuseWrites: false }),
+          storage: createWriteFailingStorage({ refuseWrites: false }),
+        };
         context = await options.fixture.createContext(doubles);
+        doubles.prisma.refuseWrites(true);
+        doubles.storage.refuseWrites(true);
+        doubles.prisma.reset();
+        doubles.storage.reset();
         const checks = context.app.get<DoctorCheckRegistry>(DoctorCheckRegistry).list();
         audits = await auditDoctorChecks(checks, doubles, options);
       }, 120_000);
@@ -319,27 +331,27 @@ export const doctorReadOnlySuite: ConformanceAppSuite<DoctorReadOnlyOptions> = {
         if (context) await options.fixture.closeContext(context);
       });
 
-      it('finds the registered checks at all, so a broken discovery cannot pass vacuously', () => {
+      api.it('finds the registered checks at all, so a broken discovery cannot pass vacuously', () => {
         api.expect(audits.length).toBeGreaterThanOrEqual(options.minChecks ?? 10);
       });
 
-      it('no check writes a row, enqueues a job or records an audit event through Prisma', () => {
+      api.it('no check writes a row, enqueues a job or records an audit event through Prisma', () => {
         api.expect(findReadOnlyViolations(audits, options.exempt).prisma).toEqual([]);
       });
 
-      it('no check writes to object storage', () => {
+      api.it('no check writes to object storage', () => {
         api.expect(findReadOnlyViolations(audits, options.exempt).storage).toEqual([]);
       });
 
-      it('no check holds a side-effecting "test" service', () => {
+      api.it('no check holds a side-effecting "test" service', () => {
         api.expect(findReadOnlyViolations(audits, options.exempt).services).toEqual([]);
       });
 
-      it('every check completes in time, never throws and returns a valid outcome', () => {
+      api.it('every check completes in time, never throws and returns a valid outcome', () => {
         api.expect(findReadOnlyViolations(audits, options.exempt).outcomes).toEqual([]);
       });
 
-      it('every exemption names a registered check', () => {
+      api.it('every exemption names a registered check', () => {
         api.expect(findReadOnlyViolations(audits, options.exempt).staleExemptions).toEqual([]);
       });
     });
