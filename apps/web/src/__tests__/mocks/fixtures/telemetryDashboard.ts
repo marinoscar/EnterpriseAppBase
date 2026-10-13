@@ -401,8 +401,18 @@ export const mockDashboardMetricGroups: DashboardMetricGroupMeta[] = [
   { id: 'pipeline', label: 'Telemetry pipeline', title: 'Telemetry pipeline', order: 60 },
 ];
 
+/**
+ * `GET …/panels` (PP-14.18): the platform's two panels, in dashboard order. A
+ * test of an app's panel serves its own list with `server.use(...)`.
+ */
+export const mockDashboardPanels = [
+  { id: 'api', label: 'API', order: 10, builtin: true },
+  { id: 'logs', label: 'Logs', order: 20, builtin: true },
+];
+
 export function dashboardHandlers() {
   return [
+    http.get(`${API_BASE}/panels`, () => HttpResponse.json({ data: mockDashboardPanels })),
     http.get(`${API_BASE}/metric-groups`, () => HttpResponse.json({ data: mockDashboardMetricGroups })),
     http.get(`${API_BASE}/summary`, () => HttpResponse.json({ data: mockDashboardSummary })),
     http.get(`${API_BASE}/timeseries`, ({ request }) => {
