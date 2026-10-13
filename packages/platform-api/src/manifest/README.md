@@ -11,8 +11,10 @@ Every slice declares its permissions beside the routes that enforce them (`<slic
 | `PLATFORM_ROLES` | The identity slice's roles: `admin` (system); `contributor`, `viewer`, `org_admin` (org) |
 | `PLATFORM_PERMISSION_SETS` | Every slice's permission map with its declaring slice, in seed order (17 sets, 51 permissions) |
 | `PLATFORM_PERMISSIONS` | The same, flattened into one map keyed by constant name (`JOBS_READ`): `permissionIds(PLATFORM_PERMISSIONS)` is an app's `PERMISSIONS` |
-| `PLATFORM_PERMISSION_SLICES`, `PlatformPermissionSlice` | The eleven slices that declare permissions |
-| `registerPlatformPermissions(options?)` | Fill core's `roleRegistry` and `permissionRegistry`: platform roles, app roles, platform permissions, app permissions |
+| `PLATFORM_PERMISSION_SLICES`, `BuiltinPlatformPermissionSlice` | The eleven platform slices that declare permissions |
+| `PlatformPermissionSlice` | A platform slice id or the id a package registered with `registerPermissionSet` (open: `'jobs' \| (string & {})`) |
+| `registerPermissionSet(set)`, `permissionSetRegistry` | Let a package outside the platform declare a slice's roles and permissions, selected by `slices` like a platform slice |
+| `registerPlatformPermissions(options?)` | Fill core's `roleRegistry`, `permissionRegistry` and `roleGrantRegistry`: platform roles, roles of registered slices, app roles, platform permissions, permissions of registered slices, app permissions, app grants |
 | `platformPermissionCatalog(options?)`, `platformPermissionDeclarations(options?)` | The same catalog composed without touching the registries, and the batches behind both |
 | `PLATFORM_USER_OWNED_MODELS` | Every platform model with a foreign key to `User`, with its purge and export policy |
 | `registerPlatformUserOwnedModels(appModels?)` | Register the inventory, then the app's models, in core's `userOwnedModelRegistry` |
@@ -86,9 +88,10 @@ userOwnedData: {
 
 | Option | Type | Default | Meaning |
 |---|---|---|---|
-| `slices` | `PlatformPermissionSlice[]` | every slice | The slices whose permission sets to include. The sets keep their seed order whatever the list order. Must include `identity`; an unknown name throws. List each slice whose permissions the app's mounted slices enforce: credentials, email, onboarding and android-app declare none and enforce the `settings` slice's |
+| `slices` | `PlatformPermissionSlice[]` | every platform slice and every registered slice | The slices whose permission sets to include. The sets keep their seed order whatever the list order. Must include `identity`; an unknown name throws (a package's slice is known once it called `registerPermissionSet`). List each slice whose permissions the app's mounted slices enforce: credentials, email, onboarding and android-app declare none and enforce the `settings` slice's |
 | `app.roles` | `Declarations<RoleDeclaration>[]` | `[]` | Batches of the app's roles, registered after the platform roles |
 | `app.permissions` | `Declarations<PermissionDeclaration>[]` | `[]` | Batches of the app's permissions, registered after every platform permission |
+| `app.grants` | `{ role: string; permissions: string[] }[]` | `[]` | Permissions to give the app's own roles beyond the permissions' `defaultGrants`: how an app role holds a platform permission (`{ role: 'support', permissions: ['users:read'] }`). Validated (the role and every permission exist, the scopes match, no repeat of a default grant, no platform role as the target) and part of the catalog's `rolePermissions` |
 
 `registerPlatformUserOwnedModels(appModels)` takes the app's `UserOwnedModelDef[]` and `registerPlatformModelOwnership(appModels)` its `ModelOwnershipDef[]` (both default `[]`).
 
@@ -99,7 +102,10 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `registerPlatformPermissions` | registry | `registerPlatformPermissions(options?: PlatformPermissionOptions): void` | Fill the role and permission registries once, from the app's permission manifest, with the platform's declarations and the app's | experimental | [example](../../../../apps/api/src/common/permissions/permission.manifest.ts) |
-| `PlatformPermissionOptions` | option | `{ slices?: PlatformPermissionSlice[]; app?: { roles?; permissions? } }` | Add the app's roles and permissions, or seed only the slices the app mounts | experimental | [example](../../../../apps/api/src/common/permissions/permission.manifest.ts) |
+| `PlatformPermissionOptions` | option | `{ slices?: PlatformPermissionSlice[]; app?: { roles?; permissions?; grants? } }` | Add the app's roles and permissions, give an app role platform permissions (`grants`), or seed only the slices the app mounts | experimental | [example](../../../../apps/api/src/common/permissions/permission.manifest.ts) |
+| `registerPermissionSet` | registry | `registerPermissionSet(set: PermissionSetRegistration): void` | Declare a package slice's roles and permissions so the seed and the registries carry them; call it at import time, before `registerPlatformPermissions()` | experimental | [example](../../../../apps/api/test/examples/manifest/permission-set.example.spec.ts) |
+| `permissionSetRegistry` | registry | `Registry<PermissionSetRegistration>` | Read the registered package slices (frozen by `registerPlatformPermissions()` and at bootstrap) | experimental | [example](../../../../apps/api/test/examples/manifest/permission-set.example.spec.ts) |
+| `PermissionSetRegistration` | option | `{ slice: string; roles?: Declarations<RoleDeclaration>; permissions?: Declarations<PermissionDeclaration> }` | Describe one package slice: its id and its declarations | experimental | [example](../../../../apps/api/test/examples/manifest/permission-set.example.spec.ts) |
 | `registerPlatformModelOwnership` | registry | `registerPlatformModelOwnership(appModels?: ModelOwnershipDef[]): void` | Fill the model ownership registry once, from the app's manifest, with every platform model's kind and the app's | experimental | [example](../../../../apps/api/src/prisma/ownership/model-ownership.manifest.ts) |
 | `registerPlatformUserOwnedModels` | registry | `registerPlatformUserOwnedModels(appModels?: UserOwnedModelDef[]): void` | Fill the user-owned data registry once, from the app's manifest, with every platform model and the app's | experimental | [example](../../../../apps/api/src/prisma/ownership/user-owned-model.manifest.ts) |
 
@@ -147,7 +153,7 @@ None. The functions log nothing and emit no span or metric; a refused declaratio
 
 ## Security notes
 
-The default grants it registers are the deployment's access model: the matrix in `docs/ARCHITECTURE.md` §7.2 must agree with them (the reference app's `test/prisma/permission-catalog.spec.ts` checks every row). The system `admin` role holds every system permission and `org_admin` every org permission; core's registry refuses a grant across scopes, so an app cannot hand a system permission to an org role through `app.permissions`. An app id equal to a platform id is refused (`DUPLICATE_ID`), never silently merged. The user-owned inventory decides what the scoped client confines and what the user's export carries; `exportOmit` keeps hashes and ciphertexts (`PersonalAccessToken.tokenHash`, `UserAiKey.secret`) out of every export.
+The default grants it registers are the deployment's access model: the matrix in `docs/ARCHITECTURE.md` §7.2 must agree with them (the reference app's `test/prisma/permission-catalog.spec.ts` checks every row). The system `admin` role holds every system permission and `org_admin` every org permission; core's registry refuses a grant across scopes, so an app cannot hand a system permission to an org role through `app.permissions` or `app.grants`. `app.grants` is code, reviewed with the app and applied only by the seed: no route writes a grant, and the seed only adds rows, so deleting a grant from code does not revoke it from a database that already has it (revoke the `role_permissions` row by hand). It can only name a role the platform does not declare (`admin`, `contributor`, `viewer` and `org_admin` are refused as targets), so the platform's four rows of the matrix cannot be widened by an app; an app that wants `contributor` to hold something declares an app permission whose `defaultGrants` name it. `registerPermissionSet` adds roles and permissions after the platform's and before the app's, under the same validation; a package cannot take a platform slice's id. An app id equal to a platform id is refused (`DUPLICATE_ID`), never silently merged. The user-owned inventory decides what the scoped client confines and what the user's export carries; `exportOmit` keeps hashes and ciphertexts (`PersonalAccessToken.tokenHash`, `UserAiKey.secret`) out of every export.
 
 ## Conformance suite
 
@@ -157,6 +163,7 @@ None of its own. Two suites read what it registers: the identity suite (`@marino
 
 New in this release. For an app that kept its own copies:
 
+- A package outside the platform declares its roles and permissions with `registerPermissionSet({ slice, roles, permissions })`; an app gives its own role a platform permission with `registerPlatformPermissions({ app: { grants } })`. Both are additive: with neither, the catalog is byte-identical.
 - Replace a hand-written permission manifest with `registerPlatformPermissions({ app: { roles: [APP_ROLES], permissions: [APP_PERMISSIONS] } })`; the registries, ids, order and catalog are unchanged, so a committed catalog regenerates byte-identical. Derive `PERMISSIONS` with `permissionIds(PLATFORM_PERMISSIONS)` and `ROLES` with `roleIds(PLATFORM_ROLES)` (both from `core`).
 - Replace a local platform user-owned list with `registerPlatformUserOwnedModels(APP_USER_OWNED_MODELS)`, and a local platform model ownership list with `registerPlatformModelOwnership(APP_MODEL_OWNERSHIP)`.
 
@@ -175,7 +182,9 @@ The starter template (`starter/`, #741) uses this slice instead of the hand-writ
 |---|---|---|
 | `RegistryError: DUPLICATE_ID` naming a permission at startup | An app permission reuses a platform id, or `registerPlatformPermissions` ran twice | Rename the app's id; call it from one manifest only |
 | `RegistryError: INVALID_ENTRY ... unknown role` | An app permission grants a role nobody registered | Declare the role in `app.roles` |
-| `RegistryError: FROZEN` | Registered after bootstrap (from `onModuleInit`) | Register at import time, from a manifest imported before `NestFactory.create` |
+| `RegistryError: FROZEN` | Registered after bootstrap (from `onModuleInit`), or `registerPermissionSet` called after `registerPlatformPermissions` | Register at import time, from a manifest imported before `NestFactory.create`; import the package that calls `registerPermissionSet` before the app's permission manifest |
+| `grant names unknown role` / `unknown permission` / `own scope` | A grant names a role or permission nobody registered, or a role of the other scope | Register the role in `app.roles` (and the permission before it), and grant only permissions of the role's scope |
+| `app grants cannot target the platform role(s)` | A grant names `admin`, `contributor`, `viewer` or `org_admin` | Grant to your own role, or declare an app permission whose `defaultGrants` name the platform role |
 | `` `slices` must include 'identity' `` | The filter left identity out | Add `'identity'` |
 | The identity suite reports a route permission "not registered" | A mounted slice enforces a permission whose slice is not in `slices` | Add that slice (often `settings`) |
 | `userOwnedData` reports a platform model "with no registry entry" | The app registered only its own models, or checked only its fragments | Call `registerPlatformUserOwnedModels` and point `schemaPath` at the composed schema |

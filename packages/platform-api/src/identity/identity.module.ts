@@ -28,6 +28,7 @@ import { IDENTITY_SIGNIN_POLICY } from './auth/sign-in-policy';
 import { IDENTITY_OPTIONS, resolveIdentityModuleOptions, type IdentityModuleOptions } from './identity.options';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { PatModule } from './pat/pat.module';
+import { RolesModule } from './roles/roles.module';
 import { TestAuthModule } from './testing/test-auth.module';
 import { UsersModule } from './users/users.module';
 
@@ -92,6 +93,7 @@ export class IdentityModule {
         PatModule,
         OrganizationsModule,
         UsersModule,
+        RolesModule,
         DeviceAuthModule,
         ...(resolved.enableTestAuth ? [TestAuthModule] : []),
       ],

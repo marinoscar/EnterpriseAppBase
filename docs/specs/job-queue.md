@@ -559,6 +559,7 @@ Paths starting `test/` are under `apps/api/`; the unit specs that moved with the
 |---|---|
 | `test/conformance.spec.ts`, suite `cron-enqueue-only` | Every `@Cron` body only enqueues; exactly three exemptions |
 | `test/conformance.spec.ts`, suite `on-event-no-io` | Every `@OnEvent` body is free of storage I/O (direct storage-provider calls, `.download(`/`.upload(`) |
+| `test/jobs/job-handlers-contract.spec.ts` | Every handler the booted registry holds honours the static handler contract (`findJobHandlerContractViolations`): a dotted permanent type, a label, a profile of exactly `maxRuntimeMs` and `maxAttempts` inside the ceilings, the node pair both or neither, `ai.*` server-only. The behavioural half (double run, failing payload, dedup, `canDelete`) is `describeJobHandlerConformance` of `@marinoscar/platform-api/jobs/testing` in a handler's own spec, over `createFakeJobQueue()` |
 | `platform-api/test/jobs/job-handler.registry.spec.ts` | Self-registration via real `onModuleInit`; `serverOnlyTypes()` derivation incl. exactly-one-member; duplicate warns, last wins; module graph boots |
 | `platform-api/src/jobs/job-type-label.spec.ts`, `test/jobs/job-type-snapshot.spec.ts` | Label registry precedence (handler, registered, type); every registered type still registered ("job type strings are permanent") and its label unchanged in `GET /api/admin/jobs` |
 | `test/jobs/jobs-enqueue.db.spec.ts` | Concurrent enqueue of one key yields one row for both callers; `skipDedup` yields NULL keys; settled job frees its key |
@@ -652,3 +653,4 @@ In a running app:
 - PP-1.11 (#682): `jobs.enqueued` wake-up through the event bus; idle sleeps tracked apart from job timers; the poll stays the fallback.
 - PP-14.19 (#937): `jobs.reason` becomes `TEXT` (migration `0034_open_job_reason`) with `registerJobReason`; the `retention` namespace is composed from `registerRetentionPolicy`; node vitals `extra`, executor spans and relayed attributes, and executor requirements ([worker-nodes.md](worker-nodes.md)).
 - PP-8.2 (#734): the queue becomes `@marinoscar/platform-api/jobs` (`JobsModule.forRoot()`, host ports), the HTTP shapes move to `@marinoscar/platform-contract/jobs`; `JOB_TYPE_LABELS` becomes the label registry; `jobs.org_id` (migrations `0030`, `0031`), `JobScope.run`, `org.id` on job spans; the cron exemptions move to the package paths.
+- PP-14.26 (#944): the handler kit in `@marinoscar/platform-api/jobs/testing` (`createFakeJobQueue`, `describeJobHandlerConformance`, `findJobHandlerContractViolations`).

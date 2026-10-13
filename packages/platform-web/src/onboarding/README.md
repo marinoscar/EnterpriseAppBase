@@ -7,6 +7,7 @@ The onboarding slice of the web package (issue #745, PP-9.3), in two entries: `/
 Presentation of checklists the API derives. The browser never ticks a step: every status comes from the API, and the only writes are UI state (the welcome was seen, a checklist was dismissed, a step was skipped) in the `onboarding` user-settings namespace, with `If-Match`.
 
 - **One fetch per shell.** `OnboardingProvider` runs the query once around the authenticated shell; the dialog, the checklists, the menu and the Setup guide read the same state. Without a provider, `useOnboarding` is inert and requests nothing.
+- **Other audiences.** `state.audiences` carries the block of every audience beyond `user` and `admin` the caller matches (`org_admin`, or an app's own) that has a step for them, keyed by audience id; draw one with `OnboardingChecklist` (`state.audiences?.['org_admin']`). The skip overlay of an optimistic write applies to those blocks too.
 - **Optimistic writes.** Closing the dialog closes it at once; the state is re-read afterwards. A failed write keeps the local value for the session and reports `error`.
 - **Accessible.** The dialog follows the ARIA dialog pattern (`aria-labelledby`, `aria-describedby`, focus in and out, Escape closes, full screen below `sm`, no motion under `prefers-reduced-motion`); every status is a word beside an icon, never colour alone; progress is text ("3 of 5 done").
 

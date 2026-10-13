@@ -88,6 +88,8 @@ import { useDataTableLayout, useViewportLayout } from './useContainerLayout.js';
 
 /** Stable identity so an unfiltered table never re-renders the bar needlessly. */
 const NO_FILTERS: DataTableFilterModel = [];
+/** Stable identity for a table with no selection config. */
+const NO_SELECTION: ReadonlySet<string> = new Set<string>();
 
 /**
  * The columns that are actually DRAWN — everything except `filterOnly` ones.
@@ -216,6 +218,7 @@ export function DataTable<Row>(props: DataTableProps<Row>) {
     csvExport,
     disableExport = false,
     density: densityProp,
+    slots,
     'data-testid': testId,
     ...rendererProps
   } = props;
@@ -250,6 +253,8 @@ export function DataTable<Row>(props: DataTableProps<Row>) {
     pagination: props.pagination,
   });
 
+  const Toolbar = slots?.Toolbar;
+
   return (
     <Box
       ref={containerRef}
@@ -266,6 +271,19 @@ export function DataTable<Row>(props: DataTableProps<Row>) {
       // make the document body scroll sideways, at any viewport width.
       sx={{ width: '100%', maxWidth: '100%', minWidth: 0 }}
     >
+      {Toolbar && (
+        <Toolbar
+          layout={layout}
+          rowCount={props.rows.length}
+          total={props.pagination?.total}
+          selectedIds={props.selection?.selectedIds ?? NO_SELECTION}
+          filters={filters ?? NO_FILTERS}
+          onFiltersChange={onFiltersChange}
+          prefs={prefs}
+          columns={painted}
+        />
+      )}
+
       {viewBarVisible && (
         <DataTableViewBar
           columns={painted}
@@ -306,6 +324,7 @@ export function DataTable<Row>(props: DataTableProps<Row>) {
       {mode === 'mobile' ? (
         <MOBILE_RENDERER
           {...rendererProps}
+          slots={slots}
           columns={painted}
           density={prefs.density}
           visibleColumnIds={prefs.userVisibleColumnIds}
@@ -313,6 +332,7 @@ export function DataTable<Row>(props: DataTableProps<Row>) {
       ) : (
         <DesktopGridRenderer
           {...rendererProps}
+          slots={slots}
           columns={painted}
           density={prefs.density}
           visibleColumnIds={prefs.userVisibleColumnIds}

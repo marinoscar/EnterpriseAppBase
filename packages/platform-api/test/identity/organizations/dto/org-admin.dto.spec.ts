@@ -41,7 +41,9 @@ describe('org administration DTOs (#726)', () => {
       expect(updateOrgMemberSchema.parse({ roleName: 'viewer' })).toEqual({ roleName: 'viewer' });
       expect(updateOrgMemberSchema.parse({ status: 'suspended' })).toEqual({ status: 'suspended' });
       expect(() => updateOrgMemberSchema.parse({})).toThrow();
-      expect(() => updateOrgMemberSchema.parse({ roleName: 'admin' })).toThrow();
+      // The schema checks the SHAPE of a role id; the service refuses `admin` (ROLE_NOT_ASSIGNABLE).
+      expect(() => updateOrgMemberSchema.parse({ roleName: 'Not A Role' })).toThrow();
+      expect(updateOrgMemberSchema.parse({ roleName: 'coach' })).toEqual({ roleName: 'coach' });
       expect(() => updateOrgMemberSchema.parse({ roleName: 'viewer', orgId: 'x' })).toThrow();
     });
   });
@@ -53,7 +55,7 @@ describe('org administration DTOs (#726)', () => {
         roleName: 'contributor',
       });
       expect(() => createOrgInviteSchema.parse({ email: 'a@b.co' })).toThrow();
-      expect(() => createOrgInviteSchema.parse({ email: 'a@b.co', roleName: 'admin' })).toThrow();
+      expect(() => createOrgInviteSchema.parse({ email: 'a@b.co', roleName: 'Not A Role' })).toThrow();
       expect(() => createOrgInviteSchema.parse({ email: 'a@b.co', roleName: 'viewer', notes: 'x'.repeat(501) })).toThrow();
     });
 

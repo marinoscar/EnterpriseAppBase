@@ -125,6 +125,7 @@ Full recipe: [the job handlers README](../packages/platform-api/src/jobs/handler
 6. **Decide node eligibility.** A handler is node-eligible when it carries both `nodeResultSchema` and `persistNodeResult`; one without the other is server-only. `ai.*` types are server-only permanently.
 7. **Work inside the queue rules.** A `@Cron` only decides whether work is due and enqueues (`enqueueHousekeepingJob`); an `@OnEvent` body does no I/O. `apps/api/test/conformance.spec.ts` enforces both.
 8. **Add the type** and its label to `REGISTERED_JOB_TYPES` in `apps/api/test/jobs/job-type-snapshot.spec.ts`, which pins every registered type.
+9. **Prove it** with the kit, beside the handler: `describeJobHandlerConformance(name, () => handler, { payloads })` from `@marinoscar/platform-api/jobs/testing`. It checks the static contract (a dotted type, a label, a profile of exactly two numbers inside sane ceilings, the node pair both-or-neither, `ai.*` server-only), then per payload that the job settles through `createFakeJobQueue()`, that running it twice leaves the same result (give the payload an `observe()` snapshot, or an `assertIdempotent` for a handler that is additive by design), that a payload it must reject makes it throw (`expectFailure`), that duplicates collapse, and that `canDelete` is honoured. A service test injects `queue.asJobsService()` instead of a mocked `JobsService` and runs `queue.drain()`. Examples: [`example-handlers.conformance.spec.ts`](../apps/api/test/examples/jobs/example-handlers.conformance.spec.ts); the static half runs over every registered handler in [`job-handlers-contract.spec.ts`](../apps/api/test/jobs/job-handlers-contract.spec.ts), so yours is covered with no edit.
 
 ### Add a job reason
 
@@ -163,6 +164,17 @@ Full recipe: [the Doctor README](../packages/platform-api/src/doctor/README.md#q
 5. **Add the check id** to the pinned list in `apps/api/test/doctor/registered-checks.integration.spec.ts`.
 6. Optionally describe the outbound hosts of the capability with an `EgressContributor` (`EgressRegistry.register` from `onModuleInit`).
 7. Optionally put the check's facts in `data` (small scalars, never secret) and draw them in the check's row on the web with `registerDoctorCheckRenderer` ([Add a slot to a packaged page](#add-a-slot-to-a-packaged-page)).
+8. **Prove it** with the kit, in the check's own spec: `describeDoctorCheckConformance(name, ({ prisma, storage }) => new MyCheck(registry, prisma.client), { scenarios })` from `@marinoscar/platform-api/doctor/testing`. It builds the check per test over a recording Prisma client and a write-failing storage provider, and per scenario checks its identity, that the run completes in time and never throws, that the outcome is valid with a remedy on `warn` and `fail` and no seeded secret, the statuses the scenario expects, and that nothing was written. Example: [`example-capability.conformance.spec.ts`](../apps/api/test/examples/doctor/example-capability.conformance.spec.ts). The `doctor-read-only` suite of `apps/api/test/conformance.spec.ts` runs the same proof over every registered check, so a check that writes fails the app's build even if its author never ran the kit.
+
+### Add a conformance suite of your own
+
+An invariant over what your app declares is a suite: the API's through `conformanceSuites` and a `declare module` augmentation of `PlatformConformanceSuiteOptions`, the web's through `webConformanceSuites` and a third `options` argument. Full recipe with code: [the API testing README](../packages/platform-api/src/testing/README.md#adding-a-suite-from-an-app-or-a-package) and [the web testing README](../packages/platform-web/src/testing/README.md#adding-a-web-suite-from-an-app-or-a-package). Examples: [`app-routes.suite.ts`](../apps/web/src/__tests__/examples/testing/app-routes.suite.ts) (a web suite with options and a planted-violation test); the android-app slice's [`testing/conformance.ts`](../packages/platform-api/src/android-app/testing/conformance.ts) and the Doctor's [`doctor-read-only.suite.ts`](../packages/platform-api/src/doctor/testing/doctor-read-only.suite.ts) (an API scan suite and an API suite that boots the app).
+
+1. **Write the suite**: an `id`, a `title`, a `description`, and either `check` and `cases` (scan once, assert on the report) or, for an app-suite, `register(api, context, options)`. Discover what you check from the router, a registry or the source tree; a suite that lists names is a test of those names.
+2. **Register it at import time**, once (`if (!conformanceSuites.has(id)) conformanceSuites.register(suite)`), and import the file before `runPlatformConformance`; the registry freezes on its first run. The web registry throws on a duplicate id.
+3. **Add its options key** by augmenting the public specifier (`declare module '@marinoscar/platform-api/testing' { interface PlatformConformanceSuiteOptions { orderRoutes?: OrderRoutesOptions } }`). The option key is the camelCase form of the id. A web suite needs no augmentation: `suites: { 'order-routes': { ... } }`.
+4. **Plant a violation** in a test and assert the suite names it. A suite that cannot fail is not a tripwire.
+5. **Opt out with a reason** (`{ skip: 'why' }`) where an app does not need it; an empty reason throws.
 
 ### Add a notification event and template
 
@@ -203,12 +215,25 @@ What you get for free: an administrator switch per channel on `/admin/settings/n
 Full recipe: [the reference app's settings registry README](../apps/api/src/settings/registry/README.md#adding-a-namespace) and [settings-ui.md §4](specs/settings-ui.md#4-extending-it-in-a-fork). Example: [`org-overridable.namespaces.ts`](../apps/api/src/platform-extensions/settings/examples/org-overridable.namespaces.ts).
 
 1. **Write the declaration** (`SystemSettingsNamespace` or `UserSettingsNamespace` from `@marinoscar/platform-api/settings`): `key`, the stored, patch, put and wire-patch schemas, `defaults` that satisfy the stored schema, and a `merge`. No `.default()` in a user namespace. No field named `secret`, `password`, `apiKey`, `token`, `privateKey` and the like: the registry refuses it. Secrets are credential purposes.
-2. **Add it** to `APP_SYSTEM_SETTINGS_NAMESPACES` or `APP_USER_SETTINGS_NAMESPACES` in `apps/api/src/app-registrations/settings.ts`. The manifests register it after the platform's namespaces; a colliding key fails at import time naming your entry. To add fields inside a platform namespace, list a `SystemSettingsNamespaceExtension` in `APP_SYSTEM_SETTINGS_EXTENSIONS` instead (top-level fields only).
+2. **Add it** to `APP_SYSTEM_SETTINGS_NAMESPACES` or `APP_USER_SETTINGS_NAMESPACES` in `apps/api/src/app-registrations/settings.ts`. The manifests register it after the platform's namespaces; a colliding key fails at import time naming your entry. To add fields inside a platform namespace, see [Extend a settings namespace](#extend-a-settings-namespace).
 3. **Type it**: `declare module '@marinoscar/platform-api/settings' { interface SystemSettingsNamespaces { coach: CoachSettings } }`.
 4. **Regenerate the seed catalog** (system namespaces): `npm run catalog:settings --workspace=api`, and commit `prisma/catalog/system-settings-defaults.json`.
 5. **Read it**: `await systemSettings.getNamespace('coach')` (`SystemSettingsService`). A stored row without the namespace reads as `defaults`.
 6. **A namespace an organization may override** declares an `org` block and then appears on the Organization settings page without a web change.
 7. **Give it a page** with [Add an admin card](#add-an-admin-card).
+
+### Extend a settings namespace
+
+Contract and security rules: [the settings README](../packages/platform-api/src/settings/README.md#extending-a-namespace). Examples: [`telemetry-query.extension.ts`](../apps/api/src/platform-extensions/settings/examples/telemetry-query.extension.ts), [`notifications-digest.extension.ts`](../apps/api/src/platform-extensions/settings/examples/notifications-digest.extension.ts), [`defaults.override.ts`](../apps/api/src/platform-extensions/settings/examples/defaults.override.ts), [`profile-timezone.ts`](../apps/api/src/platform-extensions/settings/examples/profile-timezone.ts), [`contribution.ts`](../apps/api/src/platform-extensions/settings/contribution.ts). The reference app registers none of them; [`extensions.http.spec.ts`](../apps/api/test/examples/settings/extensions.http.spec.ts) boots the real application with all of them.
+
+1. **Add fields inside a namespace you do not own.** List a `SystemSettingsNamespaceExtension` (or `UserSettingsNamespaceExtension`) in `APP_SYSTEM_SETTINGS_EXTENSIONS` / `APP_USER_SETTINGS_EXTENSIONS`: `key`, the added `storedSchema` (required fields, no `.default()`) and their `defaults`. Without `path` the fields sit beside the namespace's top-level fields. With `path: 'query'` (a dot path to an object field) they go INSIDE that object: an existing leaf key is refused, the parent is not. A stored value that predates the field reads with the field at its default and everything else kept.
+2. **Let organizations set the added field.** Add `org: { mode: 'override' }`, or `org: { mode: 'tighten', tighten: { slowQuerySeconds: 'min' } }` (`'and'`, `'or'`, `'min'`, `'max'` or a function that only restricts). Only the fields the extension adds can join the org layer; naming a base field fails at import. A top-level field appears on the Organization settings page as a control. A nested one is an object there; draw it with `registerOrgSettingsFieldRenderer` ([`SlowQueryField.example.tsx`](../apps/web/src/platform-extensions/settings/SlowQueryField.example.tsx)).
+3. **Change a default.** `APP_SYSTEM_SETTINGS_DEFAULT_OVERRIDES` (data) or `overrideSettingsNamespaceDefaults('jobs', { stuckThresholdMinutes: 45 })` (a call, for a package). Checked at boot against the stored schema; it changes defaults only, never the shape or the merge. Regenerate the seed catalog after adding one: `npm run catalog:settings --workspace=api`.
+4. **Add a profile field or a theme.** `extendUserProfile({ fields: z.object({ timezone: z.string().max(64).optional() }) })` and `registerThemePreference({ id: 'high-contrast', label: 'High contrast' })`, called at import time before `SettingsModule.forRoot()`. A profile field must be optional, bounded and not secret-named. In the web app pass the card a slot: `<UserProfilePage slots={{ ExtraFields: TimezoneField }} />` ([`TimezoneField.example.tsx`](../apps/web/src/platform-extensions/settings/TimezoneField.example.tsx)); a registered theme is offered by `UserAppearancePage` from the document's `themeOptions`, and applying it is your theme code. `security` stays closed on purpose: it is derived from the session policy.
+5. **Ship it as a package.** The package calls `registerSettingsContribution({ id: '@acme/billing-settings', system, user, extensions })` from its entry module, and the app adds one line to `app-registrations/settings-contributions.ts`: `import '@acme/billing-settings';`. The manifests assemble, in this order: the platform's namespaces, the contributions' (import order), the app's own; then the extensions (the contributions', then the app's); then the defaults overrides. A key two owners declare fails the import naming both.
+6. **Prove it.** Boot the application with your registration the way [`extensions.http.spec.ts`](../apps/api/test/examples/settings/extensions.http.spec.ts) does (reset the module registry, register, then build the app), and check the document, the org page and the stored value.
+
+What is still closed (audit: [settings](EXTENSIBILITY-AUDIT.md#settings)): slots on the routed settings pages beyond `ExtraFields` (PP-14.24), and a second org extension under one nested path root (put every org field of a path in one extension).
 
 ### Add a credential purpose
 
@@ -1037,7 +1062,54 @@ Available now. An app, or an `@acme/auth-github` package an app installs, adds a
      cd apps/web && npx vitest run src/__tests__/examples/identity
      ```
 
-What is still closed (audit: [identity](EXTENSIBILITY-AUDIT.md#identity)): app roles in the invite and member routes (PP-14.15) and slots on the Users and Organization pages (PP-14.25). **Login CSRF is yours to prevent: the slice adds no `state` and no PKCE.** With `passport-oauth2`, `state: true` or `pkce: true` without a `store` throws "requires session support" on every sign-in here, because this app registers no session plugin. A real OAuth 2.0 provider must pass `store: createCookieStateStore({ secret: config.get('jwt.secret') })` (a signed, short-lived HttpOnly cookie; it does not do PKCE) or a store of its own. The example strategy has none only because it never leaves the process, and it is not a template for that part.
+What is still closed (audit: [identity](EXTENSIBILITY-AUDIT.md#identity)): slots on the Users and Organization pages (PP-14.25). **Login CSRF is yours to prevent: the slice adds no `state` and no PKCE.** With `passport-oauth2`, `state: true` or `pkce: true` without a `store` throws "requires session support" on every sign-in here, because this app registers no session plugin. A real OAuth 2.0 provider must pass `store: createCookieStateStore({ secret: config.get('jwt.secret') })` (a signed, short-lived HttpOnly cookie; it does not do PKCE) or a store of its own. The example strategy has none only because it never leaves the process, and it is not a template for that part.
+
+### Add a role, assign it, and give it a platform permission
+
+Available now. Full reference: [the identity README](../packages/platform-api/src/identity/README.md#roles-and-who-may-assign-them) and [the manifest README](../packages/platform-api/src/manifest/README.md). Example: [`coach-support.roles.ts`](../apps/api/src/platform-extensions/identity/coach-support.roles.ts), proven over HTTP by [`coach-support.example.spec.ts`](../apps/api/test/examples/manifest/coach-support.example.spec.ts) and in the packaged dialogs by [`app-roles.test.tsx`](../apps/web/src/__tests__/examples/identity/app-roles.test.tsx).
+
+A role is a string in `roles.name`: no package edit, no migration. Three cases, all through `apps/api/src/app-registrations/permissions.ts`:
+
+1. **An org role** (`coach`: held on a membership). Add it to `APP_ROLES` with a `label`:
+
+   ```ts
+   export const APP_ROLES: readonly RoleDeclaration[] = [
+     { id: 'coach', description: 'Reviews the workouts of assigned athletes', scope: 'org', label: 'Coach' },
+   ];
+   ```
+
+   Run `npm run catalog:permissions --workspace=api`, commit the regenerated `prisma/catalog/permissions.json` and re-seed. From then on an organization administrator can invite someone as a coach and move a member to it, and the packaged dialogs list it (they read `GET /api/roles`), with no web code.
+2. **A system role that holds a platform permission** (`support`: held in `user_roles`, reads the user list). A platform permission's `defaultGrants` are the platform's, so the app grants it:
+
+   ```ts
+   export const APP_ROLES = [{ id: 'support', description: 'Reads the user list', scope: 'system', label: 'Support' }];
+   export const APP_GRANTS = [{ role: 'support', permissions: ['users:read'] }];
+   ```
+
+   `common/permissions/permission.manifest.ts` passes `APP_GRANTS` to `registerPlatformPermissions({ app: { grants } })`. A grant is validated when the process starts: the role and the permission exist, both have the same scope, the permission does not already grant it by default, and the target is not one of the platform's four roles. The catalog's `rolePermissions` carries it, the seed writes it into `role_permissions`, and the guards read those rows.
+3. **A role the application manages itself** (`service-bot`). Declare `assignable: false`: it can hold permissions and be seeded, but the invite, member and user-role routes refuse it (`400`, `code: ROLE_NOT_ASSIGNABLE`), the dialogs do not offer it, and `PUT /api/users/:id/roles` leaves a user's existing system role of this kind in place.
+
+Prove it by registering the roles in a test with `withTemporaryEntries(roleRegistry, ...)` and driving the routes, as the example spec does. A role that a request names but nobody registered, a role of the other scope and an `assignable: false` role all answer the same `400`, so the response never says which.
+
+What stays closed: **group roles** (`admin`, `editor`, `viewer` on a sharing group) are a database enum, so a fourth needs a platform migration; see [the sharing README](../packages/platform-api/src/sharing/README.md#data).
+
+### Add a permission set from a package
+
+Available now. Reference: [the manifest README](../packages/platform-api/src/manifest/README.md). Example: [`permission-set.example.spec.ts`](../apps/api/test/examples/manifest/permission-set.example.spec.ts).
+
+A package outside the platform that enforces its own permissions (`@acme/reports`) declares them with `registerPermissionSet` at import time, before the app's permission manifest runs:
+
+```ts
+import { registerPermissionSet } from '@marinoscar/platform-api/manifest';
+
+registerPermissionSet({
+  slice: 'acme-reports',
+  roles: [{ id: 'analyst', description: 'Runs reports', scope: 'org', label: 'Analyst' }],
+  permissions: [{ id: 'reports:run', description: 'Run a report', scope: 'org', defaultGrants: ['org_admin', 'analyst'] }],
+});
+```
+
+`registerPlatformPermissions()` then registers the set after the platform's own and before the app's, in the seed catalog and in the registries, and then freezes the set registry so a package that registers too late fails with `FROZEN` instead of missing the seed. `slices` selects it by id like a platform slice (`identity` stays mandatory). The slice id cannot be a platform slice's.
 
 ### Add an env group, a generated value or an override of a platform key
 
@@ -1175,6 +1247,44 @@ Available now. A package an app installs needs something only the app can supply
 
 Only own keys are ports (`toString` is not one), and nothing validates a port's shape: type it in the package and validate in the package when the app is untrusted code.
 
+### Add an onboarding audience, or a step for the organization administrator
+
+Available now. An audience is a group of onboarding steps and the rule that says who sees them. The platform registers three: `user` (Get started, everyone), `admin` (the Setup guide, the holder of the admin permission) and `org_admin` (the holder of the `org_admin` role of their active organization). The organization administrator of a multi-organization deployment holds no system permission, so before `org_admin` existed none of the Setup steps reached them. Examples: [`org-admin-step.example.ts`](../apps/api/src/platform-extensions/onboarding/examples/org-admin-step.example.ts), proven by [`onboarding-examples.spec.ts`](../apps/api/test/onboarding/onboarding-examples.spec.ts).
+
+1. **A step for the organization administrator.** Register a step with `audience: 'org_admin'` (`registerOnboardingStep`, from `app-registrations/onboarding.ts`). It still declares its own `permission` and `feature`: the audience decides which block the step lands in, never whether those gates apply. The response carries it under `audiences.org_admin`; draw that block with `OnboardingChecklist` (`useOnboarding().state?.audiences?.['org_admin']`).
+2. **Your own audience.** `registerOnboardingAudience({ id, label, matches(principal, ctx) })`, BEFORE the steps that name it (`ONBOARDING_AUDIENCE_ID_PATTERN`: lower case, `_` and `-`, 2 to 48 characters; the id is permanent). `matches` is synchronous and reads the caller only (`permissions`, `roles`, `activeOrgId`): a rule cannot query, so it adds nothing to the cost of the endpoint. A rule that throws counts as "does not match".
+3. **What does not move.** `user` and `admin` keep their rules whatever is registered (the engine ignores a rule for those two ids), a caller outside an audience never has the audience's facts resolved, and the `audiences` key is absent from the response unless a block has a step for the caller.
+4. **Order and skips.** `registerOnboardingOrdering({ audience })` takes any registered audience (one per audience); `skippable` and the stored `skipped` list work for every audience.
+5. **Run the suite.** `runPlatformConformance` derives the checklists once for a caller holding every permission and the `org_admin` role, so a step of any registered audience is counted for fact reads and for I/O in `evaluate`; it also flags a step that names an audience nobody registered.
+
+### Add a filter type, a column editor, saved views or a toolbar to a DataTable
+
+Available now. A filter TYPE is what a column's `filter.type` (or `filterType`) names: its operators, the control that collects the operand, how a URL operand is coerced back and how a row matches. The five built-ins (`text`, `number`, `date`, `enum`, `boolean`) are registered through the same function. Examples: a `tags` type with a chip editor ([`TagsFilterType.example.tsx`](../apps/web/src/platform-extensions/datatable/TagsFilterType.example.tsx), [test](../apps/web/src/__tests__/examples/datatable/tags-filter-type.test.tsx)) and saved views in a toolbar ([`SavedViewsToolbar.example.tsx`](../apps/web/src/platform-extensions/datatable/SavedViewsToolbar.example.tsx), [test](../apps/web/src/__tests__/examples/datatable/saved-views-toolbar.test.tsx)).
+
+1. **Register the type once, before the first render**: `registerDataTableFilterType({ type: 'tags', operators: [{ id: 'hasAny', label: 'has any of', arity: 'many' }], Editor, matches })` (from `@marinoscar/platform-web/datatable/headless`). An operator id has one arity everywhere (`0`, `1`, `2` or `'many'`); reusing a built-in id such as `contains` is fine when the arity agrees. `coerce` turns a URL operand back into a scalar; `format` words an operand in a chip.
+2. **Use it on a column**: `{ id: 'tags', label: 'Tags', priority: 'secondary', value: ..., filter: { type: 'tags' } }`. `filter` makes the column filterable (unless `filterable` is `false`) and wins over `filterType`; an array in `filterable` still pins the operators. A column naming a type nobody registered is not filterable and says so once on the console.
+3. **The editor draws the operand only.** It receives `{ column, operator, arity, value, onChange, stacked }`; the column and operator pickers, the Add button and the draft-then-commit rule stay the form's, so a half-built filter is never emitted. A type with no editor falls back to a text field (comma-separated for a set).
+4. **One column, its own editor or operators**: `filter: { type: 'text', editor: UserPicker }` or `filter: { type: 'text', operators: [...] }` replaces the type's for that column only.
+5. **The table never filters rows.** `matches` is for the page that filters locally and for tests: `matchesFilters(row, columns, model)`. A server-backed page maps the model onto its endpoint as for any filter.
+6. **Saved views and your own state.** `useDataTableLayoutPrefs` (and the `prefs` the `Toolbar` slot receives) keeps a bounded `extra` (plain JSON, 8 KiB, 32 keys, 8 levels) and up to 20 `savedViews`: `prefs.saveView(name, { filters })` snapshots the layout plus your state, `prefs.applyView(id)` restores the layout (sort and page size through the page's own callbacks) and returns the view so you restore `layout.extra` yourself. The user-settings API validates the same bounds on write, so a stored value is never trusted on read either.
+7. **Slots.** `slots={{ Toolbar, BulkBar }}` on `DataTable`: `Toolbar` draws extra controls above the table (it receives the state the table holds, `prefs` and the page's `onFiltersChange`); `BulkBar` replaces the bulk-action bar while rows are selected (it receives the ids, the actions and `onClear`). With no slot the markup is unchanged.
+
+### Attach a writer to the export sources, or replace a platform source
+
+Available now. A writer lists itself on the sources instead of each source listing it. Examples: an NDJSON writer attached to every source ([`example-ndjson.writer.ts`](../apps/api/src/examples/exports/example-ndjson.writer.ts), registered in [`export-registrations.manifest.ts`](../apps/api/src/platform/exports/export-registrations.manifest.ts)), proven by [`exports-examples.spec.ts`](../apps/api/src/examples/exports/exports-examples.spec.ts), the HTTP test in [`exports.integration.spec.ts`](../apps/api/test/exports/exports.integration.spec.ts) and the `exports` conformance suite.
+
+1. **Attach**: `registerExportWriter({ id: 'ndjson', ..., attachTo: '*' })` (every source whose columns the writer supports) or `attachTo: ['user-data', 'health']` (exactly those). `sources` still narrows. The platform sources list no formats: their formats are the writers attached to them (json, csv, xlsx first, then yours), so a registered writer appears in the dialog and on `POST /api/exports` for `user-data` and `org-data`.
+2. **Declare what it can write.** A writer restricted with `columnTypes: ['string', 'number']` attaches under `'*'` only to sources that declare `columnTypes` inside that set (the platform sources declare `string`, `number`, `boolean` and `datetime`); naming a source in a list is a decision and skips that check. An export whose dataset has a column the writer cannot write fails with a message naming the column, and the half-written file is destroyed.
+3. **Writers see the same rows as the built-ins.** A source produces its rows (redacted) before any writer runs, so a writer cannot reach a column a built-in one cannot. Do not read from the database in a writer.
+4. **Column typing for your format**: a source may set `meta` on a column (`{ key: 'amount', label: 'Amount', type: 'number', meta: { logicalType: 'DECIMAL(10,2)' } }`; flat scalars, at most 16 keys). The built-in writers ignore it and never write it.
+5. **Keep a source to the formats you reviewed**: `acceptsAttachedWriters: false` on the source. Declare `columnTypes` on a source of your own so restricted writers can attach.
+6. **Replace a platform source.** `ExportsModule.forRoot({ platformSources: { userData: false } })`, then `registerExportSource({ ...USER_DATA_EXPORT_SOURCE, label: 'Your account data', permission: ... })` with the same id: the writers attached to `user-data` follow it. Under another id the platform writers (attached to `user-data` and `org-data` only) do not follow, so list the formats you want in `formats`.
+7. **Run the suite.** `exports.secret-egress` runs `user-data` and `org-data` through every writer offered on them, an attached one included, and flags a writer attached to a source nobody registered.
+
+### Add columns or actions to the exports list
+
+Available now. `ExportsList` takes `slots`: `Columns(base)` returns the columns to draw (a column is placed by its `priority`: `primary` is the title, `secondary` the line under it, `detail` a full-width line; `placement: 'trailing'` puts it in the right-hand group) and `RowActions` adds controls after Download. Example: [`ExportsListSlots.example.tsx`](../apps/web/src/platform-extensions/exports/ExportsListSlots.example.tsx), [test](../apps/web/src/__tests__/examples/exports/exports-list-slots.test.tsx). Both read the export the list already holds; neither calls the API.
+
 ## How to ship an extension as its own npm package
 
 An extension package (`@acme/ai-assemblyai`, `@acme/storage-azure`) is a package that an app installs next to `@marinoscar/platform-*` and that registers or binds its parts through the same seams an app uses. The platform packages are its host, so the package follows the rules that keep one copy of each.
@@ -1191,7 +1301,7 @@ An extension package (`@acme/ai-assemblyai`, `@acme/storage-azure`) is a package
 
 ## Conformance kits
 
-A kit is a function an extension author calls with the implementation and the test runner's `describe`, `it` and `expect`, so it works under Jest and Vitest.
+A kit is a function an extension author calls with the implementation and the test runner's `describe`, `it` and `expect`, so it works under Jest and Vitest. The Doctor and job-handler kits take them as an optional `testApi` and default to the runner's globals.
 
 | Kit | Import | Checks | Status |
 |---|---|---|---|
@@ -1210,9 +1320,13 @@ A kit is a function an extension author calls with the implementation and the te
 | `describeRestoreGateConformance(gate, { describe, it, expect, scenarios, watch? })` | `@marinoscar/platform-api/db-backup/testing` | A valid definition; answers `{ status, message }` per scenario; read-only (a context that records every write, plus watched side-effect counters); repeatable; evaluates to a pre-flight row with the gate's id and label | Available |
 | `runPlatformConformance({ suites })` (CLI) | `@marinoscar/platform-cli/testing` | The `cli` and `deployRegistrations` suites, and any suite registered with `registerCliConformanceSuite`; a skip needs a reason | Available |
 | `runInfraConformance({ appRoot })` | `@marinoscar/platform-infra/testing` | `sync --check`, `docker compose config` per mode with the app's overlays, `nginx -t` over `app.d/` and both CSP files | Available |
-| Doctor check, job handler | `@marinoscar/platform-api/doctor/testing`, `…/jobs/testing` | Read-only checks; handler profile, idempotence and node-eligibility pairing | Coming (PP-14.26) |
+| `describeDoctorCheckConformance(name, factory, { scenarios?, defaultTimeoutMs?, testApi? })` | `@marinoscar/platform-api/doctor/testing` | Per scenario: a dotted id, category, label, root-relative `settingsPath`, positive `timeoutMs`; the run completes within its timeout and never throws; a valid outcome (status, detail, a real remedy on `warn` and `fail`, scalar `data`); the statuses the scenario expects; no seeded secret and no secret-shaped value in the result; read-only against a recording Prisma client and a write-failing storage provider. It cannot see a write that reaches neither double (an HTTP POST, a file) | Available |
+| `doctor-read-only` suite (`doctorReadOnly: { fixture, minChecks?, exempt?, forbiddenServices? }`) | `@marinoscar/platform-api/doctor/testing`, run by `runPlatformConformance` | The same proof over every check of the booted app's registry: no Prisma write (including a raw write, a job enqueue, an audit row), no storage write, no held side-effecting "test" service, a valid outcome for every check whose `dependsOn` passed; an exemption needs a reason and a stale one is a finding | Available |
+| `describeJobHandlerConformance(name, handler \| () => handler, { payloads, canDelete?, ... })` | `@marinoscar/platform-api/jobs/testing` | A dotted permanent type, a label, a profile of exactly `{ maxRuntimeMs, maxAttempts }` inside the ceilings, `nodeResultSchema` and `persistNodeResult` both or neither, `ai.*` server-only; per payload: settles through `createFakeJobQueue()`, idempotent over two runs (`observe`, `assertIdempotent`), throws on a payload it must reject, duplicates collapse, an org-scoped payload carries a subject; `canDelete` answers `null` or a reason and the queue follows it. `findJobHandlerContractViolations` is the static half, without a runner | Available |
+| `createFakeJobQueue(options?)` | `@marinoscar/platform-api/jobs/testing` | Not a kit but the double for one: an in-memory queue with the real dedup rule, claim order, attempt budget and delete decision; `asJobsService()` for a service under test | Available |
+| `runPlatformWebConformance` with a registered suite | `@marinoscar/platform-web/testing` | The web harness runs your own `WebConformanceSuite<Options>` next to the platform's; the options are the third argument, ids are unique, the matcher subset is `toEqual`, `toBe`, `toMatchObject`, `toHaveLength`, `toThrow`, `toContain`, `toBeGreaterThanOrEqual` | Available |
 
-An app adds its own suite with `conformanceSuites.register` and a `declare module '@marinoscar/platform-api/testing'` augmentation of `PlatformConformanceSuiteOptions`; the android-app slice's `testing/conformance.ts` is the model. More: [TESTING.md](TESTING.md#platform-conformance).
+An app adds its own suite with `conformanceSuites.register` and a `declare module '@marinoscar/platform-api/testing'` augmentation of `PlatformConformanceSuiteOptions`; the android-app slice's `testing/conformance.ts` is the model, and [the recipe above](#add-a-conformance-suite-of-your-own) has the steps. More: [TESTING.md](TESTING.md#platform-conformance).
 
 ## See also
 

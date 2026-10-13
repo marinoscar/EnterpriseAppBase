@@ -28,6 +28,24 @@ export const THEME_PREFERENCES = ['light', 'dark', 'system'] as const;
 export type ThemePreference = (typeof THEME_PREFERENCES)[number];
 
 /**
+ * The shape of the id of a theme an app registers on top of
+ * {@link THEME_PREFERENCES} (`registerThemePreference` of
+ * `@marinoscar/platform-api/settings`): a lower-case slug of 2 to 48
+ * characters starting with a letter (`high-contrast`, `solarized`). The three
+ * built-in ids match it. A registered id is permanent once a user stored it.
+ *
+ * @stability experimental
+ */
+export const THEME_PREFERENCE_ID_PATTERN = /^[a-z][a-z0-9-]{1,47}$/;
+
+/**
+ * The longest label of a registered theme preference.
+ *
+ * @stability experimental
+ */
+export const THEME_OPTION_LABEL_MAX = 60;
+
+/**
  * Which picture represents the user (`profile.imageSource`, issue #367):
  *
  *  - `none`: no picture; clients render initials.
@@ -96,6 +114,53 @@ export const DATA_TABLE_MAX_VISIBLE_COLUMNS = 60;
  * @stability stable
  */
 export const DATA_TABLE_MAX_PAGE_SIZE = 500;
+
+/**
+ * The largest JSON size, in bytes, of one stored layout's `extra` (and of one
+ * saved view's `extra`). `extra` is an app's own bounded JSON beside the
+ * platform's fields (saved filters, a chart toggle); the API refuses a larger
+ * one.
+ *
+ * @stability experimental
+ */
+export const DATA_TABLE_EXTRA_MAX_BYTES = 8192;
+
+/**
+ * The most top-level keys one `extra` may hold, and the deepest it may nest.
+ *
+ * @stability experimental
+ */
+export const DATA_TABLE_EXTRA_MAX_KEYS = 32;
+
+/**
+ * The deepest an `extra` value may nest.
+ *
+ * @stability experimental
+ */
+export const DATA_TABLE_EXTRA_MAX_DEPTH = 8;
+
+/**
+ * The most saved views one table keeps.
+ *
+ * @stability experimental
+ */
+export const DATA_TABLE_MAX_SAVED_VIEWS = 20;
+
+/**
+ * The longest saved-view name, in characters.
+ *
+ * @stability experimental
+ */
+export const DATA_TABLE_VIEW_NAME_MAX_LENGTH = 60;
+
+/**
+ * The largest JSON size, in bytes, of one table's whole stored entry (its
+ * fields, `extra` and every saved view). A storage-exhaustion control:
+ * `user_settings.value` is a JSONB blob the user writes themselves.
+ *
+ * @stability experimental
+ */
+export const DATA_TABLE_ENTRY_MAX_BYTES = 32768;
 
 /**
  * The row densities of the data table component.

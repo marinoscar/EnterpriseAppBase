@@ -5,12 +5,19 @@ import {
   Injectable,
   Logger,
 } from '@nestjs/common';
-import type { ThemePreference, UserProfileSettingsValue } from '@marinoscar/platform-contract/settings';
+import type { ThemeOption, ThemePreference, UserProfileSettingsValue } from '@marinoscar/platform-contract/settings';
 
 import { PLATFORM_PRISMA } from '../../core/index';
 import { PrincipalCache } from '../../identity/index';
 import type { SettingsPrisma, SettingsUserSettingsRow } from '../data/settings-db';
 import { SETTINGS_PROFILE_IMAGES, type NormalizedProfileSettings, type SettingsProfileImages } from '../ports';
+import type { UserProfileSettingsExtensions } from '../index';
+import {
+  isKnownTheme,
+  readProfileExtensions,
+  themeOptions,
+  userProfileFieldRegistry,
+} from '../registry/core-user-fields';
 import {
   currentUserSettingsSchema,
   type ComposedPatchUserBody,
@@ -31,8 +38,8 @@ import {
 export interface UserSettingsValue extends UserSettingsNamespacesValue {
   /** The theme preference. */
   theme: ThemePreference;
-  /** The profile preferences (`imageSource`, `imageObjectId`, `displayName`). */
-  profile: UserProfileSettingsValue;
+  /** The profile preferences (`imageSource`, `imageObjectId`, `displayName`, and the fields apps added with `extendUserProfile`). */
+  profile: UserProfileSettingsValue & UserProfileSettingsExtensions;
 }
 
 /**
@@ -46,8 +53,10 @@ export interface UserSettingsValue extends UserSettingsNamespacesValue {
 export type UserSettingsResponse = UserSettingsNamespacesValue & {
   /** The theme preference. */
   theme: ThemePreference;
-  /** The normalised profile (`imageObjectId` always present). */
-  profile: NormalizedProfileSettings;
+  /** The normalised profile (`imageObjectId` always present), plus the fields apps added with `extendUserProfile`. */
+  profile: NormalizedProfileSettings & UserProfileSettingsExtensions;
+  /** The themes apps registered beside light, dark and system; absent when none. */
+  themeOptions?: ThemeOption[];
   /** When the row last changed. */
   updatedAt: Date;
   /** The row version. */
@@ -115,17 +124,57 @@ export class UserSettingsService {
     updatedAt: Date,
     version: number,
   ): UserSettingsResponse {
+    const options = themeOptions();
     return {
-      theme: value.theme,
+      theme: this.readableTheme(value.theme),
       // Normalised on every read: rows written before #367 carry the legacy
-      // `useProviderImage` flag instead of `imageSource`.
-      profile: this.profileImages.normalize(value.profile),
+      // `useProviderImage` flag instead of `imageSource`. The fields apps
+      // added with `extendUserProfile` ride along, each one that still
+      // validates (PP-14.21).
+      profile: {
+        ...readProfileExtensions(value.profile),
+        ...this.profileImages.normalize(value.profile),
+      } as UserSettingsResponse['profile'],
+      // Only while an app has registered themes: otherwise the document is
+      // exactly what it always was.
+      ...(options.length > 0 ? { themeOptions: options } : {}),
       // Every registered namespace, in registration order, and only when
       // present (#677).
       ...this.presentNamespaces(value),
       updatedAt,
       version,
     };
+  }
+
+  /**
+   * A stored theme as the document returns it. A theme an app registered and
+   * later removed reads as `system` (with a warning) rather than failing every
+   * later write: an unknown id is ignored on read, never a brick.
+   */
+  private readableTheme(stored: unknown): ThemePreference {
+    if (isKnownTheme(stored)) return stored as ThemePreference;
+    this.logger.warn(`Stored theme ${JSON.stringify(stored)} is not registered; reading it as "system"`);
+    return 'system';
+  }
+
+  /**
+   * The registered profile fields after a PATCH: the patch's value wins
+   * (`null` deletes the field), otherwise the stored one is kept.
+   */
+  private mergeProfileExtensions(
+    current: Record<string, unknown> | undefined,
+    patch: Record<string, unknown> | undefined,
+  ): Record<string, unknown> {
+    // Own properties only: a field named `constructor` must not read the prototype's.
+    const own = (source: Record<string, unknown> | undefined, name: string): unknown =>
+      source !== undefined && Object.hasOwn(source, name) ? source[name] : undefined;
+    const merged: Record<string, unknown> = {};
+    for (const { name } of userProfileFieldRegistry.list()) {
+      const patched = own(patch, name);
+      const value = patched !== undefined ? patched : own(current, name);
+      if (value !== undefined && value !== null) merged[name] = value;
+    }
+    return merged;
   }
 
   /**
@@ -272,6 +321,11 @@ export class UserSettingsService {
           dto.profile?.imageObjectId !== undefined
             ? dto.profile.imageObjectId
             : current.profile.imageObjectId,
+        // Fields apps added with `extendUserProfile` (PP-14.21).
+        ...this.mergeProfileExtensions(
+          current.profile as unknown as Record<string, unknown>,
+          dto.profile as unknown as Record<string, unknown> | undefined,
+        ),
       },
     };
 

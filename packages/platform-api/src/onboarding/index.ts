@@ -20,6 +20,8 @@ export type { OnboardingDataPort, OnboardingFeatureGate } from './ports';
 // ---- the declarations and registries (rung 2) ------------------------------------------
 export type {
   ActivationMilestoneDef,
+  OnboardingAudienceContext,
+  OnboardingAudienceDef,
   OnboardingCaller,
   OnboardingDoctorAccess,
   OnboardingEvaluation,
@@ -30,6 +32,12 @@ export type {
   OnboardingRequestContext,
   OnboardingStepDef,
 } from './onboarding.types';
+export {
+  PLATFORM_ONBOARDING_AUDIENCES,
+  isBuiltinOnboardingAudience,
+  onboardingAudienceRegistry,
+  registerOnboardingAudience,
+} from './onboarding.audiences';
 export {
   DOCTOR_FACT_ID,
   activationMilestoneRegistry,

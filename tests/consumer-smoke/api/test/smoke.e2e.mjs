@@ -55,6 +55,15 @@ describe('packaged settings namespaces (#865)', () => {
   });
 });
 
+describe('settings extension points (PP-14.21)', () => {
+  it('folds a nested extension with an org layer and assembles contributions between the platform and the app', () => {
+    const check = require('../dist/settings-extensions.check.js');
+    assert.deepEqual(check.nestedExtensionDefaults(), { enabled: true, limits: { daily: 1, weekly: 7 } });
+    assert.deepEqual(check.assembledKeys(), ['coach', 'contributed', 'appOwned']);
+    assert.equal(check.profileTimezone({ timezone: 'UTC' }), 'UTC');
+  });
+});
+
 describe('GET /api/admin/doctor', () => {
   let app;
   let base;

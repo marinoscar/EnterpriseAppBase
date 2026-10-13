@@ -19,25 +19,33 @@ import {
   Stack,
   TextField,
 } from '@mui/material';
-import { ORG_ROLES, type OrgRole } from '../../headless/index.js';
-import { orgRoleLabel } from './orgLabels.js';
+import type { OrgRole, RoleDescriptor } from '../../headless/index.js';
 
 interface InviteMemberDialogProps {
   open: boolean;
   onClose: () => void;
   onInvite: (data: { email: string; roleName: OrgRole; notes?: string }) => Promise<void>;
+  /** The org roles the API says may be assigned (`GET /api/roles?scope=org`, `assignable` only). */
+  roles: readonly RoleDescriptor[];
 }
 
-export function InviteMemberDialog({ open, onClose, onInvite }: InviteMemberDialogProps) {
+/** The role offered first: `viewer` (the least privileged built-in) when it is assignable, else the first one. */
+function defaultRoleOf(roles: readonly RoleDescriptor[]): string {
+  return (roles.find((role) => role.id === 'viewer') ?? roles[0])?.id ?? '';
+}
+
+export function InviteMemberDialog({ open, onClose, onInvite, roles }: InviteMemberDialogProps) {
   const [email, setEmail] = useState('');
-  const [roleName, setRoleName] = useState<OrgRole>('viewer');
+  // `null` until the person picks one: the default follows the list as it loads.
+  const [picked, setPicked] = useState<string | null>(null);
+  const roleName = picked !== null && roles.some((role) => role.id === picked) ? picked : defaultRoleOf(roles);
   const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   function reset() {
     setEmail('');
-    setRoleName('viewer');
+    setPicked(null);
     setNotes('');
     setError(null);
   }
@@ -46,6 +54,10 @@ export function InviteMemberDialog({ open, onClose, onInvite }: InviteMemberDial
     event.preventDefault();
     if (!email.trim()) {
       setError('Email is required');
+      return;
+    }
+    if (!roleName) {
+      setError('There is no role you can invite someone as');
       return;
     }
     setIsSubmitting(true);
@@ -92,11 +104,11 @@ export function InviteMemberDialog({ open, onClose, onInvite }: InviteMemberDial
                 labelId="invite-role"
                 label="Role"
                 value={roleName}
-                onChange={(event) => setRoleName(event.target.value as OrgRole)}
+                onChange={(event) => setPicked(event.target.value)}
               >
-                {ORG_ROLES.map((role) => (
-                  <MenuItem key={role} value={role}>
-                    {orgRoleLabel(role)}
+                {roles.map((role) => (
+                  <MenuItem key={role.id} value={role.id}>
+                    {role.label}
                   </MenuItem>
                 ))}
               </Select>
@@ -121,7 +133,7 @@ export function InviteMemberDialog({ open, onClose, onInvite }: InviteMemberDial
           >
             Cancel
           </Button>
-          <Button type="submit" variant="contained" disabled={isSubmitting}>
+          <Button type="submit" variant="contained" disabled={isSubmitting || !roleName}>
             Send invitation
           </Button>
         </DialogActions>

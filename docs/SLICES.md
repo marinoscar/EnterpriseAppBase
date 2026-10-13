@@ -123,7 +123,7 @@ None.
 
 | Part | Import paths | Depends on (slices) | Install beyond the required peers | README |
 |---|---|---|---|---|
-| API (`platform-api`) | `/doctor` | `core` | `fastify` | [README](../packages/platform-api/src/doctor/README.md) |
+| API (`platform-api`) | `/doctor`, `/doctor/testing` | `core` | `fastify` | [README](../packages/platform-api/src/doctor/README.md) |
 | Web (`platform-web`) | `/doctor/headless`, `/doctor/ui` | `core` | `@mui/icons-material`, `react-router-dom` | [README](../packages/platform-web/src/doctor/README.md) |
 | Contract (`platform-contract`) | `/doctor` | none | none | [README](../packages/platform-contract/src/doctor/README.md) |
 

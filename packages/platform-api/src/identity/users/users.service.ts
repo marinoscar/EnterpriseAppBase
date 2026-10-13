@@ -29,6 +29,7 @@ import {
 import { PrincipalCache } from '../auth/principal-cache/principal-cache.service';
 import { principalFactory } from '../auth/principal.factory';
 import { DefaultOrganizationMissingException } from '../organizations/organizations.errors';
+import { assertRoleAssignable, isAppManagedRole } from '../roles/role-catalog';
 
 /**
  * What the users endpoints load for a user's roles (PP-6.3, #723): the system
@@ -326,6 +327,11 @@ export class UsersService {
       throw new BadRequestException(`Invalid roles: ${invalid.join(', ')}`);
     }
 
+    // Fail closed: every named role must be known to the registry, in the scope
+    // the database says, and not registered `assignable: false`. The database
+    // alone is not the authority on what a caller may hand out.
+    for (const role of roles) assertRoleAssignable(role.name, role.scope);
+
     const systemRoles = roles.filter((role) => role.scope === 'system');
     const orgRoles = roles.filter((role) => role.scope === 'org');
     const singleOrg = principalFactory.mode() === 'single';
@@ -340,9 +346,14 @@ export class UsersService {
     let membershipRole: { id: string; name: string } | null = null;
     let defaultOrgId: string | null = null;
     if (singleOrg) {
+      // An org role the application manages itself (`assignable: false`) that
+      // the user holds on the default organization is not this route's to
+      // replace with the default role when the request names no org role.
+      const heldOrgRole = (user.memberships ?? []).find((membership) => membership.org?.isDefault)?.role.name;
+      const keptOrgRole = heldOrgRole !== undefined && isAppManagedRole(heldOrgRole) ? heldOrgRole : undefined;
       const membershipRoleName = systemRoles.some((role) => role.name === ROLES.ADMIN)
         ? ORG_ADMIN_ROLE
-        : this.highestOrgRole(orgRoles.map((role) => role.name)) ?? this.identityOptions.defaultOrgRole;
+        : this.highestOrgRole(orgRoles.map((role) => role.name)) ?? keptOrgRole ?? this.identityOptions.defaultOrgRole;
       membershipRole =
         orgRoles.find((role) => role.name === membershipRoleName) ??
         (await this.prisma.role.findUnique({ where: { name: membershipRoleName } }));
@@ -359,12 +370,20 @@ export class UsersService {
       defaultOrgId = defaultOrg.id;
     }
 
+    // System roles the application manages itself (`assignable: false`) are
+    // not this route's to remove: the set below replaces the roles it can
+    // assign, and leaves those rows alone. (They cannot be NAMED here either:
+    // the check above refuses them.)
+    const keptRoles = user.userRoles.map((row) => row.role).filter((role) => isAppManagedRole(role.name));
+
     // Replace the system roles (and, in single mode, set the membership role)
     // in one transaction.
     await this.prisma.$transaction(async (tx) => {
       // Remove existing roles. Every row goes, including a pre-split row of an
       // org role: from here on org roles live on the membership.
-      await tx.userRole.deleteMany({ where: { userId: id } });
+      await tx.userRole.deleteMany({
+        where: keptRoles.length > 0 ? { userId: id, roleId: { notIn: keptRoles.map((role) => role.id) } } : { userId: id },
+      });
 
       // Add new roles
       if (systemRoles.length > 0) {
@@ -394,6 +413,7 @@ export class UsersService {
     const currentRoles = [
       ...new Set([
         ...systemRoles.map((role) => role.name),
+        ...keptRoles.map((role) => role.name),
         ...(membershipRole ? [membershipRole.name] : this.currentOrgRole(user)),
       ]),
     ];

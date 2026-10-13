@@ -5,7 +5,7 @@
 // Fills core's role and permission registries, once, at import time, in SEED
 // ORDER:
 //
-//   1. platform roles   2. app roles   3. platform permissions   4. app permissions
+//   1. platform roles   2. app roles   3. platform permissions   4. app permissions   5. app grants
 //
 // The platform's part (the identity slice's roles and every slice's permission
 // sets, in the order this app has always seeded them) is
@@ -16,6 +16,6 @@
 
 import { registerPlatformPermissions } from '@marinoscar/platform-api/manifest';
 
-import { APP_PERMISSIONS, APP_ROLES } from '../../app-registrations/permissions';
+import { APP_GRANTS, APP_PERMISSIONS, APP_ROLES } from '../../app-registrations/permissions';
 
-registerPlatformPermissions({ app: { roles: [APP_ROLES], permissions: [APP_PERMISSIONS] } });
+registerPlatformPermissions({ app: { roles: [APP_ROLES], permissions: [APP_PERMISSIONS], grants: APP_GRANTS } });

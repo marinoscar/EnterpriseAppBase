@@ -6,6 +6,8 @@
 export {
   EXPORTS_PATH,
   EXPORTS_SOURCES_PATH,
+  EXPORT_COLUMN_META_MAX_KEYS,
+  EXPORT_COLUMN_META_MAX_LENGTH,
   EXPORT_COLUMN_TYPES,
   EXPORT_DATASET_PATTERN,
   EXPORT_FAILED_MESSAGE,
@@ -21,6 +23,7 @@ export type { ExportColumnType, ExportRequestFieldKind, ExportScope, ExportStatu
 export {
   createExportSchema,
   exportCellSchema,
+  exportColumnMetaSchema,
   exportColumnSchema,
   exportColumnTypeSchema,
   exportDownloadSchema,
@@ -42,6 +45,7 @@ export type {
   CreateExportInput,
   ExportCell,
   ExportColumn,
+  ExportColumnMeta,
   ExportColumnTypeEnum,
   ExportDownload,
   ExportFormatDescriptor,

@@ -78,6 +78,14 @@ This is one framework for both shapes, with the domain parts left to the apps.
 
 The writer contract (kvox's): write to `out` with backpressure, END it, settle when it finished, and on failure reject AND destroy it.
 
+**Which writers a source offers.** `writersFor(source)` returns the source's listed `formats` that are registered (and not limited by `sources` to other sources), in the source's order, then the registered writers that ATTACH to it (`ExportWriter.attachTo`), unless the source sets `acceptsAttachedWriters: false`:
+- `attachTo: '*'` attaches to every source whose columns the writer supports; `attachTo: ['user-data', 'health']` to exactly those sources. `sources` still narrows.
+- A writer states the column types it can write (`columnTypes`, default all five); a source declares the types its datasets use (`columnTypes`, default unknown, which counts as all). `'*'` attaches only when every declared type is supported, so a restricted writer reaches a source only when that source says its columns fit. Naming a source in a list is a decision and skips this check.
+- The run job wraps the source's datasets in `guardWriterColumns`: a dataset with a column outside the writer's `columnTypes` fails the export before any row is written, naming the dataset, column and type, and the half-written file is destroyed.
+- The platform sources list NO formats. The built-in writers attach to `user-data` and `org-data` (and to nothing else), so those two sources offer json, csv and xlsx in that order, then any app writer; the dialog's default is still the first. An app source lists the formats it wants.
+- A source may put `meta` on a column (flat scalars, at most 16 keys) for a custom writer's own typing (a Parquet logical type). The built-in writers never write it: the JSON file of a dataset is byte-identical with or without `meta`.
+- A writer sees only the rows its source produced. The platform sources redact (§2.5) before any writer runs, so an attached writer cannot reach a column a built-in one cannot.
+
 ### 2.5 Redaction
 
 A column is exported only if every one of these holds:
@@ -96,7 +104,7 @@ The columns are also the query's `select`. Credential models are either `exclude
 
 - `DataExportPage` at `/settings/data-export`, the "Download your data" card in a "Your data" group, with no permission. The page offers every source `GET /api/exports/sources` returns for the caller, so an organization administrator also sees `org-data`.
 - `ExportDialog` draws each source's request fields from its descriptor; a source may supply its own form (`slots.form`).
-- `ExportsList` shows the status in words and downloads from a fresh signed URL, fetched at click time.
+- `ExportsList` shows the status in words and downloads from a fresh signed URL, fetched at click time. Its `slots.Columns` adds, reorders or removes a column and `slots.RowActions` adds controls after Download (the names of the packaged-page table contract).
 
 ## 3. Configuration and permissions
 
@@ -132,6 +140,12 @@ The reference example is `apps/api/src/examples/exports/example-notification-inb
 
 Add an `ExportWriter` to `APP_EXPORT_WRITERS`. Use `writeChunk`, `endStream` and `failStream`, and the CSV helpers for any CSV. Limit a domain format to its source with `sources: ['health']`. The reference example is `example-single-csv.writer.ts`.
 
+To offer a format on many sources (the platform's `user-data` and `org-data` included) without editing them, set `attachTo: '*'` (or a list of source ids) and, when it cannot write every column type, `columnTypes`. The reference example is `example-ndjson.writer.ts`, which the conformance suite runs over both platform sources with every other writer.
+
+### 4.2.1 Replace a platform source
+
+Turn the platform's registration off and register your own under the same id: `ExportsModule.forRoot({ platformSources: { userData: false } })`, then `registerExportSource({ ...USER_DATA_EXPORT_SOURCE, label: ..., permission: ... })`. The spread keeps `formats: []`, so the writers attached to `user-data` (json, csv, xlsx, yours) follow the replacement. Under another id the platform writers do not follow (they attach to `user-data` and `org-data` only), so list the formats you want; set `acceptsAttachedWriters: false` to pin the source to them.
+
 ### 4.3 Render documents
 
 Subclass `ExporterRegistry<TDoc>` per document type and declare each `Exporter<TDoc>` with `optionsSchemaFor`; see `example-markdown.exporter.ts`.
@@ -152,7 +166,8 @@ Edit the model's user-owned registry entry: set `export: 'include'` or `'exclude
 
 | Guardrail | Proves |
 |---|---|
-| `exports` conformance suite (`apps/api/test/exports/exports-conformance.spec.ts`) | Every source names a registered permission and offers a registered writer; `exportOmit` names real fields. `secret-egress` fills every model with sentinels and runs both platform sources through every writer, unzipping: no secret, hash, hint, ciphertext or binary byte, and no column of an excluded model, in any output |
+| `exports` conformance suite (`apps/api/test/exports/exports-conformance.spec.ts`) | Every source names a registered permission and offers a registered writer (an attached one counts); a writer limited or attached to sources names registered ones; `exportOmit` names real fields. `secret-egress` fills every model with sentinels and runs both platform sources through every writer OFFERED on them, an app's attached writer included, unzipping: no secret, hash, hint, ciphertext or binary byte, and no column of an excluded model, in any output |
+| `packages/platform-api/test/exports/registries.spec.ts`, `apps/api/src/examples/exports/exports-examples.spec.ts`, `apps/api/test/exports/exports.integration.spec.ts` | Attachment: `'*'` and lists, the platform writers first, the column-type check, `acceptsAttachedWriters`, a replaced source, and `POST /api/exports` for `user-data` in the attached format |
 | `apps/api/test/exports/exports.db.spec.ts` | The same over real Postgres with row-level security and real credentials; org-data with two organizations returns only the exported organization's rows; the purge, then `expired` |
 | `packages/platform-api/test/exports/streaming.spec.ts` | 100k rows through each writer keep the retained heap under 50 MB while a larger file flows |
 | `cron-enqueue-only` | `ExportPurgeTask` only enqueues (the slice's root is scanned) |
@@ -170,6 +185,9 @@ Edit the model's user-owned registry entry: set `export: 'include'` or `'exclude
 - **The bypass client, with explicit filters.** A user's own rows sit in several organizations, and an organization export must see all of that organization's rows whoever's scope is active. Every query names the owner or the organization, and the `export` access reason makes each acquisition visible on the span.
 - **The permission is the source's.** One route serves sources with different permissions, so the route is `@Auth()` and the service checks the source's string against the caller's effective permissions. A 403 names that permission.
 - **`exportOmit`, not a new `exportRedact` field.** The user-owned registry already had `exportOmit` (#688) with exactly the story's meaning; a second field for the same thing would be two sources of truth.
+- **A writer attaches itself; a source does not enumerate.** Rejected: leaving `formats` hard-coded on `user-data` and `org-data` (an app could never add a format to them without editing the package) and a per-app `formats` option on `forRoot` (it would not reach a source another package registers). Attachment keeps one registration per format, and a source that must stay pinned says so (`acceptsAttachedWriters: false`).
+- **`'*'` is gated by column types, not by trust.** A writer cannot be inspected for what it does with a column, so the gate is the one thing the platform can check statically: the types both sides declare. The security boundary is unchanged and is not the writer's: the source redacts before any writer runs.
+- **`meta`, not new column types.** `EXPORT_COLUMN_TYPES` stays closed because every built-in writer and every reader of the JSON file switches on it; a writer that needs more (a decimal scale, a logical type) reads flat `meta` from the column and the built-ins ignore it.
 - **Status and URL derived at read time.** A ready export's URL is minted per read and never stored, so a leaked list response carries no download.
 
 ## 7. Verification
@@ -193,3 +211,4 @@ npm run openapi:dump && npm run openapi:lint
 ## History
 
 - #744 (PP-9.2): the framework, harvested from EvoPath's health export and kvox's exporters.
+- #938 (PP-14.20): writers attach to sources (`attachTo`, `columnTypes`; the platform sources compute their formats), `ExportColumn.meta`, the `ExportsList` slots and the replace-a-platform-source recipe.

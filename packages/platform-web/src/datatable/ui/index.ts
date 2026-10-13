@@ -12,7 +12,7 @@ export {
   shouldRenderViewBar,
 } from './DataTable.js';
 export type { ViewBarVisibilityInput } from './DataTable.js';
-export { BulkActionBar } from './BulkActionBar.js';
+export { BulkActionBar, SlottedBulkActionBar } from './BulkActionBar.js';
 export type { BulkActionBarProps } from './BulkActionBar.js';
 export {
   useDataTableLayout,

@@ -46,9 +46,11 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `configFieldSchema` | schema | `z.discriminatedUnion('kind', [...])` of `{ name, label, help? }` plus `boolean`, `enum` (`options`), `number` (`min?`, `max?`, `integer?`), `string` (`maxLength?`), `other`, or `secret` (`hasValue`, `required`; write-only, no value on the wire) | Validate or type one field of a generated configuration form | experimental | [example](../../../../apps/api/test/examples/core/pluggable-kind.spec.ts) |
+| `themePreferenceIdSchema` | schema | `z.string().regex(THEME_PREFERENCE_ID_PATTERN)` | Type the id of a theme an app registered with `registerThemePreference`; the built-in `themePreferenceSchema` stays the closed light, dark, system enum | experimental | [example](../../../../apps/api/test/examples/settings/extensions.http.spec.ts) |
+| `themeOptionSchema` | schema | `z.object({ id, label })` | Validate or type one entry of `themeOptions` in the user settings response | experimental | [example](../../../../apps/api/test/examples/settings/extensions.http.spec.ts) |
 | `pluggableDescriptorSchema` | schema | `z.object({ kind, id, label, description?, fields: ConfigField[] })` | Validate or type the descriptor of one implementation of a pluggable kind, as `PluggableKind.describe` returns it | experimental | [example](../../../../apps/api/test/examples/core/pluggable-kind.spec.ts) |
 
-Supporting exports (stable unless noted): `THEME_PREFERENCES`, `PROFILE_IMAGE_SOURCES`, `PROFILE_DISPLAY_NAME_MAX`, the `DATA_TABLE_*` bounds, `themePreferenceSchema`, `profileImageSourceSchema`, `userProfileSettingsSchema`, `userProfileSettingsPatchSchema`, the `dataTable*` and `navigation*` schemas and their types; experimental: `CONFIG_FIELD_KINDS`, `ConfigFieldKind`, `PLUGGABLE_ID_PATTERN`, `ConfigField`, `PluggableDescriptor`, `SystemSettingsResponseBase`, `UserSettingsResponseBase`, `ORG_SETTINGS_READ_PERMISSION`, `ORG_SETTINGS_WRITE_PERMISSION`, `ORG_SETTINGS_FIELD_KINDS`, `ORG_SETTINGS_MERGE_MODES`, `orgSettingsFieldSchema`, `orgSettingsNamespaceSchema`, `orgSettingsResponseSchema`, `patchOrgSettingsSchema` and their types.
+Supporting exports (stable unless noted): `THEME_PREFERENCES`, `PROFILE_IMAGE_SOURCES`, `PROFILE_DISPLAY_NAME_MAX`, the `DATA_TABLE_*` bounds (experimental: `DATA_TABLE_EXTRA_MAX_BYTES`, `DATA_TABLE_EXTRA_MAX_KEYS`, `DATA_TABLE_EXTRA_MAX_DEPTH`, `DATA_TABLE_MAX_SAVED_VIEWS`, `DATA_TABLE_VIEW_NAME_MAX_LENGTH`, `DATA_TABLE_ENTRY_MAX_BYTES`, `dataTableExtraSchema`, `dataTableViewLayoutSchema`, `dataTableSavedViewSchema` and the types `DataTableExtra`, `DataTableViewLayout`, `DataTableSavedView`), `themePreferenceSchema`, `profileImageSourceSchema`, `userProfileSettingsSchema`, `userProfileSettingsPatchSchema`, the `dataTable*` and `navigation*` schemas and their types; experimental: `THEME_PREFERENCE_ID_PATTERN`, `THEME_OPTION_LABEL_MAX`, `ThemePreferenceId`, `ThemeOption`, `CONFIG_FIELD_KINDS`, `ConfigFieldKind`, `PLUGGABLE_ID_PATTERN`, `ConfigField`, `PluggableDescriptor`, `SystemSettingsResponseBase`, `UserSettingsResponseBase` (with the optional `themeOptions`), `ORG_SETTINGS_READ_PERMISSION`, `ORG_SETTINGS_WRITE_PERMISSION`, `ORG_SETTINGS_FIELD_KINDS`, `ORG_SETTINGS_MERGE_MODES`, `orgSettingsFieldSchema`, `orgSettingsNamespaceSchema`, `orgSettingsResponseSchema`, `patchOrgSettingsSchema` and their types.
 
 ## Data
 
@@ -72,13 +74,17 @@ None.
 
 ## Security notes
 
-The bounds on `dataTables` (entry count, ids, column lists, page size) are a control, not ergonomics: `user_settings.value` is a JSONB blob the user writes themselves, and an unbounded record would let one account inflate a row without limit. No schema here may carry a secret: the `secret` config field carries only `hasValue` and `required`, and the schema strips any other key, so a value cannot ride along.
+The bounds on `dataTables` (entry count, ids, column lists, page size, and for the app-facing fields the `extra` size, key count and depth, the saved-view count and name length and the whole entry's byte size) are a control, not ergonomics: `user_settings.value` is a JSONB blob the user writes themselves, and an unbounded record would let one account inflate a row without limit. No schema here may carry a secret: the `secret` config field carries only `hasValue` and `required`, and the schema strips any other key, so a value cannot ride along.
 
 ## Conformance suite
 
 None. `test/settings.test.ts` and `test/settings/pluggable.test.ts` pin the schemas' behaviour and `test/no-zod-in-constants.test.ts` keeps the constants zod-free.
 
 ## Upgrade notes
+
+PP-14.21 adds `THEME_PREFERENCE_ID_PATTERN`, `THEME_OPTION_LABEL_MAX`, `themePreferenceIdSchema`, `themeOptionSchema` and the optional `themeOptions` of `UserSettingsResponseBase`. Nothing existing changes: `themePreferenceSchema` is still the closed light, dark, system enum, and the user settings response carries `themeOptions` only while an app registered a theme.
+
+PP-14.20 adds the app-facing fields of a `dataTables` entry: `extra` (a record of plain JSON, at most 32 keys, 8 levels and 8 KiB, with no `__proto__`, `constructor` or `prototype` key at any depth) and `savedViews` (at most 20, unique slug ids, a trimmed name of at most 60 characters, a layout with the entry's own fields and no nested views), under a 32 KiB cap on the whole entry. Both are optional, so a stored entry without them is unchanged; the user-settings OpenAPI gains the two fields.
 
 PP-14.5 (#923) adds `configFieldSchema`, `pluggableDescriptorSchema`, `CONFIG_FIELD_KINDS` and `PLUGGABLE_ID_PATTERN`; `orgSettingsFieldSchema` is unchanged, so the org settings OpenAPI is too.
 

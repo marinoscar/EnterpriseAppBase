@@ -48,7 +48,12 @@ export type OnboardingFacts = Readonly<Record<string, unknown>>;
 export interface OnboardingStepDef<F extends OnboardingFacts = OnboardingFacts> {
   /** Permanent, namespaced: `admin.*`, `user.*` or `<app>.*` (`ONBOARDING_STEP_ID_PATTERN`). */
   readonly id: string;
-  /** `admin` (the Setup guide) or `user` (Get started). */
+  /**
+   * Who the step is for: `admin` (the Setup guide), `user` (Get started),
+   * `org_admin` (the holder of the `org_admin` role of their active
+   * organization) or an audience the app registered with
+   * `registerOnboardingAudience` (before this step).
+   */
   readonly audience: OnboardingAudience;
   /** `required`, `recommended` or `optional`. */
   readonly tier: OnboardingTier;
@@ -103,6 +108,42 @@ export interface OnboardingCaller {
   readonly roles: readonly string[];
   /** The active organization, when the credential carries one. */
   readonly activeOrgId: string | null;
+}
+
+/**
+ * What an audience rule is told besides the caller.
+ *
+ * @stability experimental
+ */
+export interface OnboardingAudienceContext {
+  /** The module's `adminPermission` (`OnboardingModule.forRoot`), the `admin` audience's rule. */
+  readonly adminPermission: string;
+}
+
+/**
+ * One audience: a group of steps and the rule that says who sees them.
+ * Register it with `registerOnboardingAudience`; the id is permanent.
+ *
+ * `matches` is synchronous and reads only the caller (no I/O): it decides which
+ * block a step lands in, while a step's own `permission` and `feature` gates
+ * still apply. A rule that throws counts as "does not match" (logged).
+ *
+ * @stability experimental
+ * @example
+ * ```ts
+ * registerOnboardingAudience({
+ *   id: 'coaches', label: 'Coach setup',
+ *   matches: (principal) => principal.roles.includes('coach'),
+ * });
+ * ```
+ */
+export interface OnboardingAudienceDef {
+  /** Permanent, lower case (`ONBOARDING_AUDIENCE_ID_PATTERN`): `org_admin`, `<app>-coaches`. */
+  readonly id: string;
+  /** What the block is called in a UI. */
+  readonly label: string;
+  /** Whether this caller belongs to the audience. Synchronous, caller only. */
+  matches(principal: OnboardingCaller, ctx: OnboardingAudienceContext): boolean;
 }
 
 /**

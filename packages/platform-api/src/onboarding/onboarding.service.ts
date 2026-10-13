@@ -23,6 +23,7 @@ import { DoctorCheckRegistry, DoctorService } from '../doctor/index';
 import { ONBOARDING_FACTS } from './onboarding.builtins';
 import { evaluateOnboarding } from './onboarding.engine';
 import { DEFAULT_ONBOARDING_OPTIONS, ONBOARDING_OPTIONS, type ResolvedOnboardingModuleOptions } from './onboarding.options';
+import { onboardingAudienceRegistry } from './onboarding.audiences';
 import {
   assertOnboardingRegistries,
   onboardingFactRegistry,
@@ -120,11 +121,13 @@ export class OnboardingService implements OnApplicationBootstrap {
     const initialAdminEmail = this.config?.get<string>(this.options.initialAdminEmailEnv)?.trim() || null;
     const doctor = this.doctorAccess();
 
-    const { user, admin } = await evaluateOnboarding({
+    const { user, admin, audiences } = await evaluateOnboarding({
       steps: onboardingStepRegistry.list(),
       facts: onboardingFactRegistry.list(),
       orderings: onboardingOrderingRegistry.list(),
       includeAdmin: who.permissions.includes(this.options.adminPermission),
+      audiences: onboardingAudienceRegistry.list(),
+      audienceContext: { adminPermission: this.options.adminPermission },
       skipped: settings.skipped,
       seed: new Map([[ONBOARDING_FACTS.USER_SETTINGS, value]]),
       warn: (message) => this.logger.warn(message),
@@ -142,7 +145,7 @@ export class OnboardingService implements OnApplicationBootstrap {
       }),
     });
 
-    return { settings, user, admin };
+    return { settings, user, admin, ...(audiences ? { audiences } : {}) };
   }
 
   private doctorAccess(): OnboardingDoctorAccess | null {

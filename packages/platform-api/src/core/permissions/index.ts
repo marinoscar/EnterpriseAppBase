@@ -6,7 +6,15 @@
 
 export { permissionIds, roleIds } from './permission-ids';
 export type { IdentifiedDeclaration } from './permission-ids';
-export { permissionRegistry, registerPermissions, registerRoles, roleRegistry } from './permission.registry';
+export {
+  grantPermissions,
+  permissionRegistry,
+  registerPermissions,
+  registerRoles,
+  roleGrantRegistry,
+  roleRegistry,
+} from './permission.registry';
+export type { RoleGrantEntry } from './permission.registry';
 export { buildPermissionCatalog, catalogGrants, composePermissionCatalog } from './permission-catalog';
 export type {
   CatalogGrant,
@@ -23,4 +31,5 @@ export type {
   PermissionScope,
   RoleDeclaration,
   RoleDeclarationMap,
+  RoleGrantDeclaration,
 } from './permission.types';

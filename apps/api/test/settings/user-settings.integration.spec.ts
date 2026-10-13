@@ -578,6 +578,28 @@ describe('User Settings Integration', () => {
         });
       });
 
+      it('persists an app extra and saved views through PATCH and returns them on GET (PP-14.20)', async () => {
+        const user = await createMockTestUser(context);
+        setupMockUserSettings(user.id, DEFAULT_USER_SETTINGS);
+        const entry = {
+          pageSize: 25,
+          extra: { filters: [{ columnId: 'tags', operator: 'hasAny', value: ['ops'] }] },
+          savedViews: [{ id: 'urgent', name: 'Urgent', layout: { density: 'compact', extra: { filters: [] } } }],
+        };
+
+        await request(context.app.getHttpServer())
+          .patch('/api/user-settings')
+          .set(authHeader(user.accessToken))
+          .send({ dataTables: { tickets: entry } })
+          .expect(200);
+
+        const response = await request(context.app.getHttpServer())
+          .get('/api/user-settings')
+          .set(authHeader(user.accessToken))
+          .expect(200);
+        expect(response.body.data.dataTables).toEqual({ tickets: entry });
+      });
+
       it('patching a second table entry leaves the first untouched', async () => {
         const user = await createMockTestUser(context);
         setupMockUserSettings(user.id, DEFAULT_USER_SETTINGS);
@@ -660,6 +682,27 @@ describe('User Settings Integration', () => {
         [
           'an individually-nulled entry field ({ sort: null })',
           { jobs: { sort: null } },
+        ],
+        // PP-14.20: the app-facing fields are bounded server-side, never trusted.
+        ['an extra over 8 KiB', { jobs: { extra: { blob: 'x'.repeat(8192) } } }],
+        ['an extra that is not an object', { jobs: { extra: 'filters' } }],
+        ['an extra with a __proto__ key', { jobs: { extra: JSON.parse('{"f":{"__proto__":{"admin":true}}}') } }],
+        [
+          'more than 20 saved views',
+          { jobs: { savedViews: Array.from({ length: 21 }, (_, i) => ({ id: `v${i}`, name: `V${i}`, layout: {} })) } },
+        ],
+        [
+          'saved views with a repeated id',
+          { jobs: { savedViews: [{ id: 'a', name: 'A', layout: {} }, { id: 'a', name: 'B', layout: {} }] } },
+        ],
+        ['a saved view with an unknown key', { jobs: { savedViews: [{ id: 'a', name: 'A', layout: {}, owner: 'x' }] } }],
+        [
+          'a stored entry over its byte bound',
+          {
+            jobs: {
+              savedViews: Array.from({ length: 6 }, (_, i) => ({ id: `v${i}`, name: `V${i}`, layout: { extra: { blob: 'x'.repeat(7000) } } })),
+            },
+          },
         ],
       ];
 

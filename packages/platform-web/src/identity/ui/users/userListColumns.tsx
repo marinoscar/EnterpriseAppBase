@@ -35,18 +35,13 @@
 
 import { Avatar, Box, Chip, Stack, Typography } from '@mui/material';
 import type { IdentityTableColumn as DataTableColumn, UserSortField } from '../../headless/index.js';
-import type { UserListItem } from '../../headless/index.js';
+import type { RoleDescriptor, UserListItem } from '../../headless/index.js';
 
 /**
  * Persistence key for `user_settings.dataTables`. A constant, never derived
  * from the route or the heading: it is a storage key and must survive a rename.
  */
 export const TABLE_ID = 'admin-users';
-
-/** The roles the RBAC seed defines (`apps/api/prisma/seed.ts`). */
-export const AVAILABLE_ROLES = ['admin', 'contributor', 'viewer'] as const;
-
-const ROLE_ENUM_VALUES = AVAILABLE_ROLES.map((role) => ({ value: role, label: role }));
 
 /**
  * Column ids that are also valid `sortBy` values, and the narrowing that keeps
@@ -75,11 +70,14 @@ function formatDate(value: string): string {
 /**
  * The user list's columns.
  *
+ * @param roles - the roles the Roles column can filter by (`GET /api/roles`),
+ *   with their labels. Without them the column offers no filter values.
  * @returns the columns, in display order.
  *
  * @stability experimental
  */
-export function buildUserColumns(): DataTableColumn<UserListItem>[] {
+export function buildUserColumns(roles: readonly Pick<RoleDescriptor, 'id' | 'label'>[] = []): DataTableColumn<UserListItem>[] {
+  const roleEnumValues = roles.map((role) => ({ value: role.id, label: role.label }));
   return [
     {
       /**
@@ -160,7 +158,7 @@ export function buildUserColumns(): DataTableColumn<UserListItem>[] {
       priority: 'secondary',
       filterable: ['is'], // ?role=<name>; see the module docblock
       filterType: 'enum',
-      enumValues: ROLE_ENUM_VALUES,
+      enumValues: roleEnumValues,
       minWidth: 160,
       value: (user) => user.roles.join(', '),
       render: (user) => (

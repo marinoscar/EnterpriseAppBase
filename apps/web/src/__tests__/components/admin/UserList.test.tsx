@@ -103,6 +103,13 @@ function userWith(permissions: string[]): MockUser {
   return { ...mockAdminUser, permissions };
 }
 
+const PLATFORM_ROLES = [
+  { id: 'admin', label: 'System administrator', description: 'System administrator', scope: 'system', assignable: true },
+  { id: 'contributor', label: 'Contributor', description: 'Organization member', scope: 'org', assignable: true },
+  { id: 'viewer', label: 'Viewer', description: 'Read-only organization member', scope: 'org', assignable: true },
+  { id: 'org_admin', label: 'Administrator', description: 'Organization administrator', scope: 'org', assignable: true },
+];
+
 const mockFetchUsers = vi.fn();
 const mockUpdateUser = vi.fn();
 const mockUpdateUserRoles = vi.fn();
@@ -162,7 +169,13 @@ describe('UserList', () => {
     resetContainerWidth(1400);
     // The table persists its layout under `user_settings.dataTables`; stub the
     // read so the suite exercises the real hook without hitting the network.
-    vi.spyOn(api, 'get').mockResolvedValue({ dataTables: {} } as never);
+    // `GET /roles` answers the platform's roles (the Manage roles dialog offers
+    // what the API lists); everything else this suite reads is the table layout.
+    vi.spyOn(api, 'get').mockImplementation((async (path: string) => {
+      if (!path.startsWith('/roles')) return { dataTables: {} };
+      const scope = new URLSearchParams(path.split('?')[1] ?? '').get('scope');
+      return PLATFORM_ROLES.filter((role) => !scope || role.scope === scope);
+    }) as never);
     vi.spyOn(api, 'patch').mockResolvedValue({} as never);
     mockUpdateUser.mockResolvedValue(undefined);
     mockUpdateUserRoles.mockResolvedValue(undefined);
@@ -322,7 +335,7 @@ describe('UserList', () => {
 
       await screen.findByText('admin@example.com');
       await pickOption(user, 'Column', 'Roles');
-      await pickOption(user, 'Value', 'admin');
+      await pickOption(user, 'Value', 'System administrator');
       await user.click(screen.getByTestId('datatable-filter-apply'));
 
       await waitFor(() => {
@@ -438,8 +451,8 @@ describe('UserList', () => {
       renderList();
 
       const dialog = await openDialog(user);
-      expect(within(dialog).getByRole('checkbox', { name: 'viewer' })).toBeChecked();
-      expect(within(dialog).getByRole('checkbox', { name: 'admin' })).not.toBeChecked();
+      expect(within(dialog).getByRole('checkbox', { name: 'Viewer' })).toBeChecked();
+      expect(within(dialog).getByRole('checkbox', { name: 'System administrator' })).not.toBeChecked();
     });
 
     it('saves the new role set through updateUserRoles', async () => {
@@ -448,7 +461,7 @@ describe('UserList', () => {
       renderList();
 
       const dialog = await openDialog(user);
-      await user.click(within(dialog).getByRole('checkbox', { name: 'admin' }));
+      await user.click(within(dialog).getByRole('checkbox', { name: 'System administrator' }));
       await user.click(within(dialog).getByRole('button', { name: 'Save roles' }));
 
       await waitFor(() => {
@@ -462,11 +475,11 @@ describe('UserList', () => {
       renderList();
 
       const dialog = await openDialog(user);
-      expect(within(dialog).getByRole('checkbox', { name: 'admin' })).toBeChecked();
-      expect(within(dialog).queryByRole('checkbox', { name: 'org_admin' })).not.toBeInTheDocument();
+      expect(within(dialog).getByRole('checkbox', { name: 'System administrator' })).toBeChecked();
+      expect(within(dialog).queryByRole('checkbox', { name: 'Administrator' })).not.toBeInTheDocument();
 
-      await user.click(within(dialog).getByRole('checkbox', { name: 'contributor' }));
-      await user.click(within(dialog).getByRole('checkbox', { name: 'admin' }));
+      await user.click(within(dialog).getByRole('checkbox', { name: 'Contributor' }));
+      await user.click(within(dialog).getByRole('checkbox', { name: 'System administrator' }));
       await user.click(within(dialog).getByRole('button', { name: 'Save roles' }));
 
       await waitFor(() => {
@@ -480,7 +493,7 @@ describe('UserList', () => {
       renderList();
 
       const dialog = await openDialog(user);
-      await user.click(within(dialog).getByRole('checkbox', { name: 'viewer' }));
+      await user.click(within(dialog).getByRole('checkbox', { name: 'Viewer' }));
 
       expect(
         within(dialog).getByText('User must have at least one role'),
@@ -624,7 +637,7 @@ describe('UserList', () => {
  */
 runDataTableConformanceSuite({
   label: 'UserList columns',
-  columns: buildUserColumns(),
+  columns: buildUserColumns(PLATFORM_ROLES),
   rows: [activeUser, inactiveUser, multiRoleUser],
   rowId: (user: UserListItem) => user.id,
   themes: { light: lightTheme, dark: darkTheme },

@@ -15,7 +15,7 @@ import { userEvent } from '@testing-library/user-event';
 import { render, mockUser, type MockUser } from './render.js';
 import { OrganizationPage } from '../../src/identity/ui/index.js';
 import type { OrgInvite, OrgMember } from '../../src/identity/headless/index.js';
-import { fakeIdentityApi } from './harness.js';
+import { BUILTIN_ROLES, answerWithBuiltinRoles, fakeIdentityApi } from './harness.js';
 
 const service = fakeIdentityApi();
 
@@ -64,6 +64,7 @@ function renderPage(permissions: string[]) {
 describe('OrganizationPage (#726)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    answerWithBuiltinRoles(service);
     vi.mocked(service.getOrgMembers).mockResolvedValue(page(members));
     vi.mocked(service.getOrgInvites).mockResolvedValue(page([invite]));
     vi.mocked(service.updateOrgMember).mockResolvedValue(members[1]);
@@ -135,6 +136,81 @@ describe('OrganizationPage (#726)', () => {
     await user.click(within(other).getByRole('button', { name: 'Suspend' }));
 
     expect(await screen.findByText(/without an active administrator/)).toBeInTheDocument();
+  });
+
+  describe('app roles (PP-14.15): the choices and the labels come from GET /api/roles', () => {
+    const coach = { id: 'coach', label: 'Coach', description: 'Reviews workouts', scope: 'org', assignable: true } as const;
+    const robot = { id: 'robot', label: 'Robot', description: 'Managed by the app', scope: 'org', assignable: false } as const;
+
+    beforeEach(() => {
+      vi.mocked(service.getRoles).mockResolvedValue([...BUILTIN_ROLES.filter((role) => role.scope === 'org'), coach, robot]);
+    });
+
+    it('asks for the org roles once for both tabs', async () => {
+      const user = userEvent.setup();
+      renderPage(ALL);
+      await screen.findByText('Other Person');
+      await user.click(screen.getByRole('tab', { name: 'Invites' }));
+      await screen.findByText('pending@example.com');
+
+      expect(vi.mocked(service.getRoles).mock.calls.map((call) => call[0])).toEqual(['org']);
+    });
+
+    it('offers a registered app role in the member role select, and never an unassignable one', async () => {
+      const user = userEvent.setup();
+      renderPage(ALL);
+      const other = await screen.findByTestId(`member-${OTHER}`);
+
+      await user.click(within(other).getByRole('combobox'));
+      const options = (await screen.findAllByRole('option')).map((option) => option.textContent);
+      expect(options).toEqual(['Contributor', 'Viewer', 'Administrator', 'Coach']);
+
+      await user.click(screen.getByRole('option', { name: 'Coach' }));
+      await waitFor(() => expect(service.updateOrgMember).toHaveBeenCalledWith(OTHER, { roleName: 'coach' }));
+    });
+
+    it('shows the role a member already holds even when it cannot be assigned, disabled', async () => {
+      const user = userEvent.setup();
+      vi.mocked(service.getOrgMembers).mockResolvedValue(page([members[0]!, { ...members[1]!, role: 'robot' }]));
+      renderPage(ALL);
+      const other = await screen.findByTestId(`member-${OTHER}`);
+
+      await user.click(within(other).getByRole('combobox'));
+      expect(await screen.findByRole('option', { name: 'Robot' })).toHaveAttribute('aria-disabled', 'true');
+    });
+
+    it('invites as an app role chosen in the dialog, and labels the invitation with it', async () => {
+      const user = userEvent.setup();
+      vi.mocked(service.getOrgInvites).mockResolvedValue(page([{ ...invite, role: 'coach' }]));
+      renderPage(ALL);
+      await user.click(screen.getByRole('tab', { name: 'Invites' }));
+      expect(await screen.findByText(/^Coach/)).toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: 'Invite member' }));
+      const dialog = await screen.findByRole('dialog');
+      await user.type(within(dialog).getByLabelText(/Email/), 'new@example.com');
+      await user.click(within(dialog).getByRole('combobox', { name: 'Role' }));
+      const roleOptions = (await screen.findAllByRole('option')).map((option) => option.textContent);
+      expect(roleOptions).toEqual(['Contributor', 'Viewer', 'Administrator', 'Coach']);
+      await user.click(screen.getByRole('option', { name: 'Coach' }));
+      await user.click(within(dialog).getByRole('button', { name: 'Send invitation' }));
+
+      await waitFor(() =>
+        expect(service.createOrgInvite).toHaveBeenCalledWith({ email: 'new@example.com', roleName: 'coach' }),
+      );
+    });
+
+    it('cannot send an invitation when the API lists no assignable role', async () => {
+      const user = userEvent.setup();
+      vi.mocked(service.getRoles).mockResolvedValue([robot]);
+      renderPage(ALL);
+      await user.click(screen.getByRole('tab', { name: 'Invites' }));
+      await screen.findByText('pending@example.com');
+      await user.click(screen.getByRole('button', { name: 'Invite member' }));
+      const dialog = await screen.findByRole('dialog');
+
+      expect(within(dialog).getByRole('button', { name: 'Send invitation' })).toBeDisabled();
+    });
   });
 
   describe('the Invites tab', () => {

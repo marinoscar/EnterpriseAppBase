@@ -14,7 +14,7 @@ import {
   useOnboarding,
 } from '../../src/onboarding/headless/index.js';
 import { createTestApiError } from '../../src/testing/index.js';
-import { hostWith, response } from './fixtures.js';
+import { hostWith, response, step } from './fixtures.js';
 
 describe('useOnboarding', () => {
   it('is inert without a provider and requests nothing', () => {
@@ -107,6 +107,30 @@ describe('useOnboarding', () => {
     expect(result.current.error).toBe('Save failed');
     expect(result.current.state?.user.steps.find((s) => s.id === 'user.notifications')?.skipped).toBe(true);
     expect(result.current.state?.user.allResolved).toBe(true);
+  });
+
+  it('keeps the other audiences\' blocks and applies the skip overlay to them too', async () => {
+    const orgStep = step('org.invite', { audience: 'org_admin', status: 'todo' });
+    const host = hostWith({
+      'GET /onboarding': response({ audiences: { org_admin: { steps: [orgStep], completed: 0, total: 1, requiredDone: true, allResolved: false } } }),
+      'GET /user-settings': { version: 1 },
+      'PATCH /user-settings': () => {
+        throw createTestApiError(500, 'Save failed');
+      },
+    });
+    const { result } = renderHook(() => useOnboarding(), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <PlatformHostProvider host={host}>
+          <OnboardingProvider>{children}</OnboardingProvider>
+        </PlatformHostProvider>
+      ),
+    });
+    await waitFor(() => expect(result.current.state).not.toBeNull());
+    expect(result.current.state?.audiences?.['org_admin']?.steps.map((s) => s.id)).toEqual(['org.invite']);
+    // a failed write keeps the overlay, which must reach the org_admin block as well
+    await act(() => result.current.setSkipped('org.invite', true));
+    expect(result.current.state?.audiences?.['org_admin']?.steps[0]?.skipped).toBe(true);
+    expect(result.current.state?.audiences?.['org_admin']?.allResolved).toBe(true);
   });
 
   it('clears the welcome and dismissals from the Getting started action', async () => {

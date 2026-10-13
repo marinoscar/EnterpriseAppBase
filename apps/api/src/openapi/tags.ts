@@ -107,6 +107,12 @@ const TAG_GROUPS: AppOpenApiTagGroup[] = [
           'assigning system roles. Admin only.',
       },
       {
+        name: 'Roles',
+        description:
+          'The roles the application knows: label, scope (`system` or `org`) and whether the invite, member ' +
+          'and user-role routes may assign each. `scope=system` needs `users:read`, `scope=org` needs `org_members:read`.',
+      },
+      {
         name: 'User Settings',
         description:
           'The calling user\'s own preferences, stored as a JSON document. Supports full replacement ' +

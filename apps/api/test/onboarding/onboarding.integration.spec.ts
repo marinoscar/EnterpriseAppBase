@@ -18,7 +18,7 @@ import { DoctorService } from '@marinoscar/platform-api/doctor';
 import { TestContext, createTestApp, closeTestApp } from '../helpers/test-app.helper';
 import { prismaMock, resetPrismaMock } from '../mocks/prisma.mock';
 import { setupBaseMocks, setupMockUserSettings } from '../fixtures/mock-setup.helper';
-import { authHeader, createMockAdminUser, createMockViewerUser } from '../helpers/auth-mock.helper';
+import { authHeader, createMockAdminUser, createMockTestUser, createMockViewerUser } from '../helpers/auth-mock.helper';
 
 function report(category: string | undefined): DoctorReport {
   const all = [
@@ -69,6 +69,18 @@ describe('Onboarding (/api/onboarding)', () => {
   describe('GET /api/onboarding', () => {
     it('answers 401 without a session', async () => {
       await request(server()).get('/api/onboarding').expect(401);
+    });
+
+    it('keeps the original response shape when no audience beyond user and admin has a step', async () => {
+      const orgAdmin = await createMockTestUser(context, { systemRoles: [], orgRoleName: 'org_admin' });
+      const asOrgAdmin = await request(server()).get('/api/onboarding').set(authHeader(orgAdmin.accessToken)).expect(200);
+      // The org_admin ROLE is not the admin permission: no Setup guide, and no audiences key at all.
+      expect(Object.keys(asOrgAdmin.body.data).sort()).toEqual(['admin', 'settings', 'user']);
+      expect(asOrgAdmin.body.data.admin).toBeNull();
+
+      const admin = await createMockAdminUser(context);
+      const asAdmin = await request(server()).get('/api/onboarding').set(authHeader(admin.accessToken)).expect(200);
+      expect(Object.keys(asAdmin.body.data).sort()).toEqual(['admin', 'settings', 'user']);
     });
 
     it('gives an administrator the admin block with the required steps todo and Doctor remedies', async () => {
