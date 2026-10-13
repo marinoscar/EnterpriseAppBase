@@ -7,6 +7,9 @@
 
 export {
   ACCESS_SCOPES,
+  BUILTIN_GRANTEE_KINDS,
+  GRANTEE_KIND_ID_PATTERN,
+  GRANTEE_KIND_INPUTS,
   GRANT_GRANTEE_KINDS,
   GROUP_INVITE_LIST_FILTERS,
   GROUP_INVITE_STATUSES,
@@ -20,7 +23,7 @@ export {
   SHARING_LIMITS,
   buildLinkUrl,
 } from './constants.js';
-export type { AccessScope, GrantGranteeKind, GroupInviteStatus, GroupRole, SharingEnumEntries } from './constants.js';
+export type { AccessScope, GranteeKindInput, GrantGranteeKind, GroupInviteStatus, GroupRole, SharingEnumEntries } from './constants.js';
 export {
   addGroupMemberSchema,
   createGroupInviteSchema,
@@ -44,7 +47,11 @@ export {
   updateGroupSchema,
   // grants (#729) and link shares (#730)
   createGrantSchema,
+  customGranteeSchema,
   grantGranteeInputSchema,
+  granteeKindDescriptorSchema,
+  granteeKindIdSchema,
+  granteeKindListSchema,
   grantGranteeKindSchema,
   grantGranteeViewSchema,
   grantListQuerySchema,
@@ -86,6 +93,9 @@ export type {
   CreateGrantInput,
   GrantDto,
   GrantGranteeInput,
+  GranteeKindDescriptor,
+  GranteeKindList,
+  CustomGranteeInput,
   GrantGranteeView,
   GrantList,
   GrantListQuery,

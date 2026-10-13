@@ -8,7 +8,8 @@
 // confines every query to the caller's active organization; this decides
 // which of that organization's records the caller may act on.
 //
-// THE DECISION ORDER (tested as a matrix in access-policy.service.spec.ts):
+// THE DECISION ORDER (tested as a matrix in access-policy.service.spec.ts; the
+// access rules of ./access-rules.ts join at steps 6 and 8):
 //
 //   1. Unknown resource type or action: a PROGRAMMING error (500), not a 404.
 //   2. The record is missing, or in another organization: deny. RLS already
@@ -19,14 +20,19 @@
 //   4. A held `bypassPermissions[action]` (or `sharing:admin` for `share`):
 //      allow, `via: 'bypass'`.
 //   5. Owner: role `owner`.
-//   6. Member of the owning group: the role `groupRoleMap` gives their group role.
-//   7. The strongest ACTIVE, UNEXPIRED grant: to the caller, or to a group of
-//      `Scope.groupIds` (the caller's groups in the active organization).
-//   8. `defaultVisibility: 'org'`: `orgRole`.
-//   9. Otherwise deny.
+//   6. App access rules `before-grants`: ANY deny ends it (deny); an allow
+//      offers its role. Not consulted for the record's user owner or a bypass
+//      holder (decided at steps 4 and 5).
+//   7. Member of the owning group: the role `groupRoleMap` gives their group
+//      role; then the strongest ACTIVE, UNEXPIRED grant of every PERSISTED
+//      grantee kind (user, group, ...) that names the caller.
+//   8. App access rules `after-grants` (same contract as step 6).
+//   9. `defaultVisibility: 'org'`: `orgRole`.
+//  10. Otherwise deny.
 //
-// The effective role is the MAXIMUM over steps 5 to 8 (ties: the earlier
-// step names `via`), compared with `actions[action]`.
+// The effective role is the MAXIMUM over the offers of steps 5 to 9 (ties: the
+// earlier step names `via`), compared with `actions[action]`. A rule that
+// fails counts as a deny.
 //
 // BATCHED: `decideMany` reads the owners of a whole batch with ONE
 // `loadOwners` call per resource type and every relevant grant with ONE
@@ -45,10 +51,12 @@ import type { GroupMembership, Principal } from '../../core/index';
 import { MetricsHostService, Trace } from '../../otel-core/index';
 import { asSharingTx, type GrantRow } from '../data/sharing-tx';
 import { missingPermission, resourceForbidden, resourceNotFound } from '../errors';
-import { SHARING_ACCESS_DECISIONS_METRIC } from '../metrics';
+import { SHARING_ACCESS_DECISIONS_METRIC, SHARING_DECISION_VIAS } from '../metrics';
 import { SHARING_PERMISSIONS } from '../permissions';
 import { SHARING_DATA, type SharingDataPort } from '../ports';
 import { PrincipalGroupsProvider } from '../principal-groups.provider';
+import { NO_RULE_OUTCOME, accessRulesFor, evaluateAccessRules, type RuleOutcome } from './access-rules';
+import { findGranteeKind, granteeKindVia, persistedGranteeKinds, withGroups } from './grantee-kinds';
 import { requireResourceType, type ResolvedResourceType, type ResourceOwnerInfo } from './resource-types';
 
 /**
@@ -71,11 +79,20 @@ export interface ResourceRef {
 export type EffectiveRole = 'owner' | (string & {});
 
 /**
- * What decided an allowed access (`null` for a denial).
+ * The platform's own sources of an allowed access.
  *
  * @stability stable
  */
-export type AccessVia = 'owner' | 'group_owner' | 'user_grant' | 'group_grant' | 'org_default' | 'bypass';
+export type BuiltinAccessVia = 'owner' | 'group_owner' | 'user_grant' | 'group_grant' | 'org_default' | 'bypass';
+
+/**
+ * What decided an allowed access (`null` for a denial): one of the platform's
+ * sources ({@link BuiltinAccessVia}), the id of the access rule that allowed
+ * it, or the `via` of an app grantee kind.
+ *
+ * @stability stable
+ */
+export type AccessVia = BuiltinAccessVia | (string & {});
 
 /**
  * One access decision.
@@ -91,6 +108,12 @@ export interface AccessDecision {
   via: AccessVia | null;
   /** Set when the denial is a missing RBAC permission (step 3): that permission. */
   missingPermission?: string;
+  /**
+   * Set when an access rule FAILED or was misconfigured (it threw, returned an
+   * unknown verdict, or denied without declaring `mayDeny`) and the record was
+   * denied for that reason. Conformance kits assert it is never set.
+   */
+  ruleFailure?: true;
 }
 
 /**
@@ -119,6 +142,8 @@ export function resourceKey(ref: ResourceRef): string {
 }
 
 const DENIED: AccessDecision = Object.freeze({ allowed: false, role: null, via: null });
+/** A denial because an access rule failed (counted as outcome `rule_error`). */
+const DENIED_RULE_FAILURE: AccessDecision = Object.freeze({ allowed: false, role: null, via: null, ruleFailure: true as const });
 
 /** What one grant contributes. */
 type GrantContribution = Pick<GrantRow, 'resourceType' | 'resourceId' | 'granteeKind' | 'granteeUserId' | 'granteeGroupId' | 'role'>;
@@ -338,12 +363,16 @@ export class AccessPolicy {
     }
 
     // Grants: one query for every record that exists in this organization.
+    const subject = withGroups(principal, groups);
     const groupRole = new Map(groups.map((group) => [group.groupId, group.role]));
-    const groupIds = [...groupRole.keys()];
     const present = [...byType].map(([type, ids]) => [type, ids.filter((id) => owners.get(`${type}:${id}`)?.orgId === orgId)] as const);
     const wanted = present.filter(([, ids]) => ids.length > 0);
     const grants = new Map<string, GrantContribution[]>();
-    if (wanted.length > 0) {
+    const grantees = persistedGranteeKinds().flatMap((def) => {
+      const where = def.principalWhere?.(subject) ?? null;
+      return where === null ? [] : [where];
+    });
+    if (wanted.length > 0 && grantees.length > 0) {
       const rows = await tx.grant.findMany<GrantContribution>({
         where: {
           orgId,
@@ -351,12 +380,7 @@ export class AccessPolicy {
           AND: [
             { OR: wanted.map(([type, ids]) => ({ resourceType: type, resourceId: { in: ids } })) },
             { OR: [{ expiresAt: null }, { expiresAt: { gt: new Date(this.now()) } }] },
-            {
-              OR: [
-                { granteeKind: 'user', granteeUserId: principal.userId },
-                ...(groupIds.length > 0 ? [{ granteeKind: 'group', granteeGroupId: { in: groupIds } }] : []),
-              ],
-            },
+            { OR: grantees },
           ],
         },
         select: { resourceType: true, resourceId: true, granteeKind: true, granteeUserId: true, granteeGroupId: true, role: true },
@@ -367,22 +391,65 @@ export class AccessPolicy {
       }
     }
 
+    // One cache per call: a rule loads what it needs for the whole batch once.
+    const cache = new Map<string, unknown>();
+    // A statement that fails inside a rule aborts the shared transaction; a savepoint lets the
+    // rule's failure be a deny of that record instead of poisoning every later query.
+    const rulesApply = refs.some((ref) => accessRulesFor(ref.type).length > 0);
+    if (rulesApply) await tx.$executeRaw`SAVEPOINT sharing_access_rules`;
+    const recover = async (): Promise<void> => {
+      await tx.$executeRaw`ROLLBACK TO SAVEPOINT sharing_access_rules`;
+    };
     for (const ref of refs) {
       const key = resourceKey(ref);
       const rt = requireResourceType(ref.type);
-      const decision = decideOne(rt, principal, orgId, groupRole, action, owners.get(key), grants.get(key) ?? []);
+      const info = owners.get(key);
+      const rules = await this.rulesFor(rt, subject, orgId, action, ref, info, rawTx, cache, recover);
+      const decision = decideOne(rt, subject, orgId, groupRole, action, info, grants.get(key) ?? [], rules);
       out.set(key, decision);
       if (action !== null) this.count(rt.type, decision);
     }
+    if (rulesApply) {
+      try {
+        await tx.$executeRaw`RELEASE SAVEPOINT sharing_access_rules`;
+      } catch {
+        // The transaction is already unusable; the caller's next statement reports it.
+      }
+    }
     return out;
+  }
+
+  /** The rules' verdicts for one record, or none when the caller is decided before the rules (steps 2 to 5). */
+  private rulesFor(
+    rt: ResolvedResourceType,
+    principal: Principal,
+    orgId: string,
+    action: string | null,
+    ref: ResourceRef,
+    info: ResourceOwnerInfo | undefined,
+    tx: unknown,
+    cache: Map<string, unknown>,
+    recover: () => Promise<void>,
+  ): Promise<RuleOutcome> {
+    if (!info || info.orgId !== orgId || accessRulesFor(rt.type).length === 0 || decidedBeforeRules(rt, principal, action, info)) {
+      return Promise.resolve(NO_RULE_OUTCOME);
+    }
+    return evaluateAccessRules(rt, {
+      principal,
+      action,
+      resource: { type: ref.type, id: ref.id, orgId: info.orgId, owner: info.owner },
+      tx,
+      cache,
+      recover,
+    });
   }
 
   private count(type: string, decision: AccessDecision): void {
     try {
       this.metrics?.add(SHARING_ACCESS_DECISIONS_METRIC, 1, {
         resource_type: type,
-        outcome: decision.allowed ? 'allowed' : 'denied',
-        via: decision.via ?? 'none',
+        outcome: decision.allowed ? 'allowed' : decision.ruleFailure ? 'rule_error' : 'denied',
+        via: decision.via === null ? 'none' : (SHARING_DECISION_VIAS as readonly string[]).includes(decision.via) ? decision.via : 'app',
       });
     } catch {
       // Metrics never fail a decision.
@@ -400,7 +467,22 @@ function validate(action: string | null, refs: readonly ResourceRef[]): void {
   }
 }
 
-/** Steps 2 to 9 for one record. */
+/**
+ * Whether the caller is decided BEFORE the access rules: a missing required
+ * permission (step 3), a held bypass (step 4) or the record's user owner
+ * (step 5). A faulty rule can therefore never lock an owner or an
+ * administrator out of the record.
+ */
+function decidedBeforeRules(rt: ResolvedResourceType, principal: Principal, action: string | null, info: ResourceOwnerInfo): boolean {
+  if (info.owner.kind === 'user' && info.owner.userId === principal.userId) return true;
+  if (action === null) return false;
+  const needed = rt.def.actionPermissions?.[action];
+  if (needed !== undefined && !principal.permissions.includes(needed)) return true;
+  const bypass = rt.def.bypassPermissions?.[action];
+  return (bypass !== undefined && principal.permissions.includes(bypass)) || (action === 'share' && principal.permissions.includes(SHARING_PERMISSIONS.SHARING_ADMIN));
+}
+
+/** Steps 2 to 10 for one record. */
 function decideOne(
   rt: ResolvedResourceType,
   principal: Principal,
@@ -409,11 +491,14 @@ function decideOne(
   action: string | null,
   info: ResourceOwnerInfo | undefined,
   grants: readonly GrantContribution[],
+  rules: RuleOutcome,
 ): AccessDecision {
   // 2. Missing, or in another organization.
   if (!info || info.orgId !== orgId) return DENIED;
+  // 6 and 8. A deny of any rule wins over every allow below.
+  if (rules.denied) return rules.failed ? DENIED_RULE_FAILURE : DENIED;
 
-  // 5 to 8: every source of a role, strongest wins (ties: the earlier source).
+  // 5 to 9: every source of a role, strongest wins (ties: the earlier source).
   let best: { role: string; rank: number; via: AccessVia } | null = null;
   const offer = (role: string | null, via: AccessVia): void => {
     const rank = rt.rank(role);
@@ -421,10 +506,15 @@ function decideOne(
   };
   if (info.owner.kind === 'user' && info.owner.userId === principal.userId) offer('owner', 'owner');
   if (info.owner.kind === 'group' && groupRole.has(info.owner.groupId)) offer(rt.groupRole(groupRole.get(info.owner.groupId)!), 'group_owner');
-  for (const grant of grants.filter((g) => g.granteeKind === 'user' && g.granteeUserId === principal.userId)) offer(grant.role, 'user_grant');
-  for (const grant of grants.filter((g) => g.granteeKind === 'group' && g.granteeGroupId !== null && groupRole.has(g.granteeGroupId))) {
-    offer(grant.role, 'group_grant');
+  for (const rule of rules.before) offer(rule.role, rule.via);
+  for (const def of persistedGranteeKinds()) {
+    for (const grant of grants) {
+      const kind = findGranteeKind(grant.granteeKind);
+      if (kind !== def || !granteeNamesCaller(def, grant, principal)) continue;
+      offer(grant.role, granteeKindVia(def));
+    }
   }
+  for (const rule of rules.after) offer(rule.role, rule.via);
   if (rt.defaultVisibility === 'org') offer(rt.orgRole, 'org_default');
   const effective = best as { role: string; rank: number; via: AccessVia } | null;
 
@@ -445,9 +535,18 @@ function decideOne(
     return { allowed: true, role: effective && effective.rank >= rt.rank(required) ? effective.role : required, via: 'bypass' };
   }
 
-  // 5 to 9: the effective role against the action's minimum.
+  // 5 to 10: the effective role against the action's minimum.
   if (effective && effective.rank >= rt.rank(required)) return { allowed: true, role: effective.role, via: effective.via };
   return { allowed: false, role: effective?.role ?? null, via: null };
+}
+
+/** Whether a stored grant of `def` names the caller. A kind that throws names nobody (fail closed). */
+function granteeNamesCaller(def: ReturnType<typeof findGranteeKind> & object, grant: GrantContribution, principal: Principal): boolean {
+  try {
+    return def.matchesPrincipal({ kind: grant.granteeKind, userId: grant.granteeUserId, groupId: grant.granteeGroupId, ref: null }, principal);
+  } catch {
+    return false;
+  }
 }
 
 /** The HTTP refusal of a denial. */

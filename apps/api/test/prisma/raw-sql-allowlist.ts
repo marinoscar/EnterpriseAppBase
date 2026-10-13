@@ -82,4 +82,12 @@ export const RAW_SQL_ALLOWLIST: ReadonlyArray<{ file: string; why: string }> = [
     file: 'ports.ts',
     why: "The db-backup slice's host ports (#740): DECLARES the `$queryRawUnsafe` signature of the system-data port the Doctor check calls; issues no statement itself.",
   },
+  {
+    file: 'platform-extensions/sharing/project-member.access-rule.ts',
+    why: "Example access rule (PP-14.16): two read-only SELECTs on the app's project tables inside the transaction the sharing slice scopes to the caller's organization; every value (caller, record, organization) is a bind parameter and the table names are checked identifiers from configuration, never request input.",
+  },
+  {
+    file: 'platform-extensions/sharing/frozen-record.access-rule.ts',
+    why: "Example access rule (PP-14.16): one read-only SELECT of a record's freeze flag inside the transaction the sharing slice scopes to the caller's organization; the record id and organization are bind parameters and the table and column are checked identifiers from configuration.",
+  },
 ];

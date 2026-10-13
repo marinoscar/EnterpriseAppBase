@@ -29,6 +29,17 @@
 // `accessibleSql`), which the caller runs with `$queryRaw`. kvox's
 // `sharedTranscriptIds` loaded every id on every list; this is the fix.
 //
+// APP ACCESS RULES (./access-rules.ts) join the list through their `sql`:
+// a rule's `allow` condition adds records to the `shared` part, its `deny`
+// condition removes records from everything but the caller's OWN records
+// (the user owner is decided before the rules, as in `AccessPolicy`). Rule
+// SQL cannot be a Prisma `where`, so when a rule contributes anything for this
+// caller, `accessibleWhere` returns the EXISTS form straight away. The
+// registered GRANTEE KINDS (./grantee-kinds.ts) compose the grant check: each
+// persisted kind contributes its `resolvePrincipalMatch` fragment, joined
+// with OR inside the one `EXISTS` on `grants`, whose `org_id` and resource
+// predicates wrap every fragment.
+//
 // Bypass permissions and `actionPermissions` are about ACTIONS: they are
 // `AccessPolicy`'s, not the list helpers'. A route that shows "every record of
 // the organization" to an administrator does so without these helpers.
@@ -51,6 +62,8 @@ import type { AccessScope } from '@marinoscar/platform-contract/sharing';
 import type { Principal } from '../../core/index';
 import { asSharingTx } from '../data/sharing-tx';
 import { activeGroupsOf } from '../ownership';
+import { accessRulesFor, collectRuleSql, type RuleSqlParts } from './access-rules';
+import { persistedGranteeKinds } from './grantee-kinds';
 import { requireResourceType, type ResolvedResourceType } from './resource-types';
 
 /**
@@ -231,9 +244,27 @@ function includes(scope: AccessScope, part: 'owned' | 'groups' | 'shared'): bool
   return scope === 'all' || scope === part;
 }
 
+/**
+ * Aliases the composed SQL uses internally. A caller alias equal to one would
+ * shadow it and let an inner predicate compare a row to itself, so the alias is
+ * refused. (`g` is the `grants` row of the shared-part `EXISTS`.)
+ */
+const RESERVED_ALIASES: readonly string[] = ['g'];
+
 function identifier(value: string, what: string): string {
   if (!IDENTIFIER.test(value)) throw new Error(`${what} must be a plain identifier, not ${JSON.stringify(value)}`);
+  if (what === 'alias' && RESERVED_ALIASES.includes(value.toLowerCase())) {
+    throw new Error(`alias "${value}" is used inside the generated SQL; pick another alias for your table`);
+  }
   return value;
+}
+
+/** The Prisma `where` of the grantees every persisted kind names for the caller; `[]` when none can. */
+function granteeWheres(principal: Principal): Record<string, unknown>[] {
+  return persistedGranteeKinds().flatMap((def) => {
+    const where = def.principalWhere?.(principal) ?? null;
+    return where === null ? [] : [where];
+  });
 }
 
 /** The Prisma `where` of the grants shared with the caller. */
@@ -243,16 +274,29 @@ function sharedGrantWhere(p: Prepared, principal: Principal, now: Date): Record<
     resourceType: p.rt.type,
     revokedAt: null,
     role: { in: [...p.grantRoles] },
-    AND: [
-      { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
-      {
-        OR: [
-          { granteeKind: 'user', granteeUserId: principal.userId },
-          ...(p.granteeGroupIds.length > 0 ? [{ granteeKind: 'group', granteeGroupId: { in: p.granteeGroupIds } }] : []),
-        ],
-      },
-    ],
+    AND: [{ OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] }, { OR: granteeWheres(principal) }],
   };
+}
+
+/** Whether the grants table can name this caller at all. */
+function canBeNamed(principal: Principal): boolean {
+  return granteeWheres(principal).length > 0;
+}
+
+/** The SQL of the rules that apply to this listing, per the scope (a deny reaches every scope but `owned`). */
+function ruleParts<S>(p: Prepared, principal: Principal, alias: string, opts: AccessibleColumnOptions & { sqlKit: SqlKit<S>; minRole?: string }): RuleSqlParts<S> {
+  const none: RuleSqlParts<S> = { allow: [], deny: [] };
+  if (p.orgId === null || p.scope === 'owned' || accessRulesFor(p.rt.type).length === 0) return none;
+  const k = kitOf(opts.sqlKit);
+  const kit: SqlKit<S> = { sql: (strings, ...values) => k.sql(strings as unknown as TemplateStringsArray, ...values), join: k.join, raw: k.raw, empty: k.empty };
+  const column = (name: string): S => k.raw(`"${identifier(alias, 'alias')}"."${identifier(name, 'column')}"`);
+  const parts = collectRuleSql<S>(
+    p.rt,
+    { principal, orgId: p.orgId, kit, column, idColumn: column(opts.idColumn ?? 'id') },
+    opts.minRole === undefined ? 1 : p.rt.rank(opts.minRole),
+  );
+  // Allows are a `shared`-part source: not in a `groups`-only listing.
+  return { allow: includes(p.scope, 'shared') ? parts.allow : [], deny: parts.deny };
 }
 
 /**
@@ -293,6 +337,17 @@ export async function accessibleWhere<S>(principal: Principal, type: string, opt
   const nothing = { [idField]: { in: [] as string[] } };
   if (p.orgId === null) return { form: 'where', where: nothing };
 
+  // A rule's SQL cannot be a Prisma `where`: the EXISTS form carries it.
+  // `orgField: null` (leave the organization to RLS) carries over to the SQL form: no default `org_id` column.
+  const sqlColumns: AccessibleColumnOptions = { ...opts.sql, ...(opts.orgField === null && opts.sql?.orgColumn === undefined ? { orgColumn: null } : {}) };
+  const rules = ruleParts(p, principal, opts.sql?.alias ?? 'r', { ...sqlColumns, sqlKit: opts.sqlKit, ...(opts.minRole ? { minRole: opts.minRole } : {}) });
+  if (rules.allow.length > 0 || rules.deny.length > 0) {
+    return {
+      form: 'exists',
+      sql: accessibleSql(principal, type, opts.sql?.alias ?? 'r', { ...sqlColumns, sqlKit: opts.sqlKit, scope: p.scope, ...(opts.minRole ? { minRole: opts.minRole } : {}) }),
+    };
+  }
+
   const any: Record<string, unknown>[] = [];
   let everyOrgRecord = false;
   if (includes(p.scope, 'owned') && p.rt.def.ownership !== 'group') any.push({ [ownerUserField]: principal.userId });
@@ -301,7 +356,7 @@ export async function accessibleWhere<S>(principal: Principal, type: string, opt
   }
   if (includes(p.scope, 'shared')) {
     if (p.orgDefault) everyOrgRecord = true;
-    else if (p.grantRoles.length > 0) {
+    else if (p.grantRoles.length > 0 && canBeNamed(principal)) {
       const rows = await asSharingTx(opts.tx).grant.groupBy<{ resourceId: string }>({
         by: ['resourceId'],
         where: sharedGrantWhere(p, principal, new Date()),
@@ -310,7 +365,7 @@ export async function accessibleWhere<S>(principal: Principal, type: string, opt
       });
       if (rows.length > limit) {
         const sql = accessibleSql(principal, type, opts.sql?.alias ?? 'r', {
-          ...opts.sql,
+          ...sqlColumns,
           sqlKit: opts.sqlKit,
           scope: p.scope,
           ...(opts.minRole ? { minRole: opts.minRole } : {}),
@@ -355,26 +410,33 @@ export async function accessibleWhere<S>(principal: Principal, type: string, opt
  */
 export function accessibleSql<S>(principal: Principal, type: string, alias: string, opts: AccessibleSqlOptions<S>): S {
   const p = prepare(principal, type, opts.scope, opts.minRole);
-  const { sql, join, raw, empty } = kitOf(opts.sqlKit);
+  const { sql, join, raw } = kitOf(opts.sqlKit);
   const col = (name: string | undefined, fallback: string, what: string): S =>
     raw(`"${identifier(alias, 'alias')}"."${identifier(name ?? fallback, what)}"`);
   if (p.orgId === null) return sql`FALSE`;
 
-  const any: S[] = [];
+  const owned: S[] = [];
+  const others: S[] = [];
   if (includes(p.scope, 'owned') && p.rt.def.ownership !== 'group') {
-    any.push(sql`${col(opts.ownerUserColumn, 'owner_user_id', 'ownerUserColumn')} = ${principal.userId}::uuid`);
+    owned.push(sql`${col(opts.ownerUserColumn, 'owner_user_id', 'ownerUserColumn')} = ${principal.userId}::uuid`);
   }
   if (includes(p.scope, 'groups') && p.rt.def.ownership !== 'user' && p.ownerGroupIds.length > 0) {
-    any.push(sql`${col(opts.ownerGroupColumn, 'owner_group_id', 'ownerGroupColumn')} IN (${join(p.ownerGroupIds.map((id) => sql`${id}::uuid`))})`);
+    others.push(sql`${col(opts.ownerGroupColumn, 'owner_group_id', 'ownerGroupColumn')} IN (${join(p.ownerGroupIds.map((id) => sql`${id}::uuid`))})`);
   }
+  const rules = ruleParts(p, principal, alias, opts);
   if (includes(p.scope, 'shared')) {
-    if (p.orgDefault) any.push(sql`TRUE`);
-    else if (p.grantRoles.length > 0) {
-      const groupGrantee =
-        p.granteeGroupIds.length > 0
-          ? sql` OR (g.grantee_kind = 'group' AND g.grantee_group_id IN (${join(p.granteeGroupIds.map((id) => sql`${id}::uuid`))}))`
-          : empty;
-      any.push(sql`EXISTS (
+    if (p.orgDefault) others.push(sql`TRUE`);
+    else {
+      if (p.grantRoles.length > 0) {
+        // One predicate per persisted kind, over the grant row's own columns; the org and
+        // resource predicates around them confine every fragment to this organization.
+        const columns = { kind: raw('g.grantee_kind'), userId: raw('g.grantee_user_id'), groupId: raw('g.grantee_group_id'), ref: sql`NULL::text` };
+        const named = persistedGranteeKinds().flatMap((def) => {
+          const fragment = def.resolvePrincipalMatch<S>(principal, columns, opts.sqlKit);
+          return fragment === null ? [] : [fragment];
+        });
+        if (named.length > 0) {
+          others.push(sql`EXISTS (
         SELECT 1 FROM grants g
         WHERE g.org_id = ${p.orgId}::uuid
           AND g.resource_type = ${p.rt.type}
@@ -382,10 +444,17 @@ export function accessibleSql<S>(principal: Principal, type: string, alias: stri
           AND g.revoked_at IS NULL
           AND (g.expires_at IS NULL OR g.expires_at > now())
           AND g.role IN (${join([...p.grantRoles])})
-          AND ((g.grantee_kind = 'user' AND g.grantee_user_id = ${principal.userId}::uuid)${groupGrantee})
+          AND (${join(named, ' OR ')})
       )`);
+        }
+      }
+      others.push(...rules.allow);
     }
   }
+  // A deny hides everything but the caller's own records (the user owner is decided before the rules).
+  const subject =
+    rules.deny.length > 0 && others.length > 0 ? [sql`(NOT (${join(rules.deny, ' OR ')}) AND (${join(others, ' OR ')}))`] : rules.deny.length > 0 ? [] : others;
+  const any = [...owned, ...subject];
   const visible = any.length === 0 ? sql`FALSE` : sql`(${join(any, ' OR ')})`;
   if (opts.orgColumn === null) return visible;
   return sql`(${col(opts.orgColumn, 'org_id', 'orgColumn')} = ${p.orgId}::uuid AND ${visible})`;

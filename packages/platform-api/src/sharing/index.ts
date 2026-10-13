@@ -71,7 +71,30 @@ export type { GroupOwnedResourceDef, ResourceOwner } from './ownership';
 export { DEFAULT_MAX_GRANTS_PER_RESOURCE, registerResourceType, resourceTypeRegistry } from './access/resource-types';
 export type { GrantableKind, PrismaTx, ResourceDescription, ResourceOwnerInfo, ResourceTypeDef } from './access/resource-types';
 export { ACCESS_POLICY_CLOCK, AccessPolicy, accessDenial, resourceKey } from './access/access-policy.service';
-export type { AccessDecision, AccessVia, EffectiveRole, ResourceRef } from './access/access-policy.service';
+export type { AccessDecision, AccessVia, BuiltinAccessVia, EffectiveRole, ResourceRef } from './access/access-policy.service';
+
+// ---- the grantee-kind and access-rule registries (PP-14.16) -----------------------
+export {
+  BUILTIN_GRANTEE_KIND_IDS,
+  GRANTEE_KIND_PERSISTENCE_AVAILABLE,
+  GranteeInputError,
+  describeGranteeKind,
+  findGranteeKind,
+  granteeKindRegistry,
+  granteeKindVia,
+  persistedGranteeKinds,
+  registerGranteeKind,
+} from './access/grantee-kinds';
+export type { GranteeColumns, GranteeDescription, GranteeFacts, GranteeKindDef, GranteeRef } from './access/grantee-kinds';
+export { accessRuleRegistry, registerAccessRule } from './access/access-rules';
+export type {
+  AccessRuleContext,
+  AccessRuleDef,
+  AccessRulePosition,
+  AccessRuleSql,
+  AccessRuleSqlContext,
+  AccessRuleVerdict,
+} from './access/access-rules';
 export { SHARED_IDS_INLINE_LIMIT, accessibleSql, accessibleWhere, sharedResourceIds } from './access/accessible';
 export type {
   AccessibleColumnOptions,

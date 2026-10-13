@@ -1,6 +1,7 @@
 import { createZodDto } from 'nestjs-zod';
 import {
   createGrantSchema,
+  granteeKindListSchema,
   grantListQuerySchema,
   grantListSchema,
   grantSchema,
@@ -60,3 +61,9 @@ export class SharedWithMeQueryDto extends createZodDto(sharedWithMeQuerySchema) 
  * @stability experimental
  */
 export class SharedWithMeListResponseDto extends createZodDto(sharedWithMeListSchema) {}
+/**
+ * The grantee kinds a share dialog can offer.
+ *
+ * @stability experimental
+ */
+export class GranteeKindListResponseDto extends createZodDto(granteeKindListSchema) {}

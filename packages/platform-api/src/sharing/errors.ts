@@ -67,6 +67,12 @@ export const SHARING_ERROR_REASONS: {
   readonly LINK_RESOLUTION_THROTTLED: 'LINK_RESOLUTION_THROTTLED';
   /** 503: `SECRETS_ENCRYPTION_KEY` is not configured, so no link can be created (#730). */
   readonly LINKS_UNAVAILABLE: 'LINKS_UNAVAILABLE';
+  /** 422: the grantee kind is not registered (`registerGranteeKind`) (PP-14.16). */
+  readonly GRANTEE_KIND_UNKNOWN: 'GRANTEE_KIND_UNKNOWN';
+  /** 422: the registered grantee kind rejected the grantee it was given; the message is the kind's (PP-14.16). */
+  readonly GRANTEE_INVALID: 'GRANTEE_INVALID';
+  /** 422: the registered grantee kind cannot be stored in a grant yet (PP-14.16). */
+  readonly GRANTEE_KIND_NOT_PERSISTABLE: 'GRANTEE_KIND_NOT_PERSISTABLE';
 } = {
   GROUP_OWNS_RESOURCES: 'GROUP_OWNS_RESOURCES',
   LAST_GROUP_ADMIN: 'LAST_GROUP_ADMIN',
@@ -89,6 +95,9 @@ export const SHARING_ERROR_REASONS: {
   NOT_A_LINK_GRANT: 'NOT_A_LINK_GRANT',
   LINK_RESOLUTION_THROTTLED: 'LINK_RESOLUTION_THROTTLED',
   LINKS_UNAVAILABLE: 'LINKS_UNAVAILABLE',
+  GRANTEE_KIND_UNKNOWN: 'GRANTEE_KIND_UNKNOWN',
+  GRANTEE_INVALID: 'GRANTEE_INVALID',
+  GRANTEE_KIND_NOT_PERSISTABLE: 'GRANTEE_KIND_NOT_PERSISTABLE',
 };
 
 /** The 404 for a group the caller may not see: the same body whether it exists or not. */
@@ -214,6 +223,27 @@ export function groupNotInOrg(): UnprocessableEntityException {
   return new UnprocessableEntityException({
     message: 'That group is not a group of this organization',
     details: { reason: SHARING_ERROR_REASONS.GROUP_NOT_IN_ORG },
+  });
+}
+
+/** The 422 of a grantee kind nobody registered. */
+export function granteeKindUnknown(kind: string): UnprocessableEntityException {
+  return new UnprocessableEntityException({
+    message: `The grantee kind "${kind}" is not registered`,
+    details: { reason: SHARING_ERROR_REASONS.GRANTEE_KIND_UNKNOWN, granteeKind: kind },
+  });
+}
+
+/** The 422 of a grantee its registered kind rejected (the message is the kind's own). */
+export function granteeInvalid(kind: string, message: string): UnprocessableEntityException {
+  return new UnprocessableEntityException({ message, details: { reason: SHARING_ERROR_REASONS.GRANTEE_INVALID, granteeKind: kind } });
+}
+
+/** The 422 of a registered grantee kind whose grants cannot be stored yet. */
+export function granteeKindNotPersistable(kind: string): UnprocessableEntityException {
+  return new UnprocessableEntityException({
+    message: `Grants of the kind "${kind}" cannot be stored yet`,
+    details: { reason: SHARING_ERROR_REASONS.GRANTEE_KIND_NOT_PERSISTABLE, granteeKind: kind },
   });
 }
 

@@ -66,7 +66,7 @@ describe('SharingModule.forRoot', () => {
     const module = SharingModule.forRoot({ host });
     const paths = (module.controllers ?? []).map((c) => Reflect.getMetadata(PATH_METADATA, c));
     // The static grants/links before grants/:id (#730). No allowPublic on this host: no public route.
-    expect(paths).toEqual(['groups/invites', 'groups', 'grants/links', 'grants']);
+    expect(paths).toEqual(['groups/invites', 'groups', 'grants/links', 'grants', 'sharing']);
     // Every route asks for one of the org permissions (the probe call aside).
     const real = calls.filter((c) => c[0] !== 'platform:probe');
     expect(new Set(real.flat())).toEqual(new Set(['groups:read', 'groups:write', 'sharing:read', 'sharing:write']));
@@ -84,7 +84,7 @@ describe('SharingModule.forRoot', () => {
     });
     const module = SharingModule.forRoot({ host });
     const controllers = module.controllers ?? [];
-    expect(controllers.map((c) => Reflect.getMetadata(PATH_METADATA, c))).toEqual(['groups/invites', 'groups', 'grants/links', 'grants', 'public/links']);
+    expect(controllers.map((c) => Reflect.getMetadata(PATH_METADATA, c))).toEqual(['groups/invites', 'groups', 'grants/links', 'grants', 'sharing', 'public/links']);
     const publicController = controllers.at(-1)!;
     expect(Reflect.getMetadata(marker, publicController.prototype.current)).toBe(true);
     expect(Reflect.getMetadata(GUARDS_METADATA, publicController)).toEqual([LinkGrantGuard]);

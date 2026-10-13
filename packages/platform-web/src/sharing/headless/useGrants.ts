@@ -51,6 +51,8 @@ export interface ShareActions {
   shareWithUser(userId: string, role: string, expiresAt?: string | null): Promise<GrantDto>;
   /** Share with a group of the organization. */
   shareWithGroup(groupId: string, role: string, expiresAt?: string | null): Promise<GrantDto>;
+  /** Share with a grantee of an app-registered kind (PP-14.16); the API's kind validates `ref`. */
+  shareWithGrantee(granteeKind: string, granteeRef: string, role: string, expiresAt?: string | null): Promise<GrantDto>;
   /** Change a grant's role. */
   changeRole(grantId: string, role: string): Promise<GrantDto>;
   /** Change or remove (`null`) a grant's expiry. */
@@ -88,6 +90,8 @@ export function useShareActions(resource: ResourceRef, options: { client?: Shari
         run(() => client.createGrant(ref, { kind: 'user', userId }, role, expiresAt), 'Could not share.'),
       shareWithGroup: (groupId: string, role: string, expiresAt?: string | null) =>
         run(() => client.createGrant(ref, { kind: 'group', groupId }, role, expiresAt), 'Could not share with the group.'),
+      shareWithGrantee: (granteeKind: string, granteeRef: string, role: string, expiresAt?: string | null) =>
+        run(() => client.createGrant(ref, { kind: 'custom', granteeKind, ref: granteeRef }, role, expiresAt), 'Could not share.'),
       changeRole: (grantId: string, role: string) => run(() => client.updateGrant(grantId, { role }), 'Could not change the role.'),
       changeExpiry: (grantId: string, expiresAt: string | null) =>
         run(() => client.updateGrant(grantId, { expiresAt }), 'Could not change the expiry.'),

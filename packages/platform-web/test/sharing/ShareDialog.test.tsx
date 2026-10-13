@@ -1,7 +1,11 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
+import { cleanup } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { GranteeKindDescriptor } from '@marinoscar/platform-contract/sharing';
 
+import { GranteePickerRegistry } from '../../src/sharing/headless/index.js';
+import type { GranteePickerProps } from '../../src/sharing/headless/index.js';
 import { ShareDialog } from '../../src/sharing/ui/index.js';
 import { createTestApiError } from '../../src/testing/index.js';
 import type { TestApiRequest, TestApiResponse } from '../../src/testing/index.js';
@@ -240,5 +244,141 @@ describe('ShareDialog (#731)', () => {
       expect((await screen.findByTestId('links-unavailable')).textContent).toBe('Links are not available for this item.');
       expect(screen.queryByRole('button', { name: 'Create link' })).toBeNull();
     });
+  });
+});
+
+
+describe('ShareDialog grantee kinds (PP-14.16)', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const BUILTINS: GranteeKindDescriptor[] = [
+    { kind: 'user', label: 'Person', description: 'One member of the organization.', input: 'user-search', builtin: true, persisted: true },
+    { kind: 'group', label: 'Group', description: 'Every member of one group of the organization.', input: 'group-select', builtin: true, persisted: true },
+    { kind: 'link', label: 'Link', description: 'Anyone holding the link, without signing in.', input: 'none', builtin: true, persisted: true },
+  ];
+  const EMAIL_DOMAIN: GranteeKindDescriptor = {
+    kind: 'email-domain',
+    label: 'Email domain',
+    description: 'Everyone whose e-mail address is at one domain.',
+    input: 'text',
+    builtin: false,
+    persisted: true,
+  };
+  const TEAM: GranteeKindDescriptor = { kind: 'team', label: 'Team', description: null, input: 'custom', builtin: false, persisted: true };
+  const kinds = (...extra: GranteeKindDescriptor[]) => ({ 'GET /sharing/grantee-kinds': { items: [...BUILTINS, ...extra] } });
+
+  /** The rendered DOM without the generated ids, which differ per render. */
+  const domOf = () => screen.getByRole('dialog').innerHTML.replace(/(?::r[0-9a-z]+:|_r_[0-9a-z]+_)/g, ':id:');
+  const settled = async () => {
+    await screen.findByRole('list', { name: 'Shared with' });
+    await screen.findByRole('list', { name: 'Active links' });
+  };
+
+  it('is DOM-identical when the API lists only the built-ins (or does not answer at all)', async () => {
+    const first = renderDialog(baseResponses(kinds()), { allowLinks: true });
+    await settled();
+    await waitFor(() => expect(first.host.requests.some((r) => r.path === '/sharing/grantee-kinds')).toBe(true));
+    const withBuiltins = domOf();
+    cleanup();
+
+    const second = renderDialog(baseResponses(), { allowLinks: true }); // GET /sharing/grantee-kinds answers 404
+    await settled();
+    await waitFor(() => expect(second.host.requests.some((r) => r.path === '/sharing/grantee-kinds')).toBe(true));
+    expect(domOf()).toBe(withBuiltins);
+    expect(screen.getAllByRole('button').filter((b) => b.getAttribute('aria-pressed') !== null).map((b) => b.textContent)).toEqual(['A person', 'A group']);
+  });
+
+  it('asks for the kinds only when the viewer may share', async () => {
+    const host = makeHost(baseResponses(kinds(EMAIL_DOMAIN)), ['sharing:read']);
+    renderRoute(host, <ShareDialog open onClose={() => undefined} resource={RESOURCE} roles={ROLES} />);
+    await screen.findByRole('list', { name: 'Shared with' });
+    expect(host.requests.some((r) => r.path === '/sharing/grantee-kinds')).toBe(false);
+  });
+
+  it('offers a persisted app kind with a text input as one more choice and shares with it', async () => {
+    const user = userEvent.setup();
+    const { host, onChanged } = renderDialog(baseResponses(kinds(EMAIL_DOMAIN)));
+    await screen.findByRole('list', { name: 'Shared with' });
+    await user.click(await screen.findByRole('button', { name: 'Email domain' }));
+    expect(screen.queryByLabelText('E-mail address')).toBeNull();
+    const share = screen.getByRole('button', { name: 'Share' });
+    expect((share as HTMLButtonElement).disabled).toBe(true); // nothing typed yet
+    await user.type(screen.getByLabelText('Email domain'), ' example.com ');
+    await user.click(share);
+
+    await waitFor(() => expect(host.requests.some((r) => r.method === 'POST' && r.path === '/grants')).toBe(true));
+    expect(host.requests.find((r) => r.method === 'POST' && r.path === '/grants')!.body).toEqual({
+      resourceType: 'transcript',
+      resourceId: RESOURCE_ID,
+      grantee: { kind: 'custom', granteeKind: 'email-domain', ref: 'example.com' },
+      role: 'viewer',
+    });
+    await waitFor(() => expect(status().textContent).toBe('Shared with Email domain example.com.'));
+    expect(onChanged).toHaveBeenCalled();
+  });
+
+  it('does not offer a kind whose grants cannot be stored yet, nor one it cannot collect', async () => {
+    renderDialog(baseResponses(kinds({ ...EMAIL_DOMAIN, persisted: false }, TEAM)));
+    await screen.findByRole('list', { name: 'Shared with' });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'A group' })).toBeTruthy());
+    expect(screen.queryByRole('button', { name: 'Email domain' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Team' })).toBeNull(); // input custom, no picker registered
+  });
+
+  it('renders the picker the app registered for a custom input and sends what it reports', async () => {
+    const user = userEvent.setup();
+    const registry = new GranteePickerRegistry();
+    const seen: GranteePickerProps[] = [];
+    registry.register('team', (props: GranteePickerProps) => {
+      seen.push(props);
+      return (
+        <div data-testid="team-picker">
+          <button type="button" onClick={() => props.onChange('team-7')} disabled={props.disabled}>
+            Pick team 7
+          </button>
+          <span>{props.value}</span>
+        </div>
+      );
+    });
+    const { host } = renderDialog(baseResponses(kinds(TEAM)), { granteePickers: registry });
+    await screen.findByRole('list', { name: 'Shared with' });
+    await user.click(await screen.findByRole('button', { name: 'Team' }));
+    expect(screen.getByTestId('team-picker')).toBeTruthy();
+    expect(seen.at(-1)?.descriptor).toEqual(TEAM);
+    await user.click(screen.getByRole('button', { name: 'Pick team 7' }));
+    await user.click(screen.getByRole('button', { name: 'Share' }));
+    await waitFor(() => expect(host.requests.some((r) => r.method === 'POST' && r.path === '/grants')).toBe(true));
+    expect((host.requests.find((r) => r.method === 'POST' && r.path === '/grants')!.body as { grantee: unknown }).grantee).toEqual({
+      kind: 'custom',
+      granteeKind: 'team',
+      ref: 'team-7',
+    });
+  });
+
+  it("shows the API's own message when the kind refuses the grantee", async () => {
+    const user = userEvent.setup();
+    const { host } = renderDialog(
+      baseResponses({
+        ...kinds(EMAIL_DOMAIN),
+        'POST /grants': () => {
+          throw createTestApiError(422, 'Enter a domain such as example.com.', undefined, { reason: 'GRANTEE_INVALID' });
+        },
+      }),
+    );
+    await screen.findByRole('list', { name: 'Shared with' });
+    await user.click(await screen.findByRole('button', { name: 'Email domain' }));
+    await user.type(screen.getByLabelText('Email domain'), 'nope');
+    await user.click(screen.getByRole('button', { name: 'Share' }));
+    expect((await screen.findByTestId('share-error')).textContent).toBe('Enter a domain such as example.com.');
+    expect(host.requests.filter((r) => r.method === 'POST')).toHaveLength(1);
+  });
+
+  it('keeps the e-mail path when the kinds cannot be loaded', async () => {
+    const user = userEvent.setup();
+    renderDialog(baseResponses({ 'GET /sharing/grantee-kinds': () => { throw createTestApiError(500, 'boom'); } }));
+    await screen.findByRole('list', { name: 'Shared with' });
+    await user.type(screen.getByLabelText('E-mail address'), 'zoe@example.com');
+    expect(screen.getByRole('button', { name: 'Share' })).toBeTruthy();
+    expect(screen.queryByText('boom')).toBeNull();
   });
 });

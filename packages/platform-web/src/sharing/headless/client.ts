@@ -17,6 +17,7 @@ import type {
   GroupMemberDto,
   GroupMemberList,
   GroupMembershipDto,
+  GranteeKindList,
   GroupRole,
   LinkGrantView,
   MyGroupInviteList,
@@ -40,6 +41,8 @@ export interface SharingClientPaths {
   grants?: string;
   /** Default `'/public/links'`. The resolution is `GET ${publicLinks}/current`. */
   publicLinks?: string;
+  /** Default `'/sharing'`. The grantee kinds are `GET ${sharing}/grantee-kinds`. */
+  sharing?: string;
 }
 
 /**
@@ -77,6 +80,14 @@ export type ShareTarget =
       kind: 'group';
       /** The group. */
       groupId: string;
+    }
+  | {
+      /** A grantee of an app-registered kind (`GET /sharing/grantee-kinds`). */
+      kind: 'custom';
+      /** The registered kind (`email-domain`). */
+      granteeKind: string;
+      /** The grantee, in the form the kind validates. */
+      ref: string;
     };
 
 /**
@@ -145,6 +156,8 @@ export interface SharingClient {
   acceptInvite(inviteId: string): Promise<GroupMembershipDto>;
   /** `POST /groups/invites/:inviteId/decline`. */
   declineInvite(inviteId: string): Promise<void>;
+  /** `GET /sharing/grantee-kinds` (PP-14.16): the registered grantee kinds. */
+  listGranteeKinds(options?: PlatformRequestOptions): Promise<GranteeKindList>;
   /** `GET /grants?resourceType&resourceId`. */
   listGrants(resource: ResourceRef, query?: SharingPageQuery, options?: PlatformRequestOptions): Promise<GrantList>;
   /** `POST /grants`. */
@@ -216,6 +229,7 @@ export function createSharingClient(api: PlatformApiClient, paths: SharingClient
   const groups = paths.groups ?? '/groups';
   const grants = paths.grants ?? '/grants';
   const publicLinks = paths.publicLinks ?? '/public/links';
+  const sharing = paths.sharing ?? '/sharing';
 
   return {
     listGroups: (q, options) => api.get<GroupList>(`${groups}${query({ scope: q.scope, page: q.page, pageSize: q.pageSize })}`, options),
@@ -238,6 +252,7 @@ export function createSharingClient(api: PlatformApiClient, paths: SharingClient
     myInvites: (options) => api.get<MyGroupInviteList>(`${groups}/invites/mine`, options),
     acceptInvite: (inviteId) => api.post<GroupMembershipDto>(`${groups}/invites/${enc(inviteId)}/accept`),
     declineInvite: (inviteId) => api.post<void>(`${groups}/invites/${enc(inviteId)}/decline`),
+    listGranteeKinds: (options) => api.get<GranteeKindList>(`${sharing}/grantee-kinds`, options),
     listGrants: (resource, q = {}, options) =>
       api.get<GrantList>(
         `${grants}${query({ resourceType: resource.type, resourceId: resource.id, page: q.page, pageSize: q.pageSize })}`,

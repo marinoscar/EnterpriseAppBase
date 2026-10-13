@@ -21,12 +21,14 @@ import '@marinoscar/platform-api/sharing/testing';
 import { platformHost } from '../../../src/platform/platform-host';
 import { ALBUM_TYPE, registerAlbumResourceType } from './group-owned-resource.example';
 import { registerGroupNotes } from './group-owned-count.example';
+import { PROJECT_DOC_TYPE, registerProjectDocExample } from './project-doc-resource.example';
 import { PublicAlbumController } from './public-album.controller.example';
 import { NOTE_TYPE, registerNoteResourceType } from './user-owned-resource.example';
 
 registerNoteResourceType();
 registerAlbumResourceType();
 registerGroupNotes();
+registerProjectDocExample(); // its two access rules ride along (PP-14.16)
 
 @Module({
   imports: [SharingModule.forRoot({ host: platformHost })],
@@ -47,7 +49,7 @@ runPlatformConformance({
       // The example tables are raw SQL with no Prisma model, so no model maps here;
       // an app with `model Album { ownerGroupId String? @map("owner_group_id") }` writes { Album: 'album' }.
       groupOwnedModels: {},
-      resourceTypeIds: [NOTE_TYPE, ALBUM_TYPE],
+      resourceTypeIds: [NOTE_TYPE, ALBUM_TYPE, PROJECT_DOC_TYPE],
     },
   },
 });
