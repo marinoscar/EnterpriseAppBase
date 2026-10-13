@@ -4,7 +4,7 @@
 
 ## Purpose and scope
 
-Does: render the Console's Worker Nodes page "packages own behaviour, apps own appearance": the fleet with each node's derived health, operator status and job counts, the last self-reported vitals (compact column, full dialog, fleet-wide saturation and low-disk tallies), the delete of a node, and the node credentials (mint with an optional expiry, show the raw `nod_` token once, revoke). The app's MUI theme styles it, `slots.Header` replaces the title block, and the nodes adapters hand in the app's spinner, its table and, optionally, its own nodes client.
+Does: render the Console's Worker Nodes page "packages own behaviour, apps own appearance": the fleet with each node's derived health, operator status and job counts, the last self-reported vitals (compact column, full dialog, fleet-wide saturation and low-disk tallies), the delete of a node, and the node credentials (mint with an optional expiry, show the raw `nod_` token once, revoke). The app's MUI theme styles it, the page-slot contract (`slots`, [Page slots](../core/README.md#page-slots)) lets the app add to or replace parts of it, and the nodes adapters hand in the app's spinner, its table and, optionally, its own nodes client.
 
 Does not: decide anything. Every permission is enforced by the API (`@marinoscar/platform-api/nodes`); the page only hides or disables controls. A node's `health` is derived by the API against the `nodes.staleHeartbeatSeconds` setting and is never recomputed here. The slice does not own the app's registries or routes (the app declares the card in `ADMIN_SECTIONS` and the route in its router, CLAUDE.md Settings UI Pattern), import app context, layout or navigation, or ship a data table (the app's comes in through the adapters; a plain MUI table is the fallback). It does not run or enrol a node: that is `@marinoscar/platform-cli/node`.
 
@@ -55,7 +55,7 @@ Page props (all optional; the app's route renders the page as is):
 
 | Page | Prop | Default | Meaning |
 |---|---|---|---|
-| `WorkersPage` | `slots.Header` | the `h1` and subtitle | Replaces the title block; receives `{ title, description, readOnly }`. |
+| `WorkersPage` | `slots` | none | The page-slot contract plus `VitalsPanel`; see [Slots](#slots-and-theme). |
 | `WorkersPage` | `fallbackPath` | `'/'` | Where a viewer without `nodes:read` is sent. |
 
 Every hook takes an optional `NodesApi` as its last argument (the adapters' client, else `createNodesApi` over the host's transport). The fleet poll runs every `WORKER_NODES_POLL_INTERVAL_MS` (10 s) while the tab is in front.
@@ -76,15 +76,29 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | `useVisiblePolling` | hook | `useVisiblePolling(callback: () => void, intervalMs: number): void` | Re-read a view while the tab is in front, the way the page does | experimental | [example](../../../../apps/web/src/nodes/examples.tsx) |
 | `registerNodeVital` | registry | `registerNodeVital(def: { key: string; label: string; unit: 'count' \| 'percent' \| 'bytes' \| 'milliseconds' \| 'seconds' \| string }): void` | Word an app-defined `vitals.extra` key in the vitals dialog (label and unit); an unregistered key still shows, by its key. Call at module scope, before the page renders | experimental | [example](../../../../apps/web/src/platform-extensions/nodes/transcode.vitals.ts) |
 | `WorkersPage` | component | `WorkersPage(props?: WorkersPageProps): ReactElement` | Render the `/admin/settings/workers` route | experimental | [example](../../../../apps/web/src/App.tsx) |
-| `WorkersPageProps` | slot | `{ fallbackPath?; slots?: { Header? } }` | Replace the Worker Nodes page's header | experimental | [example](../../../../apps/web/src/nodes/examples.tsx) |
+| `WorkersPageProps` | slot | `{ fallbackPath?; slots?: WorkersPageSlots }` | Replace the Worker Nodes page's header or its fallback path | experimental | [example](../../../../apps/web/src/nodes/examples.tsx) |
+| `WorkersPageSlots` | slot | `PageSlotsBase & TableSlots<WorkerNode, NodesTableColumn<WorkerNode>> & { Header?; VitalsPanel?: PageSlot<{ node }> }` | Add a banner, a section, a column, a per-node action, a detail view, toolbar controls or a section of the vitals dialog to the Worker Nodes page | experimental | [example](../../../../apps/web/src/platform-extensions/nodes/CopyHostnameAction.example.tsx) |
 | `NodeCredentials` | component | `NodeCredentials(props: NodeCredentialsProps): ReactElement` | Embed the credential table with its create and show-once dialogs in another incident-response surface | experimental | [example](../../../../apps/web/src/nodes/examples.tsx) |
 | `nodesAdminSections` | component | `{ operations: NodesSettingsCard[] }` | Spread the Worker Nodes card into the app's `ADMIN_SECTIONS` | experimental | [example](../../../../apps/web/src/config/adminSections.tsx) |
 
-Supporting exports (experimental). `/nodes/headless`: `createNodesApi`, `useNodesApi`, `useNodesWebAdapters`, `NodesSpinnerProps`; the wire types `WorkerNode` (= `AdminNode`), `NodeCredential` (= `AdminNodeCredential`), `NodeCredentialCreated`, `CreateNodeCredentialInput`, `NodeCredentialStatus`, `NodeOwner`, `NodeJobCounts`, `NodeStatus`, `NodeHealth`, `NodeVitals`, `NodeVitalsCounters`; the constants `NODE_STATUSES`, `NODE_HEALTHS`, `MAX_NODE_CREDENTIAL_DAYS`, `MAX_NODE_CREDENTIAL_NAME_LENGTH`, `WORKER_NODES_POLL_INTERVAL_MS`; the predicate `nodeCredentialStatus`; the formatters `formatDuration`, `formatDateTime`, `shortId`; the app-vitals helpers `nodeVitalFor`, `registeredNodeVitals`, `nodeVitalRows` and `formatNodeVital` (with `NodeVitalDef` and `NodeVitalUnit`) and the capability reader `nodeCapabilityItems` (bounded, text only; `MAX_LISTED_CAPABILITIES`, `MAX_CAPABILITY_TEXT_LENGTH`); the `Use*Result` types; and the table types (`NodesDataTableComponent`, `NodesDataTableProps`, `NodesTableColumn`, `NodesTableRowAction`, `NodesTableFilter`, `NodesTableSortState`, `NodesTableEnumValue` and their unions). `/nodes/ui`: `NodesPageHeaderProps`, `NodesSettingsCard`, `NodeCredentialsProps`.
+Supporting exports (experimental). `/nodes/headless`: `createNodesApi`, `useNodesApi`, `useNodesWebAdapters`, `NodesSpinnerProps`; the wire types `WorkerNode` (= `AdminNode`), `NodeCredential` (= `AdminNodeCredential`), `NodeCredentialCreated`, `CreateNodeCredentialInput`, `NodeCredentialStatus`, `NodeOwner`, `NodeJobCounts`, `NodeStatus`, `NodeHealth`, `NodeVitals`, `NodeVitalsCounters`; the constants `NODE_STATUSES`, `NODE_HEALTHS`, `MAX_NODE_CREDENTIAL_DAYS`, `MAX_NODE_CREDENTIAL_NAME_LENGTH`, `WORKER_NODES_POLL_INTERVAL_MS`; the predicate `nodeCredentialStatus`; the formatters `formatDuration`, `formatDateTime`, `shortId`; the app-vitals helpers `nodeVitalFor`, `registeredNodeVitals`, `nodeVitalRows` and `formatNodeVital` (with `NodeVitalDef` and `NodeVitalUnit`) and the capability reader `nodeCapabilityItems` (bounded, text only; `MAX_LISTED_CAPABILITIES`, `MAX_CAPABILITY_TEXT_LENGTH`); the `Use*Result` types; and the table types (`NodesDataTableComponent`, `NodesDataTableProps`, `NodesTableColumn`, `NodesTableRowAction`, `NodesTableFilter`, `NodesTableSortState`, `NodesTableEnumValue` and their unions). `/nodes/ui`: `NodesPageHeaderProps`, `NodesSettingsCard`, `NodeCredentialsProps`, `NodeVitalsPanelSlotProps`.
 
 ### Slots and theme
 
-`slots.Header` replaces the `h1` and subtitle; it receives the card's `title` and `description` and `readOnly` (the viewer lacks `nodes:write`). Everything else is styled by the app's theme: palette roles (`text.secondary`, `error.main`, `warning.main`, `text.disabled`), MUI chip colours for statuses and typography variants, never a hard-coded theme.
+The page takes the page-slot contract of the web core ([Page slots](../core/README.md#page-slots)): `Header`, `BeforeContent`, `Sections` (rendered at both ends, with `position`) and `AfterContent`, plus `TableSlots` over the fleet table.
+
+| Slot | Receives | Drawn |
+|---|---|---|
+| `Header` | `{ title, description, readOnly, actions }` (`actions` is `null`) | Replaces the `h1` and subtitle. `readOnly` means the viewer lacks `nodes:write`. |
+| `BeforeContent`, `Sections` `top` | none, `{ position }` | Under the header, above the fleet summary. |
+| `Sections` `bottom`, `AfterContent` | `{ position }`, none | After the credentials section. |
+| `Columns(base)` | the fleet columns (`NodesTableColumn<WorkerNode>`), the slot columns included | Returns the columns to draw. Runs last. |
+| `RowActions` | `{ row }` (a `WorkerNode`) | An extra `More actions` column. "View vitals" and "Delete node" are untouched. |
+| `DetailPanel` | `{ row }` | An extra `Details` column of detail priority. |
+| `Toolbar` | none | A row above the fleet table. |
+| `VitalsPanel` | `{ node }` (the node as the fleet poll last read it) | A `section` labelled "Additional vitals" after the counters in the "View vitals" dialog, for a node with and without vitals. |
+
+Everything else is styled by the app's theme: palette roles (`text.secondary`, `error.main`, `warning.main`, `text.disabled`), MUI chip colours for statuses and typography variants, never a hard-coded theme.
 
 ## Data
 
@@ -118,6 +132,8 @@ None. The page emits no telemetry of its own; the API's node spans and metrics a
 None in the web package for this slice. The API slice's suites cover the routes and the contract binding (`packages/platform-api/src/nodes/dto/node-admin.dto.spec.ts`); the package tests (`packages/platform-web/test/nodes/`) cover the client's paths, the hooks, the column contracts and the page over a test host, and the reference app's page suite (`apps/web/src/__tests__/pages/Admin/WorkersPage.test.tsx`) renders it through the app's `DataTable`. The real worker cycle (enrol, claim, run, settle) is the CI job `worker-e2e` (`apps/api/scripts/worker-cycle-e2e.mjs`).
 
 ## Upgrade notes
+
+PP-14.23: the Worker Nodes page takes the page-slot contract (`BeforeContent`, `Sections`, `AfterContent`, `TableSlots`, `VitalsPanel`). An existing `slots.Header` keeps working unchanged: it receives the same `title`, `description` and `readOnly`, and `NodesPageHeaderProps` gains `actions` (`null`). With no slot the markup is unchanged (`test/nodes/WorkersPage.builtin-dom.test.tsx`).
 
 New subpaths in this version. Nothing breaks: `@marinoscar/platform-web/jobs/headless` and `/jobs/ui` re-export every worker-fleet name they exported before (`WorkersPage`, the hooks, `WorkerNode`, `NodeCredential`, `createJobsApi`'s fleet members), and `JobsWebAdaptersProvider` feeds the Worker Nodes page. To move over:
 

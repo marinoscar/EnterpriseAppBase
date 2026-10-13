@@ -91,7 +91,7 @@ function api(overrides: Partial<Record<keyof DbBackupApi, unknown>> = {}, config
   } as unknown as DbBackupApi;
 }
 
-function mount(client: DbBackupApi, props: { slots?: { Sections?: (props: DbBackupSectionsProps) => ReactElement } } = {}) {
+function mount(client: DbBackupApi, props: { slots?: { Sections?: (props: DbBackupSectionsProps) => ReactElement | null } } = {}) {
   const host = createTestPlatformHost({ permissions: ['db_backup:read', 'db_backup:write', 'db_backup:restore'] });
   const adapters = { api: client };
   function Wrapper({ children }: { children: ReactNode }): ReactElement {
@@ -114,8 +114,10 @@ const chooseFrequency = async (label: string) => {
 describe('slots.Sections', () => {
   it('renders below the run history with the config, the rows, the permissions and a refresh', async () => {
     const seen: DbBackupSectionsProps[] = [];
-    const Sections = (props: DbBackupSectionsProps): ReactElement => {
+    const Sections = (props: DbBackupSectionsProps): ReactElement | null => {
       seen.push(props);
+      // Rendered at both ends: this panel belongs below the history.
+      if (props.position !== 'bottom') return null;
       return <section data-testid="app-sections">Mirror status: {props.runs.length} run(s)</section>;
     };
 
@@ -139,9 +141,9 @@ describe('slots.Sections', () => {
   it('refresh re-reads the policy and the history', async () => {
     const client = api();
     let refresh: () => void = () => undefined;
-    const Sections = (props: DbBackupSectionsProps): ReactElement => {
+    const Sections = (props: DbBackupSectionsProps): ReactElement | null => {
       refresh = props.refresh;
-      return <span data-testid="app-sections" />;
+      return props.position === 'bottom' ? <span data-testid="app-sections" /> : null;
     };
     mount(client, { slots: { Sections } });
     await screen.findByTestId('app-sections');
@@ -151,6 +153,22 @@ describe('slots.Sections', () => {
     refresh();
 
     await waitFor(() => expect((client.getBackupRuns as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(before));
+  });
+
+  it('renders at both ends, once under the header and once after the history', async () => {
+    const Sections = ({ position }: DbBackupSectionsProps): ReactElement => (
+      <section data-testid={`app-sections-${position}`}>{position}</section>
+    );
+
+    mount(api(), { slots: { Sections } });
+
+    const top = await screen.findByTestId('app-sections-top');
+    const bottom = await screen.findByTestId('app-sections-bottom');
+    const heading = screen.getByRole('heading', { level: 1, name: 'Database Backup' });
+    const table = screen.getByTestId('admin-db-backup-table');
+    expect(heading.compareDocumentPosition(top) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(top.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(table.compareDocumentPosition(bottom) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('renders nothing extra without the slot', async () => {
