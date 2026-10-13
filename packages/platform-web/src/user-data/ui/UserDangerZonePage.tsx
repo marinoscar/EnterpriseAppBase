@@ -4,7 +4,7 @@
 // (`everything`, `content`). Every action opens the typed-confirmation dialog.
 // The static lists render even if the summary request fails (EvoPath).
 
-import type { ReactElement } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Box, Button, Container, Divider, List, ListItem, ListItemText, Paper, Skeleton, Stack, Typography } from '@mui/material';
 import {
@@ -17,7 +17,8 @@ import {
   type UserDataSummary,
 } from '@marinoscar/platform-contract/user-data';
 
-import { usePlatformApi } from '../../core/index.js';
+import { PageSlotsFrame, usePlatformApi } from '../../core/index.js';
+import type { PageSlotsBase } from '../../core/index.js';
 import { createUserDataClient, useCompletionHandler, useDestructiveJob } from '../headless/index.js';
 import { DANGER_ZONE_PAGE_DESCRIPTION, DANGER_ZONE_PAGE_TITLE, USER_DATA_KEPT } from './copy.js';
 import { TypedConfirmDialog } from './TypedConfirmDialog.js';
@@ -68,6 +69,42 @@ export interface UserDangerZonePageProps {
   onCompleted?(result: UserDataPurgeResult | null): void;
   /** Poll interval of the job status, in milliseconds. Default 1500. */
   pollIntervalMs?: number;
+  /** Optional extension slots; omitted, the page renders exactly as it always did. */
+  slots?: UserDangerZonePageSlots;
+  /** The page's words, each optional; omitted, the platform wording. */
+  copy?: UserDangerZonePageCopy;
+}
+
+/**
+ * The slots of {@link UserDangerZonePage}: the page-slot contract. `Sections`
+ * is drawn at both ends of the body. The "Always kept" list comes from the
+ * summary route: an app adds a line by registering a kept model with a
+ * `summary` on the API, not by a slot.
+ *
+ * @example
+ * ```tsx
+ * <UserDangerZonePage slots={{ AfterContent: () => <Typography>Questions? Write to privacy@example.com.</Typography> }} />
+ * ```
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export type UserDangerZonePageSlots = PageSlotsBase;
+
+/**
+ * The words of {@link UserDangerZonePage}, each optional.
+ *
+ * @stability experimental
+ */
+export interface UserDangerZonePageCopy {
+  /** The `h1`. Default "Delete my data". */
+  title?: string;
+  /** The sentence under the title. Default the platform's description and the note that a deletion is permanent. */
+  description?: ReactNode;
+  /** The heading of the list of what the user owns. Default "What you own". */
+  ownedHeading?: string;
+  /** The heading of the list of what is always kept. Default "Always kept". */
+  keptHeading?: string;
 }
 
 /**
@@ -113,6 +150,12 @@ export function UserDangerZonePage(props: UserDangerZonePageProps): ReactElement
     },
   });
 
+  const title = props.copy?.title ?? DANGER_ZONE_PAGE_TITLE;
+  const description =
+    props.copy?.description ?? `${DANGER_ZONE_PAGE_DESCRIPTION} A deletion is permanent: there is no undo and no backup of your data.`;
+  // From the API (the platform's lines, then the app's); the constant is what
+  // the page prints until the summary arrives or when it cannot be read.
+  const keptLines = summary?.kept ?? USER_DATA_KEPT;
   const scopes = summary?.scopes ?? FALLBACK_SCOPES;
   const countOf = (scope: UserDataScope) =>
     summary ? summary.categories.filter((c) => scope.categories.includes(c.id)).reduce((sum, c) => sum + c.count, 0) : null;
@@ -131,12 +174,20 @@ export function UserDangerZonePage(props: UserDangerZonePageProps): ReactElement
   return (
     <Container maxWidth="md">
       <Box sx={{ py: { xs: 2, sm: 4 } }}>
-        <Typography variant="h4" component="h1" gutterBottom>
-          {DANGER_ZONE_PAGE_TITLE}
-        </Typography>
-        <Typography color="text.secondary" sx={{ mb: 3 }}>
-          {DANGER_ZONE_PAGE_DESCRIPTION} A deletion is permanent: there is no undo and no backup of your data.
-        </Typography>
+        <PageSlotsFrame
+          slots={props.slots}
+          headerProps={{ title, description, actions: null }}
+          header={
+            <>
+              <Typography variant="h4" component="h1" gutterBottom>
+                {title}
+              </Typography>
+              <Typography color="text.secondary" sx={{ mb: 3 }}>
+                {description}
+              </Typography>
+            </>
+          }
+        >
         {loadError && (
           <Alert severity="warning" sx={{ mb: 2 }}>
             Could not load what you own ({loadError}). You can still delete your data.
@@ -145,7 +196,7 @@ export function UserDangerZonePage(props: UserDangerZonePageProps): ReactElement
 
         <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
           <Typography variant="h6" component="h2" gutterBottom>
-            What you own
+            {props.copy?.ownedHeading ?? 'What you own'}
           </Typography>
           {summary ? (
             <List dense aria-label="What you own">
@@ -162,10 +213,10 @@ export function UserDangerZonePage(props: UserDangerZonePageProps): ReactElement
             <Skeleton variant="rectangular" height={80} aria-label="Loading" />
           )}
           <Typography variant="subtitle2" component="h3" sx={{ mt: 1 }}>
-            Always kept
+            {props.copy?.keptHeading ?? 'Always kept'}
           </Typography>
           <List dense aria-label="Always kept">
-            {USER_DATA_KEPT.map((line) => (
+            {keptLines.map((line) => (
               <ListItem key={line} disableGutters>
                 <ListItemText primary={line} />
               </ListItem>
@@ -226,6 +277,7 @@ export function UserDangerZonePage(props: UserDangerZonePageProps): ReactElement
             ))}
           </Stack>
         </Box>
+        </PageSlotsFrame>
 
         <TypedConfirmDialog
           open={selected !== null}

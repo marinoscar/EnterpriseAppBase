@@ -90,9 +90,9 @@ EvoPath's rules, unchanged: every delete is a `deleteMany` by condition; counts 
 
 ### 2.7 Confirmation UX
 
-- User Danger Zone (`UserDangerZonePage`): what the user owns (live counts), what is always kept, then the `specific` scopes as rows with counts (disabled at zero), a divider and an error-coloured heading, then the `danger` scopes.
-- Factory reset (`FactoryResetPage`): an error-bordered warning, the backup-first link to `/admin/settings/db-backup`, live counts, the static deleted and kept lists.
-- Every action opens `TypedConfirmDialog`: acknowledgement checkbox plus the exact phrase; non-dismissable while the job runs; on success the non-zero counts and a warning when stored files were kept, and the page's `onCompleted` (the app refreshes its cached user); on failure the error and a retry. The static lists render even if the summary fails.
+- User Danger Zone (`UserDangerZonePage`): what the user owns (live counts), what is always kept (the `kept` lines of the summary: the platform's, then one per registered kept model with a `summary`), then the `specific` scopes as rows with counts (disabled at zero), a divider and an error-coloured heading, then the `danger` scopes.
+- Factory reset (`FactoryResetPage`): an error-bordered warning, the backup-first link to `/admin/settings/db-backup`, live counts, the deleted and kept lists (`deleted` and `kept` of the summary response; PP-14.24).
+- Every action opens `TypedConfirmDialog`: acknowledgement checkbox plus the exact phrase; non-dismissable while the job runs; on success the non-zero counts and a warning when stored files were kept, and the page's `onCompleted` (the app refreshes its cached user); on failure the error and a retry. The platform's lines render even if the summary fails (the web keeps them as fallbacks, word for word what the API returns for them).
 
 ## 3. Configuration and permissions
 
@@ -115,8 +115,9 @@ No environment variable and no settings key. `UserDataModule.forRoot({ datamodel
 3. A column naming a storage object: `storageObjectColumns: ['photoObjectId']`. A shared catalog row another user may still use: `keepWhenReferenced: true`. Rows another job purges: `delegate: { jobType, payload }`.
 4. A narrow deletion: a category plus a scope with `layer: 'specific'` (`APP_USER_DATA_SCOPES`).
 5. Deployment-level rows with no owner: a `FactoryResetStep` (`APP_FACTORY_RESET_STEPS`). A check before offboarding: an `OffboardingPrecondition`.
-6. Run the conformance suite (`test/user-data/user-data-conformance.spec.ts`) and extend a `*.db.spec.ts` with a row of the new model.
-7. An app adopting the platform with its own pre-platform job type passes it in `legacyJobTypes` (EvoPath: `{ type: 'user.data_reset', toPayload: (old) => ({ userId: old.userId, scope: 'everything' }) }`).
+6. Tell the page: the Danger Zone's "Always kept" list and the factory reset page's "Deleted" and "Kept" lists are `kept` / `deleted` in the summary responses (PP-14.24). Add one user-facing line with `summary` on a kept model (`keep`, or `factoryReset: 'keep'`) or on a factory reset step; a hint or step without a `summary` adds none. The platform's own lines come first and are the text the web bundle used to hold.
+7. Run the conformance suite (`test/user-data/user-data-conformance.spec.ts`) and extend a `*.db.spec.ts` with a row of the new model.
+8. An app adopting the platform with its own pre-platform job type passes it in `legacyJobTypes` (EvoPath: `{ type: 'user.data_reset', toPayload: (old) => ({ userId: old.userId, scope: 'everything' }) }`).
 
 Adoption map:
 
@@ -164,3 +165,4 @@ Then, on a throwaway deployment: open `/settings/danger-zone`, confirm the butto
 ## History
 
 - #743 (PP-9.1): the slice, harvested from EvoPath (#202, #211) and kvox.
+- #942 (PP-14.24): the pages take `slots` and `copy`, and the kept and deleted lists come from the summary routes (`kept`, `deleted`) so a registered kept model or factory reset step can add a line.

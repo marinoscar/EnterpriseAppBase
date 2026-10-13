@@ -2,6 +2,8 @@
 
 import {
   categoriesOfScope,
+  factoryResetDeletedLines,
+  factoryResetKeptLines,
   findUserDataScope,
   registerFactoryResetStep,
   registerOffboardingPrecondition,
@@ -10,12 +12,14 @@ import {
   registerUserDataModels,
   registerUserDataScope,
   resolveUserDataModuleOptions,
+  userDataKeptLines,
 } from '@marinoscar/platform-api/user-data';
 
 import {
   EXAMPLE_CONTENT_SCOPE_OVERRIDE,
   EXAMPLE_DELEGATE,
   EXAMPLE_FACTORY_RESET_STEP,
+  EXAMPLE_KEPT_MODEL,
   EXAMPLE_LEGACY_JOB_TYPES,
   EXAMPLE_OFFBOARDING_PRECONDITION,
   EXAMPLE_USER_DATA_CATEGORY,
@@ -29,7 +33,7 @@ describe('user-data reference examples', () => {
     registerUserDataCategory(EXAMPLE_USER_DATA_CATEGORY);
     registerUserDataScope(EXAMPLE_USER_DATA_SCOPE);
     registerUserDataScope(EXAMPLE_CONTENT_SCOPE_OVERRIDE);
-    registerUserDataModels(EXAMPLE_USER_DATA_MODELS);
+    registerUserDataModels([...EXAMPLE_USER_DATA_MODELS, EXAMPLE_KEPT_MODEL]);
     registerFactoryResetStep(EXAMPLE_FACTORY_RESET_STEP);
     registerOffboardingPrecondition(EXAMPLE_OFFBOARDING_PRECONDITION);
   });
@@ -48,6 +52,19 @@ describe('user-data reference examples', () => {
     const tx = { job: { deleteMany: jest.fn(async () => ({ count: 3 })) } };
     await expect(EXAMPLE_FACTORY_RESET_STEP.run(tx, { actorUserId: 'a', jobId: 'j' })).resolves.toEqual({ jobs: 3 });
     expect(tx.job.deleteMany).toHaveBeenCalledWith({ where: { type: { startsWith: 'example.' }, status: { in: ['succeeded', 'failed'] } } });
+  });
+
+  it("the summaries' lists gain the example step's and kept model's lines after the platform's (PP-14.24)", () => {
+    expect(factoryResetDeletedLines()).toEqual(expect.arrayContaining(['Every other user, their sessions and their access tokens', 'Finished example jobs']));
+    expect(factoryResetDeletedLines().at(-1)).toBe('Finished example jobs');
+    expect(userDataKeptLines().at(-1)).toBe('Your example preferences');
+    expect(userDataKeptLines().slice(0, 4)).toEqual([
+      'Your account, your sign-in identities and your roles',
+      'Your organization and group memberships',
+      'This browser session (you stay signed in)',
+      'The audit log',
+    ]);
+    expect(factoryResetKeptLines().at(-1)).toBe('Your example preferences');
   });
 
   it('the precondition blocks while a job of the organization runs', async () => {

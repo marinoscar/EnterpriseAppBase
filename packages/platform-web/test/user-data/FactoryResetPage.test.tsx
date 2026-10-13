@@ -5,7 +5,7 @@ import type { FactoryResetSummary } from '@marinoscar/platform-contract/user-dat
 
 import { createTestApiError } from '../../src/testing/index.js';
 import { FactoryResetPage } from '../../src/user-data/ui/index.js';
-import { hostWith, renderWithHost } from './fixtures.js';
+import { LISTS, hostWith, renderWithHost } from './fixtures.js';
 
 const SUMMARY: FactoryResetSummary = {
   disabledReason: null,
@@ -14,6 +14,7 @@ const SUMMARY: FactoryResetSummary = {
   storageObjects: 12,
   jobs: 30,
   categories: [{ id: 'files', label: 'Files', count: 12 }],
+  ...LISTS.reset,
 };
 
 describe('FactoryResetPage', () => {
