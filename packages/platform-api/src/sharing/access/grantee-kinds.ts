@@ -98,7 +98,7 @@ export interface GranteeRef {
  * @stability experimental
  */
 export interface GranteeDescription {
-  /** A short human-readable name ("Anyone at @example.com"). */
+  /** A short human-readable name, such as "Anyone at the example.com domain". */
   readonly display: string;
 }
 
