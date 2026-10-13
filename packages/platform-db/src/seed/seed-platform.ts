@@ -138,13 +138,16 @@ export async function seedPlatform<Tx = SeedPrisma>(
 
   log.info('Seeding default organization...');
   const defaultOrganization = input.defaultOrganization ?? DEFAULT_ORGANIZATION;
-  const existingDefault = await prisma.organization.findFirst({ where: { isDefault: true } });
+  // `select: { id }`: the seed reads and returns only the key, so it also runs against a database
+  // that is migrated only part of the way (a column added by a later migration is not read).
+  const existingDefault = await prisma.organization.findFirst({ where: { isDefault: true }, select: { id: true } });
   const defaultOrganizationCreated = existingDefault === null;
   if (defaultOrganizationCreated) {
     await prisma.organization.upsert({
       where: { slug: defaultOrganization.slug },
       update: {}, // Don't overwrite an administrator's edits
       create: { name: defaultOrganization.name, slug: defaultOrganization.slug, isDefault: true },
+      select: { id: true },
     });
     log.info(`✓ Created default organization "${defaultOrganization.slug}"`);
   } else {
