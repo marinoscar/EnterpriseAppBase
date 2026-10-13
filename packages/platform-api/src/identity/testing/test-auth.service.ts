@@ -20,7 +20,7 @@ import {
   ROLES,
 } from '../identity.constants';
 import { PRINCIPAL_USER_INCLUDE, principalFactory } from '../auth/principal.factory';
-import { listRoles } from '../roles/role-catalog';
+import { listRoles, roleNotAssignable } from '../roles/role-catalog';
 
 /**
  * Exported for the reference app's wiring and tests; not a stable extension point (reach identity through IdentityModule and its documented seams).
@@ -87,7 +87,8 @@ export class TestAuthService {
     // an org role is the default-org membership's role.
     const known = listRoles().find((role) => role.id === roleName);
     if (!known) {
-      throw new Error(`Role ${dto.role} not found`);
+      // A 400, like every refused role: the shape was valid, nothing registered it.
+      throw roleNotAssignable(roleName);
     }
     const isSystemRole = known.scope === 'system';
     const membershipRoleName =

@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { roleRegistry, withTemporaryEntries } from '../../../src/core';
+import { BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { TestAuthService } from '../../../src/identity/testing/test-auth.service';
@@ -388,7 +389,7 @@ describe('TestAuthService', () => {
       });
 
       it('refuses a role nothing registered, before it touches the database', async () => {
-        await expect(service.loginAsTestUser({ email: 'ghost@example.com', role: 'ghost' })).rejects.toThrow('Role ghost not found');
+        await expect(service.loginAsTestUser({ email: 'ghost@example.com', role: 'ghost' })).rejects.toBeInstanceOf(BadRequestException);
         expect(mockPrisma.user.create).not.toHaveBeenCalled();
         expect(mockPrisma.role.findUnique).not.toHaveBeenCalled();
       });
