@@ -649,8 +649,8 @@ export const organizationResponseSchema = z.object({
  * A role id on the wire: lower-case letters, digits, `_` and `-`, starting with
  * a letter ({@link ROLE_ID_PATTERN}). Only the SHAPE is checked here; whether
  * the role exists, has the right scope and may be assigned is decided by the
- * API against the role registry (a 400 with `details.reason:
- * ROLE_NOT_ASSIGNABLE`).
+ * API against the role registry (a 400 whose `details.reason` is
+ * `ROLE_NOT_ASSIGNABLE`).
  *
  * @stability experimental
  */
