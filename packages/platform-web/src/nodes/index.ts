@@ -8,4 +8,10 @@
 
 export * from './headless/index.js';
 export { WorkersPage, nodesAdminSections } from './ui/index.js';
-export type { NodesPageHeaderProps, NodesSettingsCard, WorkersPageProps } from './ui/index.js';
+export type {
+  NodeVitalsPanelSlotProps,
+  NodesPageHeaderProps,
+  NodesSettingsCard,
+  WorkersPageProps,
+  WorkersPageSlots,
+} from './ui/index.js';
