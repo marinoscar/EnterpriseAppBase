@@ -9,6 +9,7 @@
 // one big string. Datasets appear in the order the source yields them.
 // =============================================================================
 
+import { PLATFORM_SOURCE_IDS } from './platform-sources';
 import { EXPORT_DATASET_PATTERN, EXPORT_JSON_SCHEMA_VERSION } from '@marinoscar/platform-contract/exports';
 
 import { endStream, failStream, writeChunk } from '../export-stream';
@@ -24,6 +25,9 @@ export const JSON_EXPORT_WRITER: ExportWriter = {
   label: 'JSON',
   mimeType: 'application/json',
   extension: 'json',
+  // Offered on the platform sources by attachment, like any app writer; an app
+  // source lists these ids in its `formats`.
+  attachTo: PLATFORM_SOURCE_IDS,
   async write(tables, out, ctx) {
     const rowCounts: Record<string, number> = {};
     try {
@@ -33,7 +37,12 @@ export const JSON_EXPORT_WRITER: ExportWriter = {
       let first = true;
       for await (const table of tables) {
         assertDataset(table.dataset, rowCounts);
-        const meta = JSON.stringify({ title: table.title, columns: table.columns });
+        // `meta` is writer-specific typing for custom writers; the JSON file's
+        // contract (`exportJsonFileSchema` v1) is key, label and type.
+        const meta = JSON.stringify({
+          title: table.title,
+          columns: table.columns.map(({ key, label, type }) => ({ key, label, type })),
+        });
         await writeChunk(out, `${first ? '' : ','}${JSON.stringify(table.dataset)}:${meta.slice(0, -1)},"rows":[`);
         first = false;
         let count = 0;

@@ -6,7 +6,9 @@ The wire shapes of the onboarding slice (issue #745, PP-9.3): the stored `onboar
 
 One source for what the onboarding routes accept and return. The namespace stores UI state only (`welcomeSeenAt`, `checklistDismissedAt`, `adminDismissedAt` and a capped `skipped` list); a step's status (`done`, `todo`, `blocked`) appears only in the response, derived on every request, never stored.
 
-Layout: `constants.ts` (zod-free: audiences, tiers, statuses, the namespace key, the `skipped` cap, the step id pattern, the metrics window bounds, the route paths and the two permissions), `schemas.ts` and `index.ts`.
+Layout: `constants.ts` (zod-free: the built-in audiences and the audience id pattern, tiers, statuses, the namespace key, the `skipped` cap, the step id pattern, the metrics window bounds, the route paths and the two permissions), `schemas.ts` and `index.ts`.
+
+The audience vocabulary is open: `onboardingAudienceSchema` is a string matching `ONBOARDING_AUDIENCE_ID_PATTERN`, `OnboardingAudience` is `BuiltinOnboardingAudience | (string & {})`, and the response carries the blocks of every audience beyond `user` and `admin` the caller matches in an optional `audiences` record (absent when there is none). `ONBOARDING_AUDIENCES` (`admin`, `user`) is kept as a deprecated alias of the two audiences with a dedicated block; `BUILTIN_ONBOARDING_AUDIENCES` adds `org_admin`.
 
 Not here: the registries, the engine and the routes (`@marinoscar/platform-api/onboarding`), the pages (`@marinoscar/platform-web/onboarding`).
 
@@ -40,7 +42,7 @@ None. The contract declares shapes; extending what the namespace holds is `exten
 
 The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
 
-Supporting exports (experimental): `ONBOARDING_AUDIENCES`, `ONBOARDING_TIERS`, `ONBOARDING_STATUSES`, `ONBOARDING_SETTINGS_KEY`, `ONBOARDING_SKIPPED_MAX`, `ONBOARDING_STEP_ID_MAX`, `ONBOARDING_STEP_ID_PATTERN`, `ONBOARDING_METRICS_DAYS_DEFAULT`, `ONBOARDING_METRICS_DAYS_MAX`, `ONBOARDING_PATH`, `ONBOARDING_METRICS_PATH`, `ONBOARDING_READ_PERMISSION`, `ONBOARDING_ADMIN_PERMISSION`; the schemas `onboardingSettingsShape`, `onboardingSettingsSchema`, `onboardingSettingsPatchSchema`, `onboardingQuerySchema`, `onboardingStepSchema`, `onboardingBlockSchema`, `onboardingStateSchema`, `onboardingResponseSchema`, `onboardingMetricsQuerySchema`, `onboardingMilestoneMetricSchema`, `onboardingFunnelStepSchema`, `onboardingMetricsResponseSchema`, and their types.
+Supporting exports (experimental): `ONBOARDING_AUDIENCES` (deprecated), `BUILTIN_ONBOARDING_AUDIENCES`, `BuiltinOnboardingAudience`, `ONBOARDING_AUDIENCE_ID_PATTERN`, `ONBOARDING_ORG_ADMIN_ROLE`, `onboardingAudienceSchema`, `ONBOARDING_TIERS`, `ONBOARDING_STATUSES`, `ONBOARDING_SETTINGS_KEY`, `ONBOARDING_SKIPPED_MAX`, `ONBOARDING_STEP_ID_MAX`, `ONBOARDING_STEP_ID_PATTERN`, `ONBOARDING_METRICS_DAYS_DEFAULT`, `ONBOARDING_METRICS_DAYS_MAX`, `ONBOARDING_PATH`, `ONBOARDING_METRICS_PATH`, `ONBOARDING_READ_PERMISSION`, `ONBOARDING_ADMIN_PERMISSION`; the schemas `onboardingSettingsShape`, `onboardingSettingsSchema`, `onboardingSettingsPatchSchema`, `onboardingQuerySchema`, `onboardingStepSchema`, `onboardingBlockSchema`, `onboardingStateSchema`, `onboardingResponseSchema`, `onboardingMetricsQuerySchema`, `onboardingMilestoneMetricSchema`, `onboardingFunnelStepSchema`, `onboardingMetricsResponseSchema`, and their types.
 
 ## Data
 
@@ -71,6 +73,8 @@ None.
 None. `test/onboarding.test.ts` pins the schemas' behaviour and `test/no-zod-in-constants.test.ts` keeps the constants zod-free.
 
 ## Upgrade notes
+
+Extended in PP-14.20: `onboardingAudienceSchema` was a two-value enum and is a string pattern (the OpenAPI `audience` enum becomes a pattern); `OnboardingResponse` gains the optional `audiences`. Both are additive for a reader of `user` and `admin`.
 
 New in #745. No earlier shape to migrate from in this repository; EvoPath's flat `GET /api/onboarding` (`welcomeSeenAt` at the top, `group: required|features`, `label`) maps to `settings.welcomeSeenAt`, `tier: required|recommended`, `title` at adoption.
 

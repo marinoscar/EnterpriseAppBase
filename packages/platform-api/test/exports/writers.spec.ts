@@ -107,4 +107,28 @@ describe('export writers', () => {
     await expect(writer.write(tables, out, { source: 's', exportedAt: new Date(), appSlug: 'app' })).rejects.toThrow('database went away');
     expect(out.destroyed).toBe(true);
   });
+
+  it('column meta is for custom writers: the built-in writers never write it', async () => {
+    const withMeta = () =>
+      tablesOf([
+        {
+          dataset: 'notes',
+          title: 'Notes',
+          columns: [{ key: 'amount', label: 'Amount', type: 'number', meta: { parquetType: 'DECIMAL', scale: 2 } }],
+          rows: [{ amount: 1.5 }],
+        },
+      ]);
+    const plain = () =>
+      tablesOf([{ dataset: 'notes', title: 'Notes', columns: [{ key: 'amount', label: 'Amount', type: 'number' }], rows: [{ amount: 1.5 }] }]);
+    for (const writer of [JSON_EXPORT_WRITER, CSV_EXPORT_WRITER, XLSX_EXPORT_WRITER]) {
+      const a = await collectExportOutput(writer, withMeta(), 'user-data');
+      expect(a.bytes.toString('latin1')).not.toMatch(/parquetType|DECIMAL/);
+      if (writer === JSON_EXPORT_WRITER) {
+        // byte-identical to the same dataset without meta, apart from the timestamp
+        const b = await collectExportOutput(writer, plain(), 'user-data');
+        const strip = (buffer: Buffer) => buffer.toString('utf8').replace(/"exportedAt":"[^"]*"/, '');
+        expect(strip(a.bytes)).toBe(strip(b.bytes));
+      }
+    }
+  });
 });

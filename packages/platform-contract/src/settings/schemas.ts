@@ -23,11 +23,17 @@ import { z } from 'zod';
 
 import {
   DATA_TABLE_DENSITIES,
+  DATA_TABLE_ENTRY_MAX_BYTES,
+  DATA_TABLE_EXTRA_MAX_BYTES,
+  DATA_TABLE_EXTRA_MAX_DEPTH,
+  DATA_TABLE_EXTRA_MAX_KEYS,
   DATA_TABLE_ID_PATTERN,
   DATA_TABLE_MAX_ID_LENGTH,
   DATA_TABLE_MAX_PAGE_SIZE,
+  DATA_TABLE_MAX_SAVED_VIEWS,
   DATA_TABLE_MAX_VISIBLE_COLUMNS,
   DATA_TABLE_SORT_DIRECTIONS,
+  DATA_TABLE_VIEW_NAME_MAX_LENGTH,
   ORG_SETTINGS_FIELD_KINDS,
   ORG_SETTINGS_MERGE_MODES,
   PROFILE_DISPLAY_NAME_MAX,
@@ -199,27 +205,113 @@ export const dataTableSortSchema = z
   })
   .strict();
 
+/** The JSON size of `value` in bytes, or `Infinity` when it is not JSON. */
+function jsonBytes(value: unknown): number {
+  try {
+    const text = JSON.stringify(value);
+    return text === undefined ? Infinity : new TextEncoder().encode(text).length;
+  } catch {
+    return Infinity;
+  }
+}
+
+/** Whether `value` is plain JSON within the depth bound and free of keys that could poison a later merge. */
+function isSafeJson(value: unknown, depth = 0): boolean {
+  if (depth > DATA_TABLE_EXTRA_MAX_DEPTH) return false;
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every((item) => isSafeJson(item, depth + 1));
+  if (typeof value === 'object') {
+    return Object.keys(value as object).every(
+      (key) => key !== '__proto__' && key !== 'constructor' && key !== 'prototype' && isSafeJson((value as Record<string, unknown>)[key], depth + 1),
+    );
+  }
+  return false;
+}
+
+/**
+ * An app's own stored layout fields: a record of bounded plain JSON (at most
+ * `DATA_TABLE_EXTRA_MAX_KEYS` keys, `DATA_TABLE_EXTRA_MAX_BYTES` bytes and
+ * `DATA_TABLE_EXTRA_MAX_DEPTH` levels; no `__proto__`, `constructor` or
+ * `prototype` key at any depth). The platform never reads it.
+ *
+ * @stability experimental
+ */
+export const dataTableExtraSchema = z
+  .record(z.string().min(1).max(DATA_TABLE_MAX_ID_LENGTH), z.unknown())
+  .refine((extra) => Object.keys(extra).length <= DATA_TABLE_EXTRA_MAX_KEYS, {
+    message: `extra carries at most ${DATA_TABLE_EXTRA_MAX_KEYS} keys`,
+  })
+  .refine((extra) => isSafeJson(extra), {
+    message: `extra must be plain JSON, at most ${DATA_TABLE_EXTRA_MAX_DEPTH} levels deep`,
+  })
+  .refine((extra) => jsonBytes(extra) <= DATA_TABLE_EXTRA_MAX_BYTES, {
+    message: `extra is larger than ${DATA_TABLE_EXTRA_MAX_BYTES} bytes`,
+  });
+
+/** The fields a table's layout and a saved view's layout share. */
+const dataTableLayoutShape = {
+  /** The column ids shown, in order. */
+  visibleColumns: z
+    .array(z.string().min(1).max(DATA_TABLE_MAX_ID_LENGTH))
+    .max(DATA_TABLE_MAX_VISIBLE_COLUMNS)
+    .optional(),
+  /** The row density. */
+  density: dataTableDensitySchema.optional(),
+  /** The sort state. */
+  sort: dataTableSortSchema.optional(),
+  /** The page size. */
+  pageSize: z.number().int().min(1).max(DATA_TABLE_MAX_PAGE_SIZE).optional(),
+  /** An app's own bounded JSON (saved filters, a chart toggle). */
+  extra: dataTableExtraSchema.optional(),
+};
+
+/**
+ * The layout a saved view captures: the same fields as the table's own entry,
+ * `extra` included, without nested views.
+ *
+ * @stability experimental
+ */
+export const dataTableViewLayoutSchema = z.object(dataTableLayoutShape).strict();
+
+/**
+ * One saved view of a table: a named layout.
+ *
+ * @stability experimental
+ */
+export const dataTableSavedViewSchema = z
+  .object({
+    /** A slug unique within the table's views. */
+    id: z.string().min(1).max(DATA_TABLE_MAX_ID_LENGTH).regex(DATA_TABLE_ID_PATTERN),
+    /** What the user called it. */
+    name: z.string().trim().min(1).max(DATA_TABLE_VIEW_NAME_MAX_LENGTH),
+    /** The layout it restores. */
+    layout: dataTableViewLayoutSchema,
+  })
+  .strict();
+
 /**
  * Persisted preferences of one data table. Every key optional, none
- * defaulted.
+ * defaulted. `extra` (an app's bounded JSON, at most 8 KiB) and `savedViews`
+ * (at most 20, ids unique) are the app-facing additions; the whole entry stays
+ * within `DATA_TABLE_ENTRY_MAX_BYTES`.
  *
  * @stability stable
  */
 export const dataTableEntrySchema = z
   .object({
-    /** The column ids shown, in order. */
-    visibleColumns: z
-      .array(z.string().min(1).max(DATA_TABLE_MAX_ID_LENGTH))
-      .max(DATA_TABLE_MAX_VISIBLE_COLUMNS)
+    ...dataTableLayoutShape,
+    /** Named layouts the user saved. */
+    savedViews: z
+      .array(dataTableSavedViewSchema)
+      .max(DATA_TABLE_MAX_SAVED_VIEWS)
+      .refine((views) => new Set(views.map((view) => view.id)).size === views.length, { message: 'saved view ids must be unique' })
       .optional(),
-    /** The row density. */
-    density: dataTableDensitySchema.optional(),
-    /** The sort state. */
-    sort: dataTableSortSchema.optional(),
-    /** The page size. */
-    pageSize: z.number().int().min(1).max(DATA_TABLE_MAX_PAGE_SIZE).optional(),
   })
-  .strict();
+  .strict()
+  .refine((entry) => jsonBytes(entry) <= DATA_TABLE_ENTRY_MAX_BYTES, {
+    message: `a table's stored preferences are larger than ${DATA_TABLE_ENTRY_MAX_BYTES} bytes`,
+  });
 
 /**
  * A table identifier: the key of the `dataTables` record.
@@ -262,6 +354,24 @@ export type DataTableSort = z.infer<typeof dataTableSortSchema>;
  * @stability stable
  */
 export type DataTableEntry = z.infer<typeof dataTableEntrySchema>;
+/**
+ * An app's own bounded JSON stored beside a table's layout.
+ *
+ * @stability experimental
+ */
+export type DataTableExtra = z.infer<typeof dataTableExtraSchema>;
+/**
+ * The layout a saved view captures.
+ *
+ * @stability experimental
+ */
+export type DataTableViewLayout = z.infer<typeof dataTableViewLayoutSchema>;
+/**
+ * One saved view of a table.
+ *
+ * @stability experimental
+ */
+export type DataTableSavedView = z.infer<typeof dataTableSavedViewSchema>;
 /**
  * The stored `dataTables` namespace.
  *

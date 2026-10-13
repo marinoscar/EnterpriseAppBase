@@ -8,5 +8,5 @@ export type { DataExportPageProps } from './DataExportPage.js';
 export { ExportDialog } from './ExportDialog.js';
 export type { ExportDialogProps, ExportFormSlotProps } from './ExportDialog.js';
 export { ExportsList } from './ExportsList.js';
-export type { ExportsListProps } from './ExportsList.js';
+export type { ExportsListColumn, ExportsListProps, ExportsListRowActionsProps, ExportsListSlots } from './ExportsList.js';
 export { dataExportSettingsPage } from './settings-pages.js';

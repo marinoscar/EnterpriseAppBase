@@ -15,6 +15,8 @@
 import { z } from 'zod';
 
 import {
+  EXPORT_COLUMN_META_MAX_KEYS,
+  EXPORT_COLUMN_META_MAX_LENGTH,
   EXPORT_COLUMN_TYPES,
   EXPORT_DATASET_PATTERN,
   EXPORT_ID_PATTERN,
@@ -106,8 +108,33 @@ export const exportCellSchema: z.ZodUnion<[z.ZodString, z.ZodNumber, z.ZodBoolea
 export type ExportCell = z.infer<typeof exportCellSchema>;
 
 /**
+ * A column's writer-specific typing: flat scalars a custom writer reads (a
+ * Parquet logical type, a unit), at most `EXPORT_COLUMN_META_MAX_KEYS` keys.
+ * The built-in writers ignore it and never write it.
+ *
+ * @extensionPoint schema
+ * @stability experimental
+ */
+export const exportColumnMetaSchema = z
+  .record(
+    z.string().min(1).max(EXPORT_COLUMN_META_MAX_LENGTH),
+    z.union([z.string().max(EXPORT_COLUMN_META_MAX_LENGTH), z.number(), z.boolean()]),
+  )
+  .refine((meta) => Object.keys(meta).length <= EXPORT_COLUMN_META_MAX_KEYS, {
+    message: `meta carries at most ${EXPORT_COLUMN_META_MAX_KEYS} keys`,
+  });
+
+/**
+ * One column's `meta`.
+ *
+ * @stability experimental
+ */
+export type ExportColumnMeta = z.infer<typeof exportColumnMetaSchema>;
+
+/**
  * One column of a dataset: its key (the CSV header and the JSON key), a human
- * label (the XLSX header) and its value type.
+ * label (the XLSX header), its value type and, optionally, writer-specific
+ * `meta`.
  *
  * @stability experimental
  */
@@ -118,6 +145,8 @@ export const exportColumnSchema = z.object({
   label: z.string().min(1).max(256),
   /** The value type; numbers are never formula-neutralised in a CSV. */
   type: exportColumnTypeSchema,
+  /** Writer-specific typing (for example a Parquet logical type). The built-in writers ignore it. */
+  meta: exportColumnMetaSchema.optional(),
 });
 
 /**
