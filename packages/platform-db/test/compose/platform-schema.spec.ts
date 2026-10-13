@@ -20,7 +20,7 @@ const OWNERSHIP: Record<string, string[]> = {
   storage: ['StorageObject', 'StorageObjectChunk', 'StorageObjectStatus'],
   credentials: ['Credential', 'UserCredential', 'OrgCredential'],
   notifications: ['Notification', 'NotificationDelivery', 'PushSubscription', 'NotificationBroadcast', 'NotificationDeliveryStatus', 'NotificationBroadcastStatus'],
-  jobs: ['Job', 'JobStatsRollup', 'WorkerNode', 'NodeCredential', 'JobNodeSecret', 'JobStatus', 'JobReason', 'NodeStatus'],
+  jobs: ['Job', 'JobStatsRollup', 'WorkerNode', 'NodeCredential', 'JobNodeSecret', 'JobStatus', 'NodeStatus'],
   'db-backup': ['DatabaseBackupRun', 'DatabaseBackupStatus', 'DatabaseBackupTrigger'],
   ai: ['AiModel', 'UserAiKey', 'AiRun', 'AiUsageEvent'],
   sharing: ['Group', 'GroupMember', 'GroupInvite', 'GroupRole', 'Grant', 'GrantGranteeKind'],
