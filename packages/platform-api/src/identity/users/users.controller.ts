@@ -22,7 +22,8 @@ import { Auth } from '../auth/decorators/auth.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { PERMISSIONS } from '../identity.constants';
 import { UserListQueryDto } from './dto/user-list-query.dto';
-import { UserDetailResponseDto, UserResponseDto } from './dto/user-response.dto';
+import { UserDetailResponseDto, UserListItemDto, UserResponseDto } from './dto/user-response.dto';
+import type { RequestUser } from '../auth/interfaces/authenticated-user.interface';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UpdateUserRolesDto } from './dto/update-user-roles.dto';
 
@@ -44,12 +45,17 @@ export class UsersController {
   @ApiQuery({ name: 'isActive', required: false, enum: ['true', 'false'] })
   @ApiQuery({ name: 'sortBy', required: false, enum: ['email', 'createdAt', 'updatedAt'] })
   @ApiQuery({ name: 'sortOrder', required: false, enum: ['asc', 'desc'] })
-  @ApiDataResponse(UserResponseDto, {
+  @ApiDataResponse(UserListItemDto, {
     pagination: 'flat',
     description: 'Paginated user list',
   })
-  async listUsers(@Query() query: UserListQueryDto) {
-    return this.usersService.listUsers(query);
+  async listUsers(@Query() query: UserListQueryDto, @CurrentUser() viewer?: RequestUser) {
+    // PP-14.25: the requester and their organization are what a user-list
+    // extension is told. Optional so a caller without a request user still works.
+    return this.usersService.listUsers(
+      query,
+      viewer ? { viewerId: viewer.id, orgId: viewer.activeOrgId ?? null } : undefined,
+    );
   }
 
   @Get(':id')

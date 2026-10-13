@@ -1,4 +1,5 @@
 import { createZodDto } from 'nestjs-zod';
+import { userExtensionsSchema } from '@marinoscar/platform-contract/identity';
 import { z } from 'zod';
 
 export const userResponseSchema = z.object({
@@ -22,9 +23,24 @@ export const userResponseSchema = z.object({
 
 export class UserResponseDto extends createZodDto(userResponseSchema) {}
 
+/**
+ * One row of `GET /api/users`: a {@link userResponseSchema} user plus, when the
+ * app registered user-list extensions (`registerUserListExtension`) and one
+ * contributed for this user, their `extensions`.
+ */
+export const userListItemSchema = userResponseSchema.extend({
+  extensions: userExtensionsSchema
+    .optional()
+    .describe(
+      "What the app's user-list extensions added for this user (`registerUserListExtension`), keyed by extension id: small JSON objects, never secrets. Absent when none contributed.",
+    ),
+});
+
+export class UserListItemDto extends createZodDto(userListItemSchema) {}
+
 // List response with pagination
 export const userListResponseSchema = z.object({
-  items: z.array(userResponseSchema),
+  items: z.array(userListItemSchema),
   total: z.number(),
   page: z.number(),
   pageSize: z.number(),

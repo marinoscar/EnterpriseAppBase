@@ -303,3 +303,41 @@ export const DEVICE_SESSION_STATUSES = ['pending', 'approved', 'denied', 'expire
  * @stability stable
  */
 export type DeviceSessionStatus = (typeof DEVICE_SESSION_STATUSES)[number];
+
+// =============================================================================
+// User extensions (PP-14.25)
+// =============================================================================
+
+/**
+ * The id of a user extension (`registerCurrentUserExtension`,
+ * `registerUserListExtension` of `@marinoscar/platform-api/identity`): the key
+ * of its contribution under `extensions` in `GET /api/auth/me` and in each row
+ * of `GET /api/users`. Lower-case, starting with a letter, 2 to 48 characters.
+ *
+ * @extensionPoint schema
+ * @stability experimental
+ */
+export const USER_EXTENSION_ID_PATTERN: RegExp = /^[a-z][a-z0-9-]{1,47}$/;
+
+/**
+ * The bounds the API holds a user extension's contribution to. A contribution
+ * is JSON, nested at most {@link USER_EXTENSION_LIMITS.maxDepth} levels, with no
+ * key that names a secret; one over a byte bound is dropped (and logged), never
+ * truncated. The bounds are part of the contract so a client can rely on the
+ * size of `extensions`.
+ *
+ * - `currentUserBytes`: one extension's JSON in `GET /api/auth/me`.
+ * - `currentUserTotalBytes`: all extensions together in `GET /api/auth/me`.
+ * - `userListBytes`: one extension's JSON for one row of `GET /api/users`.
+ * - `userListTotalBytes`: all extensions together for one row.
+ * - `maxDepth`: the deepest nesting of a contribution (the extension's own object is level 1).
+ *
+ * @stability experimental
+ */
+export const USER_EXTENSION_LIMITS = {
+  currentUserBytes: 4096,
+  currentUserTotalBytes: 16384,
+  userListBytes: 1024,
+  userListTotalBytes: 4096,
+  maxDepth: 5,
+} as const;

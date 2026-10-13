@@ -120,6 +120,28 @@ export type { RefreshTokenCookieOptions, RespondToSignInInput } from './auth/sig
 export type { CookieReply, CookieReplyMethods, IdentityCookieOptions } from './auth/cookie-http';
 export { createPassportProviderGuard } from './auth/guards/external-provider.guard';
 
+// ---- user extensions: what an app adds to /auth/me and to the user list (rung 2) --------
+export {
+  DEFAULT_CURRENT_USER_EXTENSION_TIMEOUT_MS,
+  DEFAULT_USER_LIST_EXTENSION_TIMEOUT_MS,
+  MAX_USER_EXTENSION_TIMEOUT_MS,
+  checkUserExtensionContribution,
+  currentUserExtensionRegistry,
+  registerCurrentUserExtension,
+  registerUserListExtension,
+  resolveCurrentUserExtensions,
+  resolveUserListExtensions,
+  userListExtensionRegistry,
+} from './extensions/user-extensions';
+export type {
+  CurrentUserExtension,
+  CurrentUserExtensionContext,
+  UserExtensionCheck,
+  UserExtensionLog,
+  UserListExtension,
+  UserListExtensionContext,
+} from './extensions/user-extensions';
+
 // ---- roles and permissions, as data for the app's permission registry -----------------
 export {
   DEFAULT_ORG_ROLE,

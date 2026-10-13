@@ -26,6 +26,9 @@ import {
   renameOrganizationSchema,
   switchOrgSchema,
   updateOrgMemberSchema,
+  USER_EXTENSION_ID_PATTERN,
+  USER_EXTENSION_LIMITS,
+  userExtensionsSchema,
   type CurrentUser,
 } from '../src/identity/index.js';
 
@@ -203,5 +206,50 @@ describe('currentUserSchema', () => {
     };
     expect(currentUserSchema.parse(me)).toEqual(me);
     expect(currentUserSchema.safeParse({ ...me, tenancyMode: 'shared' }).success).toBe(false);
+  });
+});
+
+describe('user extensions (PP-14.25)', () => {
+  const me: CurrentUser = {
+    id: '123e4567-e89b-12d3-a456-426614174000',
+    email: 'user@example.com',
+    displayName: null,
+    profileImageUrl: null,
+    providerProfileImageUrl: null,
+    hasUploadedProfileImage: false,
+    isActive: true,
+    roles: [{ name: 'viewer' }],
+    permissions: [],
+    tenancyMode: 'single',
+    activeOrg: null,
+    memberships: [],
+  };
+
+  it('accepts /api/auth/me with and without extensions', () => {
+    expect(currentUserSchema.parse(me)).toEqual(me);
+    const withExtensions = { ...me, extensions: { billing: { plan: 'pro', seats: [1, 2] } } };
+    expect(currentUserSchema.parse(withExtensions)).toEqual(withExtensions);
+    expect(currentUserSchema.strict().parse(withExtensions)).toEqual(withExtensions);
+  });
+
+  it('keys extensions by a lower-case id and holds a JSON object under each', () => {
+    expect(userExtensionsSchema.safeParse({ team: { name: 'Core' } }).success).toBe(true);
+    expect(userExtensionsSchema.safeParse({ Team: { name: 'Core' } }).success).toBe(false);
+    expect(userExtensionsSchema.safeParse({ team: 'Core' }).success).toBe(false);
+    expect(userExtensionsSchema.safeParse({ team: ['Core'] }).success).toBe(false);
+  });
+
+  it('publishes the id pattern and the bounds the API holds a contribution to', () => {
+    expect(USER_EXTENSION_ID_PATTERN.test('billing')).toBe(true);
+    expect(USER_EXTENSION_ID_PATTERN.test('team-2')).toBe(true);
+    expect(USER_EXTENSION_ID_PATTERN.test('x')).toBe(false);
+    expect(USER_EXTENSION_ID_PATTERN.test('1team')).toBe(false);
+    expect(USER_EXTENSION_LIMITS).toEqual({
+      currentUserBytes: 4096,
+      currentUserTotalBytes: 16384,
+      userListBytes: 1024,
+      userListTotalBytes: 4096,
+      maxDepth: 5,
+    });
   });
 });

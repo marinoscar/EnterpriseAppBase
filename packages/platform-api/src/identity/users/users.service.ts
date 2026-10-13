@@ -30,6 +30,7 @@ import { PrincipalCache } from '../auth/principal-cache/principal-cache.service'
 import { principalFactory } from '../auth/principal.factory';
 import { DefaultOrganizationMissingException } from '../organizations/organizations.errors';
 import { assertRoleAssignable, isAppManagedRole } from '../roles/role-catalog';
+import { resolveUserListExtensions } from '../extensions/user-extensions';
 
 /**
  * What the users endpoints load for a user's roles (PP-6.3, #723): the system
@@ -97,7 +98,7 @@ export class UsersService {
   /**
    * List users with pagination and filtering
    */
-  async listUsers(query: UserListQueryDto) {
+  async listUsers(query: UserListQueryDto, requester?: { viewerId: string | null; orgId: string | null }) {
     const { page, pageSize, search, role, isActive, sortBy, sortOrder } = query;
     const skip = (page - 1) * pageSize;
 
@@ -148,6 +149,13 @@ export class UsersService {
       this.prisma.user.count({ where }),
     ]);
 
+    // PP-14.25: the app's user-list extensions, each called ONCE for the whole
+    // page (never per row) and isolated: a failing one is skipped and logged.
+    const extensions = await resolveUserListExtensions(
+      items.map((user) => user.id),
+      { viewerId: requester?.viewerId ?? null, orgId: requester?.orgId ?? null },
+    );
+
     // Transform to response format
     const transformedItems = items.map((user) => ({
       id: user.id,
@@ -160,6 +168,7 @@ export class UsersService {
       roles: this.roleNames(user),
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
+      ...(extensions.has(user.id) ? { extensions: extensions.get(user.id) } : {}),
     }));
 
     return {
