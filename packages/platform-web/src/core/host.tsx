@@ -9,6 +9,7 @@
 // imports app context, layout or navigation.
 // =============================================================================
 
+import type { ThemePreferenceId } from '@marinoscar/platform-contract/settings';
 import { createContext, useContext } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 
@@ -28,12 +29,15 @@ export interface PlatformWebHost {
   /** Optional formatting hooks so packaged pages match the app's conventions. */
   formatRelativeTime?(iso: string): string;
   /**
-   * Applies a theme preference (`light`, `dark`, `system`) to the app's theme
-   * context. The Appearance page calls it when the stored preference loads or
-   * is saved; without it the preference is stored and the app's theme is left
-   * alone. Keep its identity stable.
+   * Applies a theme preference to the app's theme context: `light`, `dark` or
+   * `system`, or (PP-14.25) the id of a theme the app registered with
+   * `registerThemePreference` on the API and listed in the settings document's
+   * `themeOptions`. The Appearance page calls it when the stored preference
+   * loads or is saved; without it the preference is stored and the app's theme is
+   * left alone. The shell's `setMode` fits (it ignores an id it has no theme
+   * for). Keep its identity stable.
    */
-  applyTheme?(theme: 'light' | 'dark' | 'system'): void;
+  applyTheme?(theme: ThemePreferenceId): void;
   /**
    * Ports an installed extension package declares for itself, keyed by a string
    * or a `Symbol.for(...)` the package exports. The app supplies them next to
