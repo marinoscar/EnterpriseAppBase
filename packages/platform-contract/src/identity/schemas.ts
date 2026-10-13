@@ -36,6 +36,7 @@ import {
   ROLE_ID_PATTERN,
   ROLE_SCOPES,
   TENANCY_MODES,
+  USER_EXTENSION_ID_PATTERN,
 } from './constants.js';
 
 // =============================================================================
@@ -219,6 +220,18 @@ export const authMembershipSchema = z.object({
 });
 
 /**
+ * What user extensions add to a user payload: `extensions` of `GET /api/auth/me`
+ * and of each row of `GET /api/users`. One entry per extension that contributed,
+ * keyed by the extension's id ({@link USER_EXTENSION_ID_PATTERN}); each value is
+ * a JSON object the extension chose, bounded by `USER_EXTENSION_LIMITS` and never
+ * a secret. Absent when no extension contributed.
+ *
+ * @extensionPoint schema
+ * @stability experimental
+ */
+export const userExtensionsSchema = z.record(z.string().regex(USER_EXTENSION_ID_PATTERN), z.record(z.string(), z.unknown()));
+
+/**
  * `GET /api/auth/me`: the signed-in user, their roles and effective
  * permissions in the active organization, the deployment's tenancy mode, the
  * active organization and every organization they may switch to.
@@ -251,6 +264,8 @@ export const currentUserSchema = z.object({
   activeOrg: activeOrgSchema.nullable(),
   /** Every organization the user is an active member of, with the org role on each. */
   memberships: z.array(authMembershipSchema),
+  /** What the app's current-user extensions added (`registerCurrentUserExtension`), by extension id. Absent when none contributed. */
+  extensions: userExtensionsSchema.optional(),
 });
 
 /**
@@ -831,6 +846,12 @@ export const orgInviteResponseSchema = z.object({
  * @stability stable
  */
 export type AuthProvidersResponse = z.infer<typeof authProvidersResponseSchema>;
+/**
+ * The `extensions` of a user payload: a JSON object per extension id.
+ *
+ * @stability experimental
+ */
+export type UserExtensions = z.infer<typeof userExtensionsSchema>;
 /**
  * `GET /api/auth/me` response.
  *

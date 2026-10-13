@@ -18,7 +18,8 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth, usePermissions } from '../../identity/index.js';
 import { useSettingsFeatures } from '../../settings/index.js';
 import { isDestinationVisible } from '../headless/navigation.js';
-import type { ShellNavigation } from '../headless/navigation.js';
+import type { ShellDestination, ShellNavigation } from '../headless/navigation.js';
+import { DestinationIcon, EXTERNAL_LINK_PROPS, destinationAccessibleName, runDestinationClick, useDestinationBadge } from './destination-parts.js';
 
 /**
  * Props of {@link ShellUserMenu}.
@@ -42,6 +43,27 @@ export interface ShellUserMenuProps {
   footer?: ReactNode;
   /** The sign-out row's label. Default `'Logout'`. */
   logoutLabel?: string;
+}
+
+/** One destination's row. A component of its own so the destination's `badge` (which may call hooks) has a stable hook order. */
+function UserMenuRow({ destination, onNavigate }: { destination: ShellDestination; onNavigate: (path: string) => void }): ReactElement {
+  const badge = useDestinationBadge(destination);
+  const external = destination.external === true;
+  return (
+    <MenuItem
+      {...(external ? { component: 'a', href: destination.path, ...EXTERNAL_LINK_PROPS } : {})}
+      {...(badge || external ? { 'aria-label': destinationAccessibleName(destination.label, badge, external) } : {})}
+      onClick={(event) => {
+        if (runDestinationClick(destination, event)) return;
+        if (!external) onNavigate(destination.path);
+      }}
+    >
+      <ListItemIcon>
+        {badge ? <DestinationIcon Icon={destination.Icon} badge={badge} fontSize="small" /> : <destination.Icon fontSize="small" />}
+      </ListItemIcon>
+      <ListItemText>{destination.label}</ListItemText>
+    </MenuItem>
+  );
 }
 
 /**
@@ -138,12 +160,7 @@ export function ShellUserMenu({ navigation, items, footer, logoutLabel = 'Logout
         <Divider />
 
         {menuDestinations.map((destination) => (
-          <MenuItem key={destination.key} onClick={() => handleNavigate(destination.path)}>
-            <ListItemIcon>
-              <destination.Icon fontSize="small" />
-            </ListItemIcon>
-            <ListItemText>{destination.label}</ListItemText>
-          </MenuItem>
+          <UserMenuRow key={destination.key} destination={destination} onNavigate={handleNavigate} />
         ))}
 
         {items?.(handleClose)}

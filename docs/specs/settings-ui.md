@@ -64,6 +64,8 @@ The live example is the Users & Allowlist page (`UsersPage` of `@marinoscar/plat
 
 A `users:read`-only admin reaches the page and sees Users; the Allowlist tab renders its own permission-denied message in place. Collapsing the two gates into one would either hide the whole page from that admin, or render a tab that can only ever 403.
 
+**An app may append a tab to that page, and only that.** `UsersPage` takes `slots.Tabs` (PP-14.25): a list of `{ id, label, Panel, permission? }` drawn AFTER Users and Allowlist. It can neither remove nor reorder the two, and it is for the same kind of content they are, a further answer to "who may use this application" (a domain allow-list, a pending-approval queue). A new settings page is still a card in the registry with its own route (rule 1 and rule 2 of the Settings UI Pattern); an app tab that holds a page-sized surface, or content unrelated to who may sign in, is the hierarchical-content-wearing-a-tab-strip mistake this section exists to prevent. The tab's optional `permission` hides the tab from a viewer without it (a tab gate, content); the API behind its panel enforces it. The packaged group page offers the same append-only `Tabs` slot (`GroupDetailPageSlots`), where Members and Invitations are parallel views of one group. The page-slot contract itself ([core README](../../packages/platform-web/src/core/README.md#page-slots)) adds banners and sections to a page without touching its tabs.
+
 The test for tabs: are these the same subject, with independent permission stories that both belong on the screen once the user is there? Users/Allowlist passes. Content that is really several separate destinations filed under one page fails it and becomes separate cards.
 
 ### Permissions are mirrored

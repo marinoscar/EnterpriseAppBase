@@ -23,30 +23,64 @@
  */
 
 import type { ReactElement } from 'react';
-import { Box, Container, Typography } from '@mui/material';
+import { Box, Container } from '@mui/material';
+import type { PageSlotsBase } from '../../../core/index.js';
+import { DefaultPageHeader } from '../PageHeader.js';
 import { PersonalAccessTokens } from './PersonalAccessTokens.js';
+
+/** The page's title and subtitle, the words of its registry card. */
+const PAGE_TITLE = 'Access Tokens';
+const PAGE_DESCRIPTION = 'Create and revoke personal access tokens for API and CLI access.';
+
+/**
+ * The slots of {@link UserTokensPage}: the packaged-page slot contract. `Sections`
+ * is drawn above and below the token list.
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export type UserTokensPageSlots = PageSlotsBase;
+
+/**
+ * Props of {@link UserTokensPage}.
+ *
+ * @stability experimental
+ */
+export interface UserTokensPageProps {
+  /** Add to the page without a fork. */
+  slots?: UserTokensPageSlots;
+}
 
 /**
  * The `Access Tokens` page (`/settings/tokens`): the caller's personal access
  * tokens.
  *
+ * @param props - see {@link UserTokensPageProps}.
  * @returns the page.
  *
  * @extensionPoint component
  * @stability stable
  */
-export function UserTokensPage(): ReactElement {
+export function UserTokensPage({ slots }: UserTokensPageProps = {}): ReactElement {
+  const Header = slots?.Header;
+  const BeforeContent = slots?.BeforeContent;
+  const Sections = slots?.Sections;
+  const AfterContent = slots?.AfterContent;
   return (
     <Container maxWidth="md">
       <Box sx={{ py: 4 }}>
-        <Typography variant="h4" component="h1" gutterBottom>
-          Access Tokens
-        </Typography>
-        <Typography color="text.secondary" sx={{ mb: 2 }}>
-          Create and revoke personal access tokens for API and CLI access.
-        </Typography>
+        {Header ? (
+          <Header title={PAGE_TITLE} description={PAGE_DESCRIPTION} readOnly={false} actions={null} />
+        ) : (
+          <DefaultPageHeader title={PAGE_TITLE} description={PAGE_DESCRIPTION} />
+        )}
+        {BeforeContent && <BeforeContent />}
+        {Sections && <Sections position="top" />}
 
         <PersonalAccessTokens />
+
+        {Sections && <Sections position="bottom" />}
+        {AfterContent && <AfterContent />}
       </Box>
     </Container>
   );

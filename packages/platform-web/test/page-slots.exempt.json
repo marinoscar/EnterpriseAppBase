@@ -2,14 +2,6 @@
   "$comment": "Packaged pages that do not yet take the slot contract (src/core/page-slots.tsx). Each entry names an exported *Page and why it is exempt. The list only shrinks: test/page-slots.contract.test.ts fails on an entry whose page now conforms or no longer exists.",
   "exempt": [
     {
-      "page": "ActivateDevicePage",
-      "reason": "migrated in PP-14.25 (#943)"
-    },
-    {
-      "page": "AuthCallbackPage",
-      "reason": "migrated in PP-14.25 (#943)"
-    },
-    {
       "page": "DataExportPage",
       "reason": "migrated in PP-14.24 (#942)/25 (#943)"
     },
@@ -18,40 +10,8 @@
       "reason": "migrated in PP-14.24 (#942)/25 (#943)"
     },
     {
-      "page": "GroupDetailPage",
-      "reason": "migrated in PP-14.25 (#943)"
-    },
-    {
-      "page": "GroupsPage",
-      "reason": "migrated in PP-14.25 (#943)"
-    },
-    {
-      "page": "LoginPage",
-      "reason": "migrated in PP-14.25 (#943)"
-    },
-    {
-      "page": "OrganizationPage",
-      "reason": "migrated in PP-14.25 (#943)"
-    },
-    {
-      "page": "OrganizationsPage",
-      "reason": "migrated in PP-14.25 (#943)"
-    },
-    {
-      "page": "PublicLinkPage",
-      "reason": "migrated in PP-14.25 (#943)"
-    },
-    {
       "page": "SetupGuidePage",
       "reason": "migrated in PP-14.24 (#942)/25 (#943)"
-    },
-    {
-      "page": "UserTokensPage",
-      "reason": "migrated in PP-14.25 (#943)"
-    },
-    {
-      "page": "UsersPage",
-      "reason": "migrated in PP-14.25 (#943)"
     }
   ]
 }

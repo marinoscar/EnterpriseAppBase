@@ -2,7 +2,7 @@
 // user as `GET /api/auth/me` reports it, and what the auth context offers.
 // Moved from the reference app's `types/index.ts` and `contexts/AuthContext.tsx`.
 
-import type { TenancyModeValue } from '@marinoscar/platform-contract/identity';
+import type { TenancyModeValue, UserExtensions } from '@marinoscar/platform-contract/identity';
 
 /**
  * A role of the signed-in user (`/api/auth/me` `roles[]`).
@@ -83,6 +83,13 @@ export interface AuthUser {
   activeOrg?: OrgSummary | null;
   /** Every organization the user is an ACTIVE member of, i.e. can switch to. */
   memberships?: OrgMembershipSummary[];
+  /**
+   * What the app's current-user extensions added on the server
+   * (`registerCurrentUserExtension` of `@marinoscar/platform-api/identity`),
+   * keyed by extension id: a small JSON object each, never a secret. Absent when
+   * none contributed. Read one with {@link useCurrentUserExtension}.
+   */
+  extensions?: UserExtensions;
 }
 
 /**

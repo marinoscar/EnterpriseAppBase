@@ -24,6 +24,8 @@ export {
   ROLE_NOT_ASSIGNABLE_REASON,
   ROLE_SCOPES,
   TENANCY_MODES,
+  USER_EXTENSION_ID_PATTERN,
+  USER_EXTENSION_LIMITS,
   isAuthErrorCode,
 } from './constants.js';
 export type {
@@ -78,6 +80,7 @@ export {
   switchOrgSchema,
   tokenResponseSchema,
   updateOrgMemberSchema,
+  userExtensionsSchema,
 } from './schemas.js';
 export type {
   ActiveOrg,
@@ -124,4 +127,5 @@ export type {
   SwitchOrgRequest,
   TokenResponse,
   UpdateOrgMemberRequest,
+  UserExtensions,
 } from './schemas.js';

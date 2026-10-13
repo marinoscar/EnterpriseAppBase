@@ -57,17 +57,19 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
-| `currentUserSchema` | schema | `ZodObject<{ id; email; displayName; profileImageUrl; providerProfileImageUrl; hasUploadedProfileImage; isActive; roles; permissions; tenancyMode; activeOrg; memberships }>` | Validate or `.extend()` the `/api/auth/me` payload in app code (a stricter test, an app-side field on the client) | stable | [example](../../../../apps/api/test/auth/auth.integration.spec.ts) |
+| `currentUserSchema` | schema | `ZodObject<{ id; email; displayName; profileImageUrl; providerProfileImageUrl; hasUploadedProfileImage; isActive; roles; permissions; tenancyMode; activeOrg; memberships; extensions? }>` | Validate or `.extend()` the `/api/auth/me` payload in app code (a stricter test, an app-side field on the client) | stable | [example](../../../../apps/api/test/auth/auth.integration.spec.ts) |
+| `userExtensionsSchema` | schema | `ZodRecord<id, ZodRecord<string, unknown>>` | Type or validate the `extensions` of `/api/auth/me` and of a user-list row: one JSON object per extension id (PP-14.25) | experimental | [example](../../../../apps/api/test/examples/identity/user-extensions.spec.ts) |
+| `USER_EXTENSION_ID_PATTERN` | schema | `RegExp` (`/^[a-z][a-z0-9-]{1,47}$/`) | The id of a user extension, the key under `extensions`; the API registries and `userExtensionsSchema` use it | experimental | [example](../../../../apps/api/test/examples/identity/user-extensions.spec.ts) |
 
 Supporting exports (stable):
 
-- Constants: `AUTH_ERROR_CODES` (the closed sign-in failure set, the single source), `DEFAULT_AUTH_ERROR_CODE`, `isAuthErrorCode()`, `TENANCY_MODES`, `BUILTIN_ORG_ROLES` (the platform's org roles; `ASSIGNABLE_ORG_ROLES` is a deprecated alias, the assignable set is the API's to say), `ROLE_ID_PATTERN`, `ROLE_SCOPES`, `ROLE_NOT_ASSIGNABLE_REASON`, `ORG_SLUG_PATTERN`, `ORG_MEMBER_STATUSES`, `ORG_INVITE_STATUSES`, `PAT_DURATION_UNITS`, `PAT_LIMITS`, `DEVICE_TOKEN_TYPES`, `DEVICE_USER_CODE_PATTERN`, `DEVICE_TOKEN_ERROR_CODES`, `DEVICE_SESSION_STATUSES`, and their union types.
+- Constants: `USER_EXTENSION_LIMITS` (experimental: the byte and depth bounds the API holds a user extension's contribution to, so a client can rely on the size of `extensions`), `AUTH_ERROR_CODES` (the closed sign-in failure set, the single source), `DEFAULT_AUTH_ERROR_CODE`, `isAuthErrorCode()`, `TENANCY_MODES`, `BUILTIN_ORG_ROLES` (the platform's org roles; `ASSIGNABLE_ORG_ROLES` is a deprecated alias, the assignable set is the API's to say), `ROLE_ID_PATTERN`, `ROLE_SCOPES`, `ROLE_NOT_ASSIGNABLE_REASON`, `ORG_SLUG_PATTERN`, `ORG_MEMBER_STATUSES`, `ORG_INVITE_STATUSES`, `PAT_DURATION_UNITS`, `PAT_LIMITS`, `DEVICE_TOKEN_TYPES`, `DEVICE_USER_CODE_PATTERN`, `DEVICE_TOKEN_ERROR_CODES`, `DEVICE_SESSION_STATUSES`, and their union types.
 - Sign-in: `authErrorCodeSchema`, `authProviderSchema` (`name`, `enabled`, and `mode: 'custom'` for a provider that owns its sign-in flow), `authProvidersResponseSchema`, `authRoleSchema`, `activeOrgSchema`, `authMembershipSchema`, `tokenResponseSchema`, `switchOrgSchema`.
 - Roles: `roleIdSchema` (the shape of a role id, a string pattern, not an enum: whether the role exists and may be assigned is the API's decision), `roleListQuerySchema`, `roleDescriptorSchema` and `roleListResponseSchema` (`GET /api/roles`), and the types `RoleDescriptor`, `RoleListQuery`, `BuiltinOrgRole`, `AssignableOrgRole` (`BuiltinOrgRole | (string & {})`) and `RoleScopeValue`. `updateOrgMemberSchema` and `createOrgInviteSchema` take `roleIdSchema` for `roleName`.
 - Personal access tokens: `createPatSchema`, `patCreatedResponseSchema`, `patListItemSchema`.
 - Device flow: `deviceTokenTypeSchema`, `deviceClientInfoSchema`, `deviceCodeRequestSchema`, `deviceCodeResponseSchema`, `deviceTokenRequestSchema`, `deviceTokenResponseSchema`, `deviceTokenErrorSchema`, `deviceAuthorizeRequestSchema`, `deviceAuthorizeResponseSchema`, `deviceActivateResponseSchema`, `deviceSessionSchema`, `deviceSessionsResponseSchema`.
 - Organizations: `organizationListQuerySchema`, `createOrganizationSchema`, `renameOrganizationSchema`, `organizationResponseSchema`, `orgMemberListQuerySchema`, `updateOrgMemberSchema`, `orgMemberResponseSchema`, `orgInviteListQuerySchema`, `createOrgInviteSchema`, `orgInviteResponseSchema`.
-- One inferred type per schema (`CurrentUser`, `TokenResponse`, `CreatePatRequest`, `DeviceTokenResponse`, `OrgMemberResponse`, ...).
+- One inferred type per schema (`UserExtensions` (experimental), `CurrentUser`, `TokenResponse`, `CreatePatRequest`, `DeviceTokenResponse`, `OrgMemberResponse`, ...).
 
 ## Data
 
@@ -101,6 +103,8 @@ None. Validation is pure.
 None. The slice ships no conformance suite; `test/identity.test.ts` and `test/dual-format.test.ts` cover the schemas and both module formats, `@marinoscar/platform-api` pins that each `@ApiProperty` response class declares the fields of its contract schema, and the app's integration test parses the live `/api/auth/me` with `currentUserSchema.strict()`.
 
 ## Upgrade notes
+
+PP-14.25 (additive): `currentUserSchema` gains an optional `extensions` (what `registerCurrentUserExtension` of `@marinoscar/platform-api/identity` adds to `/api/auth/me`), with `userExtensionsSchema`, `USER_EXTENSION_ID_PATTERN`, `USER_EXTENSION_LIMITS` and the `UserExtensions` type. A client that parses `/auth/me` strictly keeps working: the key is absent unless an extension contributed.
 
 New in this release (#727). The request schemas moved here from the API's DTO files (`switch-org.dto.ts`, `create-pat.dto.ts`, the device-flow request DTOs and the organization DTOs); the API re-exports them under their old names, so no import has to change. The web app's `SIGN_IN_ERROR_CODES` is now `AUTH_ERROR_CODES` itself. The generated OpenAPI document is unchanged.
 

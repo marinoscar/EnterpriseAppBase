@@ -48,7 +48,7 @@ export function AppPlatformHostProvider({ children }: { children: ReactNode }) {
 | `host.viewer` | `PlatformViewer` | required | `userId`, `hasPermission(permission)`, `isFeatureEnabled(feature)`. |
 | `host.formatRelativeTime` | `(iso: string) => string` | each page's own fallback | Format timestamps the way the app does. |
 | `host.extensions` | `Readonly<Record<string \| symbol, unknown>>` | none | Ports an installed extension package declares for itself, keyed by the string or `Symbol.for(...)` the package exports. The package reads one with `usePlatformPort<T>(key)`, which throws a clear error when the app did not supply it (`useOptionalPlatformPort` answers `undefined`). Own keys only: `Object.prototype` members are never ports. Keep the record and each port stable across renders. |
-| `host.applyTheme` | `(theme: 'light' \| 'dark' \| 'system') => void` | none (the preference is stored, the app's theme left alone) | Push the stored theme preference into the app's theme context (the Appearance page, #892). Keep its identity stable. |
+| `host.applyTheme` | `(theme: ThemePreferenceId) => void` (`light`, `dark`, `system` or a registered theme id) | none (the preference is stored, the app's theme left alone) | Push the stored theme preference into the app's theme context (the Appearance page, #892). Keep its identity stable. |
 | `children` | `ReactNode` | required | The routed tree that may render packaged pages. |
 
 ### Host ports
@@ -166,6 +166,8 @@ None of its own. `apps/web/src/__tests__/config/platformPages.test.ts` in the re
 ## Upgrade notes
 
 PP-14.23: the packaged-page slot contract (`PageSlotsBase`, `TableSlots`, `PageSlot`, `useTableSlotColumns`) is new and additive. The Jobs, Job Insights, Worker Nodes, Database Backup and Doctor pages take it ([Page slots](#page-slots)); the other packaged pages are listed in `test/page-slots.exempt.json` until the stories that migrate them land. PP-14.24 (#942) migrates the AI, storage, email, Android, host, profile, appearance, organization settings, user-data and notification pages and adds `PageSlotsFrame`; the telemetry pages, the identity and sharing pages and the exports and onboarding pages remain on the list. One behaviour change on a page that already had a slot: the database backup page renders `slots.Sections` at both ends (`position: 'top'` and `'bottom'`) instead of once at the bottom, so a `Sections` component written for the old page returns `null` for `position === 'top'`.
+
+PP-14.25: the identity pages (`UsersPage`, `OrganizationPage`, `OrganizationsPage`, `UserTokensPage`, `ActivateDevicePage`, `LoginPage`, `AuthCallbackPage`) and the sharing pages (`GroupsPage`, `GroupDetailPage`, `PublicLinkPage`) take the slot contract and leave `test/page-slots.exempt.json`; their page-specific slots (`Tabs`, `MemberRowActions`, the login layout slots) are in their slice READMEs. The `applyTheme` host port accepts any theme id (`ThemePreferenceId`), not only `light`, `dark` and `system`; a method declared with a narrower parameter keeps compiling.
 
 PP-14.14: additive. `PlatformWebHost.extensions` (an optional record of ports an extension package declares), `usePlatformPort<T>(key)` and `useOptionalPlatformPort<T>(key)`; `createTestPlatformHost({ extensions })` of `@marinoscar/platform-web/testing` fills it. An app that sets nothing is unchanged.
 

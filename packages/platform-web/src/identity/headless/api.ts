@@ -18,6 +18,7 @@ import type {
   PatDurationUnitValue,
   RoleDescriptor as ContractRoleDescriptor,
   RoleScopeValue,
+  UserExtensions,
 } from '@marinoscar/platform-contract/identity';
 
 import type { PlatformApiClient } from '../../core/index.js';
@@ -62,6 +63,13 @@ export interface UserListItem {
   createdAt: string;
   /** ISO 8601 last update. */
   updatedAt: string;
+  /**
+   * What the app's user-list extensions added for this user on the server
+   * (`registerUserListExtension` of `@marinoscar/platform-api/identity`), keyed
+   * by extension id. Absent when none contributed. A column reads one with
+   * {@link userExtension}.
+   */
+  extensions?: UserExtensions;
 }
 
 /**

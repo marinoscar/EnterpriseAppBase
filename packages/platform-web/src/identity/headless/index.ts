@@ -5,6 +5,7 @@
 // ../README.md. Explicit named exports only.
 
 export { AuthContext, AuthProvider, useAuth, useOptionalAuth } from './auth-context.js';
+export { useCurrentUserExtension, userExtension } from './user-extensions.js';
 export type { AuthProviderProps } from './auth-context.js';
 export type {
   AuthContextValue,

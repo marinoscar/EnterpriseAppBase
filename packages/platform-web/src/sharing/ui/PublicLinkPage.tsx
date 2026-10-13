@@ -21,7 +21,7 @@ import type { ComponentType, ReactElement, ReactNode } from 'react';
 import { useInRouterContext, useLocation, useNavigate } from 'react-router-dom';
 
 import { useOptionalPlatformHost } from '../../core/index.js';
-import type { PlatformApiClient } from '../../core/index.js';
+import type { PageHeaderSlotProps, PageSlot, PageSlotsBase, PlatformApiClient } from '../../core/index.js';
 import type { SharingClient } from '../headless/client.js';
 import { linkRenderers } from '../headless/linkRenderers.js';
 import type { LinkRendererRegistry } from '../headless/linkRenderers.js';
@@ -29,11 +29,30 @@ import { usePublicLink } from '../headless/usePublicLink.js';
 import { LINK_NOT_AVAILABLE, LINK_NOT_AVAILABLE_HINT } from './copy.js';
 
 /**
- * The parts of {@link PublicLinkPage} an app may replace.
+ * What {@link PublicLinkPage} passes its `Header` slot: the page-slot
+ * contract's header props. `title` is "Shared with you". The page has no header
+ * of its own, so a `Header` is drawn above the page's current state, inside the
+ * frame; the neutral message prints its own `h1`, so print a plain heading
+ * rather than a second `h1` when the link is not available.
  *
  * @stability experimental
  */
-export interface PublicLinkPageSlots {
+export type PublicLinkHeaderProps = PageHeaderSlotProps;
+
+/**
+ * The parts of {@link PublicLinkPage} an app may replace or add to: the
+ * packaged-page slot contract plus `Frame`, `NotAvailable` and `Loading`.
+ * `Header`, `BeforeContent`, `Sections` and `AfterContent` are drawn inside the
+ * frame around the page's current state (the renderer, the spinner or the
+ * neutral message); an anonymous visitor sees them, so they must carry nothing
+ * private.
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export interface PublicLinkPageSlots extends PageSlotsBase {
+  /** A heading above the page's current state (none by default). */
+  Header?: PageSlot<PublicLinkHeaderProps>;
   /** Wraps every state of the page: the app's branding. Default a centred container. */
   Frame?: ComponentType<{
     /** The page's current state: the renderer, the spinner or the neutral message. */
@@ -147,6 +166,23 @@ export function PublicLinkPage(props: PublicLinkPageProps): ReactElement {
     content = <Renderer resolution={link.resolution} token={link.token} apiClient={apiClient} />;
   } else {
     content = <NotAvailable />;
+  }
+
+  const Header = props.slots?.Header;
+  const BeforeContent = props.slots?.BeforeContent;
+  const Sections = props.slots?.Sections;
+  const AfterContent = props.slots?.AfterContent;
+  if (Header || BeforeContent || Sections || AfterContent) {
+    content = (
+      <>
+        {Header && <Header title="Shared with you" actions={null} />}
+        {BeforeContent && <BeforeContent />}
+        {Sections && <Sections position="top" />}
+        {content}
+        {Sections && <Sections position="bottom" />}
+        {AfterContent && <AfterContent />}
+      </>
+    );
   }
 
   const Frame = props.slots?.Frame;
