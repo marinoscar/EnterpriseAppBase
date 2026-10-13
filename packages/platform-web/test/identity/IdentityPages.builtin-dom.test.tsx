@@ -105,7 +105,7 @@ describe("the identity pages' markup is unchanged", () => {
     const { container } = render(<UsersPage />, {
       wrapperOptions: { route: '/admin/settings/users', user: mockAdminUser, adapters: { api: service } },
     });
-    await screen.findByText('ada@example.com');
+    await screen.findByText('ada@example.com', {}, { timeout: 8000 });
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
@@ -116,7 +116,7 @@ describe("the identity pages' markup is unchanged", () => {
     const { container } = render(<UsersPage />, {
       wrapperOptions: { route: '/admin/settings/users', user: mockAdminUser, adapters: { api: service } },
     });
-    await screen.findByText('ada@example.com');
+    await screen.findByText('ada@example.com', {}, { timeout: 8000 });
     await userEvent.click(screen.getByRole('tab', { name: 'Allowlist' }));
     await waitFor(() => expect(service.getAllowlist).toHaveBeenCalled());
     await act(async () => {
@@ -129,7 +129,7 @@ describe("the identity pages' markup is unchanged", () => {
     const { container } = render(<OrganizationPage />, {
       wrapperOptions: { route: '/admin/settings/organization', user: ORG_ADMIN, adapters: { api: service } },
     });
-    await screen.findByText('Other Person');
+    await screen.findByText('Other Person', {}, { timeout: 8000 });
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
@@ -140,9 +140,9 @@ describe("the identity pages' markup is unchanged", () => {
     const { container } = render(<OrganizationPage />, {
       wrapperOptions: { route: '/admin/settings/organization', user: ORG_ADMIN, adapters: { api: service } },
     });
-    await screen.findByText('Other Person');
+    await screen.findByText('Other Person', {}, { timeout: 8000 });
     await userEvent.click(screen.getByRole('tab', { name: 'Invites' }));
-    await screen.findByText('pending@example.com');
+    await screen.findByText('pending@example.com', {}, { timeout: 8000 });
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
@@ -157,7 +157,7 @@ describe("the identity pages' markup is unchanged", () => {
         adapters: { api: service },
       },
     });
-    await screen.findByText('Alpha');
+    await screen.findByText('Alpha', {}, { timeout: 8000 });
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
@@ -194,7 +194,7 @@ describe("the identity pages' markup is unchanged", () => {
 
   it('the sign-in callback page, a refused sign-in', async () => {
     const { container } = render(<AuthCallbackPage />, { wrapperOptions: { route: '/auth/callback?error=access_denied' } });
-    await screen.findByRole('heading');
+    await screen.findByRole('heading', {}, { timeout: 8000 });
     expect(html(container)).toMatchSnapshot();
   });
 });

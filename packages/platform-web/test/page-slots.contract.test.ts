@@ -30,6 +30,16 @@ import type { DbBackupPageProps } from '../src/db-backup/ui/index.js';
 import type { DoctorPageProps } from '../src/doctor/ui/index.js';
 import type { JobInsightsPageProps, JobsPageProps } from '../src/jobs/ui/index.js';
 import type { WorkersPageProps } from '../src/nodes/ui/index.js';
+import type {
+  ActivateDevicePageProps,
+  AuthCallbackPageProps,
+  LoginPageProps,
+  OrganizationPageProps,
+  OrganizationsPageProps,
+  UserTokensPageProps,
+  UsersPageProps,
+} from '../src/identity/ui/index.js';
+import type { GroupDetailPageProps, GroupsPageProps, PublicLinkPageProps } from '../src/sharing/ui/index.js';
 
 const PACKAGE_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -167,7 +177,7 @@ describe('the packaged-page slot contract', () => {
   });
 });
 
-describe('the migrated operations pages (compile time)', () => {
+describe('the migrated pages (compile time)', () => {
   it('extend PageSlotsBase and accept every member of it', () => {
     type SlotsOf<P extends { slots?: unknown }> = NonNullable<P['slots']>;
 
@@ -181,6 +191,24 @@ describe('the migrated operations pages (compile time)', () => {
     expectTypeOf<PageSlotsBase>().toExtend<SlotsOf<DbBackupPageProps>>();
     expectTypeOf<SlotsOf<DoctorPageProps>>().toExtend<PageSlotsBase>();
     expectTypeOf<PageSlotsBase>().toExtend<SlotsOf<DoctorPageProps>>();
+
+    // The identity and sharing pages (PP-14.25).
+    expectTypeOf<SlotsOf<UsersPageProps>>().toExtend<PageSlotsBase>();
+    expectTypeOf<PageSlotsBase>().toExtend<SlotsOf<UsersPageProps>>();
+    expectTypeOf<SlotsOf<OrganizationPageProps>>().toExtend<PageSlotsBase>();
+    expectTypeOf<PageSlotsBase>().toExtend<SlotsOf<OrganizationPageProps>>();
+    expectTypeOf<SlotsOf<OrganizationsPageProps>>().toExtend<PageSlotsBase>();
+    expectTypeOf<PageSlotsBase>().toExtend<SlotsOf<OrganizationsPageProps>>();
+    expectTypeOf<SlotsOf<UserTokensPageProps>>().toExtend<PageSlotsBase>();
+    expectTypeOf<SlotsOf<ActivateDevicePageProps>>().toExtend<PageSlotsBase>();
+    expectTypeOf<SlotsOf<LoginPageProps>>().toExtend<PageSlotsBase>();
+    expectTypeOf<PageSlotsBase>().toExtend<SlotsOf<LoginPageProps>>();
+    expectTypeOf<SlotsOf<AuthCallbackPageProps>>().toExtend<PageSlotsBase>();
+    expectTypeOf<SlotsOf<GroupsPageProps>>().toExtend<PageSlotsBase>();
+    expectTypeOf<PageSlotsBase>().toExtend<SlotsOf<GroupsPageProps>>();
+    expectTypeOf<SlotsOf<GroupDetailPageProps>>().toExtend<PageSlotsBase>();
+    expectTypeOf<PageSlotsBase>().toExtend<SlotsOf<GroupDetailPageProps>>();
+    expectTypeOf<SlotsOf<PublicLinkPageProps>>().toExtend<PageSlotsBase>();
 
     // The table pages also carry the table slots.
     expectTypeOf<SlotsOf<JobsPageProps>>().toExtend<Pick<TableSlots<unknown>, 'Toolbar'>>();

@@ -34,9 +34,10 @@ import {
 import type { SxProps, Theme } from '@mui/material';
 import { SHARING_LIMITS } from '@marinoscar/platform-contract/sharing';
 import { useId, useState } from 'react';
-import type { ComponentType, FormEvent, ReactElement } from 'react';
+import type { FormEvent, ReactElement } from 'react';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 
+import type { PageHeaderSlotProps, PageSlot, PageSlotsBase } from '../../core/index.js';
 import type { SharingClient } from '../headless/client.js';
 import { toSharingError } from '../headless/errors.js';
 import { useGroupActions, useGroups } from '../headless/useGroups.js';
@@ -46,18 +47,35 @@ import { GROUPS_PAGE_DESCRIPTION, GROUPS_PAGE_TITLE, groupRoleLabel } from './co
 import { PendingGroupInvites } from './PendingGroupInvites.js';
 
 /**
- * The parts of {@link GroupsPage} an app may replace.
+ * What {@link GroupsPage} passes its `Header` slot: the page-slot contract's
+ * header props with the title and description always present.
  *
  * @stability experimental
  */
-export interface GroupsPageSlots {
+export interface GroupsPageHeaderProps extends PageHeaderSlotProps {
+  /** The page title (the card's). */
+  title: string;
+  /** The page subtitle (the card's description). */
+  description: string;
+}
+
+/**
+ * The parts of {@link GroupsPage} an app may replace or add to: the
+ * packaged-page slot contract. Order of the body: `Header`, `BeforeContent`,
+ * `Sections` (top), the pending invitations and the group list, `Sections`
+ * (bottom), `AfterContent`.
+ *
+ * @example
+ * ```tsx
+ * <GroupsPage slots={{ BeforeContent: () => <Alert severity="info">Groups sync nightly.</Alert> }} />
+ * ```
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export interface GroupsPageSlots extends PageSlotsBase {
   /** The page header. Default an `h1` with the title and the description. */
-  Header?: ComponentType<{
-    /** The page title (the card's). */
-    title: string;
-    /** The page subtitle (the card's description). */
-    description: string;
-  }>;
+  Header?: PageSlot<GroupsPageHeaderProps>;
 }
 
 /**
@@ -80,7 +98,7 @@ export interface GroupsPageProps {
   className?: string;
 }
 
-function DefaultHeader({ title, description }: { title: string; description: string }): ReactElement {
+function DefaultHeader({ title, description }: GroupsPageHeaderProps): ReactElement {
   return (
     <Box sx={{ mb: 3 }}>
       <Typography variant="h4" component="h1" gutterBottom>
@@ -122,6 +140,9 @@ export function GroupsPage(props: GroupsPageProps): ReactElement {
   const navigate = useNavigate();
   const detailPath = props.detailPath ?? defaultDetailPath;
   const Header = props.slots?.Header ?? DefaultHeader;
+  const BeforeContent = props.slots?.BeforeContent;
+  const Sections = props.slots?.Sections;
+  const AfterContent = props.slots?.AfterContent;
   const ids = useId();
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -159,7 +180,9 @@ export function GroupsPage(props: GroupsPageProps): ReactElement {
 
   return (
     <Box sx={props.sx} className={props.className}>
-      <Header title={GROUPS_PAGE_TITLE} description={GROUPS_PAGE_DESCRIPTION} />
+      <Header title={GROUPS_PAGE_TITLE} description={GROUPS_PAGE_DESCRIPTION} actions={null} />
+      {BeforeContent && <BeforeContent />}
+      {Sections && <Sections position="top" />}
 
       <PendingGroupInvites {...clientOption} onChanged={() => void groups.refresh()} sx={{ mb: 3 }} />
 
@@ -217,6 +240,9 @@ export function GroupsPage(props: GroupsPageProps): ReactElement {
           </List>
         </Paper>
       )}
+
+      {Sections && <Sections position="bottom" />}
+      {AfterContent && <AfterContent />}
 
       <Dialog open={createOpen} onClose={() => setCreateOpen(false)} fullWidth maxWidth="xs" aria-labelledby={`${ids}-create`}>
         <Box component="form" onSubmit={submitCreate} noValidate>

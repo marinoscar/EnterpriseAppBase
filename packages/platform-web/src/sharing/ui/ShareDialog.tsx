@@ -49,6 +49,7 @@ import type { GrantDto, LinkGrantView } from '@marinoscar/platform-contract/shar
 import { useId, useState } from 'react';
 import type { ComponentType, FormEvent, ReactElement } from 'react';
 
+import type { PageSectionsSlotProps, PageSlot } from '../../core/index.js';
 import type { SharingClient } from '../headless/client.js';
 import { toSharingError } from '../headless/errors.js';
 import type { ResourceRef, SharingError, SharingRoleOption } from '../headless/types.js';
@@ -71,6 +72,43 @@ export interface ShareDialogSlots {
     /** The record's name, when the dialog was given one. */
     resourceTitle?: string;
   }>;
+  /**
+   * Extra sections, drawn as stacked sections (never tabs) at both ends of the
+   * dialog body: `position: 'top'` above "People and groups", `'bottom'` after
+   * the link section. Return `null` for the position you do not want. Print a
+   * heading (`h3`) and label the section, as the built-in sections do.
+   */
+  Sections?: PageSlot<ShareDialogSectionsProps>;
+  /** Extra controls in the dialog's action row, before "Done". */
+  Footer?: PageSlot<ShareDialogFooterProps>;
+}
+
+/**
+ * What {@link ShareDialog} passes its `Sections` slot.
+ *
+ * @stability experimental
+ */
+export interface ShareDialogSectionsProps extends PageSectionsSlotProps {
+  /** The record being shared. */
+  resource: ResourceRef;
+  /** The record's name, when the dialog was given one. */
+  resourceTitle?: string;
+  /** The viewer may change sharing (`sharing:write`; the API enforces it). */
+  canWrite: boolean;
+  /** The `onChanged` the host gave the dialog: call it after the section changes who can see the record. */
+  onChanged?: () => void;
+}
+
+/**
+ * What {@link ShareDialog} passes its `Footer` slot.
+ *
+ * @stability experimental
+ */
+export interface ShareDialogFooterProps {
+  /** The record being shared. */
+  resource: ResourceRef;
+  /** Close the dialog (what "Done" does). */
+  onClose: () => void;
 }
 
 /**
@@ -167,6 +205,8 @@ export function ShareDialog(props: ShareDialogProps): ReactElement {
   const can = useCan(props.can);
   const canWrite = can('sharing:write');
   const Title = slots?.Title ?? DefaultTitle;
+  const Sections = slots?.Sections;
+  const Footer = slots?.Footer;
   const ids = useId();
 
   const clientOption = props.client ? { client: props.client } : {};
@@ -301,6 +341,15 @@ export function ShareDialog(props: ShareDialogProps): ReactElement {
       </DialogTitle>
       <DialogContent dividers>
         <Stack spacing={3}>
+          {Sections && (
+            <Sections
+              position="top"
+              resource={resource}
+              {...(resourceTitle === undefined ? {} : { resourceTitle })}
+              canWrite={canWrite}
+              {...(onChanged ? { onChanged } : {})}
+            />
+          )}
           {/* ---- Section 1: people and groups ---- */}
           <Box component="section" aria-labelledby={`${ids}-people`}>
             <Typography id={`${ids}-people`} variant="subtitle1" component="h3" gutterBottom>
@@ -562,10 +611,20 @@ export function ShareDialog(props: ShareDialogProps): ReactElement {
               </Box>
             </>
           )}
+          {Sections && (
+            <Sections
+              position="bottom"
+              resource={resource}
+              {...(resourceTitle === undefined ? {} : { resourceTitle })}
+              canWrite={canWrite}
+              {...(onChanged ? { onChanged } : {})}
+            />
+          )}
         </Stack>
         <LiveRegion message={announcement} testId="share-dialog-status" />
       </DialogContent>
       <DialogActions>
+        {Footer && <Footer resource={resource} onClose={onClose} />}
         <Button onClick={onClose}>Done</Button>
       </DialogActions>
     </Dialog>

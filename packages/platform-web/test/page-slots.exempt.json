@@ -6,10 +6,6 @@
       "reason": "migrated in PP-14.24 (#942)"
     },
     {
-      "page": "ActivateDevicePage",
-      "reason": "migrated in PP-14.25 (#943)"
-    },
-    {
       "page": "AiConfigPage",
       "reason": "migrated in PP-14.24 (#942)"
     },
@@ -28,10 +24,6 @@
     {
       "page": "AndroidAppPage",
       "reason": "migrated in PP-14.24 (#942)"
-    },
-    {
-      "page": "AuthCallbackPage",
-      "reason": "migrated in PP-14.25 (#943)"
     },
     {
       "page": "BroadcastsPage",
@@ -54,18 +46,6 @@
       "reason": "migrated in PP-14.24 (#942)/25 (#943)"
     },
     {
-      "page": "GroupDetailPage",
-      "reason": "migrated in PP-14.25 (#943)"
-    },
-    {
-      "page": "GroupsPage",
-      "reason": "migrated in PP-14.25 (#943)"
-    },
-    {
-      "page": "LoginPage",
-      "reason": "migrated in PP-14.25 (#943)"
-    },
-    {
       "page": "MaintenancePage",
       "reason": "migrated in PP-14.24 (#942)"
     },
@@ -80,18 +60,6 @@
     {
       "page": "OrgSettingsPage",
       "reason": "migrated in PP-14.24 (#942)"
-    },
-    {
-      "page": "OrganizationPage",
-      "reason": "migrated in PP-14.25 (#943)"
-    },
-    {
-      "page": "OrganizationsPage",
-      "reason": "migrated in PP-14.25 (#943)"
-    },
-    {
-      "page": "PublicLinkPage",
-      "reason": "migrated in PP-14.25 (#943)"
     },
     {
       "page": "PushConfigPage",
@@ -136,14 +104,6 @@
     {
       "page": "UserProfilePage",
       "reason": "migrated in PP-14.24 (#942)"
-    },
-    {
-      "page": "UserTokensPage",
-      "reason": "migrated in PP-14.25 (#943)"
-    },
-    {
-      "page": "UsersPage",
-      "reason": "migrated in PP-14.25 (#943)"
     }
   ]
 }

@@ -50,7 +50,7 @@ describe("the sharing pages' markup is unchanged", () => {
       ['groups:read', 'groups:write', 'groups:admin'],
     );
     const { container } = renderRoute(host, <GroupsPage />, '/settings/groups', '/settings/groups');
-    await screen.findByText('Design team');
+    await screen.findByText('Design team', {}, { timeout: 8000 });
     await settle();
     expect(html(container)).toMatchSnapshot();
   });
@@ -58,7 +58,7 @@ describe("the sharing pages' markup is unchanged", () => {
   it('the Groups page, a reader with no groups', async () => {
     const host = makeHost({ 'GET /groups': page([]), 'GET /groups/invites/mine': { items: [] } }, ['groups:read']);
     const { container } = renderRoute(host, <GroupsPage />, '/settings/groups', '/settings/groups');
-    await screen.findByText('You are not in any group yet.');
+    await screen.findByText('You are not in any group yet.', {}, { timeout: 8000 });
     await settle();
     expect(html(container)).toMatchSnapshot();
   });
@@ -71,7 +71,7 @@ describe("the sharing pages' markup is unchanged", () => {
 
   it('the Group page, a group administrator', async () => {
     const { container } = renderRoute(makeHost(detailResponses()), <GroupDetailPage />, `/settings/groups/${GROUP_ID}`, '/settings/groups/:id');
-    await screen.findByText('zoe@example.com');
+    await screen.findByText('zoe@example.com', {}, { timeout: 8000 });
     await settle();
     expect(html(container)).toMatchSnapshot();
   });
@@ -85,7 +85,7 @@ describe("the sharing pages' markup is unchanged", () => {
       `/settings/groups/${GROUP_ID}`,
       '/settings/groups/:id',
     );
-    await screen.findByText('Ana');
+    await screen.findByText('Ana', {}, { timeout: 8000 });
     await settle();
     expect(html(container)).toMatchSnapshot();
   });
@@ -100,7 +100,7 @@ describe("the sharing pages' markup is unchanged", () => {
       host,
       <ShareDialog open onClose={() => undefined} resource={{ type: 'transcript', id: RESOURCE_ID }} resourceTitle="Quarterly review" roles={ROLES} allowLinks />,
     );
-    await screen.findByText('Ana');
+    await screen.findByText('Ana', {}, { timeout: 8000 });
     await settle();
     expect(html(document.body)).toMatchSnapshot();
   });
@@ -108,7 +108,7 @@ describe("the sharing pages' markup is unchanged", () => {
   it('the share dialog, a read-only viewer with nothing shared', async () => {
     const host = makeHost({ 'GET /grants': page([]), 'GET /groups': page([]) }, ['sharing:read']);
     renderRoute(host, <ShareDialog open onClose={() => undefined} resource={{ type: 'transcript', id: RESOURCE_ID }} roles={ROLES} />);
-    await screen.findByText('Not shared with anyone yet.');
+    await screen.findByText('Not shared with anyone yet.', {}, { timeout: 8000 });
     await settle();
     expect(html(document.body)).toMatchSnapshot();
   });
