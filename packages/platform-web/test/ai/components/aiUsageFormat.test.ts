@@ -5,6 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   fillDailySeries,
+  formatCost,
   formatFailureRate,
   formatUnits,
   formatUsageDay,
@@ -54,5 +55,23 @@ describe('formatting', () => {
     expect(formatUsageDay('2026-09-24')).toBe('Sep 24');
     expect(formatUnits({ images: 4, audioSeconds: 0 })).toBe('images: 4');
     expect(formatUnits({})).toBeNull();
+  });
+});
+
+describe('formatCost (PP-14.17)', () => {
+  it('formats an ISO currency as money, with more places for a very small amount', () => {
+    expect(formatCost({ amount: 12.5, currency: 'USD' })).toBe('$12.50');
+    expect(formatCost({ amount: 0.0042, currency: 'USD' })).toBe('$0.0042');
+    expect(formatCost({ amount: 0, currency: 'USD' })).toBe('$0.00');
+  });
+
+  it('formats any other label as a plain amount and the label', () => {
+    expect(formatCost({ amount: 3, currency: 'credits' })).toBe('3.00 credits');
+    expect(formatCost({ amount: 3, currency: 'ZZZZ' })).toBe('3.00 ZZZZ');
+  });
+
+  it('is an em dash when there is no cost (no price, or mixed currencies)', () => {
+    expect(formatCost(null)).toBe('—');
+    expect(formatCost(undefined)).toBe('—');
   });
 });

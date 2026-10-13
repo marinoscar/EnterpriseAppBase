@@ -1,5 +1,9 @@
-import { registerAiProvider } from '@marinoscar/platform-api/ai';
+import { registerAiCapability, registerAiFeature, registerAiOperation, registerAiProvider } from '@marinoscar/platform-api/ai';
 
+import {
+  exampleDiarizeCapability,
+  exampleDiarizeOperation,
+} from '../platform-extensions/ai/example-transcribe/example-diarize.operation';
 import { exampleTranscribeProvider } from '../platform-extensions/ai/example-transcribe/example-transcribe.provider';
 
 // =============================================================================
@@ -28,3 +32,29 @@ import { exampleTranscribeProvider } from '../platform-extensions/ai/example-tra
 // =============================================================================
 
 registerAiProvider(exampleTranscribeProvider);
+
+// =============================================================================
+// This app's AI capability, operation and feature (PP-14.17, issue #935)
+// =============================================================================
+//
+// The vocabularies are open. A capability a model can declare, an operation
+// that needs it and a feature that uses it are each one `register*` call, at
+// import time and IN THIS ORDER (an operation names a registered capability, a
+// feature names registered capabilities). The provider that serves the
+// operation lists it under `AiProviderAdapter.operations`
+// (`ExampleTranscribeAdapter`); `AiService.forUser(userId, { feature }).run(
+// 'audio.diarize', input)` then goes through the same gates, key policy, limits
+// and usage metering as a built-in port, and the usage report can be filtered
+// and grouped by the feature.
+// =============================================================================
+
+registerAiCapability(exampleDiarizeCapability);
+registerAiOperation(exampleDiarizeOperation);
+registerAiFeature({
+  id: 'example_meeting_notes',
+  label: 'Example: meeting notes',
+  group: 'Examples',
+  needs: ['audio_transcription', exampleDiarizeCapability.id],
+  inputModalities: ['audio'],
+  providers: null,
+});

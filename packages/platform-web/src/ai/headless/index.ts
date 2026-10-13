@@ -43,6 +43,13 @@ export * from './use-ai-realtime-session.js';
 export * from './use-microphone-permission.js';
 export * from './schema-presets.js';
 export * from './use-ai-models.js';
+export { useAiCapabilities } from './use-ai-capabilities.js';
+export type { UseAiCapabilitiesReturn } from './use-ai-capabilities.js';
+export {
+  getRegisteredAiCapabilityLabel,
+  registerAiCapabilityLabel,
+  registerAiCapabilityLabels,
+} from './capability-labels.js';
 export * from './use-ai-usage.js';
 export * from './use-ai-admin-config.js';
 export * from './use-user-ai-keys.js';

@@ -19,10 +19,10 @@ import { Auth, CurrentUser } from '../../identity/index';
 import { PERMISSIONS } from '../ai.constants';
 import { ApiDataResponse } from '../../core/index';
 import { ErrorDto } from '../../core/index';
-import { AI_CAPABILITIES } from '../core/capabilities';
 import { AiConfigAdminService } from './ai-config-admin.service';
 import { AiModelsAdminService } from './ai-models-admin.service';
 import { AiProviderTestService } from './ai-provider-test.service';
+import { AiCapabilitiesResponseDto, describeAiVocabulary } from './dto/ai-capabilities.dto';
 import { AiConfigResponseDto, AiKeyRemovalResponseDto } from './dto/ai-config-response.dto';
 import {
   AiModelDto,
@@ -53,6 +53,7 @@ import { UpdateAiConfigDto } from './dto/update-ai-config.dto';
 //   GET    /api/admin/ai/models                      ai_config:read
 //   PATCH  /api/admin/ai/models/:id                  ai_config:write
 //   POST   /api/admin/ai/models/refresh              ai_config:write
+//   GET    /api/admin/ai/capabilities                ai_config:read (PP-14.17)
 //
 // ⚠ THE ADMIN KEY IS WRITE-ONLY. No route here, or anywhere, returns it; the
 // responses carry `keyStatus` — a masked hint built without decrypting.
@@ -241,7 +242,7 @@ export class AiAdminController {
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'pageSize', required: false, type: Number, description: 'Max 100.' })
   @ApiQuery({ name: 'provider', required: false, type: String })
-  @ApiQuery({ name: 'capability', required: false, enum: AI_CAPABILITIES })
+  @ApiQuery({ name: 'capability', required: false, type: String, description: 'A capability id (`GET /api/admin/ai/capabilities`).' })
   @ApiQuery({ name: 'enabled', required: false, enum: ['true', 'false'] })
   @ApiQuery({
     name: 'includeDeprecated',
@@ -306,5 +307,22 @@ export class AiAdminController {
     @CurrentUser('id') userId: string,
   ) {
     return this.models.update(id, dto, userId);
+  }
+
+  @Get('capabilities')
+  @Auth({ permissions: [PERMISSIONS.AI_CONFIG_READ] })
+  @ApiOperation({
+    summary: 'List the AI capabilities and operations (Admin only)',
+    description:
+      'Every model capability and every metered operation this deployment knows: the ' +
+      "platform's own and the ones an app or package registered (`registerAiCapability`, " +
+      '`registerAiOperation`), with their labels. The admin pages draw capability chips, the ' +
+      'model override dialog and the usage page from it. Static data: it reads no table and ' +
+      'carries no secret.\n\n' +
+      'Reachable while AI is disabled.',
+  })
+  @ApiDataResponse(AiCapabilitiesResponseDto, { description: 'The capability and operation vocabularies' })
+  getCapabilities(): AiCapabilitiesResponseDto {
+    return describeAiVocabulary();
   }
 }

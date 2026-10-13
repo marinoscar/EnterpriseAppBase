@@ -1,6 +1,6 @@
 # @marinoscar/platform-api/ai
 
-The AI platform: admin-governed, bring-your-own-key, multi-provider AI for the API layer. One runtime facade (`AiService.forUser`) runs every call through the same gate pipeline (kill switch, provider and model enablement, capability match, limits, key resolution), records usage and traces it; five provider adapters (OpenAI, Anthropic, Gemini, Azure OpenAI, OpenAI-compatible) are the only place a provider SDK is imported. Moved out of the reference app's `src/ai/` by issue #739 (PP-8.6), which also added the organization tier: an organization's own provider keys, its tighten-only `ai` settings layer and its own kill switch, per-organization daily caps and usage, the feature registry and the target resolver. It depends on `core`, `doctor`, `otel-core`, `identity`, `settings`, `credentials`, `jobs`, `nodes`, `storage` and `testing` of this package (`packages/platform-slices.json`) and on `@marinoscar/platform-contract/ai` for the settings schemas and the org-key and feature shapes. The test kit is the nested subpath `@marinoscar/platform-api/ai/testing`, catalogued here. The design and its rationale are [docs/specs/ai-platform.md](../../../../docs/specs/ai-platform.md); the operator runbook is [docs/runbooks/ai-configuration.md](../../../../docs/runbooks/ai-configuration.md).
+The AI platform: admin-governed, bring-your-own-key, multi-provider AI for the API layer. One runtime facade (`AiService.forUser`) runs every call through the same gate pipeline (kill switch, provider and model enablement, capability match, limits, key resolution), records usage and traces it; five provider adapters (OpenAI, Anthropic, Gemini, Azure OpenAI, OpenAI-compatible) are the only place a provider SDK is imported. Moved out of the reference app's `src/ai/` by issue #739 (PP-8.6), which also added the organization tier: an organization's own provider keys, its tighten-only `ai` settings layer and its own kill switch, per-organization daily caps and usage, the feature registry and the target resolver. It depends on `core`, `doctor`, `otel-core`, `identity`, `settings`, `credentials`, `jobs`, `nodes`, `storage` and `testing` of this package (`packages/platform-slices.json`) and on `@marinoscar/platform-contract/ai` for the settings schemas and the org-key and feature shapes. Since PP-14.17 (#935) the capability and operation vocabularies are open (`registerAiCapability`, `registerAiOperation`), a provider can serve a kind of call the platform has no port for through `AiProviderAdapter.operations` and `AiService.forUser(...).run(operationId, input)`, the registered feature is persisted on usage rows and runs, a transcript carries bounded `extras`, and `AiModule.forRoot({ pricing })` binds a price list for the usage reports. The test kit is the nested subpath `@marinoscar/platform-api/ai/testing`, catalogued here. The design and its rationale are [docs/specs/ai-platform.md](../../../../docs/specs/ai-platform.md); the operator runbook is [docs/runbooks/ai-configuration.md](../../../../docs/runbooks/ai-configuration.md).
 
 ## Purpose and scope
 
@@ -35,9 +35,11 @@ ai/
   features/                # registerAiFeature, the feature registry, GET /api/ai/features
   core/                    # Provider-agnostic contracts. Feature code imports FROM HERE.
     ai-error.ts              AiError, AiErrorCode, AI_ERROR_STATUS
-    capabilities.ts          AiCapability, AI_CAPABILITIES, aiModelCapabilitiesSchema
-    provider-adapter.interface.ts   AiProviderAdapter — what a provider implements
-    provider-registry.ts     AiProviderRegistry — self-registration, adapterCapabilities()
+    capabilities.ts          AiCapability (open), BUILTIN_AI_CAPABILITIES, aiModelCapabilitiesSchema
+    capability-registry.ts   registerAiCapability — the open capability vocabulary; the 14 built-ins register through it
+    operation-registry.ts    registerAiOperation — an operation: id, capability, input/output schemas; the usage operations register through it
+    provider-adapter.interface.ts   AiProviderAdapter — what a provider implements (ports + `operations`)
+    provider-registry.ts     AiProviderRegistry — self-registration, adapterCapabilities(), supportsOperation()
     structured-output.ts     Zod <-> JSON Schema conversion for structured output
     tools.ts                 defineTool() — function-tool definition + argument validation
     hosted-tools.ts          Hosted-tool shape, admin gate (AI_TOOL_DISABLED), MCP header secrets
@@ -76,7 +78,7 @@ ai/
   config/                  Deployment-wide settings + the kill switch + admin API
     ai-config.service.ts     Read the `ai` settings namespace; assertEnabled/assertProviderEnabled
     ai-enabled.guard.ts       AiEnabledGuard — the kill switch, as a Nest guard
-    ai-admin.controller.ts   /api/admin/ai/* (ai_config:read/write)
+    ai-admin.controller.ts   /api/admin/ai/* (ai_config:read/write), incl. GET /capabilities (the open vocabularies)
     ai-public.controller.ts /api/ai/config (any authenticated user)
     ai-config-admin.service.ts, ai-models-admin.service.ts, ai-provider-test.service.ts
   keys/                    Per-user BYOK keys + which models a user can reach
@@ -100,7 +102,8 @@ ai/
     ai-audio-run-request.ts   an audio run's stored request
     ai-run-operation.ts       aiRunOperation — `request.operation` tells runs apart
     ai-tool-loop.ts            runToolLoop — the function-calling agent loop
-    ai-usage.recorder.ts       One ai_usage_events row per provider round-trip
+    ai-transcription-extras.ts boundTranscriptionExtras — the 64 KiB check on `AiTranscriptionResult.extras`
+    ai-usage.recorder.ts       One ai_usage_events row per provider round-trip (with the feature)
     ai-limits.service.ts       AiLimitsService — ai.limits rate limits (per user, org key, per org, per model), step 6b
     target-resolver.ts         AI_TARGET_RESOLVER, DefaultAiTargetResolver — which model a call uses
   http/                    The consumer HTTP surface
@@ -119,7 +122,7 @@ ai/
     ai-storage-errors.ts         aiErrorFromStorage — storage failures as run outcomes
     ai-storage-key-prefixes.ts   AI_STORAGE_KEY_PREFIXES — `ai-outputs/`, registered with the storage slice
   usage/                   Reading ai_usage_events back
-    ai-usage.service.ts          AiUsageService — the aggregate report (GROUPING SETS SQL)
+    ai-usage.service.ts          AiUsageService — the aggregate report (GROUPING SETS SQL; feature filter, feature and operation group-bys, the priced report)
     ai-usage-admin.controller.ts GET /api/admin/ai/usage (ai_config:read), GET /api/admin/ai/org-usage (org_ai_config:read)
     ai-usage.controller.ts       GET /api/ai/usage/me (ai:use, caller only)
     ai-usage-purge.handler.ts / .task.ts   `ai.usage.purge` job + daily enqueue-only cron
@@ -206,7 +209,7 @@ resolution, the `ai.limits` rate limits and output-token clamp — see below),
 records one `ai_usage_events` row per round-trip, and traces the call. A call
 over a limit throws `AiError('AI_RATE_LIMITED')` with `retryAfterMs` and
 `details.limit` (429 plus `Retry-After` over HTTP); in a job,
-`err.toRateLimitError()` defers it. Twelve entry points, all on the client
+`err.toRateLimitError()` defers it. Thirteen entry points, all on the client
 `forUser` returns:
 
 - **`respond(req, opts?)`** — one response. `req.input` is a string or
@@ -285,6 +288,21 @@ over a limit throws `AiError('AI_RATE_LIMITED')` with `retryAfterMs` and
   BROWSER connects to the provider with over WebRTC (`{ clientSecret,
   expiresAt, connectUrl, … }`); off unless `ai.defaults.allowRealtime`
   (`AI_REALTIME_DISABLED`); one usage row, `units: { sessions: 1 }` (§2.15).
+
+- **`run(operationId, input, { provider?, model?, signal? }?)`** — runs a
+  custom operation an app registered (`registerAiOperation`) and a provider
+  implements under `operations` (diarization, moderation, rerank, OCR),
+  through the same gates, key policy, limits, usage row and span as the
+  methods above. `inputSchema` parses the input before any key is read and
+  `outputSchema` the output before it is returned; the input and output are
+  never logged or recorded, and an output or error carrying the key is
+  refused or replaced. Synchronous (spec §2.26):
+
+  ```ts
+  const { speakers } = await this.ai
+    .forUser(userId, { orgId, feature: 'example_meeting_notes' })
+    .run<{ speakers: string[] }>('audio.diarize', { audioBase64 });
+  ```
 
 **Picking a model**: pass `req.model` (and `req.provider` when more than one
 is registered) to pin it, or leave both unset to fall back to the caller's
@@ -589,6 +607,23 @@ Two things never leave the facade, both handled by
    no reconnect (a reconnect would re-submit the prompt) — see
    `streamAiResponse` in `packages/platform-web/src/ai/headless/client.ts` for how the AI chat surface uses it (through the host transport's `postSse`).
 
+### Adding a capability and an operation
+
+A kind of call the platform has no built-in port for is added in three registrations (at import time, in this order), with no edit to this package: `registerAiCapability` (what a model can do), `registerAiOperation` (a metered kind of call, with the zod schemas that bound its input and output) and, if a feature uses it, `registerAiFeature`. A provider implements the operation as an entry of `AiProviderAdapter.operations` keyed by the operation id; `classifyModel` (or an administrator's override) declares the capability on a model, and `AiProviderRegistry.supports` derives that the provider serves it from the entry (presence is the declaration). The built-ins register through the same functions. The recipe, with the worked `audio.diarize` operation: [docs/EXTENDING.md](../../../../docs/EXTENDING.md#add-an-ai-capability-and-operation-diarization-moderation-rerank-ocr); the contract: spec §2.26.
+
+```ts
+// app-registrations/ai.ts: capability, then operation, then feature
+registerAiCapability({ id: 'speaker_diarization', label: 'Diarization', description: 'Labels who spoke when.' });
+registerAiOperation({
+  id: 'audio.diarize', label: 'Diarization', capability: 'speaker_diarization',
+  inputSchema: z.object({ audioBase64: z.string().max(350_000) }),
+  outputSchema: z.object({ speakers: z.array(z.string()).max(16), durationSeconds: z.number() }),
+  usageUnits: (out) => ({ audioSeconds: out.durationSeconds }),
+});
+```
+
+An operation's `id` is the usage row's `operation`, so it is permanent once a row exists. The usage reports take a `feature` filter and group by `feature` and `operation`; bind `AiModule.forRoot({ pricing: { useClass: MyPricing } })` (an `AiPricing`) to add a cost per bucket (spec §2.26).
+
 ### Adding a provider from an app or package
 
 An app (or a package it installs) adds a provider, such as AssemblyAI for transcripts, with no edit to this package. Four pieces, in the order the reference app's `example-transcribe` has them:
@@ -608,7 +643,12 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
-| `AiModule.forRoot` | option | `forRoot({ imports?, providers?: string[], perUserDefaultModel? }): DynamicModule` | Configure the slice once, with the host-port modules; import the result everywhere | experimental | [example](../../../../apps/api/src/platform/ai/ai.config.ts) |
+| `AiModule.forRoot` | option | `forRoot({ imports?, providers?: string[], perUserDefaultModel?, pricing?: PortBinding<AiPricing> }): DynamicModule` | Configure the slice once, with the host-port modules and, when the deployment has rates, the price list (`pricing`: `useClass`, `useExisting` or `useFactory`; shown as a cost on the usage reports); import the result everywhere | experimental | [example](../../../../apps/api/src/platform/ai/ai.config.ts) |
+| `registerAiCapability` | registry | `registerAiCapability({ id, label, description }): void` | Add a capability a model can declare (diarization, rerank, OCR); call it at import time, before the operation and the feature that name it | experimental | [example](../../../../apps/api/src/app-registrations/ai.ts) |
+| `aiCapabilityRegistry` | registry | `Registry<AiCapabilityDefinition>` | Read the registered capabilities (the 14 built-ins first); the registry behind `registerAiCapability` | experimental | [example](../../../../apps/api/test/examples/ai/example-diarize.spec.ts) |
+| `registerAiOperation` | registry | `registerAiOperation({ id, label, capability, inputSchema, outputSchema, usageUnits? }): void` | Add a metered kind of call that `AiService.forUser(...).run(id, input)` runs through the full gate pipeline once a provider implements it under `AiProviderAdapter.operations` | experimental | [example](../../../../apps/api/src/platform-extensions/ai/example-transcribe/example-diarize.operation.ts) |
+| `aiOperationRegistry` | registry | `Registry<AiOperationDefinition>` | Read the registered operations (the usage operations first); the registry behind `registerAiOperation` | experimental | [example](../../../../apps/api/test/examples/ai/example-diarize.spec.ts) |
+| `AI_PRICING` | token | `InjectionToken<AiPricing>` | Read the price list the usage service uses; bound through `AiModule.forRoot({ pricing })`, never provided in an app module | experimental | [example](../../../../apps/api/src/platform-extensions/ai/example-pricing/example-pricing.ts) |
 | `registerAiProvider` | registry | `registerAiProvider(def: AiProviderDefinition): void` | Add an AI provider from an app or package: its slot in `ai.providers`, its admin form, its key routes and its module follow from the definition; call it at import time, before `AiModule.forRoot()` | experimental | [example](../../../../apps/api/src/app-registrations/ai.ts) |
 | `AiProviderDefinition` | registry | `{ id; label; description?; module; settingsSchema; defaults; requiresKey; requiresBaseUrl?; help?; sdkPackages? }` | Describe a provider before its adapter runs: its non-secret settings, whether it needs a key and an endpoint, the SDK packages its folder may import | experimental | [example](../../../../apps/api/src/platform-extensions/ai/example-transcribe/example-transcribe.provider.ts) |
 | `aiProviderKind` | registry | `PluggableKind<AiProviderDefinition>` | Read the registered definitions (ids, descriptors, defaults) or validate a provider's settings; the registry behind `registerAiProvider` | experimental | [example](../../../../apps/api/test/examples/ai/ai-stored-settings.spec.ts) |
@@ -632,7 +672,7 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | `aiNoSdkLeakSuite` | registry | `ConformanceSuite<AiNoSdkLeakOptions>` | Call the suite's `check()` directly in a test | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
 | `aiOrchestrationBoundarySuite` | registry | `ConformanceAppSuite<OrchestrationBoundaryOptions>` | Read the suite's id (`ai-orchestration-boundary`, option key `aiOrchestrationBoundary`) | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
 
-Not extension points, but the surface a feature uses: `AiService.forUser(userId, { orgId?, feature? })` and its client (`respond`, `stream`, `openStream`, `respondStructured`, `runTools`, `startRun`, `embed`, `generateImage`, `editImage`, `transcribe`, `speak`, `createRealtimeSession`), `defineTool`, `AiError`, `AiEnabledGuard` and `AiOrgEnabledInterceptor` (for an app's own `/api/ai/*` controller), `UserAiKeysService.importKey` (migrating keys an app already holds) and `AiOrgKeyService` (an organization's keys, programmatically).
+Not extension points, but the surface a feature uses: `AiService.forUser(userId, { orgId?, feature? })` and its client (`respond`, `stream`, `openStream`, `respondStructured`, `runTools`, `startRun`, `embed`, `generateImage`, `editImage`, `transcribe`, `speak`, `createRealtimeSession`, `run`), `AiProviderAdapter.operations` and `AiOperationHandler` (the adapter side of a custom operation), `AiTranscriptionResult.extras`, `defineTool`, `AiError`, `AiEnabledGuard` and `AiOrgEnabledInterceptor` (for an app's own `/api/ai/*` controller), `UserAiKeysService.importKey` (migrating keys an app already holds) and `AiOrgKeyService` (an organization's keys, programmatically).
 
 ## Data
 
@@ -642,10 +682,10 @@ The `ai` fragment of `@marinoscar/platform-db` (`schema/ai.prisma`):
 |---|---|---|---|
 | `AiModel` (`ai_models`) | One model of one provider: capabilities, enablement | `system` | Written by the catalogue sync and the AI Models page |
 | `UserAiKey` (`user_ai_keys`) | A user's own key, ciphertext under the `ai_user_key` purpose | `user` | Cascade with the user; the hint and verification only are ever returned |
-| `AiRun` (`ai_runs`) | One background run | `org` (row-level security) | `org_id` from the run's job; purged by `ai.runs.purge` |
-| `AiUsageEvent` (`ai_usage_events`) | One provider round-trip's accounting | `org` (row-level security) | `org_id` null only for the catalogue sync's discovery row; purged by `ai.usage.purge` |
+| `AiRun` (`ai_runs`) | One background run | `org` (row-level security) | `org_id` from the run's job; `feature` the registered feature it was started for; purged by `ai.runs.purge` |
+| `AiUsageEvent` (`ai_usage_events`) | One provider round-trip's accounting | `org` (row-level security) | `org_id` null only for the catalogue sync's discovery row; `operation` open text (an app operation's id); `feature` nullable, indexed with `(org_id, created_at)`; purged by `ai.usage.purge` |
 
-No migration in #739: `org_id` already existed on `ai_runs` and `ai_usage_events` (#725). An organization's own keys live in `org_credentials` under the registered purpose `ai` (credentials slice); the deployment's in `credentials` under the same purpose. Objects an AI run writes live under `ai-outputs/<userId>/<runId>/` (`AI_STORAGE_KEY_PREFIXES`, registered with the storage slice by `forRoot`). Apps never add columns to these tables.
+Migration `0035_ai_usage_feature` (PP-14.17) adds the nullable `feature` text column to both tables and the `(org_id, feature, created_at)` index on usage; it runs in the `app.rls_bypass` transaction form because both are row-level-security tables. No migration in #739: `org_id` already existed on `ai_runs` and `ai_usage_events` (#725). An organization's own keys live in `org_credentials` under the registered purpose `ai` (credentials slice); the deployment's in `credentials` under the same purpose. Objects an AI run writes live under `ai-outputs/<userId>/<runId>/` (`AI_STORAGE_KEY_PREFIXES`, registered with the storage slice by `forRoot`). Apps never add columns to these tables.
 
 ## Permissions and settings
 
@@ -716,7 +756,7 @@ An app with AI disabled at build time still runs the suites and they must find t
 
 | Kit | What it pins |
 |---|---|
-| `describeAiProviderConformance(name, factory, options?)` | Every adapter behaves the same for each port it carries (listing, key verification, classification, responses, streaming, structured output, the tool round-trip, embeddings, images, audio) |
+| `describeAiProviderConformance(name, factory, options?)` | Every adapter behaves the same for each port it carries (listing, key verification, classification, responses, streaming, structured output, the tool round-trip, embeddings, images, audio) and for each custom operation it implements (`fixtures.operations`: registered and runnable, output satisfies its schema without echoing the key, a rejected key is `AI_KEY_INVALID`, a failure is an `AiError`) |
 | `runOrchestrationBoundarySuite(options)` | The orchestration scan behind `ai-orchestration-boundary`, callable directly |
 | `createAiRuntimeHarness(options?)` | The real runtime over a scripted fake, in-memory tables and storage: for gate, key-policy and limit tests; `extraProviders`, `extraAdapters` and catalog rows with a `provider` run the same gates over a provider an app added |
 
@@ -805,6 +845,7 @@ New subpath in this version. From the reference app's `src/ai/` (#739):
 - New routes: `GET /api/ai/features`, `/api/admin/ai/org-keys`, `GET /api/admin/ai/org-usage`; `GET /api/admin/ai/usage` takes `orgId` and `groupBy=org`. New permissions `org_ai_config:read`/`write` (seeded for `org_admin`).
 - `ai-outputs/` is registered by the slice (`AI_STORAGE_KEY_PREFIXES`); an app manifest may reuse the definition to keep its purge order.
 - Nothing is migrated: stored keys, runs and usage rows are read unchanged.
+- PP-14.17 (#935): additive, plus one migration. `AI_CAPABILITIES` is a deprecated alias of `BUILTIN_AI_CAPABILITIES`; `AiCapability` and `AiUsageOperation` widen to `Builtin | (string & {})`, and a model's stored `capabilities` validate by id pattern (a write must name a registered capability). Apply migration `0035_ai_usage_feature` (`feature` on `ai_usage_events` and `ai_runs`; the API does not migrate on startup). New: `registerAiCapability`, `registerAiOperation`, `AiProviderAdapter.operations`, `AiService.forUser(...).run`, `AiTranscriptionResult.extras`, `AiModule.forRoot({ pricing })` and `AI_PRICING`, `GET /api/admin/ai/capabilities`, the usage reports' `feature` filter, `feature` and `operation` group-bys and `priced`/`cost`. A custom `AiService` double needs a `run` member. `FakeAiProvider` gains `operations` and `transcriptionExtras`. The transcription route's `providerOptions` (already accepted) is now bounded to 4 KiB.
 - PP-14.6 (#924): `ai.providers` is a record keyed by provider id, validated by the provider registry. The stored shape of the five built-ins is unchanged and loads as before. `AiModuleOptions.providers` is `string[]` (the `AiProviderModuleId` union is `string`); `AI_PROVIDER_IDS` is a deprecated alias of `BUILTIN_AI_PROVIDER_IDS`; `AI_PROVIDER_SETTINGS_FIELDS` and the web/API `PROVIDERS_REQUIRING_BASE_URL` are replaced by the definition (`requiresBaseUrl`, `help`). `providerRequiresKey(slot)` takes the provider id as its second argument. The admin config response gains `descriptors` and, per provider, `settings`, `requiresBaseUrl` and `help`; `settingsFields` is `string[]`. A `PATCH /api/system-settings` provider URL rule (an `http` Azure endpoint) is now enforced when the namespace merges the patch, still as a 400.
 
 ## Troubleshooting

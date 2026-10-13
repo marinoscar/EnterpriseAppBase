@@ -404,8 +404,8 @@ describeWithDb('platform db baseline against real Postgres', () => {
       // 0027_add_grants (#729), 0028_add_org_settings (#733) and 0029_add_org_credentials (#735) are three more matched migrations,
       // and 0030_add_jobs_org_id and 0031_add_jobs_org_id_status_index (#734) two more,
       // and 0032_add_broadcast_target_org (#738) one more, and 0033_add_android_app (#746) one more,
-      // and 0034_open_job_reason (#937) one more.
-      expect(dry.stdout).toContain('33 matched, 1 unmatched, 1 app-only');
+      // and 0034_open_job_reason (#937) one more, and 0035_ai_usage_feature (#935) one more.
+      expect(dry.stdout).toContain('34 matched, 1 unmatched, 1 app-only');
       expect(dry.stdout).toContain('platform:0017_revoke_viewer_ai_use -> 20260927000000_revoke_viewer_ai_use  [normalised, localSha256 recorded]');
       expect(dry.stdout).toMatch(/platform:0020_add_worker_node_vitals -> 20260929090000_worker_node_vitals\s+\[sha256\]/);
       expect(dry.stdout).toContain('would resolve --applied 20260929090001_add_job_trace_context (installed first)');
