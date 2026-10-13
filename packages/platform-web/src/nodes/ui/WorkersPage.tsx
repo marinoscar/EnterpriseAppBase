@@ -91,7 +91,7 @@
  */
 
 import { useCallback, useMemo, useState } from 'react';
-import type { ComponentType, ReactElement } from 'react';
+import type { ReactElement } from 'react';
 import {
   Alert,
   Box,
@@ -105,7 +105,8 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import MonitorHeartIcon from '@mui/icons-material/MonitorHeart';
 import { Navigate } from 'react-router-dom';
 
-import { usePlatformViewer } from '../../core/index.js';
+import { usePlatformViewer, useTableSlotColumns } from '../../core/index.js';
+import type { PageSlot, PageSlotsBase, TableSlots } from '../../core/index.js';
 import {
   WORKER_NODES_POLL_INTERVAL_MS,
   useNodeActions,
@@ -113,10 +114,11 @@ import {
   useVisiblePolling,
   useWorkerNodes,
 } from '../headless/index.js';
-import type { NodesTableRowAction, WorkerNode } from '../headless/index.js';
+import type { NodesTableColumn, NodesTableRowAction, WorkerNode } from '../headless/index.js';
 import { WORKER_NODES_PAGE_DESCRIPTION as PAGE_DESCRIPTION, WORKER_NODES_PAGE_TITLE as PAGE_TITLE } from './copy.js';
 import { NodeCredentials } from './NodeCredentials.js';
 import { NodeVitalsDialog } from './NodeVitalsDialog.js';
+import type { NodeVitalsPanelSlotProps } from './NodeVitalsDialog.js';
 import { DefaultPageHeader } from './PageHeader.js';
 import type { NodesPageHeaderProps } from './PageHeader.js';
 import { NodesTable as DataTable } from './table.js';
@@ -124,6 +126,30 @@ import { NODES_TABLE_ID, buildWorkerNodeColumns } from './workersTable.js';
 import { countLowDisk, fleetSaturation, formatPercent } from './workerVitals.js';
 
 type DataTableRowAction<Row> = NodesTableRowAction<Row>;
+
+/**
+ * The slots of {@link WorkersPage}: the page-slot contract over a fleet row, and
+ * `VitalsPanel`.
+ *
+ * `Header` keeps the props it always had and gains `actions` (`null`).
+ * `Toolbar` is drawn above the fleet table, `Columns` / `RowActions` /
+ * `DetailPanel` act on it, and `VitalsPanel` adds content after the vitals in
+ * the "View vitals" dialog.
+ *
+ * @example
+ * ```tsx
+ * <WorkersPage slots={{ RowActions: ({ row }) => <PingNode node={row} />, VitalsPanel: ({ node }) => <DiskForecast node={node} /> }} />
+ * ```
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export interface WorkersPageSlots extends PageSlotsBase, TableSlots<WorkerNode, NodesTableColumn<WorkerNode>> {
+  /** Replaces the title and subtitle block. */
+  Header?: PageSlot<NodesPageHeaderProps>;
+  /** Extra section after the vitals in the node vitals dialog. */
+  VitalsPanel?: PageSlot<NodeVitalsPanelSlotProps>;
+}
 
 /**
  * The props of {@link WorkersPage}. Every prop is optional; the app's route
@@ -135,11 +161,8 @@ type DataTableRowAction<Row> = NodesTableRowAction<Row>;
 export interface WorkersPageProps {
   /** Where a viewer without `nodes:read` is sent. Default `'/'`. */
   fallbackPath?: string;
-  /** Replaceable parts of the page. */
-  slots?: {
-    /** Replaces the title and subtitle block. */
-    Header?: ComponentType<NodesPageHeaderProps>;
-  };
+  /** Replaceable and additional parts of the page. */
+  slots?: WorkersPageSlots;
 }
 
 interface StatTileProps {
@@ -202,6 +225,10 @@ function StatTile({ label, value, hint, emphasis = 'default' }: StatTileProps) {
 export function WorkersPage(props: WorkersPageProps = {}): ReactElement {
   const { fallbackPath = '/', slots } = props;
   const Header = slots?.Header ?? DefaultPageHeader;
+  const BeforeContent = slots?.BeforeContent;
+  const Sections = slots?.Sections;
+  const AfterContent = slots?.AfterContent;
+  const Toolbar = slots?.Toolbar;
   const { hasPermission } = usePlatformViewer();
 
   const { nodes, isLoading, error, refresh } = useWorkerNodes();
@@ -257,7 +284,8 @@ export function WorkersPage(props: WorkersPageProps = {}): ReactElement {
   const actions = useNodeActions(refreshAll);
   useVisiblePolling(refreshAll, WORKER_NODES_POLL_INTERVAL_MS);
 
-  const columns = useMemo(() => buildWorkerNodeColumns(renderedAt), [renderedAt]);
+  const baseColumns = useMemo(() => buildWorkerNodeColumns(renderedAt), [renderedAt]);
+  const columns = useTableSlotColumns<WorkerNode, NodesTableColumn<WorkerNode>>(baseColumns, slots);
 
   const canWrite = hasPermission('nodes:write');
 
@@ -387,7 +415,9 @@ export function WorkersPage(props: WorkersPageProps = {}): ReactElement {
             rail row, the compact AppBar title and this `h1` all name the page
             identically. "(read-only)" is stated up front rather than left for
             the operator to discover by finding every control missing. */}
-        <Header title={PAGE_TITLE} description={PAGE_DESCRIPTION} readOnly={!canWrite} />
+        <Header title={PAGE_TITLE} description={PAGE_DESCRIPTION} readOnly={!canWrite} actions={null} />
+        {BeforeContent && <BeforeContent />}
+        {Sections && <Sections position="top" />}
 
         {actions.error && (
           <Alert severity="error" sx={{ mb: 2 }} onClose={actions.clearError}>
@@ -445,6 +475,12 @@ export function WorkersPage(props: WorkersPageProps = {}): ReactElement {
           </Alert>
         )}
 
+        {Toolbar && (
+          <Stack direction="row" spacing={1} useFlexGap sx={{ mb: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+            <Toolbar />
+          </Stack>
+        )}
+
         <Paper sx={{ width: '100%', p: 2 }}>
           <Box sx={{ minWidth: 0 }}>
             <DataTable<WorkerNode>
@@ -481,6 +517,7 @@ export function WorkersPage(props: WorkersPageProps = {}): ReactElement {
           node={vitalsNode}
           now={renderedAt}
           onClose={() => setVitalsNodeId(null)}
+          VitalsPanel={slots?.VitalsPanel}
         />
 
         <NodeCredentials
@@ -492,6 +529,9 @@ export function WorkersPage(props: WorkersPageProps = {}): ReactElement {
           onRevoke={actions.revokeCredential}
           now={renderedAt}
         />
+
+        {Sections && <Sections position="bottom" />}
+        {AfterContent && <AfterContent />}
 
         <Snackbar
           open={notice !== null}
