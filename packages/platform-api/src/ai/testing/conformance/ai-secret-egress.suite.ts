@@ -59,6 +59,7 @@ import { request } from './ai-http-client';
 import { Logger } from '@nestjs/common';
 import {
   AI_SETTINGS_CARRIES_NO_SECRET,
+  aiCapabilitiesResponseSchema,
   systemAiSchema,
 } from '@marinoscar/platform-contract/ai';
 
@@ -67,6 +68,7 @@ import { JobHandlerRegistry } from '../../../jobs/index';
 import type { ConformanceAppSuite } from '../../../testing/index';
 import { AiConfigService } from '../../config/ai-config.service';
 import { AiProviderRegistry } from '../../core/provider-registry';
+import { aiUsageReportSchema } from '../../usage/dto/ai-usage.dto';
 import { AI_KEYLESS_API_KEY } from '../../core/provider-adapter.interface';
 import {
   aiConfigResponseSchema,
@@ -153,6 +155,19 @@ const MCP_TOOL = {
   headers: { Authorization: `Bearer ${MCP_HEADER_SENTINEL}`, 'X-Api-Key': MCP_HEADER_SENTINEL },
 } as const;
 
+/**
+ * PP-14.17 (#935): the diarized detail the fake transcription reports, and a
+ * `providerOptions` value a caller hands the adapter. Neither is a key, but the
+ * options are a free-form channel to a third party, so they are held to the
+ * same standard here: they reach the adapter and the run row that replays them,
+ * and no response body, usage row or log line.
+ */
+const TRANSCRIPT_EXTRAS = {
+  language: 'en',
+  segments: [{ start: 0, end: 0.9, text: 'hello', speaker: 'A' }],
+};
+const PROVIDER_OPTIONS_SENTINEL = 'provider-options-egress-sentinel-Hn55Rc';
+
 /** Every place a sentinel might leak, joined into one haystack per capture. */
 function assertNoLeak(label: string, haystack: string): void {
   const leaked = findLeakedSentinels(haystack, ALL_SENTINELS);
@@ -196,7 +211,8 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
         { modelId: HARNESS_SPEECH_MODEL, capabilities: FAKE_SPEECH_MODEL_CAPABILITIES },
         { modelId: HARNESS_REALTIME_MODEL, capabilities: FAKE_REALTIME_MODEL_CAPABILITIES },
       ],
-      fake: { hostedTools: ['mcp'] },
+      // PP-14.17: the transcription route reports `extras`, which must not become a way to carry a key.
+      fake: { hostedTools: ['mcp'], transcriptionExtras: TRANSCRIPT_EXTRAS },
     });
 
     adminCtx = await fixture.createContext({
@@ -381,6 +397,9 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
       AiTranscriptionRunOutput: aiTranscriptionRunOutputSchema,
       AiSpeechRunOutput: aiSpeechRunOutputSchema,
       AiRealtimeSessionResponseDto: aiRealtimeSessionResponseSchema,
+      // PP-14.17 (#935): the vocabulary route and the (now priced, per-feature) usage report.
+      AiCapabilitiesResponseDto: aiCapabilitiesResponseSchema,
+      AiUsageReportDto: aiUsageReportSchema,
     };
 
     /**
@@ -556,6 +575,43 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
       assertNoLeak('ai_runs rows (transcription)', JSON.stringify(app.harness.runRows));
       assertNoLeak('ai_usage_events (transcription)', JSON.stringify(app.harness.usageEvents));
       assertNoLeak('log output (transcription)', logLines.join('\n'));
+    });
+
+    it('a transcription with providerOptions and extras (PP-14.17): the options reach the adapter only; extras are data, not a key channel', async () => {
+      const recording = app.harness.storage.addObject({ uploadedById: HARNESS_USER, mimeType: 'audio/mpeg', bytes: Buffer.alloc(900, 2) });
+      const started = await request(app.context.app.getHttpServer())
+        .post('/api/ai/audio/transcriptions')
+        .set(authHeader(holderToken))
+        .send({
+          storageObjectId: recording.id,
+          model: HARNESS_TRANSCRIPTION_MODEL,
+          providerOptions: { openai: { vocabulary: PROVIDER_OPTIONS_SENTINEL } },
+        })
+        .expect(202);
+
+      const handler = app.context.app.get<JobHandlerRegistry>(JobHandlerRegistry).get('ai.audio.transcribe');
+      await handler!.process({ id: started.body.data.jobId, payload: { runId: started.body.data.runId } } as never);
+
+      const run = await request(app.context.app.getHttpServer())
+        .get(`/api/ai/runs/${started.body.data.runId}`)
+        .set(authHeader(holderToken))
+        .expect(200);
+
+      expect(run.body.data.output.extras).toEqual(TRANSCRIPT_EXTRAS);
+      expect(app.harness.fake.callsTo('audio.transcribe')[0].transcriptionRequest?.providerOptions).toEqual({
+        openai: { vocabulary: PROVIDER_OPTIONS_SENTINEL },
+      });
+      assertNoLeak('transcription (extras) run body', JSON.stringify(run.body));
+      assertNoLeak('transcription (extras) ai_runs rows', JSON.stringify(app.harness.runRows));
+      assertNoLeak('transcription (extras) usage rows', JSON.stringify(app.harness.usageEvents));
+      for (const [label, haystack] of [
+        ['accepted response body', JSON.stringify(started.body)],
+        ['run body', JSON.stringify(run.body)],
+        ['usage rows', JSON.stringify(app.harness.usageEvents)],
+        ['log output', logLines.join('\n')],
+      ]) {
+        expect(`${label}: ${haystack.includes(PROVIDER_OPTIONS_SENTINEL) ? 'carries providerOptions' : 'clean'}`).toBe(`${label}: clean`);
+      }
     });
 
     it('a transcription whose provider call fails records a run error with no sentinel', async () => {
@@ -1036,6 +1092,20 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
       const auditCalls = adminCtx.prismaMock.auditEvent.create.mock.calls.map((call: any[]) => call[0].data);
       assertNoLeak('audit_events rows', JSON.stringify(auditCalls));
       expect(auditCalls.length).toBeGreaterThan(0);
+    });
+
+    it('GET /api/admin/ai/capabilities (PP-14.17): static vocabulary, no sentinel in the body, headers or logs', async () => {
+      storedAdminKey = ADMIN_KEY_SENTINEL;
+
+      const res = await request(adminCtx.app.getHttpServer())
+        .get('/api/admin/ai/capabilities')
+        .set(authHeader(adminToken))
+        .expect(200);
+
+      expect(res.body.data.capabilities.length).toBeGreaterThan(0);
+      assertNoLeak('GET admin capabilities body', JSON.stringify(res.body));
+      assertNoLeak('GET admin capabilities headers', JSON.stringify(res.headers));
+      assertNoLeak('GET admin capabilities logs', logLines.join('\n'));
     });
 
     it('GET /api/admin/ai/config: only a masked keyStatus, never the key', async () => {

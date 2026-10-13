@@ -14,7 +14,7 @@
  */
 import { useRef, type KeyboardEvent } from 'react';
 import { Box, ToggleButton, ToggleButtonGroup, Tooltip } from '@mui/material';
-import { AI_PLAYGROUND_MODES, type AiPlaygroundModeId } from './aiPlaygroundModes.js';
+import { listAiPlaygroundModes, type AiPlaygroundModeId } from './aiPlaygroundModes.js';
 
 export interface AiPlaygroundModeSelectorProps {
   value: AiPlaygroundModeId;
@@ -55,7 +55,7 @@ export function AiPlaygroundModeSelector({
   };
 
   return (
-    // The wrapper scrolls rather than the page if six labels ever outgrow a phone.
+    // The wrapper scrolls rather than the page if the labels ever outgrow a phone.
     <Box sx={{ maxWidth: '100%', overflowX: 'auto' }}>
       <ToggleButtonGroup
         ref={groupRef}
@@ -71,7 +71,7 @@ export function AiPlaygroundModeSelector({
           if (next && !unavailable.has(next)) onChange(next);
         }}
       >
-        {AI_PLAYGROUND_MODES.filter((mode) => !hidden?.has(mode.id)).map((mode) => {
+        {listAiPlaygroundModes().filter((mode) => !hidden?.has(mode.id)).map((mode) => {
           const isUnavailable = unavailable.has(mode.id);
           const button = (
             <ToggleButton

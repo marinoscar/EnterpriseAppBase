@@ -68,6 +68,7 @@ export class AiAudioTranscribeHandler extends AiMediaRunHandler {
       orgId: ctx.orgId,
       jobId: ctx.job.id,
       signal: ctx.signal,
+      ...(ctx.feature ? { feature: ctx.feature } : {}),
     });
 
     if (await ctx.cancelledWhileRunning()) return null;
@@ -87,6 +88,7 @@ function toRunOutput(storageObjectId: string, result: AiTranscriptionResult): Ai
     ...(result.durationSeconds !== undefined ? { durationSeconds: result.durationSeconds } : {}),
     ...(result.segments !== undefined ? { segments: result.segments } : {}),
     ...(result.words !== undefined ? { words: result.words } : {}),
+    ...(result.extras !== undefined ? { extras: result.extras } : {}),
     usage: result.usage,
   };
 }

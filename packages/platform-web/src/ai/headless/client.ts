@@ -25,6 +25,7 @@ import type {
   AiModelListFilter,
   AiModelListResponse,
   AiModelUpdateInput,
+  AiCapabilitiesResponse,
   AiMyUsageGroupBy,
   AiMyUsageQuery,
   AiProbeResult,
@@ -453,6 +454,17 @@ export async function getAiUsage(
   query: AiUsageQuery
 ): Promise<AiUsageReport> {
   return api.get<AiUsageReport>(`${ADMIN}/usage?${usageQueryString(query)}`);
+}
+
+/**
+ * `GET /admin/ai/capabilities` — `ai_config:read`. Every capability and
+ * operation the deployment knows, the platform's own and an app's (PP-14.17).
+ * Not behind the AI kill switch.
+ *
+ * @stability experimental
+ */
+export async function getAiCapabilities(api: PlatformApiClient): Promise<AiCapabilitiesResponse> {
+  return api.get<AiCapabilitiesResponse>(`${ADMIN}/capabilities`);
 }
 
 /**

@@ -89,9 +89,9 @@ import { AiChatThread } from './shared/AiChatThread.js';
 import { AI_KEYS_PATH } from './shared/AiErrorAlert.js';
 import { AiRunCard } from './shared/AiRunCard.js';
 import {
-  AI_PLAYGROUND_MODES,
   hiddenPlaygroundModes,
   initialPlaygroundMode,
+  listAiPlaygroundModes,
   modelsForMode,
   unavailableModes,
   type AiPlaygroundMode,
@@ -99,12 +99,8 @@ import {
 } from './playground/aiPlaygroundModes.js';
 import { AiPlaygroundModeSelector } from './playground/AiPlaygroundModeSelector.js';
 import { AiPlaygroundPanels } from './playground/AiPlaygroundPanels.js';
-import { AiModePlaceholder } from './playground/AiModePlaceholder.js';
-import { AiImageMode } from './playground/AiImageMode.js';
-import { AiEmbeddingsMode } from './playground/AiEmbeddingsMode.js';
-import { AiTranscribeMode } from './playground/AiTranscribeMode.js';
-import { AiSpeechMode } from './playground/AiSpeechMode.js';
-import { AiVoiceMode } from './playground/AiVoiceMode.js';
+// Registers the six built-in modes through `registerAiPlaygroundMode`'s own registry (side effect).
+import './playground/builtinAiPlaygroundModes.js';
 import { usePlaygroundModel } from './playground/usePlaygroundModel.js';
 import {
   AiChatAttachButtons,
@@ -302,13 +298,15 @@ export default function AiPlaygroundPage(props: AiPlaygroundPageProps = {}) {
   const preferredModel: AiDefaultModel | null | undefined = settings?.ai?.defaultModel;
   const modelsReady = !modelsLoading && !settingsLoading;
   // Each mode's models, filtered by its capability alone (never by name).
+  // The registry is read once per mount: modes register at module scope, before the page renders.
+  const modes = useMemo(() => listAiPlaygroundModes(), []);
   const modeModels = useMemo(
     () =>
-      Object.fromEntries(AI_PLAYGROUND_MODES.map((entry) => [entry.id, modelsForMode(models, entry)])) as Record<
+      Object.fromEntries(modes.map((entry) => [entry.id, modelsForMode(models, entry)])) as Record<
         AiPlaygroundModeId,
         UsableAiModel[]
       >,
-    [models],
+    [models, modes],
   );
   const chatModels = modeModels.chat;
   const { modelKey, setModelKey, selected } = usePlaygroundModel(chatModels, preferredModel, modelsReady);
@@ -600,7 +598,7 @@ export default function AiPlaygroundPage(props: AiPlaygroundPageProps = {}) {
 
   const modelsLoaded = !modelsLoading && !modelsError;
   const noModels = modelsLoaded && models.length === 0;
-  const noUsableMode = modelsLoaded && models.length > 0 && unavailable.size === AI_PLAYGROUND_MODES.length;
+  const noUsableMode = modelsLoaded && models.length > 0 && unavailable.size === modes.length;
 
   const chatPanel = selected && (
     <AiPlaygroundPanels settings={settingsContent} label="Chat">
@@ -679,27 +677,16 @@ export default function AiPlaygroundPage(props: AiPlaygroundPageProps = {}) {
     </AiPlaygroundPanels>
   );
 
-  /** A non-chat mode's panel. Chat's state lives on this page, so its panel is rendered inline. */
+  /**
+   * A non-chat mode's panel: the `Panel` the mode registered, handed its models.
+   * Chat's state lives on this page, so its panel is rendered inline instead.
+   */
   const renderModePanel = (entry: AiPlaygroundMode): ReactNode => {
-    switch (entry.id) {
-      case 'chat':
-        return null;
-      case 'image':
-        return <AiImageMode models={modeModels.image} preferredModel={preferredModel} ready={modelsReady} />;
-      case 'embeddings':
-        return <AiEmbeddingsMode models={modeModels.embeddings} preferredModel={preferredModel} ready={modelsReady} />;
-      case 'transcribe':
-        return (
-          <AiTranscribeMode models={modeModels.transcribe} preferredModel={preferredModel} ready={modelsReady} />
-        );
-      case 'speech':
-        return <AiSpeechMode models={modeModels.speech} preferredModel={preferredModel} ready={modelsReady} />;
-      case 'voice':
-        return <AiVoiceMode models={modeModels.voice} preferredModel={preferredModel} ready={modelsReady} />;
-      // A mode added to AI_PLAYGROUND_MODES before its panel exists.
-      default:
-        return <AiModePlaceholder mode={entry} />;
-    }
+    if (entry.id === 'chat') return null;
+
+    const Panel = entry.Panel;
+
+    return <Panel models={modeModels[entry.id] ?? []} preferredModel={preferredModel} ready={modelsReady} />;
   };
 
   const showModes = modelsLoaded && models.length > 0 && !noUsableMode;
@@ -781,7 +768,7 @@ export default function AiPlaygroundPage(props: AiPlaygroundPageProps = {}) {
 
           {mode === 'chat' && chatPanel}
 
-          {AI_PLAYGROUND_MODES.filter(
+          {modes.filter(
             // A hidden mode is unmounted, so a voice call ends when realtime is switched off.
             (entry) =>
               entry.id !== 'chat' &&

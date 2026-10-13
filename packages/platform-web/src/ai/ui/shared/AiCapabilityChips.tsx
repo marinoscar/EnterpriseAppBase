@@ -44,7 +44,7 @@ function chipSpecs(capabilities: readonly string[], grouped: boolean): ChipSpec[
       label: group.label,
       tooltip: present.map(aiCapabilityLabel).join(', '),
     })),
-    ...unknown.map((capability) => ({ key: capability, label: capability })),
+    ...unknown.map((capability) => ({ key: capability, label: aiCapabilityLabel(capability) })),
   ];
 }
 

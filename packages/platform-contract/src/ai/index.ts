@@ -12,8 +12,10 @@ export {
   AI_AZURE_DEPLOYMENTS_MAX,
   AI_AZURE_ENDPOINT_SCHEMES,
   AI_AZURE_MODEL_ID_MAX,
+  AI_CAPABILITY_ID_PATTERN,
   AI_COMPATIBLE_ENDPOINT_SCHEMES,
   AI_ENDPOINT_URL_MAX,
+  AI_FEATURE_ID_PATTERN,
   AI_KEY_POLICIES,
   AI_LIMIT_MODEL_KEY_MAX,
   AI_LIMIT_MODEL_KEY_PATTERN,
@@ -22,6 +24,7 @@ export {
   AI_MCP_ALLOWED_HOST_PATTERN,
   AI_MCP_ALLOWED_HOSTS_MAX,
   AI_OPENAI_API_STYLES,
+  AI_OPERATION_ID_PATTERN,
   AI_PROVIDER_ID_PATTERN,
   AI_PROVIDER_IDS,
   BUILTIN_AI_PROVIDER_IDS,
@@ -83,3 +86,20 @@ export { aiFeatureViewSchema } from './features.js';
 export type { AiFeatureView } from './features.js';
 export { ORG_AI_KEY_VIEW_CARRIES_NO_SECRET, orgAiKeyViewSchema, setOrgAiKeySchema } from './org-keys.js';
 export type { OrgAiKeyView, OrgAiKeyViewCarriesNoSecret, SetOrgAiKeyInput } from './org-keys.js';
+
+// ---- the capability and operation vocabularies (PP-14.17, #935) ------------------------
+export {
+  aiCapabilitiesResponseSchema,
+  aiCapabilityDescriptorSchema,
+  aiCapabilityIdSchema,
+  aiFeatureIdSchema,
+  aiOperationDescriptorSchema,
+  aiOperationIdSchema,
+  aiUsageCostSchema,
+} from './capabilities.js';
+export type {
+  AiCapabilitiesResponse,
+  AiCapabilityDescriptor,
+  AiOperationDescriptor,
+  AiUsageCost,
+} from './capabilities.js';

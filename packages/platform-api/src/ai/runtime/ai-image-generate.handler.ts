@@ -81,6 +81,7 @@ export class AiImageGenerateHandler extends AiMediaRunHandler {
       orgId: ctx.orgId,
       jobId: ctx.job.id,
       signal: ctx.signal,
+      ...(ctx.feature ? { feature: ctx.feature } : {}),
       beforeCall: () => this.outputs.assertWritable(),
     });
 

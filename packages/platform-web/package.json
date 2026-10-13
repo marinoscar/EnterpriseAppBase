@@ -195,6 +195,10 @@
       "types": "./dist/ai/ui/playground-page.d.ts",
       "default": "./dist/ai/ui/playground-page.js"
     },
+    "./ai/ui/playground-modes": {
+      "types": "./dist/ai/ui/playground-modes.d.ts",
+      "default": "./dist/ai/ui/playground-modes.js"
+    },
     "./ai/ui/provider-cards": {
       "types": "./dist/ai/ui/provider-cards.d.ts",
       "default": "./dist/ai/ui/provider-cards.js"

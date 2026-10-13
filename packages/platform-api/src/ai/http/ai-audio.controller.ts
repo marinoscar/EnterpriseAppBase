@@ -68,7 +68,10 @@ export class AiAudioController {
       '`/api/storage/objects`, with **your** key for the provider (or the organisation key, when ' +
       'the deployment allows fallback and you have none), and returns at once with **202**. Poll ' +
       '`GET /api/ai/runs/{runId}`: once `succeeded`, `output` is ' +
-      '`{ type: "transcription", text, language?, durationSeconds?, segments?, words? }`.\n\n' +
+      '`{ type: "transcription", text, language?, durationSeconds?, segments?, words?, extras? }`; ' +
+      '`extras` is what the provider reports beyond those (speaker-labelled segments, ' +
+      'language, other JSON), at most 64 KiB. `providerOptions` (keyed by provider id) is passed ' +
+      'to the provider as is: a JSON object of at most 4 KiB, never logged.\n\n' +
       '`storageObjectId` must be `ready`, an audio type (`audio/*`) or `video/mp4`/`video/webm`, ' +
       'and within the provider\'s limit (25 MiB for OpenAI). An unknown id is **404** and another ' +
       'user\'s is **403**, as the storage API itself answers. `model` must be an enabled model ' +

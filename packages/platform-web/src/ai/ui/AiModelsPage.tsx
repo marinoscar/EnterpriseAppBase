@@ -65,10 +65,12 @@ import { PageSlotsFrame, useTableSlotColumns } from '../../core/index.js';
 import type { PageSlotsBase, TableSlots } from '../../core/index.js';
 import { usePlatformViewer } from '../../core/index.js';
 import { useAiAdminConfig } from '../headless/use-ai-admin-config.js';
+import { useAiCapabilities } from '../headless/use-ai-capabilities.js';
 import { useAiModels } from '../headless/use-ai-models.js';
 import {
   AI_CAPABILITY_LABELS,
   AI_CAPABILITY_VALUES,
+  aiCapabilityLabel,
 } from './shared/aiCapabilities.js';
 import { AiModelOverrideDialog } from './admin/AiModelOverrideDialog.js';
 import {
@@ -133,6 +135,11 @@ export default function AiModelsPage(props: AiModelsPageProps = {}) {
     saveError: configSaveError,
     clearSaveError: clearConfigSaveError,
   } = useAiAdminConfig();
+
+  // The capability vocabulary is open (PP-14.17): the filter and the override
+  // dialog list the built-ins and whatever an app registered, with its labels.
+  const { capabilities: knownCapabilities } = useAiCapabilities();
+  const appCapabilities = knownCapabilities.filter((entry) => !entry.builtin);
 
   const [provider, setProvider] = useState('');
   const [capability, setCapability] = useState('');
@@ -345,6 +352,11 @@ export default function AiModelsPage(props: AiModelsPageProps = {}) {
                   {AI_CAPABILITY_LABELS[value] ?? value}
                 </MenuItem>
               ))}
+              {appCapabilities.map((entry) => (
+                <MenuItem key={entry.id} value={entry.id}>
+                  {aiCapabilityLabel(entry.id)}
+                </MenuItem>
+              ))}
             </Select>
           </FormControl>
 
@@ -444,6 +456,7 @@ export default function AiModelsPage(props: AiModelsPageProps = {}) {
           error={editing ? (updateError ?? configSaveError) : null}
           limits={editingLimits}
           limitsUnavailable={!config}
+          appCapabilities={appCapabilities}
           onSave={(capabilities, limits) => void handleSave(capabilities, limits)}
           onClose={() => {
             setEditing(null);

@@ -72,6 +72,9 @@ const BREAKDOWN_OPTIONS: [BreakdownOption, ...BreakdownOption[]] = [
   { value: 'keySource', label: 'Key source', column: 'Key source' },
   // #739: which organization the calls were made for.
   { value: 'org', label: 'Organization', column: 'Organization' },
+  // PP-14.17: which registered AI feature, and which operation (an open vocabulary).
+  { value: 'feature', label: 'Feature', column: 'Feature' },
+  { value: 'operation', label: 'Operation', column: 'Operation' },
 ];
 
 /** `keySource` values as a reader says them. Unknown values render as themselves. */
@@ -137,7 +140,9 @@ export interface AiUsagePageProps {
 
 /**
  * Admin → Settings → AI → Usage (`/admin/settings/ai/usage`): totals, the daily
- * series and a breakdown by user, model, provider, key source or organization.
+ * series and a breakdown by user, model, provider, key source, organization,
+ * feature or operation, with a Cost column when the deployment binds a pricing
+ * port.
  * Needs `ai_config:read`.
  *
  * @stability experimental
@@ -238,7 +243,7 @@ export default function AiUsagePage(props: AiUsagePageProps = {}) {
               <Alert severity="info">No AI requests were made in this range.</Alert>
             )}
 
-            <AiUsageTotals totals={daily.report.totals} label="AI usage totals" />
+            <AiUsageTotals totals={daily.report.totals} label="AI usage totals" priced={daily.report.priced === true} />
 
             <OrgKeySummary totals={daily.report.totals} />
 
@@ -286,6 +291,7 @@ export default function AiUsagePage(props: AiUsagePageProps = {}) {
                     breakdown.isLoading ? 'Loading…' : 'No usage in this range.'
                   }
                   csvFilename={`ai-usage-by-${groupBy}`}
+                  priced={breakdown.report?.priced === true}
                   data-testid="admin-ai-usage-breakdown-table"
                   {...(slots ? { slots } : {})}
                 />
