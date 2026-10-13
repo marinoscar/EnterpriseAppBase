@@ -5,6 +5,11 @@ import { describe, expect, it } from 'vitest';
 
 import {
   ASSIGNABLE_ORG_ROLES,
+  BUILTIN_ORG_ROLES,
+  ROLE_ID_PATTERN,
+  roleDescriptorSchema,
+  roleIdSchema,
+  roleListQuerySchema,
   AUTH_ERROR_CODES,
   DEFAULT_AUTH_ERROR_CODE,
   authErrorCodeSchema,
@@ -133,13 +138,34 @@ describe('organization administration', () => {
     expect(() => renameOrganizationSchema.parse({ name: 'New', slug: 'new' })).toThrow();
   });
 
-  it('updates a member role, status or both, and never to a system role', () => {
-    expect(ASSIGNABLE_ORG_ROLES).toEqual(['org_admin', 'contributor', 'viewer']);
+  it('updates a member role, status or both; the role is an open id checked by the API', () => {
+    expect(BUILTIN_ORG_ROLES).toEqual(['org_admin', 'contributor', 'viewer']);
+    expect(ASSIGNABLE_ORG_ROLES).toBe(BUILTIN_ORG_ROLES);
     expect(updateOrgMemberSchema.parse({ roleName: 'viewer' })).toEqual({ roleName: 'viewer' });
+    expect(updateOrgMemberSchema.parse({ roleName: 'coach' })).toEqual({ roleName: 'coach' });
     expect(updateOrgMemberSchema.parse({ status: 'suspended' })).toEqual({ status: 'suspended' });
     expect(() => updateOrgMemberSchema.parse({})).toThrow();
-    expect(() => updateOrgMemberSchema.parse({ roleName: 'admin' })).toThrow();
+    expect(() => updateOrgMemberSchema.parse({ roleName: 'Not A Role' })).toThrow();
     expect(() => updateOrgMemberSchema.parse({ roleName: 'viewer', orgId: 'x' })).toThrow();
+  });
+
+  it('checks the shape of a role id, not its existence', () => {
+    for (const id of ['viewer', 'org_admin', 'coach', 'a', 'support-lead', 'x'.repeat(64)]) {
+      expect(roleIdSchema.safeParse(id).success).toBe(true);
+      expect(ROLE_ID_PATTERN.test(id)).toBe(true);
+    }
+    for (const id of ['', 'Coach', '1coach', '_coach', 'co ach', 'co:ach', 'x'.repeat(65), 'coach\n']) {
+      expect(roleIdSchema.safeParse(id).success).toBe(false);
+    }
+  });
+
+  it('describes roles and lists them by an optional scope', () => {
+    expect(roleListQuerySchema.parse({})).toEqual({});
+    expect(roleListQuerySchema.parse({ scope: 'org' })).toEqual({ scope: 'org' });
+    expect(() => roleListQuerySchema.parse({ scope: 'group' })).toThrow();
+    const role = { id: 'coach', label: 'Coach', description: 'Reviews workouts', scope: 'org', assignable: true };
+    expect(roleDescriptorSchema.parse(role)).toEqual(role);
+    expect(() => roleDescriptorSchema.parse({ ...role, assignable: 'yes' })).toThrow();
   });
 
   it('invites by lower-cased email with an org role and takes no org id', () => {
@@ -148,7 +174,7 @@ describe('organization administration', () => {
       roleName: 'contributor',
     });
     expect(() => createOrgInviteSchema.parse({ email: 'a@b.co' })).toThrow();
-    expect(() => createOrgInviteSchema.parse({ email: 'a@b.co', roleName: 'admin' })).toThrow();
+    expect(() => createOrgInviteSchema.parse({ email: 'a@b.co', roleName: 'Admin!' })).toThrow();
     expect(() => createOrgInviteSchema.parse({ email: 'a@b.co', roleName: 'viewer', notes: 'x'.repeat(501) })).toThrow();
     expect(() => createOrgInviteSchema.parse({ email: 'a@b.co', roleName: 'viewer', orgId: 'org-b' })).toThrow();
   });
