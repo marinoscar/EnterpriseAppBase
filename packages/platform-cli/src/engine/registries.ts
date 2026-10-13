@@ -14,6 +14,7 @@ import { freezeEdgeConfigRegistry, resetEdgeConfigRegistryForTests } from './dep
 import { freezeProxyStreamRegistry, resetProxyStreamRegistryForTests } from './deploy/proxy-streams.js';
 import { freezeDeployStepRegistry, resetDeployStepRegistryForTests } from './deploy/steps/registry.js';
 import { freezeNodeExecutorRegistry, resetNodeExecutorRegistryForTests } from './node/executors/registry.js';
+import { freezeTuiSectionRegistry, resetTuiSectionRegistryForTests } from './tui/section-registry.js';
 import { freezeTuiScreenRegistry, resetTuiScreenRegistryForTests } from './tui/screen-registry.js';
 
 // =============================================================================
@@ -39,6 +40,7 @@ export function freezeCliRegistries(by: string): void {
   freezeTuiScreenRegistry(by);
   freezeDeployStepRegistry(by);
   freezeNodeExecutorRegistry(by);
+  freezeTuiSectionRegistry(by);
   freezeProxyStreamRegistry(by);
   freezeDeployCheckRegistry(by);
   freezeEdgeConfigRegistry(by);
@@ -48,6 +50,7 @@ export function freezeCliRegistries(by: string): void {
 export function resetCliRegistriesForTests(): void {
   resetPlatformRegistrationsForTests();
   resetTuiScreenRegistryForTests();
+  resetTuiSectionRegistryForTests();
   resetDeployStepRegistryForTests();
   resetNodeExecutorRegistryForTests();
   resetProxyStreamRegistryForTests();

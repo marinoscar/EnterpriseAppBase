@@ -24,6 +24,7 @@ import { registerNodeExecutor } from './node/executors/registry.js';
 import { buildProgram, run, type RunOptions } from './program.js';
 import { freezeCliRegistries } from './registries.js';
 import { registerTuiScreen, type TuiScreenRegistration } from './tui/screen-registry.js';
+import { registerTuiScreenSection, type TuiSectionRegistration } from './tui/section-registry.js';
 
 // =============================================================================
 // createCli: the one call an app makes  (PP-8.9, #715)
@@ -62,6 +63,8 @@ export interface CreateCliOptions {
   deployChecks?: readonly DeployCheck[] | undefined;
   /** Single-file nginx mounts of the app, checked for the stale-inode drift on update. Same as `registerEdgeConfigFile`. */
   edgeConfigFiles?: readonly EdgeConfigFile[] | undefined;
+  /** Sections added to the `node` and `deploy` TUI screens. Same as `registerTuiScreenSection`. */
+  tuiSections?: ReadonlyArray<Pick<TuiSectionRegistration, 'screen' | 'id' | 'component' | 'load'>> | undefined;
   /** Steps inserted into `deploy install` / `deploy update`. Same as `registerDeployStep`. */
   deploySteps?: readonly DeployStepRegistration[] | undefined;
   /** Executors for the app's node-eligible job types. Same as `registerNodeExecutor`. */
@@ -119,6 +122,9 @@ export function createCli(options: CreateCliOptions): CliInstance {
   for (const [key, annotation] of Object.entries(options.envAnnotations ?? {})) annotateEnvKey(key, annotation);
   for (const command of options.extraCommands ?? []) registerCliCommand(command);
   for (const screen of options.tuiScreens ?? []) registerTuiScreen(screen);
+  for (const { screen, id, component, load } of options.tuiSections ?? []) {
+    registerTuiScreenSection(screen, component ?? { id, load: load as NonNullable<typeof load> }, { id });
+  }
   for (const check of options.deployChecks ?? []) registerDeployCheck(check);
   for (const file of options.edgeConfigFiles ?? []) registerEdgeConfigFile(file);
   for (const step of options.deploySteps ?? []) registerDeployStep(step);

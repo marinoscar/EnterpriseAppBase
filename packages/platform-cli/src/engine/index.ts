@@ -437,6 +437,8 @@ export {
   sortTuiScreens,
 } from './tui/screen-registry.js';
 export type { TuiMenuContext, TuiScreenOrder, TuiScreenProps, TuiScreenRegistration } from './tui/screen-registry.js';
+export { TUI_SECTION_SCREENS, listTuiScreenSections, registerTuiScreenSection } from './tui/section-registry.js';
+export type { TuiSectionProps, TuiSectionRegistration } from './tui/section-registry.js';
 export {
   INSTALL_STEP_IDS,
   UPDATE_STEP_IDS,
