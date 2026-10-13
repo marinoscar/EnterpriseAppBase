@@ -53,10 +53,11 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `useEmailSettings` | hook | `useEmailSettings(options?: { api? }): UseEmailSettingsReturn` | Build your own email settings page over the same load, save and test-send contract | experimental | [example](../../../../apps/web/src/__tests__/pages/Admin/EmailSettingsPage.test.tsx) |
-| `EmailSettingsPage` | component | `EmailSettingsPage(): ReactElement` | Route `/admin/settings/email` | experimental | [example](../../../../apps/web/src/App.tsx) |
+| `EmailSettingsPage` | component | `EmailSettingsPage(props?: { slots?: EmailSettingsPageSlots }): ReactElement` | Route `/admin/settings/email` | experimental | [example](../../../../apps/web/src/App.tsx) |
 | `registerEmailTransportPanel` | registry | `registerEmailTransportPanel(id: string, Component: EmailTransportPanelComponent, options?: { validate?, toForm?, toInput? }): void` | Replace the generated form of one transport; call it at module scope, before the page renders | experimental | [example](../../../../apps/web/src/__tests__/examples/email/log-transport-panel.test.tsx) |
 | `EmailTransportPanelProps` | slot | `{ transport, descriptor, settings, value, onChange, secrets, onSecretChange, secretStatuses, errors, canWrite }` | The props of a transport panel: it presents and collects, the page owns the state and the save | experimental | [example](../../../../apps/web/src/__tests__/examples/email/log-transport-panel.test.tsx) |
 | `EmailGenericTransportPanel` | component | `EmailGenericTransportPanel(props: EmailTransportPanelProps): ReactElement` | The generated form (settings and write-only secrets from the descriptor); wrap it to add to it | experimental | [example](../../../../apps/web/src/__tests__/examples/email/log-transport-panel.test.tsx) |
+| `EmailSettingsPageSlots` | slot | `PageSlotsBase` | Add a banner or a section of your own (a sending-domain DNS checklist) around the email page; the transport panels come from `registerEmailTransportPanel` | experimental | [example](../../../../apps/web/src/__tests__/examples/email/dns-checklist-section.test.tsx) |
 
 Supporting exports (experimental): the types `EmailSettings`, `EmailSettingsInput`, `EmailTestResult`, `SmtpPasswordStatus`, `EmailProviderKind`, `UseEmailSettingsOptions`, `UseEmailSettingsReturn`, `EmailTransportPanelComponent`, `EmailTransportPanelOptions`; `getEmailTransportPanel`; and, from `/email/headless`, `withTransportDefaults` (completes a response from an API that predates the transports from its flat fields).
 
@@ -86,6 +87,8 @@ The page is reached with `system_settings:read` (the `Email` card's permission, 
 
 `EmailSettingsPage`, an MUI page in the Console's settings layout: the provider radios (one per described transport, labelled by the transport), the selected transport's form (the SES and SMTP field groups for the built-ins, a generated form for any other), the sender, the secrets (blank keeps the stored one; the helper text names the saved hint), the enable switch, Save (with `If-Match`; a 409 reloads the form and says so) and "Send test email" (to the caller; a refused send renders as a failure with the provider's text, never as success). The app's admin registry entry (`ADMIN_SECTIONS`, title `Email`, `permission: 'system_settings:read'`) is unchanged by the move.
 
+`EmailSettingsPage` takes one optional `slots` prop ([Page slots](../core/README.md#page-slots)): `Header`, `BeforeContent`, `Sections` (at both ends), `AfterContent`. With no slot the markup is unchanged (`test/email/EmailSettingsPage.builtin-dom.test.tsx` pins it).
+
 ## Infra
 
 None.
@@ -112,6 +115,8 @@ New subpaths in this version. From the reference app's `pages/Admin/EmailSetting
 - The page reads permissions from the host viewer instead of the app's `usePermissions`, and the address from the new optional `PlatformViewer.email`; set it in the app's host.
 - To mock the hook in a page test, mock `@marinoscar/platform-web/email/headless`.
 - Since the transports became pluggable the response carries `transports`, `descriptors` and `secretStatuses`, and the save sends `{ provider, enabled, fromAddress, fromName, transports: { <selected>: settings }, secrets: { <selected>: { <name>: value } } }` instead of the flat `ses*` / `smtp*` fields and `smtpPassword` / `sesSecretAccessKey`. The API still accepts the old body.
+
+#942 (PP-14.24): additive. `EmailSettingsPage` takes an optional `slots` prop (`EmailSettingsPageSlots`, the base of the page-slot contract of `@marinoscar/platform-web/core`); `EmailSettingsPageProps` and `EmailSettingsPageSlots` are exported from `/email/ui`. A page given no slots renders the markup it always did.
 
 ## Troubleshooting
 

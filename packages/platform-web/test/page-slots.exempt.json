@@ -26,10 +26,6 @@
       "reason": "migrated in PP-14.24 (#942)/25 (#943)"
     },
     {
-      "page": "EmailSettingsPage",
-      "reason": "migrated in PP-14.24 (#942)"
-    },
-    {
       "page": "FactoryResetPage",
       "reason": "migrated in PP-14.24 (#942)"
     },
@@ -80,10 +76,6 @@
     {
       "page": "SetupGuidePage",
       "reason": "migrated in PP-14.24 (#942)/25 (#943)"
-    },
-    {
-      "page": "StorageConfigPage",
-      "reason": "migrated in PP-14.24 (#942)"
     },
     {
       "page": "TelemetryDashboardPage",

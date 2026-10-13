@@ -7,6 +7,7 @@
 // Documented in ../README.md.
 
 export { default, default as StorageConfigPage } from './StorageConfigPage.js';
+export type { StorageConfigPageProps, StorageConfigPageSlots } from './StorageConfigPage.js';
 export { StorageSwitchConfirmDialog } from './StorageSwitchConfirmDialog.js';
 export type { StorageSwitchConfirmDialogProps } from './StorageSwitchConfirmDialog.js';
 export {

@@ -79,7 +79,8 @@ import {
 import SendIcon from '@mui/icons-material/Send';
 import type { PluggableDescriptor } from '@marinoscar/platform-contract/settings';
 import { Navigate } from 'react-router-dom';
-import { usePlatformViewer } from '../../core/index.js';
+import { PageSlotsFrame, usePlatformViewer } from '../../core/index.js';
+import type { PageSlotsBase } from '../../core/index.js';
 import { useEmailSettings } from '../headless/index.js';
 import type { EmailProviderKind, EmailSettings, EmailSettingsInput } from '../headless/index.js';
 import { withTransportDefaults } from '../headless/normalize-email-settings.js';
@@ -231,6 +232,38 @@ function validate(
   return { common, transport };
 }
 
+/** The page title (mirrors the `Email` card in `config/adminSections.tsx`). */
+const EMAIL_TITLE = 'Email';
+/** The page subtitle (mirrors the same card). */
+const EMAIL_DESCRIPTION =
+  'Choose how the application sends email, and send yourself a test message to prove it works.';
+
+/**
+ * The slots of {@link EmailSettingsPage}: the page-slot contract. `Sections` is
+ * where an app adds a section of its own (a deliverability checklist, a link to
+ * the sending domain's DNS records); the transport panels themselves come from
+ * `registerEmailTransportPanel`.
+ *
+ * @example
+ * ```tsx
+ * <EmailSettingsPage slots={{ Sections: ({ position }) => (position === 'bottom' ? <DnsChecklist /> : null) }} />
+ * ```
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export type EmailSettingsPageSlots = PageSlotsBase;
+
+/**
+ * The props of {@link EmailSettingsPage}.
+ *
+ * @stability experimental
+ */
+export interface EmailSettingsPageProps {
+  /** Optional extension slots; omitted, the page renders exactly as it always did. */
+  slots?: EmailSettingsPageSlots;
+}
+
 /**
  * `/admin/settings/email`: the email transport, sender and secrets, and the
  * test send. Routed behind `system_settings:read` (the `Email` card's
@@ -243,7 +276,8 @@ function validate(
  * @extensionPoint component
  * @stability experimental
  */
-export default function EmailSettingsPage() {
+export default function EmailSettingsPage(props: EmailSettingsPageProps = {}) {
+  const { slots } = props;
   const viewer = usePlatformViewer();
   const { hasPermission } = viewer;
   const user = { email: viewer.email ?? undefined };
@@ -458,20 +492,26 @@ export default function EmailSettingsPage() {
   return (
     <Container maxWidth="lg">
       <Box sx={{ py: 4 }}>
-        {/* Title and description MIRROR the `Email` card in
-            `config/adminSections.tsx` so the hub card, the rail row, the
-            compact AppBar title and this `h1` all name the page identically. */}
-        <Typography variant="h4" component="h1" gutterBottom>
-          Email
-        </Typography>
-        <Typography color="text.secondary" sx={{ mb: 2 }}>
-          Choose how the application sends email, and send yourself a test message to prove it
-          works.
-          {/* Stated up front rather than left for the user to discover by
-              finding every control disabled. */}
-          {!canWrite && ' (read-only)'}
-        </Typography>
-
+        <PageSlotsFrame
+          slots={slots}
+          headerProps={{ title: EMAIL_TITLE, description: EMAIL_DESCRIPTION, readOnly: !canWrite, actions: null }}
+          header={
+            <>
+              {/* Title and description MIRROR the `Email` card in
+                  `config/adminSections.tsx` so the hub card, the rail row, the
+                  compact AppBar title and this `h1` all name the page identically. */}
+              <Typography variant="h4" component="h1" gutterBottom>
+                {EMAIL_TITLE}
+              </Typography>
+              <Typography color="text.secondary" sx={{ mb: 2 }}>
+                {EMAIL_DESCRIPTION}
+                {/* Stated up front rather than left for the user to discover by
+                    finding every control disabled. */}
+                {!canWrite && ' (read-only)'}
+              </Typography>
+            </>
+          }
+        >
         {settings?.updatedBy && settings.updatedAt && (
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
             Last updated by {settings.updatedBy.email} on{' '}
@@ -733,6 +773,8 @@ export default function EmailSettingsPage() {
             </Box>
           </Paper>
         )}
+
+        </PageSlotsFrame>
 
         {/* Saving is the ordinary, expected outcome, so it gets the same
             transient snackbar the sibling settings pages use. The test result
