@@ -20,6 +20,7 @@ import {
   ROLES,
 } from '../identity.constants';
 import { PRINCIPAL_USER_INCLUDE, principalFactory } from '../auth/principal.factory';
+import { listRoles } from '../roles/role-catalog';
 
 /**
  * Exported for the reference app's wiring and tests; not a stable extension point (reach identity through IdentityModule and its documented seams).
@@ -80,18 +81,27 @@ export class TestAuthService {
     let userWasCreated = false;
 
     const roleName = dto.role || this.identityOptions.defaultOrgRole;
-    const isAdmin = roleName === ROLES.ADMIN;
-    const membershipRoleName = isAdmin ? ORG_ADMIN_ROLE : roleName;
+    // Any role the application registered, of either scope (PP-14.15): a system
+    // role is held in `user_roles` (`admin` also makes the default-org
+    // membership `org_admin`; another system role keeps the default org role),
+    // an org role is the default-org membership's role.
+    const known = listRoles().find((role) => role.id === roleName);
+    if (!known) {
+      throw new Error(`Role ${dto.role} not found`);
+    }
+    const isSystemRole = known.scope === 'system';
+    const membershipRoleName =
+      roleName === ROLES.ADMIN ? ORG_ADMIN_ROLE : isSystemRole ? this.identityOptions.defaultOrgRole : roleName;
 
     // Resolve the roles first: a missing row is a seed problem.
     const membershipRole = await this.prisma.role.findUnique({
       where: { name: membershipRoleName },
     });
-    const adminRole = isAdmin
-      ? await this.prisma.role.findUnique({ where: { name: ROLES.ADMIN } })
+    const systemRole = isSystemRole
+      ? await this.prisma.role.findUnique({ where: { name: roleName } })
       : null;
 
-    if (!membershipRole || (isAdmin && !adminRole)) {
+    if (!membershipRole || (isSystemRole && !systemRole)) {
       throw new Error(`Role ${dto.role} not found`);
     }
 
@@ -175,8 +185,8 @@ export class TestAuthService {
     // user with no default-org membership (multi mode) keeps its memberships.
     await this.prisma.$transaction(async (tx) => {
       await tx.userRole.deleteMany({ where: { userId } });
-      if (adminRole) {
-        await tx.userRole.create({ data: { userId, roleId: adminRole.id } });
+      if (systemRole) {
+        await tx.userRole.create({ data: { userId, roleId: systemRole.id } });
       }
       await tx.membership.updateMany({
         where: { userId, org: { isDefault: true } },

@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { roleRegistry, withTemporaryEntries } from '../../../src/core';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { TestAuthService } from '../../../src/identity/testing/test-auth.service';
@@ -319,6 +320,78 @@ describe('TestAuthService', () => {
         where: { name: 'admin' },
       });
       expect(result.user.roles).toContain('admin');
+    });
+
+    describe('any registered role (PP-14.15)', () => {
+      const coachRole = { id: 'role-coach', name: 'coach', description: 'Coach', scope: 'org' };
+      const supportRole = { id: 'role-support', name: 'support', description: 'Support', scope: 'system' };
+      const defaultOrgRole = { id: 'role-viewer', name: 'viewer', description: 'Viewer', scope: 'org' };
+      const APP_ROLES = [
+        { id: 'coach', description: 'Coach', scope: 'org' as const },
+        { id: 'support', description: 'Support', scope: 'system' as const },
+      ];
+
+      function arrange(dto: TestLoginDto, roles: Record<string, unknown>, reloaded: unknown) {
+        mockPrisma.role.findUnique.mockImplementation((async (args: any) => roles[args.where.name] ?? null) as any);
+        mockPrisma.user.findUnique.mockResolvedValueOnce({ id: 'user-app-role' } as any).mockResolvedValueOnce(reloaded as any);
+        mockPrisma.userRole.deleteMany.mockResolvedValue({ count: 0 });
+        mockPrisma.userRole.create.mockResolvedValue({} as any);
+        mockPrisma.refreshToken.create.mockResolvedValue({} as any);
+        return dto;
+      }
+
+      const reloadedWith = (systemRole: unknown, orgRole: unknown) => ({
+        id: 'user-app-role',
+        email: 'app-role@example.com',
+        displayName: 'app-role',
+        isActive: true,
+        userRoles: systemRole ? [{ role: { ...(systemRole as object), rolePermissions: [] } }] : [],
+        memberships: [
+          {
+            orgId: 'org-default',
+            status: 'active',
+            lastActiveAt: new Date(),
+            org: { id: 'org-default', isDefault: true },
+            role: { ...(orgRole as object), rolePermissions: [] },
+          },
+        ],
+      });
+
+      it('logs in as a registered app org role, as the default-org membership role', async () => {
+        const dto = arrange({ email: 'app-role@example.com', role: 'coach' }, { coach: coachRole }, reloadedWith(null, coachRole));
+
+        const result = await withTemporaryEntries(roleRegistry, APP_ROLES, () => service.loginAsTestUser(dto));
+
+        expect(mockPrisma.membership.updateMany).toHaveBeenCalledWith({
+          where: { userId: 'user-app-role', org: { isDefault: true } },
+          data: { roleId: coachRole.id },
+        });
+        expect(mockPrisma.userRole.create).not.toHaveBeenCalled();
+        expect(result.user.roles).toEqual(['coach']);
+      });
+
+      it('logs in as a registered app system role, held in user_roles next to the default org role', async () => {
+        const dto = arrange(
+          { email: 'app-role@example.com', role: 'support' },
+          { support: supportRole, viewer: defaultOrgRole },
+          reloadedWith(supportRole, defaultOrgRole),
+        );
+
+        const result = await withTemporaryEntries(roleRegistry, APP_ROLES, () => service.loginAsTestUser(dto));
+
+        expect(mockPrisma.userRole.create).toHaveBeenCalledWith({ data: { userId: 'user-app-role', roleId: supportRole.id } });
+        expect(mockPrisma.membership.updateMany).toHaveBeenCalledWith({
+          where: { userId: 'user-app-role', org: { isDefault: true } },
+          data: { roleId: defaultOrgRole.id },
+        });
+        expect(result.user.roles).toEqual(['support', 'viewer']);
+      });
+
+      it('refuses a role nothing registered, before it touches the database', async () => {
+        await expect(service.loginAsTestUser({ email: 'ghost@example.com', role: 'ghost' })).rejects.toThrow('Role ghost not found');
+        expect(mockPrisma.user.create).not.toHaveBeenCalled();
+        expect(mockPrisma.role.findUnique).not.toHaveBeenCalled();
+      });
     });
 
     it('should generate valid access token', async () => {

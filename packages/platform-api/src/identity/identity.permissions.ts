@@ -89,24 +89,28 @@ export const IDENTITY_ROLES: {
     id: 'admin',
     description: 'System administrator - operate the deployment: users, roles and all system settings',
     scope: 'system',
+    label: 'System administrator',
   },
   /** Organization member who manages own settings and storage objects and uses AI. */
   CONTRIBUTOR: {
     id: 'contributor',
     description: 'Organization member - manage own settings and storage objects, use AI',
     scope: 'org',
+    label: 'Contributor',
   },
   /** Read-only organization member. */
   VIEWER: {
     id: 'viewer',
     description: 'Read-only organization member - view content and manage own settings',
     scope: 'org',
+    label: 'Viewer',
   },
   /** Organization administrator. */
   ORG_ADMIN: {
     id: 'org_admin',
     description: 'Organization administrator - everything a contributor can do, plus manage the organization members and invites',
     scope: 'org',
+    label: 'Administrator',
   },
 };
 

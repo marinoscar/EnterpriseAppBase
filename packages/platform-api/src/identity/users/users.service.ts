@@ -29,6 +29,7 @@ import {
 import { PrincipalCache } from '../auth/principal-cache/principal-cache.service';
 import { principalFactory } from '../auth/principal.factory';
 import { DefaultOrganizationMissingException } from '../organizations/organizations.errors';
+import { assertRoleAssignable } from '../roles/role-catalog';
 
 /**
  * What the users endpoints load for a user's roles (PP-6.3, #723): the system
@@ -325,6 +326,11 @@ export class UsersService {
       const invalid = dto.roleNames.filter((n) => !foundNames.includes(n));
       throw new BadRequestException(`Invalid roles: ${invalid.join(', ')}`);
     }
+
+    // Fail closed: every named role must be known to the registry, in the scope
+    // the database says, and not registered `assignable: false`. The database
+    // alone is not the authority on what a caller may hand out.
+    for (const role of roles) assertRoleAssignable(role.name, role.scope);
 
     const systemRoles = roles.filter((role) => role.scope === 'system');
     const orgRoles = roles.filter((role) => role.scope === 'org');

@@ -275,7 +275,8 @@ describe('explicit role grants (PP-14.15)', () => {
   });
 
   it('register all or nothing in the static registry, and are read by buildPermissionCatalog()', async () => {
-    await withTemporaryEntries(roleRegistry, [...ROLES, { id: 'support', description: 'Support', scope: 'system' }], async () => {
+    const withSupport: RoleDeclaration[] = [...ROLES, { id: 'support', description: 'Support', scope: 'system' }];
+    await withTemporaryEntries(roleRegistry, withSupport, async () => {
       await withTemporaryEntries(permissionRegistry, [permission({ id: 'users:read' })], async () => {
         await withTemporaryEntries(roleGrantRegistry, [], async () => {
           expect(registryErrorOf(() => grantPermissions([{ role: 'support', permissions: ['users:read', 'nope:read'] }])).code).toBe('INVALID_ENTRY');

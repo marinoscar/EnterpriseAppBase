@@ -10,6 +10,7 @@ import { UpdateUserRolesDto } from '../../../src/identity/users/dto/update-user-
 import { ROLES } from '../../../src/identity/identity.constants';
 import { PrincipalCache } from '../../../src/identity/auth/principal-cache/principal-cache.service';
 import * as tenancyMode from '../../../src/identity/auth/tenancy-mode';
+import { roleRegistry, withTemporaryEntries } from '../../../src/core';
 
 const principalCacheStub = { invalidate: jest.fn(), invalidateUser: jest.fn() };
 
@@ -1235,6 +1236,63 @@ describe('UsersService', () => {
           mockOtherUser.id,
           expect.objectContaining({ previousRoles: ['admin', 'org_admin'], currentRoles: ['viewer'] }),
         );
+      });
+    });
+
+    describe('PUT roles: only assignable roles (PP-14.15, fail closed)', () => {
+      const robot = { id: 'robot-role-id', name: 'robot', description: 'Managed by the app', scope: 'org' };
+      const coach = { id: 'coach-role-id', name: 'coach', description: 'Coach', scope: 'org' };
+      const APP_ROLES = [
+        { id: 'robot', description: 'Managed by the app', scope: 'org' as const, assignable: false },
+        { id: 'coach', description: 'Coach', scope: 'org' as const },
+      ];
+
+      function arrange(found: unknown[]) {
+        mockPrisma.user.findUnique.mockResolvedValueOnce(splitUser([], 'viewer') as any).mockResolvedValue(splitUser([], 'viewer') as any);
+        mockPrisma.role.findMany.mockResolvedValue(found as any);
+        mockPrisma.role.findUnique.mockImplementation(((args: any) =>
+          Promise.resolve(({ ...mockRoles, robot, coach } as Record<string, unknown>)[args.where.name] ?? null)) as any);
+        mockPrisma.$transaction.mockImplementation(async (cb: any) => cb(mockPrisma));
+        mockPrisma.userRole.deleteMany.mockResolvedValue({ count: 0 } as any);
+        mockPrisma.userRole.createMany.mockResolvedValue({ count: 0 } as any);
+        mockPrisma.auditEvent.create.mockResolvedValue({} as any);
+      }
+
+      it('refuses a role registered assignable: false, writing nothing', async () => {
+        arrange([robot]);
+        await withTemporaryEntries(roleRegistry, APP_ROLES, async () => {
+          const error = await service.updateUserRoles(mockOtherUser.id, { roleNames: ['robot'] }, mockAdminUser.id).catch((err) => err);
+          expect(error).toBeInstanceOf(BadRequestException);
+          expect(error.getResponse().details.reason).toBe('ROLE_NOT_ASSIGNABLE');
+        });
+        expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+        expect(principalCacheStub.invalidateUser).not.toHaveBeenCalled();
+      });
+
+      it('refuses a role that has a database row but no registration', async () => {
+        arrange([coach]);
+        const error = await service.updateUserRoles(mockOtherUser.id, { roleNames: ['coach'] }, mockAdminUser.id).catch((err) => err);
+        expect(error).toBeInstanceOf(BadRequestException);
+        expect(error.getResponse().details.reason).toBe('ROLE_NOT_ASSIGNABLE');
+        expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+      });
+
+      it('refuses the whole request when one role of several is not assignable', async () => {
+        arrange([mockRoles.contributor, robot]);
+        await withTemporaryEntries(roleRegistry, APP_ROLES, async () => {
+          await expect(
+            service.updateUserRoles(mockOtherUser.id, { roleNames: ['contributor', 'robot'] }, mockAdminUser.id),
+          ).rejects.toBeInstanceOf(BadRequestException);
+        });
+        expect(mockPrisma.membership.upsert).not.toHaveBeenCalled();
+      });
+
+      it('sets a registered app org role as the membership role', async () => {
+        arrange([coach]);
+        await withTemporaryEntries(roleRegistry, APP_ROLES, async () => {
+          await service.updateUserRoles(mockOtherUser.id, { roleNames: ['coach'] }, mockAdminUser.id);
+        });
+        expect(mockPrisma.membership.upsert).toHaveBeenCalledWith(expect.objectContaining({ update: { roleId: coach.id } }));
       });
     });
 
