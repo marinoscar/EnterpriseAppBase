@@ -42,7 +42,10 @@ import type { ReactNode } from 'react';
  * @typeParam Props - what the page passes the slot.
  * @stability experimental
  */
-export type PageSlot<Props = object> = { slot(props: Props): ReactNode }['slot'];
+export type PageSlot<Props = object> = {
+  /** The slot component's call signature (declared as a method so its parameter is compared bivariantly). */
+  slot(props: Props): ReactNode;
+}['slot'];
 
 /**
  * What a page passes its `Header` slot.

@@ -4,7 +4,7 @@
 export { DoctorPage } from './doctor-page.js';
 export type { DoctorPageHeaderProps, DoctorPageProps, DoctorPageSlots } from './doctor-page.js';
 export { CheckRow, STATUS_CHIP_COLORS, STATUS_LABELS, StatusIcon } from './check-row.js';
-export type { CheckRowProps } from './check-row.js';
+export type { CheckRowProps, DoctorCheckActionsSlotProps } from './check-row.js';
 export { doctorSettingsPage } from './settings-page.js';
 export { SUPPORT_BUNDLE_HELPER_TEXT, SupportBundleButton } from './support-bundle-button.js';
 export type { SupportBundleButtonProps } from './support-bundle-button.js';

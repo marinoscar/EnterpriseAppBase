@@ -95,6 +95,16 @@ function formatCheckDuration(ms: number): string {
 }
 
 /**
+ * What a Doctor page's `CheckRowActions` slot receives for each check.
+ *
+ * @stability experimental
+ */
+export interface DoctorCheckActionsSlotProps {
+  /** The check as the report returned it. */
+  check: DoctorCheckReport;
+}
+
+/**
  * The props of {@link CheckRow}.
  *
  * @stability stable
@@ -106,7 +116,7 @@ export interface CheckRowProps {
    * Extra actions for the row (the page's `slots.CheckRowActions`), drawn after
    * the "Open settings" link. Omit for the row exactly as it always was.
    */
-  Actions?: PageSlot<{ check: DoctorCheckReport }>;
+  Actions?: PageSlot<DoctorCheckActionsSlotProps>;
 }
 
 /**

@@ -128,7 +128,7 @@ export interface JobInsightsFiltersSlotProps {
  */
 export interface JobInsightsPageSlots
   extends PageSlotsBase,
-    TableSlots<JobTypeInsightRow, DataTableColumn<JobTypeInsightRow>> {
+    TableSlots<JobTypeInsightRow, JobsTableColumn<JobTypeInsightRow>> {
   /** Replaces the title and subtitle block. */
   Header?: PageSlot<JobsPageHeaderProps>;
   /** Extra controls beside the window selector. */
@@ -184,17 +184,29 @@ const BASIS_PRESENTATION: Record<
  * @stability experimental
  */
 export interface JobTypeInsightRow {
+  /** The job type's machine key. */
   type: string;
+  /** The job type's display label. */
   label: string;
+  /** Runs completed in the window (the denominator of the window's figures). */
   samples: number;
+  /** Mean duration in the window in milliseconds, or `null` with no samples. */
   avgMs: number | null;
+  /** Median duration in the window in milliseconds, or `null` with no samples. */
   p50Ms: number | null;
+  /** 95th-percentile duration in the window in milliseconds, or `null` with no samples. */
   p95Ms: number | null;
+  /** Completions per minute over the last hour. */
   throughputPerMin: number;
+  /** All-time succeeded runs. */
   lifetimeSucceeded: number;
+  /** All-time failed runs. */
   lifetimeFailed: number;
+  /** All-time runs. */
   lifetimeTotal: number;
+  /** All-time mean duration in milliseconds, or `null`. */
   lifetimeAvgMs: number | null;
+  /** Runs the all-time mean is taken over. */
   lifetimeSamples: number;
 }
 
@@ -468,7 +480,7 @@ export function JobInsightsPage(props: JobInsightsPageProps = {}): ReactElement 
     [insights],
   );
   const baseTypeColumns = useMemo(() => buildTypeColumns(), []);
-  const typeColumns = useTableSlotColumns<JobTypeInsightRow, DataTableColumn<JobTypeInsightRow>>(baseTypeColumns, slots);
+  const typeColumns = useTableSlotColumns<JobTypeInsightRow, JobsTableColumn<JobTypeInsightRow>>(baseTypeColumns, slots);
 
   // Defence, not the gate — `App.tsx` wraps the route in `RequirePermission`
   // with this same string. After every hook, so the hook order never changes.

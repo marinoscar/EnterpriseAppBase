@@ -56,6 +56,7 @@ import {
 import type { DoctorCategoryLabel } from '../headless/index.js';
 import { formatRelativeTime as fallbackRelativeTime } from '../internal/relative-time.js';
 import { CheckRow, STATUS_LABELS, StatusIcon, statusChipSx } from './check-row.js';
+import type { DoctorCheckActionsSlotProps } from './check-row.js';
 import { DOCTOR_PAGE_DESCRIPTION, DOCTOR_PAGE_TITLE } from './copy.js';
 import { SupportBundleButton } from './support-bundle-button.js';
 
@@ -98,7 +99,7 @@ export interface DoctorPageSlots extends PageSlotsBase {
   /** Replaces the title and subtitle block. */
   Header?: PageSlot<DoctorPageHeaderProps>;
   /** Extra actions at the end of every check's row. */
-  CheckRowActions?: PageSlot<{ check: DoctorCheckReport }>;
+  CheckRowActions?: PageSlot<DoctorCheckActionsSlotProps>;
 }
 
 /**
