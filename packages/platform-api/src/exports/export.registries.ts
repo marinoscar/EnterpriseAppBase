@@ -168,6 +168,7 @@ export function registerExportWriter(writer: ExportWriter): void {
  * @param source - the source.
  * @returns `true` when the writer supports the source's columns.
  *
+ * @extensionPoint hook
  * @stability experimental
  */
 export function writerSupportsSource(writer: ExportWriter, source: ExportSource): boolean {
@@ -193,6 +194,7 @@ function attachesTo(writer: ExportWriter, source: ExportSource): boolean {
  * @param source - the source.
  * @returns the writers.
  *
+ * @extensionPoint hook
  * @stability experimental
  */
 export function writersFor(source: ExportSource): ExportWriter[] {
@@ -227,6 +229,7 @@ export function writersFor(source: ExportSource): ExportWriter[] {
  * @returns the same datasets, checked as they arrive.
  * @throws Error naming the offending column.
  *
+ * @extensionPoint hook
  * @stability experimental
  */
 export function guardWriterColumns(tables: AsyncIterable<ExportTable>, writer: ExportWriter): AsyncIterable<ExportTable> {

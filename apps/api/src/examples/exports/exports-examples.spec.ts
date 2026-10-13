@@ -13,6 +13,7 @@ import {
   requestFieldsOf,
   writersFor,
   type ExportContext,
+  type ExportWriter,
 } from '@marinoscar/platform-api/exports';
 import { collectExportOutput, tablesOf } from '@marinoscar/platform-api/exports/testing';
 import { Prisma } from '@prisma/client';
@@ -85,6 +86,27 @@ describe('exports reference examples', () => {
     expect(lines[1]).toEqual({ dataset: 'notes', row: { id: 'a', amount: 1.5 } });
     expect(lines[2]).toEqual({ dataset: 'notes', row: { id: 'b', amount: null } });
     expect(lines[3]).toMatchObject({ source: 'user-data', rowCounts: { notes: 2 } });
+  });
+
+  it('a writer restricted with columnTypes attaches under * only to sources that declare columns it can write', () => {
+    const scalars: ExportWriter = {
+      id: 'scalars',
+      label: 'Scalars',
+      mimeType: 'text/plain',
+      extension: 'txt',
+      attachTo: '*',
+      columnTypes: ['string', 'number'],
+      write: async () => ({ rowCounts: {} }),
+    };
+    return withTemporaryEntries(exportWriterRegistry, [scalars], () => {
+      const declared = { ...USER_DATA_EXPORT_SOURCE, id: 'plain-source', formats: [], columnTypes: ['string', 'number'] as const };
+      const undeclared = { ...USER_DATA_EXPORT_SOURCE, id: 'unknown-source', formats: [], columnTypes: undefined };
+      expect(writersFor(declared).map((w) => w.id)).toEqual(['ndjson', 'scalars']);
+      // A source that does not say what its columns are is assumed to use every type.
+      expect(writersFor(undeclared).map((w) => w.id)).toEqual(['ndjson']);
+      // The platform sources declare datetime and boolean columns too.
+      expect(writersFor(USER_DATA_EXPORT_SOURCE).map((w) => w.id)).not.toContain('scalars');
+    });
   });
 
   it('a source spread from a platform one and registered under its own id lists its formats; attached writers still follow', () =>

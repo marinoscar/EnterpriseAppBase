@@ -112,6 +112,7 @@ export type ExportCell = z.infer<typeof exportCellSchema>;
  * Parquet logical type, a unit), at most `EXPORT_COLUMN_META_MAX_KEYS` keys.
  * The built-in writers ignore it and never write it.
  *
+ * @extensionPoint schema
  * @stability experimental
  */
 export const exportColumnMetaSchema = z

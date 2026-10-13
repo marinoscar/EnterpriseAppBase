@@ -282,6 +282,9 @@ export interface DataTableColumn<Row> {
    * operand control. Setting it makes the column filterable (unless
    * `filterable` is `false`); its `type` wins over `filterType`, and an array
    * in `filterable` still pins the operators.
+   *
+   * @extensionPoint option
+   * @stability experimental
    */
   filter?: DataTableColumnFilter<Row>;
 

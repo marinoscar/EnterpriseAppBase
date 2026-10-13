@@ -151,9 +151,18 @@ export interface DataTableStoredLayout {
    * An app's own bounded JSON beside the platform's fields (saved filters, a
    * chart toggle): a plain object of at most 32 keys, 8 KiB and 8 levels. The
    * table keeps it and persists it; it never reads it.
+   *
+   * @extensionPoint option
+   * @stability experimental
    */
   extra?: Record<string, unknown>;
-  /** Named layouts the user saved (at most 20). A view restores the fields above, `extra` included. */
+  /**
+   * Named layouts the user saved (at most 20). A view restores the fields
+   * above, `extra` included.
+   *
+   * @extensionPoint option
+   * @stability experimental
+   */
   savedViews?: DataTableSavedView[];
 }
 

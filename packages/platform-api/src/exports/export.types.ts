@@ -141,6 +141,9 @@ export interface ExportSource<Req = unknown> {
    * attaches to `'*'` only reaches sources whose columns it can write. Absent
    * means "unknown": every type is assumed, so a writer restricted with
    * `ExportWriter.columnTypes` does not attach to this source on its own.
+   *
+   * @extensionPoint option
+   * @stability experimental
    */
   readonly columnTypes?: readonly ExportColumnType[];
   /**
@@ -148,6 +151,9 @@ export interface ExportSource<Req = unknown> {
    * offered next to `formats`. Default `true`; `false` pins the source to the
    * writers it lists (a source that must only ever leave in formats its owner
    * reviewed).
+   *
+   * @extensionPoint option
+   * @stability experimental
    */
   readonly acceptsAttachedWriters?: boolean;
   /**
@@ -223,12 +229,18 @@ export interface ExportWriter {
    * `sources`, when given, still narrows. The writer receives the same
    * redacted rows as the built-in writers, because the source produces them
    * before any writer runs. Absent: only sources that list the writer offer it.
+   *
+   * @extensionPoint option
+   * @stability experimental
    */
   readonly attachTo?: '*' | readonly string[];
   /**
    * The column types the writer can serialise. Absent means all of them. A
    * dataset with a column of another type fails the export with a message
    * naming the column (the half-written file is destroyed, never uploaded).
+   *
+   * @extensionPoint option
+   * @stability experimental
    */
   readonly columnTypes?: readonly ExportColumnType[];
   /** Serialises `tables` into `out`. See the contract above. */

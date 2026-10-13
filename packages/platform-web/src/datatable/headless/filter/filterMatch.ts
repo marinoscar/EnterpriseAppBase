@@ -44,6 +44,7 @@ export function matchesFilterValue(
  * @param model - the filter model.
  * @returns `true` when the row matches all of them.
  *
+ * @extensionPoint hook
  * @stability experimental
  */
 export function matchesFilters<Row>(row: Row, columns: DataTableColumn<Row>[], model: DataTableFilterModel): boolean {

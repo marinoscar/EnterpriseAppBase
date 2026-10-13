@@ -38,9 +38,13 @@ None. Schemas and constants take no options.
 
 ## Extension-point catalog
 
-None. The contract declares shapes; a new source or format is `registerExportSource` / `registerExportWriter` in `@marinoscar/platform-api/exports`, not a contract change. Every object schema is exported so an app can `.extend()` it.
+The contract declares shapes; a new source or format is `registerExportSource` / `registerExportWriter` in `@marinoscar/platform-api/exports`, not a contract change. Every object schema is exported so an app can `.extend()` it. The one extension the contract itself carries is a column's `meta`.
 
 The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
+
+| Name | Kind | Signature | When to use | Stability | Example |
+|---|---|---|---|---|---|
+| `exportColumnMetaSchema` | schema | `z.record(string, string \| number \| boolean)` (at most 16 keys) | Validate or type the `meta` a source puts on a column for a custom writer's own typing (a Parquet logical type); the built-in writers ignore it | experimental | [example](../../../../apps/api/src/examples/exports/exports-examples.spec.ts) |
 
 Supporting exports (experimental): `EXPORT_COLUMN_META_MAX_KEYS`, `EXPORT_COLUMN_META_MAX_LENGTH`, `exportColumnMetaSchema`, `ExportColumnMeta`, `EXPORTS_PATH`, `EXPORTS_SOURCES_PATH`, `EXPORT_STATUSES`, `EXPORT_SCOPES`, `EXPORT_COLUMN_TYPES`, `EXPORT_REQUEST_FIELD_KINDS`, `EXPORT_ID_PATTERN`, `EXPORT_DATASET_PATTERN`, `EXPORT_FILE_NAME_PATTERN`, `EXPORT_LIST_LIMIT`, `EXPORT_FAILED_MESSAGE`, `EXPORT_JSON_SCHEMA_VERSION`; the schemas `exportCellSchema`, `exportColumnSchema`, `exportJsonDatasetSchema`, `exportJsonFileSchema`, `exportRequestFieldSchema`, `exportRequestFieldOptionSchema`, `exportFormatDescriptorSchema`, `exportSourceDescriptorSchema`, `exportSourcesResponseSchema`, `createExportSchema`, `exportDownloadSchema`, `exportSchema`, `exportListResponseSchema`, the enum schemas, and their types.
 
