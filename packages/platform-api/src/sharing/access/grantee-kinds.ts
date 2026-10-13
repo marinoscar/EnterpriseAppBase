@@ -21,13 +21,21 @@
 // `describeGranteeKindConformance` (./testing) compares them over a fixture
 // matrix, so a drift between "may I open it" and "does it list" fails a test.
 //
-// PERSISTENCE. A `grants` row can store only the built-in kinds today: the
-// `grantee_kind` column is an enum and a check constraint binds the grantee
-// columns to it. A kind registered with `persisted: true` that is not built in
-// is therefore REFUSED at registration (`GRANTEE_KIND_PERSISTENCE_AVAILABLE`
-// flips when the storage migration ships). A kind registered without
+// PERSISTENCE (migration 0037_open_sharing_vocabularies). `grants.grantee_kind`
+// is text and `grants.grantee_ref` holds the reference of an app kind, so a kind
+// registered with `persisted: true` stores its grants: `POST /api/grants`
+// validates the grantee with the kind's `validateGrantee`, writes the kind and
+// the NORMALISED reference it returned (`grantee_ref`, the built-in grantee
+// columns stay NULL, `grants_grantee_consistency_check` is the database's
+// second line of defence), and the decision query and the list compose the
+// kind's `principalWhere` / `resolvePrincipalMatch`. A kind registered without
 // `persisted` is still listed, validated and described, and its fragments are
-// checked by the kit, but no grant row carries it.
+// checked by the kit, but no grant row carries it (422
+// `GRANTEE_KIND_NOT_PERSISTABLE`).
+//
+// A grant whose kind is no longer registered contributes to nothing (no
+// decision, no list) and shows without a description: a row outlives the
+// registry that wrote it, and an unregistered kind names nobody.
 //
 // SECURITY. A fragment is a predicate, never a statement: every value goes
 // through the app's SQL kit as a bind parameter (`sql` template) and the grants
@@ -52,14 +60,16 @@ import { activeGroupsOf } from '../ownership';
 import type { SqlKit } from './accessible';
 
 /**
- * Whether the storage layer can hold a grant of a non-built-in kind. `false`
- * until the sharing migration that turns `grants.grantee_kind` into text and
- * adds the grantee reference column ships; `registerGranteeKind` then refuses
- * `persisted: true` for an app kind.
+ * Whether the storage layer can hold a grant of a non-built-in kind: always
+ * `true` since migration `0037_open_sharing_vocabularies` (`grants.grantee_kind`
+ * is text, `grants.grantee_ref` holds the reference). Kept so code written
+ * against the earlier "not yet" state keeps compiling.
+ *
+ * @deprecated Persistence is available; register a kind with `persisted: true`.
  *
  * @stability experimental
  */
-export const GRANTEE_KIND_PERSISTENCE_AVAILABLE: boolean = false;
+export const GRANTEE_KIND_PERSISTENCE_AVAILABLE: boolean = true;
 
 /**
  * The ids the platform's own kinds use. They are registered at import time.
@@ -121,8 +131,8 @@ export interface GranteeDescription {
 
 /**
  * What a stored grant says about its grantee: the kind and the columns that
- * identify it. `ref` is the reference of an app kind (the column the storage
- * migration adds); built-in kinds use `userId` and `groupId`.
+ * identify it. `ref` is the reference of an app kind (`grants.grantee_ref`, as
+ * `validateGrantee` normalised it); built-in kinds use `userId` and `groupId`.
  *
  * @stability experimental
  */
@@ -133,7 +143,7 @@ export interface GranteeFacts {
   readonly userId: string | null;
   /** `grantee_group_id`, or `null`. */
   readonly groupId: string | null;
-  /** The reference of an app kind, or `null`. */
+  /** The reference of an app kind (`grants.grantee_ref`), or `null`. */
   readonly ref: string | null;
 }
 
@@ -187,8 +197,8 @@ export interface GranteeKindDef {
   readonly input: GranteeKindInput;
   /**
    * Whether grants of this kind are rows of the `grants` table. Built-ins are;
-   * an app kind may not be until the storage migration ships
-   * ({@link GRANTEE_KIND_PERSISTENCE_AVAILABLE}). Default `false`.
+   * an app kind opts in (it then needs `principalWhere`, and its grants store
+   * the reference `validateGrantee` returned in `grantee_ref`). Default `false`.
    */
   readonly persisted?: boolean;
   /**
@@ -231,9 +241,12 @@ export interface GranteeKindDef {
    */
   resolvePrincipalMatch<S>(principal: Principal, columns: GranteeColumns<S>, kit: SqlKit<S>): S | null;
   /**
-   * The Prisma `where` spelling of the same predicate, over `Grant` rows, for
+   * The Prisma `where` spelling of the same predicate, over `Grant` rows (the
+   * fields `granteeKind`, `granteeUserId`, `granteeGroupId`, `granteeRef`), for
    * the decision query and the bounded id list. Required with `persisted`;
-   * `null` when no grant can name this principal.
+   * `null` when no grant can name this principal. It must pin
+   * `granteeKind: <this kind>` (the conformance kit checks it); the caller
+   * confines the whole query to the caller's organization.
    *
    * @param principal - the caller, enriched with its groups.
    */
@@ -261,14 +274,6 @@ function validateKind(def: GranteeKindDef, registry: { list(): GranteeKindDef[] 
   check(def.principalWhere === undefined || typeof def.principalWhere === 'function', kind, '`principalWhere` must be a function');
   if (def.persisted === true) {
     check(typeof def.principalWhere === 'function', kind, '`persisted` needs `principalWhere` (the Prisma spelling of the predicate)');
-    if (!BUILTIN_GRANTEE_KIND_IDS.includes(kind)) {
-      check(
-        GRANTEE_KIND_PERSISTENCE_AVAILABLE,
-        kind,
-        'grants of an app kind cannot be stored yet: the `grants.grantee_kind` column is an enum until the sharing storage migration ships. ' +
-          'Register the kind without `persisted` for now (it is listed, validated and conformance-checked, but no grant row carries it).',
-      );
-    }
   }
 }
 
@@ -328,6 +333,49 @@ export function findGranteeKind(kind: string): GranteeKindDef | undefined {
  */
 export function persistedGranteeKinds(): GranteeKindDef[] {
   return granteeKindRegistry.list().filter((def) => def.persisted === true);
+}
+
+/**
+ * The Prisma `where` over `Grant` rows that names `principal` through `def`,
+ * pinned to the kind: `{ AND: [{ granteeKind }, def.principalWhere(...)] }`. The
+ * pin is the platform's, not the kind's, so a kind whose `where` is too broad
+ * (empty, a bare `OR`) still cannot match another kind's rows. `null` when the
+ * kind names nobody; a kind that throws names nobody (fail closed).
+ *
+ * @param def - a persisted kind.
+ * @param principal - the caller, enriched with its groups.
+ *
+ * @stability experimental
+ */
+export function granteeWhereFor(def: GranteeKindDef, principal: Principal): Record<string, unknown> | null {
+  try {
+    const where = def.principalWhere?.(principal) ?? null;
+    return where === null ? null : { AND: [{ granteeKind: def.kind }, where] };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The SQL condition over a grants row that names `principal` through `def`,
+ * pinned to the kind (`kind = '<id>' AND (<the kind's fragment>)`, the id a bind
+ * parameter), for the same reason as {@link granteeWhereFor}. `null` when the
+ * kind names nobody; a kind that throws names nobody.
+ *
+ * @param def - a persisted kind.
+ * @param principal - the caller, enriched with its groups.
+ * @param columns - the grantee columns of the row.
+ * @param kit - the app's SQL builders.
+ *
+ * @stability experimental
+ */
+export function granteeSqlFor<S>(def: GranteeKindDef, principal: Principal, columns: GranteeColumns<S>, kit: SqlKit<S>): S | null {
+  try {
+    const fragment = def.resolvePrincipalMatch<S>(principal, columns, kit);
+    return fragment === null ? null : kit.sql`(${columns.kind} = ${def.kind} AND (${fragment}))`;
+  } catch {
+    return null;
+  }
 }
 
 /**

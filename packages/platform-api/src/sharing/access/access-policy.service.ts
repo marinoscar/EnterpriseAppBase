@@ -56,7 +56,7 @@ import { SHARING_PERMISSIONS } from '../permissions';
 import { SHARING_DATA, type SharingDataPort } from '../ports';
 import { PrincipalGroupsProvider } from '../principal-groups.provider';
 import { NO_RULE_OUTCOME, accessRulesFor, evaluateAccessRules, type RuleOutcome } from './access-rules';
-import { findGranteeKind, granteeKindVia, persistedGranteeKinds, withGroups } from './grantee-kinds';
+import { findGranteeKind, granteeKindVia, granteeWhereFor, persistedGranteeKinds, withGroups } from './grantee-kinds';
 import { requireResourceType, type ResolvedResourceType, type ResourceOwnerInfo } from './resource-types';
 
 /**
@@ -146,7 +146,7 @@ const DENIED: AccessDecision = Object.freeze({ allowed: false, role: null, via: 
 const DENIED_RULE_FAILURE: AccessDecision = Object.freeze({ allowed: false, role: null, via: null, ruleFailure: true as const });
 
 /** What one grant contributes. */
-type GrantContribution = Pick<GrantRow, 'resourceType' | 'resourceId' | 'granteeKind' | 'granteeUserId' | 'granteeGroupId' | 'role'>;
+type GrantContribution = Pick<GrantRow, 'resourceType' | 'resourceId' | 'granteeKind' | 'granteeUserId' | 'granteeGroupId' | 'granteeRef' | 'role'>;
 
 /**
  * Decides what a principal may do with a record of a registered resource
@@ -369,7 +369,7 @@ export class AccessPolicy {
     const wanted = present.filter(([, ids]) => ids.length > 0);
     const grants = new Map<string, GrantContribution[]>();
     const grantees = persistedGranteeKinds().flatMap((def) => {
-      const where = def.principalWhere?.(subject) ?? null;
+      const where = granteeWhereFor(def, subject);
       return where === null ? [] : [where];
     });
     if (wanted.length > 0 && grantees.length > 0) {
@@ -383,7 +383,7 @@ export class AccessPolicy {
             { OR: grantees },
           ],
         },
-        select: { resourceType: true, resourceId: true, granteeKind: true, granteeUserId: true, granteeGroupId: true, role: true },
+        select: { resourceType: true, resourceId: true, granteeKind: true, granteeUserId: true, granteeGroupId: true, granteeRef: true, role: true },
       });
       for (const row of rows) {
         const key = `${row.resourceType}:${row.resourceId}`;
@@ -543,7 +543,7 @@ function decideOne(
 /** Whether a stored grant of `def` names the caller. A kind that throws names nobody (fail closed). */
 function granteeNamesCaller(def: ReturnType<typeof findGranteeKind> & object, grant: GrantContribution, principal: Principal): boolean {
   try {
-    return def.matchesPrincipal({ kind: grant.granteeKind, userId: grant.granteeUserId, groupId: grant.granteeGroupId, ref: null }, principal);
+    return def.matchesPrincipal({ kind: grant.granteeKind, userId: grant.granteeUserId, groupId: grant.granteeGroupId, ref: grant.granteeRef }, principal);
   } catch {
     return false;
   }

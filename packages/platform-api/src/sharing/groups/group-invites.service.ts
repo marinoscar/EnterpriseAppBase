@@ -43,7 +43,7 @@ import { SHARING_ERROR_REASONS, conflict, inviteExpired, inviteNotFound, notAnOr
 import { SHARING_EVENTS } from '../events';
 import { SHARING_DATA, SHARING_TENANCY, type SharingDataPort, type SharingTenancy } from '../ports';
 import { SHARING_OPTIONS, type ResolvedSharingModuleOptions } from '../sharing.options';
-import { iso, isUniqueViolation, lockGroup, paged, requireActiveOrg, writeAudit } from './group-common';
+import { iso, isUniqueViolation, lockGroup, paged, requireActiveOrg, writeAudit, requireGroupRole } from './group-common';
 import { GroupMembershipService } from './group-membership.service';
 import { SharingEffects } from './sharing-effects';
 
@@ -185,11 +185,13 @@ export class GroupInvitesService {
    * @param input - the address and role.
    * @returns the invite.
    * @throws UnprocessableEntityException 422 `NOT_AN_ORG_MEMBER` (multi mode).
+   * @throws UnprocessableEntityException 422 `GROUP_ROLE_UNKNOWN`.
    * @throws ConflictException 409 `INVITE_PENDING` or `ALREADY_A_MEMBER`.
    */
   @Trace('sharing.group.invites.create')
   async create(principal: Principal, groupId: string, input: CreateGroupInviteInput): Promise<GroupInviteDto> {
     const orgId = requireActiveOrg(principal);
+    requireGroupRole(input.role);
     const now = this.now();
     const ttl = this.options.groups.inviteTtlDays;
 

@@ -7,7 +7,8 @@ import type { GroupRole } from '@marinoscar/platform-contract/sharing';
 
 import type { Principal } from '../../core/index';
 import type { SharingTx } from '../data/sharing-tx';
-import { noActiveOrganization } from '../errors';
+import { groupRoleUnknown, noActiveOrganization } from '../errors';
+import { findGroupRole } from '../group-roles';
 import { SHARING_PERMISSIONS } from '../permissions';
 
 /**
@@ -19,6 +20,15 @@ export function requireActiveOrg(principal: Principal): string {
   if (!orgId) throw noActiveOrganization();
   trace.getActiveSpan()?.setAttribute('org.id', orgId);
   return orgId;
+}
+
+/**
+ * Refuses a group role nobody registered (422 `GROUP_ROLE_UNKNOWN`): the role
+ * vocabulary is open, so the wire schema checks only the shape and this checks
+ * the registry. Fails closed.
+ */
+export function requireGroupRole(role: string): void {
+  if (!findGroupRole(role)) throw groupRoleUnknown(role);
 }
 
 /** Whether the principal holds `permission` (effective, in its active organization). */
