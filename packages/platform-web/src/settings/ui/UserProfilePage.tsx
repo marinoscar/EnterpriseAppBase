@@ -13,8 +13,34 @@
  * (#95) and the page's own `h1` all name the page identically.
  */
 
+import type { PageSlotsBase } from '../../core/index.js';
 import { ProfileSettings } from './ProfileSettings.js';
 import { UserSettingsSection } from './UserSettingsSection.js';
+
+/**
+ * The slots of {@link UserProfilePage}: the page-slot contract. `Sections`
+ * is where an app adds a section of its own (a public handle, a timezone)
+ * above or below the profile card.
+ *
+ * @example
+ * ```tsx
+ * <UserProfilePage slots={{ Sections: ({ position }) => (position === 'bottom' ? <PublicHandleCard /> : null) }} />
+ * ```
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export type UserProfilePageSlots = PageSlotsBase;
+
+/**
+ * The props of {@link UserProfilePage}.
+ *
+ * @stability experimental
+ */
+export interface UserProfilePageProps {
+  /** Optional extension slots; omitted, the page renders exactly as it always did. */
+  slots?: UserProfilePageSlots;
+}
 
 /**
  * Settings, Profile (`/settings/profile`): the display name and the profile
@@ -31,9 +57,10 @@ import { UserSettingsSection } from './UserSettingsSection.js';
  * @extensionPoint component
  * @stability experimental
  */
-export function UserProfilePage() {
+export function UserProfilePage(props: UserProfilePageProps = {}) {
   return (
     <UserSettingsSection
+      slots={props.slots}
       title="Profile"
       description="Your display name and profile image, and the email you signed in with."
     >

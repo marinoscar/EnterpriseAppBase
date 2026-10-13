@@ -47,7 +47,8 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { Alert, Box, Container, Snackbar, Typography } from '@mui/material';
 import type { UserSettingsResponseBase } from '@marinoscar/platform-contract/settings';
-import { useOptionalPlatformHost } from '../../core/index.js';
+import { PageSlotsFrame, useOptionalPlatformHost } from '../../core/index.js';
+import type { PageSlotsBase } from '../../core/index.js';
 import { useUserSettings } from '../headless/use-user-settings.js';
 import { LoadingSpinner } from '../internal/LoadingSpinner.js';
 
@@ -123,6 +124,11 @@ export interface UserSettingsSectionProps {
   description: string;
   /** Renders the page body once the document has loaded. */
   children: (state: UserSettingsSectionState) => ReactNode;
+  /**
+   * The page-slot contract's slots, handed to the page chrome. Omitted, the
+   * chrome is exactly what it always was. The loading spinner is not slotted.
+   */
+  slots?: PageSlotsBase;
 }
 
 /**
@@ -146,6 +152,7 @@ export function UserSettingsSection({
   title,
   description,
   children,
+  slots,
 }: UserSettingsSectionProps) {
   const {
     settings,
@@ -183,13 +190,20 @@ export function UserSettingsSection({
   return (
     <Container maxWidth="md">
       <Box sx={{ py: 4 }}>
-        <Typography variant="h4" component="h1" gutterBottom>
-          {title}
-        </Typography>
-        <Typography color="text.secondary" sx={{ mb: 2 }}>
-          {description}
-        </Typography>
-
+        <PageSlotsFrame
+          slots={slots}
+          headerProps={{ title, description, actions: null }}
+          header={
+            <>
+              <Typography variant="h4" component="h1" gutterBottom>
+                {title}
+              </Typography>
+              <Typography color="text.secondary" sx={{ mb: 2 }}>
+                {description}
+              </Typography>
+            </>
+          }
+        >
         {/* The FETCH error, distinct from the save error below it. This one is
             inline and permanent because the page has no content to show without
             it; a snackbar that auto-hides after five seconds would leave an
@@ -205,6 +219,8 @@ export function UserSettingsSection({
             {children({ settings, isSaving, save, replaceSettings })}
           </Box>
         )}
+
+        </PageSlotsFrame>
 
         {/* Both snackbars are per-PAGE as of #96 — see the file header. */}
         <Snackbar

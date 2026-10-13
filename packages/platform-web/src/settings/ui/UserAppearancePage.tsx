@@ -17,8 +17,34 @@
  * (#95) and the page's own `h1` all name the page identically.
  */
 
+import type { PageSlotsBase } from '../../core/index.js';
 import { ThemeSettings } from './ThemeSettings.js';
 import { UserSettingsSection } from './UserSettingsSection.js';
+
+/**
+ * The slots of {@link UserAppearancePage}: the page-slot contract. `Sections`
+ * is where an app adds a section of its own (a public handle, a timezone)
+ * above or below the profile card.
+ *
+ * @example
+ * ```tsx
+ * <UserAppearancePage slots={{ Sections: ({ position }) => (position === 'bottom' ? <DensityCard /> : null) }} />
+ * ```
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export type UserAppearancePageSlots = PageSlotsBase;
+
+/**
+ * The props of {@link UserAppearancePage}.
+ *
+ * @stability experimental
+ */
+export interface UserAppearancePageProps {
+  /** Optional extension slots; omitted, the page renders exactly as it always did. */
+  slots?: UserAppearancePageSlots;
+}
 
 /**
  * Settings, Appearance (`/settings/appearance`): light, dark or system. The
@@ -34,9 +60,10 @@ import { UserSettingsSection } from './UserSettingsSection.js';
  * @extensionPoint component
  * @stability experimental
  */
-export function UserAppearancePage() {
+export function UserAppearancePage(props: UserAppearancePageProps = {}) {
   return (
     <UserSettingsSection
+      slots={props.slots}
       title="Appearance"
       description="Choose a light, dark, or system-matched theme for this account."
     >

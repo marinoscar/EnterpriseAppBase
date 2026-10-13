@@ -42,10 +42,6 @@
       "reason": "migrated in PP-14.24 (#942)"
     },
     {
-      "page": "OrgSettingsPage",
-      "reason": "migrated in PP-14.24 (#942)"
-    },
-    {
       "page": "OrganizationPage",
       "reason": "migrated in PP-14.25 (#943)"
     },
@@ -78,19 +74,11 @@
       "reason": "migrated in PP-14.24 (#942)"
     },
     {
-      "page": "UserAppearancePage",
-      "reason": "migrated in PP-14.24 (#942)"
-    },
-    {
       "page": "UserDangerZonePage",
       "reason": "migrated in PP-14.24 (#942)"
     },
     {
       "page": "UserNotificationsPage",
-      "reason": "migrated in PP-14.24 (#942)"
-    },
-    {
-      "page": "UserProfilePage",
       "reason": "migrated in PP-14.24 (#942)"
     },
     {

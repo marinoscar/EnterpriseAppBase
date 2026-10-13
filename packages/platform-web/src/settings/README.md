@@ -126,9 +126,10 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | `useSystemSettings` | hook | `useSystemSettings<T>(options?): UseSystemSettingsResult<T>` | Read and save the deployment-wide settings document | experimental | [example](../../../../apps/web/src/hooks/useSystemSettings.ts) |
 | `useUserSettings` | hook | `useUserSettings<T, U>(options?): UseUserSettingsResult<T, U>` | Read and save the signed-in user's settings, syncing the app's theme | experimental | [example](../../../../apps/web/src/hooks/useUserSettings.ts) |
 | `useOrgSettings` | hook | `useOrgSettings(options?): UseOrgSettingsResult` | Read and patch the active organization's settings overrides | experimental | [example](../../../../apps/web/src/App.tsx) |
-| `OrgSettingsPage` | component | `OrgSettingsPage(): ReactElement` | Route the `Organization settings` card (`org_settings:read`, `feature: 'orgs'`) | experimental | [example](../../../../apps/web/src/App.tsx) |
-| `UserProfilePage` | component | `UserProfilePage(): ReactElement` | Route the `Profile` card (`/settings/profile`, no permission) | experimental | [example](../../../../apps/web/src/App.tsx) |
-| `UserAppearancePage` | component | `UserAppearancePage(): ReactElement` | Route the `Appearance` card (`/settings/appearance`, no permission) | experimental | [example](../../../../apps/web/src/App.tsx) |
+| `OrgSettingsPage` | component | `OrgSettingsPage(props?: { slots?: OrgSettingsPageSlots }): ReactElement` | Route the `Organization settings` card (`org_settings:read`, `feature: 'orgs'`) | experimental | [example](../../../../apps/web/src/App.tsx) |
+| `UserProfilePage` | component | `UserProfilePage(props?: { slots?: UserProfilePageSlots }): ReactElement` | Route the `Profile` card (`/settings/profile`, no permission) | experimental | [example](../../../../apps/web/src/App.tsx) |
+| `UserAppearancePage` | component | `UserAppearancePage(props?: { slots?: UserAppearancePageSlots }): ReactElement` | Route the `Appearance` card (`/settings/appearance`, no permission) | experimental | [example](../../../../apps/web/src/App.tsx) |
+| `OrgSettingsPageSlots`, `UserProfilePageSlots`, `UserAppearancePageSlots` | slot | `PageSlotsBase` | Add a section of your own (a billing contact, a time zone, a density preference) around the generated organization cards, the profile card or the theme card | experimental | [example](../../../../apps/web/src/__tests__/examples/settings/account-page-sections.test.tsx) |
 | `PluggableConfigForm` | component | `PluggableConfigForm(props: PluggableConfigFormProps): ReactElement` | Render the configuration form of one pluggable implementation from its `PluggableDescriptor`; secrets are write-only | experimental | [example](../../../../apps/web/src/__tests__/examples/settings/GreeterSettings.example.tsx) |
 | `usePluggableConfigForm` | hook | `usePluggableConfigForm(descriptor, initial?): UsePluggableConfigFormResult` | Hold that form's state: `value`, `secrets`, `dirty`, `setField`, `setSecret`, `reset`, `payload()` (omits untouched secrets) | experimental | [example](../../../../apps/web/src/__tests__/examples/settings/GreeterSettings.example.tsx) |
 | `PluggableConfigFormProps` | slot | `{ descriptor; value; onChange(name, next); secrets; onSecretChange(name, next); disabled?; slots?: { renderField?, textField?, secretField?, otherNote? } }` | Replace one field's control, restyle the text fields, or reword the `other` note; the default rendering is unchanged | experimental | [example](../../../../apps/web/src/__tests__/examples/settings/GreeterSettings.example.tsx) |
@@ -151,6 +152,8 @@ The hub mirrors permissions, it never invents one: a card's `permission` is the 
 ## UI
 
 `SettingsHub`, the three pages above and the generated `PluggableConfigForm`. `OrgSettingsPage` ([`OrgSettingsPage.tsx`](./ui/OrgSettingsPage.tsx)) is built on `useOrgSettings` and renders a form generated from the namespace descriptors the API returns. The pages are mobile-first (the Organization page's padding tightens below `sm`). Accessibility (from the hub's spec): the search field has an explicit accessible name, inert cards are not tab stops, the compact list and the grid are chosen by mounting (never both in the DOM).
+
+`OrgSettingsPage`, `UserProfilePage` and `UserAppearancePage` take one optional `slots` prop ([Page slots](../core/README.md#page-slots)): `Header`, `BeforeContent`, `Sections` (at both ends), `AfterContent`. `UserSettingsSection`, the chrome both user pages share, takes the same `slots` and hands them to `PageSlotsFrame`; the loading spinner is not slotted. With no slot the markup is unchanged (`test/settings/ui/SettingsPages.builtin-dom.test.tsx` pins it).
 
 ## Infra
 
@@ -203,6 +206,8 @@ From the reference app's local copies (#733): `components/settings/SettingsHub.t
 #892: `OrgSettingsPage`, `UserProfilePage`, `UserAppearancePage` and `UserSettingsSection` moved from `apps/web/src/pages`, `ProfileSettings`, `ThemeSettings` and `ImageUpload` from `components/settings`. Route the packaged pages (import from `/settings/ui`), set `applyTheme` on your host (your theme context's setter) and give your transport `postFormData` (core's `createPlatformApiClient` does). The app's `hooks/useStorageStatus` and the profile image calls in `services/api.ts` are gone. The packaged `FeatureUnavailableNotice` (onboarding) replaces the app's copy in the Profile page; it shows the library's default info icon.
 
 #923 (PP-14.5): additive. `PluggableConfigForm` and `usePluggableConfigForm` are new, and the slice now depends on `credentials` (a sibling edge inside the one package; no new peer dependency).
+
+#942 (PP-14.24): additive. `OrgSettingsPage`, `UserProfilePage` and `UserAppearancePage` take an optional `slots` prop (the base of the page-slot contract of `@marinoscar/platform-web/core`; types exported from `/settings/ui`), and `UserSettingsSection` takes `slots`. A page given no slots renders the markup it always did.
 
 ## Troubleshooting
 
