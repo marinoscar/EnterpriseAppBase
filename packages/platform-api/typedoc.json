@@ -9,6 +9,7 @@
     "src/core/testing/index.ts",
     "src/testing/index.ts",
     "src/doctor/index.ts",
+    "src/doctor/testing/index.ts",
     "src/otel-core/index.ts",
     "src/otel-core/sdk/index.ts",
     "src/telemetry/index.ts",

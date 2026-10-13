@@ -59,6 +59,56 @@ runPlatformConformance({
 });
 ```
 
+### Adding a suite from an app or a package
+
+An invariant of your own (every `orders.*` route is permissioned, no module imports the legacy client) is a suite, registered with the same harness and run from the same spec. You do not edit this package: a suite registers itself in `conformanceSuites`, and its options reach `runPlatformConformance` through module augmentation of `PlatformConformanceSuiteOptions`. The packaged slices do exactly this: [`android-app/testing/conformance.ts`](../android-app/testing/conformance.ts) (a scan suite, with its `declare module` and its `conformanceSuites.register`) and [`doctor/testing/doctor-read-only.suite.ts`](../doctor/testing/doctor-read-only.suite.ts) (a suite that boots the app).
+
+```ts
+// apps/api/test/conformance/order-routes.suite.ts
+import { conformanceSuites } from '@marinoscar/platform-api/testing';
+import type { ConformanceSuite } from '@marinoscar/platform-api/testing';
+
+export interface OrderRoutesOptions {
+  /** Vacuity guard: at least this many `orders.*` routes must be found. */
+  readonly minRoutes: number;
+}
+
+// Merges the key into the options of the harness. Write it against the PUBLIC specifier, in any file.
+declare module '@marinoscar/platform-api/testing' {
+  interface PlatformConformanceSuiteOptions {
+    orderRoutes?: OrderRoutesOptions;
+  }
+}
+
+export const orderRoutesSuite: ConformanceSuite<OrderRoutesOptions> = {
+  id: 'order-routes', // the option key is the camelCase form: orderRoutes
+  title: 'every orders route declares a permission',
+  description: 'No orders route is open to every signed-in user.',
+  check: (_context, options) => ({ scanned: { routes: 0 }, scannedFiles: {}, findings: [] /* read the router, never a list */ }),
+  cases: (options) => [
+    { name: 'finds the routes at all', run: (report, expect) => expect(report.scanned.routes).toBeGreaterThanOrEqual(options.minRoutes) },
+    { name: 'declares a permission on each', run: (report, expect) => expect(report.findings).toEqual([]) },
+  ],
+};
+
+if (!conformanceSuites.has(orderRoutesSuite.id)) conformanceSuites.register(orderRoutesSuite);
+```
+
+```ts
+// apps/api/test/conformance.spec.ts
+import './conformance/order-routes.suite'; // BEFORE runPlatformConformance: the registry freezes on its first run
+runPlatformConformance({ sourceRoots, suites: { orderRoutes: { minRoutes: 5 } } });
+```
+
+- **Two shapes.** `ConformanceSuite` scans once (`check`) and asserts on the report (`cases`); `ConformanceAppSuite` (`register(api, context, options)`) registers its own `describe` tree, and may use the runner's `beforeAll` and `afterAll`, for an invariant that has to boot the app.
+- **Import order.** Register at import time, and import the file before the `runPlatformConformance` call. A suite registered after the first run throws; `has(id)` makes a double import harmless.
+- **Discover, never list.** Read the router, the registry or the source tree. A suite that names a route is a test of that route.
+- **It can fail.** Ship a test that plants a violation and asserts the suite names it (the `recordingTestApi` pattern in `packages/platform-api/test/support/conformance-harness.ts`).
+- **Opt-out with a reason.** `orderRoutes: { skip: 'why' }`; an empty reason throws. A suite the app does not list does not run.
+- **A kit for one extension, not a suite.** A check, a handler or a provider has a `describeXConformance` kit the author calls from their own spec: [`describeDoctorCheckConformance`](../doctor/README.md#conformance-suite) and [`describeJobHandlerConformance`](../jobs/README.md#the-handler-kit). `resolveConformanceTestApi(kit, testApi?)` is what a kit uses to register on the caller's runner.
+
+The web harness takes suites the same way, with options as a third argument: [web testing README](../../../platform-web/src/testing/README.md).
+
 ## Configuration
 
 `PlatformConformanceOptions`:
@@ -97,7 +147,7 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | `runPlatformConformance` | option | `runPlatformConformance(options: PlatformConformanceOptions): void` | Register the enabled suites at the top level of a spec file | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
 | `PlatformConformanceOptions` | option | `{ sourceRoots; suites; testApi?; summaryOutput? }` | Configure the run: where to scan, which suites, which test runner, where the summary table goes | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
 | `CronEnqueueOnlyOptions` | option | `{ exempt; minCronFiles; extraWorkMarkers? }` | Give the cron suite the app's argued exemptions and vacuity minimum | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
-| `conformanceSuites` | registry | `Registry<ConformanceSuite<any>>` | The suites the runner can run, frozen on the first run; a new suite registers in `conformance-suites.ts` | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
+| `conformanceSuites` | registry | `Registry<ConformanceSuite<any>>` | The suites the runner can run, frozen on the first run; an app or a package adds its own with `conformanceSuites.register(suite)` at import time, not by editing this package ([how](#adding-a-suite-from-an-app-or-a-package)) | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
 | `ConformanceSuite` | registry | `interface ConformanceSuite<TOptions>` | Write a suite: `id`, `title`, `description`, a pure `check()` and its `cases()` | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
 | `ConformanceAppSuite` | registry | `interface ConformanceAppSuite<TOptions>` | Write a suite that boots the app: `id`, `title`, `description` and `register(api, context, options)`, which registers its own `describe` tree and hooks | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
 | `ConformanceSkip` | option | `{ skip: string }` | Opt an app out of one suite, with the reason the run summary prints | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
@@ -105,7 +155,7 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | `UserOwnedDataOptions` | option | `{ schemaPath; policies; rawSqlAllowlist; userModel?; registerIn? }` | Give the user-owned data suite the app's schema, registrations and raw-SQL allowlist | experimental | [example](../../../../apps/api/test/prisma/user-owned-models.spec.ts) |
 | `userOwnedDataSuite` | registry | `ConformanceSuite<UserOwnedDataOptions>` | Call the user-owned data suite's `check()` directly in a test | experimental | [example](../../../../apps/api/test/prisma/user-owned-models.spec.ts) |
 
-Supporting types and functions, all `@stability experimental`: `ConformanceTestApi` (the injected runner), `ConformanceReport`, `ConformanceFinding`, `ConformanceCase`, `ConformanceContext`, `ConformanceSummaryEntry` and `formatConformanceSummary` (the run summary).
+Supporting types and functions, all `@stability experimental`: `ConformanceTestApi` (the injected runner), `resolveConformanceTestApi` (the injected runner, else the runner's globals; for a kit), `ConformanceReport`, `ConformanceFinding`, `ConformanceCase`, `ConformanceContext`, `ConformanceSummaryEntry` and `formatConformanceSummary` (the run summary).
 
 The Prisma schema reader behind `user-owned-data`, all `@stability experimental`:
 
@@ -160,7 +210,8 @@ This slice is the harness. Every suite of the platform, with the entry that regi
 | `ai-jobs-server-only` | `ai` | Every `ai.*` job type carries neither `nodeResultSchema` nor `persistNodeResult` and is in `JobHandlerRegistry.serverOnlyTypes()` (AI rule 3). | `fixture`, `minAiJobTypes?` | #742 (from #435) |
 | `ai-no-sdk-leak` | `ai` | No provider SDK is imported outside the adapter directory that owns it, none in the app, the web or the contract, and no manifest but the owning package's declares one (AI rule 1). | `apiTrees`, `webTrees`, `sdkOwner?`, `noSdkManifests`, `extraSdkPackages?` | #742 (from #435) |
 | `ai-orchestration-boundary` | `ai` | An orchestration library is imported only under the roots the app allows, never from a web source, never declared by a banned manifest (the base allows none; a fork that adopts one passes its allowed roots). | `apiSourceRoots`, `webSourceRoots`, `packageJsonPaths`, `allowedRoots`, `banned?`, `minApiFiles?` | #739 (registered by #742) |
-| `host` | `host` (`@marinoscar/platform-api/host/testing`) | A walk of the app's module graph from `rootModule`: exactly one `APP_GUARD` and it is `MaintenanceGuard` (no global JWT guard), `PlatformHostCoreModule.forRoot()` imported once, the `{ data }` envelope and the exception filter global once each. | `rootModule` | #867 |
+| `doctor-read-only` | `doctor` (`@marinoscar/platform-api/doctor/testing`) | Every check the booted app's `DoctorCheckRegistry` holds, run against a recording Prisma client and a write-failing storage provider, writes no row, job or object, holds no side-effecting "test" service, and returns a valid outcome (rule 3 of the check contract; a check whose `dependsOn` did not pass is run for writes but not graded). Six tests. | `fixture`, `minChecks?`, `exempt?`, `forbiddenServices?`, `defaultTimeoutMs?` | PP-14.26 |
+| `host` | `host` (`@marinoscar/platform-api/host/testing`) | A walk of the app's module graph from `rootModule`: `MaintenanceGuard` is the first `APP_GUARD` and every other one is listed, with a reason, in `allowedAppGuards` (no global JWT guard), `PlatformHostCoreModule.forRoot()` imported once, the `{ data }` envelope and the exception filter global once each. | `rootModule`; `allowedAppGuards?` | #867 |
 | `identity`, `credentials`, `telemetry`, `exports`, `notifications`, `settings`, `storage`, `email`, `onboarding`, `sharing` | the slice of the same name | The slice's own invariants (see its README, "Conformance suite"). Moved by the slice's story; not duplicated here. | see the slice README | slice stories |
 
 **Web** (`runPlatformWebConformance` of `@marinoscar/platform-web/testing`, Vitest): every registered suite runs unless the app skips it by id with a reason. See the [web settings README](../../../platform-web/src/settings/README.md#conformance-suite): `settings-registry-gates`, `settings-registry-shape`, `settings-ai-cards`, `settings-card-routes` and `settings-route-ownership` (all #742, from the reference app's registry tests).

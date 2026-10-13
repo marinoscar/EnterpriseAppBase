@@ -8,6 +8,9 @@ import { SSE_METADATA } from '@nestjs/common/constants';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 
+import { isReportableKey } from '../internal/bounded';
+import { responseMetaContributorRegistry } from './response-meta.registry';
+
 // =============================================================================
 // The `{ data }` response envelope (packaged in the host slice by #867)
 // =============================================================================
@@ -17,7 +20,90 @@ import { map } from 'rxjs/operators';
 // except a body that already carries a `data` key and an `@Sse()` stream.
 // `applyDataEnvelope` (../openapi/data-envelope.ts) documents the same rule in
 // the OpenAPI document, so the two cannot drift.
+//
+// `meta` may carry more than the timestamp: an app registers a contributor
+// (`registerResponseMetaContributor`) and its entries are merged in, bounded
+// and secret-filtered (`buildResponseMeta`).
 // =============================================================================
+
+/**
+ * The most keys one contributor may add to `meta`.
+ *
+ * @stability experimental
+ */
+export const RESPONSE_META_MAX_KEYS_PER_CONTRIBUTOR = 8;
+
+/**
+ * The most keys contributors may add to `meta` in total.
+ *
+ * @stability experimental
+ */
+export const RESPONSE_META_MAX_KEYS = 16;
+
+/**
+ * The longest a contributed value may be once serialised as JSON.
+ *
+ * @stability experimental
+ */
+export const RESPONSE_META_MAX_VALUE_LENGTH = 512;
+
+/**
+ * The `meta` of one enveloped response.
+ *
+ * @stability experimental
+ */
+export interface ResponseMeta {
+  /** When the response was built (ISO 8601). */
+  timestamp: string;
+  /** What the registered contributors added. */
+  [key: string]: unknown;
+}
+
+/**
+ * Builds `meta` for one response: the timestamp, then the entries the
+ * registered contributors returned. A contributor that throws is skipped. The
+ * platform's `timestamp` cannot be overridden; a key beyond the limits, a
+ * credential-looking key, and a value that is not JSON or serialises to more
+ * than {@link RESPONSE_META_MAX_VALUE_LENGTH} characters are dropped.
+ *
+ * @param request - the incoming request, passed to each contributor.
+ * @returns the `meta` object.
+ *
+ * @stability experimental
+ */
+export function buildResponseMeta(request: unknown): ResponseMeta {
+  const meta: ResponseMeta = { timestamp: new Date().toISOString() };
+  const contributors = responseMetaContributorRegistry.list();
+  if (contributors.length === 0) return meta;
+
+  const view = (request ?? {}) as Readonly<Record<string, unknown>>;
+  let total = 0;
+  for (const contributor of contributors) {
+    let contributed: unknown;
+    try {
+      contributed = contributor.contribute(view);
+    } catch {
+      continue;
+    }
+    if (contributed === null || typeof contributed !== 'object' || Array.isArray(contributed)) continue;
+    let own = 0;
+    for (const [key, value] of Object.entries(contributed as Record<string, unknown>)) {
+      if (own >= RESPONSE_META_MAX_KEYS_PER_CONTRIBUTOR || total >= RESPONSE_META_MAX_KEYS) break;
+      if (key === 'timestamp' || key in meta || !isReportableKey(key)) continue;
+      let serialised: string | undefined;
+      try {
+        serialised = JSON.stringify(value);
+      } catch {
+        serialised = undefined;
+      }
+      if (serialised === undefined || serialised.length > RESPONSE_META_MAX_VALUE_LENGTH) continue;
+      meta[key] = JSON.parse(serialised) as unknown;
+      own += 1;
+      total += 1;
+    }
+  }
+  return meta;
+}
 
 /**
  * The envelope every successful JSON response is wrapped in.
@@ -88,6 +174,8 @@ export class TransformInterceptor<T>
       return next.handle() as Observable<ApiEnvelope<T>>;
     }
 
+    const request = context.switchToHttp().getRequest();
+
     return next.handle().pipe(
       map((data) => {
         // If already wrapped, return as-is
@@ -97,9 +185,7 @@ export class TransformInterceptor<T>
 
         return {
           data,
-          meta: {
-            timestamp: new Date().toISOString(),
-          },
+          meta: buildResponseMeta(request),
         };
       }),
     );

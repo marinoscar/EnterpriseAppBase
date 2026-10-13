@@ -22,10 +22,10 @@
 
 import type { z } from 'zod';
 import type {
-  JOB_REASONS,
   JobDurationStats,
   JobEtaBasis,
   JobListQuery,
+  JobReasonName,
   JobStatusCounts,
   JobStatusName,
   ProcessedWithin,
@@ -41,16 +41,9 @@ import type {
   retryFailedResultSchema,
 } from '@marinoscar/platform-contract/jobs';
 
-export type { JobDurationStats, JobEtaBasis, JobStatusCounts, JobStatusName, ProcessedWithin };
+export type { JobDurationStats, JobEtaBasis, JobReasonName, JobStatusCounts, JobStatusName, ProcessedWithin };
 
 // ---- Jobs --------------------------------------------------------------------
-
-/**
- * Why a job was queued: `upload`, `rerun` or `backfill`.
- *
- * @stability experimental
- */
-export type JobReasonName = (typeof JOB_REASONS)[number];
 
 /**
  * One row of `GET /api/admin/jobs` (`jobSchema`). Payloads are never included.

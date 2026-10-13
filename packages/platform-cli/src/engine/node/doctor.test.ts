@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { ApiError, NetworkError } from '../errors.js';
-import type { CapabilityProbe } from './capabilities.js';
+import { binaryCapability, registerJobRequirement, resetCapabilityRegistriesForTests, type CapabilityProbe } from './capabilities.js';
 import { formatDoctorReport, runDoctor, splitHostPort, type DoctorCheck } from './doctor.js';
 import type { NodeApi, WorkerNode } from './node-api.js';
 import type { ResolvedNodeConfig } from './node-config.js';
@@ -72,6 +72,51 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
+});
+
+describe('runDoctor: tools an app registered (PP-14.19)', () => {
+  const base = () => ({
+    config: CONFIG,
+    socketPath: join(dir, 'node.sock'),
+    pidPath: join(dir, 'node.pid'),
+    stateDir: dir,
+    api: api(async () => []),
+    readStatus: NO_DAEMON as never,
+  });
+
+  it('adds no probed-binaries check for a stock node (pg_dump and psql have their own)', async () => {
+    const report = await runDoctor({ ...base(), probe: { ...PROBE, binaries: { pg_dump: true, psql: false } } });
+
+    expect(find(report.checks, 'probed-binaries')).toBeUndefined();
+  });
+
+  it('lists a registered tool with its version, and a missing one, as information (never a failure)', async () => {
+    const report = await runDoctor({
+      ...base(),
+      probe: { ...PROBE, binaries: { pg_dump: false, psql: false, ffmpeg: true, exiftool: false }, versions: { ffmpeg: 'ffmpeg version 6.1' }, capabilities: ['binary:ffmpeg'] },
+    });
+
+    expect(find(report.checks, 'probed-binaries')).toMatchObject({
+      status: 'pass',
+      detail: 'ffmpeg (ffmpeg version 6.1): found; exiftool: not found',
+    });
+  });
+
+  it('fails the capabilities check for a registered requirement the machine does not meet', async () => {
+    registerJobRequirement('app.doctor-transcode', { required: [binaryCapability('ffmpeg')] });
+    try {
+      const report = await runDoctor({
+        ...base(),
+        config: { ...CONFIG, node: { ...CONFIG.node, eligibleTypes: ['app.doctor-transcode'] } },
+        probe: { ...PROBE, binaries: { ffmpeg: false } },
+      });
+
+      expect(find(report.checks, 'job-capabilities')).toMatchObject({ status: 'fail' });
+      expect(find(report.checks, 'job-capabilities')?.detail).toContain('binary:ffmpeg (app.doctor-transcode)');
+    } finally {
+      resetCapabilityRegistriesForTests();
+    }
+  });
 });
 
 describe('runDoctor', () => {

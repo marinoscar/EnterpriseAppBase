@@ -4,7 +4,7 @@
 
 ## Purpose and scope
 
-Does: render the Console's Operations pages "packages own behaviour, apps own appearance": the queue summary, the queue-wide sweeps (retry all failed, reset stuck) and the paginated job list with per-row retry and delete; the queue analytics over a window (percentiles, throughput, the ETA per type with how much of it is measurement, all-time totals) and the reset of the lifetime rollup; the worker fleet with each node's derived health and vitals, and the node credentials (mint and show once, revoke). The app's MUI theme styles them, `slots.Header` replaces each page's title block, and the jobs adapters hand in the app's spinner, its table and, optionally, its own jobs client.
+Does: render the Console's Operations pages "packages own behaviour, apps own appearance": the queue summary, the queue-wide sweeps (retry all failed, reset stuck) and the paginated job list with per-row retry and delete; the queue analytics over a window (percentiles, throughput, the ETA per type with how much of it is measurement, all-time totals) and the reset of the lifetime rollup; the worker fleet with each node's derived health and vitals, and the node credentials (mint and show once, revoke). The app's MUI theme styles them, the page-slot contract (`slots`, [Page slots](../core/README.md#page-slots)) lets the app add to or replace parts of each page, and the jobs adapters hand in the app's spinner, its table and, optionally, its own jobs client.
 
 Does not: decide anything. Every permission is enforced by the API (`@marinoscar/platform-api/jobs` and `/nodes`); the pages only hide or disable controls. A node's `health` is derived by the API against the `nodes.staleHeartbeatSeconds` setting and is never recomputed here. The slice does not own the app's registries or routes (the app declares every card in `ADMIN_SECTIONS` and every route in its router, CLAUDE.md Settings UI Pattern), import app context, layout or navigation, or ship a data table (the app's comes in through the adapters; a plain MUI table is the fallback). There is no job-detail view: the API has no `GET /admin/jobs/:id`, and a row's fields are all on the list.
 
@@ -52,7 +52,7 @@ Page props (all optional; the app's routes render the pages as is):
 
 | Page | Prop | Default | Meaning |
 |---|---|---|---|
-| all three | `slots.Header` | the `h1` and subtitle | Replaces the title block; receives `{ title, description, readOnly }`. |
+| all three | `slots` | none | The page-slot contract plus the page's own slots; see [Slots](#slots-and-theme). |
 | all three | `fallbackPath` | `'/'` | Where a viewer without the page's read permission is sent. |
 | `JobsPage` | `insightsPath` | `'/admin/settings/jobs/insights'` | Where the "Job insights" button goes. |
 
@@ -73,18 +73,34 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | `useJobInsights` | hook | `useJobInsights(windowDays: number, api?: JobsApi): UseJobInsightsResult` | Show an ETA or a percentile elsewhere | experimental | [example](../../../../apps/web/src/jobs/examples.tsx) |
 | `useVisiblePolling` | hook | `useVisiblePolling(callback: () => void, intervalMs: number): void` | Re-read a view while the tab is in front, the way the pages do | experimental | [example](../../../../apps/web/src/jobs/examples.tsx) |
 | `JobsPage` | component | `JobsPage(props?: JobsPageProps): ReactElement` | Render the `/admin/settings/jobs` route | experimental | [example](../../../../apps/web/src/App.tsx) |
-| `JobsPageProps` | slot | `{ insightsPath?; fallbackPath?; slots?: { Header? } }` | Replace the Jobs page's header or its paths | experimental | [example](../../../../apps/web/src/jobs/examples.tsx) |
+| `JobsPageProps` | slot | `{ insightsPath?; fallbackPath?; slots?: JobsPageSlots }` | Replace the Jobs page's header or its paths | experimental | [example](../../../../apps/web/src/jobs/examples.tsx) |
+| `JobsPageSlots` | slot | `PageSlotsBase & TableSlots<Job, JobsTableColumn<Job>> & { Header?; Filters?: PageSlot<{ value; onChange }> }` | Add a banner, a section, a column, a per-row action, a detail view, toolbar controls or extra filters (organization, subject) to the Jobs page | experimental | [example](../../../../apps/web/src/platform-extensions/jobs/WaitedColumn.example.tsx) |
 | `JobInsightsPage` | component | `JobInsightsPage(props?: JobInsightsPageProps): ReactElement` | Render the `/admin/settings/jobs/insights` route | experimental | [example](../../../../apps/web/src/App.tsx) |
-| `JobInsightsPageProps` | slot | `{ fallbackPath?; slots?: { Header? } }` | Replace the Job Insights page's header | experimental | [example](../../../../apps/web/src/jobs/examples.tsx) |
+| `JobInsightsPageProps` | slot | `{ fallbackPath?; slots?: JobInsightsPageSlots }` | Replace the Job Insights page's header or its fallback path | experimental | [example](../../../../apps/web/src/jobs/examples.tsx) |
+| `JobInsightsPageSlots` | slot | `PageSlotsBase & TableSlots<JobTypeInsightRow, JobsTableColumn<JobTypeInsightRow>> & { Header?; Filters?: PageSlot<{ windowDays; onWindowDaysChange }> }` | Add a banner, a section, a column or a per-type action, toolbar controls, or controls beside the window selector to the Job Insights page | experimental | [example](../../../../apps/web/src/__tests__/examples/jobs/waited-column.test.tsx) |
 | `jobsAdminSections` | component | `{ operations: JobsSettingsCard[] }` | Spread the Jobs, Job Insights and Worker Nodes cards (the last is the nodes slice's) into the app's `ADMIN_SECTIONS` | experimental | [example](../../../../apps/web/src/config/adminSections.tsx) |
 
 The worker-fleet names (`useWorkerNodes`, `useWorkerNode`, `useNodeCredentials`, `useNodeActions`, `WorkersPage`, `WorkersPageProps` and the types below) are re-exported from `@marinoscar/platform-web/nodes`, where their catalog rows are.
 
-Supporting exports (experimental). `/jobs/headless`: `createJobsApi`, `useJobsApi`, `useJobsWebAdapters`, `JobsSpinnerProps`; the wire types `Job`, `JobListParams`, `JobListResponse`, `JobStats`, `JobTypeStats`, `JobStatusCounts`, `JobInsights`, `JobEta`, `JobEtaBasis`, `JobDurationStats`, `JobTypeDurationStats`, `JobLifetimeStats`, `RetryFailedResult`, `ResetStuckResult`, `ResetHistoryResult`, `JobStatusName`, `JobReasonName`, `ProcessedWithin`, `WorkerNode`, `NodeOwner`, `NodeJobCounts`, `NodeStatus`, `NodeHealth`, `NodeVitals`, `NodeVitalsCounters`, `NodeCredential`, `NodeCredentialCreated`, `CreateNodeCredentialInput`, `NodeCredentialStatus`; the constants `NODE_STATUSES`, `NODE_HEALTHS`, `MAX_NODE_CREDENTIAL_DAYS`, `MAX_NODE_CREDENTIAL_NAME_LENGTH`, `JOBS_POLL_INTERVAL_MS`, `WORKER_NODES_POLL_INTERVAL_MS`, `DEFAULT_INSIGHTS_WINDOW_DAYS`, `INSIGHTS_WINDOW_OPTIONS`; the predicates `isJobActionable`, `nodeCredentialStatus`; the formatters `formatDuration`, `formatDateTime`, `shortId`; the `Use*Result` types; and the table types (`JobsDataTableComponent`, `JobsDataTableProps`, `JobsTableColumn`, `JobsTableRowAction`, `JobsTableFilter`, `JobsTableSortState`, `JobsTableEnumValue` and their unions). `/jobs/ui`: `JobsPageHeaderProps`, `JobsSettingsCard`.
+Supporting exports (experimental). `/jobs/headless`: `createJobsApi`, `useJobsApi`, `useJobsWebAdapters`, `JobsSpinnerProps`; the wire types `Job`, `JobListParams`, `JobListResponse`, `JobStats`, `JobTypeStats`, `JobStatusCounts`, `JobInsights`, `JobEta`, `JobEtaBasis`, `JobDurationStats`, `JobTypeDurationStats`, `JobLifetimeStats`, `RetryFailedResult`, `ResetStuckResult`, `ResetHistoryResult`, `JobStatusName`, `JobReasonName`, `ProcessedWithin`, `WorkerNode`, `NodeOwner`, `NodeJobCounts`, `NodeStatus`, `NodeHealth`, `NodeVitals`, `NodeVitalsCounters`, `NodeCredential`, `NodeCredentialCreated`, `CreateNodeCredentialInput`, `NodeCredentialStatus`; the constants `NODE_STATUSES`, `NODE_HEALTHS`, `MAX_NODE_CREDENTIAL_DAYS`, `MAX_NODE_CREDENTIAL_NAME_LENGTH`, `JOBS_POLL_INTERVAL_MS`, `WORKER_NODES_POLL_INTERVAL_MS`, `DEFAULT_INSIGHTS_WINDOW_DAYS`, `INSIGHTS_WINDOW_OPTIONS`; the predicates `isJobActionable`, `nodeCredentialStatus`; the formatters `formatDuration`, `formatDateTime`, `shortId`; the `Use*Result` types; and the table types (`JobsDataTableComponent`, `JobsDataTableProps`, `JobsTableColumn`, `JobsTableRowAction`, `JobsTableFilter`, `JobsTableSortState`, `JobsTableEnumValue` and their unions). `/jobs/ui`: `JobsPageHeaderProps`, `JobsSettingsCard`, `JobsFiltersSlotProps`, `JobsExtraFilters`, `JobInsightsFiltersSlotProps`, `JobTypeInsightRow`.
 
 ### Slots and theme
 
-`slots.Header` on each page replaces the `h1` and subtitle; it receives the card's `title` and `description` and `readOnly` (the viewer lacks `jobs:write`, or `nodes:write` on Worker Nodes). Everything else is styled by the app's theme: palette roles (`text.secondary`, `error.main`, `warning.main`, `text.disabled`), MUI chip colours for statuses and typography variants, never a hard-coded theme.
+Both pages take the page-slot contract of the web core ([Page slots](../core/README.md#page-slots)): `Header`, `BeforeContent`, `Sections` (rendered at both ends, with `position`) and `AfterContent`, plus `TableSlots` over the page's table.
+
+| Slot | Page | Receives | Drawn |
+|---|---|---|---|
+| `Header` | both | `{ title, description, readOnly, actions }` (`actions` is `null`: the queue-wide buttons stay in the body) | Replaces the `h1` and subtitle. `readOnly` means the viewer lacks `jobs:write`. |
+| `BeforeContent`, `Sections` `top` | both | none, `{ position }` | Under the header, above the summary strip. |
+| `Sections` `bottom`, `AfterContent` | both | `{ position }`, none | After the table (Jobs) or the analytics (Insights). |
+| `Columns(base)` | Jobs: `JobsTableColumn<Job>`; Insights: `JobsTableColumn<JobTypeInsightRow>` | the page's columns, the slot columns included | Returns the columns to draw. Runs last. |
+| `RowActions` | both | `{ row }` | An extra `More actions` column. The built-in retry and delete are untouched. |
+| `DetailPanel` | both | `{ row }` | An extra `Details` column of detail priority (the row expander, the phone card). |
+| `Toolbar` | both | none | Jobs: in the row of queue-wide buttons, before "Job insights". Insights: above the per-type table. |
+| `Filters` | Jobs | `{ value: { orgId?, subjectType?, subjectId? }, onChange }` | A row above the table. `onChange` returns to the first page; the values join the list request and the CSV export. |
+| `Filters` | Insights | `{ windowDays, onWindowDaysChange }` | Beside the window selector. |
+
+Everything else is styled by the app's theme: palette roles (`text.secondary`, `error.main`, `warning.main`, `text.disabled`), MUI chip colours for statuses and typography variants, never a hard-coded theme.
 
 ## Data
 
@@ -118,6 +134,8 @@ None in the web package for this slice. The API slices' suites cover the routes;
 
 ## Upgrade notes
 
+PP-14.23: the Jobs and Job Insights pages take the page-slot contract (`BeforeContent`, `Sections`, `AfterContent`, `TableSlots`, `Filters`). An existing `slots.Header` keeps working unchanged: it receives the same `title`, `description` and `readOnly`, and `JobsPageHeaderProps` gains `actions` (`null`). With no slot the markup is unchanged (`test/jobs/JobsPages.builtin-dom.test.tsx`).
+
 New subpaths in this version. From the reference app's `services/jobs.ts`, `services/nodes.ts`, `hooks/useJobs.ts`, `hooks/useJobInsights.ts`, `hooks/useWorkerNodes.ts`, `pages/Admin/{JobsPage,JobInsightsPage,WorkersPage,jobsTable,workersTable,workerVitals}.tsx` and `components/admin/{NodeCredentials,NodeVitalsDialog,CreateNodeCredentialDialog,NodeCredentialRevealDialog}.tsx` (#854):
 
 - Lazy-load the pages from `@marinoscar/platform-web/jobs/ui` (named exports) and spread `jobsAdminSections.operations` where the three cards were.
@@ -125,6 +143,7 @@ New subpaths in this version. From the reference app's `services/jobs.ts`, `serv
 - Import the types, the hooks, `isJobActionable`, `nodeCredentialStatus` and `formatDuration` / `formatDateTime` / `shortId` from `/jobs/headless`. `Job` now carries `orgId`, and `JobListParams` takes it.
 - The hooks take the client as an optional last argument instead of importing service modules; to mock them in a page test, mock `@marinoscar/platform-web/jobs/headless`.
 - The pages read permissions from the host viewer instead of the app's `usePermissions`.
+- Job reasons are open: `JobReasonName` is a built-in or any registered id (a string at runtime), and `Job` carries `reasonLabel` beside `reason` (the API resolves it from `registerJobReason`). No page prints the reason yet; a fixture typed `Job` adds `reasonLabel`.
 
 ## Troubleshooting
 

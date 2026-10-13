@@ -9,6 +9,9 @@
  * runs on screen and whether the viewer may restore) and fetches nothing, so it
  * works against any app that renders the packaged page.
  *
+ * `Sections` is rendered at both ends of the page (`position` is `'top'` or
+ * `'bottom'`), so the panel returns `null` for the end it does not use.
+ *
  * Wire it with
  * `<DbBackupPage slots={{ Sections: RestoreDrillSection }} />` where the route
  * renders the page (`App.tsx`). The reference app does not wire it: it ships
@@ -32,7 +35,9 @@ function newestRestorable(runs: DbBackupSectionsProps['runs']): DbBackupSections
     .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
 }
 
-export function RestoreDrillSection({ runs, canRestore }: DbBackupSectionsProps): ReactElement {
+export function RestoreDrillSection({ runs, canRestore, position }: DbBackupSectionsProps): ReactElement | null {
+  // `Sections` is rendered at both ends of the page; this panel belongs below the history.
+  if (position !== 'bottom') return null;
   const newest = newestRestorable(runs);
   // The newest restore that actually happened, from any run on screen.
   const lastRestoredAt = [...runs]

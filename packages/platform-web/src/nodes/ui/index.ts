@@ -4,7 +4,8 @@
 // `/nodes/headless`. Documented in ../README.md. Explicit named exports only.
 
 export { WorkersPage } from './WorkersPage.js';
-export type { WorkersPageProps } from './WorkersPage.js';
+export type { WorkersPageProps, WorkersPageSlots } from './WorkersPage.js';
+export type { NodeVitalsPanelSlotProps } from './NodeVitalsDialog.js';
 export type { NodesPageHeaderProps } from './PageHeader.js';
 export { NodeCredentials } from './NodeCredentials.js';
 export type { NodeCredentialsProps } from './NodeCredentials.js';

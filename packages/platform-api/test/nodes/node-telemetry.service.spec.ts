@@ -14,7 +14,8 @@ import { type JobsPrisma, type WorkerNode } from '../../src/jobs/data/jobs-db';
 
 import { installTestTracing, TestTracing } from '../identity/support/otel-tracing.helper';
 import { createMockPrismaService, MockPrismaService } from '../jobs/support/prisma.mock';
-import { NodeTelemetryDto } from '../../src/nodes/dto/node-telemetry.dto';
+import { INVALID_NODE_SPAN, NodeTelemetryDto } from '../../src/nodes/dto/node-telemetry.dto';
+import { registerNodeSpanAttribute } from '../../src/nodes/node-span-attribute.registry';
 import { NodeSettlementLedger } from '../../src/nodes/node-settlement-ledger';
 import {
   NODE_TELEMETRY_REQUESTS_PER_MINUTE,
@@ -268,6 +269,83 @@ describe('NodeTelemetryService', () => {
       } finally {
         spy.mockRestore();
       }
+    });
+  });
+
+  describe('executor spans and app attributes (PP-14.19)', () => {
+    beforeAll(() => {
+      registerNodeSpanAttribute({ key: 'frames', type: 'int' });
+      registerNodeSpanAttribute({ key: 'codec', type: 'string', maxLength: 8 });
+    });
+
+    it('re-emits a job.app.<name> span like a built-in phase, parented on the job', async () => {
+      await service.relay(USER, NODE_ID, body(span(HELD_JOB, { name: 'job.app.transcode' })));
+
+      const [emitted] = tracing.exporter.getFinishedSpans();
+      expect(emitted.name).toBe('job.app.transcode');
+      expect(emitted.parentSpanContext?.spanId).toBe(PARENT_SPAN_ID);
+      expect(emitted.attributes).toMatchObject({ 'job.id': HELD_JOB, 'node.id': NODE_ID, 'telemetry.relay': 'node' });
+    });
+
+    it('emits a registered attribute as job.app.<key> and drops one nobody registered, keeping the span', async () => {
+      await service.relay(
+        USER,
+        NODE_ID,
+        body(span(HELD_JOB, { name: 'job.app.transcode', attributes: { frames: 240, codec: 'h264', bitrate: 9, bytes: 10 } }))
+      );
+
+      const [emitted] = tracing.exporter.getFinishedSpans();
+      expect(emitted.attributes).toMatchObject({ 'job.app.frames': 240, 'job.app.codec': 'h264', 'job.phase.bytes': 10 });
+      expect(Object.keys(emitted.attributes).filter((key) => /bitrate/i.test(key))).toEqual([]);
+    });
+
+    it('drops a registered attribute whose value breaks its type, length or token shape', async () => {
+      await service.relay(
+        USER,
+        NODE_ID,
+        body(
+          span(HELD_JOB, { name: 'job.app.a', attributes: { frames: 'many', codec: 'h264-too-long' } }),
+          span(HELD_JOB, { name: 'job.app.b', attributes: { frames: -3, codec: 'a b' } }),
+          span(HELD_JOB, { name: 'job.app.c', attributes: { frames: 1.5, codec: '/tmp/x' } })
+        )
+      );
+
+      for (const emitted of tracing.exporter.getFinishedSpans()) {
+        expect(Object.keys(emitted.attributes).filter((key) => key.startsWith('job.app.') && key !== 'job.app.name')).toEqual([]);
+      }
+    });
+
+    it('cannot overwrite the identity attributes the server sets', async () => {
+      await service.relay(
+        USER,
+        NODE_ID,
+        body(span(HELD_JOB, { attributes: { 'node.id': 'spoof', jobId: 'spoof', nodeId: 'spoof', 'job.id': 'spoof' } as never }))
+      );
+
+      const [emitted] = tracing.exporter.getFinishedSpans();
+      expect(emitted.attributes['node.id']).toBe(NODE_ID);
+      expect(emitted.attributes['job.id']).toBe(HELD_JOB);
+      expect(emitted.attributes['telemetry.relay']).toBe('node');
+    });
+
+    it('drops a span the body schema refused, counts it, and keeps the rest of the batch', async () => {
+      const result = await service.relay(USER, NODE_ID, {
+        spans: [span(HELD_JOB), INVALID_NODE_SPAN, span(HELD_JOB, { name: 'job.app.transcode' })],
+      } as unknown as NodeTelemetryDto);
+
+      expect(result).toEqual({ accepted: 2, dropped: 1 });
+      expect(tracing.exporter.getFinishedSpans().map((emitted) => emitted.name)).toEqual(['job.execute', 'job.app.transcode']);
+    });
+
+    it('reads no job for a batch of only refused spans, and still charges the rate limit for them', async () => {
+      (prisma.job.findMany as jest.Mock).mockClear();
+      const take = jest.spyOn(limiter, 'take');
+
+      const result = await service.relay(USER, NODE_ID, { spans: [INVALID_NODE_SPAN, INVALID_NODE_SPAN] } as unknown as NodeTelemetryDto);
+
+      expect(result).toEqual({ accepted: 0, dropped: 2 });
+      expect(prisma.job.findMany).not.toHaveBeenCalled();
+      expect(take).toHaveBeenCalledWith(NODE_ID, 2);
     });
   });
 });

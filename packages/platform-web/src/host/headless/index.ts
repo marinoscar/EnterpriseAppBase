@@ -31,6 +31,7 @@ export type {
   AboutApp,
   AboutDatabase,
   AboutDeployedBy,
+  AboutExtra,
   AboutHistoryEntry,
   AboutHost,
   AboutProxy,

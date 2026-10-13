@@ -35,6 +35,14 @@ export interface WebConformanceTestApi {
     toContain(item: unknown): void;
     /** The actual number is at least `n`. */
     toBeGreaterThanOrEqual(n: number): void;
+    /** Strict identity (`Object.is`) with `expected`. */
+    toBe(expected: unknown): void;
+    /** The actual object has every property of `expected`, compared deeply and ignoring extras. */
+    toMatchObject(expected: object): void;
+    /** The actual array or string has exactly `length` items. */
+    toHaveLength(length: number): void;
+    /** The actual function throws; when `expected` is given, the message contains it (a string) or matches it (a RegExp). */
+    toThrow(expected?: string | RegExp): void;
   };
 }
 
@@ -179,6 +187,15 @@ export interface WebConformanceSkip {
 }
 
 /**
+ * What an app passes under one suite id: the suite's options, or an opt-out.
+ * The options of a suite are any object that does not carry a `skip` key.
+ *
+ * @extensionPoint option
+ * @stability experimental
+ */
+export type WebConformanceSuiteEntry = WebConformanceSkip | Readonly<Record<string, unknown>>;
+
+/**
  * What the app hands the web suites: its registries and route table, and the
  * permission ids its API enforces.
  *
@@ -213,18 +230,32 @@ export interface WebConformanceContext {
  * A runnable web invariant. Register one in {@link webConformanceSuites}; the
  * harness registers a `describe` block for it unless the app skips it.
  *
+ * @typeParam TOptions - what the app passes to configure the suite through
+ *   {@link PlatformWebConformanceOptions.suites}. `undefined` for a suite that
+ *   takes none (the platform's `settings-*` suites).
+ *
  * @extensionPoint registry
  * @stability experimental
  */
-export interface WebConformanceSuite {
+export interface WebConformanceSuite<TOptions = undefined> {
   /** Stable id, for example `'settings-registry-gates'`; the key of an app's `skip` entry. */
   readonly id: string;
   /** The `describe` title. */
   readonly title: string;
   /** One sentence: the invariant this enforces. */
   readonly description: string;
-  /** Registers the suite's tests against the app's data. Throws only on misconfiguration. */
-  register(api: WebConformanceTestApi, context: WebConformanceContext): void;
+  /**
+   * Registers the suite's tests against the app's data.
+   *
+   * @param api - the runner's `describe`, `it` and the {@link WebConformanceTestApi.expect} subset.
+   * @param context - the app's registries, route table and permission ids.
+   * @param options - what the app passed under this suite's id in
+   *   {@link PlatformWebConformanceOptions.suites}; `undefined` when it passed
+   *   nothing. A suite that needs options throws on `undefined` with a message
+   *   naming the key to pass.
+   * @throws Error only on misconfiguration.
+   */
+  register(api: WebConformanceTestApi, context: WebConformanceContext, options: TOptions): void;
 }
 
 /**
@@ -247,8 +278,14 @@ export interface WebConformanceSuite {
  * @stability experimental
  */
 export interface PlatformWebConformanceOptions extends WebConformanceContext {
-  /** Explicit opt-outs, by suite id; every entry needs a reason, which is printed in the run summary. */
-  suites?: Readonly<Record<string, WebConformanceSkip>>;
+  /**
+   * One entry per suite id the app configures or opts out of. An entry is the
+   * suite's options (handed to its `register` as the third argument) or
+   * `{ skip: 'reason' }` to opt out: the reason is required and is printed in
+   * the run summary. A suite with no entry runs with `undefined` options. An
+   * unknown id throws, so a typo cannot disable a check.
+   */
+  suites?: Readonly<Record<string, WebConformanceSuiteEntry>>;
   /** Defaults to the globals `describe`/`it`/`expect` (Vitest with `globals: true`, or Jest). */
   testApi?: WebConformanceTestApi;
   /** Where the summary table of suites run and skipped goes. Default: the console, unless `testApi` is injected (then nothing is printed). */
@@ -264,24 +301,43 @@ export interface PlatformWebConformanceOptions extends WebConformanceContext {
  * @stability experimental
  */
 export const webConformanceSuites = {
-  /** @internal */ entries: new Map<string, WebConformanceSuite>(),
+  // `any` only at the registry boundary: each entry has its own options type,
+  // and the runner hands it whatever the app passed under the suite's id.
+  /** @internal */ entries: new Map<string, WebConformanceSuite<any>>(),
   /** @internal */ frozen: false,
   /**
-   * Adds a suite; a second registration of the same id is ignored (importing a
-   * `testing` entry twice is harmless).
+   * Adds a suite, the way an app adds its own (`webConformanceSuites.register(mySuite)`
+   * at the top of its conformance test).
    *
-   * @param suite - the suite.
+   * @param suite - the suite; its `id` must not be registered yet.
+   * @throws Error when a suite with the same id is already registered (the second
+   *   one would silently never run); guard an idempotent registration with
+   *   `webConformanceSuites.has(id)`.
    * @throws Error once the harness has run: a suite registered after the first run would never run.
+   *
+   * @example
+   * ```ts
+   * webConformanceSuites.register(myRouteSuite);
+   * runPlatformWebConformance({ ...appData, suites: { 'my-route-suite': { requiredRoutes: ['/orders'] } } });
+   * ```
    */
-  register(suite: WebConformanceSuite): void {
-    if (this.entries.has(suite.id)) return;
+  register<TOptions>(suite: WebConformanceSuite<TOptions>): void {
+    if (this.entries.has(suite.id)) {
+      throw new Error(
+        `webConformanceSuites: a suite with id "${suite.id}" is already registered. Suite ids are unique; rename yours, or guard the call with webConformanceSuites.has("${suite.id}").`,
+      );
+    }
     if (this.frozen) {
       throw new Error(`webConformanceSuites: "${suite.id}" registered after runPlatformWebConformance ran; import the testing entry first.`);
     }
     this.entries.set(suite.id, suite);
   },
+  /** Whether a suite is registered under `id`. */
+  has(id: string): boolean {
+    return this.entries.has(id);
+  },
   /** The registered suites, in registration order. */
-  list(): WebConformanceSuite[] {
+  list(): WebConformanceSuite<any>[] {
     return [...this.entries.values()];
   },
   /** The registered suite ids, in registration order. */
@@ -299,6 +355,11 @@ function globalTestApi(): WebConformanceTestApi {
     );
   }
   return { describe: g.describe, it: g.it, expect: g.expect };
+}
+
+/** An opt-out is an object with a `skip` key (a suite's own options never name one). */
+function isSkipEntry(value: unknown): value is WebConformanceSkip {
+  return typeof value === 'object' && value !== null && 'skip' in value;
 }
 
 /**
@@ -356,7 +417,7 @@ export function runPlatformWebConformance(options: PlatformWebConformanceOptions
           "A suite that ships with a slice registers when the slice's testing entry is imported ('@marinoscar/platform-web/settings/testing').",
       );
     }
-    if (typeof entry?.skip !== 'string' || entry.skip.trim() === '') {
+    if (isSkipEntry(entry) && (typeof entry.skip !== 'string' || entry.skip.trim() === '')) {
       throw new Error(`runPlatformWebConformance: suite "${id}" is skipped without a reason. Pass \`'${id}': { skip: 'why this app does not run it' }\`.`);
     }
   }
@@ -368,9 +429,9 @@ export function runPlatformWebConformance(options: PlatformWebConformanceOptions
   const summary: WebConformanceSummaryEntry[] = [];
 
   for (const suite of webConformanceSuites.list()) {
-    const skip = skips[suite.id];
-    if (skip) {
-      const reason = skip.skip.trim();
+    const entry = skips[suite.id];
+    if (isSkipEntry(entry)) {
+      const reason = entry.skip.trim();
       summary.push({ id: suite.id, status: 'skipped', reason });
       api.describe(suite.title, () => {
         api.it(`${suite.id}: skipped by the app (${reason})`, () => undefined);
@@ -378,7 +439,7 @@ export function runPlatformWebConformance(options: PlatformWebConformanceOptions
       continue;
     }
     summary.push({ id: suite.id, status: 'run' });
-    suite.register(api, options);
+    suite.register(api, options, entry);
   }
 
   // The summary is printed at registration time, not registered as a test: a

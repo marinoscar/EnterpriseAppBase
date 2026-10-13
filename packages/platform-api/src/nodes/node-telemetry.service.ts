@@ -19,7 +19,9 @@
 //      so the rate-limit bucket below can only ever be keyed by a node the
 //      caller owns.
 //   2. RATE LIMIT (`NodeTelemetryRateLimiter`): 429 for the whole request.
-//   3. ATTRIBUTION, PER SPAN: a span is accepted only when its job is held by
+//   3. VALIDATION AND ATTRIBUTION, PER SPAN: a span that failed validation is
+//      dropped (the body schema parsed it to a marker), and a span is accepted
+//      only when its job is held by
 //      THIS node right now (`claimedByNodeId === :id`) or was settled by this
 //      node within the grace window (`NodeSettlementLedger`). Anything else —
 //      a job that does not exist, one held by another node, one this node ran
@@ -50,7 +52,8 @@ import { resolveServiceName } from '../otel-core/index';
 import { jobOrgSpanAttributes, jobParentContext } from '../jobs/index';
 import { type JobsPrisma } from '../jobs/index';
 import { PLATFORM_PRISMA } from '../core/index';
-import { NodeSpan, NodeTelemetryDto } from './dto/node-telemetry.dto';
+import { isValidNodeSpan, NodeSpan, NodeTelemetryDto } from './dto/node-telemetry.dto';
+import { resolveRelayedAttribute } from './node-span-attribute.registry';
 import { NodeSettlementLedger } from './node-settlement-ledger';
 import { NodeTelemetryRateLimiter } from './node-telemetry-rate-limiter';
 import { NodesService } from './nodes.service';
@@ -69,14 +72,6 @@ interface JobAttributionRow {
   traceContext: string | null;
   orgId: string | null;
 }
-
-/** Wire attribute key → span attribute key. The ONLY attributes relayed. */
-const RELAYED_ATTRIBUTES: Record<string, string> = {
-  bytes: 'job.phase.bytes',
-  attempt: 'job.attempt',
-  exitCode: 'process.exit_code',
-  httpStatus: 'http.response.status_code',
-};
 
 @Injectable()
 export class NodeTelemetryService {
@@ -108,7 +103,12 @@ export class NodeTelemetryService {
     }
 
     // 3. Attribution — one query for the whole batch (at most 50 distinct ids).
-    const jobIds = [...new Set(dto.spans.map((span) => span.jobId))];
+    //    A span that failed validation was parsed to the marker: it is dropped
+    //    here, individually, and never reaches the query.
+    const valid: NodeSpan[] = dto.spans.filter(isValidNodeSpan);
+    if (valid.length === 0) return { accepted: 0, dropped: dto.spans.length };
+
+    const jobIds = [...new Set(valid.map((span) => span.jobId))];
     const rows: JobAttributionRow[] = await this.prisma.job.findMany({
       where: { id: { in: jobIds } },
       select: { id: true, type: true, claimedByNodeId: true, traceContext: true, orgId: true },
@@ -122,7 +122,7 @@ export class NodeTelemetryService {
 
     // 4. Emission.
     let accepted = 0;
-    for (const span of dto.spans) {
+    for (const span of valid) {
       const job = attributable.get(span.jobId);
       if (!job) continue;
 
@@ -133,8 +133,8 @@ export class NodeTelemetryService {
     const dropped = dto.spans.length - accepted;
     if (dropped > 0) {
       this.logger.debug(
-        `Node ${node.id}: dropped ${dropped} of ${dto.spans.length} relayed span(s) for jobs ` +
-          `not held or recently settled by this node`
+        `Node ${node.id}: dropped ${dropped} of ${dto.spans.length} relayed span(s) ` +
+          `(invalid, or for jobs not held or recently settled by this node)`
       );
     }
 
@@ -156,9 +156,12 @@ export class NodeTelemetryService {
         'telemetry.relay': 'node',
       };
 
+      // Only the allowlist is relayed (the platform's four integers and the
+      // app's registered ones); anything else, or a value the registry's type
+      // and bounds refuse, is dropped from the span.
       for (const [key, value] of Object.entries(span.attributes ?? {})) {
-        const mapped = RELAYED_ATTRIBUTES[key];
-        if (mapped !== undefined && typeof value === 'number') attributes[mapped] = value;
+        const relayed = resolveRelayedAttribute(key, value);
+        if (relayed !== undefined) attributes[relayed.name] = relayed.value;
       }
 
       if (span.status === 'error' && span.errorType !== undefined) {

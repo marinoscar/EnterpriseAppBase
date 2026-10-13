@@ -15,7 +15,7 @@ The audit record of the extension seams of every platform slice. A closed point 
 
 Evidence paths are written `api:`, `web:`, `contract:`, `cli:`, `db:` and `infra:` for `packages/platform-api/src/`, `packages/platform-web/src/`, `packages/platform-contract/src/`, `packages/platform-cli/src/`, `packages/platform-db/` and `packages/platform-infra/`; a path under `apps/` or `docs/` is from the repository root. A story is written PP-14.n (its issue number follows).
 
-As of this version: 114 closed points in 29 sections, 56 fixed and 58 open.
+As of this version: 114 closed points in 29 sections, 76 fixed and 38 open.
 
 ## Verdicts
 
@@ -26,12 +26,12 @@ As of this version: 114 closed points in 29 sections, 56 fixed and 58 open.
 | [settings](#settings) | Mostly open | 7 | 6 | 1 | PP-14.21, PP-14.5, PP-14.24 |
 | [notifications](#notifications) | Mostly open | 7 | 6 | 1 | PP-14.10, PP-14.8, PP-14.24 |
 | [exports](#exports) | Mostly open | 3 | 0 | 3 | PP-14.20 |
-| [jobs](#jobs) | Mostly open | 4 | 0 | 4 | PP-14.19, PP-14.23, PP-14.26 |
-| [nodes](#nodes) | Mostly open | 4 | 0 | 4 | PP-14.19, PP-14.23 |
-| [doctor](#doctor) | Mostly open | 2 | 0 | 2 | PP-14.23, PP-14.26 |
+| [jobs](#jobs) | Open | 4 | 4 | 0 | PP-14.19, PP-14.23, PP-14.26 |
+| [nodes](#nodes) | Mostly open | 4 | 4 | 0 | PP-14.19, PP-14.23 |
+| [doctor](#doctor) | Open | 2 | 2 | 0 | PP-14.23, PP-14.26 |
 | [telemetry](#telemetry) | Mostly open | 7 | 2 | 5 | PP-14.11, PP-14.18, PP-14.24 |
 | [otel-core](#otel-core) | Mostly open | 1 | 0 | 1 | PP-14.18 |
-| [core](#core) | Mostly open | 6 | 5 | 1 | PP-14.14, PP-14.5, PP-14.23 |
+| [core](#core) | Mostly open | 6 | 6 | 0 | PP-14.14, PP-14.5, PP-14.23 |
 | [shell](#shell) | Mostly open | 2 | 0 | 2 | PP-14.25 |
 | [sharing](#sharing) | Mostly open | 4 | 0 | 4 | PP-14.16, PP-14.15, PP-14.25 |
 | [manifest](#manifest) | Mostly open | 2 | 0 | 2 | PP-14.15 |
@@ -39,13 +39,13 @@ As of this version: 114 closed points in 29 sections, 56 fixed and 58 open.
 | [platform-db](#platform-db) | Mostly open | 6 | 1 | 5 | PP-14.27, PP-14.4 |
 | [platform-cli](#platform-cli) | Open | 7 | 7 | 0 | PP-14.22 |
 | [platform-infra](#platform-infra) | Open | 2 | 2 | 0 | PP-14.22 |
-| [testing (api and web)](#testing-api-and-web) | Mostly open | 2 | 0 | 2 | PP-14.26 |
+| [testing (api and web)](#testing-api-and-web) | Open | 2 | 2 | 0 | PP-14.26 |
 | [ai](#ai) | Mostly open | 10 | 6 | 4 | PP-14.3, PP-14.6, PP-14.17, PP-14.24 |
 | [storage](#storage) | Mostly open | 5 | 4 | 1 | PP-14.1, PP-14.7, PP-14.24 |
-| [db-backup](#db-backup) | Mostly open | 4 | 3 | 1 | PP-14.12, PP-14.23 |
+| [db-backup](#db-backup) | Mostly open | 4 | 4 | 0 | PP-14.12, PP-14.23 |
 | [identity](#identity) | Partly closed | 8 | 6 | 2 | PP-14.9, PP-14.15, PP-14.25 |
 | [email](#email) | Partly closed | 5 | 4 | 1 | PP-14.8, PP-14.24 |
-| [host](#host) | Partly closed | 8 | 1 | 7 | PP-14.2, PP-14.13, PP-14.24 |
+| [host](#host) | Partly closed | 8 | 7 | 1 | PP-14.2, PP-14.13, PP-14.24 |
 | [datatable](#datatable) | Partly closed | 2 | 0 | 2 | PP-14.20 |
 | [android-app](#android-app) | Partly closed | 1 | 0 | 1 | PP-14.24 |
 | [testing (CLI runner)](#testing-cli-runner) | Open | 1 | 1 | 0 | PP-14.22 |
@@ -69,20 +69,20 @@ The 28 stories of the epic, in order. Phase 1 makes the existing seams real; pha
 | PP-14.10 | #928 | notifications: first-class app channels (Slack, SMS, Teams, webhook) | 2 | 14.5 | no | This change |
 | PP-14.11 | #929 | telemetry: a TELEMETRY_STORE port so the time-series store is replaceable | 2 | 14.5 | no | This change |
 | PP-14.12 | #930 | db-backup: pluggable backup target, schedule policy and restore gates | 2 | 14.1 (14.7) | no | This change |
-| PP-14.13 | #931 | host: health indicators, maintenance bypass, About contributors, deployment capabilities and app guards | 3 | 14.2 | no | Open |
+| PP-14.13 | #931 | host: health indicators, maintenance bypass, About contributors, deployment capabilities and app guards | 3 | 14.2 | no | This change |
 | PP-14.14 | #932 | core: open the access-reason, principal and error-code vocabularies | 3 | none | no | This change |
 | PP-14.15 | #933 | roles: app roles become assignable, and apps can grant platform permissions to them | 3 | none | no | Open |
 | PP-14.16 | #934 | sharing: pluggable grantee kinds and access rules | 3 | 14.15 | maybe | Open |
 | PP-14.17 | #935 | ai: open capabilities and operations, richer transcription results, per-feature usage | 3 | 14.6 | yes | Open |
 | PP-14.18 | #936 | telemetry and otel-core: app units, group presentation, dashboard panels, assistant tools, SDK extension | 3 | 14.11, 14.23 | no | Open |
-| PP-14.19 | #937 | jobs and nodes: app retention policies, open job reasons, node vitals and executor telemetry | 3 | none | yes | Open |
+| PP-14.19 | #937 | jobs and nodes: app retention policies, open job reasons, node vitals and executor telemetry | 3 | none | yes | This change |
 | PP-14.20 | #938 | onboarding, datatable and exports: close the remaining small vocabularies | 3 | none | no | Open |
 | PP-14.21 | #939 | settings: nested and org-layer extensions, core profile and theme fields, package self-registration | 3 | none | no | This change |
 | PP-14.22 | #940 | cli and infra: app env groups, deploy checks and steps, proxy stream routes, CSP, compose modes, CLI conformance | 3 | none | no | This change |
-| PP-14.23 | #941 | web: the packaged-page slot contract, its CI check, and the operations pages | 4 | none | no | Open |
+| PP-14.23 | #941 | web: the packaged-page slot contract, its CI check, and the operations pages | 4 | none | no | This change |
 | PP-14.24 | #942 | web: apply the slot contract to AI, storage, email, telemetry, android, host, profile, user-data and notifications pages | 4 | 14.23 (and the phase 2 story of each slice) | no | Open |
 | PP-14.25 | #943 | web: slots for identity and sharing pages, login layout, and shell navigation and themes | 4 | 14.23, 14.9, 14.15 | no | Open |
-| PP-14.26 | #944 | testing: extension-author kits for doctor checks and job handlers, and configurable web suites | 5 | none | no | Open |
+| PP-14.26 | #944 | testing: extension-author kits for doctor checks and job handlers, and configurable web suites | 5 | none | no | This change |
 | PP-14.27 | #945 | db: app metadata on users and organizations, more extensible models, offline checks for app indexes and RLS policies, seed hook | 5 | 14.4 | yes | Open |
 | PP-14.28 | #946 | ci: a guardrail that stops new closed id lists in the packages | 5 | all other PP-14 stories | no | Open |
 
@@ -167,40 +167,40 @@ Closed points: none recorded at the audit commit.
 
 ### jobs
 
-**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 4 (0 fixed, 4 open) · **Stories:** PP-14.19, PP-14.23, PP-14.26
+**Verdict:** Open · **Packages:** api, web, contract, db · **Closed points:** 4 (4 fixed, 0 open) · **Stories:** PP-14.19, PP-14.23, PP-14.26
 
-**Open points.** `JobHandlerRegistry.register`, `registerJobTypeLabel`, `JobSecretBroker`, `enqueueHousekeepingJob`, `RetentionPurgeRegistry`, `JobScope.run`, the `JOBS_*` ports and the packaged Jobs and Job Insights pages (`slots.Header`).
+**Open points.** `JobHandlerRegistry.register`, `registerJobTypeLabel`, `JobSecretBroker`, `enqueueHousekeepingJob`, `RetentionPurgeRegistry`, `registerRetentionPolicy`, `registerJobReason`, `JobScope.run`, the `JOBS_*` ports, the handler kit (`createFakeJobQueue`, `describeJobHandlerConformance`, `findJobHandlerContractViolations`) and the packaged Jobs and Job Insights pages (`PageSlotsBase`, `TableSlots`, `Filters`).
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
-| jobs-1 | The retention policy keys and the four-key `retention` namespace are fixed; `RetentionPurgeRegistry.register` throws for any other key, so an app table cannot join the nightly retention. | contract: `jobs/retention-schemas.ts:39`; api: `jobs/retention/retention-purge.registry.ts:67`; api: `jobs/retention/retention.system-settings.ts:~60` | `registerRetentionPolicy({ key, label, defaultDays, minDays, maxDays, purge })`; the namespace is composed from the registry; the nightly task enqueues one job per policy. | PP-14.19 (#937) | Open |
-| jobs-2 | `JobReason` is a closed Prisma enum (`upload`, `rerun`, `backfill`) mirrored in the contract, and every enqueue requires one. | db: `schema/jobs.prisma:351`; contract: `jobs/constants.ts:44` | Migration: enum to text, values kept; `jobReasonSchema` as a pattern; `registerJobReason({ id, label })`. | PP-14.19 (#937) | Open |
-| jobs-3 | `JobsPage` and `JobInsightsPage` expose only `slots.Header`. | web: `jobs/ui/JobsPage.tsx:134, :197` | `PageSlotsBase`, `TableSlots<JobRow>` and `Filters`. | PP-14.23 (#941) | Open |
-| jobs-4 | `jobs/testing` holds only the `on-event-no-io` suite; nothing exercises a handler's own contract (profile bounds, idempotence on retry, node-eligibility pairing, dedup). | api: `jobs/testing/index.ts` | `createFakeJobQueue()` and `describeJobHandlerConformance(handler, { payloads })`. | PP-14.26 (#944) | Open |
+| jobs-1 | The retention policy keys and the four-key `retention` namespace are fixed; `RetentionPurgeRegistry.register` throws for any other key, so an app table cannot join the nightly retention. | contract: `jobs/retention-schemas.ts:39`; api: `jobs/retention/retention-purge.registry.ts:67`; api: `jobs/retention/retention.system-settings.ts:~60` | `registerRetentionPolicy({ key, label, defaultDays, minDays, maxDays, purge })`; the namespace is composed from the registry; the nightly task enqueues one job per policy. | PP-14.19 (#937) | Fixed |
+| jobs-2 | `JobReason` is a closed Prisma enum (`upload`, `rerun`, `backfill`) mirrored in the contract, and every enqueue requires one. | db: `schema/jobs.prisma:351`; contract: `jobs/constants.ts:44` | Migration: enum to text, values kept; `jobReasonSchema` as a pattern; `registerJobReason({ id, label })`. | PP-14.19 (#937) | Fixed |
+| jobs-3 | `JobsPage` and `JobInsightsPage` expose only `slots.Header`. | web: `jobs/ui/JobsPage.tsx:134, :197` | `PageSlotsBase`, `TableSlots<Job>` and `Filters` (the insights page: `TableSlots<JobTypeInsightRow>`). | PP-14.23 (#941) | Fixed |
+| jobs-4 | `jobs/testing` held only the `on-event-no-io` suite; nothing exercised a handler's own contract (profile bounds, idempotence on retry, node-eligibility pairing, dedup). | api: `jobs/testing/index.ts` | `createFakeJobQueue()` and `describeJobHandlerConformance(handler, { payloads })`. | PP-14.26 (#944) | Fixed |
 
 ### nodes
 
-**Verdict:** Mostly open · **Packages:** api, web, contract, cli · **Closed points:** 4 (0 fixed, 4 open) · **Stories:** PP-14.19, PP-14.23
+**Verdict:** Mostly open · **Packages:** api, web, contract, cli · **Closed points:** 4 (4 fixed, 0 open) · **Stories:** PP-14.19, PP-14.23
 
-**Open points.** `NodesModule.forRoot`, the `NODE_OBJECT_STORE` and `NODE_JOB_INPUTS` ports, `NodeOfflineEvent`, `registerNodeExecutor` in the CLI and the Worker Nodes page (`slots.Header`).
+**Open points.** `NodesModule.forRoot`, the `NODE_OBJECT_STORE` and `NODE_JOB_INPUTS` ports, `NodeOfflineEvent`, `registerNodeSpanAttribute`, `registerNodeExecutor`, `registerJobRequirement` and `registerProbedBinary` in the CLI, `registerNodeVital` in the browser and the Worker Nodes page (`PageSlotsBase`, `TableSlots`, `VitalsPanel`).
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
-| nodes-1 | Node vitals and counters are `.strict()`; the vitals dialog and fleet gauges are fixed and `capabilities` is not shown. | contract: `nodes/schemas.ts:420, :458` | `vitals.extra` (up to 16 numeric keys) and `registerNodeVital({ key, label, unit })`; capabilities as a read-only list. | PP-14.19 (#937) | Open |
-| nodes-2 | Executor span names are closed on both sides (a custom span gets a 400 for the whole batch); relayed attributes are four integer keys. | api: `nodes/dto/node-telemetry.dto.ts:45, :90`; cli: `telemetry/node-span.ts:17`; api: `nodes/node-telemetry.service.ts:74` | Allow `job.app.<name>` spans on both sides, drop an invalid span individually, `registerNodeSpanAttribute`. | PP-14.19 (#937) | Open |
-| nodes-3 | `JOB_TYPE_REQUIREMENTS` and `PROBED_BINARIES` are not exported, so an executor that needs `ffmpeg` cannot declare it and the node self-test cannot protect it. | cli: `engine/node/capabilities.ts:64, :101` | Export `registerJobRequirement(type, { required, degradable })` and `registerProbedBinary(name, { versionArgs })` from `@marinoscar/platform-cli/node`. | PP-14.19 (#937) | Open |
-| nodes-4 | `WorkersPage` exposes only `slots.Header`. | web: `nodes/ui/WorkersPage.tsx:202` | `PageSlotsBase`, `TableSlots<NodeRow>` and `VitalsPanel`. | PP-14.23 (#941) | Open |
+| nodes-1 | Node vitals and counters are `.strict()`; the vitals dialog and fleet gauges are fixed and `capabilities` is not shown. | contract: `nodes/schemas.ts:420, :458` | `vitals.extra` (up to 16 numeric keys) and `registerNodeVital({ key, label, unit })`; capabilities as a read-only list. | PP-14.19 (#937) | Fixed |
+| nodes-2 | Executor span names are closed on both sides (a custom span gets a 400 for the whole batch); relayed attributes are four integer keys. | api: `nodes/dto/node-telemetry.dto.ts:45, :90`; cli: `telemetry/node-span.ts:17`; api: `nodes/node-telemetry.service.ts:74` | Allow `job.app.<name>` spans on both sides, drop an invalid span individually, `registerNodeSpanAttribute`. | PP-14.19 (#937) | Fixed |
+| nodes-3 | `JOB_TYPE_REQUIREMENTS` and `PROBED_BINARIES` are not exported, so an executor that needs `ffmpeg` cannot declare it and the node self-test cannot protect it. | cli: `engine/node/capabilities.ts:64, :101` | Export `registerJobRequirement(type, { required, degradable })` and `registerProbedBinary(name, { versionArgs })` from `@marinoscar/platform-cli/node`. | PP-14.19 (#937) | Fixed |
+| nodes-4 | `WorkersPage` exposes only `slots.Header`. | web: `nodes/ui/WorkersPage.tsx:202` | `PageSlotsBase`, `TableSlots<WorkerNode>` and `VitalsPanel`. | PP-14.23 (#941) | Fixed |
 
 ### doctor
 
-**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 2 (0 fixed, 2 open) · **Stories:** PP-14.23, PP-14.26
+**Verdict:** Open · **Packages:** api, web, contract · **Closed points:** 2 (2 fixed, 0 open) · **Stories:** PP-14.23, PP-14.26
 
-**Open points.** `DoctorCheck` and `DoctorCheckRegistry.register`, `EgressContributor`, `SupportBundleSection`, the `DEPLOYMENT_NETWORK_SOURCE` port, `categoryOrder` and `DoctorPage`'s `categories` prop.
+**Open points.** `DoctorCheck` and `DoctorCheckRegistry.register`, `EgressContributor`, `SupportBundleSection`, the `DEPLOYMENT_NETWORK_SOURCE` port, `categoryOrder`, `DoctorPage`'s `categories` prop and slots (`PageSlotsBase`, `CheckRowActions`) and `registerDoctorCheckRenderer`, and the check kit (`describeDoctorCheckConformance`, the recording Prisma and write-failing storage doubles, the `doctor-read-only` suite).
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
-| doctor-1 | The Doctor `CheckRow` never renders `check.data` and has no slot; there is no per-check renderer or action. | web: `doctor/ui/check-row.tsx:100-175` | `PageSlotsBase`, `registerDoctorCheckRenderer(checkId, Component)` and `CheckRowActions`. | PP-14.23 (#941) | Open |
-| doctor-2 | "Doctor checks are read-only" is convention only: the conformance row says "None yet" and an extension author has no harness. | api: `doctor/README.md:194` | `doctor/testing`: `runDoctorCheck`, `describeDoctorCheckConformance` and the `doctor-read-only` suite in `runPlatformConformance`. | PP-14.26 (#944) | Open |
+| doctor-1 | The Doctor `CheckRow` never renders `check.data` and has no slot; there is no per-check renderer or action. | web: `doctor/ui/check-row.tsx:100-175` | `PageSlotsBase`, `registerDoctorCheckRenderer(checkId, Component)` and `CheckRowActions`. | PP-14.23 (#941) | Fixed |
+| doctor-2 | "Doctor checks are read-only" was convention only: the conformance row said "None yet" and an extension author had no harness. | api: `doctor/README.md:194` | `doctor/testing`: `runDoctorCheck`, `describeDoctorCheckConformance` and the `doctor-read-only` suite in `runPlatformConformance`. | PP-14.26 (#944) | Fixed |
 
 ### telemetry
 
@@ -230,9 +230,9 @@ Closed points: none recorded at the audit commit.
 
 ### core
 
-**Verdict:** Mostly open · **Packages:** api, web · **Closed points:** 6 (5 fixed, 1 open) · **Stories:** PP-14.14, PP-14.5, PP-14.23
+**Verdict:** Mostly open · **Packages:** api, web · **Closed points:** 6 (6 fixed, 0 open) · **Stories:** PP-14.14, PP-14.5, PP-14.23
 
-**Open points.** `defineRegistry` and the static registries, the host ports (`PlatformHostModule.forRoot`, `AUDIT_SINK`, `SYSTEM_SETTINGS_STORE`, `PLATFORM_PRISMA`), `HttpExceptionFilter` (with `errorMappers`), `PortBinding`, `registerSystemAccessReason`, `registerPrincipalKind`, `registerCredentialKind`, `registerErrorCode`, and on the web `PlatformHostProvider` (with `extensions` and `usePlatformPort`).
+**Open points.** `defineRegistry` and the static registries, the host ports (`PlatformHostModule.forRoot`, `AUDIT_SINK`, `SYSTEM_SETTINGS_STORE`, `PLATFORM_PRISMA`), `HttpExceptionFilter` (with `errorMappers`), `PortBinding`, `registerSystemAccessReason`, `registerPrincipalKind`, `registerCredentialKind`, `registerErrorCode`, and on the web `PlatformHostProvider` (with `extensions` and `usePlatformPort`) and the page slot contract (`PageSlotsBase`, `TableSlots`).
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
@@ -241,7 +241,7 @@ Closed points: none recorded at the audit commit.
 | core-3 | `HttpExceptionFilter` derives `code` from the HTTP status and ignores a payload `code`; `ErrorDto` publishes a closed nine-value enum; there is no mapper for foreign errors (Prisma, SDKs). | api: `core/errors/http-exception.filter.ts:156` | `registerErrorCode`, `HttpExceptionFilter` option `mappers`; `ErrorDto.code` becomes an open string. | PP-14.14 (#932) | Fixed |
 | core-4 | `PlatformWebHost` has fixed ports (`api`, `viewer`, `formatRelativeTime`, `applyTheme`); an installed extension package cannot add its own. | web: `core/` (PlatformWebHost) | `PlatformWebHost.extensions` and `usePlatformPort<T>(key)`. | PP-14.14 (#932) | Fixed |
 | core-5 | No pluggable-kind primitive: seven slices each hard-code their own implementation list. | api: `core/registry/registry.ts:459` (the registry it builds on) | `definePluggableKind`, `describeConfigFields`, `PluggableConfigForm`, `describePluggableKindConformance`. | PP-14.5 (#923) | Fixed |
-| core-6 | No shared slot contract for packaged pages. | web: `core/` | `PageSlotsBase` and `TableSlots<Row>` in `@marinoscar/platform-web/core`, with a CI check. | PP-14.23 (#941) | Open |
+| core-6 | No shared slot contract for packaged pages. | web: `core/` | `PageSlotsBase` and `TableSlots<Row>` in `@marinoscar/platform-web/core`, with a CI check. | PP-14.23 (#941) | Fixed |
 
 ### shell
 
@@ -332,14 +332,14 @@ Closed points: none recorded at the audit commit.
 
 ### testing (api and web)
 
-**Verdict:** Mostly open · **Packages:** api, web · **Closed points:** 2 (0 fixed, 2 open) · **Stories:** PP-14.26
+**Verdict:** Open · **Packages:** api, web · **Closed points:** 2 (2 fixed, 0 open) · **Stories:** PP-14.26
 
-**Open points.** `runPlatformConformance` and `conformanceSuites.register` (an app adds a suite with a `declare module` augmentation of `PlatformConformanceSuiteOptions`; the android-app slice is the model), `runPlatformWebConformance`, `webConformanceSuites`.
+**Open points.** `runPlatformConformance` and `conformanceSuites.register` (an app adds a suite with a `declare module` augmentation of `PlatformConformanceSuiteOptions`; the android-app slice is the model), `runPlatformWebConformance` with per-suite options, `webConformanceSuites` (a duplicate id throws) and the widened `expect` subset.
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
-| testing-1 | The web runner's options are skip-only, every suite receives only the settings-shaped context, `register()` silently ignores a duplicate id and the `expect` subset is tiny. | web: `testing/conformance.ts:251, :277` | `suites?: Record<string, Options | { skip }>`; `register` throws on a duplicate; suites receive `(api, context, options)`; widen `expect`. | PP-14.26 (#944) | Open |
-| testing-2 | The API testing README says a new suite "registers in `conformance-suites.ts`", which reads as an in-package edit although module augmentation works for an app. | api: `testing/README.md` (Extension-point catalog) | Document `conformanceSuites.register` plus `declare module` augmentation. | PP-14.26 (#944) | Open |
+| testing-1 | The web runner's options were skip-only, every suite received only the settings-shaped context, `register()` silently ignored a duplicate id and the `expect` subset was tiny. | web: `testing/conformance.ts:251, :277` | `suites?: Record<string, Options | { skip }>`; `register` throws on a duplicate; suites receive `(api, context, options)`; widen `expect`. | PP-14.26 (#944) | Fixed |
+| testing-2 | The API testing README said a new suite "registers in `conformance-suites.ts`", which read as an in-package edit although module augmentation works for an app. | api: `testing/README.md` (Extension-point catalog) | Document `conformanceSuites.register` plus `declare module` augmentation. | PP-14.26 (#944) | Fixed |
 
 ### ai
 
@@ -413,19 +413,19 @@ Closed points: none recorded at the audit commit.
 
 ### host
 
-**Verdict:** Partly closed · **Packages:** api, web, contract · **Closed points:** 8 (1 fixed, 7 open) · **Stories:** PP-14.2, PP-14.13, PP-14.24
+**Verdict:** Partly closed · **Packages:** api, web, contract · **Closed points:** 8 (7 fixed, 1 open) · **Stories:** PP-14.2, PP-14.13, PP-14.24
 
-**Open points.** `PlatformHostCoreModule.forRoot` (including `eventBusAdapter` and `eventBus`), `registerEventBusAdapter` and `describeEventBusConformance`, `AboutModule.forRoot`, `registerPlatformDocs`, the `host` conformance suite. Worked example: `apps/api/src/platform-extensions/host/recording-event-bus.ts`.
+**Open points.** `PlatformHostCoreModule.forRoot` (including `eventBusAdapter` and `eventBus`), `registerEventBusAdapter` and `describeEventBusConformance`, `AboutModule.forRoot` (with `host` and `permission`), `registerHealthIndicator`, `registerMaintenanceBypass`, `registerAboutContributor`, `registerDeploymentMode`, `registerDeploymentCapability`, `registerResponseMetaContributor`, `buildCorsOptions(raw, extra)`, `PlatformHostCoreModule.forRoot({ host, permissions })`, `registerPlatformDocs`, the `host` conformance suite (`allowedAppGuards`). Worked examples: `apps/api/src/platform-extensions/host/` (`recording-event-bus.ts`, `queue-readiness.indicator.ts`, `payments-webhook.bypass.ts`, `transcription.about-contributor.ts`, `byoc.deployment-mode.ts`, `api-revision.response-meta.ts`, `example-throttler.guard.ts`).
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
 | host-1 | The event bus was a closed pair (`in-process`, `postgres`) built by a fixed factory in a global module the app cannot override. | api: `host/event-bus/event-bus.interface.ts:103, :110`; `host/event-bus/event-bus.factory.ts`; `host/host-core.module.ts:168-171` | `registerEventBusAdapter`, `PlatformHostCoreModule.forRoot({ eventBus })`, `describeEventBusConformance`. | PP-14.2 (#920) | Fixed (PR #948) |
-| host-2 | `/health` hard-codes the database indicator and `HealthController` is fixed, so an extension (a queue, Redis, an AI provider) cannot join readiness. | api: `host/health/health.controller.ts:161, :181-185`; `host/host-core.module.ts:155` | `registerHealthIndicator({ id, critical, check, timeoutMs })`. | PP-14.13 (#931) | Open |
-| host-3 | `MaintenanceGuard.isAdminBearer` is hard-wired to the admin role and JWTs (`pat_` and `nod_` bearers are never admin); exemptions exist only as a decorator. | api: `host/maintenance/maintenance.guard.ts:196-216` | `registerMaintenanceBypass({ id, allows })`, evaluated after the built-in admin rule. | PP-14.13 (#931) | Open |
-| host-4 | `AboutService.describe()` returns a fixed object and the options carry only `apiVersion`. | api: `host/about/about.options.ts:30` | `registerAboutContributor`; `GET /api/about` gains optional `extras`. | PP-14.13 (#931) | Open |
-| host-5 | Deployment modes and capabilities are a closed pair and a `switch`. | api: `host/deployment/deployment-mode.ts:41, :110-117` | `registerDeploymentCapability`, `registerDeploymentMode`; `inAppRestore` stays built in. | PP-14.13 (#931) | Open |
-| host-6 | The `host` conformance suite requires exactly one `APP_GUARD`, so an app cannot add a throttler or tenant guard without skipping the whole suite. | api: `host/testing/conformance.ts:157-169` | `allowedAppGuards: Array<{ name, why }>` (an empty `why` throws); `MaintenanceGuard` stays first. | PP-14.13 (#931) | Open |
-| host-7 | Host controllers import `Auth` and `Public` from identity and hard-code `system_settings:read` and `write`; `buildCorsOptions` accepts only the env string; the response `meta` is only `{ timestamp }`. | api: `host/maintenance/maintenance.controller.ts:40, :67` | A `permissions` option, `buildCorsOptions(raw, extra)`, `registerResponseMetaContributor`. | PP-14.13 (#931) | Open |
+| host-2 | `/health` hard-codes the database indicator and `HealthController` is fixed, so an extension (a queue, Redis, an AI provider) cannot join readiness. | api: `host/health/health.controller.ts:161, :181-185`; `host/host-core.module.ts:155` | `registerHealthIndicator({ id, critical, check, timeoutMs })`. | PP-14.13 (#931) | Fixed |
+| host-3 | `MaintenanceGuard.isAdminBearer` is hard-wired to the admin role and JWTs (`pat_` and `nod_` bearers are never admin); exemptions exist only as a decorator. | api: `host/maintenance/maintenance.guard.ts:196-216` | `registerMaintenanceBypass({ id, allows })`, evaluated after the built-in admin rule. | PP-14.13 (#931) | Fixed |
+| host-4 | `AboutService.describe()` returns a fixed object and the options carry only `apiVersion`. | api: `host/about/about.options.ts:30` | `registerAboutContributor`; `GET /api/about` gains optional `extras`. | PP-14.13 (#931) | Fixed |
+| host-5 | Deployment modes and capabilities are a closed pair and a `switch`. | api: `host/deployment/deployment-mode.ts:41, :110-117` | `registerDeploymentCapability`, `registerDeploymentMode`; `inAppRestore` stays built in. | PP-14.13 (#931) | Fixed |
+| host-6 | The `host` conformance suite requires exactly one `APP_GUARD`, so an app cannot add a throttler or tenant guard without skipping the whole suite. | api: `host/testing/conformance.ts:157-169` | `allowedAppGuards: Array<{ name, why }>` (an empty `why` throws); `MaintenanceGuard` stays first. | PP-14.13 (#931) | Fixed |
+| host-7 | Host controllers import `Auth` and `Public` from identity and hard-code `system_settings:read` and `write`; `buildCorsOptions` accepts only the env string; the response `meta` is only `{ timestamp }`. | api: `host/maintenance/maintenance.controller.ts:40, :67` | A `permissions` option, `buildCorsOptions(raw, extra)`, `registerResponseMetaContributor`. | PP-14.13 (#931) | Fixed |
 | host-8 | `AboutPage`, `MaintenancePage`, `MaintenanceScreen`, `InstallPrompt` and `MaintenanceBanner` have no slots or copy props. | web: `host/ui/about-page.tsx:572`; `host/ui/maintenance-page.tsx:156`; `host/ui/maintenance-screen.tsx:35` | `Sections`, `logo`, `actions`, `copy`. | PP-14.24 (#942) | Open |
 
 ### datatable
@@ -441,16 +441,16 @@ Closed points: none recorded at the audit commit.
 
 ### db-backup
 
-**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 4 (3 fixed, 1 open) · **Stories:** PP-14.12, PP-14.23
+**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 4 (4 fixed, 0 open) · **Stories:** PP-14.12, PP-14.23
 
-**Open points.** `DbBackupModule.forRoot` with `target` and `mirrorTargets` (the primary backup target and the copies written after it: `BackupTarget`, `DB_BACKUP_TARGET`, `DB_BACKUP_MIRROR_TARGETS`, `StorageProviderBackupTarget`), `registerRestoreGate` and the gate registry (read-only gates after the eight built-ins), the `db_backup.run.completed` and `db_backup.restore.completed` events, `frequency: 'cron'` and `retention.maxAgeDays`, `registerRestoreCarryOver`, the `DB_BACKUP_*` ports, `describeBackupTargetConformance`, `describeRestoreGateConformance`, `DbBackupPage` with `slots.Sections` and `DbBackupWebAdaptersProvider`. Worked examples: `apps/api/src/platform-extensions/db-backup/` (the `local-dir` mirror and the `cdn-quiesced` gate) and `apps/web/src/platform-extensions/db-backup/` (a `Sections` panel).
+**Open points.** `DbBackupModule.forRoot` with `target` and `mirrorTargets` (the primary backup target and the copies written after it: `BackupTarget`, `DB_BACKUP_TARGET`, `DB_BACKUP_MIRROR_TARGETS`, `StorageProviderBackupTarget`), `registerRestoreGate` and the gate registry (read-only gates after the eight built-ins), the `db_backup.run.completed` and `db_backup.restore.completed` events, `frequency: 'cron'` and `retention.maxAgeDays`, `registerRestoreCarryOver`, the `DB_BACKUP_*` ports, `describeBackupTargetConformance`, `describeRestoreGateConformance`, `DbBackupPage` with its slots (`PageSlotsBase`, `RunRowActions`) and `DbBackupWebAdaptersProvider`. Worked examples: `apps/api/src/platform-extensions/db-backup/` (the `local-dir` mirror and the `cdn-quiesced` gate) and `apps/web/src/platform-extensions/db-backup/` (a `Sections` panel and a `RunRowActions` button).
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
 | db-backup-1 | Every backup service injects the single `STORAGE_PROVIDER`; `databaseBackup.storageProvider` must equal the active provider, and there is no second or offsite target. | api: `db-backup/db-backup-runner.service.ts:699`; `db-backup/db-backup-admin.service.ts:271`; `db-backup/db-backup-retention.service.ts:159` | `DB_BACKUP_TARGET` (streaming, never buffered) bound by `DbBackupModule.forRoot({ target })`, `mirrorTargets`. | PP-14.12 (#930) | Fixed |
 | db-backup-2 | The schedule frequency is `daily`, `weekly` or `monthly`, and retention is a count only. | contract: `db-backup/constants.ts:231`; `db-backup/settings-schemas.ts:85`; api: `db-backup/schedule.util.ts` | `frequency: 'cron'` (minimum one hour) and `retention: { count?, maxAgeDays? }` with read-compat. | PP-14.12 (#930) | Fixed |
 | db-backup-3 | The restore pre-flight gates are a closed id list and a hard-coded array; there is no backup or restore completion event. | contract: `db-backup/constants.ts:197`; api: `db-backup/restore-preflight.service.ts:566` | `registerRestoreGate` (read-only); `db_backup.run.completed` and `db_backup.restore.completed`. | PP-14.12 (#930) | Fixed |
-| db-backup-4 | `DbBackupPage()` had no props or slots. `slots.Sections` now exists (additive, markup unchanged when unused); the standard slot names and `RunRowActions` wait for the slot contract. | web: `db-backup/ui/DbBackupPage.tsx` | `PageSlotsBase` and `RunRowActions`. | PP-14.23 (#941) | Open |
+| db-backup-4 | `DbBackupPage()` had no props or slots. `slots.Sections` now exists (additive, markup unchanged when unused); the standard slot names and `RunRowActions` wait for the slot contract. | web: `db-backup/ui/DbBackupPage.tsx` | `PageSlotsBase` and `RunRowActions`. | PP-14.23 (#941) | Fixed |
 
 ### android-app
 

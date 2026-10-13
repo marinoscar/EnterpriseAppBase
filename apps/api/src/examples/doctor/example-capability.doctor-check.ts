@@ -24,17 +24,24 @@ export interface ExampleCapabilityFacts {
   enabled: boolean;
 }
 
-/** Pure: the verdict, with a remedy on every `warn` and `fail`. */
+/**
+ * Pure: the verdict, with a remedy on every `warn` and `fail`, and the facts as
+ * `data` (small scalars, never secret). The web example
+ * `apps/web/src/platform-extensions/doctor/` draws `data` inside the check's row
+ * with `registerDoctorCheckRenderer('example.capability', ...)`.
+ */
 export function decideExampleCapability(facts: ExampleCapabilityFacts): DoctorCheckOutcome {
-  if (!facts.enabled) return { status: 'skip', detail: 'The capability is switched off (intentional)' };
+  const data = { configured: facts.configured, enabled: facts.enabled };
+  if (!facts.enabled) return { status: 'skip', detail: 'The capability is switched off (intentional)', data };
   if (!facts.configured) {
     return {
       status: 'fail',
       detail: 'The capability is on but has no configuration',
       remedy: 'Open the capability settings page and fill in the missing fields.',
+      data,
     };
   }
-  return { status: 'pass', detail: 'The capability is configured' };
+  return { status: 'pass', detail: 'The capability is configured', data };
 }
 
 /** `example` / `example.capability`: the shape of an app-owned check. */

@@ -58,7 +58,7 @@ What it is not:
 |---|---|
 | `type` | Plain `text`, not an enum, so a new handler costs zero migrations and a row can outlive its handler |
 | `status` | `pending` \| `running` \| `succeeded` \| `failed` |
-| `reason` | `upload` \| `rerun` \| `backfill` |
+| `reason` | Plain `text`, an open vocabulary: `upload`, `rerun`, `backfill` and whatever the app registered with `registerJobReason`; `JobsService` refuses an unregistered one |
 | `priority` | Ascending is more urgent; default `0`; housekeeping uses `100` |
 | `subject_type`, `subject_id` | Polymorphic subject, plain `text`, no foreign key |
 | `dedup_key` | Set by `buildDedupKey(type, subjectType, subjectId)` → `type:subjectType:subjectId`; `NULL` with `skipDedup` |
@@ -526,6 +526,14 @@ Bare, unprefixed, read through `ConfigService`, each with a fallback to its defa
 | `POST /api/admin/jobs/{id}/retry` | Requeue one job (400 if running, 409 on dedup collision) | `jobs:write` |
 | `DELETE /api/admin/jobs/{id}` | Delete one job (400 if running, 409 if the handler vetoes) | `jobs:write` |
 
+### Job reasons
+
+`reason` says why a job was queued. It is `TEXT` (the migration `0034_open_job_reason` turned the former three-value enum into text, keeping every stored value), so an app's own reason (`import`) costs no migration. The shape of an id is the contract's (`JOB_REASON_PATTERN`: 2 to 48 lower-case letters, digits, `_`, `.`, `-`, starting with a letter); which ids are valid is the registry's. The platform's three register through `registerJobReason` like an app's. The write side is strict (`JobsService` throws on an unregistered reason, so a typo is a bug and not a new reason) and the read side is lenient (a stored reason whose registration was removed still lists, labelled by its id). The admin list publishes `reasonLabel` beside `reason`, the way `typeLabel` sits beside `type`. There is no CHECK constraint: a row must outlive the reason that wrote it.
+
+### Retention policies
+
+The nightly retention (`jobs/retention/retention-purge.task.ts`, enqueue-only, 01:00) governs one table per policy in the `retention` system-settings namespace. A policy is a registry entry (`registerRetentionPolicy`): a permanent key, a label, the default window (`defaultDays`), the bounds an operator may set (`minDays`, `maxDays`, within 1 to 3650), whether it ships on (`defaultEnabled`, default off: deleting rows is an operator decision) and the purge job that enforces it (`purge: { type, what }`, one policy per job type). The platform's four register first, with their shipped defaults and key order, so nothing served changes until an app adds one. The namespace's schemas, defaults, PATCH merge and read are COMPOSED from the registry the first time the settings registry reads the declaration, which seals the registry: a policy registered later throws instead of being stored and never validated. The purge itself is a normal server-only `JobHandler` using `runRetentionPolicyPurge`; the scheduler enqueues one job per enabled policy whose handler is mounted (an entry the handler declares in `RetentionPurgeRegistry`, or, for an app policy, simply a mounted handler of `purge.type`). Reading a stored row is policy by policy: a registered policy the row lacks reads as its default, a damaged one degrades to its own default, and a key nobody registered any more is ignored with one warning and survives the next write, so removing a plugin never bricks the row.
+
 ## 4. Extending it in a fork
 
 The full recipe, with worked examples, is [packages/platform-api/src/jobs/handlers/README.md](../../packages/platform-api/src/jobs/handlers/README.md). In summary:
@@ -539,6 +547,8 @@ Optionally give the handler a `readonly label`. To make the type node-eligible, 
 
 If the work is triggered on a schedule, write a `@Cron` that only enqueues (use `enqueueHousekeepingJob` from `@marinoscar/platform-api/jobs`). The `cron-enqueue-only` conformance suite fails a cron body that does work inline.
 
+To add a table to the nightly retention, register a policy and mount its purge handler (`apps/api/src/platform-extensions/jobs/import-rows.retention.ts`, listed in `APP_RETENTION_POLICIES` of `app-registrations/jobs.ts`). To add a reason, `registerJobReason({ id, label })` (`platform-extensions/jobs/import.job-reason.ts`, `APP_JOB_REASONS`). Both register at import time, before the application bootstraps; the proofs are `apps/api/test/examples/jobs/`.
+
 Worked examples: `apps/api/src/examples/jobs/example-echo.handler.ts` (smallest server-only handler), `apps/api/src/examples/jobs/example-checksum.handler.ts` (node-eligible), the slice's `job-history-purge.handler.ts` (real work plus a scheduling task), `db-backup/handlers/db-backup-run.handler.ts` (`profile`, `deriveOutputKey`, `nodeOffloadEnabled`, `nodeSecretBroker`).
 
 ## 5. Guardrails
@@ -549,6 +559,7 @@ Paths starting `test/` are under `apps/api/`; the unit specs that moved with the
 |---|---|
 | `test/conformance.spec.ts`, suite `cron-enqueue-only` | Every `@Cron` body only enqueues; exactly three exemptions |
 | `test/conformance.spec.ts`, suite `on-event-no-io` | Every `@OnEvent` body is free of storage I/O (direct storage-provider calls, `.download(`/`.upload(`) |
+| `test/jobs/job-handlers-contract.spec.ts` | Every handler the booted registry holds honours the static handler contract (`findJobHandlerContractViolations`): a dotted permanent type, a label, a profile of exactly `maxRuntimeMs` and `maxAttempts` inside the ceilings, the node pair both or neither, `ai.*` server-only. The behavioural half (double run, failing payload, dedup, `canDelete`) is `describeJobHandlerConformance` of `@marinoscar/platform-api/jobs/testing` in a handler's own spec, over `createFakeJobQueue()` |
 | `platform-api/test/jobs/job-handler.registry.spec.ts` | Self-registration via real `onModuleInit`; `serverOnlyTypes()` derivation incl. exactly-one-member; duplicate warns, last wins; module graph boots |
 | `platform-api/src/jobs/job-type-label.spec.ts`, `test/jobs/job-type-snapshot.spec.ts` | Label registry precedence (handler, registered, type); every registered type still registered ("job type strings are permanent") and its label unchanged in `GET /api/admin/jobs` |
 | `test/jobs/jobs-enqueue.db.spec.ts` | Concurrent enqueue of one key yields one row for both callers; `skipDedup` yields NULL keys; settled job frees its key |
@@ -609,6 +620,9 @@ Not proved: that `@Cron` schedules fire (that is Nest's), that the planner choos
 - **Admin reuse, not reimplementation.** A separate stuck query drops the zombie arm.
 - **`scheduled` as a boolean filter, not a status.** A status no row can carry splits the vocabulary.
 - **A `LISTEN`/`NOTIFY` wake-up on top of the poll, not instead of it** (PP-1.11). NOTIFY is lost while a listener reconnects, so removing the poll would make a lost message a stuck job. `enqueueWithin` does not wake: a wake-up for an uncommitted row finds nothing, and one for a rolled-back row announces a job that never existed.
+- **An open `reason` (text), not a bigger enum.** An app reason would otherwise need a platform migration; the registry restores the typo protection a closed list gave, on the write path only.
+- **Retention composed from a registry, not four fixed fields.** An app table could not join the nightly purge; sealing the registry at first read keeps the composed schema, the defaults and the OpenAPI document in agreement.
+- **A new retention policy ships off.** The platform's three shipped-on policies were a deliberate one-time upgrade behaviour for tables that had no retention at all; an app's table is not.
 - **Rejected for the admin API:** a default for `olderThanMinutes`, filtering by `created_at`, returning payloads, one `updateMany` for `retry-failed`, clearing `dedup_key` on retry, force-resetting or deleting running jobs, a cache at or above the poll interval.
 - **Rejected for insights:** a cron-refreshed snapshot table (a writer on the hot path, and stale by construction), percentiles in the rollup (a percentile of a deleted distribution cannot be merged), unbounded lifetime percentiles, silently clamping `windowDays`, injecting `JobWorker` for the ETA divisor.
 
@@ -637,4 +651,6 @@ In a running app:
 - #607: `trace_context` — the enqueuing span's `traceparent`, parent of the server worker's job span and handed to nodes on claim.
 - #520: post-upload object processing becomes the `storage.object.process` job, replacing the `storage.object.uploaded` `@OnEvent` listener; the `on-event-no-io` suite (then `test/jobs/on-event-no-io.spec.ts`, moved into the conformance runner by #742) added as its tripwire.
 - PP-1.11 (#682): `jobs.enqueued` wake-up through the event bus; idle sleeps tracked apart from job timers; the poll stays the fallback.
+- PP-14.19 (#937): `jobs.reason` becomes `TEXT` (migration `0034_open_job_reason`) with `registerJobReason`; the `retention` namespace is composed from `registerRetentionPolicy`; node vitals `extra`, executor spans and relayed attributes, and executor requirements ([worker-nodes.md](worker-nodes.md)).
 - PP-8.2 (#734): the queue becomes `@marinoscar/platform-api/jobs` (`JobsModule.forRoot()`, host ports), the HTTP shapes move to `@marinoscar/platform-contract/jobs`; `JOB_TYPE_LABELS` becomes the label registry; `jobs.org_id` (migrations `0030`, `0031`), `JobScope.run`, `org.id` on job spans; the cron exemptions move to the package paths.
+- PP-14.26 (#944): the handler kit in `@marinoscar/platform-api/jobs/testing` (`createFakeJobQueue`, `describeJobHandlerConformance`, `findJobHandlerContractViolations`).

@@ -57,7 +57,7 @@ export interface DbBackupModuleOptions {
    * (spec, Scaling posture, red flag 7: use the provider's point-in-time
    * recovery instead); backups keep working.
    */
-  deploymentMode?: 'self-hosted' | 'saas';
+  deploymentMode?: 'self-hosted' | 'saas' | (string & {});
   /**
    * An explicit override of the restore surface (the restore and rollback
    * routes, `db.restore.run`, the restore pre-flight and the page's restore
@@ -132,7 +132,7 @@ export interface ResolvedDbBackupModuleOptions {
   /** The application version resolver. */
   readonly appVersion: () => string;
   /** The deployment mode, when the app passed one. */
-  readonly deploymentMode?: 'self-hosted' | 'saas';
+  readonly deploymentMode?: 'self-hosted' | 'saas' | (string & {});
   /** The restore override, when the app passed one. */
   readonly restoreEnabled?: boolean;
   /** The scheduler override, when the app passed one. */
@@ -204,15 +204,20 @@ export function resolveDbBackupModuleOptions(options: DbBackupModuleOptions = {}
  *
  * @param options - the resolved options.
  * @param portMode - the `DB_BACKUP_DEPLOYMENT_MODE` port's mode, when bound.
+ * @param portInAppRestore - the port's `inAppRestoreEnabled`, when it reports one.
  * @returns `true` when restore is available.
  *
  * @stability experimental
  */
 export function resolveRestoreEnabled(
   options: Pick<ResolvedDbBackupModuleOptions, 'deploymentMode' | 'restoreEnabled'>,
-  portMode?: 'self-hosted' | 'saas',
+  portMode?: 'self-hosted' | 'saas' | (string & {}),
+  portInAppRestore?: boolean,
 ): boolean {
   if (options.restoreEnabled !== undefined) return options.restoreEnabled;
+  // The port's own answer (the host's `inAppRestore` capability, which an app
+  // mode may set) decides when no option named a mode.
+  if (options.deploymentMode === undefined && portInAppRestore !== undefined) return portInAppRestore;
   const mode = options.deploymentMode ?? portMode ?? 'self-hosted';
   return mode !== 'saas';
 }

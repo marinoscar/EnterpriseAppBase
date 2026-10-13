@@ -28,9 +28,28 @@ Both are self-registering, and neither knows about the other.
 
 2. Add it to `defaultExecutors()` in `example-checksum.ts`.
 
+3. If it needs a tool on the machine, declare it (see below).
+
 That is the whole wiring. The engine intersects the operator's `--types` with
 what is registered here, so a node never claims a type it cannot run — and a
 type with no executor is simply left to the API server's in-process worker.
+
+## Declaring what an executor needs, and what it reports
+
+```ts
+registerProbedBinary('ffmpeg', { versionArgs: ['-version'] });
+registerJobRequirement('video.transcode', {
+  required: [binaryCapability('ffmpeg')],
+  degradable: [binaryCapability('exiftool')],
+});
+```
+
+The startup self-test then refuses to claim `video.transcode` on a machine without `ffmpeg` (a hard exit naming the type and the tool, instead of a node that fails every job it claims), warns for the degradable one, and `node doctor` lists both tools with the version the probe captured. Both are exported from `@marinoscar/platform-cli/node`; the worked example is `apps/cli/src/examples/transcode.executor.ts`.
+
+An executor can also time its own phase and report numbers:
+
+- `context.phase('job.app.transcode', work, attributes)` records a relayed span; the name must be `job.app.<name>`, and the attributes are integers or short token-shaped strings (the API relays the keys it registered with `registerNodeSpanAttribute`).
+- `vitals(): Record<string, number>` is read on every heartbeat and merged into `vitals.extra` (at most 16 keys fleet-wide; the fleet page words them through the web app's `registerNodeVital`). Keep it cheap and synchronous: it must not spawn a process or touch the network.
 
 ## Three rules worth stating
 

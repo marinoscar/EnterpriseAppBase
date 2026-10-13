@@ -4,12 +4,17 @@
 // named exports only. constants.ts is zod-free.
 
 export {
+  BUILTIN_NODE_SPAN_NAMES,
   MAX_NODE_CONCURRENCY,
   MAX_NODE_CREDENTIAL_DAYS,
   MAX_NODE_CREDENTIAL_NAME_LENGTH,
   MAX_NODE_ELIGIBLE_TYPES,
+  MAX_NODE_VITALS_EXTRA_KEYS,
+  MAX_NODE_VITALS_EXTRA_VALUE,
+  NODE_APP_SPAN_NAME_PATTERN,
   NODE_HEALTHS,
   NODE_STATUSES,
+  NODE_VITALS_EXTRA_KEY_PATTERN,
 } from './constants.js';
 // ---- ./admin-schemas.ts: the admin fleet's response shapes (#881)
 export {
@@ -43,6 +48,7 @@ export {
   nodeJobSecretRequestSchema,
   nodeUploadUrlSchema,
   nodeVitalsCountersSchema,
+  nodeVitalsExtraSchema,
   nodeVitalsSchema,
   registerNodeSchema,
   renewLeaseSchema,

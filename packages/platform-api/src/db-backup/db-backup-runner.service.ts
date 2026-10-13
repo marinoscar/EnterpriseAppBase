@@ -911,9 +911,9 @@ export class DatabaseBackupRunnerService {
           const job = await this.jobs.enqueueWithin(tx, {
             type: BACKUP_JOB_TYPE,
             // `backfill`, reused rather than extended — the same choice the
-            // broadcast fan-out made. `JobReason` is a Prisma enum, so a
-            // `backup` member would be a migration plus web-side churn for a
-            // display string, and the thing it would say is already said
+            // broadcast fan-out made. A `backup` reason would be a
+            // registration plus a new stored value for a display string, and
+            // the thing it would say is already said
             // precisely by `DatabaseBackupRun.trigger`
             // (`manual`/`scheduled`/`pre_restore`).
             reason: 'backfill',

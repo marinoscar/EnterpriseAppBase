@@ -1114,6 +1114,84 @@ describe('NodeEngine — heartbeat vitals (#605)', () => {
     await run;
   });
 
+  it('merges the executors’ app vitals into vitals.extra, sanitized, and omits the key when there are none', async () => {
+    const rec = recorder();
+    const bodies: HeartbeatRequest[] = [];
+    const reporting: JobExecutor = {
+      type: 'app.reporting',
+      requiresInput: false,
+      async execute() {
+        return {};
+      },
+      vitals: () => ({
+        'transcode.fps': 29.97,
+        'Bad Key': 1,
+        nan: Number.NaN,
+        huge: 1e30,
+        text: 'x' as never,
+      }),
+    };
+    const throwing: JobExecutor = {
+      type: 'app.throwing',
+      requiresInput: false,
+      async execute() {
+        return {};
+      },
+      vitals() {
+        throw new Error('vital source on fire');
+      },
+    };
+    const engine = new NodeEngine({
+      api: fakeApi([], rec, {
+        async heartbeat(_nodeId, body) {
+          bodies.push(body);
+          return {} as never;
+        },
+      }),
+      nodeId: 'node-1',
+      concurrency: 1,
+      executors: new ExecutorRegistry().register(reporting).register(throwing),
+      scheduler: fakeScheduler(),
+      tmpDir: tmp,
+      sleep: tick,
+      collectVitals: () => ({ cpuPercent: 1 }),
+    });
+
+    const run = engine.run();
+    await vi.waitFor(() => expect(bodies.length).toBe(1));
+
+    expect(bodies[0]?.vitals).toEqual({ cpuPercent: 1, extra: { 'transcode.fps': 29.97, huge: 1e15 } });
+    await engine.drain();
+    await run;
+  });
+
+  it('adds no extra key when no executor reports a vital (a stock node’s heartbeat is unchanged)', async () => {
+    const rec = recorder();
+    const bodies: HeartbeatRequest[] = [];
+    const engine = new NodeEngine({
+      api: fakeApi([], rec, {
+        async heartbeat(_nodeId, body) {
+          bodies.push(body);
+          return {} as never;
+        },
+      }),
+      nodeId: 'node-1',
+      concurrency: 1,
+      executors: new ExecutorRegistry().register(new ControlledExecutor()),
+      scheduler: fakeScheduler(),
+      tmpDir: tmp,
+      sleep: tick,
+      collectVitals: () => ({ cpuPercent: 1 }),
+    });
+
+    const run = engine.run();
+    await vi.waitFor(() => expect(bodies.length).toBe(1));
+
+    expect(bodies[0]?.vitals).toEqual({ cpuPercent: 1 });
+    await engine.drain();
+    await run;
+  });
+
   it('sends no vitals key at all without a collector', async () => {
     const rec = recorder();
     const bodies: HeartbeatRequest[] = [];
