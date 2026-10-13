@@ -176,7 +176,7 @@ export type {
 export { telemetryStoreResponseSchema, telemetryStoreSummarySchema, updateTelemetryStoreSchema } from './store.js';
 export type { TelemetryStoreResponse, TelemetryStoreSummary, UpdateTelemetryStoreInput } from './store.js';
 export {
-  PLATFORM_METRIC_PRESENTATIONS,
+  PRESENTATION_SCHEMAS_MATCH_SHAPES,
   metricGroupPresentationSchema,
   metricUnitDescriptorSchema,
   metricUnitIdSchema,
@@ -188,15 +188,4 @@ export {
   presentationTopNSchema,
   presentationVirtualColumnSchema,
   themeColorTokenSchema,
-} from './presentation.js';
-export type {
-  MetricGroupPresentation,
-  MetricUnitDescriptor,
-  PresentationColumn,
-  PresentationColumnDisplayDef,
-  PresentationSeries,
-  PresentationTable,
-  PresentationTile,
-  PresentationTopN,
-  PresentationVirtualColumn,
 } from './presentation.js';

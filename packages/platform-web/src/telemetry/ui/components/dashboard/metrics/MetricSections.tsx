@@ -10,18 +10,23 @@
  * other panel ("Ask assistant", "Open in Explorer" with the group's FIRST
  * statement — loaded, never run).
  *
- * What a platform section shows is declared below ({@link SECTION_SPECS}):
- * which tiles, which series go in one chart, which tables with which columns.
- * A group without a spec (an application's own) shows every tile, one chart
- * per series key and every table, in the API's order. Anything the
- * response lacks — a table not collected in this store, a skipped family — is
- * simply left out; a group the store has nothing of (`available: false`) hides
- * the whole section, and the page says so in one line.
+ * What a section shows is the group's PRESENTATION (PP-14.18), data the API
+ * serves with `/metric-groups` and `headless/lib/metrics/presentation.ts`
+ * resolves into a plan: which tiles (with their label, unit and colour), which
+ * series go in one chart, which tables with which columns, row order and Top N,
+ * and which computed columns. The six platform groups declare theirs in their own
+ * group files (the contract's `PLATFORM_METRIC_PRESENTATIONS`, used here when an
+ * API does not serve one); a part a group's presentation leaves out takes the
+ * default: every tile, one chart per series key, every table, in the API's
+ * order. Anything the response lacks — a table not collected in this store, a
+ * skipped family — is simply left out; a group the store has nothing of
+ * (`available: false`) hides the whole section, and the page says so in one line.
  *
  * The API decides every value, threshold and row; this only presents them.
  */
 import type { ReactNode } from 'react';
 import { Grid, Stack, Typography, useTheme } from '@mui/material';
+import type { MetricGroupPresentation, PresentationColumn } from '@marinoscar/platform-contract/telemetry';
 import type { DashboardResource } from '../../../../headless/hooks/useTelemetryDashboard.js';
 import type {
   DashboardMetricGroup,
@@ -40,208 +45,136 @@ import {
   StatusCell,
   UtilizationBar,
   type MetricTableColumnSpec,
-  type MetricTableTopN,
+  type MetricTableProps,
 } from './MetricTable.js';
 import { metricPanelId, metricSectionAnchor, type MetricSectionMeta } from '../../../../headless/lib/metrics/metricSections.js';
-import { telemetryTokens, type TelemetryTokens } from '../../../../theme/telemetryTokens.js';
+import {
+  colorOfToken,
+  planTiles,
+  presentationFor,
+  sectionPlan,
+  withVirtualColumns,
+  type ChartPlan,
+  type SectionPlan,
+  type TablePlan,
+} from '../../../../headless/lib/metrics/presentation.js';
+import { telemetryTokens } from '../../../../theme/telemetryTokens.js';
 
 type Row = DashboardMetricTable['rows'][number];
-
-interface ChartSpec {
-  title: string;
-  /** Series keys, in legend order; every series of a key (one per `groupBy`) is drawn. */
-  keys: string[];
-  /** Fixed colours per `groupBy` value (the settle outcomes), from the telemetry status tokens. */
-  colors?: Record<string, (tokens: TelemetryTokens) => string>;
-}
-
-interface TableSpec {
-  key: string;
-  columns?: MetricTableColumnSpec[];
-  sortRows?: (a: Row, b: Row) => number;
-  /** Offer a "Top N" row limit (applied after `sortRows`). */
-  topN?: MetricTableTopN;
-}
-
-interface SectionSpec {
-  tiles: string[];
-  charts: ChartSpec[];
-  tables: TableSpec[];
-}
 
 /** Failing rows first (`up === false`, `noEligibleNode === true`); stable otherwise. */
 const problemsFirst = (a: Row, b: Row) =>
   Number(b.up === false || b.noEligibleNode === true) - Number(a.up === false || a.noEligibleNode === true);
 
-const upStatus: MetricTableColumnSpec = {
-  key: 'up',
-  requires: ['up'],
-  render: (row) => <StatusCell ok={row.up ?? null} okText="Up" badText="Down" />,
-};
-
-/** The platform groups' presentation. A group not listed here gets {@link sectionSpec}'s default. */
-export const SECTION_SPECS: Readonly<Record<string, SectionSpec>> = {
-  host: {
-    tiles: ['cpuUtilization', 'memoryUtilization', 'load1m', 'filesystemUtilization'],
-    charts: [{ title: 'CPU and memory utilization', keys: ['cpuUtilization', 'memoryUtilization'] }],
-    tables: [
-      {
-        key: 'filesystems',
-        columns: [
-          { key: 'key' },
-          {
-            key: 'utilizationPct',
-            requires: ['utilizationPct'],
-            render: (row, column) => (
-              <UtilizationBar value={row.utilizationPct ?? null} label={`${column?.label ?? 'Used'} on ${String(row.key)}`} />
-            ),
-          },
-          { key: 'usedBytes' },
-          { key: 'freeBytes' },
-          { key: 'lastSeenAt' },
-        ],
-      },
-    ],
-  },
-  database: {
-    tiles: ['dbConnectionUtilization', 'dbSize', 'dbCommits', 'dbCacheHitRatio'],
-    charts: [{ title: 'Connections and the connection limit', keys: ['dbConnections', 'dbConnectionMax'] }],
-    tables: [{ key: 'largestTables', topN: { options: [10, 20, 50, 'all'], default: 10 } }],
-  },
-  queue: {
-    tiles: ['queueDepth.pending', 'oldestPendingAge', 'jobFailureRatio', 'jobDurationP95', 'backupAge'],
-    charts: [
-      {
-        title: 'Jobs settled per minute by outcome',
-        keys: ['jobsSettled'],
-        colors: {
-          succeeded: (tokens) => tokens.status.ok,
-          failed: (tokens) => tokens.status.crit,
+/**
+ * A presentation column as the table component's column spec: a bar, a
+ * status or a fraction replaces the unit-formatted cell, and a column the
+ * response lacks is skipped (`requires`).
+ */
+function columnSpec(column: PresentationColumn): MetricTableColumnSpec {
+  const display = column.display;
+  if (!display) return { key: column.key, ...(column.label !== undefined ? { label: column.label } : {}) };
+  const label = column.label !== undefined ? { label: column.label } : {};
+  switch (display.kind) {
+    case 'utilization-bar':
+      return {
+        key: column.key,
+        ...label,
+        requires: [column.key],
+        render: (row, responseColumn) => (
+          <UtilizationBar
+            value={row[column.key] ?? null}
+            label={`${responseColumn?.label ?? column.label ?? column.key} on ${String(row.key)}`}
+            {...(display.warnAt !== undefined ? { warnAt: display.warnAt } : {})}
+            {...(display.criticalAt !== undefined ? { criticalAt: display.criticalAt } : {})}
+          />
+        ),
+      };
+    case 'status':
+      return {
+        key: column.key,
+        ...label,
+        requires: [column.key],
+        render: (row) => {
+          const value = row[column.key];
+          return (
+            <StatusCell
+              ok={display.invert ? (typeof value === 'boolean' ? !value : null) : (value ?? null)}
+              okText={display.okText}
+              badText={display.badText}
+            />
+          );
         },
-      },
-    ],
-    tables: [{ key: 'jobTypes' }],
-  },
-  nodes: {
-    tiles: ['nodesByHealth.healthy', 'nodesByHealth.stale', 'nodesByHealth.offline', 'noEligibleNode'],
-    charts: [],
-    tables: [
-      {
-        key: 'nodes',
-        columns: [
-          { key: 'key' },
-          { key: 'cpuCores' },
-          { key: 'rssBytes' },
-          {
-            key: 'heapPct',
-            requires: ['heapPct'],
-            render: (row, column) => (
-              <UtilizationBar value={row.heapPct ?? null} label={`${column?.label ?? 'Heap used'} on ${String(row.key)}`} />
-            ),
-          },
-          { key: 'stateDirFreePct' },
-          {
-            key: 'slots',
-            label: 'Slots used',
-            requires: ['slotsUsed', 'slotsTotal'],
-            render: (row) =>
-              row.slotsUsed === null && row.slotsTotal === null
-                ? '—'
-                : `${typeof row.slotsUsed === 'number' ? row.slotsUsed : '—'} / ${typeof row.slotsTotal === 'number' ? row.slotsTotal : '—'}`,
-          },
-          { key: 'lastSeenAt' },
-        ],
-      },
-      {
-        key: 'noEligibleNodeTypes',
-        sortRows: problemsFirst,
-        columns: [
-          { key: 'key' },
-          {
-            key: 'noEligibleNode',
-            label: 'Eligible node',
-            requires: ['noEligibleNode'],
-            render: (row) => (
-              <StatusCell
-                ok={typeof row.noEligibleNode === 'boolean' ? !row.noEligibleNode : null}
-                okText="Available"
-                badText="None eligible"
-              />
-            ),
-          },
-          { key: 'lastSeenAt' },
-        ],
-      },
-    ],
-  },
-  uptime: {
-    tiles: ['nginxConnections.active', 'nginxRequests', 'tlsDaysLeft', 'httpDuration'],
-    charts: [{ title: 'nginx connections by state', keys: ['nginxConnections'] }],
-    tables: [
-      {
-        key: 'uptimeTargets',
-        sortRows: problemsFirst,
-        columns: [
-          { key: 'key' },
-          upStatus,
-          { key: 'statusCode' },
-          { key: 'durationMs' },
-          { key: 'tlsDaysLeft' },
-          { key: 'failedChecks' },
-          { key: 'checks' },
-          { key: 'lastError' },
-          { key: 'lastSeenAt' },
-        ],
-      },
-    ],
-  },
-  pipeline: {
-    tiles: ['exporterFailed', 'exporterQueueUtilization', 'receiverRefused', 'scrapeTargetsDown'],
-    charts: [],
-    tables: [{ key: 'scrapeTargets', sortRows: problemsFirst, columns: [{ key: 'key' }, upStatus, { key: 'lastSeenAt' }] }],
-  },
-};
-
-/** The series label without its `groupBy` suffix (`Disk IO: read` → `Disk IO`). */
-function familyLabel(series: DashboardMetricSeries): string {
-  const suffix = series.groupBy === null ? '' : `: ${series.groupBy}`;
-  return suffix && series.label.endsWith(suffix) ? series.label.slice(0, -suffix.length) : series.label;
+      };
+    case 'fraction': {
+      const [used, total] = display.of;
+      return {
+        key: column.key,
+        ...label,
+        requires: [used, total],
+        render: (row) =>
+          row[used] === null && row[total] === null
+            ? '—'
+            : `${typeof row[used] === 'number' ? row[used] : '—'} / ${typeof row[total] === 'number' ? row[total] : '—'}`,
+      };
+    }
+  }
 }
 
-/**
- * What a section shows: the platform group's {@link SECTION_SPECS} entry, or,
- * for a group without one (an application's own, #680), every tile, one chart
- * per series key and every table, in the response's order.
- */
-export function sectionSpec(group: DashboardMetricGroup, data: DashboardMetrics): SectionSpec {
-  const declared = Object.prototype.hasOwnProperty.call(SECTION_SPECS, group) ? SECTION_SPECS[group] : undefined;
-  if (declared) return declared;
-  const seriesKeys = [...new Set(data.series.map((series) => series.key))];
+/** What the table component needs for a table plan. */
+function tableProps(plan: TablePlan): Pick<MetricTableProps, 'columns' | 'sortRows' | 'topN'> {
   return {
-    tiles: data.tiles.map((tile) => tile.key),
-    charts: seriesKeys.map((key) => ({
-      title: familyLabel(data.series.find((series) => series.key === key) as DashboardMetricSeries),
-      keys: [key],
-    })),
-    tables: data.tables.map((table) => ({ key: table.key })),
+    columns: plan.columns?.map(columnSpec),
+    sortRows: plan.sort === 'problems-first' ? problemsFirst : undefined,
+    topN: plan.topN,
   };
 }
 
-/** The section's tiles, in the spec's order, that the response carries. */
-export function sectionTiles(group: DashboardMetricGroup, data: DashboardMetrics): DashboardTile[] {
-  const byKey = new Map(data.tiles.map((tile) => [tile.key, tile]));
-  return sectionSpec(group, data).tiles.flatMap((key) => {
-    const tile = byKey.get(key);
-    return tile ? [tile] : [];
-  });
+/** The tables of the plan that the response carries, virtual columns applied, in the plan's order. */
+function planTables(
+  data: DashboardMetrics,
+  plan: SectionPlan,
+  spanMs: number,
+): Array<{ table: DashboardMetricTable; tablePlan: TablePlan }> {
+  return plan.tables.flatMap((tablePlan) =>
+    data.tables
+      .filter((table) => table.key === tablePlan.key)
+      .map((table) => {
+        const withColumns = withVirtualColumns(table, plan.virtualColumns, spanMs);
+        return {
+          table: tablePlan.label !== undefined ? { ...withColumns, label: tablePlan.label } : withColumns,
+          tablePlan,
+        };
+      }),
+  );
 }
 
-/** The section's tables, in the spec's order, that the response carries. */
-export function sectionTables(group: DashboardMetricGroup, data: DashboardMetrics): DashboardMetricTable[] {
-  return sectionSpec(group, data).tables.flatMap((spec) => data.tables.filter((table) => table.key === spec.key));
+/**
+ * The section's tiles, in the presentation's order, that the response carries.
+ *
+ * @param group - the group id.
+ * @param data - the group's `/metrics` response.
+ * @param presentation - the group's served presentation; a platform group falls back to its own.
+ * @returns the tiles to draw.
+ */
+export function sectionTiles(
+  group: DashboardMetricGroup,
+  data: DashboardMetrics,
+  presentation?: MetricGroupPresentation | null,
+): DashboardTile[] {
+  return planTiles(data, sectionPlan(data, presentationFor(group, presentation)));
 }
 
-function chartSeries(chart: ChartSpec, data: DashboardMetrics): DashboardMetricSeries[] {
+/** The section's tables, in the presentation's order, that the response carries. */
+export function sectionTables(
+  group: DashboardMetricGroup,
+  data: DashboardMetrics,
+  presentation?: MetricGroupPresentation | null,
+): DashboardMetricTable[] {
+  return planTables(data, sectionPlan(data, presentationFor(group, presentation)), 0).map(({ table }) => table);
+}
+
+function chartSeries(chart: ChartPlan, data: DashboardMetrics): DashboardMetricSeries[] {
   return chart.keys.flatMap((key) => data.series.filter((series) => series.key === key));
 }
 
@@ -250,13 +183,14 @@ export function metricsAssistantContext(
   group: DashboardMetricGroup,
   data: DashboardMetrics,
   title: string,
+  presentation?: MetricGroupPresentation | null,
 ): AssistantPanelContext {
   return {
     kind: 'metrics',
     title,
     group,
-    tiles: sectionTiles(group, data),
-    tables: sectionTables(group, data),
+    tiles: sectionTiles(group, data, presentation),
+    tables: sectionTables(group, data, presentation),
     skipped: data.skipped,
   };
 }
@@ -267,22 +201,27 @@ function SectionBody({
   layout,
   spanMs,
   now,
+  presentation,
 }: {
   group: DashboardMetricGroup;
   data: DashboardMetrics;
   layout: DashboardLayout;
   spanMs: number;
   now?: number;
+  presentation?: MetricGroupPresentation | null;
 }) {
   const theme = useTheme();
-  const spec = sectionSpec(group, data);
-  const tiles = sectionTiles(group, data);
-  const charts = spec.charts
+  const plan = sectionPlan(data, presentationFor(group, presentation));
+  const tiles = planTiles(data, plan);
+  const tokens = telemetryTokens(theme);
+  // A tile asks for a theme colour by token; the web resolves it (it never receives a CSS colour).
+  const tileColors = Object.fromEntries(
+    plan.tiles.flatMap((spec) => (spec.color ? [[spec.metric, colorOfToken(spec.color, tokens)] as const] : [])),
+  );
+  const charts = plan.charts
     .map((chart) => ({ chart, series: chartSeries(chart, data) }))
     .filter(({ series }) => series.length > 0);
-  const tables = spec.tables.flatMap((tableSpec) =>
-    data.tables.filter((table) => table.key === tableSpec.key).map((table) => ({ table, tableSpec })),
-  );
+  const tables = planTables(data, plan, spanMs);
   const both = charts.length > 0 && tables.length > 0;
   const compact = layout === 'phone';
 
@@ -300,7 +239,14 @@ function SectionBody({
 
   return (
     <Stack spacing={{ xs: 1.5, sm: 2 }} sx={{ minWidth: 0 }}>
-      {tiles.length > 0 && <KpiTiles tiles={tiles} now={now} testId={`metric-tiles-${group}`} />}
+      {tiles.length > 0 && (
+        <KpiTiles
+          tiles={tiles}
+          now={now}
+          testId={`metric-tiles-${group}`}
+          {...(Object.keys(tileColors).length > 0 ? { colors: tileColors } : {})}
+        />
+      )}
       {(charts.length > 0 || tables.length > 0) && (
         <Grid container spacing={{ xs: 1.5, sm: 2 }}>
           {charts.map(({ chart, series }) => (
@@ -312,19 +258,13 @@ function SectionBody({
                 spanMs={spanMs}
                 compact={compact}
                 testId={`metric-chart-${group}`}
-                colorFor={(s) => (s.groupBy && chart.colors?.[s.groupBy] ? chart.colors[s.groupBy]!(telemetryTokens(theme)) : undefined)}
+                colorFor={(s) => (s.groupBy && chart.colors?.[s.groupBy] ? colorOfToken(chart.colors[s.groupBy]!, tokens) : undefined)}
               />
             </Grid>
           ))}
-          {tables.map(({ table, tableSpec }) => (
+          {tables.map(({ table, tablePlan }) => (
             <Grid key={table.key} size={{ xs: 12, lg: both ? 7 : 12 }} sx={{ minWidth: 0 }}>
-              <MetricTable
-                table={table}
-                columns={tableSpec.columns}
-                sortRows={tableSpec.sortRows}
-                topN={tableSpec.topN}
-                now={now}
-              />
+              <MetricTable table={table} {...tableProps(tablePlan)} now={now} />
             </Grid>
           ))}
         </Grid>
@@ -355,8 +295,12 @@ export function formatFreshWindow(ms: number): string {
  * reports its window (`freshMs`) and the section has a table, the only place
  * the window applies.
  */
-function freshWindowNote(group: DashboardMetricGroup, data: DashboardMetrics | null | undefined): ReactNode {
-  if (!data || data.freshMs === undefined || sectionTables(group, data).length === 0) return undefined;
+function freshWindowNote(
+  group: DashboardMetricGroup,
+  data: DashboardMetrics | null | undefined,
+  presentation?: MetricGroupPresentation | null,
+): ReactNode {
+  if (!data || data.freshMs === undefined || sectionTables(group, data, presentation).length === 0) return undefined;
   const window = formatFreshWindow(data.freshMs);
   return (
     <Typography
@@ -372,12 +316,16 @@ function freshWindowNote(group: DashboardMetricGroup, data: DashboardMetrics | n
 }
 
 /** Whether a section has anything to draw for the response. */
-export function sectionHasContent(group: DashboardMetricGroup, data: DashboardMetrics): boolean {
-  const spec = sectionSpec(group, data);
+export function sectionHasContent(
+  group: DashboardMetricGroup,
+  data: DashboardMetrics,
+  presentation?: MetricGroupPresentation | null,
+): boolean {
+  const plan = sectionPlan(data, presentationFor(group, presentation));
   return (
-    sectionTiles(group, data).length > 0 ||
-    spec.charts.some((chart) => chartSeries(chart, data).length > 0) ||
-    sectionTables(group, data).length > 0
+    planTiles(data, plan).length > 0 ||
+    plan.charts.some((chart) => chartSeries(chart, data).length > 0) ||
+    planTables(data, plan, 0).length > 0
   );
 }
 
@@ -391,6 +339,8 @@ export interface MetricSectionProps {
   spanMs: number;
   /** For relative times; the page's clock. */
   now?: number;
+  /** The group's `presentation` from `/metric-groups`; a platform group falls back to its own, any other to the defaults. */
+  presentation?: MetricGroupPresentation | null;
 }
 
 /**
@@ -398,7 +348,7 @@ export interface MetricSectionProps {
  * not `available`; until the first answer it shows the panel's skeleton, and a
  * failure is this section's own (Retry refetches it alone).
  */
-export function MetricSection({ group, title, resource, actions, layout, spanMs, now }: MetricSectionProps) {
+export function MetricSection({ group, title, resource, actions, layout, spanMs, now, presentation }: MetricSectionProps) {
   const { data } = resource;
   if (data && !data.available) return null;
   return (
@@ -406,18 +356,18 @@ export function MetricSection({ group, title, resource, actions, layout, spanMs,
       id={metricPanelId(group)}
       anchorId={metricSectionAnchor(group)}
       title={title}
-      headerExtra={freshWindowNote(group, data)}
+      headerExtra={freshWindowNote(group, data, presentation)}
       actions={actions}
       sql={data?.sql}
       isLoading={resource.isLoading}
       isRefreshing={resource.isRefreshing}
       error={resource.error}
       onRetry={resource.reload}
-      isEmpty={!!data && !sectionHasContent(group, data)}
+      isEmpty={!!data && !sectionHasContent(group, data, presentation)}
       emptyMessage="Nothing collected for this section in this window."
       skeletonHeight={200}
     >
-      {data && <SectionBody group={group} data={data} layout={layout} spanMs={spanMs} now={now} />}
+      {data && <SectionBody group={group} data={data} layout={layout} spanMs={spanMs} now={now} presentation={presentation} />}
     </DashboardPanel>
   );
 }

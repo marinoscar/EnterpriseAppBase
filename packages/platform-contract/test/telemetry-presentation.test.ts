@@ -108,7 +108,7 @@ describe('metricGroupPresentationSchema', () => {
 
   it('is bounded', () => {
     const L = METRIC_PRESENTATION_LIMITS;
-    const many = (n: number, make: (i: number) => object) => Array.from({ length: n }, (_, i) => make(i));
+    const many = <T>(n: number, make: (i: number) => T) => Array.from({ length: n }, (_, i) => make(i));
     expect(metricGroupPresentationSchema.safeParse({ tiles: many(L.tiles, (i) => ({ metric: `m${i}` })) }).success).toBe(true);
     expect(metricGroupPresentationSchema.safeParse({ tiles: many(L.tiles + 1, (i) => ({ metric: `m${i}` })) }).success).toBe(false);
     expect(metricGroupPresentationSchema.safeParse({ series: many(L.charts + 1, () => ({ title: 't', metrics: ['a'] })) }).success).toBe(false);
@@ -121,7 +121,7 @@ describe('metricGroupPresentationSchema', () => {
     ).toBe(false);
     expect(metricGroupPresentationSchema.safeParse({ tiles: [{ metric: 'a', label: 'x'.repeat(L.label + 1) }] }).success).toBe(false);
     expect(metricGroupPresentationSchema.safeParse({ tables: [{ metric: 't', topN: L.topNMax + 1 }] }).success).toBe(false);
-    const colors = Object.fromEntries(many(L.chartColors + 1, (i) => [`v${i}`, 'ok']).map((e) => e as [string, string]));
+    const colors = Object.fromEntries(many(L.chartColors + 1, (i): [string, string] => [`v${i}`, 'ok']));
     expect(metricGroupPresentationSchema.safeParse({ series: [{ title: 't', metrics: ['a'], colors }] }).success).toBe(false);
   });
 

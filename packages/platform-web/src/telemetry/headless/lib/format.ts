@@ -2,6 +2,8 @@
  * Number, time and change formatting for the Telemetry Dashboard (#578).
  * Pure functions, so the tiles and tables stay presentation-only.
  */
+import { BUILTIN_METRIC_UNITS } from '@marinoscar/platform-contract/telemetry';
+import type { MetricUnitDescriptor } from '@marinoscar/platform-contract/telemetry';
 
 /**
  * A tile value as a number, or `null` (`int8` may arrive as a string).
@@ -64,6 +66,87 @@ export function formatSeconds(seconds: number): string {
   return `${compact(seconds / 86_400, 1)} d`;
 }
 
+/**
+ * How to format the units an app registered, by unit id: what
+ * `GET …/metric-groups` serves with each group (`units`). Built-in unit ids are
+ * never in it (the formatter below knows them), so a platform section formats
+ * exactly as it always did.
+ *
+ * @stability experimental
+ */
+export type MetricUnitFormats = ReadonlyMap<string, MetricUnitDescriptor>;
+
+/**
+ * The platform's own unit ids. A descriptor never overrides one of them.
+ *
+ * @stability experimental
+ */
+export const BUILTIN_UNIT_IDS: ReadonlySet<string> = new Set<string>(BUILTIN_METRIC_UNITS);
+
+/**
+ * `value` in an app's unit, split as {@link formatTileValue} splits: `number`
+ * (grouped digits, `decimals`, `suffix`), `percent`, `bytes`, `duration-ms`,
+ * `duration-s`, `currency` (the browser's `Intl` currency format; the whole
+ * amount is in `value`), and `text`, `boolean`, `timestamp` as the built-ins.
+ *
+ * @param value - the cell or tile value.
+ * @param unit - the descriptor of the unit.
+ * @param now - the clock, for `timestamp`.
+ * @returns the value and its unit text.
+ *
+ * @stability experimental
+ */
+export function formatWithDescriptor(
+  value: number | string | null,
+  unit: MetricUnitDescriptor,
+  now: number = Date.now(),
+): { value: string; unit: string } {
+  switch (unit.format) {
+    case 'text':
+      return formatTileValue(value, 'text', now);
+    case 'boolean':
+      return formatTileValue(value, 'boolean', now);
+    case 'timestamp':
+      return formatTileValue(value, 'timestamp', now);
+    default:
+      break;
+  }
+  const n = toNumber(value);
+  if (n === null) return { value: '—', unit: '' };
+  switch (unit.format) {
+    case 'percent':
+      return { value: compact(n, unit.decimals ?? 2), unit: '%' };
+    case 'bytes': {
+      const [amount, suffix] = formatBytes(n).split(' ');
+      return { value: amount!, unit: suffix! };
+    }
+    case 'duration-ms': {
+      const [amount, suffix] = formatDuration(n).split(' ');
+      return { value: amount!, unit: suffix! };
+    }
+    case 'duration-s':
+      return split(formatSeconds(n));
+    case 'currency': {
+      const digits = unit.decimals ?? 2;
+      try {
+        return {
+          value: new Intl.NumberFormat(undefined, {
+            style: 'currency',
+            currency: unit.currency,
+            minimumFractionDigits: digits,
+            maximumFractionDigits: digits,
+          }).format(n),
+          unit: '',
+        };
+      } catch {
+        return { value: compact(n, digits), unit: unit.currency ?? '' };
+      }
+    }
+    default:
+      return { value: compact(n, unit.decimals ?? 2), unit: (unit.suffix ?? '').trim() };
+  }
+}
+
 function split(text: string): { value: string; unit: string } {
   const at = text.indexOf(' ');
   return at < 0 ? { value: text, unit: '' } : { value: text.slice(0, at), unit: text.slice(at + 1) };
@@ -82,7 +165,13 @@ export function formatTileValue(
   value: number | string | null,
   unit: string,
   now: number = Date.now(),
+  formats?: MetricUnitFormats,
 ): { value: string; unit: string } {
+  // An app's own unit is formatted from its descriptor; a built-in id never is (the cases below).
+  if (formats !== undefined && !BUILTIN_UNIT_IDS.has(unit)) {
+    const descriptor = formats.get(unit);
+    if (descriptor) return formatWithDescriptor(value, descriptor, now);
+  }
   if (unit === 'timestamp') {
     if (typeof value !== 'string' || !Number.isFinite(Date.parse(value))) return { value: '—', unit: '' };
     return { value: formatRelative(value, now), unit: '' };
@@ -139,10 +228,11 @@ export function formatMetricValue(
   value: number | string | boolean | null | undefined,
   unit: string,
   now: number = Date.now(),
+  formats?: MetricUnitFormats,
 ): string {
   if (value === undefined || value === null) return '—';
   if (typeof value === 'boolean') return value ? 'Yes' : 'No';
-  const formatted = formatTileValue(value, unit, now);
+  const formatted = formatTileValue(value, unit, now, formats);
   if (!formatted.unit) return formatted.value;
   return formatted.unit === '%' || formatted.unit.startsWith('/')
     ? `${formatted.value}${formatted.unit}`

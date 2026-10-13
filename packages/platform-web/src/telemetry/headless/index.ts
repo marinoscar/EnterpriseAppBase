@@ -85,11 +85,21 @@ export {
   useDashboardFilters,
   useDashboardMetricGroups,
   useDashboardMetrics,
+  useDashboardPanel,
+  useDashboardPanels,
   useDashboardSummary,
   useDashboardTimeseries,
   useDashboardTop,
 } from './hooks/useTelemetryDashboard.js';
 export type { DashboardEventsResource, DashboardResource } from './hooks/useTelemetryDashboard.js';
+
+// The formats of the units an app registered (served with `/metric-groups`), and
+// how a group's presentation resolves into what a section draws.
+export { MetricUnitFormatsContext, metricUnitFormatsOf, useMetricUnitFormats } from './context/metricUnitFormats.js';
+export { BUILTIN_UNIT_IDS, formatWithDescriptor } from './lib/format.js';
+export type { MetricUnitFormats } from './lib/format.js';
+export { colorOfToken, planTiles, presentationFor, sectionPlan, withVirtualColumns } from './lib/metrics/presentation.js';
+export type { ChartPlan, ColumnPlan, SectionPlan, TablePlan } from './lib/metrics/presentation.js';
 
 // Pure helpers apps reuse.
 export { formatBytes, formatDuration } from './lib/format.js';

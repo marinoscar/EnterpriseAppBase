@@ -14,6 +14,7 @@
 import { Box, Typography } from '@mui/material';
 import { LineChart } from '@mui/x-charts/LineChart';
 import type { DashboardMetricSeries } from '../../../../headless/services/telemetryDashboard.js';
+import { useMetricUnitFormats } from '../../../../headless/context/metricUnitFormats.js';
 import { formatBucketLabel, formatMetricValue, formatTimestamp } from '../../../../headless/lib/format.js';
 import { useTelemetryTokens } from '../../../../theme/telemetryTokens.js';
 
@@ -48,6 +49,7 @@ export function MetricSeriesChart({
   testId,
 }: MetricSeriesChartProps) {
   const tokens = useTelemetryTokens();
+  const formats = useMetricUnitFormats();
   if (series.length === 0) return null;
   const shown = series.slice(0, METRIC_CHART_MAX_LINES);
   const hidden = series.length - shown.length;
@@ -78,7 +80,7 @@ export function MetricSeriesChart({
             color: colorFor?.(s) ?? palette[index % palette.length],
             connectNulls: false,
             showMark: false,
-            valueFormatter: (value: number | null) => formatMetricValue(value, s.unit),
+            valueFormatter: (value: number | null) => formatMetricValue(value, s.unit, undefined, formats),
           }))}
           xAxis={[
             {
@@ -97,7 +99,7 @@ export function MetricSeriesChart({
               width: compact ? 52 : 64,
               min: 0,
               ...(unit === '%' ? { max: 100 } : {}),
-              valueFormatter: (value: number) => formatMetricValue(value, unit),
+              valueFormatter: (value: number) => formatMetricValue(value, unit, undefined, formats),
             },
           ]}
           grid={{ horizontal: true }}

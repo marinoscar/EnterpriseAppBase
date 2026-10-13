@@ -22,10 +22,10 @@ import {
   METRIC_PRESENTATION_LIMITS,
   METRIC_UNIT_FORMATS,
   METRIC_UNIT_ID_PATTERN,
-  PLATFORM_METRIC_GROUPS,
-  PRESENTATION_COLUMN_DISPLAYS,
   PRESENTATION_COLOR_TOKENS,
   VIRTUAL_COLUMN_EXPRESSIONS,
+  type MetricGroupPresentation,
+  type MetricUnitDescriptor,
 } from './constants.js';
 import { wireEnum } from './enum.js';
 
@@ -96,13 +96,6 @@ export const metricUnitDescriptorSchema = z
   });
 
 /**
- * A metric unit.
- *
- * @stability experimental
- */
-export type MetricUnitDescriptor = z.infer<typeof metricUnitDescriptorSchema>;
-
-/**
  * One headline tile: the metric (a family or ratio key, with the
  * `.<tileGroup>` suffix of a family that emits one tile per group value), and
  * optionally its label, unit and colour.
@@ -122,13 +115,6 @@ export const presentationTileSchema = z
     color: themeColorTokenSchema.optional(),
   })
   .strict();
-
-/**
- * One headline tile of a presentation.
- *
- * @stability experimental
- */
-export type PresentationTile = z.infer<typeof presentationTileSchema>;
 
 /**
  * One line chart: the metrics (family or ratio keys) drawn together, and a
@@ -153,13 +139,6 @@ export const presentationSeriesSchema = z
   })
   .strict();
 
-/**
- * One line chart of a presentation.
- *
- * @stability experimental
- */
-export type PresentationSeries = z.infer<typeof presentationSeriesSchema>;
-
 const topNOption = z.union([z.number().int().min(1).max(LIMITS.topNMax), z.literal('all')]);
 
 /**
@@ -181,13 +160,6 @@ export const presentationTopNSchema = z.union([
     .strict()
     .refine((topN) => topN.options.includes(topN.default), { message: '`default` must be one of `options`.' }),
 ]);
-
-/**
- * A table's "Top N" row limit.
- *
- * @stability experimental
- */
-export type PresentationTopN = z.infer<typeof presentationTopNSchema>;
 
 /**
  * How one table cell is drawn instead of by its unit: `utilization-bar` (a
@@ -227,13 +199,6 @@ export const presentationColumnDisplaySchema = z.discriminatedUnion('kind', [
 ]);
 
 /**
- * How one table cell is drawn.
- *
- * @stability experimental
- */
-export type PresentationColumnDisplayDef = z.infer<typeof presentationColumnDisplaySchema>;
-
-/**
  * One column of a table: a response column key (or a virtual column id, or a
  * `fraction` column's own key), its header and how it is drawn. A column the
  * response lacks is skipped, never drawn empty.
@@ -251,13 +216,6 @@ export const presentationColumnSchema = z
     display: presentationColumnDisplaySchema.optional(),
   })
   .strict();
-
-/**
- * One column of a presentation's table.
- *
- * @stability experimental
- */
-export type PresentationColumn = z.infer<typeof presentationColumnSchema>;
 
 /**
  * One per-key table of a group: the table key, its row limit, its row order
@@ -281,13 +239,6 @@ export const presentationTableSchema = z
     columns: z.array(presentationColumnSchema).min(1).max(LIMITS.columns).optional(),
   })
   .strict();
-
-/**
- * One per-key table of a presentation.
- *
- * @stability experimental
- */
-export type PresentationTable = z.infer<typeof presentationTableSchema>;
 
 /**
  * A column computed in the browser from other columns of a table's rows:
@@ -326,13 +277,6 @@ export const presentationVirtualColumnSchema = z
   });
 
 /**
- * A computed column of a presentation.
- *
- * @stability experimental
- */
-export type PresentationVirtualColumn = z.infer<typeof presentationVirtualColumnSchema>;
-
-/**
  * How a metric group's dashboard section looks. Every part is optional: an
  * omitted part gets the default (every tile, one chart per series key, every
  * table); a present part, even an empty array, is exactly what is drawn.
@@ -361,141 +305,21 @@ export const metricGroupPresentationSchema = z
   })
   .strict();
 
-/**
- * How a metric group's dashboard section looks.
- *
- * @stability experimental
- */
-export type MetricGroupPresentation = z.infer<typeof metricGroupPresentationSchema>;
+
+// ---- the schemas and the zod-free shapes are one type ---------------------------------
+//
+// `MetricGroupPresentation` and `MetricUnitDescriptor` are declared zod-free in
+// `constants.ts`. These compile-time proofs fail the build if a schema accepts
+// or produces something the interface does not say, or the other way round.
+
+type Mutual<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+const presentationMatchesItsSchema: Mutual<z.infer<typeof metricGroupPresentationSchema>, MetricGroupPresentation> = true;
+const unitMatchesItsSchema: Mutual<z.infer<typeof metricUnitDescriptorSchema>, MetricUnitDescriptor> = true;
 
 /**
- * The presentation of the six platform groups, keyed by group id. The
- * platform's metric-group declarations take theirs from here, and the web falls
- * back to these when an API does not serve a presentation, so a section looks
- * the same against any API version.
+ * Whether the zod schemas and the zod-free shapes of the presentation are the
+ * same type (a compile-time proof, `true` once it compiles).
  *
  * @stability experimental
  */
-export const PLATFORM_METRIC_PRESENTATIONS: Readonly<
-  Record<(typeof PLATFORM_METRIC_GROUPS)[number], MetricGroupPresentation>
-> = Object.freeze({
-  host: {
-    tiles: [
-      { metric: 'cpuUtilization' },
-      { metric: 'memoryUtilization' },
-      { metric: 'load1m' },
-      { metric: 'filesystemUtilization' },
-    ],
-    series: [{ title: 'CPU and memory utilization', metrics: ['cpuUtilization', 'memoryUtilization'] }],
-    tables: [
-      {
-        metric: 'filesystems',
-        columns: [
-          { key: 'key' },
-          { key: 'utilizationPct', display: { kind: 'utilization-bar' } },
-          { key: 'usedBytes' },
-          { key: 'freeBytes' },
-          { key: 'lastSeenAt' },
-        ],
-      },
-    ],
-  },
-  database: {
-    tiles: [{ metric: 'dbConnectionUtilization' }, { metric: 'dbSize' }, { metric: 'dbCommits' }, { metric: 'dbCacheHitRatio' }],
-    series: [{ title: 'Connections and the connection limit', metrics: ['dbConnections', 'dbConnectionMax'] }],
-    tables: [{ metric: 'largestTables', topN: { options: [10, 20, 50, 'all'], default: 10 } }],
-  },
-  queue: {
-    tiles: [
-      { metric: 'queueDepth.pending' },
-      { metric: 'oldestPendingAge' },
-      { metric: 'jobFailureRatio' },
-      { metric: 'jobDurationP95' },
-      { metric: 'backupAge' },
-    ],
-    series: [
-      {
-        title: 'Jobs settled per minute by outcome',
-        metrics: ['jobsSettled'],
-        colors: { succeeded: 'ok', failed: 'crit' },
-      },
-    ],
-    tables: [{ metric: 'jobTypes' }],
-  },
-  nodes: {
-    tiles: [
-      { metric: 'nodesByHealth.healthy' },
-      { metric: 'nodesByHealth.stale' },
-      { metric: 'nodesByHealth.offline' },
-      { metric: 'noEligibleNode' },
-    ],
-    series: [],
-    tables: [
-      {
-        metric: 'nodes',
-        columns: [
-          { key: 'key' },
-          { key: 'cpuCores' },
-          { key: 'rssBytes' },
-          { key: 'heapPct', display: { kind: 'utilization-bar' } },
-          { key: 'stateDirFreePct' },
-          { key: 'slots', label: 'Slots used', display: { kind: 'fraction', of: ['slotsUsed', 'slotsTotal'] } },
-          { key: 'lastSeenAt' },
-        ],
-      },
-      {
-        metric: 'noEligibleNodeTypes',
-        sort: 'problems-first',
-        columns: [
-          { key: 'key' },
-          {
-            key: 'noEligibleNode',
-            label: 'Eligible node',
-            display: { kind: 'status', okText: 'Available', badText: 'None eligible', invert: true },
-          },
-          { key: 'lastSeenAt' },
-        ],
-      },
-    ],
-  },
-  uptime: {
-    tiles: [{ metric: 'nginxConnections.active' }, { metric: 'nginxRequests' }, { metric: 'tlsDaysLeft' }, { metric: 'httpDuration' }],
-    series: [{ title: 'nginx connections by state', metrics: ['nginxConnections'] }],
-    tables: [
-      {
-        metric: 'uptimeTargets',
-        sort: 'problems-first',
-        columns: [
-          { key: 'key' },
-          { key: 'up', display: { kind: 'status', okText: 'Up', badText: 'Down' } },
-          { key: 'statusCode' },
-          { key: 'durationMs' },
-          { key: 'tlsDaysLeft' },
-          { key: 'failedChecks' },
-          { key: 'checks' },
-          { key: 'lastError' },
-          { key: 'lastSeenAt' },
-        ],
-      },
-    ],
-  },
-  pipeline: {
-    tiles: [{ metric: 'exporterFailed' }, { metric: 'exporterQueueUtilization' }, { metric: 'receiverRefused' }, { metric: 'scrapeTargetsDown' }],
-    series: [],
-    tables: [
-      {
-        metric: 'scrapeTargets',
-        sort: 'problems-first',
-        columns: [{ key: 'key' }, { key: 'up', display: { kind: 'status', okText: 'Up', badText: 'Down' } }, { key: 'lastSeenAt' }],
-      },
-    ],
-  },
-});
-
-/**
- * The display kinds a presentation column may use, as a list (documentation and
- * tests).
- *
- * @stability experimental
- */
-export const PRESENTATION_COLUMN_DISPLAY_KINDS: readonly string[] = PRESENTATION_COLUMN_DISPLAYS;
+export const PRESENTATION_SCHEMAS_MATCH_SHAPES: boolean = presentationMatchesItsSchema && unitMatchesItsSchema;

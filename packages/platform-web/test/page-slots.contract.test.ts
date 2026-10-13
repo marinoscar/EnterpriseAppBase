@@ -30,6 +30,11 @@ import type { DbBackupPageProps } from '../src/db-backup/ui/index.js';
 import type { DoctorPageProps } from '../src/doctor/ui/index.js';
 import type { JobInsightsPageProps, JobsPageProps } from '../src/jobs/ui/index.js';
 import type { WorkersPageProps } from '../src/nodes/ui/index.js';
+import type {
+  TelemetryDashboardPageProps,
+  TelemetryExplorerPageProps,
+  TelemetrySettingsPageProps,
+} from '../src/telemetry/ui/index.js';
 
 const PACKAGE_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -181,6 +186,12 @@ describe('the migrated operations pages (compile time)', () => {
     expectTypeOf<PageSlotsBase>().toExtend<SlotsOf<DbBackupPageProps>>();
     expectTypeOf<SlotsOf<DoctorPageProps>>().toExtend<PageSlotsBase>();
     expectTypeOf<PageSlotsBase>().toExtend<SlotsOf<DoctorPageProps>>();
+    expectTypeOf<SlotsOf<TelemetryDashboardPageProps>>().toExtend<PageSlotsBase>();
+    expectTypeOf<PageSlotsBase>().toExtend<SlotsOf<TelemetryDashboardPageProps>>();
+    expectTypeOf<SlotsOf<TelemetryExplorerPageProps>>().toExtend<PageSlotsBase>();
+    expectTypeOf<PageSlotsBase>().toExtend<SlotsOf<TelemetryExplorerPageProps>>();
+    expectTypeOf<SlotsOf<TelemetrySettingsPageProps>>().toExtend<PageSlotsBase>();
+    expectTypeOf<PageSlotsBase>().toExtend<SlotsOf<TelemetrySettingsPageProps>>();
 
     // The table pages also carry the table slots.
     expectTypeOf<SlotsOf<JobsPageProps>>().toExtend<Pick<TableSlots<unknown>, 'Toolbar'>>();
