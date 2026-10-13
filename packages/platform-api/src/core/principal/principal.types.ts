@@ -47,15 +47,18 @@ export type TenancyMode = 'single' | 'multi';
  * - `'pat'`: a `pat_` personal access token.
  * - `'node'`: a `nod_` worker-node credential, confined to `/api/nodes`.
  *
- * Small and closed, so unlike an org id it is safe as a metric label.
+ * Small and closed, so unlike an org id it is safe as a metric label. This is
+ * the PLATFORM's closed list; the open vocabulary an app extends is
+ * `CredentialKind` of `@marinoscar/platform-api/core` (`keyof CredentialKinds`,
+ * plus `registerCredentialKind` at run time).
  *
  * @stability experimental
  * @example
  * ```ts
- * const kind: CredentialKind = payload.did ? 'device' : 'session';
+ * const kind: BuiltinCredentialKind = payload.did ? 'device' : 'session';
  * ```
  */
-export type CredentialKind =
+export type BuiltinCredentialKind =
   | 'session'
   | 'device'
   | 'pat'
@@ -63,11 +66,13 @@ export type CredentialKind =
 
 /**
  * Discriminant of {@link Principal}: a human user (directly or through a
- * credential they delegated) or an unattended worker node.
+ * credential they delegated) or an unattended worker node. The platform's
+ * closed list; the open vocabulary is `PrincipalKind` of
+ * `@marinoscar/platform-api/core` (`keyof PrincipalKinds`).
  *
  * @stability experimental
  */
-export type PrincipalKind = 'user' | 'node';
+export type BuiltinPrincipalKind = 'user' | 'node';
 
 /**
  * One organisation a principal belongs to.
@@ -117,7 +122,7 @@ export interface GroupMembership {
  */
 interface PrincipalBase {
   /** Discriminant; narrow on it. */
-  readonly kind: PrincipalKind;
+  readonly kind: BuiltinPrincipalKind;
   /**
    * The user whose authority is exercised. For a node principal, the owner of
    * the node credential.
@@ -126,7 +131,7 @@ interface PrincipalBase {
   /** That user's email, for logs and audit. */
   readonly email: string;
   /** How the request authenticated. */
-  readonly credential: CredentialKind;
+  readonly credential: BuiltinCredentialKind;
   /**
    * System role names (spec: "System roles operate the deployment"). Today
    * every role is a system role.
