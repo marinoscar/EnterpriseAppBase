@@ -22,10 +22,11 @@
 
 import type { Principal } from '@marinoscar/platform-api/core';
 import { accessibleSql, granteeKindRegistry } from '@marinoscar/platform-api/sharing';
-import { describeGranteeKindConformance } from '@marinoscar/platform-api/sharing/testing';
+import { describeGranteeKindConformance, granteeKindChecks } from '@marinoscar/platform-api/sharing/testing';
+import type { GranteeKindDef } from '@marinoscar/platform-api/sharing';
 import { Prisma } from '@prisma/client';
 
-import { emailDomainGranteeKind, registerEmailDomainGranteeKind } from '../../../src/platform-extensions/sharing/email-domain.grantee-kind';
+import { emailDomainGranteeKind, emailDomainOf, registerEmailDomainGranteeKind } from '../../../src/platform-extensions/sharing/email-domain.grantee-kind';
 import { resolveDbSuite } from '../../jobs/db-test-support';
 import { createRlsDatabase, ORG_A, ORG_B, type RlsDatabase } from '../../helpers/rls-database.helper';
 import { principalOf, seedOrgs, seedUser } from '../../sharing/sharing-db.helper';
@@ -205,6 +206,35 @@ describeWithDb('sharing examples: grantee kinds (real Postgres)', () => {
     it("tells a caller who may not share the record nothing about the kind: the record's own 404", async () => {
       await share(as('bob'), { kind: 'custom', granteeKind: 'email-domain', ref: 'example.com' }).expect(404);
       await share(as('bob'), { kind: 'custom', granteeKind: 'team', ref: 'x' }).expect(404);
+    });
+  });
+
+  describe('the kit rejects a broken kind (over the real database)', () => {
+    const subject = (kind: GranteeKindDef) => ({
+      ...common,
+      kind,
+      validInputs: ['example.com'],
+      invalidInputs: ['', 'localhost'],
+    });
+
+    it('passes the real kind', async () => {
+      for (const check of Object.values(granteeKindChecks)) expect(await check(subject(emailDomainGranteeKind))).toEqual([]);
+    });
+
+    it('catches a SQL fragment that disagrees with the in-memory match', async () => {
+      const broken: GranteeKindDef = {
+        ...emailDomainGranteeKind,
+        resolvePrincipalMatch: (principal, columns, kit) => kit.sql`(${columns.kind} = 'email-domain' AND lower(${columns.ref}) <> ${emailDomainOf(principal.email) ?? ''})`,
+      };
+      expect((await granteeKindChecks.agreement(subject(broken))).length).toBeGreaterThan(0);
+    });
+
+    it('catches a sub-select that forgot the organization', async () => {
+      const broken: GranteeKindDef = {
+        ...emailDomainGranteeKind,
+        resolvePrincipalMatch: (principal, columns, kit) => kit.sql`(${columns.kind} = 'email-domain' AND ${columns.ref} IN (SELECT domain FROM sharing_test_docs WHERE owner_user_id = ${principal.userId}::uuid))`,
+      };
+      expect((await granteeKindChecks.sqlSafety(subject(broken))).some((violation) => violation.includes('does not bind the caller organization'))).toBe(true);
     });
   });
 });

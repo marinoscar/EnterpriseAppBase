@@ -19,8 +19,9 @@
 // =============================================================================
 
 import type { Principal } from '@marinoscar/platform-api/core';
-import { accessibleSql, accessibleWhere } from '@marinoscar/platform-api/sharing';
-import { describeAccessRuleConformance, type AccessRuleFixture } from '@marinoscar/platform-api/sharing/testing';
+import { accessRuleRegistry, accessibleSql, accessibleWhere, type AccessRuleDef } from '@marinoscar/platform-api/sharing';
+import { accessRuleChecks, describeAccessRuleConformance, type AccessRuleFixture } from '@marinoscar/platform-api/sharing/testing';
+import { withTemporaryEntries } from '@marinoscar/platform-api/core';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 
@@ -50,13 +51,13 @@ describeWithDb('sharing examples: access rules (real Postgres)', () => {
   const as = (name: keyof typeof u): Principal => principalOf(u[name], `${name}@example.test`, name === 'dave' ? ORG_B : ORG_A, 'contributor');
 
   /** The real "resources I can see": accessibleSql over the table, in the caller's organization. */
-  async function visibleIds(who: Principal, minRole?: string): Promise<string[]> {
+  async function visibleIds(who: Principal, minRole?: string, alias = 'r'): Promise<string[]> {
     const me = await ex.principalGroups.enrich(who);
     return ex.prisma.runInOrg(me.activeOrgId!, async (tx) => {
       const rows = await tx.$queryRaw<Array<{ id: string }>>`
-        SELECT r.id::text AS id FROM sharing_test_project_docs r
-        WHERE ${accessibleSql(me, PROJECT_DOC_TYPE, 'r', { sqlKit: Prisma, scope: 'all', ...(minRole ? { minRole } : {}) })}
-        ORDER BY r.title`;
+        SELECT ${Prisma.raw(alias)}.id::text AS id FROM sharing_test_project_docs ${Prisma.raw(alias)}
+        WHERE ${accessibleSql(me, PROJECT_DOC_TYPE, alias, { sqlKit: Prisma, scope: 'all', ...(minRole ? { minRole } : {}) })}
+        ORDER BY ${Prisma.raw(alias)}.title`;
       return rows.map((row) => row.id);
     });
   }
@@ -181,6 +182,69 @@ describeWithDb('sharing examples: access rules (real Postgres)', () => {
     it('decides a batch of records of several projects in one call', async () => {
       const decisions = await ex.access.decideMany(as('bob'), 'read', [ref('p1'), ref('p2'), ref('loose')]);
       expect([...decisions.values()].map((d) => d.allowed)).toEqual([true, false, false]);
+    });
+  });
+
+  describe('a caller alias that the rule\'s own SQL could shadow', () => {
+    it('lists the same records under the alias pm as under r (the rule uses its own inner alias)', async () => {
+      expect((await visibleIds(as('bob'), undefined, 'pm')).sort()).toEqual((await visibleIds(as('bob'))).sort());
+      expect(await visibleIds(as('bob'), undefined, 'pm')).toEqual([docs.p1]);
+      expect(await visibleIds(as('erin'), undefined, 'pm')).toEqual([]);
+    });
+
+    it('refuses the alias the slice uses inside its own EXISTS', async () => {
+      await expect(visibleIds(as('bob'), undefined, 'g')).rejects.toThrow(/used inside the generated SQL/);
+    });
+  });
+
+  describe('a failing rule does not poison the shared transaction (savepoint)', () => {
+    it('denies the record whose rule failed on a SQL error and still decides the later records', async () => {
+      const failing: AccessRuleDef = {
+        id: 'sql-error',
+        position: 'after-grants',
+        resourceTypes: [PROJECT_DOC_TYPE],
+        async evaluate(ctx) {
+          if (ctx.resource.id === docs.loose) await (ctx.tx as Prisma.TransactionClient).$queryRaw`SELECT * FROM table_that_does_not_exist`;
+          return 'abstain';
+        },
+      };
+      await withTemporaryEntries(accessRuleRegistry, [failing], async () => {
+        const decisions = await ex.access.decideMany(as('carol'), 'read', [ref('loose'), ref('p2'), ref('p1')]);
+        expect(decisions.get(`${PROJECT_DOC_TYPE}:${docs.loose}`)).toMatchObject({ allowed: false, ruleFailure: true });
+        // The records AFTER the failure are decided by queries on the same transaction: they work.
+        expect(decisions.get(`${PROJECT_DOC_TYPE}:${docs.p2}`)).toMatchObject({ allowed: true, via: 'project-member' });
+        expect(decisions.get(`${PROJECT_DOC_TYPE}:${docs.p1}`)).toMatchObject({ allowed: true, via: 'user_grant' });
+      });
+    });
+  });
+
+  describe('the kit rejects a broken rule', () => {
+    /** The project-member rule with its organization predicate deleted from the LIST sql (the decision is unchanged). */
+    const noOrgPredicate: AccessRuleDef = {
+      ...projectMemberRule,
+      id: 'project-member-broken',
+      sql: (ctx) => ({
+        allow: ctx.kit.sql`EXISTS (
+          SELECT 1 FROM "sharing_test_project_members" prj_member_rule
+          WHERE prj_member_rule.user_id = ${ctx.principal.userId}::uuid
+            AND prj_member_rule.project_id = ${ctx.column('project_id')}
+        )`,
+      }),
+    };
+    const subjectFor = (rule: AccessRuleDef) => ({ rule, resourceType: PROJECT_DOC_TYPE, sqlKit: Prisma, decide, listsRecord, fixtures: fixtures() });
+
+    it('passes the real rule through every check', async () => {
+      for (const check of Object.values(accessRuleChecks)) expect(await check(subjectFor(projectMemberRule))).toEqual([]);
+    });
+
+    it('catches the missing organization predicate in the SQL check and in the decision-vs-list check', async () => {
+      await withTemporaryEntries(accessRuleRegistry, [noOrgPredicate], async () => {
+        const subject = subjectFor(noOrgPredicate);
+        expect((await accessRuleChecks.sqlSafety(subject)).some((violation) => violation.includes('does not bind the caller organization'))).toBe(true);
+        // Erin is a member of the same project id in ANOTHER organization: the broken list shows p1, the decision denies it.
+        const disagreements = await accessRuleChecks.agreement(subject);
+        expect(disagreements.some((violation) => violation.includes('member of the same project id in ANOTHER organization'))).toBe(true);
+      });
     });
   });
 });

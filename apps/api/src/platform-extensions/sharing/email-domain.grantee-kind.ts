@@ -15,6 +15,11 @@
 //
 // `describeGranteeKindConformance` proves the two spellings agree.
 //
+// TRUST. `matchesPrincipal` and the SQL read `principal.email`: the domain is only
+// as trustworthy as the address, so use this kind only when the identity provider
+// VERIFIES the address (an unverified or user-editable e-mail lets anyone claim a
+// domain's access).
+//
 // NOT PERSISTED YET. A `grants` row can store only `user`, `group` and `link`
 // until the sharing storage migration ships (the `grantee_kind` column is an
 // enum), so this kind is registered WITHOUT `persisted`: `GET

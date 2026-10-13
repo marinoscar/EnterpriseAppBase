@@ -28,9 +28,13 @@
 //   group owner is an ordinary source (step 7) and IS subject to a deny.
 //
 // FAIL CLOSED. A rule that throws, rejects, returns anything but `'allow'`,
-// `'deny'` or `'abstain'`, or names a role the resource type does not have,
-// counts as a `deny`, and the failure is logged with the rule's id and the
-// error's class only (no message, no principal, no record id).
+// `'deny'` or `'abstain'`, names a role the resource type does not have, or
+// returns `'deny'` without declaring `mayDeny` (its list SQL would not hide the
+// record), counts as a `deny` flagged `ruleFailure`, and the failure is logged
+// with the rule's id and the error's class only (no message, no principal, no
+// record id). A statement that fails inside a rule aborts the shared
+// transaction, so `AccessPolicy` takes a SAVEPOINT per call and rolls back to
+// it after a failing rule.
 //
 // ALLOW CONFERS A ROLE. `role` is the role an allow gives (default: the type's
 // weakest role, so a rule that only opens a record to read cannot, by default,
@@ -160,7 +164,10 @@ export interface AccessRuleDef {
   readonly resourceTypes?: readonly string[];
   /** The role an allow confers: one of the type's roles, or `'owner'`. Default: the type's weakest role. */
   readonly role?: string;
-  /** Whether the rule can return `deny`. A rule that can deny must provide `sql` so lists hide what it denies. */
+  /**
+   * Whether the rule can return `deny`. A rule that can deny must provide `sql` so lists hide what it denies;
+   * a `deny` from a rule that did not declare it is a configuration error (still a deny, flagged `ruleFailure`).
+   */
   readonly mayDeny?: boolean;
   /**
    * The verdict for one record. A rejection or an unknown value is a deny.
@@ -178,8 +185,13 @@ export interface AccessRuleDef {
   sql?<S>(ctx: AccessRuleSqlContext<S>): AccessRuleSql<S> | null;
 }
 
-/** The ids no rule may take: they are `AccessVia` values of the platform's own sources. */
-const RESERVED_RULE_IDS: readonly string[] = ['owner', 'bypass'];
+/**
+ * The ids no rule may take: `AccessVia` values of the platform's own sources
+ * and the metric labels `none` (a denial) and `app` (a rule or kind). The other
+ * platform vias and every grantee kind's `via` contain an underscore, which a
+ * rule id (hyphenated) never does.
+ */
+const RESERVED_RULE_IDS: readonly string[] = ['owner', 'bypass', 'none', 'app'];
 
 function check(condition: unknown, id: string, why: string): asserts condition {
   if (!condition) throw new Error(`access rule "${id}": ${why}`);
@@ -218,7 +230,7 @@ export const accessRuleRegistry = defineRegistry<AccessRuleDef>({
  * Registers one access rule. Call it at import time, before the application
  * bootstraps (an app's `app-registrations` module).
  *
- * @param def - the rule.
+ * @param def - the rule (the object is shallow-frozen).
  * @throws RegistryError `INVALID_ID`, `INVALID_ENTRY` (the message names the
  *   rule and the problem), `DUPLICATE_ID` or `FROZEN` (after bootstrap).
  *
@@ -231,7 +243,9 @@ export const accessRuleRegistry = defineRegistry<AccessRuleDef>({
  * @stability experimental
  */
 export function registerAccessRule(def: AccessRuleDef): void {
-  accessRuleRegistry.register(def);
+  // Shallow-frozen: a registered rule is the app's decision at start-up, not a live object
+  // that code holding a reference can change later (this freezes the object you pass).
+  accessRuleRegistry.register(Object.freeze(def));
 }
 
 /** The rules that apply to `type`, in registration order. */
@@ -258,6 +272,8 @@ export interface RuleOffer {
 export interface RuleOutcome {
   /** Some rule denied (or failed): the record is denied. */
   readonly denied: boolean;
+  /** The denial is a rule FAILURE or a misconfiguration (a throw, an unknown verdict, a deny the rule did not declare), not a decision. */
+  readonly failed?: boolean;
   /** Allows of `before-grants` rules. */
   readonly before: readonly RuleOffer[];
   /** Allows of `after-grants` rules. */
@@ -279,34 +295,49 @@ function logFailure(rule: AccessRuleDef, reason: string, error?: unknown): void 
 
 /**
  * Evaluates every applicable rule for one record. Fail closed: a throw, a
- * rejection, an unknown verdict or a misconfigured role is a deny.
+ * rejection, an unknown verdict, a misconfigured role or a `deny` from a rule
+ * that did not declare `mayDeny` (its list SQL would not hide the record) is a
+ * deny, flagged `failed`. `context.recover` runs after a rule threw, so a
+ * failed statement of the shared transaction does not poison the next rule.
  */
 export async function evaluateAccessRules(
   rt: ResolvedResourceType,
-  context: Omit<AccessRuleContext, 'resource'> & { resource: AccessRuleContext['resource'] },
+  context: AccessRuleContext & { recover?: () => Promise<void> },
 ): Promise<RuleOutcome> {
   const rules = accessRulesFor(rt.type);
   if (rules.length === 0) return NO_RULE_OUTCOME;
+  const { recover, ...ruleContext } = context;
+  const failed: RuleOutcome = { denied: true, failed: true, before: [], after: [] };
   const before: RuleOffer[] = [];
   const after: RuleOffer[] = [];
   for (const rule of rules) {
     let verdict: unknown;
     try {
-      verdict = await rule.evaluate(context);
+      verdict = await rule.evaluate(ruleContext);
     } catch (error) {
       logFailure(rule, 'failed', error);
-      return { denied: true, before: [], after: [] };
+      try {
+        await recover?.();
+      } catch {
+        // The transaction is gone; the caller's next statement reports it.
+      }
+      return failed;
     }
     if (verdict === 'abstain') continue;
-    if (verdict === 'deny') return { denied: true, before: [], after: [] };
+    if (verdict === 'deny') {
+      if (rule.mayDeny === true) return { denied: true, before: [], after: [] };
+      // A configuration error: the list SQL of a rule that did not declare `mayDeny` does not hide the record.
+      logFailure(rule, 'returned deny without declaring mayDeny');
+      return failed;
+    }
     if (verdict !== 'allow') {
       logFailure(rule, 'returned an unknown verdict');
-      return { denied: true, before: [], after: [] };
+      return failed;
     }
     const role = accessRuleRole(rt, rule);
     if (role === null) {
       logFailure(rule, 'confers a role the resource type does not have');
-      return { denied: true, before: [], after: [] };
+      return failed;
     }
     (rule.position === 'before-grants' ? before : after).push({ role, via: rule.id });
   }

@@ -17,7 +17,9 @@
 //   sql       the "resources I can see" condition (`accessibleSql` /
 //             `accessibleWhere`'s EXISTS form).
 //
-// SECURITY. Every value is a bind parameter. The two table names and the
+// SECURITY. The inner alias (`prj_member_rule`) is deliberately unusual: the caller's
+// own alias for the records table is arbitrary, and an inner alias equal to it would
+// make the sub-select compare a row to itself. Every value is a bind parameter. The two table names and the
 // column name come from the app's configuration, not from a request, and are
 // checked as plain identifiers before they reach `Prisma.raw`. Every query
 // names the caller's organization (`ctx.resource.orgId` / `ctx.orgId`) as well
@@ -109,10 +111,10 @@ export function createProjectMemberAccessRule(config: ProjectMemberRuleConfig): 
 
     sql: (ctx) => ({
       allow: ctx.kit.sql`EXISTS (
-        SELECT 1 FROM ${ctx.kit.raw(`"${membersName}"`)} pm
-        WHERE pm.org_id = ${ctx.orgId}::uuid
-          AND pm.user_id = ${ctx.principal.userId}::uuid
-          AND pm.project_id = ${ctx.column(projectColumn)}
+        SELECT 1 FROM ${ctx.kit.raw(`"${membersName}"`)} prj_member_rule
+        WHERE prj_member_rule.org_id = ${ctx.orgId}::uuid
+          AND prj_member_rule.user_id = ${ctx.principal.userId}::uuid
+          AND prj_member_rule.project_id = ${ctx.column(projectColumn)}
       )`,
     }),
   };

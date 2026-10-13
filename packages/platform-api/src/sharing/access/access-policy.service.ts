@@ -108,6 +108,12 @@ export interface AccessDecision {
   via: AccessVia | null;
   /** Set when the denial is a missing RBAC permission (step 3): that permission. */
   missingPermission?: string;
+  /**
+   * Set when an access rule FAILED or was misconfigured (it threw, returned an
+   * unknown verdict, or denied without declaring `mayDeny`) and the record was
+   * denied for that reason. Conformance kits assert it is never set.
+   */
+  ruleFailure?: true;
 }
 
 /**
@@ -136,6 +142,8 @@ export function resourceKey(ref: ResourceRef): string {
 }
 
 const DENIED: AccessDecision = Object.freeze({ allowed: false, role: null, via: null });
+/** A denial because an access rule failed (counted as outcome `rule_error`). */
+const DENIED_RULE_FAILURE: AccessDecision = Object.freeze({ allowed: false, role: null, via: null, ruleFailure: true as const });
 
 /** What one grant contributes. */
 type GrantContribution = Pick<GrantRow, 'resourceType' | 'resourceId' | 'granteeKind' | 'granteeUserId' | 'granteeGroupId' | 'role'>;
@@ -385,14 +393,28 @@ export class AccessPolicy {
 
     // One cache per call: a rule loads what it needs for the whole batch once.
     const cache = new Map<string, unknown>();
+    // A statement that fails inside a rule aborts the shared transaction; a savepoint lets the
+    // rule's failure be a deny of that record instead of poisoning every later query.
+    const rulesApply = refs.some((ref) => accessRulesFor(ref.type).length > 0);
+    if (rulesApply) await tx.$executeRaw`SAVEPOINT sharing_access_rules`;
+    const recover = async (): Promise<void> => {
+      await tx.$executeRaw`ROLLBACK TO SAVEPOINT sharing_access_rules`;
+    };
     for (const ref of refs) {
       const key = resourceKey(ref);
       const rt = requireResourceType(ref.type);
       const info = owners.get(key);
-      const rules = await this.rulesFor(rt, subject, orgId, action, ref, info, rawTx, cache);
+      const rules = await this.rulesFor(rt, subject, orgId, action, ref, info, rawTx, cache, recover);
       const decision = decideOne(rt, subject, orgId, groupRole, action, info, grants.get(key) ?? [], rules);
       out.set(key, decision);
       if (action !== null) this.count(rt.type, decision);
+    }
+    if (rulesApply) {
+      try {
+        await tx.$executeRaw`RELEASE SAVEPOINT sharing_access_rules`;
+      } catch {
+        // The transaction is already unusable; the caller's next statement reports it.
+      }
     }
     return out;
   }
@@ -407,6 +429,7 @@ export class AccessPolicy {
     info: ResourceOwnerInfo | undefined,
     tx: unknown,
     cache: Map<string, unknown>,
+    recover: () => Promise<void>,
   ): Promise<RuleOutcome> {
     if (!info || info.orgId !== orgId || accessRulesFor(rt.type).length === 0 || decidedBeforeRules(rt, principal, action, info)) {
       return Promise.resolve(NO_RULE_OUTCOME);
@@ -417,6 +440,7 @@ export class AccessPolicy {
       resource: { type: ref.type, id: ref.id, orgId: info.orgId, owner: info.owner },
       tx,
       cache,
+      recover,
     });
   }
 
@@ -424,7 +448,7 @@ export class AccessPolicy {
     try {
       this.metrics?.add(SHARING_ACCESS_DECISIONS_METRIC, 1, {
         resource_type: type,
-        outcome: decision.allowed ? 'allowed' : 'denied',
+        outcome: decision.allowed ? 'allowed' : decision.ruleFailure ? 'rule_error' : 'denied',
         via: decision.via === null ? 'none' : (SHARING_DECISION_VIAS as readonly string[]).includes(decision.via) ? decision.via : 'app',
       });
     } catch {
@@ -472,7 +496,7 @@ function decideOne(
   // 2. Missing, or in another organization.
   if (!info || info.orgId !== orgId) return DENIED;
   // 6 and 8. A deny of any rule wins over every allow below.
-  if (rules.denied) return DENIED;
+  if (rules.denied) return rules.failed ? DENIED_RULE_FAILURE : DENIED;
 
   // 5 to 9: every source of a role, strongest wins (ties: the earlier source).
   let best: { role: string; rank: number; via: AccessVia } | null = null;

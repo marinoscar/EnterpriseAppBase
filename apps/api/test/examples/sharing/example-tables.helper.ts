@@ -108,8 +108,8 @@ export function exampleDelegate(tx: unknown, table: 'sharing_test_docs' | 'shari
 
 /**
  * Creates `sharing_test_project_docs` (user-owned records that belong to a
- * project and can be frozen) and `sharing_test_project_members`, the tables
- * the access-rule examples read (PP-14.16). Both have RLS.
+ * project and can be frozen, with RLS) and `sharing_test_project_members` (no RLS), the
+ * tables the access-rule examples read (PP-14.16).
  */
 export async function createProjectTables(db: RlsDatabase): Promise<void> {
   for (const table of ['sharing_test_project_docs', 'sharing_test_project_members']) {
@@ -132,6 +132,11 @@ export async function createProjectTables(db: RlsDatabase): Promise<void> {
           PRIMARY KEY (org_id, project_id, user_id)
         )`);
     }
+    // The records table has row-level security. The MEMBERS table deliberately has NONE, like
+    // most app tables: only the organization predicate in the rule's SQL keeps a membership of
+    // another organization (the same project id) from counting, which is what the kit's
+    // cross-organization fixtures and "broken rule" tests prove.
+    if (table === 'sharing_test_project_members') continue;
     await db.tenant.$executeRawUnsafe(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`);
     await db.tenant.$executeRawUnsafe(`ALTER TABLE ${table} FORCE ROW LEVEL SECURITY`);
     await db.tenant.$executeRawUnsafe(`

@@ -30,11 +30,19 @@
 // checked by the kit, but no grant row carries it.
 //
 // SECURITY. A fragment is a predicate, never a statement: every value goes
-// through the app's SQL kit as a bind parameter (`sql` template), the grants
-// row's columns arrive as ready-made expressions (`GranteeColumns`) and the
-// composing code wraps the result in `g.org_id = <the caller's organization>`,
-// so a fragment cannot reach another organization's rows. A fragment that
-// needs a sub-select (a team table) must bind `principal.activeOrgId` in it.
+// through the app's SQL kit as a bind parameter (`sql` template) and the grants
+// row's columns arrive as ready-made expressions (`GranteeColumns`). The
+// composing code wraps the fragments in the ONE `EXISTS` on `grants` whose
+// `g.org_id = <the caller's organization>` predicate confines the GRANTS ROW to
+// the caller's organization. That is all the slice can guarantee: a fragment
+// that reads ANOTHER table (a sub-select over a team table) is not confined by
+// it. Such a table must be reached through row-level security or by binding
+// `principal.activeOrgId` in the sub-select; `describeGranteeKindConformance`
+// checks that a sub-select binds the (distinct) organization value, not that
+// it is bound correctly.
+//
+// Identity. `matchesPrincipal` of a kind that reads `principal.email` trusts
+// that the address was verified by the identity provider.
 // =============================================================================
 
 import { GRANTEE_KIND_ID_PATTERN, GRANTEE_KIND_INPUTS, type GranteeKindDescriptor, type GranteeKindInput } from '@marinoscar/platform-contract/sharing';
@@ -62,6 +70,15 @@ export const BUILTIN_GRANTEE_KIND_IDS: readonly string[] = ['user', 'group', 'li
 
 /** Ids no kind may take: the wire discriminator of an app kind. */
 const RESERVED_KIND_IDS: readonly string[] = ['custom'];
+
+/**
+ * The `via` values the platform's own sources use. A kind may not declare one
+ * for itself (the built-in kinds declare their own, and only their own).
+ */
+const PLATFORM_VIAS: readonly string[] = ['owner', 'group_owner', 'user_grant', 'group_grant', 'org_default', 'bypass', 'none', 'app'];
+
+/** A kind `via`: snake_case WITH an underscore, so it can never equal an access rule id (rule ids are hyphenated). */
+const KIND_VIA = /^[a-z][a-z0-9]*(_[a-z0-9]+)+$/;
 
 /**
  * Thrown by {@link GranteeKindDef.validateGrantee} for an input it rejects.
@@ -227,13 +244,17 @@ function check(condition: unknown, kind: string, why: string): asserts condition
   if (!condition) throw new Error(`grantee kind "${kind}": ${why}`);
 }
 
-function validateKind(def: GranteeKindDef): void {
+function validateKind(def: GranteeKindDef, registry: { list(): GranteeKindDef[] }): void {
   const kind = typeof def?.kind === 'string' ? def.kind : '?';
   check(!RESERVED_KIND_IDS.includes(kind), kind, `"${kind}" is reserved (it is the wire discriminator of an app kind)`);
   check(typeof def.label === 'string' && def.label.trim().length > 0, kind, '`label` must be a non-empty string');
   check(def.description === undefined || typeof def.description === 'string', kind, '`description` must be a string');
   check((GRANTEE_KIND_INPUTS as readonly string[]).includes(def.input), kind, `\`input\` must be one of ${GRANTEE_KIND_INPUTS.join(', ')}`);
-  check(def.via === undefined || /^[a-z][a-z0-9_]*$/.test(def.via), kind, '`via` must be lower-case snake_case');
+  check(def.via === undefined || (typeof def.via === 'string' && KIND_VIA.test(def.via)), kind, '`via` must be lower-case snake_case with an underscore (for example `team_grant`)');
+  const via = def.via ?? `${kind.replace(/-/g, '_')}_grant`;
+  const builtin = BUILTIN_GRANTEE_KIND_IDS.includes(kind);
+  check(!PLATFORM_VIAS.includes(via) || (builtin && via === `${kind}_grant`), kind, `\`via\` "${via}" is one of the platform's own (${PLATFORM_VIAS.join(', ')})`);
+  check(!registry.list().some((other) => other.kind !== kind && granteeKindVia(other) === via), kind, `\`via\` "${via}" is already used by another grantee kind`);
   for (const member of ['validateGrantee', 'describe', 'matchesPrincipal', 'resolvePrincipalMatch'] as const) {
     check(typeof def[member] === 'function', kind, `\`${member}\` must be a function`);
   }
@@ -262,7 +283,7 @@ export const granteeKindRegistry = defineRegistry<GranteeKindDef>({
   name: 'sharing-grantee-kinds',
   idOf: (def) => def.kind,
   idPattern: GRANTEE_KIND_ID_PATTERN,
-  validate: (def) => validateKind(def),
+  validate: (def, registry) => validateKind(def, registry),
 });
 
 /**
@@ -270,7 +291,7 @@ export const granteeKindRegistry = defineRegistry<GranteeKindDef>({
  * bootstraps (an app's `app-registrations` module); register kinds before the
  * resource types that list roles for them.
  *
- * @param def - the grantee kind.
+ * @param def - the grantee kind (the object is shallow-frozen).
  * @throws RegistryError `INVALID_ID`, `INVALID_ENTRY` (the message names the
  *   kind and the rule), `DUPLICATE_ID` or `FROZEN` (after bootstrap).
  *
@@ -283,7 +304,9 @@ export const granteeKindRegistry = defineRegistry<GranteeKindDef>({
  * @stability experimental
  */
 export function registerGranteeKind(def: GranteeKindDef): void {
-  granteeKindRegistry.register(def);
+  // Shallow-frozen: a registered definition is the app's decision at start-up, not a live object
+  // that code holding a reference can change later (this freezes the object you pass).
+  granteeKindRegistry.register(Object.freeze(def));
 }
 
 /**

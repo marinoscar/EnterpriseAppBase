@@ -65,6 +65,8 @@ describe('registerAccessRule', () => {
 
   it.each([
     ['a reserved id', { id: 'owner' }, 'reserved for a platform source'],
+    ['the metric label none', { id: 'none' }, 'reserved for a platform source'],
+    ['the metric label app', { id: 'app' }, 'reserved for a platform source'],
     ['a bad position', { id: 'r-one', position: 'during-grants' as never }, '`position`'],
     ['no evaluate', { id: 'r-two', evaluate: undefined as never }, '`evaluate`'],
     ['a rule that can deny and has no sql', { id: 'r-three', mayDeny: true }, '`mayDeny` needs `sql`'],
@@ -77,6 +79,17 @@ describe('registerAccessRule', () => {
       expect(error.code).toBe('INVALID_ENTRY');
       expect(error.message).toContain(message);
       expect(error.message).toContain('access rule "');
+    });
+  });
+
+  it('freezes the definition it registers (the object, shallowly)', async () => {
+    await withTemporaryEntries(accessRuleRegistry, [], () => {
+      const def = rule({ id: 'frozen-def' });
+      registerAccessRule(def);
+      expect(Object.isFrozen(accessRuleRegistry.get('frozen-def'))).toBe(true);
+      expect(() => {
+        (def as { position: string }).position = 'after-grants';
+      }).toThrow(TypeError);
     });
   });
 
@@ -188,13 +201,28 @@ describe('AccessPolicy with access rules', () => {
       ['a rule that confers a role the type does not have', { role: 'superuser' }],
     ])('denies on %s, over a grant, and logs the rule id without the message', async (_name, overrides) => {
       await withRules([rule({ id: 'flaky', ...(overrides as object) })], new Map([[DOC_A, byUser(BOB)]]), grantsToAlice, async (policy) => {
-        expect(await policy.decide(caller(), 'read', A)).toEqual({ allowed: false, role: null, via: null });
+        expect(await policy.decide(caller(), 'read', A)).toEqual({ allowed: false, role: null, via: null, ruleFailure: true });
         expect(warn).toHaveBeenCalled();
         const logged = warn.mock.calls.map((call) => String(call[0])).join('\n');
         expect(logged).toContain('flaky');
         expect(logged).not.toContain('SECRET');
         expect(logged).not.toContain(ALICE);
         expect(logged).not.toContain(DOC_A);
+      });
+    });
+
+    it('a deny from a rule that did not declare mayDeny is a configuration error: denied, flagged, logged by id, counted as rule_error', async () => {
+      await withRules([rule({ id: 'sloppy' }, 'deny')], new Map([[DOC_A, byUser(BOB)]]), grantsToAlice, async (policy, _tx, metrics) => {
+        expect(await policy.decide(caller(), 'read', A)).toEqual({ allowed: false, role: null, via: null, ruleFailure: true });
+        expect(warn.mock.calls.map((call) => String(call[0])).join('\n')).toContain('sloppy');
+        expect(metrics.add).toHaveBeenCalledWith('sharingAccessDecisions', 1, { resource_type: 'test_doc', outcome: 'rule_error', via: 'none' });
+      });
+    });
+
+    it('a declared deny is a plain denial, not a failure', async () => {
+      await withRules([rule({ id: 'freeze', mayDeny: true, sql: () => null }, 'deny')], new Map([[DOC_A, byUser(BOB)]]), grantsToAlice, async (policy, _tx, metrics) => {
+        expect(await policy.decide(caller(), 'read', A)).toEqual({ allowed: false, role: null, via: null });
+        expect(metrics.add).toHaveBeenCalledWith('sharingAccessDecisions', 1, { resource_type: 'test_doc', outcome: 'denied', via: 'none' });
       });
     });
 
@@ -228,6 +256,35 @@ describe('AccessPolicy with access rules', () => {
       expect(seen[2]!.cache).not.toBe(seen[0]!.cache);
       expect(seen[0]!.tx).toBe(tx);
       expect(seen[0]!.principalGroups).toBe(1);
+    });
+  });
+
+  describe('the shared transaction survives a failing rule (savepoint)', () => {
+    const sqlOf = (call: unknown[]): string => (call[0] as string[]).join('?');
+
+    it('opens one savepoint when rules apply, rolls back to it when a rule throws, releases it at the end', async () => {
+      const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+      try {
+        const evaluate = jest.fn(async (ctx: { resource: { id: string } }) => {
+          if (ctx.resource.id === DOC_A) throw new Error('relation "nope" does not exist');
+          return 'allow' as const;
+        });
+        await withRules([rule({ id: 'half', evaluate: evaluate as never })], new Map([[DOC_A, byUser(BOB)], [DOC_B, byUser(BOB)]]), [], async (policy, tx) => {
+          const decisions = await policy.decideMany(caller(), 'read', [A, { type: 'test_doc', id: DOC_B }]);
+          expect(decisions.get(`test_doc:${DOC_A}`)!.ruleFailure).toBe(true);
+          expect(decisions.get(`test_doc:${DOC_B}`)).toEqual({ allowed: true, role: 'viewer', via: 'half' });
+          expect(tx.$executeRaw.mock.calls.map(sqlOf)).toEqual(['SAVEPOINT sharing_access_rules', 'ROLLBACK TO SAVEPOINT sharing_access_rules', 'RELEASE SAVEPOINT sharing_access_rules']);
+        });
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it('opens no savepoint when no rule applies, and never changes the built-in queries', async () => {
+      await withRules([rule({ id: 'other', resourceTypes: ['something_else'] })], new Map([[DOC_A, byUser(BOB)]]), [], async (policy, tx) => {
+        await policy.decide(caller(), 'read', A);
+        expect(tx.$executeRaw).not.toHaveBeenCalled();
+      });
     });
   });
 
@@ -336,6 +393,27 @@ describe('"resources I can see" with access rules', () => {
     }
   });
 
+  it('refuses a caller alias the generated SQL uses internally (g shadows the grants row)', async () => {
+    await withTypes([docType(new Map())], () => {
+      expect(() => accessibleSql(caller(), 'test_doc', 'g', { sqlKit: fakeSqlKit })).toThrow(/used inside the generated SQL/);
+      expect(() => accessibleSql(caller(), 'test_doc', 'G', { sqlKit: fakeSqlKit })).toThrow(/used inside the generated SQL/);
+      expect(() => accessibleSql(caller(), 'test_doc', 'pm', { sqlKit: fakeSqlKit })).not.toThrow();
+    });
+  });
+
+  it('the EXISTS form of accessibleWhere honours orgField: null (no default org_id column)', async () => {
+    const tx = fakeTx();
+    await withTypes([docType(new Map())], () =>
+      withTemporaryEntries(accessRuleRegistry, [allowRule()], async () => {
+        const result = await accessibleWhere(caller(), 'test_doc', { tx, sqlKit: fakeSqlKit, orgField: null });
+        expect(result.form).toBe('exists');
+        expect(sqlOf((result as { sql: FakeSql }).sql)).not.toContain('"org_id"');
+        const withOrg = await accessibleWhere(caller(), 'test_doc', { tx, sqlKit: fakeSqlKit });
+        expect(sqlOf((withOrg as { sql: FakeSql }).sql)).toContain('"r"."org_id"');
+      }),
+    );
+  });
+
   it('accessibleWhere switches to the EXISTS form when a rule contributes, and not otherwise', async () => {
     const tx = fakeTx();
     await withTypes([docType(new Map())], async () => {
@@ -432,11 +510,34 @@ describe('grantee kinds', () => {
     ['a missing resolvePrincipalMatch', { resolvePrincipalMatch: undefined as never }, '`resolvePrincipalMatch`'],
     ['persisted without principalWhere', { persisted: true }, '`principalWhere`'],
     ['a via with capitals', { via: 'Email' }, '`via`'],
+    ['a via without an underscore (it could equal a rule id)', { via: 'bypass' }, '`via` must be lower-case snake_case with an underscore'],
+    ['a via that is a platform source', { via: 'org_default' }, "one of the platform's own"],
+    ['the via of the user kind', { via: 'user_grant' }, "one of the platform's own"],
   ])('refuses %s', async (_name, overrides, message) => {
     await withTemporaryEntries(granteeKindRegistry, [], () => {
       const error = refusal(emailDomain(overrides as never));
       expect(error.code).toBe('INVALID_ENTRY');
       expect(error.message).toContain(message);
+    });
+  });
+
+  it('requires a unique via across kinds', async () => {
+    await withTemporaryEntries(granteeKindRegistry, [], () => {
+      registerGranteeKind(emailDomain({ via: 'shared_grant' }));
+      const error = refusal(emailDomain({ kind: 'team', via: 'shared_grant' }));
+      expect(error.code).toBe('INVALID_ENTRY');
+      expect(error.message).toContain('already used by another grantee kind');
+    });
+  });
+
+  it('freezes every registered kind, the built-ins included', async () => {
+    for (const id of ['user', 'group', 'link']) expect(Object.isFrozen(granteeKindRegistry.get(id))).toBe(true);
+    expect(() => {
+      (granteeKindRegistry.get('user') as { label: string }).label = 'Hacked';
+    }).toThrow(TypeError);
+    await withTemporaryEntries(granteeKindRegistry, [], () => {
+      registerGranteeKind(emailDomain());
+      expect(Object.isFrozen(granteeKindRegistry.get('email-domain'))).toBe(true);
     });
   });
 

@@ -50,11 +50,13 @@ export type SharingMutationOp = (typeof SHARING_MUTATION_OPS)[number];
 export const SHARING_GROUP_MUTATIONS_METRIC = 'sharingGroupMutations';
 
 /**
- * The `outcome` label of `app.sharing.access_decisions` (#729).
+ * The `outcome` label of `app.sharing.access_decisions` (#729): `rule_error`
+ * is a denial because an access rule failed or was misconfigured (a throw, an
+ * unknown verdict, a deny without `mayDeny`).
  *
  * @stability experimental
  */
-export const SHARING_DECISION_OUTCOMES = ['allowed', 'denied'] as const;
+export const SHARING_DECISION_OUTCOMES = ['allowed', 'denied', 'rule_error'] as const;
 
 /**
  * The `via` label of `app.sharing.access_decisions`: what decided it, `app`

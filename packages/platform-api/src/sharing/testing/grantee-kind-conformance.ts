@@ -10,16 +10,24 @@
 //   - the descriptor is well formed (`GET /api/sharing/grantee-kinds` would
 //     serve it);
 //   - `validateGrantee` accepts the valid inputs, returns a ref of its own
-//     kind, and refuses the invalid ones, hostile strings included;
+//     kind, and refuses the invalid ones;
 //   - `describe` answers every valid ref;
 //   - THE TWO SPELLINGS AGREE: `matchesPrincipal` (the in-memory decision)
 //     equals the SQL fragment `resolvePrincipalMatch` builds (the "resources I
 //     can see" list), evaluated by the app's database over a principal x
 //     grantee matrix, and a grantee of ANOTHER kind never matches;
-//   - the fragment is PARAMETERISED: built from a principal full of hostile
-//     strings, none reaches the SQL text;
-//   - the fragment is CONFINED to the grant row's columns: a sub-select must
-//     bind the caller's organization.
+//   - the fragment is PARAMETERISED: built from a principal whose every string
+//     field (userId, e-mail, roles, permissions, memberships, groups, ...)
+//     carries a DIFFERENT hostile payload, none reaches the SQL text, and a
+//     fragment built outside the kit (`Prisma.raw(principal.email)`) is refused;
+//   - a fragment that reads another table (a sub-select) BINDS the caller's
+//     organization value. The kit sees that the organization value is among
+//     the bound values, not that the predicate uses it correctly: review the
+//     sub-select, and prefer a table under row-level security.
+//
+// Each check is a plain function returning its violations (`granteeKindChecks`),
+// so a test can feed a deliberately broken kind and assert the kit rejects it;
+// `describeGranteeKindConformance` runs them under the test runner.
 // =============================================================================
 
 import { granteeKindDescriptorSchema } from '@marinoscar/platform-contract/sharing';
@@ -27,6 +35,7 @@ import { granteeKindDescriptorSchema } from '@marinoscar/platform-contract/shari
 import type { Principal } from '../../core/index';
 import type { SqlKit } from '../access/accessible';
 import { describeGranteeKind, type GranteeColumns, type GranteeFacts, type GranteeKindDef } from '../access/grantee-kinds';
+import { hostilePrincipal } from './hostile-principal';
 import { recordingSqlKit, type RecordedSql } from './recording-sql-kit';
 
 /**
@@ -65,18 +74,8 @@ export interface GranteeKindConformanceSubject<S> {
   readonly grantees: readonly GranteeFacts[];
   /** Inputs `validateGrantee` accepts. */
   readonly validInputs: readonly unknown[];
-  /** Inputs it must refuse (the kit adds {@link HOSTILE_STRINGS} to the string case itself). */
+  /** Inputs it must refuse. */
   readonly invalidInputs: readonly unknown[];
-}
-
-function hostile(principal: Principal, value: string): Principal {
-  return {
-    ...principal,
-    userId: value,
-    email: value,
-    activeOrgId: value,
-    groups: [{ groupId: value, orgId: value, role: value }],
-  };
 }
 
 function columnsOf<S>(kit: SqlKit<S>, facts: GranteeFacts): GranteeColumns<S> {
@@ -93,6 +92,118 @@ const RECORDING_COLUMNS: GranteeColumns<RecordedSql> = {
   userId: recordingSqlKit.raw('g.grantee_user_id'),
   groupId: recordingSqlKit.raw('g.grantee_group_id'),
   ref: recordingSqlKit.raw('g.grantee_ref'),
+};
+
+async function attempt<T>(fn: () => T | Promise<T>): Promise<{ ok: true; value: T } | { ok: false }> {
+  try {
+    return { ok: true, value: await fn() };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/**
+ * The checks of {@link describeGranteeKindConformance}, as functions returning
+ * their violations (empty: the check passes).
+ *
+ * @stability experimental
+ */
+export const granteeKindChecks = {
+  async descriptor<S>(subject: GranteeKindConformanceSubject<S>): Promise<string[]> {
+    const out: string[] = [];
+    if (!granteeKindDescriptorSchema.safeParse(describeGranteeKind(subject.kind)).success) out.push('the descriptor does not parse');
+    if (subject.principals.length === 0) out.push('no principals in the fixture matrix');
+    if (subject.grantees.length === 0) out.push('no grantees in the fixture matrix');
+    return out;
+  },
+
+  async validation<S>(subject: GranteeKindConformanceSubject<S>): Promise<string[]> {
+    const out: string[] = [];
+    for (const input of subject.validInputs) {
+      const result = await attempt(() => subject.kind.validateGrantee(input));
+      if (!result.ok) out.push(`validateGrantee refused a valid input ${JSON.stringify(input)}`);
+      else if (result.value.kind !== subject.kind.kind || typeof result.value.id !== 'string' || result.value.id.length === 0) {
+        out.push(`validateGrantee returned a ref that is not of kind "${subject.kind.kind}" with an id`);
+      }
+    }
+    for (const input of subject.invalidInputs) {
+      if ((await attempt(() => subject.kind.validateGrantee(input))).ok) out.push(`validateGrantee accepted an invalid input ${JSON.stringify(input)}`);
+    }
+    // Anything else may be refused or accepted, but accepted only as inert data of its own kind.
+    for (const input of [undefined, null, 42, {}, [], ...HOSTILE_STRINGS]) {
+      const result = await attempt(() => subject.kind.validateGrantee(input));
+      if (result.ok && result.value.kind !== subject.kind.kind) out.push('validateGrantee returned a ref of another kind for a malformed input');
+    }
+    return out;
+  },
+
+  async describe<S>(subject: GranteeKindConformanceSubject<S>): Promise<string[]> {
+    const out: string[] = [];
+    for (const input of subject.validInputs) {
+      const ref = await subject.kind.validateGrantee(input);
+      const described = await attempt(() => subject.kind.describe(ref));
+      if (!described.ok || typeof described.value.display !== 'string' || described.value.display.length === 0) {
+        out.push(`describe gave no display string for ${JSON.stringify(ref)}`);
+      }
+    }
+    return out;
+  },
+
+  /** The in-memory match equals the SQL fragment, evaluated by the database, over the principal x grantee matrix. */
+  async agreement<S>(subject: GranteeKindConformanceSubject<S>): Promise<string[]> {
+    const out: string[] = [];
+    for (const principal of subject.principals) {
+      for (const facts of subject.grantees) {
+        const memory = subject.kind.matchesPrincipal(facts, principal);
+        const condition = subject.kind.resolvePrincipalMatch<S>(principal, columnsOf(subject.sqlKit, facts), subject.sqlKit);
+        // `null` is the fragment saying "no grant of this kind can name this principal".
+        const sql = condition === null ? false : (await subject.runQuery(subject.sqlKit.sql`SELECT (${condition}) AS match`)) === true;
+        if (sql !== memory) out.push(`principal ${principal.userId} x grantee ${JSON.stringify(facts)}: in memory ${memory}, in SQL ${sql}`);
+      }
+    }
+    return out;
+  },
+
+  /** A grantee of another kind never matches, in memory or in SQL. */
+  async otherKinds<S>(subject: GranteeKindConformanceSubject<S>): Promise<string[]> {
+    const out: string[] = [];
+    for (const principal of subject.principals) {
+      for (const facts of subject.grantees.filter((candidate) => candidate.kind !== subject.kind.kind)) {
+        if (subject.kind.matchesPrincipal(facts, principal)) out.push(`a grantee of kind "${facts.kind}" matched in memory`);
+        const condition = subject.kind.resolvePrincipalMatch<S>(principal, columnsOf(subject.sqlKit, facts), subject.sqlKit);
+        if (condition !== null && (await subject.runQuery(subject.sqlKit.sql`SELECT (${condition}) AS match`)) === true) {
+          out.push(`a grantee of kind "${facts.kind}" matched in SQL`);
+        }
+      }
+    }
+    return out;
+  },
+
+  /** No principal-derived string reaches the SQL text; a sub-select binds the caller's organization value. */
+  async sqlSafety<S>(subject: GranteeKindConformanceSubject<S>): Promise<string[]> {
+    const out: string[] = [];
+    for (const payload of HOSTILE_STRINGS) {
+      for (const base of subject.principals) {
+        const { principal, orgValue, values } = hostilePrincipal(base, payload);
+        let fragment: RecordedSql | null;
+        try {
+          fragment = subject.kind.resolvePrincipalMatch<RecordedSql>(principal, RECORDING_COLUMNS, recordingSqlKit);
+        } catch (error) {
+          out.push(`resolvePrincipalMatch threw for a hostile principal: ${(error as Error).message}`);
+          continue;
+        }
+        if (fragment === null) continue;
+        for (const value of [payload, ...values]) {
+          if (fragment.text.includes(value)) out.push(`a principal-derived string reached the SQL text: ${JSON.stringify(value)}`);
+        }
+        for (const raw of fragment.raws) if (!/^[A-Za-z0-9_.]+$/.test(raw)) out.push(`raw() received a non-identifier: ${JSON.stringify(raw)}`);
+        if (/\b(select|from)\b/i.test(fragment.text) && !fragment.values.includes(orgValue)) {
+          out.push('a sub-select does not bind the caller organization (principal.activeOrgId)');
+        }
+      }
+    }
+    return [...new Set(out)];
+  },
 };
 
 /**
@@ -116,88 +227,15 @@ const RECORDING_COLUMNS: GranteeColumns<RecordedSql> = {
  * @stability experimental
  */
 export function describeGranteeKindConformance<S>(name: string, subject: GranteeKindConformanceSubject<S>): void {
-  const { kind, sqlKit } = subject;
-
   describe(`grantee kind conformance: ${name}`, () => {
-    it('describes itself the way GET /sharing/grantee-kinds serves it', () => {
-      expect(() => granteeKindDescriptorSchema.parse(describeGranteeKind(kind))).not.toThrow();
-      expect(subject.principals.length).toBeGreaterThan(0);
-      expect(subject.grantees.length).toBeGreaterThan(0);
-    });
-
-    it('validateGrantee accepts its valid inputs and names its own kind', async () => {
-      for (const input of subject.validInputs) {
-        const ref = await kind.validateGrantee(input);
-        expect(ref.kind).toBe(kind.kind);
-        expect(typeof ref.id).toBe('string');
-        expect(ref.id.length).toBeGreaterThan(0);
-      }
-    });
-
-    it('validateGrantee refuses its invalid inputs and every hostile or malformed input', async () => {
-      for (const input of [...subject.invalidInputs, undefined, null, 42, {}, [], ...HOSTILE_STRINGS]) {
-        if (subject.validInputs.some((valid) => Object.is(valid, input))) continue;
-        let outcome: 'ok' | 'refused' = 'ok';
-        try {
-          const ref = await kind.validateGrantee(input);
-          // Accepting a hostile string is acceptable only as inert data of its own kind.
-          expect(ref.kind).toBe(kind.kind);
-        } catch {
-          outcome = 'refused';
-        }
-        if (subject.invalidInputs.includes(input)) expect(outcome).toBe('refused');
-      }
-    });
-
-    it('describe answers every valid grantee with a display string', async () => {
-      for (const input of subject.validInputs) {
-        const ref = await kind.validateGrantee(input);
-        const described = await kind.describe(ref);
-        expect(typeof described.display).toBe('string');
-        expect(described.display.length).toBeGreaterThan(0);
-      }
-    });
-
-    it('the in-memory match equals the SQL fragment over the principal x grantee matrix', async () => {
-      for (const principal of subject.principals) {
-        for (const facts of subject.grantees) {
-          const memory = kind.matchesPrincipal(facts, principal);
-          const condition = kind.resolvePrincipalMatch<S>(principal, columnsOf(sqlKit, facts), sqlKit);
-          // `null` is the fragment saying "no grant of this kind can name this principal".
-          const sql = condition === null ? false : (await subject.runQuery(sqlKit.sql`SELECT (${condition}) AS match`)) === true;
-          expect({ principal: principal.userId, facts, match: sql }).toEqual({ principal: principal.userId, facts, match: memory });
-        }
-      }
-    });
-
-    it('a grantee of another kind never matches, in memory or in SQL', async () => {
-      for (const principal of subject.principals) {
-        for (const facts of subject.grantees.filter((candidate) => candidate.kind !== kind.kind)) {
-          expect(kind.matchesPrincipal(facts, principal)).toBe(false);
-          const condition = kind.resolvePrincipalMatch<S>(principal, columnsOf(sqlKit, facts), sqlKit);
-          if (condition !== null) expect(await subject.runQuery(sqlKit.sql`SELECT (${condition}) AS match`)).not.toBe(true);
-        }
-      }
-    });
-
-    it('the fragment is parameterised: no principal-derived string reaches the SQL text', () => {
-      for (const value of HOSTILE_STRINGS) {
-        for (const principal of subject.principals) {
-          const fragment = kind.resolvePrincipalMatch<RecordedSql>(hostile(principal, value), RECORDING_COLUMNS, recordingSqlKit);
-          if (fragment === null) continue;
-          expect(fragment.text).not.toContain(value);
-          for (const raw of fragment.raws) expect(raw).toMatch(/^[A-Za-z0-9_.]+$/);
-        }
-      }
-    });
-
-    it('the fragment is a predicate over the grant row: a sub-select must bind the caller organization', () => {
-      for (const principal of subject.principals) {
-        const fragment = kind.resolvePrincipalMatch<RecordedSql>(principal, RECORDING_COLUMNS, recordingSqlKit);
-        if (fragment === null || !/\b(select|from)\b/i.test(fragment.text)) continue;
-        expect(principal.activeOrgId).toBeDefined();
-        expect(fragment.values).toContain(principal.activeOrgId);
-      }
-    });
+    it('describes itself the way GET /sharing/grantee-kinds serves it', async () => expect(await granteeKindChecks.descriptor(subject)).toEqual([]));
+    it('validateGrantee accepts its valid inputs, refuses its invalid ones and stays in its own kind', async () =>
+      expect(await granteeKindChecks.validation(subject)).toEqual([]));
+    it('describe answers every valid grantee with a display string', async () => expect(await granteeKindChecks.describe(subject)).toEqual([]));
+    it('the in-memory match equals the SQL fragment over the principal x grantee matrix', async () =>
+      expect(await granteeKindChecks.agreement(subject)).toEqual([]));
+    it('a grantee of another kind never matches, in memory or in SQL', async () => expect(await granteeKindChecks.otherKinds(subject)).toEqual([]));
+    it('the fragment is parameterised and a sub-select binds the caller organization', async () =>
+      expect(await granteeKindChecks.sqlSafety(subject)).toEqual([]));
   });
 }

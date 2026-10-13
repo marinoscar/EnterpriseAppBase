@@ -32,8 +32,22 @@ function isRecorded(value: unknown): value is RecordedSql {
   return typeof value === 'object' && value !== null && (value as { recorded?: unknown }).recorded === true;
 }
 
+/** Whether `value` looks like a SQL fragment from somewhere else (Prisma's `Sql`, a string-builder): not a bindable value. */
+function looksLikeForeignSql(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value) || value instanceof Date) return false;
+  const keys = Object.keys(value);
+  const name = (value as { constructor?: { name?: string } }).constructor?.name;
+  return name === 'Sql' || keys.includes('strings') || keys.includes('sql') || keys.includes('text') || keys.includes('values');
+}
+
 function piece(value: unknown): RecordedSql {
-  return isRecorded(value) ? value : { recorded: true, text: '?', values: [value], raws: [] };
+  if (isRecorded(value)) return value;
+  // A fragment built OUTSIDE ctx.kit (the app's own `Prisma.raw(principal.email)`) would be bound as an
+  // opaque value here and never show up in the text: refuse it instead of passing it.
+  if (looksLikeForeignSql(value)) {
+    throw new Error('A SQL fragment was built outside the kit (use ctx.kit.sql / ctx.kit.raw / ctx.column): the conformance kit cannot see its text.');
+  }
+  return { recorded: true, text: '?', values: [value], raws: [] };
 }
 
 function concat(parts: readonly RecordedSql[], separator: string): RecordedSql {

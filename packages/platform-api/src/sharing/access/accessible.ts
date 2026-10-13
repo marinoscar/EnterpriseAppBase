@@ -244,8 +244,18 @@ function includes(scope: AccessScope, part: 'owned' | 'groups' | 'shared'): bool
   return scope === 'all' || scope === part;
 }
 
+/**
+ * Aliases the composed SQL uses internally. A caller alias equal to one would
+ * shadow it and let an inner predicate compare a row to itself, so the alias is
+ * refused. (`g` is the `grants` row of the shared-part `EXISTS`.)
+ */
+const RESERVED_ALIASES: readonly string[] = ['g'];
+
 function identifier(value: string, what: string): string {
   if (!IDENTIFIER.test(value)) throw new Error(`${what} must be a plain identifier, not ${JSON.stringify(value)}`);
+  if (what === 'alias' && RESERVED_ALIASES.includes(value.toLowerCase())) {
+    throw new Error(`alias "${value}" is used inside the generated SQL; pick another alias for your table`);
+  }
   return value;
 }
 
@@ -328,11 +338,13 @@ export async function accessibleWhere<S>(principal: Principal, type: string, opt
   if (p.orgId === null) return { form: 'where', where: nothing };
 
   // A rule's SQL cannot be a Prisma `where`: the EXISTS form carries it.
-  const rules = ruleParts(p, principal, opts.sql?.alias ?? 'r', { ...opts.sql, sqlKit: opts.sqlKit, ...(opts.minRole ? { minRole: opts.minRole } : {}) });
+  // `orgField: null` (leave the organization to RLS) carries over to the SQL form: no default `org_id` column.
+  const sqlColumns: AccessibleColumnOptions = { ...opts.sql, ...(opts.orgField === null && opts.sql?.orgColumn === undefined ? { orgColumn: null } : {}) };
+  const rules = ruleParts(p, principal, opts.sql?.alias ?? 'r', { ...sqlColumns, sqlKit: opts.sqlKit, ...(opts.minRole ? { minRole: opts.minRole } : {}) });
   if (rules.allow.length > 0 || rules.deny.length > 0) {
     return {
       form: 'exists',
-      sql: accessibleSql(principal, type, opts.sql?.alias ?? 'r', { ...opts.sql, sqlKit: opts.sqlKit, scope: p.scope, ...(opts.minRole ? { minRole: opts.minRole } : {}) }),
+      sql: accessibleSql(principal, type, opts.sql?.alias ?? 'r', { ...sqlColumns, sqlKit: opts.sqlKit, scope: p.scope, ...(opts.minRole ? { minRole: opts.minRole } : {}) }),
     };
   }
 
@@ -353,7 +365,7 @@ export async function accessibleWhere<S>(principal: Principal, type: string, opt
       });
       if (rows.length > limit) {
         const sql = accessibleSql(principal, type, opts.sql?.alias ?? 'r', {
-          ...opts.sql,
+          ...sqlColumns,
           sqlKit: opts.sqlKit,
           scope: p.scope,
           ...(opts.minRole ? { minRole: opts.minRole } : {}),
