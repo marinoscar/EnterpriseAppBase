@@ -27,7 +27,7 @@
 // apps/api/test/examples/sharing/email-domain.example.db.spec.ts.
 // =============================================================================
 
-import { registerGranteeKind, type GranteeKindDef } from '@marinoscar/platform-api/sharing';
+import { GranteeInputError, registerGranteeKind, type GranteeKindDef } from '@marinoscar/platform-api/sharing';
 
 /** A lower-case host name with at least one dot: `example.com`, `eng.example.co.uk`. */
 const DOMAIN = /^(?=.{3,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
@@ -58,7 +58,7 @@ export const emailDomainGranteeKind: GranteeKindDef = {
 
   validateGrantee(input) {
     const domain = typeof input === 'string' ? input.trim().replace(/^@/, '').toLowerCase() : '';
-    if (!DOMAIN.test(domain)) throw new Error('Enter a domain such as example.com.');
+    if (!DOMAIN.test(domain)) throw new GranteeInputError('Enter a domain such as example.com.');
     return { kind: 'email-domain', id: domain };
   },
 

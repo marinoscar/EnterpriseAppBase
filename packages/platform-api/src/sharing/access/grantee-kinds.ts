@@ -64,6 +64,22 @@ export const BUILTIN_GRANTEE_KIND_IDS: readonly string[] = ['user', 'group', 'li
 const RESERVED_KIND_IDS: readonly string[] = ['custom'];
 
 /**
+ * Thrown by {@link GranteeKindDef.validateGrantee} for an input it rejects.
+ * Its message is shown to the caller (422 `GRANTEE_INVALID`), so write it for
+ * a person; any OTHER error a kind throws is answered with a generic message,
+ * so an internal error (a database message, a stack) never reaches the caller.
+ *
+ * @stability experimental
+ */
+export class GranteeInputError extends Error {
+  /** @param message - what is wrong with the grantee, safe to show. */
+  constructor(message: string) {
+    super(message);
+    this.name = 'GranteeInputError';
+  }
+}
+
+/**
  * Who a grant names, as a kind validates and describes it: the kind and an
  * opaque reference (a user id, a group id, a domain, a team id).
  *
@@ -74,6 +90,16 @@ export interface GranteeRef {
   readonly kind: string;
   /** The grantee within the kind. */
   readonly id: string;
+}
+
+/**
+ * How a grantee reads in a list or an audit line.
+ *
+ * @stability experimental
+ */
+export interface GranteeDescription {
+  /** A short human-readable name ("Anyone at @example.com"). */
+  readonly display: string;
 }
 
 /**
@@ -155,9 +181,9 @@ export interface GranteeKindDef {
    */
   readonly via?: string;
   /**
-   * Checks a grantee the caller submitted and returns it normalised. Throws
-   * an `Error` whose message is safe to show on a rejected input. Synchronous
-   * or asynchronous (it may look the grantee up).
+   * Checks a grantee the caller submitted and returns it normalised. Throws a
+   * {@link GranteeInputError} (whose message is shown) for a rejected input.
+   * Synchronous or asynchronous (it may look the grantee up, read only).
    *
    * @param input - the submitted grantee (`ref` of the wire shape, or the built-in shape).
    */
@@ -168,7 +194,7 @@ export interface GranteeKindDef {
    *
    * @param ref - the grantee.
    */
-  describe(ref: GranteeRef): Promise<{ display: string }>;
+  describe(ref: GranteeRef): Promise<GranteeDescription>;
   /**
    * The in-memory spelling of the predicate: whether a stored grantee names
    * `principal`. Must equal {@link GranteeKindDef.resolvePrincipalMatch}.
@@ -335,7 +361,7 @@ const userKind: GranteeKindDef = {
     if (typeof userId === 'string' && UUID.test(userId)) return { kind: 'user', id: userId.toLowerCase() };
     const email = fieldOf(input, 'email');
     if (typeof email === 'string' && email.includes('@')) return { kind: 'user', id: email.trim().toLowerCase() };
-    throw new Error('A person is named by a user id or an e-mail address.');
+    throw new GranteeInputError('A person is named by a user id or an e-mail address.');
   },
   async describe(ref) {
     return { display: ref.id };
@@ -359,7 +385,7 @@ const groupKind: GranteeKindDef = {
   validateGrantee(input) {
     const groupId = fieldOf(input, 'groupId');
     if (typeof groupId === 'string' && UUID.test(groupId)) return { kind: 'group', id: groupId.toLowerCase() };
-    throw new Error('A group is named by its id.');
+    throw new GranteeInputError('A group is named by its id.');
   },
   async describe(ref) {
     return { display: ref.id };
@@ -386,7 +412,7 @@ const linkKind: GranteeKindDef = {
   persisted: true,
   via: 'link_grant',
   validateGrantee() {
-    throw new Error('A link is created through POST /api/grants/links, not as a grantee.');
+    throw new GranteeInputError('A link is created through POST /api/grants/links, not as a grantee.');
   },
   async describe() {
     return { display: 'Anyone with the link' };

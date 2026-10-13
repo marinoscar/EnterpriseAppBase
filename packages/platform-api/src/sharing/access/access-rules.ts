@@ -92,7 +92,7 @@ export interface AccessRuleContext {
   /**
    * The transaction the decision runs in, scoped to the caller's
    * organization (row-level security confines every query on an `org`
-   * table). Cast it to the app's Prisma transaction client.
+   * table). Read only: a rule decides, it never writes. Cast it to the app's Prisma transaction client.
    */
   readonly tx: unknown;
   /** Scratch shared by every record of one decision call: load a project's members once, not per record. */

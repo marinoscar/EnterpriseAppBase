@@ -105,8 +105,8 @@ export const granteeKindIdSchema = z
  * A grantee of an app-registered kind: the wire discriminator is the literal
  * `custom` (so the built-in shapes keep their exact validation messages), the
  * registered kind goes in `granteeKind` and an opaque reference the kind
- * validates in `ref` (`{ kind: 'custom', granteeKind: 'email-domain', ref:
- * 'example.com' }`). The API answers 422 `GRANTEE_KIND_UNKNOWN` for a kind
+ * validates in `ref` (for example kind `custom`, `granteeKind` `email-domain`
+ * and `ref` `example.com`). The API answers 422 `GRANTEE_KIND_UNKNOWN` for a kind
  * nobody registered and 422 `GRANTEE_KIND_NOT_PERSISTABLE` for a registered
  * kind whose grants cannot be stored yet.
  *

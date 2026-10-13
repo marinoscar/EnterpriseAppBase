@@ -41,7 +41,7 @@ import type {
 import type { Principal } from '../../core/index';
 import { Trace } from '../../otel-core/index';
 import { AccessPolicy } from '../access/access-policy.service';
-import { findGranteeKind } from '../access/grantee-kinds';
+import { GranteeInputError, findGranteeKind } from '../access/grantee-kinds';
 import { findResourceType, resourceTypeRegistry, type ResolvedResourceType, type ResourceDescription } from '../access/resource-types';
 import { asSharingTx, type GrantRow, type SharingTx, type UserRow } from '../data/sharing-tx';
 import {
@@ -391,7 +391,8 @@ export class GrantsService {
     try {
       await def.validateGrantee(ref);
     } catch (error) {
-      return granteeInvalid(kind, error instanceof Error && error.message ? error.message : 'That grantee is not valid');
+      // Only a message the kind wrote for people is shown; any other error is the app's internals.
+      return granteeInvalid(kind, error instanceof GranteeInputError && error.message ? error.message : 'That grantee is not valid');
     }
     return granteeKindNotPersistable(kind);
   }

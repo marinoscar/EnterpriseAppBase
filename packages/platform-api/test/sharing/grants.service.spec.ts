@@ -6,7 +6,7 @@
 
 import { HttpException } from '@nestjs/common';
 
-import { granteeKindRegistry, registerGranteeKind } from '../../src/sharing/index';
+import { GranteeInputError, granteeKindRegistry } from '../../src/sharing/index';
 import { withTemporaryEntries } from '../../src/core/index';
 
 import type { Principal } from '../../src/core/index';
@@ -219,7 +219,7 @@ describe('GrantsService.create', () => {
       label: 'Email domain',
       input: 'text' as const,
       validateGrantee: (input: unknown) => {
-        if (typeof input !== 'string' || !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(input)) throw new Error('Enter a domain such as example.com');
+        if (typeof input !== 'string' || !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(input)) throw new GranteeInputError('Enter a domain such as example.com');
         return { kind: 'email-domain', id: input };
       },
       describe: async (ref: { id: string }) => ({ display: ref.id }),
@@ -248,6 +248,21 @@ describe('GrantsService.create', () => {
           const [code, body] = await status(service.create(owner(), custom('email-domain', "x'); DROP TABLE grants; --")));
           expect(code).toBe(422);
           expect(body).toMatchObject({ message: 'Enter a domain such as example.com', details: { reason: 'GRANTEE_INVALID' } });
+        }),
+      );
+    });
+
+    it("hides an internal error of the kind behind a generic message", async () => {
+      const tx = fakeTx();
+      seed(tx);
+      const { service } = build(tx);
+      const leaky = { ...domainKind, validateGrantee: () => { throw new Error('relation "secret_table" does not exist'); } };
+      await withTemporaryEntries(granteeKindRegistry, [leaky], () =>
+        withTypes([docType(table())], async () => {
+          const [code, body] = await status(service.create(owner(), custom('email-domain', 'example.com')));
+          expect(code).toBe(422);
+          expect(JSON.stringify(body)).not.toContain('secret_table');
+          expect(body).toMatchObject({ message: 'That grantee is not valid', details: { reason: 'GRANTEE_INVALID' } });
         }),
       );
     });

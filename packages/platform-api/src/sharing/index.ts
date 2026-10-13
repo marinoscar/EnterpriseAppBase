@@ -77,6 +77,7 @@ export type { AccessDecision, AccessVia, BuiltinAccessVia, EffectiveRole, Resour
 export {
   BUILTIN_GRANTEE_KIND_IDS,
   GRANTEE_KIND_PERSISTENCE_AVAILABLE,
+  GranteeInputError,
   describeGranteeKind,
   findGranteeKind,
   granteeKindRegistry,
@@ -84,8 +85,8 @@ export {
   persistedGranteeKinds,
   registerGranteeKind,
 } from './access/grantee-kinds';
-export type { GranteeColumns, GranteeFacts, GranteeKindDef, GranteeRef } from './access/grantee-kinds';
-export { accessRuleRegistry, accessRuleRole, accessRulesFor, registerAccessRule } from './access/access-rules';
+export type { GranteeColumns, GranteeDescription, GranteeFacts, GranteeKindDef, GranteeRef } from './access/grantee-kinds';
+export { accessRuleRegistry, registerAccessRule } from './access/access-rules';
 export type {
   AccessRuleContext,
   AccessRuleDef,
