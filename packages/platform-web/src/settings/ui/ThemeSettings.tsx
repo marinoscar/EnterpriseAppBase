@@ -11,19 +11,58 @@ import {
   DarkMode as DarkIcon,
   SettingsBrightness as SystemIcon,
 } from '@mui/icons-material';
+import type { ThemeOption, ThemePreferenceId } from '@marinoscar/platform-contract/settings';
+import type { ComponentType } from 'react';
+
+/**
+ * What the `ExtraFields` slot of {@link ThemeSettings} receives.
+ *
+ * @stability experimental
+ */
+export interface ThemeExtraFieldsProps {
+  /** The stored theme preference. */
+  currentTheme: ThemePreferenceId;
+  /** Reports a chosen preference (the card's own `onThemeChange`). */
+  onThemeChange: (theme: ThemePreferenceId) => void;
+  /** Whether the card is disabled (a save is in flight). */
+  disabled: boolean;
+}
+
+/**
+ * The replaceable parts of {@link ThemeSettings}. With none, the card is
+ * exactly what it always was.
+ *
+ * @stability experimental
+ */
+export interface ThemeSettingsSlots {
+  /** Rendered under the toggle (nothing by default): an app's own appearance fields, such as a density or an accent. */
+  ExtraFields?: ComponentType<ThemeExtraFieldsProps>;
+}
 
 /**
  * Props of {@link ThemeSettings}.
  *
+ * @extensionPoint slot
  * @stability experimental
  */
 export interface ThemeSettingsProps {
-  /** The stored theme preference. */
-  currentTheme: 'light' | 'dark' | 'system';
-  /** Called with the chosen preference. */
-  onThemeChange: (theme: 'light' | 'dark' | 'system') => void;
+  /** The stored theme preference: light, dark, system, or an id an app registered. */
+  currentTheme: ThemePreferenceId;
+  /**
+   * Called with the chosen preference. Declared as a method so a handler typed
+   * for the three built-in ids (`(theme: 'light' | 'dark' | 'system') => void`)
+   * still fits; an app that registered themes handles the wider id.
+   */
+  onThemeChange(theme: ThemePreferenceId): void;
   /** Disables the toggle (a save is in flight). */
   disabled?: boolean;
+  /**
+   * The themes an app registered (`themePreferenceOptions(settings)`), offered
+   * after light, dark and system. Empty or absent: the three built-in choices.
+   */
+  extraOptions?: readonly ThemeOption[];
+  /** Part overrides. */
+  slots?: ThemeSettingsSlots;
 }
 
 /**
@@ -43,10 +82,13 @@ export function ThemeSettings({
   currentTheme,
   onThemeChange,
   disabled = false,
+  extraOptions,
+  slots,
 }: ThemeSettingsProps) {
+  const ExtraFields = slots?.ExtraFields;
   const handleChange = (
     _event: React.MouseEvent<HTMLElement>,
-    newTheme: 'light' | 'dark' | 'system' | null,
+    newTheme: ThemePreferenceId | null,
   ) => {
     if (newTheme !== null) {
       onThemeChange(newTheme);
@@ -89,7 +131,17 @@ export function ThemeSettings({
               <span>System</span>
             </Box>
           </ToggleButton>
+          {extraOptions?.map((option) => (
+            <ToggleButton key={option.id} value={option.id} aria-label={`${option.label} theme`}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1 }}>
+                <span>{option.label}</span>
+              </Box>
+            </ToggleButton>
+          ))}
         </ToggleButtonGroup>
+        {ExtraFields && (
+          <ExtraFields currentTheme={currentTheme} onThemeChange={onThemeChange} disabled={disabled} />
+        )}
       </CardContent>
     </Card>
   );

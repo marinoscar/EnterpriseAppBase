@@ -46,7 +46,7 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { Alert, Box, Container, Snackbar, Typography } from '@mui/material';
-import type { UserSettingsResponseBase } from '@marinoscar/platform-contract/settings';
+import type { ThemePreferenceId, UserSettingsResponseBase } from '@marinoscar/platform-contract/settings';
 import { useOptionalPlatformHost } from '../../core/index.js';
 import { useUserSettings } from '../headless/use-user-settings.js';
 import { LoadingSpinner } from '../internal/LoadingSpinner.js';
@@ -57,10 +57,10 @@ import { LoadingSpinner } from '../internal/LoadingSpinner.js';
  * @stability experimental
  */
 export type UserSettingsUpdate = {
-  /** A new theme preference. */
-  theme?: UserSettingsResponseBase['theme'];
-  /** New profile fields. */
-  profile?: Partial<UserSettingsResponseBase['profile']>;
+  /** A new theme preference: light, dark, system, or an id an app registered. */
+  theme?: ThemePreferenceId;
+  /** New profile fields, the ones an app added with `extendUserProfile` included (`null` deletes one). */
+  profile?: Partial<UserSettingsResponseBase['profile']> & Record<string, unknown>;
 };
 
 /**

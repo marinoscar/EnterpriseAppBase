@@ -38,7 +38,7 @@ import { systemSettingsNamespaceRegistry, type SystemSettingsNamespace } from '.
 import { DEFAULT_SETTINGS_OPTIONS, SETTINGS_OPTIONS, type ResolvedSettingsModuleOptions } from '../settings.options';
 import { SystemSettingsService } from '../system-settings/system-settings.service';
 import { describeOrgFields } from './describe-fields';
-import { applyOrgLayer, asPlainObject, readOrgFields } from './org-layer';
+import { applyOrgLayer, asPlainObject, orgLayerMode, readOrgFields } from './org-layer';
 
 /**
  * Who is asking: the permissions the org-scoped reads and writes are gated
@@ -275,11 +275,12 @@ export class OrgSettingsService {
       if (!this.may(access, org.readPermission)) continue;
       const fields = readOrgFields(ns, stored[ns.key]);
       if (fields) value[ns.key] = fields;
-      effective[ns.key] = applyOrgLayer(ns, system[ns.key], fields).value;
+      const applied = applyOrgLayer(ns, system[ns.key], fields).value;
+      effective[ns.key] = org.view ? org.view(applied) : applied;
       namespaces.push({
         key: ns.key,
         description: ns.description,
-        merge: org.merge === 'override' ? 'override' : 'tighten',
+        merge: orgLayerMode(org),
         writable: this.may(access, org.writePermission),
         fields: describeOrgFields(org.schema),
       });
