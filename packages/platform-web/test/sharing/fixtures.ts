@@ -90,7 +90,7 @@ export function userGrant(overrides: Partial<GrantDto> = {}): GrantDto {
     orgId: ORG,
     resourceType: 'transcript',
     resourceId: RESOURCE_ID,
-    grantee: { kind: 'user', userId: ANA, email: 'ana@example.com', displayName: 'Ana', groupId: null, groupName: null },
+    grantee: { kind: 'user', userId: ANA, email: 'ana@example.com', displayName: 'Ana', groupId: null, groupName: null, ref: null, display: null },
     role: 'viewer',
     expiresAt: null,
     revokedAt: null,
@@ -104,7 +104,7 @@ export function userGrant(overrides: Partial<GrantDto> = {}): GrantDto {
 export function groupGrant(overrides: Partial<GrantDto> = {}): GrantDto {
   return userGrant({
     id: '00000000-0000-4000-8000-0000000000f2',
-    grantee: { kind: 'group', userId: null, email: null, displayName: null, groupId: GROUP_ID, groupName: 'Design team' },
+    grantee: { kind: 'group', userId: null, email: null, displayName: null, groupId: GROUP_ID, groupName: 'Design team', ref: null, display: null },
     role: 'editor',
     ...overrides,
   });

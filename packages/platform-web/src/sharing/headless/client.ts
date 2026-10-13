@@ -18,6 +18,7 @@ import type {
   GroupMemberList,
   GroupMembershipDto,
   GranteeKindList,
+  GroupRoleList,
   GroupRole,
   LinkGrantView,
   MyGroupInviteList,
@@ -158,6 +159,8 @@ export interface SharingClient {
   declineInvite(inviteId: string): Promise<void>;
   /** `GET /sharing/grantee-kinds` (PP-14.16): the registered grantee kinds. */
   listGranteeKinds(options?: PlatformRequestOptions): Promise<GranteeKindList>;
+  /** `GET /sharing/group-roles` (PP-14.15b): the registered group roles. */
+  listGroupRoles(options?: PlatformRequestOptions): Promise<GroupRoleList>;
   /** `GET /grants?resourceType&resourceId`. */
   listGrants(resource: ResourceRef, query?: SharingPageQuery, options?: PlatformRequestOptions): Promise<GrantList>;
   /** `POST /grants`. */
@@ -253,6 +256,7 @@ export function createSharingClient(api: PlatformApiClient, paths: SharingClient
     acceptInvite: (inviteId) => api.post<GroupMembershipDto>(`${groups}/invites/${enc(inviteId)}/accept`),
     declineInvite: (inviteId) => api.post<void>(`${groups}/invites/${enc(inviteId)}/decline`),
     listGranteeKinds: (options) => api.get<GranteeKindList>(`${sharing}/grantee-kinds`, options),
+    listGroupRoles: (options) => api.get<GroupRoleList>(`${sharing}/group-roles`, options),
     listGrants: (resource, q = {}, options) =>
       api.get<GrantList>(
         `${grants}${query({ resourceType: resource.type, resourceId: resource.id, page: q.page, pageSize: q.pageSize })}`,

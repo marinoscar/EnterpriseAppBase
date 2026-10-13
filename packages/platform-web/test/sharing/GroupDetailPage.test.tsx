@@ -57,6 +57,33 @@ describe('GroupDetailPage (#731)', () => {
     await waitFor(() => expect(host.requests.some((r) => r.method === 'DELETE' && r.path === `${BASE}/members/${ANA}`)).toBe(true));
   });
 
+  it('lists the roles the API registered, an app role included, and labels a member by it', async () => {
+    const user = userEvent.setup();
+    const registered = {
+      items: [
+        { id: 'admin', label: 'Admin', description: null, actions: ['read', 'write', 'manage'], builtin: true },
+        { id: 'editor', label: 'Editor', description: null, actions: ['read', 'write'], builtin: true },
+        { id: 'viewer', label: 'Viewer', description: null, actions: ['read'], builtin: true },
+        { id: 'commenter', label: 'Commenter', description: null, actions: ['read', 'comment'], builtin: false },
+      ],
+    };
+    const host = renderPage(
+      makeHost(
+        responses({
+          'GET /sharing/group-roles': registered,
+          [`GET ${BASE}/members`]: page([member(), member({ userId: ANA, role: 'commenter', email: 'ana@example.com', displayName: 'Ana' })]),
+          [`PATCH ${BASE}/members/${ANA}`]: { ...ANA_MEMBER, role: 'viewer' },
+        }),
+      ),
+    );
+    const row = await screen.findByTestId(`member-${ANA}`);
+    await waitFor(() => expect(within(row).getByRole('combobox').textContent).toBe('Commenter'));
+    await user.click(within(row).getByRole('combobox'));
+    expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual(['Admin', 'Editor', 'Viewer', 'Commenter']);
+    await user.click(screen.getByRole('option', { name: 'Viewer' }));
+    await waitFor(() => expect(host.requests.find((r) => r.method === 'PATCH')?.body).toEqual({ role: 'viewer' }));
+  });
+
   it('explains LAST_GROUP_ADMIN when the last admin is demoted', async () => {
     const user = userEvent.setup();
     renderPage(

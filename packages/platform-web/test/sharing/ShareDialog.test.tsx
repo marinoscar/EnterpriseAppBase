@@ -288,6 +288,17 @@ describe('ShareDialog grantee kinds (PP-14.16)', () => {
     expect(screen.getAllByRole('button').filter((b) => b.getAttribute('aria-pressed') !== null).map((b) => b.textContent)).toEqual(['A person', 'A group']);
   });
 
+  it('reads a stored grant of an app kind by the kind\'s own description', async () => {
+    const stored = userGrant({
+      id: '00000000-0000-4000-8000-0000000000f9',
+      grantee: { kind: 'email-domain', userId: null, email: null, displayName: null, groupId: null, groupName: null, ref: 'example.com', display: 'Anyone at @example.com' },
+    });
+    renderDialog(baseResponses({ ...kinds(EMAIL_DOMAIN), 'GET /grants': page([stored]) }));
+    const list = await screen.findByRole('list', { name: 'Shared with' });
+    expect(within(list).getByText('Anyone at @example.com')).toBeTruthy();
+    expect(within(list).getByText('email-domain')).toBeTruthy();
+  });
+
   it('asks for the kinds only when the viewer may share', async () => {
     const host = makeHost(baseResponses(kinds(EMAIL_DOMAIN)), ['sharing:read']);
     renderRoute(host, <ShareDialog open onClose={() => undefined} resource={RESOURCE} roles={ROLES} />);
