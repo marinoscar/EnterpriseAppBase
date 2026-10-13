@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Button, IconButton, Snackbar } from '@mui/material';
+import type { ReactNode } from 'react';
+import { Box, Button, IconButton, Snackbar, Stack, Typography } from '@mui/material';
 import { Close as CloseIcon } from '@mui/icons-material';
 
 /**
@@ -118,6 +119,35 @@ function isRunningInstalled(): boolean {
 export interface InstallPromptProps {
   /** The product name the offer's message uses. */
   appName: string;
+  /**
+   * An icon drawn before the message (the app's mark). Omitted, the offer is
+   * the plain text message it always was.
+   */
+  icon?: ReactNode;
+  /**
+   * The offer's words. Every member is optional and falls back to the platform
+   * wording: `body` to "Install <appName> for faster access and notifications",
+   * `install` to "Install", `dismiss` (the dismiss button's accessible name) to
+   * "Dismiss install prompt". `title` has no default; when set, it is drawn as
+   * a bold line above the body.
+   */
+  copy?: InstallPromptCopy;
+}
+
+/**
+ * The words of an {@link InstallPrompt}, each optional.
+ *
+ * @stability experimental
+ */
+export interface InstallPromptCopy {
+  /** A bold line above the body. No default. */
+  title?: ReactNode;
+  /** The offer. Default: "Install <appName> for faster access and notifications". */
+  body?: ReactNode;
+  /** The install button's label. Default "Install". */
+  install?: string;
+  /** The dismiss button's accessible name. Default "Dismiss install prompt". */
+  dismiss?: string;
 }
 
 /**
@@ -137,7 +167,7 @@ export interface InstallPromptProps {
  * @extensionPoint component
  * @stability experimental
  */
-export function InstallPrompt({ appName }: InstallPromptProps) {
+export function InstallPrompt({ appName, icon, copy }: InstallPromptProps) {
   /**
    * The captured event. Holding it is the whole trick: the browser only offers
    * it once, and `prompt()` may only be called on it in response to the user's
@@ -203,6 +233,8 @@ export function InstallPrompt({ appName }: InstallPromptProps) {
     return null;
   }
 
+  const defaultBody = `Install ${appName} for faster access and notifications`;
+
   return (
     <Snackbar
       open
@@ -213,7 +245,19 @@ export function InstallPrompt({ appName }: InstallPromptProps) {
         if (reason === 'clickaway') return;
         dismiss();
       }}
-      message={`Install ${appName} for faster access and notifications`}
+      message={
+        icon !== undefined || copy?.title !== undefined ? (
+          <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+            {icon}
+            <Box>
+              {copy?.title !== undefined && <Typography sx={{ fontWeight: 600 }}>{copy.title}</Typography>}
+              {copy?.body ?? defaultBody}
+            </Box>
+          </Stack>
+        ) : (
+          (copy?.body ?? defaultBody)
+        )
+      }
       // Matches `UpdatePrompt`'s offset for the same reason — it clears the
       // fixed `BottomNav`, which exists only below `sm`. A static responsive
       // style, not a `useMediaQuery` mount gate.
@@ -226,11 +270,11 @@ export function InstallPrompt({ appName }: InstallPromptProps) {
       action={
         <>
           <Button color="secondary" size="small" onClick={install}>
-            Install
+            {copy?.install ?? 'Install'}
           </Button>
           <IconButton
             size="small"
-            aria-label="Dismiss install prompt"
+            aria-label={copy?.dismiss ?? 'Dismiss install prompt'}
             color="inherit"
             onClick={dismiss}
           >

@@ -45,7 +45,8 @@ import {
   type TrustedAndroidApp,
 } from '@marinoscar/platform-contract/android-app';
 
-import { isPlatformApiError, usePlatformViewer } from '../../core/index.js';
+import { PageSlotsFrame, isPlatformApiError, usePlatformViewer } from '../../core/index.js';
+import type { PageSlotsBase } from '../../core/index.js';
 import { useAndroidAppClient, useAndroidAppConfig } from '../headless/hooks.js';
 import {
   ANDROID_APP_DESCRIPTION,
@@ -82,7 +83,34 @@ function formatBytes(value: string): string {
   return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.ceil(bytes / 1024)} KB`;
 }
 
-function TrustedAppsSection({ canWrite }: { canWrite: boolean }): ReactElement {
+/**
+ * What the three sections of the Android page take.
+ *
+ * @stability experimental
+ */
+export interface AndroidAppSectionProps {
+  /** The viewer holds `system_settings:write`; without it the section's controls are disabled. */
+  canWrite: boolean;
+}
+
+/**
+ * The "Trusted apps" section: the apps the server vouches for in
+ * `/.well-known/assetlinks.json`, the apps devices reported, and the preview
+ * of the file. An app that composes its own Android page reuses it beside its
+ * own sections.
+ *
+ * @param props - see {@link AndroidAppSectionProps}.
+ * @returns the section body (without the page's `Paper` chrome).
+ *
+ * @example
+ * ```tsx
+ * <TrustedAppsSection canWrite={viewer.hasPermission('system_settings:write')} />
+ * ```
+ *
+ * @extensionPoint component
+ * @stability experimental
+ */
+export function TrustedAppsSection({ canWrite }: AndroidAppSectionProps): ReactElement {
   const { config, isLoading, error, isSaving, saveError, save } = useAndroidAppConfig();
   const [packageName, setPackageName] = useState('');
   const [sha256, setSha256] = useState('');
@@ -217,7 +245,21 @@ function TrustedAppsSection({ canWrite }: { canWrite: boolean }): ReactElement {
   );
 }
 
-function ReleasesSection({ canWrite }: { canWrite: boolean }): ReactElement {
+/**
+ * The "Releases" section: the hosted APKs, the current one, and the upload.
+ *
+ * @param props - see {@link AndroidAppSectionProps}.
+ * @returns the section body (without the page's `Paper` chrome).
+ *
+ * @example
+ * ```tsx
+ * <ReleasesSection canWrite={viewer.hasPermission('system_settings:write')} />
+ * ```
+ *
+ * @extensionPoint component
+ * @stability experimental
+ */
+export function ReleasesSection({ canWrite }: AndroidAppSectionProps): ReactElement {
   const client = useAndroidAppClient();
   const [releases, setReleases] = useState<AdminRelease[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -346,7 +388,21 @@ function ReleasesSection({ canWrite }: { canWrite: boolean }): ReactElement {
   );
 }
 
-function NotificationsSection({ canWrite }: { canWrite: boolean }): ReactElement {
+/**
+ * The "Notifications" section: subscription counts and the test notification.
+ *
+ * @param props - see {@link AndroidAppSectionProps}.
+ * @returns the section body (without the page's `Paper` chrome).
+ *
+ * @example
+ * ```tsx
+ * <NotificationsSection canWrite={viewer.hasPermission('system_settings:write')} />
+ * ```
+ *
+ * @extensionPoint component
+ * @stability experimental
+ */
+export function NotificationsSection({ canWrite }: AndroidAppSectionProps): ReactElement {
   const client = useAndroidAppClient();
   const { config } = useAndroidAppConfig();
   const [result, setResult] = useState<AndroidAppTestNotificationResponse | null>(null);
@@ -407,10 +463,38 @@ function Section({ title, children }: { title: string; children: ReactElement })
 }
 
 /**
+ * The slots of {@link AndroidAppPage}: the page-slot contract. `Sections` is
+ * drawn at both ends of the body, so an app puts its own section (a fleet
+ * dashboard, a store listing checklist) before or after the three built-in
+ * ones; {@link TrustedAppsSection}, {@link ReleasesSection} and
+ * {@link NotificationsSection} are exported for an app that composes its own page.
+ *
+ * @example
+ * ```tsx
+ * <AndroidAppPage slots={{ Sections: ({ position }) => (position === 'bottom' ? <StoreListingChecklist /> : null) }} />
+ * ```
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export type AndroidAppPageSlots = PageSlotsBase;
+
+/**
+ * The props of {@link AndroidAppPage}.
+ *
+ * @stability experimental
+ */
+export interface AndroidAppPageProps {
+  /** Optional extension slots; omitted, the page renders exactly as it always did. */
+  slots?: AndroidAppPageSlots;
+}
+
+/**
  * The admin Android app page: trusted apps, releases, test notification.
  * Route it behind the app's `system_settings:read` gate; writes are disabled
  * inside the page without `system_settings:write`.
  *
+ * @param props - see {@link AndroidAppPageProps}.
  * @returns the page.
  *
  * @example
@@ -421,34 +505,44 @@ function Section({ title, children }: { title: string; children: ReactElement })
  * @extensionPoint component
  * @stability experimental
  */
-export function AndroidAppPage(): ReactElement {
+export function AndroidAppPage(props: AndroidAppPageProps = {}): ReactElement {
+  const { slots } = props;
   const viewer = usePlatformViewer();
   const canWrite = viewer.hasPermission(ANDROID_APP_WRITE_PERMISSION);
   return (
     <Container maxWidth="md">
       <Box sx={{ py: { xs: 2, sm: 4 } }}>
-        <Typography variant="h4" component="h1" gutterBottom>
-          {ANDROID_APP_TITLE}
-        </Typography>
-        <Typography color="text.secondary" sx={{ mb: 3 }}>
-          {ANDROID_APP_DESCRIPTION}
-        </Typography>
-        {!canWrite && (
-          <Alert severity="info" sx={{ mb: 2 }}>
-            {ANDROID_APP_READ_ONLY_MESSAGE}
-          </Alert>
-        )}
-        <Stack spacing={3}>
-          <Section title="Trusted apps">
-            <TrustedAppsSection canWrite={canWrite} />
-          </Section>
-          <Section title="Releases">
-            <ReleasesSection canWrite={canWrite} />
-          </Section>
-          <Section title="Notifications">
-            <NotificationsSection canWrite={canWrite} />
-          </Section>
-        </Stack>
+        <PageSlotsFrame
+          slots={slots}
+          headerProps={{ title: ANDROID_APP_TITLE, description: ANDROID_APP_DESCRIPTION, readOnly: !canWrite, actions: null }}
+          header={
+            <>
+              <Typography variant="h4" component="h1" gutterBottom>
+                {ANDROID_APP_TITLE}
+              </Typography>
+              <Typography color="text.secondary" sx={{ mb: 3 }}>
+                {ANDROID_APP_DESCRIPTION}
+              </Typography>
+            </>
+          }
+        >
+          {!canWrite && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              {ANDROID_APP_READ_ONLY_MESSAGE}
+            </Alert>
+          )}
+          <Stack spacing={3}>
+            <Section title="Trusted apps">
+              <TrustedAppsSection canWrite={canWrite} />
+            </Section>
+            <Section title="Releases">
+              <ReleasesSection canWrite={canWrite} />
+            </Section>
+            <Section title="Notifications">
+              <NotificationsSection canWrite={canWrite} />
+            </Section>
+          </Stack>
+        </PageSlotsFrame>
       </Box>
     </Container>
   );

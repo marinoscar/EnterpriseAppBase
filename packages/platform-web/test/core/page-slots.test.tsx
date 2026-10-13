@@ -6,6 +6,7 @@ import { render, renderHook } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import {
+  PageSlotsFrame,
   SLOT_DETAIL_PANEL_COLUMN_ID,
   SLOT_ROW_ACTIONS_COLUMN_ID,
   useTableSlotColumns,
@@ -80,5 +81,37 @@ describe('useTableSlotColumns', () => {
     const first = result.current;
     rerender();
     expect(result.current).toBe(first);
+  });
+});
+
+
+describe('PageSlotsFrame', () => {
+  const headerProps = { title: 'Example', description: 'About it', readOnly: false, actions: null };
+
+  it('renders the page header and body with no wrapper when no slot is set', () => {
+    const { container } = render(
+      <PageSlotsFrame slots={undefined} header={<h1>Own header</h1>} headerProps={headerProps}>
+        <p>body</p>
+      </PageSlotsFrame>,
+    );
+    expect(container.innerHTML).toBe('<h1>Own header</h1><p>body</p>');
+  });
+
+  it('draws the slots in the contract order, Sections at both ends, Header replacing the page header', () => {
+    const { container } = render(
+      <PageSlotsFrame
+        slots={{
+          Header: ({ title }) => <h1>custom {title}</h1>,
+          BeforeContent: () => <i>before</i>,
+          Sections: ({ position }) => <b>{position}</b>,
+          AfterContent: () => <u>after</u>,
+        }}
+        header={<h1>Own header</h1>}
+        headerProps={headerProps}
+      >
+        <p>body</p>
+      </PageSlotsFrame>,
+    );
+    expect(container.innerHTML).toBe('<h1>custom Example</h1><i>before</i><b>top</b><p>body</p><b>bottom</b><u>after</u>');
   });
 });

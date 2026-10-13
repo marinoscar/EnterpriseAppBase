@@ -15,7 +15,8 @@ import {
   type FactoryResetSummary,
 } from '@marinoscar/platform-contract/user-data';
 
-import { usePlatformApi } from '../../core/index.js';
+import { PageSlotsFrame, usePlatformApi } from '../../core/index.js';
+import type { PageSlotsBase } from '../../core/index.js';
 import { createFactoryResetClient, useCompletionHandler, useDestructiveJob } from '../headless/index.js';
 import { FACTORY_RESET_DELETED, FACTORY_RESET_KEPT, FACTORY_RESET_PAGE_TITLE } from './copy.js';
 import { TypedConfirmDialog } from './TypedConfirmDialog.js';
@@ -48,6 +49,43 @@ export interface FactoryResetPageProps {
   onCompleted?(result: FactoryResetResult | null): void;
   /** Poll interval of the job status, in milliseconds. Default 1500. */
   pollIntervalMs?: number;
+  /** Optional extension slots; omitted, the page renders exactly as it always did. */
+  slots?: FactoryResetPageSlots;
+  /** The page's words, each optional; omitted, the platform wording. */
+  copy?: FactoryResetPageCopy;
+}
+
+/**
+ * The slots of {@link FactoryResetPage}: the page-slot contract. `Sections` is
+ * drawn at both ends of the body, around the warning, the lists and the button.
+ * The "Deleted" and "Kept" lists themselves come from the summary route: an app
+ * adds a line by registering a factory reset step or a kept model with a
+ * `summary` on the API, not by a slot.
+ *
+ * @example
+ * ```tsx
+ * <FactoryResetPage slots={{ BeforeContent: () => <Alert severity="warning">Announce the reset first.</Alert> }} />
+ * ```
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export type FactoryResetPageSlots = PageSlotsBase;
+
+/**
+ * The words of {@link FactoryResetPage}, each optional.
+ *
+ * @stability experimental
+ */
+export interface FactoryResetPageCopy {
+  /** The `h1`. Default "Factory reset". */
+  title?: string;
+  /** The bold sentence in the red-bordered warning. Default "This erases the whole application for everyone and cannot be undone." */
+  warning?: ReactNode;
+  /** The heading of the left column. Default "Deleted". */
+  deletedHeading?: string;
+  /** The heading of the right column. Default "Kept". */
+  keptHeading?: string;
 }
 
 /**
@@ -94,6 +132,12 @@ export function FactoryResetPage(props: FactoryResetPageProps): ReactElement {
   });
 
   const disabled = summary?.disabledReason === USER_DATA_ERROR_CODES.FACTORY_RESET_DISABLED_IN_SAAS;
+  const title = props.copy?.title ?? FACTORY_RESET_PAGE_TITLE;
+  // The lists come from the API (the platform's lines, then the app's); the
+  // constants are what the page prints until the summary arrives or when it
+  // cannot be read, and they are the platform's lines word for word.
+  const deletedLines = summary?.deleted ?? FACTORY_RESET_DELETED;
+  const keptLines = summary?.kept ?? FACTORY_RESET_KEPT;
   const counts = job.result?.counts ?? {};
   const rows = Object.entries(counts)
     .filter(([key]) => key !== 'storageObjectsFailed')
@@ -107,12 +151,18 @@ export function FactoryResetPage(props: FactoryResetPageProps): ReactElement {
   return (
     <Container maxWidth="md">
       <Box sx={{ py: { xs: 2, sm: 4 } }}>
-        <Typography variant="h4" component="h1" gutterBottom>
-          {FACTORY_RESET_PAGE_TITLE}
-        </Typography>
+        <PageSlotsFrame
+          slots={props.slots}
+          headerProps={{ title, actions: null }}
+          header={
+            <Typography variant="h4" component="h1" gutterBottom>
+              {title}
+            </Typography>
+          }
+        >
         <Paper variant="outlined" sx={{ p: 2, mb: 3, borderColor: 'error.main', borderWidth: 2 }}>
           <Typography color="error" sx={{ fontWeight: 600 }} gutterBottom>
-            This erases the whole application for everyone and cannot be undone.
+            {props.copy?.warning ?? 'This erases the whole application for everyone and cannot be undone.'}
           </Typography>
           <Typography>
             Take a database backup first: it is the only way back.{' '}
@@ -134,7 +184,7 @@ export function FactoryResetPage(props: FactoryResetPageProps): ReactElement {
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 3 }}>
           <Paper variant="outlined" sx={{ p: 2, flex: 1 }}>
             <Typography variant="h6" component="h2" gutterBottom>
-              Deleted
+              {props.copy?.deletedHeading ?? 'Deleted'}
             </Typography>
             {summary ? (
               <List dense aria-label="Counts">
@@ -148,21 +198,22 @@ export function FactoryResetPage(props: FactoryResetPageProps): ReactElement {
               <Skeleton variant="rectangular" height={80} aria-label="Loading" />
             )}
             <List dense aria-label="What is deleted">
-              {FACTORY_RESET_DELETED.map((text) => line(text, text))}
+              {deletedLines.map((text) => line(text, text))}
             </List>
           </Paper>
           <Paper variant="outlined" sx={{ p: 2, flex: 1 }}>
             <Typography variant="h6" component="h2" gutterBottom>
-              Kept
+              {props.copy?.keptHeading ?? 'Kept'}
             </Typography>
             <List dense aria-label="What is kept">
-              {FACTORY_RESET_KEPT.map((text) => line(text, text))}
+              {keptLines.map((text) => line(text, text))}
             </List>
           </Paper>
         </Stack>
         <Button variant="contained" color="error" disabled={disabled} onClick={() => setOpen(true)}>
           Factory reset
         </Button>
+        </PageSlotsFrame>
         <TypedConfirmDialog
           open={open}
           title="Factory reset"

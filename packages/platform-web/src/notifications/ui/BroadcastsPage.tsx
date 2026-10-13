@@ -94,6 +94,8 @@ import { DataTable } from './datatable.js';
 import type { DataTableFilterModel, DataTableRowAction } from './datatable.js';
 import { BroadcastComposer } from './BroadcastComposer.js';
 import { BroadcastDetailDialog } from './BroadcastDetailDialog.js';
+import { PageSlotsFrame } from '../../core/index.js';
+import type { PageSlotsBase } from '../../core/index.js';
 import { usePermissions } from '../../identity/index.js';
 import { useNotificationChannels } from '../headless/useNotificationChannels.js';
 import {
@@ -130,6 +132,24 @@ const PAGE_DESCRIPTION =
   'Write an announcement and send it to every active user now or at a scheduled time, then watch it go out.';
 
 /**
+ * The slots of {@link BroadcastsPage}: the page-slot contract. `BeforeContent` is where an app puts a reminder (an approval policy) above the "New broadcast" button; `Sections` is drawn at both ends of the body, around the list and its table.
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export type BroadcastsPageSlots = PageSlotsBase;
+
+/**
+ * The props of {@link BroadcastsPage}.
+ *
+ * @stability experimental
+ */
+export interface BroadcastsPageProps {
+  /** Optional extension slots; omitted, the page renders exactly as it always did. */
+  slots?: BroadcastsPageSlots;
+}
+
+/**
  * The `/admin/settings/broadcasts` page: the broadcast list, the composer and the detail dialog. A holder of `org_broadcasts:read` only sees and sends their organization's broadcasts.
  *
  * @returns the page.
@@ -137,7 +157,8 @@ const PAGE_DESCRIPTION =
  * @extensionPoint component
  * @stability experimental
  */
-export default function BroadcastsPage() {
+export default function BroadcastsPage(props: BroadcastsPageProps = {}) {
+  const { slots } = props;
   const { hasPermission } = usePermissions();
 
   const { broadcasts, total, isLoading, error, fetchBroadcasts, refresh } = useBroadcasts();
@@ -367,19 +388,26 @@ export default function BroadcastsPage() {
   return (
     <Container maxWidth="xl">
       <Box sx={{ py: 4 }}>
-        {/* Title and description MIRROR the registry card so the hub card, the
-            rail row, the compact AppBar title and this `h1` all name the page
-            identically. */}
-        <Typography variant="h4" component="h1" gutterBottom>
-          {PAGE_TITLE}
-        </Typography>
-        <Typography color="text.secondary" sx={{ mb: 3 }}>
-          {PAGE_DESCRIPTION}
-          {/* Stated up front rather than left for the operator to discover by
-              finding every control disabled. */}
-          {!canWrite && ' (read-only)'}
-        </Typography>
-
+        <PageSlotsFrame
+          slots={slots}
+          headerProps={{ title: PAGE_TITLE, description: PAGE_DESCRIPTION, readOnly: !canWrite, actions: null }}
+          header={
+            <>
+              {/* Title and description MIRROR the registry card so the hub card, the
+                  rail row, the compact AppBar title and this `h1` all name the page
+                  identically. */}
+              <Typography variant="h4" component="h1" gutterBottom>
+                {PAGE_TITLE}
+              </Typography>
+              <Typography color="text.secondary" sx={{ mb: 3 }}>
+                {PAGE_DESCRIPTION}
+                {/* Stated up front rather than left for the operator to discover by
+                    finding every control disabled. */}
+                {!canWrite && ' (read-only)'}
+              </Typography>
+            </>
+          }
+        >
         {actions.error && (
           <Alert severity="error" sx={{ mb: 2 }} onClose={actions.clearError}>
             {actions.error}
@@ -480,6 +508,8 @@ export default function BroadcastsPage() {
               : 'Nothing is queued or sending, so the list is not being polled.'}
           </Typography>
         </Paper>
+
+        </PageSlotsFrame>
 
         <BroadcastComposer
           open={composerOpen}

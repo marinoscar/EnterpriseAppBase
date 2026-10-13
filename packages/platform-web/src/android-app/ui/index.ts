@@ -2,7 +2,15 @@
 // components (issue #746): the admin page, the update banner, the download
 // button and the packaged settings page. Documented in ../README.md.
 
-export { ANDROID_PACKAGE_ERROR, ANDROID_SHA_ERROR, AndroidAppPage } from './AndroidAppPage.js';
+export {
+  ANDROID_PACKAGE_ERROR,
+  ANDROID_SHA_ERROR,
+  AndroidAppPage,
+  NotificationsSection,
+  ReleasesSection,
+  TrustedAppsSection,
+} from './AndroidAppPage.js';
+export type { AndroidAppPageProps, AndroidAppPageSlots, AndroidAppSectionProps } from './AndroidAppPage.js';
 export { AndroidUpdateBanner } from './AndroidUpdateBanner.js';
 export type { AndroidUpdateBannerProps } from './AndroidUpdateBanner.js';
 export { DownloadApkButton } from './DownloadApkButton.js';
