@@ -354,6 +354,21 @@
     "slice": "ai"
   },
   {
+    "dir": "0036_add_app_metadata",
+    "id": "0036_add_app_metadata",
+    "requires": [
+      "ai",
+      "sharing"
+    ],
+    "sha256": "17e727075b3d02d129f60cdebf156b9736113e3b689ff35513c474c520185f75",
+    "since": "1.0.0",
+    "slice": "identity",
+    "touches": [
+      "ai",
+      "sharing"
+    ]
+  },
+  {
     "dir": "0037_open_sharing_vocabularies",
     "id": "0037_open_sharing_vocabularies",
     "requires": [],

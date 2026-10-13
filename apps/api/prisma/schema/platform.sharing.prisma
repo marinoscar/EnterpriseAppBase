@@ -157,6 +157,12 @@ model GroupInvite {
 // exactly those four shapes and `grants_active_ref_uniq_idx` keeps one ACTIVE
 // grant per (resource, kind, reference).
 
+// @extensible — back-relations only, added with "extend model Grant { ... }" in a fragment
+// (an app's own annotation of a grant, for example an approval record). The table is
+// org-owned with row-level security forced, so a table of the app's that holds `org_id`
+// links with a composite foreign key `(grant_id, org_id)` -> `grants (id, org_id)`; the
+// `@@unique([id, orgId])` below exists for it. The two partial unique indexes of the
+// table stay raw SQL (never an `@@unique` on their columns).
 model Grant {
   id                  String           @id @default(uuid()) @db.Uuid
   orgId               String           @map("org_id") @db.Uuid
@@ -196,5 +202,7 @@ model Grant {
   @@index([granteeUserId])
   @@index([granteeGroupId])
   @@index([orgId])
+  // The target of an app table's composite foreign key (id, org_id); see the note above the model.
+  @@unique([id, orgId])
   @@map("grants")
 }

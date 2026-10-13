@@ -1294,6 +1294,32 @@ more `CredentialsService` entry, at its own purpose (`email_ses`), independent
 of the object-storage secret; the access key id is an ordinary field in the
 `email` settings namespace. Neither authorizes the other.
 
+### Metadata is not a credential store
+
+`users.metadata` and `organizations.metadata` are JSONB documents an **app** fills with namespaced fields
+(`registerUserMetadataSchema`, `registerOrganizationMetadataSchema`, [identity README](../packages/platform-api/src/identity/README.md#app-metadata-on-users-and-organizations)).
+They are plain JSON: nothing encrypts them, and they are copied into backups and exports. So no secret goes there; a
+secret goes in one of the stores above, and at most a `hasKey`-style flag in metadata. The package enforces what it
+can see, as a tripwire against the honest mistake, not a defence against a determined author (a name filter cannot
+recognise a secret by its value):
+
+- **At registration**, a namespace schema must be a closed object (no `z.any()`, `z.unknown()`, `z.date()`, loose
+  object) and may not declare a property named like a secret: the settings deny-list (`secret`, `password`,
+  `apiKey`, `token`, `privateKey`, `secretKey`, `secretAccessKey`, `sessionToken`) plus `accessToken`,
+  `refreshToken`, `authToken`, `bearer`, `authorization`, `credential(s)`, `passphrase`, `clientSecret`,
+  `signingKey`, compared case-insensitively with `_`, `-` and `.` ignored, and any name ending in `secret`,
+  `password`, `apiKey`, `privateKey`, ... (`webhookSecret`, `stripeApiKey`).
+- **On every write**, the validated value is walked and an object key named like a secret, at any depth, is refused
+  (this covers the keys of a `z.record`). The size of the whole document is capped at 16 KiB, with a database CHECK
+  (an object, at most 32 KiB of `jsonb` text) behind it, so a runaway writer cannot bloat the principal-adjacent
+  `users` row.
+- **Never exposed by the package.** No platform route returns the document and the helpers return one namespace at a
+  time. An app that exposes a namespace returns exactly the fields it chooses, behind its own `@Auth(...)`.
+- **Authorisation is the caller's.** The helpers do not decide who may read or write a document; the route does.
+  `users` and `organizations` have no row-level security.
+- `Credential` is `@extensible` for **non-secret** bookkeeping relations only; no app table may copy or relate to the
+  `secret` column, and `Permission` stays closed.
+
 ### The cipher
 
 `packages/platform-api/src/core/crypto/secret-cipher.ts`, exported by
@@ -1384,7 +1410,7 @@ never billed for a user whose own key broke. Design:
 | Refresh token replay | Reuse detection revokes every session |
 | Leaked node credential | Route allowlist; cannot mint credentials; revocable; span relay rate-limited and attributed to held jobs only |
 | Leaked database of tokens | Every bearer token and refresh token stored as SHA-256 |
-| Leaked database of secrets | AES-256-GCM, purpose-bound keys, key only in the environment |
+| Leaked database of secrets | AES-256-GCM, purpose-bound keys, key only in the environment; app metadata refuses secret-named fields and keys ([§10](#metadata-is-not-a-credential-store)) |
 | Privilege escalation | Server-side guards; roles and permissions reloaded from the database per request |
 | IDOR | Ownership checks in services (storage objects, AI runs, PATs, device sessions) |
 | Mass assignment | Zod DTOs strip unknown keys |

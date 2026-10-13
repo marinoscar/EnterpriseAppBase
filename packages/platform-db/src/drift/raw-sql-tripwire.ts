@@ -148,8 +148,12 @@ function splitTopLevel(text: string): string[] {
   return parts;
 }
 
-/** The text inside the parenthesis opened at `open`, and what follows its closing one. */
-function balanced(text: string, open: number): { inner: string; rest: string } | undefined {
+/**
+ * The text inside the parenthesis opened at `open`, and what follows its closing one.
+ *
+ * @internal
+ */
+export function balanced(text: string, open: number): { inner: string; rest: string } | undefined {
   let depth = 0;
   let quote = '';
   for (let i = open; i < text.length; i += 1) {
@@ -166,23 +170,29 @@ function balanced(text: string, open: number): { inner: string; rest: string } |
   return undefined;
 }
 
-interface Created extends ScannedIndex {
+/**
+ * An index found by reading migration SQL, with whether it is raw (partial or
+ * keyed on an expression).
+ *
+ * @stability experimental
+ */
+export interface ScannedAnyIndex extends ScannedIndex {
+  /** True when the index has a `WHERE` clause or a key element that is an expression. */
   raw: boolean;
 }
 
 /**
- * Reads the indexes that migration SQL leaves behind, in statement order: a
+ * Reads every index that migration SQL leaves behind, in statement order: a
  * `CREATE INDEX` or `CREATE UNIQUE INDEX` statement adds one, `DROP INDEX`
  * removes it and `ALTER INDEX` with `RENAME TO` renames it. Comments are
- * ignored. An index is raw when it has a `WHERE` clause or any key element
- * that is an expression.
+ * ignored. {@link scanRawSqlIndexes} keeps only the raw ones.
  *
  * @param migrations - `[id, sql]` pairs in history order.
- * @returns The raw-SQL indexes that survive the whole history, in creation order.
+ * @returns The indexes that survive the whole history, in creation order.
  * @stability experimental
  */
-export function scanRawSqlIndexes(migrations: ReadonlyArray<readonly [string, string]>): ScannedIndex[] {
-  const live = new Map<string, Created>();
+export function scanAllIndexes(migrations: ReadonlyArray<readonly [string, string]>): ScannedAnyIndex[] {
+  const live = new Map<string, ScannedAnyIndex>();
   const firstCreated = new Map<string, string>();
   for (const [id, sql] of migrations) {
     for (const statement of splitSqlStatements(sql)) {
@@ -223,7 +233,20 @@ export function scanRawSqlIndexes(migrations: ReadonlyArray<readonly [string, st
       }
     }
   }
-  return [...live.values()]
+  return [...live.values()];
+}
+
+/**
+ * Reads the raw-SQL indexes that migration SQL leaves behind (see
+ * {@link scanAllIndexes}): an index is raw when it has a `WHERE` clause or any
+ * key element that is an expression.
+ *
+ * @param migrations - `[id, sql]` pairs in history order.
+ * @returns The raw-SQL indexes that survive the whole history, in creation order.
+ * @stability experimental
+ */
+export function scanRawSqlIndexes(migrations: ReadonlyArray<readonly [string, string]>): ScannedIndex[] {
+  return scanAllIndexes(migrations)
     .filter((index) => index.raw)
     .map(({ raw: _raw, ...index }) => index);
 }
@@ -417,8 +440,12 @@ export function checkRawSqlIndexSources(input: TripwireInput): TripwireProblem[]
   return problems;
 }
 
-/** The key columns of a listed index definition, or `undefined` when a key element is an expression. */
-function columnsOfDefinition(definition: string): string[] | undefined {
+/**
+ * The key columns of a listed index definition, or `undefined` when a key element is an expression.
+ *
+ * @internal
+ */
+export function columnsOfDefinition(definition: string): string[] | undefined {
   const open = definition.search(/\sUSING\s+\w+\s*\(/i);
   if (open < 0) return undefined;
   const group = balanced(definition, definition.indexOf('(', open));

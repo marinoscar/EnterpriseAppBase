@@ -1,4 +1,5 @@
 import { originIdOf, type LockEntry, type ManifestEntry, type PlatformLock } from '../lock/index.js';
+import { checkAppMigrations } from './app-migrations.js';
 import { SyncError } from './errors.js';
 import { nextTimestamps } from './timestamps.js';
 
@@ -32,6 +33,8 @@ export interface SyncPlan {
   platformVersion: string;
   /** The lock the plan was derived from. */
   baseLock: PlatformLock;
+  /** The app-authored migration directories that exist now; `applySync` records them in the lock as `appMigrations` (see {@link checkAppMigrations}). */
+  appMigrations: string[];
 }
 
 /** The directory slug of a package migration id: the id without its numeric prefix, kebab to snake. */
@@ -76,7 +79,7 @@ export function assertRequiresSatisfied(manifest: readonly ManifestEntry[]): voi
  * @param now - The clock; the `--timestamp` override of the command.
  * @param platformVersion - The version to record in the lock (default: the lock's current one).
  * @returns The plan; `installs` is empty when nothing is missing.
- * @throws SyncError `REQUIRES_VIOLATION`, `NOT_IN_PACKAGE` or `LOCK_GAP`.
+ * @throws SyncError `REQUIRES_VIOLATION`, `NOT_IN_PACKAGE`, `LOCK_GAP` or `APP_MIGRATION_COLLISION` (an app-authored directory named like a package migration, or one that would reorder the installed history).
  * @stability experimental
  */
 export function planSync(
@@ -108,6 +111,14 @@ export function planSync(
     }
   });
 
+  const collisions = checkAppMigrations(manifest, lock, localDirs);
+  if (collisions.length > 0) {
+    throw new SyncError(
+      'APP_MIGRATION_COLLISION',
+      `${collisions.length} app migration(s) collide with the platform history, nothing was installed:\n${collisions.map((c) => `  ${c.code}  ${c.message}`).join('\n')}`,
+    );
+  }
+
   const pending = manifest.slice(lock.migrations.length);
   const stamps = nextTimestamps(localDirs, pending.length, now);
   const installs = pending.map(
@@ -119,7 +130,9 @@ export function planSync(
       since: entry.since,
     }),
   );
-  return { installs, platformVersion, baseLock: lock };
+  const locked = new Set(lock.migrations.map((entry) => entry.localDir));
+  const appMigrations = [...localDirs].filter((dir) => !locked.has(dir)).sort();
+  return { installs, platformVersion, baseLock: lock, appMigrations };
 }
 
 /** The lock entry an install records. */

@@ -10,6 +10,7 @@
  * - `PROMOTE_CONFLICT`: the slug or directory is already recorded with different bytes or origin.
  * - `PROMOTE_NOT_SYNCED`: the app lock does not yet hold every package migration.
  * - `PROMOTE_ORDER`: the directory sorts before the last installed platform migration.
+ * - `APP_MIGRATION_COLLISION`: an app-authored migration directory is named like a package migration or would reorder the installed history (see `checkAppMigrations`); sync installs nothing until it is fixed.
  *
  * @stability experimental
  */
@@ -22,7 +23,8 @@ export type SyncErrorCode =
   | 'PROMOTE_INVALID'
   | 'PROMOTE_CONFLICT'
   | 'PROMOTE_NOT_SYNCED'
-  | 'PROMOTE_ORDER';
+  | 'PROMOTE_ORDER'
+  | 'APP_MIGRATION_COLLISION';
 
 /**
  * A refusal of `platform db sync` or `platform db promote`, with a stable code.

@@ -1,6 +1,8 @@
 // Types of the platform seed (issue #712). Kept apart from the functions so the
 // structural `SeedPrisma` can be read, and mocked, without importing a client.
 
+import type { SeedStepSummary } from './steps.js';
+
 /**
  * A JSON value, the shape of a `SystemSettings.value` column.
  *
@@ -112,6 +114,8 @@ export interface SeedSummary {
   allowlistedEmail: string | null;
   /** True when this run created the default organization; false when one already existed. */
   defaultOrganizationCreated: boolean;
+  /** What each extra step did, in run order. Present only when the run was given `extras`. */
+  extras?: SeedStepSummary[];
 }
 
 /**
@@ -223,17 +227,17 @@ export interface SeedOrganizationDelegate {
   /**
    * Find the default organization, whatever its slug has become.
    *
-   * @param args - Filters on `isDefault`.
+   * @param args - Filters on `isDefault` and selects only `id`, so the seed never reads a column a later migration adds.
    * @returns The row, or `null` when none is flagged default.
    */
-  findFirst(args: { where: { isDefault: true } }): PromiseLike<SeedRowId | null>;
+  findFirst(args: { where: { isDefault: true }; select: { id: true } }): PromiseLike<SeedRowId | null>;
   /**
    * Create the default organization when its slug is free; an existing row is left as it is.
    *
    * @param args - Keyed on `slug`.
    * @returns Anything awaitable.
    */
-  upsert(args: SeedUpsertArgs<{ slug: string }, Record<string, never>, { name: string; slug: string; isDefault: true }>): PromiseLike<unknown>;
+  upsert(args: SeedUpsertArgs<{ slug: string }, Record<string, never>, { name: string; slug: string; isDefault: true }> & { select: { id: true } }): PromiseLike<unknown>;
 }
 
 /**

@@ -113,6 +113,10 @@ const MIGRATIONS_AT_288 = [
   // PP-14.17 (#935): the nullable feature column on ai_runs and ai_usage_events
   // (per-feature AI usage; the four operational events still need nothing).
   '20261013154013_ai_usage_feature',
+  // PP-14.27 (#945): the metadata column on users and organizations and the
+  // (id, org_id) keys on ai_runs and grants (the four operational events still
+  // need nothing).
+  '20261013195500_add_app_metadata',
   // PP-14.15b (#967): the sharing vocabularies (group roles, grantee kinds) become text and grants gain grantee_ref.
   '20261013214001_open_sharing_vocabularies',
 ];

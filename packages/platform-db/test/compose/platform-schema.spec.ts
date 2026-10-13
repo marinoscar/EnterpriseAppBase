@@ -60,8 +60,21 @@ describe('the shipped platform fragments', () => {
     }
   });
 
-  it('mark exactly User, Job, StorageObject, Organization and Group as extensible', () => {
-    expect(composeFragments(inputs).extensible).toEqual(['Group', 'Job', 'Organization', 'StorageObject', 'User']);
+  it('mark exactly the eleven owner-approved models as extensible, and keep Permission closed', () => {
+    expect(composeFragments(inputs).extensible).toEqual([
+      'AiRun',
+      'Credential',
+      'Grant',
+      'Group',
+      'Job',
+      'Notification',
+      'NotificationDelivery',
+      'Organization',
+      'Role',
+      'StorageObject',
+      'User',
+    ]);
+    expect(composeFragments(inputs).extensible).not.toContain('Permission');
   });
 
   it('compose on their own with no warning and no rejection', () => {

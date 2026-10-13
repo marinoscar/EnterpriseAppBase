@@ -80,10 +80,10 @@ describe('fixture app with a domain (Workout)', () => {
 
   it('rejects the same fixture when a platform model is not extensible', () => {
     const frag = join(opts.appFragmentsDir, 'locked.prisma');
-    writeFileSync(frag, 'extend model Role {\n  workouts Workout[]\n}\n');
+    writeFileSync(frag, 'extend model Permission {\n  workouts Workout[]\n}\n');
     try {
       expect(() => composeSchema(opts)).toThrow(ComposeError);
-      expect(() => composeSchema(opts)).toThrow(/locked\.prisma:1: NOT_EXTENSIBLE: .*Role/);
+      expect(() => composeSchema(opts)).toThrow(/locked\.prisma:1: NOT_EXTENSIBLE: .*Permission/);
     } finally {
       rmSync(frag);
     }

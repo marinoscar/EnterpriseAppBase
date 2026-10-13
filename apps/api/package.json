@@ -32,6 +32,7 @@
     "prisma:push": "node scripts/prisma-env.js db push",
     "db:sync": "platform db sync",
     "db:check": "platform db check",
+    "db:policies": "platform db policies",
     "db:check:database": "node scripts/platform-env.js db check --database",
     "db:promote": "platform db promote",
     "db:drift": "node scripts/platform-env.js db drift",

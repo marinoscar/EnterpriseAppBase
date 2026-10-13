@@ -116,7 +116,8 @@ describeWithDb('system/org role split against real Postgres', () => {
   const before = new Map<UserKey, string[]>();
 
   async function effective(key: UserKey) {
-    const user = await prisma.user.findUniqueOrThrow({ where: { id: USERS[key].id }, include: PRINCIPAL_USER_INCLUDE });
+    // `omit`: this database is migrated only as far as the split, so the later `metadata` column is not there to read.
+    const user = await prisma.user.findUniqueOrThrow({ where: { id: USERS[key].id }, include: PRINCIPAL_USER_INCLUDE, omit: { metadata: true } });
     return resolveEffectiveAccess(user, 'single');
   }
 
@@ -229,7 +230,7 @@ describeWithDb('system/org role split against real Postgres', () => {
       ['none', 'viewer'],
       ['noMembership', 'contributor'],
     ])('gives %s the membership role %s', async (key, roleName) => {
-      const memberships = await prisma.membership.findMany({ where: { userId: USERS[key].id }, include: { role: true, org: true } });
+      const memberships = await prisma.membership.findMany({ where: { userId: USERS[key].id }, include: { role: true, org: { select: { isDefault: true } } } });
 
       expect(memberships.map((m) => [m.org.isDefault, m.role.name, m.status])).toEqual([[true, roleName, 'active']]);
     });

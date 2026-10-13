@@ -45,5 +45,6 @@ export function applySync(plan: SyncPlan, io: SyncIo): PlatformLock {
     ...plan.baseLock,
     platformVersion: plan.installs.length ? plan.platformVersion : plan.baseLock.platformVersion,
     migrations: [...plan.baseLock.migrations, ...plan.installs.map(lockEntryOf)],
+    ...(plan.installs.length ? { appMigrations: plan.appMigrations } : {}),
   };
 }
