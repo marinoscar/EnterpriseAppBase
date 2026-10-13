@@ -41,7 +41,7 @@ import type {
 import type { Principal } from '../../core/index';
 import { Trace } from '../../otel-core/index';
 import { AccessPolicy } from '../access/access-policy.service';
-import { GranteeInputError, findGranteeKind } from '../access/grantee-kinds';
+import { BUILTIN_GRANTEE_KIND_IDS, GranteeInputError, findGranteeKind, granteeKindVia, granteeWhereFor, persistedGranteeKinds, withGroups, type GranteeKindDef } from '../access/grantee-kinds';
 import { findResourceType, resourceTypeRegistry, type ResolvedResourceType, type ResourceDescription } from '../access/resource-types';
 import { asSharingTx, type GrantRow, type SharingTx, type UserRow } from '../data/sharing-tx';
 import {
@@ -69,6 +69,7 @@ import { SHARING_PERMISSIONS } from '../permissions';
 import { linkEventPayload, linkShareAction, resolveLinkExpiry, writeLinkAudit } from '../links/link-grants.service';
 import { SHARING_DATA, type SharingDataPort } from '../ports';
 import { PrincipalGroupsProvider } from '../principal-groups.provider';
+import { SHARING_LIMITS } from '@marinoscar/platform-contract/sharing';
 import { SHARING_LINK_DEFAULTS, SHARING_OPTIONS, type ResolvedSharingModuleOptions } from '../sharing.options';
 
 /**
@@ -132,6 +133,9 @@ export function toGrantDto(row: GrantWithGrantee): GrantDto {
       displayName: row.granteeUser ? (row.granteeUser.displayName ?? row.granteeUser.providerDisplayName ?? null) : null,
       groupId: row.granteeGroupId,
       groupName: row.granteeGroup?.name ?? null,
+      ref: row.granteeRef ?? null,
+      // Filled by the service for an app kind (its `describe` is asynchronous).
+      display: null,
     },
     role: row.role,
     expiresAt: iso(row.expiresAt),
@@ -239,8 +243,8 @@ export class GrantsService {
   }
 
   /**
-   * `GET /api/grants?resourceType&resourceId`: the record's active user and
-   * group grants, oldest first. The caller must pass the `share` action.
+   * `GET /api/grants?resourceType&resourceId`: the record's active grants of
+   * every kind but links (user, group and app kinds), oldest first. The caller must pass the `share` action.
    *
    * @param principal - the caller (`sharing:read`).
    * @param query - the record and the page.
@@ -254,7 +258,7 @@ export class GrantsService {
     return this.data.runInOrg({ orgId, userId: principal.userId }, async (raw) => {
       const tx = asSharingTx(raw);
       await this.policy.requireIn(raw, principal, 'share', { type: rt.type, id: query.resourceId });
-      const where = { orgId, resourceType: rt.type, resourceId: query.resourceId, revokedAt: null, granteeKind: { in: ['user', 'group'] } };
+      const where = { orgId, resourceType: rt.type, resourceId: query.resourceId, revokedAt: null, granteeKind: { not: 'link' } };
       const total = await tx.grant.count({ where });
       const rows = await tx.grant.findMany<GrantWithGrantee>({
         where,
@@ -264,12 +268,13 @@ export class GrantsService {
         take: query.pageSize,
       });
       return paged(rows.map(toGrantDto), total, query.page, query.pageSize);
-    });
+    }).then((page) => this.describeGrantees(page));
   }
 
   /**
-   * `POST /api/grants`: shares a record with a user (by id or e-mail) or a
-   * group of its organization. A grantee that already holds an active grant
+   * `POST /api/grants`: shares a record with a user (by id or e-mail), a
+   * group of its organization or a grantee of a registered persisted app kind
+   * (`kind: 'custom'`). A grantee that already holds an active grant
    * gets the new role (one role per grantee). Failed lookups by e-mail count
    * against the caller's throttle.
    *
@@ -302,13 +307,17 @@ export class GrantsService {
         const tx = asSharingTx(raw);
         await this.policy.requireIn(raw, principal, 'share', ref);
         // Only a caller who may share the record learns what a kind says about a grantee.
-        if (grantee.kind === 'custom') throw await this.refuseCustomGrantee(grantee.granteeKind, grantee.ref);
-        const grantable = rt.grantable(grantee.kind);
-        if (!grantable.includes(input.role)) throw roleNotGrantable(input.role, grantee.kind, grantable);
+        const custom = grantee.kind === 'custom' ? await this.resolveCustomGrantee(grantee.granteeKind, grantee.ref) : null;
+        const kind = custom ? custom.def.kind : grantee.kind;
+        const grantable = rt.grantable(kind);
+        if (!grantable.includes(input.role)) throw roleNotGrantable(input.role, kind, grantable);
 
-        // The grantee: an active member of the record's organization, or one of its groups.
+        // The grantee: an active member of the record's organization, one of its groups, or the
+        // reference an app kind validated (the kind scopes it; the row is confined to this organization).
         let granteeId: string;
-        if (grantee.kind === 'user') {
+        if (custom) {
+          granteeId = custom.ref;
+        } else if (grantee.kind === 'user') {
           const select = { id: true, isActive: true };
           const target = byEmail
             ? await tx.user.findFirst<Pick<UserRow, 'id' | 'isActive'>>({ where: { email: { equals: grantee.email, mode: 'insensitive' } }, select })
@@ -323,10 +332,12 @@ export class GrantsService {
             throw notAnOrgMember();
           }
           granteeId = target.id;
-        } else {
+        } else if (grantee.kind === 'group') {
           const group = await tx.group.findFirst<{ id: string }>({ where: { id: grantee.groupId, orgId }, select: { id: true } });
           if (!group) throw groupNotInOrg();
           granteeId = group.id;
+        } else {
+          throw granteeKindUnknown(String((grantee as { kind: unknown }).kind));
         }
 
         // The cap counts the record's active grants; replacing a grantee's role never hits it.
@@ -337,13 +348,17 @@ export class GrantsService {
               resourceType: rt.type,
               resourceId: ref.id,
               revokedAt: null,
-              ...(grantee.kind === 'user' ? { granteeKind: 'user', granteeUserId: granteeId } : { granteeKind: 'group', granteeGroupId: granteeId }),
+              ...(custom
+                ? { granteeKind: kind, granteeRef: granteeId }
+                : grantee.kind === 'user'
+                  ? { granteeKind: 'user', granteeUserId: granteeId }
+                  : { granteeKind: 'group', granteeGroupId: granteeId }),
             },
           });
           if (mine === 0) throw conflict(SHARING_ERROR_REASONS.GRANT_LIMIT_REACHED, 'This record has reached its share limit');
         }
 
-        const [result] = await this.upsert(tx, { orgId, type: rt.type, resourceId: ref.id, kind: grantee.kind, granteeId, role: input.role, expiresAt, actorUserId: principal.userId });
+        const [result] = await this.upsert(tx, { orgId, type: rt.type, resourceId: ref.id, kind, granteeId, role: input.role, expiresAt, actorUserId: principal.userId });
         const row = (await tx.grant.findUnique<GrantWithGrantee>({ where: { id: result!.id }, include: GRANTEE_COLUMNS }))!;
         const previousRole = result!.inserted ? null : result!.previous_role;
         // A concurrent first grant of the same grantee: the row was not in our snapshot. Treat as a change.
@@ -375,32 +390,64 @@ export class GrantsService {
       ]);
     }
     if (outcome.notify) this.effects.notifySharedWithYou(outcome.row.granteeUserId!, outcome.notify, outcome.row.id);
-    return toGrantDto(outcome.row);
+    return (await this.describeGrantees({ items: [toGrantDto(outcome.row)] })).items[0]!;
   }
 
   /**
-   * A grantee of an app-registered kind. The registered kind validates it (422
-   * `GRANTEE_INVALID` with its message); a kind nobody registered is 422
-   * `GRANTEE_KIND_UNKNOWN`; a registered kind whose grants cannot be stored yet
-   * is 422 `GRANTEE_KIND_NOT_PERSISTABLE` (the `grants` table holds the
-   * built-in kinds only until the storage migration ships). Always an error.
+   * A grantee of an app-registered kind. The registered kind validates it and
+   * returns the normalised reference that is stored (422 `GRANTEE_INVALID` with
+   * its message when it rejects it); a kind nobody registered is 422
+   * `GRANTEE_KIND_UNKNOWN`; a registered kind that is not `persisted` is 422
+   * `GRANTEE_KIND_NOT_PERSISTABLE`. A built-in id is refused here (its own
+   * grantee shape creates those). The stored reference is a plain string of
+   * 1 to `granteeRefMax` characters: the kind is the platform's pin, never the
+   * kind's say-so, so a kind cannot write a row of another kind.
    */
-  private async refuseCustomGrantee(kind: string, ref: string): Promise<Error> {
+  private async resolveCustomGrantee(kind: string, input: string): Promise<{ def: GranteeKindDef; ref: string }> {
     const def = findGranteeKind(kind);
-    if (!def) return granteeKindUnknown(kind);
+    if (!def) throw granteeKindUnknown(kind);
+    if (BUILTIN_GRANTEE_KIND_IDS.includes(def.kind)) throw granteeInvalid(kind, 'Use the grantee shape of the built-in kind');
+    let ref: unknown;
     try {
-      await def.validateGrantee(ref);
+      ref = (await def.validateGrantee(input)).id;
     } catch (error) {
       // Only a message the kind wrote for people is shown; any other error is the app's internals.
-      return granteeInvalid(kind, error instanceof GranteeInputError && error.message ? error.message : 'That grantee is not valid');
+      throw granteeInvalid(kind, error instanceof GranteeInputError && error.message ? error.message : 'That grantee is not valid');
     }
-    return granteeKindNotPersistable(kind);
+    if (def.persisted !== true) throw granteeKindNotPersistable(kind);
+    if (typeof ref !== 'string' || ref.length === 0 || ref.length > SHARING_LIMITS.granteeRefMax || ref.includes('\u0000')) {
+      throw granteeInvalid(kind, 'That grantee is not valid');
+    }
+    return { def, ref };
+  }
+
+  /**
+   * Fills `grantee.display` of the app-kind grants of a page with the kind's own
+   * description. After the transaction (a kind's `describe` has no transaction),
+   * and a kind that throws, or is no longer registered, leaves it `null`.
+   */
+  private async describeGrantees<T extends { items: GrantDto[] }>(page: T): Promise<T> {
+    const items = await Promise.all(
+      page.items.map(async (item) => {
+        const { kind, ref } = item.grantee;
+        if (ref === null || BUILTIN_GRANTEE_KIND_IDS.includes(kind)) return item;
+        const def = findGranteeKind(kind);
+        if (!def) return item;
+        try {
+          const display = (await def.describe({ kind, id: ref })).display;
+          return typeof display === 'string' ? { ...item, grantee: { ...item.grantee, display: display.slice(0, SHARING_LIMITS.granteeRefMax) } } : item;
+        } catch {
+          return item;
+        }
+      }),
+    );
+    return { ...page, items };
   }
 
   /** `INSERT ... ON CONFLICT` on the partial unique index of the grantee's kind. */
   private upsert(
     tx: SharingTx,
-    g: { orgId: string; type: string; resourceId: string; kind: 'user' | 'group'; granteeId: string; role: string; expiresAt: Date | null; actorUserId: string },
+    g: { orgId: string; type: string; resourceId: string; kind: string; granteeId: string; role: string; expiresAt: Date | null; actorUserId: string },
   ): Promise<UpsertResult[]> {
     // The RETURNING sub-selects read the statement's snapshot: the row as it
     // was BEFORE this statement updated it (NULL for a row a concurrent
@@ -410,6 +457,18 @@ export class GrantsService {
         INSERT INTO grants (id, org_id, resource_type, resource_id, grantee_kind, grantee_user_id, role, expires_at, granted_by_id, created_at, updated_at)
         VALUES (gen_random_uuid(), ${g.orgId}::uuid, ${g.type}, ${g.resourceId}::uuid, 'user', ${g.granteeId}::uuid, ${g.role}, ${g.expiresAt}::timestamptz, ${g.actorUserId}::uuid, now(), now())
         ON CONFLICT (resource_type, resource_id, grantee_user_id) WHERE grantee_kind = 'user' AND revoked_at IS NULL
+        DO UPDATE SET role = EXCLUDED.role, expires_at = EXCLUDED.expires_at, updated_at = now()
+        RETURNING id::text AS id, (xmax = 0) AS inserted,
+          (SELECT p.role FROM grants p WHERE p.id = grants.id) AS previous_role,
+          (SELECT p.expires_at FROM grants p WHERE p.id = grants.id) AS previous_expires_at`;
+    }
+    if (g.kind !== 'group') {
+      // An app kind: the kind and the reference are bind parameters, the org is the caller's, and the CHECK
+      // `grants_grantee_consistency_check` refuses a built-in kind id here (it needs its own columns).
+      return tx.$queryRaw<UpsertResult[]>`
+        INSERT INTO grants (id, org_id, resource_type, resource_id, grantee_kind, grantee_ref, role, expires_at, granted_by_id, created_at, updated_at)
+        VALUES (gen_random_uuid(), ${g.orgId}::uuid, ${g.type}, ${g.resourceId}::uuid, ${g.kind}, ${g.granteeId}, ${g.role}, ${g.expiresAt}::timestamptz, ${g.actorUserId}::uuid, now(), now())
+        ON CONFLICT (resource_type, resource_id, grantee_kind, grantee_ref) WHERE grantee_kind NOT IN ('user', 'group', 'link') AND revoked_at IS NULL
         DO UPDATE SET role = EXCLUDED.role, expires_at = EXCLUDED.expires_at, updated_at = now()
         RETURNING id::text AS id, (xmax = 0) AS inserted,
           (SELECT p.role FROM grants p WHERE p.id = grants.id) AS previous_role,
@@ -507,7 +566,7 @@ export class GrantsService {
       this.effects.grantCommitted([{ name: SHARING_EVENTS.GRANT_UPDATED, payload }]);
     }
     if (outcome.notify) this.effects.notifySharedWithYou(outcome.row.granteeUserId!, outcome.notify, outcome.row.id);
-    return toGrantDto(outcome.row);
+    return (await this.describeGrantees({ items: [toGrantDto(outcome.row)] })).items[0]!;
   }
 
   /**
@@ -562,19 +621,19 @@ export class GrantsService {
     const orgId = requireActiveOrg(principal);
     const types = query.resourceType ? (findResourceType(query.resourceType) ? [query.resourceType] : []) : resourceTypeRegistry.ids();
     if (types.length === 0) return paged([], 0, query.page, query.pageSize);
-    const groupIds = (await this.principalGroups.groupsFor(principal)).filter((g) => g.orgId === orgId).map((g) => g.groupId);
+    // Who the caller is, by every persisted kind: the built-ins and any app kind (each pinned to its own kind).
+    const subject = withGroups(principal, await this.principalGroups.groupsFor(principal));
+    const grantees = persistedGranteeKinds().flatMap((def) => {
+      const named = granteeWhereFor(def, subject);
+      return named === null ? [] : [named];
+    });
     const where = {
       orgId,
       resourceType: { in: types },
       revokedAt: null,
       AND: [
         { OR: [{ expiresAt: null }, { expiresAt: { gt: new Date(this.now()) } }] },
-        {
-          OR: [
-            { granteeKind: 'user', granteeUserId: principal.userId },
-            ...(groupIds.length > 0 ? [{ granteeKind: 'group', granteeGroupId: { in: groupIds } }] : []),
-          ],
-        },
+        { OR: grantees },
       ],
     };
     return this.data.runInOrg({ orgId, userId: principal.userId }, async (raw) => {
@@ -600,7 +659,7 @@ export class GrantsService {
           resourceType: row.resourceType,
           resourceId: row.resourceId,
           role: row.role,
-          via: row.granteeKind === 'group' ? 'group_grant' : 'user_grant',
+          via: viaOf(row.granteeKind),
           groupId: row.granteeGroupId,
           title: label?.title ?? null,
           path: label?.path ?? null,
@@ -630,7 +689,7 @@ export class GrantsService {
           resourceType: row.resourceType,
           resourceId: row.resourceId,
           granteeKind: row.granteeKind,
-          granteeId: row.granteeUserId ?? row.granteeGroupId ?? null,
+          granteeId: row.granteeUserId ?? row.granteeGroupId ?? row.granteeRef ?? null,
           role: row.role,
           previousRole: input.previousRole,
         },
@@ -664,6 +723,12 @@ export class GrantsService {
   }
 }
 
+/** What a "shared with me" item reports as `via`: the registered kind's own, `<kind>_grant` for a kind that left the registry. */
+function viaOf(kind: string): string {
+  const def = findGranteeKind(kind);
+  return def ? granteeKindVia(def) : `${kind.replace(/-/g, '_')}_grant`;
+}
+
 /** The event payload of a grant: ids and roles only. */
 function eventPayload(row: GrantRow, previousRole: string | null, actorUserId: string): GrantEventPayload {
   return {
@@ -672,7 +737,7 @@ function eventPayload(row: GrantRow, previousRole: string | null, actorUserId: s
     resourceType: row.resourceType,
     resourceId: row.resourceId,
     granteeKind: row.granteeKind,
-    granteeId: row.granteeUserId ?? row.granteeGroupId ?? null,
+    granteeId: row.granteeUserId ?? row.granteeGroupId ?? row.granteeRef ?? null,
     role: row.role,
     previousRole,
     actorUserId,

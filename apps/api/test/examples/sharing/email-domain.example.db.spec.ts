@@ -16,8 +16,10 @@
 //     grant of ANOTHER organization never reaches the list (the composed
 //     `EXISTS` confines every fragment to `g.org_id`);
 //   - GET /api/sharing/grantee-kinds lists the kinds, and POST /api/grants
-//     refuses a grantee of an app kind (422) without writing a row: grants of an
-//     app kind cannot be stored until the sharing storage migration ships.
+//     validates a grantee of the app kind and refuses it (422) on a resource
+//     type that does not list the kind under `grantable`, writing no row. The
+//     stored grant, its decision, list and isolation are proven by
+//     ./open-vocabularies.example.db.spec.ts.
 // =============================================================================
 
 import type { Principal } from '@marinoscar/platform-api/core';
@@ -177,7 +179,7 @@ describeWithDb('sharing examples: grantee kinds (real Postgres)', () => {
       const res = await ex.http().get('/sharing/grantee-kinds').set(signIn(as('bob'))).expect(200);
       const items = (res.body.data ?? res.body).items as Array<{ kind: string; label: string; input: string; builtin: boolean; persisted: boolean }>;
       expect(items.map((item) => item.kind)).toEqual(['user', 'group', 'link', 'email-domain']);
-      expect(items.find((item) => item.kind === 'email-domain')).toMatchObject({ label: 'Email domain', input: 'text', builtin: false, persisted: false });
+      expect(items.find((item) => item.kind === 'email-domain')).toMatchObject({ label: 'Email domain', input: 'text', builtin: false, persisted: true });
       expect(items.find((item) => item.kind === 'user')).toMatchObject({ builtin: true, persisted: true, input: 'user-search' });
     });
 
@@ -189,11 +191,11 @@ describeWithDb('sharing examples: grantee kinds (real Postgres)', () => {
     const share = (who: Principal, grantee: unknown) =>
       ex.http().post('/grants').set(signIn(who)).send({ resourceType: NOTE_TYPE, resourceId: notes.private, role: 'viewer', grantee });
 
-    it('validates the grantee with its kind, then refuses to store it, writing nothing', async () => {
+    it('validates the grantee with its kind, then refuses a type that does not grant the kind, writing nothing', async () => {
       const invalid = await share(as('alice'), { kind: 'custom', granteeKind: 'email-domain', ref: "x'); DROP TABLE grants; --" }).expect(422);
       expect(JSON.stringify(invalid.body)).toContain('GRANTEE_INVALID');
       const valid = await share(as('alice'), { kind: 'custom', granteeKind: 'email-domain', ref: 'example.com' }).expect(422);
-      expect(JSON.stringify(valid.body)).toContain('GRANTEE_KIND_NOT_PERSISTABLE');
+      expect(JSON.stringify(valid.body)).toContain('ROLE_NOT_GRANTABLE');
       const unknown = await share(as('alice'), { kind: 'custom', granteeKind: 'team', ref: 'x' }).expect(422);
       expect(JSON.stringify(unknown.body)).toContain('GRANTEE_KIND_UNKNOWN');
       const rows = await db.system.$transaction(async (tx) => {

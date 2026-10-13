@@ -11,6 +11,7 @@ import {
   groupMemberListSchema,
   groupMemberSchema,
   groupMembershipSchema,
+  groupRoleListSchema,
   groupSchema,
   myGroupInviteListSchema,
   pageQuerySchema,
@@ -123,3 +124,10 @@ export class MyGroupInviteListResponseDto extends createZodDto(myGroupInviteList
  * @stability experimental
  */
 export class GroupMembershipResponseDto extends createZodDto(groupMembershipSchema) {}
+
+/**
+ * `GET /api/sharing/group-roles` response.
+ *
+ * @stability experimental
+ */
+export class GroupRoleListResponseDto extends createZodDto(groupRoleListSchema) {}

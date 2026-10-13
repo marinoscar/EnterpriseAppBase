@@ -25,6 +25,7 @@ import { Inject, Injectable } from '@nestjs/common';
 
 import type { ModelOwnershipDef, UserOwnedModelDef } from '../core/index';
 import { asSharingTx, type GroupMemberRow } from './data/sharing-tx';
+import { groupRoleCan } from './group-roles';
 import { groupOwnedResourceRegistry } from './ownership';
 import { SHARING_DATA, type SharingDataPort } from './ports';
 import { PrincipalGroupsProvider } from './principal-groups.provider';
@@ -170,7 +171,7 @@ export class GroupMembershipPurge {
             continue;
           }
           summary.groupsOrphaned += 1;
-        } else if (membership.role === 'admin' && !others.some((other) => other.role === 'admin')) {
+        } else if (groupRoleCan(membership.role, 'manage') && !others.some((other) => groupRoleCan(other.role, 'manage'))) {
           await tx.groupMember.update({ where: { groupId_userId: { groupId, userId: others[0]!.userId } }, data: { role: 'admin' } });
           summary.adminsPromoted += 1;
         }

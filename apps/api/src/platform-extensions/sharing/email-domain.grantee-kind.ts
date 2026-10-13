@@ -20,16 +20,16 @@
 // VERIFIES the address (an unverified or user-editable e-mail lets anyone claim a
 // domain's access).
 //
-// NOT PERSISTED YET. A `grants` row can store only `user`, `group` and `link`
-// until the sharing storage migration ships (the `grantee_kind` column is an
-// enum), so this kind is registered WITHOUT `persisted`: `GET
-// /api/sharing/grantee-kinds` lists it (`persisted: false`), `POST
-// /api/grants` validates it (422 `GRANTEE_INVALID`) and then answers 422
-// `GRANTEE_KIND_NOT_PERSISTABLE`, and no decision or list consults it. When the
-// migration ships, `persisted: true` plus `principalWhere` is the only change
-// here. The reference app therefore does NOT register it at start-up; the
-// proof, including the conformance kit over a real database, is
-// apps/api/test/examples/sharing/email-domain.example.db.spec.ts.
+// PERSISTED. `persisted: true` stores its grants: `POST /api/grants` with
+// `{ kind: 'custom', granteeKind: 'email-domain', ref: 'example.com' }` runs
+// `validateGrantee` and writes `grantee_kind = 'email-domain'`, `grantee_ref =
+// 'example.com'` (the normalised domain); `principalWhere` is the Prisma spelling
+// of `resolvePrincipalMatch` for the decision query. The platform pins both to
+// the kind and to the caller's organization. A resource type lists the roles the
+// kind may be granted with `grantable: { 'email-domain': ['viewer'] }` (none by
+// default). The reference app does NOT register it at start-up; the proof,
+// including the conformance kit over a real database and the per-organization
+// isolation, is apps/api/test/examples/sharing/email-domain.example.db.spec.ts.
 // =============================================================================
 
 import { GranteeInputError, registerGranteeKind, type GranteeKindDef } from '@marinoscar/platform-api/sharing';
@@ -60,6 +60,7 @@ export const emailDomainGranteeKind: GranteeKindDef = {
   label: 'Email domain',
   description: 'Everyone whose e-mail address is at one domain.',
   input: 'text',
+  persisted: true,
 
   validateGrantee(input) {
     const domain = typeof input === 'string' ? input.trim().replace(/^@/, '').toLowerCase() : '';
@@ -77,6 +78,12 @@ export const emailDomainGranteeKind: GranteeKindDef = {
     const domain = emailDomainOf(principal.email);
     if (domain === null) return null;
     return kit.sql`(${columns.kind} = 'email-domain' AND lower(${columns.ref}) = ${domain})`;
+  },
+
+  principalWhere(principal) {
+    const domain = emailDomainOf(principal.email);
+    // `validateGrantee` stores the domain lower-cased, so the equality is on the stored value.
+    return domain === null ? null : { granteeKind: 'email-domain', granteeRef: domain };
   },
 };
 

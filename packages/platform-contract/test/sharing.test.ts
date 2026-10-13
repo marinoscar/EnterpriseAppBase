@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   GROUP_INVITE_STATUSES,
+  BUILTIN_GROUP_ROLES,
   GROUP_ROLES,
   SHARING_LIMITS,
   addGroupMemberSchema,
@@ -21,6 +22,7 @@ const require = createRequire(import.meta.url);
 describe('@marinoscar/platform-contract/sharing', () => {
   it('ranks the roles admin, editor, viewer and lists the invite statuses', () => {
     expect(GROUP_ROLES).toEqual(['admin', 'editor', 'viewer']);
+    expect(BUILTIN_GROUP_ROLES).toBe(GROUP_ROLES);
     expect(GROUP_INVITE_STATUSES).toEqual(['pending', 'accepted', 'declined', 'revoked', 'expired']);
   });
 
@@ -49,7 +51,9 @@ describe('@marinoscar/platform-contract/sharing', () => {
     expect(addGroupMemberSchema.safeParse({}).success).toBe(false);
     expect(addGroupMemberSchema.safeParse({ email: 'a@example.com', userId: '11111111-1111-4111-8111-111111111111' }).success).toBe(false);
     expect(addGroupMemberSchema.safeParse({ email: 'not-an-address' }).success).toBe(false);
-    expect(addGroupMemberSchema.safeParse({ email: 'a@example.com', role: 'owner' }).success).toBe(false);
+    expect(addGroupMemberSchema.safeParse({ email: 'a@example.com', role: 'Not A Role' }).success).toBe(false);
+    // The vocabulary is open: any well-formed id parses (the API checks it against the registry).
+    expect(addGroupMemberSchema.parse({ email: 'a@example.com', role: 'commenter' })).toMatchObject({ role: 'commenter' });
   });
 
   it('invites a lower-cased address as a viewer by default', () => {
@@ -72,7 +76,7 @@ describe('@marinoscar/platform-contract/sharing', () => {
       updatedAt: now,
     };
     expect(groupSchema.parse(group)).toEqual(group);
-    expect(groupSchema.safeParse({ ...group, myRole: 'owner' }).success).toBe(false);
+    expect(groupSchema.safeParse({ ...group, myRole: 'Not A Role' }).success).toBe(false);
   });
 
   it('loads the same names through require and import', async () => {

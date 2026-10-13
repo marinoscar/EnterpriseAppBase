@@ -71,8 +71,10 @@ export const SHARING_ERROR_REASONS: {
   readonly GRANTEE_KIND_UNKNOWN: 'GRANTEE_KIND_UNKNOWN';
   /** 422: the registered grantee kind rejected the grantee it was given; the message is the kind's (PP-14.16). */
   readonly GRANTEE_INVALID: 'GRANTEE_INVALID';
-  /** 422: the registered grantee kind cannot be stored in a grant yet (PP-14.16). */
+  /** 422: the registered grantee kind is not `persisted`, so no grant row can carry it (PP-14.16). */
   readonly GRANTEE_KIND_NOT_PERSISTABLE: 'GRANTEE_KIND_NOT_PERSISTABLE';
+  /** 422: the group role is not registered (`registerGroupRole`) (PP-14.15b). */
+  readonly GROUP_ROLE_UNKNOWN: 'GROUP_ROLE_UNKNOWN';
 } = {
   GROUP_OWNS_RESOURCES: 'GROUP_OWNS_RESOURCES',
   LAST_GROUP_ADMIN: 'LAST_GROUP_ADMIN',
@@ -98,6 +100,7 @@ export const SHARING_ERROR_REASONS: {
   GRANTEE_KIND_UNKNOWN: 'GRANTEE_KIND_UNKNOWN',
   GRANTEE_INVALID: 'GRANTEE_INVALID',
   GRANTEE_KIND_NOT_PERSISTABLE: 'GRANTEE_KIND_NOT_PERSISTABLE',
+  GROUP_ROLE_UNKNOWN: 'GROUP_ROLE_UNKNOWN',
 };
 
 /** The 404 for a group the caller may not see: the same body whether it exists or not. */
@@ -239,11 +242,19 @@ export function granteeInvalid(kind: string, message: string): UnprocessableEnti
   return new UnprocessableEntityException({ message, details: { reason: SHARING_ERROR_REASONS.GRANTEE_INVALID, granteeKind: kind } });
 }
 
-/** The 422 of a registered grantee kind whose grants cannot be stored yet. */
+/** The 422 of a registered grantee kind that is not `persisted`: no grant row carries it. */
 export function granteeKindNotPersistable(kind: string): UnprocessableEntityException {
   return new UnprocessableEntityException({
-    message: `Grants of the kind "${kind}" cannot be stored yet`,
+    message: `Grants of the kind "${kind}" are not stored (the kind is not persisted)`,
     details: { reason: SHARING_ERROR_REASONS.GRANTEE_KIND_NOT_PERSISTABLE, granteeKind: kind },
+  });
+}
+
+/** The 422 of a group role nobody registered (`registerGroupRole`): the vocabulary fails closed. */
+export function groupRoleUnknown(role: string): UnprocessableEntityException {
+  return new UnprocessableEntityException({
+    message: `The group role "${role}" is not registered`,
+    details: { reason: SHARING_ERROR_REASONS.GROUP_ROLE_UNKNOWN, role },
   });
 }
 

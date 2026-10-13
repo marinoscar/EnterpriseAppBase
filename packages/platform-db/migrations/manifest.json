@@ -367,5 +367,13 @@
       "ai",
       "sharing"
     ]
+  },
+  {
+    "dir": "0037_open_sharing_vocabularies",
+    "id": "0037_open_sharing_vocabularies",
+    "requires": [],
+    "sha256": "4b7047703bacab08af629004ff569e250869355acd03795f17d1b1e5b277c5e6",
+    "since": "1.0.0",
+    "slice": "sharing"
   }
 ]

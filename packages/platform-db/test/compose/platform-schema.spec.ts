@@ -23,7 +23,7 @@ const OWNERSHIP: Record<string, string[]> = {
   jobs: ['Job', 'JobStatsRollup', 'WorkerNode', 'NodeCredential', 'JobNodeSecret', 'JobStatus', 'NodeStatus'],
   'db-backup': ['DatabaseBackupRun', 'DatabaseBackupStatus', 'DatabaseBackupTrigger'],
   ai: ['AiModel', 'UserAiKey', 'AiRun', 'AiUsageEvent'],
-  sharing: ['Group', 'GroupMember', 'GroupInvite', 'GroupRole', 'Grant', 'GrantGranteeKind'],
+  sharing: ['Group', 'GroupMember', 'GroupInvite', 'Grant'],
   'android-app': ['AndroidAppRelease'],
 };
 
@@ -45,10 +45,10 @@ describe('the shipped platform fragments', () => {
     expect(declared.sort()).toEqual([...names].sort());
   });
 
-  it('declare 41 models and 14 enums, each once', () => {
+  it('declare 41 models and 12 enums, each once', () => {
     const all = inputs.flatMap((i) => parseBlocks(i.text, i.name).blocks).filter((b) => !b.extend);
     expect(all.filter((b) => b.kind === 'model')).toHaveLength(41);
-    expect(all.filter((b) => b.kind === 'enum')).toHaveLength(14);
+    expect(all.filter((b) => b.kind === 'enum')).toHaveLength(12);
     expect(new Set(all.map((b) => b.name)).size).toBe(all.length);
   });
 

@@ -4,7 +4,7 @@ The wire shapes of the sharing routes: groups, their members and their invites (
 
 ## Purpose and scope
 
-One source for what every group route sends and accepts, so the API and a client cannot drift apart: `groupRoleSchema` (`admin`, `editor`, `viewer`), the group, member and invite bodies and responses, the flat pagination shape (`page`, `pageSize`, `items`, `total`, `totalPages`) and `SHARING_LIMITS`; and for grants the create, update, list and "shared with me" shapes, the link-grant shapes (`linkGrantCreateSchema`, `issuedLinkGrantSchema`, `linkGrantViewSchema`, `linkGrantListSchema`, `publicLinkResolutionSchema`), `LINK_TOKEN_HEADER` (`x-link-token`) and `buildLinkUrl(appUrl, token)` (`${appUrl}/s#${token}`: the token travels in the URL fragment, never in a path or a query). The slice follows the contract layout: `constants.ts` (zod-free: `GROUP_ROLES`, `GROUP_INVITE_STATUSES`, `GRANT_GRANTEE_KINDS`, `BUILTIN_GRANTEE_KINDS`, `GRANTEE_KIND_ID_PATTERN`, `GRANTEE_KIND_INPUTS`, `ACCESS_SCOPES`, `SHARING_IDENTIFIER_PATTERN`, `SHARING_LIMITS`, `LINK_TOKEN_HEADER`, `LINK_TOKEN_PREFIX`, `LINK_TOKEN_PATTERN`, `buildLinkUrl`), `schemas.ts` (the barrel of `groups.ts` and `grants.ts`) and `index.ts`.
+One source for what every group route sends and accepts, so the API and a client cannot drift apart: `groupRoleSchema` (the id of a registered group role: `admin`, `editor`, `viewer` or an app's own; only the shape is checked here, the API checks the registry), the group, member and invite bodies and responses, the flat pagination shape (`page`, `pageSize`, `items`, `total`, `totalPages`) and `SHARING_LIMITS`; and for grants the create, update, list and "shared with me" shapes, the link-grant shapes (`linkGrantCreateSchema`, `issuedLinkGrantSchema`, `linkGrantViewSchema`, `linkGrantListSchema`, `publicLinkResolutionSchema`), `LINK_TOKEN_HEADER` (`x-link-token`) and `buildLinkUrl(appUrl, token)` (`${appUrl}/s#${token}`: the token travels in the URL fragment, never in a path or a query). The slice follows the contract layout: `constants.ts` (zod-free: `GROUP_ROLES`, `GROUP_INVITE_STATUSES`, `GRANT_GRANTEE_KINDS`, `BUILTIN_GRANTEE_KINDS`, `GRANTEE_KIND_ID_PATTERN`, `GRANTEE_KIND_INPUTS`, `ACCESS_SCOPES`, `SHARING_IDENTIFIER_PATTERN`, `SHARING_LIMITS`, `LINK_TOKEN_HEADER`, `LINK_TOKEN_PREFIX`, `LINK_TOKEN_PATTERN`, `buildLinkUrl`), `schemas.ts` (the barrel of `groups.ts` and `grants.ts`) and `index.ts`.
 
 Not here: the services, controllers, the ownership contract, the resource-type registry, `AccessPolicy`, the principal enrichment and the permission strings and the link routes (the API slice), and any UI (#731).
 
@@ -13,7 +13,7 @@ Not here: the services, controllers, the ownership contract, the resource-type r
 Ships inside `@marinoscar/platform-contract`; import it by its subpath:
 
 ```ts
-import { createGroupSchema, GROUP_ROLES } from '@marinoscar/platform-contract/sharing';
+import { createGroupSchema, BUILTIN_GROUP_ROLES } from '@marinoscar/platform-contract/sharing';
 import type { GroupDto, GroupRole } from '@marinoscar/platform-contract/sharing';
 ```
 
@@ -53,11 +53,12 @@ No tables. The shapes mirror the `sharing` fragment of `@marinoscar/platform-db`
 | `addGroupMemberSchema`, `updateGroupMemberSchema`, `groupMemberSchema`, `groupMemberListSchema` | `/api/groups/:id/members` | exactly one of `email` and `userId` |
 | `createGroupInviteSchema`, `groupInviteListQuerySchema`, `groupInviteSchema`, `groupInviteListSchema` | `/api/groups/:id/invites` | e-mail lower-cased; `status` derived at read time (`expired` included) |
 | `myGroupInviteSchema`, `myGroupInviteListSchema`, `groupMembershipSchema` | `/api/groups/invites/mine`, `.../accept` | the caller's own invites carry no address |
-| `grantListQuerySchema`, `grantListSchema`, `grantSchema` | `GET /api/grants?resourceType&resourceId` | the active grants of one record; `grantee` is flat, the other kind's fields `null` |
+| `grantListQuerySchema`, `grantListSchema`, `grantSchema` | `GET /api/grants?resourceType&resourceId` | the active grants of one record; `grantee` is flat, the other kind's fields `null`; `kind` is `user`, `group` or a persisted app kind, whose `ref` and `display` are filled |
 | `createGrantSchema` (`grantGranteeInputSchema`: `userGranteeSchema`, `groupGranteeSchema` or `customGranteeSchema`) | `POST /api/grants` | a user by exactly one of `email` and `userId`; a grantee of an app-registered kind as `{ kind: 'custom', granteeKind, ref }` (the discriminator is the literal `custom`, so the built-in shapes keep their validation messages); `expiresAt` an ISO instant with offset |
 | `granteeKindListSchema`, `granteeKindDescriptorSchema` | `GET /api/sharing/grantee-kinds` | each registered kind: `kind` (`GRANTEE_KIND_ID_PATTERN`), `label`, `description`, `input` (`GRANTEE_KIND_INPUTS`), `builtin`, `persisted` |
+| `groupRoleListSchema`, `groupRoleDescriptorSchema` | `GET /api/sharing/group-roles` | each registered group role: `id`, `label`, `description`, `actions`, `builtin` |
 | `updateGrantSchema` | `PATCH /api/grants/:id` | `role` and/or `expiresAt` (`null` removes the expiry) |
-| `sharedWithMeQuerySchema`, `sharedWithMeItemSchema`, `sharedWithMeListSchema` | `GET /api/grants/shared-with-me` | `via` is `user_grant` or `group_grant`; `title`/`path` when the type describes its records |
+| `sharedWithMeQuerySchema`, `sharedWithMeItemSchema`, `sharedWithMeListSchema` | `GET /api/grants/shared-with-me` | `via` is `user_grant`, `group_grant` or the `via` of an app grantee kind; `title`/`path` when the type describes its records |
 | `linkGrantCreateSchema`, `issuedLinkGrantSchema` | `POST /api/grants/links` (#730) | `role` optional (the weakest link role), `reuseActive`; the response carries the token ONCE |
 | `grantListQuerySchema`, `linkGrantListSchema`, `linkGrantViewSchema` | `GET /api/grants/links?resourceType&resourceId` (#730) | newest first; `url` re-derived from the stored ciphertext, `null` for a revoked link |
 | `updateGrantSchema` (`label`) | `PATCH /api/grants/:id` on a link (#730) | `label` applies to a link grant only |
@@ -89,7 +90,7 @@ None in this package: schemas cannot be misused outside the code that calls them
 
 ## Upgrade notes
 
-New in this version; nothing to migrate from.
+`GROUP_ROLES` and `GRANT_GRANTEE_KINDS` are deprecated aliases of `BUILTIN_GROUP_ROLES` and `BUILTIN_GRANTEE_KINDS`: the vocabularies are open now (migration `0037_open_sharing_vocabularies`), so `GroupRole` and `GrantGranteeKind` are the built-in ids or any registered string, `groupRoleSchema` and `grantGranteeKindSchema` check only the shape (a registered id), and `grantee` of a grant gained `ref` and `display`. A client that exhaustively switched on the three built-in roles or kinds needs a default branch.
 
 ## Troubleshooting
 

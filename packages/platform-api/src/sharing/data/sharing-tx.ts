@@ -127,12 +127,14 @@ export interface GrantRow {
   resourceType: string;
   /** The shared record. */
   resourceId: string;
-  /** `user`, `group` or `link`. */
-  granteeKind: 'user' | 'group' | 'link';
+  /** `user`, `group`, `link` or the id of a persisted app kind. */
+  granteeKind: string;
   /** The user grantee, or `null`. */
   granteeUserId: string | null;
   /** The group grantee, or `null`. */
   granteeGroupId: string | null;
+  /** The reference of an app-kind grantee (`grants.grantee_ref`), or `null` for the built-in kinds. */
+  granteeRef: string | null;
   /** One of the type's roles. */
   role: string;
   /** Link grants only (#730): SHA-256 of the token. */

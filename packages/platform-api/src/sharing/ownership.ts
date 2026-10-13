@@ -19,9 +19,10 @@
 // `PrincipalGroupsProvider` enriched.
 // =============================================================================
 
-import { GROUP_ROLES, type GroupRole } from '@marinoscar/platform-contract/sharing';
+import type { GroupRole } from '@marinoscar/platform-contract/sharing';
 
 import { defineRegistry, type GroupMembership, type Principal } from '../core/index';
+import { groupRoleRank } from './group-roles';
 
 /**
  * Who owns a record: exactly one user or exactly one group.
@@ -109,21 +110,6 @@ export function registerGroupOwnedResource(def: GroupOwnedResourceDef): void {
   groupOwnedResourceRegistry.register(def);
 }
 
-/** Rank of a group role: admin 3, editor 2, viewer 1. */
-const RANK: Readonly<Record<GroupRole, number>> = Object.freeze({ admin: 3, editor: 2, viewer: 1 });
-
-/**
- * The rank of a group role (`admin` 3, `editor` 2, `viewer` 1; anything else 0).
- *
- * @param role - a role name.
- * @returns the rank.
- *
- * @stability experimental
- */
-export function groupRoleRank(role: string | null | undefined): number {
-  return role && (GROUP_ROLES as readonly string[]).includes(role) ? RANK[role as GroupRole] : 0;
-}
-
 /**
  * Whether `role` is at least `minimum`.
  *
@@ -134,7 +120,9 @@ export function groupRoleRank(role: string | null | undefined): number {
  * @stability experimental
  */
 export function groupRoleAtLeast(role: string | null | undefined, minimum: GroupRole): boolean {
-  return groupRoleRank(role) >= RANK[minimum];
+  // A role nobody registered ranks 0 and satisfies nothing, not even a `minimum` that is itself unregistered.
+  const needed = groupRoleRank(minimum);
+  return needed > 0 && groupRoleRank(role) >= needed;
 }
 
 /**

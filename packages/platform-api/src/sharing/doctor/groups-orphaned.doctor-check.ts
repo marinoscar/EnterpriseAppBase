@@ -17,6 +17,7 @@ import { Inject, Injectable, OnModuleInit, Optional } from '@nestjs/common';
 
 import { DoctorCheckRegistry, type DoctorCheck, type DoctorCheckOutcome } from '../../doctor/index';
 import { asSharingTx } from '../data/sharing-tx';
+import { managerGroupRoleIds } from '../group-roles';
 import { SHARING_DATA, type SharingDataPort } from '../ports';
 
 /**
@@ -70,7 +71,7 @@ export class GroupsOrphanedDoctorCheck implements DoctorCheck, OnModuleInit {
 
   /** Counts the groups without an admin member, across organizations (read-only). */
   async run(): Promise<DoctorCheckOutcome> {
-    const where = { members: { none: { role: 'admin' } } };
+    const where = { members: { none: { role: { in: managerGroupRoleIds() } } } };
     const { orphaned, sample } = await this.data.runAsSystem('doctor', async (raw) => {
       const tx = asSharingTx(raw);
       const count = await tx.group.count({ where });

@@ -22,7 +22,7 @@
 
 import { z } from 'zod';
 
-import { BUILTIN_GRANTEE_KINDS, GRANTEE_KIND_ID_PATTERN, GRANTEE_KIND_INPUTS, GRANT_GRANTEE_KINDS, LINK_TOKEN_PATTERN, SHARED_WITH_ME_VIA, SHARING_IDENTIFIER_PATTERN, SHARING_LIMITS } from './constants.js';
+import { BUILTIN_GRANTEE_KINDS, GRANTEE_KIND_ID_PATTERN, GRANTEE_KIND_INPUTS, LINK_TOKEN_PATTERN, SHARING_IDENTIFIER_PATTERN, SHARING_LIMITS } from './constants.js';
 import { wireEnum } from './enum.js';
 import { groupEmailSchema, pageQuerySchema } from './groups.js';
 
@@ -48,13 +48,6 @@ export const grantRoleSchema = z
   .max(SHARING_LIMITS.grantIdentifierMax)
   .regex(SHARING_IDENTIFIER_PATTERN, 'A role is lower-case snake_case')
   .describe("One of the resource type's grantable roles (e.g. `viewer`, `editor`).");
-
-/**
- * A grantee kind on the wire.
- *
- * @stability experimental
- */
-export const grantGranteeKindSchema = wireEnum(GRANT_GRANTEE_KINDS).describe('`user`, `group` or `link`.');
 
 /** An ISO 8601 instant with an offset, for an expiry. */
 const instantSchema = z.iso.datetime({ offset: true });
@@ -102,13 +95,21 @@ export const granteeKindIdSchema = z
   .describe('A registered grantee kind id: lower-case letters, digits and hyphens (e.g. `email-domain`).');
 
 /**
+ * The kind of a grant's grantee on the wire: `user`, `group`, `link` or the id
+ * of a persisted app kind.
+ *
+ * @stability experimental
+ */
+export const grantGranteeKindSchema = granteeKindIdSchema;
+
+/**
  * A grantee of an app-registered kind: the wire discriminator is the literal
  * `custom` (so the built-in shapes keep their exact validation messages), the
  * registered kind goes in `granteeKind` and an opaque reference the kind
  * validates in `ref` (for example kind `custom`, `granteeKind` `email-domain`
  * and `ref` `example.com`). The API answers 422 `GRANTEE_KIND_UNKNOWN` for a kind
- * nobody registered and 422 `GRANTEE_KIND_NOT_PERSISTABLE` for a registered
- * kind whose grants cannot be stored yet.
+ * nobody registered, 422 `GRANTEE_INVALID` for a `ref` the kind rejects and 422
+ * `GRANTEE_KIND_NOT_PERSISTABLE` for a registered kind that is not `persisted`.
  *
  * @stability experimental
  */
@@ -152,7 +153,7 @@ export const granteeKindDescriptorSchema = z.object({
   input: wireEnum(GRANTEE_KIND_INPUTS),
   /** Whether the platform ships the kind (`user`, `group`, `link`). */
   builtin: z.boolean(),
-  /** Whether a grant of this kind can be stored and created today. */
+  /** Whether grants of this kind are stored (the built-ins and any app kind registered `persisted`). */
   persisted: z.boolean(),
 });
 
@@ -228,7 +229,7 @@ export const grantListQuerySchema = pageQuerySchema.extend({
  * @stability experimental
  */
 export const grantGranteeViewSchema = z.object({
-  /** `user`, `group` or `link`. */
+  /** `user`, `group`, `link` or the id of a persisted app kind. */
   kind: grantGranteeKindSchema,
   /** The user (kind `user`). */
   userId: z.uuid().nullable(),
@@ -240,6 +241,10 @@ export const grantGranteeViewSchema = z.object({
   groupId: z.uuid().nullable(),
   /** The group's name (kind `group`). */
   groupName: z.string().nullable(),
+  /** The grantee reference of an app kind (`example.com` for `email-domain`); `null` for the built-in kinds. */
+  ref: z.string().nullable(),
+  /** The kind's description of the grantee of an app kind ("Anyone at example.com"); `null` for the built-in kinds. */
+  display: z.string().nullable(),
 });
 
 /**
@@ -315,8 +320,8 @@ export const sharedWithMeItemSchema = z.object({
   resourceId: z.uuid(),
   /** The granted role. */
   role: z.string(),
-  /** `user_grant` (shared with you) or `group_grant` (shared with a group you belong to). */
-  via: wireEnum(SHARED_WITH_ME_VIA),
+  /** `user_grant` (shared with you), `group_grant` (shared with a group you belong to) or the `via` of an app grantee kind. */
+  via: z.string(),
   /** The group, for a group grant. */
   groupId: z.uuid().nullable(),
   /** The record's label, when its resource type describes it. */

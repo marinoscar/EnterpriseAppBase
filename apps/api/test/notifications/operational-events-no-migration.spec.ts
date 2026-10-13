@@ -117,6 +117,8 @@ const MIGRATIONS_AT_288 = [
   // (id, org_id) keys on ai_runs and grants (the four operational events still
   // need nothing).
   '20261013195500_add_app_metadata',
+  // PP-14.15b (#967): the sharing vocabularies (group roles, grantee kinds) become text and grants gain grantee_ref.
+  '20261013214001_open_sharing_vocabularies',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

@@ -18,6 +18,7 @@ export type { GroupActions, UseGroupsOptions } from './useGroups.js';
 export { useGroupMembers } from './useGroupMembers.js';
 export { useGroupInvites, useMyGroupInvites } from './useGroupInvites.js';
 export { useGranteeKinds } from './useGranteeKinds.js';
+export { useGroupRoles } from './useGroupRoles.js';
 export { useGrants, useShareActions } from './useGrants.js';
 export type { ShareActions } from './useGrants.js';
 export { useLinkGrants } from './useLinkGrants.js';

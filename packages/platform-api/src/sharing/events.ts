@@ -117,9 +117,9 @@ export interface GrantEventPayload {
   readonly resourceType: string;
   /** The record. */
   readonly resourceId: string;
-  /** `user`, `group` or `link`. */
-  readonly granteeKind: 'user' | 'group' | 'link';
-  /** The user or group grantee (`null` for a link). */
+  /** `user`, `group`, `link` or the id of a persisted app grantee kind. */
+  readonly granteeKind: string;
+  /** The user or group grantee, or the reference of an app kind (`null` for a link). */
   readonly granteeId: string | null;
   /** The role after the change (the revoked role for `sharing.grant.revoked`). */
   readonly role: string;

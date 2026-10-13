@@ -63,7 +63,7 @@ import type { Principal } from '../../core/index';
 import { asSharingTx } from '../data/sharing-tx';
 import { activeGroupsOf } from '../ownership';
 import { accessRulesFor, collectRuleSql, type RuleSqlParts } from './access-rules';
-import { persistedGranteeKinds } from './grantee-kinds';
+import { granteeSqlFor, granteeWhereFor, persistedGranteeKinds } from './grantee-kinds';
 import { requireResourceType, type ResolvedResourceType } from './resource-types';
 
 /**
@@ -262,7 +262,7 @@ function identifier(value: string, what: string): string {
 /** The Prisma `where` of the grantees every persisted kind names for the caller; `[]` when none can. */
 function granteeWheres(principal: Principal): Record<string, unknown>[] {
   return persistedGranteeKinds().flatMap((def) => {
-    const where = def.principalWhere?.(principal) ?? null;
+    const where = granteeWhereFor(def, principal);
     return where === null ? [] : [where];
   });
 }
@@ -430,9 +430,9 @@ export function accessibleSql<S>(principal: Principal, type: string, alias: stri
       if (p.grantRoles.length > 0) {
         // One predicate per persisted kind, over the grant row's own columns; the org and
         // resource predicates around them confine every fragment to this organization.
-        const columns = { kind: raw('g.grantee_kind'), userId: raw('g.grantee_user_id'), groupId: raw('g.grantee_group_id'), ref: sql`NULL::text` };
+        const columns = { kind: raw('g.grantee_kind'), userId: raw('g.grantee_user_id'), groupId: raw('g.grantee_group_id'), ref: raw('g.grantee_ref') };
         const named = persistedGranteeKinds().flatMap((def) => {
-          const fragment = def.resolvePrincipalMatch<S>(principal, columns, opts.sqlKit);
+          const fragment = granteeSqlFor<S>(def, principal, columns, opts.sqlKit);
           return fragment === null ? [] : [fragment];
         });
         if (named.length > 0) {

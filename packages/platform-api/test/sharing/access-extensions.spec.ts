@@ -492,13 +492,15 @@ describe('grantee kinds', () => {
     });
   });
 
-  it('refuses persisting an app kind until the storage migration ships, and says why', async () => {
-    expect(GRANTEE_KIND_PERSISTENCE_AVAILABLE).toBe(false);
+  it('registers a persisted app kind (grants of it are stored in grants.grantee_ref)', async () => {
+    expect(GRANTEE_KIND_PERSISTENCE_AVAILABLE).toBe(true);
     await withTemporaryEntries(granteeKindRegistry, [], () => {
-      const error = refusal(emailDomain({ persisted: true, principalWhere: () => null }));
-      expect(error.code).toBe('INVALID_ENTRY');
-      expect(error.message).toContain('grantee kind "email-domain"');
-      expect(error.message).toContain('cannot be stored yet');
+      registerGranteeKind(emailDomain({ persisted: true, principalWhere: () => ({ granteeRef: 'example.com' }) }));
+      expect(persistedGranteeKinds().map((def) => def.kind)).toContain('email-domain');
+      expect(describeGranteeKind(granteeKindRegistry.get('email-domain')!)).toMatchObject({ builtin: false, persisted: true });
+      // Still needs the Prisma spelling of its predicate.
+      const error = refusal(emailDomain({ kind: 'team', via: 'team_grant', persisted: true }));
+      expect(error.message).toContain('`principalWhere`');
     });
   });
 

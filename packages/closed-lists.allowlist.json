@@ -97,11 +97,6 @@
       "reason": "deliberately closed security vocabulary: field names no settings namespace may declare"
     },
     {
-      "file": "packages/platform-api/src/sharing/access/resource-types.ts",
-      "symbol": "GrantableKind",
-      "reason": "the three storable grantee kinds (grants.grantee_kind is a database enum); registered kinds are open"
-    },
-    {
       "file": "packages/platform-api/src/storage/profile-image/profile-image.ts",
       "symbol": "AVATAR_MIME_TYPES",
       "reason": "profile image types accepted by magic bytes; a security validation limit"
@@ -265,16 +260,6 @@
       "file": "packages/platform-contract/src/settings/schemas.ts",
       "symbol": "z.enum(ORG_SETTINGS_MERGE_MODES)",
       "reason": "wire enum over ORG_SETTINGS_MERGE_MODES, which stays closed"
-    },
-    {
-      "file": "packages/platform-contract/src/sharing/constants.ts",
-      "symbol": "GRANT_GRANTEE_KINDS",
-      "reason": "storable grantee kinds: grants.grantee_kind is a database enum; registered kinds are open"
-    },
-    {
-      "file": "packages/platform-contract/src/sharing/constants.ts",
-      "symbol": "GROUP_ROLES",
-      "reason": "mirror of the GroupRole database enum; the group policy implements exactly these"
     },
     {
       "file": "packages/platform-contract/src/storage/constants.ts",

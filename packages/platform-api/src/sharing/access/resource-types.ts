@@ -29,10 +29,12 @@
 // refused. An app does not register it twice.
 // =============================================================================
 
-import { GROUP_ROLES, SHARING_IDENTIFIER_PATTERN, type GroupRole } from '@marinoscar/platform-contract/sharing';
+import { SHARING_IDENTIFIER_PATTERN, type GrantGranteeKind } from '@marinoscar/platform-contract/sharing';
 
 import { defineRegistry } from '../../core/index';
+import { groupRoleRegistry } from '../group-roles';
 import { groupOwnedResourceRegistry, type ResourceOwner } from '../ownership';
+import { granteeKindRegistry } from './grantee-kinds';
 
 /**
  * The app's Prisma transaction client, opaque to the slice: a resource type's
@@ -69,11 +71,12 @@ export interface ResourceDescription {
 }
 
 /**
- * The grantee kinds a type's `grantable` lists roles for.
+ * The grantee kinds a type's `grantable` lists roles for: the built-ins and any
+ * kind registered with `registerGranteeKind`.
  *
  * @stability experimental
  */
-export type GrantableKind = 'user' | 'group' | 'link';
+export type GrantableKind = GrantGranteeKind;
 
 /**
  * One shareable resource type of the app.
@@ -99,10 +102,13 @@ export interface ResourceTypeDef<TRole extends string = string> {
   /** Who can own a record: a user, a group, or either. */
   readonly ownership: 'user' | 'group' | 'user_or_group';
   /**
-   * Effective role of a member of the owning group, per group role. Default:
-   * `admin` gets `'owner'`, `editor` the strongest role, `viewer` the weakest.
+   * Effective role of a member of the owning group, per group role (a built-in
+   * one or any registered with `registerGroupRole`; register roles first).
+   * Default for the built-ins: `admin` gets `'owner'`, `editor` the strongest
+   * role, `viewer` the weakest. A group role this map does not name (an app
+   * role, until it is mapped here) gets NO access to the group's records.
    */
-  readonly groupRoleMap?: Readonly<Record<GroupRole, TRole | 'owner'>>;
+  readonly groupRoleMap?: Readonly<Record<string, TRole | 'owner'>>;
   /**
    * The organization-wide default (Salesforce's OWD). `'private'` (default):
    * owner and grants only. `'org'`: every member of the record's organization
@@ -113,7 +119,9 @@ export interface ResourceTypeDef<TRole extends string = string> {
   readonly orgRole?: TRole;
   /**
    * Roles allowed per grantee kind. Default: `user` and `group` get every
-   * role; `link` gets none (link shares are off unless listed, #730).
+   * role; `link` gets none (link shares are off unless listed, #730); a
+   * persisted app kind (`registerGranteeKind`) gets none until it is listed
+   * here under its id (register kinds first).
    */
   readonly grantable?: {
     /** Roles a user may be granted. */
@@ -122,6 +130,8 @@ export interface ResourceTypeDef<TRole extends string = string> {
     readonly group?: readonly TRole[];
     /** Roles a link may carry (#730); none by default. */
     readonly link?: readonly TRole[];
+    /** Roles a grantee of a registered app kind may be granted, under the kind's id. */
+    readonly [kind: string]: readonly TRole[] | undefined;
   };
   /** Cap on the active grants of one record. Default 500. */
   readonly maxGrantsPerResource?: number;
@@ -196,7 +206,7 @@ function validateDef(def: ResourceTypeDef): void {
   check(['user', 'group', 'user_or_group'].includes(def.ownership), type, "`ownership` must be 'user', 'group' or 'user_or_group'");
   if (def.groupRoleMap !== undefined) {
     for (const [groupRole, role] of Object.entries(def.groupRoleMap)) {
-      check((GROUP_ROLES as readonly string[]).includes(groupRole), type, `\`groupRoleMap\` key "${groupRole}" is not a group role`);
+      check(groupRoleRegistry.has(groupRole), type, `\`groupRoleMap\` key "${groupRole}" is not a registered group role (registerGroupRole, before the resource type)`);
       check(known(role), type, `\`groupRoleMap.${groupRole}\` is ${JSON.stringify(role)}, neither a role of the type nor 'owner'`);
     }
   }
@@ -205,7 +215,7 @@ function validateDef(def: ResourceTypeDef): void {
   if (def.defaultVisibility === 'org') check(def.orgRole !== undefined, type, "`defaultVisibility: 'org'` needs `orgRole`");
   if (def.grantable !== undefined) {
     for (const [kind, roles] of Object.entries(def.grantable)) {
-      check(['user', 'group', 'link'].includes(kind), type, `\`grantable\` key "${kind}" is not a grantee kind`);
+      check(granteeKindRegistry.has(kind), type, `\`grantable\` key "${kind}" is not a registered grantee kind (registerGranteeKind, before the resource type)`);
       check(Array.isArray(roles), type, `\`grantable.${kind}\` must be an array`);
       for (const role of roles as readonly unknown[]) check(knownRole(role), type, `\`grantable.${kind}\` lists ${JSON.stringify(role)}, which is not a role of the type`);
     }
@@ -317,17 +327,22 @@ export function resolveResourceType(def: ResourceTypeDef): ResolvedResourceType 
     const index = role ? roles.indexOf(role) : -1;
     return index + 1;
   };
-  const groupRoleMap: Record<string, string> = {
-    admin: 'owner',
-    editor: roles[roles.length - 1]!,
-    viewer: roles[0]!,
-    ...(def.groupRoleMap ?? {}),
-  };
-  const grantable = {
-    user: [...(def.grantable?.user ?? roles)],
-    group: [...(def.grantable?.group ?? roles)],
-    link: [...(def.grantable?.link ?? [])],
-  };
+  // Maps, never object lookups: a group role or grantee kind is a string from a row or a request, and
+  // `{}['constructor']` is not "no entry".
+  const groupRoleMap = new Map<string, string>([
+    ['admin', 'owner'],
+    ['editor', roles[roles.length - 1]!],
+    ['viewer', roles[0]!],
+    ...Object.entries(def.groupRoleMap ?? {}).map(([groupRole, role]) => [groupRole, role as string] as const),
+  ]);
+  const grantable = new Map<string, readonly string[]>([
+    ['user', [...(def.grantable?.user ?? roles)]],
+    ['group', [...(def.grantable?.group ?? roles)]],
+    ['link', [...(def.grantable?.link ?? [])]],
+    ...Object.entries(def.grantable ?? {})
+      .filter(([kind]) => kind !== 'user' && kind !== 'group' && kind !== 'link')
+      .map(([kind, list]) => [kind, [...(list ?? [])]] as const),
+  ]);
   const actions: Record<string, string> = { share: 'owner', ...def.actions };
   const value: ResolvedResourceType = Object.freeze({
     def,
@@ -339,8 +354,8 @@ export function resolveResourceType(def: ResourceTypeDef): ResolvedResourceType 
     orgRole: def.orgRole ?? null,
     rank,
     required: (action: string) => (Object.prototype.hasOwnProperty.call(actions, action) ? actions[action] : undefined),
-    groupRole: (groupRole: string) => groupRoleMap[groupRole] ?? null,
-    grantable: (kind: GrantableKind) => grantable[kind],
+    groupRole: (groupRole: string) => groupRoleMap.get(groupRole) ?? null,
+    grantable: (kind: GrantableKind) => grantable.get(kind) ?? [],
     rolesAtLeast: (minRole: string | undefined) => (minRole === undefined ? roles : roles.filter((role) => rank(role) >= rank(minRole))),
   });
   resolved.set(def, value);

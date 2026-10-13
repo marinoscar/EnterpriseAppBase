@@ -48,7 +48,7 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
 import type { SxProps, Theme } from '@mui/material';
 import { SHARING_LIMITS } from '@marinoscar/platform-contract/sharing';
 import type { GroupDto, GroupMemberDto, GroupRole } from '@marinoscar/platform-contract/sharing';
-import { useId, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import type { FormEvent, ReactElement, ReactNode } from 'react';
 import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom';
 
@@ -58,6 +58,7 @@ import { toSharingError } from '../headless/errors.js';
 import type { SharingError } from '../headless/types.js';
 import { useGroupInvites } from '../headless/useGroupInvites.js';
 import { useGroupMembers } from '../headless/useGroupMembers.js';
+import { useGroupRoles } from '../headless/useGroupRoles.js';
 import { useGroup, useGroupActions } from '../headless/useGroups.js';
 import { EMAIL_PATTERN, expiryText, formatDate, humanizeType } from '../internal/format.js';
 import { LiveRegion } from '../internal/live-region.js';
@@ -245,6 +246,12 @@ export function GroupDetailPage(props: GroupDetailPageProps): ReactElement {
 
   const group = useGroup(groupId, clientOption);
   const members = useGroupMembers(groupId, clientOption);
+  // The role pickers list the API's registered roles (apps add their own); the built-ins until they load.
+  const roles = useGroupRoles(clientOption);
+  const roleOptions = useMemo<ReadonlyArray<{ value: string; label: string }>>(
+    () => (roles.data && roles.data.items.length > 0 ? roles.data.items.map((role) => ({ value: role.id, label: role.label })) : GROUP_ROLE_OPTIONS),
+    [roles.data],
+  );
   const isManager = group.data !== null && (group.data.myRole === 'admin' || can('groups:admin'));
   const canManage = isManager && can('groups:write');
   const invites = useGroupInvites(groupId, { enabled: isManager, ...clientOption });
@@ -467,14 +474,15 @@ export function GroupDetailPage(props: GroupDetailPageProps): ReactElement {
                           sx={{ minWidth: 120 }}
                           slotProps={{ select: { inputProps: { 'aria-label': `Role for ${name}` } } }}
                         >
-                          {GROUP_ROLE_OPTIONS.map((option) => (
+                          {/* A member's role that left the registry stays selectable as itself, so the select never shows a blank value. */}
+                          {(roleOptions.some((option) => option.value === member.role) ? roleOptions : [...roleOptions, { value: member.role, label: member.role }]).map((option) => (
                             <MenuItem key={option.value} value={option.value}>
                               {option.label}
                             </MenuItem>
                           ))}
                         </TextField>
                       ) : (
-                        groupRoleLabel(member.role)
+                        groupRoleLabel(member.role, roleOptions)
                       )}
                     </TableCell>
                     {(canManage || MemberRowActions) && (
@@ -540,7 +548,7 @@ export function GroupDetailPage(props: GroupDetailPageProps): ReactElement {
                 sx={{ minWidth: 130 }}
                 helperText=" "
               >
-                {GROUP_ROLE_OPTIONS.map((option) => (
+                {roleOptions.map((option) => (
                   <MenuItem key={option.value} value={option.value}>
                     {option.label}
                   </MenuItem>
@@ -580,7 +588,7 @@ export function GroupDetailPage(props: GroupDetailPageProps): ReactElement {
                 {inviteItems.map((invite) => (
                   <TableRow key={invite.id}>
                     <TableCell sx={{ overflowWrap: 'anywhere' }}>{invite.email}</TableCell>
-                    <TableCell>{groupRoleLabel(invite.role)}</TableCell>
+                    <TableCell>{groupRoleLabel(invite.role, roleOptions)}</TableCell>
                     <TableCell>{invite.expiresAt ? formatDate(invite.expiresAt) : expiryText(null)}</TableCell>
                     {canManage && (
                       <TableCell align="right">

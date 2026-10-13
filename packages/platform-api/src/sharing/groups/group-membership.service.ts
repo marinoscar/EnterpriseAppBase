@@ -45,7 +45,8 @@ import { SHARING_EVENTS } from '../events';
 import { SHARING_PERMISSIONS } from '../permissions';
 import { SHARING_DATA, type SharingDataPort } from '../ports';
 import { SHARING_OPTIONS, type ResolvedSharingModuleOptions } from '../sharing.options';
-import { holds, isGroupsAdmin, iso, lockGroup, paged, requireActiveOrg, writeAudit } from './group-common';
+import { groupRoleCan, managerGroupRoleIds } from '../group-roles';
+import { holds, isGroupsAdmin, iso, lockGroup, paged, requireActiveOrg, requireGroupRole, writeAudit } from './group-common';
 import { MemberLookupThrottle } from './member-lookup-throttle';
 import { SharingEffects } from './sharing-effects';
 
@@ -124,13 +125,13 @@ export class GroupMembershipService {
     const myRole = membership?.role ?? null;
     if (isGroupsAdmin(principal)) return { group, myRole };
     if (myRole === null) throw groupNotFound();
-    if (need === 'admin' && myRole !== 'admin') throw groupAdminRequired();
+    if (need === 'admin' && !groupRoleCan(myRole, 'manage')) throw groupAdminRequired();
     return { group, myRole };
   }
 
-  /** Counts the admins of a locked group. */
+  /** Counts the members of a locked group whose role can `manage` it (`admin`, and any role registered with that action). */
   private async adminCount(tx: SharingTx, groupId: string): Promise<number> {
-    return tx.groupMember.count({ where: { groupId, role: 'admin' } });
+    return tx.groupMember.count({ where: { groupId, role: { in: managerGroupRoleIds() } } });
   }
 
   /**
@@ -171,12 +172,13 @@ export class GroupMembershipService {
    * @param input - `email` or `userId`, and the role.
    * @returns the new member.
    * @throws HttpException 429 `LOOKUP_THROTTLED` after too many failed lookups by e-mail.
-   * @throws UnprocessableEntityException 422 `NOT_AN_ORG_MEMBER`.
+   * @throws UnprocessableEntityException 422 `NOT_AN_ORG_MEMBER` or `GROUP_ROLE_UNKNOWN`.
    * @throws ConflictException 409 `ALREADY_A_MEMBER` or `GROUP_FULL`.
    */
   @Trace('sharing.group.members.add')
   async add(principal: Principal, groupId: string, input: AddGroupMemberInput): Promise<GroupMemberDto> {
     const orgId = requireActiveOrg(principal);
+    requireGroupRole(input.role);
     const byEmail = input.email !== undefined;
     if (byEmail) {
       const wait = this.throttle.retryAfterMs(principal.userId);
@@ -253,6 +255,7 @@ export class GroupMembershipService {
   @Trace('sharing.group.members.change_role')
   async changeRole(principal: Principal, groupId: string, userId: string, role: GroupRole): Promise<GroupMemberDto> {
     const orgId = requireActiveOrg(principal);
+    requireGroupRole(role);
     const result = await this.data.runInOrg({ orgId, userId: principal.userId }, async (raw) => {
       const tx = asSharingTx(raw);
       await this.access(tx, principal, orgId, groupId, 'admin');
@@ -263,7 +266,7 @@ export class GroupMembershipService {
       });
       if (!target) throw memberNotFound();
       if (target.role === role) return { row: target, previousRole: role, changed: false };
-      if (target.role === 'admin' && (await this.adminCount(tx, groupId)) <= 1) throw lastGroupAdmin();
+      if (groupRoleCan(target.role, 'manage') && (await this.adminCount(tx, groupId)) <= 1) throw lastGroupAdmin();
 
       const row = await tx.groupMember.update<MemberWithUser>({
         where: { groupId_userId: { groupId, userId } },
@@ -318,7 +321,7 @@ export class GroupMembershipService {
       await lockGroup(tx, groupId);
       const target = await tx.groupMember.findUnique({ where: { groupId_userId: { groupId, userId } } });
       if (!target) throw memberNotFound();
-      if (target.role === 'admin' && (await this.adminCount(tx, groupId)) <= 1) throw lastGroupAdmin();
+      if (groupRoleCan(target.role, 'manage') && (await this.adminCount(tx, groupId)) <= 1) throw lastGroupAdmin();
       await tx.groupMember.delete({ where: { groupId_userId: { groupId, userId } } });
       await writeAudit(tx, {
         orgId,

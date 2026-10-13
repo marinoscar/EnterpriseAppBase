@@ -60,12 +60,26 @@ export {
   activeGroupsOf,
   groupOwnedResourceRegistry,
   groupRoleAtLeast,
-  groupRoleRank,
   ownedByMeOrMyGroups,
   ownerWhere,
   registerGroupOwnedResource,
 } from './ownership';
 export type { GroupOwnedResourceDef, ResourceOwner } from './ownership';
+
+// ---- the group-role registry (PP-14.15b) ---------------------------------------------
+export {
+  BUILTIN_GROUP_ROLE_IDS,
+  GROUP_ROLE_PLATFORM_ACTIONS,
+  describeGroupRole,
+  findGroupRole,
+  groupRoleCan,
+  groupRoleRank,
+  groupRoleRegistry,
+  listGroupRoles,
+  managerGroupRoleIds,
+  registerGroupRole,
+} from './group-roles';
+export type { GroupRoleDef } from './group-roles';
 
 // ---- the resource-type registry (rung 2) and AccessPolicy (#729) -------------------
 export { DEFAULT_MAX_GRANTS_PER_RESOURCE, registerResourceType, resourceTypeRegistry } from './access/resource-types';

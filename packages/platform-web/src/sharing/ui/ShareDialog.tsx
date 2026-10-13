@@ -178,6 +178,8 @@ function DefaultTitle({ resourceTitle }: { resourceTitle?: string }): ReactEleme
 function granteeName(grant: GrantDto): { primary: string; secondary: string } {
   const g = grant.grantee;
   if (g.kind === 'group') return { primary: g.groupName ?? 'Group', secondary: 'Group' };
+  // A grantee of an app kind reads by the kind's own description (the reference when it gave none).
+  if (g.kind !== 'user' && g.kind !== 'link') return { primary: g.display ?? g.ref ?? g.kind, secondary: g.kind };
   if (g.displayName && g.email) return { primary: g.displayName, secondary: g.email };
   return { primary: g.email ?? g.displayName ?? 'Someone', secondary: 'Person' };
 }
