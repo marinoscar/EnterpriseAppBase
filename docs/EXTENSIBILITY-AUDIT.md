@@ -15,7 +15,7 @@ The audit record of the extension seams of every platform slice. A closed point 
 
 Evidence paths are written `api:`, `web:`, `contract:`, `cli:`, `db:` and `infra:` for `packages/platform-api/src/`, `packages/platform-web/src/`, `packages/platform-contract/src/`, `packages/platform-cli/src/`, `packages/platform-db/` and `packages/platform-infra/`; a path under `apps/` or `docs/` is from the repository root. A story is written PP-14.n (its issue number follows).
 
-As of this version: 114 closed points in 29 sections, 55 fixed and 59 open.
+As of this version: 114 closed points in 29 sections, 61 fixed and 53 open.
 
 ## Verdicts
 
@@ -45,7 +45,7 @@ As of this version: 114 closed points in 29 sections, 55 fixed and 59 open.
 | [db-backup](#db-backup) | Mostly open | 4 | 3 | 1 | PP-14.12, PP-14.23 |
 | [identity](#identity) | Partly closed | 8 | 6 | 2 | PP-14.9, PP-14.15, PP-14.25 |
 | [email](#email) | Partly closed | 5 | 4 | 1 | PP-14.8, PP-14.24 |
-| [host](#host) | Partly closed | 8 | 1 | 7 | PP-14.2, PP-14.13, PP-14.24 |
+| [host](#host) | Partly closed | 8 | 7 | 1 | PP-14.2, PP-14.13, PP-14.24 |
 | [datatable](#datatable) | Partly closed | 2 | 0 | 2 | PP-14.20 |
 | [android-app](#android-app) | Partly closed | 1 | 0 | 1 | PP-14.24 |
 | [testing (CLI runner)](#testing-cli-runner) | Open | 1 | 1 | 0 | PP-14.22 |
@@ -69,7 +69,7 @@ The 28 stories of the epic, in order. Phase 1 makes the existing seams real; pha
 | PP-14.10 | #928 | notifications: first-class app channels (Slack, SMS, Teams, webhook) | 2 | 14.5 | no | This change |
 | PP-14.11 | #929 | telemetry: a TELEMETRY_STORE port so the time-series store is replaceable | 2 | 14.5 | no | This change |
 | PP-14.12 | #930 | db-backup: pluggable backup target, schedule policy and restore gates | 2 | 14.1 (14.7) | no | This change |
-| PP-14.13 | #931 | host: health indicators, maintenance bypass, About contributors, deployment capabilities and app guards | 3 | 14.2 | no | Open |
+| PP-14.13 | #931 | host: health indicators, maintenance bypass, About contributors, deployment capabilities and app guards | 3 | 14.2 | no | This change |
 | PP-14.14 | #932 | core: open the access-reason, principal and error-code vocabularies | 3 | none | no | This change |
 | PP-14.15 | #933 | roles: app roles become assignable, and apps can grant platform permissions to them | 3 | none | no | Open |
 | PP-14.16 | #934 | sharing: pluggable grantee kinds and access rules | 3 | 14.15 | maybe | Open |
@@ -413,19 +413,19 @@ Closed points: none recorded at the audit commit.
 
 ### host
 
-**Verdict:** Partly closed · **Packages:** api, web, contract · **Closed points:** 8 (1 fixed, 7 open) · **Stories:** PP-14.2, PP-14.13, PP-14.24
+**Verdict:** Partly closed · **Packages:** api, web, contract · **Closed points:** 8 (7 fixed, 1 open) · **Stories:** PP-14.2, PP-14.13, PP-14.24
 
-**Open points.** `PlatformHostCoreModule.forRoot` (including `eventBusAdapter` and `eventBus`), `registerEventBusAdapter` and `describeEventBusConformance`, `AboutModule.forRoot`, `registerPlatformDocs`, the `host` conformance suite. Worked example: `apps/api/src/platform-extensions/host/recording-event-bus.ts`.
+**Open points.** `PlatformHostCoreModule.forRoot` (including `eventBusAdapter` and `eventBus`), `registerEventBusAdapter` and `describeEventBusConformance`, `AboutModule.forRoot` (with `host` and `permission`), `registerHealthIndicator`, `registerMaintenanceBypass`, `registerAboutContributor`, `registerDeploymentMode`, `registerDeploymentCapability`, `registerResponseMetaContributor`, `buildCorsOptions(raw, extra)`, `PlatformHostCoreModule.forRoot({ host, permissions })`, `registerPlatformDocs`, the `host` conformance suite (`allowedAppGuards`). Worked examples: `apps/api/src/platform-extensions/host/` (`recording-event-bus.ts`, `queue-readiness.indicator.ts`, `payments-webhook.bypass.ts`, `transcription.about-contributor.ts`, `byoc.deployment-mode.ts`, `api-revision.response-meta.ts`, `example-throttler.guard.ts`).
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
 | host-1 | The event bus was a closed pair (`in-process`, `postgres`) built by a fixed factory in a global module the app cannot override. | api: `host/event-bus/event-bus.interface.ts:103, :110`; `host/event-bus/event-bus.factory.ts`; `host/host-core.module.ts:168-171` | `registerEventBusAdapter`, `PlatformHostCoreModule.forRoot({ eventBus })`, `describeEventBusConformance`. | PP-14.2 (#920) | Fixed (PR #948) |
-| host-2 | `/health` hard-codes the database indicator and `HealthController` is fixed, so an extension (a queue, Redis, an AI provider) cannot join readiness. | api: `host/health/health.controller.ts:161, :181-185`; `host/host-core.module.ts:155` | `registerHealthIndicator({ id, critical, check, timeoutMs })`. | PP-14.13 (#931) | Open |
-| host-3 | `MaintenanceGuard.isAdminBearer` is hard-wired to the admin role and JWTs (`pat_` and `nod_` bearers are never admin); exemptions exist only as a decorator. | api: `host/maintenance/maintenance.guard.ts:196-216` | `registerMaintenanceBypass({ id, allows })`, evaluated after the built-in admin rule. | PP-14.13 (#931) | Open |
-| host-4 | `AboutService.describe()` returns a fixed object and the options carry only `apiVersion`. | api: `host/about/about.options.ts:30` | `registerAboutContributor`; `GET /api/about` gains optional `extras`. | PP-14.13 (#931) | Open |
-| host-5 | Deployment modes and capabilities are a closed pair and a `switch`. | api: `host/deployment/deployment-mode.ts:41, :110-117` | `registerDeploymentCapability`, `registerDeploymentMode`; `inAppRestore` stays built in. | PP-14.13 (#931) | Open |
-| host-6 | The `host` conformance suite requires exactly one `APP_GUARD`, so an app cannot add a throttler or tenant guard without skipping the whole suite. | api: `host/testing/conformance.ts:157-169` | `allowedAppGuards: Array<{ name, why }>` (an empty `why` throws); `MaintenanceGuard` stays first. | PP-14.13 (#931) | Open |
-| host-7 | Host controllers import `Auth` and `Public` from identity and hard-code `system_settings:read` and `write`; `buildCorsOptions` accepts only the env string; the response `meta` is only `{ timestamp }`. | api: `host/maintenance/maintenance.controller.ts:40, :67` | A `permissions` option, `buildCorsOptions(raw, extra)`, `registerResponseMetaContributor`. | PP-14.13 (#931) | Open |
+| host-2 | `/health` hard-codes the database indicator and `HealthController` is fixed, so an extension (a queue, Redis, an AI provider) cannot join readiness. | api: `host/health/health.controller.ts:161, :181-185`; `host/host-core.module.ts:155` | `registerHealthIndicator({ id, critical, check, timeoutMs })`. | PP-14.13 (#931) | Fixed |
+| host-3 | `MaintenanceGuard.isAdminBearer` is hard-wired to the admin role and JWTs (`pat_` and `nod_` bearers are never admin); exemptions exist only as a decorator. | api: `host/maintenance/maintenance.guard.ts:196-216` | `registerMaintenanceBypass({ id, allows })`, evaluated after the built-in admin rule. | PP-14.13 (#931) | Fixed |
+| host-4 | `AboutService.describe()` returns a fixed object and the options carry only `apiVersion`. | api: `host/about/about.options.ts:30` | `registerAboutContributor`; `GET /api/about` gains optional `extras`. | PP-14.13 (#931) | Fixed |
+| host-5 | Deployment modes and capabilities are a closed pair and a `switch`. | api: `host/deployment/deployment-mode.ts:41, :110-117` | `registerDeploymentCapability`, `registerDeploymentMode`; `inAppRestore` stays built in. | PP-14.13 (#931) | Fixed |
+| host-6 | The `host` conformance suite requires exactly one `APP_GUARD`, so an app cannot add a throttler or tenant guard without skipping the whole suite. | api: `host/testing/conformance.ts:157-169` | `allowedAppGuards: Array<{ name, why }>` (an empty `why` throws); `MaintenanceGuard` stays first. | PP-14.13 (#931) | Fixed |
+| host-7 | Host controllers import `Auth` and `Public` from identity and hard-code `system_settings:read` and `write`; `buildCorsOptions` accepts only the env string; the response `meta` is only `{ timestamp }`. | api: `host/maintenance/maintenance.controller.ts:40, :67` | A `permissions` option, `buildCorsOptions(raw, extra)`, `registerResponseMetaContributor`. | PP-14.13 (#931) | Fixed |
 | host-8 | `AboutPage`, `MaintenancePage`, `MaintenanceScreen`, `InstallPrompt` and `MaintenanceBanner` have no slots or copy props. | web: `host/ui/about-page.tsx:572`; `host/ui/maintenance-page.tsx:156`; `host/ui/maintenance-screen.tsx:35` | `Sections`, `logo`, `actions`, `copy`. | PP-14.24 (#942) | Open |
 
 ### datatable

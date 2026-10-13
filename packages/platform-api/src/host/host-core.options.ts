@@ -1,7 +1,8 @@
 import type { DynamicModule, ForwardReference, Type } from '@nestjs/common';
 
-import type { ErrorMapper, PortBinding } from '../core/index';
+import { definePlatformHost, type ErrorMapper, type PlatformHost, type PortBinding } from '../core/index';
 import type { EventBus } from './event-bus/event-bus.interface';
+import { DEFAULT_MAINTENANCE_READ_PERMISSION, DEFAULT_MAINTENANCE_WRITE_PERMISSION } from './maintenance/maintenance.controller';
 
 /**
  * A module `PlatformHostCoreModule.forRoot` imports for the app.
@@ -49,6 +50,32 @@ export interface PlatformHostCoreOptions {
    */
   eventBus?: PortBinding<EventBus>;
   /**
+   * The app's access decorators (`definePlatformHost(...)`), so the maintenance
+   * routes are guarded exactly as the app's own admin routes are, and the health
+   * probes carry the app's public marker. Omitted, the host's controllers use
+   * the identity slice's `@Auth()` and `@Public()`, which is what the reference
+   * app binds.
+   *
+   * @example
+   * ```ts
+   * PlatformHostCoreModule.forRoot({ host: platformHost });
+   * ```
+   *
+   * @extensionPoint option
+   * @stability experimental
+   */
+  host?: PlatformHost;
+  /**
+   * The permission strings the maintenance routes enforce. Defaults:
+   * `system_settings:read` for `GET /api/admin/maintenance` and
+   * `system_settings:write` for `PUT`. An app that changes one must change the
+   * Maintenance settings card's `permission` to the same string.
+   *
+   * @extensionPoint option
+   * @stability experimental
+   */
+  permissions?: PlatformHostCorePermissions;
+  /**
    * Whether the database-backed gauges (queue depth, oldest pending job, last
    * backup) register. Default: `OTEL_ENABLED === 'true'`, read when the
    * metrics host is built, so a process without the SDK never queries for them.
@@ -78,6 +105,18 @@ export interface PlatformHostCoreOptions {
 }
 
 /**
+ * The permissions of the host's controllers.
+ *
+ * @stability experimental
+ */
+export interface PlatformHostCorePermissions {
+  /** `GET /api/admin/maintenance`. Default `system_settings:read`. */
+  maintenanceRead?: string;
+  /** `PUT /api/admin/maintenance`. Default `system_settings:write`. */
+  maintenanceWrite?: string;
+}
+
+/**
  * The options after defaults.
  *
  * @stability experimental
@@ -87,6 +126,10 @@ export interface ResolvedPlatformHostCoreOptions {
   readonly eventBusAdapter: string | undefined;
   /** See {@link PlatformHostCoreOptions.eventBus}; `undefined` builds the selected adapter. */
   readonly eventBus: PortBinding<EventBus> | undefined;
+  /** See {@link PlatformHostCoreOptions.host}; `undefined` uses the identity slice's decorators. */
+  readonly host: PlatformHost | undefined;
+  /** See {@link PlatformHostCoreOptions.permissions}, defaults applied. */
+  readonly permissions: Readonly<Required<PlatformHostCorePermissions>>;
   /** See {@link PlatformHostCoreOptions.metricsGauges}; `undefined` reads the environment. */
   readonly metricsGauges: boolean | undefined;
   /** See {@link PlatformHostCoreOptions.errorMappers}. */
@@ -108,7 +151,8 @@ export const PLATFORM_HOST_CORE_OPTIONS: unique symbol = Symbol.for('@marinoscar
  * @param options - the raw options.
  * @returns the resolved, frozen options.
  * @throws Error when `eventBusAdapter` is not a string, `eventBus` is not a binding with exactly one
- *   of `useExisting`, `useClass` or `useFactory`, `metricsGauges` is not a boolean, or `errorMappers` is not an array of functions.
+ *   of `useExisting`, `useClass` or `useFactory`, `host` is not a valid platform host, a permission
+ *   is not a non-empty string, `metricsGauges` is not a boolean, or `errorMappers` is not an array of functions.
  *
  * @stability experimental
  */
@@ -126,6 +170,18 @@ export function resolvePlatformHostCoreOptions(options: PlatformHostCoreOptions 
       throw new Error('PlatformHostCoreModule.forRoot: eventBus needs exactly one of useExisting, useClass or useFactory');
     }
   }
+  if (options.host !== undefined) {
+    // Validates and freezes it now, so a bad host fails the boot rather than a route.
+    definePlatformHost(options.host);
+  }
+  for (const [key, value] of Object.entries(options.permissions ?? {})) {
+    if (key !== 'maintenanceRead' && key !== 'maintenanceWrite') {
+      throw new Error(`PlatformHostCoreModule.forRoot: permissions.${key} is not a host permission (maintenanceRead, maintenanceWrite)`);
+    }
+    if (typeof value !== 'string' || value.trim() === '') {
+      throw new Error(`PlatformHostCoreModule.forRoot: permissions.${key} must be a non-empty string`);
+    }
+  }
   if (options.metricsGauges !== undefined && typeof options.metricsGauges !== 'boolean') {
     throw new Error('PlatformHostCoreModule.forRoot: metricsGauges must be a boolean');
   }
@@ -138,6 +194,11 @@ export function resolvePlatformHostCoreOptions(options: PlatformHostCoreOptions 
   return Object.freeze({
     eventBusAdapter: options.eventBusAdapter,
     eventBus: options.eventBus,
+    host: options.host,
+    permissions: Object.freeze({
+      maintenanceRead: options.permissions?.maintenanceRead ?? DEFAULT_MAINTENANCE_READ_PERMISSION,
+      maintenanceWrite: options.permissions?.maintenanceWrite ?? DEFAULT_MAINTENANCE_WRITE_PERMISSION,
+    }),
     metricsGauges: options.metricsGauges,
     errorMappers: Object.freeze([...(options.errorMappers ?? [])]),
     imports: Object.freeze([...(options.imports ?? [])]),

@@ -56,7 +56,7 @@
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
-import { DEPLOYMENT_MODES } from '../../deployment/deployment-mode';
+import { DEPLOYMENT_MODE_ID_PATTERN } from '../../deployment/deployment-mode';
 import { DEPLOY_INFO_STATUSES } from '../deploy-info.constants';
 
 /** The API process's own version — always known, never read from disk. */
@@ -72,7 +72,7 @@ export const aboutApiSchema = z.object({
    * known: an invalid value never boots. `saas` means in-app database restore
    * is disabled and recovery is the database provider's point-in-time recovery.
    */
-  deploymentMode: z.enum(DEPLOYMENT_MODES),
+  deploymentMode: z.string().regex(DEPLOYMENT_MODE_ID_PATTERN),
 });
 
 export const aboutAppSchema = z.object({
@@ -181,6 +181,20 @@ export const aboutDatabaseSchema = z.object({
   responseTime: z.string(),
 });
 
+/**
+ * One group of facts an app contributed (`registerAboutContributor`): shown by
+ * the About page as its own section. The facts are bounded server-side: at most
+ * 16 keys, primitive values, strings of at most 200 characters.
+ */
+export const aboutExtraSchema = z.object({
+  /** The contributor's id. */
+  id: z.string(),
+  /** The section heading. */
+  label: z.string(),
+  /** The facts, name to value. */
+  facts: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
+});
+
 export const aboutResponseSchema = z.object({
   api: aboutApiSchema,
 
@@ -244,6 +258,14 @@ export const aboutResponseSchema = z.object({
    */
   database: aboutDatabaseSchema.nullable(),
   databaseError: z.string().nullable(),
+
+  /**
+   * Groups of facts the app contributed with `registerAboutContributor`, in
+   * registration order. ABSENT (not empty) when no contributor is registered or
+   * every one failed, so a deployment that registers none answers exactly as it
+   * did before this field existed.
+   */
+  extras: z.array(aboutExtraSchema).optional(),
 });
 
 export class AboutResponseDto extends createZodDto(aboutResponseSchema) {}

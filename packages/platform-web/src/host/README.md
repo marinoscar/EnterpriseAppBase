@@ -6,7 +6,7 @@ The host pages of the platform (issue #891): the admin About page, the admin Mai
 
 Three screens an operator or a blocked user meets around a deployment:
 
-- **About** (`/admin/settings/about`): what is actually running here: the API version, the deployment mode, the deploy document `appctl deploy` leaves on disk (commit, ref, install and update times, the run's outcome and failed step, the proxy and certificate expiry, the host, the history) and a database liveness fact. It has three render states (a document, no usable document, and a document describing a failed run) and never says how the instance was deployed when no record was found.
+- **About** (`/admin/settings/about`): what is actually running here: the API version, the deployment mode, the deploy document `appctl deploy` leaves on disk (commit, ref, install and update times, the run's outcome and failed step, the proxy and certificate expiry, the host, the history) and a database liveness fact. It has three render states (a document, no usable document, and a document describing a failed run) and never says how the instance was deployed when no record was found. When the API reports `extras` (the groups of facts an app contributed with `registerAboutContributor`) the page renders one more section per group, after the built-in ones, with the group's `label` as its title and its facts as a list; with none, the DOM is exactly what it was.
 - **Maintenance** (`/admin/settings/maintenance`): the switch, the message and `allowAdmins`, with every contributing layer (environment variable, server task, saved setting) and the one that decides.
 - **The maintenance screen**: what a viewer sees instead of the application while a deliberate window is open. Not a route: `MaintenanceGate` renders it in place.
 - **The gate and the banner**: `MaintenanceGate` swaps the application for the screen while the HTTP client has recorded a maintenance block (never on `MAINTENANCE_ADMIN_PATH`); `MaintenanceBanner` reminds an administrator who is getting through that a window is open.
@@ -78,7 +78,7 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
-| `AboutPage` | component | `AboutPage(): ReactElement` | Route `/admin/settings/about` behind `system_settings:read` | experimental | [example](../../../../apps/web/src/pages/Admin/AboutPage.tsx) |
+| `AboutPage` | component | `AboutPage(): ReactElement` | Route `/admin/settings/about` behind `system_settings:read`; renders the API's `extras` (`AboutExtra[]`, from `registerAboutContributor`) as extra sections | experimental | [example](../../../../apps/web/src/pages/Admin/AboutPage.tsx) |
 | `MaintenancePage` | component | `MaintenancePage(): ReactElement` | Route `/admin/settings/maintenance` behind `system_settings:read` | experimental | [example](../../../../apps/web/src/pages/Admin/MaintenancePage.tsx) |
 | `MaintenanceScreen` | component | `MaintenanceScreen(props: MaintenanceScreenProps): ReactElement` | Render in place of the application while a window is open, outside the layout | experimental | [example](../../../../apps/web/src/App.tsx) |
 | `MaintenanceGate` | component | `MaintenanceGate({ appName, children }: MaintenanceGateProps): ReactElement` | Wrap the routes so a maintenance block replaces them with the screen | experimental | [example](../../../../apps/web/src/App.tsx) |
