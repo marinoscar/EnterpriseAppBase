@@ -22,10 +22,11 @@ export type { FeatureUnavailableNoticeProps } from './FeatureUnavailableNotice.j
 export { GettingStartedMenuItem } from './GettingStartedMenuItem.js';
 export type { GettingStartedMenuItemProps } from './GettingStartedMenuItem.js';
 export { GettingStartedPage } from './GettingStartedPage.js';
+export type { GettingStartedPageProps, GettingStartedPageSlots } from './GettingStartedPage.js';
 export { ONBOARDING_TIER_LABELS, OnboardingChecklist, onboardingStatusWord } from './OnboardingChecklist.js';
 export type { OnboardingChecklistProps } from './OnboardingChecklist.js';
 export { SetupGuidePage } from './SetupGuidePage.js';
-export type { SetupGuidePageProps } from './SetupGuidePage.js';
+export type { SetupGuidePageProps, SetupGuidePageSlots } from './SetupGuidePage.js';
 export { gettingStartedSettingsPage, setupGuideSettingsPage } from './settings-pages.js';
 export { WelcomeDialog } from './WelcomeDialog.js';
 export type { WelcomeDialogProps, WelcomeDialogSlots, WelcomePaneProps } from './WelcomeDialog.js';

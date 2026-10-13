@@ -35,6 +35,7 @@ The reference app appends the card and routes the page ([`apps/web/src/config/us
 
 | Option | Type | Default | Meaning |
 |---|---|---|---|
+| `DataExportPage` `slots` | `DataExportPageSlots` | none | The page-slot contract (`Header`, `BeforeContent`, `Sections`, `AfterContent`), the list's `Columns` and `RowActions` (forwarded to `ExportsList`) and `form` (see UI) |
 | `DataExportPage` `slots.form` | `Record<sourceId, ComponentType<ExportFormSlotProps>>` | none | A source's own request form instead of the generated fields |
 | `ExportDialog` `sources` | `ExportSourceDescriptor[]` | required | The sources to offer (`useExportSources().sources`) |
 | `ExportsList` `slots` | `ExportsListSlots` | none | `Columns` and `RowActions` (see UI) |
@@ -55,7 +56,8 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | `ExportDialog` | component | `ExportDialog(props: { open; onClose; sources; initialSourceId?; onCreated?; slots?: { form? } }): ReactElement` | Request an export from any page; a source's own form in `slots.form` | experimental | [example](../../../../apps/web/src/platform-extensions/exports/InboxRangeForm.example.tsx) |
 | `ExportsList` | component | `ExportsList(props: { exports; sources?; onDownload?; slots?: ExportsListSlots }): ReactElement` | List exports with status in words and a fresh download | experimental | [example](../../../../apps/web/src/__tests__/platform/exports.test.tsx) |
 | `ExportsListSlots` | slot | `{ Columns?: (base: ExportsListColumn[]) => ExportsListColumn[]; RowActions?: PageSlot<{ row: ExportView }> }` | Add or remove a column, or add a per-export action after Download, without a fork | experimental | [example](../../../../apps/web/src/platform-extensions/exports/ExportsListSlots.example.tsx) |
-| `DataExportPage` | component | `DataExportPage(props?: { slots?: { form? } }): ReactElement` | Route `/settings/data-export` | experimental | [example](../../../../apps/web/src/App.tsx) |
+| `DataExportPage` | component | `DataExportPage(props?: { slots?: DataExportPageSlots }): ReactElement` | Route `/settings/data-export` | experimental | [example](../../../../apps/web/src/App.tsx) |
+| `DataExportPageSlots` | slot | `PageSlotsBase & ExportsListSlots & { form?: Record<sourceId, ComponentType<ExportFormSlotProps>> }` | Add a notice, a section, a replaced header, list columns or per-export actions to the page without a fork | experimental | [example](../../../../apps/web/src/platform-extensions/exports/DataExportPageSlots.example.tsx) |
 | `dataExportSettingsPage` | component | `PlatformSettingsPage<never>` | The user card and route (no permission) | experimental | [example](../../../../apps/web/src/config/userSettingsSections.tsx) |
 
 ## Data
@@ -69,7 +71,8 @@ The card declares no `permission`, because the API grants the `user-data` source
 ## UI
 
 - **Page.** `DataExportPage` at `/settings/data-export`, under a "Your data" group appended to the user settings registry. A Danger Zone group (#743), when present, stays last.
-- **List slots.** `ExportsList` takes `slots` named as the packaged-page table contract names them. `Columns(base)` returns the columns to draw; the base columns are `export` (the title), `created`, `size` and `error` (the line under it, joined by middots) and `status` (the chip, in the right-hand group). A column is placed by `priority` (`primary`, `secondary`, `detail` on its own line) or `placement: 'trailing'`; `render(export)` returns text or a node, and a column that returns nothing for a row draws nothing there. `RowActions` draws after Download. With no slot the markup is exactly the list's own. `DataExportPage` does not forward them: render `ExportsList` yourself to use them.
+- **List slots.** `ExportsList` takes `slots` named as the packaged-page table contract names them. `Columns(base)` returns the columns to draw; the base columns are `export` (the title), `created`, `size` and `error` (the line under it, joined by middots) and `status` (the chip, in the right-hand group). A column is placed by `priority` (`primary`, `secondary`, `detail` on its own line) or `placement: 'trailing'`; `render(export)` returns text or a node, and a column that returns nothing for a row draws nothing there. `RowActions` draws after Download. With no slot the markup is exactly the list's own. `DataExportPage` forwards `slots.Columns` and `slots.RowActions` to the list it draws, so the page needs no copy to use them.
+- **Page slots.** `DataExportPage` takes the packaged-page slot contract (`PageSlotsBase`, [Page slots](../core/README.md#page-slots)): `Header` (gets `{ title, description, actions: null }`; print `title` as the `h1`), `BeforeContent` (a notice under the header), `Sections` (drawn at both ends of the body: `position: 'top'` under the header, `'bottom'` after the recent exports; return `null` for the one you do not want) and `AfterContent`. All sit inside the page's container. The request dialog is not a slot target here: its `form` slot is `slots.form`. With no slot the markup is exactly the page's own (`test/exports/DataExportPage.builtin-dom.test.tsx` pins it).
 - **Status in words.** Queued, Preparing, Ready to download, Expired, Failed. Colour is never the only signal.
 - **Accessibility.** Buttons are at least 44 px high, the dialog is labelled, and the download buttons name what they download.
 
@@ -91,6 +94,8 @@ None client-side. The API counts exports (`app.exports`) and audits each file.
 None of its own. `apps/web/src/__tests__/config/platformPages.test.ts` checks that the card is registered once from the descriptor, ungated, with one ungated route, and `userSettingsSections.test.ts` pins its group.
 
 ## Upgrade notes
+
+PP-14.24b (#974): `DataExportPage` takes the page-slot contract and forwards the list's `Columns` and `RowActions`; its `slots` type is now the exported `DataExportPageSlots` (a superset of the old `{ form? }`), so existing code keeps compiling and rendering the same markup. The page was the last entry on `test/page-slots.exempt.json`.
 
 New in #744. EvoPath's health export page maps to `DataExportPage` with its `health` source. Its range and dataset pickers come from the source's request schema, or from its own form through `slots.form`.
 
