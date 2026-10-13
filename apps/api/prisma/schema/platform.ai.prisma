@@ -227,6 +227,11 @@ model UserAiKey {
 // the record `#432`'s job handler(s) read from and write progress/output to.
 // This issue is schema only, matching every other table in this section: no
 // enqueue path, no job handler and no controller exists yet.
+// @extensible — back-relations only, added with "extend model AiRun { ... }" in a fragment
+// (an app's own annotation of a run, for example a review verdict). The table is org-owned
+// with row-level security forced, so a table of the app's that holds `org_id` links to a run
+// with a composite foreign key `(ai_run_id, org_id)` -> `ai_runs (id, org_id)`; the
+// `@@unique([id, orgId])` below exists for it.
 model AiRun {
   id String @id @default(uuid()) @db.Uuid
 
@@ -303,6 +308,10 @@ model AiRun {
   // The retention sweep (`ai.runs.purge`, #681): "oldest first, older than
   // the cutoff" across every user, which `[userId, createdAt]` cannot serve.
   @@index([createdAt])
+  // The target of an app table's composite foreign key (id, org_id), like
+  // `Group` and `StorageObject`: a plain FK on `id` would let a row of one
+  // organization point at another's (an FK check bypasses row-level security).
+  @@unique([id, orgId])
   @@map("ai_runs")
 }
 

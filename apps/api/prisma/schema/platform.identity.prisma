@@ -16,6 +16,13 @@ model User {
   isActive                Boolean  @default(true) @map("is_active")
   createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt               DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  // App-owned, namespaced fields (`registerUserMetadataSchema`, PP-14.27): one top-level
+  // key per registered namespace, each validated against its zod schema on write.
+  // NOT a secret store (a secret-named field is refused at registration; secrets go
+  // in `user_credentials`). At most 16 KiB per row, enforced by the writer and, as a
+  // 32 KiB backstop, by `users_metadata_size_check`. Never returned by the platform's
+  // routes: an app exposes a namespace only through a route it writes.
+  metadata                Json     @default("{}") @db.JsonB
 
   // Relations
   identities             UserIdentity[]
@@ -138,6 +145,10 @@ enum RoleScope {
   org
 }
 
+// @extensible — back-relations only, added with "extend model Role { ... }" in a fragment
+// (a table of the app's own that points at a role, such as per-role settings). The
+// role's own columns and the `role_permissions` grants stay the platform's: `seedPlatform`
+// refreshes them from the registry on every run.
 model Role {
   id          String    @id @default(uuid()) @db.Uuid
   name        String    @unique
@@ -153,6 +164,12 @@ model Role {
   @@map("roles")
 }
 
+// Deliberately NOT `@extensible` (PP-14.27). A permission is a string owned by code:
+// the registry (`registerPermissions`) is the source of truth, `seedPlatform` upserts
+// the rows by `name` and never deletes one, and a removed permission is retired by an
+// explicit expand/contract migration. A foreign key from an app table would make that
+// retirement fail and would tie app data to a row id that no registry declares. An app
+// refers to a permission by its name string in code, never by a relation.
 model Permission {
   id          String    @id @default(uuid()) @db.Uuid
   name        String    @unique
@@ -423,6 +440,11 @@ model Organization {
   createdById String?  @map("created_by_id") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  // App-owned, namespaced fields (`registerOrganizationMetadataSchema`, PP-14.27); same
+  // contract as `User.metadata`: validated per namespace, no secrets, 16 KiB per row
+  // (32 KiB backstop `organizations_metadata_size_check`), never returned by the
+  // platform's routes.
+  metadata    Json     @default("{}") @db.JsonB
 
   // Relations
   createdBy            User?                 @relation("OrganizationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
