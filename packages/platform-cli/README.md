@@ -6,7 +6,7 @@ The platform's command-line client, as a package an app composes rather than for
 
 `createCli` builds an app's CLI from its identity and the registries. The identity (executable name, display name, repository) is configuration: the config directory (`~/.<name>`), the env prefix (`<NAME>_`), the systemd unit (`<name>-node.service`) and every help text follow it, read at call time. Two strings never follow it, because live servers already have them: the deploy state file `.appctl-deploy.json` and the proxy sentinel `# Managed by appctl deploy`.
 
-An app extends the CLI through five registries instead of editing it: commands and env-spec fragments ([`/core`](src/core/README.md)), TUI screens ([`/tui`](src/tui/README.md)), deploy steps ([`/deploy`](src/deploy/README.md)) and node executors ([`/node`](src/node/README.md)).
+An app extends the CLI through registries instead of editing it: commands, env-spec fragments, env groups, generators and annotations ([`/core`](src/core/README.md)), TUI screens and their sections ([`/tui`](src/tui/README.md)), deploy steps, checks, proxy stream paths and edge-config files ([`/deploy`](src/deploy/README.md)), node executors ([`/node`](src/node/README.md)) and conformance suites ([`/testing`](src/testing/README.md)).
 
 The package does not own the app's binary name (npm reads the `bin` key before any code runs, so the app's `package.json` carries it), its product identity (`@app/shared` stays in the app; the identity arrives through `createCli`), or app-specific commands.
 
@@ -15,14 +15,14 @@ Subpath exports, each with its own README:
 | Subpath | Contents | README |
 |---|---|---|
 | `@marinoscar/platform-cli` | `createCli`, `run`, the identity accessors, `EXIT` and `formatError` | this file |
-| `/core` | `registerCliCommand`, `registerEnvSpecFragment` and the env-key metadata helpers | [core](src/core/README.md) |
+| `/core` | `registerCliCommand`, `registerEnvSpecFragment`, `registerEnvGroup`, `registerEnvGenerator`, `annotateEnvKey` and the env-key metadata helpers | [core](src/core/README.md) |
 | `/commands` | The six built-in command registrars and the error model | [commands](src/commands/README.md) |
-| `/tui` | `registerTuiScreen` and the built-in screen order | [tui](src/tui/README.md) |
-| `/deploy` | `registerDeployStep`, the built-in step ids, `planDeploySteps`, `DeployHooks`, the env template helpers | [deploy](src/deploy/README.md) |
+| `/tui` | `registerTuiScreen`, `registerTuiScreenSection` and the built-in screen order | [tui](src/tui/README.md) |
+| `/deploy` | `registerDeployStep`, `registerDeployCheck`, `registerProxyStreamPath`, `registerEdgeConfigFile`, the built-in step ids, `planDeploySteps`, `DeployHooks`, the env template helpers | [deploy](src/deploy/README.md) |
 | `/node` | `JobExecutor`, `ExecutorRegistry`, `registerNodeExecutor` | [node](src/node/README.md) |
 | `/api-client` | `ApiClient`, `resolveApiBaseUrl` and the API errors | [api-client](src/api-client/README.md) |
 | `/telemetry` | The worker's span relay and the telemetry env-spec fragment | [telemetry](src/telemetry/README.md) |
-| `/testing` | Identity and registry reset, the credential-hygiene check, `runPlatformConformance` | [testing](src/testing/README.md) |
+| `/testing` | Identity and registry reset, `testDeployStepContext`, the credential-hygiene check, `runPlatformConformance`, `registerCliConformanceSuite` | [testing](src/testing/README.md) |
 
 The implementation lives in one internal slice (`src/engine/`), which is not a subpath export: the entry points above re-export the parts they publish, and nothing may import a file inside it.
 
@@ -85,7 +85,7 @@ void main();
 | `nodeExecutors` | `JobExecutor[]` | `[]` | Executors for the app's node-eligible job types. Same as `registerNodeExecutor`. |
 | `envSpecFragments` | `EnvSpecFragment[]` | `[]` | Metadata for the app's `.env.example` keys. Same as `registerEnvSpecFragment`. |
 
-The options and the `register*` functions feed the same registries: string ids, a duplicate-id error, a deterministic order (built-ins first, then registration order), and frozen when `createCli` returns, so a late registration throws instead of going missing. A broken composition (a taken command name, TUI route, deploy step id or executor type; a step after an unknown step; an env key with two owners) throws at `createCli`.
+The options and the `register*` functions feed the same registries: string ids, a duplicate-id error, a deterministic order (built-ins first, then registration order), and frozen when `createCli` returns, so a late registration throws instead of going missing. A broken composition (a taken command name, TUI route, deploy step id, check id, env group or generator kind or executor type; a step anchored on an unknown step; an env key with two owners; an invalid stream path or edge-config path) throws at `createCli`. The newer options are `envGroups`, `envGenerators`, `envAnnotations`, `deployChecks`, `edgeConfigFiles`, `tuiSections` and `proxy: { streamPaths }`.
 
 ## Extension-point catalog
 
@@ -101,10 +101,18 @@ The registries are catalogued by the entry point that exports them, each with a 
 |---|---|---|
 | `registerCliCommand` | [`/core`](src/core/README.md#extension-point-catalog) | [`hello.command.ts`](../../apps/cli/src/examples/hello.command.ts) |
 | `registerEnvSpecFragment` | [`/core`](src/core/README.md#extension-point-catalog) | the platform's `telemetry` fragment |
+| `registerEnvGroup` | [`/core`](src/core/README.md#extension-point-catalog) | [`coach.env-group.ts`](../../apps/cli/src/examples/coach.env-group.ts) |
+| `registerEnvGenerator` | [`/core`](src/core/README.md#extension-point-catalog) | [`coach.env-generator.ts`](../../apps/cli/src/examples/coach.env-generator.ts) |
+| `annotateEnvKey` | [`/core`](src/core/README.md#extension-point-catalog) | [`coach.env-annotation.ts`](../../apps/cli/src/examples/coach.env-annotation.ts) |
 | `registerTuiScreen` | [`/tui`](src/tui/README.md#extension-point-catalog) | [`about.tui.ts`](../../apps/cli/src/examples/about.tui.ts) |
+| `registerTuiScreenSection` | [`/tui`](src/tui/README.md#extension-point-catalog) | [`fleet-note.tui-section.tsx`](../../apps/cli/src/examples/fleet-note.tui-section.tsx) |
 | `registerDeployStep` | [`/deploy`](src/deploy/README.md#extension-point-catalog) | [`announce.deploy-step.ts`](../../apps/cli/src/examples/announce.deploy-step.ts) |
+| `registerDeployCheck` | [`/deploy`](src/deploy/README.md#extension-point-catalog) | [`coach.deploy-check.ts`](../../apps/cli/src/examples/coach.deploy-check.ts) |
+| `registerProxyStreamPath` | [`/deploy`](src/deploy/README.md#extension-point-catalog) | [`coach.proxy-stream.ts`](../../apps/cli/src/examples/coach.proxy-stream.ts) |
+| `registerEdgeConfigFile` | [`/deploy`](src/deploy/README.md#extension-point-catalog) | [`coach.edge-config.ts`](../../apps/cli/src/examples/coach.edge-config.ts) |
 | `registerNodeExecutor` | [`/node`](src/node/README.md#extension-point-catalog) | [`echo.executor.ts`](../../apps/cli/src/examples/echo.executor.ts) |
 | `runPlatformConformance` | [`/testing`](src/testing/README.md#extension-point-catalog) | [`conformance.test.ts`](../../apps/cli/src/conformance.test.ts) |
+| `registerCliConformanceSuite` | [`/testing`](src/testing/README.md#extension-point-catalog) | [`coach.conformance-suite.ts`](../../apps/cli/src/examples/coach.conformance-suite.ts) |
 
 The built-in deploy step ids, the env-spec fragment contract and the `/testing` helpers are listed in the [deploy](src/deploy/README.md#extension-point-catalog), [core](src/core/README.md#purpose-and-scope) and [testing](src/testing/README.md#extension-point-catalog) READMEs.
 
@@ -137,7 +145,7 @@ A worker relays each job's phase spans to the API through the [telemetry](src/te
 
 ## Conformance suite
 
-`runPlatformConformance({ suites: { cli } })` from [`/testing`](src/testing/README.md#conformance-suite): every env template fragment declares no commented `# KEY=value` line (beyond `PLATFORM_DOCUMENTED_OPTIONAL_KEYS` in the platform base), and every executor the worker would run passes the credential-hygiene check on a fake job holding a credential. The reference app runs it in [`apps/cli/src/conformance.test.ts`](../../apps/cli/src/conformance.test.ts).
+`runPlatformConformance({ suites: { cli, deployRegistrations } })` from [`/testing`](src/testing/README.md#conformance-suite). A suite is run with its options or skipped with `{ skip: 'reason' }`; `false` or an empty reason throws. `deployRegistrations` checks that every env key names a registered group and generator, both deploy plans resolve, no edge-config file is listed twice and the vhost renders with the app's stream paths. `cli`: every env template fragment declares no commented `# KEY=value` line (beyond `PLATFORM_DOCUMENTED_OPTIONAL_KEYS` in the platform base), and every executor the worker would run passes the credential-hygiene check on a fake job holding a credential. The reference app runs it in [`apps/cli/src/conformance.test.ts`](../../apps/cli/src/conformance.test.ts).
 
 ## Upgrade notes
 
@@ -159,7 +167,10 @@ A worker relays each job's phase spans to the API through the [telemetry](src/te
 | `No CLI identity is set` | A module ran before `createCli` | Build the CLI first; in tests use `useTestCliIdentity` or `createCli` after `resetCliForTests()` |
 | `The CLI identity is already set` | `createCli` (or `setCliIdentity`) ran twice with different identities | One identity per process; tests reset with `resetCliForTests()` |
 | `... was registered after createCli built the CLI` | A `register*` call after `createCli` | Register before `createCli`, or pass the entry in its options |
-| `Deploy step "x" runs after "y", which is not a step of the install pipeline` | `after` names no built-in or earlier app step | Use an id from `INSTALL_STEP_IDS` / `UPDATE_STEP_IDS` |
+| `Deploy step "x" after "y", which is not a step of the install pipeline` | The anchor (`after`, `before` or `replaces`) names no built-in or earlier app step, or one already replaced | Use an id from `INSTALL_STEP_IDS` / `UPDATE_STEP_IDS` |
+| `Proxy path "..." contains a character that is not allowed in a vhost location` | A stream path has `;`, a quote, a brace, `$`, `#`, whitespace or a control character | Use letters, digits and `. _ ~ / : @ + , = -` after a leading `/` |
+| `Env key "K" is in group "g", which this CLI does not know` | A fragment names an unregistered group | `registerEnvGroup` (before `createCli`) or fix the fragment |
+| `suite "cli" is skipped without a reason` / `switched off with false` | An opt-out of a conformance suite with no reason | `cli: { skip: 'why this app does not run it' }` |
 | `Node executor "t" duplicates a built-in executor` | The app registers `db.backup.run` or `example.checksum` | A job type has one executor; choose an app type |
 
 ## Links

@@ -27,7 +27,9 @@ export {
   PlatformHostProvider,
   useOptionalPlatformHost,
   usePlatformApi,
+  useOptionalPlatformPort,
   usePlatformHost,
+  usePlatformPort,
   usePlatformViewer,
 } from './host.js';
 export type { PlatformWebHost } from './host.js';

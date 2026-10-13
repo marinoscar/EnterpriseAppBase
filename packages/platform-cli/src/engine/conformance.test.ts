@@ -1,6 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
-import { runPlatformConformance, type ConformanceTestApi } from './conformance.js';
+import {
+  cliConformanceSuites,
+  registerCliConformanceSuite,
+  resetCliConformanceSuitesForTests,
+  runPlatformConformance,
+  type ConformanceTestApi,
+} from './conformance.js';
 import type { JobExecutor } from './node/executors/index.js';
 
 // =============================================================================
@@ -76,10 +82,70 @@ describe('runPlatformConformance (cli suite)', () => {
     expect(await r.runAll()).toEqual([]);
   });
 
-  it('refuses an unknown suite, and shows an opt-out', () => {
+  it('refuses an unknown suite, and shows an opt-out with its reason', () => {
     const r = recorder();
     expect(() => runPlatformConformance({ suites: { clii: false } as never, testApi: r.api })).toThrow(/unknown CLI conformance suite "clii"/);
-    runPlatformConformance({ suites: { cli: false }, testApi: r.api });
-    expect(r.cases.map((c) => c.name)).toEqual(['cli conformance > cli: disabled by the app']);
+    runPlatformConformance({ suites: { cli: { skip: 'the app has no CLI env' } }, testApi: r.api });
+    expect(r.cases.map((c) => c.name)).toEqual(['cli conformance > cli: skipped by the app (the app has no CLI env)']);
+  });
+});
+
+describe('the skip reason is required', () => {
+  it.each([false, { skip: '' }, { skip: '   ' }, { skip: undefined }])('refuses %j', (value) => {
+    const r = recorder();
+    expect(() => runPlatformConformance({ suites: { cli: value as never }, testApi: r.api })).toThrow(/cli/);
+  });
+
+  it('names the fix for the old `cli: false` opt-out', () => {
+    expect(() => runPlatformConformance({ suites: { cli: false as never }, testApi: recorder().api })).toThrow(
+      /switched off with `false`.*cli: \{ skip: 'why this app does not run it' \}/,
+    );
+  });
+
+  it('prints a summary naming every run and skipped suite', () => {
+    let table = '';
+    runPlatformConformance({
+      suites: { cli: { envFragments: [], executors: [] }, deployRegistrations: { skip: 'no VPS deployment' } },
+      testApi: recorder().api,
+      summaryOutput: (text) => (table = text),
+    });
+    expect(table).toBe(['suite                 status', 'cli                   run', 'deploy-registrations  skipped: no VPS deployment', '1 run, 1 skipped'].join('\n'));
+  });
+});
+
+describe('the suite registry', () => {
+  afterEach(() => resetCliConformanceSuitesForTests());
+
+  it('holds the built-in suites by id', () => {
+    expect(cliConformanceSuites.list().map((suite) => suite.id)).toEqual(['cli', 'deploy-registrations']);
+  });
+
+  it('runs a suite an app registered, with its options', () => {
+    const r = recorder();
+    registerCliConformanceSuite<{ minimum: number }>({
+      id: 'coach-commands',
+      title: 'coach commands',
+      description: 'x',
+      register: (api, options) => api.describe('coach commands', () => api.it(`has at least ${options.minimum}`, () => undefined)),
+    });
+    runPlatformConformance({ suites: { coachCommands: { minimum: 2 } } as never, testApi: r.api });
+    expect(r.cases.map((c) => c.name)).toEqual(['coach commands > has at least 2']);
+  });
+
+  it('refuses a duplicate id, a malformed id and a registration after the runner froze it', () => {
+    expect(() => registerCliConformanceSuite({ id: 'cli', title: 't', description: 'd', register: () => undefined })).toThrow(/already registered/);
+    expect(() => registerCliConformanceSuite({ id: 'Bad Id', title: 't', description: 'd', register: () => undefined })).toThrow(/invalid/);
+    runPlatformConformance({ suites: {}, testApi: recorder().api });
+    expect(() => registerCliConformanceSuite({ id: 'late', title: 't', description: 'd', register: () => undefined })).toThrow(
+      /after runPlatformConformance/,
+    );
+  });
+});
+
+describe('the deploy-registrations suite', () => {
+  it('passes for the platform as built', async () => {
+    const ok = recorder();
+    runPlatformConformance({ suites: { deployRegistrations: {} }, testApi: ok.api });
+    expect(await ok.runAll()).toEqual([]);
   });
 });

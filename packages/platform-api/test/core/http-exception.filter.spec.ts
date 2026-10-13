@@ -1,5 +1,7 @@
-import { ArgumentsHost, HttpException, HttpStatus } from '@nestjs/common';
+import { ArgumentsHost, ConflictException, HttpException, HttpStatus, Logger, NotFoundException } from '@nestjs/common';
+import { errorCodeRegistry } from '../../src/core/errors/error-codes';
 import { HttpExceptionFilter } from '../../src/core/errors/http-exception.filter';
+import { withTemporaryEntries } from '../../src/core/registry/testing';
 import { withVerbatimErrorBody } from '../../src/core/errors/verbatim-error-body.exception';
 import { DatabaseSeedException } from '../../src/core/errors/database-seed.exception';
 import { ZodValidationException } from 'nestjs-zod';
@@ -490,6 +492,118 @@ describe('HttpExceptionFilter', () => {
       filter.catch(exception, mockHost);
 
       expect(mockResponse.send.mock.calls[0][0].details).toEqual({ field: 'x' });
+    });
+  });
+});
+
+// =============================================================================
+// PP-14.14: registered payload codes and foreign-error mappers
+// =============================================================================
+
+describe('HttpExceptionFilter: registered codes and error mappers (PP-14.14)', () => {
+  let response: { code: jest.Mock; header: jest.Mock; send: jest.Mock };
+  let host: ArgumentsHost;
+  const sent = () => response.send.mock.calls[0][0];
+
+  beforeEach(() => {
+    response = { code: jest.fn().mockReturnThis(), header: jest.fn().mockReturnThis(), send: jest.fn().mockReturnThis() };
+    host = {
+      switchToHttp: () => ({ getResponse: () => response, getRequest: () => ({ url: '/api/test', method: 'GET' }) }),
+    } as ArgumentsHost;
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => jest.restoreAllMocks());
+
+  const NOTE_TITLE_TAKEN = { code: 'NOTE_TITLE_TAKEN', status: 409, description: 'A note with this title exists.' };
+
+  it('passes a payload code through when it is registered for the exception\'s status', async () => {
+    await withTemporaryEntries(errorCodeRegistry, [NOTE_TITLE_TAKEN], () => {
+      new HttpExceptionFilter().catch(new ConflictException({ code: 'NOTE_TITLE_TAKEN', message: 'Title used', details: { field: 'title' } }), host);
+    });
+    expect(response.code).toHaveBeenCalledWith(409);
+    expect(sent()).toMatchObject({ statusCode: 409, code: 'NOTE_TITLE_TAKEN', message: 'Title used', details: { field: 'title' } });
+  });
+
+  it('ignores a registered code on the wrong status, and an unregistered one (derived from the status as before)', async () => {
+    await withTemporaryEntries(errorCodeRegistry, [NOTE_TITLE_TAKEN], () => {
+      new HttpExceptionFilter().catch(new NotFoundException({ code: 'NOTE_TITLE_TAKEN', message: 'Missing' }), host);
+      new HttpExceptionFilter().catch(new ConflictException({ code: 'NOT_REGISTERED_ANYWHERE', message: 'x' }), host);
+      new HttpExceptionFilter().catch(new ConflictException({ code: 7, message: 'x' }), host);
+    });
+    expect(response.send.mock.calls.map(([body]) => body.code)).toEqual(['NOT_FOUND', 'CONFLICT', 'CONFLICT']);
+  });
+
+  it('without a registration DatabaseSeedException-style codes stay ignored', () => {
+    new HttpExceptionFilter().catch(new HttpException({ code: 'DATABASE_SEED_REQUIRED', message: 'seed' }, 500), host);
+    expect(sent().code).toBe('INTERNAL_ERROR');
+  });
+
+  describe('mappers', () => {
+    class DriverError extends Error {
+      constructor(readonly driverCode: string) {
+        super('relation "users" violates constraint on host db-7 password=hunter2');
+      }
+    }
+    const uniqueMapper = (error: unknown) =>
+      error instanceof DriverError && error.driverCode === 'P2002'
+        ? new ConflictException({ message: 'Already exists', details: { fields: ['email'] } })
+        : null;
+
+    it('renders a mapped foreign error as the mapper\'s exception, never with the original message', () => {
+      new HttpExceptionFilter({ mappers: [uniqueMapper] }).catch(new DriverError('P2002'), host);
+      expect(response.code).toHaveBeenCalledWith(409);
+      const body = sent();
+      expect(body).toMatchObject({ statusCode: 409, code: 'CONFLICT', message: 'Already exists', details: { fields: ['email'] } });
+      expect(JSON.stringify(body)).not.toMatch(/hunter2|db-7|violates/);
+    });
+
+    it('logs the ORIGINAL error server-side for a mapped 5xx', () => {
+      const error = jest.spyOn(Logger.prototype, 'error');
+      const original = new DriverError('boom');
+      new HttpExceptionFilter({ mappers: [() => new HttpException({ message: 'Upstream unavailable' }, 502)] }).catch(original, host);
+      expect(sent()).toMatchObject({ statusCode: 502, code: 'ERROR', message: 'Upstream unavailable' });
+      expect(error).toHaveBeenCalledWith(expect.stringContaining('502'), original.stack);
+    });
+
+    it('an unmapped foreign error keeps the pre-existing 500 behaviour', () => {
+      new HttpExceptionFilter({ mappers: [uniqueMapper] }).catch(new DriverError('other'), host);
+      expect(sent()).toMatchObject({ statusCode: 500, code: 'INTERNAL_ERROR' });
+    });
+
+    it('never offers an HttpException to a mapper (built-in responses cannot be rewritten)', () => {
+      const mapper = jest.fn(() => new ConflictException('hijacked'));
+      new HttpExceptionFilter({ mappers: [mapper] }).catch(new NotFoundException('Missing'), host);
+      expect(mapper).not.toHaveBeenCalled();
+      expect(sent()).toMatchObject({ statusCode: 404, code: 'NOT_FOUND', message: 'Missing' });
+    });
+
+    it('the first mapper to answer wins; a throwing mapper and a non-exception result are skipped', () => {
+      const second = jest.fn(() => new ConflictException('second'));
+      new HttpExceptionFilter({
+        mappers: [
+          () => {
+            throw new Error('mapper bug');
+          },
+          (() => ({ status: 409 })) as never,
+          () => null,
+          () => new NotFoundException('first'),
+          second,
+        ],
+      }).catch(new DriverError('x'), host);
+      expect(sent()).toMatchObject({ statusCode: 404, message: 'first' });
+      expect(second).not.toHaveBeenCalled();
+    });
+
+    it('a mapper cannot smuggle a code that is not registered for its status', () => {
+      new HttpExceptionFilter({ mappers: [() => new ConflictException({ code: 'MADE_UP_CODE', message: 'x' })] }).catch(new DriverError('x'), host);
+      expect(sent().code).toBe('CONFLICT');
+    });
+
+    it('a filter built without options maps nothing', () => {
+      new HttpExceptionFilter().catch(new DriverError('P2002'), host);
+      expect(sent()).toMatchObject({ statusCode: 500, code: 'INTERNAL_ERROR' });
     });
   });
 });

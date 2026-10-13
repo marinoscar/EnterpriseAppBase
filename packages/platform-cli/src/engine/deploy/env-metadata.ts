@@ -2,7 +2,10 @@ import {
   generateBase64Key,
   generateHexKey,
   generateValue,
+  getEnvAnnotation,
+  getEnvGroup,
   isPlaceholderValue,
+  listEnvGroups,
   needsAutoGenerate,
   resolveEnvMetadata,
   validateBase64Key32,
@@ -53,16 +56,33 @@ export {
 };
 
 /**
- * Feature groups. Their keys are skipped unless the group is enabled.
- * `observability` is ALWAYS enabled on a VPS (#567): see `effectiveGroups` in
- * compose-files.ts. The others are opt-in.
+ * The platform's own feature groups, registered at startup through
+ * `registerEnvGroup` (see builtin-registrations.ts) like an app's. Their keys
+ * are skipped unless the group is enabled. `observability` is ALWAYS enabled
+ * on a VPS (#567): see `effectiveGroups` in compose-files.ts. The others are
+ * opt-in.
  *
- * A runtime list as well as a type, because a fragment from a package declares
- * its group as a plain string: `metadataFor` refuses one naming a group this
- * CLI does not know rather than silently never asking its keys.
+ * An app adds groups with `registerEnvGroup`; this constant lists only the
+ * built-ins (use `listEnvGroups` for every registered one).
+ *
+ * @stability experimental
  */
 export const ENV_GROUPS = ['observability', 'email', 'microsoft-oauth'] as const;
-export type EnvGroup = (typeof ENV_GROUPS)[number];
+
+/**
+ * The platform's own group ids.
+ *
+ * @stability experimental
+ */
+export type BuiltinEnvGroup = (typeof ENV_GROUPS)[number];
+
+/**
+ * A feature group id: one of the built-ins, or any id an app registered with
+ * `registerEnvGroup` (the autocomplete keeps the built-ins).
+ *
+ * @stability experimental
+ */
+export type EnvGroup = BuiltinEnvGroup | (string & {});
 
 /**
  * The platform's `EnvVarMetadata` (see `@marinoscar/platform-cli/core` for
@@ -75,6 +95,8 @@ export type EnvGroup = (typeof ENV_GROUPS)[number];
  * that cannot reach its own OAuth provider is still not a deployment, so the
  * OAuth keys never carry it there. `deploy update` never counts an
  * `allowBlank` key as needing an answer.
+ *
+ * @stability experimental
  */
 export interface EnvVarMetadata extends Omit<PlatformEnvVarMetadata, 'group'> {
   /** Only asked when the operator opted into this group. */
@@ -275,18 +297,15 @@ export const ENV_METADATA: Readonly<Record<string, EnvVarMetadata>> = {
   TENANCY_MODE: { validate: oneOf('single', 'multi') },
 };
 
-function isEnvGroup(group: string): group is EnvGroup {
-  return (ENV_GROUPS as readonly string[]).includes(group);
-}
-
 /** A fragment's entry, narrowed to this CLI's groups, or a loud refusal. */
 function fromFragment(key: string): EnvVarMetadata | undefined {
   const metadata = resolveEnvMetadata(key);
   if (metadata === undefined) return undefined;
-  if (metadata.group !== undefined && !isEnvGroup(metadata.group)) {
+  if (metadata.group !== undefined && getEnvGroup(metadata.group) === undefined) {
     throw new Error(
       `Env key "${key}" is in group "${metadata.group}", which this CLI does not know ` +
-        `(known: ${ENV_GROUPS.join(', ')}). Add the group to ENV_GROUPS or change the fragment.`,
+        `(known: ${listEnvGroups().map((group) => group.id).join(', ')}). ` +
+        'Register the group with registerEnvGroup (before createCli) or change the fragment.',
     );
   }
   return metadata as EnvVarMetadata;
@@ -294,9 +313,27 @@ function fromFragment(key: string): EnvVarMetadata | undefined {
 
 /**
  * The annotation for `key`: this CLI's own entry, else the registered
- * fragment's, else `{}` (not secret, not essential, template default).
+ * fragment's, else `{}` (not secret, not essential, template default), with
+ * the app's `annotateEnvKey` on top. THE APP WINS for the two fields it may
+ * set (`fixed`, `help`); nothing else is touched, and `never` stays
+ * authoritative (an annotation cannot bring back a key that is never written).
+ *
+ * @param key - An environment variable name.
+ * @returns The key's metadata, the app's `annotateEnvKey` applied.
+ * @throws Error when the app fixed a key whose metadata says it is a secret.
+ * @stability experimental
  */
 export function metadataFor(key: string): EnvVarMetadata {
   ensurePlatformRegistrations();
-  return ENV_METADATA[key] ?? fromFragment(key) ?? {};
+  const base = ENV_METADATA[key] ?? fromFragment(key) ?? {};
+  const annotation = getEnvAnnotation(key);
+  if (annotation === undefined) return base;
+  if (annotation.fixed !== undefined && base.secret === true) {
+    throw new Error(`annotateEnvKey("${key}") fixes a secret key. A secret is never a literal in source: remove \`fixed\`.`);
+  }
+  return {
+    ...base,
+    ...(annotation.fixed === undefined || base.never === true ? {} : { fixed: annotation.fixed }),
+    ...(annotation.help === undefined ? {} : { help: annotation.help }),
+  };
 }

@@ -13,8 +13,8 @@ export { PLATFORM_PACKAGE } from './package-name.js';
 export type { InfraFile, InfraFragmentFiles } from './fragment.js';
 export type { PlatformInfraFragment } from './fragments.js';
 export { composeInfraFragment, envInfraFragment, nginxInfraFragment } from './fragments.js';
-export type { ComposeFilesOptions, ComposeMode } from './compose-order.js';
-export { appComposeOverlays, COMPOSE_MODES, composeFilesForMode } from './compose-order.js';
+export type { BuiltinComposeMode, ComposeFilesOptions, ComposeMode, ComposeModeRegistration } from './compose-order.js';
+export { appComposeOverlays, COMPOSE_MODES, composeFilesForMode, listComposeModes, registerComposeMode } from './compose-order.js';
 export type { InfraIdentity, InfraIdentityInput } from './identity.js';
 export { DEFAULT_WORKER_IMAGE, deriveInfraIdentity, INFRA_PLACEHOLDERS, renderInfraText } from './identity.js';
 

@@ -30,7 +30,7 @@ export type { CliIdentity, ResolvedCliIdentity } from './identity.js';
 export { PLATFORM_CLI_VERSION } from './package-info.js';
 
 export { createCli } from './create-cli.js';
-export type { CliInstance, CreateCliOptions } from './create-cli.js';
+export type { CliInstance, CreateCliOptions, CreateCliProxyOptions } from './create-cli.js';
 
 export {
   PLATFORM_ENV_FRAGMENT_ID,
@@ -248,8 +248,9 @@ export {
   validateEmail,
   validatePort,
 } from './deploy/env-metadata.js';
-export type { DeriveContext, EnvGroup, EnvVarMetadata } from './deploy/env-metadata.js';
+export type { BuiltinEnvGroup, DeriveContext, EnvGroup, EnvVarMetadata } from './deploy/env-metadata.js';
 export { ENV_GROUPS } from './deploy/env-metadata.js';
+export { effectiveGroups } from './deploy/compose-files.js';
 
 // The wizard, and the three prompt primitives it needed (#175). `confirm`,
 // `promptSecret` and `select` live in prompt.ts beside the one-question helper
@@ -293,7 +294,11 @@ export {
 export {
   ALL_CHECKS,
   HOST_CHECKS,
+  allChecks,
   checksPassed,
+  listDeployCheckIds,
+  listRegisteredDeployChecks,
+  registerDeployCheck,
   isLoopbackPortFree,
   isPortListening,
   fetchServedCertificate,
@@ -305,6 +310,9 @@ export {
 export type {
   Check,
   CheckContext,
+  DeployCheck,
+  DeployCheckContext,
+  DeployCheckResult,
   CheckFs,
   CheckResult,
   CheckStatus,
@@ -366,6 +374,17 @@ export type {
   ResolvedProxyRuntime,
   ValidationResult,
 } from './deploy/proxy.js';
+export { edgeConfigFiles, registerEdgeConfigFile } from './deploy/edge-config.js';
+export type { EdgeConfigFile } from './deploy/edge-config.js';
+export {
+  DEFAULT_STREAM_TIMEOUT_SECONDS,
+  MAX_PROXY_TIMEOUT_SECONDS,
+  PLATFORM_STREAM_PATHS,
+  assertValidProxyPath,
+  listRegisteredProxyStreamPaths,
+  registerProxyStreamPath,
+} from './deploy/proxy-streams.js';
+export type { ProxyExtraLocation, ProxyStreamPathRegistration } from './deploy/proxy-streams.js';
 
 // Health and the `status` command (#183). waitForHealthy is shared by install
 // and update rather than reimplemented in each.
@@ -411,7 +430,7 @@ export { buildUpdateSteps, runUpdate } from './deploy/update.js';
 export type { UpdateOptions, UpdateResult } from './deploy/update.js';
 
 // Test helpers, published only through `@marinoscar/platform-cli/testing`.
-export { TEST_CLI_IDENTITY, resetCliForTests, useTestCliIdentity } from './test-support.js';
+export { TEST_CLI_IDENTITY, resetCliForTests, testDeployStepContext, useTestCliIdentity } from './test-support.js';
 
 // The registries an app extends (#715), beside `/core`'s commands and
 // env-spec fragments.
@@ -422,6 +441,8 @@ export {
   sortTuiScreens,
 } from './tui/screen-registry.js';
 export type { TuiMenuContext, TuiScreenOrder, TuiScreenProps, TuiScreenRegistration } from './tui/screen-registry.js';
+export { TUI_SECTION_SCREENS, listTuiScreenSections, registerTuiScreenSection } from './tui/section-registry.js';
+export type { TuiSectionProps, TuiSectionRegistration } from './tui/section-registry.js';
 export {
   INSTALL_STEP_IDS,
   UPDATE_STEP_IDS,
@@ -431,10 +452,12 @@ export {
 } from './deploy/steps/registry.js';
 export type {
   AppDeployStep,
+  AppDeployStepRegistration,
   DeployCommandResult,
   DeployPipeline,
   DeployStepContext,
   DeployStepRegistration,
+  DeployStepValues,
 } from './deploy/steps/registry.js';
 export { planDeploySteps } from './deploy/steps/plan.js';
 export type { DeployPlanStep } from './deploy/steps/plan.js';
@@ -450,13 +473,21 @@ export {
 export { freezeCliRegistries, resetCliRegistriesForTests } from './registries.js';
 
 // Conformance (#715): the `cli` suite and the checks behind it.
-export { runPlatformConformance } from './conformance.js';
+export {
+  cliConformanceSuites,
+  registerCliConformanceSuite,
+  resetCliConformanceSuitesForTests,
+  runPlatformConformance,
+} from './conformance.js';
 export type {
   CliConformanceOptions,
+  CliConformanceSkip,
+  CliConformanceSuite,
   CliPlatformConformanceOptions,
   CliPlatformConformanceSuites,
   ConformanceMatchers,
   ConformanceTestApi,
+  DeployRegistrationsConformanceOptions,
   EnvTemplateFragment,
 } from './conformance.js';
 export { checkExecutorCredentialHygiene } from './node/executors/credential-hygiene.js';

@@ -55,9 +55,11 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
-| `runPlatformConformance` | option | `runPlatformConformance(options: CliPlatformConformanceOptions): void` | Prove the app's env fragments and node executors keep the CLI's invariants | experimental | [example](../../../../apps/cli/src/conformance.test.ts) |
+| `runPlatformConformance` | option | `runPlatformConformance(options: CliPlatformConformanceOptions): void` | Prove the app's env fragments, node executors and deploy registrations keep the CLI's invariants; each suite gets its options or `{ skip: 'reason' }` (a reason is required; `false` throws) | experimental | [example](../../../../apps/cli/src/conformance.test.ts) |
+| `cliConformanceSuites` | registry | `CliRegistry<CliConformanceSuite>` | The registry of suites `runPlatformConformance` runs, built-ins first; read it to list the ids, register through `registerCliConformanceSuite` | experimental | [example](../../../../apps/cli/src/examples/coach.conformance-suite.test.ts) |
+| `registerCliConformanceSuite` | registry | `registerCliConformanceSuite(suite: CliConformanceSuite): void` | Add an invariant of the app's own to the CLI's conformance runner (`cliConformanceSuites` is the registry) | experimental | [example](../../../../apps/cli/src/examples/coach.conformance-suite.ts) |
 
-Helpers (not extension points): `resetCliForTests`, `useTestCliIdentity`, `TEST_CLI_IDENTITY`, `checkExecutorCredentialHygiene` (example: [`echo.executor.test.ts`](../../../../apps/cli/src/examples/echo.executor.test.ts)), `commentedAssignments`, `composeEnvSpecs`, `PLATFORM_DOCUMENTED_OPTIONAL_KEYS`.
+Helpers (not extension points): `testDeployStepContext(overrides, values)` (a complete `DeployStepContext` for testing an app deploy step), `resetCliConformanceSuitesForTests`, `resetCliForTests`, `useTestCliIdentity`, `TEST_CLI_IDENTITY`, `checkExecutorCredentialHygiene` (example: [`echo.executor.test.ts`](../../../../apps/cli/src/examples/echo.executor.test.ts)), `commentedAssignments`, `composeEnvSpecs`, `PLATFORM_DOCUMENTED_OPTIONAL_KEYS`.
 
 ## Data
 

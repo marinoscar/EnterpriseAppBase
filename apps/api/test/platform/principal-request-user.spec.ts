@@ -1,4 +1,4 @@
-import type { CredentialKind, NodePrincipal, Scope, UserPrincipal } from '@marinoscar/platform-api/core';
+import type { BuiltinCredentialKind, NodePrincipal, Scope, UserPrincipal } from '@marinoscar/platform-api/core';
 
 import type { RequestUser } from '@marinoscar/platform-api/identity';
 
@@ -10,7 +10,7 @@ import type { RequestUser } from '@marinoscar/platform-api/identity';
 // (issue #698), pinned there by the package's `test/core/principal.spec.ts`.
 // This half of the original `principal.types.spec.ts` stays in the app
 // because it needs the app's `RequestUser`: it proves that today's request
-// user plus a `CredentialKind` is enough to build a principal, with no
+// user plus a credential kind is enough to build a principal, with no
 // missing data. Assertions unchanged from the original spec.
 //
 // THE TYPE ALIASES BELOW ARE CHECKED BY `tsc` (npm run typecheck), NOT BY
@@ -40,7 +40,7 @@ export type RequestUserCoverage = [
 
 function userPrincipalFrom(
   user: RequestUser,
-  credential: Exclude<CredentialKind, 'node'>,
+  credential: Exclude<BuiltinCredentialKind, 'node'>,
 ): UserPrincipal {
   return {
     kind: 'user',
