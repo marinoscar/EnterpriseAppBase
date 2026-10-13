@@ -121,12 +121,23 @@ export function generateWithKind(kind: string): string {
   return value;
 }
 
-/** Refuses later registrations; `createCli` calls it. */
+/**
+ * Refuses later registrations; `createCli` calls it.
+ *
+ * @param by - Who froze it, named in the error a late registration gets.
+ * @internal
+ * @stability experimental
+ */
 export function freezeEnvGeneratorRegistry(by: string): void {
   registry.freeze(by);
 }
 
-/** Restores the built-ins only and unfreezes. Tests only. */
+/**
+ * Restores the built-ins only and unfreezes. Tests only.
+ *
+ * @internal
+ * @stability experimental
+ */
 export function resetEnvGeneratorRegistryForTests(): void {
   registry.reset();
   for (const generator of BUILTIN) registry.register(generator);

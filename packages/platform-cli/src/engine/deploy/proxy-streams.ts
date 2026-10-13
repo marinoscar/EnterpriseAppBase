@@ -25,7 +25,11 @@ import { createCliRegistry } from '../../core/index.js';
 // config; a malformed vhost breaks `nginx -t` for every site on the box.
 // =============================================================================
 
-/** The timeout a stream route gets unless it names one: an hour, like the notification stream. */
+/**
+ * The timeout a stream route gets unless it names one: an hour, like the notification stream.
+ *
+ * @stability experimental
+ */
 export const DEFAULT_STREAM_TIMEOUT_SECONDS = 3600;
 
 /** The longest timeout a route may ask for: a day. */
@@ -60,7 +64,11 @@ export interface ProxyStreamPathRegistration {
 /** A path nginx can carry verbatim: a leading `/`, then URL-safe characters only. */
 const SAFE_PATH = /^\/[A-Za-z0-9._~/:@+,=-]*$/;
 
-/** The platform's own SSE locations, which an app route must not redeclare. */
+/**
+ * The platform's own SSE locations, which an app route must not redeclare.
+ *
+ * @stability experimental
+ */
 export const PLATFORM_STREAM_PATHS: readonly string[] = Object.freeze([
   '/api/notifications/stream',
   '/api/ai/responses/stream',

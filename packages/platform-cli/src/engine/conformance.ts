@@ -178,7 +178,6 @@ export interface CliPlatformConformanceOptions {
  *
  * @typeParam TOptions - what the app passes to configure it.
  * @stability experimental
- * @extensionPoint registry
  */
 export interface CliConformanceSuite<TOptions = unknown> {
   /** Stable kebab-case id, e.g. `cli`. The app's option key is its camelCase form. */

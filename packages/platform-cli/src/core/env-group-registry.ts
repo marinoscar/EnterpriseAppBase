@@ -95,12 +95,23 @@ export function getEnvGroup(id: string): EnvGroupRegistration | undefined {
   return registry.get(id);
 }
 
-/** Refuses later registrations; `createCli` calls it. */
+/**
+ * Refuses later registrations; `createCli` calls it.
+ *
+ * @param by - Who froze it, named in the error a late registration gets.
+ * @internal
+ * @stability experimental
+ */
 export function freezeEnvGroupRegistry(by: string): void {
   registry.freeze(by);
 }
 
-/** Empties the registry. Tests only. */
+/**
+ * Empties the registry. Tests only.
+ *
+ * @internal
+ * @stability experimental
+ */
 export function resetEnvGroupRegistryForTests(): void {
   registry.reset();
 }

@@ -90,6 +90,10 @@ export const ALWAYS_ON_GROUPS: readonly EnvGroup[] = [TELEMETRY_GROUP];
  * compose file list, the environment wizard and the update's drift check all
  * route through it, so an existing deployment whose `state.groups` predates
  * #567 gets the telemetry stack -- files and keys -- on its next update.
+ *
+ * @param groups - The requested or recorded groups.
+ * @returns Those groups plus every always-on and default-enabled one.
+ * @stability experimental
  */
 export function effectiveGroups(groups?: readonly string[] | undefined): EnvGroup[] {
   ensurePlatformRegistrations();

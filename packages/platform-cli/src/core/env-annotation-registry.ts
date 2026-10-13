@@ -98,12 +98,23 @@ export function listEnvAnnotations(): readonly string[] {
   return Object.freeze(registry.list().map((entry) => entry.key));
 }
 
-/** Refuses later registrations; `createCli` calls it. */
+/**
+ * Refuses later registrations; `createCli` calls it.
+ *
+ * @param by - Who froze it, named in the error a late registration gets.
+ * @internal
+ * @stability experimental
+ */
 export function freezeEnvAnnotationRegistry(by: string): void {
   registry.freeze(by);
 }
 
-/** Empties the registry. Tests only. */
+/**
+ * Empties the registry. Tests only.
+ *
+ * @internal
+ * @stability experimental
+ */
 export function resetEnvAnnotationRegistryForTests(): void {
   registry.reset();
 }

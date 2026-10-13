@@ -64,15 +64,23 @@ export {
  *
  * An app adds groups with `registerEnvGroup`; this constant lists only the
  * built-ins (use `listEnvGroups` for every registered one).
+ *
+ * @stability experimental
  */
 export const ENV_GROUPS = ['observability', 'email', 'microsoft-oauth'] as const;
 
-/** The platform's own group ids. */
+/**
+ * The platform's own group ids.
+ *
+ * @stability experimental
+ */
 export type BuiltinEnvGroup = (typeof ENV_GROUPS)[number];
 
 /**
  * A feature group id: one of the built-ins, or any id an app registered with
  * `registerEnvGroup` (the autocomplete keeps the built-ins).
+ *
+ * @stability experimental
  */
 export type EnvGroup = BuiltinEnvGroup | (string & {});
 
@@ -87,6 +95,8 @@ export type EnvGroup = BuiltinEnvGroup | (string & {});
  * that cannot reach its own OAuth provider is still not a deployment, so the
  * OAuth keys never carry it there. `deploy update` never counts an
  * `allowBlank` key as needing an answer.
+ *
+ * @stability experimental
  */
 export interface EnvVarMetadata extends Omit<PlatformEnvVarMetadata, 'group'> {
   /** Only asked when the operator opted into this group. */
@@ -308,7 +318,10 @@ function fromFragment(key: string): EnvVarMetadata | undefined {
  * set (`fixed`, `help`); nothing else is touched, and `never` stays
  * authoritative (an annotation cannot bring back a key that is never written).
  *
+ * @param key - An environment variable name.
+ * @returns The key's metadata, the app's `annotateEnvKey` applied.
  * @throws Error when the app fixed a key whose metadata says it is a secret.
+ * @stability experimental
  */
 export function metadataFor(key: string): EnvVarMetadata {
   ensurePlatformRegistrations();

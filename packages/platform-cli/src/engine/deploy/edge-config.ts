@@ -33,7 +33,11 @@ import { UsageError } from '../errors.js';
 // so they can be tested without docker; `update.ts` wires them to compose.
 // =============================================================================
 
-/** One config file: where the checkout holds it, where the container reads it. */
+/**
+ * One config file: where the checkout holds it, where the container reads it.
+ *
+ * @stability experimental
+ */
 export interface EdgeConfigFile {
   /** Relative to the checkout root. */
   checkout: string;
