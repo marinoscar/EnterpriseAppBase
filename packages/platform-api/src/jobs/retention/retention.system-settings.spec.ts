@@ -106,7 +106,7 @@ describe('RETENTION_SYSTEM_SETTINGS with an app policy', () => {
     expect(Object.keys(ns.defaults)).toEqual([...Object.keys(SHIPPED_DEFAULTS), 'importRows']);
     // OFF unless the registration says otherwise: deleting rows is an operator decision.
     expect(ns.defaults['importRows']).toEqual({ enabled: false, days: 30 });
-    expect(Object.keys((ns.storedSchema as z.ZodObject<z.ZodRawShape>).shape)).toContain('importRows');
+    expect(Object.keys((ns.storedSchema as unknown as z.ZodObject<z.ZodRawShape>).shape)).toContain('importRows');
 
     const put = ns.putSchema as z.ZodType;
     expect(put.safeParse({ ...SHIPPED_DEFAULTS, importRows: { enabled: true, days: 30 } }).success).toBe(true);
