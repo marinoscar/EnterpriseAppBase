@@ -982,7 +982,54 @@ Available now. An app, or an `@acme/auth-github` package an app installs, adds a
      cd apps/web && npx vitest run src/__tests__/examples/identity
      ```
 
-What is still closed (audit: [identity](EXTENSIBILITY-AUDIT.md#identity)): app roles in the invite and member routes (PP-14.15) and slots on the Users and Organization pages (PP-14.25). **Login CSRF is yours to prevent: the slice adds no `state` and no PKCE.** With `passport-oauth2`, `state: true` or `pkce: true` without a `store` throws "requires session support" on every sign-in here, because this app registers no session plugin. A real OAuth 2.0 provider must pass `store: createCookieStateStore({ secret: config.get('jwt.secret') })` (a signed, short-lived HttpOnly cookie; it does not do PKCE) or a store of its own. The example strategy has none only because it never leaves the process, and it is not a template for that part.
+What is still closed (audit: [identity](EXTENSIBILITY-AUDIT.md#identity)): slots on the Users and Organization pages (PP-14.25). **Login CSRF is yours to prevent: the slice adds no `state` and no PKCE.** With `passport-oauth2`, `state: true` or `pkce: true` without a `store` throws "requires session support" on every sign-in here, because this app registers no session plugin. A real OAuth 2.0 provider must pass `store: createCookieStateStore({ secret: config.get('jwt.secret') })` (a signed, short-lived HttpOnly cookie; it does not do PKCE) or a store of its own. The example strategy has none only because it never leaves the process, and it is not a template for that part.
+
+### Add a role, assign it, and give it a platform permission
+
+Available now. Full reference: [the identity README](../packages/platform-api/src/identity/README.md#roles-and-who-may-assign-them) and [the manifest README](../packages/platform-api/src/manifest/README.md). Example: [`coach-support.roles.ts`](../apps/api/src/platform-extensions/identity/coach-support.roles.ts), proven over HTTP by [`coach-support.example.spec.ts`](../apps/api/test/examples/manifest/coach-support.example.spec.ts) and in the packaged dialogs by [`app-roles.test.tsx`](../apps/web/src/__tests__/examples/identity/app-roles.test.tsx).
+
+A role is a string in `roles.name`: no package edit, no migration. Three cases, all through `apps/api/src/app-registrations/permissions.ts`:
+
+1. **An org role** (`coach`: held on a membership). Add it to `APP_ROLES` with a `label`:
+
+   ```ts
+   export const APP_ROLES: readonly RoleDeclaration[] = [
+     { id: 'coach', description: 'Reviews the workouts of assigned athletes', scope: 'org', label: 'Coach' },
+   ];
+   ```
+
+   Run `npm run catalog:permissions --workspace=api`, commit the regenerated `prisma/catalog/permissions.json` and re-seed. From then on an organization administrator can invite someone as a coach and move a member to it, and the packaged dialogs list it (they read `GET /api/roles`), with no web code.
+2. **A system role that holds a platform permission** (`support`: held in `user_roles`, reads the user list). A platform permission's `defaultGrants` are the platform's, so the app grants it:
+
+   ```ts
+   export const APP_ROLES = [{ id: 'support', description: 'Reads the user list', scope: 'system', label: 'Support' }];
+   export const APP_GRANTS = [{ role: 'support', permissions: ['users:read'] }];
+   ```
+
+   `common/permissions/permission.manifest.ts` passes `APP_GRANTS` to `registerPlatformPermissions({ app: { grants } })`. A grant is validated when the process starts: the role and the permission exist, both have the same scope, the permission does not already grant it by default, and the target is not one of the platform's four roles. The catalog's `rolePermissions` carries it, the seed writes it into `role_permissions`, and the guards read those rows.
+3. **A role the application manages itself** (`service-bot`). Declare `assignable: false`: it can hold permissions and be seeded, but the invite, member and user-role routes refuse it (`400`, `code: ROLE_NOT_ASSIGNABLE`), the dialogs do not offer it, and `PUT /api/users/:id/roles` leaves a user's existing system role of this kind in place.
+
+Prove it by registering the roles in a test with `withTemporaryEntries(roleRegistry, ...)` and driving the routes, as the example spec does. A role that a request names but nobody registered, a role of the other scope and an `assignable: false` role all answer the same `400`, so the response never says which.
+
+What stays closed: **group roles** (`admin`, `editor`, `viewer` on a sharing group) are a database enum, so a fourth needs a platform migration; see [the sharing README](../packages/platform-api/src/sharing/README.md#data).
+
+### Add a permission set from a package
+
+Available now. Reference: [the manifest README](../packages/platform-api/src/manifest/README.md). Example: [`permission-set.example.spec.ts`](../apps/api/test/examples/manifest/permission-set.example.spec.ts).
+
+A package outside the platform that enforces its own permissions (`@acme/reports`) declares them with `registerPermissionSet` at import time, before the app's permission manifest runs:
+
+```ts
+import { registerPermissionSet } from '@marinoscar/platform-api/manifest';
+
+registerPermissionSet({
+  slice: 'acme-reports',
+  roles: [{ id: 'analyst', description: 'Runs reports', scope: 'org', label: 'Analyst' }],
+  permissions: [{ id: 'reports:run', description: 'Run a report', scope: 'org', defaultGrants: ['org_admin', 'analyst'] }],
+});
+```
+
+`registerPlatformPermissions()` then registers the set after the platform's own and before the app's, in the seed catalog and in the registries, and then freezes the set registry so a package that registers too late fails with `FROZEN` instead of missing the seed. `slices` selects it by id like a platform slice (`identity` stays mandatory). The slice id cannot be a platform slice's.
 
 ### Add an env group, a generated value or an override of a platform key
 

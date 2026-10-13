@@ -36,6 +36,8 @@ export { OrganizationPage } from './org/OrganizationPage.js';
 export { OrganizationsPage } from './org/OrganizationsPage.js';
 export type { OrganizationsPageProps } from './org/OrganizationsPage.js';
 export { OrgMembersPanel } from './org/OrgMembersPanel.js';
+export type { OrgMembersPanelProps } from './org/OrgMembersPanel.js';
 export { OrgInvitesPanel } from './org/OrgInvitesPanel.js';
+export type { OrgInvitesPanelProps } from './org/OrgInvitesPanel.js';
 export { identityAdminSections, identityUserSettingsSections } from './settings.js';
 export type { IdentitySettingsCard } from './settings.js';

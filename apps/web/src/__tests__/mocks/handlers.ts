@@ -252,9 +252,23 @@ export const handlers = [
     return HttpResponse.json({ message: 'Not found' }, { status: 404 });
   }),
 
+  // `GET /api/roles` (users:read for `system`, org_members:read for `org`): the
+  // platform's four roles, labelled as the API labels them. A test that needs an
+  // app role (`coach`) overrides this with `server.use(...)`.
+  http.get(`${API_BASE}/roles`, ({ request }) => {
+    const scope = new URL(request.url).searchParams.get('scope');
+    const roles = [
+      { id: 'admin', label: 'System administrator', description: 'System administrator', scope: 'system', assignable: true },
+      { id: 'contributor', label: 'Contributor', description: 'Organization member', scope: 'org', assignable: true },
+      { id: 'viewer', label: 'Viewer', description: 'Read-only organization member', scope: 'org', assignable: true },
+      { id: 'org_admin', label: 'Administrator', description: 'Organization administrator', scope: 'org', assignable: true },
+    ];
+    return HttpResponse.json({ data: roles.filter((role) => !scope || role.scope === scope) });
+  }),
+
   http.put(`${API_BASE}/users/:id/roles`, async ({ params, request }) => {
     if (params.id === mockUser.id) {
-      const body = (await request.json()) as { roles: string[] };
+      const body = (await request.json()) as { roleNames: string[] };
       return HttpResponse.json({
         id: mockUser.id,
         email: mockUser.email,
@@ -263,7 +277,7 @@ export const handlers = [
         profileImageUrl: mockUser.profileImageUrl,
         providerProfileImageUrl: null,
         isActive: mockUser.isActive,
-        roles: body.roles,
+        roles: body.roleNames,
         createdAt: mockUser.createdAt,
         updatedAt: new Date().toISOString(),
       });

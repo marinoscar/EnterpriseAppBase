@@ -16,7 +16,7 @@
 import type { ReactElement } from 'react';
 import { useState } from 'react';
 import { Box, Container, Paper, Tab, Tabs, Typography } from '@mui/material';
-import { useAuth } from '../../headless/index.js';
+import { useAuth, useRoles } from '../../headless/index.js';
 import { RequirePermission } from '../../headless/index.js';
 import { OrgMembersPanel } from './OrgMembersPanel.js';
 import { OrgInvitesPanel } from './OrgInvitesPanel.js';
@@ -46,6 +46,8 @@ function TabPanel({ children, value, index }: TabPanelProps) {
  */
 export function OrganizationPage(): ReactElement {
   const { activeOrg } = useAuth();
+  // Read once for both tabs: the choices in the dialogs and the labels in the lists.
+  const roles = useRoles('org');
   const [tabIndex, setTabIndex] = useState(0);
 
   return (
@@ -73,7 +75,7 @@ export function OrganizationPage(): ReactElement {
 
           <Box sx={{ px: { xs: 2, sm: 3 } }}>
             <TabPanel value={tabIndex} index={0}>
-              <OrgMembersPanel />
+              <OrgMembersPanel roles={roles} />
             </TabPanel>
             <TabPanel value={tabIndex} index={1}>
               <RequirePermission
@@ -84,7 +86,7 @@ export function OrganizationPage(): ReactElement {
                   </Typography>
                 }
               >
-                <OrgInvitesPanel />
+                <OrgInvitesPanel roles={roles} />
               </RequirePermission>
             </TabPanel>
           </Box>

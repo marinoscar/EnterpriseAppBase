@@ -31,6 +31,7 @@ function mount(ui: ReactNode, adapters: IdentityWebAdapters = {}) {
     permissions: ['users:read'],
     responses: {
       'GET /users': { items: [ADA], total: 1, page: 1, pageSize: 10, totalPages: 1 },
+      'GET /roles': [],
       'GET /pat': [],
     },
   });
@@ -51,7 +52,7 @@ describe('identity lists', () => {
     const host = mount(<UserList />);
     expect(await screen.findByText('ada@example.com')).toBeInTheDocument();
     expect(screen.getByRole('table', { name: 'Users' })).toBeInTheDocument();
-    expect(host.requests[0]?.path).toBe('/users?page=1&pageSize=10');
+    expect(host.requests.find((request) => request.path.startsWith('/users'))?.path).toBe('/users?page=1&pageSize=10');
   });
 
   it("hand the app's table the columns, rows and paging", async () => {

@@ -25,7 +25,7 @@
  * `min(1)`), so this is a second line, not the only one.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Alert,
   Button,
@@ -39,19 +39,25 @@ import {
   FormGroup,
   Stack,
 } from '@mui/material';
-import type { UserListItem } from '../../headless/index.js';
-import { AVAILABLE_ROLES } from './userListColumns.js';
+import type { RoleDescriptor, UserListItem } from '../../headless/index.js';
 
 export interface ManageRolesDialogProps {
   /** The user being edited, or `null` when the dialog is closed. */
   user: UserListItem | null;
+  /**
+   * The roles offered: the ones the API says may be assigned
+   * (`GET /api/roles`, `assignable` only). A role the user holds that is not
+   * in this list (the `org_admin` an administrator is listed with, a role the
+   * application manages itself) is neither shown nor sent back.
+   */
+  roles: readonly RoleDescriptor[];
   onClose: () => void;
   onSave: (userId: string, roles: string[]) => Promise<void>;
 }
 
 const EMPTY_ROLES_MESSAGE = 'User must have at least one role';
 
-export function ManageRolesDialog({ user, onClose, onSave }: ManageRolesDialogProps) {
+export function ManageRolesDialog({ user, roles, onClose, onSave }: ManageRolesDialogProps) {
   const [selected, setSelected] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,15 +68,16 @@ export function ManageRolesDialog({ user, onClose, onSave }: ManageRolesDialogPr
   // next poll.
   const userId = user?.id ?? null;
   const rolesKey = user?.roles.join(',') ?? '';
+  const offeredKey = roles.map((role) => role.id).join(',');
   useEffect(() => {
     // Only the roles this dialog offers. The API also reports the org role an
     // administrator holds alongside `admin` (`org_admin`, issue #723), which is
     // implied by `admin` and is not assigned here; carrying it through a save
     // would keep it after `admin` is unticked.
-    const offered: readonly string[] = AVAILABLE_ROLES;
+    const offered = offeredKey ? offeredKey.split(',') : [];
     setSelected(rolesKey ? rolesKey.split(',').filter((role) => offered.includes(role)) : []);
     setError(null);
-  }, [userId, rolesKey]);
+  }, [userId, rolesKey, offeredKey]);
 
   const toggle = (role: string) => {
     setSelected((current) =>
@@ -79,7 +86,6 @@ export function ManageRolesDialog({ user, onClose, onSave }: ManageRolesDialogPr
   };
 
   const isEmpty = selected.length === 0;
-  const roleOptions = useMemo(() => [...AVAILABLE_ROLES], []);
 
   const handleSave = async () => {
     if (!user || isEmpty) return;
@@ -119,17 +125,17 @@ export function ManageRolesDialog({ user, onClose, onSave }: ManageRolesDialogPr
             aria-label="Roles"
             aria-describedby={isEmpty ? 'manage-roles-empty' : undefined}
           >
-            {roleOptions.map((role) => (
+            {roles.map((role) => (
               <FormControlLabel
-                key={role}
+                key={role.id}
                 control={
                   <Checkbox
-                    checked={selected.includes(role)}
-                    onChange={() => toggle(role)}
+                    checked={selected.includes(role.id)}
+                    onChange={() => toggle(role.id)}
                     disabled={saving}
                   />
                 }
-                label={role}
+                label={role.label}
               />
             ))}
           </FormGroup>

@@ -107,6 +107,16 @@ describe('Test Auth Integration', () => {
 
       expect(response.body).toHaveProperty('code');
       expect(response.body).toHaveProperty('message');
+      // A well-formed id nobody registered: the role catalog refuses it (PP-14.15).
+      expect(response.body.code).toBe('ROLE_NOT_ASSIGNABLE');
+    });
+
+    it('should return 400 BAD_REQUEST for a role id of the wrong shape', async () => {
+      const response = await request(context.app.getHttpServer())
+        .post('/api/auth/test/login')
+        .send({ email: 'test@example.com', role: 'Not A Role' })
+        .expect(400);
+
       expect(response.body.code).toBe('BAD_REQUEST');
     });
 

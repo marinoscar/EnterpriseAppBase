@@ -24,6 +24,25 @@ function wrap(host: TestPlatformHost) {
   return ({ children }: { children: ReactNode }) => <PlatformHostProvider host={host}>{children}</PlatformHostProvider>;
 }
 
+describe('createIdentityApi: roles (PP-14.15)', () => {
+  it('reads the roles by scope and sends role names, not role ids, to the user-roles route', async () => {
+    const host = createTestPlatformHost({
+      responses: {
+        'GET /roles': [{ id: 'coach', label: 'Coach', description: 'Reviews workouts', scope: 'org', assignable: true }],
+        'PUT /users/u1/roles': {},
+      },
+    });
+    const identity = createIdentityApi(host.api);
+
+    await expect(identity.getRoles('org')).resolves.toHaveLength(1);
+    await identity.getRoles();
+    await identity.updateUserRoles('u1', ['coach', 'viewer']);
+
+    expect(host.requests.map((r) => `${r.method} ${r.path}`)).toEqual(['GET /roles?scope=org', 'GET /roles', 'PUT /users/u1/roles']);
+    expect(host.requests[2]?.body).toEqual({ roleNames: ['coach', 'viewer'] });
+  });
+});
+
 describe('createIdentityApi', () => {
   it('sends the reference app paths and query strings', async () => {
     const host = createTestPlatformHost({

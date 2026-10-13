@@ -19,6 +19,7 @@ import {
 } from '../ports';
 import { DatabaseSeedException } from '../../core/index';
 import { DEFAULT_ORG_ROLE } from '../identity.constants';
+import { assertRoleAssignable } from '../roles/role-catalog';
 import { signInUrlFrom, writeAudit } from './org-admin.common';
 import type { CreateOrgInviteDto, OrgInviteListQueryDto } from './dto/org-invite.dto';
 import type { IdentityInviteRow, IdentityQueryArgs, IdentityTx } from '../data/identity-db';
@@ -177,6 +178,10 @@ export class OrgInvitesService {
    */
   async writeInvite(tx: IdentityTx, input: WriteInviteInput): Promise<PendingInvitation> {
     const { orgId, email, roleName, invitedById } = input;
+
+    // Fail closed before any read: an unknown role, a system role (`admin`) or a
+    // role registered `assignable: false` can never be put on an invitation.
+    assertRoleAssignable(roleName, 'org');
 
     const [org, role, inviter] = await Promise.all([
       tx.organization.findUnique({ where: { id: orgId }, select: { id: true, name: true } }),
