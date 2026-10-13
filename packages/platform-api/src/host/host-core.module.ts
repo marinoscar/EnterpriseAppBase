@@ -61,7 +61,7 @@ import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
 import { TerminusModule } from '@nestjs/terminus';
 
-import { HttpExceptionFilter, PLATFORM_PRISMA } from '../core/index';
+import { HTTP_EXCEPTION_FILTER_OPTIONS, HttpExceptionFilter, PLATFORM_PRISMA } from '../core/index';
 import { requireJwtSecret } from '../identity/index';
 import { OtelMetricsModule } from '../otel-core/index';
 import { ensureSystemSettingsNamespaces, type SystemSettingsNamespace } from '../settings/index';
@@ -209,6 +209,13 @@ export class PlatformHostCoreModule implements NestModule {
         // The application's ONLY global guard. `useExisting`, so the instance
         // is the one constructed here, next to its JwtService.
         { provide: APP_GUARD, useExisting: MaintenanceGuard },
+        // The error mappers reach the filter through its own options token, bound
+        // HERE (the global module the APP_FILTER is created in).
+        {
+          provide: HTTP_EXCEPTION_FILTER_OPTIONS,
+          inject: [PLATFORM_HOST_CORE_OPTIONS],
+          useFactory: (opts: ResolvedPlatformHostCoreOptions) => ({ mappers: opts.errorMappers }),
+        },
         { provide: APP_FILTER, useClass: HttpExceptionFilter },
         // Order matters: the log line wraps the envelope.
         { provide: APP_INTERCEPTOR, useClass: LoggingInterceptor },

@@ -47,7 +47,8 @@ function defaultPolicy(relativePath: string): string {
   expect(block, `no map $uri $csp_policy block in ${relativePath}`).not.toBeNull();
   const match = block![1]!.match(/^\s*default\s+"([^"]*)"\s*;/m);
   expect(match, `no default entry in the csp_policy map in ${relativePath}`).not.toBeNull();
-  return match![1]!;
+  // The app's include points (`$csp_*_extra`, csp.conf) expand to nothing when app.d/csp/ is empty.
+  return match![1]!.replace(/\$csp_[a-z_]+/g, '');
 }
 
 /** Parse a CSP policy string into a map of directive name -> list of sources. */

@@ -1,13 +1,13 @@
 import 'reflect-metadata';
 
-import { Controller, Get, Global, Logger, Module } from '@nestjs/common';
+import { ConflictException, Controller, Get, Global, Logger, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { MODULE_METADATA } from '@nestjs/common/constants';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 import { Test, type TestingModule } from '@nestjs/testing';
 
-import { HttpExceptionFilter, PlatformHostModule } from '../../src/core/index';
+import { HttpExceptionFilter, PlatformHostModule, errorCodeRegistry, type ErrorCodeDef } from '../../src/core/index';
 import { DoctorCheckRegistry, EgressRegistry, DEPLOYMENT_NETWORK_SOURCE } from '../../src/doctor/index';
 import { AuthModule, Public } from '../../src/identity/index';
 import { appMetricRegistry } from '../../src/otel-core/index';
@@ -80,7 +80,35 @@ class ProbeController {
   }
 }
 
-@Module({ controllers: [ProbeController] })
+/** A foreign error, like a database driver's: its message names tables and hosts. */
+class DriverError extends Error {
+  constructor(readonly driverCode: string) {
+    super('duplicate key value violates unique constraint "notes_title_key" on host db-internal-7');
+  }
+}
+
+@Controller('mapped')
+class MappedController {
+  @Get('duplicate')
+  @Public()
+  duplicate(): never {
+    throw new DriverError('unique');
+  }
+
+  @Get('unknown')
+  @Public()
+  unknown(): never {
+    throw new DriverError('other');
+  }
+
+  @Get('domain')
+  @Public()
+  domain(): never {
+    throw new ConflictException({ code: 'NOTE_TITLE_TAKEN', message: 'Title already used', details: { field: 'title' } });
+  }
+}
+
+@Module({ controllers: [ProbeController, MappedController] })
 class ProbeModule {}
 
 function rootImports(eventBusAdapter?: string, extraOptions: PlatformHostCoreOptions = {}) {
@@ -343,6 +371,78 @@ describe('PlatformHostCoreModule', () => {
       expect(response.statusCode).toBe(503);
       expect(response.headers['retry-after']).toBe('30');
       expect(response.json()).toMatchObject({ statusCode: 503, details: { reason: 'MAINTENANCE_MODE' } });
+    });
+  });
+});
+
+describe('PlatformHostCoreModule error mappers (PP-14.14)', () => {
+  const NOTE_TITLE_TAKEN: ErrorCodeDef = { code: 'NOTE_TITLE_TAKEN', status: 409, description: 'A note with this title exists.' };
+
+  it('validates errorMappers and freezes the resolved list', () => {
+    expect(() => resolvePlatformHostCoreOptions({ errorMappers: 'x' as never })).toThrow(/errorMappers must be an array of functions/);
+    expect(() => resolvePlatformHostCoreOptions({ errorMappers: [1 as never] })).toThrow(/errorMappers/);
+    const mapper = () => null;
+    const resolved = resolvePlatformHostCoreOptions({ errorMappers: [mapper] });
+    expect(resolved.errorMappers).toEqual([mapper]);
+    expect(Object.isFrozen(resolved.errorMappers)).toBe(true);
+    expect(resolvePlatformHostCoreOptions().errorMappers).toEqual([]);
+  });
+
+  it('reaches the real filter: a mapped foreign error answers the mapper\'s status, code and message, never the original text', async () => {
+    jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+
+    await withTemporaryEntries(errorCodeRegistry, [NOTE_TITLE_TAKEN], async () => {
+      const moduleRef = await compile(undefined, [ProbeModule], {
+        errorMappers: [
+          (error) =>
+            error instanceof DriverError && error.driverCode === 'unique'
+              ? new ConflictException({ code: 'NOTE_TITLE_TAKEN', message: 'A note with this title already exists' })
+              : null,
+        ],
+      });
+      const app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter());
+      app.setGlobalPrefix('api');
+      await app.init();
+      await app.getHttpAdapter().getInstance().ready();
+      try {
+        const mapped = await app.inject({ method: 'GET', url: '/api/mapped/duplicate' });
+        expect(mapped.statusCode).toBe(409);
+        expect(mapped.json()).toMatchObject({ statusCode: 409, code: 'NOTE_TITLE_TAKEN', message: 'A note with this title already exists' });
+        expect(mapped.body).not.toContain('notes_title_key');
+        expect(mapped.body).not.toContain('db-internal-7');
+
+        const domain = await app.inject({ method: 'GET', url: '/api/mapped/domain' });
+        expect(domain.json()).toMatchObject({ statusCode: 409, code: 'NOTE_TITLE_TAKEN', details: { field: 'title' } });
+
+        // No mapper claims it: exactly the pre-existing 500 behaviour.
+        const unmapped = await app.inject({ method: 'GET', url: '/api/mapped/unknown' });
+        expect(unmapped.statusCode).toBe(500);
+        expect(unmapped.json()).toMatchObject({ code: 'INTERNAL_ERROR' });
+      } finally {
+        await app.close();
+      }
+    });
+  });
+
+  it('without errorMappers a registered domain code still passes through, a foreign error stays a 500', async () => {
+    jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+
+    await withTemporaryEntries(errorCodeRegistry, [NOTE_TITLE_TAKEN], async () => {
+      const moduleRef = await compile(undefined, [ProbeModule]);
+      const app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter());
+      app.setGlobalPrefix('api');
+      await app.init();
+      await app.getHttpAdapter().getInstance().ready();
+      try {
+        expect((await app.inject({ method: 'GET', url: '/api/mapped/domain' })).json()).toMatchObject({ code: 'NOTE_TITLE_TAKEN' });
+        expect((await app.inject({ method: 'GET', url: '/api/mapped/duplicate' })).json()).toMatchObject({ statusCode: 500, code: 'INTERNAL_ERROR' });
+      } finally {
+        await app.close();
+      }
     });
   });
 });

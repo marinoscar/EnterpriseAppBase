@@ -39,8 +39,10 @@
 // writer left behind keeps working rather than silently stopping.
 // =============================================================================
 
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { UnknownCredentialKindError, requireCredentialKind } from '../../core/index';
 import type {
+  BuiltinCredentialKind,
   CredentialKind,
   NodePrincipal,
   OrgMembership,
@@ -224,7 +226,7 @@ export class PrincipalFactory {
    */
   forUser(
     user: PrincipalSource & { id: string; email: string },
-    credential: Exclude<CredentialKind, 'node'>,
+    credential: Exclude<BuiltinCredentialKind, 'node'>,
   ): UserPrincipal {
     const access = this.access(user);
     const activeOrgId =
@@ -283,6 +285,15 @@ export const principalFactory = new PrincipalFactory();
  * `activeOrgId`); every other kind a `UserPrincipal` bound to
  * `user.activeOrgId`.
  *
+ * DEFAULT DENY (PP-14.14). The credential kind must be registered
+ * (`registerCredentialKind`) and map to the `user` principal kind (or be the
+ * platform's own `node`); anything else is refused with a 401 and the reason
+ * is not echoed. A custom credential kind therefore never becomes a
+ * `NodePrincipal`, and an unregistered one never becomes any principal.
+ *
+ * @throws UnauthorizedException for an unregistered credential kind, or one
+ *   whose principal kind has no factory here (an app builds that principal itself).
+ *
  * @internal
  */
 export function toPrincipal(
@@ -290,7 +301,19 @@ export function toPrincipal(
   credential: CredentialKind,
   nodeId?: string,
 ): Principal {
-  return credential === 'node'
-    ? principalFactory.forNode(user, nodeId)
-    : principalFactory.forUser(user, credential);
+  let principalKind: string;
+  try {
+    principalKind = requireCredentialKind(credential).principalKind;
+  } catch (error) {
+    if (error instanceof UnknownCredentialKindError) throw new UnauthorizedException('Unrecognised credential');
+    throw error;
+  }
+  if (credential === 'node') return principalFactory.forNode(user, nodeId);
+  if (principalKind === 'user') {
+    // A registered app kind (`api-key`) lands here with its own id; the
+    // `UserPrincipal.credential` type names the platform's three, which is the
+    // documented limit of the typed shape (the registry is the run-time truth).
+    return principalFactory.forUser(user, credential as Exclude<BuiltinCredentialKind, 'node'>);
+  }
+  throw new UnauthorizedException('Unrecognised credential');
 }

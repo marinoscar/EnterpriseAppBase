@@ -1,7 +1,7 @@
 import { Box, Text } from 'ink';
 import { useState, type ReactNode } from 'react';
 
-import { ALL_CHECKS, runChecks, type CompletedCheck } from '../../../deploy/checks/index.js';
+import { allChecks, runChecks, type CompletedCheck } from '../../../deploy/checks/index.js';
 import { runCommand, withSignal } from '../../../deploy/executor.js';
 import type { DeployHooks } from '../../../deploy/hooks.js';
 import { DEFAULT_APPS_ROOT, deployRootFor } from '../../../deploy/layout.js';
@@ -267,7 +267,7 @@ async function performDoctor(
   hooks.onLog?.(describeProxyRuntime(proxyRuntime));
 
   const results: CompletedCheck[] = await runChecks(
-    ALL_CHECKS,
+    allChecks(),
     {
       runCommand: run,
       deployRoot,

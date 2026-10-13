@@ -4,7 +4,7 @@
 
 ## Purpose and scope
 
-Does: `createTestPlatformHost({ permissions, userId, features, responses, formatRelativeTime, applyTheme })` (a `PlatformWebHost` plus `requests`, the log of every call) `createTestApiError(status, message, code?)` (a rejection shaped like the app adapter's errors) and `createTestBlobResponse(body, headers?)` (a canned download for the host's `getBlob`, answered from the same `responses` table under `'GET <path>'`).
+Does: `createTestPlatformHost({ permissions, userId, features, responses, formatRelativeTime, applyTheme, extensions })` (a `PlatformWebHost` plus `requests`, the log of every call) `createTestApiError(status, message, code?)` (a rejection shaped like the app adapter's errors) and `createTestBlobResponse(body, headers?)` (a canned download for the host's `getBlob`, answered from the same `responses` table under `'GET <path>'`).
 
 Also: `runPlatformWebConformance(options)`, which registers one `describe` block per web conformance suite over the app's own registries and route table (a slice's `testing` entry registers its suites, and an app registers its own; the settings slice's are in [the settings README](../settings/README.md#conformance-suite)), hands each suite the options the app passed under its id, makes an opt-out visible and requires its reason, and prints a summary table.
 

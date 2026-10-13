@@ -56,6 +56,9 @@ import { readdirSync } from 'node:fs';
 import { composeFilesForMode } from '@marinoscar/platform-infra';
 import { telemetryInfraFragment } from '@marinoscar/platform-infra/telemetry';
 
+import { listEnvGroups } from '../../core/index.js';
+import { ensurePlatformRegistrations } from '../builtin-registrations.js';
+
 import type { EnvGroup } from './env-metadata.js';
 
 /** The group whose presence adds the telemetry stack. Always on; see above. */
@@ -87,10 +90,19 @@ export const ALWAYS_ON_GROUPS: readonly EnvGroup[] = [TELEMETRY_GROUP];
  * compose file list, the environment wizard and the update's drift check all
  * route through it, so an existing deployment whose `state.groups` predates
  * #567 gets the telemetry stack -- files and keys -- on its next update.
+ *
+ * @param groups - The requested or recorded groups.
+ * @returns Those groups plus every always-on and default-enabled one.
+ * @stability experimental
  */
 export function effectiveGroups(groups?: readonly string[] | undefined): EnvGroup[] {
+  ensurePlatformRegistrations();
+  // Always-on first, then every other registered group that is on by default
+  // (an app's `defaultEnabled` group): the platform's own default is the
+  // telemetry group alone, so a deployment without app groups is unchanged.
+  const defaults = listEnvGroups().filter((group) => group.defaultEnabled).map((group) => group.id);
   const result: EnvGroup[] = [];
-  for (const group of [...(groups ?? []), ...ALWAYS_ON_GROUPS]) {
+  for (const group of [...(groups ?? []), ...ALWAYS_ON_GROUPS, ...defaults]) {
     if (!result.includes(group as EnvGroup)) result.push(group as EnvGroup);
   }
   return result;

@@ -4,6 +4,7 @@ import { useCallback, useMemo, useState, type ReactNode } from 'react';
 
 import { DEFAULT_APPS_ROOT, enumerateDeployments, locateApp } from '../../../deploy/layout.js';
 import { Frame } from '../../layout.js';
+import { TuiScreenSections } from '../../screen-sections.js';
 import { DoctorScreen } from './doctor.js';
 import type { DeployAction } from './flags-model.js';
 import { InstallScreen } from './install.js';
@@ -119,6 +120,7 @@ export function DeployScreen({ onDone }: DeployScreenProps): ReactNode {
           }}
         />
       </Box>
+      <TuiScreenSections screen="deploy" />
     </Frame>
   );
 }

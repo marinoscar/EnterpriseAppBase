@@ -5,7 +5,7 @@ import type { Command } from 'commander';
 
 import { cliName } from '../identity.js';
 import {
-  ALL_CHECKS,
+  allChecks,
   checksPassed,
   gitCredentialStateFor,
   runChecks,
@@ -840,7 +840,7 @@ export async function runDoctorCommand(
 
   const stdout = ctx?.stdout ?? process.stdout;
   const stderr = ctx?.stderr ?? process.stderr;
-  const checks = ctx?.checks ?? ALL_CHECKS;
+  const checks = ctx?.checks ?? allChecks();
   const json = options.json === true;
   const run = ctx?.runCommand ?? runCommand;
 
