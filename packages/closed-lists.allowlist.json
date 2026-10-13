@@ -1,0 +1,415 @@
+{
+  "description": "Closed id lists the packages keep on purpose. Checked by scripts/check-closed-lists.mjs (npm run check:closed-lists). Each entry is { file, symbol, reason }; a stale entry fails. Rules: docs/PACKAGES.md#closed-id-lists.",
+  "entries": [
+    {
+      "file": "packages/platform-api/src/ai/config/dto/ai-provider-test.dto.ts",
+      "symbol": "AI_TEST_CHECK_IDS",
+      "reason": "the fixed steps of the provider connection test, in attempt order; not an implementation id"
+    },
+    {
+      "file": "packages/platform-api/src/ai/core/types/file-inputs.types.ts",
+      "symbol": "AI_STORAGE_INPUT_IMAGE_MIME_TYPES",
+      "reason": "MIME allowlist deciding image versus file input; a validation limit, not an id vocabulary"
+    },
+    {
+      "file": "packages/platform-api/src/ai/core/types/media.types.ts",
+      "symbol": "AI_IMAGE_INPUT_MIME_TYPES",
+      "reason": "MIME allowlist for source images; a validation limit"
+    },
+    {
+      "file": "packages/platform-api/src/ai/core/types/media.types.ts",
+      "symbol": "AI_TRANSCRIPTION_INPUT_MIME_TYPES",
+      "reason": "MIME allowlist for transcription input; a validation limit"
+    },
+    {
+      "file": "packages/platform-api/src/ai/core/types/responses.types.ts",
+      "symbol": "AI_HOSTED_TOOL_TYPES",
+      "reason": "discriminator of the typed AiHostedTool union; each member has its own request shape and gate"
+    },
+    {
+      "file": "packages/platform-api/src/ai/core/types/responses.types.ts",
+      "symbol": "AiMessageRole",
+      "reason": "chat message roles of the provider wire formats; adapters map each one"
+    },
+    {
+      "file": "packages/platform-api/src/ai/runtime/ai-limits.service.ts",
+      "symbol": "AiLimitName",
+      "reason": "permanent strings of a refusal's details.limit, one per limit the service enforces"
+    },
+    {
+      "file": "packages/platform-api/src/core/data-access/model-ownership.ts",
+      "symbol": "OwnershipKind",
+      "reason": "the row-ownership classes that scoped data access, RLS and the purge planner switch on"
+    },
+    {
+      "file": "packages/platform-api/src/core/principal/principal.types.ts",
+      "symbol": "TenancyMode",
+      "reason": "deployment tenancy switch (single or multi), not a vocabulary an app extends"
+    },
+    {
+      "file": "packages/platform-api/src/db-backup/restore-gate.registry.ts",
+      "symbol": "RestoreGateKind",
+      "reason": "how a gate's failure is handled; the restore flow switches on it (gate ids are open)"
+    },
+    {
+      "file": "packages/platform-api/src/db-backup/restore-preflight.service.ts",
+      "symbol": "EffectiveRollbackMode",
+      "reason": "outcome of rollback planning; mirrors the two stored rollback modes"
+    },
+    {
+      "file": "packages/platform-api/src/host/about/deploy-info.ts",
+      "symbol": "DeployProxyMode",
+      "reason": "TLS layout field of the deploy-info document the CLI writes; document format"
+    },
+    {
+      "file": "packages/platform-api/src/identity/auth/providers/auth-provider.registry.ts",
+      "symbol": "AuthProviderMode",
+      "reason": "how a provider's flow is mounted (redirect or custom); a behaviour switch, provider ids are open"
+    },
+    {
+      "file": "packages/platform-api/src/identity/organizations/tenancy-mode.ts",
+      "symbol": "TENANCY_MODES",
+      "reason": "values accepted by TENANCY_MODE; a deployment switch mirroring the contract"
+    },
+    {
+      "file": "packages/platform-api/src/jobs/job.worker.ts",
+      "symbol": "JobWorkerMode",
+      "reason": "worker pool modes (all, system, off) read from JOBS_WORKER_MODE; a process switch"
+    },
+    {
+      "file": "packages/platform-api/src/jobs/jobs.options.ts",
+      "symbol": "JobsWorkerMode",
+      "reason": "worker pool modes (all, system, off) of JobsModule.forRoot; a process switch"
+    },
+    {
+      "file": "packages/platform-api/src/otel-core/metrics/metric-name.registry.ts",
+      "symbol": "AppMetricKind",
+      "reason": "OpenTelemetry instrument kinds, fixed by the OpenTelemetry API"
+    },
+    {
+      "file": "packages/platform-api/src/settings/registry/secret-fields.ts",
+      "symbol": "SETTINGS_SECRET_FIELD_NAMES",
+      "reason": "deliberately closed security vocabulary: field names no settings namespace may declare"
+    },
+    {
+      "file": "packages/platform-api/src/sharing/access/resource-types.ts",
+      "symbol": "GrantableKind",
+      "reason": "the three storable grantee kinds (grants.grantee_kind is a database enum); registered kinds are open"
+    },
+    {
+      "file": "packages/platform-api/src/storage/profile-image/profile-image.ts",
+      "symbol": "AVATAR_MIME_TYPES",
+      "reason": "profile image types accepted by magic bytes; a security validation limit"
+    },
+    {
+      "file": "packages/platform-api/src/telemetry/connection/telemetry-connection.schema.ts",
+      "symbol": "TELEMETRY_CONNECTION_ROLES",
+      "reason": "the two database logins (reader, admin) and the credential names inside the purpose"
+    },
+    {
+      "file": "packages/platform-api/src/telemetry/connection/telemetry-connection.service.ts",
+      "symbol": "TelemetryHostMode",
+      "reason": "auto or custom host choice of the stored connection; a settings discriminator"
+    },
+    {
+      "file": "packages/platform-api/src/telemetry/query/sql-guard.ts",
+      "symbol": "TelemetryStatementKind",
+      "reason": "deliberately closed security vocabulary: the read-only statement kinds the SQL guard admits"
+    },
+    {
+      "file": "packages/platform-api/src/telemetry/stack/stack-agent.client.ts",
+      "symbol": "StackAgentErrorKind",
+      "reason": "failure classes of the stack agent client; callers switch on them"
+    },
+    {
+      "file": "packages/platform-cli/src/android/doctor.ts",
+      "symbol": "AndroidCheckId",
+      "reason": "ids of the Android toolchain checks; the report and the fix plan switch on them"
+    },
+    {
+      "file": "packages/platform-cli/src/android/fix-plan.ts",
+      "symbol": "FixStepKind",
+      "reason": "steps of the Android fix plan; each has a dedicated executor"
+    },
+    {
+      "file": "packages/platform-cli/src/engine/deploy/checks/tls.ts",
+      "symbol": "RenewalOwnerKind",
+      "reason": "who owns certificate renewal; the TLS check switches on it"
+    },
+    {
+      "file": "packages/platform-cli/src/engine/deploy/env-metadata.ts",
+      "symbol": "ENV_GROUPS",
+      "reason": "built-in env groups of the open registry (registerEnvGroup, listEnvGroups)"
+    },
+    {
+      "file": "packages/platform-cli/src/engine/deploy/oauth-check.ts",
+      "symbol": "OAuthFindingId",
+      "reason": "findings the OAuth credential check emits; the report switches on them"
+    },
+    {
+      "file": "packages/platform-cli/src/engine/deploy/proxy.ts",
+      "symbol": "ProxyMode",
+      "reason": "container or host TLS proxy layout; the deploy flow switches on it"
+    },
+    {
+      "file": "packages/platform-cli/src/engine/errors.ts",
+      "symbol": "NetworkFailureKind",
+      "reason": "network failure classes mapped to advice; a closed classification"
+    },
+    {
+      "file": "packages/platform-cli/src/engine/request-body.ts",
+      "symbol": "BodySourceKind",
+      "reason": "where a --data payload came from; an error-message discriminator"
+    },
+    {
+      "file": "packages/platform-contract/src/db-backup/constants.ts",
+      "symbol": "RESTORE_MODES",
+      "reason": "wire discriminator of the restore response (running, guided, blocked)"
+    },
+    {
+      "file": "packages/platform-contract/src/db-backup/constants.ts",
+      "symbol": "RESTORE_ROLLBACK_MODES",
+      "reason": "stored setting values with fixed behaviour (retain or drop the replaced database)"
+    },
+    {
+      "file": "packages/platform-contract/src/db-backup/constants.ts",
+      "symbol": "ROLLBACK_MODES",
+      "reason": "wire mirror of the rollback outcomes of RestoreRollbackResult"
+    },
+    {
+      "file": "packages/platform-contract/src/email/schemas.ts",
+      "symbol": "EmailSecretFieldName",
+      "reason": "deliberately closed security vocabulary: field names no email settings shape may declare"
+    },
+    {
+      "file": "packages/platform-contract/src/exports/constants.ts",
+      "symbol": "EXPORT_COLUMN_TYPES",
+      "reason": "cell value types; every export writer formats each one"
+    },
+    {
+      "file": "packages/platform-contract/src/exports/constants.ts",
+      "symbol": "EXPORT_REQUEST_FIELD_KINDS",
+      "reason": "controls the export dialog draws (date, boolean, select, text); the dialog switches on them"
+    },
+    {
+      "file": "packages/platform-contract/src/exports/schemas.ts",
+      "symbol": "z.enum(EXPORT_COLUMN_TYPES)",
+      "reason": "wire enum over EXPORT_COLUMN_TYPES, which stays closed"
+    },
+    {
+      "file": "packages/platform-contract/src/exports/schemas.ts",
+      "symbol": "z.enum(EXPORT_REQUEST_FIELD_KINDS)",
+      "reason": "wire enum over EXPORT_REQUEST_FIELD_KINDS, which stays closed"
+    },
+    {
+      "file": "packages/platform-contract/src/identity/constants.ts",
+      "symbol": "DEVICE_TOKEN_TYPES",
+      "reason": "credentials the device flow mints (session or pat); a security vocabulary"
+    },
+    {
+      "file": "packages/platform-contract/src/identity/constants.ts",
+      "symbol": "PAT_DURATION_UNITS",
+      "reason": "units of a personal access token lifetime; fixed arithmetic"
+    },
+    {
+      "file": "packages/platform-contract/src/identity/constants.ts",
+      "symbol": "TENANCY_MODES",
+      "reason": "deployment tenancy switch (single or multi), not a vocabulary an app extends"
+    },
+    {
+      "file": "packages/platform-contract/src/identity/schemas.ts",
+      "symbol": "z.enum(DEVICE_TOKEN_TYPES)",
+      "reason": "wire enum over DEVICE_TOKEN_TYPES, which stays closed"
+    },
+    {
+      "file": "packages/platform-contract/src/identity/schemas.ts",
+      "symbol": "z.enum(PAT_DURATION_UNITS)",
+      "reason": "wire enum over PAT_DURATION_UNITS, which stays closed"
+    },
+    {
+      "file": "packages/platform-contract/src/identity/schemas.ts",
+      "symbol": "z.enum(TENANCY_MODES)",
+      "reason": "wire enum over TENANCY_MODES, which stays closed"
+    },
+    {
+      "file": "packages/platform-contract/src/notifications/constants.ts",
+      "symbol": "PLATFORM_NOTIFICATION_CHANNEL_IDS",
+      "reason": "informational built-ins of the open channel registry; the registry decides which exist"
+    },
+    {
+      "file": "packages/platform-contract/src/settings/constants.ts",
+      "symbol": "CONFIG_FIELD_KINDS",
+      "reason": "controls the generic configuration form renders; the web switches on them"
+    },
+    {
+      "file": "packages/platform-contract/src/settings/constants.ts",
+      "symbol": "ORG_SETTINGS_FIELD_KINDS",
+      "reason": "controls the organization settings page renders; the web switches on them"
+    },
+    {
+      "file": "packages/platform-contract/src/settings/constants.ts",
+      "symbol": "ORG_SETTINGS_MERGE_MODES",
+      "reason": "how an org value combines with the system value; the merge code implements exactly these"
+    },
+    {
+      "file": "packages/platform-contract/src/settings/schemas.ts",
+      "symbol": "z.enum(ORG_SETTINGS_FIELD_KINDS)",
+      "reason": "wire enum over ORG_SETTINGS_FIELD_KINDS, which stays closed"
+    },
+    {
+      "file": "packages/platform-contract/src/settings/schemas.ts",
+      "symbol": "z.enum(ORG_SETTINGS_MERGE_MODES)",
+      "reason": "wire enum over ORG_SETTINGS_MERGE_MODES, which stays closed"
+    },
+    {
+      "file": "packages/platform-contract/src/sharing/constants.ts",
+      "symbol": "GRANT_GRANTEE_KINDS",
+      "reason": "storable grantee kinds: grants.grantee_kind is a database enum; registered kinds are open"
+    },
+    {
+      "file": "packages/platform-contract/src/sharing/constants.ts",
+      "symbol": "GROUP_ROLES",
+      "reason": "mirror of the GroupRole database enum; the group policy implements exactly these"
+    },
+    {
+      "file": "packages/platform-contract/src/storage/constants.ts",
+      "symbol": "STORAGE_SECRET_FIELD_NAMES",
+      "reason": "deliberately closed security vocabulary: field names the storage settings may never declare"
+    },
+    {
+      "file": "packages/platform-contract/src/storage/storage-bucket-provision.ts",
+      "symbol": "STORAGE_BUCKET_STEP_IDS",
+      "reason": "the fixed steps of bucket provisioning, in order"
+    },
+    {
+      "file": "packages/platform-contract/src/storage/storage-bucket-provision.ts",
+      "symbol": "z.enum(STORAGE_BUCKET_STEP_IDS)",
+      "reason": "wire enum over STORAGE_BUCKET_STEP_IDS, which stays closed"
+    },
+    {
+      "file": "packages/platform-contract/src/storage/storage-connection-test.ts",
+      "symbol": "STORAGE_TEST_CHECK_IDS",
+      "reason": "the four connection checks, in attempt order"
+    },
+    {
+      "file": "packages/platform-contract/src/storage/storage-connection-test.ts",
+      "symbol": "z.enum(STORAGE_TEST_CHECK_IDS)",
+      "reason": "wire enum over STORAGE_TEST_CHECK_IDS, which stays closed"
+    },
+    {
+      "file": "packages/platform-contract/src/telemetry/constants.ts",
+      "symbol": "DASHBOARD_TOP_KINDS",
+      "reason": "the two queries of the dashboard top route (routes, errors)"
+    },
+    {
+      "file": "packages/platform-contract/src/telemetry/constants.ts",
+      "symbol": "PLATFORM_METRIC_GROUPS",
+      "reason": "informational built-ins of the open metric group registry"
+    },
+    {
+      "file": "packages/platform-contract/src/telemetry/constants.ts",
+      "symbol": "TELEMETRY_ASSISTANT_TURN_ROLES",
+      "reason": "roles of an assistant history turn; fixed by the chat format"
+    },
+    {
+      "file": "packages/platform-contract/src/telemetry/constants.ts",
+      "symbol": "TELEMETRY_COLUMN_TYPES",
+      "reason": "PostgreSQL wire types of a query result column; fixed by the protocol"
+    },
+    {
+      "file": "packages/platform-contract/src/telemetry/constants.ts",
+      "symbol": "TELEMETRY_CONNECTION_HOST_MODES",
+      "reason": "auto or custom host choice of the stored connection; a settings discriminator"
+    },
+    {
+      "file": "packages/platform-contract/src/telemetry/constants.ts",
+      "symbol": "TELEMETRY_SEMANTIC_TYPES",
+      "reason": "GreptimeDB's own column roles (TAG, FIELD, TIMESTAMP); fixed by the store"
+    },
+    {
+      "file": "packages/platform-db/src/baseline/mapping.ts",
+      "symbol": "MatchKind",
+      "reason": "how a package migration matched a local one; the baseline report switches on it"
+    },
+    {
+      "file": "packages/platform-db/src/compose/parse.ts",
+      "symbol": "BlockKind",
+      "reason": "Prisma schema block kinds; fixed by the Prisma language"
+    },
+    {
+      "file": "packages/platform-web/src/ai/headless/chat-attachments.ts",
+      "symbol": "AI_CHAT_IMAGE_MIME_TYPES",
+      "reason": "mirror of the API image MIME allowlist for the attachment picker"
+    },
+    {
+      "file": "packages/platform-web/src/ai/headless/chat-attachments.ts",
+      "symbol": "AiAttachmentKind",
+      "reason": "a chat attachment is an image or a file"
+    },
+    {
+      "file": "packages/platform-web/src/ai/headless/types.ts",
+      "symbol": "AI_HOSTED_TOOL_TYPES",
+      "reason": "mirror of the API hosted tool types"
+    },
+    {
+      "file": "packages/platform-web/src/ai/headless/types.ts",
+      "symbol": "AI_IMAGE_INPUT_MIME_TYPES",
+      "reason": "mirror of the API image MIME allowlist"
+    },
+    {
+      "file": "packages/platform-web/src/ai/ui/AiConfigPage.tsx",
+      "symbol": "HOSTED_TOOL_COPY",
+      "reason": "labels for the closed hosted tool types; a new type needs adapter code and copy together"
+    },
+    {
+      "file": "packages/platform-web/src/datatable/headless/types.ts",
+      "symbol": "DataTableRendererKind",
+      "reason": "the two renderer modules; fixed by the table implementation"
+    },
+    {
+      "file": "packages/platform-web/src/datatable/headless/types.ts",
+      "symbol": "DataTableRendererMode",
+      "reason": "layout choices of the table (auto, desktop, tablet, mobile); a presentation switch"
+    },
+    {
+      "file": "packages/platform-web/src/db-backup/headless/db-backup-client.ts",
+      "symbol": "EffectiveRollbackMode",
+      "reason": "mirror of the API rollback planning outcome"
+    },
+    {
+      "file": "packages/platform-web/src/db-backup/headless/db-backup-client.ts",
+      "symbol": "RestoreGateKind",
+      "reason": "mirror of the API gate kind; gate ids are open"
+    },
+    {
+      "file": "packages/platform-web/src/db-backup/ui/DbBackupConfigPanel.tsx",
+      "symbol": "ROLLBACK_MODE_LABELS",
+      "reason": "labels for the two stored rollback modes, which stay closed"
+    },
+    {
+      "file": "packages/platform-web/src/identity/headless/api.ts",
+      "symbol": "ORG_ROLES",
+      "reason": "deprecated alias of BUILTIN_ORG_ROLES"
+    },
+    {
+      "file": "packages/platform-web/src/identity/headless/device-credential.ts",
+      "symbol": "DeviceCredentialKind",
+      "reason": "session or pat; mirrors the closed DEVICE_TOKEN_TYPES"
+    },
+    {
+      "file": "packages/platform-web/src/notifications/headless/pushDiagnostics.ts",
+      "symbol": "DiagnosticStepId",
+      "reason": "the ordered probes of the browser push diagnostic; fixed by the probe code"
+    },
+    {
+      "file": "packages/platform-web/src/telemetry/headless/services/telemetry.ts",
+      "symbol": "TelemetryStackServiceName",
+      "reason": "the two stack services the API reports today; TelemetryStackService is the open form"
+    },
+    {
+      "file": "packages/platform-web/src/telemetry/ui/components/dashboard/TopProblems.tsx",
+      "symbol": "TopProblemsKind",
+      "reason": "the two lists the top problems card shows"
+    }
+  ]
+}

@@ -50,6 +50,14 @@ jobs:
       # a required peer.
       - run: npm run check:slice-peers
 
+      # No new closed id list (issue #946; docs/PACKAGES.md#closed-id-lists):
+      # an exported `as const` id array, a literal union named *Id, *Kind,
+      # *Type, *Name, *Mode or *Role, a `z.enum` over such an array or a
+      # `Record` over such a union in a web ui folder must be opened with a
+      # registry or be listed with a reason in
+      # packages/closed-lists.allowlist.json. Reads sources only (no build).
+      - run: npm run check:closed-lists
+
       # docs/SLICES.md is generated from the slice graph, the peers, the
       # package exports, the slice READMEs and packages/platform-slice-notes.json;
       # the check fails when the committed page differs (run npm run docs:slices).

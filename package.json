@@ -29,6 +29,7 @@
     "docs:slices": "node scripts/generate-slices-doc.mjs --write",
     "check:slices-doc": "node scripts/generate-slices-doc.mjs --check",
     "check:slice-peers": "node scripts/check-slice-peers.mjs && node scripts/check-slice-peers.mjs --app starter/apps/api --app starter/apps/web --app starter/apps/cli --app tests/consumer-smoke/api --app tests/consumer-smoke/web --app tests/consumer-smoke/api-slim",
+    "check:closed-lists": "node scripts/check-closed-lists.mjs",
     "smoke:consumer": "npm run build:packages && node tests/consumer-smoke/run.mjs --from pack",
     "platform:infra:sync": "platform-infra sync",
     "changeset": "changeset",
