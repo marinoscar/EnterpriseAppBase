@@ -125,6 +125,7 @@ New subpaths in this version. From the reference app's `services/jobs.ts`, `serv
 - Import the types, the hooks, `isJobActionable`, `nodeCredentialStatus` and `formatDuration` / `formatDateTime` / `shortId` from `/jobs/headless`. `Job` now carries `orgId`, and `JobListParams` takes it.
 - The hooks take the client as an optional last argument instead of importing service modules; to mock them in a page test, mock `@marinoscar/platform-web/jobs/headless`.
 - The pages read permissions from the host viewer instead of the app's `usePermissions`.
+- Job reasons are open: `JobReasonName` is a built-in or any registered id (a string at runtime), and `Job` carries `reasonLabel` beside `reason` (the API resolves it from `registerJobReason`). No page prints the reason yet; a fixture typed `Job` adds `reasonLabel`.
 
 ## Troubleshooting
 

@@ -126,6 +126,32 @@ Full recipe: [the job handlers README](../packages/platform-api/src/jobs/handler
 7. **Work inside the queue rules.** A `@Cron` only decides whether work is due and enqueues (`enqueueHousekeepingJob`); an `@OnEvent` body does no I/O. `apps/api/test/conformance.spec.ts` enforces both.
 8. **Add the type** and its label to `REGISTERED_JOB_TYPES` in `apps/api/test/jobs/job-type-snapshot.spec.ts`, which pins every registered type.
 
+### Add a job reason
+
+Examples: [`import.job-reason.ts`](../apps/api/src/platform-extensions/jobs/import.job-reason.ts), proved by [`job-reason.example.spec.ts`](../apps/api/test/examples/jobs/job-reason.example.spec.ts). `jobs.reason` is `TEXT`, so a reason of your own needs no migration.
+
+1. **Declare it** (`import { registerJobReason } from '@marinoscar/platform-api/jobs'`): `{ id, label }`. The id is 2 to 48 lower-case letters, digits, `_`, `.` or `-`, starting with a letter, and permanent once rows carry it. In the reference app, list it in `APP_JOB_REASONS` (`apps/api/src/app-registrations/jobs.ts`); `platform/jobs/jobs.config.ts` registers the list at import time, before the application bootstraps.
+2. **Enqueue with it**: `JobsService.enqueue({ type, reason: 'import', ... })`. An unregistered reason throws, naming the registered ones, so a typo is a bug rather than a new reason.
+3. **Read it**: the admin job list publishes `reason` and `reasonLabel` (the registered label, or the id itself when the registration was removed; a stored row is never rejected).
+
+### Put an app table on the nightly retention
+
+Examples: [`import-rows.retention.ts`](../apps/api/src/platform-extensions/jobs/import-rows.retention.ts), proved by [`import-rows-retention.example.spec.ts`](../apps/api/test/examples/jobs/import-rows-retention.example.spec.ts). Spec: [job-queue.md, Retention policies](specs/job-queue.md#retention-policies).
+
+1. **Declare the policy** (`registerRetentionPolicy` from `@marinoscar/platform-api/jobs`): a permanent `key` (`importRows`), a `label`, `defaultDays`, optional `minDays`/`maxDays` (within 1 to 3650) and `purge: { type, what }`, the job that enforces it. It ships OFF unless you set `defaultEnabled: true`: deleting rows is an operator decision. In the reference app, list it in `APP_RETENTION_POLICIES` (`app-registrations/jobs.ts`); the settings manifest registers the list before it registers the `retention` namespace. Registering after the namespace is composed throws.
+2. **Write the purge handler**: a server-only `JobHandler` (neither node member) whose `type` is `purge.type`. Read its own policy per run (`getRetentionPolicy()[key]`) and delete with `runRetentionPolicyPurge`, which batches oldest first, by the exact ids read, and is a logged no-op while the policy is off. The table is yours: put it behind a port the app binds to its Prisma model.
+3. **Mount it**: provide the handler in a module that is loaded. The 01:00 task enqueues one job per enabled policy whose handler is mounted; it needs no `RetentionPurgeRegistry.register` call (a handler may still declare one, which wins).
+4. **Regenerate the settings catalog** (`npm run catalog:settings --workspace=api`) and commit it: the `retention` defaults now include your key. Reading an older stored row fills your key with its default; a key whose registration is removed is ignored with one warning and kept in the row.
+
+### Report an executor's requirements, spans and vitals
+
+Examples: [`transcode.executor.ts`](../apps/cli/src/examples/transcode.executor.ts) (the executor), [`transcode.span-attributes.ts`](../apps/api/src/platform-extensions/nodes/transcode.span-attributes.ts) (the API half), [`transcode.vitals.ts`](../apps/web/src/platform-extensions/nodes/transcode.vitals.ts) (the browser half). Spec: [worker-nodes.md](specs/worker-nodes.md#capability-probing).
+
+1. **Declare what the machine needs** (CLI, `@marinoscar/platform-cli/node`): `registerProbedBinary('ffmpeg', { versionArgs: ['-version'] })` and `registerJobRequirement('app.transcode', { required: [binaryCapability('ffmpeg')], degradable: [...] })`. The startup self-test refuses to claim the type without a required tool, and `node doctor` lists the tool and its version. Call both before the node starts.
+2. **Emit your own span** from the executor: `context.phase('job.app.transcode', work, (result) => ({ frames: result.frames, codec: result.codec }))`. The name must be `job.app.<name>`; attributes are non-negative integers or short token-shaped strings.
+3. **Let the API relay the attributes** (`registerNodeSpanAttribute({ key, type, maxLength? })` from `@marinoscar/platform-api/nodes`, listed in `APP_NODE_SPAN_ATTRIBUTES`): an attribute nobody registered is dropped from the span, which is kept. They are emitted as `job.app.<key>`.
+4. **Report numbers**: give the executor `vitals()` returning `Record<string, number>` (cheap, synchronous, at most 16 keys fleet-wide, keys `^[a-z][a-z0-9_.]{1,47}$`). They arrive as `vitals.extra` and show in the fleet page's vitals dialog; word them with `registerNodeVital({ key, label, unit })` from `@marinoscar/platform-web/nodes/headless` (an unregistered key still shows, by its key).
+
 ### Add a doctor check
 
 Full recipe: [the Doctor README](../packages/platform-api/src/doctor/README.md#quick-start); contract: [doctor.md §4](specs/doctor.md#4-extending-it-in-a-fork). Example: [`example-capability.doctor-check.ts`](../apps/api/src/examples/doctor/example-capability.doctor-check.ts).

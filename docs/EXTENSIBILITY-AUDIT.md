@@ -15,7 +15,7 @@ The audit record of the extension seams of every platform slice. A closed point 
 
 Evidence paths are written `api:`, `web:`, `contract:`, `cli:`, `db:` and `infra:` for `packages/platform-api/src/`, `packages/platform-web/src/`, `packages/platform-contract/src/`, `packages/platform-cli/src/`, `packages/platform-db/` and `packages/platform-infra/`; a path under `apps/` or `docs/` is from the repository root. A story is written PP-14.n (its issue number follows).
 
-As of this version: 114 closed points in 29 sections, 37 fixed and 77 open.
+As of this version: 114 closed points in 29 sections, 42 fixed and 72 open.
 
 ## Verdicts
 
@@ -26,8 +26,8 @@ As of this version: 114 closed points in 29 sections, 37 fixed and 77 open.
 | [settings](#settings) | Mostly open | 7 | 1 | 6 | PP-14.21, PP-14.5, PP-14.24 |
 | [notifications](#notifications) | Mostly open | 7 | 6 | 1 | PP-14.10, PP-14.8, PP-14.24 |
 | [exports](#exports) | Mostly open | 3 | 0 | 3 | PP-14.20 |
-| [jobs](#jobs) | Mostly open | 4 | 0 | 4 | PP-14.19, PP-14.23, PP-14.26 |
-| [nodes](#nodes) | Mostly open | 4 | 0 | 4 | PP-14.19, PP-14.23 |
+| [jobs](#jobs) | Mostly open | 4 | 2 | 2 | PP-14.19, PP-14.23, PP-14.26 |
+| [nodes](#nodes) | Mostly open | 4 | 3 | 1 | PP-14.19, PP-14.23 |
 | [doctor](#doctor) | Mostly open | 2 | 0 | 2 | PP-14.23, PP-14.26 |
 | [telemetry](#telemetry) | Mostly open | 7 | 2 | 5 | PP-14.11, PP-14.18, PP-14.24 |
 | [otel-core](#otel-core) | Mostly open | 1 | 0 | 1 | PP-14.18 |
@@ -75,7 +75,7 @@ The 28 stories of the epic, in order. Phase 1 makes the existing seams real; pha
 | PP-14.16 | #934 | sharing: pluggable grantee kinds and access rules | 3 | 14.15 | maybe | Open |
 | PP-14.17 | #935 | ai: open capabilities and operations, richer transcription results, per-feature usage | 3 | 14.6 | yes | Open |
 | PP-14.18 | #936 | telemetry and otel-core: app units, group presentation, dashboard panels, assistant tools, SDK extension | 3 | 14.11, 14.23 | no | Open |
-| PP-14.19 | #937 | jobs and nodes: app retention policies, open job reasons, node vitals and executor telemetry | 3 | none | yes | Open |
+| PP-14.19 | #937 | jobs and nodes: app retention policies, open job reasons, node vitals and executor telemetry | 3 | none | yes | This change |
 | PP-14.20 | #938 | onboarding, datatable and exports: close the remaining small vocabularies | 3 | none | no | Open |
 | PP-14.21 | #939 | settings: nested and org-layer extensions, core profile and theme fields, package self-registration | 3 | none | no | Open |
 | PP-14.22 | #940 | cli and infra: app env groups, deploy checks and steps, proxy stream routes, CSP, compose modes, CLI conformance | 3 | none | no | Open |
@@ -167,28 +167,28 @@ Closed points: none recorded at the audit commit.
 
 ### jobs
 
-**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 4 (0 fixed, 4 open) · **Stories:** PP-14.19, PP-14.23, PP-14.26
+**Verdict:** Mostly open · **Packages:** api, web, contract, db · **Closed points:** 4 (2 fixed, 2 open) · **Stories:** PP-14.19, PP-14.23, PP-14.26
 
-**Open points.** `JobHandlerRegistry.register`, `registerJobTypeLabel`, `JobSecretBroker`, `enqueueHousekeepingJob`, `RetentionPurgeRegistry`, `JobScope.run`, the `JOBS_*` ports and the packaged Jobs and Job Insights pages (`slots.Header`).
+**Open points.** `JobHandlerRegistry.register`, `registerJobTypeLabel`, `JobSecretBroker`, `enqueueHousekeepingJob`, `RetentionPurgeRegistry`, `registerRetentionPolicy`, `registerJobReason`, `JobScope.run`, the `JOBS_*` ports and the packaged Jobs and Job Insights pages (`slots.Header`).
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
-| jobs-1 | The retention policy keys and the four-key `retention` namespace are fixed; `RetentionPurgeRegistry.register` throws for any other key, so an app table cannot join the nightly retention. | contract: `jobs/retention-schemas.ts:39`; api: `jobs/retention/retention-purge.registry.ts:67`; api: `jobs/retention/retention.system-settings.ts:~60` | `registerRetentionPolicy({ key, label, defaultDays, minDays, maxDays, purge })`; the namespace is composed from the registry; the nightly task enqueues one job per policy. | PP-14.19 (#937) | Open |
-| jobs-2 | `JobReason` is a closed Prisma enum (`upload`, `rerun`, `backfill`) mirrored in the contract, and every enqueue requires one. | db: `schema/jobs.prisma:351`; contract: `jobs/constants.ts:44` | Migration: enum to text, values kept; `jobReasonSchema` as a pattern; `registerJobReason({ id, label })`. | PP-14.19 (#937) | Open |
+| jobs-1 | The retention policy keys and the four-key `retention` namespace are fixed; `RetentionPurgeRegistry.register` throws for any other key, so an app table cannot join the nightly retention. | contract: `jobs/retention-schemas.ts:39`; api: `jobs/retention/retention-purge.registry.ts:67`; api: `jobs/retention/retention.system-settings.ts:~60` | `registerRetentionPolicy({ key, label, defaultDays, minDays, maxDays, purge })`; the namespace is composed from the registry; the nightly task enqueues one job per policy. | PP-14.19 (#937) | Fixed |
+| jobs-2 | `JobReason` is a closed Prisma enum (`upload`, `rerun`, `backfill`) mirrored in the contract, and every enqueue requires one. | db: `schema/jobs.prisma:351`; contract: `jobs/constants.ts:44` | Migration: enum to text, values kept; `jobReasonSchema` as a pattern; `registerJobReason({ id, label })`. | PP-14.19 (#937) | Fixed |
 | jobs-3 | `JobsPage` and `JobInsightsPage` expose only `slots.Header`. | web: `jobs/ui/JobsPage.tsx:134, :197` | `PageSlotsBase`, `TableSlots<JobRow>` and `Filters`. | PP-14.23 (#941) | Open |
 | jobs-4 | `jobs/testing` holds only the `on-event-no-io` suite; nothing exercises a handler's own contract (profile bounds, idempotence on retry, node-eligibility pairing, dedup). | api: `jobs/testing/index.ts` | `createFakeJobQueue()` and `describeJobHandlerConformance(handler, { payloads })`. | PP-14.26 (#944) | Open |
 
 ### nodes
 
-**Verdict:** Mostly open · **Packages:** api, web, contract, cli · **Closed points:** 4 (0 fixed, 4 open) · **Stories:** PP-14.19, PP-14.23
+**Verdict:** Mostly open · **Packages:** api, web, contract, cli · **Closed points:** 4 (3 fixed, 1 open) · **Stories:** PP-14.19, PP-14.23
 
-**Open points.** `NodesModule.forRoot`, the `NODE_OBJECT_STORE` and `NODE_JOB_INPUTS` ports, `NodeOfflineEvent`, `registerNodeExecutor` in the CLI and the Worker Nodes page (`slots.Header`).
+**Open points.** `NodesModule.forRoot`, the `NODE_OBJECT_STORE` and `NODE_JOB_INPUTS` ports, `NodeOfflineEvent`, `registerNodeSpanAttribute`, `registerNodeExecutor`, `registerJobRequirement` and `registerProbedBinary` in the CLI, `registerNodeVital` in the browser and the Worker Nodes page (`slots.Header`).
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
-| nodes-1 | Node vitals and counters are `.strict()`; the vitals dialog and fleet gauges are fixed and `capabilities` is not shown. | contract: `nodes/schemas.ts:420, :458` | `vitals.extra` (up to 16 numeric keys) and `registerNodeVital({ key, label, unit })`; capabilities as a read-only list. | PP-14.19 (#937) | Open |
-| nodes-2 | Executor span names are closed on both sides (a custom span gets a 400 for the whole batch); relayed attributes are four integer keys. | api: `nodes/dto/node-telemetry.dto.ts:45, :90`; cli: `telemetry/node-span.ts:17`; api: `nodes/node-telemetry.service.ts:74` | Allow `job.app.<name>` spans on both sides, drop an invalid span individually, `registerNodeSpanAttribute`. | PP-14.19 (#937) | Open |
-| nodes-3 | `JOB_TYPE_REQUIREMENTS` and `PROBED_BINARIES` are not exported, so an executor that needs `ffmpeg` cannot declare it and the node self-test cannot protect it. | cli: `engine/node/capabilities.ts:64, :101` | Export `registerJobRequirement(type, { required, degradable })` and `registerProbedBinary(name, { versionArgs })` from `@marinoscar/platform-cli/node`. | PP-14.19 (#937) | Open |
+| nodes-1 | Node vitals and counters are `.strict()`; the vitals dialog and fleet gauges are fixed and `capabilities` is not shown. | contract: `nodes/schemas.ts:420, :458` | `vitals.extra` (up to 16 numeric keys) and `registerNodeVital({ key, label, unit })`; capabilities as a read-only list. | PP-14.19 (#937) | Fixed |
+| nodes-2 | Executor span names are closed on both sides (a custom span gets a 400 for the whole batch); relayed attributes are four integer keys. | api: `nodes/dto/node-telemetry.dto.ts:45, :90`; cli: `telemetry/node-span.ts:17`; api: `nodes/node-telemetry.service.ts:74` | Allow `job.app.<name>` spans on both sides, drop an invalid span individually, `registerNodeSpanAttribute`. | PP-14.19 (#937) | Fixed |
+| nodes-3 | `JOB_TYPE_REQUIREMENTS` and `PROBED_BINARIES` are not exported, so an executor that needs `ffmpeg` cannot declare it and the node self-test cannot protect it. | cli: `engine/node/capabilities.ts:64, :101` | Export `registerJobRequirement(type, { required, degradable })` and `registerProbedBinary(name, { versionArgs })` from `@marinoscar/platform-cli/node`. | PP-14.19 (#937) | Fixed |
 | nodes-4 | `WorkersPage` exposes only `slots.Header`. | web: `nodes/ui/WorkersPage.tsx:202` | `PageSlotsBase`, `TableSlots<NodeRow>` and `VitalsPanel`. | PP-14.23 (#941) | Open |
 
 ### doctor
