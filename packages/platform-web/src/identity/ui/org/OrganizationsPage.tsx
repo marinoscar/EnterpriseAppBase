@@ -27,9 +27,16 @@ import {
   Typography,
 } from '@mui/material';
 import { Add as AddIcon } from '@mui/icons-material';
+import type { PageSlotsBase, TableSlots } from '../../../core/index.js';
 import { usePermissions } from '../../headless/index.js';
 import { useOrganizations } from '../../headless/index.js';
 import type { Organization } from '../../headless/index.js';
+import { DefaultPageHeader } from '../PageHeader.js';
+
+/** The page's title and subtitle, the words of its registry card. */
+const PAGE_TITLE = 'Organizations';
+const PAGE_DESCRIPTION =
+  'Every organization in this deployment. A new organization starts with an invitation for its first administrator.';
 
 /** A slug suggestion from a name. The API validates the final value. */
 function slugFrom(name: string): string {
@@ -205,7 +212,20 @@ export interface OrganizationsPageProps {
    * `OffboardOrganizationButton`, #743). `refresh` reloads the list.
    */
   renderActions?(organization: Organization, helpers: { refresh(): void }): ReactNode;
+  /** Add to the page without a fork. */
+  slots?: OrganizationsPageSlots;
 }
+
+/**
+ * The slots of {@link OrganizationsPage}: the page-slot contract and the table
+ * slots that make sense for a list of organization rows (`RowActions` after
+ * `renderActions`, `DetailPanel` under the row, `Toolbar` next to the search).
+ * There is no `Columns`: the page is a list of cards, not a table.
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export type OrganizationsPageSlots = PageSlotsBase & Pick<TableSlots<Organization>, 'RowActions' | 'DetailPanel' | 'Toolbar'>;
 
 /**
  * The `Organizations` page (`/admin/settings/organizations`): the
@@ -218,6 +238,14 @@ export interface OrganizationsPageProps {
  * @stability stable
  */
 export function OrganizationsPage(props: OrganizationsPageProps = {}): ReactElement {
+  const { slots } = props;
+  const Header = slots?.Header;
+  const BeforeContent = slots?.BeforeContent;
+  const Sections = slots?.Sections;
+  const AfterContent = slots?.AfterContent;
+  const RowActions = slots?.RowActions;
+  const DetailPanel = slots?.DetailPanel;
+  const Toolbar = slots?.Toolbar;
   const { hasPermission } = usePermissions();
   const canWrite = hasPermission('organizations:write');
   const { organizations, total, isLoading, error, fetchOrganizations, createOrg, renameOrg } = useOrganizations();
@@ -232,13 +260,13 @@ export function OrganizationsPage(props: OrganizationsPageProps = {}): ReactElem
   return (
     <Container maxWidth="lg">
       <Box sx={{ py: { xs: 2, sm: 4 } }}>
-        <Typography variant="h4" component="h1" gutterBottom>
-          Organizations
-        </Typography>
-        <Typography color="text.secondary" sx={{ mb: 3 }}>
-          Every organization in this deployment. A new organization starts with an invitation for its first
-          administrator.
-        </Typography>
+        {Header ? (
+          <Header title={PAGE_TITLE} description={PAGE_DESCRIPTION} readOnly={!canWrite} actions={null} />
+        ) : (
+          <DefaultPageHeader title={PAGE_TITLE} description={PAGE_DESCRIPTION} descriptionMarginBottom={3} />
+        )}
+        {BeforeContent && <BeforeContent />}
+        {Sections && <Sections position="top" />}
 
         <Stack spacing={2}>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: { sm: 'center' } }}>
@@ -259,6 +287,8 @@ export function OrganizationsPage(props: OrganizationsPageProps = {}): ReactElem
               Create organization
             </Button>
           </Stack>
+
+          {Toolbar && <Toolbar />}
 
           {error && <Alert severity="error">{error}</Alert>}
           {!isLoading && organizations.length === 0 && !error && (
@@ -286,7 +316,13 @@ export function OrganizationsPage(props: OrganizationsPageProps = {}): ReactElem
                 {props.renderActions?.(organization, {
                   refresh: () => void fetchOrganizations({ page: 1, pageSize: 100, search: search.trim() || undefined }),
                 })}
+                {RowActions && <RowActions row={organization} />}
               </Stack>
+              {DetailPanel && (
+                <Box sx={{ mt: 2 }}>
+                  <DetailPanel row={organization} />
+                </Box>
+              )}
             </Paper>
           ))}
 
@@ -299,6 +335,9 @@ export function OrganizationsPage(props: OrganizationsPageProps = {}): ReactElem
 
         <CreateOrganizationDialog open={createOpen} onClose={() => setCreateOpen(false)} onCreate={createOrg} />
         <RenameOrganizationDialog organization={renaming} onClose={() => setRenaming(null)} onRename={renameOrg} />
+
+        {Sections && <Sections position="bottom" />}
+        {AfterContent && <AfterContent />}
       </Box>
     </Container>
   );

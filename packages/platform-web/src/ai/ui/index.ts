@@ -7,11 +7,17 @@
 // Documented in ../README.md.
 
 export { default, default as OrgAiKeysPage, ORG_AI_KEYS_DESCRIPTION } from './OrgAiKeysPage.js';
+export type { OrgAiKeysPageProps, OrgAiKeysPageSlots } from './OrgAiKeysPage.js';
 export { default as AiConfigPage } from './AiConfigPage.js';
+export type { AiConfigPageProps, AiConfigPageSlots, AiProviderCardExtraProps } from './AiConfigPage.js';
 export { default as AiModelsPage } from './AiModelsPage.js';
+export type { AiModelsPageProps, AiModelsPageSlots } from './AiModelsPage.js';
 export { default as AiUsagePage } from './AiUsagePage.js';
+export type { AiUsagePageProps, AiUsagePageSlots } from './AiUsagePage.js';
 export { default as UserAiKeysPage } from './UserAiKeysPage.js';
+export type { UserAiKeysPageProps, UserAiKeysPageSlots } from './UserAiKeysPage.js';
 export { default as AiPlaygroundPage } from './AiPlaygroundPage.js';
+export type { AiPlaygroundPageProps, AiPlaygroundPageSlots } from './AiPlaygroundPage.js';
 export { RequireAiEnabled } from './RequireAiEnabled.js';
 export type { RequireAiEnabledProps } from './RequireAiEnabled.js';
 export {

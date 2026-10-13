@@ -74,6 +74,8 @@ None in the contract. The API slice's `user-data` suite checks the registries; `
 
 First release (#743). Every result map defaults to `{}` and every count to `0`, so a result an older job wrote still parses.
 
+#942 (PP-14.24): `userDataSummarySchema` gained `kept` and `factoryResetSummarySchema` gained `deleted` and `kept` (arrays of strings, required): the lines the pages print, built by the API from the platform's text and the registered hints and steps. A client that builds these responses by hand (a test double) adds the arrays.
+
 ## Troubleshooting
 
 A deletion answers `400` `CONFIRMATION_MISMATCH`: the phrase must be the scope's `confirmation`, exactly (case and spacing included), as `GET /api/user-data/summary` lists it.

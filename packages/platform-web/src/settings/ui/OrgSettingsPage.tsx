@@ -35,9 +35,14 @@ import {
 } from '@mui/material';
 import type { OrgSettingsField, OrgSettingsNamespace } from '@marinoscar/platform-contract/settings';
 
+import { PageSlotsFrame } from '../../core/index.js';
+import type { PageSlotsBase } from '../../core/index.js';
 import { useAuth, usePermissions } from '../../identity/index.js';
 import { orgSettingsFieldRenderer } from '../headless/org-field-renderers.js';
 import { useOrgSettings } from '../headless/use-org-settings.js';
+
+/** The page title (the card's title). */
+const ORG_SETTINGS_TITLE = 'Organization settings';
 
 type Draft = Record<string, unknown>;
 
@@ -208,6 +213,32 @@ function NamespaceCard({
 }
 
 /**
+ * The slots of {@link OrgSettingsPage}: the page-slot contract. `Sections` is
+ * drawn at both ends of the body, around the generated namespace cards, so an
+ * app's own organization setting (one that is not a registered namespace) sits
+ * beside them.
+ *
+ * @example
+ * ```tsx
+ * <OrgSettingsPage slots={{ Sections: ({ position }) => (position === 'bottom' ? <BillingContactCard /> : null) }} />
+ * ```
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export type OrgSettingsPageSlots = PageSlotsBase;
+
+/**
+ * The props of {@link OrgSettingsPage}.
+ *
+ * @stability experimental
+ */
+export interface OrgSettingsPageProps {
+  /** Optional extension slots; omitted, the page renders exactly as it always did. */
+  slots?: OrgSettingsPageSlots;
+}
+
+/**
  * The Organization settings page: one card per org-overridable namespace,
  * generated from the descriptors `GET /org-settings` returns.
  *
@@ -221,7 +252,8 @@ function NamespaceCard({
  * @extensionPoint component
  * @stability experimental
  */
-export function OrgSettingsPage() {
+export function OrgSettingsPage(props: OrgSettingsPageProps = {}) {
+  const { slots } = props;
   const { activeOrg } = useAuth();
   const { hasPermission } = usePermissions();
   const canWrite = hasPermission('org_settings:write');
@@ -229,18 +261,27 @@ export function OrgSettingsPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const namespaces = useMemo(() => settings?.namespaces ?? [], [settings]);
+  const description = activeOrg
+    ? `Override, for ${activeOrg.name}, the settings the deployment lets an organization change.`
+    : 'Override, for your current organization, the settings the deployment lets an organization change.';
 
   return (
     <Container maxWidth="lg">
       <Box sx={{ py: { xs: 2, sm: 4 } }}>
-        <Typography variant="h4" component="h1" gutterBottom>
-          Organization settings
-        </Typography>
-        <Typography color="text.secondary" sx={{ mb: 3 }}>
-          {activeOrg
-            ? `Override, for ${activeOrg.name}, the settings the deployment lets an organization change.`
-            : 'Override, for your current organization, the settings the deployment lets an organization change.'}
-        </Typography>
+        <PageSlotsFrame
+          slots={slots}
+          headerProps={{ title: ORG_SETTINGS_TITLE, description: description, readOnly: !canWrite, actions: null }}
+          header={
+            <>
+              <Typography variant="h4" component="h1" gutterBottom>
+                {ORG_SETTINGS_TITLE}
+              </Typography>
+              <Typography color="text.secondary" sx={{ mb: 3 }}>
+                {description}
+              </Typography>
+            </>
+          }
+        >
 
         {!canWrite && (
           <Alert severity="info" sx={{ mb: 2 }}>
@@ -281,6 +322,7 @@ export function OrgSettingsPage() {
             ))}
           </Stack>
         )}
+        </PageSlotsFrame>
       </Box>
     </Container>
   );

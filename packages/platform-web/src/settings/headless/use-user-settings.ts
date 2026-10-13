@@ -3,7 +3,7 @@
 // app's: it passes `applyTheme` (its theme context's setter).
 
 import { THEME_PREFERENCES } from '@marinoscar/platform-contract/settings';
-import type { ThemePreference, ThemePreferenceId, UserSettingsResponseBase } from '@marinoscar/platform-contract/settings';
+import type { ThemeOption, ThemePreference, ThemePreferenceId, UserSettingsResponseBase } from '@marinoscar/platform-contract/settings';
 import { useCallback, useEffect, useState } from 'react';
 
 import { isPlatformApiError } from '../../core/index.js';
@@ -23,6 +23,8 @@ export interface UserSettingsDocument {
   profile: unknown;
   /** The row version. */
   version: number;
+  /** The extra themes the API accepts (`registerThemePreference`); absent when none. */
+  themeOptions?: readonly ThemeOption[];
 }
 
 /**
@@ -45,14 +47,16 @@ export interface UserSettingsUpdateBase {
 export interface UseUserSettingsOptions extends SettingsHookOptions {
   /**
    * Whether loading and saving push the stored theme into `applyTheme`.
-   * Only light, dark and system are pushed: a theme an app registered is
-   * applied by the app's own theme registry. Default `true`. Pass `false` from always-present chrome (the AppBar, the
-   * rail): there, syncing would stamp the stored theme back over a toggle the
-   * user just flipped on every refetch.
+   * Light, dark and system are always pushed; a theme an app registered
+   * (`registerThemePreference`) is pushed when the document lists it in
+   * `themeOptions`, so an id the deployment no longer offers never reaches the
+   * app's theme context. Default `true`. Pass `false` from always-present chrome
+   * (the AppBar, the rail): there, syncing would stamp the stored theme back over
+   * a toggle the user just flipped on every refetch.
    */
   syncTheme?: boolean;
   /** Applies a theme preference to the app (its theme context's setter). Keep it stable. */
-  applyTheme?: (theme: ThemePreference) => void;
+  applyTheme?(theme: ThemePreferenceId): void;
 }
 
 /**
@@ -87,9 +91,18 @@ export interface UseUserSettingsResult<T extends UserSettingsDocument, U> {
   replaceSettings: (next: T) => void;
 }
 
-/** Whether `theme` is one of the three built-in preferences `applyTheme` understands. */
+/** Whether `theme` is one of the three built-in preferences. */
 function isBuiltinTheme(theme: unknown): theme is ThemePreference {
   return (THEME_PREFERENCES as readonly unknown[]).includes(theme);
+}
+
+/**
+ * Whether `applyTheme` should receive `theme`: a built-in preference, or an id the
+ * settings document lists in `themeOptions` (one the API registered and accepts).
+ */
+function isAppliableTheme(theme: unknown, document: { themeOptions?: readonly { id: string }[] } | null | undefined): theme is string {
+  if (isBuiltinTheme(theme)) return true;
+  return typeof theme === 'string' && (document?.themeOptions?.some((option) => option.id === theme) ?? false);
 }
 
 /**
@@ -126,7 +139,7 @@ export function useUserSettings<
       const data = await api.get<T>('/user-settings');
       if (isMounted()) {
         setSettings(data);
-        if (syncTheme && applyTheme && isBuiltinTheme(data.theme)) applyTheme(data.theme);
+        if (syncTheme && applyTheme && isAppliableTheme(data.theme, data)) applyTheme(data.theme);
       }
     } catch (err) {
       if (isMounted()) setError(isPlatformApiError(err) ? err.message : 'Failed to load settings');
@@ -148,7 +161,7 @@ export function useUserSettings<
         const data = await api.patch<T>('/user-settings', updates, { ifMatch: settings.version.toString() });
         if (isMounted()) {
           setSettings(data);
-          if (syncTheme && applyTheme && isBuiltinTheme(updates.theme)) applyTheme(updates.theme);
+          if (syncTheme && applyTheme && isAppliableTheme(updates.theme, data)) applyTheme(updates.theme as string);
         }
       } catch (err) {
         if (isPlatformApiError(err) && err.status === 409) {

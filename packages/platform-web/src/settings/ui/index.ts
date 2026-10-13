@@ -6,6 +6,7 @@
 export { ImageUpload, PROFILE_IMAGE_MAX_BYTES, PROFILE_IMAGE_TYPES } from './ImageUpload.js';
 export type { ImageUploadProps } from './ImageUpload.js';
 export { OrgSettingsPage } from './OrgSettingsPage.js';
+export type { OrgSettingsPageProps, OrgSettingsPageSlots } from './OrgSettingsPage.js';
 export { PluggableConfigForm } from './PluggableConfigForm.js';
 export type {
   PluggableConfigFormProps,
@@ -17,9 +18,9 @@ export type { ProfileExtraFieldsProps, ProfilePatch, ProfileSettingsProps, Profi
 export { ThemeSettings } from './ThemeSettings.js';
 export type { ThemeExtraFieldsProps, ThemeSettingsProps, ThemeSettingsSlots } from './ThemeSettings.js';
 export { UserAppearancePage } from './UserAppearancePage.js';
-export type { UserAppearancePageProps } from './UserAppearancePage.js';
+export type { UserAppearancePageProps, UserAppearancePageSlots } from './UserAppearancePage.js';
 export { UserProfilePage } from './UserProfilePage.js';
-export type { UserProfilePageProps } from './UserProfilePage.js';
+export type { UserProfilePageProps, UserProfilePageSlots } from './UserProfilePage.js';
 export { UserSettingsSection } from './UserSettingsSection.js';
 export type {
   UserSettingsSaveMessages,

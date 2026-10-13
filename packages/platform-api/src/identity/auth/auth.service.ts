@@ -65,11 +65,12 @@ import {
   type PrincipalMembership,
 } from './principal.factory';
 import { bindCredential, hasActiveMembership } from './credential-binding';
-import { TokenResponseDto } from './dto/auth-user.dto';
+import { CurrentUserDto, TokenResponseDto } from './dto/auth-user.dto';
 import { AuthProviderDto } from './dto/auth-provider.dto';
 import { PrincipalCache } from './principal-cache/principal-cache.service';
 import { OrganizationsService } from '../organizations/organizations.service';
 import { TenancyService } from '../organizations/tenancy.service';
+import { resolveCurrentUserExtensions } from '../extensions/user-extensions';
 
 /**
  * Exported for the reference app's wiring and tests; not a stable extension point (reach identity through IdentityModule and its documented seams).
@@ -1669,7 +1670,11 @@ export class AuthService {
       ? memberships.find((membership) => membership.orgId === access.membership!.orgId)
       : undefined;
 
-    return {
+    const extensions = await resolveCurrentUserExtensions(user.id, {
+      orgId: activeMembership?.orgId ?? null,
+    });
+
+    const current: CurrentUserDto = {
       id: user.id,
       email: user.email,
       displayName,
@@ -1698,6 +1703,11 @@ export class AuthService {
           role: membership.role.name,
         })),
     };
+    // PP-14.25: what the app's current-user extensions add, resolved per
+    // request, each isolated (a throwing one is skipped and logged). The key
+    // is absent when nothing contributed, so the payload is unchanged.
+    if (extensions) current.extensions = extensions;
+    return current;
   }
 
   /**

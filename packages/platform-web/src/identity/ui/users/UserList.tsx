@@ -32,8 +32,11 @@ import { Alert, Box, Paper, Typography } from '@mui/material';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import BlockIcon from '@mui/icons-material/Block';
 import SecurityIcon from '@mui/icons-material/Security';
+import { useTableSlotColumns } from '../../../core/index.js';
+import type { TableSlots } from '../../../core/index.js';
 import { IdentityTable as DataTable } from '../table.js';
 import type {
+  IdentityTableColumn,
   IdentityTableFilter,
   IdentityTableRowAction as DataTableRowAction,
   IdentityTableSortState as DataTableSortState,
@@ -62,15 +65,43 @@ function readIsFilter(filters: IdentityTableFilter[], columnId: string): string 
 }
 
 /**
+ * The table slots of {@link UserList} (and, passed through, of `UsersPage`):
+ * the packaged-page table contract over a user row. `Columns` receives the
+ * list's own columns (`buildUserColumns`, plus the `RowActions` and
+ * `DetailPanel` columns when those slots are set) and returns the ones to draw;
+ * `Toolbar` is drawn above the table.
+ *
+ * @example
+ * ```tsx
+ * <UserList slots={{ Columns: (base) => [...base, planColumn] }} />
+ * ```
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export type UserListSlots = TableSlots<UserListItem, IdentityTableColumn<UserListItem>>;
+
+/**
+ * Props of {@link UserList}.
+ *
+ * @stability experimental
+ */
+export interface UserListProps {
+  /** Add columns, per-row actions, a detail view or toolbar controls to the table. */
+  slots?: UserListSlots;
+}
+
+/**
  * The admin user list: server-side paging, search, sort and filters, the
  * activate/deactivate actions (`users:write`) and Manage roles (`rbac:manage`).
  * The Users tab of {@link UsersPage}.
  *
+ * @param props - see {@link UserListProps}.
  * @returns the component.
  *
  * @stability stable
  */
-export function UserList(): ReactElement {
+export function UserList({ slots }: UserListProps = {}): ReactElement {
   const { users, total, isLoading, error, fetchUsers, updateUser, updateUserRoles } =
     useUsers();
   const identity = useIdentityApi();
@@ -97,7 +128,10 @@ export function UserList(): ReactElement {
   );
   const offeredRoles = useMemo(() => knownRoles.filter((role) => role.assignable), [knownRoles]);
 
-  const columns = useMemo(() => buildUserColumns(knownRoles), [knownRoles]);
+  const baseColumns = useMemo(() => buildUserColumns(knownRoles), [knownRoles]);
+  // PP-14.25: the app's table slots. With none, `columns` IS `baseColumns`.
+  const columns = useTableSlotColumns<UserListItem, IdentityTableColumn<UserListItem>>(baseColumns, slots);
+  const Toolbar = slots?.Toolbar;
 
   // --- Query params, flattened to scalars ------------------------------------
   const roleFilter = useMemo(() => readIsFilter(filters, 'roles'), [filters]);
@@ -193,6 +227,8 @@ export function UserList(): ReactElement {
           {error}
         </Alert>
       )}
+
+      {Toolbar && <Toolbar />}
 
       <Box sx={{ minWidth: 0 }}>
         <DataTable<UserListItem>

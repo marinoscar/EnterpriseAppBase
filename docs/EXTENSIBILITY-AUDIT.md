@@ -15,7 +15,7 @@ The audit record of the extension seams of every platform slice. A closed point 
 
 Evidence paths are written `api:`, `web:`, `contract:`, `cli:`, `db:` and `infra:` for `packages/platform-api/src/`, `packages/platform-web/src/`, `packages/platform-contract/src/`, `packages/platform-cli/src/`, `packages/platform-db/` and `packages/platform-infra/`; a path under `apps/` or `docs/` is from the repository root. A story is written PP-14.n (its issue number follows).
 
-As of this version: 114 closed points in 29 sections, 98 fixed and 16 open.
+As of this version: 114 closed points in 29 sections, 110 fixed and 4 open.
 
 ## Verdicts
 
@@ -23,8 +23,8 @@ As of this version: 114 closed points in 29 sections, 98 fixed and 16 open.
 |---|---|---|---|---|---|
 | [onboarding](#onboarding) | Open | 1 | 1 | 0 | PP-14.20 |
 | [credentials](#credentials) | Open | 0 | 0 | 0 | none |
-| [settings](#settings) | Mostly open | 7 | 6 | 1 | PP-14.21, PP-14.5, PP-14.24 |
-| [notifications](#notifications) | Mostly open | 7 | 6 | 1 | PP-14.10, PP-14.8, PP-14.24 |
+| [settings](#settings) | Mostly open | 7 | 7 | 0 | PP-14.21, PP-14.5, PP-14.24 |
+| [notifications](#notifications) | Mostly open | 7 | 7 | 0 | PP-14.10, PP-14.8, PP-14.24 |
 | [exports](#exports) | Mostly open | 3 | 3 | 0 | PP-14.20 |
 | [jobs](#jobs) | Open | 4 | 4 | 0 | PP-14.19, PP-14.23, PP-14.26 |
 | [nodes](#nodes) | Mostly open | 4 | 4 | 0 | PP-14.19, PP-14.23 |
@@ -32,22 +32,22 @@ As of this version: 114 closed points in 29 sections, 98 fixed and 16 open.
 | [telemetry](#telemetry) | Mostly open | 7 | 7 | 0 | PP-14.11, PP-14.18 |
 | [otel-core](#otel-core) | Mostly open | 1 | 1 | 0 | PP-14.18 |
 | [core](#core) | Mostly open | 6 | 6 | 0 | PP-14.14, PP-14.5, PP-14.23 |
-| [shell](#shell) | Mostly open | 2 | 0 | 2 | PP-14.25 |
-| [sharing](#sharing) | Mostly open | 4 | 0 | 4 | PP-14.16, PP-14.15, PP-14.25 |
+| [shell](#shell) | Open | 2 | 2 | 0 | PP-14.25 |
+| [sharing](#sharing) | Mostly open | 4 | 1 | 3 | PP-14.16, PP-14.15, PP-14.25 |
 | [manifest](#manifest) | Open | 2 | 2 | 0 | PP-14.15 |
-| [user-data](#user-data) | Mostly open | 1 | 0 | 1 | PP-14.24 |
+| [user-data](#user-data) | Mostly open | 1 | 1 | 0 | PP-14.24 |
 | [platform-db](#platform-db) | Open | 6 | 6 | 0 | PP-14.27, PP-14.4 |
 | [platform-cli](#platform-cli) | Open | 7 | 7 | 0 | PP-14.22 |
 | [platform-infra](#platform-infra) | Open | 2 | 2 | 0 | PP-14.22 |
 | [testing (api and web)](#testing-api-and-web) | Open | 2 | 2 | 0 | PP-14.26 |
-| [ai](#ai) | Mostly open | 10 | 8 | 2 | PP-14.3, PP-14.6, PP-14.17, PP-14.24 |
-| [storage](#storage) | Mostly open | 5 | 4 | 1 | PP-14.1, PP-14.7, PP-14.24 |
+| [ai](#ai) | Mostly open | 10 | 9 | 1 | PP-14.3, PP-14.6, PP-14.17, PP-14.24 |
+| [storage](#storage) | Mostly open | 5 | 5 | 0 | PP-14.1, PP-14.7, PP-14.24 |
 | [db-backup](#db-backup) | Mostly open | 4 | 4 | 0 | PP-14.12, PP-14.23 |
-| [identity](#identity) | Partly closed | 8 | 7 | 1 | PP-14.9, PP-14.15, PP-14.25 |
-| [email](#email) | Partly closed | 5 | 4 | 1 | PP-14.8, PP-14.24 |
-| [host](#host) | Partly closed | 8 | 7 | 1 | PP-14.2, PP-14.13, PP-14.24 |
+| [identity](#identity) | Open | 8 | 8 | 0 | PP-14.9, PP-14.15, PP-14.25 |
+| [email](#email) | Partly closed | 5 | 5 | 0 | PP-14.8, PP-14.24 |
+| [host](#host) | Partly closed | 8 | 8 | 0 | PP-14.2, PP-14.13, PP-14.24 |
 | [datatable](#datatable) | Partly closed | 2 | 2 | 0 | PP-14.20 |
-| [android-app](#android-app) | Partly closed | 1 | 0 | 1 | PP-14.24 |
+| [android-app](#android-app) | Partly closed | 1 | 1 | 0 | PP-14.24 |
 | [testing (CLI runner)](#testing-cli-runner) | Open | 1 | 1 | 0 | PP-14.22 |
 | [docs (cross-cutting)](#docs-cross-cutting) | Documentation | 2 | 2 | 0 | PP-14.4 |
 
@@ -80,8 +80,8 @@ The 28 stories of the epic, in order. Phase 1 makes the existing seams real; pha
 | PP-14.21 | #939 | settings: nested and org-layer extensions, core profile and theme fields, package self-registration | 3 | none | no | This change |
 | PP-14.22 | #940 | cli and infra: app env groups, deploy checks and steps, proxy stream routes, CSP, compose modes, CLI conformance | 3 | none | no | This change |
 | PP-14.23 | #941 | web: the packaged-page slot contract, its CI check, and the operations pages | 4 | none | no | This change |
-| PP-14.24 | #942 | web: apply the slot contract to AI, storage, email, telemetry, android, host, profile, user-data and notifications pages | 4 | 14.23 (and the phase 2 story of each slice) | no | Open |
-| PP-14.25 | #943 | web: slots for identity and sharing pages, login layout, and shell navigation and themes | 4 | 14.23, 14.9, 14.15 | no | Open |
+| PP-14.24 | #942 | web: apply the slot contract to AI, storage, email, telemetry, android, host, profile, user-data and notifications pages | 4 | 14.23 (and the phase 2 story of each slice) | no | This change |
+| PP-14.25 | #943 | web: slots for identity and sharing pages, login layout, and shell navigation and themes | 4 | 14.23, 14.9, 14.15 | no | This change |
 | PP-14.26 | #944 | testing: extension-author kits for doctor checks and job handlers, and configurable web suites | 5 | none | no | This change |
 | PP-14.27 | #945 | db: app metadata on users and organizations, more extensible models, offline checks for app indexes and RLS policies, seed hook | 5 | 14.4 | yes | This change |
 | PP-14.28 | #946 | ci: a guardrail that stops new closed id lists in the packages | 5 | all other PP-14 stories | no | Open |
@@ -123,7 +123,7 @@ Closed points: none recorded at the audit commit.
 
 ### settings
 
-**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 7 (6 fixed, 1 open) · **Stories:** PP-14.21, PP-14.5, PP-14.24
+**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 7 (7 fixed, 0 open) · **Stories:** PP-14.21, PP-14.5, PP-14.24
 
 **Open points.** System and user namespace registries (`registerSystemSettingsNamespaces`, `registerUserSettingsNamespaces`), the `app-registrations/settings.ts` extension lists, the org layer, `SettingsResolver`, `SystemSettingsRowStore`, `registerSettingsFeature` and the packaged hub and profile pages; since PP-14.21 also nested and org-layer extensions (`path`, `org`), `overrideSettingsNamespaceDefaults`, `registerSettingsContribution`, `extendUserProfile`, `registerThemePreference`, the `ExtraFields` slots of the profile and theme cards and `registerOrgSettingsFieldRenderer`.
 
@@ -135,11 +135,11 @@ Closed points: none recorded at the audit commit.
 | settings-4 | `ProfileSettings` and `ThemeSettings` take fixed props; `OrgSettingsPage` renders `other` fields (objects, records) only as a link. | web: `settings/ui/` | `slots.ExtraFields`; `registerOrgSettingsFieldRenderer(namespace, field, Component)`. | PP-14.21 (#939) | Fixed |
 | settings-5 | A separately installed package cannot contribute a namespace: the manifests that fold and register them are app code. | api: `settings/registry/` | `registerSettingsContribution({ system, user, extensions })`, a pre-bootstrap collector folded in a documented order. | PP-14.21 (#939) | Fixed |
 | settings-6 | The org-settings field descriptor knows five kinds and no secret; it is the base the generic form generalises. | api: `settings/org-settings/describe-fields.ts`; contract: `settings/schemas.ts:303, settings/constants.ts:147` | Move to `describeConfigFields` in core; add the write-only `secret` kind; `PluggableConfigForm` in the settings web slice (new slice edge `settings -> credentials`). | PP-14.5 (#923) | Fixed |
-| settings-7 | `UserProfilePage` and `UserAppearancePage` take no slots. | web: `settings/ui/` | `PageSlotsBase` on both. (Since PP-14.21 both pass `slots.ExtraFields` through to the cards; the standard page slots remain.) | PP-14.24 (#942) | Open |
+| settings-7 | `UserProfilePage` and `UserAppearancePage` take no slots. | web: `settings/ui/` | `PageSlotsBase` on both. (Since PP-14.21 both pass `slots.ExtraFields` through to the cards; the standard page slots remain.) | PP-14.24 (#942) | Fixed |
 
 ### notifications
 
-**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 7 (6 fixed, 1 open) · **Stories:** PP-14.10, PP-14.8, PP-14.24
+**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 7 (7 fixed, 0 open) · **Stories:** PP-14.10, PP-14.8, PP-14.24
 
 **Open points.** Event, channel and template registries with open channel ids (`registerNotification`, `registerNotificationEvent`, `registerNotificationChannel`, the email and browser template bindings, `registerChannelTemplate`), `NotificationChannelSenderRegistry` and the async `resolveRecipient`, the `recipientHandles` and `pushPayload` options, a switch per channel in the `notifications` policy (and its org layer), `GET /api/notifications/channels` with the composer, matrix and admin page drawn from it, `describeNotificationSenderConformance`, `NotificationsService` and the web bell, provider and pages.
 
@@ -151,7 +151,7 @@ Closed points: none recorded at the audit commit.
 | notifications-4 | The broadcast composer and the preference matrix hard-code the channel list, order, labels and the critical rule. | web: `notifications/ui/BroadcastComposer.tsx:115, :118, :229`; contract: `notifications/schemas.ts:954`; web: `notifications/ui/NotificationSettings.tsx:188, :568` | `GET /notifications/channels` (labels, order, `criticalCapable`); delete `CHANNEL_ORDER`, `DEFAULT_CHANNELS`, `CHANNEL_LABELS`. | PP-14.10 (#928) | Fixed |
 | notifications-5 | The push payload has exactly five fields. | api: `notifications/channels/push-notification.channel.ts:~111` | `NotificationsModule.forRoot({ pushPayload })` with an allowlisted extras shape. | PP-14.10 (#928) | Fixed |
 | notifications-6 | `EmailNotificationChannel` takes the two concrete email classes, so no other transport reaches notifications. | api: `notifications/channels/email-notification.channel.ts:116` | Depend on the `EmailTransportResolver`, never on concrete classes. | PP-14.8 (#926) | Fixed |
-| notifications-7 | The notification pages take no slots. (The channel list and labels come from the API since PP-14.10; the slots are what remains.) | web: `notifications/ui/NotificationSettings.tsx`, `notifications/ui/BroadcastComposer.tsx` | `PageSlotsBase` on the packaged pages. | PP-14.24 (#942) | Open |
+| notifications-7 | The notification pages take no slots. (The channel list and labels come from the API since PP-14.10; the slots are what remains.) | web: `notifications/ui/NotificationSettings.tsx`, `notifications/ui/BroadcastComposer.tsx` | `PageSlotsBase` on the packaged pages. | PP-14.24 (#942) | Fixed |
 
 ### exports
 
@@ -245,27 +245,27 @@ Closed points: none recorded at the audit commit.
 
 ### shell
 
-**Verdict:** Mostly open · **Packages:** web · **Closed points:** 2 (0 fixed, 2 open) · **Stories:** PP-14.25
+**Verdict:** Open · **Packages:** web · **Closed points:** 2 (2 fixed, 0 open) · **Stories:** PP-14.25
 
-**Open points.** `ShellNavigation`, `ShellLayout`, `ShellAppBar`, `ShellUserMenu`, `ShellProviders`, `createShellTheme`, `useShellRailPreference`.
+**Open points.** `ShellNavigation` (and on a `ShellDestination`: `badge`, `group`, `external`, `onClick`), `ShellLayout`, `ShellAppBar`, `ShellUserMenu`, `ShellBottomNav` (`maxItems` and its More sheet), `ShellProviders`, `createShellTheme`, `ShellThemeProvider` (`themes` by mode id), `registerThemeMode`, `useShellRailPreference`.
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
-| shell-1 | A destination has no `badge`, `group`, `onClick` or `external`; the bottom navigation renders every destination with no overflow. | web: `shell/headless/navigation.ts:51-81`; `shell/ui/ShellBottomNav.tsx:71-80` | `ShellDestination.badge`, `group`, `external`, `onClick`; `ShellBottomNav maxItems` (default 4) with a "More" sheet. | PP-14.25 (#943) | Open |
-| shell-2 | `ShellThemeMode` is `light`, `dark`, `system` and `ShellThemeProvider` takes exactly `{ light, dark }`. | web: `shell/headless/theme.ts:23` | `ShellThemeProvider themes` and `registerThemeMode({ id, label, theme })`. The five breakpoint gates stay where they are. | PP-14.25 (#943) | Open |
+| shell-1 | A destination has no `badge`, `group`, `onClick` or `external`; the bottom navigation renders every destination with no overflow. | web: `shell/headless/navigation.ts:51-81`; `shell/ui/ShellBottomNav.tsx:71-80` | `ShellDestination.badge`, `group`, `external`, `onClick`; `ShellBottomNav maxItems` (default 4) with a "More" sheet. | PP-14.25 (#943) | Fixed |
+| shell-2 | `ShellThemeMode` is `light`, `dark`, `system` and `ShellThemeProvider` takes exactly `{ light, dark }`. | web: `shell/headless/theme.ts:23` | `ShellThemeProvider themes` and `registerThemeMode({ id, label, theme })`. The five breakpoint gates stay where they are. | PP-14.25 (#943) | Fixed |
 
 ### sharing
 
-**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 4 (0 fixed, 4 open) · **Stories:** PP-14.16, PP-14.15, PP-14.25
+**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 4 (1 fixed, 3 open) · **Stories:** PP-14.16, PP-14.15, PP-14.25
 
-**Open points.** `registerGroupOwnedResource`, `registerResourceType`, `AccessPolicy`, `accessibleWhere` and `accessibleSql`, the `SHARING_*` ports, `registerLinkRenderer` and the packaged groups pages and `ShareDialog`.
+**Open points.** `registerGroupOwnedResource`, `registerResourceType`, `AccessPolicy`, `accessibleWhere` and `accessibleSql`, the `SHARING_*` ports, `registerLinkRenderer`, and the packaged groups pages and `ShareDialog` with their slots (`PageSlotsBase`, `GroupDetailPage` `MemberRowActions` and `Tabs`, `ShareDialog` `Sections` and `Footer`).
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
 | sharing-1 | Grantee kinds are fixed (`user`, `group`, `link`) and the per-kind SQL is hard-coded; there is no team, role or email-domain grantee. | contract: `sharing/constants.ts:100`; api: `sharing/access/resource-types.ts:76`; `sharing/grants/grants.service.ts:253, :383-396` | `registerGranteeKind` (parameterised SQL fragment, composite `org_id` rules kept), `GET /sharing/grantee-kinds`, `registerGranteePicker`. | PP-14.16 (#934) | Open |
 | sharing-2 | The nine-step access decision order is fixed; a project-membership or time-window rule means replacing `AccessPolicy` wholesale. | api: `sharing/access/access-policy.service.ts:10-30, :78` | `registerAccessRule({ id, position, evaluate, sql? })`; `AccessVia` open. | PP-14.16 (#934) | Open |
 | sharing-3 | Group roles are a fixed list validated in the resource-type registry, and stored in the database enum `GroupRole` (`group_members.role`, `group_invites.role`), so a fourth role needs a migration. Kept closed by PP-14.15: the story is no-migration, and a registry for roles the tables cannot hold would fail on the first write. | contract: `sharing/constants.ts:13`; api: `sharing/access/resource-types.ts:199`; db: `schema/sharing.prisma:26` | A platform migration turning both columns into text, then `registerGroupRole({ id, label, actions })` and an open `groupRoleSchema`. | PP-14.15 (#933), follow-up | Open |
-| sharing-4 | `GroupsPage` and `GroupDetailPage` expose only `Header`, `ShareDialog` only `Title`. | web: `sharing/ui/GroupsPage.tsx:53`; `sharing/ui/GroupDetailPage.tsx:69`; `sharing/ui/ShareDialog.tsx:68` | `PageSlotsBase`, `MemberRowActions`, `Tabs`; `ShareDialog` `slots.Sections` and `slots.Footer`. | PP-14.25 (#943) | Open |
+| sharing-4 | `GroupsPage` and `GroupDetailPage` expose only `Header`, `ShareDialog` only `Title`. | web: `sharing/ui/GroupsPage.tsx:53`; `sharing/ui/GroupDetailPage.tsx:69`; `sharing/ui/ShareDialog.tsx:68` | `PageSlotsBase`, `MemberRowActions`, `Tabs`; `ShareDialog` `slots.Sections` and `slots.Footer`. | PP-14.25 (#943) | Fixed |
 
 ### manifest
 
@@ -280,13 +280,13 @@ Closed points: none recorded at the audit commit.
 
 ### user-data
 
-**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 1 (0 fixed, 1 open) · **Stories:** PP-14.24
+**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 1 (1 fixed, 0 open) · **Stories:** PP-14.24
 
 **Open points.** Category, scope, keep-or-delete hint, factory-reset step and offboarding-precondition registries, `registerUserDataModels`, the `USER_DATA_*` ports and the Danger Zone, factory-reset and offboarding UI.
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
-| user-data-1 | The kept and deleted copy of the Danger Zone and factory-reset pages is static text rendered unconditionally; the pages accept only `onCompleted` and `pollIntervalMs`. | web: `user-data/ui/copy.ts:13-37`; `user-data/ui/FactoryResetPage.tsx:151, :159`; `user-data/ui/UserDangerZonePage.tsx:168` | The summary endpoint returns `kept` and `deleted` built from the registered hints and steps (contract change); `copy?` and `PageSlotsBase`. | PP-14.24 (#942) | Open |
+| user-data-1 | The kept and deleted copy of the Danger Zone and factory-reset pages is static text rendered unconditionally; the pages accept only `onCompleted` and `pollIntervalMs`. | web: `user-data/ui/copy.ts:13-37`; `user-data/ui/FactoryResetPage.tsx:151, :159`; `user-data/ui/UserDangerZonePage.tsx:168` | The summary endpoint returns `kept` and `deleted` built from the registered hints and steps (contract change); `copy?` and `PageSlotsBase`. | PP-14.24 (#942) | Fixed |
 
 ### platform-db
 
@@ -343,7 +343,7 @@ Closed points: none recorded at the audit commit.
 
 ### ai
 
-**Verdict:** Mostly open · **Packages:** api, web, contract, db · **Closed points:** 10 (8 fixed, 2 open) · **Stories:** PP-14.3, PP-14.6, PP-14.17, PP-14.24
+**Verdict:** Mostly open · **Packages:** api, web, contract, db · **Closed points:** 10 (9 fixed, 1 open) · **Stories:** PP-14.3, PP-14.6, PP-14.17, PP-14.24
 
 **Open points.** The adapter contract (`AiProviderAdapter`), `AiProviderRegistry.register`, `registerAiProvider` (the provider definition: its settings, key requirement, endpoint rule, help and SDK packages) with `AiModule.forRoot({ providers })`, `registerAiProviderCard` and the generated provider card on the web, `registerAiFeature`, `registerAiCapability` and `registerAiOperation` (with `AiProviderAdapter.operations` and `AiService.forUser(...).run(operationId, input)`), `registerAiPlaygroundMode` and `registerAiCapabilityLabel` on the web, `AiModule.forRoot({ pricing })` (the `AI_PRICING` port), the `AI_SYSTEM_PRISMA`, `AI_OBJECT_STORE`, `AI_METRICS` and `AI_TARGET_RESOLVER` ports, `describeAiProviderConformance`, `createAiRuntimeHarness({ extraProviders, extraAdapters })` and the seven `ai-*` conformance suites (`ai-no-sdk-leak` with `providerDirs`; `ai-secret-egress` covers the capabilities route and transcription extras and options). Worked examples: `apps/api/src/platform-extensions/ai/` (the `audio.diarize` operation on `example-transcribe` and an example price list) and `apps/web/src/platform-extensions/ai/` (a Diarize playground mode).
 
@@ -358,11 +358,11 @@ Closed points: none recorded at the audit commit.
 | ai-7 | `AI_CAPABILITIES`, `AiUsageOperation` and `TRACKED_OPERATIONS` are closed (and mirrored on the web), so diarization, moderation, rerank or OCR need a package edit. | api: `ai/core/capabilities.ts:31`; `ai/runtime/ai-usage.recorder.ts:35`; `ai/runtime/ai.service.ts:~447`; web: `ai/ui/shared/aiCapabilities.ts` | `registerAiCapability`, `registerAiOperation`, a custom-operation port `AiService.forUser(...).run(operationId, input)` through the same gate pipeline. | PP-14.17 (#935) | Fixed |
 | ai-8 | `AiTranscriptionResult` has no speakers or segments, the transcription DTO does not expose `providerOptions`, `feature` is never persisted on `ai_usage_events` or `ai_runs`, the playground modes are a fixed tuple, and there is no pricing seam. | api: `ai/core/types/media.types.ts:325`; web: `ai/ui/playground/aiPlaygroundModes.ts:28` | `extras` on the result, `providerOptions` (bounded), a migration adding `feature`, `registerAiPlaygroundMode`, the `AI_PRICING` port. | PP-14.17 (#935) | Fixed |
 | ai-9 | The documented override of `AI_TARGET_RESOLVER` (a `@Global()` module passed to `AiModule.forRoot({ imports })`) is unproven: `AiModule` does not provide the token, so a global provider should reach `AiService`, but the example test builds a test module holding only the token and hands the resolver to the harness by hand, so DI resolution through the real `AiModule` is never exercised. The epic requires every documented override to be proven with the real package modules. | api: `ai/runtime/target-resolver.ts:17`; `apps/api/test/examples/ai/example-summary.spec.ts:45` | A test that boots the real `AiModule.forRoot` and asserts `AiService` resolves through the app's resolver. | none yet (epic success criterion) | Open |
-| ai-10 | `AiWebAdapters` has only `Spinner`; `AiConfigPage`, `AiProviderCard`, `UserAiKeysPage` and `AiModelsPage` take no slots. | web: `ai/headless/adapters.tsx:38` | `ProviderCardExtra`, `Sections`, `TableSlots<Row>` per page. | PP-14.24 (#942) | Open |
+| ai-10 | `AiWebAdapters` has only `Spinner`; `AiConfigPage`, `AiProviderCard`, `UserAiKeysPage` and `AiModelsPage` take no slots. | web: `ai/headless/adapters.tsx:38` | `ProviderCardExtra`, `Sections`, `TableSlots<Row>` per page. | PP-14.24 (#942) | Fixed |
 
 ### storage
 
-**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 5 (4 fixed, 1 open) · **Stories:** PP-14.1, PP-14.7, PP-14.24
+**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 5 (5 fixed, 0 open) · **Stories:** PP-14.1, PP-14.7, PP-14.24
 
 **Open points.** `registerStorageDriver` (a driver: its settings, secrets, `build`, `testConnection`, optional `provision`, `listKeys` and `purge`; the three S3 drivers register through it) with `describeStorageDriverConformance`, `registerStorageDriverPanel` and the generated driver panel on the web, `StorageModule.forRoot({ provider })` (the object store reaches every package consumer), `STORAGE_PROVIDER`, `ObjectProcessorRegistry`, `registerStorageKeyPrefixes`, `runStoragePurge`, `storageConformanceSuite`. Worked examples: `apps/api/src/platform-extensions/storage/` (the `local-fs` driver and an in-memory provider).
 
@@ -372,7 +372,7 @@ Closed points: none recorded at the audit commit.
 | storage-2 | The provider kind is closed (`s3`, `r2`, `s3compatible`), used as `z.enum` in four schemas plus a literal copy; Azure and GCS need different fields. | contract: `storage/constants.ts:32`; `storage/settings-schemas.ts:89, :139, :189, :225, :263` | `storageDriverIdSchema` (a pattern), `BUILTIN_STORAGE_PROVIDER_KINDS`, settings `provider: string` plus `drivers: Record<id, settings>` with read-compat for the flat fields. | PP-14.7 (#925) | Fixed |
 | storage-3 | Per-kind `switch` with a `never` default and a region fallback; the S3 SDK is wired outside the provider (connection test, bucket provisioning, purge, Doctor egress labels). | api: `storage/config/storage-config.ts:316-338, :412`; `storage/config/storage-connection-test.service.ts:196`; `storage/config/storage-bucket-provision.service.ts:334, :461, :764`; `storage/purge/run-storage-purge.ts:202`; `storage/config/doctor/egress/storage.egress.contributor.ts:16` | `StorageDriver` (`build`, `testConnection`, optional `provision` and `listKeys`); the S3 code moves inside the built-in drivers. | PP-14.7 (#925) | Fixed |
 | storage-4 | `StorageConfigPage` has hard-coded radios, a provider label record and per-provider blocks, and takes no props. There is no `StorageProvider` contract test for a custom driver. | web: `storage/ui/StorageConfigPage.tsx:140, :665-681, :737-821`; api: `storage/testing/conformance.ts:173-187` | `registerStorageDriverPanel(id, Component)`, the page from descriptors; `describeStorageDriverConformance`. | PP-14.7 (#925) | Fixed |
-| storage-5 | `StorageConfigPage` takes no slots. | web: `storage/ui/StorageConfigPage.tsx` | `Sections`. | PP-14.24 (#942) | Open |
+| storage-5 | `StorageConfigPage` takes no slots. | web: `storage/ui/StorageConfigPage.tsx` | `Sections`. | PP-14.24 (#942) | Fixed |
 
 **Remaining gaps of the storage driver contract** (PP-14.7 ships it as specified; these are small additions that were found while building it and are not tracked as rows):
 
@@ -382,9 +382,9 @@ Closed points: none recorded at the audit commit.
 
 ### identity
 
-**Verdict:** Partly closed · **Packages:** api, web, contract · **Closed points:** 8 (7 fixed, 1 open) · **Stories:** PP-14.9, PP-14.15, PP-14.25
+**Verdict:** Open · **Packages:** api, web, contract · **Closed points:** 8 (8 fixed, 0 open) · **Stories:** PP-14.9, PP-14.15, PP-14.25
 
-**Open points.** `IdentityModule.forRoot` (and its `signInPolicy` binding), `registerAuthProvider` (`AuthProviderDefinition`: strategy and guard classes or `createStrategy`, async `isEnabled`, `mapProfile`, `egressHosts`, `doctorRemedy`), `AuthService.completeExternalLogin`, `respondToSignIn`, the `IDENTITY_*` ports (including `IDENTITY_SIGNIN_POLICY` and `IDENTITY_AUTH_CREDENTIALS`), `IDENTITY_EVENTS`, the guards and decorators, `identityConformanceSuite`, `describeAuthProviderConformance`, the web `AuthProvider`, `LoginPage` slots (`Logo`, `Title`, `Footer`, `ProviderButton`, `BeforeProviders`, `AfterProviders`) `GET /api/roles`, role `label` and `assignable` (an app role is assignable on invitations, memberships and users and listed by the packaged dialogs, `useRoles`), `assertRoleAssignable`, and the packaged pages. The user and organization pages' slots are not open.
+**Open points.** `IdentityModule.forRoot` (and its `signInPolicy` binding), `registerAuthProvider` (`AuthProviderDefinition`: strategy and guard classes or `createStrategy`, async `isEnabled`, `mapProfile`, `egressHosts`, `doctorRemedy`), `AuthService.completeExternalLogin`, `respondToSignIn`, the `IDENTITY_*` ports (including `IDENTITY_SIGNIN_POLICY` and `IDENTITY_AUTH_CREDENTIALS`), `IDENTITY_EVENTS`, the guards and decorators, `identityConformanceSuite`, `describeAuthProviderConformance`, the web `AuthProvider`, `LoginPage` slots (`Logo`, `Title`, `Footer`, `ProviderButton`, `BeforeProviders`, `AfterProviders`) `GET /api/roles`, role `label` and `assignable` (an app role is assignable on invitations, memberships and users and listed by the packaged dialogs, `useRoles`), `assertRoleAssignable`, `registerCurrentUserExtension` and `registerUserListExtension` (`extensions` on `/auth/me` and on each user-list row, bounded and isolated), and the packaged pages with the page-slot contract (`UsersPage`, `UserList`, `OrganizationPage`, `OrgMembersPanel`, `OrganizationsPage`, `UserTokensPage`, `ActivateDevicePage`, `LoginPage` and `AuthCallbackPage`; `UsersPage` `Tabs`).
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
@@ -395,11 +395,11 @@ Closed points: none recorded at the audit commit.
 | identity-5 | There is no sign-in policy hook (veto, role mapping, domain or org restriction) and no `identity.login.succeeded` or `identity.org.created` event; the allowlist is the only gate. | api: `identity/auth/auth.service.ts:155-166`; `identity/identity.events.ts:40-47` | `IDENTITY_SIGNIN_POLICY` bound by `IdentityModule.forRoot({ signInPolicy })`; the two events. | PP-14.9 (#927) | Fixed |
 | identity-6 | The web `login()` always navigates to `/api/auth/<id>`, `AuthCallbackPage` defaults to `google`, and `LoginPage` has no slot around the provider buttons. | web: `identity/headless/auth-context.tsx:199` | `login(providerId)` by descriptor mode; `LoginPage` `BeforeProviders` and `AfterProviders`; the callback provider from the route. | PP-14.9 (#927) | Fixed |
 | identity-7 | Org roles are closed in three layers: the contract list feeds `z.enum`s (update-member, create-invite), and the web has its own lists, labels and a `viewer` default. A role registered by an app (for example `coach`) is rejected by the invite and member routes and never shown. The test login accepts three fixed roles. | contract: `identity/constants.ts:106`; `identity/schemas.ts:125, :659, :719`; web: `identity/headless/api.ts:297`; `identity/ui/users/userListColumns.tsx:47`; `identity/ui/users/ManageRolesDialog.tsx:70, :82`; `identity/ui/org/orgLabels.ts:8`; `identity/ui/org/InviteMemberDialog.tsx:33`; api: `identity/testing/dto/test-login.dto.ts:6` | `GET /roles?scope=`, `roleIdSchema` as a pattern, role registry `assignable` and `label`, `ROLE_NOT_ASSIGNABLE`; the web dialogs read the endpoint. | PP-14.15 (#933) | Fixed |
-| identity-8 | `UsersPage`, `UserList`, `OrganizationPage` and `OrgMembersPanel` take no slots; `buildUserColumns()` is exported but called internally; `/auth/me` and `UserListItem` have no enrichment seam. | web: `identity/ui/users/userListColumns.tsx:82` | `TableSlots<UserListItem>`, `registerCurrentUserExtension` and `registerUserListExtension` (optional `extensions` on the wire). | PP-14.25 (#943) | Open |
+| identity-8 | `UsersPage`, `UserList`, `OrganizationPage` and `OrgMembersPanel` take no slots; `buildUserColumns()` is exported but called internally; `/auth/me` and `UserListItem` have no enrichment seam. | web: `identity/ui/users/userListColumns.tsx:82` | `TableSlots<UserListItem>`, `registerCurrentUserExtension` and `registerUserListExtension` (optional `extensions` on the wire). | PP-14.25 (#943) | Fixed |
 
 ### email
 
-**Verdict:** Partly closed · **Packages:** api, web, contract · **Closed points:** 5 (4 fixed, 1 open) · **Stories:** PP-14.8, PP-14.24
+**Verdict:** Partly closed · **Packages:** api, web, contract · **Closed points:** 5 (5 fixed, 0 open) · **Stories:** PP-14.8, PP-14.24
 
 **Open points.** Template registry and layout theme (`registerEmailTemplate`, `EmailTemplateDataMap`, `EmailLayoutTheme`, `EmailBrandMark`), `configureEmailRendering`, the safe-HTML helpers and `emailConformanceSuite`; the transport (`registerEmailTransport`, `EmailTransportResolver`, `registerEmailTransportPanel`, `describeEmailTransportConformance`).
 
@@ -409,11 +409,11 @@ Closed points: none recorded at the audit commit.
 | email-2 | The transport kinds (`ses`, `smtp`) are closed in the contract, the settings have fixed `ses*` and `smtp*` fields, and only the `smtp` and `email_ses` credential purposes exist. | contract: `email/constants.ts:14`; `email/schemas.ts:31, :47-75, :244` | Open kind, settings `provider: string` plus `transports: Record<id, settings>` with read-compat; one purpose per transport. | PP-14.8 (#926) | Fixed |
 | email-3 | The Doctor check, the egress contributor and the `test-email` template hard-code the two kinds. | api: `email/doctor/email-config.doctor-check.ts:43, :63`; `email/doctor/egress/email.egress.contributor.ts:54, :64`; `email/templates/test-email.email.ts:81` | Labels and egress hosts from the registry. | PP-14.8 (#926) | Fixed |
 | email-4 | `EmailSettingsPage` takes no props and hard-codes the transport radios; there is no transport conformance (never throw, redaction, attachments). | web: `email/ui/EmailSettingsPage.tsx:584, :590` | `registerEmailTransportPanel(id, Component)`; `describeEmailTransportConformance`. | PP-14.8 (#926) | Fixed |
-| email-5 | `EmailSettingsPage` takes no slots. | web: `email/ui/EmailSettingsPage.tsx` | `Sections`. | PP-14.24 (#942) | Open |
+| email-5 | `EmailSettingsPage` takes no slots. | web: `email/ui/EmailSettingsPage.tsx` | `Sections`. | PP-14.24 (#942) | Fixed |
 
 ### host
 
-**Verdict:** Partly closed · **Packages:** api, web, contract · **Closed points:** 8 (7 fixed, 1 open) · **Stories:** PP-14.2, PP-14.13, PP-14.24
+**Verdict:** Partly closed · **Packages:** api, web, contract · **Closed points:** 8 (8 fixed, 0 open) · **Stories:** PP-14.2, PP-14.13, PP-14.24
 
 **Open points.** `PlatformHostCoreModule.forRoot` (including `eventBusAdapter` and `eventBus`), `registerEventBusAdapter` and `describeEventBusConformance`, `AboutModule.forRoot` (with `host` and `permission`), `registerHealthIndicator`, `registerMaintenanceBypass`, `registerAboutContributor`, `registerDeploymentMode`, `registerDeploymentCapability`, `registerResponseMetaContributor`, `buildCorsOptions(raw, extra)`, `PlatformHostCoreModule.forRoot({ host, permissions })`, `registerPlatformDocs`, the `host` conformance suite (`allowedAppGuards`). Worked examples: `apps/api/src/platform-extensions/host/` (`recording-event-bus.ts`, `queue-readiness.indicator.ts`, `payments-webhook.bypass.ts`, `transcription.about-contributor.ts`, `byoc.deployment-mode.ts`, `api-revision.response-meta.ts`, `example-throttler.guard.ts`).
 
@@ -426,7 +426,7 @@ Closed points: none recorded at the audit commit.
 | host-5 | Deployment modes and capabilities are a closed pair and a `switch`. | api: `host/deployment/deployment-mode.ts:41, :110-117` | `registerDeploymentCapability`, `registerDeploymentMode`; `inAppRestore` stays built in. | PP-14.13 (#931) | Fixed |
 | host-6 | The `host` conformance suite requires exactly one `APP_GUARD`, so an app cannot add a throttler or tenant guard without skipping the whole suite. | api: `host/testing/conformance.ts:157-169` | `allowedAppGuards: Array<{ name, why }>` (an empty `why` throws); `MaintenanceGuard` stays first. | PP-14.13 (#931) | Fixed |
 | host-7 | Host controllers import `Auth` and `Public` from identity and hard-code `system_settings:read` and `write`; `buildCorsOptions` accepts only the env string; the response `meta` is only `{ timestamp }`. | api: `host/maintenance/maintenance.controller.ts:40, :67` | A `permissions` option, `buildCorsOptions(raw, extra)`, `registerResponseMetaContributor`. | PP-14.13 (#931) | Fixed |
-| host-8 | `AboutPage`, `MaintenancePage`, `MaintenanceScreen`, `InstallPrompt` and `MaintenanceBanner` have no slots or copy props. | web: `host/ui/about-page.tsx:572`; `host/ui/maintenance-page.tsx:156`; `host/ui/maintenance-screen.tsx:35` | `Sections`, `logo`, `actions`, `copy`. | PP-14.24 (#942) | Open |
+| host-8 | `AboutPage`, `MaintenancePage`, `MaintenanceScreen`, `InstallPrompt` and `MaintenanceBanner` have no slots or copy props. | web: `host/ui/about-page.tsx:572`; `host/ui/maintenance-page.tsx:156`; `host/ui/maintenance-screen.tsx:35` | `Sections`, `logo`, `actions`, `copy`. | PP-14.24 (#942) | Fixed |
 
 ### datatable
 
@@ -454,13 +454,13 @@ Closed points: none recorded at the audit commit.
 
 ### android-app
 
-**Verdict:** Partly closed · **Packages:** api, web, cli, contract · **Closed points:** 1 (0 fixed, 1 open) · **Stories:** PP-14.24
+**Verdict:** Partly closed · **Packages:** api, web, cli, contract · **Closed points:** 1 (1 fixed, 0 open) · **Stories:** PP-14.24
 
 **Open points.** `AndroidAppModule.forRoot`, `registerAndroidDeviceSource`, `registerAndroidAppNotificationChannel`, the CLI `android` group and deploy step, `captureTwaLaunch`, `AndroidUpdateBanner`.
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
-| android-app-1 | `AndroidAppPage` takes no props, and its `TrustedAppsSection`, `ReleasesSection` and `NotificationsSection` are private. | web: `android-app/ui/AndroidAppPage.tsx:424-451` | `Sections`; export the three sections from `android-app/ui`. | PP-14.24 (#942) | Open |
+| android-app-1 | `AndroidAppPage` takes no props, and its `TrustedAppsSection`, `ReleasesSection` and `NotificationsSection` are private. | web: `android-app/ui/AndroidAppPage.tsx:424-451` | `Sections`; export the three sections from `android-app/ui`. | PP-14.24 (#942) | Fixed |
 
 ### testing (CLI runner)
 

@@ -29,9 +29,14 @@ export type {
   UserRemovalHook,
 } from './user-data.types';
 export {
+  BUILT_IN_FACTORY_RESET_DELETED,
+  BUILT_IN_FACTORY_RESET_KEPT,
+  BUILT_IN_USER_DATA_KEPT,
   BUILT_IN_USER_DATA_SCOPES,
   USER_DATA_OTHER_CATEGORY,
   categoriesOfScope,
+  factoryResetDeletedLines,
+  factoryResetKeptLines,
   factoryResetStepRegistry,
   findUserDataScope,
   offboardingPreconditionRegistry,
@@ -43,6 +48,7 @@ export {
   resolvedUserDataScopes,
   storageObjectModelHint,
   userDataCategoryRegistry,
+  userDataKeptLines,
   userDataModelRegistry,
   userDataScopeRegistry,
 } from './user-data.registries';

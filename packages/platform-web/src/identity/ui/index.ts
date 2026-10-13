@@ -7,7 +7,7 @@
 export { LoginPage } from './LoginPage.js';
 export type { LoginPageProps, LoginPageSlots, LoginProvidersSlotProps } from './LoginPage.js';
 export { AuthCallbackPage } from './AuthCallbackPage.js';
-export type { AuthCallbackPageProps } from './AuthCallbackPage.js';
+export type { AuthCallbackPageProps, AuthCallbackPageSlots } from './AuthCallbackPage.js';
 export { SignInErrorView } from './SignInErrorView.js';
 export type { SignInErrorViewProps } from './SignInErrorView.js';
 export {
@@ -25,18 +25,23 @@ export type {
 export { BUILT_IN_AUTH_PROVIDERS, OAuthButton } from './OAuthButton.js';
 export type { OAuthButtonProps } from './OAuthButton.js';
 export { ActivateDevicePage } from './ActivateDevicePage.js';
+export type { ActivateDevicePageProps, ActivateDevicePageSlots } from './ActivateDevicePage.js';
 export { OrgSwitcher } from './OrgSwitcher.js';
 export { UserTokensPage } from './tokens/UserTokensPage.js';
+export type { UserTokensPageProps, UserTokensPageSlots } from './tokens/UserTokensPage.js';
 export { PersonalAccessTokens } from './tokens/PersonalAccessTokens.js';
 export { UsersPage } from './users/UsersPage.js';
+export type { UsersPageProps, UsersPageSlots, UsersPageTab } from './users/UsersPage.js';
 export { UserList } from './users/UserList.js';
+export type { UserListProps, UserListSlots } from './users/UserList.js';
 export { AllowlistTable } from './users/AllowlistTable.js';
 export { buildUserColumns } from './users/userListColumns.js';
 export { OrganizationPage } from './org/OrganizationPage.js';
+export type { OrganizationPageProps, OrganizationPageSlots } from './org/OrganizationPage.js';
 export { OrganizationsPage } from './org/OrganizationsPage.js';
-export type { OrganizationsPageProps } from './org/OrganizationsPage.js';
+export type { OrganizationsPageProps, OrganizationsPageSlots } from './org/OrganizationsPage.js';
 export { OrgMembersPanel } from './org/OrgMembersPanel.js';
-export type { OrgMembersPanelProps } from './org/OrgMembersPanel.js';
+export type { OrgMembersPanelProps, OrgMembersPanelSlots } from './org/OrgMembersPanel.js';
 export { OrgInvitesPanel } from './org/OrgInvitesPanel.js';
 export type { OrgInvitesPanelProps } from './org/OrgInvitesPanel.js';
 export { identityAdminSections, identityUserSettingsSections } from './settings.js';

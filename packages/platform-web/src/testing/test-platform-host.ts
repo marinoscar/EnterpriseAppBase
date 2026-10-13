@@ -2,6 +2,8 @@
 // table of canned responses and records every request, so a packaged page can
 // be tested without the app, its transport or a mock server.
 
+import type { ThemePreferenceId } from '@marinoscar/platform-contract/settings';
+
 import type {
   PlatformApiClient,
   PlatformApiError,
@@ -72,7 +74,7 @@ export interface TestPlatformHostOptions {
   /** The host's relative-time formatter. Default none (the page's fallback). */
   formatRelativeTime?: (iso: string) => string;
   /** The host's theme setter (the Appearance page). Default none. */
-  applyTheme?: (theme: 'light' | 'dark' | 'system') => void;
+  applyTheme?: (theme: ThemePreferenceId) => void;
   /** The host's extension ports, read by `usePlatformPort`. Default none. */
   extensions?: Readonly<Record<string | symbol, unknown>>;
 }

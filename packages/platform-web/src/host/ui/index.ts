@@ -4,13 +4,16 @@
 // ../README.md.
 
 export { AboutPage } from './about-page.js';
+export type { AboutPageProps, AboutPageSlots } from './about-page.js';
 export { MaintenancePage } from './maintenance-page.js';
+export type { MaintenancePageProps, MaintenancePageSlots } from './maintenance-page.js';
 export { MaintenanceScreen } from './maintenance-screen.js';
 export type { MaintenanceScreenProps } from './maintenance-screen.js';
 export { MaintenanceGate } from './maintenance-gate.js';
 export type { MaintenanceGateProps } from './maintenance-gate.js';
 export { MaintenanceBanner } from './maintenance-banner.js';
+export type { MaintenanceBannerProps } from './maintenance-banner.js';
 export { InstallPrompt } from './install-prompt.js';
-export type { InstallPromptProps } from './install-prompt.js';
+export type { InstallPromptCopy, InstallPromptProps } from './install-prompt.js';
 export { UpdatePrompt } from './update-prompt.js';
 export type { RegisterServiceWorkerResult, UpdatePromptProps, UseRegisterServiceWorker } from './update-prompt.js';

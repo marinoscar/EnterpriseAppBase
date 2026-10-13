@@ -6,6 +6,7 @@
 // Documented in ../README.md.
 
 export { default, default as EmailSettingsPage } from './EmailSettingsPage.js';
+export type { EmailSettingsPageProps, EmailSettingsPageSlots } from './EmailSettingsPage.js';
 export {
   EmailGenericTransportPanel,
   getEmailTransportPanel,

@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import type { TenancyMode } from '../../../core/index';
 
 /**
@@ -145,6 +145,17 @@ export class CurrentUserDto {
     description: 'Every organization the user is an active member of, with the org role on each: the organizations `POST /api/auth/switch-org` accepts.',
   })
   memberships!: OrgMembershipDto[];
+
+  @ApiPropertyOptional({
+    type: 'object',
+    additionalProperties: { type: 'object', additionalProperties: true },
+    example: { billing: { plan: 'pro' } },
+    description:
+      "What the app's current-user extensions added (`registerCurrentUserExtension`), keyed by extension id. " +
+      'Each value is a small JSON object the extension chose: bounded in size, never a secret. ' +
+      'Absent when no extension is registered or none contributed.',
+  })
+  extensions?: Record<string, Record<string, unknown>>;
 }
 
 /**

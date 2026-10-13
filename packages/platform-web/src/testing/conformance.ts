@@ -154,6 +154,11 @@ export interface WebDestinationEntry {
   key: string;
   /** The path it navigates to. */
   path: string;
+  /**
+   * The destination is a link to another site (`ShellDestination.external`): it
+   * owns no route, so the route-ownership suite does not expect one.
+   */
+  external?: boolean;
 }
 
 /**

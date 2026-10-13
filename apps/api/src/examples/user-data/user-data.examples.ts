@@ -68,6 +68,17 @@ export const EXAMPLE_USER_DATA_MODELS: readonly UserDataModelHint[] = [
   //   { model: 'GraphNode', category: 'graph', delegate: { jobType: 'kg.purge', payload: (userId) => ({ userId }) } },
 ];
 
+/**
+ * A kept model with a user-facing line (PP-14.24): the Danger Zone's "Always
+ * kept" list and the factory reset page's "Kept" list gain `summary`. The
+ * `keep` reason is the operator's; `summary` is for the person reading the page.
+ */
+export const EXAMPLE_KEPT_MODEL: UserDataModelHint = {
+  model: 'ExamplePreference',
+  keep: 'Account preference the user keeps signing in with.',
+  summary: 'Your example preferences',
+};
+
 /** The delegate hint kvox uses, as a value the spec can call. */
 export const EXAMPLE_DELEGATE: NonNullable<UserDataModelHint['delegate']> = {
   jobType: 'kg.purge',
@@ -82,6 +93,8 @@ export const EXAMPLE_FACTORY_RESET_STEP: FactoryResetStepDef = {
   id: 'examples.jobs',
   phase: 'deployment',
   description: 'Finished example jobs.',
+  // The factory reset page's "Deleted" list gains this line (PP-14.24).
+  summary: 'Finished example jobs',
   async run(tx) {
     const { count } = await tx.job.deleteMany({ where: { type: { startsWith: 'example.' }, status: { in: ['succeeded', 'failed'] } } });
     return { jobs: count };

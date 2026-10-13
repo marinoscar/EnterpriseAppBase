@@ -41,8 +41,11 @@ import {
   fillDailySeries,
   formatCount,
 } from './usage/index.js';
-import { usePlatformViewer } from '../../core/index.js';
+import { PageSlotsFrame, usePlatformViewer } from '../../core/index.js';
+import type { PageSlotsBase, TableSlots } from '../../core/index.js';
+import type { DataTableColumn } from '../../datatable/index.js';
 import { useAiUsage } from '../headless/use-ai-usage.js';
+import type { AiUsageSeriesEntry } from '../headless/types.js';
 import { AI_USAGE_DEFAULT_RANGE_DAYS, AI_USAGE_RANGE_OPTIONS, aiUsageRangeForDays, type AiUsageGroupBy, type AiUsageRangeDays, type AiUsageTotals as Totals } from '../headless/types.js';
 
 /** Mirrors the `AI Usage` card in `config/adminSections.tsx`, word for word. */
@@ -107,6 +110,35 @@ function OrgKeySummary({ totals }: { totals: Totals }) {
 }
 
 /**
+ * The slots of {@link AiUsagePage}: the page-slot contract and the table slots
+ * over a breakdown row (`AiUsageSeriesEntry`: the user, model, provider, key
+ * source or organization line). `Columns`, `RowActions` and `DetailPanel` shape
+ * the breakdown table; `Toolbar` is drawn above it, next to the "Group by"
+ * control.
+ *
+ * @example
+ * ```tsx
+ * <AiUsagePage slots={{ Columns: (base) => [...base, costColumn] }} />
+ * ```
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export interface AiUsagePageSlots
+  extends PageSlotsBase,
+    TableSlots<AiUsageSeriesEntry, DataTableColumn<AiUsageSeriesEntry>> {}
+
+/**
+ * The props of {@link AiUsagePage}.
+ *
+ * @stability experimental
+ */
+export interface AiUsagePageProps {
+  /** Optional extension slots; omitted, the page renders exactly as it always did. */
+  slots?: AiUsagePageSlots;
+}
+
+/**
  * Admin → Settings → AI → Usage (`/admin/settings/ai/usage`): totals, the daily
  * series and a breakdown by user, model, provider, key source, organization,
  * feature or operation, with a Cost column when the deployment binds a pricing
@@ -115,7 +147,9 @@ function OrgKeySummary({ totals }: { totals: Totals }) {
  *
  * @stability experimental
  */
-export default function AiUsagePage() {
+export default function AiUsagePage(props: AiUsagePageProps = {}) {
+  const { slots } = props;
+  const Toolbar = slots?.Toolbar;
   const { hasPermission } = usePlatformViewer();
   const [rangeDays, setRangeDays] = useState<AiUsageRangeDays>(AI_USAGE_DEFAULT_RANGE_DAYS);
   const [groupBy, setGroupBy] = useState<BreakdownGroupBy>('user');
@@ -148,12 +182,20 @@ export default function AiUsagePage() {
   return (
     <Container maxWidth="xl">
       <Box sx={{ py: { xs: 2, md: 4 } }}>
-        <Typography variant="h4" component="h1" gutterBottom>
-          {PAGE_TITLE}
-        </Typography>
-        <Typography color="text.secondary" sx={{ mb: 3 }}>
-          {PAGE_DESCRIPTION}
-        </Typography>
+        <PageSlotsFrame
+          slots={slots}
+          headerProps={{ title: PAGE_TITLE, description: PAGE_DESCRIPTION, actions: null }}
+          header={
+            <>
+              <Typography variant="h4" component="h1" gutterBottom>
+                {PAGE_TITLE}
+              </Typography>
+              <Typography color="text.secondary" sx={{ mb: 3 }}>
+                {PAGE_DESCRIPTION}
+              </Typography>
+            </>
+          }
+        >
 
         <Stack
           direction={{ xs: 'column', sm: 'row' }}
@@ -238,6 +280,7 @@ export default function AiUsagePage() {
                   {breakdown.error}
                 </Alert>
               )}
+              {Toolbar && <Toolbar />}
               <Paper sx={{ p: 2, minWidth: 0 }}>
                 <AiUsageTable
                   rows={breakdownRows}
@@ -250,11 +293,13 @@ export default function AiUsagePage() {
                   csvFilename={`ai-usage-by-${groupBy}`}
                   priced={breakdown.report?.priced === true}
                   data-testid="admin-ai-usage-breakdown-table"
+                  {...(slots ? { slots } : {})}
                 />
               </Paper>
             </Box>
           </Stack>
         ) : null}
+        </PageSlotsFrame>
       </Box>
     </Container>
   );

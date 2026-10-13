@@ -20,7 +20,7 @@
 // rail: 56px cannot hold a dozen card titles.
 // =============================================================================
 
-import { useMemo } from 'react';
+import { Fragment, useMemo } from 'react';
 import type { ReactElement } from 'react';
 import {
   Box,
@@ -40,13 +40,21 @@ import {
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { Link as RouterLink, useLocation } from 'react-router-dom';
 
 import { usePermissions } from '../../identity/index.js';
 import { useSettingsFeatures, visibleSettingsSections } from '../../settings/index.js';
-import { isDestinationVisible, owns, resolveActiveDestination, shellDestinationRoutes } from '../headless/navigation.js';
-import type { ShellIcon, ShellNavigation, ShellRailPreference } from '../headless/navigation.js';
+import {
+  groupDestinationRuns,
+  isDestinationVisible,
+  owns,
+  resolveActiveDestination,
+  shellDestinationRoutes,
+} from '../headless/navigation.js';
+import type { ShellDestination, ShellIcon, ShellNavigation, ShellRailPreference } from '../headless/navigation.js';
 import { useShellRailPreference } from '../headless/rail-preference.js';
+import { DestinationIcon, EXTERNAL_LINK_PROPS, destinationAccessibleName, useDestinationBadge } from './destination-parts.js';
 
 /**
  * The collapsed rail's width in px (the medium tier, and a collapsed desktop rail).
@@ -81,18 +89,26 @@ interface RailRowProps {
   accessibleName: string;
   active: boolean;
   expanded: boolean;
+  /** The destination this row draws (PP-14.25: its badge, `external` and `onClick`); absent for a Console card. */
+  destination?: ShellDestination;
 }
 
-function RailRow({ to, Icon, label, compactLabel, accessibleName, active, expanded }: RailRowProps) {
+/** A destination with nothing to evaluate, for the rows that draw no destination. */
+const NO_DESTINATION: Pick<ShellDestination, 'badge'> = {};
+
+function RailRow({ to, Icon, label, compactLabel, accessibleName, active, expanded, destination }: RailRowProps) {
   const theme = useTheme();
+  const badge = useDestinationBadge(destination ?? NO_DESTINATION);
+  const external = destination?.external === true;
+  const onClick = destination?.onClick;
 
   const button = (
     <ListItemButton
-      component={RouterLink}
-      to={to}
+      {...(external ? { component: 'a', href: to, ...EXTERNAL_LINK_PROPS } : { component: RouterLink, to })}
       selected={active}
       aria-current={active ? 'page' : undefined}
-      aria-label={accessibleName}
+      aria-label={destinationAccessibleName(accessibleName, badge, external)}
+      {...(onClick ? { onClick } : {})}
       sx={{
         borderRadius: 1,
         mx: 0.5,
@@ -122,15 +138,22 @@ function RailRow({ to, Icon, label, compactLabel, accessibleName, active, expand
           justifyContent: 'center',
         }}
       >
-        <Icon fontSize={expanded ? 'medium' : 'small'} />
+        {badge ? (
+          <DestinationIcon Icon={Icon} badge={badge} fontSize={expanded ? 'medium' : 'small'} />
+        ) : (
+          <Icon fontSize={expanded ? 'medium' : 'small'} />
+        )}
       </ListItemIcon>
 
       {expanded ? (
-        <ListItemText
-          primary={label}
-          slotProps={{ primary: { variant: 'body2', noWrap: true } }}
-          sx={{ minWidth: 0, my: 0 }}
-        />
+        <>
+          <ListItemText
+            primary={label}
+            slotProps={{ primary: { variant: 'body2', noWrap: true } }}
+            sx={{ minWidth: 0, my: 0 }}
+          />
+          {external && <OpenInNewIcon aria-hidden fontSize="inherit" sx={{ ml: 0.5, color: theme.palette.text.secondary }} />}
+        </>
       ) : (
         <Typography
           aria-hidden
@@ -206,6 +229,7 @@ export function ShellNavigationRail({ navigation }: ShellNavigationRailProps): R
   // Pinned destinations leave the list for the foot; the rest keep order.
   const listDestinations = visibleDestinations.filter((destination) => !destination.pinned);
   const pinnedDestinations = visibleDestinations.filter((destination) => destination.pinned);
+  const destinationRuns = groupDestinationRuns(listDestinations);
 
   // The same filter the hub applies (permission AND feature), so the rail
   // never lists a card the hub would hide. Empty query: no search here.
@@ -314,20 +338,57 @@ export function ShellNavigationRail({ navigation }: ShellNavigationRailProps): R
         </Box>
       ) : (
         <Box sx={{ flexGrow: 1, py: 1, minWidth: 0 }}>
-          <List dense disablePadding>
-            {listDestinations.map((destination) => (
-              <RailRow
-                key={destination.key}
-                to={destination.path}
-                Icon={destination.Icon}
-                label={destination.label}
-                compactLabel={destination.compactLabel}
-                accessibleName={destination.label}
-                active={activeDestination === destination.key}
-                expanded={expanded}
-              />
-            ))}
-          </List>
+          {destinationRuns.length === 1 && destinationRuns[0]?.group === undefined ? (
+            <List dense disablePadding>
+              {listDestinations.map((destination) => (
+                <RailRow
+                  key={destination.key}
+                  to={destination.path}
+                  Icon={destination.Icon}
+                  label={destination.label}
+                  compactLabel={destination.compactLabel}
+                  accessibleName={destination.label}
+                  active={activeDestination === destination.key}
+                  expanded={expanded}
+                  destination={destination}
+                />
+              ))}
+            </List>
+          ) : (
+            /* PP-14.25: destinations that declare a `group` are drawn as labelled
+               runs (the expanded rail) or runs apart by a divider (collapsed). */
+            destinationRuns.map((run, index) => (
+              <Fragment key={`${index}:${run.group ?? ''}`}>
+                {index > 0 && !expanded && <Divider sx={{ my: 0.5 }} />}
+                <List
+                  dense
+                  disablePadding
+                  {...(run.group !== undefined
+                    ? {
+                        'aria-label': run.group,
+                        ...(expanded
+                          ? { subheader: <ListSubheader disableSticky sx={subheaderSx}>{run.group}</ListSubheader> }
+                          : {}),
+                      }
+                    : {})}
+                >
+                  {run.destinations.map((destination) => (
+                    <RailRow
+                      key={destination.key}
+                      to={destination.path}
+                      Icon={destination.Icon}
+                      label={destination.label}
+                      compactLabel={destination.compactLabel}
+                      accessibleName={destination.label}
+                      active={activeDestination === destination.key}
+                      expanded={expanded}
+                      destination={destination}
+                    />
+                  ))}
+                </List>
+              </Fragment>
+            ))
+          )}
         </Box>
       )}
 
@@ -348,6 +409,7 @@ export function ShellNavigationRail({ navigation }: ShellNavigationRailProps): R
                 accessibleName={destination.label}
                 active={activeDestination === destination.key}
                 expanded={expanded}
+                destination={destination}
               />
             ))}
           </List>

@@ -87,7 +87,8 @@ import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlineOutlined';
 import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutlined';
 import NetworkCheckIcon from '@mui/icons-material/NetworkCheck';
 import { Navigate } from 'react-router-dom';
-import { usePlatformViewer } from '../../core/index.js';
+import { PageSlotsFrame, usePlatformViewer } from '../../core/index.js';
+import type { PageSlotsBase } from '../../core/index.js';
 import { reportsBucketMissing, useStorageConfig } from '../headless/index.js';
 import type {
   StorageBucketProvisionResult,
@@ -329,6 +330,38 @@ const BUCKET_OUTCOME_TITLES: Record<StorageBucketProvisionResult['outcome'], str
   failed: 'The bucket could not be created',
 };
 
+/** The page title (mirrors the `Storage` card in `config/adminSections.tsx`). */
+const STORAGE_TITLE = 'Storage';
+/** The page subtitle (mirrors the same card). */
+const STORAGE_DESCRIPTION =
+  'Point this deployment at an object store, prove the credentials work, and create the bucket if it is not there yet.';
+
+/**
+ * The slots of {@link StorageConfigPage}: the page-slot contract. `Sections` is
+ * where an app adds a section of its own (retention notes, a lifecycle-rule
+ * checklist) at either end of the page; the storage driver panels themselves
+ * come from `registerStorageDriverPanel`.
+ *
+ * @example
+ * ```tsx
+ * <StorageConfigPage slots={{ AfterContent: () => <LifecycleRuleChecklist /> }} />
+ * ```
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export type StorageConfigPageSlots = PageSlotsBase;
+
+/**
+ * The props of {@link StorageConfigPage}.
+ *
+ * @stability experimental
+ */
+export interface StorageConfigPageProps {
+  /** Optional extension slots; omitted, the page renders exactly as it always did. */
+  slots?: StorageConfigPageSlots;
+}
+
 /**
  * The `/admin/settings/storage` page: the deployment's object-storage
  * configuration (`storage_config:read` to view, `storage_config:write` for
@@ -341,7 +374,8 @@ const BUCKET_OUTCOME_TITLES: Record<StorageBucketProvisionResult['outcome'], str
  * @extensionPoint component
  * @stability experimental
  */
-export default function StorageConfigPage() {
+export default function StorageConfigPage(props: StorageConfigPageProps = {}) {
+  const { slots } = props;
   const { hasPermission } = usePlatformViewer();
   const {
     config,
@@ -532,18 +566,24 @@ export default function StorageConfigPage() {
   return (
     <Container maxWidth="lg">
       <Box sx={{ py: 4 }}>
-        {/* Title and description MIRROR the `Storage` card in
-            `config/adminSections.tsx` so the hub card, the rail row, the
-            compact AppBar title and this `h1` all name the page identically. */}
-        <Typography variant="h4" component="h1" gutterBottom>
-          Storage
-        </Typography>
-        <Typography color="text.secondary" sx={{ mb: 2 }}>
-          Point this deployment at an object store, prove the credentials work, and create the
-          bucket if it is not there yet.
-          {!canWrite && ' (read-only)'}
-        </Typography>
-
+        <PageSlotsFrame
+          slots={slots}
+          headerProps={{ title: STORAGE_TITLE, description: STORAGE_DESCRIPTION, readOnly: !canWrite, actions: null }}
+          header={
+            <>
+              {/* Title and description MIRROR the `Storage` card in
+                  `config/adminSections.tsx` so the hub card, the rail row, the
+                  compact AppBar title and this `h1` all name the page identically. */}
+              <Typography variant="h4" component="h1" gutterBottom>
+                {STORAGE_TITLE}
+              </Typography>
+              <Typography color="text.secondary" sx={{ mb: 2 }}>
+                {STORAGE_DESCRIPTION}
+                {!canWrite && ' (read-only)'}
+              </Typography>
+            </>
+          }
+        >
         {config?.updatedBy && config.updatedAt && (
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
             Last updated by {config.updatedBy.email} on{' '}
@@ -859,6 +899,8 @@ export default function StorageConfigPage() {
             )}
           </Alert>
         )}
+
+        </PageSlotsFrame>
 
         {/* Opened only once the API has already refused with
             `STORAGE_LOCATION_IN_USE` — the row counts behind that refusal are

@@ -17,6 +17,8 @@ import { PRINCIPAL_CACHE_CLOCK, PrincipalCache } from '../../../src/identity/aut
 import { OrganizationsService } from '../../../src/identity/organizations/organizations.service';
 import { TenancyService } from '../../../src/identity/organizations/tenancy.service';
 import { DefaultOrganizationMissingException } from '../../../src/identity/organizations/organizations.errors';
+import { currentUserExtensionRegistry } from '../../../src/identity/extensions/user-extensions';
+import { withTemporaryEntries } from '../../../src/core';
 
 const DEFAULT_ORG = { id: 'org-default', name: 'Default organization', slug: 'default', isDefault: true };
 
@@ -1021,6 +1023,56 @@ describe('AuthService', () => {
       await expect(service.getCurrentUser('non-existent')).rejects.toThrow(
         UnauthorizedException,
       );
+    });
+
+    it('has no extensions key when no extension is registered (PP-14.25)', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'user-1',
+        email: 'test@example.com',
+        displayName: 'Custom Name',
+        providerDisplayName: null,
+        isActive: true,
+        createdAt: new Date(),
+        userRoles: [{ role: { name: 'viewer', rolePermissions: [] } }],
+      } as any);
+
+      const result = await service.getCurrentUser('user-1');
+
+      expect(result).not.toHaveProperty('extensions');
+    });
+
+    it('merges the current-user extensions under extensions.<id>, skipping one that throws (PP-14.25)', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'user-1',
+        email: 'test@example.com',
+        displayName: 'Custom Name',
+        providerDisplayName: null,
+        isActive: true,
+        createdAt: new Date(),
+        userRoles: [{ role: { name: 'viewer', rolePermissions: [] } }],
+      } as any);
+      const resolve = jest.fn(async (userId: string) => ({ plan: 'pro', userId }));
+
+      await withTemporaryEntries(
+        currentUserExtensionRegistry,
+        [
+          { id: 'billing', resolve },
+          {
+            id: 'broken',
+            resolve: async () => {
+              throw new Error('database down');
+            },
+          },
+        ],
+        async () => {
+          const result = await service.getCurrentUser('user-1');
+          expect(result.extensions).toEqual({ billing: { plan: 'pro', userId: 'user-1' } });
+          // The identity fields are untouched.
+          expect(result.email).toBe('test@example.com');
+          expect(result.displayName).toBe('Custom Name');
+        },
+      );
+      expect(resolve).toHaveBeenCalledTimes(1);
     });
   });
 

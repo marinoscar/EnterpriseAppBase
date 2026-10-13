@@ -197,6 +197,24 @@ describe('each suite fails on a planted violation, by name', () => {
     expect(names(failing)).toContain('destinations: route ownership > matches a prefix only at a segment boundary');
   });
 
+  it('settings-route-ownership: an external destination owns no route and is not expected to (PP-14.25)', async () => {
+    const context = healthy();
+    context.destinations!.destinations = [
+      ...context.destinations!.destinations,
+      { key: 'help', path: 'https://help.example.com/', external: true },
+    ];
+    context.destinations!.routes = { ...context.destinations!.routes, help: ['https://help.example.com/'] };
+
+    expect(await run(context, ['settings-route-ownership'])).toEqual([]);
+
+    // The same entry without the flag, and owning no route, is a destination that activates nothing.
+    context.destinations!.destinations = context.destinations!.destinations.map((entry) => (entry.key === 'help' ? { key: 'help', path: entry.path } : entry));
+    const { help: _help, ...withoutHelp } = context.destinations!.routes as Record<string, readonly string[]>;
+    context.destinations!.routes = withoutHelp;
+    const failing = await run(context, ['settings-route-ownership']);
+    expect(failing.map((entry) => entry.message).join('\n')).toContain('https://help.example.com/ activates null, expected help');
+  });
+
   it('settings-route-ownership: refuses to run without a destination table unless the app skips it', () => {
     const context = healthy();
     delete context.destinations;

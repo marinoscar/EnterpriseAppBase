@@ -80,7 +80,7 @@ describe('useSystemSettings and useUserSettings', () => {
     expect(applyTheme).not.toHaveBeenCalled();
   });
 
-  it('applies only light, dark and system: a theme an app registered is the app\'s to apply', async () => {
+  it('applies light, dark and system, and a registered theme only when the document lists it (PP-14.25)', async () => {
     const host = createTestPlatformHost({
       responses: {
         'GET /user-settings': { theme: 'high-contrast', themeOptions: [{ id: 'high-contrast', label: 'High contrast' }], profile: { imageSource: 'none', imageObjectId: null }, version: 1, updatedAt: '' },
@@ -90,9 +90,22 @@ describe('useSystemSettings and useUserSettings', () => {
     const applyTheme = vi.fn();
     const { result } = renderHook(() => useUserSettings({ api: host.api, applyTheme }));
     await waitFor(() => expect(result.current.settings?.theme).toBe('high-contrast'));
-    expect(applyTheme).not.toHaveBeenCalled();
+    // The API lists `high-contrast` in `themeOptions`: the app's theme context gets it.
+    expect(applyTheme).toHaveBeenCalledTimes(1);
+    expect(applyTheme).toHaveBeenLastCalledWith('high-contrast');
+    // `sepia` is not listed by the response that saved it: it never reaches the app.
     await act(() => result.current.updateTheme('sepia'));
-    expect(applyTheme).not.toHaveBeenCalled();
+    expect(applyTheme).toHaveBeenCalledTimes(1);
     expect(host.requests.at(-1)).toMatchObject({ method: 'PATCH', body: { theme: 'sepia' } });
+  });
+
+  it('never applies a stored theme id the document does not list', async () => {
+    const host = createTestPlatformHost({
+      responses: { 'GET /user-settings': { theme: 'ghost', profile: { imageSource: 'none', imageObjectId: null }, version: 1, updatedAt: '' } },
+    });
+    const applyTheme = vi.fn();
+    const { result } = renderHook(() => useUserSettings({ api: host.api, applyTheme }));
+    await waitFor(() => expect(result.current.settings?.theme).toBe('ghost'));
+    expect(applyTheme).not.toHaveBeenCalled();
   });
 });

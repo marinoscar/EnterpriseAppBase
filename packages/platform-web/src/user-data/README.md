@@ -48,13 +48,15 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `dangerZoneLastViolations` | hook | `(sections, expectedPath) => string[]` | Assert both Danger Zone groups are last (web conformance) | experimental | [settingsCards.test.ts](../../../../apps/web/src/__tests__/config/settingsCards.test.ts) |
-| `UserDangerZonePage` | component | `(props: UserDangerZonePageProps) => ReactElement` | Mount `/settings/danger-zone` | experimental | [UserDataPages.tsx](../../../../apps/web/src/pages/UserDataPages.tsx) |
-| `FactoryResetPage` | component | `(props: FactoryResetPageProps) => ReactElement` | Mount `/admin/settings/factory-reset` | experimental | [UserDataPages.tsx](../../../../apps/web/src/pages/UserDataPages.tsx) |
+| `UserDangerZonePage` | component | `(props: UserDangerZonePageProps) => ReactElement` (`slots?`, `copy?` since PP-14.24) | Mount `/settings/danger-zone` | experimental | [UserDataPages.tsx](../../../../apps/web/src/pages/UserDataPages.tsx) |
+| `FactoryResetPage` | component | `(props: FactoryResetPageProps) => ReactElement` (`slots?`, `copy?` since PP-14.24) | Mount `/admin/settings/factory-reset` | experimental | [UserDataPages.tsx](../../../../apps/web/src/pages/UserDataPages.tsx) |
+| `UserDangerZonePageSlots` | slot | `PageSlotsBase` | Add a notice or a section around the Danger Zone or the factory reset page; the kept and deleted lines come from the API (a registered kept model or factory reset step with a `summary`) | experimental | [example](../../../../apps/web/src/__tests__/examples/user-data/erasure-notice.test.tsx) |
+| `FactoryResetPageSlots` | slot | `PageSlotsBase` | Add a notice or a section around the Danger Zone or the factory reset page; the kept and deleted lines come from the API (a registered kept model or factory reset step with a `summary`) | experimental | [example](../../../../apps/web/src/__tests__/examples/user-data/erasure-notice.test.tsx) |
 | `OffboardOrganizationButton` | component | `(props: OffboardOrganizationButtonProps) => ReactElement \| null` | The organizations page's row action (`renderActions`) | experimental | [UserDataPages.tsx](../../../../apps/web/src/pages/UserDataPages.tsx) |
 | `dangerZoneSettingsPage` | component | `PlatformSettingsPage` | The user card (no permission, no feature) | experimental | [userSettingsSections.tsx](../../../../apps/web/src/config/userSettingsSections.tsx) |
 | `factoryResetSettingsPage` | component | `PlatformSettingsPage` | The admin card (`system:factory_reset`) | experimental | [adminSections.tsx](../../../../apps/web/src/config/adminSections.tsx) |
 
-Supporting exports (experimental): `useDestructiveJob` (start a destructive job and poll it), `TypedConfirmDialog` (the shared dialog, for an app's own destructive flow), `OrgOffboardingDialog` (what the button opens), `createUserDataClient`, `createFactoryResetClient`, `createOrgOffboardingClient` and their types, `DANGER_ZONE_GROUP_LABEL`, the copy constants (`USER_DATA_KEPT`, `FACTORY_RESET_DELETED`, `FACTORY_RESET_KEPT`, the page titles and descriptions).
+Supporting exports (experimental): `useDestructiveJob` (start a destructive job and poll it), `TypedConfirmDialog` (the shared dialog, for an app's own destructive flow), `OrgOffboardingDialog` (what the button opens), `createUserDataClient`, `createFactoryResetClient`, `createOrgOffboardingClient` and their types, `DANGER_ZONE_GROUP_LABEL`, the copy constants (`USER_DATA_KEPT`, `FACTORY_RESET_DELETED`, `FACTORY_RESET_KEPT`, the page titles and descriptions; since PP-14.24 the pages print the lists the summary routes return and these are what they print until the summary arrives or when it cannot be read).
 
 ## Data
 
@@ -67,6 +69,8 @@ The user card declares no `permission` (every role holds `user_settings:write`) 
 ## UI
 
 `UserDangerZonePage`, `FactoryResetPage`, `OrgOffboardingDialog`, `OffboardOrganizationButton`, `TypedConfirmDialog`. MUI only; the dialogs label themselves, the progress is a `role="status"` live region, the result list is a labelled list, and every control works by keyboard. Phone width: rows stack below `sm`.
+
+`UserDangerZonePage` and `FactoryResetPage` take `slots` ([Page slots](../core/README.md#page-slots): `Header`, `BeforeContent`, `Sections` at both ends, `AfterContent`) and `copy` (the `h1`, the lead sentence or warning, the list headings). The "Always kept", "Deleted" and "Kept" lists are the `kept` and `deleted` arrays of the summary routes: the platform's lines, then one line per registered kept model or factory reset step that carries a `summary` on the API. With the platform's lines and no slot or copy the markup is unchanged (`test/user-data/UserDataPages.builtin-dom.test.tsx` pins it).
 
 ## Infra
 
@@ -87,6 +91,8 @@ The phrase is collected here and re-checked by the API (a wrong phrase is a `400
 ## Upgrade notes
 
 First release (#743). The identity slice's `OrganizationsPage` gained a `renderActions` prop, which is where the reference app mounts `OffboardOrganizationButton`.
+
+#942 (PP-14.24): `UserDangerZonePage` and `FactoryResetPage` take optional `slots` (the base of the page-slot contract) and `copy`, and print the `kept` / `deleted` lists of the summary responses instead of constants. The API and contract gained those fields (required in `userDataSummarySchema` and `factoryResetSummarySchema`): deploy the API first. Against an older API the pages fall back to the constants, which are the same text.
 
 ## Troubleshooting
 

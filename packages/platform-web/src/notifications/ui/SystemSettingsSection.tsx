@@ -32,6 +32,8 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { Alert, Box, Container, Paper, Snackbar, Typography } from '@mui/material';
 import { Navigate } from 'react-router-dom';
+import { PageSlotsFrame } from '../../core/index.js';
+import type { PageSlotsBase } from '../../core/index.js';
 import { usePermissions } from '../../identity/index.js';
 import { useSystemSettings } from '../../settings/index.js';
 import { LoadingSpinner } from './LoadingSpinner.js';
@@ -68,6 +70,8 @@ interface SystemSettingsSectionProps {
   /** Permission required to render at all; the same string the route enforces. */
   requiredPermission: string;
   children: (state: SystemSettingsSectionState) => ReactNode;
+  /** The page-slot contract's slots; omitted, the chrome is exactly what it always was. The spinner is not slotted. */
+  slots?: PageSlotsBase;
 }
 
 /** The admin settings page chrome (internal to the slice). */
@@ -76,6 +80,7 @@ export function SystemSettingsSection({
   description,
   requiredPermission,
   children,
+  slots,
 }: SystemSettingsSectionProps) {
   const { hasPermission } = usePermissions();
   const { settings, isLoading, error, isSaving, updateSettings } = useSystemSettings<SystemSettings>();
@@ -105,18 +110,25 @@ export function SystemSettingsSection({
   return (
     <Container maxWidth="lg">
       <Box sx={{ py: 4 }}>
-        <Typography variant="h4" component="h1" gutterBottom>
-          {title}
-        </Typography>
-        <Typography color="text.secondary" sx={{ mb: 2 }}>
-          {description}
-          {/* Stated in the subtitle rather than left for the user to discover
-              by finding every control disabled. A page that silently refuses to
-              save reads as broken; a page that says "read-only" reads as
-              permissions. */}
-          {!canWrite && ' (read-only)'}
-        </Typography>
-
+        <PageSlotsFrame
+          slots={slots}
+          headerProps={{ title, description, readOnly: !canWrite, actions: null }}
+          header={
+            <>
+              <Typography variant="h4" component="h1" gutterBottom>
+                {title}
+              </Typography>
+              <Typography color="text.secondary" sx={{ mb: 2 }}>
+                {description}
+                {/* Stated in the subtitle rather than left for the user to discover
+                    by finding every control disabled. A page that silently refuses to
+                    save reads as broken; a page that says "read-only" reads as
+                    permissions. */}
+                {!canWrite && ' (read-only)'}
+              </Typography>
+            </>
+          }
+        >
         {settings?.updatedBy && (
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
             Last updated by {settings.updatedBy.email} on{' '}
@@ -135,6 +147,8 @@ export function SystemSettingsSection({
             {children({ settings, canWrite, isSaving, saveBranch, updateSettings })}
           </Paper>
         )}
+
+        </PageSlotsFrame>
 
         <Snackbar
           open={!!successMessage}
