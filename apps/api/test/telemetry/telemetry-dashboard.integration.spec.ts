@@ -20,6 +20,8 @@ import {
 import { telemetryProviders } from '../../src/platform/telemetry/telemetry.config';
 import { metricCatalogSchema } from '@marinoscar/platform-api/telemetry/testing';
 import { withTemporaryEntries } from '@marinoscar/platform-api/core';
+import { PLATFORM_METRIC_PRESENTATIONS } from '@marinoscar/platform-contract/telemetry';
+import { ACTIVITY_METRIC_GROUP } from '../../src/platform-extensions/telemetry/activity.metric-group';
 
 const { TelemetryDashboardService } = telemetryProviders;
 
@@ -347,6 +349,8 @@ describe('Telemetry dashboard integration', () => {
     };
 
     // The six platform groups, then the reference app's own `activity` group (PP-4.6).
+    // Each platform group serves the presentation it declares (PP-14.18); `activity`
+    // also serves its presentation and the descriptor of its app unit, `usd`.
     const PLATFORM = [
       { id: 'host', label: 'Host', title: 'Infrastructure', order: 10 },
       { id: 'database', label: 'Database', title: 'Database', order: 20 },
@@ -354,7 +358,20 @@ describe('Telemetry dashboard integration', () => {
       { id: 'nodes', label: 'Worker nodes', title: 'Worker nodes', order: 40 },
       { id: 'uptime', label: 'Uptime and edge', title: 'Uptime & dependencies', order: 50 },
       { id: 'pipeline', label: 'Telemetry pipeline', title: 'Telemetry pipeline', order: 60 },
-      { id: 'activity', label: 'App activity', title: 'App activity', order: 70 },
+    ].map((group) => ({
+      ...group,
+      presentation: PLATFORM_METRIC_PRESENTATIONS[group.id as keyof typeof PLATFORM_METRIC_PRESENTATIONS],
+    }));
+    const LISTING = [
+      ...PLATFORM,
+      {
+        id: 'activity',
+        label: 'App activity',
+        title: 'App activity',
+        order: 70,
+        presentation: ACTIVITY_METRIC_GROUP.presentation,
+        units: [{ id: 'usd', label: 'US dollars', format: 'currency', currency: 'USD', decimals: 2 }],
+      },
     ];
 
     it('is 401 without a token', async () => {
@@ -379,7 +396,7 @@ describe('Telemetry dashboard integration', () => {
         .expect(200);
 
       // The handler returns `{ data }`, so the envelope passes it through as is.
-      expect(res.body).toEqual({ data: PLATFORM });
+      expect(res.body).toEqual({ data: LISTING });
     });
 
     it('reads only the in-memory registry: no store query, no audit, even with no store and telemetry off', async () => {
@@ -392,7 +409,7 @@ describe('Telemetry dashboard integration', () => {
         .set(authHeader(admin.accessToken))
         .expect(200);
 
-      expect(res.body.data).toEqual(PLATFORM);
+      expect(res.body.data).toEqual(LISTING);
       expect(queryReader).not.toHaveBeenCalled();
       expect(context.prismaMock.auditEvent.create).not.toHaveBeenCalled();
     });
@@ -417,7 +434,7 @@ describe('Telemetry dashboard integration', () => {
           .set(authHeader(admin.accessToken))
           .expect(200);
         expect(groups.body.data).toEqual([
-          ...PLATFORM,
+          ...LISTING,
           { id: 'test_app', label: 'Test app', title: 'Test app section', order: 70 },
         ]);
 
@@ -438,7 +455,7 @@ describe('Telemetry dashboard integration', () => {
         .get(GROUPS_ROUTE)
         .set(authHeader(admin.accessToken))
         .expect(200);
-      expect(after.body.data).toEqual(PLATFORM);
+      expect(after.body.data).toEqual(LISTING);
       await request(context.app.getHttpServer())
         .get(`${BASE}/metrics?group=test_app`)
         .set(authHeader(admin.accessToken))
