@@ -4,7 +4,7 @@
 
 export { DATA_EXPORT_DESCRIPTION, DATA_EXPORT_PATH, DATA_EXPORT_TITLE } from './copy.js';
 export { DataExportPage } from './DataExportPage.js';
-export type { DataExportPageProps } from './DataExportPage.js';
+export type { DataExportPageProps, DataExportPageSlots } from './DataExportPage.js';
 export { ExportDialog } from './ExportDialog.js';
 export type { ExportDialogProps, ExportFormSlotProps } from './ExportDialog.js';
 export { ExportsList } from './ExportsList.js';

@@ -35,6 +35,8 @@ describe('runDbConformance', () => {
       expect.stringContaining('raw-sql-indexes'),
       expect.stringContaining('rls-policies'),
       expect.stringContaining('platform.lock'),
+      expect.stringContaining('app-schema-objects'),
+      expect.stringContaining('app-migrations'),
     ]);
     expect(outcomes.filter((o) => o.error)).toEqual([]);
   });

@@ -1,4 +1,5 @@
 export { applySync, type SyncIo } from './apply.js';
+export { checkAppMigrations, type AppMigrationProblem, type AppMigrationProblemCode } from './app-migrations.js';
 export {
   checkLock,
   type CheckProblem,

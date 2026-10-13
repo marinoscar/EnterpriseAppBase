@@ -35,7 +35,19 @@ const lockSchema = z
       .array(z.object({ id: z.string().min(1), reason: z.string().min(1), expectDiff: z.array(z.string()) }).strict())
       .optional(),
     rawSqlIndexes: z.array(z.object({ name: z.string().min(1), definition: z.string().min(1) }).strict()).optional(),
-    rlsPolicies: z.array(z.object({ name: z.string().min(1), table: z.string().min(1) }).strict()).optional(),
+    rlsPolicies: z
+      .array(
+        z
+          .object({
+            name: z.string().min(1),
+            table: z.string().min(1),
+            usingSha256: sha256Schema.optional(),
+            checkSha256: sha256Schema.optional(),
+          })
+          .strict(),
+      )
+      .optional(),
+    appMigrations: z.array(z.string().min(1).refine((v) => !/[\\/]/.test(v), 'must be a bare directory name')).optional(),
   })
   .strict();
 
@@ -102,13 +114,44 @@ export interface PlatformLock {
   deviations?: LockDeviation[];
   /** The app's own raw-SQL indexes. */
   rawSqlIndexes?: RawSqlIndex[];
-  /** The app's own row-level-security policies (name and table), asserted against `pg_policies` like the package's. */
-  rlsPolicies?: Array<{
-    /** The policy name, as `pg_policies.policyname` reports it. */
-    name: string;
-    /** The table the policy is defined on, as `pg_policies.tablename` reports it. */
-    table: string;
-  }>;
+  /**
+   * The app's own row-level-security policies, asserted against `pg_policies`
+   * by `platform db drift` and against the migration SQL by the offline
+   * `runDbConformance` check, like the package's.
+   */
+  rlsPolicies?: LockRlsPolicy[];
+  /**
+   * The app-authored migration directories that existed when `platform db sync`
+   * (or `promote`) last wrote this lock. The offline check reads it to tell an
+   * app migration that predates an installed platform migration (it was there
+   * when the platform migration was installed, so it sorts before it by design)
+   * from one that was added afterwards under a stale timestamp, which would
+   * reorder history. Absent in a lock written before the field existed: the
+   * ordering check is then skipped until the next sync.
+   */
+  appMigrations?: string[];
+}
+
+/**
+ * A row-level-security policy the app owns, listed in `platform.lock`.
+ *
+ * @stability experimental
+ */
+export interface LockRlsPolicy {
+  /** The policy name, as `pg_policies.policyname` reports it. */
+  name: string;
+  /** The table the policy is defined on, as `pg_policies.tablename` reports it. */
+  table: string;
+  /**
+   * SHA-256 of the policy's `USING` expression, normalised by
+   * {@link normaliseSqlExpression} (whitespace collapsed, case folded outside
+   * quotes). Optional: when present, the offline check fails if the migration
+   * SQL leaves a different expression, so a weakened policy is caught without
+   * a database.
+   */
+  usingSha256?: string;
+  /** SHA-256 of the policy's `WITH CHECK` expression, normalised the same way; optional. */
+  checkSha256?: string;
 }
 
 /**

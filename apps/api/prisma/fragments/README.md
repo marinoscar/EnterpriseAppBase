@@ -26,7 +26,7 @@ extend model User {
 }
 ```
 
-Only a model its owner marked `// @extensible` can be extended: `User`, `Organization`, `Job`, `Group` and `StorageObject`. An `extend` block holds back-relation fields only: no scalar field, no `fields: [...]` relation, no `@@` attribute (each is a composer error with a stable code, a file and a line).
+Only a model its owner marked `// @extensible` can be extended: `User`, `Organization`, `Role`, `Job`, `Group`, `Grant`, `AiRun`, `StorageObject`, `Notification`, `NotificationDelivery` and `Credential` (`Permission` is closed on purpose; what to hang on each, and the composite keys an org-owned table needs: [platform-db README](../../../../packages/platform-db/README.md#extension-point-catalog)). An `extend` block holds back-relation fields only: no scalar field, no `fields: [...]` relation, no `@@` attribute (each is a composer error with a stable code, a file and a line).
 
 Then:
 

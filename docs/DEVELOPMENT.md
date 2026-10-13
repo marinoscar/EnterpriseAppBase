@@ -350,8 +350,16 @@ it and regenerating the catalogs, never by editing a seed file. The seed only
 upserts: it never deletes (a permission removed from the registry stays as a row
 until a migration removes it) and never overwrites an admin-edited value.
 
-**Where an app adds its own seed rows.** `apps/api/prisma/seed-app.ts`
-(`seedApp(prisma)`), which `seed.ts` runs after `seedPlatform`. Keep it
+**Where an app adds its own seed rows.** As seed steps: `APP_SEED_STEPS` in
+`apps/api/prisma/seed-app.ts`, each `{ id, run(tx, ctx) }` returning
+`{ created, updated }`. `seed.ts` hands them to `seedPlatform(..., { extras })`,
+which runs them after the platform's own, each in a transaction, under the same
+log (`Seeding <id>...`, `✓ <id>: n created, m updated`), and checks the ids
+before writing anything. A step's second run must create 0: prove it with
+`assertSeedIdempotent` from `@marinoscar/platform-db/seed` in a real-database
+test (`test/examples/db/app-extension.db.spec.ts` is the model, the step
+`src/platform-extensions/db/coach-defaults.seed-step.ts`). Rows that are not a
+step can still go in `seedApp(prisma)`, which `seed.ts` runs after that. Keep both
 idempotent (upserts keyed on a natural unique, never a `findFirst` then a
 `create`) and Nest-free: the script runs under `ts-node --transpile-only` in an
 image without `src/`, and `test/prisma/seed-imports.spec.ts` fails when its import
@@ -513,9 +521,11 @@ edit a file in it. It is composed from two hand-edited sources:
 | `packages/platform-db/schema/<slice>.prisma` (and `base.prisma`) | The platform's models, one fragment per slice | A change to a platform model, enum or index |
 | `apps/api/prisma/fragments/*.prisma` | The app's own models and `extend model` blocks | A new app model, or a back-relation to a platform model |
 
-1. Edit the fragment that owns the model. A new model that points at `User`,
-   `Job` or `StorageObject` adds an `extend model User { workouts Workout[] }`
-   block beside it (see
+1. Edit the fragment that owns the model. A new model that points at an
+   extensible platform model (`User`, `Organization`, `Role`, `Job`, `Group`,
+   `Grant`, `AiRun`, `StorageObject`, `Notification`, `NotificationDelivery`,
+   `Credential`) adds an `extend model User { workouts Workout[] }` block beside
+   it (a back-relation changes no SQL; `Permission` stays closed; see
    [`apps/api/prisma/fragments/README.md`](../apps/api/prisma/fragments/README.md)).
 2. Compose the schema (the packages must be built once, `npm run build:packages`,
    because the `platform` command runs the built package):
@@ -541,8 +551,15 @@ edit a file in it. It is composed from two hand-edited sources:
    [common/permissions/README.md](../apps/api/src/common/permissions/README.md),
    then run `npm run catalog:permissions --workspace=api` and
    `npm run catalog:settings --workspace=api`). Rows of your own go in
-   `prisma/seed-app.ts` (see [Seeding the Database](#seeding-the-database)).
+   `prisma/seed-app.ts` as seed steps (`APP_SEED_STEPS`, see
+   [Seeding the Database](#seeding-the-database)).
    Then run `npm run prisma:seed`.
+
+A per-user or per-organization app field does not need a model or a migration at
+all: `users.metadata` and `organizations.metadata` hold one registered, zod
+validated namespace per key
+([identity README](../packages/platform-api/src/identity/README.md#app-metadata-on-users-and-organizations)).
+Metadata is not a secret store and a document may not exceed 16 KiB.
 
 `npm run db:compose:check --workspace=api` (CI, in the `build` job) fails when
 `prisma/schema/` differs from a fresh compose: either a fragment changed
@@ -555,7 +572,15 @@ The project configures the database with individual `POSTGRES_*` variables,
 never a single `DATABASE_URL`. The `prisma:*` scripts build the URL for you.
 
 Three commands guard the migration history; CI's `smoke` job runs them after
-`prisma:migrate`:
+`prisma:migrate`. Offline, `runDbConformance` (`test/prisma/platform-db-conformance.spec.ts`)
+adds two more checks to the app's own unit tests: an app raw-SQL index or
+policy listed in `platform.lock` must be created by a migration, with the same
+expression, and not dropped later (`npm run db:policies --workspace=api` prints
+the policy entries with their expression hashes), and an app migration must not
+share a name with a package migration or sort before an installed platform
+migration it was not there for
+([platform-db README](../packages/platform-db/README.md#app-schema-objects-offline)).
+`db:check` and `platform db sync` apply the second rule too.
 
 ```bash
 cd apps/api

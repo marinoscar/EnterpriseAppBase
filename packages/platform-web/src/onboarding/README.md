@@ -47,7 +47,7 @@ and binds the two pages as registry cards and routes:
 
 ## Configuration
 
-`OnboardingProvider` props: `appName` (used in the copy; default `'this app'`) and `client` (default `createOnboardingClient(host.api)`). `WelcomeDialog` props: `slots`, `setupPath` (default `/admin/settings/setup`), `gettingStartedPath` (default `/settings/getting-started`). `SetupGuidePage` props: `showActivation` (default `true`), `footer`. No environment variable.
+`OnboardingProvider` props: `appName` (used in the copy; default `'this app'`) and `client` (default `createOnboardingClient(host.api)`). `WelcomeDialog` props: `slots`, `setupPath` (default `/admin/settings/setup`), `gettingStartedPath` (default `/settings/getting-started`). `SetupGuidePage` props: `showActivation` (default `true`), `footer`, `slots`. `GettingStartedPage` props: `slots`. No environment variable.
 
 ## Extension-point catalog
 
@@ -63,8 +63,10 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | `useGettingStartedAction` | hook | `useGettingStartedAction(): GettingStartedAction` | Build the app's own "Getting started" menu entry | experimental | [example](../../../../apps/web/src/__tests__/platform/onboarding.test.tsx) |
 | `WelcomeDialog` | slot | `WelcomeDialog(props: { slots?: { adminPane?; userPane? }; setupPath?; gettingStartedPath? }): ReactElement \| null` | The one-time welcome; an app's question goes in a pane slot | experimental | [example](../../../../apps/web/src/platform-extensions/onboarding/RoleWelcomePane.example.tsx) |
 | `OnboardingChecklist` | component | `OnboardingChecklist(props: { steps; completed; total; label?; grouped?; onNavigate?; onSkip? }): ReactElement` | Embed a checklist in an app page | experimental | [example](../../../../apps/web/src/platform-extensions/onboarding/GetStartedCard.example.tsx) |
-| `SetupGuidePage` | component | `SetupGuidePage(props?: { showActivation?; footer? }): ReactElement` | Route `/admin/settings/setup` | experimental | [example](../../../../apps/web/src/App.tsx) |
-| `GettingStartedPage` | component | `GettingStartedPage(): ReactElement` | Route `/settings/getting-started` | experimental | [example](../../../../apps/web/src/App.tsx) |
+| `SetupGuidePage` | component | `SetupGuidePage(props?: { showActivation?; footer?; slots?: SetupGuidePageSlots }): ReactElement` | Route `/admin/settings/setup` | experimental | [example](../../../../apps/web/src/App.tsx) |
+| `SetupGuidePageSlots` | slot | `PageSlotsBase` (`Header`, `BeforeContent`, `Sections`, `AfterContent`) | Add a notice or an own section to the Setup guide, or replace its header, without a fork | experimental | [example](../../../../apps/web/src/platform-extensions/onboarding/OnboardingPageSlots.example.tsx) |
+| `GettingStartedPage` | component | `GettingStartedPage(props?: { slots?: GettingStartedPageSlots }): ReactElement` | Route `/settings/getting-started` | experimental | [example](../../../../apps/web/src/App.tsx) |
+| `GettingStartedPageSlots` | slot | `PageSlotsBase` (`Header`, `BeforeContent`, `Sections`, `AfterContent`) | Add a note or an own section to the Getting started page, or replace its header, without a fork | experimental | [example](../../../../apps/web/src/platform-extensions/onboarding/OnboardingPageSlots.example.tsx) |
 | `ActivationMetrics` | component | `ActivationMetrics(): ReactElement` | The Activation section (a section of the Setup guide, not a card) | experimental | [example](../../../../apps/web/src/__tests__/platform/onboarding.test.tsx) |
 | `FeatureUnavailableNotice` | component | `FeatureUnavailableNotice(props: { feature: string; detail? }): ReactElement` | Replace a control whose feature is not set up | experimental | [example](../../../../apps/web/src/__tests__/platform/onboarding.test.tsx) |
 | `GettingStartedMenuItem` | component | `GettingStartedMenuItem(props: { onDone? }): ReactElement \| null` | The "Getting started" item of the app's user menu | experimental | [example](../../../../apps/web/src/components/navigation/UserMenu.tsx) |
@@ -84,6 +86,7 @@ Declares none; reads the viewer's through the platform host. `user_settings:read
 ## UI
 
 - **Pages:** `SetupGuidePage` (`/admin/settings/setup`: the admin steps in Required / Recommended / Optional groups, Re-check with `refresh=true`, Open the Doctor, the Activation section) and `GettingStartedPage` (`/settings/getting-started`: the user steps with Skip, "Show the welcome again").
+- **Page slots:** both pages take the packaged-page slot contract (`PageSlotsBase`, [Page slots](../core/README.md#page-slots)) through `slots`: `Header` (gets `{ title, description, actions: null }`; print `title` as the `h1`), `BeforeContent`, `Sections` (drawn at both ends of the body, `position: 'top'` under the header and `'bottom'` after the page's own content, which on the Setup guide includes the `footer` and the Activation section; return `null` for the position you do not want) and `AfterContent`. Use `Sections` for an app's own notes or extra steps; the platform's steps come from the API's step registry. The Setup guide keeps its `footer` and `showActivation` props. With no slot each page's markup is exactly what it was (`test/onboarding/pages.builtin-dom.test.tsx` pins it).
 - **Slots:** `WelcomeDialog` `slots.adminPane` and `slots.userPane`, each given `{ descriptionId, appName, setExtra }`; what a pane passes to `setExtra` is stored with the "seen" write.
 - **Registry entries:** `setupGuideSettingsPage` (admin, General, appended, before any Danger Zone group) and `gettingStartedSettingsPage` (user, Account, appended, before any Danger Zone group).
 - **Theme:** the app's MUI theme styles every part; no tokens of its own.
@@ -105,6 +108,8 @@ The permission checks here only choose what to show; the API enforces its own ga
 None in the web package. The reference app's `apps/web/src/__tests__/config/platformPages.test.ts` checks each descriptor is one card and one route with the exact permission, and that any Danger Zone group stays last; the API slice carries the onboarding conformance suite.
 
 ## Upgrade notes
+
+PP-14.24b (#974): `GettingStartedPage` and `SetupGuidePage` take `slots` (`PageSlotsBase`); `GettingStartedPage` now accepts a props object (all optional), so `<GettingStartedPage />` is unchanged. They were the last entries, with `DataExportPage`, on `test/page-slots.exempt.json`, which is now empty.
 
 New in #745. From EvoPath: its `useOnboarding` and `OnboardingProvider` map one to one (`markWelcomeSeen(goal)` becomes `markWelcomeSeen({ goal })`), `group` becomes `tier`, `label` becomes `title`, its goal chips become a `WelcomeDialog` `userPane`, its Today card embeds `OnboardingChecklist`. From kvox: its three-pane welcome comes through the slots; `SetupChecklist` and `GettingStartedPage` are replaced by the packaged pages.
 

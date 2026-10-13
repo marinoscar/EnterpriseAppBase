@@ -25,12 +25,24 @@ export {
   type PgClient,
 } from './run.js';
 export {
+  assertAppSchemaObjects,
+  checkAppSchemaObjects,
+  readAppMigrations,
+  type AppObjectProblem,
+  type AppObjectProblemCode,
+  type AppSchemaObjectsInput,
+  type AssertAppSchemaObjectsOptions,
+} from './app-objects.js';
+export { normaliseSqlExpression, sqlExpressionSha256 } from './sql-expression.js';
+export {
   assertRawSqlIndexes,
+  scanAllIndexes,
   checkRawSqlIndexSources,
   scanFragmentIndexes,
   scanRawSqlIndexes,
   type AssertRawSqlIndexesOptions,
   type FragmentIndex,
+  type ScannedAnyIndex,
   type ScannedIndex,
   type TripwireInput,
   type TripwireProblem,

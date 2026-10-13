@@ -458,18 +458,18 @@ The plumbing every slice assumes is around it, packaged so an app mounts it with
 
 ### 6.1 Prisma models
 
-The schema is composed from per-slice fragments in `packages/platform-db/schema/` (one file per slice: identity, settings, storage, credentials, notifications, jobs, db-backup, ai, sharing; plus `base.prisma` for the generator and datasource) and the app's own `apps/api/prisma/fragments/`. `npm run db:compose --workspace=api` writes the generated, committed folder `apps/api/prisma/schema/` that Prisma reads; a back-relation on a platform model (`User`, `Job`, `StorageObject`, `Organization`, `Group`) is an `extend model` block in the fragment that owns the foreign key ([platform packages spec](specs/platform-packages.md#known-hard-problem-relations-to-package-owned-models)). The fragments' block comments carry per-column reasoning. All 40 models, grouped by subsystem:
+The schema is composed from per-slice fragments in `packages/platform-db/schema/` (one file per slice: identity, settings, storage, credentials, notifications, jobs, db-backup, ai, sharing; plus `base.prisma` for the generator and datasource) and the app's own `apps/api/prisma/fragments/`. `npm run db:compose --workspace=api` writes the generated, committed folder `apps/api/prisma/schema/` that Prisma reads; a back-relation on a platform model (`User`, `Organization`, `Role`, `Job`, `Group`, `Grant`, `AiRun`, `StorageObject`, `Notification`, `NotificationDelivery`, `Credential`) is an `extend model` block in the fragment that owns the foreign key ([platform packages spec](specs/platform-packages.md#known-hard-problem-relations-to-package-owned-models)). The fragments' block comments carry per-column reasoning. All 40 models, grouped by subsystem:
 
 | Subsystem | Model | Table | Purpose |
 |---|---|---|---|
-| Identity | `User` | `users` | User account, profile, active flag |
+| Identity | `User` | `users` | User account, profile, active flag; `metadata` (JSONB) holds the app's registered namespaces ([app metadata](../packages/platform-api/src/identity/README.md#app-metadata-on-users-and-organizations)) |
 | Identity | `UserIdentity` | `user_identities` | OAuth identity (provider + subject) linked to a user |
 | Identity | `AllowedEmail` | `allowed_emails` | Allowlist entry, `pending` or `claimed` |
 | Identity | `RefreshToken` | `refresh_tokens` | Hashed refresh tokens, rotated on use |
 | Identity | `PersonalAccessToken` | `personal_access_tokens` | Hashed `pat_` tokens with display prefix and expiry |
 | Identity | `DeviceCode` | `device_codes` | RFC 8628 device authorization requests |
 | Identity | `AuditEvent` | `audit_events` | Security-relevant action log |
-| Identity | `Organization` | `organizations` | A tenancy boundary; exactly one row is the default organization (`is_default`) |
+| Identity | `Organization` | `organizations` | A tenancy boundary; exactly one row is the default organization (`is_default`); `metadata` (JSONB) holds the app's registered namespaces |
 | Identity | `Membership` | `memberships` | A user's membership of an organization, `active` or `suspended`, with its org role (`role_id`, required); unique per `(org_id, user_id)` |
 | Identity | `Invite` | `org_invites` | An invitation of an email address to an organization, with the org role it grants (`role_id`; NULL means the default org role); unique per `(org_id, email)` |
 | RBAC | `Role` | `roles` | Admin (scope `system`), Org admin, Contributor, Viewer (scope `org`) |

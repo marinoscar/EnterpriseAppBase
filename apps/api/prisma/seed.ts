@@ -6,7 +6,7 @@ import { platformSeedInputFrom, seedPlatform } from '@marinoscar/platform-db/see
 // can import IT to check the data. See seed-data.ts.
 import { SEED_SNAPSHOT } from './seed-data';
 // The app's own seed rows, run after the platform's. See seed-app.ts.
-import { seedApp } from './seed-app';
+import { APP_SEED_STEPS, seedApp } from './seed-app';
 
 // Prisma 7 requires a driver adapter — PrismaClient can no longer be
 // instantiated with no options. The seed script is invoked as a standalone
@@ -37,7 +37,9 @@ const prisma = new PrismaClient({ adapter });
 // `seedPlatform` from `@marinoscar/platform-db/seed`: upserts only, never a
 // delete, never an overwrite of an admin-edited value, so this script can run
 // on every deploy. The input is built from the registries' snapshot
-// (`prisma/catalog/`). The app's own rows follow, in `seed-app.ts`. Both halves
+// (`prisma/catalog/`). The app's own rows follow: its seed STEPS
+// (`APP_SEED_STEPS` in `seed-app.ts`, run by `seedPlatform` itself) and then
+// `seedApp`. Both halves
 // log through the console, which is what operators read during `appctl deploy`.
 //
 // This script must stay standalone and Nest-free: it runs under
@@ -48,7 +50,7 @@ async function main() {
 
   const log = { info: (msg: string) => console.log(msg) };
 
-  await seedPlatform(prisma, platformSeedInputFrom(SEED_SNAPSHOT, process.env), log);
+  await seedPlatform(prisma, platformSeedInputFrom(SEED_SNAPSHOT, process.env), { log, extras: APP_SEED_STEPS });
   await seedApp(prisma);
 
   console.log('\n✓ Database seeding completed successfully');

@@ -67,6 +67,11 @@
       "reason": "how a provider's flow is mounted (redirect or custom); a behaviour switch, provider ids are open"
     },
     {
+      "file": "packages/platform-api/src/identity/metadata/metadata-secret-guard.ts",
+      "symbol": "METADATA_SECRET_FIELD_NAMES",
+      "reason": "security tripwire vocabulary: secret-named fields refused in metadata; deliberately closed, extended by editing the guard"
+    },
+    {
       "file": "packages/platform-api/src/identity/organizations/tenancy-mode.ts",
       "symbol": "TENANCY_MODES",
       "reason": "values accepted by TENANCY_MODE; a deployment switch mirroring the contract"

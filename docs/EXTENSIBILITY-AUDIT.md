@@ -15,7 +15,7 @@ The audit record of the extension seams of every platform slice. A closed point 
 
 Evidence paths are written `api:`, `web:`, `contract:`, `cli:`, `db:` and `infra:` for `packages/platform-api/src/`, `packages/platform-web/src/`, `packages/platform-contract/src/`, `packages/platform-cli/src/`, `packages/platform-db/` and `packages/platform-infra/`; a path under `apps/` or `docs/` is from the repository root. A story is written PP-14.n (its issue number follows).
 
-As of this version: 115 closed points in 29 sections, 107 fixed and 8 open.
+As of this version: 115 closed points in 29 sections, 112 fixed and 3 open.
 
 **Guardrail:** `npm run check:closed-lists` ([PACKAGES.md](PACKAGES.md#closed-id-lists)) is green: every closed id list that remains in `packages/platform-*/src` is listed with a written reason in [`closed-lists.allowlist.json`](../packages/closed-lists.allowlist.json), and a new one fails CI until it is opened with a registry or listed. This meets the epic's success criterion for the guardrail.
 
@@ -38,7 +38,7 @@ As of this version: 115 closed points in 29 sections, 107 fixed and 8 open.
 | [sharing](#sharing) | Mostly open | 5 | 3 | 2 | PP-14.16, PP-14.15, PP-14.25 |
 | [manifest](#manifest) | Open | 2 | 2 | 0 | PP-14.15 |
 | [user-data](#user-data) | Mostly open | 1 | 1 | 0 | PP-14.24 |
-| [platform-db](#platform-db) | Mostly open | 6 | 1 | 5 | PP-14.27, PP-14.4 |
+| [platform-db](#platform-db) | Open | 6 | 6 | 0 | PP-14.27, PP-14.4 |
 | [platform-cli](#platform-cli) | Open | 7 | 7 | 0 | PP-14.22 |
 | [platform-infra](#platform-infra) | Open | 2 | 2 | 0 | PP-14.22 |
 | [testing (api and web)](#testing-api-and-web) | Open | 2 | 2 | 0 | PP-14.26 |
@@ -85,7 +85,7 @@ The 28 stories of the epic, in order. Phase 1 makes the existing seams real; pha
 | PP-14.24 | #942 | web: apply the slot contract to AI, storage, email, telemetry, android, host, profile, user-data and notifications pages | 4 | 14.23 (and the phase 2 story of each slice) | no | This change |
 | PP-14.25 | #943 | web: slots for identity and sharing pages, login layout, and shell navigation and themes | 4 | 14.23, 14.9, 14.15 | no | This change |
 | PP-14.26 | #944 | testing: extension-author kits for doctor checks and job handlers, and configurable web suites | 5 | none | no | This change |
-| PP-14.27 | #945 | db: app metadata on users and organizations, more extensible models, offline checks for app indexes and RLS policies, seed hook | 5 | 14.4 | yes | Open |
+| PP-14.27 | #945 | db: app metadata on users and organizations, more extensible models, offline checks for app indexes and RLS policies, seed hook | 5 | 14.4 | yes | This change |
 | PP-14.28 | #946 | ci: a guardrail that stops new closed id lists in the packages | 5 | all other PP-14 stories | no | This change |
 
 ## Patterns
@@ -99,7 +99,7 @@ The closed points fall into six repeating patterns. Each is removed once, in one
 | 3 | Packaged web pages with no slots, or a `Header` slot only | The packaged-page slot contract (PP-14.23 to PP-14.25). |
 | 4 | Settings extension is top-level only (no nested paths, no org layer, no core `profile` or `theme`) | PP-14.21 (shipped: [Extend a settings namespace](EXTENDING.md#extend-a-settings-namespace)). |
 | 5 | No test kit for extension authors (except AI providers and storage drivers) | Each phase 2 story ships its kit; PP-14.26 covers the rest. |
-| 6 | Data model: few platform models accept app relations, no JSONB `metadata` on `User` or `Organization` | PP-14.27. |
+| 6 | Data model: few platform models accept app relations, no JSONB `metadata` on `User` or `Organization` | PP-14.27 (shipped: [Add app metadata to users and organizations](EXTENDING.md#add-app-metadata-to-users-and-organizations), [Add a side table with an `extend model` relation](EXTENDING.md#add-a-side-table-with-an-extend-model-relation)). |
 
 ## Slices
 
@@ -114,6 +114,8 @@ Sections follow the verdict, from the most open slice to the most closed.
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
 | onboarding-1 | The audiences are `admin` and `user`; tiers and statuses are closed; there is no organization-administrator audience for a multi-org app, and `validateStep` rejects any other audience. | contract: `onboarding/constants.ts:16`; api: `onboarding/onboarding.registries.ts` | Add the built-in `org_admin` audience (from the `org_admin` membership role) and `registerOnboardingAudience`; audiences become `Builtin | (string & {})`. | PP-14.20 (#938) | Fixed |
+
+Note (PP-14.24b, #974): `GettingStartedPage` and `SetupGuidePage` were the two onboarding pages left on `page-slots.exempt.json`. Both now take `slots` of the page-slot contract (`Header`, `BeforeContent`, `Sections`, `AfterContent`); the exempt list is empty. A note, not a row: the point count is unchanged.
 
 ### credentials
 
@@ -166,6 +168,8 @@ Closed points: none recorded at the audit commit.
 | exports-1 | A new writer cannot attach to the built-in sources: `writersFor` filters by `source.formats`, `writer.sources` can only narrow, and `user-data` and `org-data` hard-code `json`, `csv`, `xlsx`. | api: `exports/sources/user-data.source.ts:91`; `exports/sources/org-data.source.ts:149` | `registerExportWriter({ attachTo: '*' | string[] })`; built-in sources compute formats from attached writers. | PP-14.20 (#938) | Fixed |
 | exports-2 | `EXPORT_COLUMN_TYPES` is closed and a writer has nowhere to keep its own typing (Parquet logical types). | contract: `exports/constants.ts` | `ExportColumn.meta` (bounded scalars); the column types stay closed. | PP-14.20 (#938) | Fixed |
 | exports-3 | `ExportsList` has no column or row-action slots. | web: `exports/ui/` | `slots.Columns` and `slots.RowActions`. | PP-14.20 (#938) | Fixed |
+
+Note (PP-14.24b, #974): `DataExportPage` was the page left on `page-slots.exempt.json`. It now takes `slots` of the page-slot contract and forwards the list's `Columns` and `RowActions`, so exports-3 is reachable from the page too; the exempt list is empty. A note, not a row: the point count is unchanged.
 
 ### jobs
 
@@ -293,17 +297,17 @@ Closed points: none recorded at the audit commit.
 
 ### platform-db
 
-**Verdict:** Mostly open · **Packages:** db · **Closed points:** 6 (1 fixed, 5 open) · **Stories:** PP-14.27, PP-14.4
+**Verdict:** Open · **Packages:** db · **Closed points:** 6 (6 fixed, 0 open) · **Stories:** PP-14.27, PP-14.4
 
-**Open points.** `extend model` blocks (`ComposeOptions.appFragmentsDir`), app migrations after the installed ones, `rawSqlIndexes` and `rlsPolicies` in `platform.lock`, `platform db drift` over the app's lists, `seedPlatform`.
+**Open points.** `extend model` blocks (`ComposeOptions.appFragmentsDir`) on eleven models (`User`, `Organization`, `Role`, `Job`, `Group`, `Grant`, `AiRun`, `StorageObject`, `Notification`, `NotificationDelivery`, `Credential`; `Permission` closed on purpose), namespaced app metadata on `users` and `organizations` (`registerUserMetadataSchema`, `registerOrganizationMetadataSchema`, `IdentityMetadataService`), app migrations after the installed ones (a collision or a stale-dated one is refused), `rawSqlIndexes` and `rlsPolicies` (with optional expression hashes) in `platform.lock`, checked offline by `runDbConformance` and against a database by `platform db drift`, `seedPlatform(prisma, input, { extras })` with `SeedStep` and `assertSeedIdempotent`.
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
-| platform-db-1 | Only five models are `@extensible` (`User`, `Organization`, `Job`, `Group`, `StorageObject`); `Notification*`, `Credential`, `AiRun`, `Grant`, `Role` and `Permission` are closed, so an app cannot hang a relation on them. | db: `compose/compose.ts:149-153` (`NOT_EXTENSIBLE`) | Mark `Notification`, `NotificationDelivery`, `Credential` (metadata only), `AiRun`, `Grant`, `Role` extensible; `Permission` stays closed, documented. | PP-14.27 (#945) | Open |
-| platform-db-2 | `extend` accepts back-relations only and `extend enum` is rejected; `User` and `Organization` have no JSONB `metadata`, so any per-user app field needs a side table. | db: `compose/compose.ts:141, :162-183` | Migration: `metadata jsonb NOT NULL DEFAULT '{}'` on `users` and `organizations`; `registerUserMetadataSchema` and `registerOrganizationMetadataSchema`. | PP-14.27 (#945) | Open |
-| platform-db-3 | `runDbConformance` checks only the package's own indexes and policies; an app's `rawSqlIndexes` and `rlsPolicies` are checked only by `db drift` against a live database, and an app policy is listed by `{ name, table }` only. | db: `drift/db-conformance.ts:79, :83`; `lock/lock.ts:38` | `runDbConformance({ appRoot })` scans the app's migrations for each lock entry; policy entries gain an optional expression hash. | PP-14.27 (#945) | Open |
-| platform-db-4 | The seed writes five fixed tables with no hook for app steps and no shared idempotence contract. | db: `seed/` | `seedPlatform(prisma, input, { extras: SeedStep[] })` with an idempotence contract. | PP-14.27 (#945) | Open |
-| platform-db-5 | Nothing checks that an app migration name does not collide with, or reorder around, an installed platform id. | db: `sync/` | `platform db sync` and `db:check` fail on a collision. | PP-14.27 (#945) | Open |
+| platform-db-1 | Only five models are `@extensible` (`User`, `Organization`, `Job`, `Group`, `StorageObject`); `Notification*`, `Credential`, `AiRun`, `Grant`, `Role` and `Permission` are closed, so an app cannot hang a relation on them. | db: `compose/compose.ts:149-153` (`NOT_EXTENSIBLE`) | Mark `Notification`, `NotificationDelivery`, `Credential` (metadata only), `AiRun`, `Grant`, `Role` extensible; `Permission` stays closed, documented. | PP-14.27 (#945) | Fixed |
+| platform-db-2 | `extend` accepts back-relations only and `extend enum` is rejected; `User` and `Organization` have no JSONB `metadata`, so any per-user app field needs a side table. | db: `compose/compose.ts:141, :162-183` | Migration: `metadata jsonb NOT NULL DEFAULT '{}'` on `users` and `organizations`; `registerUserMetadataSchema` and `registerOrganizationMetadataSchema`. | PP-14.27 (#945) | Fixed |
+| platform-db-3 | `runDbConformance` checks only the package's own indexes and policies; an app's `rawSqlIndexes` and `rlsPolicies` are checked only by `db drift` against a live database, and an app policy is listed by `{ name, table }` only. | db: `drift/db-conformance.ts:79, :83`; `lock/lock.ts:38` | `runDbConformance({ appRoot })` scans the app's migrations for each lock entry; policy entries gain an optional expression hash. | PP-14.27 (#945) | Fixed |
+| platform-db-4 | The seed writes five fixed tables with no hook for app steps and no shared idempotence contract. | db: `seed/` | `seedPlatform(prisma, input, { extras: SeedStep[] })` with an idempotence contract. | PP-14.27 (#945) | Fixed |
+| platform-db-5 | Nothing checks that an app migration name does not collide with, or reorder around, an installed platform id. | db: `sync/` | `platform db sync` and `db:check` fail on a collision. | PP-14.27 (#945) | Fixed |
 | platform-db-6 | The `rlsPolicies` lock key and the RLS migration shape were undocumented for app tables (the README covered `rawSqlIndexes` only). | db: `README.md` (Extension-point catalog, Data) | Document the lock entry, the migration SQL and the drift problem codes. | PP-14.4 (#922) | Fixed |
 
 ### platform-cli
