@@ -78,7 +78,9 @@ function register(api: WebConformanceTestApi, context: WebConformanceContext): v
     });
 
     it('gives every destination in the table a route it owns', () => {
+      // An external destination (a link to another site) owns no route.
       const failures = view.destinations
+        .filter((destination) => destination.external !== true)
         .filter((destination) => view.resolveActive(destination.path) !== destination.key)
         .map((destination) => `${destination.path} activates ${String(view.resolveActive(destination.path))}, expected ${destination.key}`);
 
@@ -112,6 +114,7 @@ function register(api: WebConformanceTestApi, context: WebConformanceContext): v
       expect(view.owns('/', '/')).toEqual(true);
 
       const failures = view.destinations
+        .filter((destination) => destination.external !== true)
         .filter((destination) => destination.path !== '/')
         .filter((destination) => view.resolveActive(`${destination.path}/child`) !== destination.key)
         .map((destination) => `${destination.path}/child does not activate ${destination.key}`);
