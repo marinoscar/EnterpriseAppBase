@@ -168,7 +168,12 @@ export interface DoctorReadOnlyOptions {
   readonly defaultTimeoutMs?: number;
 }
 
-/** The side-effecting services of rule 3 of the contract. */
+/**
+ * The class names of the side-effecting "test" services a Doctor check must not
+ * hold (rule 3 of the contract). The default of `DoctorReadOnlyOptions.forbiddenServices`.
+ *
+ * @stability experimental
+ */
 export const DOCTOR_FORBIDDEN_SERVICES: readonly string[] = [
   'StorageConnectionTestService',
   'AiProviderTestService',
