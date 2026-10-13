@@ -1,4 +1,5 @@
 {
+  "appMigrations": [],
   "lockVersion": 1,
   "migrations": [
     {

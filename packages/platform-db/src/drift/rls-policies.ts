@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import type { ManifestEntry } from '../lock/index.js';
-import { splitSqlStatements } from './raw-sql-tripwire.js';
+import { balanced, splitSqlStatements } from './raw-sql-tripwire.js';
+import { normaliseSqlExpression } from './sql-expression.js';
 
 const policySchema = z
   .object({
@@ -215,6 +216,10 @@ export interface ScannedPolicy {
   table: string;
   /** The migration id that first creates a policy of this name on the table. */
   createdIn: string;
+  /** The `USING` expression the history leaves (after any `ALTER POLICY`), normalised by {@link normaliseSqlExpression}; absent when the policy has none. */
+  using?: string;
+  /** The `WITH CHECK` expression the history leaves, normalised the same way; absent when the policy has none. */
+  check?: string;
 }
 
 /**
@@ -234,6 +239,7 @@ export interface ScannedRls {
 const IDENT = '(?:"[^"]+"|[A-Za-z_][\\w$]*)';
 const QUALIFIED = `${IDENT}(?:\\.${IDENT})?`;
 const CREATE_POLICY = new RegExp(`^CREATE\\s+POLICY\\s+(${IDENT})\\s+ON\\s+(${QUALIFIED})`, 'i');
+const ALTER_POLICY = new RegExp(`^ALTER\\s+POLICY\\s+(${IDENT})\\s+ON\\s+(${QUALIFIED})`, 'i');
 const DROP_POLICY = new RegExp(`^DROP\\s+POLICY\\s+(?:IF\\s+EXISTS\\s+)?(${IDENT})\\s+ON\\s+(${QUALIFIED})`, 'i');
 const ALTER_RLS = new RegExp(`^ALTER\\s+TABLE\\s+(?:IF\\s+EXISTS\\s+)?(?:ONLY\\s+)?(${QUALIFIED})\\s+(ENABLE|DISABLE|FORCE|NO\\s+FORCE)\\s+ROW\\s+LEVEL\\s+SECURITY`, 'i');
 const DROP_TABLE = new RegExp(`^DROP\\s+TABLE\\s+(?:IF\\s+EXISTS\\s+)?(${QUALIFIED})`, 'i');
@@ -243,6 +249,40 @@ const unqualify = (qualified: string): string => {
   const parts = qualified.match(new RegExp(IDENT, 'g')) ?? [qualified];
   return unquote(parts[parts.length - 1]!);
 };
+
+/** The `USING (...)` and `WITH CHECK (...)` expressions of a `CREATE POLICY` or `ALTER POLICY` statement, normalised. */
+function policyExpressions(statement: string): { using?: string; check?: string } {
+  const found: { using?: string; check?: string } = {};
+  let depth = 0;
+  let quote = '';
+  for (let i = 0; i < statement.length; i += 1) {
+    const c = statement[i]!;
+    if (quote) {
+      if (c === quote) quote = '';
+      continue;
+    }
+    if (c === "'" || c === '"') {
+      quote = c;
+    } else if (c === '(') {
+      depth += 1;
+    } else if (c === ')') {
+      depth -= 1;
+    } else if (depth === 0 && !/[\w$]/.test(statement[i - 1] ?? ' ')) {
+      const rest = statement.slice(i);
+      const keyword = /^(WITH\s+CHECK|USING)\s*\(/i.exec(rest);
+      if (keyword) {
+        const open = i + keyword[0].length - 1;
+        const group = balanced(statement, open);
+        if (!group) break;
+        const expression = normaliseSqlExpression(group.inner);
+        if (keyword[1]!.toUpperCase() === 'USING') found.using = expression;
+        else found.check = expression;
+        i = statement.length - group.rest.length - 1;
+      }
+    }
+  }
+  return found;
+}
 
 /**
  * Reads the row-level security a migration history leaves behind, in
@@ -268,7 +308,24 @@ export function scanRlsPolicies(migrations: ReadonlyArray<readonly [string, stri
         const table = unqualify(create[2]!);
         const key = `${table}\u0000${name}`;
         if (!firstCreated.has(key)) firstCreated.set(key, id);
-        live.set(key, { name, table, createdIn: firstCreated.get(key)! });
+        live.set(key, { name, table, createdIn: firstCreated.get(key)!, ...policyExpressions(statement) });
+        continue;
+      }
+      const alterPolicy = ALTER_POLICY.exec(statement);
+      if (alterPolicy) {
+        const key = `${unqualify(alterPolicy[2]!)}\u0000${unquote(alterPolicy[1]!)}`;
+        const existing = live.get(key);
+        if (existing) {
+          const rename = new RegExp(`^ALTER\\s+POLICY\\s+${IDENT}\\s+ON\\s+${QUALIFIED}\\s+RENAME\\s+TO\\s+(${IDENT})\\s*$`, 'i').exec(statement);
+          if (rename) {
+            const renamed = unquote(rename[1]!);
+            live.delete(key);
+            firstCreated.set(`${existing.table}\u0000${renamed}`, firstCreated.get(key)!);
+            live.set(`${existing.table}\u0000${renamed}`, { ...existing, name: renamed });
+          } else {
+            live.set(key, { ...existing, ...policyExpressions(statement) });
+          }
+        }
         continue;
       }
       const drop = DROP_POLICY.exec(statement);

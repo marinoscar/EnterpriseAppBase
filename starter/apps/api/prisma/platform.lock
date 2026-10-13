@@ -1,4 +1,8 @@
 {
+  "appMigrations": [
+    "20261008180000_add_notes",
+    "20261009205750_add_documents"
+  ],
   "lockVersion": 1,
   "migrations": [
     {
@@ -218,5 +222,13 @@
       "since": "1.0.0"
     }
   ],
-  "platformVersion": "0.1.0-next.3"
+  "platformVersion": "0.1.0-next.3",
+  "rlsPolicies": [
+    {
+      "checkSha256": "83e7bb1689b1bd0427e7061bf085f69c35922ba56bedf6275925f52e58cb440b",
+      "name": "documents_org_isolation",
+      "table": "documents",
+      "usingSha256": "83e7bb1689b1bd0427e7061bf085f69c35922ba56bedf6275925f52e58cb440b"
+    }
+  ]
 }
