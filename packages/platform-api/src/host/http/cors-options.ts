@@ -59,13 +59,33 @@ export interface AllowlistCorsOptions {
 }
 
 /**
+ * The CORS settings an app may add to the allowlist policy (`buildCorsOptions`'s
+ * second argument). Deliberately without `origin` and `credentials`: the origin
+ * allowlist comes from `CORS_ORIGIN` alone, and a credentialed wildcard must not
+ * be one argument away.
+ *
+ * @extensionPoint option
+ * @stability experimental
+ */
+export interface ExtraCorsOptions {
+  /** `Access-Control-Allow-Methods`. */
+  methods?: string | string[];
+  /** `Access-Control-Allow-Headers`. */
+  allowedHeaders?: string | string[];
+  /** `Access-Control-Expose-Headers`, so a browser script may read these response headers. */
+  exposedHeaders?: string | string[];
+  /** `Access-Control-Max-Age`, in seconds (a non-negative integer). */
+  maxAge?: number;
+}
+
+/**
  * Structurally assignable to `FastifyCorsOptions`, which
  * `NestFastifyApplication.enableCors` takes. Declared here rather than imported
  * because `@fastify/cors` is only a transitive dependency of this workspace.
  *
  * @stability experimental
  */
-export type CorsOptions = SameOriginCorsOptions | AllowlistCorsOptions;
+export type CorsOptions = (SameOriginCorsOptions | AllowlistCorsOptions) & ExtraCorsOptions;
 
 /**
  * Raised for a CORS_ORIGIN value the API refuses to start with.
@@ -87,17 +107,56 @@ export class InvalidCorsOriginError extends Error {
  * are collapsed, keeping first-seen order.
  *
  * @param raw - the raw `CORS_ORIGIN` value (`process.env.CORS_ORIGIN`).
+ * @param extra - methods, headers and max age to add (see {@link ExtraCorsOptions}).
+ *   Never the origin policy: that is `raw` alone, and an `origin` or `credentials`
+ *   key here throws.
  * @returns the options for `app.enableCors`.
- * @throws InvalidCorsOriginError for a wildcard or a malformed origin.
+ * @throws InvalidCorsOriginError for a wildcard or a malformed origin, or an invalid `extra`.
  *
  * @example
  * ```ts
- * app.enableCors(buildCorsOptions(process.env.CORS_ORIGIN));
+ * app.enableCors(buildCorsOptions(process.env.CORS_ORIGIN, { exposedHeaders: ['x-request-id'], maxAge: 600 }));
  * ```
  *
+ * @extensionPoint option
  * @stability experimental
  */
-export function buildCorsOptions(raw: string | undefined): CorsOptions {
+export function buildCorsOptions(raw: string | undefined, extra?: ExtraCorsOptions): CorsOptions {
+  const policy = buildOriginPolicy(raw);
+  return extra === undefined ? policy : { ...policy, ...validateExtra(extra) };
+}
+
+function validateExtra(extra: ExtraCorsOptions): ExtraCorsOptions {
+  const out: ExtraCorsOptions = {};
+  for (const key of Object.keys(extra)) {
+    if (key === 'origin' || key === 'credentials') {
+      throw new InvalidCorsOriginError(
+        `"${key}" cannot be passed as an extra CORS option: the origin policy comes from CORS_ORIGIN alone.`,
+      );
+    }
+    if (key !== 'methods' && key !== 'allowedHeaders' && key !== 'exposedHeaders' && key !== 'maxAge') {
+      throw new InvalidCorsOriginError(`"${key}" is not a supported extra CORS option (methods, allowedHeaders, exposedHeaders, maxAge).`);
+    }
+  }
+  for (const key of ['methods', 'allowedHeaders', 'exposedHeaders'] as const) {
+    const value = extra[key];
+    if (value === undefined) continue;
+    const list = Array.isArray(value) ? value : [value];
+    if (list.length === 0 || list.some((entry) => typeof entry !== 'string' || entry.trim() === '' || /[\r\n]/.test(entry))) {
+      throw new InvalidCorsOriginError(`${key} must be a non-empty string or an array of non-empty strings without line breaks.`);
+    }
+    out[key] = Array.isArray(value) ? [...value] : value;
+  }
+  if (extra.maxAge !== undefined) {
+    if (!Number.isInteger(extra.maxAge) || extra.maxAge < 0) {
+      throw new InvalidCorsOriginError('maxAge must be a non-negative integer (seconds).');
+    }
+    out.maxAge = extra.maxAge;
+  }
+  return out;
+}
+
+function buildOriginPolicy(raw: string | undefined): SameOriginCorsOptions | AllowlistCorsOptions {
   const entries = (raw ?? '')
     .split(',')
     .map((entry) => entry.trim())

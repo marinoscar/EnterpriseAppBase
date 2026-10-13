@@ -80,8 +80,8 @@ export const USER_DATA_ENVIRONMENT: unique symbol = Symbol.for('@marinoscar/plat
  * @stability experimental
  */
 export interface UserDataEnvironment {
-  /** `self-hosted` or `saas`. */
-  deploymentMode(): 'self-hosted' | 'saas';
+  /** `self-hosted`, `saas` or the id of a mode the app registered (the factory reset is disabled in `saas` only). */
+  deploymentMode(): 'self-hosted' | 'saas' | (string & {});
   /** `single` or `multi`. */
   tenancyMode(): 'single' | 'multi';
 }
