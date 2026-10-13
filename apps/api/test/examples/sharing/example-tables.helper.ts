@@ -105,3 +105,66 @@ export function exampleDelegate(tx: unknown, table: 'sharing_test_docs' | 'shari
     },
   };
 }
+
+/**
+ * Creates `sharing_test_project_docs` (user-owned records that belong to a
+ * project and can be frozen) and `sharing_test_project_members`, the tables
+ * the access-rule examples read (PP-14.16). Both have RLS.
+ */
+export async function createProjectTables(db: RlsDatabase): Promise<void> {
+  for (const table of ['sharing_test_project_docs', 'sharing_test_project_members']) {
+    if (table === 'sharing_test_project_docs') {
+      await db.tenant.$executeRawUnsafe(`
+        CREATE TABLE sharing_test_project_docs (
+          id uuid PRIMARY KEY,
+          org_id uuid NOT NULL REFERENCES organizations(id),
+          owner_user_id uuid NOT NULL REFERENCES users(id),
+          project_id uuid NULL,
+          frozen_at timestamptz NULL,
+          title text NOT NULL DEFAULT ''
+        )`);
+    } else {
+      await db.tenant.$executeRawUnsafe(`
+        CREATE TABLE sharing_test_project_members (
+          org_id uuid NOT NULL REFERENCES organizations(id),
+          project_id uuid NOT NULL,
+          user_id uuid NOT NULL REFERENCES users(id),
+          PRIMARY KEY (org_id, project_id, user_id)
+        )`);
+    }
+    await db.tenant.$executeRawUnsafe(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`);
+    await db.tenant.$executeRawUnsafe(`ALTER TABLE ${table} FORCE ROW LEVEL SECURITY`);
+    await db.tenant.$executeRawUnsafe(`
+      CREATE POLICY "${table}_org_isolation" ON "${table}"
+        USING      ("org_id" = NULLIF(current_setting('app.org_id', true), '')::uuid
+                    OR current_setting('app.rls_bypass', true) = 'on')
+        WITH CHECK ("org_id" = NULLIF(current_setting('app.org_id', true), '')::uuid
+                    OR current_setting('app.rls_bypass', true) = 'on')`);
+  }
+}
+
+/** Inserts one project document through the bypass (setup only). */
+export async function insertProjectDoc(
+  db: RlsDatabase,
+  doc: { orgId: string; ownerUserId: string; projectId?: string | null; frozen?: boolean; title?: string },
+): Promise<string> {
+  const id = randomUUID();
+  await db.system.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('app.rls_bypass', 'on', true)`;
+    await tx.$executeRaw`
+      INSERT INTO sharing_test_project_docs (id, org_id, owner_user_id, project_id, frozen_at, title)
+      VALUES (${id}::uuid, ${doc.orgId}::uuid, ${doc.ownerUserId}::uuid, ${doc.projectId ?? null}::uuid,
+              ${doc.frozen ? new Date('2026-01-01T00:00:00Z') : null}::timestamptz, ${doc.title ?? 'Doc'})`;
+  });
+  return id;
+}
+
+/** Adds a project membership through the bypass (setup only). */
+export async function addProjectMember(db: RlsDatabase, member: { orgId: string; projectId: string; userId: string }): Promise<void> {
+  await db.system.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('app.rls_bypass', 'on', true)`;
+    await tx.$executeRaw`
+      INSERT INTO sharing_test_project_members (org_id, project_id, user_id)
+      VALUES (${member.orgId}::uuid, ${member.projectId}::uuid, ${member.userId}::uuid)`;
+  });
+}
