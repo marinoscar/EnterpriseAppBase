@@ -112,6 +112,8 @@ export interface SeedSummary {
   allowlistedEmail: string | null;
   /** True when this run created the default organization; false when one already existed. */
   defaultOrganizationCreated: boolean;
+  /** What each extra step did, in run order. Present only when the run was given `extras`. */
+  extras?: Array<{ id: string; created: number; updated: number }>;
 }
 
 /**

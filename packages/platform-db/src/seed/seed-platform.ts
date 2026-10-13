@@ -2,6 +2,7 @@
 // the reference app's prisma/seed.ts with the same writes, in the same order,
 // under the same console lines.
 
+import { assertSeedSteps, runSeedStep, type SeedPlatformOptions, type SeedStep, type SeedStepSummary, type SeedTransactionHost } from './steps.js';
 import type { PlatformSeedInput, SeedJsonValue, SeedLogger, SeedNamedEntry, SeedPrisma, SeedScope, SeedSummary } from './types.js';
 
 /** The `global` row's key: the one `system_settings` row the platform owns. */
@@ -37,15 +38,36 @@ function scopeOf(entry: SeedNamedEntry): { scope?: SeedScope } {
  * when no organization is flagged default (found by `isDefault`, not by slug),
  * so a renamed default is left alone and the one-default index is never hit.
  *
+ * App steps (`extras`, see {@link SeedStep}) run after the default organization,
+ * in array order, each in its own transaction when the client has
+ * `$transaction`, under the same logger: `Seeding <id>...` then
+ * `✓ <id>: <created> created, <updated> updated`. They are validated before
+ * anything is written, and each must be idempotent ({@link assertSeedIdempotent}
+ * proves it).
+ *
  * @param prisma - The app's Prisma client, or any object with the delegates of {@link SeedPrisma}.
  * @param input - What to write; see {@link PlatformSeedInput}.
- * @param log - Receives one line per step. Default: silent.
+ * @param options - Receives one line per step; default: silent. A bare {@link SeedLogger} (the previous third argument) is still accepted. Or {@link SeedPlatformOptions}: `{ log, extras }`.
  * @returns What the run did.
- * @throws Whatever the client throws; nothing is caught, so a failed seed fails loudly.
+ * @throws SeedStepError for an invalid extra step, before any write; SeedStepError wrapping what a step threw; whatever the client throws otherwise. Nothing else is caught, so a failed seed fails loudly.
+ *
+ * @example
+ * ```ts
+ * await seedPlatform(prisma, input, { log: { info: console.log }, extras: [seedCoachDefaults] });
+ * ```
  *
  * @stability experimental
  */
-export async function seedPlatform(prisma: SeedPrisma, input: PlatformSeedInput, log: SeedLogger = SILENT): Promise<SeedSummary> {
+export async function seedPlatform<Tx = SeedPrisma>(
+  prisma: SeedPrisma,
+  input: PlatformSeedInput,
+  options: SeedLogger | SeedPlatformOptions<Tx> = SILENT,
+): Promise<SeedSummary> {
+  const given = options as Partial<SeedLogger> & SeedPlatformOptions<Tx>;
+  const log: SeedLogger = typeof given.info === 'function' ? (given as SeedLogger) : (given.log ?? SILENT);
+  const extras: ReadonlyArray<SeedStep<never>> = (typeof given.info === 'function' ? undefined : given.extras) as ReadonlyArray<SeedStep<never>> ?? [];
+  assertSeedSteps(extras);
+
   log.info('Seeding roles...');
   for (const role of input.roles) {
     await prisma.role.upsert({
@@ -129,7 +151,7 @@ export async function seedPlatform(prisma: SeedPrisma, input: PlatformSeedInput,
     log.info('✓ Default organization already exists');
   }
 
-  return {
+  const summary: SeedSummary = {
     roles: input.roles.length,
     permissions: input.permissions.length,
     rolePermissions,
@@ -137,4 +159,17 @@ export async function seedPlatform(prisma: SeedPrisma, input: PlatformSeedInput,
     allowlistedEmail,
     defaultOrganizationCreated,
   };
+
+  if (extras.length > 0) {
+    const ran: SeedStepSummary[] = [];
+    const ctx = { log, input, platform: summary };
+    for (const step of extras) {
+      log.info(`Seeding ${step.id}...`);
+      const result = await runSeedStep(prisma as SeedPrisma & SeedTransactionHost, step, ctx);
+      log.info(`✓ ${step.id}: ${result.created} created, ${result.updated} updated`);
+      ran.push({ id: step.id, ...result });
+    }
+    summary.extras = ran;
+  }
+  return summary;
 }
