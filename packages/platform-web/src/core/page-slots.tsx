@@ -25,7 +25,7 @@
 // with a reason, in `test/page-slots.exempt.json`.
 // =============================================================================
 
-import { createElement, useMemo } from 'react';
+import { Fragment, createElement, useMemo } from 'react';
 import type { ReactNode } from 'react';
 
 /**
@@ -223,4 +223,59 @@ export function useTableSlotColumns<Row, Column extends SlotTableColumn<Row>>(
     }
     return Columns ? Columns(next) : next;
   }, [columns, Columns, RowActions, DetailPanel]);
+}
+
+/**
+ * What {@link PageSlotsFrame} takes.
+ *
+ * @stability experimental
+ */
+export interface PageSlotsFrameProps {
+  /** The page's `slots` prop. Only the members of {@link PageSlotsBase} are read. */
+  slots: PageSlotsBase | undefined;
+  /** The page's own header, drawn when `slots.Header` is absent. */
+  header: ReactNode;
+  /** What `slots.Header` receives (the page's title, subtitle and read-only state). */
+  headerProps: PageHeaderSlotProps;
+  /** The page's own content. */
+  children?: ReactNode;
+}
+
+/**
+ * Lays a page body out in the order the slot contract names: `Header` (or the
+ * page's own `header`), `BeforeContent`, `Sections` (`top`), the page's own
+ * `children`, `Sections` (`bottom`), `AfterContent`.
+ *
+ * It renders a fragment: no wrapper element and no style, so a page that passes
+ * no slot produces exactly the markup `header` and `children` produce by
+ * themselves. A page puts it INSIDE its existing container (the `Container` and
+ * the `Box` that pads it), which is why the slots live in the landmark the page
+ * already has.
+ *
+ * @example
+ * ```tsx
+ * <Container maxWidth="lg">
+ *   <PageSlotsFrame slots={slots} header={<MyHeader />} headerProps={{ title: 'My page' }}>
+ *     <MyContent />
+ *   </PageSlotsFrame>
+ * </Container>
+ * ```
+ *
+ * @stability experimental
+ */
+export function PageSlotsFrame({ slots, header, headerProps, children }: PageSlotsFrameProps): ReactNode {
+  const Header = slots?.Header;
+  const BeforeContent = slots?.BeforeContent;
+  const Sections = slots?.Sections;
+  const AfterContent = slots?.AfterContent;
+  return createElement(
+    Fragment,
+    null,
+    Header ? createElement(Header, headerProps) : header,
+    BeforeContent ? createElement(BeforeContent) : null,
+    Sections ? createElement(Sections, { position: 'top' }) : null,
+    children,
+    Sections ? createElement(Sections, { position: 'bottom' }) : null,
+    AfterContent ? createElement(AfterContent) : null,
+  );
 }
