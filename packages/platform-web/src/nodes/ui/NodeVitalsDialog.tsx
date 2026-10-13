@@ -39,7 +39,7 @@ import {
 } from '@mui/material';
 import type { ReactNode } from 'react';
 import { useId } from 'react';
-import { formatDateTime } from '../headless/index.js';
+import { formatDateTime, nodeCapabilityItems, nodeVitalRows } from '../headless/index.js';
 import type { NodeVitalsCounters, WorkerNode } from '../headless/index.js';
 import {
   areVitalsStale,
@@ -145,6 +145,10 @@ export function NodeVitalsDialog({ node, now, onClose }: NodeVitalsDialogProps) 
   const diskFree = vitals ? diskFreeRatio(vitals) : null;
   const slots = vitals ? ratio(vitals.slotsUsed, vitals.slotsTotal) : null;
   const lowDisk = isLowDisk(vitals);
+  // App-defined vitals (`vitals.extra`) and the node's reported capabilities:
+  // both self-reported and bounded, both printed as plain text.
+  const extraRows = vitals ? nodeVitalRows(vitals.extra) : [];
+  const capabilities = node ? nodeCapabilityItems(node.capabilities) : [];
 
   return (
     <Dialog
@@ -234,6 +238,32 @@ export function NodeVitalsDialog({ node, now, onClose }: NodeVitalsDialogProps) 
               <Field label="pg_dump version">{vitals.pgDumpVersion ?? '—'}</Field>
             </Stack>
 
+            {extraRows.length > 0 && (
+              <Box>
+                <Typography variant="subtitle2" component="h3" gutterBottom>
+                  Reported by this node&apos;s app
+                </Typography>
+                <Table size="small" aria-label="App vitals">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Vital</TableCell>
+                      <TableCell align="right">Value</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {extraRows.map(({ key, label, text }) => (
+                      <TableRow key={key}>
+                        <TableCell component="th" scope="row">
+                          {label}
+                        </TableCell>
+                        <TableCell align="right">{text}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Box>
+            )}
+
             <Box>
               <Typography variant="subtitle2" component="h3" gutterBottom>
                 Counters since the node process started
@@ -258,6 +288,32 @@ export function NodeVitalsDialog({ node, now, onClose }: NodeVitalsDialogProps) 
               </Table>
             </Box>
           </Stack>
+        )}
+
+        {node && capabilities.length > 0 && (
+          <Box sx={{ mt: vitals ? 3 : 0 }}>
+            <Typography variant="subtitle2" component="h3" id={`${titleId}-capabilities`} gutterBottom>
+              Capabilities reported by this node
+            </Typography>
+            <Box
+              component="ul"
+              aria-labelledby={`${titleId}-capabilities`}
+              sx={{ m: 0, pl: 2.5, typography: 'body2' }}
+              data-testid="node-capabilities"
+            >
+              {capabilities.map(({ key, version }) => (
+                <li key={key}>
+                  {key}
+                  {version !== undefined && (
+                    <Typography component="span" variant="body2" color="text.secondary">
+                      {' '}
+                      — {version}
+                    </Typography>
+                  )}
+                </li>
+              ))}
+            </Box>
+          </Box>
         )}
       </DialogContent>
       <DialogActions>
