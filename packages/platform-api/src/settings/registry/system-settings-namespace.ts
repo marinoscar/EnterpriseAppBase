@@ -140,6 +140,14 @@ export interface SettingsNamespaceOrgLayer<V> {
    * the namespace's `storedSchema`.
    */
   readonly merge: 'override' | ((system: V, org: Partial<V>) => V);
+  /**
+   * How `GET /api/org-settings` presents the layer (`merge` in the namespace
+   * descriptor): `'override'` or `'tighten'`. Default: `'override'` when
+   * `merge` is `'override'`, else `'tighten'`. A layer an extension composed
+   * from an `override` layer and a nested path states it here, because its
+   * `merge` is a function that still only overrides.
+   */
+  readonly mode?: 'override' | 'tighten';
   /** The org-scope permission that lets a caller read the namespace's org fields. */
   readonly readPermission: string;
   /** The org-scope permission that lets a caller change them. */
@@ -250,6 +258,9 @@ function validateOrgLayer(ns: SystemSettingsNamespace, denied: readonly string[]
   }
   if (org.merge !== 'override' && typeof org.merge !== 'function') {
     throw new Error("org.merge must be 'override' or a function");
+  }
+  if (org.mode !== undefined && org.mode !== 'override' && org.mode !== 'tighten') {
+    throw new Error("org.mode must be 'override' or 'tighten'");
   }
   for (const field of ['readPermission', 'writePermission'] as const) {
     if (typeof org[field] !== 'string' || !/^[a-z][a-z0-9_]*:[a-z][a-z0-9_]*$/.test(org[field])) {

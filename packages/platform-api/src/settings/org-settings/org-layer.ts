@@ -64,3 +64,11 @@ export function applyOrgLayer<V>(
   if (!parsed.success) return { value: system, applied: false };
   return { value: parsed.data as V, applied: true };
 }
+
+/**
+ * How an org layer is presented to a client: its declared `mode`, else
+ * `'override'` for the string merge and `'tighten'` for a function.
+ */
+export function orgLayerMode(org: NonNullable<SystemSettingsNamespace['org']>): 'override' | 'tighten' {
+  return org.mode ?? (org.merge === 'override' ? 'override' : 'tighten');
+}
