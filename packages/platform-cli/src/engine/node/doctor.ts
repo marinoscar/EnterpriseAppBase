@@ -114,6 +114,29 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorReport> {
       : `Install the missing dependencies, or drop those types with \`${cliName()} node register --types ...\`.`,
   });
 
+  // ---- 1a. The tools an app registered (registerProbedBinary) ------------------
+  //
+  // Only when there is something beyond the platform's own `pg_dump`/`psql`
+  // (the backup type's pair has its own checks below), so a stock node's report
+  // is unchanged. Never a failure: whether a missing tool matters is the job
+  // requirement's verdict above (`registerJobRequirement`), not this list's.
+  const appBinaries = Object.keys(probe.binaries).filter((name) => name !== PG_DUMP_COMMAND && name !== 'psql');
+  if (appBinaries.length > 0) {
+    checks.push({
+      id: 'probed-binaries',
+      group: 'capabilities',
+      label: 'Tools registered for app job types',
+      status: 'pass',
+      detail: appBinaries
+        .map((name) =>
+          probe.binaries[name] === true
+            ? `${name}${probe.versions?.[name] !== undefined ? ` (${probe.versions[name]})` : ''}: found`
+            : `${name}: not found`,
+        )
+        .join('; '),
+    });
+  }
+
   // ---- 1b. The database backup type's two dependencies (#352) -----------------
   //
   // ⚠ BOTH ARE WARNINGS, NEVER FAILURES, and that is the whole design of this

@@ -548,8 +548,8 @@ executions on one Postgres; not that mail or a push arrives.
 - **Plain text only.** Markdown or HTML needs `unsafeFromTrustedString` on
   admin input (stored XSS from a compromised admin) or a hand-rolled emitter;
   neither means anything on browser/push.
-- **Reuse `backfill` as the job reason.** A new `JobReason` value is a
-  migration plus web and OpenAPI churn for a display string the job-type label
+- **Reuse `backfill` as the job reason.** A broadcast reason of its own would
+  add a registration and a stored value for a display string the job-type label
   already carries.
 - **`broadcasts:*`, not `system_settings:*`.** The card would otherwise
   advertise a permission the broadcasts controller never checks.

@@ -570,6 +570,17 @@ describe('JobAdminService.list', () => {
     expect(items[0]).toMatchObject({ type: 'example.echo', typeLabel: 'Example echo' });
     expect(items[1]).toMatchObject({ type: 'my-fork.thing', typeLabel: 'my-fork.thing' });
   });
+
+  it('adds a reasonLabel: the registered label, or the stored id when the reason is no longer registered', async () => {
+    const { service } = makeService({
+      findMany: jest.fn().mockResolvedValue([row({ reason: 'backfill' }), row({ reason: 'removed-plugin' })]),
+    });
+
+    const { items } = await service.list(query());
+
+    expect(items[0]).toMatchObject({ reason: 'backfill', reasonLabel: 'Backfill' });
+    expect(items[1]).toMatchObject({ reason: 'removed-plugin', reasonLabel: 'removed-plugin' });
+  });
 });
 
 // ===========================================================================
