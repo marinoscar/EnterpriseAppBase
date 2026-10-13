@@ -1,10 +1,18 @@
 import { registerCredentialPurpose } from '@marinoscar/platform-api/credentials';
-import { registerAuthProvider } from '@marinoscar/platform-api/identity';
+import {
+  registerAuthProvider,
+  registerCurrentUserExtension,
+  registerUserListExtension,
+} from '@marinoscar/platform-api/identity';
 
 import {
   EXAMPLE_OIDC_PURPOSE,
   exampleOidcProvider,
 } from '../platform-extensions/identity/example-oidc.provider';
+import {
+  currentUserTeamExtension,
+  userListTeamExtension,
+} from '../platform-extensions/identity/team-directory.extensions';
 
 // =============================================================================
 // This app's sign-in providers (PP-14.9)
@@ -39,3 +47,21 @@ registerCredentialPurpose({
 });
 
 registerAuthProvider(exampleOidcProvider);
+
+// =============================================================================
+// What this app adds to `/api/auth/me` and to the user list (PP-14.25)
+// =============================================================================
+//
+// `registerCurrentUserExtension` adds `extensions.<id>` to `GET /api/auth/me`;
+// `registerUserListExtension` adds it to each row of `GET /api/users`, batched:
+// the resolver gets every id of the page and answers a Map. Both are bounded
+// JSON, never secrets, and a throwing resolver is skipped and logged (see
+// `platform-extensions/identity/team-directory.extensions.ts`).
+//
+// The `team` example reads an in-memory directory that starts empty, so the
+// payloads are unchanged until a team is assigned. A fork replaces the directory
+// with its own table, or deletes the two calls and the file.
+// =============================================================================
+
+registerCurrentUserExtension(currentUserTeamExtension);
+registerUserListExtension(userListTeamExtension);
