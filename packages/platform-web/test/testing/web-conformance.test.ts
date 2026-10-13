@@ -23,6 +23,11 @@ const fixtureSuite: WebConformanceSuite = {
   },
 };
 
+/** Registers the fixture suite once per module instance (a second registration of an id throws). */
+function ensureFixture(): void {
+  if (!webConformanceSuites.has(fixtureSuite.id)) webConformanceSuites.register(fixtureSuite);
+}
+
 describe('runPlatformWebConformance', () => {
   it('refuses to run before any slice registered a suite (the testing entry was not imported)', async () => {
     vi.resetModules();
@@ -32,7 +37,7 @@ describe('runPlatformWebConformance', () => {
   });
 
   it('registers every suite and passes it the app’s context; the summary table is printed, not a test', async () => {
-    webConformanceSuites.register(fixtureSuite);
+    ensureFixture();
     const { api, tests, titles } = recordingWebTestApi();
     const printed: string[] = [];
 
@@ -45,7 +50,7 @@ describe('runPlatformWebConformance', () => {
   });
 
   it('lets an app skip a suite with a reason, which stays visible as a passing test and in the summary', async () => {
-    webConformanceSuites.register(fixtureSuite);
+    ensureFixture();
     const { api, tests } = recordingWebTestApi();
     const printed: string[] = [];
 
@@ -62,7 +67,7 @@ describe('runPlatformWebConformance', () => {
   });
 
   it('throws when a skip has no reason', () => {
-    webConformanceSuites.register(fixtureSuite);
+    ensureFixture();
     const run = (skip: unknown) => () =>
       runPlatformWebConformance({ ...base(), suites: { 'fixture-web-suite': { skip } } as never, testApi: recordingWebTestApi().api });
 
@@ -72,23 +77,97 @@ describe('runPlatformWebConformance', () => {
   });
 
   it('throws on an unknown suite id, so a typo cannot disable a check', () => {
-    webConformanceSuites.register(fixtureSuite);
+    ensureFixture();
 
     expect(() =>
       runPlatformWebConformance({ ...base(), suites: { 'fixture-web-suitee': { skip: 'typo' } }, testApi: recordingWebTestApi().api }),
     ).toThrow('unknown conformance suite "fixture-web-suitee"');
   });
 
-  it('freezes the registry on the first run, so a late registration fails loudly; re-registering a known id is harmless', () => {
-    webConformanceSuites.register(fixtureSuite);
+  it('refuses a second suite under a registered id, even before the harness has run (a duplicate would silently never run)', () => {
+    ensureFixture();
+
+    expect(() => webConformanceSuites.register(fixtureSuite)).toThrow('a suite with id "fixture-web-suite" is already registered');
+    expect(() => webConformanceSuites.register({ ...fixtureSuite, title: 'another' })).toThrow('already registered');
+    expect(webConformanceSuites.has('fixture-web-suite')).toBe(true);
+    expect(webConformanceSuites.has('nope')).toBe(false);
+  });
+
+  it('hands a suite the options the app passed under its id, and undefined when it passed none', async () => {
+    const seen: unknown[] = [];
+    const optionSuite: WebConformanceSuite<{ minRoutes: number }> = {
+      id: 'option-web-suite',
+      title: 'an option web suite',
+      description: 'Fixture for the options tests.',
+      register(api, _context, options) {
+        seen.push(options);
+        api.describe('an option web suite', () => {
+          api.it('reads its option', () => api.expect(options?.minRoutes ?? -1).toBeGreaterThanOrEqual(0));
+        });
+      },
+    };
+    vi.resetModules();
+    const fresh = await import('../../src/testing/index.js');
+    fresh.webConformanceSuites.register(optionSuite);
+
+    fresh.runPlatformWebConformance({ ...base(), suites: { 'option-web-suite': { minRoutes: 3 } }, testApi: recordingWebTestApi().api });
+    expect(seen).toEqual([{ minRoutes: 3 }]);
+
+    fresh.runPlatformWebConformance({ ...base(), testApi: recordingWebTestApi().api });
+    expect(seen).toEqual([{ minRoutes: 3 }, undefined]);
+  });
+
+  it('treats an options object without a skip key as a configuration, and a skip with no reason as an error, whatever else it carries', async () => {
+    vi.resetModules();
+    const fresh = await import('../../src/testing/index.js');
+    fresh.webConformanceSuites.register({ ...fixtureSuite, id: 'entry-web-suite' });
+    const run = (entry: unknown) => () =>
+      fresh.runPlatformWebConformance({ ...base(), suites: { 'entry-web-suite': entry as never }, testApi: recordingWebTestApi().api });
+
+    expect(run({ anything: true })).not.toThrow();
+    expect(run({ skip: '', anything: true })).toThrow('skipped without a reason');
+  });
+
+  it('freezes the registry on the first run, so a late registration fails loudly', () => {
+    ensureFixture();
     runPlatformWebConformance({ ...base(), testApi: recordingWebTestApi().api });
 
-    expect(() => webConformanceSuites.register(fixtureSuite)).not.toThrow();
     expect(() => webConformanceSuites.register({ ...fixtureSuite, id: 'late' })).toThrow('registered after');
   });
 
+  it('offers the widened matcher subset (toBe, toMatchObject, toHaveLength, toThrow) to a suite', async () => {
+    const matcherSuite: WebConformanceSuite = {
+      id: 'matcher-web-suite',
+      title: 'a matcher web suite',
+      description: 'Uses every matcher of the subset.',
+      register(api) {
+        api.describe('a matcher web suite', () => {
+          api.it('uses them', () => {
+            api.expect(1 + 1).toBe(2);
+            api.expect({ a: 1, b: 2 }).toMatchObject({ a: 1 });
+            api.expect(['x', 'y']).toHaveLength(2);
+            api.expect(() => {
+              throw new Error('boom');
+            }).toThrow('boom');
+            api.expect(() => {
+              throw new Error('boom');
+            }).toThrow(/bo+m/);
+          });
+        });
+      },
+    };
+    vi.resetModules();
+    const fresh = await import('../../src/testing/index.js');
+    fresh.webConformanceSuites.register(matcherSuite);
+    const { api, tests } = recordingWebTestApi();
+
+    fresh.runPlatformWebConformance({ ...base(), testApi: api });
+
+    for (const test of tests) expect(await webOutcome(test)).toBeNull();
+  });
+
   it('says what to do when there is no test runner', () => {
-    webConformanceSuites.register(fixtureSuite);
+    ensureFixture();
     const g = globalThis as unknown as Record<string, unknown>;
     const saved = g.describe;
     g.describe = undefined;
