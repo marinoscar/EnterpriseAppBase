@@ -4,10 +4,39 @@ import {
   ArgumentsHost,
   HttpException,
   HttpStatus,
+  Inject,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { ZodValidationException } from 'nestjs-zod';
+import {
+  defaultErrorCodeForStatus,
+  isErrorCodeForStatus,
+  type ErrorMapper,
+} from './error-codes';
 import { hasVerbatimErrorBody } from './verbatim-error-body.exception';
+
+/**
+ * Injection token of {@link HttpExceptionFilterOptions}. `PlatformHostCoreModule.forRoot({ errorMappers })`
+ * binds it; a filter built without it (`new HttpExceptionFilter()`) maps nothing.
+ *
+ * @stability experimental
+ */
+export const HTTP_EXCEPTION_FILTER_OPTIONS: unique symbol = Symbol.for('@marinoscar/platform/core/HTTP_EXCEPTION_FILTER_OPTIONS');
+
+/**
+ * Options of {@link HttpExceptionFilter}.
+ *
+ * @stability experimental
+ */
+export interface HttpExceptionFilterOptions {
+  /**
+   * Mappers for foreign errors, tried in order. Each sees only a value that is
+   * not already an `HttpException`; the first non-`null` result is rendered as
+   * if it had been thrown. A mapper that throws is logged and skipped.
+   */
+  readonly mappers?: readonly ErrorMapper[];
+}
 
 interface ErrorResponse {
   statusCode: number;
@@ -24,18 +53,22 @@ interface ErrorResponse {
  * documented by {@link ErrorDto}) on a Fastify reply, and logs one line per
  * failure (`warn` below 500, `error` with the stack from 500 up).
  *
- * `code` is always derived from the HTTP status; a `code` on the thrown
- * payload is ignored. `details` is the only place endpoint-specific data
+ * `code` is derived from the HTTP status, unless the thrown payload carries a
+ * `code` that is registered (`registerErrorCode`) for that same status; any other
+ * payload `code` is ignored. `details` is the only place endpoint-specific data
  * survives. An exception branded with {@link withVerbatimErrorBody} skips the
  * envelope and is sent exactly as thrown. A 429 whose `details.retryAfterMs`
  * is a positive number also gets a `Retry-After` header (whole seconds,
  * rounded up). A `ZodValidationException` without explicit details answers
  * `details.issues` (`[{ path, message }]`), never the submitted value. A
- * non-`HttpException` error is a 500 whose `details` carries the stack unless
- * `NODE_ENV` is `production`.
+ * non-`HttpException` error is first offered to the configured
+ * {@link ErrorMapper}s (a mapped error is rendered as the exception the mapper
+ * returned, never with the original message); an unmapped one is a 500 whose
+ * `details` carries the stack unless `NODE_ENV` is `production`.
  *
- * Register it once, as an `APP_FILTER` provider of the root module. There is
- * no module to import and nothing to configure.
+ * Register it once, as an `APP_FILTER` provider of the root module
+ * (`PlatformHostCoreModule` does). Mappers come from `{ errorMappers }` of
+ * `PlatformHostCoreModule.forRoot`, or from the constructor.
  *
  * @stability stable
  * @extensionPoint component
@@ -51,15 +84,25 @@ interface ErrorResponse {
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(HttpExceptionFilter.name);
+  private readonly mappers: readonly ErrorMapper[];
 
   /**
-   * Nest's `ExceptionFilter` hook: write the error response for `exception`
+   * @param options - mappers for foreign errors. Optional: Nest injects
+   *   {@link HTTP_EXCEPTION_FILTER_OPTIONS} when bound, and a bare
+   *   `new HttpExceptionFilter()` maps nothing.
+   */
+  constructor(@Optional() @Inject(HTTP_EXCEPTION_FILTER_OPTIONS) options?: HttpExceptionFilterOptions) {
+    this.mappers = Object.freeze([...(options?.mappers ?? [])]);
+  }
+
+  /**
+   * Nest's `ExceptionFilter` hook: write the error response for `thrown`
    * on the HTTP reply of `host`. Called by Nest, not by application code.
    *
-   * @param exception - Whatever was thrown.
+   * @param thrown - Whatever was thrown.
    * @param host - The Nest arguments host of the failed request (HTTP only).
    */
-  catch(exception: unknown, host: ArgumentsHost) {
+  catch(thrown: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse();
     const request = ctx.getRequest();
@@ -68,6 +111,13 @@ export class HttpExceptionFilter implements ExceptionFilter {
     let code = 'INTERNAL_ERROR';
     let message = 'An unexpected error occurred';
     let details: unknown;
+
+    // A foreign error (not an HttpException) is offered to the mappers first. A
+    // mapped one is rendered as the HttpException the mapper built; the original
+    // is kept for the server-side log line only.
+    const mapped = thrown instanceof HttpException ? null : this.map(thrown);
+    const exception: unknown = mapped ?? thrown;
+    const logged: unknown = thrown;
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
@@ -103,7 +153,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
           request,
           status,
           this.summarize(exceptionResponse as Record<string, unknown>),
-          exception,
+          logged,
         );
 
         response.code(status).send(exceptionResponse);
@@ -126,34 +176,22 @@ export class HttpExceptionFilter implements ExceptionFilter {
         details = zodIssueDetails(exception.getZodError());
       }
 
-      // `code` is ALWAYS derived from the status, and a `code` on the thrown
-      // payload is deliberately ignored.
+      // `code` defaults to the one derived from the status. A `code` on the thrown
+      // payload is honoured ONLY when it is registered (`registerErrorCode`) for
+      // THIS status: an unregistered, misspelt or mismatched code can never reach
+      // the wire, so the published list (`ErrorDto`'s examples) is exactly the
+      // registry. Nothing registered by default differs from the status-derived
+      // code, so every built-in response is unchanged, including
+      // `DatabaseSeedException`, whose `DATABASE_SEED_REQUIRED` stays ignored
+      // (its identifying data is in `details`).
       //
-      // This line used to be preceded by `code = (resp.code as string) ||
-      // this.getCodeFromStatus(status)`, which this one immediately overwrote —
-      // dead since it was written, so no exception in the app could ever set its
-      // own code (#153). The dead line was removed rather than made to work,
-      // because honouring a payload `code` is a real behaviour change on the
-      // wire and the current behaviour is the one the API actually promises:
-      //
-      //   * `./error.dto.ts` publishes `code` as a CLOSED ENUM of the
-      //     nine status-derived values, and says in so many words that the
-      //     filter overwrites any `code` an exception supplied. That DTO is the
-      //     `default` error response on every operation in the OpenAPI document,
-      //     so it is a published contract, not a comment.
-      //   * `test/core/http-exception.filter.spec.ts` asserts it ("The filter overrides
-      //     custom code with standard code mapping"). The behaviour is tested,
-      //     not accidental.
-      //   * One exception does pass a `code`: `DatabaseSeedException` sends
-      //     `DATABASE_SEED_REQUIRED`. Reviving the dead line would have changed
-      //     that response's `code` from `INTERNAL_ERROR` to a value outside the
-      //     published enum — a silent contract break in the one place nobody
-      //     would think to check. Its identifying data is already in `details`,
-      //     which the envelope carries through.
-      //
-      // Endpoint-specific machine-readable data belongs under `details`; an
+      // Endpoint-specific machine-readable data still belongs under `details`; an
       // externally-specified body belongs behind the verbatim brand above.
-      code = this.getCodeFromStatus(status);
+      const payloadCode =
+        typeof exceptionResponse === 'object' && exceptionResponse !== null
+          ? (exceptionResponse as Record<string, unknown>).code
+          : undefined;
+      code = isErrorCodeForStatus(payloadCode, status) ? payloadCode : defaultErrorCodeForStatus(status);
     } else if (exception instanceof Error) {
       message = exception.message;
       // Don't expose stack traces in production
@@ -174,7 +212,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       errorResponse.details = details;
     }
 
-    this.logOutcome(request, status, message, exception);
+    this.logOutcome(request, status, message, logged);
 
     // A 429 that says when to come back (`details.retryAfterMs` — every
     // `AiError('AI_RATE_LIMITED')` that knows, including the AI rate limits of
@@ -230,20 +268,27 @@ export class HttpExceptionFilter implements ExceptionFilter {
     return typeof label === 'string' ? label : 'verbatim error body';
   }
 
-  private getCodeFromStatus(status: number): string {
-    const codeMap: Record<number, string> = {
-      400: 'BAD_REQUEST',
-      401: 'UNAUTHORIZED',
-      403: 'FORBIDDEN',
-      404: 'NOT_FOUND',
-      409: 'CONFLICT',
-      412: 'PRECONDITION_FAILED',
-      413: 'PAYLOAD_TOO_LARGE',
-      422: 'UNPROCESSABLE_ENTITY',
-      429: 'TOO_MANY_REQUESTS',
-      500: 'INTERNAL_ERROR',
-    };
-    return codeMap[status] || 'ERROR';
+  /**
+   * The first mapper's result for a foreign error. A mapper that throws, or
+   * returns anything but an `HttpException`, is skipped (a broken mapper must
+   * not turn one failure into two).
+   */
+  private map(error: unknown): HttpException | null {
+    for (const mapper of this.mappers) {
+      try {
+        const result = mapper(error);
+        if (result instanceof HttpException) return result;
+        if (result !== null && result !== undefined) {
+          this.logger.warn('An error mapper returned something other than an HttpException or null; ignored.');
+        }
+      } catch (failure) {
+        this.logger.error(
+          'An error mapper threw; skipped.',
+          failure instanceof Error ? failure.stack : String(failure),
+        );
+      }
+    }
+    return null;
   }
 }
 

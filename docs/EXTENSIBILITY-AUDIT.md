@@ -15,7 +15,7 @@ The audit record of the extension seams of every platform slice. A closed point 
 
 Evidence paths are written `api:`, `web:`, `contract:`, `cli:`, `db:` and `infra:` for `packages/platform-api/src/`, `packages/platform-web/src/`, `packages/platform-contract/src/`, `packages/platform-cli/src/`, `packages/platform-db/` and `packages/platform-infra/`; a path under `apps/` or `docs/` is from the repository root. A story is written PP-14.n (its issue number follows).
 
-As of this version: 114 closed points in 29 sections, 40 fixed and 74 open.
+As of this version: 114 closed points in 29 sections, 44 fixed and 70 open.
 
 ## Verdicts
 
@@ -31,7 +31,7 @@ As of this version: 114 closed points in 29 sections, 40 fixed and 74 open.
 | [doctor](#doctor) | Mostly open | 2 | 0 | 2 | PP-14.23, PP-14.26 |
 | [telemetry](#telemetry) | Mostly open | 7 | 2 | 5 | PP-14.11, PP-14.18, PP-14.24 |
 | [otel-core](#otel-core) | Mostly open | 1 | 0 | 1 | PP-14.18 |
-| [core](#core) | Mostly open | 6 | 1 | 5 | PP-14.14, PP-14.5, PP-14.23 |
+| [core](#core) | Mostly open | 6 | 5 | 1 | PP-14.14, PP-14.5, PP-14.23 |
 | [shell](#shell) | Mostly open | 2 | 0 | 2 | PP-14.25 |
 | [sharing](#sharing) | Mostly open | 4 | 0 | 4 | PP-14.16, PP-14.15, PP-14.25 |
 | [manifest](#manifest) | Open | 2 | 2 | 0 | PP-14.15 |
@@ -70,7 +70,7 @@ The 28 stories of the epic, in order. Phase 1 makes the existing seams real; pha
 | PP-14.11 | #929 | telemetry: a TELEMETRY_STORE port so the time-series store is replaceable | 2 | 14.5 | no | This change |
 | PP-14.12 | #930 | db-backup: pluggable backup target, schedule policy and restore gates | 2 | 14.1 (14.7) | no | This change |
 | PP-14.13 | #931 | host: health indicators, maintenance bypass, About contributors, deployment capabilities and app guards | 3 | 14.2 | no | Open |
-| PP-14.14 | #932 | core: open the access-reason, principal and error-code vocabularies | 3 | none | no | Open |
+| PP-14.14 | #932 | core: open the access-reason, principal and error-code vocabularies | 3 | none | no | This change |
 | PP-14.15 | #933 | roles: app roles become assignable, and apps can grant platform permissions to them | 3 | none | no | This change |
 | PP-14.16 | #934 | sharing: pluggable grantee kinds and access rules | 3 | 14.15 | maybe | Open |
 | PP-14.17 | #935 | ai: open capabilities and operations, richer transcription results, per-feature usage | 3 | 14.6 | yes | Open |
@@ -230,16 +230,16 @@ Closed points: none recorded at the audit commit.
 
 ### core
 
-**Verdict:** Mostly open · **Packages:** api, web · **Closed points:** 6 (1 fixed, 5 open) · **Stories:** PP-14.14, PP-14.5, PP-14.23
+**Verdict:** Mostly open · **Packages:** api, web · **Closed points:** 6 (5 fixed, 1 open) · **Stories:** PP-14.14, PP-14.5, PP-14.23
 
-**Open points.** `defineRegistry` and the static registries, the host ports (`PlatformHostModule.forRoot`, `AUDIT_SINK`, `SYSTEM_SETTINGS_STORE`, `PLATFORM_PRISMA`), `HttpExceptionFilter`, `PortBinding`, and on the web `PlatformHostProvider`.
+**Open points.** `defineRegistry` and the static registries, the host ports (`PlatformHostModule.forRoot`, `AUDIT_SINK`, `SYSTEM_SETTINGS_STORE`, `PLATFORM_PRISMA`), `HttpExceptionFilter` (with `errorMappers`), `PortBinding`, `registerSystemAccessReason`, `registerPrincipalKind`, `registerCredentialKind`, `registerErrorCode`, and on the web `PlatformHostProvider` (with `extensions` and `usePlatformPort`).
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
-| core-1 | `SystemAccessReason` is a closed union plus a frozen array, validated against it: an app or package cannot add a bypass reason for its own jobs. | api: `core/data-access/rls.ts:86, :102, :199` | `registerSystemAccessReason({ id, description })`; the allowlist of files that may inject `PrismaSystemService` stays closed (this opens which reason, not who may bypass). | PP-14.14 (#932) | Open |
-| core-2 | `CredentialKind` and `PrincipalKind` are closed; an app auth scheme (API key, webhook token) has no principal kind. | api: `core/principal/principal.types.ts:58, :70` | Augmentable `PrincipalKinds` and `CredentialKinds` plus `registerCredentialKind`; guards deny unknown kinds unless registered. | PP-14.14 (#932) | Open |
-| core-3 | `HttpExceptionFilter` derives `code` from the HTTP status and ignores a payload `code`; `ErrorDto` publishes a closed nine-value enum; there is no mapper for foreign errors (Prisma, SDKs). | api: `core/errors/http-exception.filter.ts:156` | `registerErrorCode`, `HttpExceptionFilter` option `mappers`; `ErrorDto.code` becomes an open string. | PP-14.14 (#932) | Open |
-| core-4 | `PlatformWebHost` has fixed ports (`api`, `viewer`, `formatRelativeTime`, `applyTheme`); an installed extension package cannot add its own. | web: `core/` (PlatformWebHost) | `PlatformWebHost.extensions` and `usePlatformPort<T>(key)`. | PP-14.14 (#932) | Open |
+| core-1 | `SystemAccessReason` is a closed union plus a frozen array, validated against it: an app or package cannot add a bypass reason for its own jobs. | api: `core/data-access/rls.ts:86, :102, :199` | `registerSystemAccessReason({ id, description })`; the allowlist of files that may inject `PrismaSystemService` stays closed (this opens which reason, not who may bypass). | PP-14.14 (#932) | Fixed |
+| core-2 | `CredentialKind` and `PrincipalKind` are closed; an app auth scheme (API key, webhook token) has no principal kind. | api: `core/principal/principal.types.ts:58, :70` | Augmentable `PrincipalKinds` and `CredentialKinds` plus `registerCredentialKind`; guards deny unknown kinds unless registered. | PP-14.14 (#932) | Fixed |
+| core-3 | `HttpExceptionFilter` derives `code` from the HTTP status and ignores a payload `code`; `ErrorDto` publishes a closed nine-value enum; there is no mapper for foreign errors (Prisma, SDKs). | api: `core/errors/http-exception.filter.ts:156` | `registerErrorCode`, `HttpExceptionFilter` option `mappers`; `ErrorDto.code` becomes an open string. | PP-14.14 (#932) | Fixed |
+| core-4 | `PlatformWebHost` has fixed ports (`api`, `viewer`, `formatRelativeTime`, `applyTheme`); an installed extension package cannot add its own. | web: `core/` (PlatformWebHost) | `PlatformWebHost.extensions` and `usePlatformPort<T>(key)`. | PP-14.14 (#932) | Fixed |
 | core-5 | No pluggable-kind primitive: seven slices each hard-code their own implementation list. | api: `core/registry/registry.ts:459` (the registry it builds on) | `definePluggableKind`, `describeConfigFields`, `PluggableConfigForm`, `describePluggableKindConformance`. | PP-14.5 (#923) | Fixed |
 | core-6 | No shared slot contract for packaged pages. | web: `core/` | `PageSlotsBase` and `TableSlots<Row>` in `@marinoscar/platform-web/core`, with a CI check. | PP-14.23 (#941) | Open |
 

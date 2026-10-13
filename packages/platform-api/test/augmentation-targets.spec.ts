@@ -38,6 +38,8 @@ interface Target {
 }
 
 const TARGETS: readonly Target[] = [
+  { slice: 'core', iface: 'PrincipalKinds' },
+  { slice: 'core', iface: 'CredentialKinds' },
   { slice: 'settings', iface: 'SystemSettingsNamespaces' },
   { slice: 'settings', iface: 'SystemSettingsNamespaceDeclarations' },
   { slice: 'settings', iface: 'UserSettingsNamespaces' },

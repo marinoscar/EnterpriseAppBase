@@ -57,23 +57,118 @@ export type {
   RoleGrantEntry,
 } from './permissions/index';
 
-// Principal and scope contract (ADR 0001, issue #687). Types only.
+// Principal and scope contract (ADR 0001, issue #687) and the open principal
+// and credential kind vocabularies (PP-14.14).
 export type {
-  CredentialKind,
+  BuiltinCredentialKind,
+  BuiltinPrincipalKind,
+  CredentialKindDef,
   GroupMembership,
   NodePrincipal,
   OrgMembership,
   Principal,
-  PrincipalKind,
+  PrincipalKindDef,
   Scope,
   SystemActor,
   TenancyMode,
   UserPrincipal,
 } from './principal/index';
+export {
+  KIND_ID_PATTERN,
+  UnknownCredentialKindError,
+  credentialKindRegistry,
+  isCredentialKind,
+  principalKindRegistry,
+  registerCredentialKind,
+  registerPrincipalKind,
+  requireCredentialKind,
+} from './principal/index';
+
+// ---- `PrincipalKinds` / `CredentialKinds`: augmentation targets, declared here, never re-exported (#865) ----
+
+/**
+ * The principal kinds the platform knows, as an augmentable interface: an app
+ * adds a key to type its own kind (`service`) and registers the same id with
+ * `registerPrincipalKind`. The value type is unused.
+ *
+ * Declared here, in the module `@marinoscar/platform-api/core` resolves to, so
+ * the app's `declare module` merges in any file order.
+ *
+ * @extensionPoint schema
+ * @stability experimental
+ * @example
+ * ```ts
+ * declare module '@marinoscar/platform-api/core' {
+ *   interface PrincipalKinds { service: true }
+ * }
+ * ```
+ */
+export interface PrincipalKinds {
+  /** A human caller. */
+  user: true;
+  /** An unattended worker node. */
+  node: true;
+}
+
+/**
+ * The credential kinds the platform knows, as an augmentable interface: an app
+ * adds a key to type its own kind (`'api-key'`) and registers the same id with
+ * `registerCredentialKind`, naming the principal kind it authenticates as.
+ * The value type is unused.
+ *
+ * @extensionPoint schema
+ * @stability experimental
+ * @example
+ * ```ts
+ * declare module '@marinoscar/platform-api/core' {
+ *   interface CredentialKinds { 'api-key': true }
+ * }
+ * ```
+ */
+export interface CredentialKinds {
+  /** A browser access JWT. */
+  session: true;
+  /** A device-flow access JWT. */
+  device: true;
+  /** A `pat_` personal access token. */
+  pat: true;
+  /** A `nod_` worker-node credential. */
+  node: true;
+}
+
+/**
+ * Every principal kind, built-in and augmented: `keyof PrincipalKinds`. The
+ * unaugmented type is exactly `'user' | 'node'`.
+ *
+ * @stability experimental
+ */
+export type PrincipalKind = keyof PrincipalKinds;
+
+/**
+ * Every credential kind, built-in and augmented: `keyof CredentialKinds`. The
+ * unaugmented type is exactly `'session' | 'device' | 'pat' | 'node'`. A run-time
+ * check (`isCredentialKind`, `requireCredentialKind`) is still needed for a
+ * value that arrives as a string.
+ *
+ * @stability experimental
+ */
+export type CredentialKind = keyof CredentialKinds;
 
 // Errors: the application-wide exception filter, the error envelope's
 // OpenAPI DTO and the two exceptions that go with it (issue #698).
-export { HttpExceptionFilter } from './errors/http-exception.filter';
+export { HTTP_EXCEPTION_FILTER_OPTIONS, HttpExceptionFilter } from './errors/http-exception.filter';
+export type { HttpExceptionFilterOptions } from './errors/http-exception.filter';
+// The open error code vocabulary and the foreign-error mapper contract (PP-14.14).
+export {
+  BUILTIN_ERROR_CODES,
+  ERROR_CODE_PATTERN,
+  FALLBACK_ERROR_CODE,
+  defaultErrorCodeForStatus,
+  errorCodeRegistry,
+  isErrorCodeForStatus,
+  registerErrorCode,
+} from './errors/error-codes';
+export type { ErrorCodeDef, ErrorMapper } from './errors/error-codes';
 export { withVerbatimErrorBody, hasVerbatimErrorBody } from './errors/verbatim-error-body.exception';
 export { DatabaseSeedException } from './errors/database-seed.exception';
 export { ErrorDto } from './errors/error.dto';
@@ -131,23 +226,29 @@ export type {
 // transaction-local `forOrg` / `runInOrg` shapes, the bypass shapes for the
 // separate system client, and the model ownership registry.
 export {
+  BUILTIN_SYSTEM_ACCESS_REASONS,
   RLS_SETTINGS,
   SYSTEM_ACCESS_REASONS,
+  SYSTEM_ACCESS_REASON_ID_PATTERN,
   forOrg,
   forScope,
   forSystem,
+  isSystemAccessReason,
   modelOwnershipRegistry,
   modelsOfKind,
   orgColumnOf,
   orgFieldOf,
   orgScopeExtension,
   registerModelOwnership,
+  registerSystemAccessReason,
   runAsSystem,
   runInOrg,
   runInScope,
+  systemAccessReasonRegistry,
   systemScopeExtension,
 } from './data-access/index';
 export type {
+  BuiltinSystemAccessReason,
   ModelOwnershipDef,
   OrgScope,
   OrgScopedClient,
@@ -157,6 +258,7 @@ export type {
   RlsTransactionClient,
   RlsTransactionOptions,
   SystemAccessReason,
+  SystemAccessReasonDef,
 } from './data-access/index';
 
 // Cross-cutting decorators every packaged controller needs (issue #727): the
