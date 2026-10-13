@@ -376,7 +376,6 @@ export function resolveAssistantExtraInstructions(assistant: TelemetryAssistantO
   if (text.length > TELEMETRY_ASSISTANT_EXTRA_INSTRUCTIONS_MAX) {
     fail(`\`assistant.extraInstructions\` is at most ${TELEMETRY_ASSISTANT_EXTRA_INSTRUCTIONS_MAX} characters (got ${text.length})`);
   }
-  // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u0008\u000b-\u001f\u007f]/.test(text)) {
     fail('`assistant.extraInstructions` must be plain text: no control characters other than a newline or a tab');
   }
