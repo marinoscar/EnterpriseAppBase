@@ -1,4 +1,4 @@
-import { freezeCommandRegistry, freezeEnvSpecRegistry } from '../core/index.js';
+import { freezeCommandRegistry, freezeEnvGroupRegistry, freezeEnvSpecRegistry } from '../core/index.js';
 
 import { resetPlatformRegistrationsForTests } from './builtin-registrations.js';
 import { freezeProxyStreamRegistry, resetProxyStreamRegistryForTests } from './deploy/proxy-streams.js';
@@ -23,6 +23,7 @@ import { freezeTuiScreenRegistry, resetTuiScreenRegistryForTests } from './tui/s
 export function freezeCliRegistries(by: string): void {
   freezeCommandRegistry(by);
   freezeEnvSpecRegistry(by);
+  freezeEnvGroupRegistry(by);
   freezeTuiScreenRegistry(by);
   freezeDeployStepRegistry(by);
   freezeNodeExecutorRegistry(by);

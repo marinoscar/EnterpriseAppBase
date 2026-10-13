@@ -2,7 +2,9 @@ import {
   generateBase64Key,
   generateHexKey,
   generateValue,
+  getEnvGroup,
   isPlaceholderValue,
+  listEnvGroups,
   needsAutoGenerate,
   resolveEnvMetadata,
   validateBase64Key32,
@@ -53,16 +55,25 @@ export {
 };
 
 /**
- * Feature groups. Their keys are skipped unless the group is enabled.
- * `observability` is ALWAYS enabled on a VPS (#567): see `effectiveGroups` in
- * compose-files.ts. The others are opt-in.
+ * The platform's own feature groups, registered at startup through
+ * `registerEnvGroup` (see builtin-registrations.ts) like an app's. Their keys
+ * are skipped unless the group is enabled. `observability` is ALWAYS enabled
+ * on a VPS (#567): see `effectiveGroups` in compose-files.ts. The others are
+ * opt-in.
  *
- * A runtime list as well as a type, because a fragment from a package declares
- * its group as a plain string: `metadataFor` refuses one naming a group this
- * CLI does not know rather than silently never asking its keys.
+ * An app adds groups with `registerEnvGroup`; this constant lists only the
+ * built-ins (use `listEnvGroups` for every registered one).
  */
 export const ENV_GROUPS = ['observability', 'email', 'microsoft-oauth'] as const;
-export type EnvGroup = (typeof ENV_GROUPS)[number];
+
+/** The platform's own group ids. */
+export type BuiltinEnvGroup = (typeof ENV_GROUPS)[number];
+
+/**
+ * A feature group id: one of the built-ins, or any id an app registered with
+ * `registerEnvGroup` (the autocomplete keeps the built-ins).
+ */
+export type EnvGroup = BuiltinEnvGroup | (string & {});
 
 /**
  * The platform's `EnvVarMetadata` (see `@marinoscar/platform-cli/core` for
@@ -275,18 +286,15 @@ export const ENV_METADATA: Readonly<Record<string, EnvVarMetadata>> = {
   TENANCY_MODE: { validate: oneOf('single', 'multi') },
 };
 
-function isEnvGroup(group: string): group is EnvGroup {
-  return (ENV_GROUPS as readonly string[]).includes(group);
-}
-
 /** A fragment's entry, narrowed to this CLI's groups, or a loud refusal. */
 function fromFragment(key: string): EnvVarMetadata | undefined {
   const metadata = resolveEnvMetadata(key);
   if (metadata === undefined) return undefined;
-  if (metadata.group !== undefined && !isEnvGroup(metadata.group)) {
+  if (metadata.group !== undefined && getEnvGroup(metadata.group) === undefined) {
     throw new Error(
       `Env key "${key}" is in group "${metadata.group}", which this CLI does not know ` +
-        `(known: ${ENV_GROUPS.join(', ')}). Add the group to ENV_GROUPS or change the fragment.`,
+        `(known: ${listEnvGroups().map((group) => group.id).join(', ')}). ` +
+        'Register the group with registerEnvGroup (before createCli) or change the fragment.',
     );
   }
   return metadata as EnvVarMetadata;

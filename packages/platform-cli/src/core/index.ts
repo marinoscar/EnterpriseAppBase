@@ -32,3 +32,12 @@ export {
 
 export { createCliRegistry } from './cli-registry.js';
 export type { CliRegistry, CliRegistryOptions } from './cli-registry.js';
+
+export {
+  freezeEnvGroupRegistry,
+  getEnvGroup,
+  listEnvGroups,
+  registerEnvGroup,
+  resetEnvGroupRegistryForTests,
+} from './env-group-registry.js';
+export type { EnvGroupRegistration } from './env-group-registry.js';

@@ -1,6 +1,13 @@
 import type { Command } from 'commander';
 
-import { registerCliCommand, registerEnvSpecFragment, type CliCommandRegistration, type EnvSpecFragment } from '../core/index.js';
+import {
+  registerCliCommand,
+  registerEnvGroup,
+  registerEnvSpecFragment,
+  type CliCommandRegistration,
+  type EnvGroupRegistration,
+  type EnvSpecFragment,
+} from '../core/index.js';
 
 import { ensurePlatformRegistrations } from './builtin-registrations.js';
 import { registerProxyStreamPath, type ProxyStreamPathRegistration } from './deploy/proxy-streams.js';
@@ -51,6 +58,8 @@ export interface CreateCliOptions {
   nodeExecutors?: readonly JobExecutor[] | undefined;
   /** Env-key metadata for the app's own `.env.example` keys. Same as `registerEnvSpecFragment`. */
   envSpecFragments?: readonly EnvSpecFragment[] | undefined;
+  /** Opt-in feature groups of the app's env keys. Same as `registerEnvGroup`; registered before the fragments that name them. */
+  envGroups?: readonly EnvGroupRegistration[] | undefined;
   /**
    * The VPS host proxy's view of the app. `streamPaths` are app routes the
    * edge vhost serves unbuffered with a long timeout (an SSE route). Same as
@@ -90,6 +99,7 @@ export interface CliInstance {
 export function createCli(options: CreateCliOptions): CliInstance {
   setCliIdentity(options.identity, options.version);
   ensurePlatformRegistrations();
+  for (const group of options.envGroups ?? []) registerEnvGroup(group);
   for (const fragment of options.envSpecFragments ?? []) registerEnvSpecFragment(fragment);
   for (const command of options.extraCommands ?? []) registerCliCommand(command);
   for (const screen of options.tuiScreens ?? []) registerTuiScreen(screen);

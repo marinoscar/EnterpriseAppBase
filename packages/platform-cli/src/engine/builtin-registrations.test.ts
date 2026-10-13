@@ -1,7 +1,8 @@
-import { listEnvSpecFragments, registerEnvSpecFragment } from '../core/index.js';
+import { listEnvGroups, listEnvSpecFragments, registerEnvGroup, registerEnvSpecFragment } from '../core/index.js';
 import { telemetryEnvSpecFragment, type TelemetryEnvGroup } from '../telemetry/index.js';
 import { afterEach, describe, expect, expectTypeOf, it } from 'vitest';
 
+import { effectiveGroups } from './deploy/compose-files.js';
 import { ENV_GROUPS, metadataFor, type EnvGroup } from './deploy/env-metadata.js';
 import {
   PLATFORM_ENV_FRAGMENT_ID,
@@ -54,6 +55,36 @@ describe('ensurePlatformRegistrations', () => {
     ensurePlatformRegistrations();
     registerEnvSpecFragment({ id: 'coach', metadata: { COACH_TOKEN: { group: 'coach' } } });
     expect(() => metadataFor('COACH_TOKEN')).toThrow(/group "coach", which this CLI does not know/);
+  });
+});
+
+describe('env groups', () => {
+  it('registers the three built-in groups through registerEnvGroup, observability on by default', () => {
+    ensurePlatformRegistrations();
+    expect(listEnvGroups().map((group) => group.id)).toEqual([...ENV_GROUPS]);
+    expect(listEnvGroups().filter((group) => group.defaultEnabled).map((group) => group.id)).toEqual(['observability']);
+  });
+
+  it('accepts a fragment key in an app group registered with registerEnvGroup', () => {
+    ensurePlatformRegistrations();
+    registerEnvGroup({ id: 'coach', label: 'Coach', description: 'The coach.', defaultEnabled: false });
+    registerEnvSpecFragment({ id: 'coach', metadata: { COACH_TOKEN: { group: 'coach', secret: true } } });
+    expect(metadataFor('COACH_TOKEN')).toMatchObject({ group: 'coach', secret: true });
+  });
+
+  it('names the registered groups when a fragment names an unknown one', () => {
+    ensurePlatformRegistrations();
+    registerEnvSpecFragment({ id: 'coach', metadata: { COACH_TOKEN: { group: 'coach' } } });
+    expect(() => metadataFor('COACH_TOKEN')).toThrow(/known: observability, email, microsoft-oauth\). Register the group with registerEnvGroup/);
+  });
+
+  it('effectiveGroups is unchanged for the platform, and adds an app group that is on by default', () => {
+    expect(effectiveGroups()).toEqual(['observability']);
+    expect(effectiveGroups(['email'])).toEqual(['email', 'observability']);
+    registerEnvGroup({ id: 'coach', label: 'Coach', description: 'The coach.', defaultEnabled: true });
+    expect(effectiveGroups(['email'])).toEqual(['email', 'observability', 'coach']);
+    registerEnvGroup({ id: 'billing', label: 'Billing', description: 'Billing.', defaultEnabled: false });
+    expect(effectiveGroups()).not.toContain('billing');
   });
 });
 
