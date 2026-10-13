@@ -15,7 +15,8 @@ Build, test and lint commands for the packages themselves are in [DEVELOPMENT.md
 7. [Running the checks locally](#running-the-checks-locally)
 8. [What a failure means](#what-a-failure-means)
 9. [Peer dependencies per slice](#peer-dependencies-per-slice)
-10. [Contract conventions](#contract-conventions)
+10. [Closed id lists](#closed-id-lists)
+11. [Contract conventions](#contract-conventions)
 
 ## What is checked, and by what
 
@@ -29,10 +30,11 @@ Build, test and lint commands for the packages themselves are in [DEVELOPMENT.md
 | Catalog links | `check-package-docs.mjs` | A row has no Example link, or the link does not resolve to a file in the reference app (`apps/`, `infra/`, `tests/`), or it points into `packages/` |
 | Slice entry points | `check-package-docs.mjs` | A slice exported as a subpath is not an entry point in the package's `typedoc.json` |
 | Slice peers | [`scripts/check-slice-peers.mjs`](../scripts/check-slice-peers.mjs) (`npm run check:slice-peers`) | A non-test import is not covered by its slice's declared peers, a declared peer is stale or orphaned, or a peer's `optional` flag disagrees with the universal slices ([below](#peer-dependencies-per-slice)) |
+| Closed id lists | [`scripts/check-closed-lists.mjs`](../scripts/check-closed-lists.mjs) (`npm run check:closed-lists`) | A package declares a closed id list that is not in [`closed-lists.allowlist.json`](../packages/closed-lists.allowlist.json), or an allowlist entry is stale or has no real reason ([below](#closed-id-lists)) |
 | Slices page | [`scripts/generate-slices-doc.mjs`](../scripts/generate-slices-doc.mjs) (`npm run check:slices-doc`) | [`SLICES.md`](SLICES.md) differs from the page generated from the graph, the peers, the exports, the slice READMEs and [`platform-slice-notes.json`](../packages/platform-slice-notes.json); a slice has no notes entry; or the minimal consumer's dependencies drift from the peers of the slices it imports ([below](#the-slices-page)) |
 | Link check | [`apps/api/test/docs-links.spec.ts`](../apps/api/test/docs-links.spec.ts) (`npm test --workspace=api`) | A relative link in a package or slice README does not resolve |
 
-All of it runs in the `package-docs` job of [`.github/workflows/packages.yml`](../.github/workflows/packages.yml), which also uploads each package's generated reference as the `api-reference` artifact. The TSDoc lint and the slice peer check run in that workflow's `packages` job, the link check in `ci.yml`'s API tests.
+All of it runs in the `package-docs` job of [`.github/workflows/packages.yml`](../.github/workflows/packages.yml), which also uploads each package's generated reference as the `api-reference` artifact. The TSDoc lint, the slice peer check and the closed id list check run in that workflow's `packages` job, the link check in `ci.yml`'s API tests.
 
 ## The README
 
@@ -139,6 +141,7 @@ npm run build:packages          # the packages import each other's built types
 npm run lint:packages           # boundary rules + tsdoc/syntax
 npm run check:package-docs      # docs:packages (TypeDoc), then scripts/check-package-docs.mjs
 npm run check:slice-peers       # per-slice peer dependencies (no build needed)
+npm run check:closed-lists      # no new closed id list in the packages (no build needed)
 npm run check:slices-doc        # docs/SLICES.md equals its generated page (no build needed)
 npm run docs:slices             # regenerate docs/SLICES.md
 npm test --workspace=api -- docs-links
@@ -166,6 +169,9 @@ Each checker line is `file:line problem`, and the fix is in the file named:
 | `[stale] ... declares 'y'` | The slice no longer imports `y`: delete it from the slice's list (a run-time-loaded peer goes in `$runtime` instead) |
 | `[orphan] ... 'y'` | No slice declares or implies `y`: remove it from `peerDependencies`, or declare it on the slice that needs it |
 | `[optionality] ... 'y'` | Mark `y` optional in `peerDependenciesMeta`, or remove the flag, as the message says |
+| `[new] ... X is a closed id list` | Open it with a registry ([the shape](EXTENDING.md#open-an-id-vocabulary)), or add an allowlist entry with a reason |
+| `[stale] ... closed-lists.allowlist.json: ... is no longer a closed list there` | The symbol was removed, renamed, moved or opened: delete the entry (a rename needs the new file or symbol in the entry) |
+| `[entry] ...` / `[deprecated] ...` | Give the entry `file`, `symbol` and a specific reason; a `@deprecated` list needs `deprecated alias of BUILTIN_X` |
 
 A TypeDoc failure (`does not have any documentation`, `is referenced by ... but not included in the documentation`) names the symbol: document it, or export the type it refers to. A `tsdoc/syntax` error names the line of the malformed comment.
 
@@ -208,6 +214,37 @@ A package such as `@marinoscar/platform-api` is one npm package whose slices are
 `npm run docs:slices` writes the page; `npm run check:slices-doc` (CI: the `packages` job) fails when the committed page differs, when a slice of the graph has no notes entry (or an entry names no slice), when a note field is missing or carries an issue reference, when an app card path is not in `apps/web/src/config/`, and when the dependencies of the minimal consumer (`tests/consumer-smoke/api-slim`) are not exactly the peers of the slices it imports. The generator's tests are `apps/cli/src/slices-doc-script.test.ts`.
 
 **Adding a slice.** Besides its graph and peers entries, add its entry to `platform-slice-notes.json` and run `npm run docs:slices`.
+
+## Closed id lists
+
+`npm run check:closed-lists` stops a package from adding a closed list of ids that an app could not extend without editing `packages/platform-*`. The rule it enforces is [Open an id vocabulary](EXTENDING.md#open-an-id-vocabulary). It reads the sources (no build) with the TypeScript compiler API, so a comment or a string never produces a finding, and runs in a few seconds.
+
+**What it scans.** `packages/platform-*/src/**/*.{ts,tsx}`, not tests, fixtures, `*.d.ts`, `dist`, `docs-api` or `node_modules`; a `testing/` folder is published source and is scanned.
+
+**What it flags.** Each finding is a file and a symbol:
+
+| Rule | Finding |
+|---|---|
+| const | An exported `const` initialised with an array of two or more string literals followed by `as const`, named `*_IDS`, `*_KINDS`, `*_TYPES`, `*_PROVIDERS`, `*_ADAPTERS`, `*_CHANNELS`, `*_ROLES`, `*_MODES`, `*_GROUPS`, `*_UNITS` or `*_NAMES` |
+| union | An exported type alias that is a union of two or more string literals, named `*Id`, `*Kind`, `*Type`, `*Name`, `*Mode` or `*Role`, unless the union includes `(string & {})` |
+| `z.enum(X)` | A `z.enum` over a flagged const (a `BUILTIN_` one too) in `platform-contract`; the symbol reads `z.enum(X)` |
+| record | A constant in a `ui/` folder of `platform-web` typed `Record<K, ...>` (annotation, `satisfies` or `as`), where `K` is a flagged union, a `BUILTIN` one or an alias of `(typeof FLAGGED)[number]` |
+
+**The built-in subset is not a finding.** A const named `BUILTIN_*` and a type named `Builtin*` are the built-in ids of an open vocabulary (the shape's own names), so declaring them is free. They stay tracked: a `z.enum(BUILTIN_X_IDS)` or a web `Record<BuiltinXId, ...>` closes the vocabulary again and is a finding.
+
+**The allowlist.** [`packages/closed-lists.allowlist.json`](../packages/closed-lists.allowlist.json) holds `{ "entries": [{ "file", "symbol", "reason" }] }`, `file` being the path from the repository root. A finding with no entry fails, printing the file, the symbol and the hint "open it with a registry, see docs/EXTENDING.md#open-an-id-vocabulary, or allowlist it with a reason". Allowlist a list only when it must stay closed, and say why in a specific sentence of at least 12 characters (`misc` fails). The reasons in use fall into a few groups:
+
+- a security vocabulary (`deliberately closed security vocabulary: ...`);
+- a wire or storage discriminator the code switches on (a response `mode`, a stored setting value, a database enum mirror);
+- a validation limit such as a MIME allowlist;
+- a fixed, ordered set of steps or checks;
+- the platform's built-in ids of an open registry (`informational built-ins of the open ... registry`);
+- a web mirror of a closed API list;
+- a deprecated alias: a list kept for one release beside `BUILTIN_X` carries the reason `deprecated alias of BUILTIN_X`, and the check requires that wording for a declaration tagged `@deprecated`.
+
+**Stale entries fail.** An entry that matches no finding (the symbol was removed, renamed, moved, or opened with `(string & {})`) fails with `delete the entry`, so the list shrinks as the packages open up. A duplicate or an entry without a reason fails too.
+
+**Running it.** `npm run check:closed-lists`; `node scripts/check-closed-lists.mjs --print` prints the current findings as entries with the reason `TODO`, to start an entry (replace the reason). CI runs it in the `packages` job. The tests are `apps/cli/src/closed-lists-script.test.ts`: fixtures for every rule, and one run over the real tree, so a new closed list fails the cli suite as well.
 
 ## Contract conventions
 

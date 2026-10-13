@@ -84,7 +84,9 @@ A list of ids that a package or an app may extend is open. A closed list of impl
 5. **Stored settings.** Per-implementation settings are a record keyed by the id. A write rejects an unknown id; a read ignores one with a single warning, so removing a plugin never bricks the row.
 6. **Secrets.** A secret is a credential purpose, never a settings field and never an environment variable.
 
-Some vocabularies stay closed on purpose, for security (`AUTH_ERROR_CODES`, the Doctor statuses): they are listed with a reason in [EXTENSIBILITY-AUDIT.md](EXTENSIBILITY-AUDIT.md). The CI check that stops a new closed list from appearing is PP-14.28.
+Some vocabularies stay closed on purpose, for security (`AUTH_ERROR_CODES`, the Doctor statuses): they are listed with a reason in [EXTENSIBILITY-AUDIT.md](EXTENSIBILITY-AUDIT.md).
+
+**The rule is enforced.** `npm run check:closed-lists` fails CI when a package adds a closed list: an exported `as const` array of two or more strings named `*_IDS`, `*_KINDS`, `*_TYPES`, `*_PROVIDERS`, `*_ADAPTERS`, `*_CHANNELS`, `*_ROLES`, `*_MODES`, `*_GROUPS`, `*_UNITS` or `*_NAMES`; an exported union of string literals named `*Id`, `*Kind`, `*Type`, `*Name`, `*Mode` or `*Role` without `(string & {})`; a `z.enum` over such an array in the contract; or a `Record` over such a union in a web `ui/` folder. Open it with the shape above (the built-in ids move to `BUILTIN_<X>_IDS` or `Builtin<X>Id`, which the check skips), or, when it must stay closed, add `{ file, symbol, reason }` to [`packages/closed-lists.allowlist.json`](../packages/closed-lists.allowlist.json). How the check works and what a reason looks like: [PACKAGES.md](PACKAGES.md#closed-id-lists).
 
 ## Recipes that work today
 

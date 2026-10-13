@@ -69,6 +69,7 @@ Start at [README.md](README.md) (what you get, how to start a new app) and [docs
 | Dev loop, Fastify/Prisma/Passport gotchas, debugging | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) |
 | Renaming a fork | [docs/RENAMING.md](docs/RENAMING.md) |
 | Extending a slice from an app or a package (the extension ladder, the rule that overrides go through `forRoot` bindings, a recipe per extension point, shipping an extension as its own npm package) and the extensibility audit tracker (per slice: verdict, closed points with `file:line`, the PP-14 story that fixes each) | [docs/EXTENDING.md](docs/EXTENDING.md), [docs/EXTENSIBILITY-AUDIT.md](docs/EXTENSIBILITY-AUDIT.md) |
+| The closed id list guardrail (`npm run check:closed-lists`: what it flags, the BUILTIN rule, the allowlist `packages/closed-lists.allowlist.json` and its reasons; the rule it enforces is [open an id vocabulary](docs/EXTENDING.md#open-an-id-vocabulary)) | [docs/PACKAGES.md](docs/PACKAGES.md#closed-id-lists) |
 | Device authorization and personal access tokens | [docs/DEVICE-AUTH.md](docs/DEVICE-AUTH.md), [docs/personal-access-tokens.md](docs/personal-access-tokens.md) |
 | Spec: AI platform | [docs/specs/ai-platform.md](docs/specs/ai-platform.md) |
 | Spec: browser notifications and Web Push | [docs/specs/browser-notifications.md](docs/specs/browser-notifications.md) |

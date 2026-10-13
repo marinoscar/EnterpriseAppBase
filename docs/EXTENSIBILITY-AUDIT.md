@@ -17,6 +17,8 @@ Evidence paths are written `api:`, `web:`, `contract:`, `cli:`, `db:` and `infra
 
 As of this version: 115 closed points in 29 sections, 114 fixed and 1 open.
 
+**Guardrail:** `npm run check:closed-lists` ([PACKAGES.md](PACKAGES.md#closed-id-lists)) is green: every closed id list that remains in `packages/platform-*/src` is listed with a written reason in [`closed-lists.allowlist.json`](../packages/closed-lists.allowlist.json), and a new one fails CI until it is opened with a registry or listed. This meets the epic's success criterion for the guardrail.
+
 ## Verdicts
 
 | Slice | Verdict | Closed points | Fixed | Open | Stories |
@@ -84,7 +86,7 @@ The 28 stories of the epic, in order. Phase 1 makes the existing seams real; pha
 | PP-14.25 | #943 | web: slots for identity and sharing pages, login layout, and shell navigation and themes | 4 | 14.23, 14.9, 14.15 | no | This change |
 | PP-14.26 | #944 | testing: extension-author kits for doctor checks and job handlers, and configurable web suites | 5 | none | no | This change |
 | PP-14.27 | #945 | db: app metadata on users and organizations, more extensible models, offline checks for app indexes and RLS policies, seed hook | 5 | 14.4 | yes | This change |
-| PP-14.28 | #946 | ci: a guardrail that stops new closed id lists in the packages | 5 | all other PP-14 stories | no | Open |
+| PP-14.28 | #946 | ci: a guardrail that stops new closed id lists in the packages | 5 | all other PP-14 stories | no | This change |
 
 ## Patterns
 
@@ -92,7 +94,7 @@ The closed points fall into six repeating patterns. Each is removed once, in one
 
 | # | Pattern | Removed by |
 |---|---|---|
-| 1 | Closed id lists for pluggable kinds (TypeScript unions, `z.enum`, a fixed settings key per implementation, a `switch` over ids) | The pluggable-kind primitive (PP-14.5, shipped: [Writing a pluggable implementation](EXTENDING.md#writing-a-pluggable-implementation)) applied by the phase 2 stories, and the open vocabularies of phase 3. The rule is [Open an id vocabulary](EXTENDING.md#open-an-id-vocabulary); the guardrail is PP-14.28. |
+| 1 | Closed id lists for pluggable kinds (TypeScript unions, `z.enum`, a fixed settings key per implementation, a `switch` over ids) | The pluggable-kind primitive (PP-14.5, shipped: [Writing a pluggable implementation](EXTENDING.md#writing-a-pluggable-implementation)) applied by the phase 2 stories, and the open vocabularies of phase 3. The rule is [Open an id vocabulary](EXTENDING.md#open-an-id-vocabulary); the guardrail is [`check:closed-lists`](PACKAGES.md#closed-id-lists) (PP-14.28). |
 | 2 | Documented token overrides that a package-internal consumer never sees (NestJS module scoping) | Bindings through `forRoot` (PP-14.1, PP-14.2 and the phase 2 stories). The rule is [overrides go through `forRoot`](EXTENDING.md#the-extension-ladder). |
 | 3 | Packaged web pages with no slots, or a `Header` slot only | The packaged-page slot contract (PP-14.23 to PP-14.25). |
 | 4 | Settings extension is top-level only (no nested paths, no org layer, no core `profile` or `theme`) | PP-14.21 (shipped: [Extend a settings namespace](EXTENDING.md#extend-a-settings-namespace)). |
