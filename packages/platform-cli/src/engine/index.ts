@@ -448,6 +448,7 @@ export type {
   DeployPipeline,
   DeployStepContext,
   DeployStepRegistration,
+  DeployStepValues,
 } from './deploy/steps/registry.js';
 export { planDeploySteps } from './deploy/steps/plan.js';
 export type { DeployPlanStep } from './deploy/steps/plan.js';

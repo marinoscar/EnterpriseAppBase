@@ -1395,7 +1395,7 @@ export async function runInstall(requested: InstallOptions): Promise<InstallResu
 
   // The app's steps (`registerDeployStep`, #715) go in after the built-in
   // step each one names; they see a narrow context, never this one.
-  const steps = withRegisteredSteps('install', buildInstallSteps(), (step: InstallContext) => appStepContext('install', step));
+  const steps = withRegisteredSteps('install', buildInstallSteps(), (step: InstallContext) => appStepContext('install', step, () => environmentOf(step)));
   const result = await runPipeline(steps, context);
 
   if (result.failed !== undefined) {

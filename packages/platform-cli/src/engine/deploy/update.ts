@@ -258,6 +258,13 @@ function envFilePath(deployRoot: string): string {
   return join(composeCwd(deployRoot), '.env');
 }
 
+/** The environment this update acts on: the drift step's, else the file on disk (a resumed run). */
+function environmentOfUpdate(context: UpdateContext): Map<string, string> | undefined {
+  if (context.env !== undefined) return context.env;
+  const path = envFilePath(context.options.deployRoot);
+  return existsSync(path) ? parseEnvFile(readFileSync(path, 'utf8')) : undefined;
+}
+
 async function compose(
   context: UpdateContext,
   extra: readonly string[],
@@ -1240,7 +1247,7 @@ export async function runUpdate(options: UpdateOptions): Promise<UpdateResult> {
 
   // The app's steps (`registerDeployStep`, #715) go in after the built-in
   // step each one names; they see a narrow context, never this one.
-  const steps = withRegisteredSteps('update', buildUpdateSteps(), (step: UpdateContext) => appStepContext('update', step));
+  const steps = withRegisteredSteps('update', buildUpdateSteps(), (step: UpdateContext) => appStepContext('update', step, () => environmentOfUpdate(step)));
   const result = await runPipeline(steps, context);
 
   if (result.failed !== undefined) {

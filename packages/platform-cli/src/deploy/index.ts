@@ -34,6 +34,7 @@ export type {
   DeployPlanStep,
   DeployStepContext,
   DeployStepRegistration,
+  DeployStepValues,
   EnvVarSpec,
   ProxyExtraLocation,
   ProxyStreamPathRegistration,

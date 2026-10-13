@@ -8,7 +8,7 @@
 // =============================================================================
 
 import type { CliCommandRegistration } from '../core/index.js';
-import type { DeployPipeline, DeployStepRegistration, TuiScreenRegistration } from '../engine/index.js';
+import type { AppDeployStep, DeployPipeline, DeployStepRegistration, TuiScreenRegistration } from '../engine/index.js';
 import { envVar, readState } from '../engine/index.js';
 import { registerAndroidCommand, type AndroidCommandContext } from './command.js';
 import {
@@ -103,7 +103,7 @@ export function deployAndroidEnvVar(): string {
  * @extensionPoint registry
  * @stability experimental
  */
-export function androidDeployStep(options: AndroidDeployStepOptions = {}): DeployStepRegistration {
+export function androidDeployStep(options: AndroidDeployStepOptions = {}): DeployStepRegistration & { step: AppDeployStep } {
   return createAndroidDeployStep(options, defaultAndroidStepDeps());
 }
 
@@ -114,7 +114,7 @@ export function androidDeployStep(options: AndroidDeployStepOptions = {}): Deplo
  * @param deps - the step's collaborators.
  * @returns the registration.
  */
-export function createAndroidDeployStep(options: AndroidDeployStepOptions, deps: AndroidStepDeps): DeployStepRegistration {
+export function createAndroidDeployStep(options: AndroidDeployStepOptions, deps: AndroidStepDeps): DeployStepRegistration & { step: AppDeployStep } {
   const pipeline = options.pipeline ?? 'update';
   return {
     pipeline,

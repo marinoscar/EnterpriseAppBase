@@ -1,6 +1,9 @@
 import type { DeployHooks } from '../hooks.js';
 
 import type { DeployStep, StepContext } from './pipeline.js';
+import type { DeployStepValues } from './step-values.js';
+
+export type { DeployStepValues } from './step-values.js';
 
 // =============================================================================
 // The deploy step registry  (PP-8.9, #715)
@@ -17,6 +20,14 @@ import type { DeployStep, StepContext } from './pipeline.js';
 // of them, so renaming or removing a built-in id is a breaking change of this
 // package (the README catalogs them, and `registry.test.ts` pins them against
 // what `buildInstallSteps()` / `buildUpdateSteps()` actually return).
+//
+// PP-14.22 widens the placement: `after` (the original), `before`, and
+// `replaces` (the registered step runs in place of a built-in or an earlier app
+// step). `skipWhen` skips the step it replaces, with no replacement, when it
+// returns true. Replacing or skipping a built-in is the app's responsibility:
+// later built-in steps read what the earlier ones prepared (`checkout` sets the
+// commit, `environment` writes the `.env`), so a replacement must leave the
+// deployment in the state its neighbours expect.
 //
 // An app step gets a NARROW context, not the pipeline's private one: it can
 // run a command (journaled and redacted like a built-in's, output through
@@ -110,6 +121,15 @@ export interface DeployStepContext {
   readonly checkoutPath: string;
   /** The commit being deployed, once the pipeline knows it. */
   readonly commitSha: string | undefined;
+  /**
+   * The deployment's environment (`.env`), READ-ONLY and WITHOUT SECRETS: `get`
+   * returns undefined for a secret key (annotated secret, or named like one:
+   * `*_SECRET`, `*PASSWORD*`, `*TOKEN*`, `*API_KEY*` ...), `keys` omits them.
+   * Empty before the `environment` step has run on a fresh install.
+   */
+  readonly env: DeployStepValues;
+  /** The values supplied with `--answer` / `--answers-file`, with the same secret rules as `env`. */
+  readonly answers: DeployStepValues;
   /** The run's hooks, for a step that renders more than lines. Usually `log`/`progress` suffice. */
   readonly hooks: DeployHooks | undefined;
   /** Writes a line to the journal and to `DeployHooks.onLog`. */
@@ -142,7 +162,9 @@ export interface AppDeployStep {
 }
 
 /**
- * Where an app step goes.
+ * Where an app step goes, and what it does to a built-in step.
+ *
+ * Exactly ONE of `after`, `before` and `replaces` names the anchor.
  *
  * @stability experimental
  */
@@ -151,10 +173,24 @@ export interface DeployStepRegistration {
   pipeline: DeployPipeline;
   /** Unique within the pipeline (built-in ids included), lowercase `[a-z0-9-]`. Recorded for `--resume`. */
   id: string;
-  /** The built-in step, or an earlier-registered app step of the same pipeline, it runs after. */
-  after: string;
-  /** The step itself. */
-  step: AppDeployStep;
+  /** Run right after this step (a built-in, or an earlier-registered app step of the same pipeline). */
+  after?: string | undefined;
+  /** Run right before this step. */
+  before?: string | undefined;
+  /**
+   * Run INSTEAD of this step (a built-in or an earlier app step): the replaced
+   * step does not run. A later registration names the replacement's id.
+   */
+  replaces?: string | undefined;
+  /**
+   * With `replaces`: when it returns true the replaced step is SKIPPED (the
+   * replacement does not run either). With `replaces` and no `step`, the
+   * built-in runs as usual unless this returns true: a conditional skip of a
+   * built-in. Not allowed with `after` / `before` (use `step.skip`).
+   */
+  skipWhen?: ((context: DeployStepContext) => boolean) | undefined;
+  /** The step itself. Optional only for `replaces` with `skipWhen` (a skip-only registration). */
+  step?: AppDeployStep | undefined;
 }
 
 const ID_PATTERN = /^[a-z][a-z0-9-]*$/;
@@ -174,12 +210,16 @@ export function builtinDeployStepIds(pipeline: DeployPipeline): readonly string[
 }
 
 /**
- * Inserts an app step into `deploy install` or `deploy update`, right after a
- * named step (after any app step already registered there).
+ * Inserts an app step into `deploy install` or `deploy update`: right after a
+ * named step (`after`, behind any app step already registered there), right
+ * before one (`before`), or in place of one (`replaces`). `skipWhen` skips the
+ * replaced step conditionally; with no `step` it is a conditional skip of a
+ * built-in.
  *
- * @param registration - The pipeline, the step id, the step it follows and the step.
- * @throws Error when the id is malformed or taken in that pipeline, `after`
- *   names no step of it, or `createCli` has already built the CLI.
+ * @param registration - The pipeline, the step id, exactly one anchor and the step.
+ * @throws Error when the id is malformed or taken in that pipeline, the anchor
+ *   names no step of it (or one already replaced), none or several anchors are
+ *   given, or `createCli` has already built the CLI.
  * @stability experimental
  * @extensionPoint registry
  * @example
@@ -193,7 +233,7 @@ export function builtinDeployStepIds(pipeline: DeployPipeline): readonly string[
  * ```
  */
 export function registerDeployStep(registration: DeployStepRegistration): void {
-  const { pipeline, id, after } = registration;
+  const { pipeline, id, after, before, replaces } = registration;
   if (frozenBy !== undefined) {
     throw new Error(`Deploy step "${id}" was registered after ${frozenBy}; register it before (or pass it to createCli).`);
   }
@@ -203,17 +243,45 @@ export function registerDeployStep(registration: DeployStepRegistration): void {
   if (typeof id !== 'string' || !ID_PATTERN.test(id)) {
     throw new Error(`Deploy step id "${String(id)}" is invalid: use lowercase letters, digits and hyphens.`);
   }
-  const known = [...builtinDeployStepIds(pipeline), ...registered.filter((r) => r.pipeline === pipeline).map((r) => r.id)];
-  if (known.includes(id)) {
+  const mine = registered.filter((r) => r.pipeline === pipeline);
+  // The step ids a registration may name: built-ins and registered steps, minus
+  // what a `replaces` already took out of the plan.
+  const replacedBy = new Map(mine.filter((r) => r.replaces !== undefined).map((r) => [r.replaces as string, r.id]));
+  const taken = [...builtinDeployStepIds(pipeline), ...mine.map((r) => r.id)];
+  if (taken.includes(id)) {
     throw new Error(`Deploy step id "${id}" is already a step of the ${pipeline} pipeline.`);
   }
-  if (!known.includes(after)) {
+  const anchors = [after, before, replaces].filter((anchor) => anchor !== undefined);
+  if (anchors.length !== 1) {
+    throw new Error(`Deploy step "${id}" must name exactly one of after, before and replaces.`);
+  }
+  const [anchor] = anchors as [string];
+  const anchorKind = after !== undefined ? 'after' : before !== undefined ? 'before' : 'replaces';
+  const present = [
+    ...builtinDeployStepIds(pipeline),
+    ...mine.filter((r) => r.step !== undefined).map((r) => r.id),
+  ].filter((candidate) => !replacedBy.has(candidate));
+  if (replacedBy.has(anchor)) {
     throw new Error(
-      `Deploy step "${id}" runs after "${after}", which is not a step of the ${pipeline} pipeline. ` +
+      `Deploy step "${id}" ${anchorKind} "${anchor}", which step "${replacedBy.get(anchor)}" already replaces; name "${replacedBy.get(anchor)}" instead.`,
+    );
+  }
+  if (!present.includes(anchor)) {
+    throw new Error(
+      `Deploy step "${id}" ${anchorKind} "${anchor}", which is not a step of the ${pipeline} pipeline. ` +
         `Built-in steps: ${builtinDeployStepIds(pipeline).join(', ')}.`,
     );
   }
-  if (typeof registration.step?.run !== 'function' || typeof registration.step.title !== 'string') {
+  if (registration.skipWhen !== undefined) {
+    if (typeof registration.skipWhen !== 'function') {
+      throw new Error(`Deploy step "${id}": skipWhen must be a function (context) => boolean.`);
+    }
+    if (replaces === undefined) {
+      throw new Error(`Deploy step "${id}": skipWhen applies to the step named by replaces; for after/before use step.skip.`);
+    }
+  }
+  const skipOnly = registration.step === undefined && replaces !== undefined && registration.skipWhen !== undefined;
+  if (!skipOnly && (typeof registration.step?.run !== 'function' || typeof registration.step.title !== 'string')) {
     throw new Error(`Deploy step "${id}" needs a title and a run function.`);
   }
   registered.push(Object.freeze({ ...registration }));
@@ -242,23 +310,53 @@ export function withRegisteredSteps<C extends StepContext>(
   adapt: (context: C) => DeployStepContext,
 ): DeployStep<C>[] {
   const steps = [...builtins];
-  for (const registration of listRegisteredDeploySteps(pipeline)) {
-    const at = steps.findIndex((step) => step.id === registration.after);
+  const registrations = listRegisteredDeploySteps(pipeline);
+  const appIds = new Set(registrations.map((r) => r.id));
+  for (const registration of registrations) {
+    const { step, skipWhen } = registration;
+    const anchor = registration.after ?? registration.before ?? registration.replaces ?? '';
+    const at = steps.findIndex((candidate) => candidate.id === anchor);
     if (at < 0) {
-      throw new Error(`Deploy step "${registration.id}" runs after "${registration.after}", which is not in the ${pipeline} pipeline.`);
+      throw new Error(`Deploy step "${registration.id}" names "${anchor}", which is not in the ${pipeline} pipeline.`);
     }
-    // After the target AND after any app step already inserted behind it, so
-    // two steps registered after the same target keep registration order.
-    let insertAt = at + 1;
-    const appIds = new Set(listRegisteredDeploySteps(pipeline).map((r) => r.id));
-    while (insertAt < steps.length && appIds.has(steps[insertAt]?.id ?? '')) insertAt += 1;
-    const { step } = registration;
-    steps.splice(insertAt, 0, {
+
+    if (step === undefined) {
+      // Skip-only: the built-in stays where it is and runs unless `skipWhen` says no.
+      const target = steps[at] as DeployStep<C>;
+      steps[at] = {
+        ...target,
+        skip: (context: C) =>
+          skipWhen?.(adapt(context)) === true ? `skipped by ${registration.id}` : target.skip?.(context),
+      };
+      continue;
+    }
+
+    const adapted: DeployStep<C> = {
       id: registration.id,
       title: step.title,
-      ...(step.skip === undefined ? {} : { skip: (context: C) => step.skip?.(adapt(context)) }),
+      ...(step.skip === undefined && skipWhen === undefined
+        ? {}
+        : {
+            skip: (context: C) =>
+              skipWhen?.(adapt(context)) === true
+                ? `skipped by ${registration.id}: ${anchor} is not needed`
+                : step.skip?.(adapt(context)),
+          }),
       run: (context: C) => step.run(adapt(context)),
-    });
+    };
+
+    if (registration.replaces !== undefined) {
+      steps[at] = adapted;
+    } else if (registration.before !== undefined) {
+      // Directly before the target, after any step already inserted before it.
+      steps.splice(at, 0, adapted);
+    } else {
+      // After the target AND after any app step already inserted behind it, so
+      // two steps registered after the same target keep registration order.
+      let insertAt = at + 1;
+      while (insertAt < steps.length && appIds.has(steps[insertAt]?.id ?? '')) insertAt += 1;
+      steps.splice(insertAt, 0, adapted);
+    }
   }
   return steps;
 }
