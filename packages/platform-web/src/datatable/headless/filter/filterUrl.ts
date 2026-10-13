@@ -47,6 +47,7 @@ import type {
   DataTableFilterValue,
   FilterOperator,
 } from '../types.js';
+import { getDataTableFilterType, learnColumnOperators } from './filterTypes.js';
 import { filterTypeOf, operatorArity } from './operators.js';
 
 /**
@@ -116,12 +117,8 @@ export function encodeFilter(filter: DataTableFilter): string {
 }
 
 function coerceScalar(raw: string, filterType: string | undefined): string | number | boolean {
-  if (filterType === 'number') {
-    const parsed = Number(raw);
-    return Number.isFinite(parsed) ? parsed : raw;
-  }
-  if (filterType === 'boolean') return raw === 'true';
-  return raw;
+  const coerce = filterType === undefined ? undefined : getDataTableFilterType(filterType)?.coerce;
+  return coerce ? coerce(raw) : raw;
 }
 
 /**
@@ -140,6 +137,7 @@ export function decodeFilter<Row>(
   if (first <= 0) return null;
   const second = encoded.indexOf(':', first + 1);
 
+  for (const entry of columns ?? []) learnColumnOperators(entry.filter?.operators);
   const columnId = safeDecode(encoded.slice(0, first));
   const operator = safeDecode(
     second === -1 ? encoded.slice(first + 1) : encoded.slice(first + 1, second),

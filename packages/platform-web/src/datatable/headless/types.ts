@@ -9,26 +9,29 @@
  * virtualization / export (#256) without any column definition changing.
  */
 
-import type { ReactNode } from 'react';
+import type { ComponentType, ReactNode } from 'react';
+
+import type { PageSlot } from '../../core/index.js';
+import type { DataTableLayoutPrefs } from './layout/useDataTableLayoutPrefs.js';
 
 // ---------------------------------------------------------------------------
 // Column-level primitives
 // ---------------------------------------------------------------------------
 
 /**
- * Comparison operators a filterable column can advertise.
+ * The comparison operators the platform defines.
  *
- * ONE union covering every value type. Which subset a given column offers is
- * decided by its {@link DataTableFilterType} (see `filter/operators.ts`), or
- * pinned explicitly by declaring `filterable: ['equals', 'contains']`.
+ * Which subset a given column offers is decided by its
+ * {@link DataTableFilterType} (see `filter/operators.ts`), or pinned
+ * explicitly by declaring `filterable: ['equals', 'contains']`.
  *
  * The `endsWith` / `gte` / `lte` / `in` / `isNotEmpty` members are not in any
  * type's DEFAULT set but remain part of the union: a column may pin them, and
- * they were published by #252 before this issue narrowed the defaults.
+ * they were published by #252 before #254 narrowed the defaults.
  *
  * @stability experimental
  */
-export type FilterOperator =
+export type BuiltinFilterOperator =
   // text
   | 'equals'
   | 'contains'
@@ -53,8 +56,27 @@ export type FilterOperator =
   | 'isNotEmpty';
 
 /**
+ * One comparison operator: a {@link BuiltinFilterOperator} or an id a
+ * registered filter type declared (`registerDataTableFilterType`, for
+ * example `hasAll` on a tags column). Open on purpose; the `(string & {})` arm
+ * keeps editor completion for the built-ins.
+ *
+ * @stability experimental
+ */
+export type FilterOperator = BuiltinFilterOperator | (string & {});
+
+/**
+ * The five filter types the platform defines.
+ *
+ * @stability experimental
+ */
+export type BuiltinDataTableFilterType = 'text' | 'number' | 'date' | 'enum' | 'boolean';
+
+/**
  * The kind of value behind a column, which decides BOTH the operator set the
- * filter UI offers and the input control it draws for the operand.
+ * filter UI offers and the input control it draws for the operand: one of the
+ * five {@link BuiltinDataTableFilterType}s, or a type an app registered with
+ * `registerDataTableFilterType` (`tags`, `user`).
  *
  * Deliberately a declared field rather than something inferred from the first
  * row: inference would flip a column's operator set when a page happens to be
@@ -64,7 +86,74 @@ export type FilterOperator =
  *
  * @stability experimental
  */
-export type DataTableFilterType = 'text' | 'number' | 'date' | 'enum' | 'boolean';
+export type DataTableFilterType = BuiltinDataTableFilterType | (string & {});
+
+/**
+ * How many operands an operator takes.
+ *
+ *  - `0`      — `isEmpty` / `isNotEmpty`: the operator IS the whole predicate.
+ *  - `1`      — one value.
+ *  - `2`      — `between`: a `[from, to]` tuple.
+ *  - `'many'` — `isAnyOf` / `in`: a set.
+ *
+ * @stability experimental
+ */
+export type OperatorArity = 0 | 1 | 2 | 'many';
+
+/**
+ * One operator a filter type offers: its id, the words the picker and the chip
+ * use, and how many operands it takes.
+ *
+ * @stability experimental
+ */
+export interface FilterOperatorDef {
+  /** The operator id (`hasAll`); the same id may appear on several types when the arity agrees. */
+  id: FilterOperator;
+  /** The words the operator picker and the chip use ("has all of"). */
+  label: string;
+  /** How many operands it takes. */
+  arity: OperatorArity;
+}
+
+/**
+ * What a column's own filter operand editor receives (see
+ * {@link DataTableColumnFilter.editor}). It draws ONLY the operand control: the
+ * column and operator pickers and the Add button belong to the filter form.
+ *
+ * @typeParam Row - the table's row type.
+ * @stability experimental
+ */
+export interface FilterValueEditorProps<Row = unknown> {
+  /** The column being filtered. */
+  column: DataTableColumn<Row>;
+  /** The chosen operator. */
+  operator: FilterOperator;
+  /** How many operands the operator takes (the editor is not drawn for `0`). */
+  arity: OperatorArity;
+  /** The draft operand: `''` / `['', '']` / `[]` while blank (see `blankValueFor`). */
+  value: DataTableFilterValue;
+  /** Reports the next operand. The form decides when it is complete. */
+  onChange: (value: DataTableFilterValue) => void;
+  /** `true` in the phone sheet, where controls stack and fill the width. */
+  stacked: boolean;
+}
+
+/**
+ * A column's filter, declared in one place: its type, optionally its own
+ * operand editor and operator list. Setting it makes the column filterable
+ * (unless `filterable` is `false`) and takes the place of `filterType`.
+ *
+ * @typeParam Row - the table's row type.
+ * @stability experimental
+ */
+export interface DataTableColumnFilter<Row = unknown> {
+  /** A built-in type or a registered one (`registerDataTableFilterType`). */
+  type: DataTableFilterType;
+  /** Replaces the type's operand control for THIS column (a user picker, date presets). */
+  editor?: ComponentType<FilterValueEditorProps<Row>>;
+  /** Replaces the type's operators for THIS column, in the order offered. An id the type does not define must declare its arity here. */
+  operators?: readonly FilterOperatorDef[];
+}
 
 /**
  * One selectable option for an `enum` filter column.
@@ -186,6 +275,15 @@ export interface DataTableColumn<Row> {
    * Default `'text'`. Ignored unless `filterable` is set.
    */
   filterType?: DataTableFilterType;
+
+  /**
+   * The column's filter in one declaration: `{ type, editor?, operators? }`.
+   * Use it for a type an app registered (`tags`), or to give one column its own
+   * operand control. Setting it makes the column filterable (unless
+   * `filterable` is `false`); its `type` wins over `filterType`, and an array
+   * in `filterable` still pins the operators.
+   */
+  filter?: DataTableColumnFilter<Row>;
 
   /**
    * Options for a `filterType: 'enum'` column. Required for enum filtering —
@@ -548,6 +646,68 @@ export type DataTableLayout = 'mobile' | 'tablet' | 'desktop';
 export type DataTableRendererKind = 'mobile' | 'desktop';
 
 /**
+ * What the `Toolbar` slot receives: the table's state it already holds, read
+ * only, plus the layout preferences it owns (so a saved-views control can read
+ * `prefs.savedViews` and call `prefs.saveView` / `prefs.applyView`) and the
+ * page's own `onFiltersChange`, so applying a view can restore its filters.
+ *
+ * @typeParam Row - the table's row type.
+ * @stability experimental
+ */
+export interface DataTableToolbarSlotProps<Row = unknown> {
+  /** The resolved layout (`mobile`, `tablet`, `desktop`). */
+  layout: DataTableLayout;
+  /** How many rows are on the page. */
+  rowCount: number;
+  /** The server's total row count, when the table is paginated. */
+  total?: number;
+  /** The selected row ids. */
+  selectedIds: ReadonlySet<string>;
+  /** The active filter model. */
+  filters: DataTableFilterModel;
+  /** The page's filter callback (absent when the page gave the table none). */
+  onFiltersChange?: (next: DataTableFilterModel) => void;
+  /** The table's layout preferences: density, columns, `extra` and the saved views. */
+  prefs: DataTableLayoutPrefs;
+  /** The columns the table draws. */
+  columns: readonly DataTableColumn<Row>[];
+}
+
+/**
+ * What the `BulkBar` slot receives: everything the built-in bulk-action bar
+ * shows, so a replacement can offer the same actions.
+ *
+ * @stability experimental
+ */
+export interface DataTableBulkBarSlotProps {
+  /** The selected row ids, in selection order (never empty: the slot is not drawn for an empty selection). */
+  ids: string[];
+  /** The page's bulk actions. */
+  actions: DataTableBulkAction[];
+  /** Clears the selection. */
+  onClear: () => void;
+  /** How many rows are selectable on this page (the denominator of "N of M selected"). */
+  total?: number;
+}
+
+/**
+ * The slots of a `DataTable`, named as the packaged-page contract names them
+ * (`TableSlots.Toolbar`). Every member is optional and an absent slot leaves
+ * the table's markup exactly as it was.
+ *
+ * @typeParam Row - the table's row type.
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export interface DataTableSlots<Row = unknown> {
+  /** Extra controls above the table (saved views, a layout toggle), inside the table's own wrapper. */
+  Toolbar?: PageSlot<DataTableToolbarSlotProps<Row>>;
+  /** Replaces the bulk-action bar while rows are selected. */
+  BulkBar?: PageSlot<DataTableBulkBarSlotProps>;
+}
+
+/**
  * Props of the `DataTable` component.
  *
  * The table is controlled: the page owns the rows, the sort, the pagination, the filters and the selection, and the table reports changes through callbacks.
@@ -661,6 +821,9 @@ export interface DataTableProps<Row> {
    * Default `DEFAULT_TABLET_BREAKPOINT` (1200).
    */
   tabletBreakpoint?: number;
+
+  /** The table's slots (`Toolbar`, `BulkBar`); see {@link DataTableSlots}. */
+  slots?: DataTableSlots<Row>;
 
   /** Forwarded to the outermost wrapper for test targeting. */
   'data-testid'?: string;
