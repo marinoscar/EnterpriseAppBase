@@ -250,6 +250,7 @@ export {
 } from './deploy/env-metadata.js';
 export type { DeriveContext, EnvGroup, EnvVarMetadata } from './deploy/env-metadata.js';
 export { ENV_GROUPS } from './deploy/env-metadata.js';
+export { effectiveGroups } from './deploy/compose-files.js';
 
 // The wizard, and the three prompt primitives it needed (#175). `confirm`,
 // `promptSecret` and `select` live in prompt.ts beside the one-question helper
@@ -426,7 +427,7 @@ export { buildUpdateSteps, runUpdate } from './deploy/update.js';
 export type { UpdateOptions, UpdateResult } from './deploy/update.js';
 
 // Test helpers, published only through `@marinoscar/platform-cli/testing`.
-export { TEST_CLI_IDENTITY, resetCliForTests, useTestCliIdentity } from './test-support.js';
+export { TEST_CLI_IDENTITY, resetCliForTests, testDeployStepContext, useTestCliIdentity } from './test-support.js';
 
 // The registries an app extends (#715), beside `/core`'s commands and
 // env-spec fragments.

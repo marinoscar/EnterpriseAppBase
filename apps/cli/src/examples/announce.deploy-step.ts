@@ -1,4 +1,4 @@
-import type { DeployStepRegistration } from '@marinoscar/platform-cli/deploy';
+import type { AppDeployStep, DeployStepRegistration } from '@marinoscar/platform-cli/deploy';
 
 // =============================================================================
 // EXAMPLE, NOT WIRED: an app deploy step added through registerDeployStep (#715)
@@ -18,7 +18,7 @@ import type { DeployStepRegistration } from '@marinoscar/platform-cli/deploy';
 // =============================================================================
 
 /** Logs the deployed commit, after `verify`, on a fresh install. */
-export const announceInstall: DeployStepRegistration = {
+export const announceInstall: DeployStepRegistration & { step: AppDeployStep } = {
   pipeline: 'install',
   id: 'announce',
   after: 'verify',

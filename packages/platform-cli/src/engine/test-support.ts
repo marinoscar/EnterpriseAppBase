@@ -1,3 +1,5 @@
+import type { DeployStepContext } from './deploy/steps/registry.js';
+import { redactedValues } from './deploy/steps/step-values.js';
 import { replaceCliIdentityForTests, type CliIdentity } from './identity.js';
 import { resetCliRegistriesForTests } from './registries.js';
 
@@ -52,4 +54,41 @@ export function useTestCliIdentity(identity: CliIdentity | undefined, version?: 
 export function resetCliForTests(): void {
   resetCliRegistriesForTests();
   replaceCliIdentityForTests(undefined);
+}
+
+/**
+ * A {@link DeployStepContext} for testing an app deploy step without a
+ * pipeline: a deployment under `/opt/infra/apps/app`, no commit, commands that
+ * succeed with no output, `log`/`progress` that record nothing, and `env` /
+ * `answers` built from the given variables with the secret rules of the real
+ * context (a secret key is present but never readable).
+ *
+ * @param overrides - Fields to replace.
+ * @param values - Variables for `env` (and `answers`, unless it is overridden).
+ * @returns A complete context.
+ * @stability experimental
+ * @example
+ * ```ts
+ * const context = testDeployStepContext({ commitSha: 'abc123' }, { COACH_URL: 'https://coach.example' });
+ * await step.run(context);
+ * ```
+ */
+export function testDeployStepContext(
+  overrides: Partial<DeployStepContext> = {},
+  values: Readonly<Record<string, string>> = {},
+): DeployStepContext {
+  const map = new Map(Object.entries(values));
+  return {
+    pipeline: 'install',
+    deployRoot: '/opt/infra/apps/app',
+    checkoutPath: '/opt/infra/apps/app/repo',
+    commitSha: undefined,
+    hooks: undefined,
+    env: redactedValues(() => map),
+    answers: redactedValues(() => map),
+    log: () => undefined,
+    progress: () => undefined,
+    exec: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
+    ...overrides,
+  };
 }

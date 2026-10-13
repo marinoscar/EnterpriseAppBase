@@ -8,7 +8,9 @@ export {
   commentedAssignments,
   composeEnvSpecs,
   registerCliConformanceSuite,
+  resetCliConformanceSuitesForTests,
   resetCliForTests,
+  testDeployStepContext,
   runPlatformConformance,
   useTestCliIdentity,
 } from '../engine/index.js';
