@@ -33,6 +33,8 @@ const REPO_ROOT = join(PACKAGE_ROOT, '..', '..');
 const REFERENCE = join(REPO_ROOT, 'infra', 'nginx');
 const EVOPATH_APP_D = join(PACKAGE_ROOT, 'test', 'fixtures', 'overlays', 'evopath', 'nginx', 'app.d');
 
+const CSP_APP_D = join(PACKAGE_ROOT, 'test', 'fixtures', 'overlays', 'csp', 'nginx', 'app.d');
+
 const HAS_NGINX = spawnSync('nginx', ['-v'], { encoding: 'utf8' }).status === 0;
 if (!HAS_NGINX) {
   console.warn('[platform-infra] no `nginx` binary: the nginx -t and header tests are SKIPPED here. CI runs them.');
@@ -206,6 +208,47 @@ describe.skipIf(!HAS_NGINX)('EvoPath overlays in app.d/, with no platform file e
     for (const path of ['/', '/api/coach/chat/stream']) {
       const response = await fetch(`http://127.0.0.1:${stack!.port}${path}`);
       expect(response.headers.get('permissions-policy'), path).toBe('camera=(), microphone=(self), geolocation=(self), payment=()');
+    }
+  });
+});
+
+// The app.d/csp/ include point (PP-14.22): sources added to the default policy
+// by files in the app's own directory, no copy of the policy.
+describe.skipIf(!HAS_NGINX)('the app.d/csp include point', () => {
+  const policyOf = async (stack: Stack, path: string): Promise<string> => {
+    const response = await fetch(`http://127.0.0.1:${stack.port}${path}`);
+    return response.headers.get('content-security-policy') ?? '';
+  };
+
+  it('serves the platform policy untouched when app.d/csp/ is empty', async () => {
+    const stack = await layout();
+    try {
+      await start(stack);
+      expect(nginxTest(stack.dir).output).toMatch(/syntax is ok/);
+      const policy = await policyOf(stack, '/');
+      expect(policy).toContain("connect-src 'self' https:; worker-src 'self'");
+      expect(policy.endsWith("frame-ancestors 'self'")).toBe(true);
+    } finally {
+      await stop(stack);
+    }
+  });
+
+  it('appends an app source to connect-src and a new directive, and leaves /api/docs alone', async () => {
+    const stack = await layout(CSP_APP_D);
+    try {
+      await start(stack);
+      const test = nginxTest(stack.dir);
+      expect(test.output).toMatch(/syntax is ok/);
+      expect(test.status).toBe(0);
+      const policy = await policyOf(stack, '/');
+      expect(policy).toContain("connect-src 'self' https: wss://realtime.example.com; worker-src 'self'");
+      expect(policy.endsWith("frame-ancestors 'self'; frame-src https://www.youtube.com")).toBe(true);
+      expect(policy).toContain("script-src 'self';");
+      const docs = await policyOf(stack, '/api/docs');
+      expect(docs).not.toContain('realtime.example.com');
+      expect(docs).not.toContain('youtube');
+    } finally {
+      await stop(stack);
     }
   });
 });
