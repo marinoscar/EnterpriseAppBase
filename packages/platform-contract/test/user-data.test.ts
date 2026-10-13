@@ -8,6 +8,7 @@ import {
   userDataDeletionRequestSchema,
   userDataDeletionStatusSchema,
   userDataPurgeResultSchema,
+  factoryResetSummarySchema,
   userDataSummarySchema,
 } from '../src/user-data/index.js';
 
@@ -47,8 +48,27 @@ describe('@marinoscar/platform-contract/user-data', () => {
     const parsed = userDataSummarySchema.parse({
       categories: [{ id: 'files', label: 'Files', description: 'd', content: true, count: 2, bytes: 10 }],
       scopes: [{ id: 'everything', label: 'Everything', description: 'd', layer: 'danger', confirmation: 'DELETE MY DATA', categories: ['files'] }],
+      kept: ['Your account'],
     });
     expect(parsed.categories[0]!.bytes).toBe(10);
+    expect(parsed.kept).toEqual(['Your account']);
+  });
+
+  it('carries the lists the pages print: kept on both summaries, deleted on the factory reset one (PP-14.24)', () => {
+    expect(userDataSummarySchema.safeParse({ categories: [], scopes: [] }).success).toBe(false);
+    const reset = factoryResetSummarySchema.parse({
+      disabledReason: null,
+      otherUsers: 1,
+      organizations: 0,
+      storageObjects: 2,
+      jobs: 3,
+      categories: [],
+      deleted: ['Every other user'],
+      kept: ['Roles and permissions'],
+    });
+    expect(reset.deleted).toEqual(['Every other user']);
+    expect(reset.kept).toEqual(['Roles and permissions']);
+    expect(factoryResetSummarySchema.safeParse({ ...reset, deleted: undefined }).success).toBe(false);
   });
 
   it('encodes the org id in the offboarding path', () => {

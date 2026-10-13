@@ -81,10 +81,14 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | `NotificationBell` | slot | `<NotificationBell slots?={{ emptyState?, footer?({ close }), itemExtra?(notification) }} />` | Place the bell in the app's AppBar; the slots add app content to its popover | experimental | [example](../../../../apps/web/src/components/navigation/AppBar.tsx) |
 | `useNotificationChannels` | hook | `useNotificationChannels(): { channels, isLoading, error, refresh }` | Read the channel registry (`GET /api/notifications/channels`): the label to draw, `criticalCapable`, `broadcastCapable`, `broadcastDefault` and the order | experimental | [example](../../../../apps/web/src/__tests__/examples/notifications/webhook-channel-composer.test.tsx) |
 | `NotificationChannelDescriptor` | schema | `{ id, label, description, userConfigurable, criticalCapable, broadcastCapable, broadcastDefault, order }` | Type a channel the API registered; the bundle holds no channel list, label or order of its own | experimental | [example](../../../../apps/web/src/__tests__/examples/notifications/webhook-channel-composer.test.tsx) |
-| `UserNotificationsPage` | component | `<UserNotificationsPage channelStates? />` | Route `/settings/notifications`; `channelStates` gates an app channel's column with a note and a banner, as push's is; its matrix draws one column per channel an event declares, labelled from the channel registry | experimental | [example](../../../../apps/web/src/App.tsx) |
-| `NotificationSettingsPage` | component | `<NotificationSettingsPage />` | Route `/admin/settings/notifications`; beside the browser switch it draws one switch per channel an app registered | experimental | [example](../../../../apps/web/src/App.tsx) |
-| `PushConfigPage` | component | `<PushConfigPage />` | Route `/admin/settings/push` | experimental | [example](../../../../apps/web/src/App.tsx) |
-| `BroadcastsPage` | component | `<BroadcastsPage />` | Route `/admin/settings/broadcasts` (either `broadcasts:read` or `org_broadcasts:read`) | experimental | [example](../../../../apps/web/src/App.tsx) |
+| `UserNotificationsPage` | component | `<UserNotificationsPage channelStates? slots? />` | Route `/settings/notifications`; `channelStates` gates an app channel's column with a note and a banner, as push's is; its matrix draws one column per channel an event declares, labelled from the channel registry | experimental | [example](../../../../apps/web/src/App.tsx) |
+| `NotificationSettingsPage` | component | `<NotificationSettingsPage slots? />` | Route `/admin/settings/notifications`; beside the browser switch it draws one switch per channel an app registered | experimental | [example](../../../../apps/web/src/App.tsx) |
+| `PushConfigPage` | component | `<PushConfigPage slots? />` | Route `/admin/settings/push` | experimental | [example](../../../../apps/web/src/App.tsx) |
+| `BroadcastsPage` | component | `<BroadcastsPage slots? />` | Route `/admin/settings/broadcasts` (either `broadcasts:read` or `org_broadcasts:read`) | experimental | [example](../../../../apps/web/src/App.tsx) |
+| `UserNotificationsPageSlots` | slot | `PageSlotsBase` | Add a banner (quiet hours, an approval policy) or a section around a notification page; the channel columns and their labels come from the channel registry, not from a slot | experimental | [example](../../../../apps/web/src/__tests__/examples/notifications/notification-page-notices.test.tsx) |
+| `NotificationSettingsPageSlots` | slot | `PageSlotsBase` | Add a banner (quiet hours, an approval policy) or a section around a notification page; the channel columns and their labels come from the channel registry, not from a slot | experimental | [example](../../../../apps/web/src/__tests__/examples/notifications/notification-page-notices.test.tsx) |
+| `PushConfigPageSlots` | slot | `PageSlotsBase` | Add a banner (quiet hours, an approval policy) or a section around a notification page; the channel columns and their labels come from the channel registry, not from a slot | experimental | [example](../../../../apps/web/src/__tests__/examples/notifications/notification-page-notices.test.tsx) |
+| `BroadcastsPageSlots` | slot | `PageSlotsBase` | Add a banner (quiet hours, an approval policy) or a section around a notification page; the channel columns and their labels come from the channel registry, not from a slot | experimental | [example](../../../../apps/web/src/__tests__/examples/notifications/notification-page-notices.test.tsx) |
 | `registerNotificationServiceWorkerHandlers` | hook | `registerNotificationServiceWorkerHandlers(scope, options?): void` | Add the `push`, `notificationclick` and `pushsubscriptionchange` listeners from the app's `sw.ts` | experimental | [example](../../../../apps/web/src/sw.ts) |
 | `handlePushEvent` | hook | `handlePushEvent(scope, event, options?): Promise<void>` | Compose your own `push` listener (always shows a notification) | experimental | [example](../../../../apps/web/src/sw.ts) |
 | `handleNotificationClick` | hook | `handleNotificationClick(scope, event): void` | Compose your own `notificationclick` listener (re-validates the link, hands the click to a page) | experimental | [example](../../../../apps/web/src/sw.ts) |
@@ -103,6 +107,8 @@ Declares none. Each page gates on the exact string its controller enforces: `Bro
 ## UI
 
 MUI throughout, light and dark. The bell's accessible name carries the unread count; its popover is a labelled `role="dialog"`; a filled bell, a badge and a bold row are three cues for "unread", never colour alone. The banner and the preferences matrix name each device state's own remedy (allow, unblock, install to the Home Screen on iOS, HTTPS). The broadcasts table renders through the identity adapters' `DataTable` (the reference app's responsive table), so it follows the app's mobile card layout below `sm`.
+
+`UserNotificationsPage`, `NotificationSettingsPage`, `PushConfigPage` and `BroadcastsPage` take one optional `slots` prop ([Page slots](../core/README.md#page-slots)): `Header`, `BeforeContent`, `Sections` (at both ends), `AfterContent`. The loading spinners and the Web Push load-error screen are not slotted. The preference matrix labels its channel columns from the channel registry (`GET /api/notifications/channels`, PP-14.10), so an app channel needs no slot. With no slot the markup is unchanged (`test/notifications/NotificationPages.builtin-dom.test.tsx` and `NotificationsUi.builtin-dom.test.tsx` pin it).
 
 ## Infra
 
@@ -133,6 +139,8 @@ New subpaths in this version. From the reference app's local copies (#738):
 - The app's `sw.ts` keeps its precache and update handshake and calls `registerNotificationServiceWorkerHandlers(self, ...)` instead of carrying the three handlers.
 - The `Broadcasts` card and route take `['broadcasts:read', 'org_broadcasts:read']`.
 - `Broadcast` and `CreateBroadcastRequest` gain `targetOrgId`; the broadcast limits are the contract's constants.
+
+#942 (PP-14.24): additive. `UserNotificationsPage`, `NotificationSettingsPage`, `PushConfigPage` and `BroadcastsPage` take an optional `slots` prop (the base of the page-slot contract of `@marinoscar/platform-web/core`; `*PageProps` and `*PageSlots` exported from `/notifications/ui`). A page given no slots renders the markup it always did.
 
 ## Troubleshooting
 

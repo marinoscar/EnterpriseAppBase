@@ -168,6 +168,16 @@ export interface UserDataModelHint<TModel extends string = string> {
    * `'keep'` (configuration, such as organization settings and credentials).
    */
   readonly factoryReset?: 'delete' | 'keep';
+  /**
+   * One user-facing line for the "kept" lists of the Danger Zone and the
+   * factory reset page, shown when this model is kept (`keep`, or
+   * `factoryReset: 'keep'`; the factory reset page only for the latter).
+   * Written for the person reading the page ("Your saved searches"), not for
+   * an operator: the `keep` reason is the operator's. A kept model without a
+   * `summary` adds no line, which is why the built-in lists are unchanged by
+   * the platform's own hints.
+   */
+  readonly summary?: string;
 }
 
 /**
@@ -211,6 +221,12 @@ export interface FactoryResetStepDef {
   readonly phase: 'before-users' | 'deployment';
   /** One sentence for the runbook and logs. */
   readonly description?: string;
+  /**
+   * One user-facing line for the factory reset page's "Deleted" list ("Every
+   * saved report and its schedule"). Written for the administrator about to
+   * confirm, not for the runbook: a step without a `summary` adds no line.
+   */
+  readonly summary?: string;
   /** The work. `tx` is the app's transaction client (bypass), untyped here. */
   run(tx: any, ctx: FactoryResetStepContext): Promise<Record<string, number>>;
 }

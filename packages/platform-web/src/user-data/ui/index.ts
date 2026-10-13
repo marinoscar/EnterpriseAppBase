@@ -6,9 +6,9 @@
 export { TypedConfirmDialog } from './TypedConfirmDialog.js';
 export type { TypedConfirmDialogProps, TypedConfirmResultRow } from './TypedConfirmDialog.js';
 export { UserDangerZonePage } from './UserDangerZonePage.js';
-export type { UserDangerZonePageProps } from './UserDangerZonePage.js';
+export type { UserDangerZonePageCopy, UserDangerZonePageProps, UserDangerZonePageSlots } from './UserDangerZonePage.js';
 export { FactoryResetPage } from './FactoryResetPage.js';
-export type { FactoryResetPageProps } from './FactoryResetPage.js';
+export type { FactoryResetPageCopy, FactoryResetPageProps, FactoryResetPageSlots } from './FactoryResetPage.js';
 export { OrgOffboardingDialog } from './OrgOffboardingDialog.js';
 export type { OffboardedOrganization, OrgOffboardingDialogProps } from './OrgOffboardingDialog.js';
 export { OffboardOrganizationButton } from './OffboardOrganizationButton.js';

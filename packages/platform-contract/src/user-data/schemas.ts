@@ -115,6 +115,12 @@ export const userDataSummarySchema = z.object({
   categories: z.array(userDataCategorySummarySchema),
   /** Every scope the caller may request. */
   scopes: z.array(userDataScopeSchema),
+  /**
+   * What every deletion keeps, as lines for the Danger Zone's "Always kept"
+   * list: the platform's own lines, then one per registered kept model that
+   * carries a `summary`.
+   */
+  kept: z.array(z.string()),
 });
 
 /**
@@ -223,6 +229,17 @@ export const factoryResetSummarySchema = z.object({
       count,
     }),
   ),
+  /**
+   * What the reset deletes, as lines for the page's "Deleted" list: the
+   * platform's own lines, then one per registered factory reset step that
+   * carries a `summary`.
+   */
+  deleted: z.array(z.string()),
+  /**
+   * What the reset keeps, as lines for the page's "Kept" list: the platform's
+   * own lines, then one per registered kept model that carries a `summary`.
+   */
+  kept: z.array(z.string()),
 });
 
 /**

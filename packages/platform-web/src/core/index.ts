@@ -14,10 +14,11 @@ export type { PlatformSettingsPage } from './settings-page.js';
 // The packaged-page slot contract (PP-14.23): the optional `slots` prop every
 // packaged page takes, and the hook that applies the table slots to a page's
 // columns.
-export { SLOT_DETAIL_PANEL_COLUMN_ID, SLOT_ROW_ACTIONS_COLUMN_ID, useTableSlotColumns } from './page-slots.js';
+export { PageSlotsFrame, SLOT_DETAIL_PANEL_COLUMN_ID, SLOT_ROW_ACTIONS_COLUMN_ID, useTableSlotColumns } from './page-slots.js';
 export type {
   PageHeaderSlotProps,
   PageSectionsSlotProps,
+  PageSlotsFrameProps,
   PageSlot,
   PageSlotsBase,
   SlotTableColumn,
