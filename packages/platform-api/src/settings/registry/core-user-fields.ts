@@ -121,7 +121,6 @@ function validateProfileField(field: UserProfileField): void {
  * The fields apps added to `profile`, one entry per field, in registration
  * order. Frozen when the application bootstraps.
  *
- * @extensionPoint registry
  * @stability experimental
  */
 export const userProfileFieldRegistry = defineRegistry<UserProfileField>({
@@ -237,7 +236,6 @@ export interface ThemePreferenceDefinition {
  * response lists `themeOptions` only when this registry is non-empty, so a
  * deployment that registers none serves exactly the shapes it always did.
  *
- * @extensionPoint registry
  * @stability experimental
  */
 export const themePreferenceRegistry = defineRegistry<ThemePreferenceDefinition>({

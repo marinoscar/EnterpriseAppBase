@@ -331,10 +331,15 @@ function extendOrgLayer(
           ? { ...(asRecord(system) ?? {}), ...structuredClone(baseFields) }
           : (baseOrg.merge as (s: unknown, o: unknown) => unknown)(structuredClone(system), structuredClone(baseFields));
     }
-    const orgLeaf = asRecord(getAtPath(orgRecord, path));
-    if (orgLeaf === undefined) return result;
-    const systemLeaf = asRecord(getAtPath(result, path)) ?? {};
-    const nextLeaf: Record<string, unknown> = { ...systemLeaf };
+    // A base merge function may not know the fields the extension added (it
+    // builds its result field by field), so carry every added field from the
+    // system value first; the organization's own values apply on top.
+    const systemLeaf = asRecord(getAtPath(system, path)) ?? {};
+    const nextLeaf: Record<string, unknown> = { ...(asRecord(getAtPath(result, path)) ?? (path.length > 0 ? systemLeaf : {})) };
+    for (const field of added) {
+      if (systemLeaf[field] !== undefined) nextLeaf[field] = structuredClone(systemLeaf[field]);
+    }
+    const orgLeaf = asRecord(getAtPath(orgRecord, path)) ?? {};
     for (const name of names) {
       const value = orgLeaf[name];
       if (value === undefined) continue;

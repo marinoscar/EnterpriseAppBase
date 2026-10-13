@@ -291,6 +291,31 @@ describe('the org layer of an extension', () => {
       expect(applyOrgLayer(ns, { ...system, enabled: false }, { enabled: true }).value).toEqual({ ...system, enabled: false });
     });
 
+    it('carries the added fields through a base org merge that builds its result field by field', () => {
+      const explicit: SystemSettingsNamespace = {
+        ...baseWithOrg,
+        key: 'explicitSample',
+        org: {
+          ...baseWithOrg.org!,
+          // Knows only `enabled` and `limits`, like notifications' tighten merge.
+          merge: (system, org) => {
+            const s = system as { enabled: boolean; limits: { daily: number; burst: number } };
+            return { enabled: s.enabled && ((org as { enabled?: boolean }).enabled ?? true), limits: { daily: s.limits.daily, burst: s.limits.burst } } as never;
+          },
+        },
+      };
+      const ns = extendSystemSettingsNamespace(explicit, {
+        key: 'explicitSample',
+        storedSchema: z.object({ badge: z.string().max(10) }),
+        defaults: { badge: 'new' },
+        org: { mode: 'override' },
+      });
+      const system = { enabled: true, limits: { daily: 1, burst: 1 }, badge: 'new' };
+      // The org tightens the base field only: the added field survives the base merge.
+      expect(applyOrgLayer(ns, system, { enabled: false }).value).toEqual({ ...system, enabled: false });
+      expect(applyOrgLayer(ns, system, { enabled: false, badge: 'acme' }).value).toEqual({ ...system, enabled: false, badge: 'acme' });
+    });
+
     it('refuses different permissions (a namespace has one org permission pair) and a field already in the layer', () => {
       expect(() =>
         extendSystemSettingsNamespace(baseWithOrg, {

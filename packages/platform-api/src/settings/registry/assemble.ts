@@ -71,7 +71,6 @@ let overrideSequence = 0;
  * The defaults overrides registered with {@link overrideSettingsNamespaceDefaults},
  * in call order. Read by the manifests through {@link assembleSystemSettingsNamespaces}.
  *
- * @extensionPoint registry
  * @stability experimental
  */
 export const settingsDefaultsOverrideRegistry = defineRegistry<RegisteredDefaultsOverride>({
@@ -225,7 +224,6 @@ export interface SettingsContribution {
  * The contributions collected so far, in import order. Frozen when the
  * application bootstraps, like every static registry.
  *
- * @extensionPoint registry
  * @stability experimental
  */
 export const settingsContributionRegistry = defineRegistry<SettingsContribution>({
@@ -290,8 +288,8 @@ function assertNoDuplicateKeys<N extends { key: string }>(
       const first = seen.get(ns.key);
       if (first !== undefined) {
         throw new Error(
-          `${owner} declares ${scope} settings namespace "${ns.key}", which ${first} already declares. ` +
-            'Extend it with an extension instead of declaring it twice.',
+          `${scope === 'system' ? 'System' : 'User'} settings namespace "${ns.key}" is already registered: ${owner} declares it, but ${first} already does. ` +
+            `Extend it with ${scope === 'system' ? 'extendSystemSettingsNamespace' : 'extendUserSettingsNamespace'} instead of declaring it twice.`,
         );
       }
       seen.set(ns.key, owner);
@@ -335,7 +333,6 @@ export interface SystemSettingsAssembly {
  * );
  * ```
  *
- * @extensionPoint registry
  * @stability experimental
  */
 export function assembleSystemSettingsNamespaces(input: SystemSettingsAssembly): SystemSettingsNamespace[] {
@@ -386,7 +383,6 @@ export interface UserSettingsAssembly {
  * @returns the declarations in registration order.
  * @throws Error naming the owner when two declare one key or an extension names a missing namespace.
  *
- * @extensionPoint registry
  * @stability experimental
  */
 export function assembleUserSettingsNamespaces(input: UserSettingsAssembly): UserSettingsNamespace[] {

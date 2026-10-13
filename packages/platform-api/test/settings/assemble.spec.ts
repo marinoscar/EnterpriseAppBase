@@ -149,16 +149,16 @@ describe('the assembled order and contributions', () => {
   it('names the contribution that collides with a platform key, or with another contribution, or with the app', () => {
     expect(() =>
       assembleSystemSettingsNamespaces({ platform: [system('alpha')], contributions: [contribution('@acme/one', { system: [system('alpha')] })] }),
-    ).toThrow(/settings contribution "@acme\/one" declares system settings namespace "alpha", which the platform already declares/);
+    ).toThrow(/System settings namespace "alpha" is already registered: settings contribution "@acme\/one" declares it, but the platform already does/);
     expect(() =>
       assembleSystemSettingsNamespaces({
         platform: [],
         contributions: [contribution('@acme/one', { system: [system('alpha')] }), contribution('@acme/two', { system: [system('alpha')] })],
       }),
-    ).toThrow(/"@acme\/two" declares system settings namespace "alpha", which settings contribution "@acme\/one" already declares/);
+    ).toThrow(/"alpha" is already registered: settings contribution "@acme\/two" declares it, but settings contribution "@acme\/one" already does/);
     expect(() =>
       assembleSystemSettingsNamespaces({ platform: [], app: [system('alpha')], contributions: [contribution('@acme/one', { system: [system('alpha')] })] }),
-    ).toThrow(/the app declares system settings namespace "alpha", which settings contribution "@acme\/one"/);
+    ).toThrow(/"alpha" is already registered: the app declares it, but settings contribution "@acme\/one" already does/);
   });
 
   it('fails the boot, naming the key, when an extension names a namespace nobody declares', () => {
