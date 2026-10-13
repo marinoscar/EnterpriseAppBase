@@ -96,6 +96,27 @@ describe('the deployment-mode restore gate', () => {
     expect(moduleRef.get(DbBackupRestoreGate).inAppRestoreEnabled).toBe(false);
   });
 
+  it('honours the capability the port reports, so an app mode can turn restore off (PP-14.13)', async () => {
+    const gateFor = async (port: object) =>
+      (
+        await Test.createTestingModule({
+          providers: [
+            DbBackupRestoreGate,
+            { provide: DB_BACKUP_OPTIONS, useValue: resolveDbBackupModuleOptions() },
+            { provide: DB_BACKUP_DEPLOYMENT_MODE, useValue: port },
+          ],
+        }).compile()
+      ).get(DbBackupRestoreGate);
+
+    expect(await gateFor({ mode: 'byoc', inAppRestoreEnabled: false })).toMatchObject({ mode: 'byoc', inAppRestoreEnabled: false });
+    expect(await gateFor({ mode: 'byoc', inAppRestoreEnabled: true })).toMatchObject({ inAppRestoreEnabled: true });
+    // a port that reports no capability keeps the old rule: only saas turns restore off
+    expect(await gateFor({ mode: 'byoc' })).toMatchObject({ inAppRestoreEnabled: true });
+    // an explicit option still wins over the port
+    expect(resolveRestoreEnabled({ restoreEnabled: true }, 'byoc', false)).toBe(true);
+    expect(resolveRestoreEnabled({ deploymentMode: 'saas' }, 'byoc', true)).toBe(false);
+  });
+
   it('is self-hosted when nothing is bound', async () => {
     const moduleRef = await Test.createTestingModule({ providers: [DbBackupRestoreGate] }).compile();
 

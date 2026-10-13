@@ -261,13 +261,14 @@ import configuration from './config/configuration';
   ],
   providers: [
     // ------------------------------------------------------------------------
-    // NO global guard here. The application's ONLY `APP_GUARD` is the
+    // NO global guard here. The application's only `APP_GUARD` is the
     // maintenance guard, registered by `hostCoreModule` (#257, #867); there
     // is no global JWT guard, so a route without `@Auth()` is public. The
     // exception filter, the request log line, the `{ data }` envelope and
     // request ids are the host core's too. The `host` conformance suite
-    // (test/platform/host-conformance.spec.ts) fails a second APP_GUARD
-    // anywhere in the module graph.
+    // (test/platform/host-conformance.spec.ts) fails any other APP_GUARD in
+    // the module graph unless the app lists it, with a reason, in
+    // `allowedAppGuards` (a throttler, a tenant guard).
     // ------------------------------------------------------------------------
     // Global validation pipe (Zod)
     {

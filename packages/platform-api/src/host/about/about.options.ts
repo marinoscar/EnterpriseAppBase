@@ -9,6 +9,8 @@
 // its `version`.
 // =============================================================================
 
+import type { PlatformHost } from '../../core/index';
+
 /**
  * What {@link AboutModule.forRoot} takes from the app.
  *
@@ -28,6 +30,18 @@ export interface AboutModuleOptions {
    * request and must never throw.
    */
   apiVersion: () => string;
+  /**
+   * The app's access decorators (`definePlatformHost(...)`), so the route is
+   * guarded exactly as the app's own admin routes are. Omitted, the identity
+   * slice's `@Auth()` is used, which is what the reference app binds.
+   */
+  host?: PlatformHost;
+  /**
+   * The permission `GET /api/admin/about` requires. Default `system_settings:read`.
+   * An app that changes it must change the About settings card's `permission`
+   * to the same string.
+   */
+  permission?: string;
 }
 
 /** The resolved options, as injected. */

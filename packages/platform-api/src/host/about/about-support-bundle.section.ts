@@ -29,7 +29,6 @@ import { SupportBundleRegistry } from '../../doctor/index';
 import type { SupportBundleSection } from '../../doctor/index';
 import { z } from 'zod';
 
-import { DEPLOYMENT_MODES } from '../deployment/deployment-mode';
 import { AboutService } from './about.service';
 import { DEPLOY_INFO_STATUSES } from './deploy-info.constants';
 
@@ -37,7 +36,7 @@ const nullableString = z.string().nullable();
 
 export const versionsSectionSchema = z
   .object({
-    api: z.object({ version: z.string(), deploymentMode: z.enum(DEPLOYMENT_MODES) }).strict(),
+    api: z.object({ version: z.string(), deploymentMode: z.string() }).strict(),
     app: z.object({ name: nullableString, version: nullableString, commitSha: nullableString, ref: nullableString }).strict().nullable(),
     deployedBy: z.object({ cli: nullableString, version: nullableString }).strict().nullable(),
     lastCommand: z.enum(['install', 'update']).nullable(),
