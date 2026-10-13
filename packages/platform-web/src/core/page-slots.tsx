@@ -261,6 +261,7 @@ export interface PageSlotsFrameProps {
  * </Container>
  * ```
  *
+ * @extensionPoint component
  * @stability experimental
  */
 export function PageSlotsFrame({ slots, header, headerProps, children }: PageSlotsFrameProps): ReactNode {
