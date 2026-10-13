@@ -74,18 +74,6 @@
       "reason": "migrated in PP-14.24 (#942)"
     },
     {
-      "page": "TelemetryDashboardPage",
-      "reason": "migrated in PP-14.24 (#942)"
-    },
-    {
-      "page": "TelemetryExplorerPage",
-      "reason": "migrated in PP-14.24 (#942)"
-    },
-    {
-      "page": "TelemetrySettingsPage",
-      "reason": "migrated in PP-14.24 (#942)"
-    },
-    {
       "page": "UserAiKeysPage",
       "reason": "migrated in PP-14.24 (#942)"
     },

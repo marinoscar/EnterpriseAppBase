@@ -4,10 +4,19 @@
 // =============================================================================
 //
 // The stand-in for "add AssemblyAI to this app". It implements the neutral
-// `AiProviderAdapter` contract and carries ONE capability port, `audio` with
-// `transcribe` and nothing else: presence is the declaration, so the registry
-// derives `audio_transcription` and no other capability, and every other
-// operation is refused by the gate pipeline before this class is reached.
+// `AiProviderAdapter` contract and carries ONE built-in capability port, `audio`
+// with `transcribe` and nothing else, plus ONE custom operation, `audio.diarize`
+// (PP-14.17, `example-diarize.operation.ts`). Presence is the declaration: the
+// registry derives `audio_transcription` from the port and `speaker_diarization`
+// from the operation, and every other operation is refused by the gate pipeline
+// before this class is reached.
+//
+// Two ways to ask for speaker labels:
+//
+//   - `AiService...run('audio.diarize', { audioBase64 })`: the custom operation;
+//   - `transcribe` with `providerOptions: { 'example-transcribe': { diarize: true } }`:
+//     the transcript's `extras.segments` then carry `{ start, end, text, speaker }`
+//     (PP-14.17: `AiTranscriptionResult.extras`).
 //
 //   - The vendor sits behind `ExampleTranscribeTransport` (injected), so the
 //     class has no SDK import and no network: a real provider would put its SDK
@@ -36,12 +45,20 @@ import {
   type AiKeyVerification,
   type AiMediaInput,
   type AiModelCapabilities,
+  type AiOperationContext,
+  type AiOperationHandler,
   type AiProviderAdapter,
   type AiTranscriptionRequest,
   type AiTranscriptionResult,
 } from '@marinoscar/platform-api/ai';
 import { z } from 'zod';
 
+import {
+  EXAMPLE_DIARIZE_CAPABILITY,
+  EXAMPLE_DIARIZE_OPERATION,
+  type ExampleDiarizeInput,
+  type ExampleDiarizeOutput,
+} from './example-diarize.operation';
 import {
   EXAMPLE_TRANSCRIBE_TRANSPORT,
   ExampleTranscribeTransportError,
@@ -60,9 +77,12 @@ export const exampleTranscribeSettingsSchema = z.object({
 /** The largest recording the vendor takes: 100 MiB. */
 const MAX_BYTES = 100 * 1024 * 1024;
 
-/** What the catalog stores for the vendor's model. */
+/** The provider-options this adapter reads (`providerOptions['example-transcribe']`). */
+const providerOptionsSchema = z.object({ diarize: z.boolean().optional() }).passthrough();
+
+/** What the catalog stores for the vendor's model: it transcribes and diarizes. */
 const TRANSCRIPTION_CAPABILITIES: AiModelCapabilities = {
-  capabilities: ['audio_transcription'],
+  capabilities: ['audio_transcription', EXAMPLE_DIARIZE_CAPABILITY],
   inputModalities: ['audio'],
   outputModalities: ['text'],
 };
@@ -75,10 +95,15 @@ export class ExampleTranscribeAdapter implements AiProviderAdapter, OnModuleInit
   /** Shown by the Doctor's egress inventory; the fake transport calls nothing. */
   readonly defaultBaseUrl = 'https://api.example-transcribe.invalid';
 
-  /** The only port: transcription. No `responses`, `images`, `embeddings` or `realtime`. */
+  /** The only built-in port: transcription. No `responses`, `images`, `embeddings` or `realtime`. */
   readonly audio: AiAudioPort = {
     transcribe: (req, ctx) => this.transcribe(req, ctx),
     transcriptionMaxBytes: MAX_BYTES,
+  };
+
+  /** The custom operation (PP-14.17): who spoke when. Its input and output are validated by the runtime. */
+  readonly operations: Readonly<Record<string, AiOperationHandler>> = {
+    [EXAMPLE_DIARIZE_OPERATION]: (input, ctx) => this.diarize(input as ExampleDiarizeInput, ctx),
   };
 
   private readonly logger = new Logger(ExampleTranscribeAdapter.name);
@@ -118,6 +143,7 @@ export class ExampleTranscribeAdapter implements AiProviderAdapter, OnModuleInit
 
   private async transcribe(req: AiTranscriptionRequest, ctx: AiCallContext): Promise<AiTranscriptionResult> {
     const audio = await readAudio(req.audio);
+    const diarize = this.diarizeOption(req);
     const response = await this.guard('transcribe', () =>
       this.transport.transcribe({
         apiKey: ctx.apiKey,
@@ -126,6 +152,7 @@ export class ExampleTranscribeAdapter implements AiProviderAdapter, OnModuleInit
         audio: audio.bytes,
         mimeType: audio.mimeType,
         ...(req.language ? { language: req.language } : {}),
+        ...(diarize ? { diarize } : {}),
       }),
     );
 
@@ -137,7 +164,39 @@ export class ExampleTranscribeAdapter implements AiProviderAdapter, OnModuleInit
       ...(response.language ? { language: response.language } : {}),
       ...(response.durationSeconds === undefined ? {} : { durationSeconds: response.durationSeconds }),
       ...(response.requestId ? { providerRequestId: response.requestId } : {}),
+      // PP-14.17: what the neutral result has no field for. The runtime bounds it.
+      ...(response.segments
+        ? { extras: { ...(response.language ? { language: response.language } : {}), segments: response.segments } }
+        : {}),
     };
+  }
+
+  /** `audio.diarize`: the runtime has parsed the input and will parse the output. */
+  private async diarize(input: ExampleDiarizeInput, ctx: AiOperationContext): Promise<ExampleDiarizeOutput> {
+    const bytes = Buffer.from(input.audioBase64, 'base64');
+    const response = await this.guard('diarize', () =>
+      this.transport.diarize({
+        apiKey: ctx.apiKey,
+        region: this.region(ctx),
+        model: ctx.model,
+        audio: bytes,
+        mimeType: input.mimeType,
+        ...(input.expectedSpeakers ? { expectedSpeakers: input.expectedSpeakers } : {}),
+      }),
+    );
+
+    return {
+      speakers: [...new Set(response.segments.map((segment) => segment.speaker))],
+      segments: response.segments,
+      durationSeconds: response.durationSeconds,
+    };
+  }
+
+  /** `providerOptions['example-transcribe'].diarize`, read with the adapter's own schema. */
+  private diarizeOption(req: AiTranscriptionRequest): boolean {
+    const parsed = providerOptionsSchema.safeParse(req.providerOptions?.[this.id] ?? {});
+
+    return parsed.success && parsed.data.diarize === true;
   }
 
   private region(ctx: AiCallContext): ExampleTranscribeRegion {

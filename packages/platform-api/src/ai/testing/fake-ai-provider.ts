@@ -54,6 +54,8 @@ import { AiError } from '../core/ai-error';
 import { AiCapability, AiModelCapabilities } from '../core/capabilities';
 import {
   AiCallContext,
+  AiOperationContext,
+  AiOperationHandler,
   AiDiscoveredModel,
   AiDiscoveredModelMetadata,
   AiKeyVerification,
@@ -79,6 +81,7 @@ import {
   AiRealtimeSessionRequest,
   AiSpeechRequest,
   AiSpeechResult,
+  AiTranscriptionExtras,
   AiTranscriptionRequest,
   AiTranscriptionResult,
   isStreamedPayload,
@@ -131,7 +134,9 @@ export type FakeAiCallMethod =
   | 'images.edit'
   | 'audio.transcribe'
   | 'audio.speech'
-  | 'realtime.createSession';
+  | 'realtime.createSession'
+  // PP-14.17 (#935): a custom operation (`AiProviderAdapter.operations`).
+  | 'operations.run';
 
 /**
  * One recorded call: the method, the key it carried and what it received.
@@ -175,6 +180,15 @@ export interface FakeAiCall {
   speechRequest?: AiSpeechRequest;
   /** The request a `realtime.createSession` call received. */
   realtimeRequest?: AiRealtimeSessionRequest;
+  /** The operation id and (validated) input an `operations.run` call received, and the model it targeted. */
+  operationCall?: {
+    /** The operation id. */
+    operation: string;
+    /** The model it targeted. */
+    model: string;
+    /** The validated input it received. */
+    input: unknown;
+  };
   /** Set when the call observed `ctx.signal` aborting. */
   aborted?: boolean;
   /** What a responses call received for each storage-object part (#441), in part order. */
@@ -266,6 +280,13 @@ export interface FakeAiProviderOptions {
   realtimePort?: boolean;
   /** The built-in audio port's `transcriptionMaxBytes`. Defaults to 25 MiB. */
   transcriptionMaxBytes?: number;
+  /**
+   * What the built-in audio port reports in `AiTranscriptionResult.extras`
+   * (PP-14.17, #935): the value, or a function of the transcript it just made.
+   * Typed `unknown` on purpose, so a test can hand it a malformed or oversized
+   * value and watch the runtime drop it.
+   */
+  transcriptionExtras?: unknown | ((transcript: { durationSeconds: number; text: string }) => unknown);
   /** Native vector length of the built-in embeddings port. Defaults to 8. */
   embeddingDimensions?: number;
   /** Extra ports to carry, for registry/runtime tests. */
@@ -293,6 +314,13 @@ export interface FakeAiProviderOptions {
   supportsPreviousResponseId?: boolean;
   /** The adapter's `supportsHostedTools`. Omitted: declares nothing (`true`). */
   supportsHostedTools?: boolean;
+  /**
+   * Custom operations to carry (PP-14.17, #935), by operation id: the fake
+   * records each call (with the key it carried) as an `operations.run` call
+   * and runs the handler. A key outside `validKeys` is `AI_KEY_INVALID`
+   * before the handler runs.
+   */
+  operations?: Record<string, AiOperationHandler>;
   /** Characters per streamed delta. Defaults to 4. */
   chunkSize?: number;
   /** Delay before a create and between stream events, in ms (abort-aware). Defaults to 0. */
@@ -460,6 +488,8 @@ export class FakeAiProvider implements AiProviderAdapter {
   readonly supportsPreviousResponseId?: boolean;
   /** Whether it runs hosted tools (as configured). */
   readonly supportsHostedTools?: boolean;
+  /** The custom operations it carries (PP-14.17), each recording its calls. */
+  readonly operations?: Readonly<Record<string, AiOperationHandler>>;
 
   /** Every call, in order. */
   readonly calls: FakeAiCall[] = [];
@@ -526,6 +556,23 @@ export class FakeAiProvider implements AiProviderAdapter {
 
     if (options.supportsHostedTools !== undefined) {
       this.supportsHostedTools = options.supportsHostedTools;
+    }
+
+    if (options.operations) {
+      this.operations = Object.fromEntries(
+        Object.entries(options.operations).map(([id, handler]) => [
+          id,
+          async (input: unknown, ctx: AiOperationContext) => {
+            const call = this.record('operations.run', ctx);
+
+            call.operationCall = { operation: id, model: ctx.model, input };
+            this.assertKey(ctx);
+            this.throwIfAborted(ctx, call);
+
+            return handler(input, ctx);
+          },
+        ]),
+      );
     }
   }
 
@@ -827,6 +874,13 @@ export class FakeAiProvider implements AiProviderAdapter {
         ? { words: text.split(' ').map((word, i) => ({ startSeconds: i, endSeconds: i + 1, word })) }
         : {}),
       usage: { outputTokens: Math.ceil(text.length / 4) },
+      ...(this.options.transcriptionExtras !== undefined
+        ? {
+            extras: (typeof this.options.transcriptionExtras === 'function'
+              ? this.options.transcriptionExtras({ durationSeconds, text })
+              : this.options.transcriptionExtras) as AiTranscriptionExtras,
+          }
+        : {}),
       providerRequestId: `fake_req_${this.responseCounter}`,
     };
   }

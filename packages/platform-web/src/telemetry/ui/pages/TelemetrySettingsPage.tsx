@@ -68,8 +68,13 @@ import {
 import MonitorHeartOutlinedIcon from '@mui/icons-material/MonitorHeartOutlined';
 import { Link as RouterLink, Navigate } from 'react-router-dom';
 import { usePlatformViewer } from '../../../core/index.js';
+import type { PageSlotsBase } from '../../../core/index.js';
 import { useTelemetryAdmin } from '../../headless/hooks/useTelemetryAdmin.js';
-import { TelemetryConfigContext, isTelemetryOn, useTelemetryConfig } from '../../headless/context/telemetryConfig.js';
+import {
+  TelemetryConfigContext,
+  isTelemetryOn,
+  useTelemetryConfig,
+} from '../../headless/context/telemetryConfig.js';
 import { TelemetryCrossLink } from '../components/TelemetryCrossLink.js';
 import { TELEMETRY_DASHBOARD_PATH } from '../../headless/lib/explorerHandoff.js';
 import { useTelemetryWebAdapters } from '../../headless/adapters/TelemetryWebAdapters.js';
@@ -80,7 +85,10 @@ import {
   TelemetryConnectionSection,
 } from '../components/TelemetryConnectionSection.js';
 import { TelemetryServicesSection } from '../components/TelemetryServicesSection.js';
-import { TELEMETRY_STORE_SECTION_ID, TelemetryStoreSection } from '../components/TelemetryStoreSection.js';
+import {
+  TELEMETRY_STORE_SECTION_ID,
+  TelemetryStoreSection,
+} from '../components/TelemetryStoreSection.js';
 import { telemetryTokens } from '../../theme/telemetryTokens.js';
 import {
   TELEMETRY_INSTANCE_ID_PATTERN,
@@ -114,7 +122,8 @@ interface FormState {
   maxSteps: string;
 }
 
-type NumberField = 'retentionDays' | 'maxRows' | 'timeoutSeconds' | 'maxResultRowsToModel' | 'maxSteps';
+type NumberField =
+  'retentionDays' | 'maxRows' | 'timeoutSeconds' | 'maxResultRowsToModel' | 'maxSteps';
 
 const FIELD_LIMITS: Record<NumberField, { min: number; max: number }> = {
   retentionDays: TELEMETRY_LIMITS.retentionDays,
@@ -146,7 +155,10 @@ function toFormState(config: TelemetryAdminConfig): FormState {
 }
 
 /** `null` when valid, else the message to show under the field. */
-export function validateInteger(value: string, limits: { min: number; max: number }): string | null {
+export function validateInteger(
+  value: string,
+  limits: { min: number; max: number }
+): string | null {
   const trimmed = value.trim();
   if (!/^\d+$/.test(trimmed)) return `Enter a whole number from ${limits.min} to ${limits.max}.`;
   const n = Number(trimmed);
@@ -216,7 +228,11 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 
 /** An in-page link to the Connection section (the Store section for any other store). */
 function ConnectionLink({ children, builtin = true }: { children: ReactNode; builtin?: boolean }) {
-  return <Link href={`#${builtin ? TELEMETRY_CONNECTION_SECTION_ID : TELEMETRY_STORE_SECTION_ID}`}>{children}</Link>;
+  return (
+    <Link href={`#${builtin ? TELEMETRY_CONNECTION_SECTION_ID : TELEMETRY_STORE_SECTION_ID}`}>
+      {children}
+    </Link>
+  );
 }
 
 function StatusCard({
@@ -244,16 +260,16 @@ function StatusCard({
             <>
               <AlertTitle>{store.label} not configured</AlertTitle>
               The API has no connection to the {store.label} telemetry store. Configure it in the{' '}
-              <ConnectionLink builtin={false}>Store</ConnectionLink> section and save; settings saved
-              there take effect within seconds, with no restart needed.
+              <ConnectionLink builtin={false}>Store</ConnectionLink> section and save; settings
+              saved there take effect within seconds, with no restart needed.
             </>
           ) : (
             <>
               <AlertTitle>GreptimeDB not configured</AlertTitle>
-              The API has no connection to a telemetry store. Enter the GreptimeDB logins in
-              the <ConnectionLink>Connection</ConnectionLink> section and save. GreptimeDB is
-              deployed with this application; settings saved here take effect once it is reachable,
-              with no restart needed.
+              The API has no connection to a telemetry store. Enter the GreptimeDB logins in the{' '}
+              <ConnectionLink>Connection</ConnectionLink> section and save. GreptimeDB is deployed
+              with this application; settings saved here take effect once it is reachable, with no
+              restart needed.
             </>
           )}
         </Alert>
@@ -303,8 +319,13 @@ function StatusCard({
                   : status.ttl.raw
                 : 'None set'}
               {status.ttl?.days != null && status.ttl.days !== status.retentionDays && (
-                <Typography component="span" variant="body2" sx={{ ml: 1, color: (theme) => telemetryTokens(theme).status.warn }}>
-                  (setting is {status.retentionDays} days — the background job has not applied it yet)
+                <Typography
+                  component="span"
+                  variant="body2"
+                  sx={{ ml: 1, color: (theme) => telemetryTokens(theme).status.warn }}
+                >
+                  (setting is {status.retentionDays} days — the background job has not applied it
+                  yet)
                 </Typography>
               )}
             </dd>
@@ -367,9 +388,8 @@ function AssistantModelSelect({
 }) {
   const { models, isLoading, error } = useTelemetryWebAdapters().useAssistantModels();
   const sorted = useMemo(
-    () =>
-      [...models].sort((a, b) => Number(supportsTools(b)) - Number(supportsTools(a))),
-    [models],
+    () => [...models].sort((a, b) => Number(supportsTools(b)) - Number(supportsTools(a))),
+    [models]
   );
   const known = sorted.some((model) => modelKey(model.provider, model.modelId) === value);
 
@@ -390,7 +410,10 @@ function AssistantModelSelect({
       slotProps={{ htmlInput: { 'aria-label': 'Assistant model' } }}
     >
       <MenuItem value="">
-        <ListItemText primary="Not set" secondary="The assistant cannot run until a model is chosen" />
+        <ListItemText
+          primary="Not set"
+          secondary="The assistant cannot run until a model is chosen"
+        />
       </MenuItem>
       {!known && value && (
         <MenuItem value={value}>
@@ -444,6 +467,23 @@ function NumberInput({
 }
 
 /**
+ * The `slots` of {@link TelemetrySettingsPage}: the packaged-page slot contract, no more.
+ *
+ * @stability experimental
+ */
+export type TelemetrySettingsPageSlots = PageSlotsBase;
+
+/**
+ * The props of {@link TelemetrySettingsPage}.
+ *
+ * @stability experimental
+ */
+export interface TelemetrySettingsPageProps {
+  /** Header, banner and extra sections around the settings (the packaged-page slot contract). */
+  slots?: TelemetrySettingsPageSlots;
+}
+
+/**
  * The Telemetry settings page (`/admin/settings/telemetry`): collection on or
  * off, retention, query limits, the AI assistant's switch and model, the
  * GreptimeDB connection and the telemetry services. Shown to `telemetry:read`;
@@ -453,12 +493,18 @@ function NumberInput({
  * this is where telemetry is switched on. Reads the app through
  * `PlatformHostProvider` and `TelemetryWebAdaptersProvider`.
  *
+ * @param props - `slots`: the packaged-page slot contract (`Header`, `BeforeContent`, `Sections`, `AfterContent`).
  * @returns the page.
+ *
+ * @example
+ * ```tsx
+ * <TelemetrySettingsPage slots={{ Sections: ({ position }) => (position === 'bottom' ? <RetentionPolicyNote /> : null) }} />
+ * ```
  *
  * @extensionPoint component
  * @stability experimental
  */
-export default function TelemetrySettingsPage() {
+export default function TelemetrySettingsPage({ slots }: TelemetrySettingsPageProps = {}) {
   const { hasPermission } = usePlatformViewer();
   const {
     config,
@@ -537,31 +583,51 @@ export default function TelemetrySettingsPage() {
   const retentionToggleValue =
     form?.retentionMode === 'custom' ? 'custom' : (form?.retentionDays ?? '');
 
+  const Header = slots?.Header;
+  const BeforeContent = slots?.BeforeContent;
+  const Sections = slots?.Sections;
+  const AfterContent = slots?.AfterContent;
+  const dashboardLink = canOpenDashboard ? (
+    <TelemetryCrossLink
+      to={TELEMETRY_DASHBOARD_PATH}
+      label="Open dashboard"
+      compactLabel="Open Telemetry Dashboard"
+      icon={<MonitorHeartOutlinedIcon />}
+      compact={isPhone}
+    />
+  ) : null;
+
   return (
     <Container maxWidth="lg">
       <Box sx={{ py: 4 }}>
-        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>
-          <Typography variant="h4" component="h1" sx={{ flex: 1, minWidth: 0 }}>
-            {PAGE_TITLE}
-          </Typography>
-          {canOpenDashboard && (
-            <TelemetryCrossLink
-              to={TELEMETRY_DASHBOARD_PATH}
-              label="Open dashboard"
-              compactLabel="Open Telemetry Dashboard"
-              icon={<MonitorHeartOutlinedIcon />}
-              compact={isPhone}
-            />
-          )}
-        </Stack>
-        <Typography color="text.secondary" sx={{ mb: 2 }}>
-          {PAGE_DESCRIPTION}
-          {!canWrite && ' (read-only)'}
-        </Typography>
+        {Header ? (
+          <Header
+            title={PAGE_TITLE}
+            description={PAGE_DESCRIPTION}
+            readOnly={!canWrite}
+            actions={dashboardLink}
+          />
+        ) : (
+          <>
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>
+              <Typography variant="h4" component="h1" sx={{ flex: 1, minWidth: 0 }}>
+                {PAGE_TITLE}
+              </Typography>
+              {dashboardLink}
+            </Stack>
+            <Typography color="text.secondary" sx={{ mb: 2 }}>
+              {PAGE_DESCRIPTION}
+              {!canWrite && ' (read-only)'}
+            </Typography>
+          </>
+        )}
+        {BeforeContent && <BeforeContent />}
+        {Sections && <Sections position="top" />}
 
         {config?.updatedBy && config.updatedAt && (
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            Last updated by {config.updatedBy.email} on {new Date(config.updatedAt).toLocaleString()}
+            Last updated by {config.updatedBy.email} on{' '}
+            {new Date(config.updatedAt).toLocaleString()}
           </Typography>
         )}
 
@@ -616,7 +682,12 @@ export default function TelemetrySettingsPage() {
           />
         )}
 
-        <StatusCard status={status} error={statusError} onRefresh={() => void refreshStatus()} store={otherStore} />
+        <StatusCard
+          status={status}
+          error={statusError}
+          onRefresh={() => void refreshStatus()}
+          store={otherStore}
+        />
 
         {form && config && (
           <Box component="form" onSubmit={handleSubmit} noValidate>
@@ -633,9 +704,8 @@ export default function TelemetrySettingsPage() {
                 label="Collect telemetry"
               />
               <FormHelperText sx={{ mt: 0 }}>
-                Export of traces, logs and metrics starts or stops within seconds on every
-                instance — no restart. Nothing is collected while no telemetry store is
-                configured.
+                Export of traces, logs and metrics starts or stops within seconds on every instance
+                — no restart. Nothing is collected while no telemetry store is configured.
               </FormHelperText>
               {!config.available && (
                 <Alert severity="info" sx={{ mt: 2 }}>
@@ -672,9 +742,9 @@ export default function TelemetrySettingsPage() {
                         </Box>
                       )}
                       Labels every trace, log and metric as <code>app.instance.id</code> so
-                      dashboards can filter and aggregate across deployments that share a
-                      telemetry store. Leave blank to use the default,{' '}
-                      <code>{config.instanceIdDefault}</code>. Currently in use:{' '}
+                      dashboards can filter and aggregate across deployments that share a telemetry
+                      store. Leave blank to use the default, <code>{config.instanceIdDefault}</code>
+                      . Currently in use:{' '}
                       <code data-testid="telemetry-instance-id-effective">
                         {config.instanceIdEffective}
                       </code>
@@ -704,7 +774,7 @@ export default function TelemetrySettingsPage() {
                     update('retentionMode', 'custom');
                   } else {
                     setForm((prev) =>
-                      prev ? { ...prev, retentionMode: 'preset', retentionDays: next } : prev,
+                      prev ? { ...prev, retentionMode: 'preset', retentionDays: next } : prev
                     );
                   }
                 }}
@@ -735,8 +805,8 @@ export default function TelemetrySettingsPage() {
                 </Box>
               )}
               <FormHelperText sx={{ mt: 0 }}>
-                Retention is applied to the telemetry store by a background job after each save
-                (and re-asserted nightly), so older data is dropped shortly after, not instantly.
+                Retention is applied to the telemetry store by a background job after each save (and
+                re-asserted nightly), so older data is dropped shortly after, not instantly.
               </FormHelperText>
               {!config.retentionApplicable && (
                 <Alert severity="warning" sx={{ mt: 2 }} data-testid="retention-not-applicable">
@@ -773,8 +843,8 @@ export default function TelemetrySettingsPage() {
             <Section title="AI assistant">
               {!aiEnabled && (
                 <Alert severity="info" sx={{ mb: 2 }} data-testid="telemetry-ai-off">
-                  AI is switched off for this deployment. You can configure the assistant here,
-                  but it will not run until AI is turned on in{' '}
+                  AI is switched off for this deployment. You can configure the assistant here, but
+                  it will not run until AI is turned on in{' '}
                   <Link component={RouterLink} to="/admin/settings/ai">
                     AI settings
                   </Link>
@@ -880,6 +950,9 @@ export default function TelemetrySettingsPage() {
             </Button>
           </Box>
         )}
+
+        {Sections && <Sections position="bottom" />}
+        {AfterContent && <AfterContent />}
 
         <Snackbar
           open={!!savedMessage}

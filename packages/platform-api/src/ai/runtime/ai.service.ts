@@ -131,7 +131,8 @@ import { resolveOrgId } from '../../identity/index';
 import { AiConfigService, providerCallSettings } from '../config/ai-config.service';
 import { AiError } from '../core/ai-error';
 import type { AiCapability, AiModelCapabilities } from '../core/capabilities';
-import type { AiCallContext, AiResponsesPort } from '../core/provider-adapter.interface';
+import { AI_KEYLESS_API_KEY, type AiCallContext, type AiOperationHandler, type AiResponsesPort } from '../core/provider-adapter.interface';
+import { getAiOperation, isBuiltinAiOperation, type AiOperationDefinition } from '../core/operation-registry';
 import {
   AI_STORAGE_INPUT_URL_TTL_SECONDS,
   AI_STORAGE_INPUTS_MAX,
@@ -156,6 +157,7 @@ import {
   AI_SPEECH_INSTRUCTIONS_MAX_CHARS,
   AI_SPEECH_SPEED_MAX,
   AI_SPEECH_SPEED_MIN,
+  AI_PROVIDER_OPTIONS_MAX_BYTES,
   AI_TRANSCRIPTION_DEFAULT_MAX_BYTES,
   AI_TRANSCRIPTION_INPUT_MIME_TYPES,
   AI_TRANSCRIPTION_PROMPT_MAX_CHARS,
@@ -225,6 +227,7 @@ import {
   AI_IMAGE_GENERATE_TYPE,
   AiRunsService,
 } from './ai-runs.service';
+import { boundTranscriptionExtras } from './ai-transcription-extras';
 import type {
   AiCallOptions,
   AiEditImageRequest,
@@ -234,6 +237,7 @@ import type {
   AiRealtimeSessionResult,
   AiRequest,
   AiRunHandle,
+  AiRunOperationOptions,
   AiSpeakRequest,
   AiStructuredRequest,
   AiTranscribeRequest,
@@ -243,6 +247,7 @@ import type {
 } from './ai-runtime.types';
 import { AiLimitsService, effectiveOutputTokensCap } from './ai-limits.service';
 import { runToolLoop } from './ai-tool-loop';
+import { AI_FEATURE_ID_PATTERN } from '@marinoscar/platform-contract/ai';
 import {
   AiUsageRecorder,
   type AiUsageOperation,
@@ -398,6 +403,41 @@ export interface AiUserClient {
    *   over-long instructions.
    */
   createRealtimeSession(req: AiRealtimeRequest, opts?: AiCallOptions): Promise<AiRealtimeSessionResult>;
+
+  /**
+   * Runs a CUSTOM operation (PP-14.17, #935): an operation an app or package
+   * registered with `registerAiOperation`, served by a provider adapter's
+   * `operations` map (diarization, moderation, rerank, OCR). It is not a
+   * second pipeline: the call goes through the same gates as every built-in
+   * port, in the same order: the kill switch; the operation is registered and
+   * runnable; `inputSchema`; the target (an omitted `model` is the first usable
+   * model declaring the operation's capability, served by a provider that
+   * implements it); the provider is enabled; the model is enabled, declares the
+   * capability and is reachable with the key that would pay; the feature's
+   * needs; key resolution (the key policy); the rate limits; the handler;
+   * `outputSchema`; then ONE usage row (`operation` is the operation id, plus
+   * the caller's `feature`) and one `ai.request` span.
+   *
+   * The input is validated before any key is read, the output before it is
+   * returned. Nothing of the input or output is logged, put on a span or
+   * stored on the usage row (only ids, counts, codes and the units the
+   * operation's `usageUnits` reports); an output or an error carrying the
+   * call's key is refused or replaced by a generic one.
+   *
+   * @typeParam O - the output type `outputSchema` guarantees.
+   * @param operationId - a registered operation id (`audio.diarize`).
+   * @param input - parsed with the operation's `inputSchema`.
+   * @param opts - `provider` / `model` to pick the target, and `signal`.
+   * @returns the validated output.
+   *
+   * @throws AiError('AI_INVALID_REQUEST') for an unregistered or built-in
+   *   operation id, or an input that fails its schema;
+   *   AiError('AI_CAPABILITY_UNSUPPORTED') for a model without the
+   *   operation's capability or a provider that does not implement it;
+   *   AiError('AI_STRUCTURED_OUTPUT_INVALID') for an output that fails its
+   *   schema (the call is still recorded); every other gate's `AiError`.
+   */
+  run<O = unknown>(operationId: string, input: unknown, opts?: AiRunOperationOptions): Promise<O>;
 }
 
 /** Internal: who a client acts for, and under which job (for usage rows). */
@@ -419,6 +459,15 @@ export interface AiClientScope {
    * feature's `needs`, and recorded as the `ai.feature` span attribute.
    */
   feature?: string;
+  /**
+   * The feature a background run was started for, read back from
+   * `ai_runs.feature` when its job executes (PP-14.17, #935). ATTRIBUTION
+   * ONLY: it lands on the usage row and the span, and is not gated again (the
+   * gates ran when the run was queued).
+   *
+   * @internal
+   */
+  attributedFeature?: string;
   /** The background run being executed — names the folder its outputs are stored in. */
   runId?: string;
 }
@@ -454,6 +503,26 @@ const TRACKED_OPERATIONS = {
 } as const satisfies Record<string, AiUsageOperation>;
 
 type AiTrackedOperation = keyof typeof TRACKED_OPERATIONS;
+
+/** What `track` is told: a built-in facade call, or a custom operation (`operation:<id>`, PP-14.17). */
+type AiTrackedCall = AiTrackedOperation | `operation:${string}`;
+
+/** The usage `operation` a tracked call is billed as: the table's entry, or a custom operation's own id. */
+function usageOperationOf(call: AiTrackedCall): AiUsageOperation {
+  return call.startsWith('operation:') ? call.slice('operation:'.length) : TRACKED_OPERATIONS[call as AiTrackedOperation];
+}
+
+/** A run's recorded feature as a scope field: attribution only, and only a well-formed id. */
+function attributedFeatureOf(opts: { feature?: string }): { attributedFeature?: string } {
+  return typeof opts.feature === 'string' && AI_FEATURE_ID_PATTERN.test(opts.feature)
+    ? { attributedFeature: opts.feature }
+    : {};
+}
+
+/** The feature a usage row and span carry: the gated one, else a run's recorded one. */
+function featureOfScope(scope: AiClientScope): string | undefined {
+  return scope.feature ?? scope.attributedFeature;
+}
 
 /** Everything the gate pipeline settled for one `responses` call. */
 export interface PreparedAiCall extends AiCallTarget {
@@ -510,6 +579,16 @@ export interface PreparedAiSpeechCall extends AiCallTarget {
   stored: StoredAiSpeechRunRequest;
 }
 
+/** Everything the gate pipeline settled for one custom operation (PP-14.17). */
+export interface PreparedAiOperationCall extends AiCallTarget {
+  /** The registered operation. */
+  operation: AiOperationDefinition;
+  /** The adapter's implementation of it. */
+  handler: AiOperationHandler;
+  /** The input, parsed with the operation's `inputSchema`. */
+  input: unknown;
+}
+
 /** Everything the gate pipeline settled for one realtime session mint. */
 export interface PreparedAiRealtimeCall extends AiCallTarget {
   port: AiRealtimePort;
@@ -523,6 +602,12 @@ export interface AiImageRunExecutionOptions extends AiCallOptions {
   orgId?: string;
   /** The job the round-trip is incurred under, for its usage row. */
   jobId?: string;
+  /**
+   * The feature the run was started for (`ai_runs.feature`, PP-14.17, #935):
+   * recorded on the round-trip's usage row and span, NOT gated again (the
+   * gates ran when the run was queued). A value that is not a feature id is ignored.
+   */
+  feature?: string;
   /**
    * Runs after the gates pass and before the key is resolved or the provider
    * called — the handler checks there is storage to keep the output in, so a
@@ -600,7 +685,7 @@ export class AiService {
    */
   forUser(
     userId: string,
-    scope: { orgId?: string; jobId?: string; runId?: string; feature?: string } = {},
+    scope: { orgId?: string; jobId?: string; runId?: string; feature?: string; attributedFeature?: string } = {},
   ): AiUserClient {
     const bound: AiClientScope = {
       userId,
@@ -608,6 +693,7 @@ export class AiService {
       jobId: scope.jobId,
       runId: scope.runId,
       ...(scope.feature !== undefined ? { feature: scope.feature } : {}),
+      ...attributedFeatureOf({ feature: scope.attributedFeature }),
     };
 
     return {
@@ -629,6 +715,8 @@ export class AiService {
       transcribe: (req) => this.startTranscriptionRun(bound, req),
       speak: (req) => this.startSpeechRun(bound, req),
       createRealtimeSession: (req, opts) => this.createRealtimeSession(bound, req, opts),
+      run: <O>(operationId: string, input: unknown, opts?: AiRunOperationOptions) =>
+        this.runOperation(bound, operationId, input, opts) as Promise<O>,
     };
   }
 
@@ -688,6 +776,7 @@ export class AiService {
       modelId: call.request.model,
       // Named fields only, and never a key — see `ai-run-request.ts`.
       request: toStoredRunRequest(call.provider, call.request),
+      ...(scope.feature ? { feature: scope.feature } : {}),
     });
   }
 
@@ -868,6 +957,158 @@ export class AiService {
     };
   }
 
+  // ---- custom operations ------------------------------------------------------------
+
+  /**
+   * `run(operationId, input)` (PP-14.17, #935): one provider round-trip of a
+   * custom operation, through the same gates, key resolution, limits, usage
+   * row and span as every built-in port. See `AiUserClient.run`.
+   */
+  private async runOperation(
+    scope: AiClientScope,
+    operationId: string,
+    input: unknown,
+    opts: AiRunOperationOptions = {},
+  ): Promise<unknown> {
+    const call = await this.prepareOperation(scope.userId, operationId, input, opts, await this.orgOf(scope), scope.feature);
+    // ⚠ The input is NOT passed as the debug prompt: an operation's input is
+    // whatever the app defined (a transcript, a document) and only the
+    // operation id is safe to name.
+    const { ctx, keySource } = await this.context(scope, call, opts, () => ({ operation: call.operation.id }));
+    const tracker = this.track(scope, call, keySource, `operation:${call.operation.id}`);
+    let output: unknown;
+
+    try {
+      output = await call.handler(call.input, { ...ctx, model: call.modelId, operation: call.operation.id });
+    } catch (err) {
+      const error = scrubKey(toAiError(err, opts.signal), ctx.apiKey);
+
+      await tracker.finish(failure(error, opts.signal));
+      throw error;
+    }
+
+    // The output is the trust boundary on the way back: it must match the
+    // operation's schema, and it must not carry the key the call was made under.
+    const parsed = call.operation.outputSchema?.safeParse(output);
+    const unusable = !parsed?.success || containsKey(parsed.data, ctx.apiKey);
+
+    if (unusable) {
+      const error = new AiError(
+        'AI_STRUCTURED_OUTPUT_INVALID',
+        `The "${call.operation.id}" operation returned output that could not be accepted.`,
+        { details: { operation: call.operation.id } },
+      );
+
+      // The round-trip happened (and may have been billed): record it failed.
+      await tracker.finish({ status: 'failed', errorCode: error.code });
+      throw error;
+    }
+
+    await tracker.finish({ status: 'succeeded', units: this.operationUnits(call, parsed.data) });
+
+    return parsed.data;
+  }
+
+  /** The non-token units one successful custom call reports; a throwing callback never fails the call. */
+  private operationUnits(call: PreparedAiOperationCall, output: unknown): AiUsageUnits | undefined {
+    try {
+      return call.operation.usageUnits?.(output, call.input);
+    } catch {
+      this.logger.warn(`The usageUnits callback of AI operation "${call.operation.id}" threw; no units are recorded`);
+
+      return undefined;
+    }
+  }
+
+  /**
+   * The gate pipeline for a custom operation: kill switch, the operation is
+   * registered and runnable, its `inputSchema`, target (an omitted model is
+   * the first usable model declaring the operation's capability whose
+   * provider implements it), provider, model with the capability (model AND
+   * provider), the feature's needs. Decrypts nothing.
+   *
+   * @internal
+   */
+  async prepareOperation(
+    userId: string,
+    operationId: string,
+    input: unknown,
+    opts: AiRunOperationOptions,
+    orgId?: string,
+    featureId?: string,
+  ): Promise<PreparedAiOperationCall> {
+    // 1. Kill switch — before anything else is read.
+    await this.aiConfig.assertEnabled(orgId);
+
+    const operation = getAiOperation(operationId);
+
+    if (!operation) {
+      throw new AiError(
+        'AI_INVALID_REQUEST',
+        `AI operation "${operationId}" is not registered; register it with registerAiOperation.`,
+        { details: { operation: operationId } },
+      );
+    }
+
+    if (isBuiltinAiOperation(operation.id) || !operation.inputSchema || !operation.outputSchema) {
+      throw new AiError(
+        'AI_INVALID_REQUEST',
+        `AI operation "${operation.id}" is a built-in operation: call its own method, not run().`,
+        { details: { operation: operation.id } },
+      );
+    }
+
+    const parsedInput = operation.inputSchema.safeParse(input);
+
+    if (!parsedInput.success) {
+      throw new AiError('AI_INVALID_REQUEST', `The input of AI operation "${operation.id}" is invalid.`, {
+        details: {
+          operation: operation.id,
+          // Paths, codes and the schema's own messages; never a value from the input.
+          // An unrecognized-keys message names the input's keys, so it is left out.
+          issues: parsedInput.error.issues.slice(0, 10).map((issue) => ({
+            path: issue.path.map(String).join('.'),
+            code: issue.code,
+            ...(issue.code === 'unrecognized_keys' ? {} : { message: issue.message.slice(0, 200) }),
+          })),
+        },
+      });
+    }
+
+    const feature = this.featureOf(featureId);
+    const { provider, model } = opts.model?.trim()
+      ? await this.resolveTarget(userId, opts, { orgId, feature })
+      : await this.firstUsableModel(userId, operation.capability, opts.provider, orgId, operation.id);
+
+    // 2. Provider enabled in settings AND registered in this process.
+    const slot = await this.aiConfig.assertProviderEnabled(provider, orgId);
+
+    // 3. Model enabled, the capability declared (model AND provider), key reach.
+    const { model: usable } = await this.usableModels.assertUsable(userId, provider, model, [operation.capability], { orgId });
+    assertFeatureFits(feature, provider, model, usable.capabilities);
+
+    const handler = this.registry.supportsOperation(provider, operation.id)
+      ? this.registry.get(provider)?.operations?.[operation.id]
+      : undefined;
+
+    if (!handler) {
+      // The provider may serve the capability through another operation; it does not implement this one.
+      throw capabilityUnsupported(provider, model, operation.capability);
+    }
+
+    const policy = await this.aiConfig.resolveForOrg(orgId);
+
+    return {
+      provider,
+      modelId: model,
+      operation,
+      handler,
+      input: parsedInput.data,
+      ...providerCallSettings(slot),
+      logPromptContent: policy.logPromptContent,
+    };
+  }
+
   // ---- images ---------------------------------------------------------------------
 
   private async startImageRun(
@@ -885,6 +1126,7 @@ export class AiService {
       modelId: call.modelId,
       request: call.stored,
       jobType: AI_IMAGE_GENERATE_TYPE,
+      ...(scope.feature ? { feature: scope.feature } : {}),
     });
   }
 
@@ -901,7 +1143,7 @@ export class AiService {
     stored: StoredAiImageRunRequest,
     opts: AiImageRunExecutionOptions = {},
   ): Promise<AiImageResult> {
-    const scope: AiClientScope = { userId, orgId: opts.orgId, jobId: opts.jobId };
+    const scope: AiClientScope = { userId, orgId: opts.orgId, jobId: opts.jobId, ...attributedFeatureOf(opts) };
     const edit = stored.operation === 'images.edit';
     const call = await this.prepareImage(userId, stored.operation, {
       ...toImageGenerationRequest(stored),
@@ -966,6 +1208,7 @@ export class AiService {
       modelId: call.modelId,
       request: call.stored,
       jobType: AI_AUDIO_TRANSCRIBE_TYPE,
+      ...(scope.feature ? { feature: scope.feature } : {}),
     });
   }
 
@@ -982,7 +1225,7 @@ export class AiService {
     stored: StoredAiTranscriptionRunRequest,
     opts: AiImageRunExecutionOptions = {},
   ): Promise<AiTranscriptionResult> {
-    const scope: AiClientScope = { userId, orgId: opts.orgId, jobId: opts.jobId };
+    const scope: AiClientScope = { userId, orgId: opts.orgId, jobId: opts.jobId, ...attributedFeatureOf(opts) };
     const call = await this.prepareTranscription(userId, {
       storageObjectId: stored.storageObjectId,
       provider: stored.provider,
@@ -1016,6 +1259,8 @@ export class AiService {
         throw error;
       }
 
+      result = this.boundExtras(result);
+
       await tracker.finish({
         status: 'succeeded',
         result,
@@ -1026,6 +1271,24 @@ export class AiService {
     }
 
     return result;
+  }
+
+  /**
+   * The result with its `extras` checked (PP-14.17, #935): kept when bounded
+   * and well-formed, dropped otherwise. The transcript is never lost to a bad
+   * extra, and the dropped value is never logged (it is the user's content).
+   */
+  private boundExtras(result: AiTranscriptionResult): AiTranscriptionResult {
+    if (result.extras === undefined) return result;
+
+    const { extras, rejected } = boundTranscriptionExtras(result.extras);
+    const { extras: _dropped, ...rest } = result;
+
+    if (rejected) {
+      this.logger.warn(`Transcription extras from ${result.provider}/${result.model} were dropped (${rejected})`);
+    }
+
+    return extras ? { ...rest, extras } : rest;
   }
 
   /**
@@ -1072,6 +1335,7 @@ export class AiService {
       modelId: call.modelId,
       request: call.stored,
       jobType: AI_AUDIO_SPEECH_TYPE,
+      ...(scope.feature ? { feature: scope.feature } : {}),
     });
   }
 
@@ -1088,7 +1352,7 @@ export class AiService {
     stored: StoredAiSpeechRunRequest,
     opts: AiImageRunExecutionOptions = {},
   ): Promise<AiSpeechResult> {
-    const scope: AiClientScope = { userId, orgId: opts.orgId, jobId: opts.jobId };
+    const scope: AiClientScope = { userId, orgId: opts.orgId, jobId: opts.jobId, ...attributedFeatureOf(opts) };
     const call = await this.prepareSpeech(userId, {
       input: stored.input,
       voice: stored.voice,
@@ -1235,18 +1499,19 @@ export class AiService {
     scope: AiClientScope,
     call: AiCallTarget,
     keySource: AiKeySource,
-    operation: AiTrackedOperation,
+    operation: AiTrackedCall,
   ): CallTracker {
+    const feature = featureOfScope(scope);
     const started = Date.now();
     const span: Span = tracer.startSpan(AI_REQUEST_SPAN, {
       kind: SpanKind.INTERNAL,
       attributes: {
         'ai.provider': call.provider,
         'ai.model': call.modelId,
-        'ai.operation': operation,
+        'ai.operation': usageOperationOf(operation),
         'ai.key_source': keySource,
         ...(call.keyTier ? { 'ai.key.tier': call.keyTier } : {}),
-        ...(scope.feature ? { 'ai.feature': scope.feature } : {}),
+        ...(feature ? { 'ai.feature': feature } : {}),
         ...(call.hostedTools?.length ? { 'ai.hosted_tools': call.hostedTools.join(',') } : {}),
       },
     });
@@ -1284,7 +1549,7 @@ export class AiService {
           ...(scope.orgId ? { orgId: scope.orgId } : {}),
           provider: call.provider,
           modelId: call.modelId,
-          operation: TRACKED_OPERATIONS[operation],
+          operation: usageOperationOf(operation),
           keySource,
           usage,
           ...(outcome.units ? { units: outcome.units } : {}),
@@ -1293,7 +1558,7 @@ export class AiService {
           errorCode: outcome.errorCode ?? null,
           providerRequestId: outcome.result?.providerRequestId ?? null,
           jobId: scope.jobId ?? null,
-          ...(scope.feature ? { feature: scope.feature } : {}),
+          ...(feature ? { feature } : {}),
         });
       },
     };
@@ -1951,13 +2216,15 @@ export class AiService {
     capability: AiCapability,
     provider?: string,
     orgId?: string,
+    operation?: string,
   ): Promise<{ provider: string; model: string }> {
     const usable = await this.usableModels.listForUser(userId, orgId ? { orgId } : {});
     const match = usable.find(
       (m) =>
         (provider === undefined || m.provider === provider) &&
         m.capabilities.capabilities.includes(capability) &&
-        this.registry.supports(m.provider, capability),
+        this.registry.supports(m.provider, capability) &&
+        (operation === undefined || this.registry.supportsOperation(m.provider, operation)),
     );
 
     if (!match) {
@@ -2283,6 +2550,8 @@ function assertTranscriptionShape(req: AiTranscribeRequest): void {
     });
   }
 
+  if (req.providerOptions !== undefined) assertProviderOptionsShape(req.providerOptions);
+
   const granularities = req.timestampGranularities;
 
   if (
@@ -2295,6 +2564,32 @@ function assertTranscriptionShape(req: AiTranscribeRequest): void {
     throw new AiError(
       'AI_INVALID_REQUEST',
       `timestampGranularities must be distinct values of ${AI_TRANSCRIPTION_TIMESTAMP_GRANULARITIES.join(', ')}.`,
+    );
+  }
+}
+
+/**
+ * `providerOptions` must be a plain JSON object of at most
+ * `AI_PROVIDER_OPTIONS_MAX_BYTES` serialised bytes (PP-14.17, #935). The
+ * error names the limit and never the value: the options are passed to the
+ * adapter and nothing else.
+ */
+export function assertProviderOptionsShape(options: unknown): void {
+  let size = Number.POSITIVE_INFINITY;
+
+  if (typeof options === 'object' && options !== null && !Array.isArray(options)) {
+    try {
+      size = Buffer.byteLength(JSON.stringify(options), 'utf8');
+    } catch {
+      // Not JSON (a cycle, a bigint): stays infinite.
+    }
+  }
+
+  if (size > AI_PROVIDER_OPTIONS_MAX_BYTES) {
+    throw new AiError(
+      'AI_INVALID_REQUEST',
+      `providerOptions must be a JSON object of at most ${AI_PROVIDER_OPTIONS_MAX_BYTES} bytes.`,
+      { details: { max: AI_PROVIDER_OPTIONS_MAX_BYTES } },
     );
   }
 }
@@ -2387,6 +2682,38 @@ function speechFields(
 }
 
 /** The outcome of a round-trip that threw. An abort is a cancellation, not a failure. */
+/**
+ * Whether `value`, serialised, contains `apiKey`: a custom operation's output
+ * must never echo the key it was called under (PP-14.17, #935). The keyless
+ * marker and an empty key are not secrets.
+ */
+export function containsKey(value: unknown, apiKey: string): boolean {
+  if (!apiKey || apiKey === AI_KEYLESS_API_KEY) return false;
+
+  let serialised: string | undefined;
+
+  try {
+    serialised = JSON.stringify(value);
+  } catch {
+    return true; // not serialisable: refuse rather than guess
+  }
+
+  return serialised !== undefined && (serialised.includes(apiKey) || serialised.includes(JSON.stringify(apiKey).slice(1, -1)));
+}
+
+/**
+ * `error`, or a generic error of the same code when its message or details
+ * carry `apiKey`. A custom operation's handler is app code, trusted less than
+ * the built-in adapters, and an error is the likeliest place a key leaks.
+ */
+export function scrubKey(error: AiError, apiKey: string): AiError {
+  if (!containsKey({ message: error.message, body: error.toJSON() }, apiKey)) return error;
+
+  return new AiError(error.code, 'The provider call failed.', {
+    ...(error.retryAfterMs !== undefined ? { retryAfterMs: error.retryAfterMs } : {}),
+  });
+}
+
 function failure(error: AiError, signal?: AbortSignal): CallOutcome {
   return signal?.aborted
     ? { status: 'cancelled', errorCode: error.code }

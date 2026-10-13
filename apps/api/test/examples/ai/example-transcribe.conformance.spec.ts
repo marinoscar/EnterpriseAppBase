@@ -14,9 +14,12 @@
 // key of the call and no log or error carries it.
 // =============================================================================
 
+// The app's capability and operation are registered here (import time), as the app boots them.
+import '../../../src/app-registrations/ai';
 import { AiError, AiProviderRegistry, adapterCapabilities, type AiProviderAdapter } from '@marinoscar/platform-api/ai';
 import { describeAiProviderConformance } from '@marinoscar/platform-api/ai/testing';
 
+import { EXAMPLE_DIARIZE_OPERATION } from '../../../src/platform-extensions/ai/example-transcribe/example-diarize.operation';
 import { ExampleTranscribeAdapter } from '../../../src/platform-extensions/ai/example-transcribe/example-transcribe.adapter';
 import {
   EXAMPLE_TRANSCRIBE_BROKEN_MODEL,
@@ -43,6 +46,14 @@ describeAiProviderConformance('ExampleTranscribeAdapter (app-side, transcription
     expectedModelIds: [EXAMPLE_TRANSCRIBE_MODEL],
     classify: { known: [EXAMPLE_TRANSCRIBE_MODEL], unknown: ['some-other-model'] },
     transcription: { model: EXAMPLE_TRANSCRIBE_MODEL, failingModel: EXAMPLE_TRANSCRIBE_BROKEN_MODEL },
+    // PP-14.17: the custom operation runs the same kit scenarios (declared, run, rejected key, provider error).
+    operations: {
+      [EXAMPLE_DIARIZE_OPERATION]: {
+        input: { audioBase64: Buffer.alloc(2500, 1).toString('base64'), mimeType: 'audio/wav' },
+        model: EXAMPLE_TRANSCRIBE_MODEL,
+        failingModel: EXAMPLE_TRANSCRIBE_BROKEN_MODEL,
+      },
+    },
   },
 }));
 
@@ -55,11 +66,12 @@ describe('ExampleTranscribeAdapter beyond the kit', () => {
     expect(registry.get('example-transcribe')).toBe(adapter);
   });
 
-  it('carries the audio.transcribe port and no other: that is its whole capability set', () => {
+  it('carries the audio.transcribe port and the audio.diarize operation and nothing else: that is its whole capability set', () => {
     // Typed as the contract: the concrete class has no `responses` member to look at.
     const adapter: AiProviderAdapter = build().adapter;
 
-    expect(adapterCapabilities(adapter)).toEqual(['audio_transcription']);
+    // `audio_transcription` is derived from the port, `speaker_diarization` from the registered operation it implements.
+    expect(adapterCapabilities(adapter)).toEqual(['audio_transcription', 'speaker_diarization']);
     expect(adapter.responses).toBeUndefined();
     expect(adapter.images).toBeUndefined();
     expect(adapter.embeddings).toBeUndefined();

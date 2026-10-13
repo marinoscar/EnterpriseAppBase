@@ -32,6 +32,14 @@
  * Layout: phone under 600 (`xs`), tablet 600–1199 (`sm`–`md`), desktop ≥ 1200
  * (`lg`), decided HERE only — none of the shell's five coupled breakpoint
  * gates is touched.
+ *
+ * Extension points (PP-14.18, PP-14.23): the page takes the packaged-page
+ * `slots` (`Header`, `BeforeContent`, `Sections`, `AfterContent`); the two
+ * headline panels (`api`, `logs`) are views of the dashboard-panel registry, and
+ * a panel an app registers (`registerDashboardPanel` on the API,
+ * `registerDashboardPanelView` here) is drawn full width after the events feed;
+ * each metric group section is drawn from the group's served presentation, with
+ * the app's own units formatted from the descriptors it serves.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -51,16 +59,22 @@ import CodeOutlinedIcon from '@mui/icons-material/CodeOutlined';
 import AutoAwesomeOutlinedIcon from '@mui/icons-material/AutoAwesomeOutlined';
 import TerminalOutlinedIcon from '@mui/icons-material/TerminalOutlined';
 import { usePlatformViewer } from '../../../core/index.js';
+import type { PageSlotsBase } from '../../../core/index.js';
 import { useVisiblePolling } from '../../internal/useVisiblePolling.js';
 import {
   useDashboardEvents,
   useDashboardFilters,
   useDashboardMetricGroups,
   useDashboardMetrics,
+  useDashboardPanel,
+  useDashboardPanels,
   useDashboardSummary,
-  useDashboardTimeseries,
   useDashboardTop,
 } from '../../headless/hooks/useTelemetryDashboard.js';
+import {
+  MetricUnitFormatsContext,
+  metricUnitFormatsOf,
+} from '../../headless/context/metricUnitFormats.js';
 import {
   telemetryErrorTitle,
   useTelemetryAssistantModel,
@@ -91,9 +105,13 @@ import {
 import { DashboardPanel, type PanelAction } from '../components/dashboard/DashboardPanel.js';
 import { VerdictBanner } from '../components/dashboard/VerdictBanner.js';
 import { KpiTiles } from '../components/dashboard/KpiTiles.js';
-import { ApiTimelineChart } from '../components/dashboard/ApiTimelineChart.js';
-import { LogSeverityChart } from '../components/dashboard/LogSeverityChart.js';
-import { SeverityChips } from '../components/dashboard/severity.js';
+import { registerPlatformDashboardPanelViews } from '../components/dashboard/panels/builtinPanelViews.js';
+import {
+  dashboardPanelViews,
+  getDashboardPanelView,
+  type DashboardPanelHost,
+  type RegisteredDashboardPanelView,
+} from '../components/dashboard/panels/dashboardPanelViews.js';
 import {
   DashboardFilterBar,
   type DashboardLayout,
@@ -110,7 +128,6 @@ import {
   unknownRoutesSql,
 } from '../../headless/lib/unknownRoutes.js';
 import { EventsFeed } from '../components/dashboard/EventsFeed.js';
-import { timelineHeight } from '../components/dashboard/timelineAxis.js';
 import { TELEMETRY_EXPLORER_PATH, explorerHandoff } from '../../headless/lib/explorerHandoff.js';
 import { TelemetryCrossLink } from '../components/TelemetryCrossLink.js';
 import { traceExplorerSql } from '../../headless/lib/traceLink.js';
@@ -129,11 +146,11 @@ import {
 import { sqlList } from '../../headless/services/telemetryDashboard.js';
 import type {
   DashboardBuckets,
-  DashboardLogsBucket,
   DashboardMetricGroup,
   DashboardMetrics,
   DashboardMetricsQuery,
-  DashboardSeverity,
+  DashboardPanelMeta,
+  DashboardQuery,
 } from '../../headless/services/telemetryDashboard.js';
 import type { DashboardResource } from '../../headless/hooks/useTelemetryDashboard.js';
 
@@ -143,7 +160,11 @@ const PAGE_DESCRIPTION =
   'See at a glance whether anything is wrong: error rate, latency, error logs and the top failing routes.';
 
 /** Store-level reasons: nothing on this page can work, so say so once. */
-const UNAVAILABLE_REASONS = new Set(['TELEMETRY_DISABLED', 'TELEMETRY_NOT_CONFIGURED', 'TELEMETRY_UNREACHABLE']);
+const UNAVAILABLE_REASONS = new Set([
+  'TELEMETRY_DISABLED',
+  'TELEMETRY_NOT_CONFIGURED',
+  'TELEMETRY_UNREACHABLE',
+]);
 
 /**
  * The panel header's "Open in Explorer" (#579). The SQL is ONLY what the API
@@ -209,16 +230,6 @@ function UnavailableAlert({ error, onRetry }: { error: TelemetryErrorInfo; onRet
   );
 }
 
-/** Whether any bucket holds a record of a selected band (`other` rides with `info`). */
-function hasSelectedLogs(buckets: DashboardLogsBucket[], sev: DashboardSeverity[]): boolean {
-  return buckets.some(
-    (bucket) =>
-      (sev.includes('error') && bucket.error > 0) ||
-      (sev.includes('warn') && bucket.warn > 0) ||
-      (sev.includes('info') && bucket.info + bucket.other > 0),
-  );
-}
-
 /**
  * One infrastructure section with its own `/metrics` request (#601, #680), so
  * any number of groups loads, fails and retries independently. It reports the
@@ -253,16 +264,95 @@ function MetricGroupSection({
       layout={layout}
       spanMs={spanMs}
       actions={actions(resource)}
+      presentation={meta.presentation}
     />
   );
 }
 
-/** Zoom gestures per layout: drag on desktop, drag or tap on tablet, tap on phones. */
-const ZOOM_MODES: Record<DashboardLayout, { drag: boolean; tap: boolean }> = {
-  desktop: { drag: true, tap: false },
-  tablet: { drag: true, tap: true },
-  phone: { drag: false, tap: true },
-};
+/**
+ * An app's dashboard panel: the page draws the frame (title, loading
+ * skeleton, error with Retry, header actions) and reads the payload; the app's
+ * registered view draws the payload.
+ */
+function AppDashboardPanel({
+  panel,
+  entry,
+  query,
+  tick,
+  layout,
+  spanMs,
+  host,
+}: {
+  panel: DashboardPanelMeta;
+  entry: RegisteredDashboardPanelView;
+  query: DashboardQuery;
+  tick: number;
+  layout: DashboardLayout;
+  spanMs: number;
+  host: DashboardPanelHost;
+}) {
+  const resource = useDashboardPanel(panel.id, query, tick);
+  const View = entry.View;
+  // A payload that names the statement(s) it ran (`sql`: text or a list) gets "Open in Explorer".
+  const payloadSql = (resource.data?.payload as { sql?: unknown } | null | undefined)?.sql;
+  const sql =
+    typeof payloadSql === 'string' ||
+    (Array.isArray(payloadSql) && payloadSql.every((item) => typeof item === 'string'))
+      ? (payloadSql as string | string[])
+      : undefined;
+  return (
+    <DashboardPanel
+      id={`panel-${panel.id}`}
+      title={panel.label}
+      actions={
+        sql
+          ? host
+              .actionsFor(`panel-${panel.id}`, sql, null)
+              .filter((action) => action.key === 'open-in-explorer')
+          : []
+      }
+      sql={sql}
+      isLoading={resource.isLoading}
+      isRefreshing={resource.isRefreshing}
+      error={resource.error}
+      onRetry={resource.reload}
+      skeletonHeight={160}
+    >
+      {resource.data && (
+        <View
+          panel={panel}
+          payload={resource.data.payload as never}
+          query={query}
+          tick={tick}
+          layout={layout}
+          spanMs={spanMs}
+          host={host}
+        />
+      )}
+    </DashboardPanel>
+  );
+}
+
+/**
+ * The `slots` of {@link TelemetryDashboardPage}: the packaged-page slot contract, no more.
+ *
+ * @stability experimental
+ */
+export type TelemetryDashboardPageSlots = PageSlotsBase;
+
+/**
+ * The props of {@link TelemetryDashboardPage}.
+ *
+ * @stability experimental
+ */
+export interface TelemetryDashboardPageProps {
+  /** Header, banner and extra sections around the dashboard (the packaged-page slot contract). */
+  slots?: TelemetryDashboardPageSlots;
+}
+
+// The headline panels are views of the same registry an app's panels use. Called
+// here, at module scope, not by a bare import: the package is `sideEffects: false`.
+registerPlatformDashboardPanelViews();
 
 /**
  * The Telemetry Dashboard (`/admin/settings/telemetry/dashboard`): the
@@ -271,12 +361,18 @@ const ZOOM_MODES: Record<DashboardLayout, { drag: boolean; tap: boolean }> = {
  * titled from their metadata). Its state lives in the URL. Route it behind the
  * app's permission gate for `telemetry:query` and `RequireTelemetryEnabled`.
  *
+ * @param props - `slots`: the packaged-page slot contract.
  * @returns the page.
+ *
+ * @example
+ * ```tsx
+ * <TelemetryDashboardPage slots={{ BeforeContent: () => <Alert severity="info">Deploy freeze until Monday.</Alert> }} />
+ * ```
  *
  * @extensionPoint component
  * @stability experimental
  */
-export default function TelemetryDashboardPage() {
+export default function TelemetryDashboardPage({ slots }: TelemetryDashboardPageProps = {}) {
   const theme = useTheme();
   const isPhone = useMediaQuery(theme.breakpoints.down('sm'));
   const isDesktop = useMediaQuery(theme.breakpoints.up('lg'));
@@ -291,7 +387,7 @@ export default function TelemetryDashboardPage() {
     (patch: Partial<DashboardState>) => {
       setSearchParams(dashboardStateToParams({ ...state, ...patch }), { replace: true });
     },
-    [setSearchParams, state],
+    [setSearchParams, state]
   );
 
   useVisiblePolling(() => setTick((value) => value + 1), state.refresh ? DASHBOARD_REFRESH_MS : 0);
@@ -302,18 +398,16 @@ export default function TelemetryDashboardPage() {
   const seriesQuery = useMemo(() => (buckets ? { ...query, buckets } : query), [query, buckets]);
   const windowQuery = useMemo(
     () => (query.range ? { range: query.range } : { from: query.from, to: query.to }),
-    [query.range, query.from, query.to],
+    [query.range, query.from, query.to]
   );
 
   const summary = useDashboardSummary(seriesQuery, tick);
   const filters = useDashboardFilters(windowQuery, tick);
-  const apiSeries = useDashboardTimeseries('api', seriesQuery, tick);
-  const logSeries = useDashboardTimeseries('logs', seriesQuery, tick);
   const topRoutes = useDashboardTop('routes', query, tick);
   const topErrors = useDashboardTop('errors', query, tick);
   const eventsQuery = useMemo(
     () => ({ ...query, severity: state.sev, ...(state.q ? { q: state.q } : {}) }),
-    [query, state.sev, state.q],
+    [query, state.sev, state.q]
   );
   const events = useDashboardEvents(eventsQuery, tick);
 
@@ -322,28 +416,41 @@ export default function TelemetryDashboardPage() {
   // section then makes its own `/metrics` request on the shared tick.
   const metricGroups = useDashboardMetricGroups();
   const sections = metricGroups.data ?? [];
+  // The app's own units, formatted from the descriptors `/metric-groups` serves (PP-14.18).
+  const unitFormats = useMemo(() => metricUnitFormatsOf(metricGroups.data), [metricGroups.data]);
+  // The panels the API lists; the app's are drawn when a view is registered for them.
+  const panelList = useDashboardPanels();
   const metricQuery = useMemo(() => {
     const base = metricsQuery(state);
     return buckets ? { ...base, buckets } : base;
   }, [state, buckets]);
   // Each section's `available` flag, as it reports it (undefined until its first answer).
-  const [availability, setAvailability] = useState<Record<DashboardMetricGroup, boolean | undefined>>({});
-  const reportAvailability = useCallback((group: DashboardMetricGroup, available: boolean | undefined) => {
-    setAvailability((prev) => (prev[group] === available ? prev : { ...prev, [group]: available }));
-  }, []);
+  const [availability, setAvailability] = useState<
+    Record<DashboardMetricGroup, boolean | undefined>
+  >({});
+  const reportAvailability = useCallback(
+    (group: DashboardMetricGroup, available: boolean | undefined) => {
+      setAvailability((prev) =>
+        prev[group] === available ? prev : { ...prev, [group]: available }
+      );
+    },
+    []
+  );
 
   const openSql = useCallback(
     (sql: string) => {
       const { to, state: handoff } = explorerHandoff(sql);
       navigate(to, { state: handoff });
     },
-    [navigate],
+    [navigate]
   );
   const hasSql = (sql: string | string[] | undefined) => sqlList(sql).length > 0;
 
   // ---- assistant (#579) ------------------------------------------------------
   const assistantAvailable = useTelemetryAssistantAvailable();
-  const modelCaption = useTelemetryAssistantModel(assistantAvailable && hasPermission('telemetry:read'));
+  const modelCaption = useTelemetryAssistantModel(
+    assistantAvailable && hasPermission('telemetry:read')
+  );
   const assistant = useTelemetryAssistant();
   const [assistantOpen, setAssistantOpen] = useState(false);
   // The prefill, keyed so every "Ask assistant" re-seeds the panel's input.
@@ -359,7 +466,10 @@ export default function TelemetryDashboardPage() {
             element: document.activeElement instanceof HTMLElement ? document.activeElement : null,
             panelId,
           };
-          setDraft((prev) => ({ text: buildAssistantQuestion(panel, state), key: (prev?.key ?? 0) + 1 }));
+          setDraft((prev) => ({
+            text: buildAssistantQuestion(panel, state),
+            key: (prev?.key ?? 0) + 1,
+          }));
           setAssistantOpen(true);
         }
       : null;
@@ -368,20 +478,30 @@ export default function TelemetryDashboardPage() {
     const origin = invoker.current;
     if (!origin) return null;
     if (origin.element?.isConnected) return origin.element;
-    return document.querySelector<HTMLElement>(`[data-testid="${origin.panelId}"] button[aria-haspopup="menu"]`);
+    return document.querySelector<HTMLElement>(
+      `[data-testid="${origin.panelId}"] button[aria-haspopup="menu"]`
+    );
   }, []);
 
   /** A panel's header actions: "Ask assistant" (when available), then "Open in Explorer". */
-  const panelActions = (panelId: string, sql: string | string[] | undefined, panel: AssistantPanelContext | null) => [
+  const panelActions = (
+    panelId: string,
+    sql: string | string[] | undefined,
+    panel: AssistantPanelContext | null
+  ) => [
     ...(assistantAvailable ? [askAction(askAbout(panelId, panel))] : []),
     explorerAction(openSql, hasSql(sql)),
   ];
 
   const topPanel = (kind: TopProblemsKind): AssistantPanelContext | null => {
     if (kind === 'routes') {
-      return topRoutes.data ? { kind: 'routes', title: 'Top failing routes', items: topRoutes.data.items } : null;
+      return topRoutes.data
+        ? { kind: 'routes', title: 'Top failing routes', items: topRoutes.data.items }
+        : null;
     }
-    return topErrors.data ? { kind: 'errors', title: 'Top errors', items: topErrors.data.items } : null;
+    return topErrors.data
+      ? { kind: 'errors', title: 'Top errors', items: topErrors.data.items }
+      : null;
   };
 
   const spanMs = windowSpanMs(state);
@@ -390,296 +510,325 @@ export default function TelemetryDashboardPage() {
     if (window) update(window);
   };
 
+  // What the dashboard offers every panel view (PP-14.18): its state and the shared header actions.
+  const host: DashboardPanelHost = { state, update, actionsFor: panelActions, zoomTo };
+  // The two headline panels are the platform's views, drawn at once; an app's panels are
+  // the ones the API lists that have a view registered here.
+  const platformPanels = dashboardPanelViews().filter((entry) => entry.builtin);
+  const listed = panelList.data ?? [];
+  const panelMeta = (id: string): DashboardPanelMeta =>
+    listed.find((panel) => panel.id === id) ?? { id, label: id, order: 0, builtin: true };
+  const appPanels = listed.flatMap((panel) => {
+    const entry = panel.builtin ? undefined : getDashboardPanelView(panel.id);
+    return entry && !entry.builtin ? [{ panel, entry }] : [];
+  });
+
   // Defence, not the gate — `App.tsx` wraps the route in `RequirePermission`.
   if (!hasPermission('telemetry:query')) return <Navigate to="/" replace />;
 
   // Groups the store has nothing of: their sections hide, and one line says so.
   const notCollected = sections.filter((section) => availability[section.id] === false);
   // Unknown API routes (#650): its panel shows only when the summary counted one.
-  const unknownRoutes = hasUnknownRoutes(summary.data?.unknownRoutes) ? summary.data.unknownRoutes : null;
+  const unknownRoutes = hasUnknownRoutes(summary.data?.unknownRoutes)
+    ? summary.data.unknownRoutes
+    : null;
   const unknownSql = unknownRoutesSql(unknownRoutes);
 
   /** A verdict reason about an infrastructure section (or unknown routes) links to it — when it is on screen. */
   const reasonLink = (reason: string) => {
     if (isUnknownRoutesReason(reason)) {
-      return unknownRoutes ? { label: 'Show unknown routes', onClick: scrollToUnknownRoutes } : null;
+      return unknownRoutes
+        ? { label: 'Show unknown routes', onClick: scrollToUnknownRoutes }
+        : null;
     }
     const group = verdictReasonGroup(reason);
     if (!group || availability[group] !== true) return null;
-    return { label: `Show ${metricSectionTitle(group, sections)}`, onClick: () => scrollToMetricSection(group) };
+    return {
+      label: `Show ${metricSectionTitle(group, sections)}`,
+      onClick: () => scrollToMetricSection(group),
+    };
   };
 
-  const unavailable = summary.error && UNAVAILABLE_REASONS.has(summary.error.reason ?? '') ? summary.error : null;
-  const assistantVariant: AssistantContainerVariant = isPhone ? 'fullscreen' : isDesktop ? 'docked' : 'overlay';
+  const unavailable =
+    summary.error && UNAVAILABLE_REASONS.has(summary.error.reason ?? '') ? summary.error : null;
+  const assistantVariant: AssistantContainerVariant = isPhone
+    ? 'fullscreen'
+    : isDesktop
+      ? 'docked'
+      : 'overlay';
   const docked = assistantAvailable && assistantOpen && assistantVariant === 'docked';
   const explainVerdict = summary.data
-    ? askAbout('verdict-banner', { kind: 'verdict', title: 'Verdict', verdict: summary.data.verdict })
+    ? askAbout('verdict-banner', {
+        kind: 'verdict',
+        title: 'Verdict',
+        verdict: summary.data.verdict,
+      })
     : null;
 
+  const Header = slots?.Header;
+  const BeforeContent = slots?.BeforeContent;
+  const Sections = slots?.Sections;
+  const AfterContent = slots?.AfterContent;
+  const crossLink = (
+    <TelemetryCrossLink
+      to={TELEMETRY_EXPLORER_PATH}
+      label="Explorer"
+      compactLabel="Open Telemetry Explorer"
+      icon={<TerminalOutlinedIcon />}
+      compact={isPhone}
+    />
+  );
+
   return (
-    <Container maxWidth={false} sx={{ maxWidth: 1600, px: { xs: 0, sm: 2 } }}>
-      <Box
-        sx={{
-          py: { xs: 1, sm: 3 },
-          minWidth: 0,
-          // Leave room for the docked assistant so it never covers a panel.
-          pr: docked ? `${ASSISTANT_WIDTH}px` : 0,
-        }}
-      >
-        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: { xs: 0.5, sm: 1 } }}>
-          <Typography
-            variant="h4"
-            component="h1"
-            sx={{ fontSize: { xs: '1.5rem', sm: '2.125rem' }, flex: 1, minWidth: 0 }}
-          >
-            {PAGE_TITLE}
-          </Typography>
-          <TelemetryCrossLink
-            to={TELEMETRY_EXPLORER_PATH}
-            label="Explorer"
-            compactLabel="Open Telemetry Explorer"
-            icon={<TerminalOutlinedIcon />}
-            compact={isPhone}
-          />
-        </Stack>
-        <Typography color="text.secondary" sx={{ mb: 2, display: { xs: 'none', sm: 'block' } }}>
-          {PAGE_DESCRIPTION}
-        </Typography>
+    <MetricUnitFormatsContext.Provider value={unitFormats}>
+      <Container maxWidth={false} sx={{ maxWidth: 1600, px: { xs: 0, sm: 2 } }}>
+        <Box
+          sx={{
+            py: { xs: 1, sm: 3 },
+            minWidth: 0,
+            // Leave room for the docked assistant so it never covers a panel.
+            pr: docked ? `${ASSISTANT_WIDTH}px` : 0,
+          }}
+        >
+          {Header ? (
+            <Header title={PAGE_TITLE} description={PAGE_DESCRIPTION} actions={crossLink} />
+          ) : (
+            <>
+              <Stack
+                direction="row"
+                spacing={1}
+                sx={{ alignItems: 'center', mb: { xs: 0.5, sm: 1 } }}
+              >
+                <Typography
+                  variant="h4"
+                  component="h1"
+                  sx={{ fontSize: { xs: '1.5rem', sm: '2.125rem' }, flex: 1, minWidth: 0 }}
+                >
+                  {PAGE_TITLE}
+                </Typography>
+                {crossLink}
+              </Stack>
+              <Typography
+                color="text.secondary"
+                sx={{ mb: 2, display: { xs: 'none', sm: 'block' } }}
+              >
+                {PAGE_DESCRIPTION}
+              </Typography>
+            </>
+          )}
+          {BeforeContent && <BeforeContent />}
+          {Sections && <Sections position="top" />}
 
-        {unavailable ? (
-          <UnavailableAlert error={unavailable} onRetry={summary.reload} />
-        ) : (
-          <Stack spacing={{ xs: 1.5, sm: 2 }} sx={{ minWidth: 0 }}>
-            <DashboardFilterBar
-              state={state}
-              onChange={update}
-              services={filters.data?.services ?? []}
-              instances={filters.data?.instances ?? []}
-              hosts={filters.data?.hosts ?? []}
-              updatedAt={summary.fetchedAt}
-              layout={layout}
-            />
+          {unavailable ? (
+            <UnavailableAlert error={unavailable} onRetry={summary.reload} />
+          ) : (
+            <Stack spacing={{ xs: 1.5, sm: 2 }} sx={{ minWidth: 0 }}>
+              <DashboardFilterBar
+                state={state}
+                onChange={update}
+                services={filters.data?.services ?? []}
+                instances={filters.data?.instances ?? []}
+                hosts={filters.data?.hosts ?? []}
+                updatedAt={summary.fetchedAt}
+                layout={layout}
+              />
 
-            <VerdictBanner
-              verdict={summary.data?.verdict ?? null}
-              isLoading={summary.isLoading}
-              error={summary.error}
-              onRetry={summary.reload}
-              compact={isPhone}
-              action={explainVerdict ? { label: 'Explain this', onClick: explainVerdict } : undefined}
-              reasonAction={reasonLink}
-            />
+              <VerdictBanner
+                verdict={summary.data?.verdict ?? null}
+                isLoading={summary.isLoading}
+                error={summary.error}
+                onRetry={summary.reload}
+                compact={isPhone}
+                action={
+                  explainVerdict ? { label: 'Explain this', onClick: explainVerdict } : undefined
+                }
+                reasonAction={reasonLink}
+              />
 
-            <DashboardPanel
-              id="panel-tiles"
-              title="Key indicators"
-              actions={panelActions(
-                'panel-tiles',
-                summary.data?.sql,
-                summary.data
-                  ? { kind: 'tiles', title: 'Key indicators', tiles: summary.data.tiles, runtime: summary.data.runtime }
-                  : null,
-              )}
-              sql={summary.data?.sql}
-              isLoading={summary.isLoading}
-              isRefreshing={summary.isRefreshing}
-              error={summary.error}
-              onRetry={summary.reload}
-              isEmpty={!!summary.data && summary.data.tiles.length === 0}
-              skeletonHeight={120}
-            >
-              {summary.data && (
-                <KpiTiles
-                  tiles={summary.data.tiles}
-                  runtime={summary.data.runtime}
-                  unknownRoutes={summary.data.unknownRoutes}
+              <DashboardPanel
+                id="panel-tiles"
+                title="Key indicators"
+                actions={panelActions(
+                  'panel-tiles',
+                  summary.data?.sql,
+                  summary.data
+                    ? {
+                        kind: 'tiles',
+                        title: 'Key indicators',
+                        tiles: summary.data.tiles,
+                        runtime: summary.data.runtime,
+                      }
+                    : null
+                )}
+                sql={summary.data?.sql}
+                isLoading={summary.isLoading}
+                isRefreshing={summary.isRefreshing}
+                error={summary.error}
+                onRetry={summary.reload}
+                isEmpty={!!summary.data && summary.data.tiles.length === 0}
+                skeletonHeight={120}
+              >
+                {summary.data && (
+                  <KpiTiles
+                    tiles={summary.data.tiles}
+                    runtime={summary.data.runtime}
+                    unknownRoutes={summary.data.unknownRoutes}
+                  />
+                )}
+              </DashboardPanel>
+
+              <Grid container spacing={{ xs: 1.5, sm: 2 }}>
+                {platformPanels.map((entry) => (
+                  <Grid key={entry.id} size={{ xs: 12, lg: 6 }} sx={{ minWidth: 0 }}>
+                    <entry.View
+                      panel={panelMeta(entry.id)}
+                      payload={undefined as never}
+                      query={seriesQuery}
+                      tick={tick}
+                      layout={layout}
+                      spanMs={spanMs}
+                      host={host}
+                    />
+                  </Grid>
+                ))}
+              </Grid>
+
+              {unknownRoutes && (
+                <UnknownRoutesPanel
+                  unknownRoutes={unknownRoutes}
+                  sql={unknownSql}
+                  isRefreshing={summary.isRefreshing}
+                  actions={panelActions('panel-unknown-routes', unknownSql, {
+                    kind: 'unknownRoutes',
+                    title: UNKNOWN_ROUTES_TITLE,
+                    unknownRoutes,
+                  })}
                 />
               )}
-            </DashboardPanel>
 
-            <Grid container spacing={{ xs: 1.5, sm: 2 }}>
-              <Grid size={{ xs: 12, lg: 6 }} sx={{ minWidth: 0 }}>
-                <DashboardPanel
-                  id="panel-api"
-                  title="API requests"
-                  actions={panelActions(
-                    'panel-api',
-                    apiSeries.data?.sql,
-                    apiSeries.data ? { kind: 'api', title: 'API requests', buckets: apiSeries.data.buckets } : null,
-                  )}
-                  sql={apiSeries.data?.sql}
-                  isLoading={apiSeries.isLoading}
-                  isRefreshing={apiSeries.isRefreshing}
-                  error={apiSeries.error}
-                  onRetry={apiSeries.reload}
-                  isEmpty={!!apiSeries.data && apiSeries.data.buckets.length === 0}
-                  emptyMessage="No requests in this window."
-                  skeletonHeight={timelineHeight(layout)}
-                >
-                  {apiSeries.data && (
-                    <ApiTimelineChart
-                      buckets={apiSeries.data.buckets}
-                      height={timelineHeight(layout)}
-                      spanMs={spanMs}
-                      compact={isPhone}
-                      zoom={ZOOM_MODES[layout]}
-                      onZoomBuckets={zoomTo(
-                        apiSeries.data.buckets.map((bucket) => bucket.t),
-                        apiSeries.data.range.bucketSeconds,
-                      )}
-                    />
-                  )}
-                </DashboardPanel>
-              </Grid>
-              <Grid size={{ xs: 12, lg: 6 }} sx={{ minWidth: 0 }}>
-                <DashboardPanel
-                  id="panel-logs"
-                  title="Log severity"
-                  headerExtra={
-                    <SeverityChips
-                      value={state.sev}
-                      onChange={(sev) => update({ sev })}
-                      large={isPhone}
-                      label="Log severity filter"
-                    />
-                  }
-                  actions={panelActions(
-                    'panel-logs',
-                    logSeries.data?.sql,
-                    logSeries.data
-                      ? { kind: 'logs', title: 'Log severity', buckets: logSeries.data.buckets, severities: state.sev }
-                      : null,
-                  )}
-                  sql={logSeries.data?.sql}
-                  isLoading={logSeries.isLoading}
-                  isRefreshing={logSeries.isRefreshing}
-                  error={logSeries.error}
-                  onRetry={logSeries.reload}
-                  isEmpty={!!logSeries.data && !hasSelectedLogs(logSeries.data.buckets, state.sev)}
-                  emptyMessage="No log records of the selected severities in this window."
-                  skeletonHeight={timelineHeight(layout)}
-                >
-                  {logSeries.data && (
-                    <LogSeverityChart
-                      buckets={logSeries.data.buckets}
-                      severities={state.sev}
-                      height={timelineHeight(layout)}
-                      spanMs={spanMs}
-                      compact={isPhone}
-                      zoom={ZOOM_MODES[layout]}
-                      onZoomBuckets={zoomTo(
-                        logSeries.data.buckets.map((bucket) => bucket.t),
-                        logSeries.data.range.bucketSeconds,
-                      )}
-                    />
-                  )}
-                </DashboardPanel>
-              </Grid>
-            </Grid>
-
-            {unknownRoutes && (
-              <UnknownRoutesPanel
-                unknownRoutes={unknownRoutes}
-                sql={unknownSql}
-                isRefreshing={summary.isRefreshing}
-                actions={panelActions('panel-unknown-routes', unknownSql, {
-                  kind: 'unknownRoutes',
-                  title: UNKNOWN_ROUTES_TITLE,
-                  unknownRoutes,
-                })}
+              <TopProblems
+                routes={topRoutes}
+                errors={topErrors}
+                layout={layout}
+                actions={(kind) =>
+                  panelActions(
+                    layout === 'phone'
+                      ? 'panel-top'
+                      : kind === 'routes'
+                        ? 'panel-top-routes'
+                        : 'panel-top-errors',
+                    (kind === 'routes' ? topRoutes : topErrors).data?.sql,
+                    topPanel(kind)
+                  )
+                }
               />
-            )}
 
-            <TopProblems
-              routes={topRoutes}
-              errors={topErrors}
-              layout={layout}
-              actions={(kind) =>
-                panelActions(
-                  layout === 'phone' ? 'panel-top' : kind === 'routes' ? 'panel-top-routes' : 'panel-top-errors',
-                  (kind === 'routes' ? topRoutes : topErrors).data?.sql,
-                  topPanel(kind),
-                )
-              }
-            />
+              <EventsFeed
+                events={events}
+                sev={state.sev}
+                q={state.q}
+                onChange={update}
+                layout={layout}
+                onViewTrace={(traceId) => openSql(traceExplorerSql(traceId))}
+                actions={panelActions(
+                  'panel-events',
+                  events.data?.sql,
+                  events.data
+                    ? {
+                        kind: 'events',
+                        title: 'Recent events',
+                        items: events.items,
+                        severities: state.sev,
+                        q: state.q,
+                      }
+                    : null
+                )}
+              />
 
-            <EventsFeed
-              events={events}
-              sev={state.sev}
-              q={state.q}
-              onChange={update}
-              layout={layout}
-              onViewTrace={(traceId) => openSql(traceExplorerSql(traceId))}
-              actions={panelActions(
-                'panel-events',
-                events.data?.sql,
-                events.data
-                  ? { kind: 'events', title: 'Recent events', items: events.items, severities: state.sev, q: state.q }
-                  : null,
-              )}
-            />
-
-            {metricGroups.data ? (
-              sections.map((meta) => (
-                <MetricGroupSection
-                  key={meta.id}
-                  meta={meta}
-                  query={metricQuery}
+              {appPanels.map(({ panel, entry }) => (
+                <AppDashboardPanel
+                  key={panel.id}
+                  panel={panel}
+                  entry={entry}
+                  query={seriesQuery}
                   tick={tick}
                   layout={layout}
                   spanMs={spanMs}
-                  onAvailability={reportAvailability}
-                  actions={(resource) =>
-                    panelActions(
-                      metricPanelId(meta.id),
-                      resource.data?.sql,
-                      resource.data ? metricsAssistantContext(meta.id, resource.data, meta.title) : null,
-                    )
-                  }
+                  host={host}
                 />
-              ))
-            ) : (
-              // Until the section list arrives: the panels' own skeleton; if it
-              // fails, a panel error with Retry, never the rest of the page.
-              <DashboardPanel
-                id="panel-metric-groups"
-                title="Infrastructure metrics"
-                isLoading={metricGroups.isLoading}
-                error={metricGroups.error}
-                onRetry={metricGroups.reload}
-                skeletonHeight={200}
-              />
-            )}
-            <MetricsNotCollected groups={notCollected} />
-          </Stack>
-        )}
-      </Box>
+              ))}
 
-      {/* Assistant (#579): docked on desktop, an overlay drawer on tablets, full-screen on phones. */}
-      {assistantAvailable && (
-        <AssistantContainer
-          open={assistantOpen}
-          onClose={() => setAssistantOpen(false)}
-          variant={assistantVariant}
-          returnFocus={returnFocus}
-        >
-          <AssistantPanel
-            key={draft?.key ?? 0}
-            initialQuestion={draft?.text}
-            messages={assistant.messages}
-            isStreaming={assistant.isStreaming}
-            onAsk={(question) => void assistant.ask(question)}
-            onStop={assistant.stop}
-            onNewChat={assistant.clear}
-            // The dashboard has no editor: a report's query opens in the
-            // Explorer — loaded, never run (the Explorer's handoff rule), so
-            // "Insert and run" lands there too and waits for Run.
-            onInsert={openSql}
-            onInsertAndRun={openSql}
-            modelCaption={modelCaption}
-          />
-        </AssistantContainer>
-      )}
-    </Container>
+              {metricGroups.data ? (
+                sections.map((meta) => (
+                  <MetricGroupSection
+                    key={meta.id}
+                    meta={meta}
+                    query={metricQuery}
+                    tick={tick}
+                    layout={layout}
+                    spanMs={spanMs}
+                    onAvailability={reportAvailability}
+                    actions={(resource) =>
+                      panelActions(
+                        metricPanelId(meta.id),
+                        resource.data?.sql,
+                        resource.data
+                          ? metricsAssistantContext(
+                              meta.id,
+                              resource.data,
+                              meta.title,
+                              meta.presentation
+                            )
+                          : null
+                      )
+                    }
+                  />
+                ))
+              ) : (
+                // Until the section list arrives: the panels' own skeleton; if it
+                // fails, a panel error with Retry, never the rest of the page.
+                <DashboardPanel
+                  id="panel-metric-groups"
+                  title="Infrastructure metrics"
+                  isLoading={metricGroups.isLoading}
+                  error={metricGroups.error}
+                  onRetry={metricGroups.reload}
+                  skeletonHeight={200}
+                />
+              )}
+              <MetricsNotCollected groups={notCollected} />
+            </Stack>
+          )}
+          {Sections && <Sections position="bottom" />}
+          {AfterContent && <AfterContent />}
+        </Box>
+
+        {/* Assistant (#579): docked on desktop, an overlay drawer on tablets, full-screen on phones. */}
+        {assistantAvailable && (
+          <AssistantContainer
+            open={assistantOpen}
+            onClose={() => setAssistantOpen(false)}
+            variant={assistantVariant}
+            returnFocus={returnFocus}
+          >
+            <AssistantPanel
+              key={draft?.key ?? 0}
+              initialQuestion={draft?.text}
+              messages={assistant.messages}
+              isStreaming={assistant.isStreaming}
+              onAsk={(question) => void assistant.ask(question)}
+              onStop={assistant.stop}
+              onNewChat={assistant.clear}
+              // The dashboard has no editor: a report's query opens in the
+              // Explorer — loaded, never run (the Explorer's handoff rule), so
+              // "Insert and run" lands there too and waits for Run.
+              onInsert={openSql}
+              onInsertAndRun={openSql}
+              modelCaption={modelCaption}
+            />
+          </AssistantContainer>
+        )}
+      </Container>
+    </MetricUnitFormatsContext.Provider>
   );
 }

@@ -183,6 +183,51 @@ describe('AiUsagePage', () => {
     expect(mockUseAiUsage).toHaveBeenLastCalledWith(expect.objectContaining({ groupBy: 'org' }));
   });
 
+  it('breaks usage down by feature and by operation (PP-14.17)', async () => {
+    setUsage(withData);
+    const user = renderPage();
+
+    await user.click(screen.getByRole('combobox', { name: 'Group by' }));
+    await user.click(screen.getByRole('option', { name: 'Feature' }));
+    expect(screen.getByRole('heading', { name: 'Usage by feature' })).toBeInTheDocument();
+    expect(mockUseAiUsage).toHaveBeenLastCalledWith(expect.objectContaining({ groupBy: 'feature' }));
+
+    await user.click(screen.getByRole('combobox', { name: 'Group by' }));
+    await user.click(screen.getByRole('option', { name: 'Operation' }));
+    expect(screen.getByRole('heading', { name: 'Usage by operation' })).toBeInTheDocument();
+    expect(mockUseAiUsage).toHaveBeenLastCalledWith(expect.objectContaining({ groupBy: 'operation' }));
+  });
+
+  it('shows no Cost anywhere when no pricing port is bound (the DOM is unchanged)', () => {
+    setUsage(withData);
+    renderPage();
+
+    expect(within(screen.getByRole('group', { name: 'AI usage totals' })).queryByText('Cost')).not.toBeInTheDocument();
+    expect(within(screen.getByTestId('admin-ai-usage-breakdown-table')).queryByText('Cost')).not.toBeInTheDocument();
+  });
+
+  it('shows a Cost tile and a Cost column when the report is priced, and a dash where there is no price (PP-14.17)', () => {
+    setUsage((query) => {
+      const report = mockAiUsageReport(query.groupBy) as AiUsageReport;
+
+      return {
+        report: {
+          ...report,
+          priced: true,
+          totals: { ...report.totals, cost: { amount: 12.5, currency: 'USD' } },
+          series: report.series.map((row, index) => ({ ...row, cost: index === 0 ? { amount: 3.25, currency: 'USD' } : null })),
+        },
+      };
+    });
+    renderPage();
+
+    expect(tile('Cost')).toHaveTextContent('$12.50');
+    const table = screen.getByTestId('admin-ai-usage-breakdown-table');
+    expect(within(table).getByText('Cost')).toBeInTheDocument();
+    expect(within(table).getByText('$3.25')).toBeInTheDocument();
+    expect(within(table).getAllByText('—').length).toBeGreaterThan(0);
+  });
+
   it('asks for the chosen range on both reads (30 days by default)', async () => {
     setUsage(withData);
     const user = renderPage();

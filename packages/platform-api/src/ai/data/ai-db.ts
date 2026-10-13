@@ -214,6 +214,8 @@ export interface AiRunRow {
   completedAt: Date | null;
   /** The organization the run belongs to. */
   orgId: string;
+  /** The registered AI feature the run was started for (PP-14.17); null for none. */
+  feature: string | null;
 }
 
 /**
@@ -258,6 +260,8 @@ export interface AiUsageEventRow {
   createdAt: Date;
   /** The organization the call was made for; null for `admin_discovery`. */
   orgId: string | null;
+  /** The registered AI feature the call was made for (PP-14.17); null for none. */
+  feature: string | null;
 }
 
 /**

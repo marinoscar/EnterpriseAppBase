@@ -110,6 +110,9 @@ const MIGRATIONS_AT_288 = [
   // PP-14.19 (#937): jobs.reason becomes TEXT (the open job-reason vocabulary;
   // the four operational events still need nothing).
   '20261013115831_open_job_reason',
+  // PP-14.17 (#935): the nullable feature column on ai_runs and ai_usage_events
+  // (per-feature AI usage; the four operational events still need nothing).
+  '20261013154013_ai_usage_feature',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

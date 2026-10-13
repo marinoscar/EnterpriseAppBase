@@ -49,6 +49,11 @@ import {
 import { DEFAULT_DASHBOARD_STATE, isZoomed, type DashboardState } from '../../../headless/lib/dashboardState.js';
 import { formatTimestamp } from '../../../headless/lib/format.js';
 
+/**
+ * The dashboard's layout: decided by the page from the viewport.
+ *
+ * @stability experimental
+ */
 export type DashboardLayout = 'phone' | 'tablet' | 'desktop';
 
 export interface DashboardFilterBarProps {

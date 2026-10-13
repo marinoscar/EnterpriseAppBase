@@ -38,7 +38,9 @@ import type {
   DashboardTopKind as ContractDashboardTopKind,
   DashboardPanel,
   MetricGroupId,
+  MetricGroupPresentation,
   MetricUnit,
+  MetricUnitDescriptor,
   TelemetryDashboardApiBucket,
   TelemetryDashboardEnvelope,
   TelemetryDashboardEvent,
@@ -54,6 +56,8 @@ import type {
   TelemetryDashboardMetricSeries,
   TelemetryDashboardMetricsQuery,
   TelemetryDashboardMetricTable,
+  TelemetryDashboardPanel,
+  TelemetryDashboardPanelData,
   TelemetryDashboardQuery,
   TelemetryDashboardSummary,
   TelemetryDashboardTile,
@@ -365,6 +369,37 @@ export type DashboardMetricGroupMeta = TelemetryDashboardMetricGroup;
  * @stability experimental
  */
 export type DashboardMetricUnit = MetricUnit;
+
+/**
+ * How a metric group's section looks (data only: tiles, charts, tables and
+ * computed columns). The API serves it with each `/metric-groups` entry.
+ *
+ * @stability experimental
+ */
+export type DashboardMetricGroupPresentation = MetricGroupPresentation;
+
+/**
+ * How to format an app's own unit (`usd`, `nudges`): `/metric-groups` serves the
+ * descriptor of every non-built-in unit a group uses.
+ *
+ * @stability experimental
+ */
+export type DashboardMetricUnitDescriptor = MetricUnitDescriptor;
+
+/**
+ * One dashboard panel as `GET …/dashboard/panels` lists it.
+ *
+ * @stability experimental
+ */
+export type DashboardPanelMeta = TelemetryDashboardPanel;
+
+/**
+ * `GET …/dashboard/panels/:id`: the panel's `payload` (JSON, the shape agreed
+ * between the app's API panel and its web view).
+ *
+ * @stability experimental
+ */
+export type DashboardPanelData = TelemetryDashboardPanelData;
 
 /**
  * One point of a metric series: a bucket start and its value.

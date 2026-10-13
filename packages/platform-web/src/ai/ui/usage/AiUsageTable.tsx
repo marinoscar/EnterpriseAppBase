@@ -11,7 +11,7 @@ import { Typography } from '@mui/material';
 import { DataTable } from '../../../datatable/index.js';
 import type { DataTableColumn } from '../../../datatable/index.js';
 import type { AiUsageSeriesEntry } from '../../headless/types.js';
-import { formatCount, formatFailureRate, formatUnits, formatUsageDay } from './aiUsageFormat.js';
+import { formatCost, formatCount, formatFailureRate, formatUnits, formatUsageDay } from './aiUsageFormat.js';
 
 export interface AiUsageTableProps {
   rows: AiUsageSeriesEntry[];
@@ -24,6 +24,8 @@ export interface AiUsageTableProps {
   ariaLabel: string;
   emptyText: string;
   csvFilename?: string;
+  /** The report carries a `cost` (the deployment binds a pricing port, PP-14.17): add a Cost column. */
+  priced?: boolean;
   'data-testid'?: string;
 }
 
@@ -35,6 +37,7 @@ export function AiUsageTable({
   ariaLabel,
   emptyText,
   csvFilename,
+  priced = false,
   'data-testid': testId,
 }: AiUsageTableProps) {
   const hasUnits = rows.some((row) => formatUnits(row.units) !== null);
@@ -105,6 +108,16 @@ export function AiUsageTable({
         render: (row) => formatCount(row.cachedInputTokens),
       },
     ];
+    if (priced) {
+      cols.push({
+        id: 'cost',
+        label: 'Cost',
+        priority: 'primary',
+        align: 'right',
+        width: 120,
+        value: (row) => formatCost(row.cost),
+      });
+    }
     if (hasUnits) {
       cols.push({
         id: 'units',
@@ -115,7 +128,7 @@ export function AiUsageTable({
       });
     }
     return cols;
-  }, [keyLabel, isDay, hasUnits]);
+  }, [keyLabel, isDay, hasUnits, priced]);
 
   return (
     <DataTable<AiUsageSeriesEntry>

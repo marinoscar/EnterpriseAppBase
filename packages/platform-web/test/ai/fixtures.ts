@@ -695,6 +695,15 @@ const USAGE_SERIES: Record<AiUsageGroupBy, AiUsageSeriesEntry[]> = {
     usageEntry('8c1e7f4a-3b2d-4c5e-9f60-1a2b3c4d5e6f', 'Acme', { requests: 100, failed: 4, inputTokens: 40_000, outputTokens: 11_000 }),
     usageEntry('none', 'No organization', { requests: 24, failed: 2, inputTokens: 8_900, outputTokens: 1_800 }),
   ],
+  // PP-14.17: per registered feature (`none`: calls made without one), and per operation.
+  feature: [
+    usageEntry('example_summary', 'Example: summaries', { requests: 90, failed: 4, inputTokens: 36_000, outputTokens: 9_000 }),
+    usageEntry('none', 'No feature', { requests: 30, failed: 2, inputTokens: 12_000, outputTokens: 3_500 }),
+  ],
+  operation: [
+    usageEntry('responses', 'Responses', { requests: 100, failed: 5, inputTokens: 40_000, outputTokens: 10_000 }),
+    usageEntry('audio.diarize', 'Diarization', { requests: 20, failed: 1, units: { audioSeconds: 3600 } }),
+  ],
 };
 
 /** A populated report for any grouping — the default MSW answer. */

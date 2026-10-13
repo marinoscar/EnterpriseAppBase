@@ -14,8 +14,8 @@ export { AI_MODULE_OPTIONS, DEFAULT_AI_OPTIONS } from './ai.options';
 export type { AiResolvedOptions } from './ai.options';
 
 // ---- the host ports (rung 3) -----------------------------------------------------------------
-export { AI_METRICS, AI_OBJECT_STORE, AI_SYSTEM_PRISMA, NOOP_AI_METRICS } from './ports';
-export type { AiMetrics, AiObjectStore, AiUsageMetricEvent } from './ports';
+export { AI_METRICS, AI_OBJECT_STORE, AI_PRICING, AI_SYSTEM_PRISMA, NOOP_AI_METRICS } from './ports';
+export type { AiCost, AiMetrics, AiObjectStore, AiPricing, AiPricingUsage, AiUsageMetricEvent } from './ports';
 
 // ---- the data, structurally ------------------------------------------------------------------
 export type {

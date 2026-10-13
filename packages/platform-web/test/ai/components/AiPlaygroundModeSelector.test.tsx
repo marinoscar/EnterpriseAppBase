@@ -10,8 +10,10 @@ import { screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { render } from '../harness.js';
 import { AiPlaygroundModeSelector } from '../../../src/ai/ui/playground/AiPlaygroundModeSelector.js';
+// The six built-in modes register through the same registry an app uses (PP-14.17).
+import '../../../src/ai/ui/playground/builtinAiPlaygroundModes.js';
 import {
-  AI_PLAYGROUND_MODES,
+  listAiPlaygroundModes,
   aiPlaygroundMode,
   hiddenPlaygroundModes,
   initialPlaygroundMode,
@@ -36,7 +38,7 @@ describe('aiPlaygroundModes', () => {
   const models = [model('zz-1', ['responses', 'streaming']), model('qq-2', ['embeddings']), model('pp-3', ['image_generation'])];
 
   it('maps each mode to exactly one capability', () => {
-    expect(AI_PLAYGROUND_MODES.map((mode) => [mode.id, mode.capability])).toEqual([
+    expect(listAiPlaygroundModes().map((mode) => [mode.id, mode.capability])).toEqual([
       ['chat', 'responses'],
       ['image', 'image_generation'],
       ['transcribe', 'audio_transcription'],
@@ -54,7 +56,7 @@ describe('aiPlaygroundModes', () => {
 
   it('reports modes no model can serve', () => {
     expect([...unavailableModes(models)].sort()).toEqual(['speech', 'transcribe', 'voice']);
-    expect(unavailableModes([]).size).toBe(AI_PLAYGROUND_MODES.length);
+    expect(unavailableModes([]).size).toBe(listAiPlaygroundModes().length);
   });
 
   it('hides Voice unless realtime sessions are allowed (#449)', () => {

@@ -79,6 +79,12 @@ export interface AiMediaRunContext {
   orgId: string;
   /** The stored request, still unparsed (`execute` validates it). */
   request: Prisma.JsonValue;
+  /**
+   * The feature the run was started for (`ai_runs.feature`, PP-14.17, #935),
+   * for the usage row of its round-trip. Attribution only: pass it to the
+   * facade's `feature` run option, which does not gate it again.
+   */
+  feature?: string;
   /** Aborted by the owner's cancel or the run's deadline. */
   signal: AbortSignal;
   /**
@@ -196,6 +202,7 @@ export abstract class AiMediaRunHandler implements JobHandler, OnModuleInit {
           userId: run.userId,
           orgId,
           request: run.request,
+          ...(run.feature ? { feature: run.feature } : {}),
           signal: controller.signal,
           cancelledWhileRunning: async () =>
             controller.signal.aborted && !timedOut && (await runs.isCancelled(runId)),

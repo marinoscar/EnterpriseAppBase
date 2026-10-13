@@ -51,6 +51,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import MonitorHeartOutlinedIcon from '@mui/icons-material/MonitorHeartOutlined';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { usePlatformViewer } from '../../../core/index.js';
+import type { PageSlotsBase } from '../../../core/index.js';
 import { useTelemetryAssistantAvailable } from '../../headless/hooks/useTelemetryAssistantAvailable.js';
 import {
   telemetryErrorTitle,
@@ -72,7 +73,11 @@ import { SchemaPanel } from '../components/SchemaPanel.js';
 import { ResultsGrid } from '../components/ResultsGrid.js';
 import { AssistantPanel } from '../components/AssistantPanel.js';
 import { ASSISTANT_WIDTH, AssistantContainer } from '../components/AssistantContainer.js';
-import { STARTER_QUERIES, traceQuery } from '../../headless/lib/starterQueries.js';
+import {
+  STARTER_QUERIES,
+  traceQuery,
+  type StarterQuery,
+} from '../../headless/lib/starterQueries.js';
 import { pushQueryHistory, readQueryHistory } from '../../headless/lib/queryHistory.js';
 import {
   EXPLORER_SQL_PARAM,
@@ -139,6 +144,29 @@ function truncateLabel(sql: string, max = 80): string {
 }
 
 /**
+ * The `slots` of {@link TelemetryExplorerPage}: the packaged-page slot contract, no more.
+ *
+ * @stability experimental
+ */
+export type TelemetryExplorerPageSlots = PageSlotsBase;
+
+/**
+ * The props of {@link TelemetryExplorerPage}.
+ *
+ * @stability experimental
+ */
+export interface TelemetryExplorerPageProps {
+  /** Header, banner and extra sections around the explorer (the packaged-page slot contract). */
+  slots?: TelemetryExplorerPageSlots;
+  /**
+   * The queries the Starter menu offers, in order; the first one seeds the
+   * editor. Default `STARTER_QUERIES`. Pass `[...STARTER_QUERIES, mine]` to add
+   * to the built-in ones.
+   */
+  starterQueries?: readonly StarterQuery[];
+}
+
+/**
  * The Telemetry Explorer (`/admin/settings/telemetry/explorer`): read-only SQL
  * over traces, logs and metrics, export, and the troubleshooting assistant.
  * Route it behind the app's permission gate for `telemetry:query` and
@@ -146,12 +174,21 @@ function truncateLabel(sql: string, max = 80): string {
  * `useTelemetryAssistantAvailable()` holds. The API's SQL guard decides what
  * runs.
  *
+ * @param props - `slots`: the packaged-page slot contract; `starterQueries`: the queries the Starter menu offers.
  * @returns the page.
+ *
+ * @example
+ * ```tsx
+ * <TelemetryExplorerPage starterQueries={[...STARTER_QUERIES, { id: 'signups', title: 'Sign-ups (24h)', sql: 'SELECT ...' }]} />
+ * ```
  *
  * @extensionPoint component
  * @stability experimental
  */
-export default function TelemetryExplorerPage() {
+export default function TelemetryExplorerPage({
+  slots,
+  starterQueries = STARTER_QUERIES,
+}: TelemetryExplorerPageProps = {}) {
   const theme = useTheme();
   const isCompact = useMediaQuery(theme.breakpoints.down('sm'));
   const { hasPermission } = usePlatformViewer();
@@ -165,10 +202,12 @@ export default function TelemetryExplorerPage() {
   // run; the reader reviews it and presses Run.
   const location = useLocation();
   const navigate = useNavigate();
-  const [handoff] = useState(() => readExplorerHandoff(location.state, new URLSearchParams(location.search)));
+  const [handoff] = useState(() =>
+    readExplorerHandoff(location.state, new URLSearchParams(location.search))
+  );
   const [handoffNotice, setHandoffNotice] = useState(handoff !== null);
 
-  const [sql, setSql] = useState<string>(() => handoff ?? STARTER_QUERIES[0]!.sql);
+  const [sql, setSql] = useState<string>(() => handoff ?? starterQueries[0]?.sql ?? '');
   const [history, setHistory] = useState<string[]>(() => readQueryHistory());
   const [schemaOpen, setSchemaOpen] = useState(true);
   const [schemaDrawerOpen, setSchemaDrawerOpen] = useState(false);
@@ -184,7 +223,7 @@ export default function TelemetryExplorerPage() {
 
   const assistantAvailable = useTelemetryAssistantAvailable();
   const modelCaption = useTelemetryAssistantModel(
-    assistantAvailable && hasPermission('telemetry:read'),
+    assistantAvailable && hasPermission('telemetry:read')
   );
 
   // Drop the handoff from the URL and the history entry (replace), so a
@@ -207,7 +246,7 @@ export default function TelemetryExplorerPage() {
       setHistory(pushQueryHistory(text));
       void run(text);
     },
-    [run],
+    [run]
   );
 
   const assistant = useTelemetryAssistant({
@@ -250,7 +289,7 @@ export default function TelemetryExplorerPage() {
         setExportNotice(
           exported.rowCount !== null
             ? `Export truncated at ${exported.rowCount.toLocaleString()} rows — ${exported.filename} does not hold the full result.`
-            : `Export truncated — ${exported.filename} does not hold the full result.`,
+            : `Export truncated — ${exported.filename} does not hold the full result.`
         );
       }
     } catch (err) {
@@ -291,6 +330,20 @@ export default function TelemetryExplorerPage() {
   const result = query.result;
   const showAssistantDrawer = assistantAvailable && assistantOpen && !isCompact;
 
+  const Header = slots?.Header;
+  const BeforeContent = slots?.BeforeContent;
+  const Sections = slots?.Sections;
+  const AfterContent = slots?.AfterContent;
+  const dashboardLink = (
+    <TelemetryCrossLink
+      to={TELEMETRY_DASHBOARD_PATH}
+      label="Dashboard"
+      compactLabel="Open Telemetry Dashboard"
+      icon={<MonitorHeartOutlinedIcon />}
+      compact={isCompact}
+    />
+  );
+
   return (
     <Container maxWidth={false} sx={{ maxWidth: 1600 }}>
       <Box
@@ -301,21 +354,23 @@ export default function TelemetryExplorerPage() {
           minWidth: 0,
         }}
       >
-        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>
-          <Typography variant="h4" component="h1" sx={{ flex: 1, minWidth: 0 }}>
-            {PAGE_TITLE}
-          </Typography>
-          <TelemetryCrossLink
-            to={TELEMETRY_DASHBOARD_PATH}
-            label="Dashboard"
-            compactLabel="Open Telemetry Dashboard"
-            icon={<MonitorHeartOutlinedIcon />}
-            compact={isCompact}
-          />
-        </Stack>
-        <Typography color="text.secondary" sx={{ mb: 3 }}>
-          {PAGE_DESCRIPTION}
-        </Typography>
+        {Header ? (
+          <Header title={PAGE_TITLE} description={PAGE_DESCRIPTION} actions={dashboardLink} />
+        ) : (
+          <>
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1 }}>
+              <Typography variant="h4" component="h1" sx={{ flex: 1, minWidth: 0 }}>
+                {PAGE_TITLE}
+              </Typography>
+              {dashboardLink}
+            </Stack>
+            <Typography color="text.secondary" sx={{ mb: 3 }}>
+              {PAGE_DESCRIPTION}
+            </Typography>
+          </>
+        )}
+        {BeforeContent && <BeforeContent />}
+        {Sections && <Sections position="top" />}
 
         {/* ---------------------------------------------------------------
             TOOLBAR
@@ -360,10 +415,18 @@ export default function TelemetryExplorerPage() {
           >
             Export
           </Button>
-          <Button onClick={openMenu(setStarterAnchor)} startIcon={<LibraryBooksOutlinedIcon />} aria-haspopup="menu">
+          <Button
+            onClick={openMenu(setStarterAnchor)}
+            startIcon={<LibraryBooksOutlinedIcon />}
+            aria-haspopup="menu"
+          >
             Starter queries
           </Button>
-          <Button onClick={openMenu(setHistoryAnchor)} startIcon={<HistoryIcon />} aria-haspopup="menu">
+          <Button
+            onClick={openMenu(setHistoryAnchor)}
+            startIcon={<HistoryIcon />}
+            aria-haspopup="menu"
+          >
             History
           </Button>
           <Button
@@ -392,8 +455,13 @@ export default function TelemetryExplorerPage() {
             </MenuItem>
           ))}
         </Menu>
-        <Menu anchorEl={starterAnchor} open={!!starterAnchor} onClose={() => setStarterAnchor(null)}>
-          {STARTER_QUERIES.map((starter) => (
+        <Menu
+          anchorEl={starterAnchor}
+          open={!!starterAnchor}
+          onClose={() => setStarterAnchor(null)}
+        >
+          {starterQueries.length === 0 && <MenuItem disabled>No starter queries</MenuItem>}
+          {starterQueries.map((starter) => (
             <MenuItem
               key={starter.id}
               onClick={() => {
@@ -440,19 +508,32 @@ export default function TelemetryExplorerPage() {
         )}
 
         {exportError && (
-          <ErrorAlert error={exportError} testId="export-error" onClose={() => setExportError(null)} />
+          <ErrorAlert
+            error={exportError}
+            testId="export-error"
+            onClose={() => setExportError(null)}
+          />
         )}
 
         {/* ---------------------------------------------------------------
             SCHEMA | EDITOR + RESULTS
             ------------------------------------------------------------- */}
-        <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, gap: 2, minWidth: 0 }}>
+        <Box
+          sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, gap: 2, minWidth: 0 }}
+        >
           {!isCompact && schemaOpen && (
             <Paper
               variant="outlined"
               component="aside"
               aria-label="Schema"
-              sx={{ width: SCHEMA_WIDTH, flexShrink: 0, p: 1.5, maxHeight: '75vh', display: 'flex', flexDirection: 'column' }}
+              sx={{
+                width: SCHEMA_WIDTH,
+                flexShrink: 0,
+                p: 1.5,
+                maxHeight: '75vh',
+                display: 'flex',
+                flexDirection: 'column',
+              }}
             >
               {schemaPanel}
             </Paper>
@@ -502,6 +583,8 @@ export default function TelemetryExplorerPage() {
             )}
           </Box>
         </Box>
+        {Sections && <Sections position="bottom" />}
+        {AfterContent && <AfterContent />}
       </Box>
 
       <Snackbar
@@ -518,7 +601,10 @@ export default function TelemetryExplorerPage() {
         onClose={() => setSchemaDrawerOpen(false)}
         slotProps={{ paper: { sx: { width: '85vw', maxWidth: 360, p: 2 } } }}
       >
-        <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+        <Stack
+          direction="row"
+          sx={{ alignItems: 'center', justifyContent: 'space-between', mb: 1 }}
+        >
           <Typography variant="h6" component="h2">
             Schema
           </Typography>

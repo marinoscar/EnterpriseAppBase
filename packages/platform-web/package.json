@@ -59,6 +59,10 @@
       "types": "./dist/telemetry/ui/dashboard-page.d.ts",
       "default": "./dist/telemetry/ui/dashboard-page.js"
     },
+    "./telemetry/ui/dashboard-panels": {
+      "types": "./dist/telemetry/ui/dashboard-panels.d.ts",
+      "default": "./dist/telemetry/ui/dashboard-panels.js"
+    },
     "./identity/headless": {
       "types": "./dist/identity/headless/index.d.ts",
       "default": "./dist/identity/headless/index.js"
@@ -190,6 +194,10 @@
     "./ai/ui/playground-page": {
       "types": "./dist/ai/ui/playground-page.d.ts",
       "default": "./dist/ai/ui/playground-page.js"
+    },
+    "./ai/ui/playground-modes": {
+      "types": "./dist/ai/ui/playground-modes.d.ts",
+      "default": "./dist/ai/ui/playground-modes.js"
     },
     "./ai/ui/provider-cards": {
       "types": "./dist/ai/ui/provider-cards.d.ts",

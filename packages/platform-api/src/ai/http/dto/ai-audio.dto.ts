@@ -2,6 +2,7 @@ import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
 import {
+  AI_PROVIDER_OPTIONS_MAX_BYTES,
   AI_SPEECH_FORMATS,
   AI_SPEECH_INPUT_MAX_CHARS,
   AI_SPEECH_INSTRUCTIONS_MAX_CHARS,
@@ -47,8 +48,16 @@ export const aiTranscriptionRequestSchema = z
       .max(2)
       .refine((values) => new Set(values).size === values.length, 'timestampGranularities must not repeat a value')
       .optional(),
-    /** Keyed by provider id — the escape hatch for provider features this contract does not model. */
-    providerOptions: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
+    /**
+     * Keyed by provider id — the escape hatch for provider features this contract does not model
+     * (PP-14.17): a JSON object of at most 4 KiB serialised, passed to the adapter and never logged.
+     */
+    providerOptions: z
+      .record(z.string(), z.record(z.string(), z.unknown()))
+      .refine((options) => Buffer.byteLength(JSON.stringify(options), 'utf8') <= AI_PROVIDER_OPTIONS_MAX_BYTES, {
+        message: `providerOptions must be at most ${AI_PROVIDER_OPTIONS_MAX_BYTES} bytes of JSON`,
+      })
+      .optional(),
   })
   .strict();
 

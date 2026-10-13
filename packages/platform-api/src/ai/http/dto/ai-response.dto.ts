@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { AI_HOSTED_TOOL_TYPES } from '../../core/types/responses.types';
 import { AI_SPEECH_FORMATS } from '../../core/types/media.types';
+import { aiTranscriptionExtrasSchema } from '../../runtime/ai-transcription-extras';
 import { AI_RUN_STATUSES } from '../../runtime/ai-runtime.types';
 
 // =============================================================================
@@ -204,6 +205,13 @@ export const aiTranscriptionRunOutputSchema = z.object({
     .optional(),
   /** Word timestamps, when requested and supported. */
   words: z.array(z.object({ startSeconds: z.number(), endSeconds: z.number(), word: z.string() })).optional(),
+  /**
+   * Provider-reported detail beyond the fields above (PP-14.17): speaker-labelled
+   * `segments` (`{ start, end, text, speaker? }`), `language`, and any other JSON
+   * the provider adds, at most 64 KiB serialised. Absent when none was reported
+   * or it was dropped for size or shape.
+   */
+  extras: aiTranscriptionExtrasSchema.optional(),
   usage: aiUsageSchema,
 });
 

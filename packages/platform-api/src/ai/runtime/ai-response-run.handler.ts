@@ -173,7 +173,7 @@ export class AiResponseRunHandler implements JobHandler, OnModuleInit {
     try {
       const request = fromStoredRunRequest(run.request);
       const response = await this.ai
-        .forUser(run.userId, { orgId, jobId: job.id, runId })
+        .forUser(run.userId, { orgId, jobId: job.id, runId, ...(run.feature ? { attributedFeature: run.feature } : {}) })
         .respond(request, { signal: controller.signal });
 
       if (!(await runs.complete(runId, response))) {

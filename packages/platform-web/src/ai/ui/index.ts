@@ -26,3 +26,15 @@ export type {
   AiProviderFormErrors,
   AiProviderFormValue,
 } from './provider-cards.js';
+export {
+  getAiPlaygroundMode,
+  listAiPlaygroundModes,
+  registerAiPlaygroundMode,
+} from './playground/aiPlaygroundModes.js';
+export type {
+  AiPlaygroundMode,
+  BuiltinAiPlaygroundModeId,
+  AiPlaygroundModeDefinition,
+  AiPlaygroundModeId,
+  AiPlaygroundPanelProps,
+} from './playground/aiPlaygroundModes.js';

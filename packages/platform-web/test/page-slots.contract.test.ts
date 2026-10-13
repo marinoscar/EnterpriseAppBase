@@ -40,6 +40,11 @@ import type {
   UsersPageProps,
 } from '../src/identity/ui/index.js';
 import type { GroupDetailPageProps, GroupsPageProps, PublicLinkPageProps } from '../src/sharing/ui/index.js';
+import type {
+  TelemetryDashboardPageProps,
+  TelemetryExplorerPageProps,
+  TelemetrySettingsPageProps,
+} from '../src/telemetry/ui/index.js';
 
 const PACKAGE_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -191,6 +196,12 @@ describe('the migrated pages (compile time)', () => {
     expectTypeOf<PageSlotsBase>().toExtend<SlotsOf<DbBackupPageProps>>();
     expectTypeOf<SlotsOf<DoctorPageProps>>().toExtend<PageSlotsBase>();
     expectTypeOf<PageSlotsBase>().toExtend<SlotsOf<DoctorPageProps>>();
+    expectTypeOf<SlotsOf<TelemetryDashboardPageProps>>().toExtend<PageSlotsBase>();
+    expectTypeOf<PageSlotsBase>().toExtend<SlotsOf<TelemetryDashboardPageProps>>();
+    expectTypeOf<SlotsOf<TelemetryExplorerPageProps>>().toExtend<PageSlotsBase>();
+    expectTypeOf<PageSlotsBase>().toExtend<SlotsOf<TelemetryExplorerPageProps>>();
+    expectTypeOf<SlotsOf<TelemetrySettingsPageProps>>().toExtend<PageSlotsBase>();
+    expectTypeOf<PageSlotsBase>().toExtend<SlotsOf<TelemetrySettingsPageProps>>();
 
     // The identity and sharing pages (PP-14.25).
     expectTypeOf<SlotsOf<UsersPageProps>>().toExtend<PageSlotsBase>();
