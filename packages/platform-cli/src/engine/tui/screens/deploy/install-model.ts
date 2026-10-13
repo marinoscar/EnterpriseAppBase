@@ -206,7 +206,7 @@ export function installFields(
     fields.push({
       key: spec.key,
       label: spec.key,
-      help: spec.help,
+      help: metadata.help ?? spec.help,
       // ⚠ The seeded value REPLACES the template default as the placeholder.
       // A "keep current value" branch that writes the TEMPLATE's default is
       // correct for a key nobody answered and catastrophic for one seeded from

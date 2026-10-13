@@ -3,7 +3,7 @@ import { buildUpdateSteps } from '../update.js';
 
 import type { DeployStep, StepContext } from './pipeline.js';
 import type { DeployPipeline } from './registry.js';
-import { withRegisteredSteps } from './registry.js';
+import { listRegisteredDeploySteps, withRegisteredSteps } from './registry.js';
 
 /**
  * One step of a deploy plan.
@@ -17,6 +17,8 @@ export interface DeployPlanStep {
   title: string;
   /** `builtin` for a platform step, `app` for one registered with `registerDeployStep`. */
   source: 'builtin' | 'app';
+  /** For an app step registered with `replaces`: the step it runs instead of. */
+  replaces?: string | undefined;
 }
 
 /**
@@ -38,9 +40,14 @@ export function planDeploySteps(pipeline: DeployPipeline): DeployPlanStep[] {
     ({ id, title }) => ({ id, title, run: never }),
   );
   const builtinIds = new Set(builtins.map((step) => step.id));
-  return withRegisteredSteps(pipeline, builtins, never).map((step) => ({
-    id: step.id,
-    title: step.title,
-    source: builtinIds.has(step.id) ? 'builtin' : 'app',
-  }));
+  const registrations = listRegisteredDeploySteps(pipeline);
+  return withRegisteredSteps(pipeline, builtins, never).map((step) => {
+    const replaces = registrations.find((registration) => registration.id === step.id)?.replaces;
+    return {
+      id: step.id,
+      title: step.title,
+      source: builtinIds.has(step.id) ? 'builtin' : 'app',
+      ...(replaces === undefined ? {} : { replaces }),
+    };
+  });
 }

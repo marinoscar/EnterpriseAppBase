@@ -1,3 +1,6 @@
+import { UnauthorizedException } from '@nestjs/common';
+
+import { credentialKindRegistry, principalKindRegistry, withTemporaryEntries } from '../../../src/core/index';
 import * as tenancyMode from '../../../src/identity/auth/tenancy-mode';
 import {
   PrincipalFactory,
@@ -249,5 +252,38 @@ describe('the bound active org (#724)', () => {
     for (const kind of ['session', 'device', 'pat'] as const) {
       expect(toPrincipal(twoOrgs('org-b'), kind)).toMatchObject({ kind: 'user', credential: kind });
     }
+  });
+});
+
+// PP-14.14: toPrincipal is default-deny for credential kinds.
+describe('toPrincipal and the credential kind registry (PP-14.14)', () => {
+  const caller = { id: 'u1', email: 'u1@example.test', ...user([], [membership({ role: VIEWER })]) };
+
+  it('denies a credential kind nobody registered, without echoing it', () => {
+    expect(() => toPrincipal(caller, 'api-key' as never)).toThrow(UnauthorizedException);
+    expect(() => toPrincipal(caller, 'api-key' as never)).toThrow('Unrecognised credential');
+    expect(() => toPrincipal(caller, '__proto__' as never)).toThrow(UnauthorizedException);
+    expect(() => toPrincipal(caller, undefined as never)).toThrow(UnauthorizedException);
+  });
+
+  it('a registered kind of the user principal kind yields a user principal carrying its id', async () => {
+    await withTemporaryEntries(credentialKindRegistry, [{ id: 'api-key', principalKind: 'user', description: 'An `ak_` key.' }], () => {
+      expect(toPrincipal(caller, 'api-key' as never)).toMatchObject({ kind: 'user', credential: 'api-key', userId: 'u1' });
+    });
+    expect(() => toPrincipal(caller, 'api-key' as never)).toThrow(UnauthorizedException);
+  });
+
+  it('a registered kind of ANOTHER principal kind has no factory here and is denied', async () => {
+    await withTemporaryEntries(principalKindRegistry, [{ id: 'service', description: 'An integration.' }], async () => {
+      await withTemporaryEntries(credentialKindRegistry, [{ id: 'svc-token', principalKind: 'service', description: 'A service token.' }], () => {
+        expect(() => toPrincipal(caller, 'svc-token' as never)).toThrow(UnauthorizedException);
+      });
+    });
+  });
+
+  it('a custom kind mapped onto the node principal kind never becomes a node principal', async () => {
+    await withTemporaryEntries(credentialKindRegistry, [{ id: 'node-alias', principalKind: 'node', description: 'Impersonates nothing.' }], () => {
+      expect(() => toPrincipal(caller, 'node-alias' as never)).toThrow(UnauthorizedException);
+    });
   });
 });

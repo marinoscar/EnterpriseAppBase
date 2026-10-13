@@ -53,6 +53,7 @@ Place it where `/api/admin/maintenance` belongs in the generated document: paths
 | `eventBusAdapter` | `string` | `EVENT_BUS_ADAPTER`, read when the bus is built | `in-process`, `postgres` or any registered adapter id (case-insensitive). An id nobody registered fails the boot here, naming it and the registered ones; the same value in `EVENT_BUS_ADAPTER` is `in-process` plus one warning. |
 | `eventBus` | `PortBinding<EventBus>` | none | A whole bus (`useExisting`, `useClass` or `useFactory`), bound as `EVENT_BUS` for every consumer. Wins over `eventBusAdapter` and the environment. Needs no registry entry. |
 | `metricsGauges` | `boolean` | `OTEL_ENABLED === 'true'` | Whether the database-backed gauges register. |
+| `errorMappers` | `ErrorMapper[]` | none | Mappers from a foreign error (Prisma, an SDK) to an `HttpException`, handed to the exception filter. They see only values that are not already an `HttpException`, run in order, and the first result wins; the foreign error's message never reaches the response. See [the core README](../core/README.md#open-vocabularies). |
 | `imports` | `PlatformHostCoreImport[]` | none | Extra modules the host core's providers need from the app. |
 
 `registerPlatformDocs(app, openApi, logger?)` and `createOpenApiDocument(app, openApi)` take `PlatformOpenApiOptions`:
@@ -78,6 +79,7 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | `registerEventBusAdapter` | registry | `registerEventBusAdapter(adapter: EventBusAdapterDef): void` where `EventBusAdapterDef = { id, label, create(ctx: { id, config, logger, prisma, metrics }): EventBus \| Promise<EventBus> }`; `id` matches `^[a-z][a-z0-9-]{1,31}$` | Add an event bus (Redis, NATS, a test double) selectable by `EVENT_BUS_ADAPTER` or `eventBusAdapter`; call it at import time, before the app is created | experimental | [example](../../../../apps/api/src/app-registrations/host.ts) |
 | `eventBusAdapterRegistry` | registry | `Registry<EventBusAdapterDef>` (`host.event-bus-adapters`; `in-process` and `postgres` register through `registerEventBusAdapter` too) | List or look up the registered adapters (`ids()`, `get(id)`) | experimental | [example](../../../../apps/api/test/examples/host/event-bus-adapter.spec.ts) |
 | `PlatformHostCoreOptions.eventBus` | option | `eventBus?: PortBinding<EventBus>` | Replace the bus wholesale; the only override that reaches the package's own consumers (a provider of `EVENT_BUS` in the app module never does) | experimental | [example](../../../../apps/api/test/examples/host/event-bus-adapter.spec.ts) |
+| `PlatformHostCoreOptions.errorMappers` | option | `errorMappers?: readonly ErrorMapper[]` | Turn a Prisma `P2002` (or any foreign error) into a 409 with a registered domain code instead of a 500 | experimental | [example](../../../../apps/api/test/examples/core/open-vocabularies.spec.ts) |
 | `describeEventBusConformance` | hook | `describeEventBusConformance(bus \| () => bus, { describe, it, expect }, options?)` (`@marinoscar/platform-api/host/testing`) | Prove an adapter honours the bus rules: local delivery, JSON copies, per-channel order, unsubscribe, isolated handlers, a `publish` that never rejects, `health()`, `close()` | experimental | [example](../../../../apps/api/test/examples/host/event-bus-adapter.spec.ts) |
 | `registerPlatformHostAppMetrics` | registry | `registerPlatformHostAppMetrics(...appMetrics: readonly AppMetricDef[][]): void` | Declare the platform's metrics, then the slices' and the app's own, in that order, before bootstrap | experimental | [example](../../../../apps/api/src/common/otel/app-metric.manifest.ts) |
 | `hostConformanceSuite` | registry | `ConformanceSuite<HostConformanceOptions>` (`@marinoscar/platform-api/host/testing`) | Run the host invariants against the app's root module | experimental | [example](../../../../apps/api/test/platform/host-conformance.spec.ts) |
@@ -146,6 +148,10 @@ runPlatformConformance({ sourceRoots: [API_SOURCE_ROOT], suites: { host: { rootM
 The reference app's behavioural suites stay with the composed app: the maintenance window end to end (`apps/api/test/maintenance/`), the exempt route set, the document and the docs routes (`apps/api/test/openapi/`), the Postgres bus against a real database (`apps/api/test/event-bus/postgres-event-bus.db.spec.ts`).
 
 ## Upgrade notes
+
+### Unreleased (PP-14.14)
+
+Additive. `PlatformHostCoreModule.forRoot` gains `errorMappers`; the exception filter honours a payload `code` registered with `registerErrorCode` for the exception's status; `createOpenApiDocument` lists every registered error code as the `examples` of `ErrorDto.code`, which is no longer a closed enum (the one OpenAPI difference). With no mappers and no registered app codes every response is unchanged.
 
 ### Unreleased (#920)
 

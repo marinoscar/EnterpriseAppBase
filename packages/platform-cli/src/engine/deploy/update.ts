@@ -4,7 +4,8 @@ import { basename, join } from 'node:path';
 import { cliName, cliVersion } from '../identity.js';
 import { PreconditionError, UsageError } from '../errors.js';
 import {
-  ALL_CHECKS,
+  allChecks,
+  listRegisteredDeployChecks,
   SOURCE_CHECK_IDS,
   checksPassed,
   gitCredentialStateFor,
@@ -27,7 +28,7 @@ import {
 } from './env-metadata.js';
 import { runEnvWizard } from './env-wizard.js';
 import { runCommand as defaultRunCommand, type CommandResult } from './executor.js';
-import { reconcileEdgeConfig, parseSha256sum, EDGE_CONFIG_FILES, type RunningRead } from './edge-config.js';
+import { reconcileEdgeConfig, parseSha256sum, edgeConfigFiles, type RunningRead } from './edge-config.js';
 import { ensureDatabase } from './database.js';
 import { collectHealth, isHealthy, waitForHealthy, type FetchLike } from './health.js';
 import type { DeployHooks } from './hooks.js';
@@ -257,6 +258,13 @@ function envFilePath(deployRoot: string): string {
   return join(composeCwd(deployRoot), '.env');
 }
 
+/** The environment this update acts on: the drift step's, else the file on disk (a resumed run). */
+function environmentOfUpdate(context: UpdateContext): Map<string, string> | undefined {
+  if (context.env !== undefined) return context.env;
+  const path = envFilePath(context.options.deployRoot);
+  return existsSync(path) ? parseEnvFile(readFileSync(path, 'utf8')) : undefined;
+}
+
 async function compose(
   context: UpdateContext,
   extra: readonly string[],
@@ -390,7 +398,7 @@ async function readRunningEdgeConfig(context: UpdateContext): Promise<RunningRea
     // DID print are still worth having, and a missing one counts as drift.
     const result = await compose(
       context,
-      ['exec', '-T', 'nginx', 'sha256sum', ...EDGE_CONFIG_FILES.map((file) => file.container)],
+      ['exec', '-T', 'nginx', 'sha256sum', ...edgeConfigFiles().map((file) => file.container)],
       { timeoutMs: 60_000, allowExitCodes: [1] },
     );
     return {
@@ -456,6 +464,7 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
         // A LIGHT preflight, not the full doctor. DNS and certificate checks
         // are install-time concerns; a site that is already serving does not
         // need them re-litigated on every update.
+        const appCheckIds = new Set(listRegisteredDeployChecks().map((check) => check.id));
         const wanted = new Set([
           'docker-installed',
           'docker-daemon',
@@ -492,10 +501,12 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
         };
 
         const results = await runChecks(
-          ALL_CHECKS.filter(
+          allChecks().filter(
             (check) =>
               wanted.has(check.id) ||
-              (SOURCE_CHECK_IDS.has(check.id) && severityOf(check, checkContext) === 'required'),
+              (SOURCE_CHECK_IDS.has(check.id) && severityOf(check, checkContext) === 'required') ||
+              // An app check (registerDeployCheck) that is required blocks an update too.
+              (appCheckIds.has(check.id) && severityOf(check, checkContext) === 'required'),
           ),
           checkContext,
         );
@@ -1236,7 +1247,7 @@ export async function runUpdate(options: UpdateOptions): Promise<UpdateResult> {
 
   // The app's steps (`registerDeployStep`, #715) go in after the built-in
   // step each one names; they see a narrow context, never this one.
-  const steps = withRegisteredSteps('update', buildUpdateSteps(), (step: UpdateContext) => appStepContext('update', step));
+  const steps = withRegisteredSteps('update', buildUpdateSteps(), (step: UpdateContext) => appStepContext('update', step, () => environmentOfUpdate(step)));
   const result = await runPipeline(steps, context);
 
   if (result.failed !== undefined) {

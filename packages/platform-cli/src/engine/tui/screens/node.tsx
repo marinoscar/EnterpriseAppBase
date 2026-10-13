@@ -21,6 +21,7 @@ import {
 import { nodeLogPath, nodePidPath, nodeSocketPath, nodeStateDir } from '../../node/paths.js';
 import { ErrorNotice, Field, Frame } from '../layout.js';
 import { ScrollBox } from '../scroll-box.js';
+import { TuiScreenSections } from '../screen-sections.js';
 
 // =============================================================================
 // The worker node screen  (issue #279, epic #254)
@@ -210,6 +211,7 @@ export function NodeScreen({ onDone }: NodeScreenProps): ReactNode {
               void run(item.value);
             }}
           />
+          <TuiScreenSections screen="node" />
         </Box>
       </Frame>
     );

@@ -22,7 +22,8 @@
 // ONLY AN ALLOWLIST OF MODULES MAY INJECT IT. `test/tenancy/system-injection-
 // boundary.spec.ts` scans every constructor and `@Inject` and fails on any
 // file outside `SYSTEM_PRISMA_ALLOWLIST`; adding a file there is a reviewed
-// decision. Each acquisition names a closed `SystemAccessReason`, puts it on
+// decision. Each acquisition names a registered `SystemAccessReason` (the platform's nine,
+// or one the app registered: the reason is open, this allowlist is not), puts it on
 // the active span (`db.access.reason`, plus a `db.rls_bypass` event) and logs
 // it at debug. The reason is never a metric label.
 //
@@ -82,7 +83,7 @@ export class PrismaSystemService extends PrismaClient implements OnModuleInit, O
    * statement use {@link PrismaSystemService.runAsSystem}. Never open
    * `$transaction(async tx => ...)` on the returned client.
    *
-   * @throws ScopedAccessError for a reason outside the closed list.
+   * @throws ScopedAccessError for a reason that is not registered.
    */
   asSystem(reason: SystemAccessReason) {
     const client = this.$extends(systemScopeExtension(this, reason));
@@ -94,7 +95,7 @@ export class PrismaSystemService extends PrismaClient implements OnModuleInit, O
    * One interactive transaction with the bypass flag set, handing `fn` the
    * plain transaction client.
    *
-   * @throws ScopedAccessError for a reason outside the closed list.
+   * @throws ScopedAccessError for a reason that is not registered.
    */
   runAsSystem<R>(
     reason: SystemAccessReason,

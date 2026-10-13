@@ -4,7 +4,7 @@ import { basename, join } from 'node:path';
 import { cliName, cliVersion } from '../identity.js';
 import { PreconditionError, UsageError } from '../errors.js';
 import {
-  ALL_CHECKS,
+  allChecks,
   checksPassed,
   gitCredentialStateFor,
   requiredChecks,
@@ -624,7 +624,7 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
             : {}),
         };
 
-        const results = await runChecks(requiredChecks(ALL_CHECKS, checkContext), checkContext);
+        const results = await runChecks(requiredChecks(allChecks(), checkContext), checkContext);
 
         for (const result of results) {
           context.journal.line(`${result.status} ${result.id}: ${result.detail}`);
@@ -776,7 +776,7 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
         if (context.env === undefined) return;
 
         const results = await runChecks(
-          ALL_CHECKS.filter((check) => check.id.startsWith('database-')),
+          allChecks().filter((check) => check.id.startsWith('database-')),
           {
             runCommand: context.runCommand,
             deployRoot: context.options.deployRoot,
@@ -1395,7 +1395,7 @@ export async function runInstall(requested: InstallOptions): Promise<InstallResu
 
   // The app's steps (`registerDeployStep`, #715) go in after the built-in
   // step each one names; they see a narrow context, never this one.
-  const steps = withRegisteredSteps('install', buildInstallSteps(), (step: InstallContext) => appStepContext('install', step));
+  const steps = withRegisteredSteps('install', buildInstallSteps(), (step: InstallContext) => appStepContext('install', step, () => environmentOf(step)));
   const result = await runPipeline(steps, context);
 
   if (result.failed !== undefined) {

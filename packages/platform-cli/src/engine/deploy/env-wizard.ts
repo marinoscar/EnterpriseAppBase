@@ -291,9 +291,10 @@ async function ask(
 ): Promise<Answer> {
   // The template's own comment is the best help text available, and it is
   // already written for a human - reprinting it beats inventing a worse one.
-  if (spec.help !== '') {
+  const help = metadata.help ?? spec.help;
+  if (help !== '') {
     output.write('\n');
-    for (const line of spec.help.split('\n')) {
+    for (const line of help.split('\n')) {
       output.write(`  # ${line}\n`);
     }
   } else {

@@ -10,7 +10,8 @@
 //
 //   compose  infra/compose/app.*.compose.yml, appended after the platform
 //            files (see compose-order.ts)
-//   nginx    infra/nginx/app.d/{http,server,locations}/*.conf and
+//   nginx    infra/nginx/app.d/{http,server,locations}/*.conf,
+//            infra/nginx/app.d/csp/*.conf (sources added to the CSP) and
 //            infra/nginx/app.d/permissions-policy.conf
 //   env      infra/compose/app.env.example, appended to .env.example
 // =============================================================================
@@ -72,8 +73,10 @@ export const composeInfraFragment: PlatformInfraFragment = deepFreeze({
  * The platform's nginx configuration: `nginx.conf` with its include points,
  * the two CSP maps and the `platform/` snippets (`security-headers.conf`,
  * `sse-proxy.conf`). The app owns `app.d/`: `http/`, `server/` and
- * `locations/` (included at those levels; empty is valid) and
- * `permissions-policy.conf` (created from the platform default).
+ * `locations/` (included at those levels; empty is valid), `csp/` (sources
+ * appended to the default policy's directives; empty is valid) and
+ * `permissions-policy.conf` (created from the platform default). Two inert
+ * `*.conf.example` files show a `connect-src` source and an SSE location.
  *
  * @stability experimental
  * @extensionPoint overlay
@@ -98,6 +101,9 @@ export const nginxInfraFragment: PlatformInfraFragment = deepFreeze({
     { ...nginx('app.d/http/.gitkeep'), keep: true },
     { ...nginx('app.d/server/.gitkeep'), keep: true },
     { ...nginx('app.d/locations/.gitkeep'), keep: true },
+    { ...nginx('app.d/csp/.gitkeep'), keep: true },
+    nginx('app.d/csp/connect-src.conf.example'),
+    nginx('app.d/locations/stream-route.conf.example'),
   ],
 });
 
