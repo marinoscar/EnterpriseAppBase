@@ -38,6 +38,13 @@ import { HttpException, HttpStatus } from '@nestjs/common';
 //   TELEMETRY_DASHBOARD_BAD_FILTER  400  `service`/`instance` is not among the
 //                                        values seen in the requested range.
 //   TELEMETRY_DASHBOARD_BAD_CURSOR  400  the events `cursor` is malformed.
+//
+// A dashboard panel an app registered (PP-14.18) adds one:
+//
+//   TELEMETRY_PANEL_FAILED          500  the panel's `data` function threw, ran
+//                                        out of time or returned something that is
+//                                        not bounded JSON. The viewer sees a
+//                                        generic message; the cause is logged.
 // =============================================================================
 
 /**
@@ -66,6 +73,8 @@ export const TELEMETRY_ERROR_REASONS = {
   DASHBOARD_BAD_FILTER: 'TELEMETRY_DASHBOARD_BAD_FILTER',
   /** 400: the events `cursor` is malformed. */
   DASHBOARD_BAD_CURSOR: 'TELEMETRY_DASHBOARD_BAD_CURSOR',
+  /** 500: an app's dashboard panel failed (its cause is in the log, not the answer). */
+  PANEL_FAILED: 'TELEMETRY_PANEL_FAILED',
 } as const;
 
 /**
@@ -86,6 +95,7 @@ const STATUS: Record<TelemetryErrorReason, HttpStatus> = {
   TELEMETRY_ASSISTANT_NOT_CONFIGURED: HttpStatus.CONFLICT,
   TELEMETRY_DASHBOARD_BAD_FILTER: HttpStatus.BAD_REQUEST,
   TELEMETRY_DASHBOARD_BAD_CURSOR: HttpStatus.BAD_REQUEST,
+  TELEMETRY_PANEL_FAILED: HttpStatus.INTERNAL_SERVER_ERROR,
 };
 
 /**

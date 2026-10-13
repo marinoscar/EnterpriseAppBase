@@ -17,6 +17,13 @@
 //   5  queue rule          the app's cron scan covers the slice's cron
 //   6  boot without store  the module boots with no GreptimeDB and every
 //                          dashboard route answers its documented response
+//   9  extensions          the dashboard panels and assistant tools the app
+//                          registered are well formed (ids, names, no clash with
+//                          a platform name), and every group presentation names
+//                          only what its group declares (PP-14.18)
+//   10 facade surface      what an extension receives to read the store is a
+//                          frozen query facade and nothing more: no client, pool
+//                          or store (PP-14.18)
 //
 // EVERYTHING IS DISCOVERED, nothing is a hand-kept list of routes, groups or
 // checks: groups from `metricGroupRegistry`, routes from the Nest metadata of
@@ -27,7 +34,7 @@
 //
 // Check 7 (web/API permission parity) runs in the web test suite
 // (`apps/web/src/__tests__/config/telemetryParity.test.ts`) and check 8 (infra
-// drift) is `platform-infra sync --check` in CI.
+// drift) is `platform-infra sync --check` in CI; checks 9 and 10 are above.
 //
 // Each check is also an exported function over its input, so the package proves
 // it FAILS on a deliberately broken fixture (`test/telemetry/conformance.spec.ts`).
@@ -57,8 +64,19 @@ import { TELEMETRY_ERROR_REASONS } from '../query/telemetry-query.errors';
 import { TELEMETRY_HOST_PERMISSIONS, TELEMETRY_PERMISSIONS } from '../telemetry.permissions';
 import { TelemetryModule } from '../telemetry.module';
 import { computeMetricGroup } from '../metrics/metric-group';
-import { METRIC_UNITS } from '../metrics/metric-catalog.helpers';
 import { METRIC_FILTER_COLUMNS } from '../metrics/metric-catalog.helpers';
+import { assertPresentation } from '../metrics/metric-presentation';
+import { isMetricUnit } from '../metrics/metric-unit.registry';
+import { telemetryAssistantToolRegistry } from '../assistant/telemetry-assistant-tool.registry';
+import { dashboardPanelRegistry, isBuiltinDashboardPanel } from '../dashboard/panels/dashboard-panels';
+import { createQueryFacade } from '../query/telemetry-query-facade';
+import { GREPTIME_SQL_DIALECT } from '../stores/greptime/greptime.dialect';
+import {
+  BUILTIN_TELEMETRY_ASSISTANT_TOOLS,
+  DASHBOARD_PANELS,
+  DASHBOARD_PANEL_ID_PATTERN,
+  TELEMETRY_ASSISTANT_TOOL_NAME_PATTERN,
+} from '@marinoscar/platform-contract/telemetry';
 import { metricTablesOf, type MetricGroup } from '../metrics/metric-catalog';
 import { METRIC_GROUP_ID_PATTERN, metricGroupRegistry, type MetricGroupDef } from '../metrics/metric-group.registry';
 import { createStubTelemetryPorts, type StubTelemetryPortsOptions } from './stub-ports';
@@ -107,6 +125,8 @@ const FILE_DOCTOR = 'doctor';
 const FILE_CRON = 'cron';
 const FILE_SECRETS = 'no-secrets';
 const FILE_BOOT = 'boot';
+const FILE_EXTENSIONS = 'extensions';
+const FILE_FACADE = 'facade';
 
 const finding = (file: string, message: string): ConformanceFinding => ({ file, message });
 const lines = (findings: readonly ConformanceFinding[]): string[] => findings.map((f) => `${f.file}: ${f.message}`);
@@ -116,8 +136,9 @@ const lines = (findings: readonly ConformanceFinding[]): string[] => findings.ma
 /**
  * Check 1, static half: every group has a unique id matching
  * {@link METRIC_GROUP_ID_PATTERN} and a non-empty label; family, ratio and table
- * keys are unique across groups; every unit is in `METRIC_UNITS`; every filter
- * key is a `METRIC_FILTER_COLUMNS` key; every entry names the group that holds it.
+ * keys are unique across groups; every unit is registered (`registerMetricUnit`); every filter
+ * key is a `METRIC_FILTER_COLUMNS` key; every entry names the group that holds it;
+ * a group's presentation names only tiles, charts and tables the group declares.
  *
  * @param groups - the groups to check.
  * @returns the violations; empty means conformant.
@@ -126,7 +147,6 @@ const lines = (findings: readonly ConformanceFinding[]): string[] => findings.ma
  */
 export function checkMetricGroups(groups: readonly MetricGroupDef[]): ConformanceFinding[] {
   const out: ConformanceFinding[] = [];
-  const units = new Set<string>(METRIC_UNITS);
   const filters = new Set<string>(Object.keys(METRIC_FILTER_COLUMNS));
   const ids = new Map<string, number>();
   const keys = new Map<string, string>();
@@ -157,7 +177,7 @@ export function checkMetricGroups(groups: readonly MetricGroupDef[]): Conformanc
       keys.set(entry.key, group.id);
       if (entry.group !== group.id) out.push(finding(FILE_GROUPS, `${name} declares group "${entry.group}"`));
       for (const unit of entry.units) {
-        if (!units.has(unit)) out.push(finding(FILE_GROUPS, `${name} has unit "${unit}"; expected one of METRIC_UNITS`));
+        if (!isMetricUnit(unit)) out.push(finding(FILE_GROUPS, `${name} has unit "${unit}", which is not registered (registerMetricUnit)`));
       }
       for (const filter of entry.filters) {
         if (!filters.has(filter)) out.push(finding(FILE_GROUPS, `${name} has filter "${filter}"; expected one of ${[...filters].join(', ')}`));
@@ -166,6 +186,13 @@ export function checkMetricGroups(groups: readonly MetricGroupDef[]): Conformanc
   }
   for (const [id, count] of ids) {
     if (count > 1) out.push(finding(FILE_GROUPS, `group id "${id}" is declared ${count} times`));
+  }
+  for (const group of groups) {
+    try {
+      assertPresentation(group);
+    } catch (error) {
+      out.push(finding(FILE_GROUPS, (error as Error).message));
+    }
   }
   return out;
 }
@@ -306,7 +333,7 @@ const ROUTE_RULES: ReadonlyArray<{ shape: RegExp; permissions: readonly string[]
   { shape: /^PUT admin\/telemetry\/config$/, permissions: [WRITE] },
   { shape: /^(POST) admin\/telemetry\/(query|export)$/, permissions: [QUERY] },
   { shape: /^GET admin\/telemetry\/schema$/, permissions: [QUERY] },
-  { shape: /^GET admin\/telemetry\/dashboard\/[a-z-]+$/, permissions: [QUERY] },
+  { shape: /^GET admin\/telemetry\/dashboard\/[a-z-]+(\/:[a-z]+)?$/, permissions: [QUERY] },
   { shape: /^GET admin\/telemetry\/connection$/, permissions: [READ] },
   { shape: /^(PUT|DELETE) admin\/telemetry\/connection$/, permissions: [WRITE] },
   { shape: /^POST admin\/telemetry\/connection\/test$/, permissions: [WRITE] },
@@ -645,9 +672,11 @@ export async function checkBootsWithoutTelemetry(createApp: CreateConformanceApp
     if (routes.length === 0) out.push(finding(FILE_BOOT, 'no dashboard route found to exercise'));
 
     for (const route of routes) {
+      // A parameterised route (`panels/:id`) is exercised with a panel the platform registers.
+      const url = `/${route.path.replace(/\/:id$/, `/${DASHBOARD_PANELS[0]}`)}`;
       const response = await app.inject({
         method: 'GET',
-        url: `/${route.path}`,
+        url,
         query: requiredQuery(route.handler),
         headers: { [TEST_PERMISSIONS_HEADER]: TELEMETRY_PERMISSIONS.QUERY },
       });
@@ -656,7 +685,7 @@ export async function checkBootsWithoutTelemetry(createApp: CreateConformanceApp
         response.statusCode === 200 ||
         (response.statusCode === 503 && body?.details?.reason === TELEMETRY_ERROR_REASONS.NOT_CONFIGURED);
       if (!documented) {
-        out.push(finding(FILE_BOOT, `GET /${route.path} answered ${response.statusCode}${body?.details?.reason ? ` (${body.details.reason})` : ''} with no telemetry store; expected 200 or 503 TELEMETRY_NOT_CONFIGURED`));
+        out.push(finding(FILE_BOOT, `GET ${url} answered ${response.statusCode}${body?.details?.reason ? ` (${body.details.reason})` : ''} with no telemetry store; expected 200 or 503 TELEMETRY_NOT_CONFIGURED`));
       }
     }
   } finally {
@@ -673,6 +702,130 @@ function safeJson(text: string): unknown {
   }
 }
 
+// ---- check 9: the registered extensions -------------------------------------------------
+
+/**
+ * The slice of the two extension registries check 9 reads; a test passes fixtures.
+ *
+ * @stability experimental
+ */
+export interface RegisteredExtensions {
+  /** The dashboard panels (`id`, `label`, `order`, `data`). */
+  panels: ReadonlyArray<{
+    /** The panel id. */
+    id: string;
+    /** The panel title. */
+    label: string;
+    /** The dashboard order. */
+    order: number;
+    /** The function that reads the panel's data. */
+    data: unknown;
+  }>;
+  /** The assistant tools (`name`, `description`, `inputSchema`, `run`). */
+  tools: ReadonlyArray<{
+    /** The tool name. */
+    name: string;
+    /** What the tool does, for the model. */
+    description: string;
+    /** The arguments schema (a zod object). */
+    inputSchema: unknown;
+    /** The function that runs the tool. */
+    run: unknown;
+  }>;
+}
+
+/**
+ * Check 9: the dashboard panels and assistant tools are well formed. A panel
+ * has an id matching the panel pattern, a label, a finite order and a `data`
+ * function, and the platform's `api` and `logs` are still registered (an app
+ * cannot have replaced them). A tool has a name matching the tool pattern that
+ * is not one of the platform's eight, a description, a zod OBJECT schema and a
+ * `run` function. Registration already enforces all of this; the check keeps it
+ * true for a registry filled any other way.
+ *
+ * @param extensions - the registered panels and tools; default the live registries.
+ * @returns the violations; empty means conformant.
+ *
+ * @stability experimental
+ */
+export function checkRegisteredExtensions(
+  extensions: RegisteredExtensions = {
+    panels: dashboardPanelRegistry.list(),
+    tools: telemetryAssistantToolRegistry.list(),
+  },
+): ConformanceFinding[] {
+  const out: ConformanceFinding[] = [];
+  const panelIds = new Set<string>();
+  for (const panel of extensions.panels) {
+    const where = `dashboard panel "${panel.id}"`;
+    if (!DASHBOARD_PANEL_ID_PATTERN.test(panel.id)) out.push(finding(FILE_EXTENSIONS, `${where}: id must match ${DASHBOARD_PANEL_ID_PATTERN}`));
+    if (panelIds.has(panel.id)) out.push(finding(FILE_EXTENSIONS, `${where}: id is registered twice`));
+    panelIds.add(panel.id);
+    if (typeof panel.label !== 'string' || panel.label.trim() === '') out.push(finding(FILE_EXTENSIONS, `${where}: label is empty`));
+    if (typeof panel.order !== 'number' || !Number.isFinite(panel.order)) out.push(finding(FILE_EXTENSIONS, `${where}: order is not a finite number`));
+    if (typeof panel.data !== 'function') out.push(finding(FILE_EXTENSIONS, `${where}: has no data function`));
+  }
+  for (const builtin of DASHBOARD_PANELS) {
+    if (!panelIds.has(builtin) || !isBuiltinDashboardPanel(builtin)) {
+      out.push(finding(FILE_EXTENSIONS, `the platform panel "${builtin}" is not registered`));
+    }
+  }
+
+  const toolNames = new Set<string>();
+  for (const tool of extensions.tools) {
+    const where = `assistant tool "${tool.name}"`;
+    if (!TELEMETRY_ASSISTANT_TOOL_NAME_PATTERN.test(tool.name)) {
+      out.push(finding(FILE_EXTENSIONS, `${where}: name must match ${TELEMETRY_ASSISTANT_TOOL_NAME_PATTERN}`));
+    }
+    if ((BUILTIN_TELEMETRY_ASSISTANT_TOOLS as readonly string[]).includes(tool.name)) {
+      out.push(finding(FILE_EXTENSIONS, `${where}: is one of the platform's own tool names`));
+    }
+    if (toolNames.has(tool.name)) out.push(finding(FILE_EXTENSIONS, `${where}: name is registered twice`));
+    toolNames.add(tool.name);
+    if (typeof tool.description !== 'string' || tool.description.trim() === '') out.push(finding(FILE_EXTENSIONS, `${where}: description is empty`));
+    if ((tool.inputSchema as { type?: unknown } | undefined)?.type !== 'object') {
+      out.push(finding(FILE_EXTENSIONS, `${where}: inputSchema is not a zod object schema`));
+    }
+    if (typeof tool.run !== 'function') out.push(finding(FILE_EXTENSIONS, `${where}: has no run function`));
+  }
+  return out;
+}
+
+// ---- check 10: what an extension receives ---------------------------------------------------
+
+/**
+ * Check 10: the guarded query facade an extension is handed to read the store
+ * has exactly the members `query`, `sql` and `dialect`, is frozen, and exposes
+ * nothing that looks like a client, pool, connection, store or service. Builds
+ * a facade over a stub query service and inspects it.
+ *
+ * @param make - builds the facade to inspect; default `createQueryFacade` over a stub. A test passes a leaky one.
+ * @returns the violations; empty means conformant.
+ *
+ * @stability experimental
+ */
+export function checkFacadeSurface(
+  make: () => object = () =>
+    createQueryFacade({ run: async () => ({ columns: [], rows: [], rowCount: 0, truncated: false, elapsedMs: 0 }) } as never, 'conformance', {
+      source: 'panel',
+      dialect: GREPTIME_SQL_DIALECT,
+    }),
+): ConformanceFinding[] {
+  const out: ConformanceFinding[] = [];
+  const facade = make();
+  const keys = Object.keys(facade).sort();
+  if (keys.join(',') !== 'dialect,query,sql') {
+    out.push(finding(FILE_FACADE, `the query facade has members [${keys.join(', ')}]; expected exactly [dialect, query, sql]`));
+  }
+  if (!Object.isFrozen(facade)) out.push(finding(FILE_FACADE, 'the query facade is not frozen: an extension could replace its members'));
+  for (const key of keys) {
+    if (/client|pool|conn|store|service|settings|schema|run/i.test(key)) {
+      out.push(finding(FILE_FACADE, `the query facade exposes "${key}", which looks like a client or a service`));
+    }
+  }
+  return out;
+}
+
 // ---- the suite ------------------------------------------------------------------------
 
 /** The module the sync checks inspect: the real routes and providers, the package's test host, no ports bound. */
@@ -687,12 +840,20 @@ function check(_context: { sourceRoots: readonly string[] }, options: TelemetryC
   const groups = options.metricGroups ?? metricGroupRegistry.list();
 
   return {
-    scanned: { metricGroups: groups.length, routes: routes.length, doctorChecks: doctorChecks.length },
+    scanned: {
+      metricGroups: groups.length,
+      routes: routes.length,
+      doctorChecks: doctorChecks.length,
+      dashboardPanels: dashboardPanelRegistry.list().length,
+      assistantTools: telemetryAssistantToolRegistry.list().length,
+    },
     scannedFiles: {},
     findings: [
       ...checkMetricGroups(groups),
       ...checkRoutePermissions(routes),
       ...checkDoctorReadOnly(doctorChecks),
+      ...checkRegisteredExtensions(),
+      ...checkFacadeSurface(),
       ...(options.cronSourceRoots ? checkCronCoverage(options.cronSourceRoots) : []),
     ],
   };
@@ -709,6 +870,7 @@ function cases(options: TelemetryConformanceOptions): ReadonlyArray<ConformanceC
         expect(report.scanned.metricGroups).toBeGreaterThanOrEqual(6);
         expect(report.scanned.routes).toBeGreaterThanOrEqual(21);
         expect(report.scanned.doctorChecks).toBeGreaterThanOrEqual(5);
+        expect(report.scanned.dashboardPanels).toBeGreaterThanOrEqual(2);
       },
     },
     {
@@ -727,6 +889,14 @@ function cases(options: TelemetryConformanceOptions): ReadonlyArray<ConformanceC
     {
       name: '3. no Doctor check can write, enqueue or audit',
       run: (report, expect) => expect(findingsIn(report, FILE_DOCTOR)).toEqual([]),
+    },
+    {
+      name: '9. the dashboard panels and assistant tools are well formed, and no tool takes a platform name',
+      run: (report, expect) => expect(findingsIn(report, FILE_EXTENSIONS)).toEqual([]),
+    },
+    {
+      name: '10. an extension reads the store only through the frozen query facade, never a client',
+      run: (report, expect) => expect(findingsIn(report, FILE_FACADE)).toEqual([]),
     },
     {
       name: '4. the connection and config responses never carry a stored password',

@@ -39,7 +39,8 @@ import type {
   DashboardMetricColumn,
   DashboardMetricTable,
 } from '../../../../headless/services/telemetryDashboard.js';
-import { formatMetricValue, formatTimestamp } from '../../../../headless/lib/format.js';
+import { useMetricUnitFormats } from '../../../../headless/context/metricUnitFormats.js';
+import { formatMetricValue, formatTimestamp, type MetricUnitFormats } from '../../../../headless/lib/format.js';
 import { readTopN, writeTopN, type TopNOption } from '../../../../headless/lib/metrics/topNPreference.js';
 import { useTelemetryTokens } from '../../../../theme/telemetryTokens.js';
 
@@ -88,7 +89,22 @@ function useTopN(tableKey: string, topN: MetricTableTopN | undefined) {
 
 const NUMERIC_UNITS = new Set(['%', 'bytes', 'bytes/s', 'count', 'per_s', 'per_min', 'ms', 'seconds', 'hours', 'days', 'cores', 'load']);
 
-function formatCell(value: DashboardMetricCell, column: DashboardMetricColumn | undefined, now: number): ReactNode {
+/** The `format`s of an app unit that read as numbers (right-aligned like the built-in numeric units). */
+const NUMERIC_FORMATS = new Set(['number', 'percent', 'bytes', 'duration-ms', 'duration-s', 'currency']);
+
+/** Whether a column's values are numbers: a built-in numeric unit, or an app unit with a numeric format. */
+function isNumericUnit(unit: string, formats: MetricUnitFormats): boolean {
+  if (NUMERIC_UNITS.has(unit)) return true;
+  const descriptor = formats.get(unit);
+  return descriptor !== undefined && NUMERIC_FORMATS.has(descriptor.format);
+}
+
+function formatCell(
+  value: DashboardMetricCell,
+  column: DashboardMetricColumn | undefined,
+  now: number,
+  formats: MetricUnitFormats,
+): ReactNode {
   if (!column) return formatMetricValue(value, 'text', now);
   if (column.unit === 'timestamp') {
     if (typeof value !== 'string') return '—';
@@ -98,7 +114,7 @@ function formatCell(value: DashboardMetricCell, column: DashboardMetricColumn | 
       </Box>
     );
   }
-  return formatMetricValue(value, column.unit, now);
+  return formatMetricValue(value, column.unit, now, formats);
 }
 
 /**
@@ -170,6 +186,7 @@ export function MetricTable({
   now = Date.now(),
   topN,
 }: MetricTableProps) {
+  const formats = useMetricUnitFormats();
   const byKey = new Map(table.columns.map((column) => [column.key, column]));
   const specs: MetricTableColumnSpec[] = (
     columns ?? table.columns.map((column): MetricTableColumnSpec => ({ key: column.key }))
@@ -245,7 +262,7 @@ export function MetricTable({
                 return (
                   <TableCell
                     key={spec.key}
-                    align={column && NUMERIC_UNITS.has(column.unit) && !spec.render ? 'right' : 'left'}
+                    align={column && isNumericUnit(column.unit, formats) && !spec.render ? 'right' : 'left'}
                     sx={{ whiteSpace: 'nowrap' }}
                   >
                     {spec.label ?? column?.label ?? spec.key}
@@ -259,8 +276,8 @@ export function MetricTable({
               <TableRow key={`${String(row.key)}-${index}`}>
                 {specs.map((spec, columnIndex) => {
                   const column = byKey.get(spec.key);
-                  const content = spec.render ? spec.render(row, column) : formatCell(row[spec.key] ?? null, column, now);
-                  const numeric = column && NUMERIC_UNITS.has(column.unit) && !spec.render;
+                  const content = spec.render ? spec.render(row, column) : formatCell(row[spec.key] ?? null, column, now, formats);
+                  const numeric = column && isNumericUnit(column.unit, formats) && !spec.render;
                   return (
                     <TableCell
                       key={spec.key}

@@ -14,6 +14,7 @@ import {
   telemetryDashboardFiltersSchema,
   telemetryDashboardMetricGroupsSchema,
   telemetryDashboardMetricsSchema,
+  telemetryDashboardPanelsSchema,
   telemetryDashboardSummarySchema,
   telemetryDashboardTimeseriesSchema,
   telemetryDashboardTopSchema,
@@ -69,6 +70,7 @@ describe("the app's telemetry fixtures are valid contract payloads", () => {
     ['mockDashboardEventsPage2', telemetryDashboardEventsSchema, dashboardFixtures.mockDashboardEventsPage2],
     ['mockDashboardFilters', telemetryDashboardFiltersSchema, dashboardFixtures.mockDashboardFilters],
     ['mockDashboardMetricGroups', telemetryDashboardMetricGroupsSchema, { data: dashboardFixtures.mockDashboardMetricGroups }],
+    ['mockDashboardPanels', telemetryDashboardPanelsSchema, { data: dashboardFixtures.mockDashboardPanels }],
     ...Object.entries(dashboardFixtures.mockDashboardMetrics).map(
       ([group, metrics]): [string, z.ZodType, unknown] => [`mockDashboardMetrics.${group}`, telemetryDashboardMetricsSchema, metrics],
     ),

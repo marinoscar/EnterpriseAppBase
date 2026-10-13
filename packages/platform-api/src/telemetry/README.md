@@ -57,6 +57,7 @@ export const telemetryModule = TelemetryModule.forRoot({
 | `dashboard.verdictThresholds` | `VerdictThresholdsOverride` | `{}` | Deep-merged over `DEFAULT_VERDICT_THRESHOLDS`, validated with zod (a degraded bound beyond its critical one is refused). Every reader takes the resolved values from `TELEMETRY_VERDICT_THRESHOLDS`. |
 | `dashboard.verdictPolicy` | `PortBinding<VerdictPolicy>` | `{ useExisting: DefaultVerdictPolicy }` | What `VERDICT_POLICY` is bound to. A policy's own dependencies come from `imports`. |
 | `store` | `string` | `greptime` | The id of the telemetry store the explorer, the dashboard, the status page, the retention job and the Doctor use. It must be registered (`registerTelemetryStore`) before `forRoot` runs; an id nobody registered fails boot naming the registered ones. The built-in `greptime` binds the port to `GreptimeClient`; any other store is built by `TelemetryStoreResolver` from its `telemetry_store` settings and secrets. |
+| `assistant.extraInstructions` | `string` | none | Notes from the app's developers appended to the assistant's system prompt as an `APPLICATION NOTES` section, at most 4 000 characters of plain text. Developer-authored at build time, never read from a user or from stored settings. A longer string or a control character fails boot. Read the resolved value from `TELEMETRY_ASSISTANT_EXTRA_INSTRUCTIONS`. |
 | `metrics.freshMs` | `number` (ms) | `METRIC_FRESH_MS` (150 000) | The metric groups' freshness window: a per-key table cell read as `last` (and an uptime check) older than its table's newest reading by more than this is not current. A whole number from 1 000 to 86 400 000; anything else fails boot. Raise it when the app exports metrics less often than every 60 s. `/metrics` reports it as `freshMs`, and the web section header shows it. Read the resolved value from `TELEMETRY_METRIC_FRESH_MS`. |
 
 The deployment defaults `GREPTIME_*` and `STACK_AGENT_URL` / `STACK_AGENT_TOKEN` are read through `ConfigService` (`greptime`, `stackAgent`, `otel`); the connection saved at `/admin/settings/telemetry` overrides `GREPTIME_*`. See [Infra](#infra).
@@ -70,11 +71,11 @@ Order follows the extension ladder: options (rung 1), registries (rung 2), token
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `TelemetryModule.forRoot` | option | `forRoot(options: TelemetryModuleOptions): DynamicModule` | Mount the slice once in the app's root module | experimental | [example](../../../../apps/api/src/platform/telemetry/telemetry.config.ts) |
-| `TelemetryModuleOptions` | option | `{ host; imports; metricGroups?; actorId?; dashboard?; metrics?; store? }` | Bind the ports, add metric groups, tune the verdict | experimental | [example](../../../../apps/api/src/platform/telemetry/telemetry.config.ts) |
+| `TelemetryModuleOptions` | option | `{ host; imports; metricGroups?; actorId?; dashboard?; metrics?; store?; assistant? }` | Bind the ports, add metric groups, tune the verdict, add notes to the assistant | experimental | [example](../../../../apps/api/src/platform/telemetry/telemetry.config.ts) |
 | `TelemetryDashboardOptions` | option | `{ verdictThresholds?: VerdictThresholdsOverride; verdictPolicy?: PortBinding<VerdictPolicy> }` | Tune the dashboard's verdict thresholds, or bind a policy | experimental | [example](../../../../apps/api/src/platform-extensions/telemetry/reference-verdict-thresholds.ts) |
 | `TelemetryMetricsOptions` | option | `{ freshMs?: number }` | Widen or narrow the metric tables' freshness window (default 150 s) | experimental | [example](../../../../apps/api/test/telemetry/telemetry-extension-points.integration.spec.ts) |
 | `DEFAULT_VERDICT_THRESHOLDS` | option | `VerdictThresholds` | Read the shipped thresholds to see every knob `verdictThresholds` may override | stable | [example](../../../../apps/api/src/platform-extensions/telemetry/reference-verdict-thresholds.ts) |
-| `MetricGroupDef` | option | `{ id; label; title; order; description; families; ratios?; tables? }` | Declare an app's dashboard group: its counters, gauges, histograms, ratios and tables | stable | [example](../../../../apps/api/src/platform-extensions/telemetry/activity.metric-group.ts) |
+| `MetricGroupDef` | option | `{ id; label; title; order; description; families; ratios?; tables?; presentation? }` | Declare an app's dashboard group: its counters, gauges, histograms, ratios and tables, and optionally how the dashboard presents them | stable | [example](../../../../apps/api/src/platform-extensions/telemetry/activity.metric-group.ts) |
 | `MetricGroupRegistry.register` | registry | `register(definition: MetricGroupDefinition): void` | Add a metric group from the app's own `onModuleInit` | experimental | [example](../../../../apps/api/test/telemetry/telemetry-extension-points.integration.spec.ts) |
 | `registerMetricGroup` | registry | `registerMetricGroup(registry, definition): void` | The function form of `MetricGroupRegistry.register` | experimental | [example](../../../../apps/api/test/telemetry/telemetry-extension-points.integration.spec.ts) |
 | `TELEMETRY_PERMISSION_DECLARATIONS` | registry | `{ TELEMETRY_READ; TELEMETRY_WRITE; TELEMETRY_QUERY }`, each `{ id; description; scope; defaultGrants }` (`scope: 'system'`) | Register the three permissions with the app's permission registry | experimental | [example](../../../../apps/api/src/common/permissions/permission.manifest.ts) |
@@ -96,11 +97,66 @@ Order follows the extension ladder: options (rung 1), registries (rung 2), token
 | `TELEMETRY_STORE` | token | `unique symbol` -> `TelemetryStore` | Inject the active store in an app service or check (the resolved store, never the concrete class) | experimental | [example](../../../../apps/api/test/examples/telemetry/memory-store.spec.ts) |
 | `TELEMETRY_SQL_DIALECT` | token | `unique symbol` -> `TelemetrySqlDialect` | Inject the active store's dialect to build SQL the way the dashboard does | experimental | [example](../../../../apps/api/test/examples/telemetry/memory-store.spec.ts) |
 | `describeTelemetryStoreConformance` | registry | `describeTelemetryStoreConformance(store: TelemetryStoreDefinition \| string, options): void` (from `/telemetry/testing`) | Prove a store honours the contract: read-only, timeout, abort, schema, ping, close, the dialect and every dashboard statement over a fixture | experimental | [example](../../../../apps/api/test/examples/telemetry/memory-store.spec.ts) |
+| `TelemetryAssistantOptions` | option | `{ extraInstructions?: string }` | Add developer notes (at most 4 000 characters of plain text) to the assistant's system prompt, as `forRoot({ assistant })` | experimental | [example](../../../../apps/api/test/telemetry/telemetry-extension-points.integration.spec.ts) |
+| `registerMetricUnit` | registry | `registerMetricUnit(unit: MetricUnitDef): void` | Add a unit (`usd`, `bytes_per_s`) a metric family, ratio or table column may name; the dashboard formats it from the descriptor `/metric-groups` serves. Call it at import time, before a group that uses it is registered | experimental | [example](../../../../apps/api/src/platform-extensions/telemetry/activity.metric-group.ts) |
+| `MetricUnitDef` | option | `{ id; label; format: 'number' \| 'percent' \| 'bytes' \| 'duration-ms' \| 'duration-s' \| 'currency' \| 'text' \| 'boolean' \| 'timestamp'; currency?; decimals?; suffix? }` | Describe how the browser writes a value of the unit: a built-in format, never code | experimental | [example](../../../../apps/api/src/platform-extensions/telemetry/activity.metric-group.ts) |
+| `registerDashboardPanel` | registry | `registerDashboardPanel(panel: DashboardPanelDef): void` | Add a card to the Telemetry Dashboard: its `data(ctx)` reads the store through the guarded facade and returns JSON the app's web view draws | experimental | [example](../../../../apps/api/src/platform-extensions/telemetry/signups.dashboard-panel.ts) |
+| `DashboardPanelDef` | option | `{ id; label; order; data(ctx: DashboardPanelContext): Promise<unknown> \| unknown }` | Describe a panel: a permanent id, a title, an order and the function that reads its data | experimental | [example](../../../../apps/api/src/platform-extensions/telemetry/signups.dashboard-panel.ts) |
+| `dashboardPanelRegistry` | registry | `Registry<DashboardPanelDef>` | Read the registered panels (the platform's `api` and `logs` first), or isolate one in a test with `withTemporaryEntries` | experimental | [example](../../../../apps/api/test/examples/telemetry/signups.dashboard-panel.spec.ts) |
+| `TelemetryQueryFacade` | hook | `{ query(sql, { maxRows? }): Promise<TelemetryFacadeResult>; sql: { literal; ident; timestamp; between }; dialect }` | The only way a panel or an assistant tool reads the store: one read-only statement per call, guarded, capped, timed out and audited, with a statement budget per request | experimental | [example](../../../../apps/api/src/platform-extensions/telemetry/signups.dashboard-panel.ts) |
+| `registerTelemetryAssistantTool` | registry | `registerTelemetryAssistantTool(tool: TelemetryAssistantToolDef): void` | Add a read-only tool to the AI assistant: a name, a description for the model, a zod object schema for the arguments and a `run` that reads through the facade | experimental | [example](../../../../apps/api/src/platform-extensions/telemetry/top-features.assistant-tool.ts) |
+| `TelemetryAssistantToolDef` | option | `{ name; description; inputSchema; output?: 'rows' \| 'aggregate'; run(input, ctx: TelemetryAssistantToolContext) }` | Describe a tool; `output: 'rows'` (the default) is withheld from the model while `assistant.shareResults` is off | experimental | [example](../../../../apps/api/src/platform-extensions/telemetry/top-features.assistant-tool.ts) |
+| `telemetryAssistantToolRegistry` | registry | `Registry<TelemetryAssistantToolDef>` | Read the registered app tools, or isolate one in a test with `withTemporaryEntries` | experimental | [example](../../../../apps/api/test/examples/telemetry/top-features.assistant-tool.spec.ts) |
+| `TELEMETRY_ASSISTANT_EXTRA_INSTRUCTIONS` | token | `unique symbol` -> `string \| null` | Read the resolved `assistant.extraInstructions` in an app check or test | experimental | [example](../../../../apps/api/test/telemetry/telemetry-extension-points.integration.spec.ts) |
 | `telemetryConformanceSuite` | registry | `ConformanceSuite<TelemetryConformanceOptions>` | Run the slice's invariants in the app through `runPlatformConformance({ suites: { telemetry } })` | experimental | [example](../../../../apps/api/test/telemetry/telemetry-conformance.spec.ts) |
 
-Supporting exports: the store types (`TelemetryQueryResult`, `TelemetryStoreQueryOptions`, `TelemetryRetentionControl`, `TelemetrySchemaSnapshot`, `TelemetryPingResult`, `TelemetryStoreInstance`, `TelemetryStoreBuildContext`), `describeTelemetryStore`, `requireTelemetryStore`, `telemetryStoreIds`, `telemetryStoreCredentialPurpose`, `BUILTIN_TELEMETRY_STORE_ID`, `GREPTIME_SQL_DIALECT`, `quoteSqlIdent`, `quoteSqlLiteral`, `rowsAsObjects`, the store errors an implementation throws (`TelemetryStoreError`, `TelemetryNotConfiguredError`, `TelemetryQueryTimeoutError`, `TelemetryQueryAbortedError`, `TelemetryQueryFailedError`, `TelemetryMultiStatementError`), the port interfaces (`TelemetryAuditSink`, `TelemetrySettingsStore`, `TelemetryCredentialStore`, `TelemetryJobsPort`, `TelemetryJobHandler`, `TelemetryAiPort` and its tool-loop types, `TelemetryAppInfo`), `TelemetryAiEnabledGuard`, the four exported services (`GreptimeClient`, `TelemetrySettingsService`, `TelemetryQueryService`, `TelemetrySchemaService`), `computeVerdict`, `DefaultVerdictPolicy`, `resolveVerdictThresholds`, `resolveMetricFreshMs` and its default `METRIC_FRESH_MS`, the metric-catalog types (`GaugeFamily`, `CounterFamily`, `HistogramFamily`, `MetricRatio`, `MetricTableSpec`, ...), `metricGroupRegistry` and its live views, `TELEMETRY_PERMISSIONS`, `TELEMETRY_HOST_PERMISSIONS`, the settings data (`TELEMETRY_SETTINGS_NAMESPACE`, `TELEMETRY_SETTINGS_DEFAULTS`, `mergeTelemetrySettings`), the job-type strings, `TelemetryHttpError` and `analyzeStatement`. From `/telemetry/testing`: `describeTelemetryStoreConformance`, the conformance checks, `createStubTelemetryPorts` (with a `policy` patch and per-purpose secrets) and the metric-schema fixtures.
+Supporting exports: the unit and panel helpers (`metricUnitRegistry`, `metricUnitIds`, `isMetricUnit`, `isBuiltinDashboardPanel`, `PANEL_TIME_BUDGET_MS`, `DashboardPanelContext`, `DashboardPanelWindow`), the facade's types and bounds (`TelemetryFacadeResult`, `TelemetrySqlBuilders`, `TelemetryFacadeLimitError`, `FACADE_MAX_STATEMENTS`, `FACADE_MAX_ROWS`, `FACADE_DEFAULT_ROWS`), the assistant's `TelemetryAssistantToolContext`, `TelemetryAssistantOptions` and `TelemetryAssistantPromptExtension`, the store types (`TelemetryQueryResult`, `TelemetryStoreQueryOptions`, `TelemetryRetentionControl`, `TelemetrySchemaSnapshot`, `TelemetryPingResult`, `TelemetryStoreInstance`, `TelemetryStoreBuildContext`), `describeTelemetryStore`, `requireTelemetryStore`, `telemetryStoreIds`, `telemetryStoreCredentialPurpose`, `BUILTIN_TELEMETRY_STORE_ID`, `GREPTIME_SQL_DIALECT`, `quoteSqlIdent`, `quoteSqlLiteral`, `rowsAsObjects`, the store errors an implementation throws (`TelemetryStoreError`, `TelemetryNotConfiguredError`, `TelemetryQueryTimeoutError`, `TelemetryQueryAbortedError`, `TelemetryQueryFailedError`, `TelemetryMultiStatementError`), the port interfaces (`TelemetryAuditSink`, `TelemetrySettingsStore`, `TelemetryCredentialStore`, `TelemetryJobsPort`, `TelemetryJobHandler`, `TelemetryAiPort` and its tool-loop types, `TelemetryAppInfo`), `TelemetryAiEnabledGuard`, the four exported services (`GreptimeClient`, `TelemetrySettingsService`, `TelemetryQueryService`, `TelemetrySchemaService`), `computeVerdict`, `DefaultVerdictPolicy`, `resolveVerdictThresholds`, `resolveMetricFreshMs` and its default `METRIC_FRESH_MS`, the metric-catalog types (`GaugeFamily`, `CounterFamily`, `HistogramFamily`, `MetricRatio`, `MetricTableSpec`, ...), `metricGroupRegistry` and its live views, `TELEMETRY_PERMISSIONS`, `TELEMETRY_HOST_PERMISSIONS`, the settings data (`TELEMETRY_SETTINGS_NAMESPACE`, `TELEMETRY_SETTINGS_DEFAULTS`, `mergeTelemetrySettings`), the job-type strings, `TelemetryHttpError` and `analyzeStatement`. From `/telemetry/testing`: `describeTelemetryStoreConformance`, the conformance checks, `createStubTelemetryPorts` (with a `policy` patch and per-purpose secrets) and the metric-schema fixtures.
 
 ### Minimal examples
+
+Add a unit, a presentation and a computed column to a group (rung 2). A presentation is data the dashboard renders; nothing in it is evaluated as code:
+
+```ts
+registerMetricUnit({ id: 'usd', label: 'US dollars', format: 'currency', currency: 'USD', decimals: 2 });
+
+export const ACTIVITY_METRIC_GROUP: MetricGroupDef = {
+  // ...id, families (one of them with unit: 'usd'), tables as above
+  presentation: {
+    tiles: [{ metric: 'authLogins', label: 'Sign-ins' }, { metric: 'aiSpend', color: 'info' }],
+    series: [{ title: 'Sign-ins by outcome', metrics: ['authLogins'], colors: { success: 'ok', failed: 'crit' } }],
+    tables: [{ metric: 'notificationEvents', topN: 5, sort: 'value-desc' }],
+    virtualColumns: [{ id: 'failureRate', label: 'Failure rate', expression: 'ratio', of: ['failed', 'attempts'], table: 'notificationEvents' }],
+  },
+};
+```
+
+A colour is a theme token (`ok`, `warn`, `crit`, `info`, ...), never a CSS value. A presentation that names a metric the group does not declare, an unknown unit or a token outside the theme, or that exceeds its bounds, fails when the group is registered. A group without one renders every tile and table, as before.
+
+Add a dashboard panel (rung 2) and read the store through the facade. Register the web view for the same id with `registerDashboardPanelView` ([web README](../../../platform-web/src/telemetry/README.md)):
+
+```ts
+registerDashboardPanel({
+  id: 'signups', label: 'Sign-ins', order: 30,
+  data: async (ctx) => {
+    const { rows } = await ctx.query.query(
+      `SELECT count(*) FROM app_auth_logins_total WHERE outcome = ${ctx.query.sql.literal('success')} AND ${ctx.query.sql.between('greptime_timestamp', ctx.window.from, ctx.window.to)}`);
+    return { total: Number(rows[0]?.[0] ?? 0) };
+  },
+});
+```
+
+Add an assistant tool (rung 2). `run` receives the facade and no client; the loop validates the model's arguments against the schema first:
+
+```ts
+registerTelemetryAssistantTool({
+  name: 'top_features',
+  description: 'The most used product features in the window.',
+  inputSchema: z.object({ limit: z.number().int().min(1).max(20).default(5) }).strict(),
+  output: 'aggregate',
+  run: async ({ limit }, ctx) => ({ rows: (await ctx.query.query('SELECT ...', { maxRows: limit })).rows }),
+});
+// TelemetryModule.forRoot({ ..., assistant: { extraInstructions: 'Checkout is the revenue path: weigh its errors first.' } })
+```
 
 Add a dashboard group (rung 2). The id is permanent; the tables are the ones the app's metrics write ([runbook](../../../../docs/runbooks/telemetry.md#84-adding-an-app-metric-group)):
 
@@ -229,7 +285,7 @@ The per-endpoint reference is the generated OpenAPI document (`/api/docs`). The 
 
 ## UI
 
-None. The pages are `@marinoscar/platform-web/telemetry` ([README](../../../platform-web/src/telemetry/README.md)): three admin cards (`telemetry:read`, `telemetry:query`) over these routes. The settings page shows the GreptimeDB Connection form for the built-in store and a generated Store section for any other. A metric group the API reports renders as a dashboard section with no web change.
+None. The pages are `@marinoscar/platform-web/telemetry` ([README](../../../platform-web/src/telemetry/README.md)): three admin cards (`telemetry:read`, `telemetry:query`) over these routes. The settings page shows the GreptimeDB Connection form for the built-in store and a generated Store section for any other. A metric group the API reports renders as a dashboard section with no web change, in the order, colours and units its `presentation` declares; a registered panel is listed by `GET dashboard/panels` and drawn by the view the app registered for its id.
 
 ## Infra
 
@@ -253,7 +309,7 @@ The slice creates no metric and no span of its own: the API's request spans and 
 | Signal | What |
 |---|---|
 | Logs | `new Logger(Context)` per service; never a password, a statement result or a key. |
-| Audit actions | `telemetry:query` and `telemetry:export` (every caller-supplied statement), `telemetry:assistant` and `telemetry:assistant_query` (the assistant run and each statement it runs), `telemetry:dashboard` (each store read), `telemetry:config_update`, `telemetry:connection_update`, `telemetry:connection_reset`, `telemetry:store_update` (setting and secret names only) and `telemetry:stack_deploy`. Meta carries field names and counts, never a value. |
+| Audit actions | `telemetry:query` and `telemetry:export` (every caller-supplied statement; the `source` of a statement a panel runs is `panel`), `telemetry:assistant` and `telemetry:assistant_query` (the assistant run and each statement it runs), `telemetry:dashboard` (each store read), `telemetry:config_update`, `telemetry:connection_update`, `telemetry:connection_reset`, `telemetry:store_update` (setting and secret names only) and `telemetry:stack_deploy`. Meta carries field names and counts, never a value. |
 | Export gate | `telemetryGate` (`otel-core`), driven by `TelemetrySettingsService`: closed means nothing leaves the process. |
 | Doctor | `telemetry.export`, `telemetry.connection`, `telemetry.reachable`, `telemetry.tables`, `telemetry.freshness`: read-only. |
 | Support bundle and egress | A telemetry section of aggregates only, and the GreptimeDB host in the egress inventory. |
@@ -264,6 +320,11 @@ The slice creates no metric and no span of its own: the API's request spans and 
 - **SQL is guarded.** `analyzeStatement` admits one read-only statement; the reader login is read-only on top of that, and the row cap and timeout bound every run. Dashboard statements are server-authored templates; the assistant's own statements go through the same `TelemetryQueryService` and guard as the explorer.
 - **Every statement is audited**, and every route declares its permission; no route is public (check 2).
 - **A store's secrets are write-only.** They are declared (`secrets`), stored encrypted under `telemetry_<id>`, resolved only inside `build` for the call that asks, and never part of a settings record, a response, an audit row or a log; the descriptor carries `hasValue` only. A settings field named like a secret (`key`, `secret`, `token`, `password`) is refused at registration. Conformance check 4 also covers `GET admin/telemetry/store`.
+- **Extensions never hold a client.** A dashboard panel and an assistant tool receive `TelemetryQueryFacade` (`query`, `sql`, `dialect`) and nothing else: no pool, connection, store, service or settings port. Every `query` is one statement through the same SQL guard as the explorer (a write or several statements are refused), with a row cap, the timeout and an audit row (source `panel` or `assistant`), under a statement budget per request. Build values into SQL with `ctx.query.sql.literal` / `ident` / `timestamp` / `between`, never by concatenating text from the request or the model; the guard is the backstop, not the quoting.
+- **Tool names cannot shadow the platform's.** A tool named like one of the eight built-ins, a malformed name or a duplicate is refused at registration, so the model's `run_query` is always the platform's. An app tool is read-only by construction (the facade has no write path), runs under the caller's own `telemetry:query` and `ai:use`, behind the same `TelemetryAiEnabledGuard`, and its output is bounded to 24 000 characters. Output declared `rows` (the default) is withheld from the model while `assistant.shareResults` is off.
+- **`assistant.extraInstructions` is developer text.** It is set in code at build time and appended to the system prompt as an `APPLICATION NOTES` section that states it never changes the hard rules, the untrusted-data rules or the final-answer format; no route, setting or user input reaches it.
+- **A presentation is data.** It is zod-validated and bounded, holds no function and no CSS, and the browser reads the colours as theme tokens and the unit as one of a fixed set of formats.
+- **A panel's payload is bounded** (`DASHBOARD_PANEL_PAYLOAD_MAX_BYTES`, 256 KiB), has a time budget (`PANEL_TIME_BUDGET_MS`) and a failure answers a generic error.
 - **Both job types are server-only**: they hold the GreptimeDB admin login and the stack-agent token, so neither declares `nodeResultSchema` or `persistNodeResult`.
 - **The Doctor never writes**: no check injects the audited connection test, the audited dashboard service, the audit sink or the jobs port (check 3).
 - **The cron only enqueues** (`TelemetryRetentionTask`): the app's `cron-enqueue-only` scan must cover this slice's source (check 5).
@@ -274,12 +335,14 @@ Importing `@marinoscar/platform-api/telemetry/testing` registers the `telemetry`
 
 | # | Check | Where it runs |
 |---|---|---|
-| 1 | Every registered metric group has a unique id matching `METRIC_GROUP_ID_PATTERN` and a label, unique family, ratio and table keys across groups, units in `METRIC_UNITS`, valid filter keys; and computes against an empty schema without throwing, everything reported in `skipped` | The suite |
+| 1 | Every registered metric group has a unique id matching `METRIC_GROUP_ID_PATTERN` and a label, unique family, ratio and table keys across groups, units in the unit registry, a presentation that names only tiles, charts and tables the group declares, valid filter keys; and computes against an empty schema without throwing, everything reported in `skipped` | The suite |
 | 2 | Every route under `admin/telemetry` and `telemetry` declares exactly the permissions of its shape (table in Permissions and settings); none is public; the assistant sits behind the AI guard | The suite |
 | 3 | No Doctor check of the slice injects `TelemetryConnectionTestService`, `TelemetryDashboardService`, the audit sink or the jobs port | The suite |
 | 4 | `GET admin/telemetry/connection`, `/config` and `/store` carry no stored password; `TELEMETRY_CONNECTION_CARRIES_NO_SECRET` is `true` | The suite |
 | 5 | The app's cron scan roots contain `tasks/telemetry-retention.task.ts` | The suite, with `cronSourceRoots` |
 | 6 | The module boots with `OTEL_ENABLED=false` and no GreptimeDB; every dashboard route answers `200` or `503` `TELEMETRY_NOT_CONFIGURED` | The suite |
+| 9 | Every registered dashboard panel and app assistant tool is well formed (panel id, label, order and `data`; tool name not a built-in, description, zod object schema and `run`), and the platform's `api` and `logs` panels are still registered | The suite (`checkRegisteredExtensions`) |
+| 10 | The query facade an extension is handed has exactly `query`, `sql` and `dialect`, is frozen and exposes no client, pool, connection, store or service | The suite (`checkFacadeSurface`) |
 | 7 | Every `telemetryAdminCards` permission is one of the slice's, is routed once behind the same permission and is registered once | The app's web test ([`telemetryParity.test.ts`](../../../../apps/web/src/__tests__/config/telemetryParity.test.ts)) |
 | 8 | The generated infra files match the package | `platform-infra sync --check` in CI |
 
@@ -335,6 +398,12 @@ Operator problems (no data, a red verdict, retention, the connection) are in the
 | `TelemetryModule.forRoot: \`store\` "x" is not a registered telemetry store (registered: ...)` | Register the store with `registerTelemetryStore` at import time, before `forRoot` runs (import `app-registrations/telemetry` first). |
 | The explorer answers 503 `TELEMETRY_NOT_CONFIGURED` on a registered store | The store is unbuilt: its stored settings do not parse or `build` threw. `GET admin/telemetry/store` reports why in `error`. |
 | The dashboard fails with an SQL error on a registered store | A dialect member spells a construct the store does not understand; run `describeTelemetryStoreConformance` with a `fixture`. |
+| `Metric group "x" presentation is invalid (...)` | The presentation names a metric or unit the group does not have, a colour outside the theme tokens, or exceeds a bound; the message names the path. |
+| `... has unit "x"; expected a registered unit (...)` | Call `registerMetricUnit` at import time, before the group that uses the unit is registered. |
+| `"x" is one of the platform's own assistant tools` | Choose another tool name. |
+| `Duplicate dashboard panel id` / `Duplicate assistant tool name` | A panel id and a tool name are registered once. |
+| `TelemetryFacadeLimitError` from a panel or tool | The request spent its statement budget (`FACADE_MAX_STATEMENTS`); fold the reads into fewer statements. |
+| A panel is listed but not drawn | No web view is registered for its id; call `registerDashboardPanelView` at boot. |
 | Conformance 5 fails: the cron scan roots do not contain the retention task | Add the slice's source root to the app's `cron-enqueue-only` `sourceRoots`. |
 
 ## Links

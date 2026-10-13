@@ -4,3 +4,4 @@
 // and the page stays in a chunk of its own. Documented in ../README.md.
 
 export { default, default as TelemetrySettingsPage } from './pages/TelemetrySettingsPage.js';
+export type { TelemetrySettingsPageProps, TelemetrySettingsPageSlots } from './pages/TelemetrySettingsPage.js';

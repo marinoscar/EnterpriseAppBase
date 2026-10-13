@@ -14,6 +14,7 @@
     "src/telemetry/ui/settings-page.ts",
     "src/telemetry/ui/explorer-page.ts",
     "src/telemetry/ui/dashboard-page.ts",
+    "src/telemetry/ui/dashboard-panels.ts",
     "src/identity/headless/index.ts",
     "src/identity/ui/index.ts",
     "src/settings/headless/index.ts",

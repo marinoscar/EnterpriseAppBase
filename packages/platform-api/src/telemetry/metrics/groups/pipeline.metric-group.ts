@@ -1,3 +1,5 @@
+import { PLATFORM_METRIC_PRESENTATIONS } from '@marinoscar/platform-contract/telemetry';
+
 import type { MetricGroupDef } from '../metric-group.registry';
 import { HOST_FILTERS } from '../metric-catalog.helpers';
 
@@ -11,6 +13,8 @@ export const PIPELINE_METRIC_GROUP: MetricGroupDef = {
   title: 'Telemetry pipeline',
   order: 60,
   description: 'collector export and queues, GreptimeDB write stalls, scrape targets',
+  // The section's look (tiles, charts, tables) lives with the group, as data; the web renders it.
+  presentation: PLATFORM_METRIC_PRESENTATIONS.pipeline,
   families: [
     {
       key: 'exporterSent',

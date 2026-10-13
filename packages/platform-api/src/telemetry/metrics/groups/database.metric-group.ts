@@ -1,3 +1,5 @@
+import { PLATFORM_METRIC_PRESENTATIONS } from '@marinoscar/platform-contract/telemetry';
+
 import type { MetricGroupDef } from '../metric-group.registry';
 import { HOST_FILTERS, LARGEST_TABLES_MAX_ROWS, T } from '../metric-catalog.helpers';
 
@@ -11,6 +13,8 @@ export const DATABASE_METRIC_GROUP: MetricGroupDef = {
   title: 'Database',
   order: 20,
   description: 'connections, size, commits, rollbacks, deadlocks, cache hit ratio, largest tables',
+  // The section's look (tiles, charts, tables) lives with the group, as data; the web renders it.
+  presentation: PLATFORM_METRIC_PRESENTATIONS.database,
   families: [
     {
       key: 'dbConnections',
