@@ -30,7 +30,7 @@ export type { CliIdentity, ResolvedCliIdentity } from './identity.js';
 export { PLATFORM_CLI_VERSION } from './package-info.js';
 
 export { createCli } from './create-cli.js';
-export type { CliInstance, CreateCliOptions } from './create-cli.js';
+export type { CliInstance, CreateCliOptions, CreateCliProxyOptions } from './create-cli.js';
 
 export {
   PLATFORM_ENV_FRAGMENT_ID,
@@ -248,7 +248,7 @@ export {
   validateEmail,
   validatePort,
 } from './deploy/env-metadata.js';
-export type { DeriveContext, EnvGroup, EnvVarMetadata } from './deploy/env-metadata.js';
+export type { BuiltinEnvGroup, DeriveContext, EnvGroup, EnvVarMetadata } from './deploy/env-metadata.js';
 export { ENV_GROUPS } from './deploy/env-metadata.js';
 export { effectiveGroups } from './deploy/compose-files.js';
 
@@ -296,6 +296,7 @@ export {
   HOST_CHECKS,
   allChecks,
   checksPassed,
+  listDeployCheckIds,
   listRegisteredDeployChecks,
   registerDeployCheck,
   isLoopbackPortFree,
@@ -310,6 +311,8 @@ export type {
   Check,
   CheckContext,
   DeployCheck,
+  DeployCheckContext,
+  DeployCheckResult,
   CheckFs,
   CheckResult,
   CheckStatus,
@@ -449,6 +452,7 @@ export {
 } from './deploy/steps/registry.js';
 export type {
   AppDeployStep,
+  AppDeployStepRegistration,
   DeployCommandResult,
   DeployPipeline,
   DeployStepContext,

@@ -13,7 +13,8 @@ import { metadataFor } from '../env-metadata.js';
 //     env-spec metadata says so, OR (defence in depth: metadata only annotates
 //     the keys someone remembered to annotate) its name looks like a secret
 //     (SECRET, PASSWORD, PASSWD, TOKEN, API_KEY, PRIVATE, CREDENTIAL, ...).
-//   - `has(key)` reports presence of any key; it reveals no value.
+//   - `has(key)` reports whether the key holds a non-empty value, secret or not;
+//     it reveals no value.
 //   - `keys()` lists the non-secret keys only.
 //
 // There is no way to enumerate or read a secret through these accessors, and
@@ -28,7 +29,7 @@ import { metadataFor } from '../env-metadata.js';
  * @stability experimental
  */
 export interface DeployStepValues {
-  /** True when the key is set (even to blank) - for secret keys too; the value stays withheld. */
+  /** True when the key holds a non-empty value - for secret keys too; the value stays withheld. */
   has(key: string): boolean;
   /** The value of a NON-SECRET key; undefined when unset or when the key is a secret. */
   get(key: string): string | undefined;
@@ -62,7 +63,7 @@ export function isSecretEnvKey(key: string): boolean {
  */
 export function redactedValues(source: () => ReadonlyMap<string, string> | undefined): DeployStepValues {
   return Object.freeze({
-    has: (key: string) => source()?.has(key) === true,
+    has: (key: string) => (source()?.get(key) ?? '') !== '',
     get: (key: string) => (isSecretEnvKey(key) ? undefined : source()?.get(key)),
     keys: () => Object.freeze([...(source()?.keys() ?? [])].filter((key) => !isSecretEnvKey(key))),
   });

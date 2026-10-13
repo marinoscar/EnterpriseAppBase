@@ -44,6 +44,20 @@ import { registerTuiScreenSection, type TuiSectionRegistration } from './tui/sec
 // =============================================================================
 
 /**
+ * The app's view of the VPS host proxy, for {@link CreateCliOptions}.
+ *
+ * @stability experimental
+ */
+export interface CreateCliProxyOptions {
+  /**
+   * App routes the edge vhost serves unbuffered with a long timeout (an SSE
+   * route): a path, or a path with its own `timeoutSeconds`. Validated at
+   * `createCli`.
+   */
+  streamPaths?: ReadonlyArray<string | ProxyStreamPathRegistration> | undefined;
+}
+
+/**
  * Options of {@link createCli}: the app's identity and version, and what it
  * adds through the CLI's registries.
  *
@@ -82,7 +96,7 @@ export interface CreateCliOptions {
    * edge vhost serves unbuffered with a long timeout (an SSE route). Same as
    * `registerProxyStreamPath`.
    */
-  proxy?: { streamPaths?: ReadonlyArray<string | ProxyStreamPathRegistration> | undefined } | undefined;
+  proxy?: CreateCliProxyOptions | undefined;
 }
 
 /**

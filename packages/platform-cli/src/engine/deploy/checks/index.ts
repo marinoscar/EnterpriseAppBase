@@ -1,4 +1,4 @@
-import { listRegisteredDeployChecks, setBuiltinCheckIds } from './registry.js';
+import { listRegisteredDeployChecks, setBuiltinCheckIds, toRunnerCheck } from './registry.js';
 import type { Check, CheckContext } from './types.js';
 import { severityOf } from './types.js';
 import { DATABASE_CHECKS } from './database.js';
@@ -37,7 +37,17 @@ setBuiltinCheckIds(() => ALL_CHECKS.map((check) => check.id));
  */
 export function allChecks(): readonly Check[] {
   const registered = listRegisteredDeployChecks();
-  return registered.length === 0 ? ALL_CHECKS : [...ALL_CHECKS, ...registered];
+  return registered.length === 0 ? ALL_CHECKS : [...ALL_CHECKS, ...registered.map(toRunnerCheck)];
+}
+
+/**
+ * The ids of every check a run evaluates, in order: the built-ins, then the app's.
+ *
+ * @returns The ids.
+ * @stability experimental
+ */
+export function listDeployCheckIds(): readonly string[] {
+  return allChecks().map((check) => check.id);
 }
 
 /**
@@ -67,6 +77,8 @@ export {
   registerDeployCheck,
   resetDeployCheckRegistryForTests,
   type DeployCheck,
+  type DeployCheckContext,
+  type DeployCheckResult,
 } from './registry.js';
 export { HOST_CHECKS, evaluateDf, probe } from './host.js';
 export {

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { createCliRegistry } from '../../core/cli-registry.js';
+import { createCliRegistry } from '../../core/index.js';
 import { UsageError } from '../errors.js';
 
 // =============================================================================

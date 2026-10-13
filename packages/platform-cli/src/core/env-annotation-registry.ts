@@ -35,7 +35,6 @@ interface Entry {
 }
 
 const KEY_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
-// eslint-disable-next-line no-control-regex
 const CONTROL = /[\u0000-\u0008\u000B-\u001F\u007F]/;
 
 const registry = createCliRegistry<Entry>({
@@ -92,11 +91,11 @@ export function getEnvAnnotation(key: string): EnvKeyAnnotation | undefined {
 /**
  * Every annotated key, in registration order.
  *
- * @returns A frozen copy.
+ * @returns A frozen list of keys.
  * @stability experimental
  */
-export function listEnvAnnotations(): readonly { key: string; annotation: EnvKeyAnnotation }[] {
-  return registry.list();
+export function listEnvAnnotations(): readonly string[] {
+  return Object.freeze(registry.list().map((entry) => entry.key));
 }
 
 /** Refuses later registrations; `createCli` calls it. */

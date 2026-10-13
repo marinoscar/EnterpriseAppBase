@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 
 import { runInfraConformance, type InfraConformanceTestApi, type InfraExec } from './infra-conformance.js';
 
-const REPO_ROOT = join(fileURLToPath(new URL('../../', import.meta.url)), '..', '..');
+const REPO_ROOT = join(fileURLToPath(new URL('../', import.meta.url)), '..', '..');
 
 /** A test API that records the cases and runs them on demand, collecting assertion failures. */
 function recorder() {

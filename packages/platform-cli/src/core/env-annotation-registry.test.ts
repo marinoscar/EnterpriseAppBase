@@ -15,7 +15,7 @@ describe('annotateEnvKey', () => {
     annotateEnvKey('OTEL_SERVICE_NAME', { fixed: 'coach-api' });
     annotateEnvKey('EMAIL_FROM', { help: 'Where reminders come from.' });
     expect(getEnvAnnotation('OTEL_SERVICE_NAME')).toEqual({ fixed: 'coach-api' });
-    expect(listEnvAnnotations().map((entry) => entry.key)).toEqual(['OTEL_SERVICE_NAME', 'EMAIL_FROM']);
+    expect(listEnvAnnotations()).toEqual(['OTEL_SERVICE_NAME', 'EMAIL_FROM']);
     expect(getEnvAnnotation('OTHER')).toBeUndefined();
   });
 

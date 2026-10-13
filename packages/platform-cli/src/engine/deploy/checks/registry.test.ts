@@ -1,9 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { ALL_CHECKS, allChecks, requiredChecks } from './index.js';
+import { ALL_CHECKS, allChecks, listDeployCheckIds, requiredChecks } from './index.js';
 import {
   freezeDeployCheckRegistry,
-  listRegisteredDeployChecks,
   registerDeployCheck,
   resetDeployCheckRegistryForTests,
   type DeployCheck,
@@ -18,7 +17,7 @@ function appCheck(overrides: Partial<DeployCheck> = {}): DeployCheck {
     title: 'Coach API token present',
     severity: 'required',
     run: async (context) =>
-      context.env?.get('COACH_API_TOKEN')
+      context.env?.has('COACH_API_TOKEN') === true
         ? { status: 'pass', detail: 'set' }
         : { status: 'fail', detail: 'COACH_API_TOKEN is empty', remedy: 'Set COACH_API_TOKEN in .env' },
     ...overrides,
@@ -34,6 +33,30 @@ const context = (env: Record<string, string> = {}): CheckContext => ({
 });
 
 describe('registerDeployCheck', () => {
+  it('hands the app a narrow context whose environment withholds secrets', async () => {
+    let seen: Parameters<DeployCheck['run']>[0] | undefined;
+    registerDeployCheck(
+      appCheck({
+        run: async (c) => {
+          seen = c;
+          return { status: 'pass', detail: 'ok' };
+        },
+      }),
+    );
+    await runChecks(allChecks().filter((check) => check.id === 'coach-token'), context({ COACH_API_TOKEN: 'hunter2', APP_URL: 'https://a' }));
+    expect(Object.keys(seen ?? {}).sort()).toEqual(['bindPort', 'deployRoot', 'domain', 'env', 'proxyRoot', 'skipProxy']);
+    expect(seen?.env?.get('APP_URL')).toBe('https://a');
+    expect(seen?.env?.get('COACH_API_TOKEN')).toBeUndefined();
+    expect(seen?.env?.has('COACH_API_TOKEN')).toBe(true);
+    expect(JSON.stringify(seen)).not.toContain('hunter2');
+  });
+
+  it('lists the ids of the built-ins then the app\'s', () => {
+    registerDeployCheck(appCheck());
+    expect(listDeployCheckIds().at(-1)).toBe('coach-token');
+    expect(listDeployCheckIds()).toHaveLength(ALL_CHECKS.length + 1);
+  });
+
   it('leaves the built-in list untouched when nothing is registered', () => {
     expect(allChecks()).toBe(ALL_CHECKS);
   });
@@ -60,7 +83,7 @@ describe('registerDeployCheck', () => {
         },
       }),
     );
-    const results = await runChecks(listRegisteredDeployChecks(), context());
+    const results = await runChecks(allChecks().filter((check) => check.id === 'coach-token'), context());
     expect(results[0]).toMatchObject({ status: 'fail', detail: 'boom' });
   });
 

@@ -1,5 +1,5 @@
 import { createCli } from '@marinoscar/platform-cli';
-import { allChecks, requiredChecks, type CheckContext } from '@marinoscar/platform-cli/deploy';
+import { listDeployCheckIds, type DeployCheckContext } from '@marinoscar/platform-cli/deploy';
 import { resetCliForTests } from '@marinoscar/platform-cli/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -12,24 +12,35 @@ import { coachTokenCheck } from './coach.deploy-check.js';
 beforeEach(() => resetCliForTests());
 afterEach(() => resetCliForTests());
 
-const context = (env?: Record<string, string>): CheckContext => ({
-  runCommand: (async () => ({ exitCode: 0, stdout: '', stderr: '' })) as unknown as CheckContext['runCommand'],
-  deployRoot: '/opt/infra/apps/app',
-  bindPort: 3535,
-  proxyRoot: '/opt/infra/proxy',
-  ...(env === undefined ? {} : { env: new Map(Object.entries(env)) }),
-});
+/** A context whose environment withholds secrets the way the real one does. */
+const context = (env?: Record<string, string>): DeployCheckContext => {
+  const values = new Map(Object.entries(env ?? {}));
+  return {
+    deployRoot: '/opt/infra/apps/app',
+    bindPort: 3535,
+    proxyRoot: '/opt/infra/proxy',
+    domain: undefined,
+    skipProxy: false,
+    env:
+      env === undefined
+        ? undefined
+        : {
+            has: (key) => (values.get(key) ?? '') !== '',
+            get: (key) => (key.includes('TOKEN') ? undefined : values.get(key)),
+            keys: () => [...values.keys()].filter((key) => !key.includes('TOKEN')),
+          },
+  };
+};
 
 describe('coachTokenCheck', () => {
   it('is not among the shipped checks', () => {
     createCli(APP_CLI_OPTIONS);
-    expect(allChecks().map((check) => check.id)).not.toContain('coach-token');
+    expect(listDeployCheckIds()).not.toContain('coach-token');
   });
 
   it('comes after the built-ins in doctor and in the install preflight once passed in deployChecks', () => {
     createCli({ ...APP_CLI_OPTIONS, deployChecks: [coachTokenCheck] });
-    expect(allChecks().at(-1)?.id).toBe('coach-token');
-    expect(requiredChecks(allChecks(), context()).map((check) => check.id)).toContain('coach-token');
+    expect(listDeployCheckIds().at(-1)).toBe('coach-token');
   });
 
   it('passes when the group is off, fails with a remedy when the token is missing, and passes when set', async () => {

@@ -34,6 +34,7 @@ export type {
   CliIdentity,
   CliInstance,
   CreateCliOptions,
+  CreateCliProxyOptions,
   ExitCode,
   ResolvedCliIdentity,
   RunOptions,

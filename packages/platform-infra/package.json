@@ -31,8 +31,8 @@
       "default": "./dist/telemetry/index.js"
     },
     "./testing": {
-      "types": "./dist/testing/index.d.ts",
-      "default": "./dist/testing/index.js"
+      "types": "./dist/infra-conformance.d.ts",
+      "default": "./dist/infra-conformance.js"
     },
     "./package.json": "./package.json"
   },

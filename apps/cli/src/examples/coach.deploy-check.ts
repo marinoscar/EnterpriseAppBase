@@ -23,15 +23,16 @@ export const coachTokenCheck: DeployCheck = {
   title: 'Coach API token is set',
   severity: 'required',
   // Only meaningful with an environment to read; before the wizard has run, there is none.
+  // The environment withholds secrets (a token is *named* like one), so the check can
+  // ask whether the token HOLDS a value, never read it.
   async run(context) {
     if (context.env === undefined) return { status: 'skip', detail: 'no environment yet' };
     if (!context.env.has('COACH_API_URL')) return { status: 'pass', detail: 'the coach group is not enabled' };
-    const token = context.env.get('COACH_API_TOKEN') ?? '';
-    return token.length >= 16
+    return context.env.has('COACH_API_TOKEN')
       ? { status: 'pass', detail: 'set' }
       : {
           status: 'fail',
-          detail: 'COACH_API_TOKEN is empty or too short',
+          detail: 'COACH_API_TOKEN is empty',
           remedy: 'Set COACH_API_TOKEN in infra/compose/.env (the wizard can generate one: re-run `deploy install --group coach`)',
         };
   },

@@ -193,6 +193,18 @@ export interface DeployStepRegistration {
   step?: AppDeployStep | undefined;
 }
 
+/**
+ * A registration that carries a step (every one except a skip-only
+ * `replaces` + `skipWhen`): what a helper that builds a step returns, so its
+ * `step` needs no check.
+ *
+ * @stability experimental
+ */
+export type AppDeployStepRegistration = DeployStepRegistration & {
+  /** The step itself. */
+  step: AppDeployStep;
+};
+
 const ID_PATTERN = /^[a-z][a-z0-9-]*$/;
 
 const registered: DeployStepRegistration[] = [];

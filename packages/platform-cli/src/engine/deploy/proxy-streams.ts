@@ -1,5 +1,5 @@
 import { UsageError } from '../errors.js';
-import { createCliRegistry } from '../../core/cli-registry.js';
+import { createCliRegistry } from '../../core/index.js';
 
 // =============================================================================
 // App routes the shared host proxy must not buffer  (PP-14.22)

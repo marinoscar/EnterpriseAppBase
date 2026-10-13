@@ -1,6 +1,6 @@
 import type { ComponentType } from 'react';
 
-import { createCliRegistry } from '../../core/cli-registry.js';
+import { createCliRegistry } from '../../core/index.js';
 
 // =============================================================================
 // TUI screen sections  (PP-14.22)

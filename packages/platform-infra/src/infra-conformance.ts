@@ -32,8 +32,8 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { composeFilesForMode, type ComposeMode } from '../compose-order.js';
-import { checkInfra } from '../sync.js';
+import { composeFilesForMode, type ComposeMode } from './compose-order.js';
+import { checkInfra } from './sync.js';
 
 /**
  * The slice of a test runner the suite needs (Jest's and Vitest's both fit).

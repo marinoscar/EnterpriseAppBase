@@ -1,4 +1,4 @@
-import type { AppDeployStep, DeployStepRegistration } from '@marinoscar/platform-cli/deploy';
+import type { AppDeployStepRegistration, DeployStepRegistration } from '@marinoscar/platform-cli/deploy';
 
 // =============================================================================
 // EXAMPLE, NOT WIRED: placing a deploy step before, in place of, or skipping a built-in (PP-14.22)
@@ -27,7 +27,7 @@ import type { AppDeployStep, DeployStepRegistration } from '@marinoscar/platform
 // =============================================================================
 
 /** Warms the coach cache just before the stack is built, only when the coach group is on. */
-export const coachWarmup: DeployStepRegistration & { step: AppDeployStep } = {
+export const coachWarmup: AppDeployStepRegistration = {
   pipeline: 'install',
   id: 'coach-warmup',
   before: 'build',
