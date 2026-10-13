@@ -26,11 +26,12 @@
 // The names below are part of the public contract once released.
 // =============================================================================
 
-enum GroupRole {
-  admin // manage the group, its members and invites; full rights on group-owned resources
-  editor // write on group-owned resources (MemoriaHub "collaborator")
-  viewer // read on group-owned resources
-}
+// The member and invite `role` columns are plain text (migration
+// `0037_open_sharing_vocabularies`): the vocabulary is the API's group-role
+// registry (`registerGroupRole`), which ships `admin` (manage the group, its
+// members and invites; full rights on group-owned resources), `editor` (write
+// on group-owned resources, MemoriaHub "collaborator") and `viewer` (read).
+// A row must outlive the registry that produced it, so there is no CHECK.
 
 // @extensible — back-relations only, added with "extend model Group { ... }" in a fragment
 model Group {
@@ -66,7 +67,8 @@ model GroupMember {
   // Denormalised for row-level security; equal to groups.org_id by the
   // composite foreign key below.
   orgId     String    @map("org_id") @db.Uuid
-  role      GroupRole @default(viewer)
+  /// A registered group role id (`registerGroupRole`). A plain string: a row must outlive the registry that produced it.
+  role      String    @default("viewer")
   addedById String?   @map("added_by_id") @db.Uuid
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
@@ -92,7 +94,8 @@ model GroupInvite {
   // Stored lower-cased. At most one PENDING invite per (group, email):
   // group_invites_pending_uniq_idx, raw SQL only.
   email        String
-  role         GroupRole @default(viewer)
+  /// The role the invitee gets on acceptance: a registered group role id. A plain string.
+  role         String    @default("viewer")
   invitedById  String?   @map("invited_by_id") @db.Uuid
   // NULL: no expiry. Expiry is evaluated when the invite is read; no sweep.
   expiresAt    DateTime? @map("expires_at") @db.Timestamptz
@@ -135,6 +138,7 @@ model GroupInvite {
 //   grants_active_user_uniq_idx   one ACTIVE grant per (resource, user)
 //   grants_active_group_uniq_idx  one ACTIVE grant per (resource, group)
 //   grants_grantee_consistency_check  the grantee columns match grantee_kind
+//   grants_active_ref_uniq_idx    one ACTIVE grant per (resource, app kind, reference) (0037)
 // Never "fix" the drift with `@@unique`, and never replace the indexes with a
 // `findFirst` pre-check: the service upserts on them.
 //
@@ -144,11 +148,14 @@ model GroupInvite {
 // row-level security).
 // =============================================================================
 
-enum GrantGranteeKind {
-  user // one user of the resource's organization
-  group // one group of the resource's organization
-  link // anyone holding the link token (#730)
-}
+// `grants.grantee_kind` is plain text (migration `0037_open_sharing_vocabularies`):
+// the platform ships `user` (one user of the resource's organization), `group`
+// (one group of the organization) and `link` (anyone holding the link token,
+// #730), and an app registers more with `registerGranteeKind`. A grant of an
+// app kind stores its reference in `grantee_ref` and leaves the three
+// built-in grantee columns NULL; `grants_grantee_consistency_check` allows
+// exactly those four shapes and `grants_active_ref_uniq_idx` keeps one ACTIVE
+// grant per (resource, kind, reference).
 
 model Grant {
   id                  String           @id @default(uuid()) @db.Uuid
@@ -156,9 +163,12 @@ model Grant {
   /// Registered resource type id. Permanent once rows exist, like a job type string.
   resourceType        String           @map("resource_type")
   resourceId          String           @map("resource_id") @db.Uuid
-  granteeKind         GrantGranteeKind @map("grantee_kind")
+  /// `user`, `group`, `link` or a registered app kind. A plain string: a row must outlive the registry that produced it.
+  granteeKind         String           @map("grantee_kind")
   granteeUserId       String?          @map("grantee_user_id") @db.Uuid
   granteeGroupId      String?          @map("grantee_group_id") @db.Uuid
+  /// The reference of an app-registered grantee kind (a domain, a team id), as its `validateGrantee` normalised it. NULL for the built-in kinds.
+  granteeRef          String?          @map("grantee_ref")
   /// One of the resource type's registered roles. A plain string: a row must outlive the registry that produced it.
   role                String
   /// Link grants only (#730): SHA-256 of the token, and the token encrypted with the platform secret cipher.

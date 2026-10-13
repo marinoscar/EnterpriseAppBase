@@ -23,7 +23,7 @@ const OWNERSHIP: Record<string, string[]> = {
   jobs: ['Job', 'JobStatsRollup', 'WorkerNode', 'NodeCredential', 'JobNodeSecret', 'JobStatus', 'NodeStatus'],
   'db-backup': ['DatabaseBackupRun', 'DatabaseBackupStatus', 'DatabaseBackupTrigger'],
   ai: ['AiModel', 'UserAiKey', 'AiRun', 'AiUsageEvent'],
-  sharing: ['Group', 'GroupMember', 'GroupInvite', 'GroupRole', 'Grant', 'GrantGranteeKind'],
+  sharing: ['Group', 'GroupMember', 'GroupInvite', 'Grant'],
   'android-app': ['AndroidAppRelease'],
 };
 

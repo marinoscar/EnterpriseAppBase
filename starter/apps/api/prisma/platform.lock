@@ -210,6 +210,12 @@
       "originId": "platform:0035_ai_usage_feature",
       "sha256": "ad7322539e971a2248cc2f73a12e188453a3312cc1a04d168bc4e7ddd68e5752",
       "since": "1.0.0"
+    },
+    {
+      "localDir": "20261013220000_open_sharing_vocabularies",
+      "originId": "platform:0037_open_sharing_vocabularies",
+      "sha256": "4b7047703bacab08af629004ff569e250869355acd03795f17d1b1e5b277c5e6",
+      "since": "1.0.0"
     }
   ],
   "platformVersion": "0.1.0-next.3"
