@@ -48,6 +48,13 @@ export interface AiTranscribeModeProps {
   ready?: boolean;
   runPollIntervalMs?: number;
   uploadWaitOptions?: WaitForReadyOptions;
+  /**
+   * `providerOptions` sent with every request (PP-14.17): how an app's playground
+   * mode reuses this panel for a provider feature the neutral request does not
+   * model, such as `{ 'example-transcribe': { diarize: true } }`. Keep the
+   * object's identity stable. Absent: none are sent.
+   */
+  providerOptions?: Record<string, Record<string, unknown>>;
 }
 
 export function AiTranscribeMode({
@@ -56,6 +63,7 @@ export function AiTranscribeMode({
   ready = true,
   runPollIntervalMs,
   uploadWaitOptions,
+  providerOptions,
 }: AiTranscribeModeProps) {
   const { modelKey, setModelKey, selected } = usePlaygroundModel(models, preferredModel, ready);
   const api = useAiApi();
@@ -102,6 +110,7 @@ export function AiTranscribeMode({
     if (language.trim()) request.language = language.trim().toLowerCase();
     if (prompt.trim()) request.prompt = prompt.trim();
     if (timestamps) request.timestampGranularities = ['segment'];
+    if (providerOptions) request.providerOptions = providerOptions;
     void run.startWith(() => createAiTranscriptionRun(api, request));
   };
 

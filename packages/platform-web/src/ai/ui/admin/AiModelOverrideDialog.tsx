@@ -37,7 +37,7 @@ import {
   TextField,
 } from '@mui/material';
 import { AI_LIMIT_MAX } from '../../headless/types.js';
-import type { AiModel, AiModelCapabilities, AiModelLimits } from '../../headless/types.js';
+import type { AiCapabilityDescriptor, AiModel, AiModelCapabilities, AiModelLimits } from '../../headless/types.js';
 import {
   AI_CAPABILITY_GROUPS,
   AI_CAPABILITY_LABELS,
@@ -45,6 +45,7 @@ import {
   AI_INPUT_MODALITY_VALUES,
   AI_OUTPUT_MODALITY_VALUES,
   AI_REASONING_EFFORT_VALUES,
+  aiCapabilityLabel,
 } from '../shared/aiCapabilities.js';
 
 interface OverrideForm {
@@ -68,12 +69,12 @@ function only(values: readonly string[], allowed: readonly string[]): string[] {
  * and starts empty; the row's own `contextWindow`/`maxOutputTokens`
  * (what discovery learned) seed the numbers when the capability set has none.
  */
-function toForm(model: AiModel, limits: AiModelLimits | undefined): OverrideForm {
+function toForm(model: AiModel, limits: AiModelLimits | undefined, appCapabilityIds: readonly string[]): OverrideForm {
   const capabilities = model.capabilities;
   const contextWindow = capabilities?.contextWindow ?? model.contextWindow;
   const maxOutputTokens = capabilities?.maxOutputTokens ?? model.maxOutputTokens;
   return {
-    capabilities: only(capabilities?.capabilities ?? [], AI_CAPABILITY_VALUES),
+    capabilities: only(capabilities?.capabilities ?? [], [...AI_CAPABILITY_VALUES, ...appCapabilityIds]),
     inputModalities: only(capabilities?.inputModalities ?? [], AI_INPUT_MODALITY_VALUES),
     outputModalities: only(capabilities?.outputModalities ?? [], AI_OUTPUT_MODALITY_VALUES),
     reasoningEfforts: only(capabilities?.reasoningEfforts ?? [], AI_REASONING_EFFORT_VALUES),
@@ -179,6 +180,12 @@ export interface AiModelOverrideDialogProps {
    * the limit fields cannot be read or saved; they are shown disabled.
    */
   limitsUnavailable?: boolean;
+  /**
+   * The capabilities an app registered (`GET /admin/ai/capabilities`, PP-14.17),
+   * offered after the built-in groups. Without it only the built-ins are offered,
+   * and a capability the model declares that is not listed is dropped on save.
+   */
+  appCapabilities?: readonly AiCapabilityDescriptor[];
   /** `limits` is the entry as typed; `{}` when both fields are blank. */
   onSave: (capabilities: AiModelCapabilities, limits: AiModelLimits) => void;
   onClose: () => void;
@@ -190,6 +197,7 @@ export function AiModelOverrideDialog({
   error,
   limits,
   limitsUnavailable = false,
+  appCapabilities = [],
   onSave,
   onClose,
 }: AiModelOverrideDialogProps) {
@@ -198,9 +206,13 @@ export function AiModelOverrideDialog({
   // Seeded when a model is opened (or the configuration holding its limits
   // arrives) — not on every `limits` identity change, which would wipe what
   // the admin is typing.
+  const appCapabilityIds = appCapabilities.map((entry) => entry.id);
+  const appCapabilityKey = appCapabilityIds.join(',');
+
   useEffect(() => {
-    setForm(model ? toForm(model, limits) : null);
-  }, [model, limitsUnavailable]);
+    setForm(model ? toForm(model, limits, appCapabilityIds) : null);
+    // `appCapabilityKey` re-seeds when the vocabulary arrives after the dialog opened.
+  }, [model, limitsUnavailable, appCapabilityKey]);
 
   if (!model || !form) return null;
 
@@ -257,6 +269,21 @@ export function AiModelOverrideDialog({
             />
           );
         })}
+
+        {appCapabilityIds.length > 0 && (
+          <CheckboxGroup
+            label="Other capabilities"
+            options={appCapabilityIds}
+            selected={form.capabilities.filter((value) => appCapabilityIds.includes(value))}
+            onChange={(next) =>
+              update('capabilities', [
+                ...form.capabilities.filter((value) => !appCapabilityIds.includes(value)),
+                ...next,
+              ])
+            }
+            labelFor={(value) => appCapabilities.find((entry) => entry.id === value)?.label ?? aiCapabilityLabel(value)}
+          />
+        )}
 
         <CheckboxGroup
           label="Input modalities"

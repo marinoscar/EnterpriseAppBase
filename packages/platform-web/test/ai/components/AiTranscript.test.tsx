@@ -56,3 +56,40 @@ describe('AiTranscript', () => {
     expect(screen.getByRole('button', { name: 'Copy transcript' })).toBeDisabled();
   });
 });
+
+describe('AiTranscript extras (PP-14.17)', () => {
+  it('shows speaker-labelled segments when the provider reported them', () => {
+    render(
+      <AiTranscript
+        output={{
+          ...mockAiTranscriptionRunOutput,
+          extras: {
+            segments: [
+              { start: 0, end: 1.2, text: 'hello there', speaker: 'A' },
+              { start: 65, end: 66, text: 'hi', speaker: 'B' },
+            ],
+          },
+        }}
+      />,
+    );
+
+    const list = screen.getByRole('list', { name: 'Speakers' });
+    const items = within(list).getAllByRole('listitem');
+
+    expect(items).toHaveLength(2);
+    expect(items[0]).toHaveTextContent('0:00–0:01Ahello there');
+    expect(items[1]).toHaveTextContent('1:05–1:06Bhi');
+  });
+
+  it('draws nothing extra without extras (the DOM is unchanged)', () => {
+    render(<AiTranscript output={mockAiTranscriptionRunOutput} />);
+
+    expect(screen.queryByRole('list', { name: 'Speakers' })).not.toBeInTheDocument();
+  });
+
+  it('extras without segments (only language, or other JSON) draw no list', () => {
+    render(<AiTranscript output={{ ...mockAiTranscriptionRunOutput, extras: { language: 'en', confidence: 0.9 } }} />);
+
+    expect(screen.queryByRole('list', { name: 'Speakers' })).not.toBeInTheDocument();
+  });
+});

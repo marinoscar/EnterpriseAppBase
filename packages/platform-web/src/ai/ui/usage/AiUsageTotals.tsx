@@ -5,7 +5,7 @@
  */
 import { Paper, Stack, Typography } from '@mui/material';
 import type { AiUsageTotals as Totals } from '../../headless/types.js';
-import { formatCount, formatFailureRate, formatUnits } from './aiUsageFormat.js';
+import { formatCost, formatCount, formatFailureRate, formatUnits } from './aiUsageFormat.js';
 
 interface TileProps {
   label: string;
@@ -38,9 +38,11 @@ export interface AiUsageTotalsProps {
   totals: Totals;
   /** Accessible name for the group of tiles. */
   label: string;
+  /** The report carries a `cost` (the deployment binds a pricing port, PP-14.17): add a Cost tile. */
+  priced?: boolean;
 }
 
-export function AiUsageTotals({ totals, label }: AiUsageTotalsProps) {
+export function AiUsageTotals({ totals, label, priced = false }: AiUsageTotalsProps) {
   const units = formatUnits(totals.units);
   return (
     <Stack
@@ -64,6 +66,7 @@ export function AiUsageTotals({ totals, label }: AiUsageTotalsProps) {
       />
       <AiUsageTile label="Output tokens" value={formatCount(totals.outputTokens)} />
       <AiUsageTile label="Reasoning tokens" value={formatCount(totals.reasoningTokens)} />
+      {priced && <AiUsageTile label="Cost" value={formatCost(totals.cost)} />}
     </Stack>
   );
 }

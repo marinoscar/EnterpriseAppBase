@@ -2,7 +2,7 @@
  * The AI capability vocabulary as the web app renders it — shared by every
  * AI surface (issues #429, #430, #434; epic #419).
  *
- * The values mirror the API's permanent `AI_CAPABILITIES`,
+ * The values mirror the API's permanent `BUILTIN_AI_CAPABILITIES`,
  * `AI_INPUT_MODALITIES`, `AI_OUTPUT_MODALITIES` and `AI_REASONING_EFFORTS`
  * (`apps/api/src/ai/core/capabilities.ts`). They are stored in the catalogue
  * table and in administrator overrides, so they never change spelling — and
@@ -10,6 +10,9 @@
  * as itself, never silently mapped.
  */
 
+import { getRegisteredAiCapabilityLabel } from '../../headless/capability-labels.js';
+
+/** The built-in capabilities. The vocabulary is open (PP-14.17): an app adds its own on the API. */
 export const AI_CAPABILITY_VALUES = [
   'responses',
   'reasoning',
@@ -49,9 +52,13 @@ export const AI_CAPABILITY_LABELS: Record<string, string> = {
   realtime: 'Realtime',
 };
 
-/** A capability's label; an unknown one renders as itself so it never vanishes. */
+/**
+ * A capability's label: a built-in one's, else one the API reported or the app
+ * registered (`registerAiCapabilityLabel`, PP-14.17), else the id itself, so an
+ * unknown capability never vanishes.
+ */
 export function aiCapabilityLabel(capability: string): string {
-  return AI_CAPABILITY_LABELS[capability] ?? capability;
+  return AI_CAPABILITY_LABELS[capability] ?? getRegisteredAiCapabilityLabel(capability) ?? capability;
 }
 
 export interface AiCapabilityGroup {
@@ -95,5 +102,5 @@ export function groupCapabilities(capabilities: readonly string[]): {
 /** Plain-text family summary — a table's CSV value and search text. */
 export function capabilitySummary(capabilities: readonly string[]): string {
   const { groups, unknown } = groupCapabilities(capabilities);
-  return [...groups.map((entry) => entry.group.label), ...unknown].join(', ');
+  return [...groups.map((entry) => entry.group.label), ...unknown.map(aiCapabilityLabel)].join(', ');
 }

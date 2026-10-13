@@ -1317,6 +1317,30 @@ export interface AiImageRunOutput {
 }
 
 /**
+ * What a provider reported about a transcript beyond its text (PP-14.17):
+ * speaker-labelled segments, the language, anything else JSON. At most 64 KiB.
+ *
+ * @stability experimental
+ */
+export interface AiTranscriptionExtras {
+  /** Speaker-labelled, timed segments (`start` and `end` are seconds). */
+  segments?: {
+    /** Seconds from the start. */
+    start: number;
+    /** Seconds from the start. */
+    end: number;
+    /** What was said. */
+    text: string;
+    /** Who said it, as the provider labels speakers. */
+    speaker?: string;
+  }[];
+  /** The language the provider detected. */
+  language?: string;
+  /** Anything else the provider added. */
+  [key: string]: unknown;
+}
+
+/**
  * A succeeded transcription run's `output` (#438): the transcript.
  *
  * @stability experimental
@@ -1345,6 +1369,8 @@ export interface AiTranscriptionRunOutput {
     /** The text. */
     text: string;
   }[];
+  /** Provider-reported detail beyond the fields here (PP-14.17); absent when none was reported. */
+  extras?: AiTranscriptionExtras;
   /** The words. */
   words?: {
     /** The start seconds. */
@@ -1626,6 +1652,11 @@ export interface AiTranscriptionRequest {
   prompt?: string;
   /** The timestamp granularities. */
   timestampGranularities?: ('segment' | 'word')[];
+  /**
+   * Keyed by provider id: provider features the neutral request does not model.
+   * A JSON object of at most 4 KiB, passed to the provider and never logged (PP-14.17).
+   */
+  providerOptions?: Record<string, Record<string, unknown>>;
 }
 
 /**
@@ -1790,6 +1821,9 @@ export const AI_USAGE_ADMIN_GROUP_BY = [
   'provider',
   'keySource',
   'org',
+  // PP-14.17: per registered AI feature, and per operation (an open vocabulary).
+  'feature',
+  'operation',
 ] as const;
 /**
  * The AI usage group by type.
@@ -1850,6 +1884,24 @@ export interface AiUsageCounters {
   cachedInputTokens: number;
   /** Non-token units summed per key (`{ images: 2 }`, `{ audioSeconds: 31.4 }`). */
   units: Record<string, number>;
+  /**
+   * What the deployment's pricing port says this cost (PP-14.17). Present only
+   * on a report where `priced` is true; `null` when nothing in the bucket has a
+   * price or its priced parts use more than one currency.
+   */
+  cost?: AiUsageCost | null;
+}
+
+/**
+ * A cost the deployment's pricing port computed.
+ *
+ * @stability experimental
+ */
+export interface AiUsageCost {
+  /** The amount, in `currency`'s major unit. */
+  amount: number;
+  /** An ISO 4217 code (`USD`) or the short label the pricing port uses. */
+  currency: string;
 }
 
 /**
@@ -1896,6 +1948,8 @@ export interface AiUsageReport<G extends string = AiUsageGroupBy> {
   };
   /** The group by. */
   groupBy: G;
+  /** Whether the deployment binds a pricing port, so totals and entries carry a `cost` (PP-14.17). */
+  priced?: boolean;
   /** The totals. */
   totals: AiUsageTotals;
   /** The series. */
@@ -1930,6 +1984,8 @@ export interface AiUsageQuery extends Partial<AiUsageRange> {
   model?: string;
   /** One organization's rows only (#739); `none` for the organization-less catalogue-sync rows. */
   orgId?: string;
+  /** One registered AI feature's rows only (PP-14.17). */
+  feature?: string;
 }
 
 /**
@@ -1971,4 +2027,54 @@ export interface AiDefaultModel {
   provider: string;
   /** The model id. */
   modelId: string;
+}
+
+// =============================================================================
+// The open capability and operation vocabularies (PP-14.17, #935)
+// =============================================================================
+
+/**
+ * One model capability, as `GET /admin/ai/capabilities` lists it.
+ *
+ * @stability experimental
+ */
+export interface AiCapabilityDescriptor {
+  /** The capability id (`audio_transcription`, `speaker_diarization`). */
+  id: string;
+  /** The short label the pages show. */
+  label: string;
+  /** One sentence on what a model that declares it can do. */
+  description: string;
+  /** Whether the platform ships it (`false`: an app or package registered it). */
+  builtin: boolean;
+}
+
+/**
+ * One operation, as `GET /admin/ai/capabilities` lists it.
+ *
+ * @stability experimental
+ */
+export interface AiOperationDescriptor {
+  /** The operation id, the `operation` of its usage rows. */
+  id: string;
+  /** The label usage reports show. */
+  label: string;
+  /** The model capability an operation needs. */
+  capability: string;
+  /** Whether the platform ships it. */
+  builtin: boolean;
+  /** Whether `AiService.run` can run it. */
+  runnable: boolean;
+}
+
+/**
+ * `GET /admin/ai/capabilities`.
+ *
+ * @stability experimental
+ */
+export interface AiCapabilitiesResponse {
+  /** Every registered capability, built-ins first. */
+  capabilities: AiCapabilityDescriptor[];
+  /** Every registered operation, built-ins first. */
+  operations: AiOperationDescriptor[];
 }
