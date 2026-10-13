@@ -544,7 +544,7 @@ Namespaces of the `global` document (`systemSettingsSchema`, composed from the s
 
 Every read completes missing namespaces from each namespace's declared defaults, so the stored document is always whole. The seed writes the same defaults from the generated `apps/api/prisma/catalog/system-settings-defaults.json` (`npm run catalog:settings --workspace=api`).
 
-`user_settings.value` (`userSettingsSchema`): the core fields `theme` and `profile` (display name, image source, uploaded image), then the optional namespaces from the user settings namespace registry: `dataTables`, `navigation`, `notifications` (per-event channel preferences) and `ai` (default model). An absent optional namespace means "use the defaults".
+`user_settings.value` (`userSettingsSchema`): the core fields `theme` and `profile` (display name, image source, uploaded image), then the optional namespaces from the user settings namespace registry: `dataTables` (per-table view preferences, with an app-facing bounded `extra` and up to 20 saved views), `navigation`, `notifications` (per-event channel preferences) and `ai` (default model). An absent optional namespace means "use the defaults".
 
 ---
 
