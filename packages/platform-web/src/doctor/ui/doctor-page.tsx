@@ -21,7 +21,7 @@
 // =============================================================================
 
 import { useMemo, useState } from 'react';
-import type { ComponentType, ReactElement } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import {
   Accordion,
   AccordionDetails,
@@ -47,6 +47,7 @@ import { DOCTOR_STATUS_RANK } from '@marinoscar/platform-contract/doctor';
 import type { DoctorCheckReport, DoctorReport, DoctorStatus } from '@marinoscar/platform-contract/doctor';
 
 import { useOptionalPlatformHost } from '../../core/index.js';
+import type { PageSlot, PageSlotsBase } from '../../core/index.js';
 import {
   PLATFORM_DOCTOR_CATEGORY_LABELS,
   categoryLabel,
@@ -59,7 +60,7 @@ import { DOCTOR_PAGE_DESCRIPTION, DOCTOR_PAGE_TITLE } from './copy.js';
 import { SupportBundleButton } from './support-bundle-button.js';
 
 /**
- * The props of {@link DoctorPageProps.slots}'s `Header`.
+ * The props of {@link DoctorPageSlots}'s `Header`.
  *
  * @stability experimental
  */
@@ -68,6 +69,36 @@ export interface DoctorPageHeaderProps {
   title: string;
   /** The page subtitle (the card's description). */
   description: string;
+  /**
+   * The page's header-level actions: always `null` here, because "Run again"
+   * and the support bundle stay in the body. Present so the props extend the
+   * page-slot contract's `PageHeaderSlotProps`.
+   */
+  actions: ReactNode;
+}
+
+/**
+ * The slots of {@link DoctorPage}: the page-slot contract, and
+ * `CheckRowActions`.
+ *
+ * `CheckRowActions` is drawn at the end of every check's row, after the
+ * "Open settings" link, and receives the report row. To draw a check's own
+ * `data` inside its row, register a component for that check with
+ * `registerDoctorCheckRenderer` (`@marinoscar/platform-web/doctor/headless`).
+ *
+ * @example
+ * ```tsx
+ * <DoctorPage slots={{ CheckRowActions: ({ check }) => <Button href={runbookFor(check.id)}>Runbook</Button> }} />
+ * ```
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export interface DoctorPageSlots extends PageSlotsBase {
+  /** Replaces the title and subtitle block. */
+  Header?: PageSlot<DoctorPageHeaderProps>;
+  /** Extra actions at the end of every check's row. */
+  CheckRowActions?: PageSlot<{ check: DoctorCheckReport }>;
 }
 
 /**
@@ -82,11 +113,8 @@ export interface DoctorPageProps {
   categories?: readonly DoctorCategoryLabel[];
   /** Styles for the page's outer box. */
   sx?: SxProps<Theme>;
-  /** Replaceable parts of the page. */
-  slots?: {
-    /** Replaces the title and subtitle block. */
-    Header?: ComponentType<DoctorPageHeaderProps>;
-  };
+  /** Replaceable and additional parts of the page. */
+  slots?: DoctorPageSlots;
 }
 
 function isProblem(status: DoctorStatus): boolean {
@@ -207,6 +235,10 @@ export function DoctorPage(props: DoctorPageProps = {}): ReactElement {
   const host = useOptionalPlatformHost();
   const formatRelativeTime = host?.formatRelativeTime ?? fallbackRelativeTime;
   const Header = slots?.Header ?? DefaultHeader;
+  const BeforeContent = slots?.BeforeContent;
+  const Sections = slots?.Sections;
+  const AfterContent = slots?.AfterContent;
+  const CheckRowActions = slots?.CheckRowActions;
   const { report, isLoading, error, rerun } = useDoctor();
   const [problemsOnly, setProblemsOnly] = useState(false);
   // Only the categories the admin has toggled; the rest follow the default
@@ -236,7 +268,9 @@ export function DoctorPage(props: DoctorPageProps = {}): ReactElement {
   return (
     <Container maxWidth="lg">
       <Box sx={[{ py: { xs: 2, sm: 4 } }, ...(Array.isArray(sx) ? sx : sx ? [sx] : [])]} data-testid="doctor-page">
-        <Header title={DOCTOR_PAGE_TITLE} description={DOCTOR_PAGE_DESCRIPTION} />
+        <Header title={DOCTOR_PAGE_TITLE} description={DOCTOR_PAGE_DESCRIPTION} actions={null} />
+        {BeforeContent && <BeforeContent />}
+        {Sections && <Sections position="top" />}
 
         <Stack
           direction={{ xs: 'column', sm: 'row' }}
@@ -354,7 +388,7 @@ export function DoctorPage(props: DoctorPageProps = {}): ReactElement {
                     <AccordionDetails id={`doctor-category-${group.key}-content`}>
                       <Stack component="ul" spacing={2} sx={{ m: 0, p: 0 }}>
                         {group.visible.map((check) => (
-                          <CheckRow key={check.id} check={check} />
+                          <CheckRow key={check.id} check={check} Actions={CheckRowActions} />
                         ))}
                       </Stack>
                     </AccordionDetails>
@@ -364,6 +398,9 @@ export function DoctorPage(props: DoctorPageProps = {}): ReactElement {
             </Box>
           </Stack>
         )}
+
+        {Sections && <Sections position="bottom" />}
+        {AfterContent && <AfterContent />}
       </Box>
     </Container>
   );

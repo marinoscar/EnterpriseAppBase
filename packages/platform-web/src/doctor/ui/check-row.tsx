@@ -18,6 +18,8 @@ import type { ReactElement } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import type { DoctorCheckReport, DoctorStatus } from '@marinoscar/platform-contract/doctor';
 
+import type { PageSlot } from '../../core/index.js';
+import { getDoctorCheckRenderer } from '../headless/index.js';
 import { statusColor } from '../internal/status-colors.js';
 
 /**
@@ -100,18 +102,28 @@ function formatCheckDuration(ms: number): string {
 export interface CheckRowProps {
   /** The row to render. */
   check: DoctorCheckReport;
+  /**
+   * Extra actions for the row (the page's `slots.CheckRowActions`), drawn after
+   * the "Open settings" link. Omit for the row exactly as it always was.
+   */
+  Actions?: PageSlot<{ check: DoctorCheckReport }>;
 }
 
 /**
  * One check: icon, label, status chip, duration, detail, remedy, verbatim
- * error and a link to the settings page that fixes it. Renders an `<li>`.
+ * error, the check's own facts when a renderer is registered for it
+ * (`registerDoctorCheckRenderer`), a link to the settings page that fixes it
+ * and the page's extra actions. Renders an `<li>`.
  *
  * @param props - see {@link CheckRowProps}.
  * @returns the row.
  *
  * @stability stable
  */
-export function CheckRow({ check }: CheckRowProps): ReactElement {
+export function CheckRow({ check, Actions }: CheckRowProps): ReactElement {
+  // Read at render time, so a renderer registered at module scope is found
+  // whenever the page renders.
+  const Renderer = getDoctorCheckRenderer(check.id);
   return (
     <Box
       component="li"
@@ -163,6 +175,7 @@ export function CheckRow({ check }: CheckRowProps): ReactElement {
             {check.error}
           </Box>
         )}
+        {Renderer && <Renderer check={check} />}
         {check.settingsPath && (
           <Button
             component={RouterLink}
@@ -173,6 +186,11 @@ export function CheckRow({ check }: CheckRowProps): ReactElement {
           >
             Open settings
           </Button>
+        )}
+        {Actions && (
+          <Box sx={{ mt: 0.5 }}>
+            <Actions check={check} />
+          </Box>
         )}
       </Box>
     </Box>
