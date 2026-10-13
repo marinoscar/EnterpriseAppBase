@@ -15,7 +15,7 @@ The audit record of the extension seams of every platform slice. A closed point 
 
 Evidence paths are written `api:`, `web:`, `contract:`, `cli:`, `db:` and `infra:` for `packages/platform-api/src/`, `packages/platform-web/src/`, `packages/platform-contract/src/`, `packages/platform-cli/src/`, `packages/platform-db/` and `packages/platform-infra/`; a path under `apps/` or `docs/` is from the repository root. A story is written PP-14.n (its issue number follows).
 
-As of this version: 114 closed points in 29 sections, 67 fixed and 47 open.
+As of this version: 114 closed points in 29 sections, 69 fixed and 45 open.
 
 ## Verdicts
 
@@ -40,7 +40,7 @@ As of this version: 114 closed points in 29 sections, 67 fixed and 47 open.
 | [platform-cli](#platform-cli) | Open | 7 | 7 | 0 | PP-14.22 |
 | [platform-infra](#platform-infra) | Open | 2 | 2 | 0 | PP-14.22 |
 | [testing (api and web)](#testing-api-and-web) | Mostly open | 2 | 0 | 2 | PP-14.26 |
-| [ai](#ai) | Mostly open | 10 | 6 | 4 | PP-14.3, PP-14.6, PP-14.17, PP-14.24 |
+| [ai](#ai) | Mostly open | 10 | 8 | 2 | PP-14.3, PP-14.6, PP-14.17, PP-14.24 |
 | [storage](#storage) | Mostly open | 5 | 4 | 1 | PP-14.1, PP-14.7, PP-14.24 |
 | [db-backup](#db-backup) | Mostly open | 4 | 4 | 0 | PP-14.12, PP-14.23 |
 | [identity](#identity) | Partly closed | 8 | 6 | 2 | PP-14.9, PP-14.15, PP-14.25 |
@@ -73,7 +73,7 @@ The 28 stories of the epic, in order. Phase 1 makes the existing seams real; pha
 | PP-14.14 | #932 | core: open the access-reason, principal and error-code vocabularies | 3 | none | no | This change |
 | PP-14.15 | #933 | roles: app roles become assignable, and apps can grant platform permissions to them | 3 | none | no | Open |
 | PP-14.16 | #934 | sharing: pluggable grantee kinds and access rules | 3 | 14.15 | maybe | Open |
-| PP-14.17 | #935 | ai: open capabilities and operations, richer transcription results, per-feature usage | 3 | 14.6 | yes | Open |
+| PP-14.17 | #935 | ai: open capabilities and operations, richer transcription results, per-feature usage | 3 | 14.6 | yes | This change |
 | PP-14.18 | #936 | telemetry and otel-core: app units, group presentation, dashboard panels, assistant tools, SDK extension | 3 | 14.11, 14.23 | no | Open |
 | PP-14.19 | #937 | jobs and nodes: app retention policies, open job reasons, node vitals and executor telemetry | 3 | none | yes | This change |
 | PP-14.20 | #938 | onboarding, datatable and exports: close the remaining small vocabularies | 3 | none | no | Open |
@@ -343,9 +343,9 @@ Closed points: none recorded at the audit commit.
 
 ### ai
 
-**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 10 (6 fixed, 4 open) · **Stories:** PP-14.3, PP-14.6, PP-14.17, PP-14.24
+**Verdict:** Mostly open · **Packages:** api, web, contract, db · **Closed points:** 10 (8 fixed, 2 open) · **Stories:** PP-14.3, PP-14.6, PP-14.17, PP-14.24
 
-**Open points.** The adapter contract (`AiProviderAdapter`), `AiProviderRegistry.register`, `registerAiProvider` (the provider definition: its settings, key requirement, endpoint rule, help and SDK packages) with `AiModule.forRoot({ providers })`, `registerAiProviderCard` and the generated provider card on the web, `registerAiFeature`, the `AI_SYSTEM_PRISMA`, `AI_OBJECT_STORE`, `AI_METRICS` and `AI_TARGET_RESOLVER` ports, `describeAiProviderConformance`, `createAiRuntimeHarness({ extraProviders, extraAdapters })` and the seven `ai-*` conformance suites (`ai-no-sdk-leak` with `providerDirs`).
+**Open points.** The adapter contract (`AiProviderAdapter`), `AiProviderRegistry.register`, `registerAiProvider` (the provider definition: its settings, key requirement, endpoint rule, help and SDK packages) with `AiModule.forRoot({ providers })`, `registerAiProviderCard` and the generated provider card on the web, `registerAiFeature`, `registerAiCapability` and `registerAiOperation` (with `AiProviderAdapter.operations` and `AiService.forUser(...).run(operationId, input)`), `registerAiPlaygroundMode` and `registerAiCapabilityLabel` on the web, `AiModule.forRoot({ pricing })` (the `AI_PRICING` port), the `AI_SYSTEM_PRISMA`, `AI_OBJECT_STORE`, `AI_METRICS` and `AI_TARGET_RESOLVER` ports, `describeAiProviderConformance`, `createAiRuntimeHarness({ extraProviders, extraAdapters })` and the seven `ai-*` conformance suites (`ai-no-sdk-leak` with `providerDirs`; `ai-secret-egress` covers the capabilities route and transcription extras and options). Worked examples: `apps/api/src/platform-extensions/ai/` (the `audio.diarize` operation on `example-transcribe` and an example price list) and `apps/web/src/platform-extensions/ai/` (a Diarize playground mode).
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
@@ -355,8 +355,8 @@ Closed points: none recorded at the audit commit.
 | ai-4 | The defaults, merge and slot helpers iterate the fixed id list, and `assertProviderEnabled` needs `slot?.enabled`. | api: `ai/ai.system-settings.ts:51, :127, :190-230`; `ai/config/ai-config.service.ts:~311` | Namespace schema, defaults and merge built from the registry (system and org); unknown stored ids dropped with one warning. | PP-14.6 (#924) | Fixed |
 | ai-5 | Provider-specific settings are a fixed field list mirrored in the DTO and the web type; the base-URL requirement and the help text switch on provider id in both packages. | api: `ai/config/ai-config.service.ts:81`; `ai/config/ai-config-admin.service.ts:83`; web: `ai/headless/types.ts:290`; `ai/ui/admin/aiProviderForm.ts:51`; `ai/ui/admin/AiProviderCard.tsx:167` | `settingsSchema`, `requiresBaseUrl` and `help` on the provider definition; `registerAiProviderCard(id, Component)` and the generic `PluggableConfigForm` card. | PP-14.6 (#924) | Fixed |
 | ai-6 | The runtime harness pins one provider and fixed slots; `ai-no-sdk-leak` forbids an SDK import in the app unless `sdkDirs` or `extraSdkPackages` are passed. | api: `ai/testing/ai-runtime-harness.ts:94, :509-519`; `ai/testing/conformance/ai-no-sdk-leak.suite.ts:92, :110, :299` | `createAiRuntimeHarness({ extraProviders, extraAdapters })`; `sdkPackages` on the definition and a `providerDirs` option. | PP-14.6 (#924) | Fixed |
-| ai-7 | `AI_CAPABILITIES`, `AiUsageOperation` and `TRACKED_OPERATIONS` are closed (and mirrored on the web), so diarization, moderation, rerank or OCR need a package edit. | api: `ai/core/capabilities.ts:31`; `ai/runtime/ai-usage.recorder.ts:35`; `ai/runtime/ai.service.ts:~447`; web: `ai/ui/shared/aiCapabilities.ts` | `registerAiCapability`, `registerAiOperation`, a custom-operation port `AiService.forUser(...).run(operationId, input)` through the same gate pipeline. | PP-14.17 (#935) | Open |
-| ai-8 | `AiTranscriptionResult` has no speakers or segments, the transcription DTO does not expose `providerOptions`, `feature` is never persisted on `ai_usage_events` or `ai_runs`, the playground modes are a fixed tuple, and there is no pricing seam. | api: `ai/core/types/media.types.ts:325`; web: `ai/ui/playground/aiPlaygroundModes.ts:28` | `extras` on the result, `providerOptions` (bounded), a migration adding `feature`, `registerAiPlaygroundMode`, the `AI_PRICING` port. | PP-14.17 (#935) | Open |
+| ai-7 | `AI_CAPABILITIES`, `AiUsageOperation` and `TRACKED_OPERATIONS` are closed (and mirrored on the web), so diarization, moderation, rerank or OCR need a package edit. | api: `ai/core/capabilities.ts:31`; `ai/runtime/ai-usage.recorder.ts:35`; `ai/runtime/ai.service.ts:~447`; web: `ai/ui/shared/aiCapabilities.ts` | `registerAiCapability`, `registerAiOperation`, a custom-operation port `AiService.forUser(...).run(operationId, input)` through the same gate pipeline. | PP-14.17 (#935) | Fixed |
+| ai-8 | `AiTranscriptionResult` has no speakers or segments, the transcription DTO does not expose `providerOptions`, `feature` is never persisted on `ai_usage_events` or `ai_runs`, the playground modes are a fixed tuple, and there is no pricing seam. | api: `ai/core/types/media.types.ts:325`; web: `ai/ui/playground/aiPlaygroundModes.ts:28` | `extras` on the result, `providerOptions` (bounded), a migration adding `feature`, `registerAiPlaygroundMode`, the `AI_PRICING` port. | PP-14.17 (#935) | Fixed |
 | ai-9 | The documented override of `AI_TARGET_RESOLVER` (a `@Global()` module passed to `AiModule.forRoot({ imports })`) is unproven: `AiModule` does not provide the token, so a global provider should reach `AiService`, but the example test builds a test module holding only the token and hands the resolver to the harness by hand, so DI resolution through the real `AiModule` is never exercised. The epic requires every documented override to be proven with the real package modules. | api: `ai/runtime/target-resolver.ts:17`; `apps/api/test/examples/ai/example-summary.spec.ts:45` | A test that boots the real `AiModule.forRoot` and asserts `AiService` resolves through the app's resolver. | none yet (epic success criterion) | Open |
 | ai-10 | `AiWebAdapters` has only `Spinner`; `AiConfigPage`, `AiProviderCard`, `UserAiKeysPage` and `AiModelsPage` take no slots. | web: `ai/headless/adapters.tsx:38` | `ProviderCardExtra`, `Sections`, `TableSlots<Row>` per page. | PP-14.24 (#942) | Open |
 

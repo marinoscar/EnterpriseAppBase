@@ -802,7 +802,7 @@ Available now. An app, or an `@acme/ai-assemblyai` package an app installs, adds
 
 1. **Write the adapter**, one class implementing `AiProviderAdapter` (everything below imports from `@marinoscar/platform-api/ai`): [`example-transcribe.adapter.ts`](../apps/api/src/platform-extensions/ai/example-transcribe/example-transcribe.adapter.ts).
    - `id` (`example-transcribe`, permanent once a setting, a key or a usage row references it), `displayName`, `defaultBaseUrl` (the host the Doctor's egress inventory lists), `listModels`, `verifyKey` and `classifyModel`.
-   - **Only the ports the vendor has.** Presence is the declaration: an `audio` port with `transcribe` and no `speech` gives the capability `audio_transcription` and nothing else, and the gate pipeline refuses every other operation before the adapter is reached. The capabilities are the existing ones (`AI_CAPABILITIES`); a new capability or operation is not open yet (audit: [ai-7](EXTENSIBILITY-AUDIT.md#ai)).
+   - **Only the ports the vendor has.** Presence is the declaration: an `audio` port with `transcribe` and no `speech` gives the capability `audio_transcription` and nothing else, and the gate pipeline refuses every other operation before the adapter is reached. A kind of call the platform has no port for (diarization, moderation, rerank, OCR) is a custom operation, not a new port: [Add an AI capability and operation](#add-an-ai-capability-and-operation-diarization-moderation-rerank-ocr).
    - The key arrives per call in `AiCallContext.apiKey` and the provider's settings in `AiCallContext.providerSettings`; the class holds neither. Every failure leaves as an `AiError` (`AiError.wrap(err, code, message)`), never the vendor's message.
    - The vendor sits behind an injected transport ([`example-transcribe.transport.ts`](../apps/api/src/platform-extensions/ai/example-transcribe/example-transcribe.transport.ts)). A real provider puts its SDK or HTTP client behind the same interface, in this folder, and a test swaps in a fake.
 2. **Provide it from a Nest module** that imports `AiCoreModule` and registers the adapter in `onModuleInit` ([`example-transcribe.module.ts`](../apps/api/src/platform-extensions/ai/example-transcribe/example-transcribe.module.ts)):
@@ -865,7 +865,7 @@ Available now. An app, or an `@acme/ai-assemblyai` package an app installs, adds
 
    Wrap `AiGenericProviderCard` to add to the generated card, or render your own markup from `AiProviderCardProps`.
 8. **Prove it with the kit and a test that boots the real app.**
-   - **The adapter.** `describeAiProviderConformance` of `@marinoscar/platform-api/ai/testing` over the fake transport: [`example-transcribe.conformance.spec.ts`](../apps/api/test/examples/ai/example-transcribe.conformance.spec.ts). The scenarios of a port the adapter does not carry have nothing to check and pass; the spec adds what the kit cannot know (the capability set is `audio_transcription` alone, the region reaches the transport, no log or error carries the key).
+   - **The adapter.** `describeAiProviderConformance` of `@marinoscar/platform-api/ai/testing` over the fake transport: [`example-transcribe.conformance.spec.ts`](../apps/api/test/examples/ai/example-transcribe.conformance.spec.ts). The scenarios of a port the adapter does not carry have nothing to check and pass; the spec adds what the kit cannot know (the capability set is `audio_transcription` from the port plus `speaker_diarization` from the operation, the region reaches the transport, no log or error carries the key). The kit's `operations` fixture runs the same scenarios over the custom operation.
    - **The gates over your provider.** `createAiRuntimeHarness({ extraProviders, extraAdapters, models, extraProviderSettings })` runs the real `AiService`, key resolver, usage recorder and run state machine over in-memory tables, with your provider enabled and a user key for it. [`example-transcribe.e2e.spec.ts`](../apps/api/test/examples/ai/example-transcribe.e2e.spec.ts) drives the admin routes (descriptor, enable with `region: 'eu'`, key verified before it is stored, `403 AI_DISABLED` while off) and the runtime (a user transcribes through the existing route and job, the usage row names the provider, a user's own key wins over the deployment key).
    - **The stored shape.** [`ai-stored-settings.spec.ts`](../apps/api/test/examples/ai/ai-stored-settings.spec.ts): a row stored before the registry existed loads unchanged, and a slot for a removed provider is dropped with one warning.
    - **The web.** [`example-provider-card.test.tsx`](../apps/web/src/__tests__/examples/ai/example-provider-card.test.tsx): the admin page draws the provider with no web code, and the typed key goes out once, alone.
@@ -876,7 +876,87 @@ Available now. An app, or an `@acme/ai-assemblyai` package an app installs, adds
    cd apps/web && npx vitest run src/__tests__/examples/ai/example-provider-card.test.tsx
    ```
 
-What is still closed (audit: [ai](EXTENSIBILITY-AUDIT.md#ai)): a new capability or operation (diarization, moderation, rerank), a transcription result with speakers (it carries `text`, `language`, `durationSeconds`, `segments` and `words`), and slots on the AI pages. The example transcribes only, within what the neutral contract already carries.
+What is still closed (audit: [ai](EXTENSIBILITY-AUDIT.md#ai)): slots on the AI pages.
+
+### Add an AI capability and operation (diarization, moderation, rerank, OCR)
+
+Available now. An app, or a package an app installs, adds a kind of AI call the platform has no built-in port for, with no edit under `packages/`. Three registrations, in this order, at import time: a **capability** (what one model can do, declared in the catalog), an **operation** (one metered kind of call, with the zod schemas that are its trust boundary) and a **feature** (what an app feature needs from a model). The provider implements the operation under `AiProviderAdapter.operations`, and `AiService.forUser(userId, { feature }).run(operationId, input)` then runs it through the same gate pipeline as `respond` or `transcribe`: the kill switch, the provider and model gates (the model must declare the capability), the key policy, the rate limits, one usage row and one span. The worked example is `audio.diarize` on `example-transcribe`: [`example-diarize.operation.ts`](../apps/api/src/platform-extensions/ai/example-transcribe/example-diarize.operation.ts), registered by [`app-registrations/ai.ts`](../apps/api/src/app-registrations/ai.ts). The reference is the [AI platform spec, §2.26](specs/ai-platform.md#226-open-capabilities-operations-and-per-feature-usage).
+
+1. **Register the capability** (`registerAiCapability`; `id` matches `^[a-z][a-z0-9_]{1,47}$`, permanent once a catalog row or an override stores it):
+
+   ```ts
+   import { registerAiCapability } from '@marinoscar/platform-api/ai';
+
+   registerAiCapability({ id: 'speaker_diarization', label: 'Diarization', description: 'Labels who spoke when in a recording.' });
+   ```
+
+2. **Register the operation** (`registerAiOperation`; `id` matches `AI_OPERATION_ID_PATTERN`, permanent once a usage row exists, because it is the row's `operation`). Both schemas are required and **bound** their side (`.max(...)`): the runtime parses the input before any key is read and the output before it is returned.
+
+   ```ts
+   registerAiOperation({
+     id: 'audio.diarize',
+     label: 'Diarization',
+     capability: 'speaker_diarization',
+     inputSchema: z.object({ audioBase64: z.string().min(4).max(350_000) }),
+     outputSchema: z.object({ speakers: z.array(z.string().max(32)).max(16), durationSeconds: z.number().min(0) }),
+     usageUnits: (output) => ({ audioSeconds: output.durationSeconds }), // what the usage row meters
+   });
+   ```
+
+3. **Implement it in the adapter**: an entry of `operations`, keyed by the operation id. It receives the parsed input and an `AiOperationContext` (the call's key, endpoint, settings and signal, plus `model` and `operation`), returns the output, and throws `AiError` only:
+
+   ```ts
+   readonly operations = {
+     'audio.diarize': (input, ctx) => this.diarize(input as ExampleDiarizeInput, ctx),
+   };
+   ```
+
+   Presence is the declaration, as with a port: the registry derives that the provider supports `speaker_diarization` from the entry, and `classifyModel` (or an administrator's override) declares the capability on a model. A model that lacks it, or a provider that does not implement the operation, is refused with `AI_CAPABILITY_UNSUPPORTED`.
+4. **Register a feature** that needs the capability, after step 1 (`registerAiFeature({ id: 'example_meeting_notes', needs: ['audio_transcription', 'speaker_diarization'], ... })`), and call it:
+
+   ```ts
+   const output = await this.ai.forUser(userId, { feature: 'example_meeting_notes' }).run('audio.diarize', { audioBase64 });
+   ```
+
+   An omitted `model` is the first usable model that declares the capability on a provider that implements the operation; pass `{ provider, model }` to choose.
+5. **Know what the runtime guarantees about secrets.** The key reaches the handler in `ctx.apiKey` and nowhere else. An output that contains the key is refused (`AI_STRUCTURED_OUTPUT_INVALID`), an error whose message or details carry it is replaced by a generic one of the same code, a raw error becomes `AI_PROVIDER_UNAVAILABLE` with a generic message, and the input and output are never logged or recorded: the usage row has ids, counts, codes, the feature and the units `usageUnits` returns.
+6. **The web needs no code for the labels.** `GET /api/admin/ai/capabilities` (`ai_config:read`) lists every capability and operation; the admin Models page, its capability filter and the override dialog draw the app's capability from it, and the usage page groups by `operation` and `feature`. A page a viewer without `ai_config:read` sees (the Playground, the user pages) learns the label from `registerAiCapabilityLabel('speaker_diarization', 'Diarization')` at module scope, and shows the id until then.
+7. **Add a Playground mode** with `registerAiPlaygroundMode`, at module scope (the six built-in modes register through the same function). The mode lists the usable models that declare its `capability`, is disabled with `unavailableReason` when there are none, and draws its `Panel`. The worked example reuses the packaged Transcribe panel with a provider option, in [`diarize-playground-mode.example.tsx`](../apps/web/src/platform-extensions/ai/diarize-playground-mode.example.tsx):
+
+   ```tsx
+   import { registerAiPlaygroundMode } from '@marinoscar/platform-web/ai/ui/playground-modes';
+
+   registerAiPlaygroundMode({
+     id: 'diarize',
+     label: 'Diarize',
+     operation: 'audio.diarize',          // the usage operation the mode exercises
+     capability: 'speaker_diarization',   // the capability a model needs to be listed (default: the operation id)
+     Panel: DiarizePanel,                 // receives { models, preferredModel, ready }
+   });
+   ```
+
+8. **Prove it.**
+   - **The adapter.** Add an `operations` fixture to `describeAiProviderConformance` (`{ [operationId]: { input, model, failingModel } }`): the scenarios `operations.declared`, `operations.run`, `operations.invalidKey` and `operations.providerError` check that the operation is registered and runnable, its output satisfies the schema without echoing the key, a rejected key is `AI_KEY_INVALID` and a failure is an `AiError`. [`example-transcribe.conformance.spec.ts`](../apps/api/test/examples/ai/example-transcribe.conformance.spec.ts).
+   - **The gates.** [`example-diarize.spec.ts`](../apps/api/test/examples/ai/example-diarize.spec.ts) runs the real `AiService.run` over the example provider: the user key pays, one usage row names the feature and the audio seconds, a transcribe-only model is refused, an oversized input is `AI_INVALID_REQUEST` before the key is read.
+   - **The web.** [`example-playground-mode.test.tsx`](../apps/web/src/__tests__/examples/ai/example-playground-mode.test.tsx): the mode appears after the built-ins, is disabled without a capable model, and posts the transcription with the provider option.
+
+### Read usage by feature, and put a price on it
+
+Available now. Every usage row carries the registered feature the call was made for (`ai_usage_events.feature`, and `ai_runs.feature` for a background run, carried to the usage row of the job's round trip), so usage is answerable per feature from the database. `GET /api/admin/ai/usage` and `GET /api/admin/ai/org-usage` take a `feature` filter and group by `feature` (key: the feature id, `none` for calls recorded without one) or by `operation`; the usage page has the matching breakdowns. The feature is validated against the feature registry before it is used and re-checked against its id pattern before it is stored, never free text. Calls made before the column existed have no feature.
+
+The platform ships no rates. A deployment that has them binds one port through `AiModule.forRoot`, not a provider in an app module (Nest would not show it to the usage service):
+
+```ts
+import { ExamplePricing } from '../../platform-extensions/ai/example-pricing/example-pricing';
+
+export const AiModule = PlatformAiModule.forRoot({ imports: [AiHostModule], pricing: { useClass: ExamplePricing } });
+```
+
+`AiPricing.costFor(usage)` prices one `(provider, model, operation)` slice of a report group (summed tokens and units) and answers `{ amount, currency }` or `null` for no price. The administrator's and the organization administrator's reports then carry `priced: true` and a `cost` on every bucket, and the usage page shows a Cost tile and column; a user's own report is never priced. A group's cost is the sum of its priced slices, `null` when none is priced or they use more than one currency, and a throwing port is a missing price (logged without the usage). Nothing stores a cost. [`example-pricing.ts`](../apps/api/src/platform-extensions/ai/example-pricing/example-pricing.ts) prices the example provider by the minute; [`ai-usage-by-feature.db.spec.ts`](../apps/api/test/examples/ai/ai-usage-by-feature.db.spec.ts) proves the filter, the group-bys and the priced report against a real Postgres.
+
+### Read a transcript with speakers
+
+Available now. `AiTranscriptionResult.extras` carries what a provider reports beyond the neutral fields: `segments` (`{ start, end, text, speaker? }`), `language` and any other JSON, at most 64 KiB serialised. A result whose extras are larger, not JSON or malformed keeps its transcript and drops the extras (the call is billed and recorded either way). A succeeded run's `output.extras` is the same object, and the packaged transcript view draws speaker-labelled segments. `POST /api/ai/audio/transcriptions` takes `providerOptions` keyed by provider id (a JSON object of at most 4 KiB, passed to the adapter, never logged and never put on a span or a usage row); the example adapter reads `providerOptions['example-transcribe'].diarize` and answers speaker-labelled extras ([`example-transcribe.e2e.spec.ts`](../apps/api/test/examples/ai/example-transcribe.e2e.spec.ts)).
 
 ### Add a sign-in provider
 

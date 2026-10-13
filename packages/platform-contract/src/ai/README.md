@@ -8,10 +8,11 @@ One definition of the AI policy and of the organization-tier shapes, shared by t
 
 | File | What |
 |---|---|
-| `constants.ts` | `AI_PROVIDER_ID_PATTERN`, `BUILTIN_AI_PROVIDER_IDS` (`AI_PROVIDER_IDS` is its deprecated alias), `AI_KEY_POLICIES`, `AI_OPENAI_API_STYLES`, the limit, MCP-host, Azure and endpoint bounds, `aiEndpointUrlProblem`, `ORG_AI_KEY_MIN`/`MAX`, and the literal-union types. zod-free |
+| `constants.ts` | `AI_PROVIDER_ID_PATTERN`, `AI_CAPABILITY_ID_PATTERN`, `AI_OPERATION_ID_PATTERN`, `AI_FEATURE_ID_PATTERN`, `BUILTIN_AI_PROVIDER_IDS` (`AI_PROVIDER_IDS` is its deprecated alias), `AI_KEY_POLICIES`, `AI_OPENAI_API_STYLES`, the limit, MCP-host, Azure and endpoint bounds, `aiEndpointUrlProblem`, `ORG_AI_KEY_MIN`/`MAX`, and the literal-union types. zod-free |
 | `schemas.ts` | The `ai` system namespace (`systemAiSchema` stored, `systemAiPatchSchema`, the PUT/PATCH wire branches `aiSettingsSchema`/`aiSettingsPatchSchema`, the response branch `aiResponseSchema`), its limits (`systemAiLimitsSchema`, with `perOrg` since #739), the open `providers` record (`aiProviderIdSchema`, `aiProviderSlotSchema`, `systemAiProvidersSchema` and its PATCH, response and org-layer counterparts), the org layer (`orgAiSettingsSchema`) and its merge (`tightenAiPolicy`), the per-user namespace (`userAiSettingsSchema`), and the compile-time `AI_SETTINGS_CARRIES_NO_SECRET` proof |
 | `org-keys.ts` | `setOrgAiKeySchema` (`PUT /api/admin/ai/org-keys/:provider`) and `orgAiKeyViewSchema` (masked), with the `ORG_AI_KEY_VIEW_CARRIES_NO_SECRET` proof |
 | `features.ts` | `aiFeatureViewSchema`, one row of `GET /api/ai/features` |
+| `capabilities.ts` | The open capability and operation vocabularies (PP-14.17): `aiCapabilityIdSchema`, `aiOperationIdSchema`, `aiFeatureIdSchema`, the `GET /api/admin/ai/capabilities` response (`aiCapabilitiesResponseSchema`) and `aiUsageCostSchema` |
 
 Not here: the AI runtime's request and response types (provider-neutral TypeScript in `@marinoscar/platform-api/ai`'s `core/`), and the other HTTP DTOs of `/api/ai/*` and `/api/admin/ai/*`, which stay in the API slice for now (they share its core constants).
 
@@ -47,6 +48,8 @@ None. Schemas and constants take no options.
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `aiProviderIdSchema` | schema | `z.string().regex(AI_PROVIDER_ID_PATTERN)` | Validate a provider id anywhere (`^[a-z][a-z0-9-]{1,47}$`, the pattern of the registry and of an `ai.limits.perModel` key); never `z.enum(BUILTIN_AI_PROVIDER_IDS)` | experimental | [example](../../../../apps/api/src/app-registrations/ai.ts) |
+| `aiCapabilityIdSchema` | schema | `z.string().regex(AI_CAPABILITY_ID_PATTERN)` | Validate a model capability id anywhere (`^[a-z][a-z0-9_]{1,47}$`); capabilities are an open vocabulary (`registerAiCapability` on the API), never `z.enum` of the built-ins | experimental | [example](../../../../apps/api/src/app-registrations/ai.ts) |
+| `aiOperationIdSchema` | schema | `z.string().regex(AI_OPERATION_ID_PATTERN)` | Validate an operation id, the `operation` of a usage row (`audio.diarize`); open, like capabilities | experimental | [example](../../../../apps/api/src/platform-extensions/ai/example-transcribe/example-diarize.operation.ts) |
 | `aiProviderSlotSchema` | schema | `z.looseObject({ enabled: boolean })` | A provider's slot in the stored `ai.providers` record: the switch every provider has, plus its own non-secret settings, passed through | experimental | [example](../../../../apps/api/test/examples/ai/ai-stored-settings.spec.ts) |
 
 A built-in provider added to the package appends to `BUILTIN_AI_PROVIDER_IDS` (docs/specs/ai-platform.md §4).
@@ -86,6 +89,8 @@ None. `test/ai.test.ts` pins the namespace's defaults-free parsing, the org laye
 ## Upgrade notes
 
 New subpath in this version (#739): the schemas moved verbatim from the reference app's `common/schemas/settings.schema.ts`, `system-settings-wire.schemas.ts` and `system-settings-response.schemas.ts`, which re-export them unchanged. New: `deploymentKeyServesOrgs` (required in the stored and response shapes, optional on the wire; absent keeps the stored value, default `true`), `limits.perOrg`, `orgAiSettingsSchema`, `tightenAiPolicy`, the org-key and feature shapes, and the named enum types `AiKeyPolicyEnum` and `AiOpenAiApiStyleEnum`.
+
+PP-14.17 (#935): additive. New constants `AI_CAPABILITY_ID_PATTERN`, `AI_OPERATION_ID_PATTERN` and `AI_FEATURE_ID_PATTERN`, and the schemas of the open capability and operation vocabularies and of a computed cost (`capabilities.ts`). No existing export changed.
 
 ## Troubleshooting
 

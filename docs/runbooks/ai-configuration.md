@@ -182,6 +182,12 @@ Enabling a deprecated model is refused (`409`), and so is enabling an
 unclassified model with no capabilities supplied (`400`): an operator makes the
 capability decision, the platform does not guess one.
 
+An application can add capabilities of its own (for example *Diarization*). They
+appear after the built-in groups in the **Capability** filter and as **Other
+capabilities** in the **Edit capabilities** dialog, with the labels the API
+reports (`GET /api/admin/ai/capabilities`); a capability the application no
+longer registers is dropped from a saved override (`400` if sent by hand).
+
 ## 7. Choose the key policy
 
 - **`byok` (default)** — every user must bring their own key (`/settings/ai`,
@@ -693,6 +699,21 @@ As the deployment administrator:
   (`ai.limits.perOrg`, section 12).
 - **See usage per organization** on **AI Usage**, grouped by
   **Organization**.
+
+## 16. Usage by feature and cost
+
+Every provider round trip records the registered AI feature it was made for
+(calls made without one, and rows from before the column existed, have none).
+On **AI Usage**, group by **Feature** to see what each application feature spends
+(**No feature** is the rest) and by **Operation** to see each kind of call,
+including an application's own. The same filter exists on the API:
+`GET /api/admin/ai/usage?groupBy=feature` and `…&feature=<id>`.
+
+When the application binds a price list (`AiModule.forRoot({ pricing })`), the
+page shows a **Cost** tile and column; a dash means nothing in that row has a
+price, or its parts are in more than one currency. Costs are computed when the
+report is built and are never stored. Without a price list there is no cost
+anywhere.
 
 ## Troubleshooting
 

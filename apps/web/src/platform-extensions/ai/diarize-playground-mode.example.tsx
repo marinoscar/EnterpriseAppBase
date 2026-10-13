@@ -19,6 +19,7 @@
  * not pull the playground in.
  */
 import { lazy, Suspense } from 'react';
+import { registerAiCapabilityLabel } from '@marinoscar/platform-web/ai/headless';
 import { registerAiPlaygroundMode } from '@marinoscar/platform-web/ai/ui/playground-modes';
 import type { AiPlaygroundPanelProps } from '@marinoscar/platform-web/ai/ui/playground-modes';
 
@@ -41,8 +42,13 @@ export function DiarizePanel(props: AiPlaygroundPanelProps) {
   );
 }
 
-/** Adds the Diarize mode to the Playground. Call it once, at module scope, before the page renders. */
+/**
+ * Adds the Diarize mode to the Playground. Call it once, at module scope, before the page renders.
+ * It also teaches the pages the capability's label: the Playground and the user pages cannot read
+ * `GET /api/admin/ai/capabilities`, so without it a model's chip would read `speaker_diarization`.
+ */
 export function registerDiarizePlaygroundMode(): void {
+  registerAiCapabilityLabel('speaker_diarization', 'Diarization');
   registerAiPlaygroundMode({
     id: DIARIZE_MODE_ID,
     label: 'Diarize',
