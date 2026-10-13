@@ -1,6 +1,6 @@
 import type { DynamicModule, ForwardReference, Type } from '@nestjs/common';
 
-import { definePlatformHost, type PlatformHost, type PortBinding } from '../core/index';
+import { definePlatformHost, type ErrorMapper, type PlatformHost, type PortBinding } from '../core/index';
 import type { EventBus } from './event-bus/event-bus.interface';
 import { DEFAULT_MAINTENANCE_READ_PERMISSION, DEFAULT_MAINTENANCE_WRITE_PERMISSION } from './maintenance/maintenance.controller';
 
@@ -81,6 +81,25 @@ export interface PlatformHostCoreOptions {
    * metrics host is built, so a process without the SDK never queries for them.
    */
   metricsGauges?: boolean;
+  /**
+   * Mappers that turn a FOREIGN error (Prisma, an SDK) into an `HttpException`
+   * with a status and a registered code the app chose, tried in order for any
+   * thrown value that is not already an `HttpException`. Default: none, so a
+   * foreign error is a 500 exactly as before.
+   *
+   * A mapper must build the result's `message` and `details` itself: the
+   * original error's text (SQL, hostnames) is logged server-side and never put
+   * in the response.
+   *
+   * @example
+   * ```ts
+   * PlatformHostCoreModule.forRoot({ errorMappers: [prismaUniqueViolationMapper] });
+   * ```
+   *
+   * @extensionPoint option
+   * @stability experimental
+   */
+  errorMappers?: readonly ErrorMapper[];
   /** Extra modules the host core's providers need from the app (none by default). */
   imports?: PlatformHostCoreImport[];
 }
@@ -113,6 +132,8 @@ export interface ResolvedPlatformHostCoreOptions {
   readonly permissions: Readonly<Required<PlatformHostCorePermissions>>;
   /** See {@link PlatformHostCoreOptions.metricsGauges}; `undefined` reads the environment. */
   readonly metricsGauges: boolean | undefined;
+  /** See {@link PlatformHostCoreOptions.errorMappers}. */
+  readonly errorMappers: readonly ErrorMapper[];
   /** See {@link PlatformHostCoreOptions.imports}. */
   readonly imports: readonly PlatformHostCoreImport[];
 }
@@ -131,7 +152,7 @@ export const PLATFORM_HOST_CORE_OPTIONS: unique symbol = Symbol.for('@marinoscar
  * @returns the resolved, frozen options.
  * @throws Error when `eventBusAdapter` is not a string, `eventBus` is not a binding with exactly one
  *   of `useExisting`, `useClass` or `useFactory`, `host` is not a valid platform host, a permission
- *   is not a non-empty string, or `metricsGauges` is not a boolean.
+ *   is not a non-empty string, `metricsGauges` is not a boolean, or `errorMappers` is not an array of functions.
  *
  * @stability experimental
  */
@@ -164,6 +185,12 @@ export function resolvePlatformHostCoreOptions(options: PlatformHostCoreOptions 
   if (options.metricsGauges !== undefined && typeof options.metricsGauges !== 'boolean') {
     throw new Error('PlatformHostCoreModule.forRoot: metricsGauges must be a boolean');
   }
+  if (
+    options.errorMappers !== undefined &&
+    (!Array.isArray(options.errorMappers) || options.errorMappers.some((mapper) => typeof mapper !== 'function'))
+  ) {
+    throw new Error('PlatformHostCoreModule.forRoot: errorMappers must be an array of functions');
+  }
   return Object.freeze({
     eventBusAdapter: options.eventBusAdapter,
     eventBus: options.eventBus,
@@ -173,6 +200,7 @@ export function resolvePlatformHostCoreOptions(options: PlatformHostCoreOptions 
       maintenanceWrite: options.permissions?.maintenanceWrite ?? DEFAULT_MAINTENANCE_WRITE_PERMISSION,
     }),
     metricsGauges: options.metricsGauges,
+    errorMappers: Object.freeze([...(options.errorMappers ?? [])]),
     imports: Object.freeze([...(options.imports ?? [])]),
   });
 }

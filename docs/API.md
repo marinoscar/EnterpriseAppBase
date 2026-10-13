@@ -181,14 +181,27 @@ the app's `APP_FILTER`), which builds this body:
   "details": {}, "timestamp": "2026-09-26T12:00:00.000Z", "path": "/api/system-settings" }
 ```
 
-- `code` is always derived from the status: `BAD_REQUEST` (400),
-  `UNAUTHORIZED` (401), `FORBIDDEN` (403), `NOT_FOUND` (404), `CONFLICT` (409),
-  `PRECONDITION_FAILED` (412), `PAYLOAD_TOO_LARGE` (413),
-  `UNPROCESSABLE_ENTITY` (422), `TOO_MANY_REQUESTS` (429), `INTERNAL_ERROR`
-  (500), and `ERROR` for anything else (for example 503). A `code` on a thrown
-  exception is ignored. The base's own `If-Match` routes answer a version
+- `code` is an open string. By default it is derived from the status:
+  `BAD_REQUEST` (400), `UNAUTHORIZED` (401), `FORBIDDEN` (403), `NOT_FOUND`
+  (404), `CONFLICT` (409), `PRECONDITION_FAILED` (412), `PAYLOAD_TOO_LARGE`
+  (413), `UNPROCESSABLE_ENTITY` (422), `TOO_MANY_REQUESTS` (429),
+  `INTERNAL_ERROR` (500), and `ERROR` for anything else (for example 503). An
+  endpoint may answer a **domain code** its application registered with
+  `registerErrorCode` (`NOTE_TITLE_TAKEN`, 409): the filter passes a thrown
+  payload's `code` through only when it is registered for the exception's own
+  status, so an unregistered, misspelt or mismatched `code` is ignored and the
+  status-derived one is sent. The OpenAPI `ErrorDto.code` is a string whose
+  `examples` list every code registered when the document was generated; a
+  client must tolerate a code it does not know and should branch on `code`
+  rather than `message`. The base's own `If-Match` routes answer a version
   mismatch with `409 CONFLICT` (see [Optimistic Concurrency](#optimistic-concurrency-if-match)); `412` is mapped for
-  routes that choose the HTTP precondition status.
+  routes that choose the HTTP precondition status. Adding a code:
+  [EXTENDING.md](EXTENDING.md#add-an-error-code-and-an-error-mapper).
+- A foreign error (a Prisma or SDK error that is not an `HttpException`) is a
+  `500` unless an `ErrorMapper` passed to `PlatformHostCoreModule.forRoot({
+  errorMappers })` maps it (a Prisma `P2002` to a `409` with a registered code,
+  say). A mapped response carries the mapper's own `message` and `details`,
+  never the original error's text.
 - `details` is optional and endpoint-specific. It is the only place a custom
   field survives. Branch on `details.reason` where an endpoint documents one
   (for example `AI_DISABLED`, `AI_KEY_REQUIRED`, `MAINTENANCE_MODE`), never on

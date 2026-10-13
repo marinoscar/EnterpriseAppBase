@@ -6,8 +6,10 @@ import {
   PlatformHostProvider,
   isPlatformApiError,
   useOptionalPlatformHost,
+  useOptionalPlatformPort,
   usePlatformApi,
   usePlatformHost,
+  usePlatformPort,
   usePlatformViewer,
 } from '../../src/core/index.js';
 import { createTestApiError, createTestPlatformHost } from '../../src/testing/index.js';
@@ -36,6 +38,54 @@ describe('PlatformHostProvider and its hooks', () => {
     expect(() => renderHook(() => usePlatformHost())).toThrow(/no PlatformHostProvider/);
     expect(() => renderHook(() => usePlatformApi())).toThrow(/no PlatformHostProvider/);
     expect(renderHook(() => useOptionalPlatformHost()).result.current).toBeNull();
+  });
+});
+
+describe('usePlatformPort (extension ports)', () => {
+  interface TranscriptsPort {
+    open(id: string): string;
+  }
+  const SYMBOL_KEY = Symbol.for('@acme/transcripts/port');
+  const wrap = (host: ReturnType<typeof createTestPlatformHost>) =>
+    ({ children }: { children: ReactNode }) => <PlatformHostProvider host={host}>{children}</PlatformHostProvider>;
+
+  it('returns the port the app supplied under a string key or a symbol', () => {
+    const port: TranscriptsPort = { open: (id) => `opened ${id}` };
+    const other = { other: true };
+    const host = createTestPlatformHost({ extensions: { 'acme.transcripts': port, [SYMBOL_KEY]: other } });
+
+    const { result } = renderHook(
+      () => ({ byString: usePlatformPort<TranscriptsPort>('acme.transcripts'), bySymbol: usePlatformPort<typeof other>(SYMBOL_KEY) }),
+      { wrapper: wrap(host) },
+    );
+
+    expect(result.current.byString).toBe(port);
+    expect(result.current.byString.open('t1')).toBe('opened t1');
+    expect(result.current.bySymbol).toBe(other);
+  });
+
+  it('throws an error naming the key when the app did not supply the port', () => {
+    const host = createTestPlatformHost({ extensions: { 'acme.other': {} } });
+    expect(() => renderHook(() => usePlatformPort('acme.transcripts'), { wrapper: wrap(host) })).toThrow(
+      /no extension port acme\.transcripts.*host\.extensions\["acme\.transcripts"\]/,
+    );
+    expect(() => renderHook(() => usePlatformPort(SYMBOL_KEY), { wrapper: wrap(createTestPlatformHost()) })).toThrow(
+      /no extension port Symbol\(@acme\/transcripts\/port\)/,
+    );
+  });
+
+  it('does not read the prototype chain: Object.prototype members are not ports', () => {
+    const host = createTestPlatformHost({ extensions: {} });
+    expect(() => renderHook(() => usePlatformPort('toString'), { wrapper: wrap(host) })).toThrow(/no extension port toString/);
+    expect(renderHook(() => useOptionalPlatformPort('constructor'), { wrapper: wrap(host) }).result.current).toBeUndefined();
+  });
+
+  it('throws outside the provider; the optional variant answers undefined there and for a missing port', () => {
+    expect(() => renderHook(() => usePlatformPort('acme.transcripts'))).toThrow(/no PlatformHostProvider/);
+    expect(renderHook(() => useOptionalPlatformPort('acme.transcripts')).result.current).toBeUndefined();
+    expect(
+      renderHook(() => useOptionalPlatformPort('acme.transcripts'), { wrapper: wrap(createTestPlatformHost()) }).result.current,
+    ).toBeUndefined();
   });
 });
 

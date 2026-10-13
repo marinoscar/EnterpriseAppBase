@@ -58,14 +58,14 @@ The rule has three consequences:
 
 | Kind | Filled | Frozen | Examples |
 |---|---|---|---|
-| Static (`defineRegistry` at module scope) | At import time, from the app's registration files under `apps/api/src/app-registrations/` or from a side-effect import | When the application bootstraps (`RegistryFreezeService`); a later `register` throws `FROZEN` | Permissions, settings namespaces, notification events, templates and channels, storage key prefixes, metric groups, credential purposes, event bus adapters, storage drivers, user-owned models |
+| Static (`defineRegistry` at module scope) | At import time, from the app's registration files under `apps/api/src/app-registrations/` or from a side-effect import | When the application bootstraps (`RegistryFreezeService`); a later `register` throws `FROZEN` | Permissions, settings namespaces, notification events, templates and channels, storage key prefixes, metric groups, credential purposes, event bus adapters, storage drivers, user-owned models, system access reasons, principal and credential kinds, error codes |
 | Held by Nest (a provider) | By a provider of yours, from its `onModuleInit` | Not frozen | `JobHandlerRegistry`, `DoctorCheckRegistry`, `EgressRegistry`, `NotificationChannelSenderRegistry`, `ObjectProcessorRegistry`, `AiProviderRegistry` |
 
 The app-owned seam of every static registry is a file in [`apps/api/src/app-registrations/`](../apps/api/src/app-registrations/README.md). Upstream keeps those files empty; a fork fills them and never edits a platform declaration or manifest.
 
 ### Augmenting a typed id
 
-A registry keyed by a typed id (`MetricGroupIds`, `AppMetricKeys`, `NotificationChannelIds`, `EmailTemplateDataMap`, `SystemSettingsNamespaces`) widens by module augmentation of the **slice's public entry**, never a deeper path:
+A registry keyed by a typed id (`MetricGroupIds`, `AppMetricKeys`, `NotificationChannelIds`, `EmailTemplateDataMap`, `SystemSettingsNamespaces`, `CredentialKinds`, `PrincipalKinds`) widens by module augmentation of the **slice's public entry**, never a deeper path:
 
 ```ts
 declare module '@marinoscar/platform-api/telemetry' {
@@ -915,6 +915,79 @@ Available now. An app, or an `@acme/auth-github` package an app installs, adds a
 
 What is still closed (audit: [identity](EXTENSIBILITY-AUDIT.md#identity)): app roles in the invite and member routes (PP-14.15) and slots on the Users and Organization pages (PP-14.25). **Login CSRF is yours to prevent: the slice adds no `state` and no PKCE.** With `passport-oauth2`, `state: true` or `pkce: true` without a `store` throws "requires session support" on every sign-in here, because this app registers no session plugin. A real OAuth 2.0 provider must pass `store: createCookieStateStore({ secret: config.get('jwt.secret') })` (a signed, short-lived HttpOnly cookie; it does not do PKCE) or a store of its own. The example strategy has none only because it never leaves the process, and it is not a template for that part.
 
+### Add a system access reason
+
+Available now. A background job of your own needs cross-organization access (a re-index, a data repair) and names a reason the platform does not know. Registering the reason makes the label valid; it grants no access. Worked example: [`transcript-reindex.job.ts`](../apps/api/src/platform-extensions/core/transcript-reindex.job.ts), registered by [`app-registrations/core.ts`](../apps/api/src/app-registrations/core.ts), proven by [`open-vocabularies.spec.ts`](../apps/api/test/examples/core/open-vocabularies.spec.ts).
+
+1. **Register it at import time**, in `apps/api/src/app-registrations/core.ts`:
+
+   ```ts
+   import { registerSystemAccessReason } from '@marinoscar/platform-api/core';
+
+   registerSystemAccessReason({ id: 'transcript-reindex', description: 'Rebuilds the transcript search rows of every organization.' });
+   ```
+
+   The id matches `^[a-z][a-z0-9-]{2,47}$`; a duplicate (a built-in included) throws `DUPLICATE_ID`, and a registration after the application has bootstrapped `FROZEN`.
+2. **Run the work under it** with `runAsSystem(client, 'transcript-reindex', (tx) => ...)` or `forSystem`. An unregistered reason throws `ScopedAccessError`.
+3. **Reach the system client the allowed way.** The reason does not change who may inject `PrismaSystemService`: the allowlist in `apps/api/test/tenancy/system-injection-boundary.spec.ts` stays as it is, and a new file is a reviewed decision there. A job handler therefore takes a port that one of the allowlisted host modules implements with `PrismaSystemService.runAsSystem` (the shape the packaged slices use: `STORAGE_SYSTEM_DATA`, `AI_SYSTEM_PRISMA`), as the example's `SystemWork` does. That spec's scan of literal `asSystem('...')` reasons lists the base's nine; a fork that writes a literal reason in `src/` extends the list there in the same reviewed change.
+4. **The job** is an ordinary queue job ([Add a job type](#add-a-job-type)); one that writes as it goes is server-only. Put `orgId` in the payload when it touches an org table.
+5. **Run the kit**: `describeVocabularyConformance({ describe, it, expect }, { expectedAppReasons: ['transcript-reindex'] })` from `@marinoscar/platform-api/core/testing`, after importing the registration file.
+
+### Add a credential kind
+
+Available now. An integration authenticates with something that is not a session, a device token or a PAT (an API key, a webhook token). The kind names *how the request authenticated*; it does not grant anything. Example: [`api-key.credential-kind.ts`](../apps/api/src/platform-extensions/core/api-key.credential-kind.ts), registered by [`app-registrations/core.ts`](../apps/api/src/app-registrations/core.ts), proven by [`open-vocabularies.spec.ts`](../apps/api/test/examples/core/open-vocabularies.spec.ts).
+
+1. **Type it** by augmenting the core entry (`CredentialKinds`; add a key to `PrincipalKinds` for a new principal kind):
+
+   ```ts
+   declare module '@marinoscar/platform-api/core' {
+     interface CredentialKinds { 'api-key': true }
+   }
+   ```
+
+   The augmentation widens `CredentialKind` for the whole program, so a `switch` over it needs a `default` that denies, and code that builds a `UserPrincipal` literal types its credential with `BuiltinCredentialKind` (a `UserPrincipal` carries one of the platform's three).
+
+2. **Register it at import time** (`registerPrincipalKind` first when the principal kind is new; the credential kind's `principalKind` must already be registered):
+
+   ```ts
+   registerCredentialKind({ id: 'api-key', principalKind: 'user', description: 'An `ak_` key a user minted.' });
+   ```
+
+3. **Write the guard.** Plain Nest: read the credential, resolve its owner, check what the route needs, then set `request.principal = toPrincipal(owner, 'api-key')` (`toPrincipal` of `@marinoscar/platform-api/identity`). **Unknown means denied**: `toPrincipal` answers 401 for a kind that is not registered, and for one whose principal kind has no factory there; a custom kind never becomes a node principal. Every built-in decision keys on the built-in ids, so the new kind cannot switch organization or reach `/api/nodes`; the guard grants what the credential may do and nothing more.
+4. **A principal kind of your own** (`service`) has no factory in the identity slice: build that principal in your guard, and keep `Principal` narrowing on `kind`.
+5. **Run the kit** (above) and test the deny paths: a missing key, an unknown key, a key without the route's permission, and a guard built for an unregistered kind.
+
+### Add an error code and an error mapper
+
+Available now. A client that must tell "this title is taken" from "the version moved" branches on a **domain code**; a Prisma `P2002` that would be a 500 becomes a 409 with a **mapper**. Examples: [`note-title-taken.error-code.ts`](../apps/api/src/platform-extensions/core/note-title-taken.error-code.ts), [`prisma-unique-violation.mapper.ts`](../apps/api/src/platform-extensions/core/prisma-unique-violation.mapper.ts), proven (through the real host core and its filter) by [`open-vocabularies.spec.ts`](../apps/api/test/examples/core/open-vocabularies.spec.ts).
+
+1. **Register the code** at import time, for ONE status:
+
+   ```ts
+   registerErrorCode({ code: 'NOTE_TITLE_TAKEN', status: 409, description: 'A note with this title already exists.' });
+   ```
+
+   `^[A-Z][A-Z0-9_]{2,63}$`, status 400 to 599; `ERROR` (the fallback) and the platform's ten codes cannot be registered again.
+2. **Throw it** with the code in the payload: `throw new ConflictException({ code: 'NOTE_TITLE_TAKEN', message: '...', details: { field: 'title' } })`. The filter passes the code through only when it is registered for the exception's own status; anything else keeps the status-derived code, so the published list is exactly the registry. Machine-readable data still goes under `details`.
+3. **Write a mapper** for a foreign error and pass it to the host core (`apps/api/src/platform/host-core.config.ts`):
+
+   ```ts
+   export const hostCoreModule = PlatformHostCoreModule.forRoot({ errorMappers: [prismaUniqueViolationMapper] });
+   ```
+
+   An `ErrorMapper` is `(error: unknown) => HttpException | null`. It sees only values that are not already an `HttpException` (so it cannot rewrite a built-in response), runs in order, and the first result wins. Build the `message` and `details` yourself and never copy the original error's text: a driver message can carry SQL, hostnames and values. The filter logs the original server-side. The reference app does not wire its example mapper (it would turn today's 500 for an unhandled `P2002` into a 409); a fork does.
+4. **Check the document**: `npm run openapi:dump` lists the registered codes as the `examples` of `ErrorDto.code`, which is a string, not an enum.
+
+### Add a port to the web host
+
+Available now. A package an app installs needs something only the app can supply (how to open a record in the app's router, a feature switch source). It declares a typed port under a key it exports and reads it with `usePlatformPort`; the app supplies it in `PlatformWebHost.extensions`. Example: [`transcripts-port.example.tsx`](../apps/web/src/platform-extensions/core/transcripts-port.example.tsx), proven by [`platform-port.test.tsx`](../apps/web/src/__tests__/examples/core/platform-port.test.tsx).
+
+1. **In the package**: `export const TRANSCRIPTS_PORT = Symbol.for('@acme/transcripts/port')` (a `Symbol.for` key or a namespaced string such as `'acme.transcripts'`), an interface for the port, and `usePlatformPort<TranscriptsPort>(TRANSCRIPTS_PORT)` where it is needed. The hook throws at the first render, naming the key and the fix, when the app did not supply the port; `useOptionalPlatformPort` answers `undefined` for a port that is genuinely optional.
+2. **In the app**, in the host built by `useAppPlatformHost` (`apps/web/src/platform/platformHost.tsx`): `extensions: { [TRANSCRIPTS_PORT]: { open: (id) => navigate(`/transcripts/${id}`) } }`. Keep the record and each port stable across renders (memoise them with the host).
+3. **In tests**, `createTestPlatformHost({ extensions })` of `@marinoscar/platform-web/testing`.
+
+Only own keys are ports (`toString` is not one), and nothing validates a port's shape: type it in the package and validate in the package when the app is untrusted code.
+
 ## How to ship an extension as its own npm package
 
 An extension package (`@acme/ai-assemblyai`, `@acme/storage-azure`) is a package that an app installs next to `@marinoscar/platform-*` and that registers or binds its parts through the same seams an app uses. The platform packages are its host, so the package follows the rules that keep one copy of each.
@@ -940,6 +1013,7 @@ A kit is a function an extension author calls with the implementation and the te
 | `createAiRuntimeHarness({ extraProviders, extraAdapters, models })` | `@marinoscar/platform-api/ai/testing` | Not a kit but the runtime for one: the real gate pipeline (kill switch, provider switch, key policy, limits, usage) over your provider and in-memory tables | Available |
 | `runPlatformConformance` | `@marinoscar/platform-api/testing` | The platform's invariants over the app's source and registrations; a slice's suites register by importing its `…/testing` entry | Available |
 | `describePluggableKindConformance(kind, { describe, it, expect }, options?)` | `@marinoscar/platform-api/core/testing` | For each registered implementation of a pluggable kind: a valid id and label, defaults that parse, a descriptor that validates with secrets as presence flags only, no secret-looking setting, a `build` function | Available |
+| `describeVocabularyConformance({ describe, it, expect }, options?)` | `@marinoscar/platform-api/core/testing` | The built-in system access reasons, principal kinds, credential kinds and error codes are intact; every registration is well formed; an unregistered or prototype-named reason is refused by the bypass entry points; an unregistered credential kind is denied; a payload code passes only for its own status | Available |
 | `describeStorageDriverConformance(driver, { describe, it, expect, settings, secrets })` | `@marinoscar/platform-api/storage/testing` | A valid definition (id, label, defaults that parse); the full `StorageProvider` surface with `kind` equal to the driver id; put, head, read and delete real bytes; a 6 MiB streamed upload; the signed URL; key listing; `testConnection` never throws and never returns a secret; `provision`, `location` and `missing` when defined. It cannot detect a driver that buffers a whole stream | Available |
 | `describeEmailTransportConformance(transport, { describe, it, expect, settings, secrets, backend })` | `@marinoscar/platform-api/email/testing` | A valid definition (id, label, defaults that parse, declared secrets); an accepted message is `{ success: true }`; `send` never throws (network error, thrown string, thrown object); no secret material and no message content in the error text; attachments and headers passed through to one recipient; a throttle classified; `verify`, when defined, never throws | Available |
 | `describeAuthProviderConformance(definition, { describe, it, expect, rawProfile, expectedSubject, enabledWith?, host? })` | `@marinoscar/platform-api/identity/testing` | A well-formed definition; `mapProfile` returns a valid `ExternalProfile` (and survives a sparse payload); `isEnabled` is false without configuration and true with it; the strategy builds; the route is mounted; a full login creates a `UserIdentity` for this provider and subject; the allowlist applies; an unverified address is refused; a policy denial returns its reason | Available |

@@ -1709,14 +1709,21 @@ operations open their own transaction and escape the outer one. Use
 (`SYSTEM_POOL_MAX = 4`, `application_name = '<app>-system'`, same role and URL as
 the tenant pool, no new variable). Because the two pools share no backend, the
 bypass flag cannot reach a tenant request's connection whatever a bug does. Each
-acquisition names a **closed reason** (`SystemAccessReason`: `backup`, `restore`,
-`purge`, `doctor`, `retention`, `admin-aggregate`, `migration-tooling`,
-`link-resolution`, `export`), which is
-put on the active span (`db.access.reason`, plus a `db.rls_bypass` event) and
+acquisition names a **registered reason** (`SystemAccessReason`: the platform's
+nine, `backup`, `restore`, `purge`, `doctor`, `retention`, `admin-aggregate`,
+`migration-tooling`, `link-resolution` and `export`, plus any the app added with
+`registerSystemAccessReason`; an unregistered one throws `ScopedAccessError`),
+which is put on the active span (`db.access.reason`, plus a `db.rls_bypass` event) and
 logged at debug, never used as a metric label. **Only an allowlist of modules
 may inject it**: `apps/api/test/tenancy/system-injection-boundary.spec.ts`
 scans every constructor and `@Inject`, and fails on a file outside its
 `ALLOWLIST` and on a stale entry. Adding a file there is a reviewed decision.
+**The reasons are open; the injection allowlist is not.** A reason is a label on
+an acquisition, not a capability: registering one changes which names
+`runAsSystem` accepts and nothing about who can reach the system client, so a
+new reason never adds a file to the allowlist and never widens an existing
+file's reach. The registry freezes when the application has bootstrapped, so no
+reason can be added at request time.
 
 **Where the organization comes from.** An HTTP handler takes it from
 `@CurrentOrg()` (`principal.activeOrgId`: signed into the access token and
@@ -1816,6 +1823,30 @@ still isolates nothing without it.
   p50 and 2 to 4 ms at p95 per scoped query on 1,000 rows per organization).
 - `platform db drift` allows exactly the policies in `RLS_POLICIES` and fails
   on a missing one.
+
+### Open vocabularies
+
+Three small vocabularies on the security path are open to an app and all fail
+closed (reference: the [core README](../packages/platform-api/src/core/README.md#open-vocabularies),
+recipes: [EXTENDING.md](EXTENDING.md)):
+
+- **Access reasons** (`registerSystemAccessReason`): see above. The reason is a
+  span attribute and a log field, never a metric label; the registered ids are
+  a fixed, small set, so it is bounded.
+- **Credential kinds** (`registerCredentialKind`, with `registerPrincipalKind`).
+  Unknown means denied: `toPrincipal` answers 401 for a kind that is not
+  registered, or whose principal kind has no factory there, and does not echo
+  the kind. A registered kind starts with no privilege: every built-in decision
+  keys on the built-in ids (`switchOrg` accepts `session` only; the `/api/nodes`
+  confinement keys on the `nod_` credential), so an app's `api-key` cannot
+  switch organization or become a node principal. The app's own guard decides
+  what its credential may do.
+- **Error codes and mappers** (`registerErrorCode`, `errorMappers`). A payload
+  `code` reaches the wire only if it is registered for the exception's own
+  status. A mapper turns a foreign error into an `HttpException` it builds
+  itself; the foreign error's message (SQL, hostnames, values) is never copied
+  into the response, and mappers never see an `HttpException`, so a built-in
+  response or a verbatim body cannot be rewritten.
 
 ### Extending it
 

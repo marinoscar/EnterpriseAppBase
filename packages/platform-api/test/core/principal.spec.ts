@@ -3,6 +3,8 @@ import { join } from 'node:path';
 
 import * as contract from '../../src/core/principal/principal.types';
 import type {
+  BuiltinCredentialKind,
+  BuiltinPrincipalKind,
   CredentialKind,
   GroupMembership,
   NodePrincipal,
@@ -59,6 +61,9 @@ export type ContractUnions = [
   Expect<Equal<TenancyMode, 'single' | 'multi'>>,
   Expect<Equal<CredentialKind, 'session' | 'device' | 'pat' | 'node'>>,
   Expect<Equal<PrincipalKind, 'user' | 'node'>>,
+  // Unaugmented, the open (augmentable) kinds are exactly the closed built-ins (PP-14.14).
+  Expect<Equal<BuiltinCredentialKind, CredentialKind>>,
+  Expect<Equal<BuiltinPrincipalKind, PrincipalKind>>,
   Expect<Equal<Principal, UserPrincipal | NodePrincipal>>,
   Expect<Equal<UserPrincipal['credential'], 'session' | 'device' | 'pat'>>,
   Expect<Equal<NodePrincipal['credential'], 'node'>>,
