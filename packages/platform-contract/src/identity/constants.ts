@@ -128,7 +128,7 @@ export type BuiltinOrgRole = (typeof BUILTIN_ORG_ROLES)[number];
 /**
  * An org role id on the wire: a built-in one (autocompleted) or any string an
  * app or package registered. The API checks it against the role registry and
- * answers 400 (`details.reason: ROLE_NOT_ASSIGNABLE`) for an unknown or
+ * answers 400 (`code: ROLE_NOT_ASSIGNABLE`) for an unknown or
  * non-assignable role.
  *
  * @stability stable
@@ -160,8 +160,8 @@ export const ROLE_SCOPES = ['system', 'org'] as const;
 export type RoleScopeValue = (typeof ROLE_SCOPES)[number];
 
 /**
- * `details.reason` of the 400 the API answers when a role is unknown, of the
- * wrong scope, or registered as not assignable.
+ * The error `code` (and `details.reason`) of the 400 the API answers when a
+ * role is unknown, of the wrong scope, or registered as not assignable.
  *
  * @stability experimental
  */

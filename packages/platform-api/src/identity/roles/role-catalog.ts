@@ -20,7 +20,7 @@
 //
 // FAIL-CLOSED. A role that is not in the catalog, is of the wrong scope or is
 // registered `assignable: false` is refused with the same 400 and
-// `details.reason: ROLE_NOT_ASSIGNABLE`; the response never says which of the
+// `code: ROLE_NOT_ASSIGNABLE`; the response never says which of the
 // three it was. The database is NOT the authority on what may be assigned: a
 // `roles` row exists for every registered role, but a row left behind by a
 // removed registration, or inserted by hand, is not assignable.
@@ -29,8 +29,17 @@
 import { BadRequestException } from '@nestjs/common';
 import { ROLE_NOT_ASSIGNABLE_REASON, type RoleDescriptor, type RoleScopeValue } from '@marinoscar/platform-contract/identity';
 
-import { roleRegistry, type RoleDeclaration } from '../../core/index';
+import { registerErrorCode, roleRegistry, type RoleDeclaration } from '../../core/index';
 import { IDENTITY_ROLES } from '../identity.permissions';
+
+// The envelope `code` of the 400 below. Registered here, with the thing that
+// throws it, through the same call an app uses for its own domain codes; the
+// OpenAPI `ErrorDto` code list is the registry, so it appears there too.
+registerErrorCode({
+  code: 'ROLE_NOT_ASSIGNABLE',
+  status: 400,
+  description: 'The role is unknown, of another scope, or not one the invite, member and user-role routes may assign.',
+});
 
 /** The label of a role that declares none: `support_lead` reads as `Support lead`. */
 function defaultLabel(id: string): string {
@@ -92,8 +101,9 @@ export function listRoles(scope?: RoleScopeValue): RoleDescriptor[] {
 
 /**
  * The 400 for a role that cannot be assigned: unknown, of the wrong scope, or
- * registered `assignable: false`. One message and one `details.reason` for all
- * three, so a caller learns nothing about roles it cannot assign.
+ * registered `assignable: false`. The envelope `code` is `ROLE_NOT_ASSIGNABLE`
+ * (also `details.reason`), with one message for all three, so a caller learns
+ * nothing about roles it cannot assign.
  *
  * @param role - the role id as the caller sent it.
  *
@@ -104,6 +114,7 @@ export function roleNotAssignable(role: string): BadRequestException {
   // body can carry any string, so it is cut short.
   const shown = role.length > 64 ? `${role.slice(0, 64)}...` : role;
   return new BadRequestException({
+    code: ROLE_NOT_ASSIGNABLE_REASON,
     message: `The role "${shown}" cannot be assigned`,
     details: { reason: ROLE_NOT_ASSIGNABLE_REASON, role: shown },
   });
@@ -144,7 +155,7 @@ export function isAppManagedRole(role: string): boolean {
  *
  * @param role - the role id as the caller sent it.
  * @param scope - the scope the route assigns: `org` for a membership or an invitation, `system` for `user_roles`.
- * @throws BadRequestException (`details.reason: ROLE_NOT_ASSIGNABLE`) when the role is unknown, of another scope or not assignable.
+ * @throws BadRequestException (`code: ROLE_NOT_ASSIGNABLE`) when the role is unknown, of another scope or not assignable.
  *
  * @example
  * ```ts
@@ -165,7 +176,7 @@ export function assertRoleAssignable(role: string, scope: RoleScopeValue): void 
  *
  * @param role - the role id as the caller sent it.
  * @returns the role's scope.
- * @throws BadRequestException (`details.reason: ROLE_NOT_ASSIGNABLE`) when the role is unknown or not assignable.
+ * @throws BadRequestException (`code: ROLE_NOT_ASSIGNABLE`) when the role is unknown or not assignable.
  *
  * @stability experimental
  */

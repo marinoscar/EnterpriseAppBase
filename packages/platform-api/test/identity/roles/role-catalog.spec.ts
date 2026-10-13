@@ -23,7 +23,10 @@ function reasonOf(fn: () => unknown): unknown {
     fn();
   } catch (err) {
     expect(err).toBeInstanceOf(BadRequestException);
-    return ((err as BadRequestException).getResponse() as { details: { reason: string } }).details.reason;
+    const body = (err as BadRequestException).getResponse() as { code: string; details: { reason: string } };
+    // The envelope code (the filter passes a registered one through) and the reason agree.
+    expect(body.code).toBe(body.details.reason);
+    return body.details.reason;
   }
   throw new Error('expected a 400');
 }

@@ -910,7 +910,7 @@ A role is a string in `roles.name`: no package edit, no migration. Three cases, 
    ```
 
    `common/permissions/permission.manifest.ts` passes `APP_GRANTS` to `registerPlatformPermissions({ app: { grants } })`. A grant is validated when the process starts: the role and the permission exist, both have the same scope, the permission does not already grant it by default, and the target is not one of the platform's four roles. The catalog's `rolePermissions` carries it, the seed writes it into `role_permissions`, and the guards read those rows.
-3. **A role the application manages itself** (`service-bot`). Declare `assignable: false`: it can hold permissions and be seeded, but the invite, member and user-role routes refuse it (`400`, `details.reason: ROLE_NOT_ASSIGNABLE`), the dialogs do not offer it, and `PUT /api/users/:id/roles` leaves a user's existing system role of this kind in place.
+3. **A role the application manages itself** (`service-bot`). Declare `assignable: false`: it can hold permissions and be seeded, but the invite, member and user-role routes refuse it (`400`, `code: ROLE_NOT_ASSIGNABLE`), the dialogs do not offer it, and `PUT /api/users/:id/roles` leaves a user's existing system role of this kind in place.
 
 Prove it by registering the roles in a test with `withTemporaryEntries(roleRegistry, ...)` and driving the routes, as the example spec does. A role that a request names but nobody registered, a role of the other scope and an `assignable: false` role all answer the same `400`, so the response never says which.
 

@@ -49,7 +49,7 @@ export interface RoleDeclaration<Id extends string = string> {
    * Whether the invite, member and user-role routes may assign this role.
    * Default `true`. Set `false` for a role the application manages itself (an
    * internal or service role): every assignment route then answers 400
-   * (`details.reason: ROLE_NOT_ASSIGNABLE`) for it, and the dialogs do not
+   * (`code: ROLE_NOT_ASSIGNABLE`) for it, and the dialogs do not
    * offer it. Registry-only; never seeded, so changing it needs no re-seed.
    */
   readonly assignable?: boolean;

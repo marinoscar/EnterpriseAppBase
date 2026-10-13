@@ -238,6 +238,7 @@ describe('the example roles through the real application', () => {
           .send({ email: 'new@example.com', roleName })
           .expect(400);
 
+        expect(res.body).toMatchObject({ statusCode: 400, code: 'ROLE_NOT_ASSIGNABLE' });
         expect(res.body.details).toMatchObject({ reason: 'ROLE_NOT_ASSIGNABLE', role: roleName });
       });
       expect(context.prismaMock.invite.upsert).not.toHaveBeenCalled();
@@ -274,6 +275,7 @@ describe('the example roles through the real application', () => {
           .set(authHeader(orgAdmin.accessToken))
           .send({ roleName: 'service-bot' })
           .expect(400);
+        expect(refused.body.code).toBe('ROLE_NOT_ASSIGNABLE');
         expect(refused.body.details.reason).toBe('ROLE_NOT_ASSIGNABLE');
         expect(context.prismaMock.membership.update).not.toHaveBeenCalled();
       });
@@ -323,6 +325,7 @@ describe('the example roles through the real application', () => {
           .set(authHeader(systemAdmin.accessToken))
           .send({ roleNames: ['service-bot'] })
           .expect(400);
+        expect(refused.body.code).toBe('ROLE_NOT_ASSIGNABLE');
         expect(refused.body.details.reason).toBe('ROLE_NOT_ASSIGNABLE');
         expect(context.prismaMock.userRole.createMany).not.toHaveBeenCalled();
       });
