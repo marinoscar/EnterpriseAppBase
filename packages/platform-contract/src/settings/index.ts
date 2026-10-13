@@ -23,6 +23,8 @@ export {
   PLUGGABLE_ID_PATTERN,
   PROFILE_DISPLAY_NAME_MAX,
   PROFILE_IMAGE_SOURCES,
+  THEME_OPTION_LABEL_MAX,
+  THEME_PREFERENCE_ID_PATTERN,
   THEME_PREFERENCES,
 } from './constants.js';
 export type {
@@ -33,7 +35,7 @@ export type {
   ProfileImageSource,
   ThemePreference,
 } from './constants.js';
-export type { SystemSettingsResponseBase, UserSettingsResponseBase } from './types.js';
+export type { SystemSettingsResponseBase, ThemeOption, ThemePreferenceId, UserSettingsResponseBase } from './types.js';
 export {
   configFieldSchema,
   dataTableDensitySchema,
@@ -51,6 +53,8 @@ export {
   patchOrgSettingsSchema,
   pluggableDescriptorSchema,
   profileImageSourceSchema,
+  themeOptionSchema,
+  themePreferenceIdSchema,
   themePreferenceSchema,
   userProfileSettingsPatchSchema,
   userProfileSettingsSchema,

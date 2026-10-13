@@ -5,6 +5,29 @@
 import type { ProfileImageSource, ThemePreference } from './constants.js';
 
 /**
+ * A theme preference id: one of the built-in {@link ThemePreference} values or
+ * the id of a theme an app registered with `registerThemePreference`. The
+ * `(string & {})` keeps editor completion for the built-in ids.
+ *
+ * @stability experimental
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export type ThemePreferenceId = ThemePreference | (string & {});
+
+/**
+ * One theme an app registered on top of the built-in light, dark and system
+ * choices, as `GET /api/user-settings` lists it in `themeOptions`.
+ *
+ * @stability experimental
+ */
+export interface ThemeOption {
+  /** The id stored in `theme`; matches `THEME_PREFERENCE_ID_PATTERN`. */
+  id: string;
+  /** The label the theme control shows. */
+  label: string;
+}
+
+/**
  * The core fields of `GET /api/system-settings`: the session policy (derived
  * configuration, never stored), the audit fields and the row version for
  * `If-Match`. Every registered system namespace is a further property; an
@@ -52,6 +75,11 @@ export interface UserSettingsResponseBase {
     /** The uploaded avatar's object id, or `null`. */
     imageObjectId: string | null;
   };
+  /**
+   * The themes an app registered on top of light, dark and system; absent
+   * (never an empty list) when it registered none.
+   */
+  themeOptions?: ThemeOption[];
   /** When the row last changed (ISO 8601). */
   updatedAt: string;
   /** The row version; send it back as `If-Match`. */
