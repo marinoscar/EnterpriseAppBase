@@ -13,8 +13,8 @@
 //     1. unknown resource type or action ........... programming error (500)
 //     2. record missing / in another organization ... deny
 //     3. a required `actionPermissions` entry missing  deny (even for the owner)
-//     4. the record's USER OWNER ..................... allow  (`owner`)  } rules are not
-//     5. a held bypass permission .................... allow  (`bypass`) } consulted
+//     4. a held bypass permission .................... allow  (`bypass`) } rules are not
+//     5. the record's USER OWNER ..................... allow  (`owner`)  } consulted (both: `bypass`)
 //     --- from here the caller is subject to the rules ---
 //     6. rules `before-grants`: ANY deny ends it (deny); an allow offers its role
 //     7. group owner, then the strongest ACTIVE, UNEXPIRED grant (user, group, ...)
@@ -149,7 +149,6 @@ export interface AccessRuleSql<S> {
  * });
  * ```
  *
- * @extensionPoint registry
  * @stability experimental
  */
 export interface AccessRuleDef {

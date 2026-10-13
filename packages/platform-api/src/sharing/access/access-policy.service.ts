@@ -90,8 +90,7 @@ export type BuiltinAccessVia = 'owner' | 'group_owner' | 'user_grant' | 'group_g
  * sources ({@link BuiltinAccessVia}), the id of the access rule that allowed
  * it, or the `via` of an app grantee kind.
  *
- * @extensionPoint type
- * @stability experimental
+ * @stability stable
  */
 export type AccessVia = BuiltinAccessVia | (string & {});
 

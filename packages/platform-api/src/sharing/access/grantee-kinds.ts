@@ -131,7 +131,6 @@ export interface GranteeColumns<S> {
  * });
  * ```
  *
- * @extensionPoint registry
  * @stability experimental
  */
 export interface GranteeKindDef {
