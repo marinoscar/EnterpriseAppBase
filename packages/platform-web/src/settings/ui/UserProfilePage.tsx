@@ -13,9 +13,26 @@
  * (#95) and the page's own `h1` all name the page identically.
  */
 
+import type { PageSlotsBase } from '../../core/index.js';
 import { ProfileSettings } from './ProfileSettings.js';
 import type { ProfileSettingsSlots } from './ProfileSettings.js';
 import { UserSettingsSection } from './UserSettingsSection.js';
+
+/**
+ * The slots of {@link UserProfilePage}: the page-slot contract, and the profile
+ * card's own part overrides ({@link ProfileSettingsSlots}: `ExtraFields`, the
+ * fields an app added with `extendUserProfile`). `Sections` is where an app
+ * adds a section of its own (a public handle) above or below the profile card.
+ *
+ * @example
+ * ```tsx
+ * <UserProfilePage slots={{ Sections: ({ position }) => (position === 'bottom' ? <PublicHandleCard /> : null) }} />
+ * ```
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export interface UserProfilePageSlots extends PageSlotsBase, ProfileSettingsSlots {}
 
 /**
  * Props of {@link UserProfilePage}.
@@ -23,8 +40,8 @@ import { UserSettingsSection } from './UserSettingsSection.js';
  * @stability experimental
  */
 export interface UserProfilePageProps {
-  /** Part overrides of the profile card (`ExtraFields`). */
-  slots?: ProfileSettingsSlots;
+  /** The page-slot contract's slots and the profile card's part overrides (`ExtraFields`). */
+  slots?: UserProfilePageSlots;
 }
 
 /**
@@ -47,6 +64,7 @@ export interface UserProfilePageProps {
 export function UserProfilePage({ slots }: UserProfilePageProps = {}) {
   return (
     <UserSettingsSection
+      slots={slots}
       title="Profile"
       description="Your display name and profile image, and the email you signed in with."
     >

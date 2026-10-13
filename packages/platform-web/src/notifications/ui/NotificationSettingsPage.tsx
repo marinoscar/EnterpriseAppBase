@@ -62,6 +62,7 @@ import {
   Typography,
 } from '@mui/material';
 import LockIcon from '@mui/icons-material/Lock';
+import type { PageSlotsBase } from '../../core/index.js';
 import { SystemSettingsSection } from './SystemSettingsSection.js';
 import { useNotificationChannels } from '../headless/useNotificationChannels.js';
 import { useNotificationEvents } from '../headless/useNotificationEvents.js';
@@ -159,6 +160,29 @@ function EventRow({ event, enabled, disabled, onChange }: EventRowProps) {
 }
 
 /**
+ * The slots of {@link NotificationSettingsPage}: the page-slot contract. `Sections` is drawn at both ends of the body, around the deployment-wide switch and the per-event list; the per-user channel columns come from the channel registry.
+ *
+ * @example
+ * ```tsx
+ * <NotificationSettingsPage slots={{ BeforeContent: () => <Alert severity="info">Changes apply to every user.</Alert> }} />
+ * ```
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export type NotificationSettingsPageSlots = PageSlotsBase;
+
+/**
+ * The props of {@link NotificationSettingsPage}.
+ *
+ * @stability experimental
+ */
+export interface NotificationSettingsPageProps {
+  /** Optional extension slots; omitted, the page renders exactly as it always did. */
+  slots?: NotificationSettingsPageSlots;
+}
+
+/**
  * The `/admin/settings/notifications` page: the deployment-wide browser channel switch and the per-event suppression list (`system_settings:read`; writes gated by `system_settings:write`).
  *
  * @returns the page.
@@ -166,9 +190,10 @@ function EventRow({ event, enabled, disabled, onChange }: EventRowProps) {
  * @extensionPoint component
  * @stability experimental
  */
-export default function NotificationSettingsPage() {
+export default function NotificationSettingsPage(props: NotificationSettingsPageProps = {}) {
   return (
     <SystemSettingsSection
+      slots={props.slots}
       title={PAGE_TITLE}
       description={PAGE_DESCRIPTION}
       requiredPermission="system_settings:read"

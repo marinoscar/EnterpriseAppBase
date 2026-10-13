@@ -62,6 +62,10 @@ runPlatformWebConformance({
     unowned: UNOWNED_ROUTES,
     owns,
     resolveActive: resolveActiveDestination,
-    destinations: DESTINATIONS.map((destination) => ({ key: destination.key, path: destination.path })),
+    destinations: DESTINATIONS.map((destination) => ({
+      key: destination.key,
+      path: destination.path,
+      ...(destination.external ? { external: true } : {}),
+    })),
   },
 });

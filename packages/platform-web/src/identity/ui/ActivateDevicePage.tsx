@@ -12,6 +12,7 @@ import {
   useTheme,
 } from '@mui/material';
 import { isPlatformApiError } from '../../core/index.js';
+import type { PageSlotsBase } from '../../core/index.js';
 import { useIdentityApi } from '../headless/index.js';
 import { DeviceCodeInput } from './device/DeviceCodeInput.js';
 import { DeviceInfoCard } from './device/DeviceInfoCard.js';
@@ -24,15 +25,42 @@ type PageState =
   | { step: 'complete'; success: boolean; message: string };
 
 /**
+ * The slots of {@link ActivateDevicePage}: the packaged-page slot contract.
+ * `Header` replaces the heading block of the card (its `title` and `description`
+ * change with the step); `BeforeContent` and `Sections` (top) sit between the
+ * heading and the step's content, `Sections` (bottom) and `AfterContent` after it.
+ * All of it is inside the card.
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export type ActivateDevicePageSlots = PageSlotsBase;
+
+/**
+ * Props of {@link ActivateDevicePage}.
+ *
+ * @stability experimental
+ */
+export interface ActivateDevicePageProps {
+  /** Add to the page without a fork. */
+  slots?: ActivateDevicePageSlots;
+}
+
+/**
  * The `/activate` route: enter (or arrive with) a device's user code, review
  * what the device asked for, approve or deny.
  *
+ * @param props - see {@link ActivateDevicePageProps}.
  * @returns the page.
  *
  * @extensionPoint component
  * @stability stable
  */
-export function ActivateDevicePage(): ReactElement {
+export function ActivateDevicePage({ slots }: ActivateDevicePageProps = {}): ReactElement {
+  const Header = slots?.Header;
+  const BeforeContent = slots?.BeforeContent;
+  const Sections = slots?.Sections;
+  const AfterContent = slots?.AfterContent;
   const { getDeviceActivationInfo, authorizeDevice } = useIdentityApi();
   const [searchParams] = useSearchParams();
   const theme = useTheme();
@@ -129,16 +157,26 @@ export function ActivateDevicePage(): ReactElement {
       >
         <CardContent sx={{ p: { xs: 3, sm: 4 } }}>
           {/* Header */}
-          <Box sx={{ textAlign: 'center', mb: 4 }}>
-            <Typography variant="h4" component="h1" sx={{ fontWeight: 'bold' }}>
-              {state.step === 'complete' ? 'Authorization Complete' : 'Authorize Device'}
-            </Typography>
-            {state.step !== 'complete' && (
-              <Typography color="text.secondary" sx={{ mt: 1 }}>
-                Link a device to your account
+          {Header ? (
+            <Header
+              title={state.step === 'complete' ? 'Authorization Complete' : 'Authorize Device'}
+              {...(state.step !== 'complete' ? { description: 'Link a device to your account' } : {})}
+              actions={null}
+            />
+          ) : (
+            <Box sx={{ textAlign: 'center', mb: 4 }}>
+              <Typography variant="h4" component="h1" sx={{ fontWeight: 'bold' }}>
+                {state.step === 'complete' ? 'Authorization Complete' : 'Authorize Device'}
               </Typography>
-            )}
-          </Box>
+              {state.step !== 'complete' && (
+                <Typography color="text.secondary" sx={{ mt: 1 }}>
+                  Link a device to your account
+                </Typography>
+              )}
+            </Box>
+          )}
+          {BeforeContent && <BeforeContent />}
+          {Sections && <Sections position="top" />}
 
           {/* Content based on state */}
           {state.step === 'input' && (
@@ -164,6 +202,9 @@ export function ActivateDevicePage(): ReactElement {
               message={state.message}
             />
           )}
+
+          {Sections && <Sections position="bottom" />}
+          {AfterContent && <AfterContent />}
         </CardContent>
       </Card>
     </Box>

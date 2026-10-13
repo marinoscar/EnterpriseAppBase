@@ -19,6 +19,7 @@
  * one of which is a control that would 503 the moment it was touched.
  */
 
+import type { ReactNode } from 'react';
 import { Box, Button, Card, CardContent, Chip, Stack, Typography, useTheme } from '@mui/material';
 import { Link as RouterLink } from 'react-router-dom';
 import BuildCircleOutlinedIcon from '@mui/icons-material/BuildCircleOutlined';
@@ -47,6 +48,22 @@ export interface MaintenanceScreenProps {
    * already be over.
    */
   onRetry: () => void;
+  /**
+   * Replaces the wrench icon above the heading (the app's logo). Drawn inside
+   * the same centred block, so give it its own size; omitted, the icon the
+   * screen always had.
+   */
+  logo?: ReactNode;
+  /**
+   * Extra controls after "Try again" and the retry-after note (a status page
+   * link, a support address). Omitted, nothing is added.
+   */
+  actions?: ReactNode;
+  /**
+   * Extra content under the operator's message and above the retry controls (a
+   * link to the status page, an expected duration). Omitted, nothing is added.
+   */
+  children?: ReactNode;
 }
 
 /**
@@ -54,19 +71,20 @@ export interface MaintenanceScreenProps {
  * application while a deliberate maintenance window is open. Not a route; the
  * app's gate renders it in place, outside the layout.
  *
- * @param props - see {@link MaintenanceScreenProps}.
+ * @param props - see {@link MaintenanceScreenProps}. `logo`, `actions` and `children` are the
+ *   optional parts an app adds; a screen given none is the screen it always was.
  * @returns the screen element.
  *
  * @example
  * ```tsx
  * const { block, clear } = useMaintenanceBlock();
- * if (block) return <MaintenanceScreen appName={APP_NAME} block={block} onRetry={clear} />;
+ * if (block) return <MaintenanceScreen appName={APP_NAME} block={block} onRetry={clear} logo={<AppLogo />} />;
  * ```
  *
  * @extensionPoint component
  * @stability experimental
  */
-export function MaintenanceScreen({ appName, block, onRetry }: MaintenanceScreenProps) {
+export function MaintenanceScreen({ appName, block, onRetry, logo, actions, children }: MaintenanceScreenProps) {
   const theme = useTheme();
   // The maintenance switch is gated on `system_settings:read`, so this is the
   // same question "can this person do anything about it?" — asked of the
@@ -89,14 +107,16 @@ export function MaintenanceScreen({ appName, block, onRetry }: MaintenanceScreen
         <CardContent sx={{ p: { xs: 3, sm: 4 } }}>
           <Stack spacing={2.5}>
             <Box sx={{ textAlign: 'center' }}>
-              <BuildCircleOutlinedIcon
-                color="warning"
-                sx={{ fontSize: 56 }}
-                // Decorative: the heading directly beneath says the same thing
-                // in words, and a screen reader announcing "build circle" adds
-                // nothing.
-                aria-hidden
-              />
+              {logo ?? (
+                <BuildCircleOutlinedIcon
+                  color="warning"
+                  sx={{ fontSize: 56 }}
+                  // Decorative: the heading directly beneath says the same thing
+                  // in words, and a screen reader announcing "build circle" adds
+                  // nothing.
+                  aria-hidden
+                />
+              )}
               {/* The product name comes from `@app/shared`, the one line a fork
                   edits to rebrand (#162). Nothing in this file may hard-code
                   it — and the sentence under it is the OPERATOR'S, delivered by
@@ -119,6 +139,8 @@ export function MaintenanceScreen({ appName, block, onRetry }: MaintenanceScreen
               {block.message}
             </Typography>
 
+            {children}
+
             <Stack spacing={1} sx={{ alignItems: 'center' }}>
               <Button
                 variant="contained"
@@ -134,6 +156,7 @@ export function MaintenanceScreen({ appName, block, onRetry }: MaintenanceScreen
               <Typography variant="caption" color="text.secondary">
                 The application asked us to wait about {block.retryAfterSeconds} seconds.
               </Typography>
+              {actions}
             </Stack>
 
             {/* WHAT THE 503 ITSELF TOLD US ABOUT WHO GETS THROUGH. The API puts

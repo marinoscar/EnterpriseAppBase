@@ -125,7 +125,8 @@ import {
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { Navigate } from 'react-router-dom';
-import { useOptionalPlatformHost } from '../../core/index.js';
+import { PageSlotsFrame, useOptionalPlatformHost } from '../../core/index.js';
+import type { PageSlotsBase } from '../../core/index.js';
 import { usePermissions } from '../../identity/index.js';
 import type {
   AboutExtra,
@@ -580,6 +581,33 @@ function proxyModeLabel(proxy: AboutResponse['proxy']): string | null {
 }
 
 /**
+ * The slots of {@link AboutPage}: the page-slot contract. `Sections` is drawn
+ * at both ends of the page body, around the page's own facts and the sections
+ * the API's About contributors (`registerAboutContributor`) contribute; use a
+ * slot for a section that needs React (a chart, a link list) and a contributor
+ * for one that is just facts.
+ *
+ * @example
+ * ```tsx
+ * <AboutPage slots={{ Sections: ({ position }) => (position === 'bottom' ? <SupportContacts /> : null) }} />
+ * ```
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export type AboutPageSlots = PageSlotsBase;
+
+/**
+ * The props of {@link AboutPage}.
+ *
+ * @stability experimental
+ */
+export interface AboutPageProps {
+  /** Optional extension slots; omitted, the page renders exactly as it always did. */
+  slots?: AboutPageSlots;
+}
+
+/**
  * Admin → Operations → About: what is actually deployed here (the API version,
  * the deploy document, the host, the history and a database liveness fact).
  * Redirects to `/` without `system_settings:read`; the app's route gate is the
@@ -595,7 +623,8 @@ function proxyModeLabel(proxy: AboutResponse['proxy']): string | null {
  * @extensionPoint component
  * @stability experimental
  */
-export function AboutPage() {
+export function AboutPage(props: AboutPageProps = {}) {
+  const { slots } = props;
   const { hasPermission } = usePermissions();
   const { data, isLoading, error, refresh } = useAbout();
 
@@ -618,16 +647,23 @@ export function AboutPage() {
   return (
     <Container maxWidth="lg">
       <Box sx={{ py: 4 }}>
-        {/* Title and description MIRROR the registry card so the hub card, the
-            rail row, the compact AppBar title and this `h1` all name the page
-            identically. */}
-        <Typography variant="h4" component="h1" gutterBottom>
-          {PAGE_TITLE}
-        </Typography>
-        <Typography color="text.secondary" sx={{ mb: 3 }}>
-          {PAGE_DESCRIPTION}
-        </Typography>
-
+        <PageSlotsFrame
+          slots={slots}
+          headerProps={{ title: PAGE_TITLE, description: PAGE_DESCRIPTION, actions: null }}
+          header={
+            <>
+              {/* Title and description MIRROR the registry card so the hub card, the
+                  rail row, the compact AppBar title and this `h1` all name the page
+                  identically. */}
+              <Typography variant="h4" component="h1" gutterBottom>
+                {PAGE_TITLE}
+              </Typography>
+              <Typography color="text.secondary" sx={{ mb: 3 }}>
+                {PAGE_DESCRIPTION}
+              </Typography>
+            </>
+          }
+        >
         {/* THE REQUEST FAILED — a 403, a network error, a maintenance window.
             NOT a missing or broken deploy document, and not a database that did
             not answer: the endpoint reports both of those as a successful 200
@@ -957,6 +993,7 @@ export function AboutPage() {
             </Box>
           </Stack>
         )}
+        </PageSlotsFrame>
       </Box>
     </Container>
   );

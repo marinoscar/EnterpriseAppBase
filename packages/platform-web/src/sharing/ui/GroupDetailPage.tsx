@@ -32,12 +32,14 @@ import {
   IconButton,
   MenuItem,
   Stack,
+  Tab,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
+  Tabs,
   TextField,
   Tooltip,
   Typography,
@@ -47,9 +49,10 @@ import type { SxProps, Theme } from '@mui/material';
 import { SHARING_LIMITS } from '@marinoscar/platform-contract/sharing';
 import type { GroupDto, GroupMemberDto, GroupRole } from '@marinoscar/platform-contract/sharing';
 import { useId, useState } from 'react';
-import type { ComponentType, FormEvent, ReactElement } from 'react';
+import type { FormEvent, ReactElement, ReactNode } from 'react';
 import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom';
 
+import type { PageHeaderSlotProps, PageSlot, PageSlotsBase } from '../../core/index.js';
 import type { SharingClient } from '../headless/client.js';
 import { toSharingError } from '../headless/errors.js';
 import type { SharingError } from '../headless/types.js';
@@ -62,18 +65,79 @@ import { useCan, useViewerId } from '../internal/use-can.js';
 import { GROUP_ROLE_OPTIONS, groupRoleLabel } from './copy.js';
 
 /**
- * The parts of {@link GroupDetailPage} an app may replace.
+ * What {@link GroupDetailPage} passes its `Header` slot: the page-slot
+ * contract's header props (`title` is the group's name, `description` its
+ * description) plus the group and where "back" goes.
  *
  * @stability experimental
  */
-export interface GroupDetailPageSlots {
-  /** The page header. Default a back link, an `h1` with the name and the description. */
-  Header?: ComponentType<{
+export interface GroupDetailHeaderProps extends PageHeaderSlotProps {
+  /** The loaded group. */
+  group: GroupDto;
+  /** Where "back" goes. */
+  backPath: string;
+}
+
+/**
+ * What {@link GroupDetailPage} passes its `MemberRowActions` slot, once per
+ * member row.
+ *
+ * @stability experimental
+ */
+export interface GroupMemberRowActionsProps {
+  /** The member the row shows. */
+  member: GroupMemberDto;
+  /** The loaded group. */
+  group: GroupDto;
+  /** The row is the viewer's own. */
+  isSelf: boolean;
+  /** The viewer may manage the group's members (an admin of the group holding `groups:write`). The API enforces it. */
+  canManage: boolean;
+}
+
+/**
+ * A tab an app adds to {@link GroupDetailPage}, after Members and (for a group
+ * admin) Invitations. Only for content that is PARALLEL to those (another view
+ * of the same group); a new settings page is a registry card.
+ *
+ * @stability experimental
+ */
+export interface GroupDetailTab {
+  /** A stable id (the tab's key). */
+  id: string;
+  /** The tab's label. */
+  label: ReactNode;
+  /** The tab's content. Rendered only while the tab is selected. */
+  Panel: PageSlot<{
     /** The loaded group. */
     group: GroupDto;
-    /** Where "back" goes. */
-    backPath: string;
   }>;
+}
+
+/**
+ * The parts of {@link GroupDetailPage} an app may replace or add to: the
+ * packaged-page slot contract, `MemberRowActions` and `Tabs`.
+ *
+ * Order of the body: `Header`, `BeforeContent`, `Sections` (top), the group's
+ * actions, then the members and invitations, `Sections` (bottom),
+ * `AfterContent`. With `Tabs` set, the members and invitations become tabs and
+ * the app's tabs follow them; with none, they stay the two stacked cards.
+ *
+ * @example
+ * ```tsx
+ * <GroupDetailPage slots={{ Tabs: [{ id: 'activity', label: 'Activity', Panel: GroupActivity }] }} />
+ * ```
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export interface GroupDetailPageSlots extends PageSlotsBase {
+  /** The page header. Default a back link, an `h1` with the name and the description. */
+  Header?: PageSlot<GroupDetailHeaderProps>;
+  /** Extra actions in each member's row, after the remove button. */
+  MemberRowActions?: PageSlot<GroupMemberRowActionsProps>;
+  /** Tabs added after Members and Invitations. Keep it a module constant. */
+  Tabs?: readonly GroupDetailTab[];
 }
 
 /**
@@ -101,7 +165,7 @@ export interface GroupDetailPageProps {
   className?: string;
 }
 
-function DefaultHeader({ group, backPath }: { group: GroupDto; backPath: string }): ReactElement {
+function DefaultHeader({ group, backPath }: GroupDetailHeaderProps): ReactElement {
   return (
     <Box sx={{ mb: 3 }}>
       <Button component={RouterLink} to={backPath} startIcon={<ArrowBackIcon />} sx={{ mb: 1 }}>
@@ -173,6 +237,11 @@ export function GroupDetailPage(props: GroupDetailPageProps): ReactElement {
   const ids = useId();
   const clientOption = props.client ? { client: props.client } : {};
   const Header = props.slots?.Header ?? DefaultHeader;
+  const BeforeContent = props.slots?.BeforeContent;
+  const Sections = props.slots?.Sections;
+  const AfterContent = props.slots?.AfterContent;
+  const MemberRowActions = props.slots?.MemberRowActions;
+  const appTabs = props.slots?.Tabs ?? [];
 
   const group = useGroup(groupId, clientOption);
   const members = useGroupMembers(groupId, clientOption);
@@ -195,6 +264,7 @@ export function GroupDetailPage(props: GroupDetailPageProps): ReactElement {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [leaveError, setLeaveError] = useState<string | null>(null);
+  const [tabId, setTabId] = useState('members');
 
   if (!groupId) {
     return (
@@ -339,9 +409,222 @@ export function GroupDetailPage(props: GroupDetailPageProps): ReactElement {
     }
   };
 
+  // The two cards, built once: stacked as they always were, or the first tabs
+  // when the app passes `slots.Tabs`.
+  const membersCard = (
+  <Card variant="outlined" sx={{ mb: 3 }}>
+    <CardContent>
+      <Typography variant="h6" component="h2" gutterBottom id={`${ids}-members`}>
+        Members
+      </Typography>
+      {members.loading && members.data === null ? (
+        <CircularProgress size={24} aria-label="Loading members" />
+      ) : members.error ? (
+        <Alert severity="error" action={<Button onClick={() => void members.refresh()}>Retry</Button>}>
+          {members.error.message}
+        </Alert>
+      ) : (
+        <TableContainer>
+          <Table size="small" aria-labelledby={`${ids}-members`}>
+            <TableHead>
+              <TableRow>
+                <TableCell>Member</TableCell>
+                <TableCell>Role</TableCell>
+                {(canManage || MemberRowActions) && (
+                  <TableCell align="right">
+                    <Box component="span" sx={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clipPath: 'inset(50%)' }}>
+                      Actions
+                    </Box>
+                  </TableCell>
+                )}
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {memberItems.map((member) => {
+                const name = memberName(member);
+                const isSelf = member.userId === viewerId;
+                return (
+                  <TableRow key={member.userId} data-testid={`member-${member.userId}`}>
+                    <TableCell sx={{ overflowWrap: 'anywhere' }}>
+                      <Typography variant="body2">
+                        {name}
+                        {isSelf ? ' (you)' : ''}
+                      </Typography>
+                      {member.displayName && (
+                        <Typography variant="caption" color="text.secondary">
+                          {member.email}
+                        </Typography>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {canManage ? (
+                        <TextField
+                          select
+                          label="Role"
+                          value={member.role}
+                          onChange={(event) => void changeRole(member, event.target.value as GroupRole)}
+                          size="small"
+                          sx={{ minWidth: 120 }}
+                          slotProps={{ select: { inputProps: { 'aria-label': `Role for ${name}` } } }}
+                        >
+                          {GROUP_ROLE_OPTIONS.map((option) => (
+                            <MenuItem key={option.value} value={option.value}>
+                              {option.label}
+                            </MenuItem>
+                          ))}
+                        </TextField>
+                      ) : (
+                        groupRoleLabel(member.role)
+                      )}
+                    </TableCell>
+                    {(canManage || MemberRowActions) && (
+                      <TableCell align="right">
+                        {MemberRowActions ? (
+                          <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', justifyContent: 'flex-end' }}>
+                            {canManage && !isSelf && (
+                              <Tooltip title="Remove from the group">
+                                <IconButton aria-label={`Remove ${name}`} onClick={() => void removeMember(member)}>
+                                  <DeleteOutlineIcon />
+                                </IconButton>
+                              </Tooltip>
+                            )}
+                            <MemberRowActions member={member} group={current} isSelf={isSelf} canManage={canManage} />
+                          </Stack>
+                        ) : (
+                          !isSelf && (
+                            <Tooltip title="Remove from the group">
+                              <IconButton aria-label={`Remove ${name}`} onClick={() => void removeMember(member)}>
+                                <DeleteOutlineIcon />
+                              </IconButton>
+                            </Tooltip>
+                          )
+                        )}
+                      </TableCell>
+                    )}
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      )}
+    </CardContent>
+  </Card>
+  );
+  const invitesCard = isManager ? (
+    <Card variant="outlined" sx={{ mb: 3 }}>
+      <CardContent>
+        <Typography variant="h6" component="h2" gutterBottom>
+          Invitations
+        </Typography>
+        {canManage && (
+          <Box component="form" onSubmit={submitInvite} noValidate sx={{ mb: 2 }}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: { sm: 'flex-start' } }}>
+              <TextField
+                label="E-mail address"
+                type="email"
+                value={inviteEmail}
+                onChange={(event) => setInviteEmail(event.target.value)}
+                error={inviteTouched && !inviteValid}
+                helperText={inviteTouched && !inviteValid ? 'Enter a valid e-mail address.' : ' '}
+                size="small"
+                fullWidth
+                autoComplete="email"
+              />
+              <TextField
+                select
+                label="Invite as"
+                value={inviteRole}
+                onChange={(event) => setInviteRole(event.target.value as GroupRole)}
+                size="small"
+                sx={{ minWidth: 130 }}
+                helperText=" "
+              >
+                {GROUP_ROLE_OPTIONS.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <Button type="submit" variant="contained" disabled={actions.pending} sx={{ flexShrink: 0 }}>
+                Invite
+              </Button>
+            </Stack>
+          </Box>
+        )}
+        {inviteError && (
+          <Alert severity="error" sx={{ mb: 1 }} data-testid="invite-error">
+            {inviteError}
+          </Alert>
+        )}
+        {invites.loading && invites.data === null ? (
+          <CircularProgress size={24} aria-label="Loading invitations" />
+        ) : invites.error ? (
+          <Alert severity="error">{invites.error.message}</Alert>
+        ) : inviteItems.length === 0 ? (
+          <Typography variant="body2" color="text.secondary">
+            No pending invitations.
+          </Typography>
+        ) : (
+          <TableContainer>
+            <Table size="small" aria-label="Pending invitations">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Address</TableCell>
+                  <TableCell>Role</TableCell>
+                  <TableCell>Expiry</TableCell>
+                  {canManage && <TableCell align="right">Revoke</TableCell>}
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {inviteItems.map((invite) => (
+                  <TableRow key={invite.id}>
+                    <TableCell sx={{ overflowWrap: 'anywhere' }}>{invite.email}</TableCell>
+                    <TableCell>{groupRoleLabel(invite.role)}</TableCell>
+                    <TableCell>{invite.expiresAt ? formatDate(invite.expiresAt) : expiryText(null)}</TableCell>
+                    {canManage && (
+                      <TableCell align="right">
+                        <Button
+                          size="small"
+                          color="error"
+                          onClick={() => void revokeInvite(invite.id, invite.email)}
+                          aria-label={`Revoke the invitation to ${invite.email}`}
+                        >
+                          Revoke
+                        </Button>
+                      </TableCell>
+                    )}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        )}
+      </CardContent>
+    </Card>
+  ) : null;
+
+  const builtinTabs: { id: string; label: string; panel: ReactNode }[] = [
+    { id: 'members', label: 'Members', panel: membersCard },
+    ...(isManager ? [{ id: 'invitations', label: 'Invitations', panel: invitesCard }] : []),
+  ];
+  const allTabs = [
+    ...builtinTabs,
+    ...appTabs.map((tab) => ({ id: tab.id, label: tab.label, panel: <tab.Panel group={current} /> })),
+  ];
+  const activeTab = allTabs.some((tab) => tab.id === tabId) ? tabId : 'members';
+
   return (
     <Box sx={props.sx} className={props.className}>
-      <Header group={current} backPath={backPath} />
+      <Header
+        group={current}
+        backPath={backPath}
+        title={current.name}
+        {...(current.description ? { description: current.description } : {})}
+        actions={null}
+      />
+      {BeforeContent && <BeforeContent />}
+      {Sections && <Sections position="top" />}
 
       <Stack direction="row" spacing={1} sx={{ mb: 3, flexWrap: 'wrap', rowGap: 1 }}>
         {canManage && (
@@ -367,186 +650,35 @@ export function GroupDetailPage(props: GroupDetailPageProps): ReactElement {
         </Alert>
       )}
 
-      {/* ---- Members ---- */}
-      <Card variant="outlined" sx={{ mb: 3 }}>
-        <CardContent>
-          <Typography variant="h6" component="h2" gutterBottom id={`${ids}-members`}>
-            Members
-          </Typography>
-          {members.loading && members.data === null ? (
-            <CircularProgress size={24} aria-label="Loading members" />
-          ) : members.error ? (
-            <Alert severity="error" action={<Button onClick={() => void members.refresh()}>Retry</Button>}>
-              {members.error.message}
-            </Alert>
-          ) : (
-            <TableContainer>
-              <Table size="small" aria-labelledby={`${ids}-members`}>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Member</TableCell>
-                    <TableCell>Role</TableCell>
-                    {canManage && (
-                      <TableCell align="right">
-                        <Box component="span" sx={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clipPath: 'inset(50%)' }}>
-                          Actions
-                        </Box>
-                      </TableCell>
-                    )}
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {memberItems.map((member) => {
-                    const name = memberName(member);
-                    const isSelf = member.userId === viewerId;
-                    return (
-                      <TableRow key={member.userId} data-testid={`member-${member.userId}`}>
-                        <TableCell sx={{ overflowWrap: 'anywhere' }}>
-                          <Typography variant="body2">
-                            {name}
-                            {isSelf ? ' (you)' : ''}
-                          </Typography>
-                          {member.displayName && (
-                            <Typography variant="caption" color="text.secondary">
-                              {member.email}
-                            </Typography>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {canManage ? (
-                            <TextField
-                              select
-                              label="Role"
-                              value={member.role}
-                              onChange={(event) => void changeRole(member, event.target.value as GroupRole)}
-                              size="small"
-                              sx={{ minWidth: 120 }}
-                              slotProps={{ select: { inputProps: { 'aria-label': `Role for ${name}` } } }}
-                            >
-                              {GROUP_ROLE_OPTIONS.map((option) => (
-                                <MenuItem key={option.value} value={option.value}>
-                                  {option.label}
-                                </MenuItem>
-                              ))}
-                            </TextField>
-                          ) : (
-                            groupRoleLabel(member.role)
-                          )}
-                        </TableCell>
-                        {canManage && (
-                          <TableCell align="right">
-                            {!isSelf && (
-                              <Tooltip title="Remove from the group">
-                                <IconButton aria-label={`Remove ${name}`} onClick={() => void removeMember(member)}>
-                                  <DeleteOutlineIcon />
-                                </IconButton>
-                              </Tooltip>
-                            )}
-                          </TableCell>
-                        )}
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* ---- Invitations (group admins only) ---- */}
-      {isManager && (
-        <Card variant="outlined" sx={{ mb: 3 }}>
-          <CardContent>
-            <Typography variant="h6" component="h2" gutterBottom>
-              Invitations
-            </Typography>
-            {canManage && (
-              <Box component="form" onSubmit={submitInvite} noValidate sx={{ mb: 2 }}>
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: { sm: 'flex-start' } }}>
-                  <TextField
-                    label="E-mail address"
-                    type="email"
-                    value={inviteEmail}
-                    onChange={(event) => setInviteEmail(event.target.value)}
-                    error={inviteTouched && !inviteValid}
-                    helperText={inviteTouched && !inviteValid ? 'Enter a valid e-mail address.' : ' '}
-                    size="small"
-                    fullWidth
-                    autoComplete="email"
-                  />
-                  <TextField
-                    select
-                    label="Invite as"
-                    value={inviteRole}
-                    onChange={(event) => setInviteRole(event.target.value as GroupRole)}
-                    size="small"
-                    sx={{ minWidth: 130 }}
-                    helperText=" "
-                  >
-                    {GROUP_ROLE_OPTIONS.map((option) => (
-                      <MenuItem key={option.value} value={option.value}>
-                        {option.label}
-                      </MenuItem>
-                    ))}
-                  </TextField>
-                  <Button type="submit" variant="contained" disabled={actions.pending} sx={{ flexShrink: 0 }}>
-                    Invite
-                  </Button>
-                </Stack>
-              </Box>
-            )}
-            {inviteError && (
-              <Alert severity="error" sx={{ mb: 1 }} data-testid="invite-error">
-                {inviteError}
-              </Alert>
-            )}
-            {invites.loading && invites.data === null ? (
-              <CircularProgress size={24} aria-label="Loading invitations" />
-            ) : invites.error ? (
-              <Alert severity="error">{invites.error.message}</Alert>
-            ) : inviteItems.length === 0 ? (
-              <Typography variant="body2" color="text.secondary">
-                No pending invitations.
-              </Typography>
-            ) : (
-              <TableContainer>
-                <Table size="small" aria-label="Pending invitations">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Address</TableCell>
-                      <TableCell>Role</TableCell>
-                      <TableCell>Expiry</TableCell>
-                      {canManage && <TableCell align="right">Revoke</TableCell>}
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {inviteItems.map((invite) => (
-                      <TableRow key={invite.id}>
-                        <TableCell sx={{ overflowWrap: 'anywhere' }}>{invite.email}</TableCell>
-                        <TableCell>{groupRoleLabel(invite.role)}</TableCell>
-                        <TableCell>{invite.expiresAt ? formatDate(invite.expiresAt) : expiryText(null)}</TableCell>
-                        {canManage && (
-                          <TableCell align="right">
-                            <Button
-                              size="small"
-                              color="error"
-                              onClick={() => void revokeInvite(invite.id, invite.email)}
-                              aria-label={`Revoke the invitation to ${invite.email}`}
-                            >
-                              Revoke
-                            </Button>
-                          </TableCell>
-                        )}
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            )}
-          </CardContent>
-        </Card>
+      {appTabs.length > 0 ? (
+        <>
+          <Tabs
+            value={activeTab}
+            onChange={(_event, value: string) => setTabId(value)}
+            aria-label="Group sections"
+            variant="scrollable"
+            scrollButtons="auto"
+            sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }}
+          >
+            {allTabs.map((tab) => (
+              <Tab key={tab.id} value={tab.id} label={tab.label} id={`${ids}-tab-${tab.id}`} aria-controls={`${ids}-panel-${tab.id}`} />
+            ))}
+          </Tabs>
+          {allTabs.map((tab) => (
+            <div key={tab.id} role="tabpanel" id={`${ids}-panel-${tab.id}`} aria-labelledby={`${ids}-tab-${tab.id}`} hidden={activeTab !== tab.id}>
+              {activeTab === tab.id && tab.panel}
+            </div>
+          ))}
+        </>
+      ) : (
+        <>
+          {membersCard}
+          {invitesCard}
+        </>
       )}
+
+      {Sections && <Sections position="bottom" />}
+      {AfterContent && <AfterContent />}
 
       {/* ---- Rename ---- */}
       <Dialog open={renameOpen} onClose={() => setRenameOpen(false)} fullWidth maxWidth="xs" aria-labelledby={`${ids}-rename`}>

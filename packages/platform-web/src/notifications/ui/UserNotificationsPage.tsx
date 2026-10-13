@@ -66,6 +66,7 @@ import { useNotificationChannels } from '../headless/useNotificationChannels.js'
 import { useNotificationEvents } from '../headless/useNotificationEvents.js';
 import { requestPermissionAndSyncPush } from '../headless/pushSubscription.js';
 import type { NotificationPreferencesPatch } from '../headless/types.js';
+import type { PageSlotsBase } from '../../core/index.js';
 import { UserSettingsSection } from './UserSettingsSection.js';
 
 /** Mirrors the `Notifications` card in `config/userSettingsSections.tsx`, so the
@@ -88,7 +89,25 @@ export interface UserNotificationsPageProps {
    * the page; an entry for `push` replaces the built-in one.
    */
   channelStates?: Readonly<Record<string, ChannelState>>;
+  /** Optional extension slots (the page-slot contract); omitted, the page renders exactly as it always did. */
+  slots?: UserNotificationsPageSlots;
 }
+
+/**
+ * The slots of {@link UserNotificationsPage}: the page-slot contract.
+ * `BeforeContent` is where an app puts a banner (a quiet-hours notice); the
+ * channel columns and their labels come from the channel registry and
+ * `channelStates`, not from a slot.
+ *
+ * @example
+ * ```tsx
+ * <UserNotificationsPage slots={{ BeforeContent: () => <Alert severity="info">Quiet hours are 22:00 to 07:00.</Alert> }} />
+ * ```
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export type UserNotificationsPageSlots = PageSlotsBase;
 
 /**
  * The `/settings/notifications` page: the signed-in user's per-channel, per-event preferences and this device's permission state.
@@ -99,7 +118,7 @@ export interface UserNotificationsPageProps {
  * @extensionPoint component
  * @stability experimental
  */
-export default function UserNotificationsPage({ channelStates }: UserNotificationsPageProps = {}) {
+export default function UserNotificationsPage({ channelStates, slots }: UserNotificationsPageProps = {}) {
   // Both hooks at the top level of the component, NOT inside the render prop
   // below — a hook called from a callback is a hook called conditionally, and
   // the render prop is only invoked once the settings document has loaded.
@@ -168,7 +187,7 @@ export default function UserNotificationsPage({ channelStates }: UserNotificatio
   }, [isMounted, notificationConfig, refreshPermission]);
 
   return (
-    <UserSettingsSection title={PAGE_TITLE} description={PAGE_DESCRIPTION}>
+    <UserSettingsSection title={PAGE_TITLE} description={PAGE_DESCRIPTION} slots={slots}>
       {({ settings, isSaving, save }) => {
         if (isLoading) return <LoadingSpinner />;
 

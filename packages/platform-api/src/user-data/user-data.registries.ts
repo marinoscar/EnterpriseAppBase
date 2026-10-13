@@ -333,3 +333,115 @@ export const offboardingPreconditionRegistry = defineRegistry<OffboardingPrecond
 export function registerOffboardingPrecondition(def: OffboardingPreconditionDef): void {
   offboardingPreconditionRegistry.register(def);
 }
+
+// =============================================================================
+// The lists the pages print (PP-14.24)
+// =============================================================================
+//
+// The Danger Zone's "Always kept" list and the factory reset page's "Deleted"
+// and "Kept" lists used to be constants in the web bundle, so an app that
+// registered a kept model or a factory reset step could not make the page say
+// so. The summary routes now return them: the platform's own lines first (the
+// text the pages always printed, byte for byte), then one line per registered
+// hint or step that carries a `summary`.
+// =============================================================================
+
+/**
+ * What every per-user deletion keeps: the lines the Danger Zone prints under
+ * "Always kept", before any registered model's `summary`.
+ *
+ * @stability experimental
+ */
+export const BUILT_IN_USER_DATA_KEPT: readonly string[] = Object.freeze([
+  'Your account, your sign-in identities and your roles',
+  'Your organization and group memberships',
+  'This browser session (you stay signed in)',
+  'The audit log',
+]);
+
+/**
+ * What a factory reset deletes: the lines the factory reset page prints under
+ * "Deleted", before any registered step's `summary`.
+ *
+ * @stability experimental
+ */
+export const BUILT_IN_FACTORY_RESET_DELETED: readonly string[] = Object.freeze([
+  'Every other user, their sessions and their access tokens',
+  "Every user's data, yours included",
+  'Job history, broadcasts, device logins and the allowlist (except your own entry)',
+  'Every stored file except database backups',
+  'Every organization except the default one',
+]);
+
+/**
+ * What a factory reset keeps: the lines the factory reset page prints under
+ * "Kept", before any registered model's `summary`.
+ *
+ * @stability experimental
+ */
+export const BUILT_IN_FACTORY_RESET_KEPT: readonly string[] = Object.freeze([
+  'Your account and this session',
+  'Roles and permissions',
+  'Configuration: system settings, storage, email and AI credentials, AI models',
+  'Database backups, their files and their jobs',
+  'Worker nodes (reassigned to you)',
+  'The audit log',
+]);
+
+function withExtras(builtIn: readonly string[], extras: readonly (string | undefined)[]): string[] {
+  const lines = [...builtIn];
+  for (const extra of extras) {
+    const line = extra?.trim();
+    if (line && !lines.includes(line)) lines.push(line);
+  }
+  return lines;
+}
+
+/**
+ * The lines of the Danger Zone's "Always kept" list: the built-in lines, then
+ * the `summary` of every registered model a data reset keeps (`keep`).
+ *
+ * @returns a new array.
+ *
+ * @stability experimental
+ */
+export function userDataKeptLines(): string[] {
+  return withExtras(
+    BUILT_IN_USER_DATA_KEPT,
+    userDataModelRegistry.list().filter((hint) => hint.keep !== undefined).map((hint) => hint.summary),
+  );
+}
+
+/**
+ * The lines of the factory reset page's "Deleted" list: the built-in lines,
+ * then the `summary` of every registered factory reset step.
+ *
+ * @returns a new array.
+ *
+ * @stability experimental
+ */
+export function factoryResetDeletedLines(): string[] {
+  return withExtras(
+    BUILT_IN_FACTORY_RESET_DELETED,
+    factoryResetStepRegistry.list().map((step) => step.summary),
+  );
+}
+
+/**
+ * The lines of the factory reset page's "Kept" list: the built-in lines, then
+ * the `summary` of every registered model a factory reset keeps (`keep`, or
+ * `factoryReset: 'keep'`).
+ *
+ * @returns a new array.
+ *
+ * @stability experimental
+ */
+export function factoryResetKeptLines(): string[] {
+  return withExtras(
+    BUILT_IN_FACTORY_RESET_KEPT,
+    userDataModelRegistry
+      .list()
+      .filter((hint) => hint.keep !== undefined || hint.factoryReset === 'keep')
+      .map((hint) => hint.summary),
+  );
+}

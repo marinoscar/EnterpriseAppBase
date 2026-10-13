@@ -11,16 +11,112 @@
 // `withTelemetryTokens`) without the shell depending on them.
 // =============================================================================
 
+import { THEME_PREFERENCE_ID_PATTERN } from '@marinoscar/platform-contract/settings';
 import { createContext, useContext } from 'react';
 import { createTheme } from '@mui/material/styles';
 import type { Components, PaletteOptions, Theme, ThemeOptions } from '@mui/material/styles';
 
 /**
- * The viewer's theme choice. `system` follows `prefers-color-scheme`.
+ * The viewer's theme choice: `light`, `dark`, `system` (follows
+ * `prefers-color-scheme`), or the id of a theme the app registered with
+ * {@link registerThemeMode} or passed to the provider's `themes` (a
+ * `high-contrast` theme, a brand skin). The id is the same one the API accepts
+ * for the `theme` user setting when the app registered it there with
+ * `registerThemePreference`.
  *
  * @stability experimental
  */
-export type ShellThemeMode = 'light' | 'dark' | 'system';
+export type ShellThemeMode = 'light' | 'dark' | 'system' | (string & {});
+
+/**
+ * The three modes the shell always has: `light`, `dark` and `system`. A theme
+ * registered under one of these ids is refused.
+ *
+ * @stability experimental
+ */
+export const BUILTIN_SHELL_THEME_MODES = ['light', 'dark', 'system'] as const;
+
+/**
+ * Whether `mode` is one of {@link BUILTIN_SHELL_THEME_MODES}.
+ *
+ * @param mode - a mode id.
+ * @returns whether it is built in.
+ *
+ * @stability experimental
+ */
+export function isBuiltinThemeMode(mode: string): mode is (typeof BUILTIN_SHELL_THEME_MODES)[number] {
+  return (BUILTIN_SHELL_THEME_MODES as readonly string[]).includes(mode);
+}
+
+/**
+ * One theme an app added to the shell's modes.
+ *
+ * @stability experimental
+ */
+export interface ShellThemeModeDefinition {
+  /** The mode id: lower-case, starting with a letter, 2 to 48 characters (the API's theme id pattern). */
+  id: string;
+  /** What a theme picker calls it. */
+  label: string;
+  /** The MUI theme shown while the mode is chosen. Its `palette.mode` decides whether the app counts as dark (the AppBar toggle's icon). */
+  theme: Theme;
+}
+
+const themeModes = new Map<string, ShellThemeModeDefinition>();
+
+/**
+ * Add a theme mode to the shell: after this, `setMode(id)` of the theme context
+ * chooses it, the stored choice is restored on the next visit, and
+ * `ShellThemeProvider` resolves it to `theme`. Register at module scope, before
+ * the first render, next to the app's own themes.
+ *
+ * To let a user pick it on the Appearance page, register the same id on the API
+ * with `registerThemePreference` (`@marinoscar/platform-api/settings`): the
+ * settings document then lists it in `themeOptions`, and the packaged settings
+ * hook hands a stored value to the host's `applyTheme` (the app's `setMode`).
+ *
+ * @param definition - the id, label and theme.
+ * @throws Error when the id is malformed, built in or already registered, the label is empty or the theme is missing.
+ *
+ * @example
+ * ```ts
+ * registerThemeMode({ id: 'high-contrast', label: 'High contrast', theme: highContrastTheme });
+ * ```
+ *
+ * @extensionPoint registry
+ * @stability experimental
+ */
+export function registerThemeMode(definition: ShellThemeModeDefinition): void {
+  const { id, label, theme } = definition;
+  if (typeof id !== 'string' || !THEME_PREFERENCE_ID_PATTERN.test(id)) {
+    throw new Error(`registerThemeMode: "${String(id)}" is not a valid theme id (lower-case, starts with a letter, 2 to 48 characters of a-z, 0-9 and -)`);
+  }
+  if (isBuiltinThemeMode(id)) throw new Error(`registerThemeMode: "${id}" is a built-in mode`);
+  if (themeModes.has(id)) throw new Error(`registerThemeMode: a theme mode "${id}" is already registered`);
+  if (typeof label !== 'string' || label.trim() === '') throw new Error(`registerThemeMode: the theme mode "${id}" needs a label`);
+  if (!theme || typeof theme !== 'object' || !theme.palette) throw new Error(`registerThemeMode: the theme mode "${id}" needs a MUI theme`);
+  themeModes.set(id, { id, label: label.trim(), theme });
+}
+
+/**
+ * The theme modes registered with {@link registerThemeMode}, in registration order.
+ *
+ * @returns a fresh array.
+ *
+ * @stability experimental
+ */
+export function listThemeModes(): ShellThemeModeDefinition[] {
+  return [...themeModes.values()];
+}
+
+/**
+ * Forget every registered theme mode. For tests only.
+ *
+ * @internal
+ */
+export function resetThemeModesForTests(): void {
+  themeModes.clear();
+}
 
 const LIGHT_PALETTE: PaletteOptions = {
   primary: { main: '#1976d2', light: '#42a5f5', dark: '#1565c0' },
@@ -155,6 +251,18 @@ export function createShellTheme(mode: 'light' | 'dark', options: ShellThemeOpti
 }
 
 /**
+ * One theme mode beyond light, dark and system, as a picker lists it.
+ *
+ * @stability experimental
+ */
+export interface ShellThemeModeOption {
+  /** The mode id, what `setMode` takes. */
+  id: string;
+  /** What a picker calls it. */
+  label: string;
+}
+
+/**
  * What the shell's theme context holds.
  *
  * @stability experimental
@@ -164,7 +272,16 @@ export interface ShellThemeContextValue {
   mode: ShellThemeMode;
   /** The resolved MUI theme. */
   theme: Theme;
-  /** Choose a mode (persisted in this browser). */
+  /**
+   * The themes beyond light, dark and system that can be chosen (the provider's
+   * extra `themes` and the registered ones), for a picker. Absent from a context
+   * value built by hand.
+   */
+  modes?: readonly ShellThemeModeOption[];
+  /**
+   * Choose a mode (persisted in this browser). An id that is neither built in
+   * nor a known theme is ignored.
+   */
   setMode(mode: ShellThemeMode): void;
   /** Flip between light and dark (from whatever is showing now). */
   toggleMode(): void;

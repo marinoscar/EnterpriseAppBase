@@ -7,9 +7,21 @@ import { useEffect, useState } from 'react';
 import type { ReactElement } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Box, CircularProgress, Typography } from '@mui/material';
+import type { PageSlotsBase } from '../../core/index.js';
 import { lastAuthProvider, useAuth, validAuthProviderId } from '../headless/index.js';
 import { SignInErrorView } from './SignInErrorView.js';
 import { DEFAULT_SIGN_IN_ERROR_CODE, resolveSignInErrorCode, type SignInErrorCode } from './sign-in-error-content.js';
+
+/**
+ * The slots of {@link AuthCallbackPage}: the packaged-page slot contract, on the
+ * screen shown while the sign-in completes. Top to bottom: `BeforeContent`,
+ * `Sections` (top), the spinner, `Header` (else "Completing authentication..."),
+ * `Sections` (bottom), `AfterContent`.
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export type AuthCallbackPageSlots = PageSlotsBase;
 
 /**
  * What {@link AuthCallbackPage} takes.
@@ -17,6 +29,12 @@ import { DEFAULT_SIGN_IN_ERROR_CODE, resolveSignInErrorCode, type SignInErrorCod
  * @stability stable
  */
 export interface AuthCallbackPageProps {
+  /**
+   * Add to the waiting screen without a fork (the sign-in error screen has its
+   * own copy and buttons and is not slotted). `Header` replaces the line "Completing
+   * authentication..." (its `title`); the other slots sit around the spinner.
+   */
+  slots?: AuthCallbackPageSlots;
   /**
    * The provider the error screen's retry buttons restart. When omitted it is
    * read, in order, from the route (a `:provider` segment, for an app that
@@ -37,7 +55,11 @@ export interface AuthCallbackPageProps {
  * @extensionPoint component
  * @stability stable
  */
-export function AuthCallbackPage({ provider: providerProp }: AuthCallbackPageProps = {}): ReactElement {
+export function AuthCallbackPage({ provider: providerProp, slots }: AuthCallbackPageProps = {}): ReactElement {
+  const Header = slots?.Header;
+  const BeforeContent = slots?.BeforeContent;
+  const Sections = slots?.Sections;
+  const AfterContent = slots?.AfterContent;
   const [searchParams] = useSearchParams();
   const routeProvider = useParams().provider;
   const provider = providerProp ?? validAuthProviderId(routeProvider) ?? lastAuthProvider() ?? 'google';
@@ -104,8 +126,12 @@ export function AuthCallbackPage({ provider: providerProp }: AuthCallbackPagePro
         gap: 2,
       }}
     >
+      {BeforeContent && <BeforeContent />}
+      {Sections && <Sections position="top" />}
       <CircularProgress />
-      <Typography>Completing authentication...</Typography>
+      {Header ? <Header title="Completing authentication..." actions={null} /> : <Typography>Completing authentication...</Typography>}
+      {Sections && <Sections position="bottom" />}
+      {AfterContent && <AfterContent />}
     </Box>
   );
 }

@@ -17,10 +17,27 @@
  * (#95) and the page's own `h1` all name the page identically.
  */
 
+import type { PageSlotsBase } from '../../core/index.js';
 import { themePreferenceOptions } from '../headless/theme-options.js';
 import { ThemeSettings } from './ThemeSettings.js';
 import type { ThemeSettingsSlots } from './ThemeSettings.js';
 import { UserSettingsSection } from './UserSettingsSection.js';
+
+/**
+ * The slots of {@link UserAppearancePage}: the page-slot contract, and the
+ * theme card's own part overrides ({@link ThemeSettingsSlots}). `Sections` is
+ * where an app adds a section of its own (a density or font-size preference)
+ * above or below the theme card.
+ *
+ * @example
+ * ```tsx
+ * <UserAppearancePage slots={{ Sections: ({ position }) => (position === 'bottom' ? <DensityCard /> : null) }} />
+ * ```
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export interface UserAppearancePageSlots extends PageSlotsBase, ThemeSettingsSlots {}
 
 /**
  * Props of {@link UserAppearancePage}.
@@ -28,8 +45,8 @@ import { UserSettingsSection } from './UserSettingsSection.js';
  * @stability experimental
  */
 export interface UserAppearancePageProps {
-  /** Part overrides of the theme card (`ExtraFields`). */
-  slots?: ThemeSettingsSlots;
+  /** The page-slot contract's slots and the theme card's part overrides. */
+  slots?: UserAppearancePageSlots;
 }
 
 /**
@@ -53,6 +70,7 @@ export interface UserAppearancePageProps {
 export function UserAppearancePage({ slots }: UserAppearancePageProps = {}) {
   return (
     <UserSettingsSection
+      slots={slots}
       title="Appearance"
       description="Choose a light, dark, or system-matched theme for this account."
     >

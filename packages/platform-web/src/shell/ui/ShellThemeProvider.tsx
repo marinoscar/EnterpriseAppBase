@@ -9,16 +9,17 @@ import type { Theme } from '@mui/material/styles';
 import { useCallback, useMemo, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 
-import { ShellThemeContext, useShellTheme } from '../headless/theme.js';
+import { ShellThemeContext, isBuiltinThemeMode, listThemeModes, useShellTheme } from '../headless/theme.js';
 import type { ShellThemeContextValue, ShellThemeMode } from '../headless/theme.js';
 
 /** The `localStorage` key the reference app has always used. */
 const DEFAULT_STORAGE_KEY = 'theme_mode';
 
-function readStoredMode(storageKey: string): ShellThemeMode {
+/** `mode` when it is built in or names a theme in `extra`, else `system`. */
+function readStoredMode(storageKey: string, extra: Readonly<Record<string, Theme>>): ShellThemeMode {
   try {
     const saved = localStorage.getItem(storageKey);
-    if (saved === 'light' || saved === 'dark' || saved === 'system') return saved;
+    if (saved !== null && (isBuiltinThemeMode(saved) || Object.prototype.hasOwnProperty.call(extra, saved))) return saved;
   } catch {
     // Storage blocked (a private window): fall through to the default.
   }
@@ -26,7 +27,12 @@ function readStoredMode(storageKey: string): ShellThemeMode {
 }
 
 /**
- * The app's two themes.
+ * The app's themes: light and dark, and any number of further modes by id.
+ *
+ * The extra keys are theme MODES the viewer can choose (`setMode('high-contrast')`);
+ * they are added to the ones registered with `registerThemeMode`, and a key here
+ * wins over a registered mode of the same id. `light`, `dark` and `system` are
+ * reserved: `system` has no entry because it picks `light` or `dark`.
  *
  * @stability experimental
  */
@@ -35,6 +41,8 @@ export interface ShellThemes {
   light: Theme;
   /** Shown for `dark`, and for `system` when the OS prefers dark. */
   dark: Theme;
+  /** Further modes by id. */
+  [mode: string]: Theme;
 }
 
 /**
@@ -65,10 +73,31 @@ export interface ShellThemeProviderProps {
  */
 export function ShellThemeProvider({ themes, storageKey = DEFAULT_STORAGE_KEY, children }: ShellThemeProviderProps): ReactElement {
   const prefersDarkMode = useMediaQuery('(prefers-color-scheme: dark)');
-  const [mode, setModeState] = useState<ShellThemeMode>(() => readStoredMode(storageKey));
+
+  // The modes beyond light and dark: the registered ones, then the provider's own
+  // (which win). Registered at module scope, so the registry is complete by the first render.
+  const extraThemes = useMemo(() => {
+    const extra = Object.create(null) as Record<string, Theme>;
+    const labels = new Map<string, string>();
+    for (const registered of listThemeModes()) {
+      extra[registered.id] = registered.theme;
+      labels.set(registered.id, registered.label);
+    }
+    for (const [id, extraTheme] of Object.entries(themes)) {
+      if (id === 'light' || id === 'dark' || isBuiltinThemeMode(id)) continue;
+      extra[id] = extraTheme;
+      if (!labels.has(id)) labels.set(id, id);
+    }
+    return { themes: extra, modes: [...labels].map(([id, label]) => ({ id, label })) };
+  }, [themes]);
+
+  const [mode, setModeState] = useState<ShellThemeMode>(() => readStoredMode(storageKey, extraThemes.themes));
 
   const setMode = useCallback(
     (next: ShellThemeMode) => {
+      // Only a built-in mode or a known theme can be chosen; anything else (a stored
+      // preference for a theme this app does not ship) leaves the choice alone.
+      if (!isBuiltinThemeMode(next) && !Object.prototype.hasOwnProperty.call(extraThemes.themes, next)) return;
       setModeState(next);
       try {
         localStorage.setItem(storageKey, next);
@@ -76,16 +105,20 @@ export function ShellThemeProvider({ themes, storageKey = DEFAULT_STORAGE_KEY, c
         // Storage blocked: the choice lasts for this page only.
       }
     },
-    [storageKey],
+    [storageKey, extraThemes],
   );
 
-  const isDarkMode = mode === 'system' ? prefersDarkMode : mode === 'dark';
-  const theme = isDarkMode ? themes.dark : themes.light;
+  const custom = isBuiltinThemeMode(mode) ? undefined : extraThemes.themes[mode];
+  // `system` follows the OS; so does a mode whose theme is no longer known.
+  // A custom theme counts as dark by its own palette.
+  const isDarkMode = custom ? custom.palette.mode === 'dark' : mode === 'dark' || (mode !== 'light' && prefersDarkMode);
+  const resolved = custom ?? (isDarkMode ? themes.dark : themes.light);
   const toggleMode = useCallback(() => setMode(isDarkMode ? 'light' : 'dark'), [isDarkMode, setMode]);
 
+  const modes = extraThemes.modes;
   const value = useMemo<ShellThemeContextValue>(
-    () => ({ mode, theme, setMode, toggleMode, isDarkMode }),
-    [mode, theme, setMode, toggleMode, isDarkMode],
+    () => ({ mode, theme: resolved, setMode, toggleMode, isDarkMode, modes }),
+    [mode, resolved, setMode, toggleMode, isDarkMode, modes],
   );
 
   return <ShellThemeContext.Provider value={value}>{children}</ShellThemeContext.Provider>;

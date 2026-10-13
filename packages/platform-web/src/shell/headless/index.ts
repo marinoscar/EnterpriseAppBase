@@ -3,7 +3,9 @@
 // in ../README.md.
 
 export {
+  groupDestinationRuns,
   isDestinationVisible,
+  isExternalUrl,
   owns,
   resolveActiveDestination,
   shellDestinationRoutes,
@@ -12,6 +14,7 @@ export type {
   ShellConsole,
   ShellConsoleBack,
   ShellDestination,
+  ShellDestinationRun,
   ShellIcon,
   ShellIconProps,
   ShellNavigation,
@@ -21,12 +24,22 @@ export type {
 export { useShellRailPreference } from './rail-preference.js';
 export type { ShellRailPreferenceOptions, UseShellRailPreferenceResult } from './rail-preference.js';
 export {
+  BUILTIN_SHELL_THEME_MODES,
   createShellTheme,
+  isBuiltinThemeMode,
+  listThemeModes,
+  registerThemeMode,
   shellComponentOverrides,
   shellPalette,
   useOptionalShellTheme,
   useShellTheme,
 } from './theme.js';
-export type { ShellThemeContextValue, ShellThemeMode, ShellThemeOptions } from './theme.js';
+export type {
+  ShellThemeContextValue,
+  ShellThemeMode,
+  ShellThemeModeDefinition,
+  ShellThemeModeOption,
+  ShellThemeOptions,
+} from './theme.js';
 export { ShellProviders } from './providers.js';
 export type { ShellProvider, ShellProviderProps } from './providers.js';

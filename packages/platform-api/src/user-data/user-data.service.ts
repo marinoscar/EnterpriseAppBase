@@ -43,10 +43,13 @@ import { USER_DATA_AUDIT_ACTIONS } from './user-data.metrics';
 import { USER_DATA_OPTIONS, type ResolvedUserDataModuleOptions } from './user-data.options';
 import {
   categoriesOfScope,
+  factoryResetDeletedLines,
+  factoryResetKeptLines,
   findUserDataScope,
   offboardingPreconditionRegistry,
   resolvedUserDataScopes,
   userDataCategoryRegistry,
+  userDataKeptLines,
 } from './user-data.registries';
 import { USER_DATA_SUBJECT_TYPE, payloadOf } from './user-purge.runner';
 
@@ -104,6 +107,7 @@ export class UserDataService {
         confirmation: def.confirmation,
         categories: categoriesOfScope(def),
       })),
+      kept: userDataKeptLines(),
     };
   }
 
@@ -221,6 +225,8 @@ export class FactoryResetService {
       storageObjects,
       jobs: await db.job.count({ where: { status: { not: 'running' }, id: { notIn: keptJobIds } } }),
       categories: userDataCategoryRegistry.list().map((def) => ({ id: def.id, label: def.label, count: categories[def.id] ?? 0 })),
+      deleted: factoryResetDeletedLines(),
+      kept: factoryResetKeptLines(),
     };
   }
 

@@ -32,8 +32,12 @@ import {
 } from '@mui/material';
 import type { OrgAiKeyView } from '@marinoscar/platform-contract/ai';
 
-import { usePlatformViewer } from '../../core/index.js';
+import { PageSlotsFrame, usePlatformViewer } from '../../core/index.js';
+import type { PageSlotsBase } from '../../core/index.js';
 import { useOrgAiKeys, useOrgAiPolicy } from '../headless/index.js';
+
+/** The page title (the card's title). */
+const ORG_AI_KEYS_TITLE = 'Organization AI keys';
 
 /**
  * The card's description, mirrored as the page's subtitle.
@@ -109,6 +113,30 @@ function ProviderRow(props: {
 }
 
 /**
+ * The slots of {@link OrgAiKeysPage}: the page-slot contract. `Header` receives
+ * `readOnly`; the default header appends " (read-only)" to the title.
+ *
+ * @example
+ * ```tsx
+ * <OrgAiKeysPage slots={{ BeforeContent: () => <Alert severity="info">Keys rotate every quarter.</Alert> }} />
+ * ```
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export type OrgAiKeysPageSlots = PageSlotsBase;
+
+/**
+ * The props of {@link OrgAiKeysPage}.
+ *
+ * @stability experimental
+ */
+export interface OrgAiKeysPageProps {
+  /** Optional extension slots; omitted, the page renders exactly as it always did. */
+  slots?: OrgAiKeysPageSlots;
+}
+
+/**
  * The Organization AI keys page.
  *
  * @returns the page.
@@ -116,7 +144,8 @@ function ProviderRow(props: {
  * @extensionPoint component
  * @stability experimental
  */
-export default function OrgAiKeysPage(): ReactElement {
+export default function OrgAiKeysPage(props: OrgAiKeysPageProps = {}): ReactElement {
+  const { slots } = props;
   const viewer = usePlatformViewer();
   const canWrite = viewer.hasPermission('org_ai_config:write');
   const { keys, error, isLoading, pendingProvider, set, remove } = useOrgAiKeys();
@@ -124,12 +153,21 @@ export default function OrgAiKeysPage(): ReactElement {
 
   return (
     <Container maxWidth="md" sx={{ py: 3 }}>
-      <Typography variant="h4" component="h1" gutterBottom>
-        Organization AI keys{canWrite ? '' : ' (read-only)'}
-      </Typography>
-      <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>
-        {ORG_AI_KEYS_DESCRIPTION}
-      </Typography>
+      <PageSlotsFrame
+        slots={slots}
+        headerProps={{ title: ORG_AI_KEYS_TITLE, description: ORG_AI_KEYS_DESCRIPTION, readOnly: !canWrite, actions: null }}
+        header={
+          <>
+            <Typography variant="h4" component="h1" gutterBottom>
+              {ORG_AI_KEYS_TITLE}
+              {canWrite ? '' : ' (read-only)'}
+            </Typography>
+            <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>
+              {ORG_AI_KEYS_DESCRIPTION}
+            </Typography>
+          </>
+        }
+      >
 
       <Alert severity="info" sx={{ mb: 2 }}>
         A key set here pays for your organization's AI calls (a member's own key still comes first). In a
@@ -197,6 +235,7 @@ export default function OrgAiKeysPage(): ReactElement {
           </Stack>
         )}
       </Paper>
+      </PageSlotsFrame>
     </Container>
   );
 }

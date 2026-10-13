@@ -17,7 +17,7 @@
 //     make `/settings` own `/settingsfoo`.
 // =============================================================================
 
-import type { ComponentType } from 'react';
+import type { ComponentType, MouseEvent, ReactNode } from 'react';
 
 import { isFeatureEnabled } from '../../settings/index.js';
 import type { SettingsFeatureKey, SettingsFeatures, SettingsSectionDef } from '../../settings/index.js';
@@ -78,6 +78,46 @@ export interface ShellDestination<K extends string = string> {
   pinned?: boolean;
   /** A deployment feature it exists only under; hidden unless the feature map says on. */
   feature?: SettingsFeatureKey;
+  /**
+   * A badge on the destination's icon, on every surface that draws it (the
+   * rail, the bottom bar and its More sheet, the user menu): an unread count, a
+   * dot. Called while the destination renders, once per surface, so it may call
+   * hooks (it is called from a component that exists once per destination).
+   * Return a number or a string for a count (also added to the accessible name,
+   * as "Inbox (3)"), an element for a custom mark, or `null`, `undefined`,
+   * `false`, `0` or `''` for no badge. Keep it cheap and keep it a stable
+   * reference (a module-level function).
+   *
+   * @example
+   * ```ts
+   * { key: 'inbox', label: 'Inbox', compactLabel: 'Inbox', Icon: InboxIcon, path: '/inbox', badge: useUnreadBadge }
+   * ```
+   */
+  badge?: () => ReactNode;
+  /**
+   * Draws this destination under a labelled heading. Destinations that are
+   * declared next to each other and share a `group` form one run: the expanded
+   * rail prints the group's name above the run, the collapsed rail separates
+   * runs with a divider, and the More sheet of the bottom bar does the same as
+   * the expanded rail. A destination without a `group` ends a run. The bottom
+   * bar's own tabs and the user menu ignore it. Declaration order is still the
+   * order everywhere.
+   */
+  group?: string;
+  /**
+   * `path` is a link to another site (an `http:` or `https:` URL), opened in a
+   * new tab with `rel="noopener noreferrer"` and never shown as the active
+   * destination. A destination whose `path` is not an `http(s)` URL is not drawn
+   * (see {@link isDestinationVisible}). Default `false`: `path` is a route.
+   */
+  external?: boolean;
+  /**
+   * Called when the destination is chosen, before the shell navigates. Call
+   * `event.preventDefault()` to stop the navigation (a destination that opens a
+   * dialog, a feedback form or a command palette instead of a page). Gets the
+   * click, or the key press the click came from.
+   */
+  onClick?: (event: MouseEvent<HTMLElement>) => void;
 }
 
 /**
@@ -180,6 +220,60 @@ export interface ShellNavigation<K extends string = string> {
 }
 
 /**
+ * Is `path` a plain `http:` or `https:` URL? What an `external` destination's
+ * `path` must be; any other scheme (`javascript:`, `data:`) is refused.
+ *
+ * @param path - a destination's `path`.
+ * @returns whether it is an absolute http(s) URL.
+ *
+ * @stability experimental
+ */
+export function isExternalUrl(path: string | undefined): boolean {
+  if (!path) return false;
+  try {
+    const url = new URL(path);
+    return url.protocol === 'https:' || url.protocol === 'http:';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A run of destinations that share a group: what the rail and the More sheet
+ * draw under one heading.
+ *
+ * @typeParam D - the destination type.
+ *
+ * @stability experimental
+ */
+export interface ShellDestinationRun<D extends Pick<ShellDestination, 'group'> = ShellDestination> {
+  /** The group's name, or `undefined` for destinations that declare none. */
+  group: string | undefined;
+  /** The destinations of the run, in declaration order. */
+  destinations: D[];
+}
+
+/**
+ * Split destinations into runs of the same `group`, keeping declaration order. A
+ * destination without a group never joins a run of grouped ones. With no
+ * `group` anywhere the result is one run holding every destination.
+ *
+ * @param destinations - the destinations to draw, in order.
+ * @returns the runs.
+ *
+ * @stability experimental
+ */
+export function groupDestinationRuns<D extends Pick<ShellDestination, 'group'>>(destinations: readonly D[]): ShellDestinationRun<D>[] {
+  const runs: ShellDestinationRun<D>[] = [];
+  for (const destination of destinations) {
+    const last = runs[runs.length - 1];
+    if (last && last.group === destination.group) last.destinations.push(destination);
+    else runs.push({ group: destination.group, destinations: [destination] });
+  }
+  return runs;
+}
+
+/**
  * Does `prefix` own `path`? True when the path equals the prefix or continues
  * with a `/`. `'/'` owns only itself, or Home would own the whole app.
  *
@@ -206,11 +300,14 @@ export function owns(prefix: string, path: string): boolean {
  * @stability experimental
  */
 export function isDestinationVisible(
-  destination: Pick<ShellDestination, 'permission' | 'anyPermission' | 'feature'>,
+  destination: Pick<ShellDestination, 'permission' | 'anyPermission' | 'feature'> & Partial<Pick<ShellDestination, 'external' | 'path'>>,
   hasPermission: (permission: string) => boolean,
   features: SettingsFeatures = {},
 ): boolean {
   if (!isFeatureEnabled(destination.feature, features)) return false;
+  // Fail closed: an external destination whose `path` is not a plain http(s) URL (a
+  // `javascript:` or `data:` target) is never drawn.
+  if (destination.external && !isExternalUrl(destination.path)) return false;
   if (destination.permission && !hasPermission(destination.permission)) return false;
   if (destination.anyPermission && !destination.anyPermission.some(hasPermission)) return false;
   return true;

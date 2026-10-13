@@ -11,6 +11,7 @@ import { ROLES } from '../../../src/identity/identity.constants';
 import { PrincipalCache } from '../../../src/identity/auth/principal-cache/principal-cache.service';
 import * as tenancyMode from '../../../src/identity/auth/tenancy-mode';
 import { roleRegistry, withTemporaryEntries } from '../../../src/core';
+import { userListExtensionRegistry } from '../../../src/identity/extensions/user-extensions';
 
 const principalCacheStub = { invalidate: jest.fn(), invalidateUser: jest.fn() };
 
@@ -313,6 +314,59 @@ describe('UsersService', () => {
           service.updateUser('non-existent-id', dto, mockAdminUser.id)
         ).rejects.toThrow('User with ID non-existent-id not found');
       });
+    });
+  });
+
+  describe('listUsers extensions (PP-14.25)', () => {
+    const query = { page: 1, pageSize: 20, sortBy: 'createdAt' as const, sortOrder: 'desc' as const };
+
+    it('adds no extensions key when none is registered', async () => {
+      mockPrisma.user.findMany.mockResolvedValue([mockAdminUser, mockOtherUser] as any);
+      mockPrisma.user.count.mockResolvedValue(2);
+
+      const result = await service.listUsers(query);
+
+      for (const item of result.items) expect(item).not.toHaveProperty('extensions');
+    });
+
+    it('calls each extension ONCE for the whole page and merges the answers per row', async () => {
+      mockPrisma.user.findMany.mockResolvedValue([mockAdminUser, mockOtherUser] as any);
+      mockPrisma.user.count.mockResolvedValue(2);
+      const resolve = jest.fn(async (ids: readonly string[]) => new Map([[ids[0]!, { plan: 'pro' }]]));
+
+      await withTemporaryEntries(userListExtensionRegistry, [{ id: 'billing', resolve }], async () => {
+        const result = await service.listUsers(query, { viewerId: 'admin-1', orgId: 'org-1' });
+        expect(result.items[0]!.extensions).toEqual({ billing: { plan: 'pro' } });
+        expect(result.items[1]).not.toHaveProperty('extensions');
+      });
+
+      expect(resolve).toHaveBeenCalledTimes(1);
+      expect(resolve).toHaveBeenCalledWith(
+        [mockAdminUser.id, mockOtherUser.id],
+        expect.objectContaining({ viewerId: 'admin-1', orgId: 'org-1' }),
+      );
+    });
+
+    it('still lists the users when an extension throws', async () => {
+      mockPrisma.user.findMany.mockResolvedValue([mockAdminUser] as any);
+      mockPrisma.user.count.mockResolvedValue(1);
+
+      await withTemporaryEntries(
+        userListExtensionRegistry,
+        [
+          {
+            id: 'broken',
+            resolve: async () => {
+              throw new Error('boom');
+            },
+          },
+        ],
+        async () => {
+          const result = await service.listUsers(query);
+          expect(result.items).toHaveLength(1);
+          expect(result.items[0]).not.toHaveProperty('extensions');
+        },
+      );
     });
   });
 
