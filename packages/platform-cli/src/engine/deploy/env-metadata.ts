@@ -2,6 +2,7 @@ import {
   generateBase64Key,
   generateHexKey,
   generateValue,
+  getEnvAnnotation,
   getEnvGroup,
   isPlaceholderValue,
   listEnvGroups,
@@ -302,9 +303,24 @@ function fromFragment(key: string): EnvVarMetadata | undefined {
 
 /**
  * The annotation for `key`: this CLI's own entry, else the registered
- * fragment's, else `{}` (not secret, not essential, template default).
+ * fragment's, else `{}` (not secret, not essential, template default), with
+ * the app's `annotateEnvKey` on top. THE APP WINS for the two fields it may
+ * set (`fixed`, `help`); nothing else is touched, and `never` stays
+ * authoritative (an annotation cannot bring back a key that is never written).
+ *
+ * @throws Error when the app fixed a key whose metadata says it is a secret.
  */
 export function metadataFor(key: string): EnvVarMetadata {
   ensurePlatformRegistrations();
-  return ENV_METADATA[key] ?? fromFragment(key) ?? {};
+  const base = ENV_METADATA[key] ?? fromFragment(key) ?? {};
+  const annotation = getEnvAnnotation(key);
+  if (annotation === undefined) return base;
+  if (annotation.fixed !== undefined && base.secret === true) {
+    throw new Error(`annotateEnvKey("${key}") fixes a secret key. A secret is never a literal in source: remove \`fixed\`.`);
+  }
+  return {
+    ...base,
+    ...(annotation.fixed === undefined || base.never === true ? {} : { fixed: annotation.fixed }),
+    ...(annotation.help === undefined ? {} : { help: annotation.help }),
+  };
 }

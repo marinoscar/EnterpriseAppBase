@@ -26,10 +26,11 @@
  *   that reserves base64's own characters: GreptimeDB's
  *   `static_user_provider:cmd:user=password,user2=password2` splits on `,`,
  *   `=` and `:`, and base64 carries `=` padding (and `+`, `/`).
+ * - any other id: a kind an app registered with `registerEnvGenerator`.
  *
  * @stability experimental
  */
-export type GenerateKind = 'base64-32' | 'hex-32';
+export type GenerateKind = 'base64-32' | 'hex-32' | (string & {});
 
 /**
  * What a `derive` function may read.
@@ -55,7 +56,7 @@ export interface EnvVarMetadata {
   secret?: boolean;
   /** Asked even when the template supplies a default. */
   essential?: boolean;
-  /** Offer to generate a value rather than make someone invent one. */
+  /** Offer to generate a value rather than make someone invent one. A kind from `registerEnvGenerator`. */
   generate?: GenerateKind;
   /**
    * Generate the value WITHOUT ASKING, interactive or not, whenever it is
@@ -79,6 +80,11 @@ export interface EnvVarMetadata {
    * (the reference CLI's `EnvGroup`) and refuses a fragment naming another.
    */
   group?: string;
+  /**
+   * Shown by the wizard in place of the template's comment. Set by
+   * `annotateEnvKey`; a fragment may set it for the keys it owns.
+   */
+  help?: string;
   /** Never written at all, whatever the template says. */
   never?: boolean;
   /**

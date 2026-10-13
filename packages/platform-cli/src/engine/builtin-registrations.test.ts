@@ -1,4 +1,13 @@
-import { listEnvGroups, listEnvSpecFragments, registerEnvGroup, registerEnvSpecFragment } from '../core/index.js';
+import {
+  annotateEnvKey,
+  listEnvGroups,
+  listEnvSpecFragments,
+  registerEnvGenerator,
+  registerEnvGroup,
+  registerEnvSpecFragment,
+  resetEnvAnnotationRegistryForTests,
+  resetEnvGeneratorRegistryForTests,
+} from '../core/index.js';
 import { telemetryEnvSpecFragment, type TelemetryEnvGroup } from '../telemetry/index.js';
 import { afterEach, describe, expect, expectTypeOf, it } from 'vitest';
 
@@ -14,7 +23,11 @@ import {
 // The CLI's registration point for the platform registries  (PP-4.5, #706)
 // =============================================================================
 
-afterEach(() => resetPlatformRegistrationsForTests());
+afterEach(() => {
+  resetPlatformRegistrationsForTests();
+  resetEnvAnnotationRegistryForTests();
+  resetEnvGeneratorRegistryForTests();
+});
 
 describe('ensurePlatformRegistrations', () => {
   it('registers the app map and the telemetry fragment, in that order', () => {
@@ -85,6 +98,36 @@ describe('env groups', () => {
     expect(effectiveGroups(['email'])).toEqual(['email', 'observability', 'coach']);
     registerEnvGroup({ id: 'billing', label: 'Billing', description: 'Billing.', defaultEnabled: false });
     expect(effectiveGroups()).not.toContain('billing');
+  });
+});
+
+describe('annotateEnvKey on a key the platform owns (the app wins)', () => {
+  it('replaces fixed and help, and leaves every other field of the owner alone', () => {
+    expect(metadataFor('NODE_ENV')).toEqual({ fixed: 'production' });
+    annotateEnvKey('NODE_ENV', { fixed: 'staging', help: 'Runtime mode of the coach stack.' });
+    expect(metadataFor('NODE_ENV')).toEqual({ fixed: 'staging', help: 'Runtime mode of the coach stack.' });
+
+    // JWT_SECRET is the owner's secret; an annotation may add help but not unmask it.
+    annotateEnvKey('JWT_SECRET', { help: 'Signs session tokens.' });
+    expect(metadataFor('JWT_SECRET')).toMatchObject({ secret: true, generate: 'base64-32', help: 'Signs session tokens.' });
+  });
+
+  it('refuses to fix a secret key, so a secret is never a literal in source', () => {
+    annotateEnvKey('JWT_SECRET', { fixed: 'hunter2' });
+    expect(() => metadataFor('JWT_SECRET')).toThrow(/fixes a secret key/);
+  });
+
+  it('cannot bring back a key that is never written', () => {
+    expect(metadataFor('TEST_AUTH_ENABLED').never).toBe(true);
+    annotateEnvKey('TEST_AUTH_ENABLED', { fixed: 'true' });
+    expect(metadataFor('TEST_AUTH_ENABLED')).toEqual({ never: true });
+  });
+
+  it('lets a fragment name a generator kind the app registered', () => {
+    registerEnvGenerator({ kind: 'token-8', generate: () => 'abcd1234' });
+    ensurePlatformRegistrations();
+    registerEnvSpecFragment({ id: 'coach', metadata: { COACH_TOKEN: { secret: true, generate: 'token-8' } } });
+    expect(metadataFor('COACH_TOKEN')).toEqual({ secret: true, generate: 'token-8' });
   });
 });
 

@@ -41,3 +41,21 @@ export {
   resetEnvGroupRegistryForTests,
 } from './env-group-registry.js';
 export type { EnvGroupRegistration } from './env-group-registry.js';
+
+export {
+  freezeEnvGeneratorRegistry,
+  generateWithKind,
+  listEnvGenerators,
+  registerEnvGenerator,
+  resetEnvGeneratorRegistryForTests,
+} from './env-generator-registry.js';
+export type { EnvGeneratorRegistration } from './env-generator-registry.js';
+
+export {
+  annotateEnvKey,
+  freezeEnvAnnotationRegistry,
+  getEnvAnnotation,
+  listEnvAnnotations,
+  resetEnvAnnotationRegistryForTests,
+} from './env-annotation-registry.js';
+export type { EnvKeyAnnotation } from './env-annotation-registry.js';

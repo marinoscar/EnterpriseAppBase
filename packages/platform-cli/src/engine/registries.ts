@@ -1,4 +1,12 @@
-import { freezeCommandRegistry, freezeEnvGroupRegistry, freezeEnvSpecRegistry } from '../core/index.js';
+import {
+  freezeCommandRegistry,
+  freezeEnvAnnotationRegistry,
+  freezeEnvGeneratorRegistry,
+  freezeEnvGroupRegistry,
+  freezeEnvSpecRegistry,
+  resetEnvAnnotationRegistryForTests,
+  resetEnvGeneratorRegistryForTests,
+} from '../core/index.js';
 
 import { resetPlatformRegistrationsForTests } from './builtin-registrations.js';
 import { freezeDeployCheckRegistry, resetDeployCheckRegistryForTests } from './deploy/checks/registry.js';
@@ -26,6 +34,8 @@ export function freezeCliRegistries(by: string): void {
   freezeCommandRegistry(by);
   freezeEnvSpecRegistry(by);
   freezeEnvGroupRegistry(by);
+  freezeEnvGeneratorRegistry(by);
+  freezeEnvAnnotationRegistry(by);
   freezeTuiScreenRegistry(by);
   freezeDeployStepRegistry(by);
   freezeNodeExecutorRegistry(by);
@@ -41,6 +51,8 @@ export function resetCliRegistriesForTests(): void {
   resetDeployStepRegistryForTests();
   resetNodeExecutorRegistryForTests();
   resetProxyStreamRegistryForTests();
+  resetEnvGeneratorRegistryForTests();
+  resetEnvAnnotationRegistryForTests();
   resetDeployCheckRegistryForTests();
   resetEdgeConfigRegistryForTests();
 }

@@ -1,6 +1,7 @@
 import {
   createCliRegistry,
   getEnvGroup,
+  listEnvGenerators,
   listEnvSpecFragments,
   type CliRegistry,
 } from '../core/index.js';
@@ -321,7 +322,18 @@ const BUILTIN_SUITES: ReadonlyArray<CliConformanceSuite<never>> = [
           }
           api.expect(unknown).toEqual([]);
         });
-        for (const pipeline of ['install', 'update'] as const) {
+        api.it('every env key generates with a registered kind', () => {
+        ensurePlatformRegistrations();
+        const known = listEnvGenerators().map((generator) => generator.kind);
+        const unknown: string[] = [];
+        for (const fragment of listEnvSpecFragments()) {
+          for (const [key, metadata] of Object.entries(fragment.metadata)) {
+            if (metadata.generate !== undefined && !known.includes(metadata.generate)) unknown.push(`${key} (${metadata.generate})`);
+          }
+        }
+        api.expect(unknown).toEqual([]);
+      });
+      for (const pipeline of ['install', 'update'] as const) {
           api.it(`the ${pipeline} plan resolves with the app's steps in place`, () => {
             api.expect(planDeploySteps(pipeline).length > 0).toEqual(true);
           });

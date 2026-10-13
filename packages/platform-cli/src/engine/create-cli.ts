@@ -2,10 +2,14 @@ import type { Command } from 'commander';
 
 import {
   registerCliCommand,
+  annotateEnvKey,
+  registerEnvGenerator,
   registerEnvGroup,
   registerEnvSpecFragment,
   type CliCommandRegistration,
+  type EnvGeneratorRegistration,
   type EnvGroupRegistration,
+  type EnvKeyAnnotation,
   type EnvSpecFragment,
 } from '../core/index.js';
 
@@ -64,6 +68,10 @@ export interface CreateCliOptions {
   nodeExecutors?: readonly JobExecutor[] | undefined;
   /** Env-key metadata for the app's own `.env.example` keys. Same as `registerEnvSpecFragment`. */
   envSpecFragments?: readonly EnvSpecFragment[] | undefined;
+  /** Kinds of generated value for `EnvVarMetadata.generate`. Same as `registerEnvGenerator`; registered before the fragments that name them. */
+  envGenerators?: readonly EnvGeneratorRegistration[] | undefined;
+  /** App overrides of `fixed` / `help` on keys the platform owns (the app wins). Same as `annotateEnvKey`. */
+  envAnnotations?: Readonly<Record<string, EnvKeyAnnotation>> | undefined;
   /** Opt-in feature groups of the app's env keys. Same as `registerEnvGroup`; registered before the fragments that name them. */
   envGroups?: readonly EnvGroupRegistration[] | undefined;
   /**
@@ -105,8 +113,10 @@ export interface CliInstance {
 export function createCli(options: CreateCliOptions): CliInstance {
   setCliIdentity(options.identity, options.version);
   ensurePlatformRegistrations();
+  for (const generator of options.envGenerators ?? []) registerEnvGenerator(generator);
   for (const group of options.envGroups ?? []) registerEnvGroup(group);
   for (const fragment of options.envSpecFragments ?? []) registerEnvSpecFragment(fragment);
+  for (const [key, annotation] of Object.entries(options.envAnnotations ?? {})) annotateEnvKey(key, annotation);
   for (const command of options.extraCommands ?? []) registerCliCommand(command);
   for (const screen of options.tuiScreens ?? []) registerTuiScreen(screen);
   for (const check of options.deployChecks ?? []) registerDeployCheck(check);
