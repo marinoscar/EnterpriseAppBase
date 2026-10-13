@@ -77,6 +77,7 @@ function job(overrides: Partial<Job> = {}): Job {
     dedupKey: null,
     status: 'failed',
     reason: 'upload',
+    reasonLabel: 'Upload',
     priority: 0,
     providerKey: null,
     modelVersion: null,
