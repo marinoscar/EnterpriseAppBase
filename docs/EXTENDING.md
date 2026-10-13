@@ -917,6 +917,8 @@ Available now. An integration authenticates with something that is not a session
    }
    ```
 
+   The augmentation widens `CredentialKind` for the whole program, so a `switch` over it needs a `default` that denies, and code that builds a `UserPrincipal` literal types its credential with `BuiltinCredentialKind` (a `UserPrincipal` carries one of the platform's three).
+
 2. **Register it at import time** (`registerPrincipalKind` first when the principal kind is new; the credential kind's `principalKind` must already be registered):
 
    ```ts
