@@ -4,7 +4,7 @@
 //
 // `@marinoscar/platform-api/host` owns what used to be this app's own
 // plumbing: the event bus, the platform's app metrics, maintenance mode (the
-// only APP_GUARD), the `{ data }` envelope, the request log line, the
+// platform's APP_GUARD), the `{ data }` envelope, the request log line, the
 // exception filter and request ids. The app configures it here, once:
 //
 //   - the app-metric manifest runs FIRST, so the registry order stays the
