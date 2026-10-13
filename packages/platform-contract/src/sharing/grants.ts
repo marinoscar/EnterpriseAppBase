@@ -13,6 +13,7 @@
 //   PATCH  /api/grants/:id                      updateGrantSchema      -> grantSchema
 //   DELETE /api/grants/:id                                             -> 204
 //   GET    /api/grants/shared-with-me           sharedWithMeQuerySchema -> sharedWithMeListSchema
+//   GET    /api/sharing/grantee-kinds                                  -> granteeKindListSchema (PP-14.16)
 //
 //   POST   /api/grants/links                    linkGrantCreateSchema  -> issuedLinkGrantSchema (#730)
 //   GET    /api/grants/links?resourceType&resourceId grantListQuerySchema -> linkGrantListSchema (#730)
@@ -21,7 +22,7 @@
 
 import { z } from 'zod';
 
-import { GRANT_GRANTEE_KINDS, LINK_TOKEN_PATTERN, SHARED_WITH_ME_VIA, SHARING_IDENTIFIER_PATTERN, SHARING_LIMITS } from './constants.js';
+import { BUILTIN_GRANTEE_KINDS, GRANTEE_KIND_ID_PATTERN, GRANTEE_KIND_INPUTS, GRANT_GRANTEE_KINDS, LINK_TOKEN_PATTERN, SHARED_WITH_ME_VIA, SHARING_IDENTIFIER_PATTERN, SHARING_LIMITS } from './constants.js';
 import { wireEnum } from './enum.js';
 import { groupEmailSchema, pageQuerySchema } from './groups.js';
 
@@ -91,12 +92,79 @@ export const groupGranteeSchema = z
   .strict();
 
 /**
- * Who `POST /api/grants` shares with: a user or a group. Link grants are
- * created through their own route (#730).
+ * An id of a registered grantee kind, built in or not (`email-domain`).
  *
  * @stability experimental
  */
-export const grantGranteeInputSchema = z.discriminatedUnion('kind', [userGranteeSchema, groupGranteeSchema]);
+export const granteeKindIdSchema = z
+  .string()
+  .regex(GRANTEE_KIND_ID_PATTERN, 'A grantee kind is lower-case letters, digits and hyphens, starting with a letter')
+  .describe('A registered grantee kind id: lower-case letters, digits and hyphens (e.g. `email-domain`).');
+
+/**
+ * A grantee of an app-registered kind: the wire discriminator is the literal
+ * `custom` (so the built-in shapes keep their exact validation messages), the
+ * registered kind goes in `granteeKind` and an opaque reference the kind
+ * validates in `ref` (`{ kind: 'custom', granteeKind: 'email-domain', ref:
+ * 'example.com' }`). The API answers 422 `GRANTEE_KIND_UNKNOWN` for a kind
+ * nobody registered and 422 `GRANTEE_KIND_NOT_PERSISTABLE` for a registered
+ * kind whose grants cannot be stored yet.
+ *
+ * @stability experimental
+ */
+export const customGranteeSchema = z
+  .object({
+    /** `custom`: the grantee is of an app-registered kind. */
+    kind: z.literal('custom'),
+    /** The registered kind (not `user`, `group`, `link` or `custom`). */
+    granteeKind: granteeKindIdSchema.refine(
+      (kind) => kind !== 'custom' && !(BUILTIN_GRANTEE_KINDS as readonly string[]).includes(kind),
+      'Use the built-in grantee shapes for user, group and link',
+    ),
+    /** The grantee, in the form the kind validates. */
+    ref: z.string().min(1).max(SHARING_LIMITS.granteeRefMax),
+  })
+  .strict();
+
+/**
+ * Who `POST /api/grants` shares with: a user, a group, or (`kind: 'custom'`)
+ * a grantee of an app-registered kind. Link grants are created through their
+ * own route (#730).
+ *
+ * @stability experimental
+ */
+export const grantGranteeInputSchema = z.discriminatedUnion('kind', [userGranteeSchema, groupGranteeSchema, customGranteeSchema]);
+
+/**
+ * One grantee kind as `GET /api/sharing/grantee-kinds` describes it: what a
+ * share dialog needs to offer it.
+ *
+ * @stability experimental
+ */
+export const granteeKindDescriptorSchema = z.object({
+  /** The kind's id (`user`, `group`, `link`, `email-domain`). */
+  kind: granteeKindIdSchema,
+  /** The label a share dialog shows. */
+  label: z.string(),
+  /** A sentence about who the kind shares with, or `null`. */
+  description: z.string().nullable(),
+  /** How the dialog collects the grantee. */
+  input: wireEnum(GRANTEE_KIND_INPUTS),
+  /** Whether the platform ships the kind (`user`, `group`, `link`). */
+  builtin: z.boolean(),
+  /** Whether a grant of this kind can be stored and created today. */
+  persisted: z.boolean(),
+});
+
+/**
+ * `GET /api/sharing/grantee-kinds` response: the registered kinds, in registration order.
+ *
+ * @stability experimental
+ */
+export const granteeKindListSchema = z.object({
+  /** The kinds. */
+  items: z.array(granteeKindDescriptorSchema),
+});
 
 /**
  * `POST /api/grants` body. Granting a grantee that already has an active
@@ -409,6 +477,27 @@ export const publicLinkResolutionSchema = z.object({
  * @stability experimental
  */
 export type GrantGranteeInput = z.output<typeof grantGranteeInputSchema>;
+
+/**
+ * The parsed grantee of an app-registered kind (`kind: 'custom'`).
+ *
+ * @stability experimental
+ */
+export type CustomGranteeInput = z.output<typeof customGranteeSchema>;
+
+/**
+ * One grantee kind as `GET /api/sharing/grantee-kinds` describes it.
+ *
+ * @stability experimental
+ */
+export type GranteeKindDescriptor = z.output<typeof granteeKindDescriptorSchema>;
+
+/**
+ * The `GET /api/sharing/grantee-kinds` response.
+ *
+ * @stability experimental
+ */
+export type GranteeKindList = z.output<typeof granteeKindListSchema>;
 
 /**
  * The parsed `POST /api/grants` body.

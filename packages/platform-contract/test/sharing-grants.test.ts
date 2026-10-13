@@ -5,6 +5,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
   ACCESS_SCOPES,
+  BUILTIN_GRANTEE_KINDS,
+  GRANTEE_KIND_ID_PATTERN,
+  GRANTEE_KIND_INPUTS,
   GRANT_GRANTEE_KINDS,
   LINK_TOKEN_HEADER,
   LINK_TOKEN_PATTERN,
@@ -12,6 +15,8 @@ import {
   SHARING_LIMITS,
   buildLinkUrl,
   createGrantSchema,
+  granteeKindDescriptorSchema,
+  granteeKindListSchema,
   grantListQuerySchema,
   grantSchema,
   issuedLinkGrantSchema,
@@ -49,6 +54,37 @@ describe('@marinoscar/platform-contract/sharing grants', () => {
     expect(createGrantSchema.parse({ ...base, grantee: { kind: 'group', groupId: GROUP } }).grantee).toEqual({ kind: 'group', groupId: GROUP });
     expect(createGrantSchema.safeParse({ ...base, grantee: { kind: 'group' } }).success).toBe(false);
     expect(createGrantSchema.safeParse({ ...base, grantee: { kind: 'link' } }).success).toBe(false);
+  });
+
+  it('keeps the built-in grantee kinds and opens the id vocabulary for app kinds', () => {
+    expect(BUILTIN_GRANTEE_KINDS).toEqual(['user', 'group', 'link']);
+    expect(GRANTEE_KIND_INPUTS).toEqual(['user-search', 'group-select', 'text', 'none', 'custom']);
+    for (const ok of ['user', 'email-domain', 'team2']) expect(GRANTEE_KIND_ID_PATTERN.test(ok)).toBe(true);
+    for (const bad of ['', 'e', 'Email-Domain', 'email_domain', '1team', "x'; drop", 'a'.repeat(49)]) expect(GRANTEE_KIND_ID_PATTERN.test(bad)).toBe(false);
+  });
+
+  it('grants a grantee of an app-registered kind through the `custom` discriminator only', () => {
+    const base = { resourceType: 'album', resourceId: RESOURCE, role: 'viewer' };
+    expect(createGrantSchema.parse({ ...base, grantee: { kind: 'custom', granteeKind: 'email-domain', ref: 'example.com' } }).grantee).toEqual({
+      kind: 'custom',
+      granteeKind: 'email-domain',
+      ref: 'example.com',
+    });
+    // The wire discriminator is never a kind of its own, and the built-ins keep their own shapes.
+    for (const granteeKind of ['custom', 'user', 'group', 'link', 'Bad Kind']) {
+      expect(createGrantSchema.safeParse({ ...base, grantee: { kind: 'custom', granteeKind, ref: 'x' } }).success).toBe(false);
+    }
+    expect(createGrantSchema.safeParse({ ...base, grantee: { kind: 'custom', granteeKind: 'team', ref: '' } }).success).toBe(false);
+    expect(createGrantSchema.safeParse({ ...base, grantee: { kind: 'custom', granteeKind: 'team', ref: 'x'.repeat(SHARING_LIMITS.granteeRefMax + 1) } }).success).toBe(false);
+    expect(createGrantSchema.safeParse({ ...base, grantee: { kind: 'email-domain', ref: 'example.com' } }).success).toBe(false);
+  });
+
+  it('describes a grantee kind and lists them', () => {
+    const descriptor = { kind: 'email-domain', label: 'Email domain', description: null, input: 'text', builtin: false, persisted: false };
+    expect(granteeKindDescriptorSchema.parse(descriptor)).toEqual(descriptor);
+    expect(granteeKindListSchema.parse({ items: [descriptor] }).items).toHaveLength(1);
+    expect(granteeKindDescriptorSchema.safeParse({ ...descriptor, input: 'wizard' }).success).toBe(false);
+    expect(granteeKindDescriptorSchema.safeParse({ ...descriptor, kind: 'Bad' }).success).toBe(false);
   });
 
   it('accepts only snake_case resource types and roles, and an ISO expiry with an offset', () => {
