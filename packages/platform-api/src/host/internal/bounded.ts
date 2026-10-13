@@ -29,10 +29,18 @@ export const MAX_BOUNDED_FACTS = 16;
 /** The longest string value kept; a longer one is truncated. */
 export const MAX_BOUNDED_STRING = 200;
 
-/** A value an extension may report. */
+/**
+ * A value an extension may report.
+ *
+ * @stability experimental
+ */
 export type BoundedFactValue = string | number | boolean;
 
-/** Bounded facts. */
+/**
+ * Bounded facts.
+ *
+ * @stability experimental
+ */
 export type BoundedFacts = Record<string, BoundedFactValue>;
 
 /**

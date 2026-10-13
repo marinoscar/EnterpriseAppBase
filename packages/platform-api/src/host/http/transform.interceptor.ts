@@ -26,13 +26,25 @@ import { responseMetaContributorRegistry } from './response-meta.registry';
 // and secret-filtered (`buildResponseMeta`).
 // =============================================================================
 
-/** The most keys one contributor may add to `meta`. */
+/**
+ * The most keys one contributor may add to `meta`.
+ *
+ * @stability experimental
+ */
 export const RESPONSE_META_MAX_KEYS_PER_CONTRIBUTOR = 8;
 
-/** The most keys contributors may add to `meta` in total. */
+/**
+ * The most keys contributors may add to `meta` in total.
+ *
+ * @stability experimental
+ */
 export const RESPONSE_META_MAX_KEYS = 16;
 
-/** The longest a contributed value may be once serialised as JSON. */
+/**
+ * The longest a contributed value may be once serialised as JSON.
+ *
+ * @stability experimental
+ */
 export const RESPONSE_META_MAX_VALUE_LENGTH = 512;
 
 /**

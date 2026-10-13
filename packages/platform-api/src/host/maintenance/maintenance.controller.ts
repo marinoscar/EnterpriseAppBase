@@ -7,10 +7,18 @@ import { resolveHostAccess } from '../internal/host-access';
 import { MaintenanceModeService } from './maintenance-mode.service';
 import { MaintenanceStatusDto, UpdateMaintenanceDto } from './dto/update-maintenance.dto';
 
-/** The permission `GET /api/admin/maintenance` requires unless the app configures another. */
+/**
+ * The permission `GET /api/admin/maintenance` requires unless the app configures another.
+ *
+ * @stability experimental
+ */
 export const DEFAULT_MAINTENANCE_READ_PERMISSION: string =
   SETTINGS_PERMISSIONS.SYSTEM_SETTINGS_READ.id;
-/** The permission `PUT /api/admin/maintenance` requires unless the app configures another. */
+/**
+ * The permission `PUT /api/admin/maintenance` requires unless the app configures another.
+ *
+ * @stability experimental
+ */
 export const DEFAULT_MAINTENANCE_WRITE_PERMISSION: string =
   SETTINGS_PERMISSIONS.SYSTEM_SETTINGS_WRITE.id;
 
@@ -28,7 +36,11 @@ export interface MaintenanceControllerOptions {
   writePermission?: string;
 }
 
-/** The maintenance controller's handlers. */
+/**
+ * The maintenance controller's handlers.
+ *
+ * @stability experimental
+ */
 export interface MaintenanceControllerInstance {
   /** `GET /api/admin/maintenance`. */
   getMaintenance(): Promise<MaintenanceStatusDto>;
@@ -36,7 +48,11 @@ export interface MaintenanceControllerInstance {
   setMaintenance(dto: UpdateMaintenanceDto, userId: string): Promise<MaintenanceStatusDto>;
 }
 
-/** The maintenance controller class. */
+/**
+ * The maintenance controller class.
+ *
+ * @stability experimental
+ */
 export type MaintenanceControllerClass = new (
   maintenance: MaintenanceModeService
 ) => MaintenanceControllerInstance;

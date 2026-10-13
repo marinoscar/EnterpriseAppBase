@@ -10,7 +10,11 @@ import {
 } from '../maintenance/maintenance.guard';
 import { MaintenanceModeService } from '../maintenance/maintenance-mode.service';
 
-/** The liveness answer. */
+/**
+ * The liveness answer.
+ *
+ * @stability experimental
+ */
 export interface LivenessResult {
   /** Always `ok` while the process answers. */
   status: string;
@@ -18,13 +22,21 @@ export interface LivenessResult {
   timestamp: string;
 }
 
-/** A Terminus result stamped with the time it was built. */
+/**
+ * A Terminus result stamped with the time it was built.
+ *
+ * @stability experimental
+ */
 export type TimestampedHealthResult = HealthCheckResult & {
   /** When the answer was built (ISO 8601). */
   timestamp: string;
 };
 
-/** What the health controller exposes (the shape tests and wiring rely on). */
+/**
+ * What the health controller exposes (the shape tests and wiring rely on).
+ *
+ * @stability experimental
+ */
 export interface HealthControllerInstance {
   /** `GET /api/health/live`. */
   liveness(): LivenessResult;
@@ -34,7 +46,11 @@ export interface HealthControllerInstance {
   fullHealth(): Promise<TimestampedHealthResult>;
 }
 
-/** The health controller class. */
+/**
+ * The health controller class.
+ *
+ * @stability experimental
+ */
 export type HealthControllerClass = new (
   health: HealthCheckService,
   indicators: HealthIndicatorRunner,

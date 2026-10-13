@@ -118,6 +118,7 @@ export class InvalidCorsOriginError extends Error {
  * app.enableCors(buildCorsOptions(process.env.CORS_ORIGIN, { exposedHeaders: ['x-request-id'], maxAge: 600 }));
  * ```
  *
+ * @extensionPoint option
  * @stability experimental
  */
 export function buildCorsOptions(raw: string | undefined, extra?: ExtraCorsOptions): CorsOptions {

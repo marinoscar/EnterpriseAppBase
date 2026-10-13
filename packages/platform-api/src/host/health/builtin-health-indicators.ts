@@ -17,7 +17,11 @@ import {
   type HealthIndicatorOutcome,
 } from './health-indicator.registry';
 
-/** The key the built-in indicator reports under. */
+/**
+ * The key the built-in indicator reports under.
+ *
+ * @stability experimental
+ */
 export const DATABASE_HEALTH_INDICATOR_ID = 'database';
 
 function outcomeOf(key: string, result: TerminusResult | undefined): HealthIndicatorOutcome {

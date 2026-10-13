@@ -67,7 +67,11 @@ import { resolveHostAccess } from '../internal/host-access';
 import { AboutService } from './about.service';
 import { AboutResponseDto } from './dto/about-response.dto';
 
-/** The permission `GET /api/admin/about` requires unless the app configures another. */
+/**
+ * The permission `GET /api/admin/about` requires unless the app configures another.
+ *
+ * @stability experimental
+ */
 export const DEFAULT_ABOUT_PERMISSION: string = SETTINGS_PERMISSIONS.SYSTEM_SETTINGS_READ.id;
 
 /**
@@ -82,7 +86,11 @@ export interface AboutControllerOptions {
   permission?: string;
 }
 
-/** The about controller's handler. */
+/**
+ * The about controller's handler.
+ *
+ * @stability experimental
+ */
 export interface AboutControllerInstance {
   /**
    * `GET /api/admin/about`. Resolves the deployment report (shape: the
@@ -91,7 +99,11 @@ export interface AboutControllerInstance {
   getAbout(): Promise<object>;
 }
 
-/** The about controller class. */
+/**
+ * The about controller class.
+ *
+ * @stability experimental
+ */
 export type AboutControllerClass = new (about: AboutService) => AboutControllerInstance;
 
 /**
