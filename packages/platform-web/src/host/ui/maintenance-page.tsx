@@ -71,6 +71,8 @@ import {
   Typography,
 } from '@mui/material';
 import { Navigate } from 'react-router-dom';
+import { PageSlotsFrame } from '../../core/index.js';
+import type { PageSlotsBase } from '../../core/index.js';
 import { usePermissions } from '../../identity/index.js';
 import type { MaintenanceSource, MaintenanceStatus } from '../headless/contract.js';
 import { isDecidingLayer } from '../headless/maintenance-block.js';
@@ -138,6 +140,32 @@ function LayerRow({ label, deciding, children }: LayerRowProps) {
 }
 
 /**
+ * The slots of {@link MaintenancePage}: the page-slot contract. `BeforeContent`
+ * is where an app puts its runbook link or on-call contact above the controls;
+ * `Sections` is drawn at both ends of the body, around the effective state, the
+ * form and the layers.
+ *
+ * @example
+ * ```tsx
+ * <MaintenancePage slots={{ BeforeContent: () => <Alert severity="info">Announce in #ops before switching it on.</Alert> }} />
+ * ```
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export type MaintenancePageSlots = PageSlotsBase;
+
+/**
+ * The props of {@link MaintenancePage}.
+ *
+ * @stability experimental
+ */
+export interface MaintenancePageProps {
+  /** Optional extension slots; omitted, the page renders exactly as it always did. */
+  slots?: MaintenancePageSlots;
+}
+
+/**
  * Admin → Settings → Maintenance: open or close the maintenance window, with
  * every contributing layer (environment, server task, saved setting) shown
  * beside the effective state. Redirects to `/` without `system_settings:read`;
@@ -153,7 +181,8 @@ function LayerRow({ label, deciding, children }: LayerRowProps) {
  * @extensionPoint component
  * @stability experimental
  */
-export function MaintenancePage() {
+export function MaintenancePage(props: MaintenancePageProps = {}) {
+  const { slots } = props;
   const { hasPermission } = usePermissions();
   const { status, isLoading, loadError, isSaving, saveError, save } = useMaintenance();
 
@@ -211,19 +240,26 @@ export function MaintenancePage() {
   return (
     <Container maxWidth="lg">
       <Box sx={{ py: 4 }}>
-        {/* Title and description MIRROR the `Maintenance` card so the hub card,
-            the rail row, the compact AppBar title and this `h1` all name the
-            page identically. */}
-        <Typography variant="h4" component="h1" gutterBottom>
-          {PAGE_TITLE}
-        </Typography>
-        <Typography color="text.secondary" sx={{ mb: 3 }}>
-          {PAGE_DESCRIPTION}
-          {/* Stated up front rather than left for the operator to discover by
-              finding every control disabled. */}
-          {!canWrite && ' (read-only)'}
-        </Typography>
-
+        <PageSlotsFrame
+          slots={slots}
+          headerProps={{ title: PAGE_TITLE, description: PAGE_DESCRIPTION, readOnly: !canWrite, actions: null }}
+          header={
+            <>
+              {/* Title and description MIRROR the `Maintenance` card so the hub card,
+                  the rail row, the compact AppBar title and this `h1` all name the
+                  page identically. */}
+              <Typography variant="h4" component="h1" gutterBottom>
+                {PAGE_TITLE}
+              </Typography>
+              <Typography color="text.secondary" sx={{ mb: 3 }}>
+                {PAGE_DESCRIPTION}
+                {/* Stated up front rather than left for the operator to discover by
+                    finding every control disabled. */}
+                {!canWrite && ' (read-only)'}
+              </Typography>
+            </>
+          }
+        >
         {loadError && (
           <Alert severity="error" sx={{ mb: 3 }}>
             {loadError}
@@ -414,6 +450,8 @@ export function MaintenancePage() {
             </Paper>
           </>
         )}
+
+        </PageSlotsFrame>
 
         <Snackbar
           open={!!savedMessage}

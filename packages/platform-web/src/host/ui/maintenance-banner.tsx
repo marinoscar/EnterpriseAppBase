@@ -40,11 +40,33 @@
  * also what keeps it out of the app's pixel baselines (`tests/visual/`).
  */
 
+import type { ReactNode } from 'react';
 import { Alert, AlertTitle, Box, Button } from '@mui/material';
 import { Link as RouterLink, useLocation } from 'react-router-dom';
 import { usePermissions } from '../../identity/index.js';
 import { MAINTENANCE_ADMIN_PATH } from '../headless/maintenance-block.js';
 import { MAINTENANCE_POLL_INTERVAL_MS, useMaintenance } from '../headless/use-maintenance.js';
+
+/**
+ * What {@link MaintenanceBanner} takes, both optional.
+ *
+ * @stability experimental
+ */
+export interface MaintenanceBannerProps {
+  /**
+   * Replaces the sentence under the title ("Everyone except administrators is
+   * being turned away." and the layer note). Omitted, the platform wording.
+   */
+  copy?: {
+    /** The message. */
+    message?: ReactNode;
+  };
+  /**
+   * Extra controls beside "Manage" (a status page link). Drawn before it.
+   * Omitted, "Manage" is the only action.
+   */
+  actions?: ReactNode;
+}
 
 /**
  * The bypassing administrator's reminder: an `Alert` in the shell while a
@@ -66,7 +88,7 @@ import { MAINTENANCE_POLL_INTERVAL_MS, useMaintenance } from '../headless/use-ma
  * @extensionPoint component
  * @stability experimental
  */
-export function MaintenanceBanner() {
+export function MaintenanceBanner({ copy, actions }: MaintenanceBannerProps = {}) {
   const { hasPermission } = usePermissions();
   const canRead = hasPermission('system_settings:read');
   const { pathname } = useLocation();
@@ -97,14 +119,28 @@ export function MaintenanceBanner() {
       <Alert
         severity="warning"
         action={
-          <Button
-            component={RouterLink}
-            to={MAINTENANCE_ADMIN_PATH}
-            color="inherit"
-            size="small"
-          >
-            Manage
-          </Button>
+          actions === undefined ? (
+            <Button
+              component={RouterLink}
+              to={MAINTENANCE_ADMIN_PATH}
+              color="inherit"
+              size="small"
+            >
+              Manage
+            </Button>
+          ) : (
+            <>
+              {actions}
+              <Button
+                component={RouterLink}
+                to={MAINTENANCE_ADMIN_PATH}
+                color="inherit"
+                size="small"
+              >
+                Manage
+              </Button>
+            </>
+          )
         }
       >
         <AlertTitle>Maintenance mode is on</AlertTitle>
@@ -113,12 +149,17 @@ export function MaintenanceBanner() {
             at risk of forgetting — and WHICH LAYER decided tells them where to
             go to turn it off, since an environment override will not yield to
             the page this banner links to. */}
-        {status.allowAdmins
-          ? 'Everyone except administrators is being turned away.'
-          : 'Administrators are not exempt from this window, so the next request you make will be turned away too.'}
-        {status.source === 'env' && ' It is being forced on by this deployment’s environment.'}
-        {status.source === 'memory' &&
-          ' It is being held open by a maintenance task running on the server.'}
+        {copy?.message ??
+          (
+            <>
+              {status.allowAdmins
+                ? 'Everyone except administrators is being turned away.'
+                : 'Administrators are not exempt from this window, so the next request you make will be turned away too.'}
+              {status.source === 'env' && ' It is being forced on by this deployment’s environment.'}
+              {status.source === 'memory' &&
+                ' It is being held open by a maintenance task running on the server.'}
+            </>
+          )}
       </Alert>
     </Box>
   );

@@ -2,10 +2,6 @@
   "$comment": "Packaged pages that do not yet take the slot contract (src/core/page-slots.tsx). Each entry names an exported *Page and why it is exempt. The list only shrinks: test/page-slots.contract.test.ts fails on an entry whose page now conforms or no longer exists.",
   "exempt": [
     {
-      "page": "AboutPage",
-      "reason": "migrated in PP-14.24 (#942)"
-    },
-    {
       "page": "ActivateDevicePage",
       "reason": "migrated in PP-14.25 (#943)"
     },
@@ -40,10 +36,6 @@
     {
       "page": "LoginPage",
       "reason": "migrated in PP-14.25 (#943)"
-    },
-    {
-      "page": "MaintenancePage",
-      "reason": "migrated in PP-14.24 (#942)"
     },
     {
       "page": "NotificationSettingsPage",

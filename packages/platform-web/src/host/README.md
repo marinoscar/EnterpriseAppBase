@@ -78,13 +78,18 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
-| `AboutPage` | component | `AboutPage(): ReactElement` | Route `/admin/settings/about` behind `system_settings:read`; renders the API's `extras` (`AboutExtra[]`, from `registerAboutContributor`) as extra sections | experimental | [example](../../../../apps/web/src/pages/Admin/AboutPage.tsx) |
-| `MaintenancePage` | component | `MaintenancePage(): ReactElement` | Route `/admin/settings/maintenance` behind `system_settings:read` | experimental | [example](../../../../apps/web/src/pages/Admin/MaintenancePage.tsx) |
-| `MaintenanceScreen` | component | `MaintenanceScreen(props: MaintenanceScreenProps): ReactElement` | Render in place of the application while a window is open, outside the layout | experimental | [example](../../../../apps/web/src/App.tsx) |
+| `AboutPage` | component | `AboutPage(props?: { slots?: AboutPageSlots }): ReactElement` | Route `/admin/settings/about` behind `system_settings:read`; renders the API's `extras` (`AboutExtra[]`, from `registerAboutContributor`) as extra sections | experimental | [example](../../../../apps/web/src/pages/Admin/AboutPage.tsx) |
+| `MaintenancePage` | component | `MaintenancePage(props?: { slots?: MaintenancePageSlots }): ReactElement` | Route `/admin/settings/maintenance` behind `system_settings:read` | experimental | [example](../../../../apps/web/src/pages/Admin/MaintenancePage.tsx) |
+| `MaintenanceScreen` | component | `MaintenanceScreen(props: MaintenanceScreenProps): ReactElement` (`logo?`, `actions?`, `children?` since PP-14.24) | Render in place of the application while a window is open, outside the layout | experimental | [example](../../../../apps/web/src/App.tsx) |
 | `MaintenanceGate` | component | `MaintenanceGate({ appName, children }: MaintenanceGateProps): ReactElement` | Wrap the routes so a maintenance block replaces them with the screen | experimental | [example](../../../../apps/web/src/App.tsx) |
-| `MaintenanceBanner` | component | `MaintenanceBanner(): ReactElement \| null` | Mount in the shell inside the gate; reminds a bypassing administrator | experimental | [example](../../../../apps/web/src/components/common/Layout.tsx) |
-| `InstallPrompt` | component | `InstallPrompt({ appName }: InstallPromptProps): ReactElement \| null` | Offer install once, outside the routes | experimental | [example](../../../../apps/web/src/App.tsx) |
+| `MaintenanceBanner` | component | `MaintenanceBanner(props?: { copy?: { message? }; actions? }): ReactElement \| null` | Mount in the shell inside the gate; reminds a bypassing administrator | experimental | [example](../../../../apps/web/src/components/common/Layout.tsx) |
+| `InstallPrompt` | component | `InstallPrompt({ appName, icon?, copy? }: InstallPromptProps): ReactElement \| null` | Offer install once, outside the routes | experimental | [example](../../../../apps/web/src/App.tsx) |
 | `UpdatePrompt` | component | `UpdatePrompt({ useRegisterSW }: UpdatePromptProps): ReactElement \| null` | Register the service worker and announce an update, outside the routes | experimental | [example](../../../../apps/web/src/App.tsx) |
+| `AboutPageSlots` | slot | `PageSlotsBase` | Add a section of your own (support contacts, a link list) around the deployment facts; sections that are just facts belong in an API About contributor | experimental | [example](../../../../apps/web/src/__tests__/examples/host/host-extras.test.tsx) |
+| `MaintenancePageSlots` | slot | `PageSlotsBase` | Add a notice (an on-call reminder, a runbook link) above the maintenance controls or a section around them | experimental | [example](../../../../apps/web/src/__tests__/examples/host/host-extras.test.tsx) |
+| `MaintenanceScreenProps.logo` / `.actions` / `.children` | option | `logo?: ReactNode; actions?: ReactNode; children?: ReactNode` | Brand the public maintenance screen: replace the icon, add a status line under the message, add a control after "Try again" | experimental | [example](../../../../apps/web/src/__tests__/examples/host/host-extras.test.tsx) |
+| `InstallPromptProps.icon` / `.copy` | option | `icon?: ReactNode; copy?: InstallPromptCopy` | Draw the app's mark and wording (`title`, `body`, `install`, `dismiss`) on the install offer | experimental | [example](../../../../apps/web/src/__tests__/examples/host/host-extras.test.tsx) |
+| `MaintenanceBannerProps.copy` / `.actions` | option | `copy?: { message?: ReactNode }; actions?: ReactNode` | Replace the banner's sentence and add a control beside "Manage" | experimental | [example](../../../../apps/web/src/__tests__/examples/host/host-extras.test.tsx) |
 | `useMaintenance` | hook | `useMaintenance(options?: UseMaintenanceOptions): UseMaintenanceReturn` | Read and change the window (the admin page, the banner) | experimental | [example](../../../../apps/web/src/components/common/Layout.tsx) |
 | `useMaintenanceBlock` | hook | `useMaintenanceBlock(): UseMaintenanceBlockReturn` | Subscribe to the block the HTTP client recorded (the gate) | experimental | [example](../../../../apps/web/src/App.tsx) |
 
@@ -101,6 +106,8 @@ No permission of its own. The cards and routes are `system_settings:read` (the l
 ## UI
 
 `/ui`: `AboutPage`, `MaintenancePage` and `MaintenanceScreen`. The DOM and `sx` are those of the pages as the reference app rendered them before the move, so the visual baselines do not change. The About history is a table on `sm` and up and stacked cards on a phone, chosen by mounting one of them, never by hiding the other.
+
+`AboutPage` and `MaintenancePage` take one optional `slots` prop ([Page slots](../core/README.md#page-slots)): `Header`, `BeforeContent`, `Sections` (at both ends), `AfterContent`. The three components that are not pages take plain optional props instead: `MaintenanceScreen` (`logo`, `actions`, `children`), `InstallPrompt` (`icon`, `copy`) and `MaintenanceBanner` (`copy`, `actions`). With none passed the markup is unchanged (`test/host/about-page.dom.test.tsx` and `test/host/host-ui.builtin-dom.test.tsx` pin it).
 
 ## Infra
 
@@ -125,6 +132,8 @@ None of its own. The page and hook suites live in `packages/platform-web/test/ho
 `MaintenanceGate`, `MaintenanceBanner`, `InstallPrompt` and `UpdatePrompt` moved here from the reference app (`components/common/MaintenanceGate.tsx`, `MaintenanceBanner.tsx`, `components/pwa/`), DOM and styles unchanged. Delete the local copies and the app's `pages/MaintenancePage.tsx` binding. The gate takes `appName` (it used to import `APP_NAME` through that binding), `InstallPrompt` takes `appName`, and `UpdatePrompt` takes `useRegisterSW` as a prop because `virtual:pwa-register/react` resolves only in the app's bundler (keep its `vite-env.d.ts` reference and, for tests that render the app, its Vitest alias).
 
 New in this version: moved from the reference app's `pages/Admin/AboutPage.tsx`, `pages/Admin/MaintenancePage.tsx`, `pages/MaintenancePage.tsx`, `hooks/useAbout.ts`, `hooks/useMaintenance.ts`, `services/maintenance.ts` and the About and Maintenance types. The module-level `getAbout`, `getMaintenanceStatus` and `updateMaintenance` of `services/api.ts` became the methods of `createHostApi`. The public screen takes `appName` instead of importing `APP_NAME`. An app that kept local copies deletes them, keeps one-line bindings and re-exports `services/maintenance.ts` from this slice so the HTTP client, the gate and the banner share ONE block store.
+
+#942 (PP-14.24): additive. `AboutPage` and `MaintenancePage` take an optional `slots` prop (`AboutPageSlots`, `MaintenancePageSlots`, the base of the page-slot contract of `@marinoscar/platform-web/core`). `MaintenanceScreen` gained `logo`, `actions` and `children`; `InstallPrompt` gained `icon` and `copy` (`InstallPromptCopy`); `MaintenanceBanner` gained `copy` and `actions` (`MaintenanceBannerProps`). All are optional and default to today's markup.
 
 ## Troubleshooting
 
