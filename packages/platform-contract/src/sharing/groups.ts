@@ -22,15 +22,65 @@
 
 import { z } from 'zod';
 
-import { GROUP_INVITE_LIST_FILTERS, GROUP_INVITE_STATUSES, GROUP_LIST_SCOPES, GROUP_ROLES, SHARING_LIMITS } from './constants.js';
+import { GROUP_INVITE_LIST_FILTERS, GROUP_INVITE_STATUSES, GROUP_LIST_SCOPES, SHARING_IDENTIFIER_PATTERN, SHARING_LIMITS } from './constants.js';
 import { wireEnum } from './enum.js';
 
 /**
- * A group role on the wire.
+ * A group role on the wire: the id of a registered group role (`admin`,
+ * `editor`, `viewer` and any the app registered with `registerGroupRole`).
+ * Only the shape is checked here; the API refuses an id nobody registered
+ * (422 `GROUP_ROLE_UNKNOWN`).
  *
  * @stability experimental
  */
-export const groupRoleSchema = wireEnum(GROUP_ROLES).describe('A group role: `admin`, `editor` or `viewer`.');
+export const groupRoleSchema = z
+  .string()
+  .max(SHARING_LIMITS.grantIdentifierMax)
+  .regex(SHARING_IDENTIFIER_PATTERN, 'A group role is lower-case snake_case')
+  .describe('A registered group role id (`admin`, `editor`, `viewer` or an app role).');
+
+/**
+ * One registered group role as `GET /api/sharing/group-roles` describes it:
+ * what a role picker needs.
+ *
+ * @stability experimental
+ */
+export const groupRoleDescriptorSchema = z.object({
+  /** The role id (`admin`, `commenter`). */
+  id: groupRoleSchema,
+  /** The label a picker shows. */
+  label: z.string(),
+  /** A sentence about what the role may do, or `null`. */
+  description: z.string().nullable(),
+  /** What the role may do in the group: `manage`, `write`, `read` or an app action. */
+  actions: z.array(z.string()),
+  /** Whether the platform ships the role (`admin`, `editor`, `viewer`). */
+  builtin: z.boolean(),
+});
+
+/**
+ * `GET /api/sharing/group-roles` response: the registered roles, strongest first.
+ *
+ * @stability experimental
+ */
+export const groupRoleListSchema = z.object({
+  /** The roles. */
+  items: z.array(groupRoleDescriptorSchema),
+});
+
+/**
+ * One registered group role.
+ *
+ * @stability experimental
+ */
+export type GroupRoleDescriptor = z.output<typeof groupRoleDescriptorSchema>;
+
+/**
+ * The `GET /api/sharing/group-roles` response.
+ *
+ * @stability experimental
+ */
+export type GroupRoleList = z.output<typeof groupRoleListSchema>;
 
 /**
  * An e-mail address, trimmed and lower-cased (invites are stored lower-cased).

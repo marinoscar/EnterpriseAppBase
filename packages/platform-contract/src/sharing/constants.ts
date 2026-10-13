@@ -4,20 +4,41 @@
 // =============================================================================
 
 /**
- * The roles a group member can hold, highest first: `admin` manages the group,
- * its members and invites; `editor` writes group-owned resources; `viewer`
- * reads them.
+ * The group roles the platform ships, highest first: `admin` manages the
+ * group, its members and invites; `editor` writes group-owned resources;
+ * `viewer` reads them. An app registers MORE roles with `registerGroupRole`
+ * (they are text in the database), so a role on the wire is any registered id
+ * ({@link GroupRole}); this list is only the built-in ones.
  *
  * @stability experimental
  */
-export const GROUP_ROLES = ['admin', 'editor', 'viewer'] as const;
+export const BUILTIN_GROUP_ROLES = ['admin', 'editor', 'viewer'] as const;
 
 /**
- * One of {@link GROUP_ROLES}.
+ * One of {@link BUILTIN_GROUP_ROLES}.
  *
  * @stability experimental
  */
-export type GroupRole = (typeof GROUP_ROLES)[number];
+export type BuiltinGroupRole = (typeof BUILTIN_GROUP_ROLES)[number];
+
+/**
+ * The built-in group roles.
+ *
+ * @deprecated The role vocabulary is open now: use {@link BUILTIN_GROUP_ROLES} for the platform's own roles, and the
+ * registry (`GET /api/sharing/group-roles`) for every role an app can assign.
+ *
+ * @stability experimental
+ */
+export const GROUP_ROLES = BUILTIN_GROUP_ROLES;
+
+/**
+ * A group role id: a built-in one or any the app registered with
+ * `registerGroupRole`. The union keeps editor autocompletion for the built-ins
+ * while accepting any registered id.
+ *
+ * @stability experimental
+ */
+export type GroupRole = BuiltinGroupRole | (string & Record<never, never>);
 
 /**
  * What a group invite currently is. `expired` is derived when the invite is
@@ -95,29 +116,39 @@ export type SharingEnumEntries<T extends string> = { [K in T]: K };
 // ---- grants (issue #729, PP-7.2) ---------------------------------------------------
 
 /**
- * Who a grant shares a record with: one `user` of the organization, one
- * `group` of the organization, or anyone holding a `link` token (#730).
+ * The grantee kinds the platform ships: one `user` of the organization, one
+ * `group` of the organization, or anyone holding a `link` token (#730). An app
+ * registers MORE kinds with `registerGranteeKind` (`grants.grantee_kind` is
+ * text); a registered kind that is `persisted` stores its grants with a
+ * `grantee_ref`, and `GET /api/sharing/grantee-kinds` lists them all.
  *
  * @stability experimental
  */
-export const GRANT_GRANTEE_KINDS = ['user', 'group', 'link'] as const;
+export const BUILTIN_GRANTEE_KINDS = ['user', 'group', 'link'] as const;
 
 /**
- * One of {@link GRANT_GRANTEE_KINDS}.
+ * One of {@link BUILTIN_GRANTEE_KINDS}.
  *
  * @stability experimental
  */
-export type GrantGranteeKind = (typeof GRANT_GRANTEE_KINDS)[number];
+export type BuiltinGranteeKind = (typeof BUILTIN_GRANTEE_KINDS)[number];
 
 /**
- * The grantee kinds the platform ships. A grant row can store only these (the
- * `grants.grantee_kind` column is an enum until the persisted-kind migration
- * ships); an app registers MORE kinds with `registerGranteeKind` and they are
- * listed by `GET /api/sharing/grantee-kinds`, but they are not storable yet.
+ * The built-in grantee kinds.
+ *
+ * @deprecated The kind vocabulary is open now: use {@link BUILTIN_GRANTEE_KINDS} for the platform's own kinds.
  *
  * @stability experimental
  */
-export const BUILTIN_GRANTEE_KINDS = GRANT_GRANTEE_KINDS;
+export const GRANT_GRANTEE_KINDS = BUILTIN_GRANTEE_KINDS;
+
+/**
+ * The kind of a grant's grantee: a built-in kind or any a persisted app kind
+ * registered (`email-domain`).
+ *
+ * @stability experimental
+ */
+export type GrantGranteeKind = BuiltinGranteeKind | (string & Record<never, never>);
 
 /**
  * An id of a registered grantee kind, built in or not: lower-case letters,
@@ -146,8 +177,9 @@ export const GRANTEE_KIND_INPUTS = ['user-search', 'group-select', 'text', 'none
 export type GranteeKindInput = (typeof GRANTEE_KIND_INPUTS)[number];
 
 /**
- * How a "shared with me" item reaches the caller: a grant to them, or a grant
- * to a group they belong to.
+ * How a "shared with me" item reaches the caller through the built-in kinds: a
+ * grant to them, or a grant to a group they belong to. A grant of an app kind
+ * reports the kind's own `via` (`email_domain_grant`).
  *
  * @stability experimental
  */

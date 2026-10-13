@@ -124,7 +124,7 @@ describe('@marinoscar/platform-contract/sharing grants', () => {
       orgId: USER,
       resourceType: 'transcript',
       resourceId: RESOURCE,
-      grantee: { kind: 'user', userId: USER, email: 'ana@example.com', displayName: null, groupId: null, groupName: null },
+      grantee: { kind: 'user', userId: USER, email: 'ana@example.com', displayName: null, groupId: null, groupName: null, ref: null, display: null },
       role: 'viewer',
       expiresAt: null,
       revokedAt: null,
