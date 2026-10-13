@@ -10,10 +10,6 @@
       "reason": "migrated in PP-14.25 (#943)"
     },
     {
-      "page": "AndroidAppPage",
-      "reason": "migrated in PP-14.24 (#942)"
-    },
-    {
       "page": "AuthCallbackPage",
       "reason": "migrated in PP-14.25 (#943)"
     },
