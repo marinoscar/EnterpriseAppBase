@@ -3,8 +3,13 @@ import {
   registerAuthProvider,
   registerCurrentUserExtension,
   registerUserListExtension,
+  registerUserMetadataSchema,
 } from '@marinoscar/platform-api/identity';
 
+import {
+  COACH_PREFERENCES_NAMESPACE,
+  coachPreferencesSchema,
+} from '../platform-extensions/identity/coach-preferences.metadata';
 import {
   EXAMPLE_OIDC_PURPOSE,
   exampleOidcProvider,
@@ -47,6 +52,30 @@ registerCredentialPurpose({
 });
 
 registerAuthProvider(exampleOidcProvider);
+
+// =============================================================================
+// This app's metadata namespaces on users and organizations (PP-14.27)
+// =============================================================================
+//
+// `users.metadata` and `organizations.metadata` hold one top-level key per
+// namespace registered HERE, AT IMPORT TIME (the registries freeze once the
+// application has bootstrapped). A namespace is a zod schema: a closed object,
+// no secret-named field, 16 KiB for the whole document. Read and write it with
+// `IdentityMetadataService`; the platform exposes no route over it.
+//
+// The reference app registers the worked example, `preferences.coach`
+// (`platform-extensions/identity/coach-preferences.*`). Registering adds no
+// route, no column and no behaviour: it only makes the key valid. A fork that
+// does not want it deletes the registration and those files. An organization
+// namespace is `registerOrganizationMetadataSchema` the same way.
+// Recipe: docs/EXTENDING.md, "Add app metadata to users and organizations".
+// =============================================================================
+
+export const coachPreferences = registerUserMetadataSchema({
+  namespace: COACH_PREFERENCES_NAMESPACE,
+  schema: coachPreferencesSchema,
+  description: 'A coach: reminder hour, weekly digest and athlete labels (example)',
+});
 
 // =============================================================================
 // What this app adds to `/api/auth/me` and to the user list (PP-14.25)

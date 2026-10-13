@@ -75,6 +75,10 @@ export const RAW_SQL_ALLOWLIST: ReadonlyArray<{ file: string; why: string }> = [
     why: "The identity slice's structural client (#727): DECLARES the `$queryRaw` / `$executeRaw` signatures the slice may call on the app's client; issues no statement itself.",
   },
   {
+    file: 'metadata/identity-metadata.service.ts',
+    why: "App metadata helpers (PP-14.27): a single-row `SELECT ... FOR UPDATE` and `UPDATE` of `users.metadata` / `organizations.metadata` by primary key (the id is validated as a UUID and bound as a parameter), one namespace per call, nothing else selected; Prisma has no row lock and no jsonb path update. The calling route decides whose id it passes (the caller's own, or an organization it administers); the helpers authorise nothing.",
+  },
+  {
     file: 'doctor/backup-rls.doctor-check.ts',
     why: "The db-backup slice's Doctor check (#740): read-only COUNT(*) per tenant table through the system client (the `doctor` reason), compared with the same counts over a connection carrying the dump's startup option. No user ids, no writes.",
   },

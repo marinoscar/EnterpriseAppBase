@@ -331,7 +331,7 @@ Available now (PP-14.25). Full reference: [the shell README](../packages/platfor
 
 ### Add a side table with an `extend model` relation
 
-Full reference: [the platform-db README](../packages/platform-db/README.md#extension-point-catalog) and [the app fragments README](../apps/api/prisma/fragments/README.md). Only a model its owner marked `// @extensible` takes a back-relation: `User`, `Organization`, `Job`, `Group` and `StorageObject`. Never add a column to a platform table.
+Full reference: [the platform-db README](../packages/platform-db/README.md#extension-point-catalog) and [the app fragments README](../apps/api/prisma/fragments/README.md). Only a model its owner marked `// @extensible` takes a back-relation: `User`, `Organization`, `Role`, `Job`, `Group`, `Grant`, `AiRun`, `StorageObject`, `Notification`, `NotificationDelivery` and `Credential` (what an app may hang on each, and why `Permission` stays closed: [the platform-db README](../packages/platform-db/README.md#extension-point-catalog)). Never add a column to a platform table: a per-user or per-organization field goes in [metadata](#add-app-metadata-to-users-and-organizations).
 
 1. **Write the model** in `apps/api/prisma/fragments/<name>.prisma`, keyed by the platform id, and the back-relation beside it:
 
@@ -356,7 +356,14 @@ Full reference: [the platform-db README](../packages/platform-db/README.md#exten
 5. **Decide the data lifecycle.** A table that holds a user's data adds a keep-or-delete hint in `app-registrations/user-data.ts`, so the Danger Zone and factory reset treat it.
 6. **Migrate your own queries** to the scoped client (`ScopedPrismaService.forUser(userId)`) for user-owned rows.
 
-A platform model that is not `// @extensible` (a notification, a credential) takes a side table keyed by the platform id, written as a plain column with no Prisma relation (so no database foreign key; the service keeps the integrity), or a seam request. More extensible models and a JSONB `metadata` column on `User` and `Organization` are PP-14.27.
+A back-relation changes no SQL: marking a model `@extensible` adds no column, key or index, so no migration is needed for the relation itself. Mind the model's ownership:
+
+- **A user-owned model** (`Notification`, `NotificationDelivery`, `User`) takes a plain key on `id`. Use `onDelete: Cascade` on a table that follows a notification so the inbox purge keeps working.
+- **An org-owned model** (`Group`, `Grant`, `AiRun`, `StorageObject`) takes a composite key `(<x>_id, org_id)` -> `<table> (id, org_id)` from a table that carries `org_id` (every one of them has the `(id, org_id)` unique key), never a plain key on `id`: a foreign-key check runs without row-level security.
+- **`Credential`** takes non-secret bookkeeping only. The `secret` column is never copied or related to; read plaintext through `CredentialsService`.
+- **`Permission` is closed on purpose.** A permission is a string the registry owns and `seedPlatform` never deletes; a key from an app table would block retiring it. Refer to a permission by name in code.
+
+The worked example, composed against the real platform fragments and run against Postgres, is [`apps/api/test/examples/db/`](../apps/api/test/examples/db/coach-notes.prisma): an organization table with a key to a notification, a composite key to a grant, a partial unique index and a policy.
 
 ### Add an RLS-protected app table
 
@@ -376,11 +383,43 @@ An app table with an `org_id` is tenant data: row-level security isolates it, an
    ```
 
    A migration that reads or writes rows of an org table wraps itself in `BEGIN; SELECT set_config('app.rls_bypass','on',true); … COMMIT;`. The setting is always transaction-local (`set_config(…, true)`), never a session-level `SET`. Apply it with `npm run prisma:migrate`.
-3. **List the policy in `apps/api/prisma/platform.lock`**: `"rlsPolicies": [{ "name": "workouts_org_isolation", "table": "workouts" }]`, an entry of exactly `name` and `table`. A raw-SQL partial or expression index goes under `rawSqlIndexes` with its `pg_indexes.indexdef`; never "fix" either with `@@unique` or a schema change.
+3. **List the policy in `apps/api/prisma/platform.lock`**: `"rlsPolicies": [{ "name": "workouts_org_isolation", "table": "workouts", "usingSha256": "…", "checkSha256": "…" }]`. The two hashes are optional and make a weakened policy visible offline; `npm run db:policies --workspace=api` prints the entries, hashes included, from your migration SQL. A raw-SQL partial or expression index goes under `rawSqlIndexes` with its `pg_indexes.indexdef`; never "fix" either with `@@unique` or a schema change.
 4. **Classify the model** in `APP_MODEL_OWNERSHIP` (`app-registrations/model-ownership.ts`) as `{ model: 'Workout', kind: 'org', rationale }`. `test/tenancy/model-ownership.spec.ts` fails for a model with no entry.
-5. **Teach the reference app's live coverage spec your policy.** `apps/api/test/tenancy/rls-coverage.db.spec.ts` builds its lists from the package's `RLS_POLICIES`; add your policy names from the lock to the three places that read it, or the exact-match case fails. (Checking app entries offline is PP-14.27.)
+5. **Teach the reference app's live coverage spec your policy.** `apps/api/test/tenancy/rls-coverage.db.spec.ts` builds its lists from the package's `RLS_POLICIES`; add your policy names from the lock to the three places that read it, or the exact-match case fails. `runDbConformance` already checks your lock entries offline against the migration SQL (test `app-schema-objects`: a listed entry no migration creates, a changed policy expression, a table without `ENABLE`/`FORCE`, and an unlisted partial index or policy all fail), and `db:drift` checks them against the database.
 6. **Query through the org-scoped client**: `PrismaService.forOrg(orgId)` for a single statement, `runInOrg` for a transaction (never a `forOrg` client inside `$transaction`). Take the organization from `@CurrentOrg()` (`@marinoscar/platform-api/identity`), never from a header, query or body. A job that touches the table carries `orgId` in its payload.
 7. **Check it**: `npm run db:check --workspace=api`, `npm run db:drift --workspace=api` (asserts each listed policy in `pg_policies`, enabled and forced) and `npm run test:db --workspace=api`. The application role must be an ordinary `NOSUPERUSER NOBYPASSRLS` role, or no policy applies.
+
+### Add app metadata to users and organizations
+
+`users.metadata` and `organizations.metadata` are JSONB documents with one top-level key per namespace your app registers: a per-user or per-organization setting needs no side table, no column and no migration. Reference: [the identity README](../packages/platform-api/src/identity/README.md#app-metadata-on-users-and-organizations).
+
+1. **Declare the shape** as a closed zod object in `apps/api/src/platform-extensions/identity/<name>.metadata.ts` (the example: `coach-preferences.metadata.ts`). No `z.any()` or `z.unknown()`, and no property named like a secret (`password`, `apiKey`, `token`, `webhookSecret`, ...): registration refuses both. Metadata is **not a secret store**; a secret goes in `user_credentials`, with at most a `hasKey` flag here.
+2. **Register it at import time** in `apps/api/src/app-registrations/identity.ts`:
+
+   ```ts
+   import { registerUserMetadataSchema } from '@marinoscar/platform-api/identity';
+   export const coachPreferences = registerUserMetadataSchema({ namespace: 'preferences.coach', schema: coachPreferencesSchema });
+   ```
+
+   An organization namespace is `registerOrganizationMetadataSchema`. The namespace is the JSON key: lower-case words joined by `.`, `-` or `_`, prefixed with your owner, **permanent once rows hold it**.
+3. **Use it from a service** with `IdentityMetadataService` (global, nothing to import): `getUserMetadata(userId, coachPreferences)`, `setUserMetadata`, `updateUserMetadata(userId, handle, (current) => next)` (read-modify-write under a row lock) and `deleteUserMetadata`; the organization four. Values are validated on every write and read, typed by the handle, and the whole document may not exceed 16 KiB.
+4. **Expose it only through a route you write.** The platform returns no metadata anywhere. Write the route with `@Auth()` (and an org permission for an organization namespace) and return the namespace you own, as `CoachPreferencesController` does; the helpers authorise nothing.
+5. **Evolve the schema with the data.** A stored value that no longer satisfies a changed schema is `STORED_VALUE_INVALID` on read. Widen the schema (optional fields), or migrate the rows in an app migration (`UPDATE users SET metadata = jsonb_set(...)`).
+6. **Personal data in a namespace** belongs in the app's export and purge decisions ([user-data-reset](specs/user-data-reset.md)); the platform's user-data export does not read it.
+
+Proved by `apps/api/test/examples/identity/coach-preferences.spec.ts` (the real `AppModule`, the app service and route) and `apps/api/test/examples/db/app-extension.db.spec.ts` (real Postgres: concurrent writers of two namespaces lose nothing, the database CHECK).
+
+### Add a seed step
+
+`seedPlatform(prisma, input, { extras })` runs your steps after the platform's own, each in its own transaction, under the same log. Reference: [the seed README](../packages/platform-db/src/seed/README.md#app-seed-steps).
+
+1. **Write the step** as `{ id, run(tx, ctx) }` returning `{ created, updated }`, in `apps/api/prisma/seed-app.ts` (or a file under `prisma/` it imports): an upsert on a natural unique, `update: {}` for anything an administrator may edit, never a delete, no import from `src/` or `@nestjs/*`. The example is `src/platform-extensions/db/coach-defaults.seed-step.ts`.
+2. **List it** in `APP_SEED_STEPS` (`seed-app.ts`); `seed.ts` already passes the list as `extras`. An id is lower-case words joined by `.`, `-` or `_`, unique, and not one of the platform's six.
+3. **Prove the second run creates nothing** in a real-database test: `await assertSeedIdempotent(() => seedPlatform(prisma, input, { extras: APP_SEED_STEPS }))` throws, naming the step, when it does. CI's `smoke` job also runs the seed twice.
+
+### Keep an app migration clear of the platform history
+
+An app migration lives after the installed ones and keeps Prisma's timestamped name. `platform db sync` and `platform db check` (and the `app-migrations` conformance test) refuse an app directory named like a package migration, and one that sorts before an installed platform migration but was not there at the last `sync` (a branch started before the sync and merged after): give it a timestamp after the last installed directory, or, if it was already applied, run `platform db sync` once. Details: [the platform-db README](../packages/platform-db/README.md#app-migrations-and-the-installed-history).
 
 ### Replace the object store
 
@@ -1399,6 +1438,8 @@ A kit is a function an extension author calls with the implementation and the te
 | `describeRestoreGateConformance(gate, { describe, it, expect, scenarios, watch? })` | `@marinoscar/platform-api/db-backup/testing` | A valid definition; answers `{ status, message }` per scenario; read-only (a context that records every write, plus watched side-effect counters); repeatable; evaluates to a pre-flight row with the gate's id and label | Available |
 | `describeAccessRuleConformance(name, { rule, resourceType, sqlKit, decide, listsRecord, fixtures })` | `@marinoscar/platform-api/sharing/testing` | The decision equals "the record is listed" on every fixture (against the real `AccessPolicy` and `accessibleSql`), another organization is denied and never listed, a rule that can deny has SQL, no principal-derived string reaches the SQL text | Available |
 | `describeGranteeKindConformance(name, { kind, sqlKit, runQuery, principals, grantees, validInputs, invalidInputs })` | `@marinoscar/platform-api/sharing/testing` | A valid descriptor, `validateGrantee` accepts and refuses the right inputs (hostile strings included), `describe` answers, the in-memory match equals the SQL fragment on your database over a principal x grantee matrix, a grantee of another kind never matches, the fragment is parameterised and confined to the grant row | Available |
+| `runDbConformance({ appRoot })` | `@marinoscar/platform-db` | Offline, no database: the package's raw-SQL index and policy tripwires, `platform.lock` against the files, the app's own `rawSqlIndexes` and `rlsPolicies` against its migration SQL (`app-schema-objects`), and app migrations that collide with or reorder the installed history (`app-migrations`) | Available |
+| `assertSeedIdempotent(() => seedPlatform(...))` | `@marinoscar/platform-db/seed` | The seed run twice over one database: the second run creates 0 rows, in the platform's default organization and in every extra step | Available |
 | `runPlatformConformance({ suites })` (CLI) | `@marinoscar/platform-cli/testing` | The `cli` and `deployRegistrations` suites, and any suite registered with `registerCliConformanceSuite`; a skip needs a reason | Available |
 | `runInfraConformance({ appRoot })` | `@marinoscar/platform-infra/testing` | `sync --check`, `docker compose config` per mode with the app's overlays, `nginx -t` over `app.d/` and both CSP files | Available |
 | `describeDoctorCheckConformance(name, factory, { scenarios?, defaultTimeoutMs?, testApi? })` | `@marinoscar/platform-api/doctor/testing` | Per scenario: a dotted id, category, label, root-relative `settingsPath`, positive `timeoutMs`; the run completes within its timeout and never throws; a valid outcome (status, detail, a real remedy on `warn` and `fail`, scalar `data`); the statuses the scenario expects; no seeded secret and no secret-shaped value in the result; read-only against a recording Prisma client and a write-failing storage provider. It cannot see a write that reaches neither double (an HTTP POST, a file) | Available |

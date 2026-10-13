@@ -25,6 +25,7 @@ import { authProviderRegistry } from './auth/providers/auth-provider.registry';
 import './auth/providers/google.provider';
 import { DeviceAuthModule } from './device-auth/device-auth.module';
 import { IDENTITY_SIGNIN_POLICY } from './auth/sign-in-policy';
+import { IdentityMetadataService } from './metadata/identity-metadata.service';
 import { IDENTITY_OPTIONS, resolveIdentityModuleOptions, type IdentityModuleOptions } from './identity.options';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { PatModule } from './pat/pat.module';
@@ -105,11 +106,14 @@ export class IdentityModule {
       imports: [composition],
       providers: [
         { provide: IDENTITY_OPTIONS, useValue: resolved },
+        // The metadata helpers over users.metadata and organizations.metadata (PP-14.27):
+        // global with this module, so an app service injects it without importing anything.
+        IdentityMetadataService,
         // The app's sign-in policy (PP-14.9), visible to `AuthService` because
         // this module is global; absent when the app bound none.
         ...(resolved.signInPolicy ? [{ provide: IDENTITY_SIGNIN_POLICY, ...resolved.signInPolicy } as Provider] : []),
       ],
-      exports: [IDENTITY_OPTIONS, ...(resolved.signInPolicy ? [IDENTITY_SIGNIN_POLICY] : [])],
+      exports: [IDENTITY_OPTIONS, IdentityMetadataService, ...(resolved.signInPolicy ? [IDENTITY_SIGNIN_POLICY] : [])],
     };
   }
 }

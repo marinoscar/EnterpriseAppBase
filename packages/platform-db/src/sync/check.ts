@@ -1,4 +1,5 @@
 import { originIdOf, sha256Hex, type ManifestEntry, type PlatformLock } from '../lock/index.js';
+import { checkAppMigrations, type AppMigrationProblemCode } from './app-migrations.js';
 
 /**
  * The class of a lock failure; each is named in the command's output.
@@ -10,6 +11,7 @@ import { originIdOf, sha256Hex, type ManifestEntry, type PlatformLock } from '..
  * - `LOCAL_DIR_MISSING`: a locked `localDir` does not exist.
  * - `NOT_IN_PACKAGE`: the lock names a migration the manifest does not have.
  * - `LOCAL_OUT_OF_ORDER`: installed directories do not sort in package order.
+ * - `APP_MIGRATION_ID_COLLISION` / `APP_MIGRATION_OUT_OF_ORDER`: an app-authored migration directory is named like a package migration, or would reorder the installed history (see {@link checkAppMigrations}); reported only when the caller passes `localDirs`.
  *
  * @stability experimental
  */
@@ -20,7 +22,8 @@ export type CheckProblemCode =
   | 'NOT_INSTALLED'
   | 'LOCAL_DIR_MISSING'
   | 'NOT_IN_PACKAGE'
-  | 'LOCAL_OUT_OF_ORDER';
+  | 'LOCAL_OUT_OF_ORDER'
+  | AppMigrationProblemCode;
 
 /**
  * One offending migration.
@@ -62,6 +65,7 @@ const short = (hash: string): string => hash.slice(0, 12);
  * @param lock - The app's `platform.lock`.
  * @param readLocal - Reads `prisma/migrations/<localDir>/migration.sql`; returns `undefined` when the directory or file does not exist.
  * @param readPackage - Optional: reads the package's actual `migration.sql` so a file edited without its manifest hash is also caught; `undefined` means missing.
+ * @param localDirs - Optional: every directory name under the app's `prisma/migrations`; when given, app-authored directories that collide with or reorder the installed history are reported too (see {@link checkAppMigrations}).
  * @returns Every problem found; `ok` when there is none.
  * @stability experimental
  */
@@ -70,6 +74,7 @@ export function checkLock(
   lock: PlatformLock,
   readLocal: (localDir: string) => Uint8Array | undefined,
   readPackage?: (packageDir: string) => Uint8Array | undefined,
+  localDirs?: readonly string[],
 ): CheckResult {
   const problems: CheckProblem[] = [];
   const byOrigin = new Map(manifest.map((entry) => [originIdOf(entry), entry]));
@@ -156,6 +161,12 @@ export function checkLock(
         originId: originIdOf(entry),
         message: `${originIdOf(entry)}: in the package but not installed; run \`platform db sync\``,
       });
+    }
+  }
+
+  if (localDirs) {
+    for (const problem of checkAppMigrations(manifest, lock, localDirs)) {
+      problems.push({ code: problem.code, originId: `app:${problem.localDir}`, localDir: problem.localDir, message: problem.message });
     }
   }
 

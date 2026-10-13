@@ -195,8 +195,8 @@ describe('seedPlatform', () => {
 
     const org = calls.filter((c) => c.delegate === 'organization');
     expect(org.map((c) => [c.method, c.args])).toEqual([
-      ['findFirst', { where: { isDefault: true } }],
-      ['upsert', { where: { slug: 'default' }, update: {}, create: { name: 'Default organization', slug: 'default', isDefault: true } }],
+      ['findFirst', { where: { isDefault: true }, select: { id: true } }],
+      ['upsert', { where: { slug: 'default' }, update: {}, create: { name: 'Default organization', slug: 'default', isDefault: true }, select: { id: true } }],
     ]);
     expect(summary.defaultOrganizationCreated).toBe(true);
     expect(tables.organization!.size).toBe(1);
@@ -224,6 +224,7 @@ describe('seedPlatform', () => {
       where: { slug: 'acme' },
       update: {},
       create: { name: 'Acme', slug: 'acme', isDefault: true },
+      select: { id: true },
     });
   });
 

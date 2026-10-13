@@ -24,7 +24,20 @@
 //   `src/`. `test/prisma/seed-imports.spec.ts` fails when the import graph
 //   leaves that.
 
-import type { PrismaClient } from '@prisma/client';
+import type { Prisma, PrismaClient } from '@prisma/client';
+import type { SeedStep } from '@marinoscar/platform-db/seed';
+
+/**
+ * The app's seed STEPS: the preferred home for the app's own rows. `seed.ts`
+ * hands them to `seedPlatform(..., { extras })`, which runs each one after the
+ * platform's own, in its own transaction, under the same log, and fails fast
+ * on a malformed or duplicate id. A step is `{ id, run(tx, ctx) }` returning
+ * `{ created, updated }`; its second run must create 0
+ * (`assertSeedIdempotent` of `@marinoscar/platform-db/seed` proves it in a
+ * real-database test). Empty in the reference app, which has nothing to seed;
+ * the worked example is `src/platform-extensions/db/coach-defaults.seed-step.ts`.
+ */
+export const APP_SEED_STEPS: ReadonlyArray<SeedStep<Prisma.TransactionClient>> = [];
 
 /**
  * Seed the app's own data, after the platform's.

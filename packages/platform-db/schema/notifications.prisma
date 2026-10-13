@@ -79,6 +79,9 @@
 //     filter on both columns, from an account's delivery history view.
 //   - [status, createdAt]: "what failed recently?" — status = 'failed'
 //     filtered and ordered by recency, for on-call triage.
+// @extensible — back-relations only, added with "extend model NotificationDelivery { ... }" in a
+// fragment (an app's own delivery annotations, for example a provider-specific receipt).
+// The delivery ledger itself (status, error, provider id) stays the platform's.
 model NotificationDelivery {
   id                String                     @id @default(uuid()) @db.Uuid
   eventKey          String                     @map("event_key")
@@ -153,6 +156,11 @@ enum NotificationDeliveryStatus {
 // different questions for different audiences and are kept apart.
 // =============================================================================
 
+// @extensible — back-relations only, added with "extend model Notification { ... }" in a
+// fragment (an app's own side table keyed by a notification, for example a per-notification
+// follow-up). A user-owned row: the table has no organization column, so a plain foreign
+// key on `id` is the right shape. `onDelete: Cascade` on the app side keeps the retention
+// sweep (`notifications.inbox.purge`) working.
 model Notification {
   id     String @id @default(uuid()) @db.Uuid
   // NOT NULL, unlike NotificationDelivery.userId. An inbox belongs to an

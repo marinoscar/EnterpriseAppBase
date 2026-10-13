@@ -9,6 +9,7 @@ export {
   serializeLock,
   type LockDeviation,
   type LockEntry,
+  type LockRlsPolicy,
   type PlatformLock,
   type RawSqlIndex,
 } from './lock.js';

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import type { Command } from 'commander';
 import { createBaselineDeps, isBaselineClean, renderReport, runBaseline } from '../baseline/index.js';
-import { readLedgerRows, readPackageRawSqlIndexes, readPackageRlsPolicies, runDrift } from '../drift/index.js';
+import { readAppMigrations, readLedgerRows, readPackageRawSqlIndexes, readPackageRlsPolicies, runDrift, scanRlsPolicies, sqlExpressionSha256 } from '../drift/index.js';
 import { emptyLock, parseLock, parseManifest, serializeJson, serializeLock, type ManifestEntry, type PlatformLock } from '../lock/index.js';
 import {
   applySync,
@@ -109,7 +109,7 @@ function runCheck(ctx: DbCommandContext, options: CommonOptions & { database?: b
       offlineOk = false;
     }
   } else {
-    const result = checkLock(manifest, lock, readLocal, readPackage);
+    const result = checkLock(manifest, lock, readLocal, readPackage, listMigrationDirs(l.migrationsDir));
     for (const problem of result.problems) ctx.err(`${problem.code}  ${problem.message}`);
     if (result.ok) {
       ctx.out(`platform db check: ok (${lock.migrations.length} installed platform migration(s))`);
@@ -196,8 +196,10 @@ function runPromote(
     ctx.out(`platform db promote: ${result.entry.id} is already promoted from ${localDir}; nothing to do`);
     return 0;
   }
+  const locked = new Set(result.lock.migrations.map((entry) => entry.localDir));
+  const appMigrations = listMigrationDirs(l.migrationsDir).filter((dir) => !locked.has(dir));
   writeText(l.manifestFile, serializeJson(result.manifest));
-  writeText(l.lockFile, serializeLock(result.lock));
+  writeText(l.lockFile, serializeLock({ ...result.lock, appMigrations }));
   ctx.out(`platform db promote: ${localDir} -> platform:${result.entry.id} (since ${result.entry.since})`);
   ctx.out('commit both trees: packages/platform-db/migrations/** and apps/*/prisma/platform.lock');
   return 0;
@@ -251,6 +253,27 @@ async function runDriftCommand(
   return 0;
 }
 
+/** `platform db policies`: the row-level-security policies the app's migrations leave, as `platform.lock` `rlsPolicies` entries. */
+function runPolicies(ctx: DbCommandContext, options: CommonOptions): number {
+  const l = layout(ctx, options);
+  const packagePoliciesFile = join(l.packageDir, 'rls-policies.json');
+  const packageKeys = new Set(
+    (existsSync(packagePoliciesFile) ? readPackageRlsPolicies(packagePoliciesFile) : []).map((policy) => `${policy.table}\u0000${policy.name}`),
+  );
+  const scanned = scanRlsPolicies(readAppMigrations(l.migrationsDir));
+  const entries = scanned.policies
+    .filter((policy) => !packageKeys.has(`${policy.table}\u0000${policy.name}`))
+    .map((policy) => ({
+      name: policy.name,
+      table: policy.table,
+      ...(policy.using !== undefined ? { usingSha256: sqlExpressionSha256(policy.using) } : {}),
+      ...(policy.check !== undefined ? { checkSha256: sqlExpressionSha256(policy.check) } : {}),
+    }));
+  ctx.out(serializeJson({ rlsPolicies: entries }).trimEnd());
+  ctx.err(`platform db policies: ${entries.length} app polic${entries.length === 1 ? 'y' : 'ies'}; paste "rlsPolicies" into prisma/platform.lock`);
+  return 0;
+}
+
 interface BaselineFlags {
   through?: string;
   map?: string;
@@ -301,7 +324,7 @@ async function runBaselineCommand(ctx: DbCommandContext, options: CommonOptions 
 }
 
 /**
- * Registers `sync`, `check`, `promote`, `drift` and `baseline` on the `platform db` command.
+ * Registers `sync`, `check`, `promote`, `drift`, `policies` and `baseline` on the `platform db` command.
  *
  * @param db - The `db` subcommand of the `platform` program.
  * @param ctx - Output sinks and environment.
@@ -349,6 +372,12 @@ export function registerDbSyncCommands(db: Command, ctx: DbCommandContext): void
       .option('--schema <path>', 'the composed schema folder or file (default: prisma/schema, else prisma/schema.prisma)')
       .option('--shadow-database-url <url>', 'an empty database to replay into (default: a throwaway one is created)'),
   ).action((options) => guarded(ctx, () => runDriftCommand(ctx, options)));
+
+  common(
+    db
+      .command('policies')
+      .description("print the app's row-level-security policies, from its migration SQL, as platform.lock rlsPolicies entries (with expression hashes)"),
+  ).action((options) => guarded(ctx, () => runPolicies(ctx, options)));
 
   common(
     db

@@ -90,7 +90,7 @@ describe('scanRlsPolicies', () => {
          CREATE POLICY "t_org_isolation" ON "t" USING (true);`,
       ],
     ]);
-    expect(found).toEqual({ policies: [{ name: 't_org_isolation', table: 't', createdIn: '0001_a' }], enabled: ['t'], forced: ['t'] });
+    expect(found).toEqual({ policies: [{ name: 't_org_isolation', table: 't', createdIn: '0001_a', using: 'true' }], enabled: ['t'], forced: ['t'] });
   });
 
   it('forgets a dropped policy, a disabled table and a dropped table', () => {
@@ -114,7 +114,7 @@ describe('scanRlsPolicies', () => {
       ['0001_a', 'CREATE POLICY p ON a USING (true);'],
       ['0002_b', 'DROP POLICY p ON a; CREATE POLICY p ON a USING (false);'],
     ]);
-    expect(found.policies).toEqual([{ name: 'p', table: 'a', createdIn: '0001_a' }]);
+    expect(found.policies).toEqual([{ name: 'p', table: 'a', createdIn: '0001_a', using: 'false' }]);
   });
 });
 
