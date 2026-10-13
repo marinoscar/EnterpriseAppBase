@@ -67,7 +67,8 @@ import {
 } from '@mui/material';
 import { Add as AddIcon, Send as SendIcon, Stop as StopIcon } from '@mui/icons-material';
 import { Link as RouterLink, Navigate } from 'react-router-dom';
-import { usePlatformViewer } from '../../core/index.js';
+import { PageSlotsFrame, usePlatformViewer } from '../../core/index.js';
+import type { PageSlotsBase } from '../../core/index.js';
 import { useAiUserSettings } from '../headless/use-ai-user-settings.js';
 import { useAiChat, type AiChatRequestOptions } from '../headless/use-ai-chat.js';
 import { useAiRun } from '../headless/use-ai-run.js';
@@ -212,13 +213,44 @@ function parseTemperature(value: string): number | undefined | null {
   return n;
 }
 
+/** The page title. */
+const PLAYGROUND_TITLE = 'AI Playground';
+/** The page subtitle. */
+const PLAYGROUND_DESCRIPTION = 'Try prompts against the models available to you.';
+
+/**
+ * The slots of {@link AiPlaygroundPage}: the page-slot contract. `Header`
+ * receives the "New conversation" button as `actions` (a `ReactNode`, or `null`
+ * when the current mode has none), so a custom header keeps it.
+ *
+ * @example
+ * ```tsx
+ * <AiPlaygroundPage slots={{ BeforeContent: () => <Alert severity="info">Prompts are logged for review.</Alert> }} />
+ * ```
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export type AiPlaygroundPageSlots = PageSlotsBase;
+
+/**
+ * The props of {@link AiPlaygroundPage}.
+ *
+ * @stability experimental
+ */
+export interface AiPlaygroundPageProps {
+  /** Optional extension slots; omitted, the page renders exactly as it always did. */
+  slots?: AiPlaygroundPageSlots;
+}
+
 /**
  * The AI playground (`/ai`): chat, image, transcription, speech, embeddings
  * and voice against the models the viewer can use. Needs `ai:use`.
  *
  * @stability experimental
  */
-export default function AiPlaygroundPage() {
+export default function AiPlaygroundPage(props: AiPlaygroundPageProps = {}) {
+  const { slots } = props;
   const { hasPermission } = usePlatformViewer();
 
   const { models, isLoading: modelsLoading, error: modelsError } = useUsableModels();
@@ -672,37 +704,49 @@ export default function AiPlaygroundPage() {
 
   const showModes = modelsLoaded && models.length > 0 && !noUsableMode;
 
+  const newConversationButton =
+    mode === 'chat' && showModes ? (
+      <Button
+        startIcon={<AddIcon />}
+        onClick={startNewConversation}
+        disabled={chat.messages.length === 0 || run.isActive}
+      >
+        New conversation
+      </Button>
+    ) : null;
+
   return (
     <Container maxWidth="lg" sx={{ py: { xs: 2, md: 3 }, px: { xs: 2, sm: 3 } }}>
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: { xs: 'flex-start', sm: 'center' },
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: 1,
-          mb: 2,
+      <PageSlotsFrame
+        slots={slots}
+        headerProps={{
+          title: PLAYGROUND_TITLE,
+          description: PLAYGROUND_DESCRIPTION,
+          actions: newConversationButton,
         }}
-      >
-        <Box sx={{ minWidth: 0 }}>
-          <Typography variant="h4" component="h1">
-            AI Playground
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Try prompts against the models available to you.
-          </Typography>
-        </Box>
-        {mode === 'chat' && showModes && (
-          <Button
-            startIcon={<AddIcon />}
-            onClick={startNewConversation}
-            disabled={chat.messages.length === 0 || run.isActive}
+        header={
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: { xs: 'flex-start', sm: 'center' },
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: 1,
+              mb: 2,
+            }}
           >
-            New conversation
-          </Button>
-        )}
-      </Box>
-
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="h4" component="h1">
+                {PLAYGROUND_TITLE}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {PLAYGROUND_DESCRIPTION}
+              </Typography>
+            </Box>
+            {newConversationButton}
+          </Box>
+        }
+      >
       {modelsLoading && (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
           <CircularProgress aria-label="Loading models" />
@@ -751,6 +795,7 @@ export default function AiPlaygroundPage() {
           ))}
         </Stack>
       )}
+      </PageSlotsFrame>
     </Container>
   );
 }

@@ -19,7 +19,8 @@
  */
 import { Alert, Box, CircularProgress, Container, Stack, Typography } from '@mui/material';
 import { Navigate } from 'react-router-dom';
-import { usePlatformViewer } from '../../core/index.js';
+import { PageSlotsFrame, usePlatformViewer } from '../../core/index.js';
+import type { PageSlotsBase } from '../../core/index.js';
 import { useAiConfig } from '../headless/use-ai-config.js';
 import { useUserAiKeys } from '../headless/use-user-ai-keys.js';
 import { useUsableAiModels } from '../headless/use-usable-ai-models.js';
@@ -31,13 +32,45 @@ import { DefaultAiModelPicker } from './user/DefaultAiModelPicker.js';
 import { MyAiUsageSection } from './user/MyAiUsageSection.js';
 import type { AiDefaultModel } from '../headless/types.js';
 
+/** The page title (mirrors the `AI Keys` card in `config/userSettingsSections.tsx`). */
+const USER_AI_KEYS_TITLE = 'AI Keys';
+/** The page subtitle. */
+const USER_AI_KEYS_DESCRIPTION =
+  'Your key is encrypted, never shown again, and only used for requests you make. You are billed by the provider.';
+
+/**
+ * The slots of {@link UserAiKeysPage}: the page-slot contract. `Sections` is
+ * where an app adds a key of its own that is not an AI provider's (a
+ * transcription vendor, a search API) beside the AI keys.
+ *
+ * @example
+ * ```tsx
+ * <UserAiKeysPage slots={{ Sections: ({ position }) => (position === 'bottom' ? <SearchApiKeyCard /> : null) }} />
+ * ```
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export type UserAiKeysPageSlots = PageSlotsBase;
+
+/**
+ * The props of {@link UserAiKeysPage}.
+ *
+ * @stability experimental
+ */
+export interface UserAiKeysPageProps {
+  /** Optional extension slots; omitted, the page renders exactly as it always did. */
+  slots?: UserAiKeysPageSlots;
+}
+
 /**
  * The user's AI keys page (`/settings/ai`): their own provider keys, the
  * models they can use, their default model and their usage. Needs `ai:use`.
  *
  * @stability experimental
  */
-export default function UserAiKeysPage() {
+export default function UserAiKeysPage(props: UserAiKeysPageProps = {}) {
+  const { slots } = props;
   const { hasPermission } = usePlatformViewer();
   const { config, isLoading: configLoading } = useAiConfig();
   const { keys, isLoading: keysLoading, error: keysError, setKey, deleteKey, testKey } =
@@ -74,13 +107,20 @@ export default function UserAiKeysPage() {
   return (
     <Container maxWidth="md">
       <Box sx={{ py: { xs: 2, md: 4 } }}>
-        <Typography variant="h4" component="h1" gutterBottom>
-          AI Keys
-        </Typography>
-        <Typography color="text.secondary" sx={{ mb: 3 }}>
-          Your key is encrypted, never shown again, and only used for requests you make. You are
-          billed by the provider.
-        </Typography>
+        <PageSlotsFrame
+          slots={slots}
+          headerProps={{ title: USER_AI_KEYS_TITLE, description: USER_AI_KEYS_DESCRIPTION, actions: null }}
+          header={
+            <>
+              <Typography variant="h4" component="h1" gutterBottom>
+                {USER_AI_KEYS_TITLE}
+              </Typography>
+              <Typography color="text.secondary" sx={{ mb: 3 }}>
+                {USER_AI_KEYS_DESCRIPTION}
+              </Typography>
+            </>
+          }
+        >
 
         {configLoading || keysLoading ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
@@ -139,6 +179,7 @@ export default function UserAiKeysPage() {
             <MyAiUsageSection />
           </Stack>
         )}
+        </PageSlotsFrame>
       </Box>
     </Container>
   );

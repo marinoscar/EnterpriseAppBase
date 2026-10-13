@@ -48,7 +48,7 @@
  * see the switch that is off.
  */
 
-import { useContext, useEffect, useState } from 'react';
+import { Fragment, useContext, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import {
   Alert,
@@ -72,7 +72,8 @@ import {
   Typography,
 } from '@mui/material';
 import { Navigate } from 'react-router-dom';
-import { usePlatformViewer } from '../../core/index.js';
+import { PageSlotsFrame, usePlatformViewer } from '../../core/index.js';
+import type { PageSlot, PageSlotsBase } from '../../core/index.js';
 import { useAiAdminConfig } from '../headless/use-ai-admin-config.js';
 import { AiConfigContext } from '../headless/use-ai-config.js';
 import { AiSpinner } from './internal/AiSpinner.js';
@@ -89,7 +90,14 @@ import {
 } from './admin/aiProviderForm.js';
 import type { AiProviderFormErrors, AiProviderFormValue } from './admin/aiProviderForm.js';
 import { AI_HOSTED_TOOL_TYPES, AI_LIMIT_MAX, aiProviderSettingsFields } from '../headless/types.js';
-import type { AiAdminConfig, AiAdminConfigInput, AiHostedToolType, AiKeyPolicy, AiLimits } from '../headless/types.js';
+import type {
+  AiAdminConfig,
+  AiAdminConfigInput,
+  AiAdminProvider,
+  AiHostedToolType,
+  AiKeyPolicy,
+  AiLimits,
+} from '../headless/types.js';
 
 // The five built-in providers draw their bespoke cards through the same
 // registry an app uses (`registerAiProviderCard`); any other provider is drawn
@@ -136,6 +144,57 @@ const LIMIT_COPY: Record<LimitField, { label: string; help: string }> = {
     help: "Output tokens of every call made in one organization, whoever's key pays.",
   },
 };
+
+/**
+ * What {@link AiConfigPageSlots}'s `ProviderCardExtra` receives for each provider
+ * the page lists: the provider as the API describes it (its id, display name,
+ * key status and capabilities) and the page's state it already holds. Data
+ * only: a slot that needs the API uses `usePlatformApi()`.
+ *
+ * @stability experimental
+ */
+export interface AiProviderCardExtraProps {
+  /** The provider, as `GET /api/admin/ai/config` describes it. */
+  provider: AiAdminProvider;
+  /** The viewer holds `ai_config:write`. */
+  canWrite: boolean;
+  /** AI is switched on in the loaded configuration. */
+  aiEnabled: boolean;
+}
+
+/**
+ * The slots of {@link AiConfigPage}: the page-slot contract, and
+ * `ProviderCardExtra`, drawn under each provider's card (a quota note, a link
+ * to the provider's console, an app-specific setting stored elsewhere).
+ *
+ * @example
+ * ```tsx
+ * <AiConfigPage slots={{ ProviderCardExtra: ({ provider }) => <ConsoleLink providerId={provider.id} /> }} />
+ * ```
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export interface AiConfigPageSlots extends PageSlotsBase {
+  /** Extra content under a provider's card, called once per listed provider. */
+  ProviderCardExtra?: PageSlot<AiProviderCardExtraProps>;
+}
+
+/**
+ * The props of {@link AiConfigPage}.
+ *
+ * @stability experimental
+ */
+export interface AiConfigPageProps {
+  /** Optional extension slots; omitted, the page renders exactly as it always did. */
+  slots?: AiConfigPageSlots;
+}
+
+/** The page title (mirrors the `AI` card in `config/adminSections.tsx`). */
+const AI_CONFIG_TITLE = 'AI';
+/** The page subtitle (mirrors the same card). */
+const AI_CONFIG_DESCRIPTION =
+  'Switch AI on for this deployment, choose whose keys pay for calls, and configure each provider.';
 
 /** The form's own state — strings for the number field so "blank" is representable. */
 interface AiFormState {
@@ -356,7 +415,9 @@ function hasErrors(errors: FormErrors): boolean {
  *
  * @stability experimental
  */
-export default function AiConfigPage() {
+export default function AiConfigPage(props: AiConfigPageProps = {}) {
+  const { slots } = props;
+  const ProviderCardExtra = slots?.ProviderCardExtra;
   const { hasPermission } = usePlatformViewer();
   const {
     config,
@@ -460,15 +521,22 @@ export default function AiConfigPage() {
   return (
     <Container maxWidth="lg">
       <Box sx={{ py: 4 }}>
-        {/* Title and description MIRROR the `AI` card in `config/adminSections.tsx`. */}
-        <Typography variant="h4" component="h1" gutterBottom>
-          AI
-        </Typography>
-        <Typography color="text.secondary" sx={{ mb: 2 }}>
-          Switch AI on for this deployment, choose whose keys pay for calls, and configure each
-          provider.
-          {!canWrite && ' (read-only)'}
-        </Typography>
+        <PageSlotsFrame
+          slots={slots}
+          headerProps={{ title: AI_CONFIG_TITLE, description: AI_CONFIG_DESCRIPTION, readOnly: !canWrite, actions: null }}
+          header={
+            <>
+              {/* Title and description MIRROR the `AI` card in `config/adminSections.tsx`. */}
+              <Typography variant="h4" component="h1" gutterBottom>
+                {AI_CONFIG_TITLE}
+              </Typography>
+              <Typography color="text.secondary" sx={{ mb: 2 }}>
+                {AI_CONFIG_DESCRIPTION}
+                {!canWrite && ' (read-only)'}
+              </Typography>
+            </>
+          }
+        >
 
         {config?.updatedBy && config.updatedAt && (
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
@@ -767,8 +835,8 @@ export default function AiConfigPage() {
                   }
                   const Card = getAiProviderCard(provider.id) ?? AiGenericProviderCard;
                   return (
+                  <Fragment key={provider.id}>
                   <Card
-                    key={provider.id}
                     provider={provider}
                     descriptor={config.descriptors?.find((descriptor) => descriptor.id === provider.id)}
                     value={form.providers[provider.id] ?? EMPTY_PROVIDER_FORM_VALUE}
@@ -802,6 +870,10 @@ export default function AiConfigPage() {
                       })
                     }
                   />
+                  {ProviderCardExtra && (
+                    <ProviderCardExtra provider={provider} canWrite={canWrite} aiEnabled={config.enabled} />
+                  )}
+                  </Fragment>
                   );
                 })}
               </Stack>
@@ -851,6 +923,8 @@ export default function AiConfigPage() {
             </Box>
           </Box>
         )}
+
+        </PageSlotsFrame>
 
         <Snackbar
           open={!!savedMessage}

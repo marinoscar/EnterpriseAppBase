@@ -8,6 +8,8 @@
  */
 import { useMemo } from 'react';
 import { Typography } from '@mui/material';
+import { useTableSlotColumns } from '../../../core/index.js';
+import type { TableSlots } from '../../../core/index.js';
 import { DataTable } from '../../../datatable/index.js';
 import type { DataTableColumn } from '../../../datatable/index.js';
 import type { AiUsageSeriesEntry } from '../../headless/types.js';
@@ -25,6 +27,13 @@ export interface AiUsageTableProps {
   emptyText: string;
   csvFilename?: string;
   'data-testid'?: string;
+  /**
+   * Table slots of the page that draws this table (`Columns`, `RowActions`,
+   * `DetailPanel`); omitted, the columns are exactly the built-in ones.
+   *
+   * @stability experimental
+   */
+  slots?: Pick<TableSlots<AiUsageSeriesEntry, DataTableColumn<AiUsageSeriesEntry>>, 'Columns' | 'RowActions' | 'DetailPanel'>;
 }
 
 export function AiUsageTable({
@@ -36,10 +45,11 @@ export function AiUsageTable({
   emptyText,
   csvFilename,
   'data-testid': testId,
+  slots,
 }: AiUsageTableProps) {
   const hasUnits = rows.some((row) => formatUnits(row.units) !== null);
 
-  const columns = useMemo<DataTableColumn<AiUsageSeriesEntry>[]>(() => {
+  const baseColumns = useMemo<DataTableColumn<AiUsageSeriesEntry>[]>(() => {
     const cols: DataTableColumn<AiUsageSeriesEntry>[] = [
       {
         id: 'label',
@@ -116,6 +126,7 @@ export function AiUsageTable({
     }
     return cols;
   }, [keyLabel, isDay, hasUnits]);
+  const columns = useTableSlotColumns<AiUsageSeriesEntry, DataTableColumn<AiUsageSeriesEntry>>(baseColumns, slots);
 
   return (
     <DataTable<AiUsageSeriesEntry>

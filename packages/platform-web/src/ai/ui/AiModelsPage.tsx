@@ -60,7 +60,9 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import TuneIcon from '@mui/icons-material/Tune';
 import { Navigate, Link as RouterLink } from 'react-router-dom';
 import { DataTable } from '../../datatable/index.js';
-import type { DataTableRowAction } from '../../datatable/index.js';
+import type { DataTableColumn, DataTableRowAction } from '../../datatable/index.js';
+import { PageSlotsFrame, useTableSlotColumns } from '../../core/index.js';
+import type { PageSlotsBase, TableSlots } from '../../core/index.js';
 import { usePlatformViewer } from '../../core/index.js';
 import { useAiAdminConfig } from '../headless/use-ai-admin-config.js';
 import { useAiModels } from '../headless/use-ai-models.js';
@@ -77,6 +79,37 @@ import {
 import { aiAdminConfigToInput, aiModelLimitKey, withModelLimits } from '../headless/types.js';
 import type { AiModel, AiModelCapabilities, AiModelLimits, AiModelListFilter } from '../headless/types.js';
 
+/** The page title (mirrors the `AI Models` card in `config/adminSections.tsx`). */
+const AI_MODELS_TITLE = 'AI Models';
+/** The page subtitle (mirrors the same card). */
+const AI_MODELS_DESCRIPTION =
+  'Review the models each provider offers, classify what they can do, and choose which ones users may call.';
+
+/**
+ * The slots of {@link AiModelsPage}: the page-slot contract and the table slots
+ * over a catalogue row (`Columns`, `RowActions`, `DetailPanel`, `Toolbar`).
+ * `Toolbar` is drawn above the table, under the page's own filters and buttons.
+ *
+ * @example
+ * ```tsx
+ * <AiModelsPage slots={{ RowActions: ({ row }) => <PriceSheetLink modelId={row.modelId} /> }} />
+ * ```
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export interface AiModelsPageSlots extends PageSlotsBase, TableSlots<AiModel, DataTableColumn<AiModel>> {}
+
+/**
+ * The props of {@link AiModelsPage}.
+ *
+ * @stability experimental
+ */
+export interface AiModelsPageProps {
+  /** Optional extension slots; omitted, the page renders exactly as it always did. */
+  slots?: AiModelsPageSlots;
+}
+
 /**
  * Admin → Settings → AI → Models (`/admin/settings/ai/models`): the model
  * catalogue with its capabilities, per-model limits and the refresh action.
@@ -84,7 +117,9 @@ import type { AiModel, AiModelCapabilities, AiModelLimits, AiModelListFilter } f
  *
  * @stability experimental
  */
-export default function AiModelsPage() {
+export default function AiModelsPage(props: AiModelsPageProps = {}) {
+  const { slots } = props;
+  const Toolbar = slots?.Toolbar;
   const { hasPermission } = usePlatformViewer();
   const canWrite = hasPermission('ai_config:write');
 
@@ -142,10 +177,11 @@ export default function AiModelsPage() {
     [setEnabled],
   );
 
-  const columns = useMemo(
+  const baseColumns = useMemo(
     () => buildAiModelColumns({ canWrite, pendingIds, onToggleEnabled }),
     [canWrite, pendingIds, onToggleEnabled],
   );
+  const columns = useTableSlotColumns<AiModel, DataTableColumn<AiModel>>(baseColumns, slots);
 
   const rowActions = useMemo(() => {
     if (!canWrite) return [] as DataTableRowAction<AiModel>[];
@@ -232,15 +268,22 @@ export default function AiModelsPage() {
   return (
     <Container maxWidth="lg">
       <Box sx={{ py: 4 }}>
-        {/* Title and description MIRROR the `AI Models` card in `config/adminSections.tsx`. */}
-        <Typography variant="h4" component="h1" gutterBottom>
-          AI Models
-        </Typography>
-        <Typography color="text.secondary" sx={{ mb: 3 }}>
-          Review the models each provider offers, classify what they can do, and choose which ones
-          users may call.
-          {!canWrite && ' (read-only)'}
-        </Typography>
+        <PageSlotsFrame
+          slots={slots}
+          headerProps={{ title: AI_MODELS_TITLE, description: AI_MODELS_DESCRIPTION, readOnly: !canWrite, actions: null }}
+          header={
+            <>
+              {/* Title and description MIRROR the `AI Models` card in `config/adminSections.tsx`. */}
+              <Typography variant="h4" component="h1" gutterBottom>
+                {AI_MODELS_TITLE}
+              </Typography>
+              <Typography color="text.secondary" sx={{ mb: 3 }}>
+                {AI_MODELS_DESCRIPTION}
+                {!canWrite && ' (read-only)'}
+              </Typography>
+            </>
+          }
+        >
 
         {!canWrite && (
           <Alert severity="info" sx={{ mb: 3 }} data-testid="ai-models-read-only-notice">
@@ -355,6 +398,8 @@ export default function AiModelsPage() {
           </Alert>
         )}
 
+        {Toolbar && <Toolbar />}
+
         <Paper sx={{ width: '100%', p: 2 }}>
           <Box sx={{ minWidth: 0 }}>
             <DataTable<AiModel>
@@ -390,6 +435,8 @@ export default function AiModelsPage() {
             />
           </Box>
         </Paper>
+
+        </PageSlotsFrame>
 
         <AiModelOverrideDialog
           model={editing}
