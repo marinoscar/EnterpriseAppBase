@@ -57,11 +57,23 @@ import { defineRegistry, type Registry } from '../../core/index';
  */
 type Contribution = object;
 
-/** The default timeout of a current-user extension, in milliseconds. It runs on every `/auth/me`. */
+/**
+ * The default timeout of a current-user extension, in milliseconds. It runs on every `/auth/me`.
+ *
+ * @stability experimental
+ */
 export const DEFAULT_CURRENT_USER_EXTENSION_TIMEOUT_MS = 1500;
-/** The default timeout of a user-list extension, in milliseconds. */
+/**
+ * The default timeout of a user-list extension, in milliseconds.
+ *
+ * @stability experimental
+ */
 export const DEFAULT_USER_LIST_EXTENSION_TIMEOUT_MS = 3000;
-/** The longest timeout an extension may ask for, in milliseconds. */
+/**
+ * The longest timeout an extension may ask for, in milliseconds.
+ *
+ * @stability experimental
+ */
 export const MAX_USER_EXTENSION_TIMEOUT_MS = 10_000;
 
 /**
@@ -331,11 +343,37 @@ function clean(value: unknown, depth: number, path: string): Cleaned {
 }
 
 /**
+ * A contribution that passed {@link checkUserExtensionContribution}.
+ *
+ * @stability experimental
+ */
+export interface UserExtensionAccepted {
+  /** The check passed. */
+  ok: true;
+  /** A clean deep copy of the contribution, safe to merge into a payload. */
+  value: Record<string, unknown>;
+  /** Its size as JSON, in UTF-8 bytes. */
+  bytes: number;
+}
+
+/**
+ * A contribution that {@link checkUserExtensionContribution} refused.
+ *
+ * @stability experimental
+ */
+export interface UserExtensionRefused {
+  /** The check failed. */
+  ok: false;
+  /** Why, naming the offending path but never its value. */
+  reason: string;
+}
+
+/**
  * The outcome of {@link checkUserExtensionContribution}.
  *
  * @stability experimental
  */
-export type UserExtensionCheck = { ok: true; value: Record<string, unknown>; bytes: number } | { ok: false; reason: string };
+export type UserExtensionCheck = UserExtensionAccepted | UserExtensionRefused;
 
 /**
  * Check one extension's contribution against the contract (JSON only, bounded,
@@ -362,7 +400,11 @@ export function checkUserExtensionContribution(value: unknown, maxBytes: number)
 // Resolution
 // -----------------------------------------------------------------------------
 
-/** Where a refusal or a failure is reported. `Logger` of `@nestjs/common` satisfies it. */
+/**
+ * Where a refusal or a failure is reported. `Logger` of `@nestjs/common` satisfies it.
+ *
+ * @stability experimental
+ */
 export interface UserExtensionLog {
   /** Report a skipped extension. */
   warn(message: string): void;

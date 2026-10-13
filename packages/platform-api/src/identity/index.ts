@@ -136,8 +136,10 @@ export {
 export type {
   CurrentUserExtension,
   CurrentUserExtensionContext,
+  UserExtensionAccepted,
   UserExtensionCheck,
   UserExtensionLog,
+  UserExtensionRefused,
   UserListExtension,
   UserListExtensionContext,
 } from './extensions/user-extensions';

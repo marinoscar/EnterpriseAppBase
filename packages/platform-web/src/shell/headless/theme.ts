@@ -251,6 +251,18 @@ export function createShellTheme(mode: 'light' | 'dark', options: ShellThemeOpti
 }
 
 /**
+ * One theme mode beyond light, dark and system, as a picker lists it.
+ *
+ * @stability experimental
+ */
+export interface ShellThemeModeOption {
+  /** The mode id, what `setMode` takes. */
+  id: string;
+  /** What a picker calls it. */
+  label: string;
+}
+
+/**
  * What the shell's theme context holds.
  *
  * @stability experimental
@@ -265,7 +277,7 @@ export interface ShellThemeContextValue {
    * extra `themes` and the registered ones), for a picker. Absent from a context
    * value built by hand.
    */
-  modes?: readonly { id: string; label: string }[];
+  modes?: readonly ShellThemeModeOption[];
   /**
    * Choose a mode (persisted in this browser). An id that is neither built in
    * nor a known theme is ignored.

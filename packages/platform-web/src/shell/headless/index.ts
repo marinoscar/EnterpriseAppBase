@@ -34,6 +34,12 @@ export {
   useOptionalShellTheme,
   useShellTheme,
 } from './theme.js';
-export type { ShellThemeContextValue, ShellThemeMode, ShellThemeModeDefinition, ShellThemeOptions } from './theme.js';
+export type {
+  ShellThemeContextValue,
+  ShellThemeMode,
+  ShellThemeModeDefinition,
+  ShellThemeModeOption,
+  ShellThemeOptions,
+} from './theme.js';
 export { ShellProviders } from './providers.js';
 export type { ShellProvider, ShellProviderProps } from './providers.js';

@@ -3,7 +3,7 @@
 // app's: it passes `applyTheme` (its theme context's setter).
 
 import { THEME_PREFERENCES } from '@marinoscar/platform-contract/settings';
-import type { ThemePreference, ThemePreferenceId, UserSettingsResponseBase } from '@marinoscar/platform-contract/settings';
+import type { ThemeOption, ThemePreference, ThemePreferenceId, UserSettingsResponseBase } from '@marinoscar/platform-contract/settings';
 import { useCallback, useEffect, useState } from 'react';
 
 import { isPlatformApiError } from '../../core/index.js';
@@ -24,7 +24,7 @@ export interface UserSettingsDocument {
   /** The row version. */
   version: number;
   /** The extra themes the API accepts (`registerThemePreference`); absent when none. */
-  themeOptions?: readonly { id: string; label: string }[];
+  themeOptions?: readonly ThemeOption[];
 }
 
 /**
