@@ -25,7 +25,7 @@
 import { useCallback, useMemo } from 'react';
 import { Alert, Box, FormControlLabel, Stack } from '@mui/material';
 import type { DataTableRendererProps } from '../../headless/types.js';
-import { BulkActionBar } from '../BulkActionBar.js';
+import { SlottedBulkActionBar } from '../BulkActionBar.js';
 import { DataTableEmptyOverlay, DataTableLoadingOverlay } from '../desktop/cells.js';
 import { useRowActionConfirm } from '../shared/rowActionConfirm.js';
 import { IndeterminateCheckbox } from '../shared/IndeterminateCheckbox.js';
@@ -60,6 +60,7 @@ export function CardListRenderer<Row>({
   selection,
   rowActions,
   bulkActions,
+  slots,
   density,
   ariaLabel,
   height,
@@ -159,7 +160,8 @@ export function CardListRenderer<Row>({
 
       {selectable && (
         <>
-          <BulkActionBar
+          <SlottedBulkActionBar
+            slots={slots}
             ids={selectedIdList}
             actions={bulkActions}
             onClear={clearSelection}

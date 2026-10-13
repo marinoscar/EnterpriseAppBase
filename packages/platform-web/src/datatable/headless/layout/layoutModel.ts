@@ -56,6 +56,45 @@ export const DATA_TABLE_PERSIST_DEBOUNCE_MS = 500;
 export const DEFAULT_DENSITY: DataTableDensity = 'standard';
 
 /**
+ * Largest JSON size, in bytes, of a stored `extra` (mirrors the API bound
+ * `DATA_TABLE_EXTRA_MAX_BYTES`).
+ *
+ * @stability experimental
+ */
+export const DATA_TABLE_EXTRA_MAX_BYTES = 8192;
+/**
+ * Most top-level keys of a stored `extra` (mirrors `DATA_TABLE_EXTRA_MAX_KEYS`).
+ *
+ * @stability experimental
+ */
+export const DATA_TABLE_EXTRA_MAX_KEYS = 32;
+/**
+ * Deepest a stored `extra` may nest (mirrors `DATA_TABLE_EXTRA_MAX_DEPTH`).
+ *
+ * @stability experimental
+ */
+export const DATA_TABLE_EXTRA_MAX_DEPTH = 8;
+/**
+ * Most saved views per table (mirrors `DATA_TABLE_MAX_SAVED_VIEWS`).
+ *
+ * @stability experimental
+ */
+export const DATA_TABLE_MAX_SAVED_VIEWS = 20;
+/**
+ * Longest saved-view name (mirrors `DATA_TABLE_VIEW_NAME_MAX_LENGTH`).
+ *
+ * @stability experimental
+ */
+export const DATA_TABLE_VIEW_NAME_MAX_LENGTH = 60;
+/**
+ * Largest JSON size of one table's whole stored entry (mirrors
+ * `DATA_TABLE_ENTRY_MAX_BYTES`).
+ *
+ * @stability experimental
+ */
+export const DATA_TABLE_ENTRY_MAX_BYTES = 32768;
+
+/**
  * Marker prefix for a column the user EXPLICITLY hid.
  *
  * `visibleColumns` is a `string[]` in the API contract, which can express "these
@@ -86,7 +125,7 @@ export const HIDDEN_COLUMN_PREFIX = '-';
  * `user_settings.dataTables[tableId]` accepts.
  *
  * The API validates this with `.strict()`: an unknown key is a 400, so nothing
- * beyond these four fields may ever be sent.
+ * beyond these fields may ever be sent. An app's own state goes in `extra`.
  *
  * The shape of the platform's `dataTables` user-settings namespace: the host
  * app mirrors it as its `DataTableSettings` type, and the settings slice's
@@ -108,6 +147,46 @@ export interface DataTableStoredLayout {
   };
   /** The chosen page size. */
   pageSize?: number;
+  /**
+   * An app's own bounded JSON beside the platform's fields (saved filters, a
+   * chart toggle): a plain object of at most 32 keys, 8 KiB and 8 levels. The
+   * table keeps it and persists it; it never reads it.
+   *
+   * @extensionPoint option
+   * @stability experimental
+   */
+  extra?: Record<string, unknown>;
+  /**
+   * Named layouts the user saved (at most 20). A view restores the fields
+   * above, `extra` included.
+   *
+   * @extensionPoint option
+   * @stability experimental
+   */
+  savedViews?: DataTableSavedView[];
+}
+
+/**
+ * The layout a saved view captures: the table's own fields without nested
+ * views.
+ *
+ * @stability experimental
+ */
+export type DataTableViewLayout = Omit<DataTableStoredLayout, 'savedViews'>;
+
+/**
+ * One saved view of a table: a named layout. Apps keep what they need to
+ * restore the view (the filter model) in `layout.extra`.
+ *
+ * @stability experimental
+ */
+export interface DataTableSavedView {
+  /** A slug unique within the table's views. */
+  id: string;
+  /** What the user called it. */
+  name: string;
+  /** The layout it restores. */
+  layout: DataTableViewLayout;
 }
 
 /**
@@ -135,8 +214,90 @@ export function isDensity(value: unknown): value is DataTableDensity {
   return typeof value === 'string' && (DENSITIES as readonly string[]).includes(value);
 }
 
+const VIEW_ID_PATTERN = /^[a-z0-9][a-z0-9_-]*$/;
+
 /**
- * Defensively narrow a server payload to the four fields the contract allows.
+ * The JSON size of a value in bytes, or `Infinity` when it is not JSON.
+ *
+ * @param value - the value.
+ * @returns its UTF-8 JSON length.
+ *
+ * @stability experimental
+ */
+export function jsonByteLength(value: unknown): number {
+  try {
+    const encoded = JSON.stringify(value);
+    return encoded === undefined ? Infinity : new TextEncoder().encode(encoded).length;
+  } catch {
+    return Infinity;
+  }
+}
+
+function isSafeJson(value: unknown, depth = 0): boolean {
+  if (depth > DATA_TABLE_EXTRA_MAX_DEPTH) return false;
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every((item) => isSafeJson(item, depth + 1));
+  if (typeof value === 'object') {
+    return Object.keys(value as object).every(
+      (key) => key !== '__proto__' && key !== 'constructor' && key !== 'prototype' && isSafeJson((value as Record<string, unknown>)[key], depth + 1),
+    );
+  }
+  return false;
+}
+
+/**
+ * Whether `value` is an acceptable stored `extra`: a plain object of bounded
+ * JSON (see {@link DataTableStoredLayout.extra}). The stored copy is
+ * untrusted, and the API enforces the same bounds on write.
+ *
+ * @param value - what was read or is about to be stored.
+ * @returns `true` when it fits.
+ *
+ * @stability experimental
+ */
+export function isValidStoredExtra(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const keys = Object.keys(value as object);
+  if (keys.length > DATA_TABLE_EXTRA_MAX_KEYS) return false;
+  if (keys.some((key) => key.length === 0 || key.length > DATA_TABLE_MAX_ID_LENGTH)) return false;
+  return isSafeJson(value) && jsonByteLength(value) <= DATA_TABLE_EXTRA_MAX_BYTES;
+}
+
+function sanitizeViewLayout(raw: unknown): DataTableViewLayout {
+  const { savedViews: _ignored, ...layout } = sanitizeStoredLayout(raw);
+  void _ignored;
+  return layout;
+}
+
+function sanitizeSavedViews(raw: unknown): DataTableSavedView[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const views: DataTableSavedView[] = [];
+  const seen = new Set<string>();
+  for (const entry of raw) {
+    if (views.length >= DATA_TABLE_MAX_SAVED_VIEWS) break;
+    if (!entry || typeof entry !== 'object') continue;
+    const view = entry as Record<string, unknown>;
+    const name = typeof view.name === 'string' ? view.name.trim() : '';
+    if (
+      typeof view.id !== 'string' ||
+      view.id.length === 0 ||
+      view.id.length > DATA_TABLE_MAX_ID_LENGTH ||
+      !VIEW_ID_PATTERN.test(view.id) ||
+      seen.has(view.id) ||
+      name === '' ||
+      name.length > DATA_TABLE_VIEW_NAME_MAX_LENGTH
+    ) {
+      continue;
+    }
+    seen.add(view.id);
+    views.push({ id: view.id, name, layout: sanitizeViewLayout(view.layout) });
+  }
+  return views;
+}
+
+/**
+ * Defensively narrow a server payload to the fields the contract allows.
  *
  * The stored blob is user-writable JSON: another client, an older build, or a
  * hand-edited settings row can put anything in it. Dropping what we do not
@@ -174,6 +335,19 @@ export function sanitizeStoredLayout(raw: unknown): DataTableStoredLayout {
     out.pageSize = record.pageSize;
   }
 
+  if (isValidStoredExtra(record.extra)) out.extra = record.extra;
+
+  const views = sanitizeSavedViews(record.savedViews);
+  if (views && views.length > 0) out.savedViews = views;
+
+  // A hand-edited row can be over the entry bound; drop the app-owned parts
+  // (which could be what is large) rather than echo it back into a PATCH the
+  // API would refuse.
+  if (jsonByteLength(out) > DATA_TABLE_ENTRY_MAX_BYTES) {
+    delete out.savedViews;
+    delete out.extra;
+  }
+
   return out;
 }
 
@@ -187,7 +361,9 @@ export function isEmptyStoredLayout(entry: DataTableStoredLayout): boolean {
     entry.visibleColumns === undefined &&
     entry.density === undefined &&
     entry.sort === undefined &&
-    entry.pageSize === undefined
+    entry.pageSize === undefined &&
+    entry.extra === undefined &&
+    (entry.savedViews === undefined || entry.savedViews.length === 0)
   );
 }
 

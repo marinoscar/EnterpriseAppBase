@@ -116,6 +116,53 @@ export const DATA_TABLE_MAX_VISIBLE_COLUMNS = 60;
 export const DATA_TABLE_MAX_PAGE_SIZE = 500;
 
 /**
+ * The largest JSON size, in bytes, of one stored layout's `extra` (and of one
+ * saved view's `extra`). `extra` is an app's own bounded JSON beside the
+ * platform's fields (saved filters, a chart toggle); the API refuses a larger
+ * one.
+ *
+ * @stability experimental
+ */
+export const DATA_TABLE_EXTRA_MAX_BYTES = 8192;
+
+/**
+ * The most top-level keys one `extra` may hold, and the deepest it may nest.
+ *
+ * @stability experimental
+ */
+export const DATA_TABLE_EXTRA_MAX_KEYS = 32;
+
+/**
+ * The deepest an `extra` value may nest.
+ *
+ * @stability experimental
+ */
+export const DATA_TABLE_EXTRA_MAX_DEPTH = 8;
+
+/**
+ * The most saved views one table keeps.
+ *
+ * @stability experimental
+ */
+export const DATA_TABLE_MAX_SAVED_VIEWS = 20;
+
+/**
+ * The longest saved-view name, in characters.
+ *
+ * @stability experimental
+ */
+export const DATA_TABLE_VIEW_NAME_MAX_LENGTH = 60;
+
+/**
+ * The largest JSON size, in bytes, of one table's whole stored entry (its
+ * fields, `extra` and every saved view). A storage-exhaustion control:
+ * `user_settings.value` is a JSONB blob the user writes themselves.
+ *
+ * @stability experimental
+ */
+export const DATA_TABLE_ENTRY_MAX_BYTES = 32768;
+
+/**
  * The row densities of the data table component.
  *
  * @stability stable

@@ -50,7 +50,7 @@ import {
   type StorageProvider,
 } from '../../storage/index';
 import { exportJobPayloadSchema, type ExportJobPayload, type ExportResult } from '../export-job';
-import { exportSourceRegistry, exportWriterRegistry } from '../export.registries';
+import { exportSourceRegistry, exportWriterRegistry, guardWriterColumns } from '../export.registries';
 import type { ExportContext, ExportSource, ExportWriter } from '../export.types';
 import {
   EXPORT_AUDIT_ACTION,
@@ -199,7 +199,7 @@ export class ExportRunHandler implements JobHandler, OnModuleInit {
       // A source that throws before yielding, or a writer that rejects
       // without destroying its output, must still end the upload.
       const written = Promise.resolve()
-        .then(() => writer.write(source.collect(ctx, request), counter, { source: source.id, exportedAt: now, appSlug: this.options.appSlug() }))
+        .then(() => writer.write(guardWriterColumns(source.collect(ctx, request), writer), counter, { source: source.id, exportedAt: now, appSlug: this.options.appSlug() }))
         .catch((error: unknown) => {
           if (!counter.destroyed) counter.destroy(error instanceof Error ? error : new Error(String(error)));
           throw error;

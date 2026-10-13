@@ -6,8 +6,20 @@
 
 export { extractColumnValue, formatColumnValue, rowAccessibleName } from './columns.js';
 export {
+  BUILTIN_OPERATORS,
+  FILTER_TYPE_ID_PATTERN,
+  getDataTableFilterType,
+  knownOperatorArity,
+  learnColumnOperators,
+  listDataTableFilterTypes,
+  registerDataTableFilterType,
+} from './filter/filterTypes.js';
+export type { DataTableFilterTypeDef } from './filter/filterTypes.js';
+export { matchesFilterValue, matchesFilters } from './filter/filterMatch.js';
+export {
   OPERATORS_BY_FILTER_TYPE,
   DEFAULT_FILTER_TYPE,
+  columnOperatorLabel,
   operatorLabel,
   operatorArity,
   operatorsForColumn,
@@ -17,7 +29,6 @@ export {
   filterableColumns,
   searchableColumns,
 } from './filter/operators.js';
-export type { OperatorArity } from './filter/operators.js';
 export {
   addFilter,
   removeFilterAt,
@@ -48,9 +59,15 @@ export type {
 } from './layout/useDataTableLayoutPrefs.js';
 export {
   CARD_DENSITY,
+  DATA_TABLE_ENTRY_MAX_BYTES,
+  DATA_TABLE_EXTRA_MAX_BYTES,
+  DATA_TABLE_EXTRA_MAX_DEPTH,
+  DATA_TABLE_EXTRA_MAX_KEYS,
   DATA_TABLE_MAX_ID_LENGTH,
+  DATA_TABLE_MAX_SAVED_VIEWS,
   DATA_TABLE_MAX_VISIBLE_COLUMNS,
   DATA_TABLE_PERSIST_DEBOUNCE_MS,
+  DATA_TABLE_VIEW_NAME_MAX_LENGTH,
   DEFAULT_DENSITY,
   DENSITY_LABELS,
   DENSITY_OPTIONS,
@@ -61,6 +78,8 @@ export {
   isDensity,
   isEmptyStoredLayout,
   isHideable,
+  isValidStoredExtra,
+  jsonByteLength,
   layoutHidesColumn,
   pickerColumns,
   resolveStoredSort,
@@ -71,8 +90,10 @@ export {
 export type {
   CardDensityMetrics,
   DataTablesSettings,
+  DataTableSavedView,
   DataTableStoredLayout,
   DataTableStoredSort,
+  DataTableViewLayout,
   DecodedVisibility,
 } from './layout/layoutModel.js';
 export {
@@ -144,7 +165,16 @@ export type {
   DataTableRendererMode,
   DataTableLayout,
   DataTableRendererKind,
+  BuiltinDataTableFilterType,
+  BuiltinFilterOperator,
+  DataTableBulkBarSlotProps,
+  DataTableColumnFilter,
+  DataTableSlots,
+  DataTableToolbarSlotProps,
   FilterOperator,
+  FilterOperatorDef,
+  FilterValueEditorProps,
+  OperatorArity,
   DataTableFilterType,
   DataTableEnumValue,
   DataTableFilter,

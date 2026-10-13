@@ -5,12 +5,15 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  EXPORT_COLUMN_META_MAX_KEYS,
+  EXPORT_COLUMN_META_MAX_LENGTH,
   EXPORT_DATASET_PATTERN,
   EXPORT_FILE_NAME_PATTERN,
   EXPORT_ID_PATTERN,
   EXPORT_JSON_SCHEMA_VERSION,
   EXPORT_STATUSES,
   createExportSchema,
+  exportColumnSchema,
   exportJsonFileSchema,
   exportSchema,
   exportSourcesResponseSchema,
@@ -97,5 +100,16 @@ describe('@marinoscar/platform-contract/exports', () => {
     expect(EXPORT_FILE_NAME_PATTERN.test('a"b.zip')).toBe(false);
     expect(EXPORT_FILE_NAME_PATTERN.test('Report.PDF')).toBe(false);
     expect(EXPORT_FILE_NAME_PATTERN.test('x.zip\r\nSet-Cookie: a')).toBe(false);
+  });
+
+  it('lets a column carry flat writer-specific meta, bounded', () => {
+    const base = { key: 'amount', label: 'Amount', type: 'number' as const };
+    expect(exportColumnSchema.parse(base)).toEqual(base);
+    const withMeta = { ...base, meta: { parquetType: 'DECIMAL', scale: 2, nullable: true } };
+    expect(exportColumnSchema.parse(withMeta)).toEqual(withMeta);
+    const many = Object.fromEntries(Array.from({ length: EXPORT_COLUMN_META_MAX_KEYS + 1 }, (_, i) => [`k${i}`, i]));
+    expect(exportColumnSchema.safeParse({ ...base, meta: many }).success).toBe(false);
+    expect(exportColumnSchema.safeParse({ ...base, meta: { long: 'x'.repeat(EXPORT_COLUMN_META_MAX_LENGTH + 1) } }).success).toBe(false);
+    expect(exportColumnSchema.safeParse({ ...base, meta: { nested: { a: 1 } } }).success).toBe(false);
   });
 });

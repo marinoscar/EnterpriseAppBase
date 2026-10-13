@@ -10,10 +10,19 @@
 // its key fields.
 // =============================================================================
 
-import type { ExportColumn } from '@marinoscar/platform-contract/exports';
+import type { ExportColumn, ExportColumnType } from '@marinoscar/platform-contract/exports';
 
 import { datasetNameOf, datasetTitleOf, delegateNameOf, exportColumnsOf, toExportCell, type ExportDatamodelModel } from '../datamodel';
 import type { ExportContext, ExportRow, ExportTable } from '../export.types';
+
+/**
+ * The column types a {@link modelTable} dataset can carry: the datamodel maps
+ * every Prisma scalar onto `string`, `number`, `boolean` or `datetime` (never
+ * `date`), which is what the platform sources declare as their `columnTypes`.
+ *
+ * @stability experimental
+ */
+export const MODEL_TABLE_COLUMN_TYPES: readonly ExportColumnType[] = Object.freeze(['string', 'number', 'boolean', 'datetime'] as const);
 
 /**
  * What {@link modelTable} reads.

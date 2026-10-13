@@ -38,13 +38,16 @@ export {
 export {
   exportSourceRegistry,
   exportWriterRegistry,
+  guardWriterColumns,
   registerExportSource,
   registerExportWriter,
+  writerSupportsSource,
   writersFor,
 } from './export.registries';
 export type {
   ExportCell,
   ExportColumn,
+  ExportColumnType,
   ExportContext,
   ExportDb,
   ExportRequestField,
@@ -70,7 +73,7 @@ export {
   ORG_DATA_EXPORT_SOURCE_ID,
   orgDataTables,
 } from './sources/org-data.source';
-export { modelTable } from './sources/model-table';
+export { MODEL_TABLE_COLUMN_TYPES, modelTable } from './sources/model-table';
 export type { ModelTableSpec } from './sources/model-table';
 export {
   BUILTIN_EXPORT_WRITERS,

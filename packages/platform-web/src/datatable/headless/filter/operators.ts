@@ -23,10 +23,21 @@
  */
 
 import type {
+  BuiltinDataTableFilterType,
   DataTableColumn,
   DataTableFilterType,
   FilterOperator,
+  FilterOperatorDef,
+  OperatorArity,
 } from '../types.js';
+import {
+  BUILTIN_OPERATORS,
+  getDataTableFilterType,
+  knownOperatorArity,
+  learnColumnOperators,
+} from './filterTypes.js';
+
+export type { OperatorArity } from '../types.js';
 
 /**
  * Assumed when a filterable column declares no `filterType`.
@@ -35,47 +46,31 @@ import type {
  */
 export const DEFAULT_FILTER_TYPE: DataTableFilterType = 'text';
 
+const BUILTIN_TYPE_IDS: readonly BuiltinDataTableFilterType[] = ['text', 'number', 'date', 'enum', 'boolean'];
+
+function defaultsOf(type: BuiltinDataTableFilterType): FilterOperator[] {
+  return getDataTableFilterType(type)!.operators.map((operator) => operator.id);
+}
+
 /**
- * The default operator set per value type — issue #254's catalog, verbatim.
- * Order is the order the operator picker lists them in, so the first entry is
- * also the default operator for a fresh filter on that type.
+ * The default operator set per BUILT-IN value type — issue #254's catalog,
+ * verbatim. Order is the order the operator picker lists them in, so the first
+ * entry is also the default operator for a fresh filter on that type. A type an
+ * app registered (`registerDataTableFilterType`) is not listed here; ask
+ * {@link operatorsForColumn}.
  *
  * @stability experimental
  */
-export const OPERATORS_BY_FILTER_TYPE: Record<DataTableFilterType, FilterOperator[]> = {
-  text: ['contains', 'equals', 'startsWith', 'isEmpty'],
-  number: ['equals', 'gt', 'lt', 'between'],
-  date: ['before', 'after', 'between'],
-  enum: ['is', 'isNot', 'isAnyOf'],
-  boolean: ['is'],
-};
+export const OPERATORS_BY_FILTER_TYPE: Record<BuiltinDataTableFilterType, FilterOperator[]> = Object.fromEntries(
+  BUILTIN_TYPE_IDS.map((type) => [type, defaultsOf(type)]),
+) as Record<BuiltinDataTableFilterType, FilterOperator[]>;
 
 /**
- * Human labels. Number columns override a few so the picker reads `=`, `>`, `<`
- * rather than "equals / is greater than / is less than", which is how anyone
- * scanning a numeric filter actually thinks about it.
+ * Number columns read `=`, `>`, `<` rather than "equals / is greater than / is
+ * less than", which is how anyone scanning a numeric filter actually thinks
+ * about it. Covers the pinned-only `gte` / `lte` too.
  */
-const OPERATOR_LABELS: Record<FilterOperator, string> = {
-  equals: 'equals',
-  contains: 'contains',
-  startsWith: 'starts with',
-  endsWith: 'ends with',
-  gt: 'is greater than',
-  gte: 'is at least',
-  lt: 'is less than',
-  lte: 'is at most',
-  between: 'is between',
-  before: 'is before',
-  after: 'is after',
-  is: 'is',
-  isNot: 'is not',
-  isAnyOf: 'is any of',
-  in: 'is any of',
-  isEmpty: 'is empty',
-  isNotEmpty: 'is not empty',
-};
-
-const NUMBER_OPERATOR_LABELS: Partial<Record<FilterOperator, string>> = {
+const NUMBER_OPERATOR_LABELS: Partial<Record<string, string>> = {
   equals: '=',
   gt: '>',
   lt: '<',
@@ -84,7 +79,8 @@ const NUMBER_OPERATOR_LABELS: Partial<Record<FilterOperator, string>> = {
 };
 
 /**
- * Display label for an operator, in the context of a value type.
+ * Display label for an operator, in the context of a value type: the type's
+ * own word for it when it lists the operator, else the platform's.
  *
  * @stability experimental
  */
@@ -92,26 +88,27 @@ export function operatorLabel(
   operator: FilterOperator,
   filterType: DataTableFilterType = DEFAULT_FILTER_TYPE,
 ): string {
-  if (filterType === 'number') {
-    return NUMBER_OPERATOR_LABELS[operator] ?? OPERATOR_LABELS[operator];
-  }
-  return OPERATOR_LABELS[operator];
+  const listed = getDataTableFilterType(filterType)?.operators.find((def) => def.id === operator);
+  if (listed) return listed.label;
+  if (filterType === 'number' && NUMBER_OPERATOR_LABELS[operator]) return NUMBER_OPERATOR_LABELS[operator]!;
+  return (BUILTIN_OPERATORS as Record<string, FilterOperatorDef | undefined>)[operator]?.label ?? operator;
 }
 
 /**
- * How many operands an operator takes.
- *
- *  - `0`      — `isEmpty` / `isNotEmpty`: the operator IS the whole predicate.
- *  - `1`      — one value.
- *  - `2`      — `between`: a `[from, to]` tuple.
- *  - `'many'` — `isAnyOf` / `in`: a set.
+ * The label of an operator as one COLUMN offers it: its own inline definition
+ * (`filter.operators`) wins, then the column's type, then the platform's.
  *
  * @stability experimental
  */
-export type OperatorArity = 0 | 1 | 2 | 'many';
+export function columnOperatorLabel<Row>(column: DataTableColumn<Row>, operator: FilterOperator): string {
+  const inline = column.filter?.operators?.find((def) => def.id === operator);
+  return inline ? inline.label : operatorLabel(operator, filterTypeOf(column));
+}
 
 /**
- * How many values an operator takes (see {@link OperatorArity}).
+ * How many values an operator takes (see {@link OperatorArity}). Knows the
+ * platform's operators and every one a registered filter type or a column
+ * declared; an id nobody declared takes one.
  *
  * @param operator - the filter operator.
  * @returns its arity.
@@ -119,38 +116,54 @@ export type OperatorArity = 0 | 1 | 2 | 'many';
  * @stability experimental
  */
 export function operatorArity(operator: FilterOperator): OperatorArity {
-  if (operator === 'isEmpty' || operator === 'isNotEmpty') return 0;
-  if (operator === 'between') return 2;
-  if (operator === 'isAnyOf' || operator === 'in') return 'many';
-  return 1;
+  return knownOperatorArity(operator);
 }
 
 /**
- * The value type a column filters as.
+ * The value type a column filters as: `filter.type`, else `filterType`, else
+ * `text`.
  *
  * @stability experimental
  */
 export function filterTypeOf<Row>(column: DataTableColumn<Row>): DataTableFilterType {
-  return column.filterType ?? DEFAULT_FILTER_TYPE;
+  return column.filter?.type ?? column.filterType ?? DEFAULT_FILTER_TYPE;
 }
 
 /**
  * Whether a column offers filtering at all.
  *
- * An `enum` column with no `enumValues` is treated as NOT filterable: the
- * operand picker would have nothing to list, and an operator you cannot supply a
- * value for is exactly the "looks live, does nothing" affordance the contract
- * refuses elsewhere (see `sortable`'s opt-in rationale).
+ * A column is filterable when `filterable` is `true` or a non-empty operator
+ * list, or when it declares a `filter` (unless `filterable` is `false`), AND
+ * its type is registered. An `enum` column with no `enumValues` is treated as
+ * NOT filterable: the operand picker would have nothing to list, and an
+ * operator you cannot supply a value for is exactly the "looks live, does
+ * nothing" affordance the contract refuses elsewhere (see `sortable`'s opt-in
+ * rationale). A column naming a type nobody registered is not filterable
+ * either, and says so once on the console.
  *
  * @stability experimental
  */
 export function isFilterableColumn<Row>(column: DataTableColumn<Row>): boolean {
   const declared =
     column.filterable === true ||
-    (Array.isArray(column.filterable) && column.filterable.length > 0);
+    (Array.isArray(column.filterable) && column.filterable.length > 0) ||
+    (column.filter !== undefined && column.filterable !== false);
   if (!declared) return false;
-  if (filterTypeOf(column) === 'enum') return (column.enumValues?.length ?? 0) > 0;
+  learnColumnOperators(column.filter?.operators);
+  const type = filterTypeOf(column);
+  if (!getDataTableFilterType(type)) {
+    warnUnknownType(type, column.id);
+    return false;
+  }
+  if (type === 'enum') return (column.enumValues?.length ?? 0) > 0;
   return true;
+}
+
+const warnedTypes = new Set<string>();
+function warnUnknownType(type: string, columnId: string): void {
+  if (warnedTypes.has(type)) return;
+  warnedTypes.add(type);
+  console.warn(`DataTable column "${columnId}" filters as "${type}", which is not registered (registerDataTableFilterType); it is not filterable.`);
 }
 
 /**
@@ -165,16 +178,23 @@ export function filterableColumns<Row>(
 }
 
 /**
- * The operators offered for a column: the explicit array when one is declared,
- * otherwise the default set for its value type.
+ * The operators offered for a column: the explicit `filterable` array when one
+ * is declared, else the column's inline `filter.operators`, else the default
+ * set of its value type.
  *
  * @stability experimental
  */
 export function operatorsForColumn<Row>(column: DataTableColumn<Row>): FilterOperator[] {
   if (Array.isArray(column.filterable) && column.filterable.length > 0) {
+    learnColumnOperators(column.filter?.operators);
     return column.filterable;
   }
-  return OPERATORS_BY_FILTER_TYPE[filterTypeOf(column)];
+  if (column.filter?.operators && column.filter.operators.length > 0) {
+    learnColumnOperators(column.filter.operators);
+    return column.filter.operators.map((operator) => operator.id);
+  }
+  const type = getDataTableFilterType(filterTypeOf(column));
+  return type ? type.operators.map((operator) => operator.id) : [];
 }
 
 /**

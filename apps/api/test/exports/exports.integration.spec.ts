@@ -64,9 +64,16 @@ describe('Exports (/api/exports)', () => {
     expect(ids).toEqual(expect.arrayContaining(['user-data', 'example-notification-inbox']));
     expect(ids).not.toContain('org-data');
     const userData = response.body.data.items.find((s: { id: string }) => s.id === 'user-data');
-    expect(userData.formats.map((f: { id: string }) => f.id)).toEqual(['json', 'csv', 'xlsx']);
+    // json, csv and xlsx as ever, then the writer the app attached to every source (ndjson).
+    expect(userData.formats.map((f: { id: string }) => f.id)).toEqual(['json', 'csv', 'xlsx', 'ndjson']);
+    expect(userData.formats.find((f: { id: string }) => f.id === 'ndjson')).toEqual({
+      id: 'ndjson',
+      label: 'NDJSON',
+      extension: 'ndjson',
+      mimeType: 'application/x-ndjson',
+    });
     const example = response.body.data.items.find((s: { id: string }) => s.id === 'example-notification-inbox');
-    expect(example.formats.map((f: { id: string }) => f.id)).toEqual(['csv-single', 'json', 'csv', 'xlsx']);
+    expect(example.formats.map((f: { id: string }) => f.id)).toEqual(['csv-single', 'json', 'csv', 'xlsx', 'ndjson']);
     expect(example.fields.map((f: { key: string; kind: string }) => `${f.key}:${f.kind}`)).toEqual(['from:date', 'to:date', 'unreadOnly:boolean']);
   });
 
@@ -80,6 +87,19 @@ describe('Exports (/api/exports)', () => {
     expect(response.body.data).toMatchObject({ status: 'pending', source: 'user-data', format: 'json', scope: 'user', download: null });
     expect(enqueue).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'export.run', subjectType: 'user', subjectId: viewer.id, skipDedup: true }),
+    );
+  });
+
+  it('POST user-data in the attached ndjson format answers 202 and queues the job with that format', async () => {
+    const viewer = await createMockViewerUser(context);
+    const response = await request(server())
+      .post('/api/exports')
+      .set(authHeader(viewer.accessToken))
+      .send({ source: 'user-data', format: 'ndjson' })
+      .expect(202);
+    expect(response.body.data).toMatchObject({ status: 'pending', source: 'user-data', format: 'ndjson', scope: 'user' });
+    expect(enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'export.run', payload: expect.objectContaining({ source: 'user-data', format: 'ndjson' }) }),
     );
   });
 

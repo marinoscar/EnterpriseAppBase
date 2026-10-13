@@ -16,6 +16,7 @@
 import { z } from 'zod';
 
 import {
+  ONBOARDING_AUDIENCE_ID_PATTERN,
   ONBOARDING_AUDIENCES,
   ONBOARDING_METRICS_DAYS_DEFAULT,
   ONBOARDING_METRICS_DAYS_MAX,
@@ -30,8 +31,9 @@ import {
 // =============================================================================
 
 /**
- * The entries of the audience enum.
+ * The entries of the original two-audience enum.
  *
+ * @deprecated The audience vocabulary is open; see `onboardingAudienceSchema`.
  * @stability experimental
  */
 export type OnboardingAudienceEnum = { [K in (typeof ONBOARDING_AUDIENCES)[number]]: K };
@@ -60,11 +62,13 @@ export type OnboardingRefreshEnum = {
 };
 
 /**
- * A step's audience.
+ * A step's audience: an id matching `ONBOARDING_AUDIENCE_ID_PATTERN`. The
+ * built-ins are `admin`, `user` and `org_admin`; an app registers more with
+ * `registerOnboardingAudience`.
  *
  * @stability experimental
  */
-export const onboardingAudienceSchema: z.ZodEnum<OnboardingAudienceEnum> = z.enum(ONBOARDING_AUDIENCES);
+export const onboardingAudienceSchema = z.string().regex(ONBOARDING_AUDIENCE_ID_PATTERN);
 /**
  * A step's tier.
  *
@@ -271,6 +275,12 @@ export const onboardingResponseSchema = z.object({
   user: onboardingBlockSchema,
   /** The Setup guide; non-null only for a caller holding the admin permission. */
   admin: onboardingBlockSchema.nullable(),
+  /**
+   * The checklists of every other audience the caller matches and that has at
+   * least one step for them, keyed by audience id (`org_admin`, or an app's
+   * own). Absent when there is none.
+   */
+  audiences: z.record(onboardingAudienceSchema, onboardingBlockSchema).optional(),
 });
 
 /**
