@@ -78,6 +78,7 @@ export interface ProfileSettingsSlots {
 /**
  * Props of {@link ProfileSettings}.
  *
+ * @extensionPoint slot
  * @stability experimental
  */
 export interface ProfileSettingsProps {

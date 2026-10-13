@@ -42,6 +42,7 @@ export interface ThemeSettingsSlots {
 /**
  * Props of {@link ThemeSettings}.
  *
+ * @extensionPoint slot
  * @stability experimental
  */
 export interface ThemeSettingsProps {
