@@ -113,6 +113,8 @@ Sections follow the verdict, from the most open slice to the most closed.
 |---|---|---|---|---|---|
 | onboarding-1 | The audiences are `admin` and `user`; tiers and statuses are closed; there is no organization-administrator audience for a multi-org app, and `validateStep` rejects any other audience. | contract: `onboarding/constants.ts:16`; api: `onboarding/onboarding.registries.ts` | Add the built-in `org_admin` audience (from the `org_admin` membership role) and `registerOnboardingAudience`; audiences become `Builtin | (string & {})`. | PP-14.20 (#938) | Fixed |
 
+Note (PP-14.24b, #974): `GettingStartedPage` and `SetupGuidePage` were the two onboarding pages left on `page-slots.exempt.json`. Both now take `slots` of the page-slot contract (`Header`, `BeforeContent`, `Sections`, `AfterContent`); the exempt list is empty. A note, not a row: the point count is unchanged.
+
 ### credentials
 
 **Verdict:** Open · **Packages:** api, web, contract · **Closed points:** 0 (0 fixed, 0 open) · **Stories:** none
@@ -164,6 +166,8 @@ Closed points: none recorded at the audit commit.
 | exports-1 | A new writer cannot attach to the built-in sources: `writersFor` filters by `source.formats`, `writer.sources` can only narrow, and `user-data` and `org-data` hard-code `json`, `csv`, `xlsx`. | api: `exports/sources/user-data.source.ts:91`; `exports/sources/org-data.source.ts:149` | `registerExportWriter({ attachTo: '*' | string[] })`; built-in sources compute formats from attached writers. | PP-14.20 (#938) | Fixed |
 | exports-2 | `EXPORT_COLUMN_TYPES` is closed and a writer has nowhere to keep its own typing (Parquet logical types). | contract: `exports/constants.ts` | `ExportColumn.meta` (bounded scalars); the column types stay closed. | PP-14.20 (#938) | Fixed |
 | exports-3 | `ExportsList` has no column or row-action slots. | web: `exports/ui/` | `slots.Columns` and `slots.RowActions`. | PP-14.20 (#938) | Fixed |
+
+Note (PP-14.24b, #974): `DataExportPage` was the page left on `page-slots.exempt.json`. It now takes `slots` of the page-slot contract and forwards the list's `Columns` and `RowActions`, so exports-3 is reachable from the page too; the exempt list is empty. A note, not a row: the point count is unchanged.
 
 ### jobs
 
