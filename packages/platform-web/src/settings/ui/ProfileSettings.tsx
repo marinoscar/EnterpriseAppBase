@@ -83,7 +83,7 @@ export interface ProfileSettingsSlots {
  */
 export interface ProfileSettingsProps {
   /** The stored profile preferences. */
-  profile: UserSettingsResponseBase['profile'];
+  profile: UserSettingsResponseBase['profile'] & Record<string, unknown>;
   /** PATCH the changed profile fields (display name and/or picture source). */
   onSave: (profile: ProfilePatch) => Promise<void>;
   /**

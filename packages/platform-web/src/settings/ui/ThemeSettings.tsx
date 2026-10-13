@@ -48,8 +48,12 @@ export interface ThemeSettingsSlots {
 export interface ThemeSettingsProps {
   /** The stored theme preference: light, dark, system, or an id an app registered. */
   currentTheme: ThemePreferenceId;
-  /** Called with the chosen preference. */
-  onThemeChange: (theme: ThemePreferenceId) => void;
+  /**
+   * Called with the chosen preference. Declared as a method so a handler typed
+   * for the three built-in ids (`(theme: 'light' | 'dark' | 'system') => void`)
+   * still fits; an app that registered themes handles the wider id.
+   */
+  onThemeChange(theme: ThemePreferenceId): void;
   /** Disables the toggle (a save is in flight). */
   disabled?: boolean;
   /**
