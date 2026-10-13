@@ -39,6 +39,18 @@ declare module '../../testing/index' {
 }
 
 /**
+ * One global guard an app registers on purpose.
+ *
+ * @stability experimental
+ */
+export interface AllowedAppGuard {
+  /** The guard class name (`Class.name`). */
+  readonly name: string;
+  /** Why a global guard is right for it; required, an empty one throws. */
+  readonly why: string;
+}
+
+/**
  * Options of the `host` suite.
  *
  * @stability experimental
@@ -57,7 +69,7 @@ export interface HostConformanceOptions {
    *
    * @extensionPoint option
    */
-  readonly allowedAppGuards?: ReadonlyArray<{ readonly name: string; readonly why: string }>;
+  readonly allowedAppGuards?: ReadonlyArray<AllowedAppGuard>;
 }
 
 /**
@@ -167,7 +179,7 @@ export function discoverHostModuleGraph(root: Type<unknown> | DynamicModule): Ho
  */
 export function checkHostModuleGraph(
   graph: HostModuleGraph,
-  allowedAppGuards: HostConformanceOptions['allowedAppGuards'] = [],
+  allowedAppGuards: ReadonlyArray<AllowedAppGuard> = [],
 ): ConformanceFinding[] {
   const findings: ConformanceFinding[] = [];
   const of = (token: string) => graph.enhancers.filter((enhancer) => enhancer.token === token);

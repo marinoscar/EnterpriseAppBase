@@ -36,6 +36,18 @@ export const RESPONSE_META_MAX_KEYS = 16;
 export const RESPONSE_META_MAX_VALUE_LENGTH = 512;
 
 /**
+ * The `meta` of one enveloped response.
+ *
+ * @stability experimental
+ */
+export interface ResponseMeta {
+  /** When the response was built (ISO 8601). */
+  timestamp: string;
+  /** What the registered contributors added. */
+  [key: string]: unknown;
+}
+
+/**
  * Builds `meta` for one response: the timestamp, then the entries the
  * registered contributors returned. A contributor that throws is skipped. The
  * platform's `timestamp` cannot be overridden; a key beyond the limits, a
@@ -47,8 +59,8 @@ export const RESPONSE_META_MAX_VALUE_LENGTH = 512;
  *
  * @stability experimental
  */
-export function buildResponseMeta(request: unknown): { timestamp: string; [key: string]: unknown } {
-  const meta: { timestamp: string; [key: string]: unknown } = { timestamp: new Date().toISOString() };
+export function buildResponseMeta(request: unknown): ResponseMeta {
+  const meta: ResponseMeta = { timestamp: new Date().toISOString() };
   const contributors = responseMetaContributorRegistry.list();
   if (contributors.length === 0) return meta;
 

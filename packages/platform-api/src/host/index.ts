@@ -212,6 +212,7 @@ export {
   TransformInterceptor,
   buildResponseMeta,
 } from './http/transform.interceptor';
+export type { ResponseMeta } from './http/transform.interceptor';
 export type { ApiEnvelope } from './http/transform.interceptor';
 // The response `meta` contributor registry (PP-14.13).
 export {
@@ -241,7 +242,12 @@ export type {
 export { DATABASE_HEALTH_INDICATOR, DATABASE_HEALTH_INDICATOR_ID } from './health/builtin-health-indicators';
 // Reference-app wiring and tests only; not stable extension points (`@internal`).
 export { HealthController, createHealthController } from './health/health.controller';
-export type { HealthControllerClass, HealthControllerInstance } from './health/health.controller';
+export type {
+  HealthControllerClass,
+  HealthControllerInstance,
+  LivenessResult,
+  TimestampedHealthResult,
+} from './health/health.controller';
 export { HealthIndicatorRunner } from './health/health-indicator.runner';
 export { DatabaseHealthIndicator } from './health/database.indicator';
 
@@ -292,6 +298,7 @@ export {
   registerAboutContributor,
 } from './about/about-contributor.registry';
 export type { AboutContributorDef } from './about/about-contributor.registry';
+export type { BoundedFacts, BoundedFactValue } from './internal/bounded';
 // Reference-app wiring and tests only; not stable extension points (`@internal`).
 export { AboutService } from './about/about.service';
 export { AboutController, DEFAULT_ABOUT_PERMISSION, createAboutController } from './about/about.controller';

@@ -71,7 +71,7 @@ import { AboutResponseDto } from './dto/about-response.dto';
 export const DEFAULT_ABOUT_PERMISSION: string = SETTINGS_PERMISSIONS.SYSTEM_SETTINGS_READ.id;
 
 /**
- * What {@link createAboutController} takes.
+ * What `createAboutController` takes.
  *
  * @stability experimental
  */
@@ -84,8 +84,11 @@ export interface AboutControllerOptions {
 
 /** The about controller's handler. */
 export interface AboutControllerInstance {
-  /** `GET /api/admin/about`. */
-  getAbout(): Promise<AboutResponseDto>;
+  /**
+   * `GET /api/admin/about`. Resolves the deployment report (shape: the
+   * contract's `aboutResponseSchema`).
+   */
+  getAbout(): Promise<object>;
 }
 
 /** The about controller class. */

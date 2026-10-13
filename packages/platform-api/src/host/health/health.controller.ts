@@ -10,14 +10,28 @@ import {
 } from '../maintenance/maintenance.guard';
 import { MaintenanceModeService } from '../maintenance/maintenance-mode.service';
 
+/** The liveness answer. */
+export interface LivenessResult {
+  /** Always `ok` while the process answers. */
+  status: string;
+  /** When the answer was built (ISO 8601). */
+  timestamp: string;
+}
+
+/** A Terminus result stamped with the time it was built. */
+export type TimestampedHealthResult = HealthCheckResult & {
+  /** When the answer was built (ISO 8601). */
+  timestamp: string;
+};
+
 /** What the health controller exposes (the shape tests and wiring rely on). */
 export interface HealthControllerInstance {
   /** `GET /api/health/live`. */
-  liveness(): { status: string; timestamp: string };
+  liveness(): LivenessResult;
   /** `GET /api/health/ready`. */
-  readiness(): Promise<HealthCheckResult & { timestamp: string }>;
+  readiness(): Promise<TimestampedHealthResult>;
   /** `GET /api/health`. */
-  fullHealth(): Promise<HealthCheckResult & { timestamp: string }>;
+  fullHealth(): Promise<TimestampedHealthResult>;
 }
 
 /** The health controller class. */
@@ -153,7 +167,7 @@ export function createHealthController(host?: PlatformHost): HealthControllerCla
         },
       },
     })
-    async readiness(): Promise<HealthCheckResult & { timestamp: string }> {
+    async readiness(): Promise<TimestampedHealthResult> {
       // ------------------------------------------------------------------------
       // BEFORE THE DATABASE PROBE, and that ordering is the requirement.
       // ------------------------------------------------------------------------
@@ -203,7 +217,7 @@ export function createHealthController(host?: PlatformHost): HealthControllerCla
     })
     @ApiResponse({ status: 200, description: 'All checks passed' })
     @ApiResponse({ status: 503, description: 'One or more checks failed' })
-    async fullHealth(): Promise<HealthCheckResult & { timestamp: string }> {
+    async fullHealth(): Promise<TimestampedHealthResult> {
       // EVERY registered indicator (`registerHealthIndicator`), critical or not.
       const result = await this.health.check(this.indicators.functions('full'));
 
