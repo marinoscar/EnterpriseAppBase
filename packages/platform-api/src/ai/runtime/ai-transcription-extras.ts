@@ -11,8 +11,8 @@
 //
 //   - JSON-serialisable (a cycle, a function or a bigint is refused);
 //   - at most `AI_TRANSCRIPTION_EXTRAS_MAX_BYTES` serialised;
-//   - `segments`, when present, at most `AI_TRANSCRIPTION_EXTRAS_MAX_SEGMENTS`
-//     entries of `{ start, end, text, speaker? }` with finite numbers;
+//   - `segments`, when present, entries of `{ start, end, text, speaker? }`
+//     with finite numbers (their count is bounded by the size cap);
 //   - `language`, when present, a short string.
 //
 // A result that fails any of it KEEPS ITS TRANSCRIPT and loses only the
@@ -24,11 +24,7 @@
 
 import { z } from 'zod';
 
-import {
-  AI_TRANSCRIPTION_EXTRAS_MAX_BYTES,
-  AI_TRANSCRIPTION_EXTRAS_MAX_SEGMENTS,
-  type AiTranscriptionExtras,
-} from '../core/types/media.types';
+import { AI_TRANSCRIPTION_EXTRAS_MAX_BYTES, type AiTranscriptionExtras } from '../core/types/media.types';
 
 /** The shape a transcript's extras must have. Extra keys pass through. */
 export const aiTranscriptionExtrasSchema = z.looseObject({
@@ -41,7 +37,6 @@ export const aiTranscriptionExtrasSchema = z.looseObject({
         speaker: z.string().max(128).optional(),
       }),
     )
-    .max(AI_TRANSCRIPTION_EXTRAS_MAX_SEGMENTS)
     .optional(),
   language: z.string().max(64).optional(),
 });

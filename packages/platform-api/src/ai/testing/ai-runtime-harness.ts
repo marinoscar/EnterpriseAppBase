@@ -260,6 +260,8 @@ export interface StoredAiRun {
   updatedAt: Date;
   /** When it settled. */
   completedAt: Date | null;
+  /** The registered feature the run was started for (PP-14.17); null for none. */
+  feature: string | null;
 }
 
 /**
@@ -650,6 +652,7 @@ export function createAiRuntimeHarness(opts: AiRuntimeHarnessOptions = {}): AiRu
           createdAt: now,
           updatedAt: now,
           completedAt: null,
+          feature: null,
           ...args.data,
         };
         runRows.push(row);

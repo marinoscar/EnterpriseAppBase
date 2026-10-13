@@ -81,6 +81,7 @@ import {
   AiRealtimeSessionRequest,
   AiSpeechRequest,
   AiSpeechResult,
+  AiTranscriptionExtras,
   AiTranscriptionRequest,
   AiTranscriptionResult,
   isStreamedPayload,
@@ -272,6 +273,13 @@ export interface FakeAiProviderOptions {
   realtimePort?: boolean;
   /** The built-in audio port's `transcriptionMaxBytes`. Defaults to 25 MiB. */
   transcriptionMaxBytes?: number;
+  /**
+   * What the built-in audio port reports in `AiTranscriptionResult.extras`
+   * (PP-14.17, #935): the value, or a function of the transcript it just made.
+   * Typed `unknown` on purpose, so a test can hand it a malformed or oversized
+   * value and watch the runtime drop it.
+   */
+  transcriptionExtras?: unknown | ((transcript: { durationSeconds: number; text: string }) => unknown);
   /** Native vector length of the built-in embeddings port. Defaults to 8. */
   embeddingDimensions?: number;
   /** Extra ports to carry, for registry/runtime tests. */
@@ -859,6 +867,13 @@ export class FakeAiProvider implements AiProviderAdapter {
         ? { words: text.split(' ').map((word, i) => ({ startSeconds: i, endSeconds: i + 1, word })) }
         : {}),
       usage: { outputTokens: Math.ceil(text.length / 4) },
+      ...(this.options.transcriptionExtras !== undefined
+        ? {
+            extras: (typeof this.options.transcriptionExtras === 'function'
+              ? this.options.transcriptionExtras({ durationSeconds, text })
+              : this.options.transcriptionExtras) as AiTranscriptionExtras,
+          }
+        : {}),
       providerRequestId: `fake_req_${this.responseCounter}`,
     };
   }

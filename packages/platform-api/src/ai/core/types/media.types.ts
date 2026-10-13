@@ -331,7 +331,8 @@ export interface AiTranscriptionWord {
 
 /**
  * The largest `extras` a transcription result may keep, as its JSON
- * serialisation in bytes (PP-14.17, #935): 64 KiB. A result whose extras are
+ * serialisation in bytes (PP-14.17, #935): 64 KiB, which also bounds how many
+ * segments it can carry. A result whose extras are
  * larger, not JSON, or malformed (a segment without a start, an end and a
  * text) keeps its transcript and drops the extras; the call is still billed
  * and recorded.
@@ -339,13 +340,6 @@ export interface AiTranscriptionWord {
  * @stability experimental
  */
 export const AI_TRANSCRIPTION_EXTRAS_MAX_BYTES = 64 * 1024;
-
-/**
- * The most `extras.segments` a transcription result may carry.
- *
- * @stability experimental
- */
-export const AI_TRANSCRIPTION_EXTRAS_MAX_SEGMENTS = 5_000;
 
 /**
  * One timed, optionally speaker-labelled segment of a transcript's `extras`.
@@ -366,8 +360,7 @@ export interface AiTranscriptionExtrasSegment {
 /**
  * What a provider reports about a transcript beyond its text (PP-14.17,
  * #935): speaker-labelled segments and the language, plus any other JSON the
- * provider adds. Bounded by {@link AI_TRANSCRIPTION_EXTRAS_MAX_BYTES} and
- * {@link AI_TRANSCRIPTION_EXTRAS_MAX_SEGMENTS}. The runtime keeps it on the
+ * provider adds. Bounded by {@link AI_TRANSCRIPTION_EXTRAS_MAX_BYTES}. The runtime keeps it on the
  * run's output and nowhere else: not a log line, a span or a usage row.
  *
  * @stability experimental

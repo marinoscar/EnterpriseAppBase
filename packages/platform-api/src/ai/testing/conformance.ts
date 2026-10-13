@@ -30,6 +30,7 @@ import { z } from 'zod';
 import { AiError, isAiErrorCode } from '../core/ai-error';
 import { aiModelCapabilitiesSchema } from '../core/capabilities';
 import { asInputItems, replayOutput } from '../core/conversation';
+import { getAiOperation } from '../core/operation-registry';
 import { AiCallContext, AiProviderAdapter } from '../core/provider-adapter.interface';
 import { defineTool } from '../core/tools';
 import {
@@ -82,7 +83,11 @@ export type AiConformanceScenario =
   | 'audio.speechVoices'
   | 'audio.speechTooLong'
   | 'audio.speechInvalidKey'
-  | 'audio.speechProviderError';
+  | 'audio.speechProviderError'
+  | 'operations.declared'
+  | 'operations.run'
+  | 'operations.invalidKey'
+  | 'operations.providerError';
 
 /**
  * What an adapter's conformance run needs besides the adapter: a bad key,
@@ -143,6 +148,21 @@ export interface AiConformanceFixtures {
     /** A model that makes the provider fail. */
     failingModel: string;
   };
+  /**
+   * Required for each custom operation the adapter implements
+   * (`AiProviderAdapter.operations`, PP-14.17), by operation id.
+   */
+  operations?: Record<
+    string,
+    {
+      /** An input that satisfies the operation's registered `inputSchema`. */
+      input: unknown;
+      /** A model that declares the operation's capability. */
+      model: string;
+      /** A model that makes the provider fail. */
+      failingModel: string;
+    }
+  >;
   /** Runs before each scenario's calls — for a mocked transport that queues replies. */
   arrange?(scenario: AiConformanceScenario): void | Promise<void>;
 }
@@ -994,6 +1014,71 @@ export function describeAiProviderConformance(
 
         await expectAiError(() => speech({ model: fixture.failingModel, voice: fixture.voice, input: 'hi' }, subject.ctx));
       }));
+    });
+
+    describe('custom operations (PP-14.17)', () => {
+      const declared = () => Object.keys(subject.adapter.operations ?? {});
+
+      const forEachOperation = (fn: (id: string, fixture: NonNullable<AiConformanceFixtures['operations']>[string]) => Promise<void>) => async () => {
+        for (const id of declared()) {
+          const fixture = subject.fixtures.operations?.[id];
+
+          expect(fixture).toBeDefined();
+          await fn(id, fixture as NonNullable<typeof fixture>);
+        }
+      };
+
+      const ctxFor = (id: string, model: string, ctx: AiCallContext) => ({ ...ctx, model, operation: id });
+
+      scenario(
+        'operations.declared',
+        'every operation the adapter implements is a registered, runnable operation with a fixture',
+        async () => {
+          for (const id of declared()) {
+            const definition = getAiOperation(id);
+
+            expect(definition).toBeDefined();
+            expect(definition?.inputSchema).toBeDefined();
+            expect(definition?.outputSchema).toBeDefined();
+            expect(typeof subject.adapter.operations?.[id]).toBe('function');
+            expect(subject.fixtures.operations?.[id]).toBeDefined();
+            expect(definition?.inputSchema?.safeParse(subject.fixtures.operations?.[id]?.input).success).toBe(true);
+          }
+        },
+      );
+
+      scenario(
+        'operations.run',
+        'an operation returns output its outputSchema accepts, without echoing the key',
+        forEachOperation(async (id, fixture) => {
+          const handler = subject.adapter.operations?.[id] as NonNullable<AiProviderAdapter['operations']>[string];
+          const output = await handler(fixture.input, ctxFor(id, fixture.model, subject.ctx));
+
+          expect(getAiOperation(id)?.outputSchema?.safeParse(output).success).toBe(true);
+          expect(JSON.stringify(output)).not.toContain(subject.ctx.apiKey);
+        }),
+      );
+
+      scenario(
+        'operations.invalidKey',
+        'a rejected key surfaces as AI_KEY_INVALID',
+        forEachOperation(async (id, fixture) => {
+          const handler = subject.adapter.operations?.[id] as NonNullable<AiProviderAdapter['operations']>[string];
+
+          await expectAiError(() => handler(fixture.input, ctxFor(id, fixture.model, invalidCtx())), 'AI_KEY_INVALID');
+        }),
+      );
+
+      scenario(
+        'operations.providerError',
+        'a provider failure surfaces as AiError, never a raw error, and never echoes the key',
+        forEachOperation(async (id, fixture) => {
+          const handler = subject.adapter.operations?.[id] as NonNullable<AiProviderAdapter['operations']>[string];
+          const error = await expectAiError(() => handler(fixture.input, ctxFor(id, fixture.failingModel, subject.ctx)));
+
+          expect(JSON.stringify(error.toJSON())).not.toContain(subject.ctx.apiKey);
+        }),
+      );
     });
   });
 }
