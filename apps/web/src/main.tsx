@@ -5,6 +5,7 @@ import { CssBaseline } from '@mui/material';
 import App from './App';
 // The app's sign-in button looks (#727): registered once, before the first render.
 import './identity/authProviders';
+import { registerAppGranteePickers } from './platform/granteePickers';
 import { registerAppLinkRenderers } from './platform/linkRenderers';
 import { captureTwaLaunch } from '@marinoscar/platform-web/android-app/headless';
 import { ANDROID_TWA_KEY_PREFIX } from './config/androidApp';
@@ -16,6 +17,8 @@ captureTwaLaunch(undefined, ANDROID_TWA_KEY_PREFIX);
 // The public `/s` page's renderers (#731), registered and frozen before the
 // first render.
 registerAppLinkRenderers();
+// The share dialog's grantee pickers (PP-14.16), registered and frozen likewise.
+registerAppGranteePickers();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

@@ -17,6 +17,7 @@ export { useGroup, useGroupActions, useGroups } from './useGroups.js';
 export type { GroupActions, UseGroupsOptions } from './useGroups.js';
 export { useGroupMembers } from './useGroupMembers.js';
 export { useGroupInvites, useMyGroupInvites } from './useGroupInvites.js';
+export { useGranteeKinds } from './useGranteeKinds.js';
 export { useGrants, useShareActions } from './useGrants.js';
 export type { ShareActions } from './useGrants.js';
 export { useLinkGrants } from './useLinkGrants.js';
@@ -32,3 +33,11 @@ export {
   registerLinkRenderer,
 } from './linkRenderers.js';
 export type { LinkRenderer, LinkRendererProps, LinkRendererRegistryErrorCode } from './linkRenderers.js';
+export {
+  GranteePickerRegistry,
+  GranteePickerRegistryError,
+  freezeGranteePickers,
+  granteePickers,
+  registerGranteePicker,
+} from './granteePickers.js';
+export type { GranteePicker, GranteePickerProps, GranteePickerRegistryErrorCode } from './granteePickers.js';
