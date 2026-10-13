@@ -303,9 +303,21 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 type Cleaned = { ok: true; value: unknown } | { ok: false; reason: string };
 
-function clean(value: unknown, depth: number, path: string): Cleaned {
+/** What one check may spend: no JSON value is smaller than a byte, so a payload over `maxBytes` values is over the byte bound already. */
+interface CheckBudget {
+  /** Values still allowed. */
+  nodes: number;
+  /** The byte bound of the whole contribution. */
+  maxBytes: number;
+}
+
+function clean(value: unknown, depth: number, path: string, budget: CheckBudget): Cleaned {
+  budget.nodes -= 1;
+  if (budget.nodes < 0) return { ok: false, reason: `${path} is part of a contribution with more values than the ${budget.maxBytes} byte bound can hold` };
   if (value === null || typeof value === 'boolean') return { ok: true, value };
   if (typeof value === 'string') {
+    // UTF-8 is at least one byte per UTF-16 unit: refuse before scanning a huge string.
+    if (value.length > budget.maxBytes) return { ok: false, reason: `${path} is a string over the ${budget.maxBytes} byte bound` };
     if (SECRET_VALUE_PATTERNS.some((pattern) => pattern.test(value))) {
       return { ok: false, reason: `${path} holds what looks like a credential` };
     }
@@ -320,7 +332,7 @@ function clean(value: unknown, depth: number, path: string): Cleaned {
   if (Array.isArray(value)) {
     const items: unknown[] = [];
     for (let index = 0; index < value.length; index += 1) {
-      const item = clean(value[index], depth + 1, `${path}[${index}]`);
+      const item = clean(value[index], depth + 1, `${path}[${index}]`, budget);
       if (!item.ok) return item;
       items.push(item.value);
     }
@@ -333,7 +345,7 @@ function clean(value: unknown, depth: number, path: string): Cleaned {
       if (isSecretKey(key)) return { ok: false, reason: `${path}.${key} is named like a secret` };
       const raw = value[key];
       if (raw === undefined) continue; // JSON drops it
-      const item = clean(raw, depth + 1, `${path}.${key}`);
+      const item = clean(raw, depth + 1, `${path}.${key}`, budget);
       if (!item.ok) return item;
       copy[key] = item.value;
     }
@@ -389,7 +401,7 @@ export type UserExtensionCheck = UserExtensionAccepted | UserExtensionRefused;
  */
 export function checkUserExtensionContribution(value: unknown, maxBytes: number): UserExtensionCheck {
   if (!isPlainObject(value)) return { ok: false, reason: 'the contribution is not a JSON object' };
-  const cleaned = clean(value, 1, 'the contribution');
+  const cleaned = clean(value, 1, 'the contribution', { nodes: maxBytes, maxBytes });
   if (!cleaned.ok) return cleaned;
   const bytes = Buffer.byteLength(JSON.stringify(cleaned.value), 'utf8');
   if (bytes > maxBytes) return { ok: false, reason: `the contribution is ${bytes} bytes, over the ${maxBytes} byte bound` };
@@ -410,10 +422,51 @@ export interface UserExtensionLog {
   warn(message: string): void;
 }
 
-const defaultLog: UserExtensionLog = new Logger('IdentityUserExtensions');
+/**
+ * How often the slice's own logger repeats the same warning (an extension that
+ * fails on every `/auth/me` would otherwise write one line per request).
+ */
+const LOG_REPEAT_INTERVAL_MS = 60_000;
 
-/** Runs `run` under a timeout; the signal aborts when it elapses. */
-async function withTimeout<T>(timeoutMs: number, run: (signal: AbortSignal) => Promise<T> | T): Promise<T> {
+/** A logger that writes a given message at most once a minute and counts the repeats it swallowed. */
+function throttledLog(inner: UserExtensionLog): UserExtensionLog {
+  const lastWritten = new Map<string, { at: number; suppressed: number }>();
+  return {
+    warn(message: string): void {
+      const now = Date.now();
+      const seen = lastWritten.get(message);
+      if (seen && now - seen.at < LOG_REPEAT_INTERVAL_MS) {
+        seen.suppressed += 1;
+        return;
+      }
+      lastWritten.set(message, { at: now, suppressed: 0 });
+      if (lastWritten.size > 200) lastWritten.delete(lastWritten.keys().next().value as string);
+      inner.warn(seen && seen.suppressed > 0 ? `${message} (${seen.suppressed} similar warnings in the last minute were not repeated)` : message);
+    },
+  };
+}
+
+const defaultLog: UserExtensionLog = throttledLog(new Logger('IdentityUserExtensions'));
+
+/**
+ * The most calls of one extension that may be running at once. A call that
+ * timed out is abandoned, not killed (JavaScript cannot), so an extension that
+ * hangs on every request would otherwise pile up work without bound; past this
+ * many unfinished calls it is skipped until some finish.
+ *
+ * @stability experimental
+ */
+export const MAX_IN_FLIGHT_PER_USER_EXTENSION = 16;
+
+const inFlight = new Map<string, number>();
+
+/** Runs `run` under a timeout; the signal aborts when it elapses. `key` counts the unfinished calls of one extension. */
+async function withTimeout<T>(key: string, timeoutMs: number, run: (signal: AbortSignal) => Promise<T> | T): Promise<T> {
+  const running = inFlight.get(key) ?? 0;
+  if (running >= MAX_IN_FLIGHT_PER_USER_EXTENSION) {
+    throw new Error(`${running} earlier calls are still running; skipped until some finish`);
+  }
+  inFlight.set(key, running + 1);
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_resolve, reject) => {
@@ -423,15 +476,27 @@ async function withTimeout<T>(timeoutMs: number, run: (signal: AbortSignal) => P
     }, timeoutMs);
     timer.unref?.();
   });
+  const work = Promise.resolve().then(() => run(controller.signal));
+  // Counted until the work ITSELF settles, even after the timeout gave up on it.
+  const done = () => {
+    const left = (inFlight.get(key) ?? 1) - 1;
+    if (left <= 0) inFlight.delete(key);
+    else inFlight.set(key, left);
+  };
+  work.then(done, done);
   try {
-    return await Promise.race([Promise.resolve().then(() => run(controller.signal)), timeout]);
+    return await Promise.race([work, timeout]);
   } finally {
     if (timer) clearTimeout(timer);
   }
 }
 
+/** The longest error message that reaches the log. */
+const MAX_LOGGED_MESSAGE_LENGTH = 300;
+
 function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  const message = error instanceof Error ? error.message : String(error);
+  return message.length > MAX_LOGGED_MESSAGE_LENGTH ? `${message.slice(0, MAX_LOGGED_MESSAGE_LENGTH)}...` : message;
 }
 
 /**
@@ -457,7 +522,7 @@ export async function resolveCurrentUserExtensions(
   const settled = await Promise.all(
     extensions.map(async (extension) => {
       try {
-        const raw = await withTimeout(extension.timeoutMs ?? DEFAULT_CURRENT_USER_EXTENSION_TIMEOUT_MS, (signal) =>
+        const raw = await withTimeout(`me:${extension.id}`, extension.timeoutMs ?? DEFAULT_CURRENT_USER_EXTENSION_TIMEOUT_MS, (signal) =>
           extension.resolve(userId, { orgId: context.orgId, signal }),
         );
         if (raw === null || raw === undefined) return null;
@@ -516,7 +581,7 @@ export async function resolveUserListExtensions(
   const answers = await Promise.all(
     extensions.map(async (extension) => {
       try {
-        const answer = await withTimeout(extension.timeoutMs ?? DEFAULT_USER_LIST_EXTENSION_TIMEOUT_MS, (signal) =>
+        const answer = await withTimeout(`list:${extension.id}`, extension.timeoutMs ?? DEFAULT_USER_LIST_EXTENSION_TIMEOUT_MS, (signal) =>
           extension.resolve(userIds, { viewerId: context.viewerId, orgId: context.orgId, signal }),
         );
         if (!(answer instanceof Map)) {
@@ -534,22 +599,27 @@ export async function resolveUserListExtensions(
   for (const entry of answers) {
     if (!entry) continue;
     const { extension, answer } = entry;
-    for (const [userId, raw] of answer) {
-      if (!onPage.has(userId) || raw === null || raw === undefined) continue;
-      const checked = checkUserExtensionContribution(raw, USER_EXTENSION_LIMITS.userListBytes);
-      if (!checked.ok) {
-        log.warn(`User-list extension "${extension.id}" skipped for one row: ${checked.reason}`);
-        continue;
+    try {
+      for (const [userId, raw] of answer) {
+        if (!onPage.has(userId) || raw === null || raw === undefined) continue;
+        const checked = checkUserExtensionContribution(raw, USER_EXTENSION_LIMITS.userListBytes);
+        if (!checked.ok) {
+          log.warn(`User-list extension "${extension.id}" skipped for one row: ${checked.reason}`);
+          continue;
+        }
+        const used = bytesByUser.get(userId) ?? 0;
+        if (used + checked.bytes > USER_EXTENSION_LIMITS.userListTotalBytes) {
+          log.warn(`User-list extension "${extension.id}" skipped for one row: the extensions together would exceed ${USER_EXTENSION_LIMITS.userListTotalBytes} bytes`);
+          continue;
+        }
+        bytesByUser.set(userId, used + checked.bytes);
+        const row = out.get(userId) ?? {};
+        row[extension.id] = checked.value;
+        out.set(userId, row);
       }
-      const used = bytesByUser.get(userId) ?? 0;
-      if (used + checked.bytes > USER_EXTENSION_LIMITS.userListTotalBytes) {
-        log.warn(`User-list extension "${extension.id}" skipped for one row: the extensions together would exceed ${USER_EXTENSION_LIMITS.userListTotalBytes} bytes`);
-        continue;
-      }
-      bytesByUser.set(userId, used + checked.bytes);
-      const row = out.get(userId) ?? {};
-      row[extension.id] = checked.value;
-      out.set(userId, row);
+    } catch (error) {
+      // A throwing getter, a hostile iterator: this extension's remaining rows are skipped, the request is not.
+      log.warn(`User-list extension "${extension.id}" failed while its answer was read and was skipped: ${messageOf(error)}`);
     }
   }
   return out;

@@ -8,6 +8,7 @@ import { USER_EXTENSION_LIMITS } from '@marinoscar/platform-contract/identity';
 
 import { RegistryError, withTemporaryEntries } from '../../src/core';
 import {
+  MAX_IN_FLIGHT_PER_USER_EXTENSION,
   checkUserExtensionContribution,
   currentUserExtensionRegistry,
   registerCurrentUserExtension,
@@ -138,6 +139,26 @@ describe('checkUserExtensionContribution', () => {
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
   });
 
+  it('refuses a payload with more values than its byte bound can hold before walking all of it', () => {
+    const many = Object.fromEntries(Array.from({ length: 5000 }, (_, index) => [`k${index}`, 1]));
+    expect(ok(many, 4096)).toMatchObject({ ok: false, reason: expect.stringContaining('more values') });
+    const longArray = { a: Array.from({ length: 100_000 }, () => 0) };
+    expect(ok(longArray, 4096)).toMatchObject({ ok: false });
+  });
+
+  it('refuses a huge string without scanning it', () => {
+    expect(ok({ text: 'x'.repeat(1_000_000) }, 4096)).toMatchObject({ ok: false, reason: expect.stringContaining('byte bound') });
+  });
+
+  it('refuses a throwing getter by throwing, which the resolvers contain', () => {
+    const hostile = {
+      get boom(): string {
+        throw new Error('getter exploded');
+      },
+    };
+    expect(() => ok(hostile)).toThrow('getter exploded');
+  });
+
   it('refuses a contribution over the byte bound and counts bytes, not characters', () => {
     expect(ok({ text: 'a'.repeat(100) }, 50)).toMatchObject({ ok: false, reason: expect.stringContaining('byte bound') });
     // 4 UTF-8 bytes per character: 30 chars is over a 100 byte bound, 20 is under.
@@ -235,6 +256,84 @@ describe('resolveCurrentUserExtensions', () => {
       expect(result).not.toHaveProperty(`ext-${count - 1}`);
     });
     expect(log.warn.mock.calls.some(([m]) => m.includes(`ext-${count - 1}`) && m.includes('together'))).toBe(true);
+  });
+});
+
+describe('containing a hostile extension', () => {
+  it('keeps a throwing getter in a /auth/me contribution from failing the request', async () => {
+    await me(
+      [
+        { id: 'getter', resolve: () => ({ get boom(): string { throw new Error('getter exploded'); } }) },
+        { id: 'fine', resolve: () => ({ ok: true }) },
+      ],
+      async () => {
+        await expect(resolveCurrentUserExtensions('u1', { orgId: null }, log)).resolves.toEqual({ fine: { ok: true } });
+      },
+    );
+    expect(log.warn.mock.calls.some(([m]) => m.includes('"getter"') && m.includes('getter exploded'))).toBe(true);
+  });
+
+  it('keeps a throwing getter or iterator in a user-list answer from failing the list, and keeps the rows read before it', async () => {
+    const rows = new Map<string, Record<string, unknown>>([['u1', { ok: true }]]);
+    Object.defineProperty(rows, Symbol.iterator, {
+      value: function* () {
+        yield ['u1', { ok: true }] as [string, Record<string, unknown>];
+        throw new Error('iterator exploded');
+      },
+    });
+    await list(
+      [
+        { id: 'hostile', resolve: () => rows },
+        { id: 'fine', resolve: () => new Map([['u1', { ok: 1 }]]) },
+      ],
+      async () => {
+        const result = await resolveUserListExtensions(['u1'], { viewerId: 'a', orgId: null }, log);
+        expect(result.get('u1')).toEqual({ hostile: { ok: true }, fine: { ok: 1 } });
+      },
+    );
+    expect(log.warn.mock.calls.some(([m]) => m.includes('"hostile"') && m.includes('iterator exploded'))).toBe(true);
+  });
+
+  it('stops calling an extension that keeps hanging once too many of its calls are unfinished', async () => {
+    const calls = jest.fn(() => new Promise<never>(() => undefined));
+    await me([{ id: 'hangs', timeoutMs: 5, resolve: calls }], async () => {
+      for (let attempt = 0; attempt < MAX_IN_FLIGHT_PER_USER_EXTENSION + 3; attempt += 1) {
+        await resolveCurrentUserExtensions('u1', { orgId: null }, log);
+      }
+    });
+    expect(calls).toHaveBeenCalledTimes(MAX_IN_FLIGHT_PER_USER_EXTENSION);
+    expect(log.warn.mock.calls.some(([m]) => m.includes('"hangs"') && m.includes('still running'))).toBe(true);
+  });
+
+  it('counts a call as finished once it settles, even after its timeout gave up on it', async () => {
+    let release: (() => void) | undefined;
+    const calls = jest.fn(
+      () =>
+        new Promise<{ late: boolean }>((resolve) => {
+          release = () => resolve({ late: true });
+        }),
+    );
+    await me([{ id: 'late', timeoutMs: 5, resolve: calls }], async () => {
+      await resolveCurrentUserExtensions('u1', { orgId: null }, log); // times out
+      release?.(); // the abandoned call finishes
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      for (let attempt = 0; attempt < MAX_IN_FLIGHT_PER_USER_EXTENSION + 2; attempt += 1) {
+        const pending = resolveCurrentUserExtensions('u1', { orgId: null }, log);
+        release?.();
+        await pending;
+      }
+    });
+    // None of those was skipped for piling up: every one of them reached the extension.
+    expect(calls).toHaveBeenCalledTimes(MAX_IN_FLIGHT_PER_USER_EXTENSION + 3);
+  });
+
+  it('truncates a long error message before it reaches the log', async () => {
+    await me([{ id: 'wordy', resolve: () => { throw new Error('x'.repeat(5000)); } }], async () => {
+      await resolveCurrentUserExtensions('u1', { orgId: null }, log);
+    });
+    const message = log.warn.mock.calls[0]?.[0] ?? '';
+    expect(message.length).toBeLessThan(500);
+    expect(message.endsWith('...')).toBe(true);
   });
 });
 

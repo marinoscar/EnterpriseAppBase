@@ -124,6 +124,7 @@ export { createPassportProviderGuard } from './auth/guards/external-provider.gua
 export {
   DEFAULT_CURRENT_USER_EXTENSION_TIMEOUT_MS,
   DEFAULT_USER_LIST_EXTENSION_TIMEOUT_MS,
+  MAX_IN_FLIGHT_PER_USER_EXTENSION,
   MAX_USER_EXTENSION_TIMEOUT_MS,
   checkUserExtensionContribution,
   currentUserExtensionRegistry,
