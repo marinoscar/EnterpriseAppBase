@@ -15,7 +15,7 @@ The audit record of the extension seams of every platform slice. A closed point 
 
 Evidence paths are written `api:`, `web:`, `contract:`, `cli:`, `db:` and `infra:` for `packages/platform-api/src/`, `packages/platform-web/src/`, `packages/platform-contract/src/`, `packages/platform-cli/src/`, `packages/platform-db/` and `packages/platform-infra/`; a path under `apps/` or `docs/` is from the repository root. A story is written PP-14.n (its issue number follows).
 
-As of this version: 115 closed points in 29 sections, 112 fixed and 3 open.
+As of this version: 115 closed points in 29 sections, 114 fixed and 1 open.
 
 ## Verdicts
 
@@ -33,7 +33,7 @@ As of this version: 115 closed points in 29 sections, 112 fixed and 3 open.
 | [otel-core](#otel-core) | Mostly open | 1 | 1 | 0 | PP-14.18 |
 | [core](#core) | Mostly open | 6 | 6 | 0 | PP-14.14, PP-14.5, PP-14.23 |
 | [shell](#shell) | Open | 2 | 2 | 0 | PP-14.25 |
-| [sharing](#sharing) | Mostly open | 5 | 3 | 2 | PP-14.16, PP-14.15, PP-14.25 |
+| [sharing](#sharing) | Open | 5 | 5 | 0 | PP-14.16, PP-14.15, PP-14.15b, PP-14.25 |
 | [manifest](#manifest) | Open | 2 | 2 | 0 | PP-14.15 |
 | [user-data](#user-data) | Mostly open | 1 | 1 | 0 | PP-14.24 |
 | [platform-db](#platform-db) | Open | 6 | 6 | 0 | PP-14.27, PP-14.4 |
@@ -260,17 +260,17 @@ Note (PP-14.24b, #974): `DataExportPage` was the page left on `page-slots.exempt
 
 ### sharing
 
-**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 5 (3 fixed, 2 open) · **Stories:** PP-14.16, PP-14.15, PP-14.25
+**Verdict:** Open · **Packages:** api, web, contract · **Closed points:** 5 (5 fixed, 0 open) · **Stories:** PP-14.16, PP-14.15, PP-14.15b, PP-14.25
 
-**Open points.** `registerGroupOwnedResource`, `registerResourceType`, `registerGranteeKind`, `registerAccessRule`, `AccessPolicy`, `accessibleWhere` and `accessibleSql`, the `SHARING_*` ports, `registerLinkRenderer`, `registerGranteePicker` and the packaged groups pages and `ShareDialog`.
+**Open points.** `registerGroupOwnedResource`, `registerResourceType`, `registerGranteeKind` (stored when `persisted`), `registerGroupRole`, `registerAccessRule`, `AccessPolicy`, `accessibleWhere` and `accessibleSql`, the `SHARING_*` ports, `registerLinkRenderer`, `registerGranteePicker` and the packaged groups pages and `ShareDialog`.
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
 | sharing-1 | Grantee kinds are fixed (`user`, `group`, `link`) and the per-kind SQL is hard-coded; there is no team, role or email-domain grantee. | contract: `sharing/constants.ts:100`; api: `sharing/access/resource-types.ts:76`; `sharing/grants/grants.service.ts:253, :383-396` | `registerGranteeKind` (parameterised SQL fragment, composite `org_id` rules kept), `GET /sharing/grantee-kinds`, `registerGranteePicker`. Built-ins register through it; the decision query, the list SQL and the grants route compose the registry. Storing a grant of an app kind is sharing-5. | PP-14.16 (#934) | Fixed |
 | sharing-2 | The nine-step access decision order is fixed; a project-membership or time-window rule means replacing `AccessPolicy` wholesale. | api: `sharing/access/access-policy.service.ts:10-30, :78` | `registerAccessRule({ id, position, evaluate, sql? })`; `AccessVia` open. Owner and bypass first, `deny` from any rule wins, a failing rule denies, `describeAccessRuleConformance` compares the decision with the list. | PP-14.16 (#934) | Fixed |
-| sharing-3 | Group roles are a fixed list validated in the resource-type registry, and stored in the database enum `GroupRole` (`group_members.role`, `group_invites.role`), so a fourth role needs a migration. Kept closed by PP-14.15: the story is no-migration, and a registry for roles the tables cannot hold would fail on the first write. | contract: `sharing/constants.ts:13`; api: `sharing/access/resource-types.ts:199`; db: `schema/sharing.prisma:26` | A platform migration turning both columns into text, then `registerGroupRole({ id, label, actions })` and an open `groupRoleSchema`. | PP-14.15 (#933), follow-up (#967) | Open |
+| sharing-3 | Group roles are a fixed list validated in the resource-type registry, and stored in the database enum `GroupRole` (`group_members.role`, `group_invites.role`), so a fourth role needs a migration. Kept closed by PP-14.15: the story is no-migration, and a registry for roles the tables cannot hold would fail on the first write. | contract: `sharing/constants.ts:13`; api: `sharing/access/resource-types.ts:199`; db: `schema/sharing.prisma:26` | A platform migration turning both columns into text, then `registerGroupRole({ id, label, actions })` and an open `groupRoleSchema`. | PP-14.15 (#933), PP-14.15b (#967) | Fixed |
 | sharing-4 | `GroupsPage` and `GroupDetailPage` expose only `Header`, `ShareDialog` only `Title`. | web: `sharing/ui/GroupsPage.tsx:53`; `sharing/ui/GroupDetailPage.tsx:69`; `sharing/ui/ShareDialog.tsx:68` | `PageSlotsBase`, `MemberRowActions`, `Tabs`; `ShareDialog` `slots.Sections` and `slots.Footer`. | PP-14.25 (#943) | Fixed |
-| sharing-5 | A grant can name only `user`, `group` or `link`: `grants.grantee_kind` is the database enum `GrantGranteeKind`, `grants_grantee_consistency_check` binds the grantee columns to it, and the active-grant unique indexes are per kind, so a grant of a kind an app registered cannot be stored. `registerGranteeKind` refuses `persisted: true` for an app kind; `POST /api/grants` answers 422 `GRANTEE_KIND_NOT_PERSISTABLE`. | db: `schema/sharing.prisma:143, :156`; `migrations/0027_add_grants/migration.sql:33, :96`; api: `sharing/access/grantee-kinds.ts` (`GRANTEE_KIND_PERSISTENCE_AVAILABLE`) | A platform migration turning `grantee_kind` into text, adding a nullable grantee reference column, relaxing the consistency check for non-built-in kinds and adding a per-kind partial unique index (listed in `RAW_SQL_INDEXES`); then flipping `GRANTEE_KIND_PERSISTENCE_AVAILABLE` so `persisted: true` is accepted. | follow-up (#967), with sharing-3 | Open |
+| sharing-5 | A grant can name only `user`, `group` or `link`: `grants.grantee_kind` is the database enum `GrantGranteeKind`, `grants_grantee_consistency_check` binds the grantee columns to it, and the active-grant unique indexes are per kind, so a grant of a kind an app registered cannot be stored. `registerGranteeKind` refuses `persisted: true` for an app kind; `POST /api/grants` answers 422 `GRANTEE_KIND_NOT_PERSISTABLE`. | db: `schema/sharing.prisma:143, :156`; `migrations/0027_add_grants/migration.sql:33, :96`; api: `sharing/access/grantee-kinds.ts` (`GRANTEE_KIND_PERSISTENCE_AVAILABLE`) | A platform migration turning `grantee_kind` into text, adding a nullable grantee reference column, relaxing the consistency check for non-built-in kinds and adding a per-kind partial unique index (listed in `RAW_SQL_INDEXES`); then flipping `GRANTEE_KIND_PERSISTENCE_AVAILABLE` so `persisted: true` is accepted. | follow-up (#967), with sharing-3 | Fixed |
 
 ### manifest
 
@@ -367,7 +367,7 @@ Note (PP-14.24b, #974): `DataExportPage` was the page left on `page-slots.exempt
 
 ### storage
 
-**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 5 (5 fixed, 0 open) · **Stories:** PP-14.1, PP-14.7, PP-14.24
+**Verdict:** Open · **Packages:** api, web, contract · **Closed points:** 5 (5 fixed, 0 open) · **Stories:** PP-14.1, PP-14.7, PP-14.24
 
 **Open points.** `registerStorageDriver` (a driver: its settings, secrets, `build`, `testConnection`, optional `provision`, `listKeys` and `purge`; the three S3 drivers register through it) with `describeStorageDriverConformance`, `registerStorageDriverPanel` and the generated driver panel on the web, `StorageModule.forRoot({ provider })` (the object store reaches every package consumer), `STORAGE_PROVIDER`, `ObjectProcessorRegistry`, `registerStorageKeyPrefixes`, `runStoragePurge`, `storageConformanceSuite`. Worked examples: `apps/api/src/platform-extensions/storage/` (the `local-fs` driver and an in-memory provider).
 

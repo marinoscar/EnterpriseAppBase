@@ -474,7 +474,8 @@ export function GroupDetailPage(props: GroupDetailPageProps): ReactElement {
                           sx={{ minWidth: 120 }}
                           slotProps={{ select: { inputProps: { 'aria-label': `Role for ${name}` } } }}
                         >
-                          {roleOptions.map((option) => (
+                          {/* A member's role that left the registry stays selectable as itself, so the select never shows a blank value. */}
+                          {(roleOptions.some((option) => option.value === member.role) ? roleOptions : [...roleOptions, { value: member.role, label: member.role }]).map((option) => (
                             <MenuItem key={option.value} value={option.value}>
                               {option.label}
                             </MenuItem>
