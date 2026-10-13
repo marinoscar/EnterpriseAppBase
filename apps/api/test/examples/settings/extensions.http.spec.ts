@@ -194,12 +194,22 @@ describe('settings extension points (PP-14.21)', () => {
       const admin = await helpers.admin();
       const lower = await orgPatch(admin.accessToken, { telemetry: { query: { slowQuerySeconds: 4 } } }).expect(200);
       expect(lower.body.data.value.telemetry).toEqual({ query: { slowQuerySeconds: 4 } });
-      expect(lower.body.data.effective.telemetry.query).toEqual({ maxRows: 10000, timeoutSeconds: 30, slowQuerySeconds: 4 });
+      // The organization sees the field it may set, not the rest of the deployment's telemetry policy.
+      expect(lower.body.data.effective.telemetry).toEqual({ query: { slowQuerySeconds: 4 } });
 
       const higher = await orgPatch(admin.accessToken, { telemetry: { query: { slowQuerySeconds: 90 } } }).expect(200);
       expect(higher.body.data.value.telemetry).toEqual({ query: { slowQuerySeconds: 90 } });
       // Stored as asked, but the effective value never exceeds the deployment's 10.
-      expect(higher.body.data.effective.telemetry.query.slowQuerySeconds).toBe(10);
+      expect(higher.body.data.effective.telemetry).toEqual({ query: { slowQuerySeconds: 10 } });
+    });
+
+    it('never shows an organization the telemetry settings it may not change', async () => {
+      const admin = await helpers.admin();
+      const { body } = await request(server()).get('/api/org-settings').set(helpers.auth(admin.accessToken)).expect(200);
+      expect(body.data.effective.telemetry).toEqual({ query: { slowQuerySeconds: 10 } });
+      expect(JSON.stringify(body.data.effective.telemetry)).not.toMatch(/retentionDays|instanceId|assistant|maxRows|provider/);
+      // The namespaces that were designed per organization keep showing their whole policy.
+      expect(body.data.effective.notifications).toMatchObject({ browserEnabled: true, weeklyDigest: true });
     });
 
     it('refuses an organization that names a system-only field, beside the extension or at the top', async () => {

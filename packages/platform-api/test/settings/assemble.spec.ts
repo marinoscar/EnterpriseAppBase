@@ -79,6 +79,12 @@ describe('overrideSettingsNamespaceDefaults', () => {
     expect((changed!.defaults as { tags: object }).tags).toEqual({ team: 'blue' });
   });
 
+  it('refuses a __proto__ key instead of writing it onto the defaults', () => {
+    const polluting = JSON.parse('{"tags":{"__proto__":{"admin":"yes"}}}') as Record<string, unknown>;
+    expect(() => applySettingsDefaultsOverrides([system('alpha')], [{ key: 'alpha', defaults: polluting }])).toThrow(/"__proto__" is not a settings field/);
+    expect(({} as Record<string, unknown>).admin).toBeUndefined();
+  });
+
   it('refuses an unknown namespace, listing the known ones', () => {
     expect(() => applySettingsDefaultsOverrides([system('alpha')], [{ key: 'ghost', defaults: { size: 1 } }])).toThrow(
       /"ghost": no such namespace. Known: alpha/,

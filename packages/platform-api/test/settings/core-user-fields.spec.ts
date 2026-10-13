@@ -137,6 +137,23 @@ describe('extendUserProfile', () => {
     });
   });
 
+  it('refuses a field named like a property every object has', async () => {
+    await withTemporaryEntries(userProfileFieldRegistry, [], async () => {
+      for (const name of ['constructor', 'toString', 'valueOf', 'hasOwnProperty']) {
+        expect(() => extendUserProfile({ fields: z.object({ [name]: z.string().max(5).optional() }) })).toThrow(/property every object has/);
+      }
+      expect(userProfileFieldRegistry.size).toBe(0);
+    });
+  });
+
+  it('treats a fixed-shape string format as bounded', async () => {
+    await withTemporaryEntries(userProfileFieldRegistry, [], async () => {
+      extendUserProfile({ fields: z.object({ workspaceId: z.uuid().optional() }) });
+      expect(userProfileFieldRegistry.has('workspaceId')).toBe(true);
+      expect(() => extendUserProfile({ fields: z.object({ homepage: z.url().optional() }) })).toThrow(/unbounded string/);
+    });
+  });
+
   it('accepts bounded arrays, enums, numbers and nested objects, and refuses a duplicate field, all or nothing', async () => {
     await withTemporaryEntries(userProfileFieldRegistry, [], async () => {
       extendUserProfile({

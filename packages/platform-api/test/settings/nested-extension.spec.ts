@@ -189,6 +189,31 @@ describe('the org layer of an extension', () => {
     expect(Object.keys(ns.org!.schema.shape)).not.toContain('enabled');
   });
 
+  it('shows an organization only the fields the layer made overridable, never the rest of the namespace', () => {
+    const ns = orgNested();
+    const system = { enabled: true, limits: { daily: 10, burst: 2, weekly: 50 } };
+    const view = ns.org!.view!;
+    expect(view(system)).toEqual({ limits: { weekly: 50 } });
+    expect(view(applyOrgLayer(ns, system, { limits: { weekly: 20 } }).value)).toEqual({ limits: { weekly: 20 } });
+    const top = extendSystemSettingsNamespace(BASE, {
+      key: 'coachSample',
+      storedSchema: z.object({ banner: z.string().max(20), secretish: z.string().max(5) }),
+      defaults: { banner: 'hello', secretish: 'x' },
+      org: { mode: 'override', fields: ['banner'] },
+    });
+    expect(top.org!.view!({ enabled: true, limits: { daily: 1, burst: 1 }, banner: 'hello', secretish: 'x' })).toEqual({ banner: 'hello' });
+  });
+
+  it('leaves what a layer that already existed showed unchanged', () => {
+    const existing: SystemSettingsNamespace = {
+      ...BASE,
+      key: 'visibleSample',
+      org: { schema: z.object({ enabled: z.boolean().optional() }), merge: 'override', readPermission: 'org_settings:read', writePermission: 'org_settings:write' },
+    };
+    const ns = extendSystemSettingsNamespace(existing, { key: 'visibleSample', storedSchema: z.object({ badge: z.string().max(5) }), defaults: { badge: 'b' }, org: { mode: 'override' } });
+    expect(ns.org!.view).toBeUndefined();
+  });
+
   it('tightens the added field and leaves every base field to the system value', () => {
     const ns = orgNested();
     const system = { enabled: true, limits: { daily: 10, burst: 2, weekly: 50 } };
