@@ -3,7 +3,7 @@
 // write permission. The DOM and styles are the reference app's, unchanged; a
 // page's `slots.Header` replaces it.
 
-import type { ReactElement } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import { Typography } from '@mui/material';
 
 /**
@@ -18,6 +18,12 @@ export interface JobsPageHeaderProps {
   description: string;
   /** The viewer lacks the page's write permission (`jobs:write` or `nodes:write`). */
   readOnly: boolean;
+  /**
+   * The page's header-level actions: always `null` here, because the queue-wide
+   * buttons stay in the page body (a custom header never loses them). Present so
+   * the props extend the page-slot contract's `PageHeaderSlotProps`.
+   */
+  actions: ReactNode;
 }
 
 /** The default header: `h1`, then the subtitle (and " (read-only)"). */
