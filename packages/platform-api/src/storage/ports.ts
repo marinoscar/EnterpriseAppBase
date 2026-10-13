@@ -38,7 +38,7 @@ export const STORAGE_SYSTEM_DATA: unique symbol = Symbol.for('@marinoscar/platfo
 
 /**
  * The app's bypass client, as the storage slice uses it: one entry point,
- * `asSystem(reason)`, naming a closed `SystemAccessReason` that the app
+ * `asSystem(reason)`, naming a registered `SystemAccessReason` that the app
  * records on the active span.
  *
  * @stability experimental

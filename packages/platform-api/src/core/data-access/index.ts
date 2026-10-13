@@ -14,6 +14,14 @@ export {
 export { asSystem, forUser, userScopeExtension } from './scoped-client';
 export type { ExtendableClient, UserScopeExtension } from './scoped-client';
 export {
+  BUILTIN_SYSTEM_ACCESS_REASONS,
+  SYSTEM_ACCESS_REASON_ID_PATTERN,
+  isSystemAccessReason,
+  registerSystemAccessReason,
+  systemAccessReasonRegistry,
+} from './access-reason.registry';
+export type { BuiltinSystemAccessReason, SystemAccessReasonDef } from './access-reason.registry';
+export {
   RLS_SETTINGS,
   SYSTEM_ACCESS_REASONS,
   forOrg,
