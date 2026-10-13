@@ -165,9 +165,13 @@ export class UserSettingsService {
     current: Record<string, unknown> | undefined,
     patch: Record<string, unknown> | undefined,
   ): Record<string, unknown> {
+    // Own properties only: a field named `constructor` must not read the prototype's.
+    const own = (source: Record<string, unknown> | undefined, name: string): unknown =>
+      source !== undefined && Object.hasOwn(source, name) ? source[name] : undefined;
     const merged: Record<string, unknown> = {};
     for (const { name } of userProfileFieldRegistry.list()) {
-      const value = patch?.[name] !== undefined ? patch[name] : current?.[name];
+      const patched = own(patch, name);
+      const value = patched !== undefined ? patched : own(current, name);
       if (value !== undefined && value !== null) merged[name] = value;
     }
     return merged;

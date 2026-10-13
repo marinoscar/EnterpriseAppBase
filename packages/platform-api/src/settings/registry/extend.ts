@@ -32,14 +32,7 @@
 import { ORG_SETTINGS_READ_PERMISSION, ORG_SETTINGS_WRITE_PERMISSION } from '@marinoscar/platform-contract/settings';
 import type { OrgSettingsMergeMode } from '@marinoscar/platform-contract/settings';
 import { z } from 'zod';
-import {
-  extendSchemaAtPath,
-  getAtPath,
-  omitAtPath,
-  parseSettingsPath,
-  setAtPath,
-  type SettingsObjectSchema,
-} from './nested';
+import { extendSchemaAtPath, getAtPath, omitAtPath, parseSettingsPath, setAtPath } from './nested';
 import type { SettingsNamespaceOrgLayer, SettingsReadHelpers, SystemSettingsNamespace } from './system-settings-namespace';
 import type { UserSettingsNamespace } from './user-settings-namespace';
 
@@ -48,7 +41,7 @@ import type { UserSettingsNamespace } from './user-settings-namespace';
  *
  * @stability experimental
  */
-export type AnyObject = SettingsObjectSchema;
+export type AnyObject = z.ZodObject<z.ZodRawShape>;
 
 /**
  * Anything with a namespace key.
@@ -312,12 +305,25 @@ function extendOrgLayer(
   }
   const schema = z.object({ ...baseShape, ...addedShape });
 
+  // A layer an extension creates on a deployment-wide namespace shows an
+  // organization only the fields it made overridable (a layer that already
+  // existed keeps showing what it showed).
+  const view =
+    baseOrg === undefined
+      ? (value: unknown): unknown => {
+          const leaf = asRecord(getAtPath(value, path)) ?? {};
+          return setAtPath({}, path, Object.fromEntries(names.filter((name) => leaf[name] !== undefined).map((name) => [name, leaf[name]])));
+        }
+      : baseOrg.view;
+  const withView = <T extends object>(layer: T): T & { view?: (effective: unknown) => unknown } =>
+    view ? { ...layer, view } : layer;
+
   // Plain top-level override on an override (or absent) layer needs no function.
   const baseIsOverride = baseOrg === undefined || baseOrg.merge === 'override';
   const modeOfBase = baseOrg === undefined ? extensionOrg.mode : (baseOrg.mode ?? (baseOrg.merge === 'override' ? 'override' : 'tighten'));
   const mode = modeOfBase === 'override' && extensionOrg.mode === 'override' ? 'override' : 'tighten';
   if (path.length === 0 && extensionOrg.mode === 'override' && baseIsOverride) {
-    return { schema, merge: 'override', mode, readPermission, writePermission };
+    return withView({ schema, merge: 'override', mode, readPermission, writePermission });
   }
 
   const baseNames = Object.keys(baseShape);
@@ -350,7 +356,7 @@ function extendOrgLayer(
     }
     return setAtPath(result, path, nextLeaf);
   };
-  return { schema, merge: merge as SettingsNamespaceOrgLayer<unknown>['merge'], mode, readPermission, writePermission };
+  return withView({ schema, merge: merge as SettingsNamespaceOrgLayer<unknown>['merge'], mode, readPermission, writePermission });
 }
 
 /**

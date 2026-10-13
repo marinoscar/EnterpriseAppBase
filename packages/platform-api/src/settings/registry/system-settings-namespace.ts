@@ -148,6 +148,16 @@ export interface SettingsNamespaceOrgLayer<V> {
    * `merge` is a function that still only overrides.
    */
   readonly mode?: 'override' | 'tighten';
+  /**
+   * Projects the effective value to what `GET /api/org-settings` shows an
+   * organization administrator in `effective`. Default: the whole effective
+   * value, which is right for a namespace designed to be read per
+   * organization. An extension that gives a deployment-wide namespace an org
+   * layer sets it to the fields it made overridable, so the layer never shows
+   * an organization the rest of the deployment's configuration. Server code
+   * (`SettingsResolver`) always gets the whole value.
+   */
+  readonly view?: (effective: V) => unknown;
   /** The org-scope permission that lets a caller read the namespace's org fields. */
   readonly readPermission: string;
   /** The org-scope permission that lets a caller change them. */
@@ -262,6 +272,7 @@ function validateOrgLayer(ns: SystemSettingsNamespace, denied: readonly string[]
   if (org.mode !== undefined && org.mode !== 'override' && org.mode !== 'tighten') {
     throw new Error("org.mode must be 'override' or 'tighten'");
   }
+  if (org.view !== undefined && typeof org.view !== 'function') throw new Error('org.view must be a function');
   for (const field of ['readPermission', 'writePermission'] as const) {
     if (typeof org[field] !== 'string' || !/^[a-z][a-z0-9_]*:[a-z][a-z0-9_]*$/.test(org[field])) {
       throw new Error(`org.${field} must be a permission id such as "org_settings:read"`);

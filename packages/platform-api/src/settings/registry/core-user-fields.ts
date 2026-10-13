@@ -71,18 +71,22 @@ export const CORE_PROFILE_FIELDS = ['displayName', 'imageSource', 'imageObjectId
 
 const PROFILE_FIELD_PATTERN = /^[a-z][A-Za-z0-9]*$/;
 
+/** String formats whose shape fixes their length. */
+const BOUNDED_STRING_FORMATS = new Set(['uuid', 'guid', 'ulid', 'cuid', 'cuid2', 'nanoid', 'ksuid', 'xid', 'ipv4', 'ipv6', 'date', 'time', 'datetime']);
+
 /** Throws when `schema` is not bounded enough for a value the user writes. */
 function assertBounded(schema: z.ZodType, name: string): void {
   walkSchema(schema, (def, path) => {
     const where = path ? `${name}.${path}` : name;
-    const node = def as { type?: string; checks?: Array<{ _zod?: { def?: { check?: string; maximum?: unknown } } }> };
+    const node = def as { type?: string; format?: string; checks?: Array<{ _zod?: { def?: { check?: string; maximum?: unknown } } }> };
     const hasMax = (node.checks ?? []).some((check) => {
       const kind = check._zod?.def?.check;
       return kind === 'max_length' || kind === 'length_equals' || kind === 'less_than' || kind === 'max_size';
     });
     switch (node.type) {
       case 'string':
-        if (!hasMax) throw new Error(`profile field "${where}" is an unbounded string; add .max(n): a user writes this value themselves`);
+        // A fixed-shape format (a uuid, a timestamp) is bounded by its shape.
+        if (!hasMax && !(node.format !== undefined && BOUNDED_STRING_FORMATS.has(node.format))) throw new Error(`profile field "${where}" is an unbounded string; add .max(n): a user writes this value themselves`);
         break;
       case 'array':
         if (!hasMax) throw new Error(`profile field "${where}" is an unbounded array; add .max(n)`);
@@ -97,6 +101,9 @@ function assertBounded(schema: z.ZodType, name: string): void {
 
 function validateProfileField(field: UserProfileField): void {
   if (!PROFILE_FIELD_PATTERN.test(field.name)) throw new Error(`"${field.name}" is not a field name`);
+  // zod reads `input[name]` for every shape key, so a name the prototype already has
+  // (`constructor`, `toString`) would read the inherited function and never validate.
+  if (field.name in Object.prototype) throw new Error(`"${field.name}" is a property every object has; choose another name`);
   if ((CORE_PROFILE_FIELDS as readonly string[]).includes(field.name)) {
     throw new Error(`"${field.name}" is a core profile field; an extension only adds fields`);
   }
@@ -202,6 +209,7 @@ export function readProfileExtensions(stored: unknown): Record<string, unknown> 
   if (stored === null || typeof stored !== 'object' || Array.isArray(stored)) return out;
   const source = stored as Record<string, unknown>;
   for (const field of userProfileFieldRegistry.list()) {
+    if (!Object.hasOwn(source, field.name)) continue;
     const value = source[field.name];
     if (value === undefined || value === null) continue;
     const parsed = field.schema.safeParse(value);

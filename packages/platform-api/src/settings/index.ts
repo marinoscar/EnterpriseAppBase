@@ -166,6 +166,7 @@ export {
   settingsDefaultsOverrideRegistry,
 } from './registry/assemble';
 export type {
+  RegisteredSettingsDefaultsOverride,
   SettingsContribution,
   SettingsDefaultsOverride,
   SystemSettingsAssembly,

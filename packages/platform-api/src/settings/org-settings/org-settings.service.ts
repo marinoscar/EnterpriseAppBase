@@ -275,7 +275,8 @@ export class OrgSettingsService {
       if (!this.may(access, org.readPermission)) continue;
       const fields = readOrgFields(ns, stored[ns.key]);
       if (fields) value[ns.key] = fields;
-      effective[ns.key] = applyOrgLayer(ns, system[ns.key], fields).value;
+      const applied = applyOrgLayer(ns, system[ns.key], fields).value;
+      effective[ns.key] = org.view ? org.view(applied) : applied;
       namespaces.push({
         key: ns.key,
         description: ns.description,

@@ -61,7 +61,14 @@ export interface SettingsDefaultsOverride {
   readonly defaults: Readonly<Record<string, unknown>>;
 }
 
-interface RegisteredDefaultsOverride extends SettingsDefaultsOverride {
+/**
+ * A {@link SettingsDefaultsOverride} as the registry holds it, with the unique
+ * id the registry keys it by (`<namespace>:<call number>`).
+ *
+ * @stability experimental
+ */
+export interface RegisteredSettingsDefaultsOverride extends SettingsDefaultsOverride {
+  /** The registry id. */
   readonly id: string;
 }
 
@@ -73,7 +80,7 @@ let overrideSequence = 0;
  *
  * @stability experimental
  */
-export const settingsDefaultsOverrideRegistry = defineRegistry<RegisteredDefaultsOverride>({
+export const settingsDefaultsOverrideRegistry = defineRegistry<RegisteredSettingsDefaultsOverride>({
   name: 'settings-defaults-overrides',
   idOf: (override) => override.id,
   validate: (override) => {
@@ -125,6 +132,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 function mergeDefaults(base: unknown, patch: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = isPlainObject(base) ? structuredClone(base) : {};
   for (const [key, value] of Object.entries(patch)) {
+    if (key === '__proto__') throw new Error('"__proto__" is not a settings field');
     out[key] = isPlainObject(value) && isPlainObject(out[key]) ? mergeDefaults(out[key], value) : structuredClone(value);
   }
   return out;
