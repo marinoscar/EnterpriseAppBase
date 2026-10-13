@@ -344,5 +344,13 @@
     "sha256": "31b16d3aeddb81840ad34ec2df29aeaf065b1f5082c839bbc31c94c90a205d77",
     "since": "1.0.0",
     "slice": "jobs"
+  },
+  {
+    "dir": "0035_ai_usage_feature",
+    "id": "0035_ai_usage_feature",
+    "requires": [],
+    "sha256": "ad7322539e971a2248cc2f73a12e188453a3312cc1a04d168bc4e7ddd68e5752",
+    "since": "1.0.0",
+    "slice": "ai"
   }
 ]
