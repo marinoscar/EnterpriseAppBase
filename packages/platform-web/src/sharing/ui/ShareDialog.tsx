@@ -9,7 +9,12 @@
 //
 //   1. People and groups: an e-mail field (validated) or a group picker
 //      (`useGroups('mine')`), a role select with a visible label, and the list
-//      of active grants with a role change and a remove per row.
+//      of active grants with a role change and a remove per row. When the API
+//      lists grantee kinds beyond the built-ins that a grant can be stored for
+//      (`GET /sharing/grantee-kinds`, `persisted`), each is one more choice in
+//      the "Share with" toggle: a text field, or the picker the app registered
+//      with `registerGranteePicker`. With only the built-ins the DOM is exactly
+//      what it was.
 //   2. Link, only with `allowLinks`: create a link with an expiry preset, then
 //      copy, read the expiry of, or revoke each active link. The share URL is
 //      shown as read-only text too, the copy button's fallback.
@@ -53,6 +58,8 @@ import type { PageSectionsSlotProps, PageSlot } from '../../core/index.js';
 import type { SharingClient } from '../headless/client.js';
 import { toSharingError } from '../headless/errors.js';
 import type { ResourceRef, SharingError, SharingRoleOption } from '../headless/types.js';
+import { GranteePickerRegistry, granteePickers as defaultGranteePickers } from '../headless/granteePickers.js';
+import { useGranteeKinds } from '../headless/useGranteeKinds.js';
 import { useGrants, useShareActions } from '../headless/useGrants.js';
 import { useGroups } from '../headless/useGroups.js';
 import { useLinkGrants } from '../headless/useLinkGrants.js';
@@ -156,6 +163,8 @@ export interface ShareDialogProps {
   client?: SharingClient;
   /** Parts to replace. */
   slots?: ShareDialogSlots;
+  /** The grantee pickers to use for kinds beyond user and group. Default the app's registry (`registerGranteePicker`). */
+  granteePickers?: GranteePickerRegistry;
   /** Styles for the dialog paper. */
   sx?: SxProps<Theme>;
   /** A class for the dialog root. */
@@ -221,9 +230,14 @@ export function ShareDialog(props: ShareDialogProps): ReactElement {
   const grants = useGrants(resource, { enabled: open, ...clientOption });
   const share = useShareActions(resource, clientOption);
   const groups = useGroups({ scope: 'mine', enabled: open && allowGroups, ...clientOption });
+  const kinds = useGranteeKinds({ enabled: open && canWrite, ...clientOption });
+  const pickers = props.granteePickers ?? defaultGranteePickers;
+  // Kinds beyond the built-ins a grant can be stored for today, that the dialog can collect: a text field, or a registered picker.
+  const extraKinds = (kinds.data?.items ?? []).filter((kind) => !kind.builtin && kind.persisted && (pickers.get(kind.kind) !== undefined || kind.input === 'text'));
   const links = useLinkGrants(resource, { enabled: open && allowLinks, ...clientOption });
 
-  const [mode, setMode] = useState<'person' | 'group'>('person');
+  const [mode, setMode] = useState<string>('person');
+  const [granteeRef, setGranteeRef] = useState('');
   const [email, setEmail] = useState('');
   const [emailTouched, setEmailTouched] = useState(false);
   const [groupId, setGroupId] = useState('');
@@ -235,6 +249,8 @@ export function ShareDialog(props: ShareDialogProps): ReactElement {
   const [copyFallback, setCopyFallback] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState('');
 
+  const extraKind = extraKinds.find((kind) => kind.kind === mode);
+  const Picker = extraKind ? pickers.get(extraKind.kind) : undefined;
   const emailValid = EMAIL_PATTERN.test(email.trim());
   const changed = (message: string) => {
     setAnnouncement(message);
@@ -245,7 +261,13 @@ export function ShareDialog(props: ShareDialogProps): ReactElement {
     event.preventDefault();
     setShareError(null);
     try {
-      if (mode === 'person') {
+      if (extraKind) {
+        const ref = granteeRef.trim();
+        if (!ref) return;
+        await share.shareWithGrantee(extraKind.kind, ref, role);
+        setGranteeRef('');
+        changed(`Shared with ${extraKind.label} ${ref}.`);
+      } else if (mode !== 'group') {
         setEmailTouched(true);
         if (!emailValid) return;
         const address = email.trim().toLowerCase();
@@ -367,20 +389,42 @@ export function ShareDialog(props: ShareDialogProps): ReactElement {
             {canWrite && (
               <Box component="form" onSubmit={submitShare} noValidate>
                 <Stack spacing={2}>
-                  {allowGroups && (
+                  {(allowGroups || extraKinds.length > 0) && (
                     <ToggleButtonGroup
-                      value={mode}
+                      value={extraKind ? extraKind.kind : mode === 'group' ? 'group' : 'person'}
                       exclusive
                       size="small"
-                      onChange={(_event, value: 'person' | 'group' | null) => value && setMode(value)}
+                      onChange={(_event, value: string | null) => {
+                        if (!value) return;
+                        setMode(value);
+                        setGranteeRef('');
+                      }}
                       aria-label="Share with"
                     >
                       <ToggleButton value="person">A person</ToggleButton>
-                      <ToggleButton value="group">A group</ToggleButton>
+                      {allowGroups && <ToggleButton value="group">A group</ToggleButton>}
+                      {extraKinds.map((kind) => (
+                        <ToggleButton key={kind.kind} value={kind.kind}>
+                          {kind.label}
+                        </ToggleButton>
+                      ))}
                     </ToggleButtonGroup>
                   )}
                   <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ alignItems: { sm: 'flex-start' } }}>
-                    {mode === 'person' ? (
+                    {extraKind ? (
+                      Picker ? (
+                        <Picker descriptor={extraKind} value={granteeRef} onChange={setGranteeRef} disabled={share.pending} />
+                      ) : (
+                        <TextField
+                          label={extraKind.label}
+                          value={granteeRef}
+                          onChange={(event) => setGranteeRef(event.target.value)}
+                          helperText={extraKind.description ?? ' '}
+                          size="small"
+                          fullWidth
+                        />
+                      )
+                    ) : mode !== 'group' ? (
                       <TextField
                         label="E-mail address"
                         type="email"
@@ -431,7 +475,7 @@ export function ShareDialog(props: ShareDialogProps): ReactElement {
                     <Button
                       type="submit"
                       variant="contained"
-                      disabled={share.pending || (mode === 'group' && !groupId)}
+                      disabled={share.pending || (!extraKind && mode === 'group' && !groupId) || (extraKind !== undefined && !granteeRef.trim())}
                       sx={{ flexShrink: 0 }}
                     >
                       Share

@@ -1186,6 +1186,32 @@ Prove it by registering the roles in a test with `withTemporaryEntries(roleRegis
 
 What stays closed: **group roles** (`admin`, `editor`, `viewer` on a sharing group) are a database enum, so a fourth needs a platform migration; see [the sharing README](../packages/platform-api/src/sharing/README.md#data).
 
+### Add an access rule or a grantee kind to sharing
+
+Available now (the rule completely; the grantee kind up to storage, see below). Full reference, with the decision order: [the sharing README](../packages/platform-api/src/sharing/README.md#grantee-kinds-and-access-rules). Examples: [`project-member.access-rule.ts`](../apps/api/src/platform-extensions/sharing/project-member.access-rule.ts) (an allow), [`frozen-record.access-rule.ts`](../apps/api/src/platform-extensions/sharing/frozen-record.access-rule.ts) (a deny), [`email-domain.grantee-kind.ts`](../apps/api/src/platform-extensions/sharing/email-domain.grantee-kind.ts), proven on real Postgres by [`project-member.example.db.spec.ts`](../apps/api/test/examples/sharing/project-member.example.db.spec.ts) and [`email-domain.example.db.spec.ts`](../apps/api/test/examples/sharing/email-domain.example.db.spec.ts), and in the share dialog by [`GranteePicker.example.test.tsx`](../apps/web/src/__tests__/examples/sharing/GranteePicker.example.test.tsx).
+
+**An access rule** adds an app opinion to `AccessPolicy` and to "resources I can see" without replacing either. In an `app-registrations` file, after the resource type it names:
+
+```ts
+registerAccessRule({
+  id: 'project-member',
+  position: 'before-grants',               // or 'after-grants': only orders ties; a deny wins either way
+  resourceTypes: ['project_document'],     // default: every type
+  async evaluate(ctx) {                    // ctx: principal, action, resource {type,id,orgId,owner}, tx, cache
+    return (await isMemberOfRecordsProject(ctx)) ? 'allow' : 'abstain';
+  },
+  sql: (ctx) => ({ allow: ctx.kit.sql`EXISTS (SELECT 1 FROM project_members pm WHERE pm.org_id = ${ctx.orgId}::uuid AND pm.user_id = ${ctx.principal.userId}::uuid AND pm.project_id = ${ctx.column('project_id')})` }),
+});
+```
+
+- An allow confers `role` (default the weakest role of the type). A rule that can deny sets `mayDeny: true` and must give `sql` with a `deny` condition (never `NULL`). The record's user owner and a bypass holder are decided before the rules; everyone else is subject to a `deny`.
+- Every value in `sql` is a bind parameter through `ctx.kit` (SQL built outside it fails the kit); bind `ctx.orgId` in every sub-select of an organization table (app tables such as `project_members` rarely have RLS) and give the sub-select an alias of its own. A rule that throws, returns an unknown verdict, or returns `deny` without `mayDeny` denies and is flagged `ruleFailure`; a failing statement cannot abort the request's transaction (a savepoint).
+- Prove it with `describeAccessRuleConformance` (`@marinoscar/platform-api/sharing/testing`): fixtures of principal, record, action and expected outcome, the real `AccessPolicy.decide` and the real list query; it fails when the decision and the list disagree, when another organization leaks, or when a principal-derived string reaches the SQL text.
+
+**A grantee kind** names a new way to say who a grant shares with. Register it with `registerGranteeKind({ kind, label, input, validateGrantee, describe, matchesPrincipal, resolvePrincipalMatch })`: the last two are the in-memory and the SQL spelling of "does this grantee name me", and `describeGranteeKindConformance` proves they agree on your database. The share dialog lists the kinds from `GET /api/sharing/grantee-kinds`; a kind with `input: 'text'` gets a text field and one with `input: 'custom'` a component you register with `registerGranteePicker(kind, Component)` (and `freezeGranteePickers()` at start-up).
+
+What stays closed (audit: [sharing](EXTENSIBILITY-AUDIT.md#sharing)): **storing a grant of an app kind.** `grants.grantee_kind` is an enum and a check constraint binds the grantee columns to it, so a platform migration (a text kind and a grantee reference column) must ship first. Until then register the kind without `persisted`: it is listed, validated (`POST /api/grants` answers 422 `GRANTEE_INVALID` or `GRANTEE_KIND_NOT_PERSISTABLE`) and conformance-checked, and `persisted: true` is refused with a message saying why.
+
 ### Add a permission set from a package
 
 Available now. Reference: [the manifest README](../packages/platform-api/src/manifest/README.md). Example: [`permission-set.example.spec.ts`](../apps/api/test/examples/manifest/permission-set.example.spec.ts).
@@ -1411,6 +1437,8 @@ A kit is a function an extension author calls with the implementation and the te
 | `describeTelemetryStoreConformance(store, { describe, it, expect, settings?, secrets?, writeStatements?, timeout?, unconfigured?, fixture? })` | `@marinoscar/platform-api/telemetry/testing` | A valid definition (id, label, defaults, no secret-looking setting, a form descriptor); `query` refuses writes and answers a read afterwards, honours its timeout and abort signal; `schema()` has the explorer shape, sorted; `ping()` never throws and leaks no secret; an unconfigured store refuses with a typed error; `close()` twice; the dialect renders every construct; given a fixture, every dashboard statement built with the dialect runs against the store | Available |
 | `describeBackupTargetConformance(target, { describe, it, expect, rejectsEscapingKeys?, skip? })` | `@marinoscar/platform-api/db-backup/testing` | A valid id and the four members; write, read back, a missing key fails to read, idempotent delete; a 20 MiB stream that is not buffered (queued bytes, Buffer memory, chunked reads) and matches by SHA-256; a destroyed write rejects `done`; exact prefix listing; a signed URL when defined; `../` refused when declared | Available |
 | `describeRestoreGateConformance(gate, { describe, it, expect, scenarios, watch? })` | `@marinoscar/platform-api/db-backup/testing` | A valid definition; answers `{ status, message }` per scenario; read-only (a context that records every write, plus watched side-effect counters); repeatable; evaluates to a pre-flight row with the gate's id and label | Available |
+| `describeAccessRuleConformance(name, { rule, resourceType, sqlKit, decide, listsRecord, fixtures })` | `@marinoscar/platform-api/sharing/testing` | The decision equals "the record is listed" on every fixture (against the real `AccessPolicy` and `accessibleSql`), another organization is denied and never listed, a rule that can deny has SQL, no principal-derived string reaches the SQL text | Available |
+| `describeGranteeKindConformance(name, { kind, sqlKit, runQuery, principals, grantees, validInputs, invalidInputs })` | `@marinoscar/platform-api/sharing/testing` | A valid descriptor, `validateGrantee` accepts and refuses the right inputs (hostile strings included), `describe` answers, the in-memory match equals the SQL fragment on your database over a principal x grantee matrix, a grantee of another kind never matches, the fragment is parameterised and confined to the grant row | Available |
 | `runDbConformance({ appRoot })` | `@marinoscar/platform-db` | Offline, no database: the package's raw-SQL index and policy tripwires, `platform.lock` against the files, the app's own `rawSqlIndexes` and `rlsPolicies` against its migration SQL (`app-schema-objects`), and app migrations that collide with or reorder the installed history (`app-migrations`) | Available |
 | `assertSeedIdempotent(() => seedPlatform(...))` | `@marinoscar/platform-db/seed` | The seed run twice over one database: the second run creates 0 rows, in the platform's default organization and in every extra step | Available |
 | `runPlatformConformance({ suites })` (CLI) | `@marinoscar/platform-cli/testing` | The `cli` and `deployRegistrations` suites, and any suite registered with `registerCliConformanceSuite`; a skip needs a reason | Available |

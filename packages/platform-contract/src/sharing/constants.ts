@@ -52,6 +52,8 @@ export const SHARING_LIMITS: {
   readonly pageSizeDefault: 20;
   /** Longest resource type id or grant role, in characters (#729). */
   readonly grantIdentifierMax: 64;
+  /** Longest grantee reference of an app-registered grantee kind, in characters. */
+  readonly granteeRefMax: 255;
   /** Longest link label, in characters (#730). */
   readonly linkLabelMax: 120;
 } = {
@@ -61,6 +63,7 @@ export const SHARING_LIMITS: {
   pageSizeMax: 100,
   pageSizeDefault: 20,
   grantIdentifierMax: 64,
+  granteeRefMax: 255,
   linkLabelMax: 120,
 };
 
@@ -105,6 +108,42 @@ export const GRANT_GRANTEE_KINDS = ['user', 'group', 'link'] as const;
  * @stability experimental
  */
 export type GrantGranteeKind = (typeof GRANT_GRANTEE_KINDS)[number];
+
+/**
+ * The grantee kinds the platform ships. A grant row can store only these (the
+ * `grants.grantee_kind` column is an enum until the persisted-kind migration
+ * ships); an app registers MORE kinds with `registerGranteeKind` and they are
+ * listed by `GET /api/sharing/grantee-kinds`, but they are not storable yet.
+ *
+ * @stability experimental
+ */
+export const BUILTIN_GRANTEE_KINDS = GRANT_GRANTEE_KINDS;
+
+/**
+ * An id of a registered grantee kind, built in or not: lower-case letters,
+ * digits and hyphens, 2 to 48 characters, starting with a letter
+ * (`user`, `email-domain`).
+ *
+ * @stability experimental
+ */
+export const GRANTEE_KIND_ID_PATTERN: RegExp = /^[a-z][a-z0-9-]{1,47}$/;
+
+/**
+ * How a grantee kind collects its grantee in a share dialog: `user-search`
+ * (an e-mail address), `group-select` (a group of the caller), `text` (one
+ * text field), `none` (nothing to pick: a link) or `custom` (a picker the app
+ * registers with `registerGranteePicker`).
+ *
+ * @stability experimental
+ */
+export const GRANTEE_KIND_INPUTS = ['user-search', 'group-select', 'text', 'none', 'custom'] as const;
+
+/**
+ * One of {@link GRANTEE_KIND_INPUTS}.
+ *
+ * @stability experimental
+ */
+export type GranteeKindInput = (typeof GRANTEE_KIND_INPUTS)[number];
 
 /**
  * How a "shared with me" item reaches the caller: a grant to them, or a grant

@@ -6,6 +6,9 @@
 
 import { HttpException } from '@nestjs/common';
 
+import { GranteeInputError, granteeKindRegistry } from '../../src/sharing/index';
+import { withTemporaryEntries } from '../../src/core/index';
+
 import type { Principal } from '../../src/core/index';
 import { AccessPolicy, GrantsService, MemberLookupThrottle, SHARING_EVENTS, deleteGrantsForResources } from '../../src/sharing/index';
 import { PrincipalGroupsProvider } from '../../src/sharing/principal-groups.provider';
@@ -207,6 +210,89 @@ describe('GrantsService.create', () => {
       expect(deniedBody).toEqual(unknownBody);
     });
     expect(tx.$queryRaw).not.toHaveBeenCalled();
+  });
+
+  describe('a grantee of an app-registered kind (kind: custom)', () => {
+    const custom = (granteeKind: string, ref: string) => ({ ...base, grantee: { kind: 'custom' as const, granteeKind, ref } });
+    const domainKind = {
+      kind: 'email-domain',
+      label: 'Email domain',
+      input: 'text' as const,
+      validateGrantee: (input: unknown) => {
+        if (typeof input !== 'string' || !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(input)) throw new GranteeInputError('Enter a domain such as example.com');
+        return { kind: 'email-domain', id: input };
+      },
+      describe: async (ref: { id: string }) => ({ display: ref.id }),
+      matchesPrincipal: () => false,
+      resolvePrincipalMatch: () => null,
+    };
+
+    it('is 422 GRANTEE_KIND_UNKNOWN for a kind nobody registered', async () => {
+      const tx = fakeTx();
+      seed(tx);
+      const { service } = build(tx);
+      await withTypes([docType(table())], async () => {
+        const [code, body] = await status(service.create(owner(), custom('team', 'x')));
+        expect(code).toBe(422);
+        expect(body).toMatchObject({ details: { reason: 'GRANTEE_KIND_UNKNOWN', granteeKind: 'team' } });
+      });
+      expect(tx.$queryRaw).not.toHaveBeenCalled();
+    });
+
+    it("is 422 GRANTEE_INVALID with the kind's own message for a grantee it rejects", async () => {
+      const tx = fakeTx();
+      seed(tx);
+      const { service } = build(tx);
+      await withTemporaryEntries(granteeKindRegistry, [domainKind], () =>
+        withTypes([docType(table())], async () => {
+          const [code, body] = await status(service.create(owner(), custom('email-domain', "x'); DROP TABLE grants; --")));
+          expect(code).toBe(422);
+          expect(body).toMatchObject({ message: 'Enter a domain such as example.com', details: { reason: 'GRANTEE_INVALID' } });
+        }),
+      );
+    });
+
+    it("hides an internal error of the kind behind a generic message", async () => {
+      const tx = fakeTx();
+      seed(tx);
+      const { service } = build(tx);
+      const leaky = { ...domainKind, validateGrantee: () => { throw new Error('relation "secret_table" does not exist'); } };
+      await withTemporaryEntries(granteeKindRegistry, [leaky], () =>
+        withTypes([docType(table())], async () => {
+          const [code, body] = await status(service.create(owner(), custom('email-domain', 'example.com')));
+          expect(code).toBe(422);
+          expect(JSON.stringify(body)).not.toContain('secret_table');
+          expect(body).toMatchObject({ message: 'That grantee is not valid', details: { reason: 'GRANTEE_INVALID' } });
+        }),
+      );
+    });
+
+    it('is 422 GRANTEE_KIND_NOT_PERSISTABLE for a valid grantee, and writes nothing', async () => {
+      const tx = fakeTx();
+      seed(tx);
+      const { service } = build(tx);
+      await withTemporaryEntries(granteeKindRegistry, [domainKind], () =>
+        withTypes([docType(table())], async () => {
+          const [code, body] = await status(service.create(owner(), custom('email-domain', 'example.com')));
+          expect(code).toBe(422);
+          expect(body).toMatchObject({ details: { reason: 'GRANTEE_KIND_NOT_PERSISTABLE', granteeKind: 'email-domain' } });
+        }),
+      );
+      expect(tx.$queryRaw).not.toHaveBeenCalled();
+      expect(tx.grant.create).not.toHaveBeenCalled();
+    });
+
+    it('tells nothing to a caller who may not share the record: the same 404', async () => {
+      const tx = fakeTx();
+      seed(tx);
+      const { service } = build(tx);
+      await withTemporaryEntries(granteeKindRegistry, [domainKind], () =>
+        withTypes([docType(new Map([[DOC_A, byUser(BOB)]]))], async () => {
+          const [code] = await status(service.create(owner(), custom('email-domain', 'example.com')));
+          expect(code).toBe(404);
+        }),
+      );
+    });
   });
 
   it('caps the active grants of a record, but never blocks changing an existing grantee', async () => {
