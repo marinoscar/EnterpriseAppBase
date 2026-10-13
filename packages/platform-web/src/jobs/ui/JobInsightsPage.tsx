@@ -57,7 +57,7 @@
  */
 
 import { useMemo, useState } from 'react';
-import type { ComponentType, ReactElement } from 'react';
+import type { ReactElement } from 'react';
 import {
   Alert,
   Box,
@@ -80,7 +80,8 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import { Navigate } from 'react-router-dom';
 
-import { usePlatformViewer } from '../../core/index.js';
+import { usePlatformViewer, useTableSlotColumns } from '../../core/index.js';
+import type { PageSlot, PageSlotsBase, TableSlots } from '../../core/index.js';
 import {
   DEFAULT_INSIGHTS_WINDOW_DAYS,
   INSIGHTS_WINDOW_OPTIONS,
@@ -101,6 +102,40 @@ type DataTableColumn<Row> = JobsTableColumn<Row>;
 export const TYPES_TABLE_ID = 'admin-job-insights-types';
 
 /**
+ * What the Job Insights page passes its `Filters` slot.
+ *
+ * @stability experimental
+ */
+export interface JobInsightsFiltersSlotProps {
+  /** The history window in days that the numbers below cover. */
+  windowDays: number;
+  /** Selects another window (the API clamps it) and re-reads the analytics. */
+  onWindowDaysChange: (days: number) => void;
+}
+
+/**
+ * The slots of {@link JobInsightsPage}: the page-slot contract over a per-type
+ * row, and `Filters`.
+ *
+ * `Header` keeps the props it always had and gains `actions` (`null`).
+ * `Filters` is drawn beside the window selector, `Toolbar` above the per-type
+ * table, and `Columns` / `RowActions` / `DetailPanel` act on that table. The
+ * slots other than `Header` appear once the analytics have loaded; until then
+ * the page shows its spinner.
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export interface JobInsightsPageSlots
+  extends PageSlotsBase,
+    TableSlots<JobTypeInsightRow, JobsTableColumn<JobTypeInsightRow>> {
+  /** Replaces the title and subtitle block. */
+  Header?: PageSlot<JobsPageHeaderProps>;
+  /** Extra controls beside the window selector. */
+  Filters?: PageSlot<JobInsightsFiltersSlotProps>;
+}
+
+/**
  * The props of {@link JobInsightsPage}. Every prop is optional; the app's
  * route renders `<JobInsightsPage />` as is.
  *
@@ -110,11 +145,8 @@ export const TYPES_TABLE_ID = 'admin-job-insights-types';
 export interface JobInsightsPageProps {
   /** Where a viewer without `jobs:read` is sent. Default `'/'`. */
   fallbackPath?: string;
-  /** Replaceable parts of the page. */
-  slots?: {
-    /** Replaces the title and subtitle block. */
-    Header?: ComponentType<JobsPageHeaderProps>;
-  };
+  /** Replaceable and additional parts of the page. */
+  slots?: JobInsightsPageSlots;
 }
 
 /**
@@ -145,19 +177,36 @@ const BASIS_PRESENTATION: Record<
   },
 };
 
-/** One per-type row: the window's distribution merged with the all-time totals. */
-interface JobTypeInsightRow {
+/**
+ * One per-type row of the Job Insights table: the window's distribution merged
+ * with the all-time totals. The row type of the page's table slots.
+ *
+ * @stability experimental
+ */
+export interface JobTypeInsightRow {
+  /** The job type's machine key. */
   type: string;
+  /** The job type's display label. */
   label: string;
+  /** Runs completed in the window (the denominator of the window's figures). */
   samples: number;
+  /** Mean duration in the window in milliseconds, or `null` with no samples. */
   avgMs: number | null;
+  /** Median duration in the window in milliseconds, or `null` with no samples. */
   p50Ms: number | null;
+  /** 95th-percentile duration in the window in milliseconds, or `null` with no samples. */
   p95Ms: number | null;
+  /** Completions per minute over the last hour. */
   throughputPerMin: number;
+  /** All-time succeeded runs. */
   lifetimeSucceeded: number;
+  /** All-time failed runs. */
   lifetimeFailed: number;
+  /** All-time runs. */
   lifetimeTotal: number;
+  /** All-time mean duration in milliseconds, or `null`. */
   lifetimeAvgMs: number | null;
+  /** Runs the all-time mean is taken over. */
   lifetimeSamples: number;
 }
 
@@ -413,6 +462,11 @@ function EtaRow({ eta }: { eta: JobEta }) {
 export function JobInsightsPage(props: JobInsightsPageProps = {}): ReactElement {
   const { fallbackPath = '/', slots } = props;
   const Header = slots?.Header ?? DefaultPageHeader;
+  const BeforeContent = slots?.BeforeContent;
+  const Sections = slots?.Sections;
+  const AfterContent = slots?.AfterContent;
+  const Toolbar = slots?.Toolbar;
+  const Filters = slots?.Filters;
   const { hasPermission } = usePlatformViewer();
   const [windowDays, setWindowDays] = useState<number>(DEFAULT_INSIGHTS_WINDOW_DAYS);
   const { insights, isLoading, error, refresh, isResetting, resetHistory } =
@@ -425,7 +479,8 @@ export function JobInsightsPage(props: JobInsightsPageProps = {}): ReactElement 
     () => (insights ? buildTypeInsightRows(insights) : []),
     [insights],
   );
-  const typeColumns = useMemo(() => buildTypeColumns(), []);
+  const baseTypeColumns = useMemo(() => buildTypeColumns(), []);
+  const typeColumns = useTableSlotColumns<JobTypeInsightRow, JobsTableColumn<JobTypeInsightRow>>(baseTypeColumns, slots);
 
   // Defence, not the gate — `App.tsx` wraps the route in `RequirePermission`
   // with this same string. After every hook, so the hook order never changes.
@@ -457,7 +512,9 @@ export function JobInsightsPage(props: JobInsightsPageProps = {}): ReactElement 
   return (
     <Container maxWidth="xl">
       <Box sx={{ py: 4 }}>
-        <Header title={PAGE_TITLE} description={PAGE_DESCRIPTION} readOnly={!canWrite} />
+        <Header title={PAGE_TITLE} description={PAGE_DESCRIPTION} readOnly={!canWrite} actions={null} />
+        {BeforeContent && <BeforeContent />}
+        {Sections && <Sections position="top" />}
 
         {error && (
           <Alert severity="error" sx={{ mb: 3 }}>
@@ -497,6 +554,8 @@ export function JobInsightsPage(props: JobInsightsPageProps = {}): ReactElement 
               <Button startIcon={<RefreshIcon />} onClick={() => void refresh()}>
                 Refresh
               </Button>
+
+              {Filters && <Filters windowDays={windowDays} onWindowDaysChange={setWindowDays} />}
 
               <Box sx={{ flexGrow: 1 }} />
 
@@ -580,6 +639,11 @@ export function JobInsightsPage(props: JobInsightsPageProps = {}): ReactElement 
             <Typography variant="h6" component="h2" gutterBottom>
               By job type
             </Typography>
+            {Toolbar && (
+              <Stack direction="row" spacing={1} useFlexGap sx={{ mb: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+                <Toolbar />
+              </Stack>
+            )}
             <Paper sx={{ width: '100%', p: 2, mb: 4 }}>
               <Box sx={{ minWidth: 0 }}>
                 <DataTable<JobTypeInsightRow>
@@ -631,6 +695,9 @@ export function JobInsightsPage(props: JobInsightsPageProps = {}): ReactElement 
             )}
           </>
         )}
+
+        {Sections && <Sections position="bottom" />}
+        {AfterContent && <AfterContent />}
 
         <Dialog open={confirmReset} onClose={() => setConfirmReset(false)}>
           <DialogTitle>Clear the lifetime statistics?</DialogTitle>

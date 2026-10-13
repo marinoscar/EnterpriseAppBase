@@ -9,8 +9,8 @@
  * API enforces, and there is no tab anywhere. The hub, the Console rail and
  * the compact AppBar title all pick this page up from that single declaration.
  * The page reads permissions from the platform host's viewer, the app's table
- * and spinner from the jobs adapters, and lets the app replace its header
- * (`slots.Header`).
+ * and spinner from the jobs adapters, and takes the packaged-page slot contract
+ * (`PageSlotsBase`, `TableSlots`, and `Filters`; PP-14.23).
  *
  * =============================================================================
  * THREE KINDS OF ACTION, AND THEY SIT IN THREE DIFFERENT PLACES
@@ -63,7 +63,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { ComponentType, ReactElement } from 'react';
+import type { ReactElement } from 'react';
 import {
   Alert,
   Box,
@@ -86,7 +86,8 @@ import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import InsightsIcon from '@mui/icons-material/Insights';
 import { Navigate, useNavigate } from 'react-router-dom';
 
-import { usePlatformViewer } from '../../core/index.js';
+import { usePlatformViewer, useTableSlotColumns } from '../../core/index.js';
+import type { PageSlot, PageSlotsBase, TableSlots } from '../../core/index.js';
 import {
   JOBS_POLL_INTERVAL_MS,
   isJobActionable,
@@ -96,7 +97,7 @@ import {
   useJobsApi,
   useVisiblePolling,
 } from '../headless/index.js';
-import type { Job, JobListParams, JobsTableFilter, JobsTableRowAction } from '../headless/index.js';
+import type { Job, JobListParams, JobsTableColumn, JobsTableFilter, JobsTableRowAction } from '../headless/index.js';
 import { JobsTable as DataTable } from './table.js';
 import {
   PROCESSED_WITHIN_COLUMN_ID,
@@ -119,6 +120,52 @@ type DataTableFilterModel = JobsTableFilter[];
 type DataTableRowAction<Row> = JobsTableRowAction<Row>;
 
 /**
+ * The extra query parameters a `Filters` slot can set on the Jobs list, on top
+ * of the table's own filters (status, type, backoff, activity window): the
+ * organization and the subject a job is about.
+ *
+ * @stability experimental
+ */
+export type JobsExtraFilters = Pick<JobListParams, 'orgId' | 'subjectType' | 'subjectId'>;
+
+/**
+ * What the Jobs page passes its `Filters` slot.
+ *
+ * @stability experimental
+ */
+export interface JobsFiltersSlotProps {
+  /** The extra parameters currently applied (empty to start with). */
+  value: JobsExtraFilters;
+  /** Replaces the extra parameters, returns to the first page and re-reads the list. Pass `{}` to clear. */
+  onChange: (next: JobsExtraFilters) => void;
+}
+
+/**
+ * The slots of {@link JobsPage}: the page-slot contract over a job row, and
+ * `Filters`.
+ *
+ * `Header` keeps the props it always had (`title`, `description`, `readOnly`)
+ * and gains `actions`, which is `null` because the queue-wide buttons stay in
+ * the body. `Toolbar` is drawn in the row of queue-wide buttons, `Filters` in
+ * its own row above the table, and `Columns` / `RowActions` / `DetailPanel` act
+ * on the job table.
+ *
+ * @example
+ * ```tsx
+ * <JobsPage slots={{ Columns: (base) => [...base, ownerColumn], RowActions: ({ row }) => <OpenTicket job={row} /> }} />
+ * ```
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export interface JobsPageSlots extends PageSlotsBase, TableSlots<Job, JobsTableColumn<Job>> {
+  /** Replaces the title and subtitle block. */
+  Header?: PageSlot<JobsPageHeaderProps>;
+  /** Extra filter controls above the table (organization, subject). */
+  Filters?: PageSlot<JobsFiltersSlotProps>;
+}
+
+/**
  * The props of {@link JobsPage}. Every prop is optional; the app's route
  * renders `<JobsPage />` as is.
  *
@@ -130,11 +177,8 @@ export interface JobsPageProps {
   insightsPath?: string;
   /** Where a viewer without `jobs:read` is sent. Default `'/'`. */
   fallbackPath?: string;
-  /** Replaceable parts of the page. */
-  slots?: {
-    /** Replaces the title and subtitle block. */
-    Header?: ComponentType<JobsPageHeaderProps>;
-  };
+  /** Replaceable and additional parts of the page. */
+  slots?: JobsPageSlots;
 }
 
 interface StatTileProps {
@@ -197,6 +241,11 @@ type PendingSweep = 'retry-failed' | 'reset-stuck' | null;
 export function JobsPage(props: JobsPageProps = {}): ReactElement {
   const { insightsPath = '/admin/settings/jobs/insights', fallbackPath = '/', slots } = props;
   const Header = slots?.Header ?? DefaultPageHeader;
+  const BeforeContent = slots?.BeforeContent;
+  const Sections = slots?.Sections;
+  const AfterContent = slots?.AfterContent;
+  const Toolbar = slots?.Toolbar;
+  const Filters = slots?.Filters;
   const { hasPermission } = usePlatformViewer();
   const navigate = useNavigate();
   const jobsApi = useJobsApi();
@@ -209,6 +258,8 @@ export function JobsPage(props: JobsPageProps = {}): ReactElement {
   const [filters, setFilters] = useState<DataTableFilterModel>([]);
   const [pendingSweep, setPendingSweep] = useState<PendingSweep>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  /** What a `Filters` slot has set (empty unless the slot is used). */
+  const [extraFilters, setExtraFilters] = useState<JobsExtraFilters>({});
 
   // --- Query params, flattened to SCALARS -------------------------------------
   // Never the `filters` array: `useJobs` hands back a new array on every change,
@@ -217,6 +268,7 @@ export function JobsPage(props: JobsPageProps = {}): ReactElement {
   const type = readIsFilter(filters, TYPE_COLUMN_ID);
   const processedWithin = asProcessedWithin(readIsFilter(filters, PROCESSED_WITHIN_COLUMN_ID));
   const scheduled = readIsFilter(filters, SCHEDULED_COLUMN_ID) === SCHEDULED_FILTER_VALUE;
+  const { orgId: extraOrgId, subjectType: extraSubjectType, subjectId: extraSubjectId } = extraFilters;
 
   /**
    * The query this page is currently showing, as the API takes it.
@@ -233,8 +285,11 @@ export function JobsPage(props: JobsPageProps = {}): ReactElement {
       ...(scheduled ? { scheduled: true } : status ? { status } : {}),
       ...(type ? { type } : {}),
       ...(processedWithin ? { processedWithin } : {}),
+      ...(extraOrgId ? { orgId: extraOrgId } : {}),
+      ...(extraSubjectType ? { subjectType: extraSubjectType } : {}),
+      ...(extraSubjectId ? { subjectId: extraSubjectId } : {}),
     }),
-    [page, pageSize, scheduled, status, type, processedWithin],
+    [page, pageSize, scheduled, status, type, processedWithin, extraOrgId, extraSubjectType, extraSubjectId],
   );
 
   useEffect(() => {
@@ -264,7 +319,8 @@ export function JobsPage(props: JobsPageProps = {}): ReactElement {
     () => (stats?.byType ?? []).map((entry) => ({ value: entry.type, label: entry.label })),
     [stats],
   );
-  const columns = useMemo(() => buildJobColumns(typeOptions), [typeOptions]);
+  const baseColumns = useMemo(() => buildJobColumns(typeOptions), [typeOptions]);
+  const columns = useTableSlotColumns<Job, JobsTableColumn<Job>>(baseColumns, slots);
 
   const canWrite = hasPermission('jobs:write');
 
@@ -365,7 +421,9 @@ export function JobsPage(props: JobsPageProps = {}): ReactElement {
             rail row, the compact AppBar title and this `h1` all name the page
             identically. "(read-only)" is stated up front rather than left for
             the operator to discover by finding every control missing. */}
-        <Header title={PAGE_TITLE} description={PAGE_DESCRIPTION} readOnly={!canWrite} />
+        <Header title={PAGE_TITLE} description={PAGE_DESCRIPTION} readOnly={!canWrite} actions={null} />
+        {BeforeContent && <BeforeContent />}
+        {Sections && <Sections position="top" />}
 
         {statsError && (
           <Alert severity="warning" sx={{ mb: 2 }}>
@@ -471,6 +529,8 @@ export function JobsPage(props: JobsPageProps = {}): ReactElement {
             </>
           )}
 
+          {Toolbar && <Toolbar />}
+
           <Box sx={{ flexGrow: 1 }} />
 
           {/* The sibling page, reachable from here as well as from the hub:
@@ -488,6 +548,18 @@ export function JobsPage(props: JobsPageProps = {}): ReactElement {
           <Alert severity="error" sx={{ mb: 2 }}>
             {error}
           </Alert>
+        )}
+
+        {Filters && (
+          <Stack direction="row" spacing={1} useFlexGap sx={{ mb: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+            <Filters
+              value={extraFilters}
+              onChange={(next) => {
+                setExtraFilters(next);
+                setPage(0);
+              }}
+            />
+          </Stack>
         )}
 
         <Paper sx={{ width: '100%', p: 2 }}>
@@ -538,6 +610,9 @@ export function JobsPage(props: JobsPageProps = {}): ReactElement {
             this tab is in front.
           </Typography>
         </Paper>
+
+        {Sections && <Sections position="bottom" />}
+        {AfterContent && <AfterContent />}
 
         {/* ------------------------------------------------------------------
             ONE CONFIRMATION FOR BOTH SWEEPS. Each acts on rows that are not on

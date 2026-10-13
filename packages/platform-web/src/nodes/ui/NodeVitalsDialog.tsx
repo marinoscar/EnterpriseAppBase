@@ -39,6 +39,7 @@ import {
 } from '@mui/material';
 import type { ReactNode } from 'react';
 import { useId } from 'react';
+import type { PageSlot } from '../../core/index.js';
 import { formatDateTime } from '../headless/index.js';
 import type { NodeVitalsCounters, WorkerNode } from '../headless/index.js';
 import {
@@ -61,6 +62,20 @@ interface NodeVitalsDialogProps {
   /** The page's single render clock — see `WorkersPage.tsx`. */
   now: Date;
   onClose: () => void;
+  /** The page's `slots.VitalsPanel`: extra content after the vitals. */
+  VitalsPanel?: PageSlot<NodeVitalsPanelSlotProps>;
+}
+
+/**
+ * What the Worker Nodes page passes its `VitalsPanel` slot: the node whose
+ * vitals dialog is open, as the fleet poll last read it (it updates while the
+ * dialog stays open).
+ *
+ * @stability experimental
+ */
+export interface NodeVitalsPanelSlotProps {
+  /** The node the dialog describes. */
+  node: WorkerNode;
 }
 
 /** The counters shown, in reading order, with the words an operator uses. */
@@ -129,7 +144,7 @@ function formatCount(value: number | undefined): string {
   return value === undefined ? '—' : value.toLocaleString();
 }
 
-export function NodeVitalsDialog({ node, now, onClose }: NodeVitalsDialogProps) {
+export function NodeVitalsDialog({ node, now, onClose, VitalsPanel }: NodeVitalsDialogProps) {
   const theme = useTheme();
   // The same `down('sm')` compact-window read the settings UI uses (CLAUDE.md
   // rule 5): a full screen on a phone rather than a dialog that scrolls inside
@@ -258,6 +273,12 @@ export function NodeVitalsDialog({ node, now, onClose }: NodeVitalsDialogProps) 
               </Table>
             </Box>
           </Stack>
+        )}
+
+        {node && VitalsPanel && (
+          <Box component="section" aria-label="Additional vitals" sx={{ mt: 3 }}>
+            <VitalsPanel node={node} />
+          </Box>
         )}
       </DialogContent>
       <DialogActions>

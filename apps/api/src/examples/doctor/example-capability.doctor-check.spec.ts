@@ -26,4 +26,10 @@ describe('ExampleCapabilityDoctorCheck', () => {
     const check = new ExampleCapabilityDoctorCheck(new DoctorCheckRegistry(), async () => ({ configured: true, enabled: true }));
     await expect(check.run()).resolves.toMatchObject({ status: 'pass' });
   });
+
+  it('reports its facts as data, which the web example draws in the check row', () => {
+    expect(decideExampleCapability({ configured: true, enabled: false }).data).toEqual({ configured: true, enabled: false });
+    expect(decideExampleCapability({ configured: false, enabled: true }).data).toEqual({ configured: false, enabled: true });
+    expect(decideExampleCapability({ configured: true, enabled: true }).data).toEqual({ configured: true, enabled: true });
+  });
 });
