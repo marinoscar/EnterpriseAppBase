@@ -14,7 +14,8 @@ import { z } from 'zod';
 import {
   DEFAULT_INSIGHTS_WINDOW_DAYS,
   JOB_ETA_BASES,
-  JOB_REASONS,
+  BUILTIN_JOB_REASONS,
+  JOB_REASON_PATTERN,
   JOB_STATUSES,
   MAX_INSIGHTS_WINDOW_DAYS,
   PROCESSED_WITHIN_VALUES,
@@ -28,11 +29,23 @@ import {
 export type JobStatusEnum = { [K in (typeof JOB_STATUSES)[number]]: K };
 
 /**
- * The entries of the job reason enum.
+ * The entries of the built-in job reason list.
  *
  * @stability experimental
  */
-export type JobReasonEnum = { [K in (typeof JOB_REASONS)[number]]: K };
+export type JobReasonEnum = { [K in (typeof BUILTIN_JOB_REASONS)[number]]: K };
+
+/**
+ * A job reason id: a string of the shape {@link JOB_REASON_PATTERN}, not an
+ * enum, so an app's `registerJobReason` ids pass. Whether an id is registered
+ * is checked where a job is enqueued, never in this schema.
+ *
+ * @extensionPoint registry
+ * @stability experimental
+ */
+export const jobReasonSchema = z
+  .string()
+  .regex(JOB_REASON_PATTERN, 'A job reason is 2 to 48 lower-case letters, digits, "_", "." or "-", starting with a letter');
 
 /**
  * The entries of the processed-within window enum.
@@ -126,8 +139,10 @@ export const jobSchema = z.object({
 
   /** Lifecycle status: `pending`, `running`, `succeeded` or `failed`. */
   status: (z.enum(JOB_STATUSES) as z.ZodEnum<JobStatusEnum>),
-  /** Why it was queued: `upload`, `rerun` or `backfill`. */
-  reason: (z.enum(JOB_REASONS) as z.ZodEnum<JobReasonEnum>),
+  /** Why it was queued: a built-in (`upload`, `rerun`, `backfill`) or an app's registered reason. */
+  reason: jobReasonSchema,
+  /** `reason` run through `jobReasonLabel()`; equal to `reason` when unregistered. */
+  reasonLabel: z.string(),
   /** Ascending is more urgent; the claim orders by it first. */
   priority: z.number().int(),
 

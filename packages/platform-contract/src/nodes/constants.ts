@@ -56,3 +56,54 @@ export const NODE_STATUSES = ['online', 'draining', 'offline', 'disabled'] as co
  * @stability experimental
  */
 export const NODE_HEALTHS = ['healthy', 'stale', 'offline'] as const;
+
+/**
+ * The phase spans a node always relays, in the order a job runs them. The set
+ * is closed on purpose (a node cannot mint arbitrary span names in the trace
+ * store); an executor's own spans use the `job.app.<name>` shape instead
+ * ({@link NODE_APP_SPAN_NAME_PATTERN}).
+ *
+ * @stability experimental
+ */
+export const BUILTIN_NODE_SPAN_NAMES = [
+  'job.download',
+  'job.execute',
+  'job.upload',
+  'job.submit',
+  'job.secret',
+] as const;
+
+/**
+ * What an executor's own span name must look like: `job.app.` and then a
+ * lower-case name of 2 to 48 characters. The fixed prefix is the point: an
+ * app span can never collide with a built-in phase or with another attribute
+ * namespace, and the trace store's span-name cardinality is bounded by the
+ * executors a deployment installs, not by what a node sends.
+ *
+ * @stability experimental
+ */
+export const NODE_APP_SPAN_NAME_PATTERN = /^job\.app\.[a-z][a-z0-9_.-]{1,47}$/;
+
+/**
+ * What an `extra` vital's key must look like: a lower-case letter, then 1 to
+ * 47 lower-case letters, digits, `_` or `.`.
+ *
+ * @stability experimental
+ */
+export const NODE_VITALS_EXTRA_KEY_PATTERN = /^[a-z][a-z0-9_.]{1,47}$/;
+
+/**
+ * Most keys one heartbeat's `vitals.extra` may carry.
+ *
+ * @stability experimental
+ */
+export const MAX_NODE_VITALS_EXTRA_KEYS = 16;
+
+/**
+ * Largest magnitude of an `extra` vital. Generous (a quadrillion): the ceiling
+ * keeps a number that is too large to be true out of the row, it is not a
+ * statement about any real reading.
+ *
+ * @stability experimental
+ */
+export const MAX_NODE_VITALS_EXTRA_VALUE = 1e15;
