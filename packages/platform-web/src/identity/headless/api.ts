@@ -13,7 +13,12 @@
 // on the organization the session's token is bound to.
 // =============================================================================
 
-import type { PatDurationUnitValue } from '@marinoscar/platform-contract/identity';
+import type {
+  BuiltinOrgRole,
+  PatDurationUnitValue,
+  RoleDescriptor as ContractRoleDescriptor,
+  RoleScopeValue,
+} from '@marinoscar/platform-contract/identity';
 
 import type { PlatformApiClient } from '../../core/index.js';
 
@@ -289,19 +294,38 @@ export interface CreatePatInput {
 // ---- Organizations -----------------------------------------------------------
 
 /**
- * The org roles an organization administrator may assign, highest first
- * (`ASSIGNABLE_ORG_ROLES` of the contract).
+ * The org roles the platform ships, highest first (`BUILTIN_ORG_ROLES` of the
+ * contract).
  *
+ * @deprecated The roles a caller may assign are the API's to say: read them
+ *   with `useRoles('org')` (`GET /api/roles?scope=org`), which also lists an
+ *   app's own roles. Kept for one release; no packaged page reads it.
  * @stability stable
  */
 export const ORG_ROLES = ['org_admin', 'contributor', 'viewer'] as const;
 
 /**
- * One assignable org role.
+ * An org role id: a built-in one (autocompleted) or any string an app
+ * registered.
  *
  * @stability stable
  */
-export type OrgRole = (typeof ORG_ROLES)[number];
+export type OrgRole = BuiltinOrgRole | (string & {});
+
+/**
+ * One role as `GET /api/roles` describes it: id, label, description, scope and
+ * whether the invite, member and user-role routes may assign it.
+ *
+ * @stability experimental
+ */
+export type RoleDescriptor = ContractRoleDescriptor;
+
+/**
+ * A role scope: `system` (held in `user_roles`) or `org` (held on a membership).
+ *
+ * @stability experimental
+ */
+export type RoleScope = RoleScopeValue;
 
 /**
  * A membership status.
@@ -445,6 +469,8 @@ export interface OrganizationListParams {
  * @stability experimental
  */
 export interface IdentityApi {
+  /** `GET /roles?scope=...` (`users:read` for `system`, `org_members:read` for `org`). */
+  getRoles(scope?: RoleScope): Promise<RoleDescriptor[]>;
   /** `GET /users?...`. */
   getUsers(params?: UserListParams): Promise<UsersResponse>;
   /** `PATCH /users/:id`. */
@@ -524,8 +550,9 @@ export function createIdentityApi(api: PlatformApiClient): IdentityApi {
       if (params?.sortOrder) searchParams.set('sortOrder', params.sortOrder);
       return api.get<UsersResponse>(`/users?${searchParams}`);
     },
+    getRoles: (scope) => api.get<RoleDescriptor[]>(`/roles${query({ scope })}`),
     updateUser: (id, data) => api.patch<UserListItem>(`/users/${id}`, data),
-    updateUserRoles: (id, roles) => api.put<UserListItem>(`/users/${id}/roles`, { roles }),
+    updateUserRoles: (id, roles) => api.put<UserListItem>(`/users/${id}/roles`, { roleNames: roles }),
     getAllowlist(params) {
       const searchParams = new URLSearchParams();
       if (params?.page) searchParams.set('page', String(params.page));

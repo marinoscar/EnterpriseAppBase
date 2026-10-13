@@ -51,6 +51,8 @@ export type {
   PatCreatedResponse,
   PatDurationUnit,
   PersonalAccessToken,
+  RoleDescriptor,
+  RoleScope,
   UserListItem,
   UserListParams,
   UserSortField,
@@ -76,6 +78,8 @@ export { useAllowlist } from './hooks/use-allowlist.js';
 export type { UseAllowlistReturn } from './hooks/use-allowlist.js';
 export { usePersonalAccessTokens } from './hooks/use-personal-access-tokens.js';
 export type { UsePersonalAccessTokensReturn } from './hooks/use-personal-access-tokens.js';
+export { useRoles } from './hooks/use-roles.js';
+export type { UseRolesOptions, UseRolesReturn } from './hooks/use-roles.js';
 export { useOrgInvites, useOrgMembers, useOrganizations } from './hooks/use-organizations.js';
 export type { UseOrgInvitesReturn, UseOrgMembersReturn, UseOrganizationsReturn } from './hooks/use-organizations.js';
 export {
