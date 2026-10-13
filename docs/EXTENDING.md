@@ -125,6 +125,7 @@ Full recipe: [the job handlers README](../packages/platform-api/src/jobs/handler
 6. **Decide node eligibility.** A handler is node-eligible when it carries both `nodeResultSchema` and `persistNodeResult`; one without the other is server-only. `ai.*` types are server-only permanently.
 7. **Work inside the queue rules.** A `@Cron` only decides whether work is due and enqueues (`enqueueHousekeepingJob`); an `@OnEvent` body does no I/O. `apps/api/test/conformance.spec.ts` enforces both.
 8. **Add the type** and its label to `REGISTERED_JOB_TYPES` in `apps/api/test/jobs/job-type-snapshot.spec.ts`, which pins every registered type.
+9. **Prove it** with the kit, beside the handler: `describeJobHandlerConformance(name, () => handler, { payloads })` from `@marinoscar/platform-api/jobs/testing`. It checks the static contract (a dotted type, a label, a profile of exactly two numbers inside sane ceilings, the node pair both-or-neither, `ai.*` server-only), then per payload that the job settles through `createFakeJobQueue()`, that running it twice leaves the same result (give the payload an `observe()` snapshot, or an `assertIdempotent` for a handler that is additive by design), that a payload it must reject makes it throw (`expectFailure`), that duplicates collapse, and that `canDelete` is honoured. A service test injects `queue.asJobsService()` instead of a mocked `JobsService` and runs `queue.drain()`. Examples: [`example-handlers.conformance.spec.ts`](../apps/api/test/examples/jobs/example-handlers.conformance.spec.ts); the static half runs over every registered handler in [`job-handlers-contract.spec.ts`](../apps/api/test/jobs/job-handlers-contract.spec.ts), so yours is covered with no edit.
 
 ### Add a job reason
 
@@ -163,6 +164,17 @@ Full recipe: [the Doctor README](../packages/platform-api/src/doctor/README.md#q
 5. **Add the check id** to the pinned list in `apps/api/test/doctor/registered-checks.integration.spec.ts`.
 6. Optionally describe the outbound hosts of the capability with an `EgressContributor` (`EgressRegistry.register` from `onModuleInit`).
 7. Optionally put the check's facts in `data` (small scalars, never secret) and draw them in the check's row on the web with `registerDoctorCheckRenderer` ([Add a slot to a packaged page](#add-a-slot-to-a-packaged-page)).
+8. **Prove it** with the kit, in the check's own spec: `describeDoctorCheckConformance(name, ({ prisma, storage }) => new MyCheck(registry, prisma.client), { scenarios })` from `@marinoscar/platform-api/doctor/testing`. It builds the check per test over a recording Prisma client and a write-failing storage provider, and per scenario checks its identity, that the run completes in time and never throws, that the outcome is valid with a remedy on `warn` and `fail` and no seeded secret, the statuses the scenario expects, and that nothing was written. Example: [`example-capability.conformance.spec.ts`](../apps/api/test/examples/doctor/example-capability.conformance.spec.ts). The `doctor-read-only` suite of `apps/api/test/conformance.spec.ts` runs the same proof over every registered check, so a check that writes fails the app's build even if its author never ran the kit.
+
+### Add a conformance suite of your own
+
+An invariant over what your app declares is a suite: the API's through `conformanceSuites` and a `declare module` augmentation of `PlatformConformanceSuiteOptions`, the web's through `webConformanceSuites` and a third `options` argument. Full recipe with code: [the API testing README](../packages/platform-api/src/testing/README.md#adding-a-suite-from-an-app-or-a-package) and [the web testing README](../packages/platform-web/src/testing/README.md#adding-a-web-suite-from-an-app-or-a-package). Examples: [`app-routes.suite.ts`](../apps/web/src/__tests__/examples/testing/app-routes.suite.ts) (a web suite with options and a planted-violation test); the android-app slice's [`testing/conformance.ts`](../packages/platform-api/src/android-app/testing/conformance.ts) and the Doctor's [`doctor-read-only.suite.ts`](../packages/platform-api/src/doctor/testing/doctor-read-only.suite.ts) (an API scan suite and an API suite that boots the app).
+
+1. **Write the suite**: an `id`, a `title`, a `description`, and either `check` and `cases` (scan once, assert on the report) or, for an app-suite, `register(api, context, options)`. Discover what you check from the router, a registry or the source tree; a suite that lists names is a test of those names.
+2. **Register it at import time**, once (`if (!conformanceSuites.has(id)) conformanceSuites.register(suite)`), and import the file before `runPlatformConformance`; the registry freezes on its first run. The web registry throws on a duplicate id.
+3. **Add its options key** by augmenting the public specifier (`declare module '@marinoscar/platform-api/testing' { interface PlatformConformanceSuiteOptions { orderRoutes?: OrderRoutesOptions } }`). The option key is the camelCase form of the id. A web suite needs no augmentation: `suites: { 'order-routes': { ... } }`.
+4. **Plant a violation** in a test and assert the suite names it. A suite that cannot fail is not a tripwire.
+5. **Opt out with a reason** (`{ skip: 'why' }`) where an app does not need it; an empty reason throws.
 
 ### Add a notification event and template
 
@@ -1111,7 +1123,7 @@ An extension package (`@acme/ai-assemblyai`, `@acme/storage-azure`) is a package
 
 ## Conformance kits
 
-A kit is a function an extension author calls with the implementation and the test runner's `describe`, `it` and `expect`, so it works under Jest and Vitest.
+A kit is a function an extension author calls with the implementation and the test runner's `describe`, `it` and `expect`, so it works under Jest and Vitest. The Doctor and job-handler kits take them as an optional `testApi` and default to the runner's globals.
 
 | Kit | Import | Checks | Status |
 |---|---|---|---|
@@ -1130,9 +1142,13 @@ A kit is a function an extension author calls with the implementation and the te
 | `describeRestoreGateConformance(gate, { describe, it, expect, scenarios, watch? })` | `@marinoscar/platform-api/db-backup/testing` | A valid definition; answers `{ status, message }` per scenario; read-only (a context that records every write, plus watched side-effect counters); repeatable; evaluates to a pre-flight row with the gate's id and label | Available |
 | `runPlatformConformance({ suites })` (CLI) | `@marinoscar/platform-cli/testing` | The `cli` and `deployRegistrations` suites, and any suite registered with `registerCliConformanceSuite`; a skip needs a reason | Available |
 | `runInfraConformance({ appRoot })` | `@marinoscar/platform-infra/testing` | `sync --check`, `docker compose config` per mode with the app's overlays, `nginx -t` over `app.d/` and both CSP files | Available |
-| Doctor check, job handler | `@marinoscar/platform-api/doctor/testing`, `…/jobs/testing` | Read-only checks; handler profile, idempotence and node-eligibility pairing | Coming (PP-14.26) |
+| `describeDoctorCheckConformance(name, factory, { scenarios?, defaultTimeoutMs?, testApi? })` | `@marinoscar/platform-api/doctor/testing` | Per scenario: a dotted id, category, label, root-relative `settingsPath`, positive `timeoutMs`; the run completes within its timeout and never throws; a valid outcome (status, detail, a real remedy on `warn` and `fail`, scalar `data`); the statuses the scenario expects; no seeded secret and no secret-shaped value in the result; read-only against a recording Prisma client and a write-failing storage provider. It cannot see a write that reaches neither double (an HTTP POST, a file) | Available |
+| `doctor-read-only` suite (`doctorReadOnly: { fixture, minChecks?, exempt?, forbiddenServices? }`) | `@marinoscar/platform-api/doctor/testing`, run by `runPlatformConformance` | The same proof over every check of the booted app's registry: no Prisma write (including a raw write, a job enqueue, an audit row), no storage write, no held side-effecting "test" service, a valid outcome for every check whose `dependsOn` passed; an exemption needs a reason and a stale one is a finding | Available |
+| `describeJobHandlerConformance(name, handler \| () => handler, { payloads, canDelete?, ... })` | `@marinoscar/platform-api/jobs/testing` | A dotted permanent type, a label, a profile of exactly `{ maxRuntimeMs, maxAttempts }` inside the ceilings, `nodeResultSchema` and `persistNodeResult` both or neither, `ai.*` server-only; per payload: settles through `createFakeJobQueue()`, idempotent over two runs (`observe`, `assertIdempotent`), throws on a payload it must reject, duplicates collapse, an org-scoped payload carries a subject; `canDelete` answers `null` or a reason and the queue follows it. `findJobHandlerContractViolations` is the static half, without a runner | Available |
+| `createFakeJobQueue(options?)` | `@marinoscar/platform-api/jobs/testing` | Not a kit but the double for one: an in-memory queue with the real dedup rule, claim order, attempt budget and delete decision; `asJobsService()` for a service under test | Available |
+| `runPlatformWebConformance` with a registered suite | `@marinoscar/platform-web/testing` | The web harness runs your own `WebConformanceSuite<Options>` next to the platform's; the options are the third argument, ids are unique, the matcher subset is `toEqual`, `toBe`, `toMatchObject`, `toHaveLength`, `toThrow`, `toContain`, `toBeGreaterThanOrEqual` | Available |
 
-An app adds its own suite with `conformanceSuites.register` and a `declare module '@marinoscar/platform-api/testing'` augmentation of `PlatformConformanceSuiteOptions`; the android-app slice's `testing/conformance.ts` is the model. More: [TESTING.md](TESTING.md#platform-conformance).
+An app adds its own suite with `conformanceSuites.register` and a `declare module '@marinoscar/platform-api/testing'` augmentation of `PlatformConformanceSuiteOptions`; the android-app slice's `testing/conformance.ts` is the model, and [the recipe above](#add-a-conformance-suite-of-your-own) has the steps. More: [TESTING.md](TESTING.md#platform-conformance).
 
 ## See also
 

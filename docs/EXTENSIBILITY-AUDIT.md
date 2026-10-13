@@ -15,7 +15,7 @@ The audit record of the extension seams of every platform slice. A closed point 
 
 Evidence paths are written `api:`, `web:`, `contract:`, `cli:`, `db:` and `infra:` for `packages/platform-api/src/`, `packages/platform-web/src/`, `packages/platform-contract/src/`, `packages/platform-cli/src/`, `packages/platform-db/` and `packages/platform-infra/`; a path under `apps/` or `docs/` is from the repository root. A story is written PP-14.n (its issue number follows).
 
-As of this version: 114 closed points in 29 sections, 67 fixed and 47 open.
+As of this version: 114 closed points in 29 sections, 71 fixed and 43 open.
 
 ## Verdicts
 
@@ -26,9 +26,9 @@ As of this version: 114 closed points in 29 sections, 67 fixed and 47 open.
 | [settings](#settings) | Mostly open | 7 | 1 | 6 | PP-14.21, PP-14.5, PP-14.24 |
 | [notifications](#notifications) | Mostly open | 7 | 6 | 1 | PP-14.10, PP-14.8, PP-14.24 |
 | [exports](#exports) | Mostly open | 3 | 0 | 3 | PP-14.20 |
-| [jobs](#jobs) | Mostly open | 4 | 3 | 1 | PP-14.19, PP-14.23, PP-14.26 |
+| [jobs](#jobs) | Open | 4 | 4 | 0 | PP-14.19, PP-14.23, PP-14.26 |
 | [nodes](#nodes) | Mostly open | 4 | 4 | 0 | PP-14.19, PP-14.23 |
-| [doctor](#doctor) | Mostly open | 2 | 1 | 1 | PP-14.23, PP-14.26 |
+| [doctor](#doctor) | Open | 2 | 2 | 0 | PP-14.23, PP-14.26 |
 | [telemetry](#telemetry) | Mostly open | 7 | 2 | 5 | PP-14.11, PP-14.18, PP-14.24 |
 | [otel-core](#otel-core) | Mostly open | 1 | 0 | 1 | PP-14.18 |
 | [core](#core) | Mostly open | 6 | 6 | 0 | PP-14.14, PP-14.5, PP-14.23 |
@@ -39,7 +39,7 @@ As of this version: 114 closed points in 29 sections, 67 fixed and 47 open.
 | [platform-db](#platform-db) | Mostly open | 6 | 1 | 5 | PP-14.27, PP-14.4 |
 | [platform-cli](#platform-cli) | Open | 7 | 7 | 0 | PP-14.22 |
 | [platform-infra](#platform-infra) | Open | 2 | 2 | 0 | PP-14.22 |
-| [testing (api and web)](#testing-api-and-web) | Mostly open | 2 | 0 | 2 | PP-14.26 |
+| [testing (api and web)](#testing-api-and-web) | Open | 2 | 2 | 0 | PP-14.26 |
 | [ai](#ai) | Mostly open | 10 | 6 | 4 | PP-14.3, PP-14.6, PP-14.17, PP-14.24 |
 | [storage](#storage) | Mostly open | 5 | 4 | 1 | PP-14.1, PP-14.7, PP-14.24 |
 | [db-backup](#db-backup) | Mostly open | 4 | 4 | 0 | PP-14.12, PP-14.23 |
@@ -82,7 +82,7 @@ The 28 stories of the epic, in order. Phase 1 makes the existing seams real; pha
 | PP-14.23 | #941 | web: the packaged-page slot contract, its CI check, and the operations pages | 4 | none | no | This change |
 | PP-14.24 | #942 | web: apply the slot contract to AI, storage, email, telemetry, android, host, profile, user-data and notifications pages | 4 | 14.23 (and the phase 2 story of each slice) | no | Open |
 | PP-14.25 | #943 | web: slots for identity and sharing pages, login layout, and shell navigation and themes | 4 | 14.23, 14.9, 14.15 | no | Open |
-| PP-14.26 | #944 | testing: extension-author kits for doctor checks and job handlers, and configurable web suites | 5 | none | no | Open |
+| PP-14.26 | #944 | testing: extension-author kits for doctor checks and job handlers, and configurable web suites | 5 | none | no | This change |
 | PP-14.27 | #945 | db: app metadata on users and organizations, more extensible models, offline checks for app indexes and RLS policies, seed hook | 5 | 14.4 | yes | Open |
 | PP-14.28 | #946 | ci: a guardrail that stops new closed id lists in the packages | 5 | all other PP-14 stories | no | Open |
 
@@ -167,16 +167,16 @@ Closed points: none recorded at the audit commit.
 
 ### jobs
 
-**Verdict:** Mostly open · **Packages:** api, web, contract, db · **Closed points:** 4 (3 fixed, 1 open) · **Stories:** PP-14.19, PP-14.23, PP-14.26
+**Verdict:** Open · **Packages:** api, web, contract, db · **Closed points:** 4 (4 fixed, 0 open) · **Stories:** PP-14.19, PP-14.23, PP-14.26
 
-**Open points.** `JobHandlerRegistry.register`, `registerJobTypeLabel`, `JobSecretBroker`, `enqueueHousekeepingJob`, `RetentionPurgeRegistry`, `registerRetentionPolicy`, `registerJobReason`, `JobScope.run`, the `JOBS_*` ports and the packaged Jobs and Job Insights pages (`PageSlotsBase`, `TableSlots`, `Filters`).
+**Open points.** `JobHandlerRegistry.register`, `registerJobTypeLabel`, `JobSecretBroker`, `enqueueHousekeepingJob`, `RetentionPurgeRegistry`, `registerRetentionPolicy`, `registerJobReason`, `JobScope.run`, the `JOBS_*` ports, the handler kit (`createFakeJobQueue`, `describeJobHandlerConformance`, `findJobHandlerContractViolations`) and the packaged Jobs and Job Insights pages (`PageSlotsBase`, `TableSlots`, `Filters`).
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
 | jobs-1 | The retention policy keys and the four-key `retention` namespace are fixed; `RetentionPurgeRegistry.register` throws for any other key, so an app table cannot join the nightly retention. | contract: `jobs/retention-schemas.ts:39`; api: `jobs/retention/retention-purge.registry.ts:67`; api: `jobs/retention/retention.system-settings.ts:~60` | `registerRetentionPolicy({ key, label, defaultDays, minDays, maxDays, purge })`; the namespace is composed from the registry; the nightly task enqueues one job per policy. | PP-14.19 (#937) | Fixed |
 | jobs-2 | `JobReason` is a closed Prisma enum (`upload`, `rerun`, `backfill`) mirrored in the contract, and every enqueue requires one. | db: `schema/jobs.prisma:351`; contract: `jobs/constants.ts:44` | Migration: enum to text, values kept; `jobReasonSchema` as a pattern; `registerJobReason({ id, label })`. | PP-14.19 (#937) | Fixed |
 | jobs-3 | `JobsPage` and `JobInsightsPage` expose only `slots.Header`. | web: `jobs/ui/JobsPage.tsx:134, :197` | `PageSlotsBase`, `TableSlots<Job>` and `Filters` (the insights page: `TableSlots<JobTypeInsightRow>`). | PP-14.23 (#941) | Fixed |
-| jobs-4 | `jobs/testing` holds only the `on-event-no-io` suite; nothing exercises a handler's own contract (profile bounds, idempotence on retry, node-eligibility pairing, dedup). | api: `jobs/testing/index.ts` | `createFakeJobQueue()` and `describeJobHandlerConformance(handler, { payloads })`. | PP-14.26 (#944) | Open |
+| jobs-4 | `jobs/testing` held only the `on-event-no-io` suite; nothing exercised a handler's own contract (profile bounds, idempotence on retry, node-eligibility pairing, dedup). | api: `jobs/testing/index.ts` | `createFakeJobQueue()` and `describeJobHandlerConformance(handler, { payloads })`. | PP-14.26 (#944) | Fixed |
 
 ### nodes
 
@@ -193,14 +193,14 @@ Closed points: none recorded at the audit commit.
 
 ### doctor
 
-**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 2 (1 fixed, 1 open) · **Stories:** PP-14.23, PP-14.26
+**Verdict:** Open · **Packages:** api, web, contract · **Closed points:** 2 (2 fixed, 0 open) · **Stories:** PP-14.23, PP-14.26
 
-**Open points.** `DoctorCheck` and `DoctorCheckRegistry.register`, `EgressContributor`, `SupportBundleSection`, the `DEPLOYMENT_NETWORK_SOURCE` port, `categoryOrder`, `DoctorPage`'s `categories` prop and slots (`PageSlotsBase`, `CheckRowActions`) and `registerDoctorCheckRenderer`.
+**Open points.** `DoctorCheck` and `DoctorCheckRegistry.register`, `EgressContributor`, `SupportBundleSection`, the `DEPLOYMENT_NETWORK_SOURCE` port, `categoryOrder`, `DoctorPage`'s `categories` prop and slots (`PageSlotsBase`, `CheckRowActions`) and `registerDoctorCheckRenderer`, and the check kit (`describeDoctorCheckConformance`, the recording Prisma and write-failing storage doubles, the `doctor-read-only` suite).
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
 | doctor-1 | The Doctor `CheckRow` never renders `check.data` and has no slot; there is no per-check renderer or action. | web: `doctor/ui/check-row.tsx:100-175` | `PageSlotsBase`, `registerDoctorCheckRenderer(checkId, Component)` and `CheckRowActions`. | PP-14.23 (#941) | Fixed |
-| doctor-2 | "Doctor checks are read-only" is convention only: the conformance row says "None yet" and an extension author has no harness. | api: `doctor/README.md:194` | `doctor/testing`: `runDoctorCheck`, `describeDoctorCheckConformance` and the `doctor-read-only` suite in `runPlatformConformance`. | PP-14.26 (#944) | Open |
+| doctor-2 | "Doctor checks are read-only" was convention only: the conformance row said "None yet" and an extension author had no harness. | api: `doctor/README.md:194` | `doctor/testing`: `runDoctorCheck`, `describeDoctorCheckConformance` and the `doctor-read-only` suite in `runPlatformConformance`. | PP-14.26 (#944) | Fixed |
 
 ### telemetry
 
@@ -332,14 +332,14 @@ Closed points: none recorded at the audit commit.
 
 ### testing (api and web)
 
-**Verdict:** Mostly open · **Packages:** api, web · **Closed points:** 2 (0 fixed, 2 open) · **Stories:** PP-14.26
+**Verdict:** Open · **Packages:** api, web · **Closed points:** 2 (2 fixed, 0 open) · **Stories:** PP-14.26
 
-**Open points.** `runPlatformConformance` and `conformanceSuites.register` (an app adds a suite with a `declare module` augmentation of `PlatformConformanceSuiteOptions`; the android-app slice is the model), `runPlatformWebConformance`, `webConformanceSuites`.
+**Open points.** `runPlatformConformance` and `conformanceSuites.register` (an app adds a suite with a `declare module` augmentation of `PlatformConformanceSuiteOptions`; the android-app slice is the model), `runPlatformWebConformance` with per-suite options, `webConformanceSuites` (a duplicate id throws) and the widened `expect` subset.
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
-| testing-1 | The web runner's options are skip-only, every suite receives only the settings-shaped context, `register()` silently ignores a duplicate id and the `expect` subset is tiny. | web: `testing/conformance.ts:251, :277` | `suites?: Record<string, Options | { skip }>`; `register` throws on a duplicate; suites receive `(api, context, options)`; widen `expect`. | PP-14.26 (#944) | Open |
-| testing-2 | The API testing README says a new suite "registers in `conformance-suites.ts`", which reads as an in-package edit although module augmentation works for an app. | api: `testing/README.md` (Extension-point catalog) | Document `conformanceSuites.register` plus `declare module` augmentation. | PP-14.26 (#944) | Open |
+| testing-1 | The web runner's options were skip-only, every suite received only the settings-shaped context, `register()` silently ignored a duplicate id and the `expect` subset was tiny. | web: `testing/conformance.ts:251, :277` | `suites?: Record<string, Options | { skip }>`; `register` throws on a duplicate; suites receive `(api, context, options)`; widen `expect`. | PP-14.26 (#944) | Fixed |
+| testing-2 | The API testing README said a new suite "registers in `conformance-suites.ts`", which read as an in-package edit although module augmentation works for an app. | api: `testing/README.md` (Extension-point catalog) | Document `conformanceSuites.register` plus `declare module` augmentation. | PP-14.26 (#944) | Fixed |
 
 ### ai
 

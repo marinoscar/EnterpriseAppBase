@@ -24,6 +24,7 @@ export type {
   WebConformanceSkip,
   WebConformanceSection,
   WebConformanceSuite,
+  WebConformanceSuiteEntry,
   WebConformanceSummaryEntry,
   WebConformanceTestApi,
   WebDestinationEntry,

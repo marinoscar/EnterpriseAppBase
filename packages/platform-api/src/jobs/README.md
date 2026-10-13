@@ -85,6 +85,8 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | `JOBS_ORG_SCOPE` | token | `unique symbol` -> `JobsOrgScope` | Fill an omitted `orgId` from the app's ambient organization | experimental | [example](../../../../apps/api/src/examples/jobs/ambient-org-scope.example.ts) |
 | `onEventNoIoSuite` | registry | `ConformanceSuite<OnEventNoIoOptions>` | Call the listener suite's `check()` directly in a test, or read its id (`on-event-no-io`) | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
 | `OnEventNoIoOptions` | option | `{ minListenerFiles; minListenerBodies?; mustScan?; extraIoMarkers? }` | Give the `on-event-no-io` suite the listener files the app must see and its vacuity minimum | experimental | [example](../../../../apps/api/test/conformance.spec.ts) |
+| `describeJobHandlerConformance` | hook | `describeJobHandlerConformance(name, subject: JobHandler \| (() => JobHandler), options): void` | Prove one handler in the author's own spec: the static contract, then per payload a settle through the fake queue, a double run, a failure by throwing, dedup and `canDelete` | experimental | [example](../../../../apps/api/test/examples/jobs/example-handlers.conformance.spec.ts) |
+| `JobHandlerConformanceOptions` | option | `{ payloads; canDelete?; createQueue?; maxRuntimeCeilingMs?; maxAttemptsCeiling?; allowUnlabelled?; testApi? }` | Give the handler kit the payloads to run, what may differ between two runs, the `canDelete` expectations and the profile ceilings | experimental | [example](../../../../apps/api/test/examples/jobs/example-handlers.conformance.spec.ts) |
 
 ### The optional members of `JobHandler`
 
@@ -99,6 +101,8 @@ Presence is the declaration; there is no flag for any of them.
 - `canDelete`: veto an admin delete of a non-terminal row whose deletion would strand other state.
 
 Supporting exports (experimental unless noted): the services (`JobsService`, `JobClaimService`, `JobLeaseService`, `JobTerminalService`, `JobStuckService`, `ProviderThrottleService`, `NodeOffloadService`, `JobWorker`, `JobAdminService`, `JobInsightsService`, `JobScope`), `JobHistoryPurgeHandler`, the structural data types (`Job`, `JobsPrisma`, `JobStatus`, `JobReason`, `NodeStatus` and the `Jobs*` query types; stable where tagged), `buildDedupKey`, `ACTIVE_DEDUP_INDEX_NAME`, `isActiveDedupConflict`, the execution-profile resolvers, `RateLimitError` and the rate-limit classification, the temp-file helpers, the trace-context helpers (`captureJobTraceContext`, `jobParentContext`, `jobOrgSpanAttributes`), `jobTypeLabel` (stable) and `jobTypeLabels`, `JOB_SETTLED_EVENT` (stable), `JOBS_ENQUEUED_CHANNEL`, `jobsConfiguration`, the policies `DEFAULT_JOBS_POLICY` / `DEFAULT_NODES_POLICY`, the `jobs` settings namespace `JOBS_SYSTEM_SETTINGS` and its merge `mergeJobsSettings`, and `JOBS_PERMISSIONS` (stable).
+
+The test kit, from `@marinoscar/platform-api/jobs/testing` (all `@stability experimental`; Jest or Vitest with globals, never production code): `createFakeJobQueue({ now?, defaultMaxAttempts?, ambientOrgId? })` with `FakeJobQueue` (`register`, `enqueue`, `enqueueWithin`, `jobs`, `get`, `runNext`, `drain`, `deleteJob`, `asJobsService`, `registry`), `FakeJobRun` and `FakeJobDelete`; `findJobHandlerContractViolations(handler, options?)` (pure, no runner) with `JobHandlerContractOptions`; and the scenario types `JobPayloadScenario` and `JobCanDeleteScenario`.
 
 ## Data
 
@@ -155,7 +159,30 @@ runPlatformConformance({
 });
 ```
 
-`test/jobs/testing/on-event-no-io.spec.ts` proves the suite fails on a planted storage download, an upload and an app marker. Also pinned in the reference app:
+`test/jobs/testing/on-event-no-io.spec.ts` proves the suite fails on a planted storage download, an upload and an app marker.
+
+### The handler kit
+
+A handler is a contract the queue relies on without reading the handler's file, so the extension kit proves it from the author's own spec. `describeJobHandlerConformance(name, handler | () => handler, { payloads })` registers:
+
+- **the static contract** (`findJobHandlerContractViolations`): a dotted lower-case `type` of at least two segments; a label (its own, or `registerJobTypeLabel`; `allowUnlabelled` opts out); a profile that the worker would honour, with exactly `maxRuntimeMs` and `maxAttempts` (a `leaseMs` or a heartbeat is a violation), a runtime under 24 hours and at most 10 whole attempts (the ceilings are options, because a runtime written in seconds is the usual typo); `nodeResultSchema` and `persistNodeResult` both present or both absent (eligibility is derived from the pair); an `ai.*` type with neither and no `nodeSecretBroker`; a `canDelete` that is a function;
+- **per succeeding payload**: it settles `succeeded` through `createFakeJobQueue`; running the same job twice leaves the same result (`observe()` snapshots what the handler wrote, and the two snapshots must be equal, or satisfy the payload's `assertIdempotent` for a handler that is additive by design); duplicates collapse onto one job in flight while `skipDedup` queues two, and an org-scoped payload carries a subject (`subjectType: 'organization'`, `subjectId: orgId`);
+- **per failing payload** (`expectFailure: true | '<message fragment>'`): the handler throws, and the queue records `lastError` and retries or fails the job;
+- **`canDelete`**, when the handler has one: it answers `null` or a non-empty reason without throwing, matches the `canDelete` expectations (`allow` or `veto`, a reason fragment), and the queue's delete decision follows it.
+
+```ts
+describeJobHandlerConformance('report.build', () => new ReportHandler(fakeRepo), {
+  payloads: [
+    { name: 'one report', payload: { reportId: 'r1' }, subjectType: 'report', subjectId: 'r1', arrange: () => fakeRepo.clear(), observe: () => fakeRepo.snapshot() },
+    { name: 'a missing report', payload: { reportId: 'nope' }, expectFailure: 'not found' },
+  ],
+  canDelete: [{ name: 'pinned', job: { payload: { pinned: true } }, expected: 'veto', reasonIncludes: 'pinned' }],
+});
+```
+
+`createFakeJobQueue()` is also what a service test injects: `queue.asJobsService()` is the `JobsService` surface (`enqueue`, `enqueueWithin`, `recordProvider`), with the real dedup rule (a collapsed `enqueue` returns the first caller's row; `enqueueWithin` throws the `P2002` that `isActiveDedupConflict` recognises), claim order (`priority` ascending, then oldest, nothing scheduled for later), attempts charged at claim time against `profile.maxAttempts` (default 3) and the admin delete decision (not while running, `canDelete` consulted, a throw refuses). It has no leases, reaper, backoff delay or node claim, and no database: a property that needs Postgres (`jobs_active_dedup_uniq_idx` itself, concurrent claims) stays a `*.db.spec.ts`. The reference app runs both over its example handlers in [`example-handlers.conformance.spec.ts`](../../../../apps/api/test/examples/jobs/example-handlers.conformance.spec.ts), and the static contract over every handler of the booted registry in [`job-handlers-contract.spec.ts`](../../../../apps/api/test/jobs/job-handlers-contract.spec.ts), so a handler added tomorrow is covered with no edit. Planted violations: `test/jobs/testing/job-handler-conformance.spec.ts` and `fake-job-queue.spec.ts`.
+
+Also pinned in the reference app:
 
 - Job-type snapshot (`apps/api/test/jobs/job-type-snapshot.spec.ts`): "job type strings are permanent", and every label unchanged in `GET /api/admin/jobs`.
 - The claim is unchanged by `org_id` (`apps/api/test/jobs/job-claim.db.spec.ts`), and `jobs.org_id`, the organization-subject dedup and `JobScope.run` under RLS (`apps/api/test/jobs/job-org-id.db.spec.ts`).
