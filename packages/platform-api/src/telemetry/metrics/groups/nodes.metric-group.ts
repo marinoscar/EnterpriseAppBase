@@ -1,3 +1,5 @@
+import { PLATFORM_METRIC_PRESENTATIONS } from '@marinoscar/platform-contract/telemetry';
+
 import type { MetricGroupDef } from '../metric-group.registry';
 import { APP_FILTERS } from '../metric-catalog.helpers';
 
@@ -11,6 +13,8 @@ export const NODES_METRIC_GROUP: MetricGroupDef = {
   title: 'Worker nodes',
   order: 40,
   description: 'fleet health, per-node vitals, job types without an eligible node',
+  // The section's look (tiles, charts, tables) lives with the group, as data; the web renders it.
+  presentation: PLATFORM_METRIC_PRESENTATIONS.nodes,
   families: [
     {
       key: 'nodesByHealth',

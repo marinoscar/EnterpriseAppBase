@@ -90,9 +90,9 @@ Some vocabularies stay closed on purpose, for security (`AUTH_ERROR_CODES`, the 
 
 Each recipe is a checklist. The reference app's own file is linked where one exists.
 
-### Add a metric and a dashboard group
+### Add a metric, a group and its UI
 
-The reference group is [`activity.metric-group.ts`](../apps/api/src/platform-extensions/telemetry/activity.metric-group.ts): one file and one option. The full walk-through, with the metric-name rules, is [the telemetry runbook §8.4](runbooks/telemetry.md#84-adding-an-app-metric-group).
+The reference group is [`activity.metric-group.ts`](../apps/api/src/platform-extensions/telemetry/activity.metric-group.ts): one file and one option, and it also carries the unit and the presentation of steps 6 to 8. The full walk-through, with the metric-name rules, is [the telemetry runbook §8.4](runbooks/telemetry.md#84-adding-an-app-metric-group).
 
 1. **Declare the metric** (skip when the group charts a metric the API already emits). Add an `AppMetricDef` to `APP_METRICS` in `apps/api/src/app-registrations/telemetry.ts`:
 
@@ -111,7 +111,26 @@ The reference group is [`activity.metric-group.ts`](../apps/api/src/platform-ext
 4. **List it** in the `metricGroups` option of `TelemetryModule.forRoot` in `apps/api/src/platform/telemetry/telemetry.config.ts`, or in `APP_METRIC_GROUPS` in `app-registrations/telemetry.ts`, which that file appends.
 5. **Check it.** Open `/admin/settings/telemetry/dashboard`: the group renders with default tiles. A table that does not exist yet shows "no data yet", not an error. No web, collector or platform change is needed.
 
-Custom units, colours, top-N tables and dashboard panels are not open yet: PP-14.18.
+6. **Add a unit** when a value is not a count, a size or a duration. Call `registerMetricUnit` at import time, before the group that uses it (`import { registerMetricUnit } from '@marinoscar/platform-api/telemetry'`): `registerMetricUnit({ id: 'usd', label: 'US dollars', format: 'currency', currency: 'USD', decimals: 2 })`, then set `unit: 'usd'` on a family. A unit is a descriptor with one of the fixed formats (`number`, `percent`, `bytes`, `duration-ms`, `duration-s`, `currency`, `text`, `boolean`, `timestamp`), never code; the API serves it with the group and the browser formats the value from it. An unregistered unit fails boot naming the registered ids.
+7. **Choose how it looks** with `presentation` on the group, which is data the dashboard renders:
+
+   ```ts
+   presentation: {
+     tiles: [{ metric: 'authLogins', label: 'Sign-ins' }, { metric: 'aiSpend', color: 'info' }],
+     series: [{ title: 'Sign-ins by outcome', metrics: ['authLogins'], colors: { success: 'ok', failed: 'crit' } }],
+     tables: [{ metric: 'notificationEvents', topN: 5, sort: 'value-desc' }],
+     virtualColumns: [{ id: 'failureRate', label: 'Failure rate', expression: 'ratio', of: ['failed', 'attempts'], table: 'notificationEvents' }],
+   },
+   ```
+
+   A colour is a theme token (`ok`, `warn`, `crit`, `info`, `neutral`, `series-1` to `series-8`), never a CSS value. A part you leave out gets the default (every tile, one chart per series, every table); a part you give is exactly what is drawn. A presentation that names a metric the group does not declare, an unregistered unit, or exceeds a bound fails when the group is registered, naming the path.
+8. **Add a card** with a dashboard panel when a number needs its own space. On the API, `registerDashboardPanel({ id, label, order, data })` (from `app-registrations/telemetry.ts`): `data(ctx)` reads the store through `ctx.query` (the guarded query facade: one read-only statement per call, built with `ctx.query.sql.literal` / `between`) and returns JSON, at most 256 KiB. On the web, register the view for the same id at boot: `registerDashboardPanelView('signups', SignupsPanelView)` from `@marinoscar/platform-web/telemetry/ui/dashboard-panels`, called from a module the entry point imports (`main.tsx`). The view receives the `payload`, the window and the layout, never an API client; the dashboard draws the frame around it. Examples: [`signups.dashboard-panel.ts`](../apps/api/src/platform-extensions/telemetry/signups.dashboard-panel.ts) and [`SignupsPanelView.example.tsx`](../apps/web/src/platform-extensions/telemetry/SignupsPanelView.example.tsx).
+9. **Teach the assistant** with `registerTelemetryAssistantTool({ name, description, inputSchema, output, run })` when the AI assistant should answer a question about your data. `run` gets the same facade, so it can read and nothing else; the name must not be one of the platform's eight tools, `output: 'aggregate'` is for numbers only (a default `rows` tool's output is withheld from the model while `assistant.shareResults` is off), and the tool is offered only where the assistant already is (AI on, `ai:use`). `TelemetryModule.forRoot({ assistant: { extraInstructions } })` adds developer notes to the system prompt (at most 4 000 characters of plain text). Example: [`top-features.assistant-tool.ts`](../apps/api/src/platform-extensions/telemetry/top-features.assistant-tool.ts), registered by a fork that wants it (the reference app leaves it unregistered so the assistant's tool set stays the platform's).
+10. **Seed the explorer** with your queries: `<TelemetryExplorerPage starterQueries={[...STARTER_QUERIES, mine]} />` ([`starterQueries.example.ts`](../apps/web/src/platform-extensions/telemetry/starterQueries.example.ts)). The three telemetry pages also take `slots` (a banner, a section) like any packaged page.
+11. **Add an exporter or a reader** to the OpenTelemetry SDK in `instrumentation.ts`: `initializeOtel({ metricReaders: [...], spanProcessors: [...], logRecordProcessors: [...], views, sampler, textMapPropagator, resourceAttributes })`. The SDK puts every processor and reader behind the runtime export gate, so switching telemetry off in the admin UI stops them too, and no environment variable decides it. Example: [`dev-console-metrics.ts`](../apps/api/src/platform-extensions/telemetry/dev-console-metrics.ts).
+12. **Test it.** The API: `createQueryFacade` of `@marinoscar/platform-api/telemetry/testing` over a recording query service, and `withTemporaryEntries` on `dashboardPanelRegistry` / `telemetryAssistantToolRegistry` ([`apps/api/test/examples/telemetry/`](../apps/api/test/examples/telemetry/)); the conformance suite (`telemetryConformanceSuite`) checks every registered group, panel and tool. The web: render the real dashboard over MSW ([`signups-panel.test.tsx`](../apps/web/src/__tests__/examples/telemetry/signups-panel.test.tsx)).
+
+What stays closed: the metric catalog's SQL and the assistant's own prompt still describe the OpenTelemetry-on-GreptimeDB layout ([EXTENSIBILITY-AUDIT.md](EXTENSIBILITY-AUDIT.md#telemetry)).
 
 ### Add a job type
 

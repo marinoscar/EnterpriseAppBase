@@ -64,6 +64,8 @@ import type {
   DashboardMetricGroupMeta,
   DashboardMetrics,
   DashboardMetricsQuery,
+  DashboardPanelData,
+  DashboardPanelMeta,
   DashboardQuery,
   DashboardSummary,
   DashboardTimeseries,
@@ -165,6 +167,10 @@ export interface TelemetryClient {
    * dashboard order (the platform's and the app's own).
    */
   getDashboardMetricGroups(options?: TelemetryRequestOptions): Promise<DashboardMetricGroupMeta[]>;
+  /** `GET …/dashboard/panels`: every registered dashboard panel (the platform's `api` and `logs`, and the app's), in dashboard order. */
+  getDashboardPanels(options?: TelemetryRequestOptions): Promise<DashboardPanelMeta[]>;
+  /** `GET …/dashboard/panels/:id`: one app panel's payload for the dashboard window. */
+  getDashboardPanel(id: string, query: DashboardQuery, options?: TelemetryRequestOptions): Promise<DashboardPanelData>;
 }
 
 /**
@@ -300,6 +306,9 @@ export function createTelemetryClient(api: PlatformApiClient): TelemetryClient {
       api.get<DashboardMetrics>(`${DASHBOARD}/metrics?${dashboardSearchParams(query, { group })}`, signalOf(options)),
     getDashboardMetricGroups: (options) =>
       api.get<DashboardMetricGroupMeta[]>(`${DASHBOARD}/metric-groups`, signalOf(options)),
+    getDashboardPanels: (options) => api.get<DashboardPanelMeta[]>(`${DASHBOARD}/panels`, signalOf(options)),
+    getDashboardPanel: (id, query, options) =>
+      api.get<DashboardPanelData>(`${DASHBOARD}/panels/${encodeURIComponent(id)}?${dashboardSearchParams(query)}`, signalOf(options)),
   };
 }
 

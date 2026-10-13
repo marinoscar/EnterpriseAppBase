@@ -1,7 +1,8 @@
 import type { AppMetricDef } from '@marinoscar/platform-api/otel-core';
-import { registerTelemetryStore, type MetricGroupDef } from '@marinoscar/platform-api/telemetry';
+import { registerDashboardPanel, registerTelemetryStore, type MetricGroupDef } from '@marinoscar/platform-api/telemetry';
 
 import { memoryTelemetryStore } from '../platform-extensions/telemetry/memory-store';
+import { SIGNUPS_DASHBOARD_PANEL } from '../platform-extensions/telemetry/signups.dashboard-panel';
 
 // =============================================================================
 // This app's telemetry registrations (issue #680)
@@ -28,6 +29,15 @@ import { memoryTelemetryStore } from '../platform-extensions/telemetry/memory-st
 //                      Registered after the platform metrics by
 //                      `common/otel/app-metric.manifest.ts`.
 //
+//   dashboard panels  `registerDashboardPanel(def)` AT IMPORT TIME (below): a card
+//                     of the Telemetry Dashboard with its own data. The web half is
+//                     `registerDashboardPanelView` (apps/web/src/platform-extensions/
+//                     telemetry/); the card is drawn when both exist. PP-14.18.
+//   assistant tools   `registerTelemetryAssistantTool(def)`, the same way: a tool
+//                     the telemetry assistant offers next to its own eight. The
+//                     reference app does NOT register its example,
+//                     `top_features` (it would add a tool to every fork's
+//                     assistant); the line to opt in is at the end of this file.
 //   telemetry stores  `registerTelemetryStore(def)` AT IMPORT TIME (below). The
 //                     registry freezes once the application has bootstrapped, and
 //                     `platform/telemetry/telemetry.config.ts` imports this file
@@ -67,3 +77,29 @@ export const APP_METRICS: readonly AppMetricDef[] = [];
 // `@marinoscar/platform-api/telemetry`.
 
 registerTelemetryStore(memoryTelemetryStore);
+
+// -----------------------------------------------------------------------------
+// Dashboard panels (PP-14.18)
+// -----------------------------------------------------------------------------
+//
+// The reference app registers the worked example, "Sign-ups"
+// (`platform-extensions/telemetry/signups.dashboard-panel.ts`): successful
+// sign-ins per bucket, read through the guarded query facade. The dashboard lists
+// it at `GET /api/admin/telemetry/dashboard/panels`, and draws it because the web
+// app registers a view for the same id. A fork that does not want the card deletes
+// this call (and the web view's registration, `apps/web/src/main.tsx`).
+
+registerDashboardPanel(SIGNUPS_DASHBOARD_PANEL);
+
+// -----------------------------------------------------------------------------
+// Assistant tools (PP-14.18)
+// -----------------------------------------------------------------------------
+//
+// To give the telemetry assistant the worked example, `top_features` (the most
+// requested API routes with their error rates), import it and register it here:
+//
+//   import { TOP_FEATURES_TOOL } from '../platform-extensions/telemetry/top-features.assistant-tool';
+//   registerTelemetryAssistantTool(TOP_FEATURES_TOOL);
+//
+// It is not registered upstream: the assistant's tool list, and the system
+// prompt that names the tools, are part of every fork's assistant.

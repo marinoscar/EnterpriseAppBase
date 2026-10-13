@@ -1,3 +1,5 @@
+import { PLATFORM_METRIC_PRESENTATIONS } from '@marinoscar/platform-contract/telemetry';
+
 import type { MetricGroupDef } from '../metric-group.registry';
 import { eq, HOST_FILTERS, HOST_TABLES, T } from '../metric-catalog.helpers';
 
@@ -11,6 +13,8 @@ export const HOST_METRIC_GROUP: MetricGroupDef = {
   title: 'Infrastructure',
   order: 10,
   description: 'CPU, memory, load, filesystems, disk/network IO',
+  // The section's look (tiles, charts, tables) lives with the group, as data; the web renders it.
+  presentation: PLATFORM_METRIC_PRESENTATIONS.host,
   families: [
     {
       key: 'cpuUtilization',

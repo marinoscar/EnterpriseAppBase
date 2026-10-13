@@ -2193,8 +2193,8 @@ the live registry. A duplicate id or family key fails boot; after bootstrap
 the registry is frozen. The `/metric-groups` route, the dashboard sections, the
 assistant's `metrics_overview` tool and the support bundle all read the same
 registry. An app group of `app_*` counters and histograms is expressed with
-the platform's `CounterFamily`/`HistogramFamily`, `APP_FILTERS` and
-`METRIC_UNITS` (the coach-shaped fixture in `telemetry/testing`).
+the platform's `CounterFamily`/`HistogramFamily`, `APP_FILTERS` and the built-in units (`BUILTIN_METRIC_UNITS`; an app adds its
+own, §12.5) (the coach-shaped fixture in `telemetry/testing`).
 
 > **Code:** `packages/platform-api/src/telemetry/metrics/` — `metric-group.registry.ts`
 > (the group registry), `groups/<id>.metric-group.ts` (the six platform
@@ -2222,8 +2222,8 @@ the static `metricGroupRegistry`:
 The manifest registers the six platform groups in their historic order, then
 the app's `APP_METRIC_GROUPS`. Registration refuses, at import time: an entry
 whose `group` differs from its group's id; a family, ratio or table key used
-by any other group (one key namespace across all three kinds); a unit outside
-`METRIC_UNITS`; a filter outside `service`/`instance`/`host`; a ratio
+by any other group (one key namespace across all three kinds); a unit nobody registered
+(`registerMetricUnit`, §12.5); a filter outside `service`/`instance`/`host`; a ratio
 reference or table histogram that names no registered family (of this group
 or an earlier one); a group with neither family nor table. `METRIC_GROUPS`,
 `METRIC_GROUP_LABELS`, `METRIC_FAMILIES`, `METRIC_RATIOS` and `METRIC_TABLES`
@@ -2693,6 +2693,102 @@ the real module and calls the dashboard and explorer routes.
 `packages/platform-api/test/telemetry/telemetry-store.module.spec.ts` asserts
 that seven consumers hold the one store `forRoot` selected.
 
+### 12.5 Units, presentation, panels, assistant tools and SDK extras
+
+Five more seams let an app put its own numbers on the dashboard and in the
+assistant without editing the platform. They share one rule: **an extension
+supplies data or a function that runs behind a guard, never a client.**
+
+**Units are an open registry.** `registerMetricUnit` adds a unit (`usd`,
+`bytes_per_s`) next to the built-ins, which register through the same call. A
+unit is a descriptor, not code: an id, a label and one of a fixed set of
+formats (`number`, `percent`, `bytes`, `duration-ms`, `duration-s`,
+`currency`, `text`, `boolean`, `timestamp`) with `currency`, `decimals` and
+`suffix`. A family, ratio or table column may name a registered unit; naming
+an unknown one fails boot with the registered ids. `GET dashboard/metric-groups`
+serves, with each group, the descriptors of the units it uses beyond the
+built-ins, so the browser formats a value of an app unit with no web change.
+Rejected: a formatter function in the descriptor (code from the API run in
+the browser) and a per-app web registry (two sources of truth that drift).
+
+**A presentation is data the web renders.** `MetricGroupDef.presentation`
+lists the tiles (in order, with a label, a unit and a colour), the charts (a
+title, the metrics drawn together and a colour per series value), the tables
+(a row limit offered as Top N and All, a sort of `problems-first` or
+`value-desc`, and how a column is drawn) and the virtual columns the browser
+computes from other columns (`ratio`, `delta`, `rate`). It is checked by zod
+when the group is registered (a bounded, closed set of keys; colours are theme
+tokens; units are registered ids; every metric it names belongs to the group)
+and carries no function, markup or style. The six platform groups declare
+theirs the same way (`PLATFORM_METRIC_PRESENTATIONS`, moved out of the web's
+section table), and the page draws a platform group with the DOM it always had
+(`TelemetryDashboardPage.builtin-dom.test.tsx` holds the snapshot, recorded
+from the page before the move). A group without a presentation draws every
+tile and table. Rejected: render props supplied by the app (they would run in
+every viewer's browser and cannot be validated) and a CSS-class vocabulary.
+
+**A dashboard panel is a registered function and a registered view.**
+`registerDashboardPanel` adds a card: an id, a label, an order and
+`data(ctx)`, which reads the store through the query facade and returns JSON.
+`GET dashboard/panels` lists the panels (the platform's `api` and `logs` are
+registered through the same call and marked `builtin`) and `GET
+dashboard/panels/:id` runs one for the dashboard's window and filters. The
+payload is bounded (256 KiB) and the call has a time budget; a failure is
+logged and answered generically, so a panel cannot leak a store error. The
+app registers the view for the id with `registerDashboardPanelView`; the page
+draws the frame (title, skeleton, error with Retry, "Open in Explorer" when
+the payload names its `sql`) and the view draws only the payload. A panel with
+no view is listed and not drawn. The page's three components take the
+page-slot contract, and the explorer takes `starterQueries`.
+
+**The query facade is the only way an extension reads the store.**
+`TelemetryQueryFacade` has three members: `query(sql, { maxRows })`, `sql`
+(quoting builders for literals, identifiers, timestamps and windows) and
+`dialect` (pure spelling functions). `query` runs ONE statement through
+`TelemetryQueryService`, so it passes the SQL guard (`analyzeStatement`), the
+row cap, the timeout and the audit row of every other statement, with the
+audit `source` naming the caller (`panel`, `assistant`); each facade has a
+statement budget per request. The facade is frozen and exposes no client,
+pool, connection, store or service, which conformance check 10 asserts. The
+extension cannot reach a write path because none is reachable from it; the
+guard remains the backstop for the SQL it builds.
+
+**Assistant tools are read-only additions to a closed set.**
+`registerTelemetryAssistantTool` adds a tool: a name, a description for the
+model, a zod object schema for its arguments and a `run` that receives the
+facade. The loop validates the model's arguments against the schema, bounds the
+output (24 000 characters), and withholds the output of a tool declared `rows`
+(the default) from the model while `assistant.shareResults` is off; `aggregate`
+output carries only numbers and timestamps the tool computed. A name that
+shadows one of the platform's eight tools, a malformed name or a duplicate is
+refused at registration, and the tools run only inside the existing
+`TelemetryAiEnabledGuard`, `telemetry:query` and `ai:use` route, so the AI
+feature gate is unchanged. `assistant.extraInstructions` (a `forRoot` option,
+at most 4 000 characters of plain text) is appended to the system prompt as an
+`APPLICATION NOTES` section that says it never changes the hard rules, the
+untrusted-data rules or the answer format. It is developer text set in code:
+no route, setting or user input reaches it. Rejected: handing a tool the
+query service or a pool (it would bypass the guard and the audit) and letting
+an app replace a built-in tool (the model's `run_query` must always be the
+platform's).
+
+**The OpenTelemetry SDK takes extras behind the gate.** `initializeOtel`
+accepts `spanProcessors`, `logRecordProcessors`, `metricReaders`, `views`, a
+`sampler`, a `textMapPropagator` and `resourceAttributes`. Every processor and
+reader is wrapped in a gated one, so none sees a span, record or metric while
+the runtime export gate is closed: an administrator who switches telemetry off
+stops the app's extra outputs as well, and no new environment variable decides
+it (§2). A test drives every kind through a closed gate and asserts nothing is
+exported, then opens it.
+
+The reference app's examples are wired where they change nothing a fork
+serves beyond the declared additions: the `activity` group gains a `usd` unit,
+a presentation, a top-5 table and a ratio column, and the `signups` panel and
+its view are registered. The `top_features` assistant tool is compiled and
+tested and deliberately not registered, because registering it would change
+the assistant's tool set for every fork; the dev console metric reader exists
+only for a development process that set `OTEL_DEBUG=true`.
+
 ## History
 
 - #528: epic, Telemetry Explorer on GreptimeDB.
@@ -2778,3 +2874,10 @@ that seven consumers hold the one store `forRoot` selected.
 - #929: the telemetry store port (`TELEMETRY_STORE`, `TelemetrySqlDialect`,
   `registerTelemetryStore`), `GreptimeClient` becoming its built-in
   implementation, the store settings route and form, and the conformance kit.
+- #936: units, presentation, panels, assistant tools and SDK extras (§12.5): `registerMetricUnit`,
+  `MetricGroupDef.presentation` served with the groups (the platform groups declare theirs),
+  `registerDashboardPanel` and `registerDashboardPanelView`, `registerTelemetryAssistantTool`
+  and `assistant.extraInstructions`, the guarded `TelemetryQueryFacade`, the page-slot contract on
+  the three pages and `starterQueries` on the explorer, and gated `spanProcessors`,
+  `logRecordProcessors`, `metricReaders`, `views`, `sampler`, `textMapPropagator` and
+  `resourceAttributes` on `initializeOtel`.

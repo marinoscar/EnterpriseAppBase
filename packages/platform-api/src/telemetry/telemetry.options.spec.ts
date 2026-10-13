@@ -3,6 +3,7 @@ import { DEFAULT_VERDICT_THRESHOLDS } from './dashboard/telemetry-dashboard.verd
 import { METRIC_FRESH_MS } from './metrics/metric-group';
 import {
   defaultTelemetryActorId,
+  resolveAssistantExtraInstructions,
   resolveMetricFreshMs,
   resolveTelemetryModuleOptions,
   resolveVerdictThresholds,
@@ -149,5 +150,33 @@ describe('defaultTelemetryActorId', () => {
     expect(defaultTelemetryActorId({})).toBeUndefined();
     expect(defaultTelemetryActorId(null)).toBeUndefined();
     expect(defaultTelemetryActorId({ user: { id: 7 } })).toBeUndefined();
+  });
+});
+
+describe('resolveAssistantExtraInstructions (PP-14.18)', () => {
+  it('is null when nothing is set, or only whitespace', () => {
+    expect(resolveAssistantExtraInstructions(undefined)).toBeNull();
+    expect(resolveAssistantExtraInstructions({})).toBeNull();
+    expect(resolveAssistantExtraInstructions({ extraInstructions: '  \n ' })).toBeNull();
+  });
+
+  it('trims the notes and keeps newlines and tabs', () => {
+    expect(resolveAssistantExtraInstructions({ extraInstructions: '  Checkout first.\n\tThen search.  ' })).toBe('Checkout first.\n\tThen search.');
+  });
+
+  it('fails boot, naming the option, for a non-object, a non-string, an over-long text or a control character', () => {
+    expect(() => resolveAssistantExtraInstructions('x' as never)).toThrow(/`assistant` must be an object/);
+    expect(() => resolveAssistantExtraInstructions({ extraInstructions: 42 as never })).toThrow(/extraInstructions` must be a string/);
+    expect(() => resolveAssistantExtraInstructions({ extraInstructions: 'x'.repeat(4001) })).toThrow(/at most 4000/);
+    expect(resolveAssistantExtraInstructions({ extraInstructions: 'x'.repeat(4000) })).toHaveLength(4000);
+    for (const bad of ['a\u0000b', 'a\u001bb', 'a\u007fb', 'a\rb']) {
+      expect(() => resolveAssistantExtraInstructions({ extraInstructions: bad })).toThrow(/control characters/);
+    }
+  });
+
+  it('flows through resolveTelemetryModuleOptions as the frozen resolved option', () => {
+    const resolved = resolveTelemetryModuleOptions({ host, imports: [], assistant: { extraInstructions: 'Weigh checkout first.' } });
+    expect(resolved.assistantExtraInstructions).toBe('Weigh checkout first.');
+    expect(resolveTelemetryModuleOptions({ host, imports: [] }).assistantExtraInstructions).toBeNull();
   });
 });

@@ -164,7 +164,7 @@ None.
 | Part | Import paths | Depends on (slices) | Install beyond the required peers | README |
 |---|---|---|---|---|
 | API (`platform-api`) | `/telemetry`, `/telemetry/testing` | `core`, `doctor`, `otel-core`, `credentials` | `@nestjs/config`, `@nestjs/schedule`, `fastify`; `/testing` adds `@nestjs/platform-fastify` | [README](../packages/platform-api/src/telemetry/README.md) |
-| Web (`platform-web`) | `/telemetry/headless`, `/telemetry/ui`, `/telemetry/ui/dashboard-page`, `/telemetry/ui/explorer-page`, `/telemetry/ui/settings-page` | `core`, `settings` | `@codemirror/lang-sql`, `@mui/icons-material`, `@mui/x-charts`, `@mui/x-data-grid`, `@uiw/react-codemirror`, `react-router-dom` | [README](../packages/platform-web/src/telemetry/README.md) |
+| Web (`platform-web`) | `/telemetry/headless`, `/telemetry/ui`, `/telemetry/ui/dashboard-page`, `/telemetry/ui/dashboard-panels`, `/telemetry/ui/explorer-page`, `/telemetry/ui/settings-page` | `core`, `settings` | `@codemirror/lang-sql`, `@mui/icons-material`, `@mui/x-charts`, `@mui/x-data-grid`, `@uiw/react-codemirror`, `react-router-dom` | [README](../packages/platform-web/src/telemetry/README.md) |
 | Contract (`platform-contract`) | `/telemetry` | `settings` | none | [README](../packages/platform-contract/src/telemetry/README.md) |
 | CLI (`platform-cli`) | `/telemetry` | `core` | none | [README](../packages/platform-cli/src/telemetry/README.md) |
 | Infra (`platform-infra`) | `/telemetry` | none | none | [README](../packages/platform-infra/src/telemetry/README.md) |

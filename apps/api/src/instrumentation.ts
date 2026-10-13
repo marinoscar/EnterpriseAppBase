@@ -19,7 +19,11 @@
 //     #532). Health probes are not traced; fs instrumentation is off; pino
 //     records are forwarded as OTLP logs. SIGTERM shuts the SDK down.
 //
-// OTEL_DEBUG=true (with NODE_ENV=development) prints the SDK's diagnostics.
+// OTEL_DEBUG=true (with NODE_ENV=development) prints the SDK's diagnostics, and
+// adds a console metric reader (PP-14.18, `devConsoleMetricReaders`): the
+// worked example of `initializeOtel({ metricReaders })`. The SDK puts every
+// extra reader behind the same runtime gate, so it prints nothing while
+// telemetry is switched off.
 // =============================================================================
 
 import { initializeOtel } from '@marinoscar/platform-api/otel-core/sdk';
@@ -27,6 +31,7 @@ import { initializeOtel } from '@marinoscar/platform-api/otel-core/sdk';
 // Binds the package's resolvers to APP_SLUG (and seeds the gate's instance
 // id); touches nothing the auto-instrumentation patches.
 import { resolveServiceName, resolveTelemetryInstanceId } from './common/otel/telemetry-identity';
+import { devConsoleMetricReaders } from './platform-extensions/telemetry/dev-console-metrics';
 
 // Initialize immediately when this module is loaded.
 export const sdk = initializeOtel({
@@ -34,4 +39,6 @@ export const sdk = initializeOtel({
   // The instance id the gate stamps until the telemetry settings are read:
   // the app's slug, so the first exported batch is never unlabelled.
   instanceId: resolveTelemetryInstanceId(null),
+  // Empty unless this is a development process that set OTEL_DEBUG=true.
+  metricReaders: devConsoleMetricReaders(),
 });

@@ -44,7 +44,7 @@ import { TelemetryHttpError } from './telemetry-query.errors';
  *
  * @stability experimental
  */
-export type TelemetryQuerySource = 'explorer' | 'assistant' | 'export';
+export type TelemetryQuerySource = 'explorer' | 'assistant' | 'export' | 'panel';
 
 /**
  * How `TelemetryQueryService.run` runs one statement.
@@ -65,6 +65,7 @@ export const TELEMETRY_QUERY_AUDIT_ACTIONS: Record<TelemetryQuerySource, string>
   explorer: 'telemetry:query',
   export: 'telemetry:export',
   assistant: 'telemetry:assistant_query',
+  panel: 'telemetry:panel_query',
 };
 
 /** How much of the SQL text an audit row keeps. */

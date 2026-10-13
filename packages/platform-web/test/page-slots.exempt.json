@@ -46,18 +46,6 @@
       "reason": "migrated in PP-14.24 (#942)/25 (#943)"
     },
     {
-      "page": "TelemetryDashboardPage",
-      "reason": "migrated in PP-14.24 (#942)"
-    },
-    {
-      "page": "TelemetryExplorerPage",
-      "reason": "migrated in PP-14.24 (#942)"
-    },
-    {
-      "page": "TelemetrySettingsPage",
-      "reason": "migrated in PP-14.24 (#942)"
-    },
-    {
       "page": "UserTokensPage",
       "reason": "migrated in PP-14.25 (#943)"
     },
