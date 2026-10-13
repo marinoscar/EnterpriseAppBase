@@ -30,10 +30,12 @@ export {
   buildPermissionCatalog,
   catalogGrants,
   composePermissionCatalog,
+  grantPermissions,
   permissionIds,
   permissionRegistry,
   registerPermissions,
   registerRoles,
+  roleGrantRegistry,
   roleIds,
   roleRegistry,
 } from './permissions/index';
@@ -51,6 +53,8 @@ export type {
   PermissionScope,
   RoleDeclaration,
   RoleDeclarationMap,
+  RoleGrantDeclaration,
+  RoleGrantEntry,
 } from './permissions/index';
 
 // Principal and scope contract (ADR 0001, issue #687). Types only.

@@ -38,6 +38,36 @@ export interface RoleDeclaration<Id extends string = string> {
   readonly description: string;
   /** `'system'` (assigned in `user_roles`) or `'org'` (assigned on a membership). Required: there is no default. */
   readonly scope: PermissionScope;
+  /**
+   * A short display name for the role (`'Coach'`), served by `GET /api/roles`
+   * and shown by the packaged invite, member and user-role dialogs. Default:
+   * the id with `_` and `-` read as spaces and the first letter capitalised.
+   * Presentation only; never seeded.
+   */
+  readonly label?: string;
+  /**
+   * Whether the invite, member and user-role routes may assign this role.
+   * Default `true`. Set `false` for a role the application manages itself (an
+   * internal or service role): every assignment route then answers 400
+   * (`details.reason: ROLE_NOT_ASSIGNABLE`) for it, and the dialogs do not
+   * offer it. Registry-only; never seeded, so changing it needs no re-seed.
+   */
+  readonly assignable?: boolean;
+}
+
+/**
+ * Permissions granted to a role that already exists, in addition to the
+ * `defaultGrants` of the permissions themselves: how an app gives its own
+ * role a PLATFORM permission (a platform permission's `defaultGrants` are the
+ * platform's and cannot name an app role).
+ *
+ * @stability experimental
+ */
+export interface RoleGrantDeclaration {
+  /** The role receiving the permissions: a role registered earlier, of the same scope as every permission below. */
+  readonly role: string;
+  /** The permission ids granted, each a permission registered earlier. At least one. */
+  readonly permissions: readonly string[];
 }
 
 /**

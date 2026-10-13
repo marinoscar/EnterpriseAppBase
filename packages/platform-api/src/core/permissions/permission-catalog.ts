@@ -13,12 +13,22 @@
 import { Registry } from '../registry/registry';
 import {
   entriesOf,
+  expandGrants,
+  grantRegistryOptions,
   permissionRegistry,
   permissionRegistryOptions,
+  roleGrantRegistry,
   roleRegistry,
   roleRegistryOptions,
+  type RoleGrantEntry,
 } from './permission.registry';
-import type { Declarations, PermissionDeclaration, PermissionScope, RoleDeclaration } from './permission.types';
+import type {
+  Declarations,
+  PermissionDeclaration,
+  PermissionScope,
+  RoleDeclaration,
+  RoleGrantDeclaration,
+} from './permission.types';
 
 /**
  * One role or permission as a seed writes it.
@@ -59,6 +69,11 @@ export interface PermissionCatalogSource {
   readonly roles: DeclarationList<RoleDeclaration>;
   /** The permissions, in registration order. */
   readonly permissions: DeclarationList<PermissionDeclaration>;
+  /**
+   * The explicit role grants ({@link grantPermissions}), in registration order.
+   * Optional so a source built before grants existed keeps working.
+   */
+  readonly grants?: DeclarationList<RoleGrantEntry>;
 }
 
 /**
@@ -104,15 +119,27 @@ export interface CatalogGrant {
  * @stability stable
  */
 export function buildPermissionCatalog(
-  source: PermissionCatalogSource = { roles: roleRegistry, permissions: permissionRegistry },
+  source: PermissionCatalogSource = { roles: roleRegistry, permissions: permissionRegistry, grants: roleGrantRegistry },
 ): PermissionCatalog {
   const roles = source.roles.list();
   const permissions = source.permissions.list();
 
+  // A role's permissions are its default grants and its explicit grants, in
+  // permission registration order (so a role that gets nothing extra keeps
+  // exactly the list it always had).
+  const explicit = new Map<string, Set<string>>();
+  for (const grant of source.grants?.list() ?? []) {
+    const set = explicit.get(grant.role) ?? new Set<string>();
+    set.add(grant.permission);
+    explicit.set(grant.role, set);
+  }
   const rolePermissions: Record<string, string[]> = {};
   for (const role of roles) rolePermissions[role.id] = [];
   for (const permission of permissions) {
     for (const role of permission.defaultGrants) (rolePermissions[role] ??= []).push(permission.id);
+    for (const [role, held] of explicit) {
+      if (held.has(permission.id)) (rolePermissions[role] ??= []).push(permission.id);
+    }
   }
 
   return {
@@ -136,13 +163,15 @@ export interface PermissionCatalogDeclarations {
   readonly roles: ReadonlyArray<Declarations<RoleDeclaration>>;
   /** Batches of permissions, registered after every role, in order. */
   readonly permissions: ReadonlyArray<Declarations<PermissionDeclaration>>;
+  /** Batches of explicit role grants, registered after every permission, in order. */
+  readonly grants?: ReadonlyArray<readonly RoleGrantDeclaration[]>;
 }
 
 /**
  * Composes a catalog from declarations without touching the static
  * registries: the same validation, duplicate rule and order as
- * {@link registerRoles} and {@link registerPermissions}, on detached
- * registries. For a seed or a test that wants the catalog of a set of
+ * {@link registerRoles}, {@link registerPermissions} and
+ * {@link grantPermissions}, on detached registries. For a seed or a test that wants the catalog of a set of
  * declarations, not of the process.
  *
  * @param declarations - role batches, then permission batches.
@@ -159,9 +188,11 @@ export interface PermissionCatalogDeclarations {
 export function composePermissionCatalog(declarations: PermissionCatalogDeclarations): PermissionCatalog {
   const roles = new Registry<RoleDeclaration>(roleRegistryOptions());
   const permissions = new Registry<PermissionDeclaration>(permissionRegistryOptions(roles));
+  const grants = new Registry<RoleGrantEntry>(grantRegistryOptions(roles, permissions));
   for (const batch of declarations.roles) roles.registerAll(entriesOf(batch));
   for (const batch of declarations.permissions) permissions.registerAll(entriesOf(batch));
-  return buildPermissionCatalog({ roles, permissions });
+  for (const batch of declarations.grants ?? []) grants.registerAll(expandGrants(batch));
+  return buildPermissionCatalog({ roles, permissions, grants });
 }
 
 /**
