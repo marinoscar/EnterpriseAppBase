@@ -158,7 +158,7 @@ describe('sharing.groups.orphaned', () => {
     expect(register).toHaveBeenCalledWith(check);
     expect(await check.run()).toMatchObject({ status: 'warn', data: { orphaned: 1, sample: 'g1' } });
     expect(data.systemReasons).toEqual(['doctor']);
-    expect(tx.group.count.mock.calls[0][0].where).toEqual({ members: { none: { role: 'admin' } } });
+    expect(tx.group.count.mock.calls[0][0].where).toEqual({ members: { none: { role: { in: ['admin'] } } } });
     for (const d of [tx.group, tx.groupMember, tx.groupInvite]) {
       for (const write of [d.create, d.update, d.updateMany, d.delete, d.deleteMany]) expect(write).not.toHaveBeenCalled();
     }

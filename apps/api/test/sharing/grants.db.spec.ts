@@ -163,11 +163,11 @@ describeWithDb('grants (real Postgres)', () => {
   }, 60_000);
 
   describe('the schema', () => {
-    const insert = (kind: string, cols: { user?: string | null; group?: string | null; hash?: string | null }) =>
+    const insert = (kind: string, cols: { user?: string | null; group?: string | null; hash?: string | null; ref?: string | null }) =>
       asSystem(db, (tx) =>
-        tx.$executeRaw`INSERT INTO grants (id, org_id, resource_type, resource_id, grantee_kind, grantee_user_id, grantee_group_id, link_token_hash, role, created_at, updated_at)
-                       VALUES (gen_random_uuid(), ${ORG_A}::uuid, ${TEST_DOC_TYPE}, ${docs.d5}::uuid, ${kind}::"GrantGranteeKind", ${cols.user ?? null}::uuid,
-                               ${cols.group ?? null}::uuid, ${cols.hash ?? null}, 'viewer', now(), now())`,
+        tx.$executeRaw`INSERT INTO grants (id, org_id, resource_type, resource_id, grantee_kind, grantee_user_id, grantee_group_id, link_token_hash, grantee_ref, role, created_at, updated_at)
+                       VALUES (gen_random_uuid(), ${ORG_A}::uuid, ${TEST_DOC_TYPE}, ${docs.d5}::uuid, ${kind}::text, ${cols.user ?? null}::uuid,
+                               ${cols.group ?? null}::uuid, ${cols.hash ?? null}, ${cols.ref ?? null}, 'viewer', now(), now())`,
       );
 
     it('keeps the grantee columns consistent with grantee_kind (CHECK)', async () => {
@@ -178,6 +178,15 @@ describeWithDb('grants (real Postgres)', () => {
       await expect(insert('link', { user: u.carol, hash: `h-${randomUUID()}` })).rejects.toThrow(/grants_grantee_consistency_check/);
       await expect(insert('user', { user: u.carol, hash: `h-${randomUUID()}` })).rejects.toThrow(/grants_grantee_consistency_check/);
       await expect(insert('link', { hash: `h-${randomUUID()}` })).resolves.toBe(1);
+      // PP-14.15b: an app kind carries a reference and none of the built-in columns; a built-in kind carries no reference.
+      await expect(insert('team', {})).rejects.toThrow(/grants_grantee_consistency_check/);
+      await expect(insert('team', { ref: 't1', user: u.carol })).rejects.toThrow(/grants_grantee_consistency_check/);
+      await expect(insert('team', { ref: 't1', hash: `h-${randomUUID()}` })).rejects.toThrow(/grants_grantee_consistency_check/);
+      await expect(insert('user', { user: u.carol, ref: 't1' })).rejects.toThrow(/grants_grantee_consistency_check/);
+      await expect(insert('team', { ref: 't1' })).resolves.toBe(1);
+      await expect(insert('team', { ref: 't1' })).rejects.toThrow(/grants_active_ref_uniq_idx/);
+      await expect(insert('team', { ref: 't2' })).resolves.toBe(1);
+      await asSystem(db, (tx) => tx.$executeRaw`DELETE FROM grants WHERE resource_id = ${docs.d5}::uuid AND grantee_kind = 'team'`);
     });
 
     it('allows one ACTIVE grant per resource and user or group (partial unique indexes); a revoked one does not block', async () => {

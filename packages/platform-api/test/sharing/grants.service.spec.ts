@@ -173,7 +173,7 @@ describe('GrantsService.create', () => {
     tx.$queryRaw.mockResolvedValue(upserted(true));
     const { service, emitted, notifier } = build(tx);
     const dto = await withTypes([docType(table())], () => service.create(owner(), { ...base, grantee: { kind: 'group', groupId: GROUP } }));
-    expect(dto.grantee).toEqual({ kind: 'group', userId: null, email: null, displayName: null, groupId: GROUP, groupName: 'Family' });
+    expect(dto.grantee).toEqual({ kind: 'group', userId: null, email: null, displayName: null, groupId: GROUP, groupName: 'Family', ref: null, display: null });
     expect((tx.$queryRaw.mock.calls[0]![0] as string[]).join('?')).toContain("WHERE grantee_kind = 'group' AND revoked_at IS NULL");
     expect(tx.group.findFirst).toHaveBeenCalledWith({ where: { id: GROUP, orgId: ORG }, select: { id: true } });
     expect(emitted.map((e) => e.name)).toEqual([SHARING_EVENTS.GRANT_CREATED]);

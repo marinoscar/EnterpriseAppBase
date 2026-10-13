@@ -337,7 +337,7 @@ export function persistedGranteeKinds(): GranteeKindDef[] {
 
 /**
  * The Prisma `where` over `Grant` rows that names `principal` through `def`,
- * pinned to the kind: `{ AND: [{ granteeKind }, def.principalWhere(...)] }`. The
+ * pinned to the kind (an app kind; the built-ins pin their own): `{ AND: [{ granteeKind }, def.principalWhere(...)] }`. The
  * pin is the platform's, not the kind's, so a kind whose `where` is too broad
  * (empty, a bare `OR`) still cannot match another kind's rows. `null` when the
  * kind names nobody; a kind that throws names nobody (fail closed).
@@ -350,7 +350,8 @@ export function persistedGranteeKinds(): GranteeKindDef[] {
 export function granteeWhereFor(def: GranteeKindDef, principal: Principal): Record<string, unknown> | null {
   try {
     const where = def.principalWhere?.(principal) ?? null;
-    return where === null ? null : { AND: [{ granteeKind: def.kind }, where] };
+    // The built-ins are the platform's own and already pin their kind; an app kind is pinned here.
+    return where === null || BUILTIN_GRANTEE_KIND_IDS.includes(def.kind) ? where : { AND: [{ granteeKind: def.kind }, where] };
   } catch {
     return null;
   }
@@ -358,7 +359,7 @@ export function granteeWhereFor(def: GranteeKindDef, principal: Principal): Reco
 
 /**
  * The SQL condition over a grants row that names `principal` through `def`,
- * pinned to the kind (`kind = '<id>' AND (<the kind's fragment>)`, the id a bind
+ * pinned to the kind for an app kind (`kind = '<id>' AND (<the kind's fragment>)`, the id a bind
  * parameter), for the same reason as {@link granteeWhereFor}. `null` when the
  * kind names nobody; a kind that throws names nobody.
  *
@@ -372,7 +373,7 @@ export function granteeWhereFor(def: GranteeKindDef, principal: Principal): Reco
 export function granteeSqlFor<S>(def: GranteeKindDef, principal: Principal, columns: GranteeColumns<S>, kit: SqlKit<S>): S | null {
   try {
     const fragment = def.resolvePrincipalMatch<S>(principal, columns, kit);
-    return fragment === null ? null : kit.sql`(${columns.kind} = ${def.kind} AND (${fragment}))`;
+    return fragment === null || BUILTIN_GRANTEE_KIND_IDS.includes(def.kind) ? fragment : kit.sql`(${columns.kind} = ${def.kind} AND (${fragment}))`;
   } catch {
     return null;
   }

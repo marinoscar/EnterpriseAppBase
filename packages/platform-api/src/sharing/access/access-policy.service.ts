@@ -543,7 +543,7 @@ function decideOne(
 /** Whether a stored grant of `def` names the caller. A kind that throws names nobody (fail closed). */
 function granteeNamesCaller(def: ReturnType<typeof findGranteeKind> & object, grant: GrantContribution, principal: Principal): boolean {
   try {
-    return def.matchesPrincipal({ kind: grant.granteeKind, userId: grant.granteeUserId, groupId: grant.granteeGroupId, ref: grant.granteeRef }, principal);
+    return def.matchesPrincipal({ kind: grant.granteeKind, userId: grant.granteeUserId, groupId: grant.granteeGroupId, ref: grant.granteeRef ?? null }, principal);
   } catch {
     return false;
   }

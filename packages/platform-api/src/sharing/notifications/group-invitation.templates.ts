@@ -18,6 +18,8 @@
 
 import type { GroupRole } from '@marinoscar/platform-contract/sharing';
 
+import { findGroupRole } from '../group-roles';
+
 /**
  * The notification event key. Persisted in preferences and delivery rows:
  * never rename it.
@@ -94,8 +96,13 @@ function describeRole(role: GroupRole): string {
       return 'an admin';
     case 'editor':
       return 'an editor';
-    default:
+    case 'viewer':
       return 'a viewer';
+    default: {
+      // An app role reads by its registered label; a role that left the registry reads as plain membership.
+      const label = findGroupRole(role)?.label.trim().toLowerCase();
+      return label ? `${/^[aeiou]/.test(label) ? 'an' : 'a'} ${label}` : 'a member';
+    }
   }
 }
 

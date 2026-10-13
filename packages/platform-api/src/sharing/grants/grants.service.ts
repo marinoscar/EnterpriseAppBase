@@ -133,7 +133,7 @@ export function toGrantDto(row: GrantWithGrantee): GrantDto {
       displayName: row.granteeUser ? (row.granteeUser.displayName ?? row.granteeUser.providerDisplayName ?? null) : null,
       groupId: row.granteeGroupId,
       groupName: row.granteeGroup?.name ?? null,
-      ref: row.granteeRef,
+      ref: row.granteeRef ?? null,
       // Filled by the service for an app kind (its `describe` is asynchronous).
       display: null,
     },
