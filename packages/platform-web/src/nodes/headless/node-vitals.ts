@@ -33,7 +33,6 @@ export type NodeVitalUnit = 'count' | 'percent' | 'bytes' | 'milliseconds' | 'se
 /**
  * How one `vitals.extra` key reads on the fleet page.
  *
- * @extensionPoint registry
  * @stability experimental
  */
 export interface NodeVitalDef {

@@ -106,6 +106,8 @@ export class NodeTelemetryService {
     //    A span that failed validation was parsed to the marker: it is dropped
     //    here, individually, and never reaches the query.
     const valid: NodeSpan[] = dto.spans.filter(isValidNodeSpan);
+    if (valid.length === 0) return { accepted: 0, dropped: dto.spans.length };
+
     const jobIds = [...new Set(valid.map((span) => span.jobId))];
     const rows: JobAttributionRow[] = await this.prisma.job.findMany({
       where: { id: { in: jobIds } },

@@ -35,7 +35,6 @@ export {
   resolveRelayedAttribute,
 } from './node-span-attribute.registry';
 export type { NodeSpanAttributeDefinition } from './node-span-attribute.registry';
-export { NODE_APP_SPAN_NAME_PATTERN, NODE_SPAN_NAMES } from './dto/node-telemetry.dto';
 export type { BuiltinNodeSpanName, NodeSpanName } from './dto/node-telemetry.dto';
 
 // ---- events (rung 4) -------------------------------------------------------------------------

@@ -72,7 +72,6 @@ export interface JobTypeRequirements {
 /**
  * What an executor needs, as `registerJobRequirement` takes it.
  *
- * @extensionPoint registry
  * @stability experimental
  */
 export interface JobRequirementInput {
@@ -149,7 +148,6 @@ const probedBinaryVersionArgs = new Map<string, readonly string[]>();
 /**
  * How to read one probed binary's version.
  *
- * @extensionPoint registry
  * @stability experimental
  */
 export interface ProbedBinaryOptions {

@@ -51,7 +51,6 @@ export const MAX_NODE_SPAN_ATTRIBUTES = 16;
 /**
  * One relayed span attribute.
  *
- * @extensionPoint registry
  * @stability experimental
  */
 export interface NodeSpanAttributeDefinition {

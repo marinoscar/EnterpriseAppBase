@@ -43,7 +43,7 @@ import { defineRegistry } from '../../core/index';
  * `runRetentionPolicyPurge` does the batched delete), mounted by the module that
  * owns the table.
  *
- * @extensionPoint registry
+ * @extensionPoint option
  * @stability experimental
  */
 export interface RetentionPurgeHandler {
@@ -59,7 +59,7 @@ export interface RetentionPurgeHandler {
 /**
  * One retention policy: a table that joins the nightly retention.
  *
- * @extensionPoint registry
+ * @extensionPoint option
  * @stability experimental
  */
 export interface RetentionPolicyDefinition {

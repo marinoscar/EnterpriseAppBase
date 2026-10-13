@@ -163,7 +163,6 @@ function declaration(): SystemSettingsNamespace<'retention', RetentionSettingsVa
  *
  * Composed from the policy registry on first read; see the file header.
  *
- * @extensionPoint registry
  * @stability experimental
  */
 export const RETENTION_SYSTEM_SETTINGS: SystemSettingsNamespace<'retention', RetentionSettingsValue, RetentionSettingsPatch> = {

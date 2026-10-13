@@ -40,7 +40,6 @@ export type JobReasonEnum = { [K in (typeof BUILTIN_JOB_REASONS)[number]]: K };
  * enum, so an app's `registerJobReason` ids pass. Whether an id is registered
  * is checked where a job is enqueued, never in this schema.
  *
- * @extensionPoint registry
  * @stability experimental
  */
 export const jobReasonSchema = z

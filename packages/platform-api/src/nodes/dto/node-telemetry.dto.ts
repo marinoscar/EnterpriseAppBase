@@ -61,15 +61,27 @@ import {
   NODE_SPAN_ATTRIBUTE_STRING_PATTERN,
 } from '../node-span-attribute.registry';
 
-/** The phase spans a node always relays. Adding one is an API change, on purpose. */
+/**
+ * The phase spans a node always relays. Adding one is an API change, on purpose.
+ *
+ * @stability experimental
+ */
 export const NODE_SPAN_NAMES = BUILTIN_NODE_SPAN_NAMES;
 
 export { NODE_APP_SPAN_NAME_PATTERN };
 
-/** A built-in phase span name. */
+/**
+ * A built-in phase span name.
+ *
+ * @stability experimental
+ */
 export type BuiltinNodeSpanName = (typeof NODE_SPAN_NAMES)[number];
 
-/** A span name: a built-in phase, or an executor's `job.app.<name>`. */
+/**
+ * A span name: a built-in phase, or an executor's `job.app.<name>`.
+ *
+ * @stability experimental
+ */
 export type NodeSpanName = BuiltinNodeSpanName | `job.app.${string}`;
 
 /** Spans per request. A job produces about five; this is ten jobs' worth. */

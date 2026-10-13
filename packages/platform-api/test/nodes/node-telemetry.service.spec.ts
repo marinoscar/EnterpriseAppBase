@@ -337,12 +337,15 @@ describe('NodeTelemetryService', () => {
       expect(tracing.exporter.getFinishedSpans().map((emitted) => emitted.name)).toEqual(['job.execute', 'job.app.transcode']);
     });
 
-    it('charges the rate limit for refused spans too, and reads no job for a batch of only refused spans', async () => {
+    it('reads no job for a batch of only refused spans, and still charges the rate limit for them', async () => {
       (prisma.job.findMany as jest.Mock).mockClear();
+      const take = jest.spyOn(limiter, 'take');
 
-      const result = await service.relay(USER, NODE_ID, { spans: [INVALID_NODE_SPAN] } as unknown as NodeTelemetryDto);
+      const result = await service.relay(USER, NODE_ID, { spans: [INVALID_NODE_SPAN, INVALID_NODE_SPAN] } as unknown as NodeTelemetryDto);
 
-      expect(result).toEqual({ accepted: 0, dropped: 1 });
+      expect(result).toEqual({ accepted: 0, dropped: 2 });
+      expect(prisma.job.findMany).not.toHaveBeenCalled();
+      expect(take).toHaveBeenCalledWith(NODE_ID, 2);
     });
   });
 });

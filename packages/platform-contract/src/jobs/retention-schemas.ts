@@ -43,7 +43,6 @@ export const RETENTION_MIN_DAYS = 1;
  * app adds policies of its own with `registerRetentionPolicy`
  * (`@marinoscar/platform-api/jobs`); they follow these four.
  *
- * @extensionPoint registry
  * @stability stable
  */
 export const BUILTIN_RETENTION_POLICY_KEYS = ['notifications', 'notificationDeliveries', 'auditEvents', 'aiRuns'] as const;

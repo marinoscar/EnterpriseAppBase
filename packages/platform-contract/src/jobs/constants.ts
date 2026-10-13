@@ -42,7 +42,6 @@ export type JobStatusName = (typeof JOB_STATUSES)[number];
  * and `jobs.reason` is a plain string, so these three are the platform's, not
  * the only values a row can hold. Use {@link JobReasonName} for "any reason".
  *
- * @extensionPoint registry
  * @stability experimental
  */
 export const BUILTIN_JOB_REASONS = [

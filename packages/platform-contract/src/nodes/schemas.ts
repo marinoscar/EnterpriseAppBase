@@ -434,7 +434,6 @@ export const nodeVitalsCountersSchema = z
  * node its liveness signal), and the fleet page labels a key through
  * `registerNodeVital`.
  *
- * @extensionPoint registry
  * @stability experimental
  */
 export const nodeVitalsExtraSchema = z
