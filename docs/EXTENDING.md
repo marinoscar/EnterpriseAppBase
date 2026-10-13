@@ -207,6 +207,23 @@ Full rule: [settings-ui.md §4](specs/settings-ui.md#4-extending-it-in-a-fork) a
 7. **Never add a tab** to an existing settings page for a new destination; a tab is for parallel content inside one page.
 8. **Run the registry suites**: `cd apps/web && npx vitest run src/__tests__/config` (`settings-registry-shape`, `settings-card-routes`, `settings-route-ownership`).
 
+### Add a slot to a packaged page
+
+Full contract: [Page slots](../packages/platform-web/src/core/README.md#page-slots) in the web core README; page-specific slots in the README of the page's slice ([jobs](../packages/platform-web/src/jobs/README.md), [nodes](../packages/platform-web/src/nodes/README.md), [db-backup](../packages/platform-web/src/db-backup/README.md), [doctor](../packages/platform-web/src/doctor/README.md)). Examples: [`apps/web/src/platform-extensions/`](../apps/web/src/platform-extensions/) with tests in [`apps/web/src/__tests__/examples/`](../apps/web/src/__tests__/examples/).
+
+Every packaged page takes an optional `slots` prop typed to `PageSlotsBase` (`Header`, `BeforeContent`, `Sections`, `AfterContent`), and a page with a table adds `TableSlots<Row>` (`Columns`, `RowActions`, `DetailPanel`, `Toolbar`). With no slot the page's markup is unchanged.
+
+1. **Pick the slot** from the page's README. Prefer the narrowest one: a `Columns` function over a copied page, `RowActions` over a custom table.
+2. **Write a function component.** It receives data (the row, the check, the state the page holds), never an API client. If it must call the API, use `usePlatformApi()` and let the server enforce permissions.
+3. **Pass it at the route**: `<Route path="/admin/settings/jobs" element={<JobsPage slots={{ Columns, RowActions }} />} />`. Keep the `slots` object, or its members, stable (module scope or `useMemo`): a page re-derives its columns when a table slot changes identity.
+4. **Add a column** by wrapping `Columns`: `(base) => [...base, { id: 'owner', label: 'Owner', priority: 'secondary', value: (job) => ownerOf(job) }]`. The column type is the slice's (`JobsTableColumn<Job>`, `NodesTableColumn<WorkerNode>`).
+5. **Render `Sections` with a position.** It is rendered at both ends of the body; return `null` for the end you do not want.
+6. **Doctor.** `registerDoctorCheckRenderer(checkId, Component)` (from `@marinoscar/platform-web/doctor/headless`, at module scope, so the main chunk does not import the page) draws a check's `data` inside its row; `slots.CheckRowActions` adds a button to every row.
+7. **Test it** by rendering the real page with your slot, over `createTestPlatformHost` from `@marinoscar/platform-web/testing`, and assert the slot's output beside the page's own.
+8. **A page of your own** follows the same contract: type its `slots` as `interface MyPageSlots extends PageSlotsBase`. The package's CI check (`test/page-slots.contract.test.ts`) enforces this for the packaged pages only.
+
+What is still closed: the pages not yet migrated are listed, each with the story that migrates it, in `packages/platform-web/test/page-slots.exempt.json`.
+
 ### Add a side table with an `extend model` relation
 
 Full reference: [the platform-db README](../packages/platform-db/README.md#extension-point-catalog) and [the app fragments README](../apps/api/prisma/fragments/README.md). Only a model its owner marked `// @extensible` takes a back-relation: `User`, `Organization`, `Job`, `Group` and `StorageObject`. Never add a column to a platform table.
