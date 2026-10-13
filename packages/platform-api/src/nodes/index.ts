@@ -22,6 +22,22 @@ export type {
   SignedUrlOptions,
 } from './ports';
 
+// ---- relayed span attributes (rung 2) -----------------------------------------------------
+export {
+  BUILTIN_NODE_SPAN_ATTRIBUTES,
+  DEFAULT_NODE_SPAN_ATTRIBUTE_STRING_LENGTH,
+  MAX_NODE_SPAN_ATTRIBUTES,
+  MAX_NODE_SPAN_ATTRIBUTE_STRING_LENGTH,
+  NODE_SPAN_ATTRIBUTE_KEY_PATTERN,
+  NODE_SPAN_ATTRIBUTE_STRING_PATTERN,
+  nodeSpanAttributeRegistry,
+  registerNodeSpanAttribute,
+  resolveRelayedAttribute,
+} from './node-span-attribute.registry';
+export type { NodeSpanAttributeDefinition } from './node-span-attribute.registry';
+export { NODE_APP_SPAN_NAME_PATTERN, NODE_SPAN_NAMES } from './dto/node-telemetry.dto';
+export type { BuiltinNodeSpanName, NodeSpanName } from './dto/node-telemetry.dto';
+
 // ---- events (rung 4) -------------------------------------------------------------------------
 export { NODE_OFFLINE_EVENT, NodeOfflineEvent } from './events/node-offline.event';
 
