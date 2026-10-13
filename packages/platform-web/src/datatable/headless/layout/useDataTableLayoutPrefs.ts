@@ -47,15 +47,23 @@ import type {
   DataTableSortConfig,
 } from '../types.js';
 import {
+  DATA_TABLE_ENTRY_MAX_BYTES,
+  DATA_TABLE_MAX_ID_LENGTH,
+  DATA_TABLE_MAX_SAVED_VIEWS,
   DATA_TABLE_PERSIST_DEBOUNCE_MS,
+  DATA_TABLE_VIEW_NAME_MAX_LENGTH,
   encodeVisibility,
   isEmptyStoredLayout,
+  isValidStoredExtra,
+  jsonByteLength,
   resolveStoredSort,
   resolveUserVisibleColumnIds,
   resolveVisibleColumnIds,
   sanitizeStoredLayout,
+  type DataTableSavedView,
   type DataTableStoredLayout,
   type DataTableStoredSort,
+  type DataTableViewLayout,
 } from './layoutModel.js';
 import { useDataTablePreferencesPort } from './preferences.js';
 
@@ -99,8 +107,34 @@ export interface DataTableLayoutPrefs {
   setDensity: (density: DataTableDensity) => void;
   /** Show/hide one column. Pinned (`hideable: false`) columns are ignored. */
   toggleColumn: (columnId: string, visible: boolean) => void;
-  /** Drop every stored preference for this table and delete the server entry. */
+  /** Drop every stored preference for this table (the saved views stay) and delete the server entry when nothing else is kept. */
   reset: () => void;
+  /** The app's own stored JSON (`extra`), or `undefined` while there is none. Read-only. */
+  extra: Readonly<Record<string, unknown>> | undefined;
+  /**
+   * Sets (or, with `undefined`, removes) one key of `extra`. Refused (returns
+   * `false`, nothing changes) when the value is not bounded plain JSON or the
+   * entry would outgrow its limit.
+   */
+  setExtra: (key: string, value: unknown) => boolean;
+  /** The saved views, in the order they were saved. */
+  savedViews: readonly DataTableSavedView[];
+  /**
+   * Saves the current layout as a named view (`extra` defaults to the stored
+   * one; pass the app's own state, such as the filter model, to capture it).
+   * Returns the view, or `null` when refused: a blank or over-long name, 20
+   * views already, or an `extra` that is not bounded plain JSON.
+   */
+  saveView: (name: string, extra?: Record<string, unknown>) => DataTableSavedView | null;
+  /**
+   * Applies a saved view: its columns, density, extra, and (through the
+   * page's own callbacks) its sort and page size. Returns the view so the
+   * caller can restore what it kept in `layout.extra`, or `null` for an
+   * unknown id.
+   */
+  applyView: (id: string) => DataTableSavedView | null;
+  /** Deletes a saved view. */
+  deleteView: (id: string) => void;
 }
 
 /**
@@ -425,22 +459,129 @@ export function useDataTableLayoutPrefs<Row>({
   const reset = useCallback(() => {
     touchedRef.current = true;
     cancelPending();
-    entryRef.current = {};
-    setEntry({});
+    // The saved views are the user's own work, not a layout choice: "reset to
+    // defaults" keeps them. With none, the entry is deleted outright.
+    const views = entryRef.current.savedViews;
+    const kept: DataTableStoredLayout = views && views.length > 0 ? { savedViews: views } : {};
+    entryRef.current = kept;
+    setEntry(kept);
     // Immediate, not debounced: "reset" is a single deliberate gesture with
     // nothing to coalesce, and it is expressed as the merge-patch DELETE so the
     // entry stops existing rather than becoming an empty object.
-    write(null);
+    write(isEmptyStoredLayout(kept) ? null : kept);
   }, [cancelPending, write]);
+
+  const setExtra = useCallback(
+    (key: string, value: unknown): boolean => {
+      const current = entryRef.current;
+      const nextExtra: Record<string, unknown> = { ...(current.extra ?? {}) };
+      if (value === undefined) delete nextExtra[key];
+      else nextExtra[key] = value;
+      const hasKeys = Object.keys(nextExtra).length > 0;
+      if (hasKeys && !isValidStoredExtra(nextExtra)) return false;
+      const next: DataTableStoredLayout = { ...current };
+      if (hasKeys) next.extra = nextExtra;
+      else delete next.extra;
+      if (jsonByteLength(next) > DATA_TABLE_ENTRY_MAX_BYTES) return false;
+      commit(() => next);
+      return true;
+    },
+    [commit],
+  );
+
+  const saveView = useCallback(
+    (name: string, extra?: Record<string, unknown>): DataTableSavedView | null => {
+      const trimmed = name.trim();
+      if (trimmed === '' || trimmed.length > DATA_TABLE_VIEW_NAME_MAX_LENGTH) return null;
+      const current = entryRef.current;
+      const views = current.savedViews ?? [];
+      if (views.length >= DATA_TABLE_MAX_SAVED_VIEWS) return null;
+      const captured = extra ?? current.extra;
+      if (captured !== undefined && Object.keys(captured).length > 0 && !isValidStoredExtra(captured)) return null;
+
+      const layout: DataTableViewLayout = {};
+      if (current.visibleColumns) layout.visibleColumns = [...current.visibleColumns];
+      if (current.density) layout.density = current.density;
+      const activeSort = sortRef.current?.sort;
+      if (activeSort) layout.sort = { field: activeSort.field, direction: activeSort.direction };
+      const size = paginationRef.current?.pageSize;
+      if (size) layout.pageSize = size;
+      if (captured && Object.keys(captured).length > 0) layout.extra = captured;
+
+      const view: DataTableSavedView = { id: uniqueViewId(trimmed, views), name: trimmed, layout };
+      const next: DataTableStoredLayout = { ...current, savedViews: [...views, view] };
+      if (jsonByteLength(next) > DATA_TABLE_ENTRY_MAX_BYTES) return null;
+      commit(() => next);
+      return view;
+    },
+    [commit],
+  );
+
+  const applyView = useCallback(
+    (id: string): DataTableSavedView | null => {
+      const view = entryRef.current.savedViews?.find((candidate) => candidate.id === id);
+      if (!view) return null;
+      commit((current) => ({ ...view.layout, ...(current.savedViews ? { savedViews: current.savedViews } : {}) }));
+      // Sort and page size are the PAGE's state: hand them back through its own
+      // callbacks, validated against the current columns like a restored layout.
+      const restoredSort = resolveStoredSort(columnsRef.current, view.layout);
+      const sortConfig = sortRef.current;
+      if (restoredSort && sortConfig) sortConfig.onSortChange(restoredSort);
+      const paginationConfig = paginationRef.current;
+      if (view.layout.pageSize && paginationConfig && view.layout.pageSize !== paginationConfig.pageSize) {
+        paginationConfig.onPaginationChange({ page: 0, pageSize: view.layout.pageSize });
+      }
+      return view;
+    },
+    [commit],
+  );
+
+  const deleteView = useCallback(
+    (id: string) => {
+      commit((current) => {
+        const views = current.savedViews;
+        if (!views?.some((view) => view.id === id)) return current;
+        const remaining = views.filter((view) => view.id !== id);
+        const next: DataTableStoredLayout = { ...current };
+        if (remaining.length > 0) next.savedViews = remaining;
+        else delete next.savedViews;
+        return next;
+      });
+    },
+    [commit],
+  );
 
   return {
     density,
     visibleColumnIds,
     userVisibleColumnIds,
     hydrated,
-    customized: !isEmptyStoredLayout(entry),
+    customized: !isEmptyStoredLayout({ ...entry, savedViews: undefined }),
     setDensity,
     toggleColumn,
     reset,
+    extra: entry.extra,
+    setExtra,
+    savedViews: entry.savedViews ?? NO_VIEWS,
+    saveView,
+    applyView,
+    deleteView,
   };
+}
+
+const NO_VIEWS: readonly DataTableSavedView[] = Object.freeze([]);
+
+/** A slug of the name that no existing view uses, within the id length bound. */
+function uniqueViewId(name: string, views: readonly DataTableSavedView[]): string {
+  const base =
+    name
+      .toLowerCase()
+      .normalize('NFKD')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, DATA_TABLE_MAX_ID_LENGTH - 6) || 'view';
+  const taken = new Set(views.map((view) => view.id));
+  let candidate = base;
+  for (let n = 2; taken.has(candidate); n += 1) candidate = `${base}-${n}`;
+  return candidate;
 }

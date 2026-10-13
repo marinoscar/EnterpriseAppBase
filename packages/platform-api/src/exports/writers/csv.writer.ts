@@ -11,6 +11,7 @@
 // is buffered whole.
 // =============================================================================
 
+import { PLATFORM_SOURCE_IDS } from './platform-sources';
 import { once } from 'node:events';
 import { Readable } from 'node:stream';
 
@@ -50,6 +51,9 @@ export const CSV_EXPORT_WRITER: ExportWriter = {
   label: 'CSV (zip)',
   mimeType: 'application/zip',
   extension: 'zip',
+  // Offered on the platform sources by attachment, like any app writer; an app
+  // source lists these ids in its `formats`.
+  attachTo: PLATFORM_SOURCE_IDS,
   async write(tables, out, ctx) {
     const rowCounts: Record<string, number> = {};
     const archive = archiver('zip', { zlib: { level: 6 } });

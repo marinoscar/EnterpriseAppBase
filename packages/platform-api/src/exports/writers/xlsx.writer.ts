@@ -11,6 +11,7 @@
 // row, each row committed as it is added.
 // =============================================================================
 
+import { PLATFORM_SOURCE_IDS } from './platform-sources';
 import { stream as excelStream } from 'exceljs';
 
 import { failStream } from '../export-stream';
@@ -52,6 +53,9 @@ export const XLSX_EXPORT_WRITER: ExportWriter = {
   label: 'Excel workbook',
   mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   extension: 'xlsx',
+  // Offered on the platform sources by attachment, like any app writer; an app
+  // source lists these ids in its `formats`.
+  attachTo: PLATFORM_SOURCE_IDS,
   async write(tables, out, ctx) {
     const rowCounts: Record<string, number> = {};
     const finished = new Promise<void>((resolve, reject) => {

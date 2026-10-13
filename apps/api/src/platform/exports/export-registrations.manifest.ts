@@ -14,11 +14,14 @@ import { registerExportSource, registerExportWriter } from '@marinoscar/platform
 
 import { APP_EXPORT_SOURCES, APP_EXPORT_WRITERS } from '../../app-registrations/exports';
 import { EXAMPLE_NOTIFICATION_INBOX_SOURCE } from '../../examples/exports/example-notification-inbox.source';
+import { EXAMPLE_NDJSON_WRITER } from '../../examples/exports/example-ndjson.writer';
 import { EXAMPLE_SINGLE_CSV_WRITER } from '../../examples/exports/example-single-csv.writer';
 
-// The reference examples: a source over a reference-app model and a custom
-// writer limited to it. A fork deletes these two lines with `examples/`.
+// The reference examples: a source over a reference-app model, a custom writer
+// limited to it, and a writer attached to every source (offered on `user-data`
+// and `org-data` too). A fork deletes these lines with `examples/`.
 registerExportWriter(EXAMPLE_SINGLE_CSV_WRITER);
+registerExportWriter(EXAMPLE_NDJSON_WRITER);
 registerExportSource(EXAMPLE_NOTIFICATION_INBOX_SOURCE);
 
 for (const writer of APP_EXPORT_WRITERS) registerExportWriter(writer);

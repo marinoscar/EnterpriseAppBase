@@ -25,15 +25,25 @@
  * | `boolean`    | Yes / No select                                    |
  *
  * A 0-arity operator (`isEmpty`) draws no operand control at all.
+ *
+ * ## A column's own operand control
+ *
+ * A type an app registered (`registerDataTableFilterType`) brings its own
+ * `Editor`, and a column may override the type's with `filter.editor` (a user
+ * picker on a text column): either replaces the table above for the operand
+ * only. The column and operator pickers and the Add button stay the form's, so
+ * the draft-then-commit contract holds for every type. A custom type with no
+ * editor falls back to a text field (comma-separated for a set).
  */
 
 import { Box, Button, MenuItem, Stack, TextField } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import type { DataTableColumn, DataTableFilter, DataTableFilterValue } from '../../headless/types.js';
+import { getDataTableFilterType } from '../../headless/filter/filterTypes.js';
 import {
+  columnOperatorLabel,
   filterTypeOf,
   operatorArity,
-  operatorLabel,
   operatorsForColumn,
 } from '../../headless/filter/operators.js';
 import { blankValueFor, columnForFilter, draftFilterFor, isFilterComplete } from '../../headless/filter/filterModel.js';
@@ -78,6 +88,9 @@ export function FilterEditor<Row>({
   if (!column) return null;
 
   const filterType = filterTypeOf(column);
+  const typeDef = getDataTableFilterType(filterType);
+  const CustomEditor = column.filter?.editor ?? typeDef?.Editor;
+  const builtinType = isBuiltinType(filterType);
   const operators = operatorsForColumn(column);
   const arity = operatorArity(draft.operator);
   const complete = isFilterComplete(draft);
@@ -166,12 +179,37 @@ export function FilterEditor<Row>({
         >
           {operators.map((operator) => (
             <MenuItem key={operator} value={operator} data-operator={operator}>
-              {operatorLabel(operator, filterType)}
+              {columnOperatorLabel(column, operator)}
             </MenuItem>
           ))}
         </TextField>
 
-        {arity === 2 ? (
+        {arity !== 0 && CustomEditor ? (
+          <CustomEditor
+            column={column}
+            operator={draft.operator}
+            arity={arity}
+            value={draft.value}
+            onChange={changeValue}
+            stacked={stacked}
+          />
+        ) : arity === 'many' && !builtinType ? (
+          <TextField
+            size="small"
+            label="Value"
+            helperText="Separate values with commas"
+            value={Array.isArray(draft.value) ? draft.value.join(', ') : ''}
+            onChange={(event) =>
+              changeValue(
+                event.target.value
+                  .split(',')
+                  .map((part) => part.trim())
+                  .filter(Boolean),
+              )
+            }
+            sx={{ minWidth: 180, ...(stacked ? {} : { flex: '1 1 220px' }), ...CONTROL_SX }}
+          />
+        ) : arity === 2 ? (
           <>
             <ValueField
               label="From"
@@ -253,6 +291,11 @@ export function FilterEditor<Row>({
 // ---------------------------------------------------------------------------
 // Operand control
 // ---------------------------------------------------------------------------
+
+/** The five types whose operand controls are drawn below. */
+function isBuiltinType(type: string): boolean {
+  return type === 'text' || type === 'number' || type === 'date' || type === 'enum' || type === 'boolean';
+}
 
 interface ValueFieldProps<Row> {
   label: string;

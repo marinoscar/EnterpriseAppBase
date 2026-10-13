@@ -159,7 +159,9 @@ export type NodesTableFilterModelOperator =
   | 'isAnyOf'
   | 'in'
   | 'isEmpty'
-  | 'isNotEmpty';
+  | 'isNotEmpty'
+  // The DataTable's operator vocabulary is open (a registered filter type brings its own).
+  | (string & {});
 
 /**
  * One active filter.

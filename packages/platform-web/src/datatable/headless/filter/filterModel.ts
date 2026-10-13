@@ -14,7 +14,9 @@ import type {
   DataTableFilterModel,
   DataTableFilterValue,
 } from '../types.js';
+import { getDataTableFilterType } from './filterTypes.js';
 import {
+  columnOperatorLabel,
   defaultOperatorForColumn,
   filterTypeOf,
   operatorArity,
@@ -134,7 +136,9 @@ export function describeFilterValue<Row>(
   const arity = operatorArity(filter.operator);
   if (arity === 0) return '';
 
+  const format = column ? getDataTableFilterType(filterTypeOf(column))?.format : undefined;
   const labelOf = (raw: string | number | boolean): string => {
+    if (format) return format(raw, column);
     if (typeof raw === 'boolean') return raw ? 'Yes' : 'No';
     if (column?.enumValues) {
       const match = column.enumValues.find((option) => option.value === String(raw));
@@ -166,10 +170,7 @@ export function filterChipLabel<Row>(
 ): string {
   const column = columnForFilter(columns, filter);
   const label = column?.label ?? filter.columnId;
-  const operator = operatorLabel(
-    filter.operator,
-    column ? filterTypeOf(column) : undefined,
-  );
+  const operator = column ? columnOperatorLabel(column, filter.operator) : operatorLabel(filter.operator);
   const value = describeFilterValue(filter, column);
   return value ? `${label} ${operator} ${value}` : `${label} ${operator}`;
 }

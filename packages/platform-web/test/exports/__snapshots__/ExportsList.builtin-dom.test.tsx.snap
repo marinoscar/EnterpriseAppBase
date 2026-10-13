@@ -1,0 +1,96 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`ExportsList builtin markup > is the empty message when there is nothing 1`] = `"<p class="MuiTypography-root MuiTypography-body1 css-rizt0-MuiTypography-root">You have not exported anything yet.</p>"`;
+
+exports[`ExportsList builtin markup > lists every status with its sources 1`] = `
+"<div class="MuiBox-root css-0">
+<ul class="MuiList-root css-54zhjy-MuiList-root" aria-label="Your exports">
+<li class="MuiListItem-root MuiListItem-gutters MuiListItem-padding MuiListItem-divider css-1i15ou7-MuiListItem-root">
+<div class="MuiListItemText-root MuiListItemText-multiline css-jkt2ot-MuiListItemText-root">
+<span class="MuiTypography-root MuiTypography-body1 MuiListItemText-primary css-rizt0-MuiTypography-root">Your data (JSON)</span>
+<p class="MuiTypography-root MuiTypography-body2 MuiListItemText-secondary css-1a1whku-MuiTypography-root">10/8/2026, 10:00:00 AM · 2.0 KB</p>
+</div>
+<div class="MuiStack-root css-kdc3n8-MuiStack-root">
+<div class="MuiChip-root MuiChip-outlined MuiChip-sizeSmall MuiChip-colorSuccess css-2nu2az-MuiChip-root">
+<span class="MuiChip-label css-19m61dl-MuiChip-label">Ready to download</span>
+</div>
+<button class="MuiButtonBase-root MuiButton-root MuiButton-outlined MuiButton-sizeSmall MuiButton-colorPrimary css-9g2lvq-MuiButtonBase-root-MuiButton-root" tabindex="0" type="button" aria-label="Download Your data (JSON)">Download</button>
+</div>
+</li>
+<li class="MuiListItem-root MuiListItem-gutters MuiListItem-padding MuiListItem-divider css-1i15ou7-MuiListItem-root">
+<div class="MuiListItemText-root MuiListItemText-multiline css-jkt2ot-MuiListItemText-root">
+<span class="MuiTypography-root MuiTypography-body1 MuiListItemText-primary css-rizt0-MuiTypography-root">Organization data (CSV)</span>
+<p class="MuiTypography-root MuiTypography-body2 MuiListItemText-secondary css-1a1whku-MuiTypography-root">10/7/2026, 10:00:00 AM · The file could not be built</p>
+</div>
+<div class="MuiStack-root css-kdc3n8-MuiStack-root">
+<div class="MuiChip-root MuiChip-outlined MuiChip-sizeSmall MuiChip-colorError css-55ida-MuiChip-root">
+<span class="MuiChip-label css-19m61dl-MuiChip-label">Failed</span>
+</div>
+</div>
+</li>
+<li class="MuiListItem-root MuiListItem-gutters MuiListItem-padding MuiListItem-divider css-1i15ou7-MuiListItem-root">
+<div class="MuiListItemText-root MuiListItemText-multiline css-jkt2ot-MuiListItemText-root">
+<span class="MuiTypography-root MuiTypography-body1 MuiListItemText-primary css-rizt0-MuiTypography-root">Your data (JSON)</span>
+<p class="MuiTypography-root MuiTypography-body2 MuiListItemText-secondary css-1a1whku-MuiTypography-root">10/6/2026, 10:00:00 AM</p>
+</div>
+<div class="MuiStack-root css-kdc3n8-MuiStack-root">
+<div class="MuiChip-root MuiChip-outlined MuiChip-sizeSmall MuiChip-colorDefault css-9bqyez-MuiChip-root">
+<span class="MuiChip-label css-19m61dl-MuiChip-label">Queued</span>
+</div>
+</div>
+</li>
+<li class="MuiListItem-root MuiListItem-gutters MuiListItem-padding MuiListItem-divider css-1i15ou7-MuiListItem-root">
+<div class="MuiListItemText-root MuiListItemText-multiline css-jkt2ot-MuiListItemText-root">
+<span class="MuiTypography-root MuiTypography-body1 MuiListItemText-primary css-rizt0-MuiTypography-root">Your data (JSON)</span>
+<p class="MuiTypography-root MuiTypography-body2 MuiListItemText-secondary css-1a1whku-MuiTypography-root">10/5/2026, 10:00:00 AM</p>
+</div>
+<div class="MuiStack-root css-kdc3n8-MuiStack-root">
+<div class="MuiChip-root MuiChip-outlined MuiChip-sizeSmall MuiChip-colorInfo css-wqkt54-MuiChip-root">
+<span class="MuiChip-label css-19m61dl-MuiChip-label">Preparing</span>
+</div>
+</div>
+</li>
+<li class="MuiListItem-root MuiListItem-gutters MuiListItem-padding MuiListItem-divider css-1i15ou7-MuiListItem-root">
+<div class="MuiListItemText-root MuiListItemText-multiline css-jkt2ot-MuiListItemText-root">
+<span class="MuiTypography-root MuiTypography-body1 MuiListItemText-primary css-rizt0-MuiTypography-root">unknown-source (JSON)</span>
+<p class="MuiTypography-root MuiTypography-body2 MuiListItemText-secondary css-1a1whku-MuiTypography-root">10/4/2026, 10:00:00 AM</p>
+</div>
+<div class="MuiStack-root css-kdc3n8-MuiStack-root">
+<div class="MuiChip-root MuiChip-outlined MuiChip-sizeSmall MuiChip-colorWarning css-1d5jmay-MuiChip-root">
+<span class="MuiChip-label css-19m61dl-MuiChip-label">Expired</span>
+</div>
+</div>
+</li>
+</ul>
+</div>"
+`;
+
+exports[`ExportsList builtin markup > without sources falls back to the source id 1`] = `
+"<div class="MuiBox-root css-0">
+<ul class="MuiList-root css-54zhjy-MuiList-root" aria-label="Your exports">
+<li class="MuiListItem-root MuiListItem-gutters MuiListItem-padding MuiListItem-divider css-1i15ou7-MuiListItem-root">
+<div class="MuiListItemText-root MuiListItemText-multiline css-jkt2ot-MuiListItemText-root">
+<span class="MuiTypography-root MuiTypography-body1 MuiListItemText-primary css-rizt0-MuiTypography-root">user-data (JSON)</span>
+<p class="MuiTypography-root MuiTypography-body2 MuiListItemText-secondary css-1a1whku-MuiTypography-root">10/8/2026, 10:00:00 AM · 2.0 KB</p>
+</div>
+<div class="MuiStack-root css-kdc3n8-MuiStack-root">
+<div class="MuiChip-root MuiChip-outlined MuiChip-sizeSmall MuiChip-colorSuccess css-2nu2az-MuiChip-root">
+<span class="MuiChip-label css-19m61dl-MuiChip-label">Ready to download</span>
+</div>
+<button class="MuiButtonBase-root MuiButton-root MuiButton-outlined MuiButton-sizeSmall MuiButton-colorPrimary css-9g2lvq-MuiButtonBase-root-MuiButton-root" tabindex="0" type="button" aria-label="Download user-data (JSON)">Download</button>
+</div>
+</li>
+<li class="MuiListItem-root MuiListItem-gutters MuiListItem-padding MuiListItem-divider css-1i15ou7-MuiListItem-root">
+<div class="MuiListItemText-root MuiListItemText-multiline css-jkt2ot-MuiListItemText-root">
+<span class="MuiTypography-root MuiTypography-body1 MuiListItemText-primary css-rizt0-MuiTypography-root">org-data (CSV)</span>
+<p class="MuiTypography-root MuiTypography-body2 MuiListItemText-secondary css-1a1whku-MuiTypography-root">10/7/2026, 10:00:00 AM · The file could not be built</p>
+</div>
+<div class="MuiStack-root css-kdc3n8-MuiStack-root">
+<div class="MuiChip-root MuiChip-outlined MuiChip-sizeSmall MuiChip-colorError css-55ida-MuiChip-root">
+<span class="MuiChip-label css-19m61dl-MuiChip-label">Failed</span>
+</div>
+</div>
+</li>
+</ul>
+</div>"
+`;
