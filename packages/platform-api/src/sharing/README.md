@@ -384,7 +384,7 @@ The two extension kits (`describeGranteeKindConformance`, `describeAccessRuleCon
 
 `minRoutes` (default 1) guards the route walk against a wrong root module. The suite's own tests plant each violation in a fixture: `packages/platform-api/test/sharing/conformance.spec.ts`. The row-level security of the four tables is checked by the identity suite's db tier (`RLS_POLICIES`).
 
-## Known gaps
+### Known gaps
 
 - **Link shares are outside the rules** (no principal) and **`GET /api/grants/shared-with-me` lists grants, not decisions**: both described under [Grantee kinds and access rules](#grantee-kinds-and-access-rules). Follow-ups.
 - **Storing a grant of an app grantee kind** needs the sharing storage migration (`grantee_kind` is an enum).

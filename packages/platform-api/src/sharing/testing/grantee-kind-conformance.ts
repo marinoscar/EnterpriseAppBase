@@ -109,6 +109,7 @@ async function attempt<T>(fn: () => T | Promise<T>): Promise<{ ok: true; value: 
  * @stability experimental
  */
 export const granteeKindChecks = {
+  /** The descriptor parses and the fixture matrix is not empty. */
   async descriptor<S>(subject: GranteeKindConformanceSubject<S>): Promise<string[]> {
     const out: string[] = [];
     if (!granteeKindDescriptorSchema.safeParse(describeGranteeKind(subject.kind)).success) out.push('the descriptor does not parse');
@@ -117,6 +118,7 @@ export const granteeKindChecks = {
     return out;
   },
 
+  /** `validateGrantee` accepts the valid inputs, refuses the invalid ones and stays in its own kind. */
   async validation<S>(subject: GranteeKindConformanceSubject<S>): Promise<string[]> {
     const out: string[] = [];
     for (const input of subject.validInputs) {
@@ -137,6 +139,7 @@ export const granteeKindChecks = {
     return out;
   },
 
+  /** `describe` answers every valid grantee with a display string. */
   async describe<S>(subject: GranteeKindConformanceSubject<S>): Promise<string[]> {
     const out: string[] = [];
     for (const input of subject.validInputs) {

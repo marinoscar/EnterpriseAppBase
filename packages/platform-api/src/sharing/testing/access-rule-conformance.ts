@@ -94,6 +94,7 @@ export interface AccessRuleConformanceSubject<S> {
  * @stability experimental
  */
 export const accessRuleChecks = {
+  /** The rule has a valid shape and the fixture matrix is usable (an allowed, a denied and a crossOrg row). */
   async shape<S>(subject: AccessRuleConformanceSubject<S>): Promise<string[]> {
     const { rule } = subject;
     const out: string[] = [];
