@@ -31,6 +31,7 @@ import type { ConformanceCase, ConformanceFinding, ConformanceReport, Conformanc
 import { userOwnedModelRegistry } from '../../core/index';
 import { delegateNameOf, isRedactedExportField, type ExportDatamodel, type ExportDatamodelModel } from '../datamodel';
 import { exportSourceRegistry, exportWriterRegistry, writersFor } from '../export.registries';
+import { PLATFORM_SOURCE_IDS } from '../writers/platform-sources';
 import type { ExportContext, ExportDb, ExportRow, ExportTable, ExportWriter, ExportWriteResult } from '../export.types';
 import { ORG_DATA_EXPORT_SOURCE_ID } from '../sources/org-data.source';
 import { USER_DATA_EXPORT_SOURCE_ID } from '../sources/user-data.source';
@@ -298,6 +299,14 @@ export function checkExportRegistries(options: ExportsConformanceOptions): Confo
   for (const writer of exportWriterRegistry.list()) {
     for (const id of writer.sources ?? []) {
       if (!exportSourceRegistry.has(id)) findings.push({ file: `writer:${writer.id}`, message: `is limited to unknown source "${id}"` });
+    }
+    if (Array.isArray(writer.attachTo)) {
+      for (const id of writer.attachTo) {
+        // A platform source may be switched off (`platformSources`), so the built-in writers' ids are always fine.
+        if (!exportSourceRegistry.has(id) && !PLATFORM_SOURCE_IDS.includes(id)) {
+          findings.push({ file: `writer:${writer.id}`, message: `attaches to unknown source "${id}"` });
+        }
+      }
     }
   }
   const models = new Map(options.datamodel.models.map((model) => [model.name, model]));

@@ -27,19 +27,7 @@ import {
 import { defineRegistry } from '../core/index';
 import type { OnboardingAudienceDef } from './onboarding.types';
 
-/**
- * The platform's audiences: `user`, `admin` and `org_admin`. Already
- * registered; exported for tests and for an app that wraps one.
- *
- * | Audience | Block of the response | Matches when |
- * |---|---|---|
- * | `user` | `user` | always |
- * | `admin` | `admin` | the caller holds the module's `adminPermission` |
- * | `org_admin` | `audiences.org_admin` | the caller holds the `org_admin` role of an active organization |
- *
- * @stability experimental
- */
-export const PLATFORM_ONBOARDING_AUDIENCES: readonly OnboardingAudienceDef[] = Object.freeze([
+const platformAudiences: OnboardingAudienceDef[] = [
   {
     id: 'user',
     label: 'Get started',
@@ -55,7 +43,21 @@ export const PLATFORM_ONBOARDING_AUDIENCES: readonly OnboardingAudienceDef[] = O
     label: 'Organization setup',
     matches: (principal) => principal.activeOrgId !== null && principal.roles.includes(ONBOARDING_ORG_ADMIN_ROLE),
   },
-]);
+];
+
+/**
+ * The platform's audiences: `user`, `admin` and `org_admin`. Already
+ * registered; exported for tests and for an app that wraps one.
+ *
+ * | Audience | Block of the response | Matches when |
+ * |---|---|---|
+ * | `user` | `user` | always |
+ * | `admin` | `admin` | the caller holds the module's `adminPermission` |
+ * | `org_admin` | `audiences.org_admin` | the caller holds the `org_admin` role of an active organization |
+ *
+ * @stability experimental
+ */
+export const PLATFORM_ONBOARDING_AUDIENCES: readonly OnboardingAudienceDef[] = Object.freeze(platformAudiences);
 
 function validateAudience(audience: OnboardingAudienceDef): void {
   if (typeof audience.label !== 'string' || audience.label.trim() === '') throw new Error('label is required');

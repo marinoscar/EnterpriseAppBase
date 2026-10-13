@@ -17,12 +17,18 @@
 
 import type { Writable } from 'node:stream';
 
-import type { ExportCell, ExportColumn, ExportRequestField, ExportScope } from '@marinoscar/platform-contract/exports';
+import type {
+  ExportCell,
+  ExportColumn,
+  ExportColumnType,
+  ExportRequestField,
+  ExportScope,
+} from '@marinoscar/platform-contract/exports';
 import type { z } from 'zod';
 
 import type { ExportDatamodel } from './datamodel';
 
-export type { ExportCell, ExportColumn, ExportRequestField, ExportScope };
+export type { ExportCell, ExportColumn, ExportColumnType, ExportRequestField, ExportScope };
 
 /**
  * One row of a dataset, keyed by column key. A key a row lacks is written as
@@ -123,8 +129,27 @@ export interface ExportSource<Req = unknown> {
   readonly requestSchema: z.ZodType<Req>;
   /** The request fields the dialog draws; derived from `requestSchema` when absent. */
   readonly fields?: readonly ExportRequestField[];
-  /** The writer ids it offers, in display order; a subset of the registered writers. */
+  /**
+   * The writer ids it offers, in display order; a subset of the registered
+   * writers. May be empty: the platform sources list none and offer exactly
+   * the writers that attach to them (`ExportWriter.attachTo`), json, csv and
+   * xlsx by default. Writers that attach come after the ones listed here.
+   */
   readonly formats: readonly string[];
+  /**
+   * The column types this source's datasets use. Declare it so a writer that
+   * attaches to `'*'` only reaches sources whose columns it can write. Absent
+   * means "unknown": every type is assumed, so a writer restricted with
+   * `ExportWriter.columnTypes` does not attach to this source on its own.
+   */
+  readonly columnTypes?: readonly ExportColumnType[];
+  /**
+   * Whether writers that attach themselves (`ExportWriter.attachTo`) are
+   * offered next to `formats`. Default `true`; `false` pins the source to the
+   * writers it lists (a source that must only ever leave in formats its owner
+   * reviewed).
+   */
+  readonly acceptsAttachedWriters?: boolean;
   /**
    * The datasets. READ-ONLY: never writes a row. Pages its queries and yields
    * tables lazily; must not load whole tables into memory.
@@ -191,6 +216,21 @@ export interface ExportWriter {
   readonly extension: string;
   /** Limits the writer to these sources (a domain PDF); absent means any source that lists it. */
   readonly sources?: readonly string[];
+  /**
+   * Attaches the writer to sources that do not list it: `'*'` offers it on
+   * every source whose columns it can write (see {@link ExportWriter.columnTypes}
+   * and `ExportSource.columnTypes`), a list of source ids on exactly those.
+   * `sources`, when given, still narrows. The writer receives the same
+   * redacted rows as the built-in writers, because the source produces them
+   * before any writer runs. Absent: only sources that list the writer offer it.
+   */
+  readonly attachTo?: '*' | readonly string[];
+  /**
+   * The column types the writer can serialise. Absent means all of them. A
+   * dataset with a column of another type fails the export with a message
+   * naming the column (the half-written file is destroyed, never uploaded).
+   */
+  readonly columnTypes?: readonly ExportColumnType[];
   /** Serialises `tables` into `out`. See the contract above. */
   write(tables: AsyncIterable<ExportTable>, out: Writable, ctx: ExportWriteContext): Promise<ExportWriteResult>;
 }
