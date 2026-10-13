@@ -6,7 +6,7 @@
 
 Does:
 
-- **SDK bootstrap** (`initializeOtel`, `sdk` subpath): OTLP/HTTP traces, metrics (every 60 s) and logs, each behind a gated exporter; Node auto-instrumentations (health probes ignored, fs off, pino log sending on); a SIGTERM shutdown. Nothing at all when `OTEL_ENABLED` is not `true`.
+- **SDK bootstrap** (`initializeOtel`, `sdk` subpath): OTLP/HTTP traces, metrics (every 60 s) and logs, each behind a gated exporter, plus any extra span processors, log record processors, metric readers, views, sampler, propagator and resource attributes the app passes (processors and readers gated too); Node auto-instrumentations (health probes ignored, fs off, pino log sending on); a SIGTERM shutdown. Nothing at all when `OTEL_ENABLED` is not `true`.
 - **Runtime export gate** (`telemetryGate`): starts closed; the app opens it from its own setting. It also stamps `app.instance.id` on every exported batch.
 - **Metrics host** (`MetricsHostService`, global through `OtelMetricsModule`): the `app` meter, every counter and histogram declared in the **app-metric name registry** (`appMetricRegistry`), the generic `add(key, …)` / `record(key, …)`, label bounding (`boundLabel`, `shapeLabel`), and the **gauge-provider seam** (`registerGaugeProvider`, `gaugeContext`, `createRegisteredGauge`).
 - **Spans**: `registerRequestSpanAttributes` (`http.route`, `app.route.matched`, `app.request.bearer` on the server span) and `@Trace()`.
@@ -111,6 +111,15 @@ metricsHost.registerGaugeProvider(({ meter, gateOpen }) => {
 | `ignoreIncomingPaths` | `readonly string[]` | `DEFAULT_IGNORED_INCOMING_PATHS` (`/api/health/live`, `/api/health/ready`) | Incoming URL substrings never traced. |
 | `instrumentationOverrides` | `Record<string, Record<string, unknown>>` | `{}` | Per auto-instrumentation fields merged over the defaults (fs off, pino log sending on, the http ignore hook). |
 | `shutdownOnSigterm` | `boolean` | `true` | Register the SIGTERM handler that shuts the SDK down and exits. |
+| `spanProcessors` | `readonly SpanProcessor[]` | `[]` | Extra span processors next to the OTLP one (a console exporter in development, a second backend). Each is wrapped in a `GatedSpanProcessor`: it sees no span while the gate is closed. |
+| `logRecordProcessors` | `readonly LogRecordProcessor[]` | `[]` | Extra log record processors, each wrapped in a `GatedLogRecordProcessor`. |
+| `metricReaders` | `readonly MetricReader[]` | `[]` | Extra metric readers (a console exporter, a Prometheus pull reader), each wrapped in a `GatedMetricReader`: it reads nothing while the gate is closed. |
+| `views` | `readonly ViewOptions[]` | `[]` | Metric views (rename an instrument, drop an attribute, change an aggregation); they shape what every reader sees. |
+| `sampler` | `Sampler` | the SDK's (`OTEL_TRACES_SAMPLER`, else parent-based always-on) | Which spans are recorded. |
+| `textMapPropagator` | `TextMapPropagator` | the SDK's (`OTEL_PROPAGATORS`, else W3C trace context and baggage) | How context crosses a process boundary. |
+| `resourceAttributes` | `Record<string, string \| number \| boolean>` | `{}` | Extra resource attributes (`deployment.region`, `k8s.pod.name`) stamped on every batch: at most 32, keys up to 256 and string values up to 1 024 characters; `service.name`, `service.version` and `app.instance.id` are reserved and refused. |
+
+Every extra processor and reader is put behind the same runtime gate as the OTLP exporters, so an administrator who switches telemetry off stops them too: the SDK does the wrapping, and an app passes its own plain processor or reader. The options add no environment variable.
 
 Environment variables read (all pre-existing, none runtime-configured): `OTEL_ENABLED`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`, `OTEL_DEBUG` (with `NODE_ENV=development`: the SDK's diagnostics on the console), `NODE_ENV` (`deployment.environment`), `npm_package_version`. The slice adds no variable.
 
@@ -130,7 +139,7 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `initializeOtel` | option | `initializeOtel(options?: InitializeOtelOptions): NodeSDK \| null` | Install the SDK from the file the entry point loads first | experimental | [example](../../../../apps/api/src/instrumentation.ts) |
-| `InitializeOtelOptions` | option | `{ enabled?; endpoint?; serviceName?; serviceVersion?; instanceId?; ignoreIncomingPaths?; instrumentationOverrides?; shutdownOnSigterm? }` | Name the service, seed the instance id, change the endpoint, ignored paths or instrumentations | experimental | [example](../../../../apps/api/src/instrumentation.ts) |
+| `InitializeOtelOptions` | option | `{ enabled?; endpoint?; serviceName?; serviceVersion?; instanceId?; ignoreIncomingPaths?; instrumentationOverrides?; shutdownOnSigterm?; spanProcessors?; logRecordProcessors?; metricReaders?; views?; sampler?; textMapPropagator?; resourceAttributes? }` | Name the service, seed the instance id, change the endpoint, ignored paths or instrumentations, add a processor or reader behind the gate, sample, propagate or label | experimental | [example](../../../../apps/api/src/instrumentation.ts) |
 | `telemetryGate` | hook | `{ isEnabled(); setEnabled(next); instanceId(); setInstanceId(next) }` | Open or close export at runtime and relabel the instance from the app's own setting | stable | [example](../../../../apps/api/src/common/otel/telemetry-identity.ts) |
 | `appMetricRegistry` | registry | `Registry<AppMetricDef>` | Read the declared metrics (`list()`, `require(key)`), for example to build a name table | stable | [example](../../../../apps/api/test/platform/app-metrics-extension.spec.ts) |
 | `registerAppMetrics` | registry | `registerAppMetrics(defs: readonly AppMetricDef[]): void` | Declare an app's `app.*` metrics (name, unit, buckets, attributes) at import time | stable | [example](../../../../apps/api/src/common/otel/app-metric.manifest.ts) |
@@ -140,7 +149,7 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | `registerRequestSpanAttributes` | hook | `registerRequestSpanAttributes(fastify, otelEnabled: boolean): boolean` | Write route and caller attributes on every HTTP server span | stable | [example](../../../../apps/api/src/main.ts) |
 | `Trace` | hook | `Trace(spanName?: string, options?: { tracer? }): MethodDecorator` | Wrap one async method in an INTERNAL span | experimental | [example](../../../../apps/api/test/platform/otel-disabled.spec.ts) |
 
-Supporting exports. `sdk` subpath (also re-exported by the index): `GatedSpanExporter`, `GatedLogRecordExporter`, `GatedPushMetricExporter`, `stampResource`, `TelemetryGate`, `instrumentationConfig`, `resolveServiceName`, `resolveTelemetryInstanceId`, `ATTR_APP_INSTANCE_ID`, `DEFAULT_SERVICE_NAME`, `DEFAULT_INSTANCE_ID`, `DEFAULT_IGNORED_INCOMING_PATHS`, `DEFAULT_OTLP_ENDPOINT`, `METRIC_EXPORT_INTERVAL_MS`. Index: `MetricsHostService` (`meter`, `now`, `gateOpen`, `counter(key)`, `histogram(key)`, `add`, `record`, `boundLabel`, `gaugesEnabled`, `gaugeContext`), `MetricsHostOptions`, `OtelMetricsModule` (and `forRoot`), `OtelMetricsModuleAsyncOptions`, `APP_METER_NAME`, `AppMetricDef`, `AppMetricAttribute`, `AppMetricKind`, `AppMetricKeys` (augmentable), `AppMetricKeyLike`, `assertAppMetric`, the three name patterns, `createRegisteredGauge`, `AppGaugeContext`, `GaugeProvider`, `LabelBudget`, `shapeLabel`, `enumLabel`, `nonNegative`, `MAX_DISTINCT_VALUES`, `OTHER_LABEL`, `UNKNOWN_LABEL`, `requestSpanAttributesHook`, `hasBearer`, `ATTR_HTTP_ROUTE`, `ATTR_APP_ROUTE_MATCHED`, `ATTR_APP_REQUEST_BEARER`, `TraceOptions`.
+Supporting exports. `sdk` subpath (also re-exported by the index): `GatedSpanExporter`, `GatedLogRecordExporter`, `GatedPushMetricExporter`, `GatedSpanProcessor`, `GatedLogRecordProcessor`, `GatedMetricReader`, `RESOURCE_ATTRIBUTES_MAX`, `stampResource`, `TelemetryGate`, `instrumentationConfig`, `resolveServiceName`, `resolveTelemetryInstanceId`, `ATTR_APP_INSTANCE_ID`, `DEFAULT_SERVICE_NAME`, `DEFAULT_INSTANCE_ID`, `DEFAULT_IGNORED_INCOMING_PATHS`, `DEFAULT_OTLP_ENDPOINT`, `METRIC_EXPORT_INTERVAL_MS`. Index: `MetricsHostService` (`meter`, `now`, `gateOpen`, `counter(key)`, `histogram(key)`, `add`, `record`, `boundLabel`, `gaugesEnabled`, `gaugeContext`), `MetricsHostOptions`, `OtelMetricsModule` (and `forRoot`), `OtelMetricsModuleAsyncOptions`, `APP_METER_NAME`, `AppMetricDef`, `AppMetricAttribute`, `AppMetricKind`, `AppMetricKeys` (augmentable), `AppMetricKeyLike`, `assertAppMetric`, the three name patterns, `createRegisteredGauge`, `AppGaugeContext`, `GaugeProvider`, `LabelBudget`, `shapeLabel`, `enumLabel`, `nonNegative`, `MAX_DISTINCT_VALUES`, `OTHER_LABEL`, `UNKNOWN_LABEL`, `requestSpanAttributesHook`, `hasBearer`, `ATTR_HTTP_ROUTE`, `ATTR_APP_ROUTE_MATCHED`, `ATTR_APP_REQUEST_BEARER`, `TraceOptions`.
 
 ## Data
 
@@ -171,7 +180,7 @@ By itself the slice emits nothing but what passes the gate:
 ## Security notes
 
 - **No secret in an attribute or a label.** `app.request.bearer` reads only the header's scheme. Label bounding admits identifier-shaped values only: at most 64 characters of `[A-Za-z0-9_.:/@+-]`, never address-shaped (`shapeLabel` maps an email-like value to `other`), at most `MAX_DISTINCT_VALUES` (100) distinct values per attribute key per process, and enum attributes only their declared values. Never declare a user id, an email, a URL or an error message as an attribute.
-- **Export is off until the app says otherwise.** The gate starts closed; a deployment that switched telemetry off does not leak the first batches of a boot.
+- **Export is off until the app says otherwise.** The gate starts closed; a deployment that switched telemetry off does not leak the first batches of a boot. The same holds for every extra span processor, log record processor and metric reader an app passes: each is wrapped in a gated processor or reader, so an extension cannot export while the gate is closed (`test/otel-core/gated-extensions.spec.ts` proves it for each kind).
 - **One copy per process.** The gate, the metric-name registry and the meter cache are module-level state. Two copies of `@marinoscar/platform-api` would mean two gates (the app opens one while the SDK exports through the other) and two registries: install exactly one copy (the platform single-instance check, `npm run check:single-instance`, guards the package name).
 
 ## Conformance suite
@@ -201,6 +210,8 @@ First packaged release (#700). Moving from the app's own `apps/api/src/common/ot
 | `Registry "app-metrics" is frozen` | A metric was registered after bootstrap; register from the manifest at import time. |
 | A metric's attribute shows `other` | The value is not identifier-shaped, is an undeclared enum value, or the key's 100-value budget is spent. Use a lower-cardinality dimension. |
 | Gauges never appear | `gauges` is off (`OTEL_ENABLED` not `true`), the gate is closed (callbacks query nothing), or the provider threw (see the `debug` log). |
+| `resourceAttributes` is refused naming a key | The key is reserved (`service.name`, `service.version`, `app.instance.id`) or a bound is exceeded; use the dedicated option. |
+| An extra reader prints nothing | The gate is closed (the `telemetry.enabled` setting or no configured store), as for the OTLP exporters. |
 | Spans carry `app.instance.id=unknown` | The app never set its default: pass `instanceId` to `initializeOtel` or call `telemetryGate.setInstanceId` at startup. |
 
 ## Links
