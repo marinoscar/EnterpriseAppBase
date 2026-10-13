@@ -62,8 +62,16 @@ import { useCan } from '../internal/use-can.js';
 import { DEFAULT_LINK_EXPIRY_PRESETS } from './copy.js';
 
 /**
- * The parts of {@link ShareDialog} an app may replace.
+ * The parts of {@link ShareDialog} an app may replace or add to: the `Title`,
+ * `Sections` (stacked sections at both ends of the body) and `Footer` (controls
+ * in the action row).
  *
+ * @example
+ * ```tsx
+ * <ShareDialog {...props} slots={{ Sections: ({ position }) => (position === 'top' ? <PolicyNotice /> : null) }} />
+ * ```
+ *
+ * @extensionPoint slot
  * @stability experimental
  */
 export interface ShareDialogSlots {

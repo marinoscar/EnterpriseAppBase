@@ -15,7 +15,7 @@ The audit record of the extension seams of every platform slice. A closed point 
 
 Evidence paths are written `api:`, `web:`, `contract:`, `cli:`, `db:` and `infra:` for `packages/platform-api/src/`, `packages/platform-web/src/`, `packages/platform-contract/src/`, `packages/platform-cli/src/`, `packages/platform-db/` and `packages/platform-infra/`; a path under `apps/` or `docs/` is from the repository root. A story is written PP-14.n (its issue number follows).
 
-As of this version: 114 closed points in 29 sections, 79 fixed and 35 open.
+As of this version: 114 closed points in 29 sections, 83 fixed and 31 open.
 
 ## Verdicts
 
@@ -32,8 +32,8 @@ As of this version: 114 closed points in 29 sections, 79 fixed and 35 open.
 | [telemetry](#telemetry) | Mostly open | 7 | 2 | 5 | PP-14.11, PP-14.18, PP-14.24 |
 | [otel-core](#otel-core) | Mostly open | 1 | 0 | 1 | PP-14.18 |
 | [core](#core) | Mostly open | 6 | 6 | 0 | PP-14.14, PP-14.5, PP-14.23 |
-| [shell](#shell) | Mostly open | 2 | 0 | 2 | PP-14.25 |
-| [sharing](#sharing) | Mostly open | 4 | 0 | 4 | PP-14.16, PP-14.15, PP-14.25 |
+| [shell](#shell) | Open | 2 | 2 | 0 | PP-14.25 |
+| [sharing](#sharing) | Mostly open | 4 | 1 | 3 | PP-14.16, PP-14.15, PP-14.25 |
 | [manifest](#manifest) | Open | 2 | 2 | 0 | PP-14.15 |
 | [user-data](#user-data) | Mostly open | 1 | 0 | 1 | PP-14.24 |
 | [platform-db](#platform-db) | Mostly open | 6 | 1 | 5 | PP-14.27, PP-14.4 |
@@ -43,7 +43,7 @@ As of this version: 114 closed points in 29 sections, 79 fixed and 35 open.
 | [ai](#ai) | Mostly open | 10 | 6 | 4 | PP-14.3, PP-14.6, PP-14.17, PP-14.24 |
 | [storage](#storage) | Mostly open | 5 | 4 | 1 | PP-14.1, PP-14.7, PP-14.24 |
 | [db-backup](#db-backup) | Mostly open | 4 | 4 | 0 | PP-14.12, PP-14.23 |
-| [identity](#identity) | Partly closed | 8 | 7 | 1 | PP-14.9, PP-14.15, PP-14.25 |
+| [identity](#identity) | Open | 8 | 8 | 0 | PP-14.9, PP-14.15, PP-14.25 |
 | [email](#email) | Partly closed | 5 | 4 | 1 | PP-14.8, PP-14.24 |
 | [host](#host) | Partly closed | 8 | 7 | 1 | PP-14.2, PP-14.13, PP-14.24 |
 | [datatable](#datatable) | Partly closed | 2 | 0 | 2 | PP-14.20 |
@@ -81,7 +81,7 @@ The 28 stories of the epic, in order. Phase 1 makes the existing seams real; pha
 | PP-14.22 | #940 | cli and infra: app env groups, deploy checks and steps, proxy stream routes, CSP, compose modes, CLI conformance | 3 | none | no | This change |
 | PP-14.23 | #941 | web: the packaged-page slot contract, its CI check, and the operations pages | 4 | none | no | This change |
 | PP-14.24 | #942 | web: apply the slot contract to AI, storage, email, telemetry, android, host, profile, user-data and notifications pages | 4 | 14.23 (and the phase 2 story of each slice) | no | Open |
-| PP-14.25 | #943 | web: slots for identity and sharing pages, login layout, and shell navigation and themes | 4 | 14.23, 14.9, 14.15 | no | Open |
+| PP-14.25 | #943 | web: slots for identity and sharing pages, login layout, and shell navigation and themes | 4 | 14.23, 14.9, 14.15 | no | This change |
 | PP-14.26 | #944 | testing: extension-author kits for doctor checks and job handlers, and configurable web suites | 5 | none | no | This change |
 | PP-14.27 | #945 | db: app metadata on users and organizations, more extensible models, offline checks for app indexes and RLS policies, seed hook | 5 | 14.4 | yes | Open |
 | PP-14.28 | #946 | ci: a guardrail that stops new closed id lists in the packages | 5 | all other PP-14 stories | no | Open |
@@ -245,27 +245,27 @@ Closed points: none recorded at the audit commit.
 
 ### shell
 
-**Verdict:** Mostly open · **Packages:** web · **Closed points:** 2 (0 fixed, 2 open) · **Stories:** PP-14.25
+**Verdict:** Open · **Packages:** web · **Closed points:** 2 (2 fixed, 0 open) · **Stories:** PP-14.25
 
-**Open points.** `ShellNavigation`, `ShellLayout`, `ShellAppBar`, `ShellUserMenu`, `ShellProviders`, `createShellTheme`, `useShellRailPreference`.
+**Open points.** `ShellNavigation` (and on a `ShellDestination`: `badge`, `group`, `external`, `onClick`), `ShellLayout`, `ShellAppBar`, `ShellUserMenu`, `ShellBottomNav` (`maxItems` and its More sheet), `ShellProviders`, `createShellTheme`, `ShellThemeProvider` (`themes` by mode id), `registerThemeMode`, `useShellRailPreference`.
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
-| shell-1 | A destination has no `badge`, `group`, `onClick` or `external`; the bottom navigation renders every destination with no overflow. | web: `shell/headless/navigation.ts:51-81`; `shell/ui/ShellBottomNav.tsx:71-80` | `ShellDestination.badge`, `group`, `external`, `onClick`; `ShellBottomNav maxItems` (default 4) with a "More" sheet. | PP-14.25 (#943) | Open |
-| shell-2 | `ShellThemeMode` is `light`, `dark`, `system` and `ShellThemeProvider` takes exactly `{ light, dark }`. | web: `shell/headless/theme.ts:23` | `ShellThemeProvider themes` and `registerThemeMode({ id, label, theme })`. The five breakpoint gates stay where they are. | PP-14.25 (#943) | Open |
+| shell-1 | A destination has no `badge`, `group`, `onClick` or `external`; the bottom navigation renders every destination with no overflow. | web: `shell/headless/navigation.ts:51-81`; `shell/ui/ShellBottomNav.tsx:71-80` | `ShellDestination.badge`, `group`, `external`, `onClick`; `ShellBottomNav maxItems` (default 4) with a "More" sheet. | PP-14.25 (#943) | Fixed |
+| shell-2 | `ShellThemeMode` is `light`, `dark`, `system` and `ShellThemeProvider` takes exactly `{ light, dark }`. | web: `shell/headless/theme.ts:23` | `ShellThemeProvider themes` and `registerThemeMode({ id, label, theme })`. The five breakpoint gates stay where they are. | PP-14.25 (#943) | Fixed |
 
 ### sharing
 
-**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 4 (0 fixed, 4 open) · **Stories:** PP-14.16, PP-14.15, PP-14.25
+**Verdict:** Mostly open · **Packages:** api, web, contract · **Closed points:** 4 (1 fixed, 3 open) · **Stories:** PP-14.16, PP-14.15, PP-14.25
 
-**Open points.** `registerGroupOwnedResource`, `registerResourceType`, `AccessPolicy`, `accessibleWhere` and `accessibleSql`, the `SHARING_*` ports, `registerLinkRenderer` and the packaged groups pages and `ShareDialog`.
+**Open points.** `registerGroupOwnedResource`, `registerResourceType`, `AccessPolicy`, `accessibleWhere` and `accessibleSql`, the `SHARING_*` ports, `registerLinkRenderer`, and the packaged groups pages and `ShareDialog` with their slots (`PageSlotsBase`, `GroupDetailPage` `MemberRowActions` and `Tabs`, `ShareDialog` `Sections` and `Footer`).
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
 | sharing-1 | Grantee kinds are fixed (`user`, `group`, `link`) and the per-kind SQL is hard-coded; there is no team, role or email-domain grantee. | contract: `sharing/constants.ts:100`; api: `sharing/access/resource-types.ts:76`; `sharing/grants/grants.service.ts:253, :383-396` | `registerGranteeKind` (parameterised SQL fragment, composite `org_id` rules kept), `GET /sharing/grantee-kinds`, `registerGranteePicker`. | PP-14.16 (#934) | Open |
 | sharing-2 | The nine-step access decision order is fixed; a project-membership or time-window rule means replacing `AccessPolicy` wholesale. | api: `sharing/access/access-policy.service.ts:10-30, :78` | `registerAccessRule({ id, position, evaluate, sql? })`; `AccessVia` open. | PP-14.16 (#934) | Open |
 | sharing-3 | Group roles are a fixed list validated in the resource-type registry, and stored in the database enum `GroupRole` (`group_members.role`, `group_invites.role`), so a fourth role needs a migration. Kept closed by PP-14.15: the story is no-migration, and a registry for roles the tables cannot hold would fail on the first write. | contract: `sharing/constants.ts:13`; api: `sharing/access/resource-types.ts:199`; db: `schema/sharing.prisma:26` | A platform migration turning both columns into text, then `registerGroupRole({ id, label, actions })` and an open `groupRoleSchema`. | PP-14.15 (#933), follow-up | Open |
-| sharing-4 | `GroupsPage` and `GroupDetailPage` expose only `Header`, `ShareDialog` only `Title`. | web: `sharing/ui/GroupsPage.tsx:53`; `sharing/ui/GroupDetailPage.tsx:69`; `sharing/ui/ShareDialog.tsx:68` | `PageSlotsBase`, `MemberRowActions`, `Tabs`; `ShareDialog` `slots.Sections` and `slots.Footer`. | PP-14.25 (#943) | Open |
+| sharing-4 | `GroupsPage` and `GroupDetailPage` expose only `Header`, `ShareDialog` only `Title`. | web: `sharing/ui/GroupsPage.tsx:53`; `sharing/ui/GroupDetailPage.tsx:69`; `sharing/ui/ShareDialog.tsx:68` | `PageSlotsBase`, `MemberRowActions`, `Tabs`; `ShareDialog` `slots.Sections` and `slots.Footer`. | PP-14.25 (#943) | Fixed |
 
 ### manifest
 
@@ -382,9 +382,9 @@ Closed points: none recorded at the audit commit.
 
 ### identity
 
-**Verdict:** Partly closed · **Packages:** api, web, contract · **Closed points:** 8 (7 fixed, 1 open) · **Stories:** PP-14.9, PP-14.15, PP-14.25
+**Verdict:** Open · **Packages:** api, web, contract · **Closed points:** 8 (8 fixed, 0 open) · **Stories:** PP-14.9, PP-14.15, PP-14.25
 
-**Open points.** `IdentityModule.forRoot` (and its `signInPolicy` binding), `registerAuthProvider` (`AuthProviderDefinition`: strategy and guard classes or `createStrategy`, async `isEnabled`, `mapProfile`, `egressHosts`, `doctorRemedy`), `AuthService.completeExternalLogin`, `respondToSignIn`, the `IDENTITY_*` ports (including `IDENTITY_SIGNIN_POLICY` and `IDENTITY_AUTH_CREDENTIALS`), `IDENTITY_EVENTS`, the guards and decorators, `identityConformanceSuite`, `describeAuthProviderConformance`, the web `AuthProvider`, `LoginPage` slots (`Logo`, `Title`, `Footer`, `ProviderButton`, `BeforeProviders`, `AfterProviders`) `GET /api/roles`, role `label` and `assignable` (an app role is assignable on invitations, memberships and users and listed by the packaged dialogs, `useRoles`), `assertRoleAssignable`, and the packaged pages. The user and organization pages' slots are not open.
+**Open points.** `IdentityModule.forRoot` (and its `signInPolicy` binding), `registerAuthProvider` (`AuthProviderDefinition`: strategy and guard classes or `createStrategy`, async `isEnabled`, `mapProfile`, `egressHosts`, `doctorRemedy`), `AuthService.completeExternalLogin`, `respondToSignIn`, the `IDENTITY_*` ports (including `IDENTITY_SIGNIN_POLICY` and `IDENTITY_AUTH_CREDENTIALS`), `IDENTITY_EVENTS`, the guards and decorators, `identityConformanceSuite`, `describeAuthProviderConformance`, the web `AuthProvider`, `LoginPage` slots (`Logo`, `Title`, `Footer`, `ProviderButton`, `BeforeProviders`, `AfterProviders`) `GET /api/roles`, role `label` and `assignable` (an app role is assignable on invitations, memberships and users and listed by the packaged dialogs, `useRoles`), `assertRoleAssignable`, `registerCurrentUserExtension` and `registerUserListExtension` (`extensions` on `/auth/me` and on each user-list row, bounded and isolated), and the packaged pages with the page-slot contract (`UsersPage`, `UserList`, `OrganizationPage`, `OrgMembersPanel`, `OrganizationsPage`, `UserTokensPage`, `ActivateDevicePage`, `LoginPage` and `AuthCallbackPage`; `UsersPage` `Tabs`).
 
 | # | Closed point | Evidence | Proposed fix | Story | Status |
 |---|---|---|---|---|---|
@@ -395,7 +395,7 @@ Closed points: none recorded at the audit commit.
 | identity-5 | There is no sign-in policy hook (veto, role mapping, domain or org restriction) and no `identity.login.succeeded` or `identity.org.created` event; the allowlist is the only gate. | api: `identity/auth/auth.service.ts:155-166`; `identity/identity.events.ts:40-47` | `IDENTITY_SIGNIN_POLICY` bound by `IdentityModule.forRoot({ signInPolicy })`; the two events. | PP-14.9 (#927) | Fixed |
 | identity-6 | The web `login()` always navigates to `/api/auth/<id>`, `AuthCallbackPage` defaults to `google`, and `LoginPage` has no slot around the provider buttons. | web: `identity/headless/auth-context.tsx:199` | `login(providerId)` by descriptor mode; `LoginPage` `BeforeProviders` and `AfterProviders`; the callback provider from the route. | PP-14.9 (#927) | Fixed |
 | identity-7 | Org roles are closed in three layers: the contract list feeds `z.enum`s (update-member, create-invite), and the web has its own lists, labels and a `viewer` default. A role registered by an app (for example `coach`) is rejected by the invite and member routes and never shown. The test login accepts three fixed roles. | contract: `identity/constants.ts:106`; `identity/schemas.ts:125, :659, :719`; web: `identity/headless/api.ts:297`; `identity/ui/users/userListColumns.tsx:47`; `identity/ui/users/ManageRolesDialog.tsx:70, :82`; `identity/ui/org/orgLabels.ts:8`; `identity/ui/org/InviteMemberDialog.tsx:33`; api: `identity/testing/dto/test-login.dto.ts:6` | `GET /roles?scope=`, `roleIdSchema` as a pattern, role registry `assignable` and `label`, `ROLE_NOT_ASSIGNABLE`; the web dialogs read the endpoint. | PP-14.15 (#933) | Fixed |
-| identity-8 | `UsersPage`, `UserList`, `OrganizationPage` and `OrgMembersPanel` take no slots; `buildUserColumns()` is exported but called internally; `/auth/me` and `UserListItem` have no enrichment seam. | web: `identity/ui/users/userListColumns.tsx:82` | `TableSlots<UserListItem>`, `registerCurrentUserExtension` and `registerUserListExtension` (optional `extensions` on the wire). | PP-14.25 (#943) | Open |
+| identity-8 | `UsersPage`, `UserList`, `OrganizationPage` and `OrgMembersPanel` take no slots; `buildUserColumns()` is exported but called internally; `/auth/me` and `UserListItem` have no enrichment seam. | web: `identity/ui/users/userListColumns.tsx:82` | `TableSlots<UserListItem>`, `registerCurrentUserExtension` and `registerUserListExtension` (optional `extensions` on the wire). | PP-14.25 (#943) | Fixed |
 
 ### email
 
