@@ -277,10 +277,11 @@ describe('the allowlist', () => {
     const root = fixture({ [`${A}/ids.ts`]: body });
     const violations = checkRepository(root).violations;
     expect(violations).toHaveLength(1);
-    expect(violations[0].rule).toBe('new');
-    expect(violations[0].message).toContain(FILE);
-    expect(violations[0].message).toContain('WIDGET_KINDS');
-    expect(violations[0].message).toContain(HINT);
+    const v = violations[0] as { rule: string; message: string };
+    expect(v.rule).toBe('new');
+    expect(v.message).toContain(FILE);
+    expect(v.message).toContain('WIDGET_KINDS');
+    expect(v.message).toContain(HINT);
     expect(HINT).toBe('open it with a registry, see docs/EXTENDING.md#open-an-id-vocabulary, or allowlist it with a reason');
   });
 
@@ -304,7 +305,7 @@ describe('the allowlist', () => {
     const root = fixture({ [`${A}/ids.ts`]: body, [`${A}/more.ts`]: body }, [entry()]);
     const [v, ...rest] = checkRepository(root).violations;
     expect(rest).toEqual([]);
-    expect(v.message).toContain('more.ts');
+    expect(v?.message).toContain('more.ts');
   });
 
   it('requires a real reason, and rejects a duplicate or a malformed entry', () => {
