@@ -129,6 +129,20 @@ export function formatNodeVital(value: number, def: NodeVitalDef | undefined): s
 }
 
 /**
+ * One printable row of the app vitals table.
+ *
+ * @stability experimental
+ */
+export interface NodeVitalRow {
+  /** The reported key. */
+  key: string;
+  /** Its registered label, or the key itself when unregistered. */
+  label: string;
+  /** The number in its registered unit. */
+  text: string;
+}
+
+/**
  * The `vitals.extra` of a snapshot as rows to print: registered keys first (in
  * registration order), then the rest by key. At most 16, because the API refuses
  * more; a snapshot read from an older row is bounded here as well, and only
@@ -139,7 +153,7 @@ export function formatNodeVital(value: number, def: NodeVitalDef | undefined): s
  *
  * @stability experimental
  */
-export function nodeVitalRows(extra: Record<string, number> | undefined): Array<{ key: string; label: string; text: string }> {
+export function nodeVitalRows(extra: Record<string, number> | undefined): NodeVitalRow[] {
   if (extra === undefined || extra === null || typeof extra !== 'object') return [];
   const entries = Object.entries(extra).filter(([, value]) => typeof value === 'number' && Number.isFinite(value)).slice(0, 16);
   const order = [...vitals.keys()];

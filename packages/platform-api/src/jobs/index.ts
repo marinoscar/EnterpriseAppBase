@@ -96,7 +96,7 @@ export {
 } from './retention/retention-policy.registry';
 export type { RetentionPolicyDefinition, RetentionPurgeHandler } from './retention/retention-policy.registry';
 export { RETENTION_SYSTEM_SETTINGS, mergeRetentionSettings } from './retention/retention.system-settings';
-export type { RetentionSettingsPatch, RetentionSettingsValue } from './retention/retention.system-settings';
+export type { RetentionPolicyPatch, RetentionSettingsPatch, RetentionSettingsValue } from './retention/retention.system-settings';
 export { AUDIT_EVENTS_PURGE_TYPE, AuditEventsPurgeHandler } from './retention/audit-events-purge.handler';
 export type {
   AuditEventsPurgeBatch,

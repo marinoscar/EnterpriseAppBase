@@ -36,7 +36,7 @@ None. Schemas and constants take no options.
 
 ## Extension-point catalog
 
-None of its own: the schemas describe the platform's own routes, and an app that adds a field to its own job route extends a schema with `.extend()` in app code. Two vocabularies are open, and their registries live in `@marinoscar/platform-api/jobs` (`registerJobReason`, `registerRetentionPolicy`); this package carries only the SHAPE they share with the wire: `JOB_REASON_PATTERN` and `jobReasonSchema` (a pattern, not an enum; `BUILTIN_JOB_REASONS` lists the platform's three, `JOB_REASONS` is its deprecated alias), and `RETENTION_POLICY_KEY_PATTERN`, `retentionPolicyKeySchema` and `buildRetentionSchemas` (composes the `retention` namespace's five schemas from a list of policies; with the four built-ins it yields JSON Schema equal to the shipped constants).
+None. The schemas describe the platform's own routes, and an app that adds a field to its own job route extends a schema with `.extend()` in app code. Two vocabularies are open, and their registries live in `@marinoscar/platform-api/jobs` (`registerJobReason`, `registerRetentionPolicy`); this package carries only the SHAPE they share with the wire: `JOB_REASON_PATTERN` and `jobReasonSchema` (a pattern, not an enum; `BUILTIN_JOB_REASONS` lists the platform's three, `JOB_REASONS` is its deprecated alias), and `RETENTION_POLICY_KEY_PATTERN`, `retentionPolicyKeySchema` and `buildRetentionSchemas` (composes the `retention` namespace's five schemas from a list of policies; with the four built-ins it yields JSON Schema equal to the shipped constants).
 
 The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
 

@@ -39,13 +39,25 @@ export const NODE_SPAN_ATTRIBUTE_STRING_PATTERN = /^[A-Za-z0-9_.+-]+$/;
  */
 export const NODE_SPAN_ATTRIBUTE_KEY_PATTERN = /^[a-z][A-Za-z0-9]{1,31}$/;
 
-/** Default `maxLength` of a registered string attribute. */
+/**
+ * Default `maxLength` of a registered string attribute.
+ *
+ * @stability experimental
+ */
 export const DEFAULT_NODE_SPAN_ATTRIBUTE_STRING_LENGTH = 64;
 
-/** Hard ceiling on a registered string attribute's `maxLength`. */
+/**
+ * Hard ceiling on a registered string attribute's `maxLength`.
+ *
+ * @stability experimental
+ */
 export const MAX_NODE_SPAN_ATTRIBUTE_STRING_LENGTH = 128;
 
-/** Most attributes one span may carry on the wire, built-ins included. */
+/**
+ * Most attributes one span may carry on the wire, built-ins included.
+ *
+ * @stability experimental
+ */
 export const MAX_NODE_SPAN_ATTRIBUTES = 16;
 
 /**
@@ -65,12 +77,34 @@ export interface NodeSpanAttributeDefinition {
   maxLength?: number | undefined;
 }
 
-interface RelayedAttribute extends NodeSpanAttributeDefinition {
-  /** The OpenTelemetry attribute name. */
+/**
+ * One of the platform's own relayed integers: the OpenTelemetry name it is
+ * emitted under and the range it must be in.
+ *
+ * @stability experimental
+ */
+export interface BuiltinNodeSpanAttribute {
+  /** The OpenTelemetry attribute name (`job.phase.bytes`). */
   otelName: string;
+  /** Smallest accepted value. */
+  min: number;
+  /** Largest accepted value. */
+  max: number;
 }
 
-const BUILTIN: Record<string, { otelName: string; min: number; max: number }> = {
+/**
+ * The span attribute a relayed wire attribute resolves to.
+ *
+ * @stability experimental
+ */
+export interface RelayedAttribute {
+  /** The OpenTelemetry attribute name to set. */
+  name: string;
+  /** Its value: an integer, or a token-shaped string for a registered string attribute. */
+  value: number | string;
+}
+
+const BUILTIN: Record<string, BuiltinNodeSpanAttribute> = {
   bytes: { otelName: 'job.phase.bytes', min: 0, max: Number.MAX_SAFE_INTEGER },
   attempt: { otelName: 'job.attempt', min: 0, max: 10_000 },
   exitCode: { otelName: 'process.exit_code', min: -1024, max: 1024 },
@@ -83,7 +117,7 @@ const BUILTIN: Record<string, { otelName: string; min: number; max: number }> = 
  *
  * @stability experimental
  */
-export const BUILTIN_NODE_SPAN_ATTRIBUTES: Readonly<Record<string, Readonly<{ otelName: string; min: number; max: number }>>> = Object.freeze({ ...BUILTIN });
+export const BUILTIN_NODE_SPAN_ATTRIBUTES: Readonly<Record<string, Readonly<BuiltinNodeSpanAttribute>>> = Object.freeze({ ...BUILTIN });
 
 /**
  * The app-registered relayed attributes.
@@ -144,7 +178,7 @@ export function registerNodeSpanAttribute(attribute: NodeSpanAttributeDefinition
  *
  * @stability experimental
  */
-export function resolveRelayedAttribute(key: string, value: unknown): { name: string; value: number | string } | undefined {
+export function resolveRelayedAttribute(key: string, value: unknown): RelayedAttribute | undefined {
   if (Object.hasOwn(BUILTIN, key)) {
     const spec = BUILTIN[key]!;
     return typeof value === 'number' && Number.isSafeInteger(value) && value >= spec.min && value <= spec.max
@@ -152,18 +186,16 @@ export function resolveRelayedAttribute(key: string, value: unknown): { name: st
       : undefined;
   }
 
-  const registered: RelayedAttribute | undefined = (() => {
-    const found = nodeSpanAttributeRegistry.get(key);
-    return found === undefined ? undefined : { ...found, otelName: `job.app.${found.key}` };
-  })();
+  const registered = nodeSpanAttributeRegistry.get(key);
   if (registered === undefined) return undefined;
+  const name = `job.app.${registered.key}`;
 
   if (registered.type === 'int') {
-    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? { name: registered.otelName, value } : undefined;
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? { name, value } : undefined;
   }
 
   const max = registered.maxLength ?? DEFAULT_NODE_SPAN_ATTRIBUTE_STRING_LENGTH;
   return typeof value === 'string' && value.length >= 1 && value.length <= max && NODE_SPAN_ATTRIBUTE_STRING_PATTERN.test(value)
-    ? { name: registered.otelName, value }
+    ? { name, value }
     : undefined;
 }

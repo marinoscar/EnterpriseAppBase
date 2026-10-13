@@ -55,8 +55,20 @@ export type RetentionSettingsValue = SystemRetentionValue & { [policyKey: string
  * @stability experimental
  */
 export type RetentionSettingsPatch = RetentionSettingsPatchInput & {
-  [policyKey: string]: { enabled?: boolean | undefined; days?: number | undefined } | undefined;
+  [policyKey: string]: RetentionPolicyPatch | undefined;
 };
+
+/**
+ * One policy's PATCH leaf: either member may be omitted.
+ *
+ * @stability experimental
+ */
+export interface RetentionPolicyPatch {
+  /** Whether the purge runs for this table. */
+  enabled?: boolean | undefined;
+  /** Days of rows kept. */
+  days?: number | undefined;
+}
 
 const logger = new Logger('RetentionSettings');
 
@@ -89,7 +101,7 @@ function composeDefaults(): RetentionSettingsValue {
  */
 export function mergeRetentionSettings(
   current: SystemRetentionValue & Partial<Record<string, RetentionPolicyValue>>,
-  patch?: RetentionSettingsPatchInput & Partial<Record<string, { enabled?: boolean | undefined; days?: number | undefined } | undefined>>,
+  patch?: RetentionSettingsPatchInput & Partial<Record<string, RetentionPolicyPatch | undefined>>,
 ): RetentionSettingsValue {
   const defaults = composeDefaults();
   const merged: Record<string, RetentionPolicyValue> = {};

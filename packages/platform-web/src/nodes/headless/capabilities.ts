@@ -12,10 +12,18 @@
 // never as markup or a link, and never acted on.
 // =============================================================================
 
-/** Most capabilities listed. */
+/**
+ * Most capabilities listed.
+ *
+ * @stability experimental
+ */
 export const MAX_LISTED_CAPABILITIES = 64;
 
-/** Longest capability or version text printed. */
+/**
+ * Longest capability or version text printed.
+ *
+ * @stability experimental
+ */
 export const MAX_CAPABILITY_TEXT_LENGTH = 80;
 
 /**

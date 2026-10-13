@@ -242,11 +242,17 @@ export function registerJobRequirement(type: string, requirement: JobRequirement
  * @stability experimental
  */
 export interface CapabilityProbe {
+  /** The OS (`linux`). */
   platform: string;
+  /** The CPU architecture (`x64`). */
   arch: string;
+  /** The Node.js runtime version. */
   nodeVersion: string;
+  /** Logical CPUs. */
   cpus: number;
+  /** Total memory, in megabytes. */
   totalMemoryMb: number;
+  /** Free memory at probe time, in megabytes. */
   freeMemoryMb: number;
   /** Which of `PROBED_BINARIES` were found on PATH. */
   binaries: Record<string, boolean>;
@@ -364,7 +370,9 @@ function isOnPath(name: string): boolean {
  * @stability experimental
  */
 export interface CapabilityGap {
+  /** The job type that needs the capability. */
   type: string;
+  /** The missing capability key. */
   capability: Capability;
 }
 
@@ -376,7 +384,9 @@ export interface CapabilityGap {
 export interface SelfTestResult {
   /** False only when a REQUIRED capability is missing. */
   ok: boolean;
+  /** Required capabilities the machine lacks, per type. */
   missingRequired: CapabilityGap[];
+  /** Degradable capabilities the machine lacks, per type. */
   missingDegradable: CapabilityGap[];
 }
 
@@ -418,10 +428,15 @@ export function evaluateCapabilities(
  * @stability experimental
  */
 export interface SelfTestOptions {
+  /** The job types the node would advertise. */
   types: readonly string[];
+  /** What the machine has; defaults to a fresh probe. */
   probe?: CapabilityProbe | undefined;
+  /** What each type needs; defaults to the registered requirements. */
   requirements?: Record<string, JobTypeRequirements> | undefined;
+  /** Called with each degradable gap's message. */
   warn?: ((message: string) => void) | undefined;
+  /** Called with each required gap's message. */
   fail?: ((message: string) => void) | undefined;
 }
 

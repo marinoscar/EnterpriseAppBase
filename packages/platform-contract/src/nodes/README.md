@@ -38,7 +38,7 @@ None. Schemas and constants take no options.
 
 ## Extension-point catalog
 
-None. The node protocol is the platform's; a node that learns a new vital needs a contract change first, which is the review that surface should get.
+None. The node protocol is the platform's, and the closed vitals fields stay closed: a node that learns a new fixed vital needs a contract change first. Two bounded openings, whose registries live elsewhere: `vitals.extra` (`nodeVitalsExtraSchema`: at most `MAX_NODE_VITALS_EXTRA_KEYS` = 16 keys matching `NODE_VITALS_EXTRA_KEY_PATTERN`, finite numbers within `MAX_NODE_VITALS_EXTRA_VALUE`; labelled in the browser by `registerNodeVital` of `@marinoscar/platform-web/nodes/headless`, reported by a CLI executor's `vitals()`), and executor span names (`BUILTIN_NODE_SPAN_NAMES` plus `NODE_APP_SPAN_NAME_PATTERN`, `job.app.<name>`; their attributes are the API's `registerNodeSpanAttribute`).
 
 The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
 

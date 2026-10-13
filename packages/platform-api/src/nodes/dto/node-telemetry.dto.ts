@@ -75,7 +75,7 @@ export { NODE_APP_SPAN_NAME_PATTERN };
  *
  * @stability experimental
  */
-export type BuiltinNodeSpanName = (typeof NODE_SPAN_NAMES)[number];
+export type BuiltinNodeSpanName = 'job.download' | 'job.execute' | 'job.upload' | 'job.submit' | 'job.secret';
 
 /**
  * A span name: a built-in phase, or an executor's `job.app.<name>`.
