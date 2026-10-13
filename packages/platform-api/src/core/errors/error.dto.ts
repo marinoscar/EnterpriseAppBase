@@ -1,5 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
+import { BUILTIN_ERROR_CODES, FALLBACK_ERROR_CODE } from './error-codes';
+
 /**
  * The error body this API returns for every endpoint but one.
  *
@@ -40,27 +42,20 @@ export class ErrorDto {
   })
   statusCode!: number;
 
-  /** Status-derived machine-readable code (closed enum, see the property's `@ApiProperty`). */
+  /** Machine-readable code: status-derived by default, or a registered domain code. */
   @ApiProperty({
+    type: String,
     description:
-      'Stable machine-readable code. Derived from the status by the exception filter, which ' +
-      'overwrites any `code` a thrown exception supplied — so it is always one of the values ' +
-      'below. Prefer branching on this over matching `message`, which is prose and may change.',
+      'Stable machine-readable code. By default derived from the status by the exception filter ' +
+      '(`BAD_REQUEST`, `CONFLICT`, ...); an endpoint may answer with a domain code the application ' +
+      'registered for that status (`registerErrorCode`). An open string, not an enum: the `examples` ' +
+      'list the codes registered when the document was generated. Prefer branching on this over ' +
+      'matching `message`, which is prose and may change.',
     example: 'CONFLICT',
-    // Mirrors `HttpExceptionFilter.getCodeFromStatus`: the mapped statuses,
-    // plus the `ERROR` fallback an unmapped status produces.
-    enum: [
-      'BAD_REQUEST',
-      'UNAUTHORIZED',
-      'FORBIDDEN',
-      'NOT_FOUND',
-      'CONFLICT',
-      'PRECONDITION_FAILED',
-      'UNPROCESSABLE_ENTITY',
-      'TOO_MANY_REQUESTS',
-      'INTERNAL_ERROR',
-      'ERROR',
-    ],
+    // The platform's own codes (mirrors `BUILTIN_ERROR_CODES` plus the `ERROR`
+    // fallback); `enrichOpenApiDocument` replaces it with every REGISTERED code
+    // when it builds a document, so an app's domain codes are listed too.
+    examples: [...BUILTIN_ERROR_CODES.map((def) => def.code), FALLBACK_ERROR_CODE],
   })
   code!: string;
 

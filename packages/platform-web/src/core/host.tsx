@@ -34,6 +34,21 @@ export interface PlatformWebHost {
    * alone. Keep its identity stable.
    */
   applyTheme?(theme: 'light' | 'dark' | 'system'): void;
+  /**
+   * Ports an installed extension package declares for itself, keyed by a string
+   * or a `Symbol.for(...)` the package exports. The app supplies them next to
+   * the platform's own ports; the package reads one with
+   * {@link usePlatformPort}. Keep the record (and each port) stable across
+   * renders.
+   *
+   * @extensionPoint option
+   * @stability experimental
+   * @example
+   * ```tsx
+   * const host = { api, viewer, extensions: { [TRANSCRIPTS_PORT]: transcriptsPort } };
+   * ```
+   */
+  extensions?: Readonly<Record<string | symbol, unknown>>;
 }
 
 const PlatformHostContext = createContext<PlatformWebHost | null>(null);
@@ -113,4 +128,57 @@ export function usePlatformApi(): PlatformApiClient {
  */
 export function usePlatformViewer(): PlatformViewer {
   return usePlatformHost().viewer;
+}
+
+/**
+ * A port an extension package declared on the host's `extensions` record.
+ *
+ * Throws a clear error when the app did not supply it, so a package that needs
+ * a port fails at the first render with the key and the fix, not later with a
+ * `undefined is not a function`. Use {@link useOptionalPlatformPort} for a port
+ * that is genuinely optional.
+ *
+ * The type parameter is a promise by the caller: nothing checks the port's
+ * shape. Export the key and the type from your package, and validate in the
+ * package if the app is untrusted code.
+ *
+ * @typeParam T - the port's type, as the package declares it.
+ * @param key - the key the package exports (`'acme.transcripts'` or `Symbol.for('@acme/transcripts/port')`).
+ * @returns the port the app supplied.
+ * @throws Error outside a {@link PlatformHostProvider}, or when `host.extensions` has no entry for `key`.
+ *
+ * @extensionPoint option
+ * @stability experimental
+ * @example
+ * ```tsx
+ * export const TRANSCRIPTS_PORT = Symbol.for('@acme/transcripts/port');
+ * const port = usePlatformPort<TranscriptsPort>(TRANSCRIPTS_PORT);
+ * ```
+ */
+export function usePlatformPort<T>(key: string | symbol): T {
+  const extensions = usePlatformHost().extensions;
+  if (extensions === undefined || !Object.prototype.hasOwnProperty.call(extensions, key) || extensions[key] === undefined) {
+    throw new Error(
+      `usePlatformPort: the host has no extension port ${String(key)}. Supply it in the app's PlatformWebHost ` +
+        `(host.extensions[${typeof key === 'symbol' ? String(key) : JSON.stringify(key)}] = ...) before mounting the package that needs it.`,
+    );
+  }
+  return extensions[key] as T;
+}
+
+/**
+ * Like {@link usePlatformPort}, but `undefined` when the app did not supply the
+ * port (or there is no provider), for a package whose port is optional.
+ *
+ * @typeParam T - the port's type, as the package declares it.
+ * @param key - the key the package exports.
+ * @returns the port, or `undefined`.
+ *
+ * @extensionPoint option
+ * @stability experimental
+ */
+export function useOptionalPlatformPort<T>(key: string | symbol): T | undefined {
+  const extensions = useOptionalPlatformHost()?.extensions;
+  if (extensions === undefined || !Object.prototype.hasOwnProperty.call(extensions, key)) return undefined;
+  return extensions[key] as T | undefined;
 }

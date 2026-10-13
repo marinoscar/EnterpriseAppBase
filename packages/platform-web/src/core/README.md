@@ -4,7 +4,7 @@
 
 ## Purpose and scope
 
-Does: the SSE client `connectSse`/`postSse`/`SseParser` (issue #900); `PlatformApiClient` (the app's transport, as an interface) and `PlatformApiError` with `isPlatformApiError`; `PlatformViewer` (who is looking: user id, `hasPermission`, `isFeatureEnabled`); `PlatformWebHost` and `PlatformHostProvider` with `usePlatformHost`, `usePlatformApi`, `usePlatformViewer` and `useOptionalPlatformHost`; `PlatformSettingsPage`, the descriptor of a packaged admin or settings page; and `PlatformHttpClient` with `ApiError` (issue #727): the browser transport moved from the reference app's `services/api.ts`, which holds the access token, refreshes once on a 401 and retries, serialises refreshes across pages with a Web Lock, and signals a lost session. The identity slice's `AuthProvider` drives sessions through it. `createPlatformApiClient` (issue #868) adapts that one client to `PlatformApiClient`, so an app hands the packaged pages the same transport `AuthProvider` drives instead of writing the adapter by hand.
+Does: the SSE client `connectSse`/`postSse`/`SseParser` (issue #900); `PlatformApiClient` (the app's transport, as an interface) and `PlatformApiError` with `isPlatformApiError`; `PlatformViewer` (who is looking: user id, `hasPermission`, `isFeatureEnabled`); `PlatformWebHost` and `PlatformHostProvider` with `usePlatformHost`, `usePlatformApi`, `usePlatformViewer` and `useOptionalPlatformHost`, plus `usePlatformPort` and `useOptionalPlatformPort` for the ports an extension package declares in `host.extensions`; `PlatformSettingsPage`, the descriptor of a packaged admin or settings page; and `PlatformHttpClient` with `ApiError` (issue #727): the browser transport moved from the reference app's `services/api.ts`, which holds the access token, refreshes once on a 401 and retries, serialises refreshes across pages with a Web Lock, and signals a lost session. The identity slice's `AuthProvider` drives sessions through it. `createPlatformApiClient` (issue #868) adapts that one client to `PlatformApiClient`, so an app hands the packaged pages the same transport `AuthProvider` drives instead of writing the adapter by hand.
 
 Does not: decide where the API lives or name the refresh lock (`PlatformHttpClient` takes both as options, so no app identity is baked in), interpret an error response beyond the error envelope (the app's `onErrorResponse` hook does, e.g. the reference app's maintenance recogniser), know the app's routes, layout, navigation or auth context, or register cards and routes itself. The app owns its registries (`ADMIN_SECTIONS`, `USER_SETTINGS_SECTIONS`) and its router (CLAUDE.md, Settings UI Pattern); this slice only describes what a packaged page needs.
 
@@ -47,6 +47,7 @@ export function AppPlatformHostProvider({ children }: { children: ReactNode }) {
 | `host.api` | `PlatformApiClient` | required | The app's transport. Paths are relative to the API base (`'/admin/doctor'`); each call resolves to the response's `data` and rejects with a `PlatformApiError` on an error status. Keep its identity stable: packaged hooks key their effects on it. |
 | `host.viewer` | `PlatformViewer` | required | `userId`, `hasPermission(permission)`, `isFeatureEnabled(feature)`. |
 | `host.formatRelativeTime` | `(iso: string) => string` | each page's own fallback | Format timestamps the way the app does. |
+| `host.extensions` | `Readonly<Record<string \| symbol, unknown>>` | none | Ports an installed extension package declares for itself, keyed by the string or `Symbol.for(...)` the package exports. The package reads one with `usePlatformPort<T>(key)`, which throws a clear error when the app did not supply it (`useOptionalPlatformPort` answers `undefined`). Own keys only: `Object.prototype` members are never ports. Keep the record and each port stable across renders. |
 | `host.applyTheme` | `(theme: 'light' \| 'dark' \| 'system') => void` | none (the preference is stored, the app's theme left alone) | Push the stored theme preference into the app's theme context (the Appearance page, #892). Keep its identity stable. |
 | `children` | `ReactNode` | required | The routed tree that may render packaged pages. |
 
@@ -77,6 +78,9 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `PlatformHostProvider` | option | `PlatformHostProvider(props: { host: PlatformWebHost; children: ReactNode }): ReactElement` | Mount the app's host once, inside the auth provider, around the shell | experimental | [example](../../../../apps/web/src/platform/platformHost.tsx) |
+| `PlatformWebHost.extensions` | option | `extensions?: Readonly<Record<string \| symbol, unknown>>` | Supply the ports an installed extension package declares for itself (the app's router, a feature flag source), keyed by the key the package exports | experimental | [example](../../../../apps/web/src/platform-extensions/core/transcripts-port.example.tsx) |
+| `usePlatformPort` | option | `usePlatformPort<T>(key: string \| symbol): T` | Read a port the app supplied from a package's own component; throws, naming the key, when it is missing | experimental | [example](../../../../apps/web/src/platform-extensions/core/transcripts-port.example.tsx) |
+| `useOptionalPlatformPort` | option | `useOptionalPlatformPort<T>(key: string \| symbol): T \| undefined` | Read a port that is genuinely optional (`undefined` when missing or outside the provider) | experimental | [example](../../../../apps/web/src/__tests__/examples/core/platform-port.test.tsx) |
 | `PlatformSettingsPage` | component | `{ id; card: { title; description; path; permission?; feature? }; Icon; Page }` | Turn a packaged page into one registry card and one route of the app | experimental | [example](../../../../apps/web/src/config/adminSections.tsx) |
 | `PlatformHttpClientOptions` | option | `{ baseUrl: string; refreshLockName: string; onErrorResponse?(status, body): void }` | Bind the browser transport to the app's API base, its refresh lock name and its own error-response handling | experimental | [example](../../../../apps/web/src/services/api.ts) |
 | `createPlatformApiClient` | option | `createPlatformApiClient(http: PlatformHttpClient, options?: { postSse? }): PlatformApiClient` | Hand the packaged pages the app's one HTTP client as their transport (build it once, at module scope) | experimental | [example](../../../../apps/web/src/platform/platformHost.tsx) |
@@ -113,6 +117,8 @@ None of its own. `apps/web/src/__tests__/config/platformPages.test.ts` in the re
 
 ## Upgrade notes
 
+PP-14.14: additive. `PlatformWebHost.extensions` (an optional record of ports an extension package declares), `usePlatformPort<T>(key)` and `useOptionalPlatformPort<T>(key)`; `createTestPlatformHost({ extensions })` of `@marinoscar/platform-web/testing` fills it. An app that sets nothing is unchanged.
+
 #900: the Server-Sent Events client (`SseParser`, `connectSse`, `postSse`) moved here from the reference app's `services/sse.ts` (`core/http/sse.ts`), behaviour unchanged except that `postSse` no longer knows about maintenance mode: it hands every non-2xx status and JSON body to the new optional `onErrorResponse` (the app passes its maintenance recogniser, as for `PlatformHttpClient`). Bind `postSse` to the transport port's `postSse` and `connectSse` to `configureNotificationsWeb({ connectSse })`.
 
 #868: `createPlatformApiClient(http, { postSse? })`, `toPlatformApiError` and `toHttpRequestOptions` moved here from the reference app's `platform/platformHost.tsx`. Replace a hand-written `PlatformApiClient` over a `PlatformHttpClient` with one call; behaviour is unchanged (the error mapping, `If-Match`, extra headers first, `getBlob`/`postBlob` as `blobWithHeaders`).
@@ -126,6 +132,7 @@ None of its own. `apps/web/src/__tests__/config/platformPages.test.ts` in the re
 | Symptom | Cause and fix |
 |---|---|
 | `usePlatformHost: no PlatformHostProvider above this component` | The page renders outside the provider. Mount `PlatformHostProvider` around the shell (and in the app's test wrapper). |
+| `usePlatformPort: the host has no extension port <key>` | An extension package needs a port the app did not supply. Add it to the host's `extensions` under the key the package exports (and in the app's test wrapper). |
 | A packaged page refetches on every render | The host's `api` changes identity. Make it a module-level constant and memoise the host. |
 | A 403 shows as a generic error | The app's adapter rethrows its own error class. Map it onto `{ status, message, code? }`. |
 

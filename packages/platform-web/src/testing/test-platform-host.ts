@@ -73,6 +73,8 @@ export interface TestPlatformHostOptions {
   formatRelativeTime?: (iso: string) => string;
   /** The host's theme setter (the Appearance page). Default none. */
   applyTheme?: (theme: 'light' | 'dark' | 'system') => void;
+  /** The host's extension ports, read by `usePlatformPort`. Default none. */
+  extensions?: Readonly<Record<string | symbol, unknown>>;
 }
 
 /**
@@ -202,6 +204,7 @@ export function createTestPlatformHost(options: TestPlatformHostOptions = {}): T
     },
     ...(options.formatRelativeTime ? { formatRelativeTime: options.formatRelativeTime } : {}),
     ...(options.applyTheme ? { applyTheme: options.applyTheme } : {}),
+    ...(options.extensions ? { extensions: options.extensions } : {}),
     requests,
   };
 }
