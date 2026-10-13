@@ -198,6 +198,12 @@
       "originId": "platform:0033_add_android_app",
       "sha256": "7f343a96417825c1372388c199ad2dbecfcf8632a4ebc5080afb29c82109b719",
       "since": "1.0.0"
+    },
+    {
+      "localDir": "20261013115831_open_job_reason",
+      "originId": "platform:0034_open_job_reason",
+      "sha256": "31b16d3aeddb81840ad34ec2df29aeaf065b1f5082c839bbc31c94c90a205d77",
+      "since": "1.0.0"
     }
   ],
   "platformVersion": "1.0.0"

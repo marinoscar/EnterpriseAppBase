@@ -29,9 +29,12 @@ import { TELEMETRY_PERMISSION_DECLARATIONS } from '../telemetry/index';
 import { USER_DATA_PERMISSIONS } from '../user-data/index';
 
 /**
- * The slices that declare permissions. Every other slice (credentials,
- * email, exports, onboarding, android-app, doctor) enforces permissions one of
- * these declares, mostly the settings slice's `system_settings:*`.
+ * The platform slices that declare permissions. Every other platform slice
+ * (credentials, email, exports, onboarding, android-app, doctor) enforces
+ * permissions one of these declares, mostly the settings slice's
+ * `system_settings:*`. A slice outside the platform adds its own set with
+ * `registerPermissionSet()`; the list of selectable slices is these plus the
+ * registered ones.
  *
  * @stability experimental
  */
@@ -50,11 +53,19 @@ export const PLATFORM_PERMISSION_SLICES: readonly [
 ] = ['settings', 'identity', 'storage', 'jobs', 'nodes', 'db-backup', 'notifications', 'ai', 'telemetry', 'sharing', 'user-data'];
 
 /**
- * A slice that declares permissions: one of {@link PLATFORM_PERMISSION_SLICES}.
+ * One platform slice that declares permissions: a member of {@link PLATFORM_PERMISSION_SLICES}.
  *
  * @stability experimental
  */
-export type PlatformPermissionSlice = (typeof PLATFORM_PERMISSION_SLICES)[number];
+export type BuiltinPlatformPermissionSlice = (typeof PLATFORM_PERMISSION_SLICES)[number];
+
+/**
+ * A slice that declares permissions: a platform one (autocompleted) or the id
+ * a package registered with `registerPermissionSet()`.
+ *
+ * @stability experimental
+ */
+export type PlatformPermissionSlice = BuiltinPlatformPermissionSlice | (string & {});
 
 /**
  * One batch of platform permissions: a declaration map and the slice that
@@ -64,7 +75,7 @@ export type PlatformPermissionSlice = (typeof PLATFORM_PERMISSION_SLICES)[number
  */
 export interface PlatformPermissionSet {
   /** The declaring slice. */
-  readonly slice: PlatformPermissionSlice;
+  readonly slice: BuiltinPlatformPermissionSlice;
   /** The declaration map's exported name, for messages and docs (`'JOBS_PERMISSIONS'`). */
   readonly name: string;
   /** The declarations, registered in key order. */

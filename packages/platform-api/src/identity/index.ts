@@ -138,6 +138,7 @@ export type {
   PermissionName,
   RoleName,
 } from './identity.permissions';
+export { assertAnyRoleAssignable, assertRoleAssignable, describeRole, isAppManagedRole, isRoleAssignable, listRoles, roleNotAssignable } from './roles/index';
 export { USERS_PERMISSIONS } from './users/users.permissions';
 export { ALLOWLIST_PERMISSIONS } from './allowlist/allowlist.permissions';
 export { ORGANIZATIONS_PERMISSIONS } from './organizations/organizations.permissions';

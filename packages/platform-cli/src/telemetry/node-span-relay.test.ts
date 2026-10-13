@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { NodeSpan, NodeSpanSink } from './node-span.js';
+import { isNodeSpanName, type NodeSpan, type NodeSpanSink } from './node-span.js';
 import { JobSpanRecorder, MAX_SPANS_PER_BATCH, NodeSpanRelay, errorTypeOf } from './node-span-relay.js';
 
 // =============================================================================
@@ -118,6 +118,85 @@ describe('JobSpanRecorder', () => {
       }),
     ).resolves.toBe('ok');
     expect(recorder.drain()).toHaveLength(1);
+  });
+});
+
+describe('executor spans and app attributes (PP-14.19)', () => {
+  it('records a job.app.<name> phase like a built-in one', async () => {
+    let now = 10;
+    const recorder = new JobSpanRecorder('job-1', () => now);
+
+    await recorder.phase('job.app.transcode', async () => {
+      now = 90;
+    });
+
+    expect(recorder.drain()).toEqual([
+      { jobId: 'job-1', name: 'job.app.transcode', startTimeUnixMs: 10, durationMs: 80, status: 'ok' },
+    ]);
+  });
+
+  it('still times the work and returns its result when the name is one the server would refuse, but queues no span', async () => {
+    const recorder = new JobSpanRecorder('job-1', () => 0);
+
+    for (const name of ['job.transcribe', 'job.app.', 'job.app.X', 'node.id', '', 'job.app.a b']) {
+      await expect(recorder.phase(name as never, async () => 'result')).resolves.toBe('result');
+    }
+
+    expect(recorder.drain()).toEqual([]);
+  });
+
+  it('keeps an app attribute that is a non-negative integer or a token-shaped string', async () => {
+    const recorder = new JobSpanRecorder('job-1', () => 0);
+    await recorder.phase('job.app.transcode', async () => undefined, { bytes: 5, frames: 240, codec: 'h264', profile: 'main.4+1_x-y' });
+
+    expect(recorder.drain()[0]?.attributes).toEqual({ bytes: 5, frames: 240, codec: 'h264', profile: 'main.4+1_x-y' });
+  });
+
+  it('drops an app attribute that could carry a path, URL, sentence, negative or non-integer value, or a bad key', async () => {
+    const recorder = new JobSpanRecorder('job-1', () => 0);
+    await recorder.phase('job.app.transcode', async () => undefined, {
+      frames: -1,
+      ratio: 1.5,
+      path: '/var/lib/state',
+      url: 'https://bucket/key?sig=abc',
+      sentence: 'two words',
+      colon: 'a:b',
+      long: 'x'.repeat(129),
+      empty: '',
+      Bad: 1,
+      a: 1,
+      'has space': 1,
+      codec: 'h264',
+    } as never);
+
+    expect(recorder.drain()[0]?.attributes).toEqual({ codec: 'h264' });
+  });
+
+  it('keeps at most 16 attributes in all, built-ins counted', async () => {
+    const recorder = new JobSpanRecorder('job-1', () => 0);
+    const many = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`attr${String(i).padStart(2, '0')}`, i]));
+    await recorder.phase('job.app.transcode', async () => undefined, { bytes: 1, ...many });
+
+    expect(Object.keys(recorder.drain()[0]?.attributes ?? {})).toHaveLength(16);
+  });
+
+  it('never lets a prototype key or a hostile attributes object through', async () => {
+    const recorder = new JobSpanRecorder('job-1', () => 0);
+    const hostile = JSON.parse('{"__proto__": 1, "constructor": 2, "frames": 3}') as never;
+    await recorder.phase('job.app.transcode', async () => undefined, hostile);
+    await recorder.phase('job.app.transcode', async () => undefined, new Proxy({}, { ownKeys: () => { throw new Error('boom'); } }) as never);
+
+    const [first] = recorder.drain();
+    expect(first?.attributes).toEqual({ constructor: 2, frames: 3 });
+  });
+
+  it('isNodeSpanName accepts exactly the five phases and job.app.<name>', () => {
+    for (const ok of ['job.download', 'job.execute', 'job.upload', 'job.submit', 'job.secret', 'job.app.transcode', 'job.app.a1']) {
+      expect(isNodeSpanName(ok)).toBe(true);
+    }
+    for (const bad of ['job.other', 'JOB.EXECUTE', 'job.app.', 'job.app.a', 5, null, undefined, {}]) {
+      expect(isNodeSpanName(bad)).toBe(false);
+    }
   });
 });
 

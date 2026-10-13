@@ -144,6 +144,82 @@ describe('the slices filter', () => {
   });
 });
 
+describe('app grants (PP-14.15)', () => {
+  const app = {
+    roles: [[{ id: 'support', description: 'Reads the user list', scope: 'system' as const }, { id: 'coach', description: 'Coach', scope: 'org' as const }]],
+    grants: [{ role: 'support', permissions: ['users:read'] }],
+  };
+
+  it('give an app role a platform permission, in the catalog and in the registries', () => {
+    const { core, manifest } = isolated();
+    const composed = manifest.platformPermissionCatalog({ app });
+    manifest.registerPlatformPermissions({ app });
+
+    expect(composed.rolePermissions.support).toEqual(['users:read']);
+    expect(core.buildPermissionCatalog()).toEqual(composed);
+    expect(core.roleGrantRegistry.ids()).toEqual(['support|users:read']);
+  });
+
+  it('leave every platform role exactly as the platform declares it', () => {
+    const baseline = platformPermissionCatalog();
+    const withApp = platformPermissionCatalog({ app });
+    for (const role of ['admin', 'contributor', 'viewer', 'org_admin']) {
+      expect(withApp.rolePermissions[role]).toEqual(baseline.rolePermissions[role]);
+    }
+    expect(withApp.permissions).toEqual(baseline.permissions);
+  });
+
+  it('refuse a grant of the other scope, to an unknown role or permission, or to a platform role', () => {
+    expect(() => platformPermissionCatalog({ app: { ...app, grants: [{ role: 'support', permissions: ['org_members:read'] }] } })).toThrow(/own scope/);
+    expect(() => platformPermissionCatalog({ app: { ...app, grants: [{ role: 'ghost', permissions: ['users:read'] }] } })).toThrow(/unknown role "ghost"/);
+    expect(() => platformPermissionCatalog({ app: { ...app, grants: [{ role: 'support', permissions: ['ghost:read'] }] } })).toThrow(/unknown permission/);
+    expect(() => platformPermissionCatalog({ app: { ...app, grants: [{ role: 'viewer', permissions: ['org_members:read'] }] } })).toThrow(/cannot target the platform role\(s\) "viewer"/);
+    expect(() => platformPermissionCatalog({ app: { ...app, grants: [{ role: 'admin', permissions: ['users:read'] }] } })).toThrow(/cannot target the platform role/);
+  });
+});
+
+describe('registerPermissionSet (PP-14.15)', () => {
+  const set = {
+    slice: 'acme-reports',
+    roles: [{ id: 'analyst', description: 'Runs reports', scope: 'org' as const }],
+    permissions: [{ id: 'reports:run', description: 'Run a report', scope: 'org' as const, defaultGrants: ['org_admin', 'analyst'] }],
+  };
+
+  it('adds a slice outside the platform after the platform sets and before the app, and selects it by id', () => {
+    const { core, manifest } = isolated();
+    manifest.registerPermissionSet(set);
+    const app = { permissions: [[{ id: 'notes:read', description: 'Read notes', scope: 'org' as const, defaultGrants: ['org_admin'] }]] };
+
+    const all = manifest.platformPermissionCatalog({ app });
+    expect(all.permissions.map((entry) => entry.name).slice(-2)).toEqual(['reports:run', 'notes:read']);
+    expect(all.roles.map((role) => role.name)).toEqual(['admin', 'contributor', 'viewer', 'org_admin', 'analyst']);
+    expect(all.rolePermissions.analyst).toEqual(['reports:run']);
+
+    const without = manifest.platformPermissionCatalog({ slices: ['identity'] });
+    expect(without.permissions.some((entry) => entry.name === 'reports:run')).toBe(false);
+    const selected = manifest.platformPermissionCatalog({ slices: ['identity', 'acme-reports'] });
+    expect(selected.permissions.some((entry) => entry.name === 'reports:run')).toBe(true);
+
+    manifest.registerPlatformPermissions({ app });
+    expect(core.buildPermissionCatalog()).toEqual(all);
+  });
+
+  it('keeps identity mandatory and refuses a platform slice id, an empty set and a duplicate', () => {
+    const { manifest } = isolated();
+    expect(() => manifest.registerPermissionSet({ ...set, slice: 'jobs' })).toThrow(/platform slice/);
+    expect(() => manifest.registerPermissionSet({ slice: 'acme-empty' })).toThrow(/roles.*permissions/);
+    manifest.registerPermissionSet(set);
+    expect(() => manifest.registerPermissionSet(set)).toThrow(/Duplicate id "acme-reports"/);
+    expect(() => manifest.platformPermissionCatalog({ slices: ['acme-reports'] })).toThrow(/must include 'identity'/);
+  });
+
+  it('is frozen once registerPlatformPermissions has consumed it, so a late set fails loudly', () => {
+    const { manifest } = isolated();
+    manifest.registerPlatformPermissions();
+    expect(() => manifest.registerPermissionSet(set)).toThrow(/frozen|FROZEN/i);
+  });
+});
+
 describe('PLATFORM_USER_OWNED_MODELS', () => {
   const datamodel = readSchemaDatamodel(PLATFORM_SCHEMA);
 

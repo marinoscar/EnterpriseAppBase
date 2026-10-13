@@ -949,7 +949,7 @@ INSERT INTO jobs (
   claim_token, lease_expires_at, executor,
   provider_key, model_version, trace_context, org_id
 ) VALUES (
-  $1::uuid, $2, $3, $4, $5, 'succeeded'::"JobStatus", $6::"JobReason", $7::int,
+  $1::uuid, $2, $3, $4, $5, 'succeeded'::"JobStatus", $6::text, $7::int,
   $8::jsonb, $9::int, $10, $11::timestamptz, $12::timestamptz, $13::timestamptz,
   NULL, NULL, 0, NULL,
   NULL, NULL, $14,

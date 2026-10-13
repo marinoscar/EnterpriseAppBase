@@ -85,11 +85,13 @@ import { runPlatformConformance } from '@marinoscar/platform-api/testing';
 // Importing a slice's testing entry REGISTERS its suites with the harness.
 import '@marinoscar/platform-api/ai/testing';
 import '@marinoscar/platform-api/jobs/testing';
+import '@marinoscar/platform-api/doctor/testing';
 // The app's own AI providers (registers `example-transcribe`): the SDK-leak suite reads
 // the registered definitions' `sdkPackages`, and each AI suite discovers its routes.
 import '../src/app-registrations/ai';
 
 import { aiConformanceFixture } from './conformance/ai-fixture';
+import { doctorConformanceFixture } from './conformance/doctor-fixture';
 import { API_SOURCE_ROOT, CRON_SOURCE_ROOTS, JOBS_SLICE_SOURCE_ROOT, NODES_SLICE_SOURCE_ROOT } from './jobs/cron-source-roots';
 
 const REPO = join(__dirname, '..', '..', '..');
@@ -158,6 +160,11 @@ runPlatformConformance({
         'broadcasts/broadcast-failure.listener.ts',
       ],
     },
+
+    // Rule 3 of the Doctor check contract: every registered check is read-only.
+    // Suite id: `doctor-read-only`. The checks are DISCOVERED from the booted app's
+    // registry; the floor is a vacuity guard, not a list.
+    doctorReadOnly: { fixture: doctorConformanceFixture, minChecks: 30 },
 
     // ---- the AI platform's invariants (CLAUDE.md AI rules 1 to 4) ------------
     // The five that boot the app take the fixture (./conformance/ai-fixture.ts):

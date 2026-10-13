@@ -105,6 +105,7 @@ import { JOB_CLOCK, JobClock, systemJobClock } from './job-clock';
 import { JobHandlerRegistry } from './job-handler.registry';
 import { ACTIVE_DEDUP_INDEX_NAME } from './jobs.service';
 import { JobStuckService, stuckRunningWhere } from './job-stuck.service';
+import { jobReasonLabel } from './job-reason';
 import { jobTypeLabel } from './job-type-label';
 import {
   JobListQuery,
@@ -153,7 +154,7 @@ export interface JobListResult {
 }
 
 /**
- * A row as the list publishes it: the projection below, plus `typeLabel`.
+ * A row as the list publishes it: the projection below, plus `typeLabel` and `reasonLabel`.
  *
  * The omission list must match `JOB_LIST_SELECT`'s — see that constant for why
  * `payload` and `claimToken` are the two columns this API does not publish.
@@ -163,6 +164,8 @@ export interface JobListResult {
 export type JobListItem = Omit<Job, 'payload' | 'claimToken' | 'traceContext'> & {
   /** `type` through `jobTypeLabel()`; equal to `type` when unlabelled. */
   typeLabel: string;
+  /** `reason` through `jobReasonLabel()`; equal to `reason` when unregistered. */
+  reasonLabel: string;
 };
 
 /**
@@ -455,7 +458,7 @@ export class JobAdminService {
     ]);
 
     return {
-      items: rows.map((row) => ({ ...row, typeLabel: jobTypeLabel(row.type) })),
+      items: rows.map((row) => ({ ...row, typeLabel: jobTypeLabel(row.type), reasonLabel: jobReasonLabel(row.reason) })),
       total,
       page,
       pageSize,
@@ -647,7 +650,7 @@ export class JobAdminService {
     // not a 500: the caller's row is gone, which is a 404.
     if (!row) throw jobNotFound(id);
 
-    return { ...row, typeLabel: jobTypeLabel(row.type) };
+    return { ...row, typeLabel: jobTypeLabel(row.type), reasonLabel: jobReasonLabel(row.reason) };
   }
 
   /**

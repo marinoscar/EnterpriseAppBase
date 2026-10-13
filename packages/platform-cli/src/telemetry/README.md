@@ -62,7 +62,7 @@ Two seams of this slice. Every row links a working use in the reference CLI. The
 | `NodeSpanRelay` | hook | `new NodeSpanRelay(options: NodeSpanRelayOptions)`: `enqueue(spans: NodeSpan[]): void`, `enabled`, `queued` | Relay a long-running job's phase spans from a worker to the API without delaying or failing the job | experimental | [example](../../../../apps/cli/src/cli.ts) |
 | `telemetryEnvSpecFragment` | option | `TelemetryEnvSpecFragment` (`{ id: 'telemetry'; metadata }`) | Annotate the telemetry stack's environment keys (group, secret, generated) for the deploy wizard | experimental | [example](../../../../apps/cli/src/app.ts) |
 
-Supporting exports: `JobSpanRecorder`, `NodeSpanRelayOptions`, `NodeSpan`, `NodeSpanAttributes`, `NodeSpanName`, `NodeSpanSink`, `errorTypeOf`, `MAX_SPANS_PER_BATCH`, `DEFAULT_MAX_QUEUED_SPANS`, `TelemetryEnvGroup`, `TelemetryEnvSpecFragment`, `TelemetryEnvVarMetadata`.
+Supporting exports: `JobSpanRecorder`, `NodeSpanRelayOptions`, `NodeSpan`, `NodeSpanAttributes`, `NodeSpanName`, `BuiltinNodeSpanName`, `isNodeSpanName`, `NODE_APP_SPAN_NAME_PATTERN`, `NodeSpanSink`, `errorTypeOf`, `MAX_SPANS_PER_BATCH`, `DEFAULT_MAX_QUEUED_SPANS`, `TelemetryEnvGroup`, `TelemetryEnvSpecFragment`, `TelemetryEnvVarMetadata`.
 
 ### Registries of the `core` slice this slice uses
 
@@ -95,13 +95,14 @@ None. The interactive menu and the wizard render the fragment's metadata (group,
 
 ## Observability
 
-The relay is the node's only span source: it never talks to a collector. The server re-emits each phase as a span whose parent is the job's stored trace context, tagged `job.executor: node` and `telemetry.relay: node`. Allowlisted integer attributes are renamed on the way through (`bytes` to `job.phase.bytes`, `attempt` to `job.attempt`, `exitCode` to `process.exit_code`, `httpStatus` to `http.response.status_code`). The relay itself emits one engine event, `telemetry-disabled`, once per process.
+The relay is the node's only span source: it never talks to a collector. The server re-emits each phase as a span whose parent is the job's stored trace context, tagged `job.executor: node` and `telemetry.relay: node`. Allowlisted integer attributes are renamed on the way through (`bytes` to `job.phase.bytes`, `attempt` to `job.attempt`, `exitCode` to `process.exit_code`, `httpStatus` to `http.response.status_code`). An executor's own span is named `job.app.<name>` and its attributes become `job.app.<key>` once the API registered the key. The relay itself emits one engine event, `telemetry-disabled`, once per process.
 
 ## Security notes
 
 - Telemetry never delays or fails a job: recording is synchronous and swallows its faults; sending happens off the job's promise, one request at a time.
 - No message ever leaves as a span: an errored phase carries `errorType`, a class name plus an HTTP status or an errno-style code (`ApiError.409`, `Error.ECONNREFUSED`), never `error.message`.
-- Attributes are integer-only and allowlisted: `bytes`, `attempt`, `exitCode`, `httpStatus`. Nothing from a job's payload, secret or result can ride along.
+- Attributes are bounded and allowlisted: the four built-in integers, plus an executor's own as a non-negative integer or a token-shaped string (letters, digits, `_ . + -`, at most 128: no space, slash, colon or quote, so no path, URL or message fits), under a key of the server's key shape, at most 16 per span. The recorder drops what the server would refuse, and the server relays only the keys it registered. Nothing from a job's payload, secret or result can ride along.
+- A span name is one of the five phases or `job.app.<name>`; any other name is never queued.
 - The three generated passwords and the monitor password are marked `secret` in the fragment: the CLI's marker for a value it must not echo.
 
 ## Conformance suite
@@ -111,6 +112,8 @@ None: this slice has no invariant that a consuming app can break. The relay's co
 ## Upgrade notes
 
 1.0: first release; moved from the app with no behaviour change.
+
+PP-14.19: `NodeSpanName` widens to include `job.app.<name>` and `NodeSpanAttributes` accepts bounded app keys. A span the server refuses is now dropped alone (a counted `dropped`), no longer a 400 for its batch.
 
 | Old app path (`apps/cli/src/`) | Import from `@marinoscar/platform-cli/telemetry` |
 |---|---|

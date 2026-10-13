@@ -11,11 +11,12 @@ describe('ErrorDto.code in the OpenAPI document', () => {
   const codeOf = (doc: MutableDocument) =>
     (doc.components as { schemas: { ErrorDto: { properties: { code: Record<string, unknown> } } } }).schemas.ErrorDto.properties.code;
 
-  it('publishes the built-in codes plus the ERROR fallback as examples, with no enum', () => {
+  it('publishes the built-in codes, then the platform slices\' own, then the ERROR fallback as examples, with no enum', () => {
     const code = codeOf(enrichOpenApiDocument(documentWithErrorDto()));
+    const examples = code.examples as string[];
     expect(code.type).toBe('string');
     expect(code.enum).toBeUndefined();
-    expect(code.examples).toEqual([
+    expect(examples.slice(0, 10)).toEqual([
       'BAD_REQUEST',
       'UNAUTHORIZED',
       'FORBIDDEN',
@@ -26,8 +27,10 @@ describe('ErrorDto.code in the OpenAPI document', () => {
       'UNPROCESSABLE_ENTITY',
       'TOO_MANY_REQUESTS',
       'INTERNAL_ERROR',
-      'ERROR',
     ]);
+    // A slice registers the domain codes it throws when it is imported (the identity slice's `ROLE_NOT_ASSIGNABLE`).
+    expect(examples.slice(10, -1)).toEqual(['ROLE_NOT_ASSIGNABLE']);
+    expect(examples.at(-1)).toBe('ERROR');
   });
 
   it('adds the codes an app registered, before the fallback', async () => {

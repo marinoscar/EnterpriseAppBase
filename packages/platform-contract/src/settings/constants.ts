@@ -28,6 +28,24 @@ export const THEME_PREFERENCES = ['light', 'dark', 'system'] as const;
 export type ThemePreference = (typeof THEME_PREFERENCES)[number];
 
 /**
+ * The shape of the id of a theme an app registers on top of
+ * {@link THEME_PREFERENCES} (`registerThemePreference` of
+ * `@marinoscar/platform-api/settings`): a lower-case slug of 2 to 48
+ * characters starting with a letter (`high-contrast`, `solarized`). The three
+ * built-in ids match it. A registered id is permanent once a user stored it.
+ *
+ * @stability experimental
+ */
+export const THEME_PREFERENCE_ID_PATTERN = /^[a-z][a-z0-9-]{1,47}$/;
+
+/**
+ * The longest label of a registered theme preference.
+ *
+ * @stability experimental
+ */
+export const THEME_OPTION_LABEL_MAX = 60;
+
+/**
  * Which picture represents the user (`profile.imageSource`, issue #367):
  *
  *  - `none`: no picture; clients render initials.

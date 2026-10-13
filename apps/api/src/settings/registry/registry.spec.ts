@@ -359,7 +359,8 @@ describe('settings namespace registries (#677)', () => {
       await withTemporaryEntries(systemSettingsNamespaceRegistry, [{ ...ext, key: 'jobsCopy' }], () => {
         expect(systemSettingsNamespaceRegistry.has('jobsCopy')).toBe(true);
       });
-      const composed = composeSystemSettingsSchema([ext]).shape as Record<string, z.ZodObject<z.ZodRawShape>>;
+      // `retention` is composed from a registry, so its stored schema is typed by its value, not as a ZodObject.
+      const composed = composeSystemSettingsSchema([ext]).shape as unknown as Record<string, z.ZodObject<z.ZodRawShape>>;
       expect(Object.keys(composed.jobs.shape)).toEqual(['history', 'stuckThresholdMinutes', 'digestEnabled']);
     });
 

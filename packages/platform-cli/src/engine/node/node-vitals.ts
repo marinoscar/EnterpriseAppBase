@@ -52,6 +52,13 @@ export const MAX_VITALS_VERSION_LENGTH = 64;
 /** Mirrors `MAX_NODE_CONCURRENCY`, the ceiling on `slotsUsed`/`slotsTotal`. */
 export const MAX_VITALS_SLOTS = 64;
 
+/** Mirrors `MAX_NODE_VITALS_EXTRA_KEYS`. */
+export const MAX_VITALS_EXTRA_KEYS = 16;
+/** Mirrors `MAX_NODE_VITALS_EXTRA_VALUE`: a quadrillion, in either direction. */
+export const MAX_VITALS_EXTRA_VALUE = 1e15;
+/** Mirrors `NODE_VITALS_EXTRA_KEY_PATTERN`. */
+export const VITALS_EXTRA_KEY_PATTERN = /^[a-z][a-z0-9_.]{1,47}$/;
+
 /** What the engine knows and this module does not: slots and loop counters. */
 export interface EngineVitalsInput {
   slotsUsed: number;
@@ -126,6 +133,36 @@ export function sanitizeVersion(value: unknown): string | undefined {
     .slice(0, MAX_VITALS_VERSION_LENGTH)
     .trim();
   return cleaned.length > 0 ? cleaned : undefined;
+}
+
+/**
+ * Reduces what an app reported as extra vitals to what the server accepts: a
+ * plain object, at most 16 entries (the first 16 valid ones, in key order of
+ * arrival), each key matching `VITALS_EXTRA_KEY_PATTERN`, each value a finite
+ * number within +/-1e15 (clamped, not dropped, past the ceiling). Anything else
+ * is dropped. `undefined` when nothing is left. NEVER THROWS: a faulty app
+ * vital must not cost the node its heartbeat (a 400 there repeats until the
+ * node is swept offline).
+ *
+ * @param raw - whatever an executor's `vitals()` returned.
+ * @returns the bounded record, or `undefined`.
+ * @stability experimental
+ */
+export function sanitizeExtraVitals(raw: unknown): Record<string, number> | undefined {
+  try {
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return undefined;
+    const out: Record<string, number> = {};
+    for (const key of Object.keys(raw)) {
+      if (Object.keys(out).length >= MAX_VITALS_EXTRA_KEYS) break;
+      if (!VITALS_EXTRA_KEY_PATTERN.test(key)) continue;
+      const value = (raw as Record<string, unknown>)[key];
+      if (typeof value !== 'number' || !Number.isFinite(value)) continue;
+      out[key] = Math.min(MAX_VITALS_EXTRA_VALUE, Math.max(-MAX_VITALS_EXTRA_VALUE, value));
+    }
+    return Object.keys(out).length > 0 ? out : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function clampCounters(counters: NodeVitalsCounters): NodeVitalsCounters | undefined {

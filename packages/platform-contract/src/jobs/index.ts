@@ -4,9 +4,11 @@
 // Explicit named exports only. constants.ts is zod-free.
 
 export {
+  BUILTIN_JOB_REASONS,
   DEFAULT_INSIGHTS_WINDOW_DAYS,
   JOB_ETA_BASES,
   JOB_REASONS,
+  JOB_REASON_PATTERN,
   JOB_STATUSES,
   MAX_INSIGHTS_WINDOW_DAYS,
   PROCESSED_WITHIN_MS,
@@ -14,7 +16,9 @@ export {
   THROUGHPUT_WINDOW_MS,
 } from './constants.js';
 export type {
+  BuiltinJobReasonName,
   JobEtaBasis,
+  JobReasonName,
   JobStatusName,
   ProcessedWithin,
 } from './constants.js';
@@ -25,6 +29,7 @@ export {
   jobInsightsSchema,
   jobLifetimeStatsSchema,
   jobListQuerySchema,
+  jobReasonSchema,
   jobSchema,
   jobStatsSchema,
   jobStatusCountsSchema,
@@ -60,8 +65,13 @@ export type { JobsSettingsPatchInput, SystemJobsValue } from './settings-schemas
 
 // ---- ./retention-schemas.ts: the `retention` system-settings namespace (#898)
 export {
+  BUILTIN_RETENTION_POLICY_KEYS,
   RETENTION_MAX_DAYS,
+  RETENTION_MIN_DAYS,
   RETENTION_POLICY_KEYS,
+  RETENTION_POLICY_KEY_PATTERN,
+  buildRetentionSchemas,
+  retentionPolicyKeySchema,
   retentionPolicySchema,
   retentionResponseSchema,
   retentionSettingsPatchSchema,
@@ -70,7 +80,10 @@ export {
   systemRetentionSchema,
 } from './retention-schemas.js';
 export type {
+  BuiltinRetentionPolicyKey,
   RetentionPolicyKey,
+  RetentionSchemaPolicy,
+  RetentionSchemas,
   RetentionPolicyValue,
   RetentionSettingsPatchInput,
   SystemRetentionValue,

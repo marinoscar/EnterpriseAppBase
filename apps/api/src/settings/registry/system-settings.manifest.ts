@@ -13,24 +13,33 @@
 // never by a declaration file (that would close an import cycle).
 // =============================================================================
 
+// Packages that contribute settings call `registerSettingsContribution` from a
+// side-effect import listed here; it runs BEFORE the assembly below.
+import '../../app-registrations/settings-contributions';
+import { APP_RETENTION_POLICIES } from '../../app-registrations/jobs';
 import {
+  APP_SYSTEM_SETTINGS_DEFAULT_OVERRIDES,
   APP_SYSTEM_SETTINGS_EXTENSIONS,
   APP_SYSTEM_SETTINGS_NAMESPACES,
 } from '../../app-registrations/settings';
 import { AI_SYSTEM_SETTINGS } from '@marinoscar/platform-api/ai';
 import { MAINTENANCE_SYSTEM_SETTINGS } from '@marinoscar/platform-api/host';
 import { DATABASE_BACKUP_SYSTEM_SETTINGS } from '@marinoscar/platform-api/db-backup';
-import { JOBS_SYSTEM_SETTINGS, RETENTION_SYSTEM_SETTINGS } from '@marinoscar/platform-api/jobs';
+import { JOBS_SYSTEM_SETTINGS, RETENTION_SYSTEM_SETTINGS, registerRetentionPolicy } from '@marinoscar/platform-api/jobs';
 import { NODES_SYSTEM_SETTINGS } from '@marinoscar/platform-api/nodes';
 import { NOTIFICATIONS_SYSTEM_SETTINGS } from '@marinoscar/platform-api/notifications';
 import { STORAGE_SYSTEM_SETTINGS } from '../../platform/storage/storage.system-settings';
 import { TELEMETRY_SYSTEM_SETTINGS } from '../../platform/telemetry/telemetry.system-settings';
 import {
-  extendSystemSettingsNamespace,
-  foldSettingsExtensions,
+  assembleSystemSettingsNamespaces,
   registerSystemSettingsNamespaces,
   type SystemSettingsNamespace,
 } from '@marinoscar/platform-api/settings';
+
+// The app's retention policies (PP-14.19) BEFORE anything reads
+// RETENTION_SYSTEM_SETTINGS: the namespace is composed once, from the policies
+// registered by then, and a later registration throws. Upstream's list is empty.
+for (const policy of APP_RETENTION_POLICIES) registerRetentionPolicy(policy);
 
 const PLATFORM_NAMESPACES: readonly SystemSettingsNamespace[] = [
   NOTIFICATIONS_SYSTEM_SETTINGS as SystemSettingsNamespace,
@@ -41,19 +50,19 @@ const PLATFORM_NAMESPACES: readonly SystemSettingsNamespace[] = [
   STORAGE_SYSTEM_SETTINGS,
   AI_SYSTEM_SETTINGS,
   TELEMETRY_SYSTEM_SETTINGS,
-  RETENTION_SYSTEM_SETTINGS,
+  RETENTION_SYSTEM_SETTINGS as SystemSettingsNamespace,
 ];
 
-// The app's extensions fold into the namespaces they name (platform or app)
-// before anything is registered.
-const { platform, app } = foldSettingsExtensions(
-  { platform: PLATFORM_NAMESPACES, app: APP_SYSTEM_SETTINGS_NAMESPACES },
-  APP_SYSTEM_SETTINGS_EXTENSIONS,
-  extendSystemSettingsNamespace,
-  'system settings',
+// One assembly, in a documented order (the package README, "Contributions"):
+// the platform's namespaces, then the contributions' (import order), then the
+// app's own; extensions fold into the namespaces they name (the
+// contributions', then the app's); defaults overrides apply last. A key that
+// two of them declare fails at import time naming both owners.
+registerSystemSettingsNamespaces(
+  assembleSystemSettingsNamespaces({
+    platform: PLATFORM_NAMESPACES,
+    app: APP_SYSTEM_SETTINGS_NAMESPACES,
+    appExtensions: APP_SYSTEM_SETTINGS_EXTENSIONS,
+    appDefaults: APP_SYSTEM_SETTINGS_DEFAULT_OVERRIDES,
+  }),
 );
-
-registerSystemSettingsNamespaces(platform);
-
-// App-owned namespaces last, so a collision with a platform key names the app.
-registerSystemSettingsNamespaces(app);

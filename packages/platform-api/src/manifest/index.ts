@@ -11,7 +11,9 @@ export {
   PLATFORM_PERMISSION_SLICES,
   PLATFORM_ROLES,
 } from './platform-permissions';
-export type { PlatformPermissionSet, PlatformPermissionSlice } from './platform-permissions';
+export type { BuiltinPlatformPermissionSlice, PlatformPermissionSet, PlatformPermissionSlice } from './platform-permissions';
+export { permissionSetRegistry, registerPermissionSet } from './permission-sets';
+export type { PermissionSetRegistration } from './permission-sets';
 export {
   platformPermissionCatalog,
   platformPermissionDeclarations,

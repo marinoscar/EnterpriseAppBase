@@ -22,6 +22,8 @@ import { CLI_VERSION } from './package-info.js';
 //   tuiScreens        a screen in the TUI menu            examples/about.screen.tsx
 //   deploySteps       a step in the install/update plan   examples/announce.deploy-step.ts
 //   nodeExecutors     a node-eligible job type            examples/echo.executor.ts
+//                     one that needs ffmpeg, emits a
+//                     job.app.* span and an app vital     examples/transcode.executor.ts
 //   envSpecFragments  metadata for app.env.example keys
 //   envGroups         an opt-in group of env keys          examples/coach.env-group.ts
 //   envGenerators     a kind of generated env value        examples/coach.env-generator.ts

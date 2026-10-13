@@ -34,19 +34,36 @@ import {
 } from '@mui/material';
 import { useAuth } from '../../headless/index.js';
 import { usePermissions } from '../../headless/index.js';
-import { useOrgMembers } from '../../headless/index.js';
-import { ORG_ROLES, type OrgMember, type OrgRole } from '../../headless/index.js';
+import { useOrgMembers, useRoles } from '../../headless/index.js';
+import type { OrgMember, UseRolesReturn } from '../../headless/index.js';
 import { MEMBER_STATUS_COLOR, formatDate, orgRoleLabel } from './orgLabels.js';
 
 /**
- * The current organization's members: role and status changes and removal
- * (`org_members:write`). The Members tab of {@link OrganizationPage}.
+ * Props of {@link OrgMembersPanel}.
  *
+ * @stability experimental
+ */
+export interface OrgMembersPanelProps {
+  /**
+   * The org roles (`useRoles('org')`), when the page already read them. Without
+   * it the panel reads its own.
+   */
+  roles?: UseRolesReturn;
+}
+
+/**
+ * The current organization's members: role and status changes and removal
+ * (`org_members:write`). The Members tab of {@link OrganizationPage}. The roles
+ * offered come from `GET /api/roles?scope=org` (the assignable ones).
+ *
+ * @param props - see {@link OrgMembersPanelProps}.
  * @returns the component.
  *
  * @stability stable
  */
-export function OrgMembersPanel(): ReactElement {
+export function OrgMembersPanel({ roles: rolesFromPage }: OrgMembersPanelProps = {}): ReactElement {
+  const ownRoles = useRoles('org', { enabled: rolesFromPage === undefined });
+  const roles = rolesFromPage ?? ownRoles;
   const { user } = useAuth();
   const { hasPermission } = usePermissions();
   const canWrite = hasPermission('org_members:write');
@@ -124,18 +141,20 @@ export function OrgMembersPanel(): ReactElement {
                   value={member.role}
                   onChange={(event) =>
                     void run(member.userId, () =>
-                      updateMember(member.userId, { roleName: event.target.value as OrgRole }),
+                      updateMember(member.userId, { roleName: event.target.value }),
                     )
                   }
                 >
-                  {!(ORG_ROLES as readonly string[]).includes(member.role) && (
+                  {/* A role the person holds but the API will not let this caller assign
+                      (internal, or removed since) is shown, not selectable. */}
+                  {!roles.assignable.some((role) => role.id === member.role) && (
                     <MenuItem value={member.role} disabled>
-                      {orgRoleLabel(member.role)}
+                      {orgRoleLabel(member.role, roles.roles)}
                     </MenuItem>
                   )}
-                  {ORG_ROLES.map((role) => (
-                    <MenuItem key={role} value={role}>
-                      {orgRoleLabel(role)}
+                  {roles.assignable.map((role) => (
+                    <MenuItem key={role.id} value={role.id}>
+                      {role.label}
                     </MenuItem>
                   ))}
                 </Select>

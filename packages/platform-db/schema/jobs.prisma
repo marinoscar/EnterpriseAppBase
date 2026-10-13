@@ -210,7 +210,14 @@ model Job {
   dedupKey String? @map("dedup_key")
 
   status JobStatus @default(pending)
-  reason JobReason
+
+  // Why the job was queued: a plain string (an open vocabulary), not a Prisma
+  // enum, for the reason `Job.type` is one. The built-ins are `upload`, `rerun`
+  // and `backfill`; an app adds its own through `registerJobReason`
+  // (`@marinoscar/platform-api/jobs`) at zero migrations. The set a row may
+  // carry is bounded by the contract's `jobReasonSchema` pattern at the API
+  // edge, not by a CHECK constraint, so a row outlives the reason that wrote it.
+  reason String
 
   // Ascending = more urgent. See the block comment above.
   priority Int @default(0)
@@ -346,12 +353,6 @@ enum JobStatus {
   running
   succeeded
   failed
-}
-
-enum JobReason {
-  upload
-  rerun
-  backfill
 }
 
 // =============================================================================

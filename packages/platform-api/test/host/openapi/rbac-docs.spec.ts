@@ -28,6 +28,18 @@ describe('describeRequirements', () => {
     expect(line).toBe(`${REQUIREMENTS_MARKER} authentication, plus permission \`users:read\`.`);
   });
 
+  it('says "at least one of" for anyPermissions, never "authentication only"', () => {
+    const line = describeRequirements(
+      operation({ authenticated: true, roles: [], permissions: [], anyPermissions: ['users:read', 'org_members:read'] }),
+    );
+    expect(line).toBe(
+      `${REQUIREMENTS_MARKER} authentication, plus at least one of the permissions \`users:read\` or \`org_members:read\`.`,
+    );
+    expect(
+      describeRequirements(operation({ authenticated: true, roles: [], permissions: ['a:read'], anyPermissions: ['b:read'] })),
+    ).toBe(`${REQUIREMENTS_MARKER} authentication, plus permission \`a:read\` and permission \`b:read\`.`);
+  });
+
   it('joins multiple permissions with "and", because the guard requires all of them', () => {
     const line = describeRequirements(
       operation({

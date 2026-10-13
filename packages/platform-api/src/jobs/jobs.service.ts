@@ -63,6 +63,7 @@
 // =============================================================================
 
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { assertJobReason } from './job-reason';
 import { type Job, JobReason, type JobsCreateData, type JobsInputJsonValue, type JobsPrisma, type JobsTx } from './data/jobs-db';
 import { PrismaClientKnownRequestError } from './data/prisma-runtime';
 import { PLATFORM_PRISMA } from '../core/index';
@@ -116,7 +117,10 @@ export interface EnqueueJobInput {
    */
   type: string;
 
-  /** Why this job exists (`upload` | `rerun` | `backfill`). */
+  /**
+   * Why this job exists: `upload`, `rerun`, `backfill` or a reason the app
+   * registered with `registerJobReason`. An unregistered reason throws.
+   */
   reason: JobReason;
 
   /**
@@ -282,6 +286,10 @@ function buildJobCreateData(
   dedupKey: string | null,
   orgId: string | null
 ): JobsCreateData {
+  // The write side of the open reason vocabulary: a typo is a bug, not a new
+  // reason. Reading a stored reason is never checked (see job-reason.ts).
+  assertJobReason(input.reason);
+
   return {
     orgId,
     type: input.type,

@@ -11,13 +11,22 @@
 // a key that collides with a platform one fails at import time naming the
 // app's entry. Recipe: `settings/registry/README.md`.
 //
+// Packages that CONTRIBUTE settings (namespaces, extensions) register
+// themselves from a side-effect import listed in
+// `settings-contributions.ts`; the manifests assemble them between the
+// platform's namespaces and these.
+//
 // Pure data: no `register()` calls, no Nest, no Prisma (this file is read by
 // `scripts/generate-settings-catalog.ts`, outside any Nest container).
 // After changing a system namespace or its defaults, run
 // `npm run catalog:settings --workspace=api` and commit the regenerated JSON.
 // =============================================================================
 
-import type { SystemSettingsNamespaceExtension, UserSettingsNamespaceExtension } from '@marinoscar/platform-api/settings';
+import type {
+  SettingsDefaultsOverride,
+  SystemSettingsNamespaceExtension,
+  UserSettingsNamespaceExtension,
+} from '@marinoscar/platform-api/settings';
 import type { SystemSettingsNamespace } from '@marinoscar/platform-api/settings';
 import type { UserSettingsNamespace } from '@marinoscar/platform-api/settings';
 
@@ -32,6 +41,14 @@ export const APP_SYSTEM_SETTINGS_EXTENSIONS: readonly SystemSettingsNamespaceExt
 
 /** Fields this app adds inside registered user settings namespaces (e.g. `ai.training`). */
 export const APP_USER_SETTINGS_EXTENSIONS: readonly UserSettingsNamespaceExtension[] = [];
+
+/**
+ * Changes to the DEFAULTS of registered system namespaces (a partial value per
+ * namespace; the shape and the merge stay the namespace's). Applied after the
+ * extensions, so an override can reach a field an extension added; checked
+ * against the stored schema at import time.
+ */
+export const APP_SYSTEM_SETTINGS_DEFAULT_OVERRIDES: readonly SettingsDefaultsOverride[] = [];
 
 // A fork types its namespaces by module augmentation, next to its entries:
 //

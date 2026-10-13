@@ -34,7 +34,7 @@ registry.
 
 | File | Registry | Recipe |
 |---|---|---|
-| `permissions.ts` | Roles and permissions (`APP_ROLES`, `APP_PERMISSIONS`) | [common/permissions/README.md](../common/permissions/README.md) |
+| `permissions.ts` | Roles, permissions and grants of platform permissions to app roles (`APP_ROLES`, `APP_PERMISSIONS`, `APP_GRANTS`) | [common/permissions/README.md](../common/permissions/README.md) |
 registry:
 
 | File | Registry | Recipe |
@@ -57,6 +57,7 @@ registry:
 | `user-owned-models.ts` | `userOwnedModelRegistry` (`@marinoscar/platform-api/core`): every model with a foreign key to `User` | [prisma/ownership/README.md](../prisma/ownership/README.md) |
 | `model-ownership.ts` | `modelOwnershipRegistry` (`@marinoscar/platform-api/core`): the ownership kind of every model (`org`, `org-optional`, `user`, `system`); an `org` model also needs `org_id`, a policy and a migration (#725) | [prisma/ownership/README.md](../prisma/ownership/README.md), [SECURITY-ARCHITECTURE.md §18](../../../../docs/SECURITY-ARCHITECTURE.md#18-tenant-isolation-rls) |
 | `user-data.ts` | The user-data slice's registries (`@marinoscar/platform-api/user-data`, #743): a keep-or-delete hint per owner model, categories, scopes, factory reset steps, offboarding preconditions | [docs/specs/user-data-reset.md §4](../../../../docs/specs/user-data-reset.md#4-extending-it-in-an-app) |
+| `jobs.ts` | The jobs and nodes slices' open vocabularies (PP-14.19): job reasons (`APP_JOB_REASONS`, `registerJobReason`), retention policies (`APP_RETENTION_POLICIES`, `registerRetentionPolicy`; registered by the settings manifest before the `retention` namespace is composed) and relayed node span attributes (`APP_NODE_SPAN_ATTRIBUTES`, `registerNodeSpanAttribute`). Pure data, empty upstream; the worked examples are in `platform-extensions/jobs/` and `platform-extensions/nodes/` and are not wired | [docs/EXTENDING.md](../../../../docs/EXTENDING.md) |
 
 | File | Registries it feeds | Recipe |
 |---|---|---|

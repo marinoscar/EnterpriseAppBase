@@ -57,6 +57,8 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | `NodesModule.forRoot` | option | `forRoot(options?: NodesModuleOptions): DynamicModule` | Mount the fleet once, with the app's host ports | experimental | [example](../../../../apps/api/src/platform/jobs/jobs.config.ts) |
 | `NODE_OBJECT_STORE` | token | `unique symbol` -> `NodeObjectStore` (`getSignedDownloadUrl`, `getSignedPutUrl`) | Bind the two storage calls the data plane makes (least privilege; no storage import) | experimental | [example](../../../../apps/api/src/platform/jobs/jobs-host.module.ts) |
 | `NODE_JOB_INPUTS` | token | `unique symbol` -> `NodeJobInputs` (`resolve(job)`) | Bind how a held job's input object is found (the app's storage subject) | experimental | [example](../../../../apps/api/src/platform/jobs/node-job-inputs.adapter.ts) |
+| `registerNodeSpanAttribute` | registry | `registerNodeSpanAttribute(attribute: { key: string; type: 'int' \| 'string'; maxLength?: number }): void` | Let a node executor's own span carry an attribute: emitted as `job.app.<key>`; an unregistered key, or a value of the wrong type, length (default 64, at most 128) or token shape, is dropped from the span. Register at import time | experimental | [example](../../../../apps/api/src/platform-extensions/nodes/transcode.span-attributes.ts) |
+| `nodeSpanAttributeRegistry` | registry | `Registry<NodeSpanAttributeDefinition>` | Read the registered attributes (`list()`, `get(key)`); `resolveRelayedAttribute(key, value)` is the pure decision the relay makes | experimental | [example](../../../../apps/api/test/examples/nodes/executor-telemetry.example.spec.ts) |
 | `NodeOfflineEvent` | event | `@OnEvent(NODE_OFFLINE_EVENT) (event: NodeOfflineEvent)` | React to a node the fleet sweep marked offline (emitted after the write committed) | stable | [example](../../../../apps/api/test/nodes/node-offline-event.integration.spec.ts) |
 
 Supporting exports (experimental unless noted): `NodeCredentialModule`, the services (`NodesService`, `NodeCredentialService`, `NodeLifecycleService`, `NodeDataPlaneService`, `NodeSecretBrokerService`, `NodesAdminService`), the two fleet handlers and their type strings, `NODE_OFFLINE_EVENT` (stable), `NODE_TOKEN_PREFIX`, `NODE_OUTPUT_KEY_PREFIX`, `SECRET_CLOCK_SKEW_ALLOWANCE_MS`, `NodeJobInputError`, the port option types (`SignedUrlOptions`, `SignedPutUrlOptions`, structurally the storage slice's), the request DTO classes and the response DTO types, `NODES_APP_METRICS` and the label lists (stable), `NODES_PERMISSIONS` (stable), `OWNER_SELECT` and `CREDENTIAL_OWNER_SELECT`, and the `nodes` settings namespace `NODES_SYSTEM_SETTINGS` with its merge `mergeNodesSettings`.
@@ -81,7 +83,8 @@ Nodes run the `@marinoscar/platform-cli` node runner, typically as `infra/compos
 
 ## Observability
 
-- **Spans**: node phase spans relayed through `POST /api/nodes/:id/telemetry`, re-emitted as children of the job's enqueuing span, with `job.id`, `job.type`, `job.executor = node`, `node.id`, `node.name` and the job's `org.id` when it has one (never a metric label).
+- **Spans**: node phase spans relayed through `POST /api/nodes/:id/telemetry`, re-emitted as children of the job's enqueuing span, with `job.id`, `job.type`, `job.executor = node`, `node.id`, `node.name` and the job's `org.id` when it has one (never a metric label). The five built-in phases and an executor's own `job.app.<name>` spans are accepted; a span that fails validation is dropped on its own and counted in the response's `dropped` (the batch is not a 400). The attributes relayed are an allowlist: the four built-in integers and whatever the app registered with `registerNodeSpanAttribute`, as `job.app.<key>`.
+- **Vitals**: `vitals.extra` is a bounded `key -> number` bag (at most 16 keys, `^[a-z][a-z0-9_.]{1,47}$`, finite numbers within +/-1e15) stored with the snapshot and shown on the fleet page; it never reaches a metric.
 - **Metrics**: the fleet gauges (`NODES_APP_METRICS`: `app.nodes.count`, the vitals gauges, `app.nodes.types.no_eligible_node`), declared here and registered by the app.
 - **Doctor**: `nodes.fleet`.
 
@@ -104,10 +107,14 @@ New as a package subpath in this version (the code moved from `apps/api/src/node
 - The request schemas moved to `@marinoscar/platform-contract/nodes`; the HTTP contract is unchanged.
 - #865: the `nodes` namespace declaration is the slice's (`NODES_SYSTEM_SETTINGS`), and `NodesModule.forRoot()` registers it. An app that copied the reference app's `platform/jobs/nodes.system-settings.ts` deletes its copy and imports the packaged one into its manifest; `forRoot()` must run before `SettingsModule.forRoot()`.
 
+- A span that fails validation is a counted drop (`200 { accepted, dropped }`), no longer a 400 for the whole batch: only a body that is not a bounded `{ spans: [...] }` is refused. `spans[].name` is `job.app.<name>` or a phase (the OpenAPI document shows `anyOf` an enum and a pattern), and `spans[].attributes` accepts bounded app keys (`additionalProperties`). `vitals.extra` is new and optional on the heartbeat and on the fleet response.
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
+| An executor's span arrives without its attributes | The attribute is not registered on the API (or its value is not an integer / a short token) | `registerNodeSpanAttribute({ key, type })` at import time; the node drops nothing the server would accept |
+| An executor's span is counted in `dropped` | Its name is not `job.app.<name>`, or its job is not held by that node | Name it `job.app.` plus 2 to 48 lower-case characters; relay only for the job the node ran |
 | Boot fails: `Nest can't resolve dependencies of NodeDataPlaneService (…, NODE_OBJECT_STORE, …)` | The host module binding the port is not in `forRoot({ imports })` | Bind `NODE_OBJECT_STORE` in a `@Global()` host module and pass it to `imports` |
 | Nodes go offline but nobody is told | No `nodes.node.offline` listener in the app | Add one that calls the notifier (dispatch only; no I/O in the listener) |
 | A node's secret request is a 409 | The job is no longer held by that claim | The node lost the lease; it must stop and not retry the secret |

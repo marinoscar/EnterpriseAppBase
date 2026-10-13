@@ -3,14 +3,17 @@
 // =============================================================================
 //
 // The nightly scheduler (`retention-purge.task.ts`) has to know which job type
-// enforces which `retention.*` policy. Until #898 that was a hard-coded list in
-// the reference app. The purges belong to the slices that own the tables
-// (`ai.runs.purge` to ai, the two notification purges to notifications,
-// `audit.events.purge` to this slice), so each handler DECLARES its own entry
-// from `onModuleInit`, next to `JobHandlerRegistry.register(this)`, and the
-// scheduler enqueues exactly the purges whose handler is loaded in this
-// process. A deployment without the notifications slice never queues a job no
-// handler would claim.
+// enforces which `retention.*` policy, and only for the purges whose handler is
+// loaded in this process: a deployment without the notifications slice never
+// queues a job no handler would claim. The purges belong to the slices that own
+// the tables (`ai.runs.purge` to ai, the two notification purges to
+// notifications, `audit.events.purge` to this slice), so each handler DECLARES
+// its own entry from `onModuleInit`, next to `JobHandlerRegistry.register(this)`.
+//
+// A policy registered with `registerRetentionPolicy` already names its
+// `purge.type`, so an app's handler may skip this registry entirely: the
+// scheduler also enqueues a policy whose `purge.type` has a mounted handler. An
+// entry declared here wins over the policy's own type and phrase.
 //
 // An instance registry rather than a process-wide map: the entry is true only
 // while the handler's module is mounted, which is Nest's lifecycle, not the
@@ -18,7 +21,9 @@
 // =============================================================================
 
 import { Injectable } from '@nestjs/common';
-import { RETENTION_POLICY_KEYS, type RetentionPolicyKey } from '@marinoscar/platform-contract/jobs';
+import type { RetentionPolicyKey } from '@marinoscar/platform-contract/jobs';
+
+import { retentionPolicyRegistry } from './retention-policy.registry';
 
 /**
  * One retention purge: which job type enforces which `retention.*` policy, and
@@ -27,7 +32,10 @@ import { RETENTION_POLICY_KEYS, type RetentionPolicyKey } from '@marinoscar/plat
  * @stability experimental
  */
 export interface RetentionPurgeEntry {
-  /** The `retention` namespace key this purge enforces. */
+  /**
+   * The `retention` namespace key this purge enforces: a registered policy
+   * (`registerRetentionPolicy`), a built-in or an app's.
+   */
   policy: RetentionPolicyKey;
   /** The purge's job type. The handler's own `type`, never re-typed. */
   type: string;
@@ -54,20 +62,21 @@ export interface RetentionPurgeEntry {
  */
 @Injectable()
 export class RetentionPurgeRegistry {
-  private readonly entries = new Map<RetentionPolicyKey, RetentionPurgeEntry>();
+  private readonly entries = new Map<string, RetentionPurgeEntry>();
 
   /**
    * Declares a purge. Registering a policy again replaces its entry (the last
    * registration wins, like the handler registry).
    *
    * @param entry - the policy, the job type and the log phrase.
-   * @throws Error when the policy is not a `retention` namespace key or a field is empty.
+   * @throws Error when the policy was not registered with `registerRetentionPolicy` or a field is empty.
    */
   register(entry: RetentionPurgeEntry): void {
-    if (!(RETENTION_POLICY_KEYS as readonly string[]).includes(entry.policy)) {
+    const policy = retentionPolicyRegistry.get(entry.policy);
+    if (policy === undefined) {
       throw new Error(
-        `RetentionPurgeRegistry.register: "${String(entry.policy)}" is not a retention policy key ` +
-          `(${RETENTION_POLICY_KEYS.join(', ')}).`,
+        `RetentionPurgeRegistry.register: "${String(entry.policy)}" is not a registered retention policy ` +
+          `(${retentionPolicyRegistry.ids().join(', ')}). Register it first with registerRetentionPolicy.`,
       );
     }
     if (!entry.type?.trim() || !entry.what?.trim()) {
@@ -78,12 +87,24 @@ export class RetentionPurgeRegistry {
   }
 
   /**
-   * Every registered purge, in the namespace's key order.
+   * The purge declared for `policy`, if its handler declared one.
+   *
+   * @param policy - the `retention` key.
+   * @returns a copy, or `undefined`.
+   */
+  get(policy: RetentionPolicyKey): RetentionPurgeEntry | undefined {
+    const entry = this.entries.get(policy);
+
+    return entry ? { ...entry } : undefined;
+  }
+
+  /**
+   * Every registered purge, in the namespace's key order (built-ins first, then the app's policies in registration order).
    *
    * @returns a fresh array of copies.
    */
   list(): RetentionPurgeEntry[] {
-    return RETENTION_POLICY_KEYS.flatMap((key) => {
+    return retentionPolicyRegistry.ids().flatMap((key) => {
       const entry = this.entries.get(key);
 
       return entry ? [{ ...entry }] : [];

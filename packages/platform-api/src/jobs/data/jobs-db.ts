@@ -135,7 +135,10 @@ export const JobStatus: { readonly [K in 'pending' | 'running' | 'succeeded' | '
 export type JobStatus = (typeof JobStatus)[keyof typeof JobStatus];
 
 /**
- * `JobReason`: why the job was queued.
+ * The platform's own job reasons (`jobs.reason` values): why a job was queued.
+ * The vocabulary is OPEN: the column is TEXT and an app adds its own with
+ * `registerJobReason`, so a {@link Job}'s `reason` is a {@link JobReason}, not
+ * only one of these three.
  *
  * @stability stable
  */
@@ -146,11 +149,19 @@ export const JobReason: { readonly [K in 'upload' | 'rerun' | 'backfill']: K } =
 } as const);
 
 /**
- * A {@link JobReason} value.
+ * One of the platform's own job reasons.
  *
  * @stability stable
  */
-export type JobReason = (typeof JobReason)[keyof typeof JobReason];
+export type BuiltinJobReason = (typeof JobReason)[keyof typeof JobReason];
+
+/**
+ * Any job reason: a platform one (autocompleted) or an app's registered id.
+ * A string at runtime; `JobsService.enqueue` refuses one nobody registered.
+ *
+ * @stability stable
+ */
+export type JobReason = BuiltinJobReason | (string & {});
 
 /**
  * `NodeStatus`: a worker node's own lifecycle.

@@ -22,6 +22,7 @@ import {
 } from '../ports';
 import { IDENTITY_EVENTS, emitIdentityEvent } from '../identity.events';
 import { ORG_ADMIN_ROLE } from '../identity.constants';
+import { assertRoleAssignable } from '../roles/role-catalog';
 import { lastOrgAdminConflict, lockOrganization, writeAudit } from './org-admin.common';
 import type { OrgMemberListQueryDto, UpdateOrgMemberDto } from './dto/org-member.dto';
 import type { IdentityMembershipRow, IdentityQueryArgs, IdentityTx } from '../data/identity-db';
@@ -149,6 +150,11 @@ export class OrgMembersService {
     dto: UpdateOrgMemberDto,
   ): Promise<OrgMemberView> {
     trace.getActiveSpan()?.setAttribute('org.id', orgId);
+
+    // Fail closed before anything is read or locked: an unknown role, a system
+    // role (`admin`) or a role registered `assignable: false` is a 400 even
+    // when it equals the member's current one.
+    if (dto.roleName !== undefined) assertRoleAssignable(dto.roleName, 'org');
 
     const result = await this.prisma.$transaction(async (tx) => {
       await lockOrganization(tx, orgId);

@@ -20,7 +20,7 @@ describe('RetentionPurgeRegistry', () => {
 
   it('refuses a policy that is not a retention namespace key', () => {
     expect(() => registry.register({ policy: 'nope' as never, type: 'x.purge', what: 'x' })).toThrow(
-      /not a retention policy key/,
+      /not a registered retention policy/,
     );
   });
 

@@ -8,6 +8,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DEFAULT_IDENTITY_OPTIONS, IDENTITY_OPTIONS, type ResolvedIdentityModuleOptions } from '../identity.options';
 import { IDENTITY_EVENTS, emitIdentityEvent } from '../identity.events';
 import { orgRoleRank } from './org-admin.common';
+import { isRoleAssignable } from '../roles/role-catalog';
 
 /** The audit action an invitation claimed at sign-in writes (#726). */
 export const ORG_INVITE_ACCEPTED_AUDIT = 'org:invite_accepted';
@@ -352,6 +353,15 @@ export class OrganizationsService {
         role = defaultRole;
       }
       const grantedRole = role;
+
+      // Fail closed at claim time too: a role that was assignable when the
+      // invitation was written may have been unregistered or marked
+      // `assignable: false` since. The invitation stays pending (nothing is
+      // granted); an administrator re-invites with a role that can be assigned.
+      if (invite.role && !isRoleAssignable(grantedRole.name, 'org')) {
+        this.logger.warn(`Invitation ${invite.id} names role "${grantedRole.name}", which is no longer assignable; not claimed`);
+        continue;
+      }
 
       const claimed = await this.prisma.$transaction(async (tx) => {
         const marked = await tx.invite.updateMany({

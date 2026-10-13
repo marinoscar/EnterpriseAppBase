@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   binaryCapability,
@@ -6,6 +6,9 @@ import {
   JOB_TYPE_REQUIREMENTS,
   probeCapabilities,
   PROBED_BINARIES,
+  registerJobRequirement,
+  registerProbedBinary,
+  resetCapabilityRegistriesForTests,
   runStartupSelfTest,
   type CapabilityProbe,
   type JobTypeRequirements,
@@ -179,3 +182,135 @@ function probeOf(binaries: Record<string, boolean>): CapabilityProbe {
     hasBinary: (name) => binaries[name] === true,
   });
 }
+
+describe('registerProbedBinary and registerJobRequirement (PP-14.19)', () => {
+  afterEach(() => resetCapabilityRegistriesForTests());
+
+  it('starts with the platform’s own binaries and requirement, and a reset returns to exactly that', () => {
+    const before = { binaries: [...PROBED_BINARIES], types: Object.keys(JOB_TYPE_REQUIREMENTS).sort() };
+    registerProbedBinary('ffmpeg', { versionArgs: ['-version'] });
+    registerJobRequirement('app.thing', { required: [binaryCapability('exiftool')] });
+
+    resetCapabilityRegistriesForTests();
+
+    expect(PROBED_BINARIES).toEqual(before.binaries);
+    expect(PROBED_BINARIES).toEqual(['pg_dump', 'psql']);
+    expect(Object.keys(JOB_TYPE_REQUIREMENTS).sort()).toEqual(before.types);
+  });
+
+  it('probes a registered binary, so a requirement naming it can be satisfied', () => {
+    registerProbedBinary('ffmpeg');
+    const result = probeCapabilities({ hasBinary: (name) => name === 'ffmpeg' });
+
+    expect(result.binaries).toMatchObject({ ffmpeg: true, pg_dump: false, psql: false });
+    expect(result.capabilities).toEqual(['binary:ffmpeg']);
+  });
+
+  it('captures a version banner for a found binary that has versionArgs, and none for one that does not', () => {
+    registerProbedBinary('ffmpeg', { versionArgs: ['-version'] });
+    registerProbedBinary('exiftool');
+    const asked: string[] = [];
+
+    const result = probeCapabilities({
+      binaries: ['ffmpeg', 'exiftool', 'missing'],
+      hasBinary: (name) => name !== 'missing',
+      readVersion: (name) => {
+        asked.push(name);
+        return name === 'ffmpeg' ? 'ffmpeg version 6.1' : undefined;
+      },
+    });
+
+    expect(result.versions).toEqual({ ffmpeg: 'ffmpeg version 6.1' });
+    expect(asked).toEqual(['ffmpeg', 'exiftool']);
+  });
+
+  it('adds no versions key when nothing was captured (a stock node’s probe is unchanged)', () => {
+    const result = probeCapabilities({ hasBinary: () => true });
+
+    expect(result).not.toHaveProperty('versions');
+    expect(Object.keys(result)).toEqual(['platform', 'arch', 'nodeVersion', 'cpus', 'totalMemoryMb', 'freeMemoryMb', 'binaries', 'capabilities']);
+  });
+
+  it('really runs a registered version command, cuts it to its first line and strips control bytes', () => {
+    registerProbedBinary('node', { versionArgs: ['--version'] });
+    const result = probeCapabilities({ binaries: ['node'], hasBinary: () => true });
+
+    expect(result.versions?.node).toBe(process.version);
+  });
+
+  it('never throws when the version command fails or is missing', () => {
+    registerProbedBinary('definitely-not-a-real-binary-xyz', { versionArgs: ['--version'] });
+
+    expect(() => probeCapabilities({ binaries: ['definitely-not-a-real-binary-xyz'], hasBinary: () => true })).not.toThrow();
+    expect(probeCapabilities({ binaries: ['definitely-not-a-real-binary-xyz'], hasBinary: () => true })).not.toHaveProperty('versions');
+  });
+
+  it('replaces the versionArgs of a binary registered twice, without listing it twice', () => {
+    registerProbedBinary('ffmpeg', { versionArgs: ['-version'] });
+    registerProbedBinary('ffmpeg', { versionArgs: ['--version'] });
+
+    expect(PROBED_BINARIES.filter((name) => name === 'ffmpeg')).toHaveLength(1);
+  });
+
+  it('refuses a name that is not a bare command, and versionArgs out of bounds', () => {
+    for (const name of ['', '-rf', '../bin/x', '/usr/bin/x', 'a b', 'a;b', 'x'.repeat(65), 'a\nb']) {
+      expect(() => registerProbedBinary(name)).toThrow(/bare command name/);
+    }
+    expect(() => registerProbedBinary('x', { versionArgs: ['1', '2', '3', '4', '5'] })).toThrow(/versionArgs/);
+    expect(() => registerProbedBinary('x', { versionArgs: ['a'.repeat(33)] })).toThrow(/versionArgs/);
+    expect(() => registerProbedBinary('x', { versionArgs: [''] })).toThrow(/versionArgs/);
+    expect(() => registerProbedBinary('x', { versionArgs: ['bad\narg'] })).toThrow(/versionArgs/);
+  });
+
+  it('registers a requirement the self-test then enforces, naming the type', () => {
+    registerJobRequirement('app.transcode', {
+      required: [binaryCapability('ffmpeg')],
+      degradable: [binaryCapability('exiftool')],
+    });
+
+    const missing = runStartupSelfTest({ types: ['app.transcode'], probe: probe([]) });
+    expect(missing.ok).toBe(false);
+    expect(missing.missingRequired).toEqual([{ type: 'app.transcode', capability: 'binary:ffmpeg' }]);
+    expect(missing.missingDegradable).toEqual([{ type: 'app.transcode', capability: 'binary:exiftool' }]);
+
+    expect(runStartupSelfTest({ types: ['app.transcode'], probe: probe(['binary:ffmpeg']) }).ok).toBe(true);
+  });
+
+  it('registers every binary: capability it names as probed, so the requirement is satisfiable on a complete install', () => {
+    registerJobRequirement('app.transcode', { required: [binaryCapability('ffmpeg')], degradable: [binaryCapability('exiftool')] });
+
+    expect(PROBED_BINARIES).toEqual(expect.arrayContaining(['ffmpeg', 'exiftool']));
+    expect(probeCapabilities({ hasBinary: () => true }).capabilities).toEqual(expect.arrayContaining(['binary:ffmpeg', 'binary:exiftool']));
+  });
+
+  it('does not touch a binary already registered with versionArgs when a requirement names it', () => {
+    registerProbedBinary('ffmpeg', { versionArgs: ['-version'] });
+    registerJobRequirement('app.transcode', { required: [binaryCapability('ffmpeg')] });
+    const asked: string[] = [];
+
+    probeCapabilities({ binaries: ['ffmpeg'], hasBinary: () => true, readVersion: (name) => { asked.push(name); return 'v'; } });
+
+    expect(asked).toEqual(['ffmpeg']);
+  });
+
+  it('keeps the platform’s db.backup.run requirement intact', () => {
+    registerJobRequirement('app.transcode', { required: [] });
+
+    expect(JOB_TYPE_REQUIREMENTS['db.backup.run']).toEqual({ required: ['binary:pg_dump'], degradable: ['binary:psql'] });
+  });
+
+  it('refuses an empty type, a blank key and a binary: key that is not a command', () => {
+    expect(() => registerJobRequirement(' ', { required: [] })).toThrow(/job type/);
+    expect(() => registerJobRequirement('app.x', { required: [' '] })).toThrow(/non-empty/);
+    expect(() => registerJobRequirement('app.x', { required: ['binary:../x'] })).toThrow(/bare command/);
+    expect(() => registerJobRequirement('app.x', { required: [], degradable: ['binary:a b'] })).toThrow(/bare command/);
+    expect(JOB_TYPE_REQUIREMENTS['app.x']).toBeUndefined();
+  });
+
+  it('accepts a non-binary capability key and registers nothing to probe for it', () => {
+    registerJobRequirement('app.gpu', { required: ['gpu:cuda'] });
+
+    expect(PROBED_BINARIES).toEqual(['pg_dump', 'psql']);
+    expect(JOB_TYPE_REQUIREMENTS['app.gpu']).toEqual({ required: ['gpu:cuda'], degradable: [] });
+  });
+});
