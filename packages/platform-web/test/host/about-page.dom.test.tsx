@@ -16,7 +16,7 @@ const ABOUT: AboutResponse = {
   deployInfoStatus: 'ok',
   deployInfoPath: '/srv/app/deploy/info.json',
   deployInfoError: null,
-  app: { name: 'EnterpriseAppBase', version: '2.4.1', commitSha: '4f21ab9c33de7715b0a1d2e3f4a5b6c7d8e9f001', ref: 'main' },
+  app: { name: 'Example App', version: '2.4.1', commitSha: '4f21ab9c33de7715b0a1d2e3f4a5b6c7d8e9f001', ref: 'main' },
   installedAt: '2026-01-04T09:12:00.000Z',
   updatedAt: '2026-08-30T18:40:00.000Z',
   deployedBy: { cli: 'appctl', version: '1.9.0' },
