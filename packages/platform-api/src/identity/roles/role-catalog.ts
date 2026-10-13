@@ -123,6 +123,20 @@ export function isRoleAssignable(role: string, scope: RoleScopeValue): boolean {
 }
 
 /**
+ * Whether the application registered `role` as `assignable: false` (a role it
+ * manages itself). An unknown role is not "unassignable" in this sense: it is
+ * simply not a role the application declared.
+ *
+ * @param role - the role id.
+ * @returns `true` only for a registered role declared `assignable: false`.
+ *
+ * @stability experimental
+ */
+export function isAppManagedRole(role: string): boolean {
+  return declarations().find((candidate) => candidate.id === role)?.assignable === false;
+}
+
+/**
  * Throws unless `role` is a known, assignable role of `scope`. Call it before
  * any lookup or write that would give the role to someone.
  *

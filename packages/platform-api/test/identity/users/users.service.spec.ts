@@ -1287,6 +1287,24 @@ describe('UsersService', () => {
         expect(mockPrisma.membership.upsert).not.toHaveBeenCalled();
       });
 
+      it('leaves a system role the application manages itself (assignable: false) in place', async () => {
+        const bot = { id: 'bot-role-id', name: 'bot', description: 'Service role', scope: 'system' };
+        arrange([mockRoles.contributor]);
+        mockPrisma.user.findUnique
+          .mockReset()
+          .mockResolvedValueOnce({ ...splitUser([], 'viewer'), userRoles: [{ role: bot }, { role: mockRoles.admin }] } as any)
+          .mockResolvedValue(splitUser([], 'viewer') as any);
+
+        await withTemporaryEntries(roleRegistry, [{ id: 'bot', description: 'Service role', scope: 'system', assignable: false }], async () => {
+          await service.updateUserRoles(mockOtherUser.id, { roleNames: ['contributor'] }, mockAdminUser.id);
+        });
+
+        expect(mockPrisma.userRole.deleteMany).toHaveBeenCalledWith({
+          where: { userId: mockOtherUser.id, roleId: { notIn: [bot.id] } },
+        });
+        expect(mockPrisma.userRole.createMany).not.toHaveBeenCalled();
+      });
+
       it('sets a registered app org role as the membership role', async () => {
         arrange([coach]);
         await withTemporaryEntries(roleRegistry, APP_ROLES, async () => {

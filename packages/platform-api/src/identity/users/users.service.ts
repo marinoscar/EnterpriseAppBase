@@ -29,7 +29,7 @@ import {
 import { PrincipalCache } from '../auth/principal-cache/principal-cache.service';
 import { principalFactory } from '../auth/principal.factory';
 import { DefaultOrganizationMissingException } from '../organizations/organizations.errors';
-import { assertRoleAssignable } from '../roles/role-catalog';
+import { assertRoleAssignable, isAppManagedRole } from '../roles/role-catalog';
 
 /**
  * What the users endpoints load for a user's roles (PP-6.3, #723): the system
@@ -365,12 +365,20 @@ export class UsersService {
       defaultOrgId = defaultOrg.id;
     }
 
+    // System roles the application manages itself (`assignable: false`) are
+    // not this route's to remove: the set below replaces the roles it can
+    // assign, and leaves those rows alone. (They cannot be NAMED here either:
+    // the check above refuses them.)
+    const keptRoles = user.userRoles.map((row) => row.role).filter((role) => isAppManagedRole(role.name));
+
     // Replace the system roles (and, in single mode, set the membership role)
     // in one transaction.
     await this.prisma.$transaction(async (tx) => {
       // Remove existing roles. Every row goes, including a pre-split row of an
       // org role: from here on org roles live on the membership.
-      await tx.userRole.deleteMany({ where: { userId: id } });
+      await tx.userRole.deleteMany({
+        where: keptRoles.length > 0 ? { userId: id, roleId: { notIn: keptRoles.map((role) => role.id) } } : { userId: id },
+      });
 
       // Add new roles
       if (systemRoles.length > 0) {
@@ -400,6 +408,7 @@ export class UsersService {
     const currentRoles = [
       ...new Set([
         ...systemRoles.map((role) => role.name),
+        ...keptRoles.map((role) => role.name),
         ...(membershipRole ? [membershipRole.name] : this.currentOrgRole(user)),
       ]),
     ];
