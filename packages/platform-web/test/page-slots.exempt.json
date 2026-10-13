@@ -10,10 +10,6 @@
       "reason": "migrated in PP-14.25 (#943)"
     },
     {
-      "page": "BroadcastsPage",
-      "reason": "migrated in PP-14.24 (#942)"
-    },
-    {
       "page": "DataExportPage",
       "reason": "migrated in PP-14.24 (#942)/25 (#943)"
     },
@@ -34,10 +30,6 @@
       "reason": "migrated in PP-14.25 (#943)"
     },
     {
-      "page": "NotificationSettingsPage",
-      "reason": "migrated in PP-14.24 (#942)"
-    },
-    {
       "page": "OrganizationPage",
       "reason": "migrated in PP-14.25 (#943)"
     },
@@ -48,10 +40,6 @@
     {
       "page": "PublicLinkPage",
       "reason": "migrated in PP-14.25 (#943)"
-    },
-    {
-      "page": "PushConfigPage",
-      "reason": "migrated in PP-14.24 (#942)"
     },
     {
       "page": "SetupGuidePage",
@@ -67,10 +55,6 @@
     },
     {
       "page": "TelemetrySettingsPage",
-      "reason": "migrated in PP-14.24 (#942)"
-    },
-    {
-      "page": "UserNotificationsPage",
       "reason": "migrated in PP-14.24 (#942)"
     },
     {

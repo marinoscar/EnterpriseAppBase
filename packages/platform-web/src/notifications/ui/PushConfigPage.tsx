@@ -82,6 +82,8 @@ import WarningAmberOutlinedIcon from '@mui/icons-material/WarningAmberOutlined';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import VpnKeyOutlinedIcon from '@mui/icons-material/VpnKeyOutlined';
 import { Navigate } from 'react-router-dom';
+import { PageSlotsFrame } from '../../core/index.js';
+import type { PageSlotsBase } from '../../core/index.js';
 import { usePermissions } from '../../identity/index.js';
 import { usePushConfig } from '../headless/usePushConfig.js';
 import { LoadingSpinner } from './LoadingSpinner.js';
@@ -156,6 +158,28 @@ function CopyableField({ label, value }: { label: string; value: string }) {
   );
 }
 
+/** The page subtitle (mirrors the `Web Push` card in `config/adminSections.tsx`). */
+const PUSH_DESCRIPTION =
+  'Generate a VAPID key pair, enable or rotate it, and control whether this deployment can send browser push notifications.';
+
+/**
+ * The slots of {@link PushConfigPage}: the page-slot contract. `Sections` is drawn at both ends of the body, around the enable form, the key display, the diagnostics and the danger zone. The loading spinner and the load-error screen are not slotted.
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export type PushConfigPageSlots = PageSlotsBase;
+
+/**
+ * The props of {@link PushConfigPage}.
+ *
+ * @stability experimental
+ */
+export interface PushConfigPageProps {
+  /** Optional extension slots; omitted, the page renders exactly as it always did. */
+  slots?: PushConfigPageSlots;
+}
+
 /**
  * The `/admin/settings/push` page: the Web Push (VAPID) key pair, generated, rotated and removed at run time (never an environment variable), and the test-push diagnostics.
  *
@@ -164,7 +188,8 @@ function CopyableField({ label, value }: { label: string; value: string }) {
  * @extensionPoint component
  * @stability experimental
  */
-export default function PushConfigPage() {
+export default function PushConfigPage(props: PushConfigPageProps = {}) {
+  const { slots } = props;
   const { hasPermission } = usePermissions();
   const {
     config,
@@ -272,18 +297,24 @@ export default function PushConfigPage() {
   return (
     <Container maxWidth="lg">
       <Box sx={{ py: 4 }}>
-        {/* Title and description MIRROR the `Web Push` card in
-            `config/adminSections.tsx`, exactly as `EmailSettingsPage` does for
-            `Email`. */}
-        <Typography variant="h4" component="h1" gutterBottom>
-          Web Push
-        </Typography>
-        <Typography color="text.secondary" sx={{ mb: 2 }}>
-          Generate a VAPID key pair, enable or rotate it, and control whether this deployment can
-          send browser push notifications.
-          {!canWrite && ' (read-only)'}
-        </Typography>
-
+        <PageSlotsFrame
+          slots={slots}
+          headerProps={{ title: 'Web Push', description: PUSH_DESCRIPTION, readOnly: !canWrite, actions: null }}
+          header={
+            <>
+              {/* Title and description MIRROR the `Web Push` card in
+                  `config/adminSections.tsx`, exactly as `EmailSettingsPage` does for
+                  `Email`. */}
+              <Typography variant="h4" component="h1" gutterBottom>
+                Web Push
+              </Typography>
+              <Typography color="text.secondary" sx={{ mb: 2 }}>
+                {PUSH_DESCRIPTION}
+                {!canWrite && ' (read-only)'}
+              </Typography>
+            </>
+          }
+        >
         {loadError && (
           <Alert severity="error" sx={{ mb: 3 }}>
             {loadError}
@@ -528,6 +559,8 @@ export default function PushConfigPage() {
             </Stack>
           </Paper>
         )}
+
+        </PageSlotsFrame>
 
         <PushConfigConfirmDialog
           action={dialogAction}
