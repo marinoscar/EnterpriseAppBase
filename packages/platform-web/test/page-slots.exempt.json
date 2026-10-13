@@ -42,14 +42,6 @@
       "reason": "migrated in PP-14.24 (#942)/25 (#943)"
     },
     {
-      "page": "DbBackupPage",
-      "reason": "migrated in this story (PP-14.23): remove once the page takes the slots"
-    },
-    {
-      "page": "DoctorPage",
-      "reason": "migrated in this story (PP-14.23): remove once the page takes the slots"
-    },
-    {
       "page": "EmailSettingsPage",
       "reason": "migrated in PP-14.24 (#942)"
     },
@@ -68,14 +60,6 @@
     {
       "page": "GroupsPage",
       "reason": "migrated in PP-14.25 (#943)"
-    },
-    {
-      "page": "JobInsightsPage",
-      "reason": "migrated in this story (PP-14.23): remove once the page takes the slots"
-    },
-    {
-      "page": "JobsPage",
-      "reason": "migrated in this story (PP-14.23): remove once the page takes the slots"
     },
     {
       "page": "LoginPage",
@@ -160,10 +144,6 @@
     {
       "page": "UsersPage",
       "reason": "migrated in PP-14.25 (#943)"
-    },
-    {
-      "page": "WorkersPage",
-      "reason": "migrated in this story (PP-14.23): remove once the page takes the slots"
     }
   ]
 }

@@ -23,7 +23,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import ts from 'typescript';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, expectTypeOf, it } from 'vitest';
+
+import type { PageSlotsBase, TableSlots } from '../src/core/index.js';
+import type { DbBackupPageProps } from '../src/db-backup/ui/index.js';
+import type { DoctorPageProps } from '../src/doctor/ui/index.js';
+import type { JobInsightsPageProps, JobsPageProps } from '../src/jobs/ui/index.js';
+import type { WorkersPageProps } from '../src/nodes/ui/index.js';
 
 const PACKAGE_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -158,5 +164,27 @@ describe('the packaged-page slot contract', () => {
     }
     expect(problems).toEqual([]);
     expect(new Set(exempt.map((entry) => entry.page)).size).toBe(exempt.length);
+  });
+});
+
+describe('the migrated operations pages (compile time)', () => {
+  it('extend PageSlotsBase and accept every member of it', () => {
+    type SlotsOf<P extends { slots?: unknown }> = NonNullable<P['slots']>;
+
+    expectTypeOf<SlotsOf<JobsPageProps>>().toExtend<PageSlotsBase>();
+    expectTypeOf<PageSlotsBase>().toExtend<SlotsOf<JobsPageProps>>();
+    expectTypeOf<SlotsOf<JobInsightsPageProps>>().toExtend<PageSlotsBase>();
+    expectTypeOf<PageSlotsBase>().toExtend<SlotsOf<JobInsightsPageProps>>();
+    expectTypeOf<SlotsOf<WorkersPageProps>>().toExtend<PageSlotsBase>();
+    expectTypeOf<PageSlotsBase>().toExtend<SlotsOf<WorkersPageProps>>();
+    expectTypeOf<SlotsOf<DbBackupPageProps>>().toExtend<PageSlotsBase>();
+    expectTypeOf<PageSlotsBase>().toExtend<SlotsOf<DbBackupPageProps>>();
+    expectTypeOf<SlotsOf<DoctorPageProps>>().toExtend<PageSlotsBase>();
+    expectTypeOf<PageSlotsBase>().toExtend<SlotsOf<DoctorPageProps>>();
+
+    // The table pages also carry the table slots.
+    expectTypeOf<SlotsOf<JobsPageProps>>().toExtend<Pick<TableSlots<unknown>, 'Toolbar'>>();
+    expectTypeOf<SlotsOf<WorkersPageProps>>().toExtend<Pick<TableSlots<unknown>, 'Toolbar'>>();
+    expect(true).toBe(true);
   });
 });
