@@ -210,6 +210,12 @@
       "originId": "platform:0035_ai_usage_feature",
       "sha256": "ad7322539e971a2248cc2f73a12e188453a3312cc1a04d168bc4e7ddd68e5752",
       "since": "1.0.0"
+    },
+    {
+      "localDir": "20261013200000_add_app_metadata",
+      "originId": "platform:0036_add_app_metadata",
+      "sha256": "17e727075b3d02d129f60cdebf156b9736113e3b689ff35513c474c520185f75",
+      "since": "1.0.0"
     }
   ],
   "platformVersion": "0.1.0-next.3"
