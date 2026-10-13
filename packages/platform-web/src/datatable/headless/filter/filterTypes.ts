@@ -105,7 +105,7 @@ export const BUILTIN_OPERATORS: Readonly<Record<BuiltinFilterOperator, FilterOpe
 });
 
 const TYPES = new Map<string, DataTableFilterTypeDef>();
-/** operator id -> arity: the built-ins, then whatever registered types and columns taught. */
+/** The arity of each operator id: the built-ins, then whatever registered types and columns taught. */
 const ARITIES = new Map<string, OperatorArity>(Object.values(BUILTIN_OPERATORS).map((def) => [def.id, def.arity]));
 
 function learnOperator(def: FilterOperatorDef, source: string): void {

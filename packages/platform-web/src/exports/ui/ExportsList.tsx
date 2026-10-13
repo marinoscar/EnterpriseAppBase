@@ -38,6 +38,16 @@ export interface ExportsListColumn extends SlotTableColumn<ExportView> {
 }
 
 /**
+ * What the `RowActions` slot receives: the export of the row.
+ *
+ * @stability experimental
+ */
+export interface ExportsListRowActionsProps {
+  /** The export the controls are drawn for. */
+  row: ExportView;
+}
+
+/**
  * The slots of {@link ExportsList}: `Columns` and `RowActions` of the
  * packaged-page table contract (`TableSlots`).
  *
@@ -46,7 +56,7 @@ export interface ExportsListColumn extends SlotTableColumn<ExportView> {
  */
 export interface ExportsListSlots extends Pick<TableSlots<ExportView, ExportsListColumn>, 'Columns'> {
   /** Extra per-export controls, drawn after Download. Receives the export. */
-  RowActions?: PageSlot<{ row: ExportView }>;
+  RowActions?: PageSlot<ExportsListRowActionsProps>;
 }
 
 /**
