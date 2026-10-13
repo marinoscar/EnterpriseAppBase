@@ -346,9 +346,14 @@ export class UsersService {
     let membershipRole: { id: string; name: string } | null = null;
     let defaultOrgId: string | null = null;
     if (singleOrg) {
+      // An org role the application manages itself (`assignable: false`) that
+      // the user holds on the default organization is not this route's to
+      // replace with the default role when the request names no org role.
+      const heldOrgRole = (user.memberships ?? []).find((membership) => membership.org?.isDefault)?.role.name;
+      const keptOrgRole = heldOrgRole !== undefined && isAppManagedRole(heldOrgRole) ? heldOrgRole : undefined;
       const membershipRoleName = systemRoles.some((role) => role.name === ROLES.ADMIN)
         ? ORG_ADMIN_ROLE
-        : this.highestOrgRole(orgRoles.map((role) => role.name)) ?? this.identityOptions.defaultOrgRole;
+        : this.highestOrgRole(orgRoles.map((role) => role.name)) ?? keptOrgRole ?? this.identityOptions.defaultOrgRole;
       membershipRole =
         orgRoles.find((role) => role.name === membershipRoleName) ??
         (await this.prisma.role.findUnique({ where: { name: membershipRoleName } }));

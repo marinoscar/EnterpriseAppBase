@@ -1305,6 +1305,34 @@ describe('UsersService', () => {
         expect(mockPrisma.userRole.createMany).not.toHaveBeenCalled();
       });
 
+      it('keeps an org role the application manages itself when the request names only system roles (single mode)', async () => {
+        const botOrg = { id: 'bot-org-role-id', name: 'bot-org', description: 'Service role', scope: 'org' };
+        const support = { id: 'support-role-id', name: 'support', description: 'Support', scope: 'system' };
+        const held = {
+          ...splitUser([], 'viewer'),
+          memberships: [
+            { orgId: 'org-default', status: 'active', lastActiveAt: new Date(), org: { id: 'org-default', isDefault: true }, role: botOrg },
+          ],
+        };
+        arrange([support]);
+        mockPrisma.user.findUnique.mockReset().mockResolvedValueOnce(held as any).mockResolvedValue(held as any);
+        mockPrisma.role.findUnique.mockImplementation(((args: any) =>
+          Promise.resolve(({ ...mockRoles, 'bot-org': botOrg } as Record<string, unknown>)[args.where.name] ?? null)) as any);
+
+        await withTemporaryEntries(
+          roleRegistry,
+          [
+            { id: 'bot-org', description: 'Service role', scope: 'org', assignable: false },
+            { id: 'support', description: 'Support', scope: 'system' },
+          ],
+          async () => {
+            await service.updateUserRoles(mockOtherUser.id, { roleNames: ['support'] }, mockAdminUser.id);
+          },
+        );
+
+        expect(mockPrisma.membership.upsert).toHaveBeenCalledWith(expect.objectContaining({ update: { roleId: botOrg.id } }));
+      });
+
       it('sets a registered app org role as the membership role', async () => {
         arrange([coach]);
         await withTemporaryEntries(roleRegistry, APP_ROLES, async () => {
