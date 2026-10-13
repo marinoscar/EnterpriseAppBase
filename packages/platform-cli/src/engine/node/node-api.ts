@@ -214,6 +214,12 @@ export interface NodeVitals {
   cliVersion?: string | undefined;
   nodeVersion?: string | undefined;
   pgDumpVersion?: string | undefined;
+  /**
+   * App-defined numeric vitals: at most 16 `key -> number` pairs, keys shaped
+   * `^[a-z][a-z0-9_.]{1,47}$`. Filled from the executors' `vitals()` and
+   * sanitized by `sanitizeExtraVitals` before they get here.
+   */
+  extra?: Record<string, number> | undefined;
 }
 
 export interface HeartbeatRequest {

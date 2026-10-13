@@ -2,6 +2,7 @@ import { freezeCommandRegistry, freezeEnvSpecRegistry } from '../core/index.js';
 
 import { resetPlatformRegistrationsForTests } from './builtin-registrations.js';
 import { freezeDeployStepRegistry, resetDeployStepRegistryForTests } from './deploy/steps/registry.js';
+import { resetCapabilityRegistriesForTests } from './node/capabilities.js';
 import { freezeNodeExecutorRegistry, resetNodeExecutorRegistryForTests } from './node/executors/registry.js';
 import { freezeTuiScreenRegistry, resetTuiScreenRegistryForTests } from './tui/screen-registry.js';
 
@@ -32,4 +33,5 @@ export function resetCliRegistriesForTests(): void {
   resetTuiScreenRegistryForTests();
   resetDeployStepRegistryForTests();
   resetNodeExecutorRegistryForTests();
+  resetCapabilityRegistriesForTests();
 }

@@ -10,7 +10,7 @@ import type { ActiveJob, HistoryEntry, NodeCounters, NodeEngineEvent, NodeSnapsh
 import type { ExecutorRegistry } from './executors/index.js';
 import { defaultExecutorRegistry } from './executors/registry.js';
 import { MissingJobInputError, ProviderRateLimitError } from './node-errors.js';
-import type { EngineVitalsInput } from './node-vitals.js';
+import { sanitizeExtraVitals, type EngineVitalsInput } from './node-vitals.js';
 import { ApiError } from '../errors.js';
 import { JobSpanRecorder, NodeSpanRelay, type NodeSpanSink } from '../../telemetry/index.js';
 
@@ -799,14 +799,38 @@ export class NodeEngine {
   private sampleVitals(): NodeVitals | undefined {
     if (this.collectVitals === undefined) return undefined;
     try {
-      return this.collectVitals({
+      const vitals = this.collectVitals({
         slotsUsed: this.inFlight.size,
         slotsTotal: this.concurrency,
         counters: this.getVitalsCounters(),
       });
+      const extra = this.collectExtraVitals();
+      return extra === undefined ? vitals : { ...vitals, extra };
     } catch {
       return undefined;
     }
+  }
+
+  /**
+   * The executors' app-defined vitals, merged (a later executor in type order
+   * wins a repeated key) and sanitized to the server's bounds. Never throws:
+   * one executor's faulty `vitals()` costs only its own numbers.
+   */
+  private collectExtraVitals(): Record<string, number> | undefined {
+    const merged: Record<string, number> = {};
+    for (const executor of this.executors.list()) {
+      if (typeof executor.vitals !== 'function') continue;
+      try {
+        // Sanitized per executor FIRST: only pattern-checked keys are copied,
+        // so no executor can write a prototype key into the merged record.
+        const own = sanitizeExtraVitals(executor.vitals());
+        if (own !== undefined) for (const key of Object.keys(own)) merged[key] = own[key]!;
+      } catch {
+        // An app vital never costs the heartbeat.
+      }
+    }
+
+    return sanitizeExtraVitals(merged);
   }
 
   // ---------------------------------------------------------------------------

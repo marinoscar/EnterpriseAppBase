@@ -438,9 +438,30 @@ export type {
 } from './deploy/steps/registry.js';
 export { planDeploySteps } from './deploy/steps/plan.js';
 export type { DeployPlanStep } from './deploy/steps/plan.js';
+export {
+  binaryCapability,
+  evaluateCapabilities,
+  probeCapabilities,
+  registerJobRequirement,
+  registerProbedBinary,
+  runStartupSelfTest,
+} from './node/capabilities.js';
+export type {
+  Capability,
+  CapabilityGap,
+  CapabilityProbe,
+  JobRequirementInput,
+  JobTypeRequirements,
+  ProbedBinaryOptions,
+  SelfTestOptions,
+  SelfTestResult,
+} from './node/capabilities.js';
+export { sanitizeExtraVitals } from './node/node-vitals.js';
 export { ExecutorRegistry } from './node/executors/index.js';
 export type { ExecutorNodeApi, JobExecutionContext, JobExecutor } from './node/executors/index.js';
 export type { ClaimToken, DownloadUrlResult, JobSecret, NodeJob, UploadUrlResult } from './node/node-api.js';
+export { NODE_APP_SPAN_NAME_PATTERN, isNodeSpanName } from '../telemetry/index.js';
+export type { NodeSpanAttributes, NodeSpanName } from '../telemetry/index.js';
 export { defaultExecutors } from './node/executors/example-checksum.js';
 export {
   defaultExecutorRegistry,

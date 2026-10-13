@@ -162,6 +162,17 @@ export interface JobExecutor {
    * @param context - The job, its params and the node API.
    */
   execute(context: JobExecutionContext): Promise<unknown>;
+  /**
+   * App-defined numeric vitals this executor reports on every heartbeat, merged
+   * with the other executors' into the heartbeat's `vitals.extra` (the fleet
+   * page labels a key through `registerNodeVital`). Optional; read at heartbeat
+   * time, so it MUST be cheap, synchronous and must not spawn a process. At
+   * most 16 keys fleet-wide, each `^[a-z][a-z0-9_.]{1,47}$`, each a finite
+   * number: `sanitizeExtraVitals` drops the rest, and a throw here is swallowed.
+   *
+   * @returns key -> number, or `undefined` for none.
+   */
+  vitals?(): Record<string, number> | undefined;
 }
 
 /**
@@ -181,6 +192,11 @@ export class ExecutorRegistry {
   register(executor: JobExecutor): this {
     this.executors.set(executor.type, executor);
     return this;
+  }
+
+  /** Every registered executor, in type order. */
+  list(): JobExecutor[] {
+    return this.types().map((type) => this.executors.get(type)!);
   }
 
   /** Every type this node can run. What `register`/`claim` advertise. */
