@@ -195,6 +195,24 @@ describe('AiService.run: a custom operation', () => {
       expect(t.h.getSecret).not.toHaveBeenCalled();
     });
 
+    it('an unrecognized key in a strict input is reported by path and code, never by the key name', async () => {
+      registerAiOperation({
+        id: 'audio.strict_input',
+        label: 'Strict',
+        capability: 'speaker_diarization',
+        inputSchema: z.strictObject({ recording: z.string() }),
+        outputSchema: z.object({}),
+      });
+      const h = createAiRuntimeHarness({
+        models: [{ modelId: MODEL, capabilities: DIARIZE_CAPABILITIES }],
+        fake: { operations: { 'audio.strict_input': async () => ({}) } },
+      });
+      const error = await errorOf(h.ai.forUser(HARNESS_USER).run('audio.strict_input', { recording: 'r', [HARNESS_USER_KEY]: 1 }));
+
+      expect(error.code).toBe('AI_INVALID_REQUEST');
+      expect(JSON.stringify(error.toJSON())).not.toContain(HARNESS_USER_KEY);
+    });
+
     it('an unregistered operation id is AI_INVALID_REQUEST naming how to register it', async () => {
       const t = setup(good);
       const error = await errorOf(t.client.run('audio.unknown_thing', {}, { model: MODEL }));

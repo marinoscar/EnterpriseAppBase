@@ -14,7 +14,7 @@
 import { useState, type FormEvent } from 'react';
 import { Alert, Box, Button, Divider, FormControlLabel, Stack, Switch, TextField, Typography } from '@mui/material';
 import { GraphicEq as TranscribeIcon, UploadFile as UploadFileIcon } from '@mui/icons-material';
-import { AI_TRANSCRIPTION_INPUT_ACCEPT, AI_TRANSCRIPTION_MAX_BYTES, AI_TRANSCRIPTION_PROMPT_MAX_CHARS, isAiTranscriptionRunOutput, type AiTranscriptionRequest, type UsableAiModel } from '../../headless/types.js';
+import { type AiDefaultModel, AI_TRANSCRIPTION_INPUT_ACCEPT, AI_TRANSCRIPTION_MAX_BYTES, AI_TRANSCRIPTION_PROMPT_MAX_CHARS, isAiTranscriptionRunOutput, type AiTranscriptionRequest, type UsableAiModel } from '../../headless/types.js';
 import { createAiTranscriptionRun } from '../../headless/client.js';
 import { useAiApi } from '../../headless/use-ai-api.js';
 import { useAiStorageObjects } from '../../headless/use-ai-storage.js';
@@ -41,12 +41,22 @@ export function audioFileProblem(file: File): string | null {
   return null;
 }
 
+/**
+ * The props of {@link AiTranscribeMode}: the playground panel props plus the
+ * knobs a test or an app's own mode turns.
+ *
+ * @stability experimental
+ */
 export interface AiTranscribeModeProps {
   /** The usable models declaring `audio_transcription`. */
   models: UsableAiModel[];
-  preferredModel?: { provider: string; modelId: string } | null;
+  /** The viewer's default model, when set. */
+  preferredModel?: AiDefaultModel | null;
+  /** Whether the models and settings finished loading. */
   ready?: boolean;
+  /** How often the run is polled, in milliseconds. */
   runPollIntervalMs?: number;
+  /** How the upload waits for the storage object to be ready. */
   uploadWaitOptions?: WaitForReadyOptions;
   /**
    * `providerOptions` sent with every request (PP-14.17): how an app's playground
@@ -57,6 +67,15 @@ export interface AiTranscribeModeProps {
   providerOptions?: Record<string, Record<string, unknown>>;
 }
 
+/**
+ * The Playground's Transcribe panel: choose a recording, upload it, transcribe
+ * it and read the transcript. An app's own mode reuses it with `providerOptions`
+ * (`registerAiPlaygroundMode`).
+ *
+ * @param props - see {@link AiTranscribeModeProps}.
+ *
+ * @stability experimental
+ */
 export function AiTranscribeMode({
   models,
   preferredModel,

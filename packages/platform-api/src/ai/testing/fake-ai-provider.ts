@@ -181,7 +181,14 @@ export interface FakeAiCall {
   /** The request a `realtime.createSession` call received. */
   realtimeRequest?: AiRealtimeSessionRequest;
   /** The operation id and (validated) input an `operations.run` call received, and the model it targeted. */
-  operationCall?: { operation: string; model: string; input: unknown };
+  operationCall?: {
+    /** The operation id. */
+    operation: string;
+    /** The model it targeted. */
+    model: string;
+    /** The validated input it received. */
+    input: unknown;
+  };
   /** Set when the call observed `ctx.signal` aborting. */
   aborted?: boolean;
   /** What a responses call received for each storage-object part (#441), in part order. */

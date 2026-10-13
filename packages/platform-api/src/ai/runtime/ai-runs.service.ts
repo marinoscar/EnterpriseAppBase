@@ -36,6 +36,7 @@
 // =============================================================================
 
 import { Injectable, NotFoundException, Inject } from '@nestjs/common';
+import { AI_FEATURE_ID_PATTERN } from '@marinoscar/platform-contract/ai';
 import type { Prisma } from '../data/prisma';
 
 import { JobsService } from '../../jobs/index';
@@ -167,7 +168,7 @@ export class AiRunsService {
           modelId: input.modelId,
           status: 'pending',
           request: asJson(input.request),
-          ...(input.feature ? { feature: input.feature } : {}),
+          ...(input.feature && AI_FEATURE_ID_PATTERN.test(input.feature) ? { feature: input.feature } : {}),
         },
         select: { id: true },
       });

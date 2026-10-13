@@ -6,6 +6,7 @@
 export { registerAiPlaygroundMode, getAiPlaygroundMode, listAiPlaygroundModes } from './playground/aiPlaygroundModes.js';
 export type {
   AiPlaygroundMode,
+  BuiltinAiPlaygroundModeId,
   AiPlaygroundModeDefinition,
   AiPlaygroundModeId,
   AiPlaygroundPanelProps,

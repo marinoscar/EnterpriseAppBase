@@ -92,6 +92,24 @@ describe('AiUsageRecorder', () => {
     expect(create.mock.calls.map(([args]) => args.data.feature)).toEqual(['example_summary', null, null]);
   });
 
+  it('keeps only plain unit names, so a callback cannot write text into a row (PP-14.17)', async () => {
+    const create = jest.fn().mockResolvedValue({});
+    const recorder = new AiUsageRecorder(prismaOf(create) as never);
+
+    await recorder.record({
+      userId: 'u1',
+      provider: 'p',
+      modelId: 'm',
+      operation: 'audio.diarize',
+      keySource: 'user',
+      latencyMs: 1,
+      status: 'succeeded',
+      units: { audioSeconds: 3, 'sk-secret-key-value': 1, 'has space': 2, [`x${'y'.repeat(40)}`]: 1 },
+    });
+
+    expect(create.mock.calls[0][0].data.units).toEqual({ audioSeconds: 3 });
+  });
+
   it('records a custom operation id as the row operation (PP-14.17)', async () => {
     const create = jest.fn().mockResolvedValue({});
     const recorder = new AiUsageRecorder(prismaOf(create) as never);

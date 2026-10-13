@@ -409,16 +409,14 @@ export interface AiUserClient {
    * registered with `registerAiOperation`, served by a provider adapter's
    * `operations` map (diarization, moderation, rerank, OCR). It is not a
    * second pipeline: the call goes through the same gates as every built-in
-   * port, in the same order —
-   *
-   *   kill switch -> the operation is registered and runnable -> `inputSchema`
-   *   -> target (an omitted `model` is the first usable model declaring the
-   *   operation's capability and served by a provider that implements it) ->
-   *   provider enabled -> model enabled, declares the capability, reachable
-   *   with the key that would pay -> the feature's needs -> key resolution
-   *   (the key policy) -> rate limits -> the handler -> `outputSchema` -> ONE
-   *   usage row (`operation` = the operation id, the caller's `feature`) and
-   *   one `ai.request` span.
+   * port, in the same order: the kill switch; the operation is registered and
+   * runnable; `inputSchema`; the target (an omitted `model` is the first usable
+   * model declaring the operation's capability, served by a provider that
+   * implements it); the provider is enabled; the model is enabled, declares the
+   * capability and is reachable with the key that would pay; the feature's
+   * needs; key resolution (the key policy); the rate limits; the handler;
+   * `outputSchema`; then ONE usage row (`operation` is the operation id, plus
+   * the caller's `feature`) and one `ai.request` span.
    *
    * The input is validated before any key is read, the output before it is
    * returned. Nothing of the input or output is logged, put on a span or
@@ -1066,10 +1064,12 @@ export class AiService {
       throw new AiError('AI_INVALID_REQUEST', `The input of AI operation "${operation.id}" is invalid.`, {
         details: {
           operation: operation.id,
-          // Paths and the schema's own messages; never the value that failed.
+          // Paths, codes and the schema's own messages; never a value from the input.
+          // An unrecognized-keys message names the input's keys, so it is left out.
           issues: parsedInput.error.issues.slice(0, 10).map((issue) => ({
             path: issue.path.map(String).join('.'),
-            message: issue.message.slice(0, 200),
+            code: issue.code,
+            ...(issue.code === 'unrecognized_keys' ? {} : { message: issue.message.slice(0, 200) }),
           })),
         },
       });

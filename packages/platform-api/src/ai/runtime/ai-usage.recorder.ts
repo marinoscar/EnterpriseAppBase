@@ -35,6 +35,7 @@ import { resolveOrgId } from '../../identity/index';
 import type { AiPrisma } from '../data/ai-db';
 import { PLATFORM_PRISMA } from '../../core/index';
 import { AI_METRICS, NOOP_AI_METRICS, type AiMetrics } from '../ports';
+import { getAiFeature } from '../features/ai-feature.registry';
 import type { AiUsage } from '../core/types/responses.types';
 import type { AiKeySource } from '../keys/ai-key-resolver.service';
 
@@ -130,7 +131,8 @@ export class AiUsageRecorder {
       inputTokens: tokenCount(event.usage?.inputTokens),
       outputTokens: tokenCount(event.usage?.outputTokens),
       latencyMs: event.latencyMs,
-      ...(event.feature ? { feature: event.feature } : {}),
+      // Bounded by the feature registry: a run row's recorded feature that is no longer registered adds no label.
+      ...(event.feature && getAiFeature(event.feature) ? { feature: event.feature } : {}),
     });
 
     try {
@@ -171,13 +173,22 @@ function featureColumn(feature: string | undefined): string | null {
   return typeof feature === 'string' && AI_FEATURE_ID_PATTERN.test(feature) ? feature : null;
 }
 
-/** The storable units: finite, non-negative numbers only; `null` when none are left. */
+/** A unit name: letters, digits and underscores (`images`, `audioSeconds`), so a custom operation's callback cannot smuggle text into a row. */
+const UNIT_NAME = /^[A-Za-z][A-Za-z0-9_]{0,31}$/;
+
+/** The most unit names one row keeps. */
+const UNITS_MAX = 8;
+
+/** The storable units: finite, non-negative numbers under a plain name only; `null` when none are left. */
 export function usageUnits(units: AiUsageUnits | undefined): AiUsageUnits | null {
   if (!units) return null;
 
-  const clean = Object.entries(units).filter(
-    ([key, value]) => key.length > 0 && typeof value === 'number' && Number.isFinite(value) && value >= 0,
-  );
+  const clean = Object.entries(units)
+    .filter(
+      ([key, value]) =>
+        UNIT_NAME.test(key) && typeof value === 'number' && Number.isFinite(value) && value >= 0,
+    )
+    .slice(0, UNITS_MAX);
 
   return clean.length > 0 ? Object.fromEntries(clean) : null;
 }

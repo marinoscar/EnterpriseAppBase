@@ -19,10 +19,14 @@
  * the playground in.
  */
 import type { ComponentType } from 'react';
-import type { UsableAiModel } from '../../headless/types.js';
+import type { AiDefaultModel, UsableAiModel } from '../../headless/types.js';
 import { hasAiCapability } from '../shared/AiModelSelect.js';
 
-/** The ids of the playground's own modes. */
+/**
+ * The ids of the playground's own modes.
+ *
+ * @stability experimental
+ */
 export type BuiltinAiPlaygroundModeId = 'chat' | 'image' | 'transcribe' | 'speech' | 'embeddings' | 'voice';
 
 /**
@@ -44,7 +48,7 @@ export interface AiPlaygroundPanelProps {
   /** The usable models declaring the mode's capability. */
   models: UsableAiModel[];
   /** The viewer's `user_settings.ai.defaultModel`, when set. */
-  preferredModel?: { provider: string; modelId: string } | null;
+  preferredModel?: AiDefaultModel | null;
   /** Whether the models and the settings are loaded (start from the default model only then). */
   ready?: boolean;
 }
