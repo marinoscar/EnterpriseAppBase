@@ -84,7 +84,7 @@ const NO_DATABASE_CLIENT = {
  * @param harness - the runner's `describe`, `it` and `expect`.
  * @param options - see {@link VocabularyConformanceOptions}.
  *
- * @extensionPoint conformance
+ * @extensionPoint hook
  * @stability experimental
  * @example
  * ```ts
