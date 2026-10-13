@@ -15,3 +15,9 @@ export {
   sharingConformanceSuite,
 } from './conformance';
 export type { SharingConformanceCheck, SharingConformanceFinding, SharingConformanceOptions, SharingRoute } from './conformance';
+export { HOSTILE_STRINGS, describeGranteeKindConformance } from './grantee-kind-conformance';
+export type { GranteeKindConformanceSubject } from './grantee-kind-conformance';
+export { describeAccessRuleConformance } from './access-rule-conformance';
+export type { AccessRuleConformanceSubject, AccessRuleFixture } from './access-rule-conformance';
+export { recordingSqlKit } from './recording-sql-kit';
+export type { RecordedSql } from './recording-sql-kit';

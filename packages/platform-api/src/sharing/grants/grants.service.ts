@@ -41,6 +41,7 @@ import type {
 import type { Principal } from '../../core/index';
 import { Trace } from '../../otel-core/index';
 import { AccessPolicy } from '../access/access-policy.service';
+import { findGranteeKind } from '../access/grantee-kinds';
 import { findResourceType, resourceTypeRegistry, type ResolvedResourceType, type ResourceDescription } from '../access/resource-types';
 import { asSharingTx, type GrantRow, type SharingTx, type UserRow } from '../data/sharing-tx';
 import {
@@ -48,6 +49,9 @@ import {
   conflict,
   expiryInPast,
   grantNotFound,
+  granteeInvalid,
+  granteeKindNotPersistable,
+  granteeKindUnknown,
   groupNotInOrg,
   lookupThrottled,
   notALinkGrant,
@@ -297,6 +301,8 @@ export class GrantsService {
       outcome = await this.data.runInOrg({ orgId, userId: principal.userId }, async (raw) => {
         const tx = asSharingTx(raw);
         await this.policy.requireIn(raw, principal, 'share', ref);
+        // Only a caller who may share the record learns what a kind says about a grantee.
+        if (grantee.kind === 'custom') throw await this.refuseCustomGrantee(grantee.granteeKind, grantee.ref);
         const grantable = rt.grantable(grantee.kind);
         if (!grantable.includes(input.role)) throw roleNotGrantable(input.role, grantee.kind, grantable);
 
@@ -370,6 +376,24 @@ export class GrantsService {
     }
     if (outcome.notify) this.effects.notifySharedWithYou(outcome.row.granteeUserId!, outcome.notify, outcome.row.id);
     return toGrantDto(outcome.row);
+  }
+
+  /**
+   * A grantee of an app-registered kind. The registered kind validates it (422
+   * `GRANTEE_INVALID` with its message); a kind nobody registered is 422
+   * `GRANTEE_KIND_UNKNOWN`; a registered kind whose grants cannot be stored yet
+   * is 422 `GRANTEE_KIND_NOT_PERSISTABLE` (the `grants` table holds the
+   * built-in kinds only until the storage migration ships). Always an error.
+   */
+  private async refuseCustomGrantee(kind: string, ref: string): Promise<Error> {
+    const def = findGranteeKind(kind);
+    if (!def) return granteeKindUnknown(kind);
+    try {
+      await def.validateGrantee(ref);
+    } catch (error) {
+      return granteeInvalid(kind, error instanceof Error && error.message ? error.message : 'That grantee is not valid');
+    }
+    return granteeKindNotPersistable(kind);
   }
 
   /** `INSERT ... ON CONFLICT` on the partial unique index of the grantee's kind. */

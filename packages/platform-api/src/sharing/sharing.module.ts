@@ -2,6 +2,7 @@ import { DynamicModule, Logger, Module, type Type } from '@nestjs/common';
 
 import { AccessPolicy } from './access/access-policy.service';
 import { GroupsOrphanedDoctorCheck } from './doctor/groups-orphaned.doctor-check';
+import { createGranteeKindsController } from './grants/grantee-kinds.controller';
 import { createGrantsController } from './grants/grants.controller';
 import { GrantsService } from './grants/grants.service';
 import { createGroupInvitesController } from './groups/group-invites.controller';
@@ -94,6 +95,7 @@ export class SharingModule {
       createGroupsController(resolved),
       createLinkGrantsController(resolved),
       createGrantsController(resolved),
+      createGranteeKindsController(resolved),
       ...(allowPublic ? [createPublicLinksController(allowPublic)] : []),
     ];
     return {

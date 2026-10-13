@@ -57,12 +57,13 @@ export const SHARING_GROUP_MUTATIONS_METRIC = 'sharingGroupMutations';
 export const SHARING_DECISION_OUTCOMES = ['allowed', 'denied'] as const;
 
 /**
- * The `via` label of `app.sharing.access_decisions`: what decided it, or
- * `none` for a denial (#729).
+ * The `via` label of `app.sharing.access_decisions`: what decided it, `app`
+ * for an access rule or an app grantee kind (the label stays a closed list: a
+ * rule id is not a metric dimension), or `none` for a denial (#729).
  *
  * @stability experimental
  */
-export const SHARING_DECISION_VIAS = ['owner', 'group_owner', 'user_grant', 'group_grant', 'org_default', 'bypass', 'none'] as const;
+export const SHARING_DECISION_VIAS = ['owner', 'group_owner', 'user_grant', 'group_grant', 'org_default', 'bypass', 'app', 'none'] as const;
 
 /**
  * The code key of the access-decision counter, for `MetricsHostService.add`.
