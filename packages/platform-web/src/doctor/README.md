@@ -52,9 +52,24 @@ export default function DoctorPage() {
 |---|---|---|---|
 | `categories` | `readonly { key; label }[]` | `PLATFORM_DOCTOR_CATEGORY_LABELS` | Display order and labels. A category not listed renders after, title-cased (`fork_widgets` becomes "Fork Widgets"). Pass the app's list when it adds categories or `DoctorModule.forRoot({ categoryOrder })` reorders them. |
 | `sx` | `SxProps<Theme>` | none | Styles for the page's outer box. |
-| `slots.Header` | `ComponentType<{ title; description }>` | the default `h1` and subtitle | Replaces the title block; receives the descriptor's title and description. |
+| `slots` | `DoctorPageSlots` | none | The page-slot contract plus `CheckRowActions`; see [Slots](#slots). |
 
 `createDoctorClient(api, path = '/admin/doctor')` takes the route when the app moved it with `DoctorModule.forRoot({ path })`. `useDoctor(client?)` uses `createDoctorClient(usePlatformApi())` unless given a client (keep its identity stable).
+
+### Slots
+
+`DoctorPage` takes the page-slot contract of the web core ([Page slots](../core/README.md#page-slots)) plus `CheckRowActions`. With no slot and no registered renderer the markup is the one recorded before the slots existed (`test/doctor/DoctorPage.builtin-dom.test.tsx`).
+
+| Slot | Receives | Drawn |
+|---|---|---|
+| `Header` | `{ title, description, actions }` (`actions` is `null`: "Run again" and the support bundle stay in the body) | Replaces the `h1` and subtitle. |
+| `BeforeContent`, `Sections` `top` | none, `{ position }` | Under the header, above "Run again". |
+| `Sections` `bottom`, `AfterContent` | `{ position }`, none | After the category accordions. |
+| `CheckRowActions` | `DoctorCheckActionsSlotProps`: `{ check }` (the `DoctorCheckReport`) | At the end of every check's row, after "Open settings". |
+
+### Check renderers
+
+A check reports small scalar facts in `check.data` (counts, versions, latencies); the page prints the status, detail, remedy and error and leaves `data` to the check's owner. `registerDoctorCheckRenderer(checkId, Component)` (from `/doctor/headless`, so the registration does not import the page into the app's main chunk) draws a component inside the row of the check with that exact id, after the remedy and error and before the "Open settings" link. The component receives `{ check }` and `check.data` may be `null`. Register at module scope, before the page renders: the row reads the registry when it renders. A second registration for an id replaces the first, and the returned function removes its own registration. A renderer is presentation only; the report is the API's.
 
 ### Theme tokens
 
@@ -68,13 +83,16 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 |---|---|---|---|---|---|
 | `doctorSettingsPage` | component | `PlatformSettingsPage<never>` | Register the Doctor as one admin card and one route | experimental | [example](../../../../apps/web/src/config/adminSections.tsx) |
 | `DoctorPage` | component | `DoctorPage(props?: DoctorPageProps): ReactElement` | Render the page in the app's route | experimental | [example](../../../../apps/web/src/pages/Admin/DoctorPage.tsx) |
-| `DoctorPageProps` | slot | `{ categories?; sx?; slots?: { Header? } }` | Relabel or reorder categories, restyle, or replace the header | experimental | [example](../../../../apps/web/src/pages/Admin/DoctorPage.tsx) |
+| `DoctorPageProps` | slot | `{ categories?; sx?; slots?: DoctorPageSlots }` | Relabel or reorder categories, restyle, or pass the page its slots | experimental | [example](../../../../apps/web/src/pages/Admin/DoctorPage.tsx) |
+| `DoctorPageSlots` | slot | `PageSlotsBase & { Header?: PageSlot<DoctorPageHeaderProps>; CheckRowActions?: PageSlot<{ check }> }` | Add a banner or a section, replace the header, or add an action to every check row | experimental | [example](../../../../apps/web/src/platform-extensions/doctor/ExampleCapabilityFacts.example.tsx) |
+| `registerDoctorCheckRenderer` | registry | `registerDoctorCheckRenderer(checkId: string, Component: ComponentType<{ check }>): () => void` | Draw the `data` of your own check (or a platform check's) inside its row | experimental | [example](../../../../apps/web/src/platform-extensions/doctor/ExampleCapabilityFacts.example.tsx) |
+| `DoctorCheckRendererProps` | slot | `{ check: DoctorCheckReport }` | What a registered check renderer receives; `check.data` is `null` when the check reported no facts | experimental | [example](../../../../apps/web/src/platform-extensions/doctor/ExampleCapabilityFacts.example.tsx) |
 | `useDoctor` | hook | `useDoctor(client?: DoctorClient): { report; isLoading; error; rerun }` | Build a different Doctor view on the same data | stable | [example](../../../../apps/web/src/pages/Admin/DoctorPage.tsx) |
 | `createDoctorClient` | hook | `createDoctorClient(api: PlatformApiClient, path?: string): DoctorClient` | Call the Doctor API outside the page, or at a moved path | stable | [example](../../../../apps/web/src/pages/Admin/DoctorPage.tsx) |
 | `useSupportBundleDownload` | hook | `useSupportBundleDownload(options?: { api?; path?; save? }): { download; isDownloading; error; filename }` | Offer the support bundle download from another view, at a moved path, or saved elsewhere | experimental | [example](../../../../apps/web/src/__tests__/pages/Admin/DoctorPage.test.tsx) |
 | `SupportBundleButton` | component | `SupportBundleButton(props?: { options?; sx? }): ReactElement` | Place the "Download support bundle" button and its helper text outside the Doctor page | experimental | [example](../../../../apps/web/src/pages/Admin/DoctorPage.tsx) |
 
-Supporting exports. `/doctor/headless`: `DoctorStatus`, `DoctorCheckReport`, `DoctorReport` (re-exported from the contract), `DoctorReportQuery` and `DOCTOR_STATUS_ORDER` (deprecated aliases of the contract's `DoctorReportQueryInput` and `DOCTOR_STATUSES`), `DoctorClient`, `UseDoctorReturn`, `PLATFORM_DOCTOR_CATEGORY_LABELS`, `DoctorCategoryLabel`, `categoryLabel(key, labels?)`, `SUPPORT_BUNDLE_PATH`, `filenameFromContentDisposition(header)`, `UseSupportBundleDownloadOptions`, `UseSupportBundleDownloadReturn`. `/doctor/ui`: `CheckRow`, `CheckRowProps`, `StatusIcon`, `STATUS_LABELS`, `STATUS_CHIP_COLORS` (the palette role each status's token defaults to), `DoctorPageHeaderProps`, `SupportBundleButtonProps`, `SUPPORT_BUNDLE_HELPER_TEXT`.
+Supporting exports. `/doctor/headless`: `DoctorStatus`, `DoctorCheckReport`, `DoctorReport` (re-exported from the contract), `DoctorReportQuery` and `DOCTOR_STATUS_ORDER` (deprecated aliases of the contract's `DoctorReportQueryInput` and `DOCTOR_STATUSES`), `DoctorClient`, `UseDoctorReturn`, `PLATFORM_DOCTOR_CATEGORY_LABELS`, `DoctorCategoryLabel`, `categoryLabel(key, labels?)`, `SUPPORT_BUNDLE_PATH`, `filenameFromContentDisposition(header)`, `UseSupportBundleDownloadOptions`, `UseSupportBundleDownloadReturn`, `DoctorCheckRenderer`, `getDoctorCheckRenderer(checkId)` (what `CheckRow` reads). `/doctor/ui`: `CheckRow`, `CheckRowProps`, `StatusIcon`, `STATUS_LABELS`, `STATUS_CHIP_COLORS` (the palette role each status's token defaults to), `DoctorPageHeaderProps`, `DoctorCheckActionsSlotProps`, `SupportBundleButtonProps`, `SUPPORT_BUNDLE_HELPER_TEXT`.
 
 ### Support bundle download
 
@@ -90,7 +108,7 @@ The card and the route require `system_settings:read` (`doctorSettingsPage.card.
 
 ## UI
 
-One page, `/admin/settings/doctor`, contributed as one admin registry card (title "Doctor", the description the page shows as its subtitle, icon `HealthAndSafetyOutlined`). The app appends the card last in its Observability section. One slot (`slots.Header`); theme tokens `palette.status.*` (see Configuration).
+One page, `/admin/settings/doctor`, contributed as one admin registry card (title "Doctor", the description the page shows as its subtitle, icon `HealthAndSafetyOutlined`). The app appends the card last in its Observability section. The page-slot contract and `CheckRowActions` (see Configuration); theme tokens `palette.status.*` (see Configuration).
 
 ## Infra
 
@@ -109,6 +127,8 @@ Read-only: the page only reads the report; "Run again" sends `refresh=true` and 
 None yet. The reference app's `apps/web/src/__tests__/config/platformPages.test.ts` checks the registration rules (one card, one route, permission equal to the package default); the package's `test/doctor/` covers the page with `createTestPlatformHost`.
 
 ## Upgrade notes
+
+PP-14.23: the page takes the page-slot contract (`BeforeContent`, `Sections`, `AfterContent`, `CheckRowActions`), `CheckRow` takes an optional `Actions` and draws a registered check renderer, and `registerDoctorCheckRenderer` is new in `/doctor/headless`. An existing `slots.Header` keeps working: `DoctorPageHeaderProps` gains `actions` (`null`).
 
 #772 (experimental): "Download support bundle" on the page, `useSupportBundleDownload`, `SupportBundleButton`. An app whose transport is its own `PlatformApiClient` adds `getBlob(path)` (the raw body and headers) for the button to work; nothing else changes.
 
