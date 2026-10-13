@@ -4,6 +4,7 @@ import { withTemporaryEntries } from '../../src/core/registry/testing';
 import {
   CSV_EXPORT_WRITER,
   JSON_EXPORT_WRITER,
+  USER_DATA_EXPORT_SOURCE,
   XLSX_EXPORT_WRITER,
   exportSourceRegistry,
   exportWriterRegistry,
@@ -105,6 +106,20 @@ describe('writer attachment (attachTo)', () => {
       expect(writersFor(source({ id: 'user-data', formats: [] })).map((w) => w.id)).toEqual(['json', 'csv', 'xlsx']);
       expect(writersFor(source({ id: 'org-data', scope: 'org', formats: [] })).map((w) => w.id)).toEqual(['json', 'csv', 'xlsx']);
       expect(writersFor(source({ id: 'inbox', formats: [] }))).toEqual([]);
+    });
+  });
+
+  it('replace a platform source: the same id keeps the writers attached to it, with the app\'s own fields', async () => {
+    // Recipe: ExportsModule.forRoot({ platformSources: { userData: false } }), then register a spread of the platform's source.
+    const ndjsonAll = writer({ id: 'ndjson', attachTo: '*' });
+    await withTemporaryEntries(exportWriterRegistry, [...registered, ndjsonAll], async () => {
+      await withTemporaryEntries(exportSourceRegistry, [], () => {
+        const replaced: ExportSource = { ...(USER_DATA_EXPORT_SOURCE as ExportSource), label: 'Your account data', description: 'Only the account.' };
+        registerExportSource(replaced);
+        expect(exportSourceRegistry.require('user-data').label).toBe('Your account data');
+        expect(writersFor(replaced).map((w) => w.id)).toEqual(['json', 'csv', 'xlsx', 'ndjson']);
+        expect(USER_DATA_EXPORT_SOURCE.formats).toEqual([]);
+      });
     });
   });
 

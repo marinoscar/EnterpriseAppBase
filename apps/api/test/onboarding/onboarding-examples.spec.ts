@@ -23,10 +23,12 @@ import {
   onboardingStepRegistry,
   type OnboardingDataPort,
 } from '@marinoscar/platform-api/onboarding';
+import { recordTenancyMode } from '@marinoscar/platform-api/identity';
 import { extendUserSettingsNamespace } from '@marinoscar/platform-api/settings';
 
 import '../../src/onboarding/onboarding.manifest';
 import { RLS_ROLE_STEP } from '../../src/platform-extensions/onboarding/examples/admin-doctor-step.example';
+import { ORG_INVITE_TEAM_STEP } from '../../src/platform-extensions/onboarding/examples/org-admin-step.example';
 import {
   FIRST_TOKEN_MILESTONE,
   ROLE_QUESTION_EXTENSION,
@@ -111,5 +113,48 @@ describe('onboarding reference examples', () => {
     expect(extended.schema.safeParse({ role: 'developer' }).success).toBe(true);
     expect(extended.schema.safeParse({ role: 'astronaut' }).success).toBe(false);
     expect(extended.schema.safeParse({ stray: true }).success).toBe(false);
+  });
+
+  describe('the org_admin step', () => {
+    const ORG_ID = '33333333-3333-4333-8333-333333333333';
+    const orgAdmin = { id: USER_ID, permissions: ['user_settings:read', 'org_invites:write'], roles: ['org_admin'], activeOrgId: ORG_ID };
+    const alone = { orgInviteProgress: async () => ({ otherMembers: 0, pendingInvites: 1 }) };
+
+    afterEach(() => recordTenancyMode('single'));
+
+    it('reaches the organization administrator under audiences.org_admin, never the Setup guide', () =>
+      withTemporaryEntries(onboardingStepRegistry, [ORG_INVITE_TEAM_STEP], async () => {
+        recordTenancyMode('multi');
+        const service = new OnboardingService(data(alone), {} as ModuleRef);
+        const result = await service.get(orgAdmin);
+        expect(result.audiences?.['org_admin']?.steps.map((s) => [s.id, s.audience, s.status, s.detail])).toEqual([
+          ['reference.org-invite-team', 'org_admin', 'todo', 'An invitation is pending; it completes when it is accepted.'],
+        ]);
+        // No system permission: no Setup guide, and the step is not in the user checklist.
+        expect(result.admin).toBeNull();
+        expect(result.user.steps.map((s) => s.id)).not.toContain('reference.org-invite-team');
+      }));
+
+    it('is done once someone else is in the organization', () =>
+      withTemporaryEntries(onboardingStepRegistry, [ORG_INVITE_TEAM_STEP], async () => {
+        recordTenancyMode('multi');
+        const service = new OnboardingService(data({ orgInviteProgress: async () => ({ otherMembers: 2, pendingInvites: 0 }) }), {} as ModuleRef);
+        const result = await service.get(orgAdmin);
+        expect(result.audiences?.['org_admin']?.steps[0]).toMatchObject({ status: 'done', detail: null });
+        expect(result.audiences?.['org_admin']?.completed).toBe(1);
+      }));
+
+    it('does not reach a member, a system administrator without the role, or a single-organization deployment', () =>
+      withTemporaryEntries(onboardingStepRegistry, [ORG_INVITE_TEAM_STEP], async () => {
+        const service = new OnboardingService(data(alone), {} as ModuleRef);
+        recordTenancyMode('multi');
+        const member = await service.get({ ...orgAdmin, roles: ['contributor'] });
+        expect(member.audiences).toBeUndefined();
+        const sysAdmin = await service.get({ id: USER_ID, permissions: ['system_settings:read', 'org_invites:write'], roles: ['admin'], activeOrgId: ORG_ID });
+        expect(sysAdmin.audiences).toBeUndefined();
+        recordTenancyMode('single');
+        const single = await service.get(orgAdmin);
+        expect(single.audiences).toBeUndefined();
+      }));
   });
 });

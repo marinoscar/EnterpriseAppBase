@@ -4,9 +4,12 @@
 // exporter through its registry.
 import { Writable } from 'node:stream';
 
+import { withTemporaryEntries } from '@marinoscar/platform-api/core';
 import {
+  USER_DATA_EXPORT_SOURCE,
   exportSourceRegistry,
   exportWriterRegistry,
+  registerExportSource,
   requestFieldsOf,
   writersFor,
   type ExportContext,
@@ -20,6 +23,7 @@ import {
   ExampleDigestExporterRegistry,
   exampleDigestRenderKey,
 } from './example-markdown.exporter';
+import { EXAMPLE_NDJSON_WRITER } from './example-ndjson.writer';
 import { EXAMPLE_NOTIFICATION_INBOX_SOURCE } from './example-notification-inbox.source';
 import { EXAMPLE_SINGLE_CSV_WRITER } from './example-single-csv.writer';
 
@@ -49,9 +53,52 @@ describe('exports reference examples', () => {
   it('registers the example source and its writer, and offers the writer only to it', () => {
     expect(exportSourceRegistry.get('example-notification-inbox')).toBe(EXAMPLE_NOTIFICATION_INBOX_SOURCE);
     expect(exportWriterRegistry.get('csv-single')).toBe(EXAMPLE_SINGLE_CSV_WRITER);
-    expect(writersFor(EXAMPLE_NOTIFICATION_INBOX_SOURCE).map((w) => w.id)).toEqual(['csv-single', 'json', 'csv', 'xlsx']);
-    expect(writersFor(exportSourceRegistry.require('user-data')).map((w) => w.id)).toEqual(['json', 'csv', 'xlsx']);
+    // The listed formats come first; the writer attached to '*' follows them.
+    expect(writersFor(EXAMPLE_NOTIFICATION_INBOX_SOURCE).map((w) => w.id)).toEqual(['csv-single', 'json', 'csv', 'xlsx', 'ndjson']);
+    // The platform sources list no format: their formats are the writers attached to them.
+    expect(exportSourceRegistry.require('user-data').formats).toEqual([]);
+    expect(writersFor(exportSourceRegistry.require('user-data')).map((w) => w.id)).toEqual(['json', 'csv', 'xlsx', 'ndjson']);
+    expect(writersFor(exportSourceRegistry.require('org-data')).map((w) => w.id)).toEqual(['json', 'csv', 'xlsx', 'ndjson']);
   });
+
+  it('the ndjson writer is attached to every source and writes the rows its source produced', async () => {
+    expect(exportWriterRegistry.get('ndjson')).toBe(EXAMPLE_NDJSON_WRITER);
+    expect(EXAMPLE_NDJSON_WRITER.attachTo).toBe('*');
+    const { bytes, result } = await collectExportOutput(
+      EXAMPLE_NDJSON_WRITER,
+      tablesOf([
+        {
+          dataset: 'notes',
+          title: 'Notes',
+          columns: [
+            { key: 'id', label: 'Id', type: 'string' },
+            { key: 'amount', label: 'Amount', type: 'number', meta: { logicalType: 'DECIMAL(10,2)' } },
+          ],
+          rows: [{ id: 'a', amount: 1.5 }, { id: 'b' }],
+        },
+      ]),
+      'user-data',
+    );
+    expect(result.rowCounts).toEqual({ notes: 2 });
+    const lines = bytes.toString('utf8').trimEnd().split('\n').map((line) => JSON.parse(line));
+    expect(lines[0]).toMatchObject({ dataset: 'notes', columns: [{ key: 'id' }, { key: 'amount', meta: { logicalType: 'DECIMAL(10,2)' } }] });
+    expect(lines[1]).toEqual({ dataset: 'notes', row: { id: 'a', amount: 1.5 } });
+    expect(lines[2]).toEqual({ dataset: 'notes', row: { id: 'b', amount: null } });
+    expect(lines[3]).toMatchObject({ source: 'user-data', rowCounts: { notes: 2 } });
+  });
+
+  it('a source spread from a platform one and registered under its own id lists its formats; attached writers still follow', () =>
+    withTemporaryEntries(exportSourceRegistry, [], () => {
+      // The platform writers attach to `user-data` and `org-data` only, so a source
+      // under another id lists the ones it wants; the '*' writer (ndjson) follows.
+      const custom = { ...USER_DATA_EXPORT_SOURCE, id: 'user-data-v2', label: 'Your account data', formats: ['json', 'csv'] };
+      registerExportSource(custom);
+      expect(writersFor(custom).map((w) => w.id)).toEqual(['json', 'csv', 'ndjson']);
+      // ... and can pin its formats: listed ones only, attached writers refused.
+      const pinned = { ...custom, id: 'user-data-pinned', acceptsAttachedWriters: false };
+      registerExportSource(pinned);
+      expect(writersFor(pinned).map((w) => w.id)).toEqual(['json', 'csv']);
+    }));
 
   it('the source: a strict request with a range check, dialog fields derived from it, an owner filter on every page', async () => {
     const schema = EXAMPLE_NOTIFICATION_INBOX_SOURCE.requestSchema;
