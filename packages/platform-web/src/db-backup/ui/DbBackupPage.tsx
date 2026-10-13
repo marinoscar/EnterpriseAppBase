@@ -106,7 +106,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { ComponentType } from 'react';
+import type { ReactElement } from 'react';
 import {
   Alert,
   AlertTitle,
@@ -127,8 +127,13 @@ import DownloadIcon from '@mui/icons-material/Download';
 import RestoreIcon from '@mui/icons-material/Restore';
 import UndoIcon from '@mui/icons-material/Undo';
 import { Navigate } from 'react-router-dom';
-import type { DbBackupTableFilter as JobsTableFilter, DbBackupTableRowAction as DataTableRowAction } from '../headless/index.js';
-import { usePlatformViewer } from '../../core/index.js';
+import type {
+  DbBackupTableColumn,
+  DbBackupTableFilter as JobsTableFilter,
+  DbBackupTableRowAction as DataTableRowAction,
+} from '../headless/index.js';
+import { usePlatformViewer, useTableSlotColumns } from '../../core/index.js';
+import type { PageHeaderSlotProps, PageSlot, PageSlotsBase } from '../../core/index.js';
 import { DB_BACKUP_PAGE_DESCRIPTION, DB_BACKUP_PAGE_TITLE } from './copy.js';
 import { DbBackupConfigPanel } from './DbBackupConfigPanel.js';
 import { DbBackupRestoreDialog } from './DbBackupRestoreDialog.js';
@@ -172,14 +177,20 @@ const PAGE_TITLE = DB_BACKUP_PAGE_TITLE;
 const PAGE_DESCRIPTION = DB_BACKUP_PAGE_DESCRIPTION;
 
 /**
- * What {@link DbBackupPageProps.slots}'s `Sections` receives: the data the page
+ * What {@link DbBackupPageSlots}'s `Sections` receives: the data the page
  * already holds, read-only, so an app's own panel (a mirror status, a restore
  * drill checklist) draws from the same state instead of fetching it again.
+ *
+ * `Sections` is rendered at both ends of the page body, once with
+ * `position: 'top'` and once with `'bottom'`; return `null` for the end you do
+ * not want.
  *
  * @extensionPoint slot
  * @stability experimental
  */
 export interface DbBackupSectionsProps {
+  /** Where this rendering sits: `'top'` is under the header, `'bottom'` after the run history. */
+  position: 'top' | 'bottom';
   /** The policy, once loaded; `null` until then. */
   config: DbBackupConfig | null;
   /** The run history rows currently on screen (the page, as filtered). */
@@ -190,6 +201,54 @@ export interface DbBackupSectionsProps {
   canRestore: boolean;
   /** Re-reads the policy and the history and re-dates the page. */
   refresh: () => void;
+}
+
+/**
+ * What {@link DbBackupPageSlots}'s `RunRowActions` receives for each row of the
+ * run history.
+ *
+ * @stability experimental
+ */
+export interface DbBackupRunActionsProps {
+  /** The backup run this row describes. */
+  run: DbBackupRun;
+  /** Whether the viewer holds `db_backup:write`. */
+  canWrite: boolean;
+  /** Whether the viewer holds `db_backup:restore` AND this deployment offers restore. */
+  canRestore: boolean;
+  /** Re-reads the policy and the history and re-dates the page. Call it after an action of yours changed a run. */
+  refresh: () => void;
+}
+
+/**
+ * The slots of {@link DbBackupPage}: the page-slot contract, and `RunRowActions`.
+ *
+ * `Header` gets `{ title, description, readOnly, actions }` (`actions` is
+ * `null`: "Back up now" stays in the body). `Sections` also receives the page's
+ * data ({@link DbBackupSectionsProps}). `RunRowActions` is drawn in an extra
+ * `More actions` column of the run history, so it appears in the grid, the
+ * tablet expander and the phone card; the built-in download, cancel, delete,
+ * restore and rollback actions are unchanged.
+ *
+ * @example
+ * ```tsx
+ * <DbBackupPage slots={{ RunRowActions: ({ run }) => <VerifyOffsiteCopy run={run} /> }} />
+ * ```
+ *
+ * @extensionPoint slot
+ * @stability experimental
+ */
+export interface DbBackupPageSlots extends PageSlotsBase {
+  /** Replaces the title and subtitle block. */
+  Header?: PageSlot<PageHeaderSlotProps>;
+  /**
+   * Extra sections rendered at both ends of the page body, inside the page's
+   * container. Nothing is rendered for an absent slot, so the page's markup is
+   * unchanged.
+   */
+  Sections?: PageSlot<DbBackupSectionsProps>;
+  /** Extra per-run actions in the run history, in an extra `More actions` column. */
+  RunRowActions?: PageSlot<DbBackupRunActionsProps>;
 }
 
 /**
@@ -206,14 +265,24 @@ export interface DbBackupSectionsProps {
  */
 export interface DbBackupPageProps {
   /** Replaceable and additional parts of the page. */
-  slots?: {
-    /**
-     * Extra sections rendered below the run history, inside the page's
-     * container and above the restore dialog. Nothing is rendered for an
-     * absent slot, so the page's markup is unchanged.
-     */
-    Sections?: ComponentType<DbBackupSectionsProps>;
-  };
+  slots?: DbBackupPageSlots;
+}
+
+/** The default title block: `h1`, then the subtitle (and " (read-only)"). */
+function DefaultHeader({ title, description, readOnly }: PageHeaderSlotProps): ReactElement {
+  return (
+    <>
+      <Typography variant="h4" component="h1" gutterBottom>
+        {title}
+      </Typography>
+      <Typography color="text.secondary" sx={{ mb: 3 }}>
+        {description}
+        {/* Stated up front rather than left for the operator to discover by
+            finding every control disabled. */}
+        {readOnly && ' (read-only)'}
+      </Typography>
+    </>
+  );
 }
 
 /**
@@ -233,7 +302,12 @@ export interface DbBackupPageProps {
  * @stability experimental
  */
 export default function DbBackupPage(props: DbBackupPageProps = {}) {
-  const Sections = props.slots?.Sections;
+  const slots = props.slots;
+  const Header = slots?.Header ?? DefaultHeader;
+  const BeforeContent = slots?.BeforeContent;
+  const Sections = slots?.Sections;
+  const AfterContent = slots?.AfterContent;
+  const RunRowActions = slots?.RunRowActions;
   const { hasPermission } = usePlatformViewer();
   const dbBackupApi = useDbBackupApi();
 
@@ -357,7 +431,19 @@ export default function DbBackupPage(props: DbBackupPageProps = {}) {
   const restoreAvailable = config?.restore.available === true;
   const canRestore = hasPermission('db_backup:restore') && restoreAvailable;
 
-  const columns = useMemo(() => buildBackupRunColumns(renderedAt), [renderedAt]);
+  const baseColumns = useMemo(() => buildBackupRunColumns(renderedAt), [renderedAt]);
+  const runActionsSlot = useMemo<PageSlot<{ row: DbBackupRun }> | undefined>(
+    () =>
+      RunRowActions
+        ? ({ row }) => (
+            <RunRowActions run={row} canWrite={canWrite} canRestore={canRestore} refresh={refreshAll} />
+          )
+        : undefined,
+    [RunRowActions, canWrite, canRestore, refreshAll],
+  );
+  const columns = useTableSlotColumns<DbBackupRun, DbBackupTableColumn<DbBackupRun>>(baseColumns, {
+    RowActions: runActionsSlot,
+  });
 
   const openDialog = useCallback((intent: RestoreDialogIntent, run: DbBackupRun) => {
     actions.clearError();
@@ -501,15 +587,18 @@ export default function DbBackupPage(props: DbBackupPageProps = {}) {
         {/* Title and description MIRROR the registry card so the hub card, the
             rail row, the compact AppBar title and this `h1` all name the page
             identically. */}
-        <Typography variant="h4" component="h1" gutterBottom>
-          {PAGE_TITLE}
-        </Typography>
-        <Typography color="text.secondary" sx={{ mb: 3 }}>
-          {PAGE_DESCRIPTION}
-          {/* Stated up front rather than left for the operator to discover by
-              finding every control disabled. */}
-          {!canWrite && ' (read-only)'}
-        </Typography>
+        <Header title={PAGE_TITLE} description={PAGE_DESCRIPTION} readOnly={!canWrite} actions={null} />
+        {BeforeContent && <BeforeContent />}
+        {Sections && (
+          <Sections
+            position="top"
+            config={config}
+            runs={runs}
+            canWrite={canWrite}
+            canRestore={canRestore}
+            refresh={refreshAll}
+          />
+        )}
 
         {/* ------------------------------------------------------------------
             THE EXPECTED SEQUENCE. Replaces the error banners while a restart is
@@ -677,6 +766,7 @@ export default function DbBackupPage(props: DbBackupPageProps = {}) {
 
         {Sections && (
           <Sections
+            position="bottom"
             config={config}
             runs={runs}
             canWrite={canWrite}
@@ -684,6 +774,8 @@ export default function DbBackupPage(props: DbBackupPageProps = {}) {
             refresh={refreshAll}
           />
         )}
+
+        {AfterContent && <AfterContent />}
 
         <DbBackupRestoreDialog
           open={dialogIntent !== null}
