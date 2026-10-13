@@ -67,8 +67,49 @@ describe('AiUsageRecorder', () => {
         errorCode: null,
         providerRequestId: 'req_1',
         jobId: 'job-1',
+        feature: null,
       },
     });
+  });
+
+  it('persists the registered feature the call was made for, and nothing else (PP-14.17)', async () => {
+    const create = jest.fn().mockResolvedValue({});
+    const recorder = new AiUsageRecorder(prismaOf(create) as never);
+    const base = {
+      userId: 'u1',
+      provider: 'openai',
+      modelId: 'gpt-x',
+      operation: 'responses' as const,
+      keySource: 'user' as const,
+      latencyMs: 5,
+      status: 'succeeded' as const,
+    };
+
+    await recorder.record({ ...base, feature: 'example_summary' });
+    await recorder.record({ ...base, feature: 'Not A Feature; DROP TABLE' });
+    await recorder.record(base);
+
+    expect(create.mock.calls.map(([args]) => args.data.feature)).toEqual(['example_summary', null, null]);
+  });
+
+  it('records a custom operation id as the row operation (PP-14.17)', async () => {
+    const create = jest.fn().mockResolvedValue({});
+    const recorder = new AiUsageRecorder(prismaOf(create) as never);
+
+    await recorder.record({
+      userId: 'u1',
+      provider: 'example-transcribe',
+      modelId: 'example-asr-1',
+      operation: 'audio.diarize',
+      keySource: 'user',
+      latencyMs: 5,
+      status: 'succeeded',
+      units: { audioSeconds: 12.5 },
+    });
+
+    expect(create.mock.calls[0][0].data).toEqual(
+      expect.objectContaining({ operation: 'audio.diarize', units: { audioSeconds: 12.5 } }),
+    );
   });
 
   it('records the round-trip as application metrics, even when the ledger insert fails (#600)', async () => {

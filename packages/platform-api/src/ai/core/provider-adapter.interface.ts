@@ -77,6 +77,35 @@ export interface AiCallContext {
 }
 
 /**
+ * The context a custom operation handler (`AiProviderAdapter.operations`)
+ * receives: the call's {@link AiCallContext} plus the model and operation the
+ * gate pipeline settled. ⚠ `apiKey` is secret material, as everywhere.
+ *
+ * @stability experimental
+ */
+export interface AiOperationContext extends AiCallContext {
+  /** The provider model id the call targets (already gated: enabled, reachable, declares the capability). */
+  readonly model: string;
+  /** The operation id being run (`audio.diarize`). */
+  readonly operation: string;
+}
+
+/**
+ * A custom operation an adapter implements (PP-14.17, #935): one entry of
+ * `AiProviderAdapter.operations`. The input arrives already validated by the
+ * operation's `inputSchema` (`registerAiOperation`) and the returned value is
+ * validated by its `outputSchema` before it leaves the runtime, so a handler
+ * does neither. It must not log, return or throw the key or the input.
+ *
+ * @param input - the validated input.
+ * @param ctx - the call's key, endpoint, settings, signal, model and operation.
+ * @returns the output, in the shape the operation's `outputSchema` declares.
+ *
+ * @stability experimental
+ */
+export type AiOperationHandler = (input: unknown, ctx: AiOperationContext) => Promise<unknown>;
+
+/**
  * What a provider's model listing says about one model, beyond its id
  * (#447). Every field is optional and PROVIDER-REPORTED: an adapter fills
  * what its listing carries (Gemini reports token limits, supported methods
@@ -258,4 +287,15 @@ export interface AiProviderAdapter {
   readonly embeddings?: AiEmbeddingsPort;
   /** Realtime voice sessions. */
   readonly realtime?: AiRealtimePort;
+  /**
+   * Custom operations, by operation id (PP-14.17, #935): the way a provider
+   * serves a kind of call the platform has no built-in port for (diarization,
+   * moderation, rerank, OCR). Each key is an id registered with
+   * `registerAiOperation`; `AiService.forUser(...).run(id, input)` runs it
+   * through the same gate pipeline as a built-in port. Presence is the
+   * declaration, as with the ports: the registry derives that the provider
+   * supports the operation's capability from the entry, and a registered
+   * operation the adapter does not implement is refused for it.
+   */
+  readonly operations?: Readonly<Record<string, AiOperationHandler>>;
 }

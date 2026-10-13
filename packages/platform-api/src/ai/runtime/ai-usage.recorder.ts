@@ -14,6 +14,11 @@
 // ⚠ Only ids, counts, codes and a duration. No prompt, no output, no key —
 // the table has no column able to hold any of them.
 //
+// `feature` (PP-14.17, #935) is the registered AI feature the call was made
+// for, persisted so usage can be filtered and grouped per feature from the
+// database. A bounded id the feature registry validated (re-checked against
+// the id pattern here), never free text.
+//
 // `units` (#437) is the count for an operation that is not (only) token-
 // metered: `{ images: 2 }` for image generation, and — for the audio stories
 // next — `{ audioSeconds: 31.4 }` or `{ characters: 1200 }`. A flat record of
@@ -24,6 +29,8 @@
 
 import { Injectable, Logger, Optional, Inject } from '@nestjs/common';
 
+import { AI_FEATURE_ID_PATTERN } from '@marinoscar/platform-contract/ai';
+
 import { resolveOrgId } from '../../identity/index';
 import type { AiPrisma } from '../data/ai-db';
 import { PLATFORM_PRISMA } from '../../core/index';
@@ -31,8 +38,12 @@ import { AI_METRICS, NOOP_AI_METRICS, type AiMetrics } from '../ports';
 import type { AiUsage } from '../core/types/responses.types';
 import type { AiKeySource } from '../keys/ai-key-resolver.service';
 
-/** The kinds of provider call the runtime records. Permanent strings. */
-export type AiUsageOperation =
+/**
+ * The kinds of provider call the platform records. Permanent strings.
+ *
+ * @stability experimental
+ */
+export type BuiltinAiUsageOperation =
   | 'responses'
   | 'images'
   | 'audio.transcribe'
@@ -40,6 +51,16 @@ export type AiUsageOperation =
   | 'embeddings'
   // #449: one minted realtime session, `units: { sessions: 1 }` — no tokens (the media never passes through the server).
   | 'realtime';
+
+/**
+ * The kind of provider call a usage row records: a built-in one
+ * (autocompleted) or the id of an operation an app registered with
+ * `registerAiOperation` (PP-14.17, #935). The column is plain text, so a new
+ * kind costs no migration.
+ *
+ * @stability experimental
+ */
+export type AiUsageOperation = BuiltinAiUsageOperation | (string & {});
 
 /** A round-trip's outcome. `cancelled` — the caller aborted it. */
 export type AiUsageStatus = 'succeeded' | 'failed' | 'cancelled';
@@ -69,7 +90,11 @@ export interface AiUsageRecord {
   errorCode?: string | null;
   providerRequestId?: string | null;
   jobId?: string | null;
-  /** The registered AI feature the call was made for (#739); a metric label, never a column. */
+  /**
+   * The registered AI feature the call was made for (#739): a metric label
+   * and, since PP-14.17 (#935), the row's `feature` column. Only a well-formed
+   * feature id is written; anything else is stored as no feature.
+   */
   feature?: string;
 }
 
@@ -129,6 +154,7 @@ export class AiUsageRecorder {
           errorCode: event.errorCode ?? null,
           providerRequestId: event.providerRequestId ?? null,
           jobId: event.jobId ?? null,
+          feature: featureColumn(event.feature),
         },
       });
     } catch (error) {
@@ -138,6 +164,11 @@ export class AiUsageRecorder {
       );
     }
   }
+}
+
+/** The `feature` column value: a well-formed feature id, else null. */
+function featureColumn(feature: string | undefined): string | null {
+  return typeof feature === 'string' && AI_FEATURE_ID_PATTERN.test(feature) ? feature : null;
 }
 
 /** The storable units: finite, non-negative numbers only; `null` when none are left. */

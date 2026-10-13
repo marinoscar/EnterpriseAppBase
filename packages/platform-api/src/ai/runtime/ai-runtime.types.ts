@@ -12,6 +12,7 @@ import type { z } from 'zod';
 
 import type { AiDefinedTool } from '../core/tools';
 import type {
+  AiTranscriptionExtras,
   AiRealtimeTurnDetection,
   AiSpeechFormat,
   AiEmbeddingRequest,
@@ -204,6 +205,21 @@ export interface AiRealtimeSessionResult {
 export interface AiCallOptions {
   /** Aborts the provider call. An aborted call records a `cancelled` usage row. */
   signal?: AbortSignal;
+}
+
+/**
+ * `run`'s options (PP-14.17, #935): the per-call options plus the target.
+ * Omit both and the model is the first one the caller can use that declares
+ * the operation's capability, on a provider that implements the operation
+ * (in `GET /api/ai/models` order) — never the chat `ai.defaultModel`.
+ *
+ * @stability experimental
+ */
+export interface AiRunOperationOptions extends AiCallOptions {
+  /** Provider id; resolved from the model when omitted. */
+  provider?: string;
+  /** Model id; the first usable model for the operation's capability when omitted. */
+  model?: string;
 }
 
 /**
@@ -417,6 +433,13 @@ export interface AiTranscriptionRunOutput {
   segments?: AiTranscriptionSegment[];
   /** Timed words, when asked for. */
   words?: AiTranscriptionWord[];
+  /**
+   * Provider-reported detail beyond the neutral fields (speaker-labelled
+   * segments, language, anything else JSON), bounded
+   * (`AI_TRANSCRIPTION_EXTRAS_MAX_BYTES`); absent when the provider reported
+   * none or it was dropped for size or shape.
+   */
+  extras?: AiTranscriptionExtras;
   /** Token accounting. */
   usage: AiUsage;
 }

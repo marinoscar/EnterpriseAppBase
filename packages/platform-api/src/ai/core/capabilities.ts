@@ -19,16 +19,20 @@
 // declare the capability.
 // =============================================================================
 
+import { AI_CAPABILITY_ID_PATTERN } from '@marinoscar/platform-contract/ai';
 import { z } from 'zod';
 
 /**
- * Every capability a model can declare. Permanent strings — they are stored
- * in the catalog table and in administrator overrides, so renaming one is a
- * data migration, not a refactor.
+ * The capabilities the platform ships. Permanent strings: they are stored in
+ * the catalog table and in administrator overrides, so renaming one is a data
+ * migration, not a refactor. The vocabulary is OPEN (PP-14.17, #935): an app
+ * or package adds its own with `registerAiCapability`; this tuple is only the
+ * built-in part, which registers itself through that same function
+ * (`./capability-registry.ts`).
  *
  * @stability experimental
  */
-export const AI_CAPABILITIES = [
+export const BUILTIN_AI_CAPABILITIES = [
   'responses',
   'reasoning',
   'tools',
@@ -46,11 +50,31 @@ export const AI_CAPABILITIES = [
 ] as const;
 
 /**
- * One of {@link AI_CAPABILITIES}.
+ * The capabilities the platform ships.
+ *
+ * @deprecated Use {@link BUILTIN_AI_CAPABILITIES}. The list is no longer the
+ *   set of capabilities a deployment knows (PP-14.17, #935); ask
+ *   `listAiCapabilities()` or `GET /api/admin/ai/capabilities`. Kept as an
+ *   alias for one release.
+ * @stability experimental
+ */
+export const AI_CAPABILITIES = BUILTIN_AI_CAPABILITIES;
+
+/**
+ * One of {@link BUILTIN_AI_CAPABILITIES}.
  *
  * @stability experimental
  */
-export type AiCapability = (typeof AI_CAPABILITIES)[number];
+export type BuiltinAiCapability = (typeof BUILTIN_AI_CAPABILITIES)[number];
+
+/**
+ * A capability id: a built-in one (autocompleted) or any string an app or
+ * package registered with `registerAiCapability`. See
+ * `AI_CAPABILITY_ID_PATTERN`.
+ *
+ * @stability experimental
+ */
+export type AiCapability = BuiltinAiCapability | (string & {});
 
 /**
  * What a model can read.
@@ -95,11 +119,11 @@ export type AiOutputModality = (typeof AI_OUTPUT_MODALITIES)[number];
 export type AiReasoningEffort = (typeof AI_REASONING_EFFORTS)[number];
 
 /**
- * The entries of the capability enum (`z.enum(AI_CAPABILITIES)`).
+ * The entries of the built-in capability enum (`z.enum(BUILTIN_AI_CAPABILITIES)`).
  *
  * @stability experimental
  */
-export type AiCapabilityEnum = { [K in AiCapability]: K };
+export type AiCapabilityEnum = { [K in BuiltinAiCapability]: K };
 
 /**
  * The entries of the input-modality enum.
@@ -130,8 +154,13 @@ export type AiReasoningEffortEnum = { [K in AiReasoningEffort]: K };
  * @stability experimental
  */
 export const aiModelCapabilitiesSchema = z.object({
-  /** The capabilities the model declares. */
-  capabilities: z.array(z.enum(AI_CAPABILITIES) as z.ZodEnum<AiCapabilityEnum>),
+  /**
+   * The capabilities the model declares: built-in ones and any an app
+   * registered. Validated by shape only (`AI_CAPABILITY_ID_PATTERN`), never
+   * against the registry: a catalog row or an override written under a
+   * capability whose plugin was since removed must still read back.
+   */
+  capabilities: z.array(z.string().regex(AI_CAPABILITY_ID_PATTERN)),
   /** What it reads. */
   inputModalities: z.array(z.enum(AI_INPUT_MODALITIES) as z.ZodEnum<AiInputModalityEnum>),
   /** What it produces. */
@@ -156,15 +185,3 @@ export const aiModelCapabilitiesSchema = z.object({
  * @stability experimental
  */
 export type AiModelCapabilities = z.infer<typeof aiModelCapabilitiesSchema>;
-
-/**
- * Type guard for an arbitrary string read from the database or a request.
- *
- * @param value - the string.
- * @returns whether it is one of {@link AI_CAPABILITIES}.
- *
- * @stability experimental
- */
-export function isAiCapability(value: string): value is AiCapability {
-  return (AI_CAPABILITIES as readonly string[]).includes(value);
-}

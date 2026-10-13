@@ -1,6 +1,9 @@
-import { DynamicModule, Global, Module, type ForwardReference, type Type } from '@nestjs/common';
+import { DynamicModule, Global, Module, type ForwardReference, type Provider, type Type } from '@nestjs/common';
+
+import type { PortBinding } from '../core/index';
 
 import { AI_MODULE_OPTIONS, DEFAULT_AI_OPTIONS, type AiResolvedOptions } from './ai.options';
+import { AI_PRICING, type AiPricing } from './ports';
 
 import { AiCatalogModule } from './catalog/ai-catalog.module';
 import { AiConfigModule } from './config/ai-config.module';
@@ -56,18 +59,53 @@ export interface AiModuleOptions {
    * `perUserDefaultModel: false`, so the web hides the picker.
    */
   readonly perUserDefaultModel?: boolean;
+  /**
+   * The deployment's price list (PP-14.17, #935): turns recorded usage into a
+   * cost, shown as a Cost column on the usage pages. `useExisting` names a
+   * provider a module in `imports` exports; `useClass` and `useFactory` take
+   * their dependencies from `imports` and the global modules. Bound here and
+   * not in an app module because Nest resolves a token from the consuming
+   * module's own providers and imports, so an app-level provider would be
+   * invisible to the usage service. Absent: no cost anywhere (the platform
+   * ships no rates).
+   *
+   * @example
+   * ```ts
+   * AiModule.forRoot({ imports: [AiHostModule], pricing: { useClass: RateCardPricing } });
+   * ```
+   */
+  readonly pricing?: PortBinding<AiPricing>;
 }
 
 /** Holds the resolved options for every AI module (global, so no import edge is needed). */
 @Global()
 @Module({})
 class AiOptionsModule {
-  static of(options: AiResolvedOptions): DynamicModule {
+  static of(
+    options: AiResolvedOptions,
+    pricing?: PortBinding<AiPricing>,
+    imports: AiModuleOptions['imports'] = [],
+  ): DynamicModule {
     return {
       module: AiOptionsModule,
-      providers: [{ provide: AI_MODULE_OPTIONS, useValue: options }],
-      exports: [AI_MODULE_OPTIONS],
+      // The app's host modules are imported here too, so a `useExisting` /
+      // `useClass` pricing binding resolves its dependencies from them.
+      imports: pricing ? [...imports] : [],
+      providers: [
+        { provide: AI_MODULE_OPTIONS, useValue: options },
+        ...(pricing ? [{ provide: AI_PRICING, ...pricing } as Provider] : []),
+      ],
+      exports: [AI_MODULE_OPTIONS, ...(pricing ? [AI_PRICING] : [])],
     };
+  }
+}
+
+/** The binding must be one of Nest's three provider shapes, or boot fails naming the option. */
+function assertPortBinding(name: string, binding: PortBinding<unknown>): void {
+  const shapes = ['useExisting', 'useClass', 'useFactory'].filter((key) => key in (binding as object));
+
+  if (shapes.length !== 1) {
+    throw new Error(`AiModule.forRoot({ ${name} }): bind it with exactly one of useExisting, useClass or useFactory.`);
   }
 }
 
@@ -105,6 +143,7 @@ export class AiModule {
     // The slice's own object-key prefix (`ai-outputs/`), with the storage
     // slice's registry; a no-op when the app's manifest registered it already.
     registerAiStorageKeyPrefixes();
+    if (options.pricing) assertPortBinding('pricing', options.pricing);
     const resolved: AiResolvedOptions = Object.freeze({
       perUserDefaultModel: options.perUserDefaultModel ?? DEFAULT_AI_OPTIONS.perUserDefaultModel,
     });
@@ -112,7 +151,7 @@ export class AiModule {
     return {
       module: AiModule,
       imports: [
-        AiOptionsModule.of(resolved),
+        AiOptionsModule.of(resolved, options.pricing, options.imports),
         ...(options.imports ?? []),
         AiCoreModule,
         ...providers.map((definition) => definition.module),

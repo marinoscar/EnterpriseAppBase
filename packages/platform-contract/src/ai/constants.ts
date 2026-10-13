@@ -35,6 +35,38 @@
 export const AI_PROVIDER_ID_PATTERN = /^[a-z][a-z0-9-]{1,47}$/;
 
 /**
+ * The id pattern of an AI model capability: a lower-case letter, then
+ * lower-case letters, digits and underscores, 2 to 48 characters
+ * (`audio_transcription`, `speaker_diarization`). Permanent once a catalog row
+ * or an override stores it. The vocabulary is open (PP-14.17, #935): the
+ * platform's own are `BUILTIN_AI_CAPABILITIES` in `@marinoscar/platform-api/ai`,
+ * an app adds its own with `registerAiCapability`.
+ *
+ * @stability experimental
+ */
+export const AI_CAPABILITY_ID_PATTERN = /^[a-z][a-z0-9_]{1,47}$/;
+
+/**
+ * The id pattern of an AI operation: dot-separated lower-case segments of
+ * letters, digits and underscores, 2 to 64 characters in all
+ * (`responses`, `audio.transcribe`, `audio.diarize`). It is the `operation`
+ * column of a usage row, so it is permanent once one is written. Open
+ * (PP-14.17, #935): an app adds its own with `registerAiOperation`.
+ *
+ * @stability experimental
+ */
+export const AI_OPERATION_ID_PATTERN = /^(?=.{2,64}$)[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*){0,3}$/;
+
+/**
+ * The id pattern of a registered AI feature (`registerAiFeature`): lower snake
+ * case, starting with a letter, at most 64 characters. Also the `feature`
+ * column of a usage row and of a run.
+ *
+ * @stability experimental
+ */
+export const AI_FEATURE_ID_PATTERN = /^[a-z][a-z0-9_]{0,63}$/;
+
+/**
  * The provider ids the platform ships an adapter and a settings slot for.
  * Permanent strings. An app's own providers are not listed here: ask the API
  * (`GET /api/admin/ai/config`, `GET /api/ai/config`) for the registered ones.

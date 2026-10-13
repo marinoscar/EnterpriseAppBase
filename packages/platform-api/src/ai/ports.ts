@@ -190,3 +190,83 @@ export interface AiMetrics {
  * @stability experimental
  */
 export const NOOP_AI_METRICS: AiMetrics = Object.freeze({ aiUsage: () => undefined });
+
+// ---- pricing -----------------------------------------------------------------------------
+
+/**
+ * Injection token of the app's {@link AiPricing}. Optional: without it the
+ * usage reports show tokens and units and no cost. Bound through
+ * `AiModule.forRoot({ pricing })`, never provided in an app module (Nest
+ * would not show it to the usage service).
+ *
+ * @example
+ * ```ts
+ * AiModule.forRoot({ imports: [AiHostModule], pricing: { useClass: RateCardPricing } });
+ * ```
+ *
+ * @extensionPoint token
+ * @stability experimental
+ */
+export const AI_PRICING: unique symbol = Symbol.for('@marinoscar/platform/ai/PRICING');
+
+/**
+ * One slice of recorded usage, as the pricing port prices it: everything one
+ * `(provider, model, operation)` combination consumed within one group of a
+ * usage report. Counts and sums only: no user, no key, no content.
+ *
+ * @stability experimental
+ */
+export interface AiPricingUsage {
+  /** Provider id. */
+  provider: string;
+  /** Provider model id (`gpt-4o-mini`). */
+  modelId: string;
+  /** The usage `operation` (`responses`, `audio.transcribe`, an app operation's id). */
+  operation: string;
+  /** Recorded provider round trips (succeeded, failed and cancelled). */
+  requests: number;
+  /** Summed input tokens (an unreported count is zero). */
+  inputTokens: number;
+  /** Summed output tokens. */
+  outputTokens: number;
+  /** Summed reasoning tokens. */
+  reasoningTokens: number;
+  /** Summed cached input tokens. */
+  cachedInputTokens: number;
+  /** Summed non-token units by name (`{ images: 4, audioSeconds: 31.4 }`). */
+  units: Readonly<Record<string, number>>;
+}
+
+/**
+ * What the pricing port answers: an amount in a currency.
+ *
+ * @stability experimental
+ */
+export interface AiCost {
+  /** The amount, in `currency`'s major unit. */
+  amount: number;
+  /** An ISO 4217 code (`USD`) or any short label (at most 8 characters). */
+  currency: string;
+}
+
+/**
+ * The app's price list (PP-14.17, #935): turns recorded usage into a cost.
+ * The platform ships no rates (they change, and they are the deployment's
+ * contract with a provider); an app that has them binds this port and the
+ * usage page then shows a Cost column. The port prices; it never records
+ * (no table holds a cost) and is called only while a usage report is built.
+ *
+ * @stability experimental
+ */
+export interface AiPricing {
+  /**
+   * The cost of `usage`, or `null` when this combination has no price (an
+   * unlisted model, a free tier). A throw is treated as `null` and logged
+   * without the usage. A group's cost is the sum of its priced slices; a group
+   * whose priced slices use more than one currency has no cost.
+   *
+   * @param usage - one `(provider, model, operation)` slice of a report group.
+   * @returns the cost, or `null`.
+   */
+  costFor(usage: AiPricingUsage): AiCost | null | Promise<AiCost | null>;
+}

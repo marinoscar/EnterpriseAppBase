@@ -1,3 +1,4 @@
+import { aiFeatureIdSchema, aiUsageCostSchema } from '@marinoscar/platform-contract/ai';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
@@ -24,10 +25,20 @@ export const MAX_AI_USAGE_RANGE_DAYS = 90;
 export const DEFAULT_AI_USAGE_RANGE_DAYS = 30;
 
 /** Every grouping the admin report accepts. */
-export const AI_USAGE_ADMIN_GROUP_BY = ['day', 'user', 'model', 'provider', 'keySource', 'org'] as const;
+export const AI_USAGE_ADMIN_GROUP_BY = [
+  'day',
+  'user',
+  'model',
+  'provider',
+  'keySource',
+  'org',
+  // PP-14.17 (#935): per registered AI feature, and per operation (open vocabulary).
+  'feature',
+  'operation',
+] as const;
 
 /** The groupings an organization administrator's report accepts (#739): every one but `org`. */
-export const AI_USAGE_ORG_GROUP_BY = ['day', 'user', 'model', 'provider', 'keySource'] as const;
+export const AI_USAGE_ORG_GROUP_BY = ['day', 'user', 'model', 'provider', 'keySource', 'feature', 'operation'] as const;
 
 /** The groupings a user's own report accepts — no per-user split of one user. */
 export const AI_USAGE_ME_GROUP_BY = ['day', 'model'] as const;
@@ -56,6 +67,8 @@ export const aiUsageAdminQuerySchema = z.object({
   model: z.string().min(1).max(200).optional(),
   /** #739: only this organization's events (a system administrator's filter). */
   orgId: z.uuid().optional(),
+  /** PP-14.17: only events recorded for this registered AI feature (`registerAiFeature`). */
+  feature: aiFeatureIdSchema.optional(),
 });
 
 /**
@@ -69,6 +82,8 @@ export const aiUsageOrgQuerySchema = z.object({
   userId: z.uuid().optional(),
   provider: z.string().min(1).max(64).optional(),
   model: z.string().min(1).max(200).optional(),
+  /** PP-14.17: only events recorded for this registered AI feature. */
+  feature: aiFeatureIdSchema.optional(),
 });
 
 export class AiUsageOrgQueryDto extends createZodDto(aiUsageOrgQuerySchema) {}
@@ -114,18 +129,27 @@ export const aiUsageBucketSchema = z.object({
   orgKeyInputTokens: z.number(),
   /** Output tokens paid for by the organization key. */
   orgKeyOutputTokens: z.number(),
+  /**
+   * What the deployment's pricing port (`AiModule.forRoot({ pricing })`) says
+   * this bucket cost. Present only on a report where pricing is bound
+   * (`priced: true`); `null` when no slice of the bucket has a price or its
+   * priced slices use more than one currency.
+   */
+  cost: aiUsageCostSchema.nullable().optional(),
 });
 
 export const aiUsageSeriesItemSchema = aiUsageBucketSchema.extend({
   /**
    * The group's stable key: `YYYY-MM-DD` (day), a user id or `system` for
    * events with no user (user), `<provider>:<modelId>` (model), a provider id
-   * (provider), or `user` / `org` / `none` / `admin_discovery` (keySource).
+   * (provider), `user` / `org` / `none` / `admin_discovery` (keySource), a
+   * registered feature id or `none` for events recorded without one (feature),
+   * or an operation id (operation).
    */
   key: z.string(),
   /**
    * Human label: the day, the user's EMAIL, the model id, the provider's
-   * display name, or a key-source description.
+   * display name, a key-source description, a feature's or operation's label.
    */
   label: z.string(),
 });
@@ -134,6 +158,8 @@ export const aiUsageReportSchema = z.object({
   /** The window actually reported, UTC days, both inclusive. */
   range: z.object({ from: isoDay, to: isoDay }),
   groupBy: z.enum(AI_USAGE_ADMIN_GROUP_BY),
+  /** Whether a pricing port is bound, so buckets carry a `cost` (PP-14.17). */
+  priced: z.boolean().optional(),
   totals: aiUsageBucketSchema,
   /**
    * One entry per group. `day` is chronological and ZERO-FILLED (every day in

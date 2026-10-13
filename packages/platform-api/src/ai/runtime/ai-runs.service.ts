@@ -113,6 +113,8 @@ export interface AiRunExecutionRow {
   /** The job that last claimed it (a resumed attempt recognises its own run). */
   jobId: string | null;
   request: Prisma.JsonValue;
+  /** The registered feature the run was started for (PP-14.17); null for none. */
+  feature: string | null;
 }
 
 /**
@@ -153,6 +155,8 @@ export class AiRunsService {
       | StoredAiSpeechRunRequest;
     /** The job type that executes it. Defaults to `ai.response.run`. */
     jobType?: string;
+    /** The registered AI feature the run is for (PP-14.17, #935); persisted on the row and carried to its usage rows. */
+    feature?: string;
   }): Promise<AiRunHandle> {
     return this.prisma.runInOrg(input.orgId, async (tx) => {
       const run = await tx.aiRun.create({
@@ -163,6 +167,7 @@ export class AiRunsService {
           modelId: input.modelId,
           status: 'pending',
           request: asJson(input.request),
+          ...(input.feature ? { feature: input.feature } : {}),
         },
         select: { id: true },
       });
@@ -280,7 +285,7 @@ export class AiRunsInOrg {
   async load(runId: string): Promise<AiRunExecutionRow | null> {
     return this.db.aiRun.findUnique({
       where: { id: runId },
-      select: { id: true, userId: true, status: true, jobId: true, request: true },
+      select: { id: true, userId: true, status: true, jobId: true, request: true, feature: true },
     });
   }
 

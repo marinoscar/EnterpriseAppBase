@@ -1,7 +1,9 @@
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
-import { AI_CAPABILITIES, aiModelCapabilitiesSchema } from '../../core/capabilities';
+import { aiCapabilityIdSchema } from '@marinoscar/platform-contract/ai';
+import { aiModelCapabilitiesSchema } from '../../core/capabilities';
+import { isAiCapability } from '../../core/capability-registry';
 
 // =============================================================================
 // Admin model catalog routes (issue #428, epic #419)
@@ -32,7 +34,7 @@ export const aiModelListQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
   provider: z.string().min(1).max(64).optional(),
   /** Only models whose capabilities include this one. */
-  capability: z.enum(AI_CAPABILITIES).optional(),
+  capability: aiCapabilityIdSchema.optional(),
   enabled: queryBoolean.optional(),
   /** Include models the provider no longer lists. Default false. */
   includeDeprecated: queryBoolean.default(false),
@@ -84,9 +86,16 @@ export const updateAiModelSchema = z
     displayName: z.string().trim().min(1).max(200).nullable().optional(),
     /**
      * A full capability record. Setting it marks the row `admin_override`,
-     * which a catalog refresh never overwrites.
+     * which a catalog refresh never overwrites. Every capability must be a
+     * registered one (a built-in or an app's, `GET /api/admin/ai/capabilities`):
+     * reads tolerate an id whose plugin was removed, a write does not add one.
      */
-    capabilities: aiModelCapabilitiesSchema.optional(),
+    capabilities: aiModelCapabilitiesSchema
+      .refine((value) => value.capabilities.every((capability) => isAiCapability(capability)), {
+        message: 'Every capability must be registered (see GET /api/admin/ai/capabilities).',
+        path: ['capabilities'],
+      })
+      .optional(),
   })
   .refine(
     (value) =>
