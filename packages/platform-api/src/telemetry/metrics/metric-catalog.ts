@@ -1,3 +1,5 @@
+import type { MetricUnit as ContractMetricUnit } from '@marinoscar/platform-contract/telemetry';
+
 import type { TelemetrySchema } from '../dto/telemetry-query.dto';
 import './metric-group.manifest';
 import { HOST_TABLES, METRIC_UNITS } from './metric-catalog.helpers';
@@ -72,11 +74,12 @@ export {
 } from './metric-group.registry';
 
 /**
- * The unit of a family, ratio or table column (the contract's `METRIC_UNITS`).
+ * The unit of a family, ratio or table column: a built-in unit or an id an app
+ * registered with `registerMetricUnit`.
  *
  * @stability stable
  */
-export type MetricUnit = (typeof METRIC_UNITS)[number];
+export type MetricUnit = ContractMetricUnit;
 
 /**
  * The request filters a family may honour (`METRIC_FILTER_COLUMNS` maps each to its column).

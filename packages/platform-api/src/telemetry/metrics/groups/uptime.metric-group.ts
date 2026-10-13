@@ -1,3 +1,5 @@
+import { PLATFORM_METRIC_PRESENTATIONS } from '@marinoscar/platform-contract/telemetry';
+
 import type { MetricGroupDef } from '../metric-group.registry';
 import { HOST_FILTERS, T } from '../metric-catalog.helpers';
 
@@ -11,6 +13,8 @@ export const UPTIME_METRIC_GROUP: MetricGroupDef = {
   title: 'Uptime & dependencies',
   order: 50,
   description: 'checks per URL, TLS days left, nginx',
+  // The section's look (tiles, charts, tables) lives with the group, as data; the web renders it.
+  presentation: PLATFORM_METRIC_PRESENTATIONS.uptime,
   families: [
     {
       key: 'httpDuration',

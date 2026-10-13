@@ -1,3 +1,5 @@
+import { PLATFORM_METRIC_PRESENTATIONS } from '@marinoscar/platform-contract/telemetry';
+
 import type { MetricGroupDef } from '../metric-group.registry';
 import { APP_FILTERS, eq, T } from '../metric-catalog.helpers';
 
@@ -11,6 +13,8 @@ export const QUEUE_METRIC_GROUP: MetricGroupDef = {
   title: 'Job queue',
   order: 30,
   description: 'depth, oldest pending job, settle rate, failure ratio, duration p95, last backup, per job type',
+  // The section's look (tiles, charts, tables) lives with the group, as data; the web renders it.
+  presentation: PLATFORM_METRIC_PRESENTATIONS.queue,
   families: [
     {
       key: 'queueDepth',

@@ -1,6 +1,10 @@
+import type { MetricGroupPresentation } from '@marinoscar/platform-contract/telemetry';
+
 import { defineRegistry, RegistryError, type Registry } from '../../core/index';
 import type { MetricFamily, MetricFilterKey, MetricRatio, MetricTableSpec } from './metric-catalog';
-import { METRIC_FILTER_COLUMNS, METRIC_UNITS } from './metric-catalog.helpers';
+import { METRIC_FILTER_COLUMNS } from './metric-catalog.helpers';
+import { assertPresentation } from './metric-presentation';
+import { isMetricUnit, metricUnitIds } from './metric-unit.registry';
 import type { MetricGroupIds } from '../index';
 
 // =============================================================================
@@ -63,6 +67,14 @@ export interface MetricGroupDef {
   ratios?: readonly MetricRatio[];
   /** Per-key tables. Each `table.group` equals `id`. */
   tables?: readonly MetricTableSpec[];
+  /**
+   * How the dashboard section looks: tiles (with a label, unit or theme
+   * colour), line charts, tables (with a "Top N" limit, a row order and
+   * per-column displays) and columns computed in the browser. Data only, bounded
+   * and validated at registration against the group's own families and tables;
+   * an omitted part gets the dashboard's default. Served by `/metric-groups`.
+   */
+  presentation?: MetricGroupPresentation;
 }
 
 // `MetricGroupIds` is DECLARED in the slice's entry module (../index), so an app's
@@ -82,7 +94,6 @@ export type MetricGroup = keyof MetricGroupIds & string;
  */
 export const METRIC_GROUP_ID_PATTERN = /^[a-z][a-z0-9_]*$/;
 
-const UNITS = new Set<string>(METRIC_UNITS);
 const FILTER_KEYS = new Set<string>(Object.keys(METRIC_FILTER_COLUMNS));
 
 function compareCodeUnits(a: string, b: string): number {
@@ -90,8 +101,11 @@ function compareCodeUnits(a: string, b: string): number {
 }
 
 function assertUnit(unit: unknown, where: string): void {
-  if (typeof unit !== 'string' || !UNITS.has(unit)) {
-    throw new Error(`${where} has unit ${JSON.stringify(unit)}; expected one of ${METRIC_UNITS.join(', ')}.`);
+  if (!isMetricUnit(unit)) {
+    throw new Error(
+      `${where} has unit ${JSON.stringify(unit)}; expected a registered unit (${metricUnitIds().join(', ')}). ` +
+        'Register an app unit with registerMetricUnit before the group.',
+    );
   }
 }
 
@@ -202,6 +216,8 @@ export function assertMetricGroup(group: MetricGroupDef, known: readonly MetricG
       );
     }
   }
+
+  assertPresentation(group);
 }
 
 /**

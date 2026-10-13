@@ -21,7 +21,15 @@ import type { MetricFilterKey, MetricPredicate } from './metric-catalog';
 // keeps its import.
 // =============================================================================
 
-/** Display units of tiles, series and table columns (part of the wire: `@marinoscar/platform-contract/telemetry`, #702). */
+/**
+ * The platform's own display units of tiles, series and table columns (part of
+ * the wire: `@marinoscar/platform-contract/telemetry`). The set is open: whether a
+ * unit is valid is `isMetricUnit` (the unit registry), which an app extends with
+ * `registerMetricUnit`.
+ *
+ * @deprecated Use `isMetricUnit` / `metricUnitIds` (the registry); this is the platform's built-in subset.
+ * @stability experimental
+ */
 export { METRIC_UNITS };
 
 /**

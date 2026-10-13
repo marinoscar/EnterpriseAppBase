@@ -23,6 +23,7 @@ import {
   type TelemetryDashboardMetricGroups,
 } from '../dto/telemetry-dashboard.dto';
 import { metricGroupIds, metricGroups, type MetricGroup } from '../metrics/metric-catalog';
+import { customUnitsOf } from '../metrics/metric-presentation';
 import { TelemetryDashboardService } from './telemetry-dashboard.service';
 import type { ResolvedTelemetryModuleOptions } from '../telemetry.options';
 import { TELEMETRY_PERMISSIONS } from '../telemetry.permissions';
@@ -231,13 +232,25 @@ export function createTelemetryDashboardController(options: ResolvedTelemetryMod
       description:
         'Every registered metric group (the six platform groups and any the application registers), in ' +
         'dashboard order: `id` (the `/metrics` `group` value), `label`, the dashboard section `title` and ' +
-        '`order`. Read from the in-memory metric-group registry: no telemetry store query, so it answers ' +
-        'even while the store is unconfigured or unreachable, and it is not audited.',
+        '`order`, then, when the group declares them, its `presentation` (data only: tiles, charts, tables ' +
+        'and computed columns the dashboard renders) and the `units` it uses that are not built in, with ' +
+        'how to format them. Read from the in-memory metric-group registry: no telemetry store query, so it ' +
+        'answers even while the store is unconfigured or unreachable, and it is not audited.',
     })
     @ApiResponse({ status: 200, description: 'The metric groups', type: TelemetryDashboardMetricGroupsDto })
     metricGroups(): TelemetryDashboardMetricGroups {
       return {
-        data: metricGroups().map(({ id, label, title, order }) => ({ id, label, title, order })),
+        data: metricGroups().map((group) => {
+          const units = customUnitsOf(group);
+          return {
+            id: group.id,
+            label: group.label,
+            title: group.title,
+            order: group.order,
+            ...(group.presentation ? { presentation: group.presentation } : {}),
+            ...(units.length > 0 ? { units } : {}),
+          };
+        }),
       };
     }
   }
