@@ -16,11 +16,13 @@
 // =============================================================================
 
 import type { DoctorCheckReport } from '@marinoscar/platform-contract/doctor';
-import type { OnboardingAudience, OnboardingBlock, OnboardingStep } from '@marinoscar/platform-contract/onboarding';
+import type { OnboardingBlock, OnboardingStep } from '@marinoscar/platform-contract/onboarding';
 import { ONBOARDING_STATUSES } from '@marinoscar/platform-contract/onboarding';
 
 import { DOCTOR_FACT_ID, factIdsOf } from './onboarding.registries';
 import type {
+  OnboardingAudienceContext,
+  OnboardingAudienceDef,
   OnboardingEvaluation,
   OnboardingFactDef,
   OnboardingFacts,
@@ -44,6 +46,14 @@ export interface OnboardingEngineInput {
   orderings: readonly OnboardingOrderingDef[];
   /** Whether the caller gets the admin block. */
   includeAdmin: boolean;
+  /**
+   * The registered audiences. Every one except `user` and `admin` (which
+   * `includeAdmin` governs, exactly as before) whose rule matches the caller
+   * gets a block in {@link OnboardingEngineResult.audiences}. Absent: none.
+   */
+  audiences?: readonly OnboardingAudienceDef[];
+  /** What the audience rules are told besides the caller. Default `{ adminPermission: 'system_settings:read' }`. */
+  audienceContext?: OnboardingAudienceContext;
   /** The step ids the user skipped (already reduced to skippable ones). */
   skipped: readonly string[];
   /** Builds the request context once the Doctor check union is known. */
@@ -66,6 +76,12 @@ export interface OnboardingEngineResult {
   user: OnboardingBlock;
   /** The admin block, or `null` when not included. */
   admin: OnboardingBlock | null;
+  /**
+   * The blocks of the other audiences the caller matches (`org_admin`, or an
+   * app's own) that have at least one step for them, keyed by audience id.
+   * Absent when there is none.
+   */
+  audiences?: Record<string, OnboardingBlock>;
 }
 
 /**
@@ -148,8 +164,19 @@ export async function evaluateOnboarding(input: OnboardingEngineInput): Promise<
 
   // Phase 1: candidates. The feature gate is the only read, and it is memoised.
   // The context is built with an empty check union first, for the gate only.
-  const audiences: OnboardingAudience[] = input.includeAdmin ? ['user', 'admin'] : ['user'];
   const gateCtx = input.context([], fact);
+  // `user` and `admin` keep the rules they always had (`includeAdmin`); every
+  // other audience is added only when its own rule matches the caller.
+  const audiences: string[] = input.includeAdmin ? ['user', 'admin'] : ['user'];
+  const audienceCtx = input.audienceContext ?? { adminPermission: 'system_settings:read' };
+  for (const audience of input.audiences ?? []) {
+    if (audience.id === 'user' || audience.id === 'admin') continue;
+    try {
+      if (audience.matches(gateCtx.caller, audienceCtx)) audiences.push(audience.id);
+    } catch (error) {
+      warn(`Onboarding audience "${audience.id}" threw while matching; it does not apply: ${messageOf(error)}`);
+    }
+  }
   const byAudience = input.steps.filter((step) => audiences.includes(step.audience));
   const permitted = byAudience.filter(
     (step) => step.permission === undefined || gateCtx.caller.permissions.includes(step.permission),
@@ -200,7 +227,8 @@ export async function evaluateOnboarding(input: OnboardingEngineInput): Promise<
   // Phase 3: evaluation, synchronous.
   input.onEvaluationPhase?.('start');
   const skipped = new Set(input.skipped);
-  const blocks: Record<OnboardingAudience, OnboardingOrderableStep[]> = { user: [], admin: [] };
+  const blocks: Record<string, OnboardingOrderableStep[]> = {};
+  for (const audience of audiences) blocks[audience] = [];
 
   for (const def of [...candidates].sort(compareSteps)) {
     const facts = factsFor(factIdsOf(def));
@@ -218,7 +246,7 @@ export async function evaluateOnboarding(input: OnboardingEngineInput): Promise<
         warn(`Onboarding step "${def.id}" is blocked without a blockedReason; it is omitted`);
         continue;
       }
-      blocks[def.audience].push({ def, evaluation });
+      blocks[def.audience]?.push({ def, evaluation });
     } catch (error) {
       warn(`Onboarding step "${def.id}" threw while evaluating; it is omitted: ${messageOf(error)}`);
     }
@@ -228,8 +256,9 @@ export async function evaluateOnboarding(input: OnboardingEngineInput): Promise<
     const facts = factsFor(ordering.facts);
     if (facts === null) continue;
     try {
-      const members = new Set(blocks[ordering.audience]);
-      blocks[ordering.audience] = [...ordering.order(blocks[ordering.audience], facts)].filter((step) => members.has(step));
+      const current = blocks[ordering.audience] ?? [];
+      const members = new Set(current);
+      blocks[ordering.audience] = [...ordering.order(current, facts)].filter((step) => members.has(step));
     } catch (error) {
       warn(`The ${ordering.audience} onboarding ordering threw; the default order applies: ${messageOf(error)}`);
     }
@@ -251,8 +280,16 @@ export async function evaluateOnboarding(input: OnboardingEngineInput): Promise<
     skipped: def.skippable && skipped.has(def.id),
   });
 
+  const extra: Record<string, OnboardingBlock> = {};
+  for (const audience of audiences) {
+    if (audience === 'user' || audience === 'admin') continue;
+    const steps = blocks[audience] ?? [];
+    if (steps.length > 0) extra[audience] = summarize(steps.map(toStep));
+  }
+
   return {
-    user: summarize(blocks.user.map(toStep)),
-    admin: input.includeAdmin ? summarize(blocks.admin.map(toStep)) : null,
+    user: summarize((blocks['user'] ?? []).map(toStep)),
+    admin: input.includeAdmin ? summarize((blocks['admin'] ?? []).map(toStep)) : null,
+    ...(Object.keys(extra).length > 0 ? { audiences: extra } : {}),
   };
 }
