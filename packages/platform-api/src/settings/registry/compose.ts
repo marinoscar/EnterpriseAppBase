@@ -20,12 +20,21 @@
 // =============================================================================
 
 import { z } from 'zod';
-import {
+import type {
   profileImageSourceSchema,
   themePreferenceSchema,
   userProfileSettingsPatchSchema,
   userProfileSettingsSchema,
 } from '@marinoscar/platform-contract/settings';
+import {
+  composeThemeOptionsResponseShape,
+  composeThemeSchema,
+  composeUserProfilePatchSchema,
+  composeUserProfileResponseSchema,
+  composeUserProfileSchema,
+  themePreferenceRegistry,
+  userProfileFieldRegistry,
+} from './core-user-fields';
 import {
   systemSettingsNamespaceRegistry,
   type SystemSettingsNamespace,
@@ -466,12 +475,12 @@ export function composeUserSettingsSchema(
   namespaces?: readonly UserSettingsNamespace[],
 ): z.ZodObject<UserSettingsCoreShape & ComposedUserSettingsShape> {
   return z.object({
-    theme: themePreferenceSchema,
-    profile: userProfileSettingsSchema,
+    theme: composeThemeSchema(),
+    profile: composeUserProfileSchema(),
     // Optional namespaces. Absent means "use built-in defaults" — see
     // user-settings-namespaces.schema.ts for why these must never get `.default()`.
     ...composeUserSettingsSchemas(namespaces).stored,
-  });
+  }) as unknown as z.ZodObject<UserSettingsCoreShape & ComposedUserSettingsShape>;
 }
 
 /**
@@ -486,10 +495,10 @@ export function composeUserSettingsPatchSchema(
   namespaces?: readonly UserSettingsNamespace[],
 ): z.ZodObject<UserSettingsCorePatchShape & ComposedUserSettingsPatchShape> {
   return z.object({
-    theme: themePreferenceSchema.optional(),
-    profile: userProfileSettingsPatchSchema.optional(),
+    theme: composeThemeSchema().optional(),
+    profile: composeUserProfilePatchSchema().optional(),
     ...composeUserSettingsSchemas(namespaces).patch,
-  });
+  }) as unknown as z.ZodObject<UserSettingsCorePatchShape & ComposedUserSettingsPatchShape>;
 }
 
 // -----------------------------------------------------------------------------
@@ -536,10 +545,10 @@ export function composeUpdateUserSettingsSchema(
   namespaces?: readonly UserSettingsNamespace[],
 ): z.ZodObject<UserSettingsCoreShape & ComposedUpdateUserSettingsShape> {
   return z.object({
-    theme: themePreferenceSchema,
-    profile: userProfileSettingsSchema,
+    theme: composeThemeSchema(),
+    profile: composeUserProfileSchema(),
     ...composeUserSettingsSchemas(namespaces).put,
-  });
+  }) as unknown as z.ZodObject<UserSettingsCoreShape & ComposedUpdateUserSettingsShape>;
 }
 
 /**
@@ -552,10 +561,10 @@ export function composePatchUserSettingsSchema(
   namespaces?: readonly UserSettingsNamespace[],
 ): z.ZodObject<UserSettingsCorePatchShape & ComposedPatchUserSettingsShape> {
   return z.object({
-    theme: themePreferenceSchema.optional(),
-    profile: userProfileSettingsPatchSchema.optional(),
+    theme: composeThemeSchema().optional(),
+    profile: composeUserProfilePatchSchema().optional(),
     ...composeUserSettingsSchemas(namespaces).wirePatch,
-  });
+  }) as unknown as z.ZodObject<UserSettingsCorePatchShape & ComposedPatchUserSettingsShape>;
 }
 
 /**
@@ -569,17 +578,14 @@ export function composeUserSettingsResponseSchema(
   namespaces?: readonly UserSettingsNamespace[],
 ): z.ZodObject<UserSettingsCoreResponseShape & ComposedUserSettingsResponseShape> {
   return z.object({
-    theme: themePreferenceSchema,
-    profile: z.object({
-      displayName: z.string().nullable().optional(),
-      imageSource: profileImageSourceSchema,
-      // Always present in responses; `null` when no avatar has been uploaded.
-      imageObjectId: z.string().uuid().nullable(),
-    }),
+    theme: composeThemeSchema(),
+    profile: composeUserProfileResponseSchema(),
+    // Present in the document only while an app has registered themes.
+    ...composeThemeOptionsResponseShape(),
     ...composeUserSettingsSchemas(namespaces).response,
     updatedAt: z.iso.datetime(),
     version: z.number(),
-  });
+  }) as unknown as z.ZodObject<UserSettingsCoreResponseShape & ComposedUserSettingsResponseShape>;
 }
 
 // -----------------------------------------------------------------------------
@@ -643,7 +649,9 @@ export const currentPatchSystemSettingsSchema = memoOnEntries(
  *
  * @stability experimental
  */
-export const currentUserSettingsSchema = memoOnEntries(
-  () => userSettingsNamespaceRegistry.list(),
-  (entries) => composeUserSettingsSchema(entries),
+export const currentUserSettingsSchema = memoOnEntries<unknown, z.ZodObject<UserSettingsCoreShape & ComposedUserSettingsShape>>(
+  // The core fields are composed from their registries too (extra profile
+  // fields, extra themes): a change in any of the three rebuilds the schema.
+  () => [...userSettingsNamespaceRegistry.list(), ...userProfileFieldRegistry.list(), ...themePreferenceRegistry.list()],
+  () => composeUserSettingsSchema(),
 );

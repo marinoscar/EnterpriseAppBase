@@ -96,6 +96,22 @@ export interface UserSettingsNamespaces {}
  */
 export interface UserSettingsNamespaceDeclarations {}
 
+/**
+ * The fields apps added to a user's `profile` with `extendUserProfile`, typed
+ * by module augmentation. Empty until an app (or a slice) augments it; every
+ * key must be optional.
+ *
+ * @example
+ * ```ts
+ * declare module '@marinoscar/platform-api/settings' {
+ *   interface UserProfileSettingsExtensions { timezone?: string }
+ * }
+ * ```
+ *
+ * @stability experimental
+ */
+export interface UserProfileSettingsExtensions {}
+
 // ---- the namespace registries (rung 2) ---------------------------------------------------
 export {
   RESERVED_SYSTEM_SETTINGS_KEYS,
@@ -134,9 +150,36 @@ export type {
   AnyObject,
   KeyedNamespace,
   NamespaceLists,
+  SettingsExtensionOrgLayer,
+  SettingsOrgTightener,
   SystemSettingsNamespaceExtension,
   UserSettingsNamespaceExtension,
 } from './registry/extend';
+// ---- contributions, defaults overrides and the assembled order (PP-14.21) -----------------
+export {
+  applySettingsDefaultsOverrides,
+  assembleSystemSettingsNamespaces,
+  assembleUserSettingsNamespaces,
+  overrideSettingsNamespaceDefaults,
+  registerSettingsContribution,
+  settingsContributionRegistry,
+  settingsDefaultsOverrideRegistry,
+} from './registry/assemble';
+export type {
+  SettingsContribution,
+  SettingsDefaultsOverride,
+  SystemSettingsAssembly,
+  UserSettingsAssembly,
+} from './registry/assemble';
+// ---- the core user fields: profile and theme (PP-14.21) ------------------------------------
+export {
+  CORE_PROFILE_FIELDS,
+  extendUserProfile,
+  registerThemePreference,
+  themePreferenceRegistry,
+  userProfileFieldRegistry,
+} from './registry/core-user-fields';
+export type { ThemePreferenceDefinition, UserProfileField } from './registry/core-user-fields';
 export { DATA_TABLES_USER_SETTINGS, NAVIGATION_USER_SETTINGS } from './registry/core-user-namespaces';
 
 // ---- composition: the composed schemas, request bodies and defaults ----------------------
