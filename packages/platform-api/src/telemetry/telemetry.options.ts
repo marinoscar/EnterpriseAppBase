@@ -22,6 +22,9 @@
 //   store         the id of the telemetry store the slice queries (default
 //                 `greptime`): a store registered with `registerTelemetryStore`
 //                 before `forRoot` runs (PP-14.11).
+//   assistant     `extraInstructions`: notes from the app's developers appended to
+//                 the assistant's system prompt (PP-14.18), above the rules
+//                 they cannot override.
 //   metrics       `freshMs`: how much older than its table's newest reading a
 //                 `last` cell (and an uptime check) may be and still count as
 //                 current (default `METRIC_FRESH_MS`, 150 s).
@@ -31,6 +34,7 @@
 // =============================================================================
 
 import { createParamDecorator, type ExecutionContext, type ModuleMetadata } from '@nestjs/common';
+import { TELEMETRY_ASSISTANT_EXTRA_INSTRUCTIONS_MAX } from '@marinoscar/platform-contract/telemetry';
 import { z } from 'zod';
 
 import { definePlatformHost, type PlatformHost, type PortBinding } from '../core/index';
@@ -95,6 +99,29 @@ export interface TelemetryMetricsOptions {
 }
 
 /**
+ * The assistant's options.
+ *
+ * @example
+ * ```ts
+ * TelemetryModule.forRoot({ host, imports, assistant: { extraInstructions: 'Checkout is the revenue path: weigh its errors first.' } });
+ * ```
+ *
+ * @extensionPoint option
+ * @stability experimental
+ */
+export interface TelemetryAssistantOptions {
+  /**
+   * Notes from the app's developers, appended to the system prompt under
+   * "APPLICATION NOTES", above the hard rules, the untrusted-data rule and the
+   * answer format, which they cannot override. At most
+   * `TELEMETRY_ASSISTANT_EXTRA_INSTRUCTIONS_MAX` (4 000) characters of text; a
+   * control character other than a newline or a tab fails boot. This is code,
+   * set at deploy time: no setting, request or viewer can change it.
+   */
+  extraInstructions?: string;
+}
+
+/**
  * Options of `TelemetryModule.forRoot()`.
  *
  * @example
@@ -124,6 +151,8 @@ export interface TelemetryModuleOptions {
   dashboard?: TelemetryDashboardOptions;
   /** The dashboard metric groups' freshness window. */
   metrics?: TelemetryMetricsOptions;
+  /** The assistant's system-prompt notes. */
+  assistant?: TelemetryAssistantOptions;
   /**
    * The id of the telemetry store the explorer, the dashboard, the status page,
    * the retention job and the Doctor use. Default `greptime` (the built-in).
@@ -163,6 +192,8 @@ export interface ResolvedTelemetryModuleOptions {
   readonly metricFreshMs: number;
   /** The id of the selected telemetry store (registered; default `greptime`). */
   readonly store: string;
+  /** The developers' notes for the assistant's system prompt, or `null` (`TELEMETRY_ASSISTANT_EXTRA_INSTRUCTIONS`). */
+  readonly assistantExtraInstructions: string | null;
 }
 
 /**
@@ -191,6 +222,17 @@ export const TELEMETRY_VERDICT_THRESHOLDS: unique symbol = Symbol.for('@marinosc
  * @stability experimental
  */
 export const TELEMETRY_METRIC_FRESH_MS: unique symbol = Symbol.for('@marinoscar/platform/telemetry/METRIC_FRESH_MS');
+
+/**
+ * Injection token of the developers' notes appended to the assistant's system
+ * prompt: the app's `assistant.extraInstructions`, or `null`.
+ *
+ * @extensionPoint token
+ * @stability experimental
+ */
+export const TELEMETRY_ASSISTANT_EXTRA_INSTRUCTIONS: unique symbol = Symbol.for(
+  '@marinoscar/platform/telemetry/ASSISTANT_EXTRA_INSTRUCTIONS',
+);
 
 /** The bounds of `metrics.freshMs`: one second to one day. */
 const FRESH_MS_MIN = 1_000;
@@ -315,6 +357,33 @@ export function resolveVerdictThresholds(override: VerdictThresholdsOverride | u
 }
 
 /**
+ * The assistant's extra instructions for an override: validated, trimmed, else `null`.
+ *
+ * @param assistant - the app's `assistant` option, or `undefined`.
+ * @returns the notes, or `null` when there are none.
+ * @throws Error when `assistant` is not an object, or `extraInstructions` is not a string of at most
+ *   `TELEMETRY_ASSISTANT_EXTRA_INSTRUCTIONS_MAX` characters without control characters.
+ *
+ * @stability experimental
+ */
+export function resolveAssistantExtraInstructions(assistant: TelemetryAssistantOptions | undefined): string | null {
+  if (assistant === undefined) return null;
+  if (assistant === null || typeof assistant !== 'object') fail('`assistant` must be an object');
+  const { extraInstructions } = assistant;
+  if (extraInstructions === undefined) return null;
+  if (typeof extraInstructions !== 'string') fail('`assistant.extraInstructions` must be a string');
+  const text = extraInstructions.trim();
+  if (text.length > TELEMETRY_ASSISTANT_EXTRA_INSTRUCTIONS_MAX) {
+    fail(`\`assistant.extraInstructions\` is at most ${TELEMETRY_ASSISTANT_EXTRA_INSTRUCTIONS_MAX} characters (got ${text.length})`);
+  }
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u0008\u000b-\u001f\u007f]/.test(text)) {
+    fail('`assistant.extraInstructions` must be plain text: no control characters other than a newline or a tab');
+  }
+  return text === '' ? null : text;
+}
+
+/**
  * The default caller resolver: the authenticated user's `id`, from
  * `request.requestUser` (set by the app's guards) or `request.user` (the JWT
  * strategy's user).
@@ -366,6 +435,7 @@ export function resolveTelemetryModuleOptions(options: TelemetryModuleOptions): 
   }
   const verdictThresholds = resolveVerdictThresholds(options.dashboard?.verdictThresholds);
   const metricFreshMs = resolveMetricFreshMs(options.metrics);
+  const assistantExtraInstructions = resolveAssistantExtraInstructions(options.assistant);
 
   const store = options.store ?? BUILTIN_TELEMETRY_STORE_ID;
   if (typeof store !== 'string' || !telemetryStoreKind.has(store)) {
@@ -388,5 +458,6 @@ export function resolveTelemetryModuleOptions(options: TelemetryModuleOptions): 
     verdictPolicy,
     metricFreshMs,
     store,
+    assistantExtraInstructions,
   });
 }

@@ -3,11 +3,12 @@ import 'reflect-metadata';
 import { join } from 'node:path';
 
 import { Controller, Get, Inject, Injectable, Module, SetMetadata } from '@nestjs/common';
+import { z } from 'zod';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, type NestFastifyApplication } from '@nestjs/platform-fastify';
 
 import { DoctorCheckRegistry } from '../../src/doctor/index';
-import { definePlatformHost } from '../../src/core/index';
+import { definePlatformHost, withTemporaryEntries } from '../../src/core/index';
 import { TelemetryDashboardService } from '../../src/telemetry/dashboard/telemetry-dashboard.service';
 import { TelemetryConnectionTestService } from '../../src/telemetry/connection/telemetry-connection-test.service';
 import {
@@ -15,6 +16,8 @@ import {
   TELEMETRY_JOBS,
   TelemetryModule,
   metricGroups,
+  metricUnitRegistry,
+  registerMetricUnit,
   type MetricGroupDef,
 } from '../../src/telemetry/index';
 import {
@@ -24,9 +27,11 @@ import {
   checkBootsWithoutTelemetry,
   checkCronCoverage,
   checkDoctorReadOnly,
+  checkFacadeSurface,
   checkMetricGroups,
   checkMetricGroupsOnEmptySchema,
   checkNoSecretsInResponses,
+  checkRegisteredExtensions,
   checkRoutePermissions,
   discoverDoctorChecks,
   discoverRoutes,
@@ -130,6 +135,70 @@ describe('check 1: metric groups', () => {
     expect(text).toMatch(/reports available/);
     expect(text).toMatch(/renders tiles/);
     expect(text).toMatch(/"fixtureCounter" is not reported in skipped/);
+  });
+});
+
+describe('check 1, PP-14.18: units and presentation', () => {
+  it('accepts a unit an app registered, and rejects one nobody did', async () => {
+    const usd = { ...GOOD, families: [{ ...GOOD.families[0], unit: 'usd' }] } as MetricGroupDef;
+
+    expect(lines(checkMetricGroups([usd])).join('\n')).toMatch(/unit "usd", which is not registered/);
+    await withTemporaryEntries(metricUnitRegistry, [], () => {
+      registerMetricUnit({ id: 'usd', label: 'US dollars', format: 'currency', currency: 'USD' });
+      expect(checkMetricGroups([usd])).toEqual([]);
+    });
+  });
+
+  it('rejects a presentation that names a tile or a table the group does not declare', () => {
+    const tile = { ...GOOD, presentation: { tiles: [{ metric: 'ghost' }] } };
+    const table = { ...GOOD, presentation: { tables: [{ metric: 'ghost' }] } };
+    expect(lines(checkMetricGroups([tile])).join('\n')).toMatch(/tile for "ghost"/);
+    expect(lines(checkMetricGroups([table])).join('\n')).toMatch(/table "ghost"/);
+    expect(checkMetricGroups([{ ...GOOD, presentation: { tiles: [{ metric: 'fixtureCounter', color: 'warn' }] } }])).toEqual([]);
+  });
+});
+
+describe('check 9: the registered extensions', () => {
+  const panel = { id: 'signups', label: 'Sign-ups', order: 100, data: () => null };
+  const platform = [
+    { id: 'api', label: 'API requests', order: 10, data: () => null },
+    { id: 'logs', label: 'Log severity', order: 20, data: () => null },
+  ];
+  const tool = { name: 'top_features', description: 'Top features.', inputSchema: z.object({}), run: () => null };
+
+  it('accepts the live registries, and a well-formed panel and tool', () => {
+    expect(checkRegisteredExtensions()).toEqual([]);
+    expect(checkRegisteredExtensions({ panels: [...platform, panel], tools: [tool] })).toEqual([]);
+  });
+
+  it.each([
+    ['a panel id outside the pattern', { panels: [...platform, { ...panel, id: 'Bad Id' }], tools: [] }, /id must match/],
+    ['a panel registered twice', { panels: [...platform, panel, panel], tools: [] }, /registered twice/],
+    ['a panel with no label', { panels: [...platform, { ...panel, label: ' ' }], tools: [] }, /label is empty/],
+    ['a panel with no data function', { panels: [...platform, { ...panel, data: 'x' }], tools: [] }, /no data function/],
+    ['a missing platform panel', { panels: [platform[0]!], tools: [] }, /platform panel "logs" is not registered/],
+    ['a tool named like a platform tool', { panels: platform, tools: [{ ...tool, name: 'run_query' }] }, /platform's own tool names/],
+    ['a tool name outside the pattern', { panels: platform, tools: [{ ...tool, name: 'Top-Features' }] }, /name must match/],
+    ['a tool registered twice', { panels: platform, tools: [tool, tool] }, /registered twice/],
+    ['a tool whose schema is not an object schema', { panels: platform, tools: [{ ...tool, inputSchema: z.string() }] }, /not a zod object schema/],
+    ['a tool with no run function', { panels: platform, tools: [{ ...tool, run: undefined }] }, /no run function/],
+  ] as Array<[string, never, RegExp]>)('rejects %s', (_name, extensions, message) => {
+    expect(lines(checkRegisteredExtensions(extensions)).join('\n')).toMatch(message);
+  });
+});
+
+describe('check 10: what an extension receives', () => {
+  it('accepts the real query facade', () => {
+    expect(checkFacadeSurface()).toEqual([]);
+  });
+
+  it('rejects a facade that leaks a client, or an extra member, or is not frozen', () => {
+    const leaky = () => ({ query: () => null, sql: {}, dialect: {}, pool: { end: () => null } });
+    const messages = lines(checkFacadeSurface(leaky)).join('\n');
+    expect(messages).toMatch(/has members \[dialect, pool, query, sql\]/);
+    expect(messages).toMatch(/exposes "pool"/);
+    expect(messages).toMatch(/not frozen/);
+    expect(lines(checkFacadeSurface(() => Object.freeze({ query: () => null, sql: {}, dialect: {}, store: {} }))).join('\n')).toMatch(/exposes "store"/);
   });
 });
 

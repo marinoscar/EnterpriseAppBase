@@ -9,6 +9,7 @@ import { createTelemetryConnectionController } from './connection/telemetry-conn
 import { TelemetryConnectionService } from './connection/telemetry-connection.service';
 import { createTelemetryDashboardController } from './dashboard/telemetry-dashboard.controller';
 import { TelemetryDashboardService } from './dashboard/telemetry-dashboard.service';
+import { TelemetryDashboardPanelService } from './dashboard/panels/telemetry-dashboard-panel.service';
 import { TelemetryExportService } from './export/telemetry-export.service';
 import { GreptimeClient } from './stores/greptime/greptime.client';
 import { GREPTIME_SQL_DIALECT } from './stores/greptime/greptime.dialect';
@@ -40,6 +41,7 @@ import { MetricGroupRegistry } from './metrics/metric-group-registry.service';
 import { registerMetricGroups, metricGroupRegistry } from './metrics/metric-group.registry';
 import { DefaultVerdictPolicy, VERDICT_POLICY } from './dashboard/verdict-policy';
 import {
+  TELEMETRY_ASSISTANT_EXTRA_INSTRUCTIONS,
   TELEMETRY_METRIC_FRESH_MS,
   TELEMETRY_OPTIONS,
   TELEMETRY_VERDICT_THRESHOLDS,
@@ -127,6 +129,8 @@ const PROVIDERS = [
   TelemetryStackService,
   TelemetryStackDeployHandler,
   TelemetryDashboardService,
+  // The registered dashboard panels, read behind the guarded query facade (PP-14.18).
+  TelemetryDashboardPanelService,
   // Doctor checks (#634): read-only — never the connection test (it
   // audits) and never the dashboard service's audited reads. Each registers
   // itself with the Doctor's DoctorCheckRegistry (`@marinoscar/platform-api/doctor`).
@@ -202,6 +206,8 @@ export class TelemetryModule {
         { provide: TELEMETRY_VERDICT_THRESHOLDS, useValue: resolved.verdictThresholds },
         // Rung 1: the metric groups' freshness window (`metrics.freshMs`).
         { provide: TELEMETRY_METRIC_FRESH_MS, useValue: resolved.metricFreshMs },
+        // Rung 1: the developers' notes for the assistant's system prompt (`assistant.extraInstructions`).
+        { provide: TELEMETRY_ASSISTANT_EXTRA_INSTRUCTIONS, useValue: resolved.assistantExtraInstructions },
         // Rung 3: the verdict policy. The default is always provided, so an
         // app policy can inject it and delegate.
         DefaultVerdictPolicy,

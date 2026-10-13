@@ -4,15 +4,18 @@
 // ---- the module and its options (rung 1) ------------------------------------------
 export { TelemetryModule } from './telemetry.module';
 export {
+  TELEMETRY_ASSISTANT_EXTRA_INSTRUCTIONS,
   TELEMETRY_METRIC_FRESH_MS,
   TELEMETRY_OPTIONS,
   TELEMETRY_VERDICT_THRESHOLDS,
   defaultTelemetryActorId,
+  resolveAssistantExtraInstructions,
   resolveMetricFreshMs,
   resolveVerdictThresholds,
 } from './telemetry.options';
 export type {
   ResolvedTelemetryModuleOptions,
+  TelemetryAssistantOptions,
   TelemetryDashboardOptions,
   TelemetryMetricsOptions,
   TelemetryModuleOptions,
@@ -203,6 +206,27 @@ export type {
   SeriesAggregate,
   TileAggregate,
 } from './metrics/metric-catalog';
+
+// ---- metric units (rung 2; PP-14.18) ------------------------------------------------
+// The platform's fifteen units register through `registerMetricUnit`; an app adds
+// `usd`, `tokens`, ... before the group that uses them.
+export { isMetricUnit, metricUnitIds, metricUnitRegistry, registerMetricUnit } from './metrics/metric-unit.registry';
+export type { MetricUnitDef } from './metrics/metric-unit.registry';
+
+// ---- the guarded query facade (what a panel's `data` and an assistant tool's `run` receive; PP-14.18) ----
+export { FACADE_DEFAULT_ROWS, FACADE_MAX_ROWS, FACADE_MAX_STATEMENTS, TelemetryFacadeLimitError } from './query/telemetry-query-facade';
+export type { TelemetryFacadeResult, TelemetryQueryFacade, TelemetrySqlBuilders } from './query/telemetry-query-facade';
+
+// ---- dashboard panels (rung 2; PP-14.18) ----------------------------------------------
+// `api` and `logs` register through `registerDashboardPanel` like an app's panel.
+export { dashboardPanelRegistry, isBuiltinDashboardPanel, registerDashboardPanel } from './dashboard/panels/dashboard-panels';
+export type { DashboardPanelContext, DashboardPanelDef, DashboardPanelWindow } from './dashboard/panels/dashboard-panels';
+export { PANEL_TIME_BUDGET_MS } from './dashboard/panels/telemetry-dashboard-panel.service';
+
+// ---- assistant tools (rung 2; PP-14.18) ------------------------------------------------
+export { registerTelemetryAssistantTool, telemetryAssistantToolRegistry } from './assistant/telemetry-assistant-tool.registry';
+export type { TelemetryAssistantToolContext, TelemetryAssistantToolDef } from './assistant/telemetry-assistant-tool.registry';
+export type { TelemetryAssistantPromptExtension } from './assistant/telemetry-assistant.service';
 
 // ---- the dashboard ------------------------------------------------------------------
 export { LOGS_TABLE, REQUIRED_LOG_COLUMNS, REQUIRED_TRACE_COLUMNS, TRACES_TABLE } from './dashboard/telemetry-dashboard.sql';

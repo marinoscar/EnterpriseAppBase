@@ -72,6 +72,7 @@ import {
   unknownRoutesTotalsSql,
 } from './telemetry-dashboard.sql';
 import { TELEMETRY_METRIC_FRESH_MS, TELEMETRY_VERDICT_THRESHOLDS } from '../telemetry.options';
+import type { DashboardPanelWindow } from './panels/dashboard-panel.registry';
 import { DEFAULT_VERDICT_THRESHOLDS, type VerdictThresholds } from './telemetry-dashboard.verdict';
 import { DefaultVerdictPolicy, VERDICT_POLICY, type VerdictPolicy } from './verdict-policy';
 
@@ -122,7 +123,7 @@ export const DASHBOARD_LOG_Q_MAX = 64;
 
 export const TELEMETRY_DASHBOARD_AUDIT_ACTION = 'telemetry:dashboard';
 
-export type DashboardRoute = 'summary' | 'timeseries' | 'top' | 'events' | 'filters' | 'metrics';
+export type DashboardRoute = 'summary' | 'timeseries' | 'top' | 'events' | 'filters' | 'metrics' | 'panel';
 
 /** The window a request resolved to. */
 export interface ResolvedWindow extends DashboardSqlWindow {
@@ -458,6 +459,46 @@ export class TelemetryDashboardService {
       { severity: severities.join(','), q: query.q ?? '', cursor: query.cursor ?? '' },
       (ctx) => this.computeEvents(ctx, severities, query.q ?? null, cursor),
     );
+  }
+
+  /**
+   * The window and the validated `service` / `instance` filters an app's
+   * dashboard panel is read for (PP-14.18): the preconditions every dashboard
+   * route shares (store configured and telemetry enabled), the same window
+   * rules, and a filter value refused unless it was seen in the range, so a
+   * panel never receives a filter the store has not produced. Audited like any
+   * dashboard read that touches the store.
+   */
+  async panelScope(
+    userId: string,
+    query: TelemetryDashboardQuery,
+  ): Promise<{ window: DashboardPanelWindow; filters: { service?: string; instance?: string } }> {
+    const policy = await requireQueryablePolicy(this.store, this.settings);
+    const window = resolveWindow(query);
+    const scope: { window: DashboardPanelWindow; filters: { service?: string; instance?: string } } = {
+      window: {
+        from: window.from,
+        to: window.to,
+        previousFrom: window.previousFrom,
+        bucketSeconds: window.bucketSeconds,
+      },
+      filters: {},
+    };
+    if (!query.service && !query.instance) return scope;
+
+    await this.audited(userId, 'panel', query, Date.now(), async () => {
+      const schema = await this.schema.getSchema();
+      const validated = await this.validateFilters(
+        window,
+        { service: query.service, instance: query.instance },
+        { catalog: catalogOf(schema), tables: metricTablesOf(schema) },
+        policy.query.timeoutSeconds * 1000,
+      );
+      if (validated.service) scope.filters.service = validated.service;
+      if (validated.instance) scope.filters.instance = validated.instance;
+      return { sql: [], truncated: false };
+    });
+    return scope;
   }
 
   async filters(userId: string, query: TelemetryDashboardQuery): Promise<TelemetryDashboardFilters> {
