@@ -14,6 +14,7 @@ export {
   builtinDeployStepIds,
   commentedAssignments,
   composeEnvSpecs,
+  edgeConfigFiles,
   listRegisteredDeployChecks,
   listRegisteredDeploySteps,
   listRegisteredProxyStreamPaths,
@@ -21,6 +22,7 @@ export {
   planDeploySteps,
   registerDeployCheck,
   registerDeployStep,
+  registerEdgeConfigFile,
   registerProxyStreamPath,
 } from '../engine/index.js';
 export type {
@@ -35,6 +37,7 @@ export type {
   DeployStepContext,
   DeployStepRegistration,
   DeployStepValues,
+  EdgeConfigFile,
   EnvVarSpec,
   ProxyExtraLocation,
   ProxyStreamPathRegistration,

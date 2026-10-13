@@ -28,7 +28,7 @@ import {
 } from './env-metadata.js';
 import { runEnvWizard } from './env-wizard.js';
 import { runCommand as defaultRunCommand, type CommandResult } from './executor.js';
-import { reconcileEdgeConfig, parseSha256sum, EDGE_CONFIG_FILES, type RunningRead } from './edge-config.js';
+import { reconcileEdgeConfig, parseSha256sum, edgeConfigFiles, type RunningRead } from './edge-config.js';
 import { ensureDatabase } from './database.js';
 import { collectHealth, isHealthy, waitForHealthy, type FetchLike } from './health.js';
 import type { DeployHooks } from './hooks.js';
@@ -398,7 +398,7 @@ async function readRunningEdgeConfig(context: UpdateContext): Promise<RunningRea
     // DID print are still worth having, and a missing one counts as drift.
     const result = await compose(
       context,
-      ['exec', '-T', 'nginx', 'sha256sum', ...EDGE_CONFIG_FILES.map((file) => file.container)],
+      ['exec', '-T', 'nginx', 'sha256sum', ...edgeConfigFiles().map((file) => file.container)],
       { timeoutMs: 60_000, allowExitCodes: [1] },
     );
     return {

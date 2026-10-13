@@ -2,6 +2,7 @@ import { freezeCommandRegistry, freezeEnvGroupRegistry, freezeEnvSpecRegistry } 
 
 import { resetPlatformRegistrationsForTests } from './builtin-registrations.js';
 import { freezeDeployCheckRegistry, resetDeployCheckRegistryForTests } from './deploy/checks/registry.js';
+import { freezeEdgeConfigRegistry, resetEdgeConfigRegistryForTests } from './deploy/edge-config.js';
 import { freezeProxyStreamRegistry, resetProxyStreamRegistryForTests } from './deploy/proxy-streams.js';
 import { freezeDeployStepRegistry, resetDeployStepRegistryForTests } from './deploy/steps/registry.js';
 import { freezeNodeExecutorRegistry, resetNodeExecutorRegistryForTests } from './node/executors/registry.js';
@@ -30,6 +31,7 @@ export function freezeCliRegistries(by: string): void {
   freezeNodeExecutorRegistry(by);
   freezeProxyStreamRegistry(by);
   freezeDeployCheckRegistry(by);
+  freezeEdgeConfigRegistry(by);
 }
 
 /** Empties and unfreezes every CLI registry. Tests only. */
@@ -40,4 +42,5 @@ export function resetCliRegistriesForTests(): void {
   resetNodeExecutorRegistryForTests();
   resetProxyStreamRegistryForTests();
   resetDeployCheckRegistryForTests();
+  resetEdgeConfigRegistryForTests();
 }

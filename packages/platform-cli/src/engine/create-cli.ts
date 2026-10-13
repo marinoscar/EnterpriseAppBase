@@ -10,6 +10,7 @@ import {
 } from '../core/index.js';
 
 import { ensurePlatformRegistrations } from './builtin-registrations.js';
+import { registerEdgeConfigFile, type EdgeConfigFile } from './deploy/edge-config.js';
 import { registerDeployCheck, type DeployCheck } from './deploy/checks/registry.js';
 import { registerProxyStreamPath, type ProxyStreamPathRegistration } from './deploy/proxy-streams.js';
 import { registerDeployStep, type DeployStepRegistration } from './deploy/steps/registry.js';
@@ -55,6 +56,8 @@ export interface CreateCliOptions {
   tuiScreens?: readonly TuiScreenRegistration[] | undefined;
   /** Prerequisite checks added to `doctor` and the install/update preflight. Same as `registerDeployCheck`. */
   deployChecks?: readonly DeployCheck[] | undefined;
+  /** Single-file nginx mounts of the app, checked for the stale-inode drift on update. Same as `registerEdgeConfigFile`. */
+  edgeConfigFiles?: readonly EdgeConfigFile[] | undefined;
   /** Steps inserted into `deploy install` / `deploy update`. Same as `registerDeployStep`. */
   deploySteps?: readonly DeployStepRegistration[] | undefined;
   /** Executors for the app's node-eligible job types. Same as `registerNodeExecutor`. */
@@ -107,6 +110,7 @@ export function createCli(options: CreateCliOptions): CliInstance {
   for (const command of options.extraCommands ?? []) registerCliCommand(command);
   for (const screen of options.tuiScreens ?? []) registerTuiScreen(screen);
   for (const check of options.deployChecks ?? []) registerDeployCheck(check);
+  for (const file of options.edgeConfigFiles ?? []) registerEdgeConfigFile(file);
   for (const step of options.deploySteps ?? []) registerDeployStep(step);
   for (const executor of options.nodeExecutors ?? []) registerNodeExecutor(executor);
   for (const path of options.proxy?.streamPaths ?? []) registerProxyStreamPath(path);

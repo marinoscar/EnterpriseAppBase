@@ -370,6 +370,8 @@ export type {
   ResolvedProxyRuntime,
   ValidationResult,
 } from './deploy/proxy.js';
+export { edgeConfigFiles, registerEdgeConfigFile } from './deploy/edge-config.js';
+export type { EdgeConfigFile } from './deploy/edge-config.js';
 export {
   DEFAULT_STREAM_TIMEOUT_SECONDS,
   MAX_PROXY_TIMEOUT_SECONDS,
