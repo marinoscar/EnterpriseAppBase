@@ -190,7 +190,6 @@ export function readSeedStepResult(id: string, value: unknown): SeedStepResult {
  * ```ts
  * await assertSeedIdempotent(() => seedPlatform(prisma, platformSeedInputFrom(SEED_SNAPSHOT, {}), { extras: appSeedSteps }));
  * ```
- * @extensionPoint conformance
  * @stability experimental
  */
 export async function assertSeedIdempotent(seed: () => Promise<SeedSummary>): Promise<{ first: SeedSummary; second: SeedSummary }> {

@@ -73,6 +73,20 @@ export type {
   IdentityUserRow,
 } from './data/identity-db';
 
+// ---- app metadata on users and organizations (PP-14.27) -------------------------------
+export {
+  METADATA_NAMESPACE_PATTERN,
+  organizationMetadataRegistry,
+  registerOrganizationMetadataSchema,
+  registerUserMetadataSchema,
+  userMetadataRegistry,
+} from './metadata/metadata-registry';
+export type { MetadataNamespace, MetadataNamespaceDef, MetadataSubject } from './metadata/metadata-registry';
+export { IdentityMetadataService, METADATA_MAX_BYTES, MetadataError } from './metadata/identity-metadata.service';
+export type { MetadataErrorCode } from './metadata/identity-metadata.service';
+export { METADATA_SECRET_FIELD_NAMES, findSecretKeys, inspectMetadataSchema, isSecretFieldName } from './metadata/metadata-secret-guard';
+export type { MetadataSchemaFindings } from './metadata/metadata-secret-guard';
+
 // ---- domain events (rung 4) -----------------------------------------------------------
 export { IDENTITY_EVENTS } from './identity.events';
 export type {
