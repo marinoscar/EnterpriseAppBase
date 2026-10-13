@@ -3,12 +3,14 @@ import { checkoutPathFor } from '../version-step.js';
 
 import type { StepContext } from './pipeline.js';
 import type { DeployPipeline, DeployStepContext } from './registry.js';
+import { redactedValues } from './step-values.js';
 
 /** The part of an install or update context an app step's context is built from. */
 export interface PipelineContextFacts extends StepContext {
-  options: { deployRoot: string };
+  options: { deployRoot: string; answers?: ReadonlyMap<string, string> | undefined };
   runCommand: typeof defaultRunCommand;
   commitSha?: string | undefined;
+  env?: ReadonlyMap<string, string> | undefined;
 }
 
 /**
@@ -18,11 +20,18 @@ export interface PipelineContextFacts extends StepContext {
  * `DeployHooks.onLog` REDACTED too, which an app's step cannot forget.
  * Nothing here writes to a terminal.
  */
-export function appStepContext(pipeline: DeployPipeline, context: PipelineContextFacts): DeployStepContext {
+export function appStepContext(
+  pipeline: DeployPipeline,
+  context: PipelineContextFacts,
+  /** Where the run's environment is read from, live, each time a step asks. Defaults to the context's own. */
+  envSource?: () => ReadonlyMap<string, string> | undefined,
+): DeployStepContext {
   const { deployRoot } = context.options;
   return {
     pipeline,
     deployRoot,
+    env: redactedValues(envSource ?? (() => context.env)),
+    answers: redactedValues(() => context.options.answers),
     checkoutPath: checkoutPathFor(deployRoot),
     commitSha: context.commitSha,
     hooks: context.hooks,

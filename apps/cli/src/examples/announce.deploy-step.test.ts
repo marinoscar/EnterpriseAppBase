@@ -1,6 +1,6 @@
 import { createCli } from '@marinoscar/platform-cli';
 import { INSTALL_STEP_IDS, planDeploySteps } from '@marinoscar/platform-cli/deploy';
-import { resetCliForTests } from '@marinoscar/platform-cli/testing';
+import { resetCliForTests, testDeployStepContext } from '@marinoscar/platform-cli/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { APP_CLI_OPTIONS } from '../app.js';
@@ -30,16 +30,11 @@ describe('announceInstall', () => {
 
   it('skips itself when there is no commit, and logs the commit through the context', async () => {
     const logs: string[] = [];
-    const context = {
-      pipeline: 'install' as const,
-      deployRoot: '/opt/infra/apps/app',
-      checkoutPath: '/opt/infra/apps/app/repo',
+    const context = testDeployStepContext({
       commitSha: 'abc123',
-      hooks: undefined,
       log: (line: string) => logs.push(line),
-      progress: () => undefined,
       exec: async () => ({ exitCode: 0, stdout: 'feat: ship it\n', stderr: '' }),
-    };
+    });
     expect(announceInstall.step.skip?.({ ...context, commitSha: undefined })).toBe('no commit recorded');
     await announceInstall.step.run(context);
     expect(logs).toEqual(['Deployed abc123: feat: ship it']);

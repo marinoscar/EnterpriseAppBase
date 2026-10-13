@@ -30,7 +30,7 @@ describe('platform-infra command', () => {
     expect(out).toContain('wrote    infra/compose/worker.compose.yml');
     expect(out).toContain('created  infra/nginx/app.d/permissions-policy.conf (app-owned: edit it freely)');
     expect(out).toContain('wrote    infra/platform-infra.lock.json');
-    expect(out.at(-1)).toBe('platform-infra sync: 20 written, 0 unchanged, 7 created.');
+    expect(out.at(-1)).toBe('platform-infra sync: 20 written, 0 unchanged, 10 created.');
     expect(readFileSync(join(app, 'infra/compose/worker.compose.yml'), 'utf8')).toContain('ACMECTL_SERVER_URL');
   });
 

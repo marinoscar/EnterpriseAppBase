@@ -35,6 +35,9 @@ runPlatformConformance({
         { name: 'infra/compose/app.env.example', text: read('infra/compose/app.env.example') },
       ],
     },
+    // The deploy extension points (env groups, steps, checks, proxy stream
+    // paths, edge-config files) the app registered are consistent (PP-14.22).
+    deployRegistrations: {},
   },
   testApi: { describe, it, expect },
 });

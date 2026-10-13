@@ -70,7 +70,7 @@ const BASELINE_MODES: Record<string, readonly string[]> = {
   vps: ['base.compose.yml', 'prod.compose.yml', 'telemetry.compose.yml', 'vps.compose.yml', 'vps.telemetry.compose.yml'],
   worker: ['worker.compose.yml'],
   'worker-build': ['worker.compose.yml', 'worker.build.compose.yml'],
-  test: ['test.compose.yml'],
+  test: composeFilesForMode('test'),
 };
 
 /** The variables a mode refuses to render without (`${VAR:?…}`), with fixed values. */
@@ -184,7 +184,7 @@ const CURRENT_MODES: Record<string, readonly string[]> = {
   vps: composeFilesForMode('vps', { telemetry: true }),
   worker: composeFilesForMode('worker'),
   'worker-build': composeFilesForMode('worker', { build: true }),
-  test: ['test.compose.yml'],
+  test: composeFilesForMode('test'),
 };
 
 describe('composeFilesForMode() keeps the documented order', () => {
