@@ -277,7 +277,7 @@ export interface RetentionSchemas {
  *
  * @param policies - the policies, in the order the stored JSON uses.
  * @returns the five branches.
- * @throws Error when a key repeats or is not a valid policy key, or when a policy's bounds are not 1 <= min <= max <= {@link RETENTION_MAX_DAYS}.
+ * @throws Error when a key repeats or is not a valid policy key, or when a policy's bounds are not whole days with min at least 1, max at most {@link RETENTION_MAX_DAYS} and min not above max.
  *
  * @stability experimental
  */

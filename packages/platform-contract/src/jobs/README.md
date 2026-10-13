@@ -36,15 +36,15 @@ None. Schemas and constants take no options.
 
 ## Extension-point catalog
 
-None. The schemas describe the platform's own routes; an app that adds a field to its own job route extends a schema with `.extend()` in app code.
+None of its own: the schemas describe the platform's own routes, and an app that adds a field to its own job route extends a schema with `.extend()` in app code. Two vocabularies are open, and their registries live in `@marinoscar/platform-api/jobs` (`registerJobReason`, `registerRetentionPolicy`); this package carries only the SHAPE they share with the wire: `JOB_REASON_PATTERN` and `jobReasonSchema` (a pattern, not an enum; `BUILTIN_JOB_REASONS` lists the platform's three, `JOB_REASONS` is its deprecated alias), and `RETENTION_POLICY_KEY_PATTERN`, `retentionPolicyKeySchema` and `buildRetentionSchemas` (composes the `retention` namespace's five schemas from a list of policies; with the four built-ins it yields JSON Schema equal to the shipped constants).
 
 The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
 
-Supporting exports (experimental unless tagged stable): the constants above, every `*Schema` of `schemas.ts` and of `settings-schemas.ts` (stable) the inferred types `JobListQuery`, `JobInsightsQuery`, `JobDurationStats`, `JobStatusCounts`, `JobStatusName`, `ProcessedWithin`, `JobEtaBasis`, and the enum entry types `JobStatusEnum`, `JobReasonEnum`, `ProcessedWithinEnum`, `JobEtaBasisEnum`, `JobBooleanFlagEnum`.
+Supporting exports (experimental unless tagged stable): the constants above, every `*Schema` of `schemas.ts` and of `settings-schemas.ts` (stable) the inferred types `JobListQuery`, `JobInsightsQuery`, `JobDurationStats`, `JobStatusCounts`, `JobStatusName`, `ProcessedWithin`, `JobEtaBasis`, and the enum entry types `JobStatusEnum`, `JobReasonEnum`, `ProcessedWithinEnum`, `JobEtaBasisEnum`, `JobBooleanFlagEnum`, and the reason types `JobReasonName` (a built-in or any registered id) and `BuiltinJobReasonName`.
 
 ## Data
 
-No tables. `jobSchema` mirrors the public columns of `jobs` (the `jobs` fragment of `@marinoscar/platform-db`) minus `payload`, `claimToken` and `traceContext`, plus the server-resolved `typeLabel`. `orgId` is `null` for a deployment-wide (system) job. Dates are ISO strings; always-present fields are `.nullable()`.
+No tables. `jobSchema` mirrors the public columns of `jobs` (the `jobs` fragment of `@marinoscar/platform-db`) minus `payload`, `claimToken` and `traceContext`, plus the server-resolved `typeLabel` and `reasonLabel`. `reason` is a string matching `JOB_REASON_PATTERN` (the column is `TEXT`, an open vocabulary). `orgId` is `null` for a deployment-wide (system) job. Dates are ISO strings; always-present fields are `.nullable()`.
 
 ## Permissions and settings
 
@@ -77,6 +77,8 @@ New in this version: the schemas moved here from `@marinoscar/platform-api/jobs`
 #865: the `jobs` settings namespace's five schemas moved here from the reference app's `common/schemas/` files, unchanged (the app re-exports them under the same names).
 
 #898: the `retention` settings namespace's schemas (`systemRetentionSchema`, `systemRetentionPatchSchema`, `retentionSettingsSchema`, `retentionSettingsPatchSchema`, `retentionResponseSchema`, `retentionPolicySchema`, with `RETENTION_MAX_DAYS`, `RETENTION_POLICY_KEYS` and the inferred types) moved here from the reference app's `common/schemas/` files, unchanged; its declaration is `RETENTION_SYSTEM_SETTINGS` of `@marinoscar/platform-api/jobs`.
+
+PP-14.19: `reason` is `jobReasonSchema` (a pattern) instead of an enum of three, and the row gains `reasonLabel`; `RETENTION_POLICY_KEYS` is `BUILTIN_RETENTION_POLICY_KEYS` (the old name stays as a deprecated alias) and `RetentionPolicyKey` widens to any registered key; the retention schemas are unchanged for the four built-ins and `buildRetentionSchemas` composes them for more.
 
 ## Troubleshooting
 

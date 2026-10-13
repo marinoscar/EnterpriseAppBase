@@ -42,11 +42,11 @@ None. The node protocol is the platform's; a node that learns a new vital needs 
 
 The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
 
-Supporting exports (experimental unless tagged stable): the constants above, every `*Schema` of `schemas.ts` and of `settings-schemas.ts` (stable), `claimTokenField`, the inferred types `NodeVitals`, `NodeVitalsCounters`, `AdminNode`, `AdminNodeCredential`, `NodeCredentialListItem`, `NodeCredentialCreated`, `NodeOwner`, `NodeJobCounts`, `NodeStatus` and `NodeHealth`, and the enum entry type `NodeReportedStatusEnum`.
+Supporting exports (experimental unless tagged stable): the constants above, every `*Schema` of `schemas.ts` and of `settings-schemas.ts` (stable), `claimTokenField`, the inferred types `NodeVitals` (now with the optional `extra`), `NodeVitalsCounters`, `AdminNode`, `AdminNodeCredential`, `NodeCredentialListItem`, `NodeCredentialCreated`, `NodeOwner`, `NodeJobCounts`, `NodeStatus` and `NodeHealth`, and the enum entry type `NodeReportedStatusEnum`.
 
 ## Data
 
-No tables. The vitals are stored verbatim in `worker_nodes.last_vitals` (the `jobs` fragment of `@marinoscar/platform-db`), which is why `nodeVitalsSchema` is `.strict()` and every value bounded.
+No tables. The vitals are stored verbatim in `worker_nodes.last_vitals` (the `jobs` fragment of `@marinoscar/platform-db`), which is why `nodeVitalsSchema` is `.strict()` and every value bounded (`extra` included: a bounded `key -> number` bag, never a string or a nested value).
 
 ## Permissions and settings
 
@@ -78,11 +78,13 @@ New in this version: the request schemas moved here from `@marinoscar/platform-a
 
 #865: the `nodes` settings namespace's five schemas moved here from the reference app's `common/schemas/` files, unchanged (the app re-exports them under the same names).
 
+`vitals.extra` and the executor span-name shape (PP-14.19) are additive: `nodeVitalsSchema` gains the optional `extra`, and `BUILTIN_NODE_SPAN_NAMES`, `NODE_APP_SPAN_NAME_PATTERN`, `NODE_VITALS_EXTRA_KEY_PATTERN` and the two `MAX_NODE_VITALS_EXTRA_*` bounds are new. A node that sends `extra` to an API that predates it gets a 400 on that heartbeat; the CLI retries without vitals and stops sending them for the rest of the process, so upgrade the API first.
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Every heartbeat is a 400 after a node upgrade | The node reports a vital the schema does not list (`.strict()`) | Upgrade the API first; vitals are a closed contract |
+| Every heartbeat is a 400 after a node upgrade | The node reports a vital the schema does not list (`.strict()`), or an `extra` the API predates, or an `extra` key outside the pattern | Upgrade the API first; vitals are a closed contract. The CLI's `sanitizeExtraVitals` drops a bad key or value before it is sent |
 
 ## Links
 

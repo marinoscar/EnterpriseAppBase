@@ -47,7 +47,7 @@ const PLATFORM_NAMESPACES: readonly SystemSettingsNamespace[] = [
   STORAGE_SYSTEM_SETTINGS,
   AI_SYSTEM_SETTINGS,
   TELEMETRY_SYSTEM_SETTINGS,
-  RETENTION_SYSTEM_SETTINGS,
+  RETENTION_SYSTEM_SETTINGS as SystemSettingsNamespace,
 ];
 
 // The app's extensions fold into the namespaces they name (platform or app)

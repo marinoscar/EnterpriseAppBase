@@ -22,12 +22,9 @@ type Loaded = {
 function load(register?: (jobs: typeof import('../index')) => void): Loaded {
   let loaded!: Loaded;
   jest.isolateModules(() => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const jobs = require('../index') as typeof import('../index');
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const settings = require('../../settings/index') as typeof import('../../settings/index');
     register?.(jobs);
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { Logger } = require('@nestjs/common') as typeof import('@nestjs/common');
     loaded = { jobs, settings, warn: jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined) };
   });

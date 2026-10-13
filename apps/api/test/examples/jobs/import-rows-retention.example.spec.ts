@@ -81,28 +81,32 @@ describe('the app lists IMPORT_ROWS_RETENTION in APP_RETENTION_POLICIES', () => 
 
   it('documents importRows in the response schema (days unbounded there, as for the built-ins)', () => {
     const { registry } = loadApp();
-    const parsed = registry.systemSettingsResponseSchema.shape.retention.parse({ ...SHIPPED_RETENTION, importRows: { enabled: true, days: 99999 } });
+    const parsed = registry.systemSettingsResponseSchema.shape.retention.parse({
+      ...SHIPPED_RETENTION,
+      importRows: { enabled: true, days: 99999 },
+    }) as Record<string, unknown>;
 
-    expect(parsed.importRows).toEqual({ enabled: true, days: 99999 });
+    expect(parsed['importRows']).toEqual({ enabled: true, days: 99999 });
   });
 
   it('merges a PATCH into the composed value leaf by leaf', () => {
     const { jobs } = loadApp();
     const merged = jobs.RETENTION_SYSTEM_SETTINGS.merge({ ...SHIPPED_RETENTION, importRows: { enabled: false, days: 30 } }, { importRows: { enabled: true } });
 
-    expect(merged.importRows).toEqual({ enabled: true, days: 30 });
+    expect(merged['importRows']).toEqual({ enabled: true, days: 30 });
     expect(merged.auditEvents).toEqual(SHIPPED_RETENTION.auditEvents);
   });
 
   it('reads a row stored before the policy existed as itself plus the policy default, and ignores a removed policy', () => {
     const { jobs, settings } = loadApp();
     const read = jobs.RETENTION_SYSTEM_SETTINGS.read!;
-    const helpers = { asPlainObject: (v: unknown) => (typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : undefined) } as never;
+    const asPlainObject = (v: unknown) => (typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : undefined);
+    const helpers = { asPlainObject, readNamespace: readNamespaceLike } as never;
     const legacy = { ...SHIPPED_RETENTION, notifications: { enabled: false, days: 14 } };
 
     expect(settings.systemSettingsNamespaceRegistry.get('retention')).toBeDefined();
-    expect(read(legacy, { ...helpers, readNamespace: readNamespaceLike } as never)).toEqual({ ...legacy, importRows: { enabled: false, days: 30 } });
-    expect(read({ ...legacy, removed: { enabled: true, days: 1 } }, { ...helpers, readNamespace: readNamespaceLike } as never)).toEqual({
+    expect(read(legacy, helpers)).toEqual({ ...legacy, importRows: { enabled: false, days: 30 } });
+    expect(read({ ...legacy, removed: { enabled: true, days: 1 } }, helpers)).toEqual({
       ...legacy,
       importRows: { enabled: false, days: 30 },
     });

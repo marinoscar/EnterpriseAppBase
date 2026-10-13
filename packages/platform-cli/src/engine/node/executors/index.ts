@@ -170,7 +170,7 @@ export interface JobExecutor {
    * most 16 keys fleet-wide, each `^[a-z][a-z0-9_.]{1,47}$`, each a finite
    * number: `sanitizeExtraVitals` drops the rest, and a throw here is swallowed.
    *
-   * @returns key -> number, or `undefined` for none.
+   * @returns a record of key to number, or `undefined` for none.
    */
   vitals?(): Record<string, number> | undefined;
 }
