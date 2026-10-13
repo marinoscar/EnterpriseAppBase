@@ -432,8 +432,9 @@ no edit to the suite.
 | Suite | Invariant |
 |---|---|
 | `apps/api/test/docs-links.spec.ts` | Every relative link in `README.md`, `CLAUDE.md`, `CHANGELOG.md`, `docs/**` and `.claude/agents/*.md` resolves to a real file (anchors stripped, fenced code ignored) |
-| `apps/api/test/conformance.spec.ts` | One entry for the platform's cross-cutting API invariants, through `runPlatformConformance()`: `cron-enqueue-only` (every `@Cron` only enqueues, except the three permanent exemptions), `on-event-no-io` (no `@OnEvent` body does storage I/O), `ai-kill-switch`, `ai-rbac-matrix`, `ai-secret-egress`, `ai-key-policy`, `ai-jobs-server-only`, `ai-no-sdk-leak` and `ai-orchestration-boundary`. Each suite's invariant is in [Platform conformance](#platform-conformance) |
+| `apps/api/test/conformance.spec.ts` | One entry for the platform's cross-cutting API invariants, through `runPlatformConformance()`: `cron-enqueue-only` (every `@Cron` only enqueues, except the three permanent exemptions), `on-event-no-io` (no `@OnEvent` body does storage I/O), `doctor-read-only` (every registered Doctor check is read-only), `ai-kill-switch`, `ai-rbac-matrix`, `ai-secret-egress`, `ai-key-policy`, `ai-jobs-server-only`, `ai-no-sdk-leak` and `ai-orchestration-boundary`. Each suite's invariant is in [Platform conformance](#platform-conformance) |
 | `apps/web/src/__tests__/conformance.test.ts` | The web counterpart, through `runPlatformWebConformance()`: `settings-registry-gates`, `settings-registry-shape`, `settings-ai-cards`, `settings-card-routes` and `settings-route-ownership` |
+| `apps/api/test/jobs/job-handlers-contract.spec.ts` | Every job handler the booted registry holds honours the static handler contract (`findJobHandlerContractViolations` of `@marinoscar/platform-api/jobs/testing`): a dotted type, a label, a profile of exactly two numbers inside the ceilings, the node pair both or neither, `ai.*` server-only. Discovered from `JobHandlerRegistry`, never listed |
 | `apps/api/test/prisma/user-owned-models.spec.ts` | Every `User` foreign key in the `prisma/schema/` folder is in the user-owned data registry, every registered model and field exists, and every purge policy matches the relation's `onDelete`; and only the files in `raw-sql-allowlist.ts` use `$queryRaw`/`$executeRaw` (or their `Unsafe` variants) under `apps/api/src`, comments and strings ignored, and every listed file still does. The scans run through `@marinoscar/platform-api/testing` (the `userOwnedData` suite of `runPlatformConformance()`, whose rules are proven on synthetic datamodels and fixture sources in the package); the spec keeps the registrations, the schema path, the allowlist and the 23-model pin |
 | `npm run db:check` (`smoke` job) | `apps/api/prisma/platform.lock` matches the files and the package: an installed migration is never edited, a released package migration is never rewritten, every package migration is installed. Logic in `packages/platform-db/test/sync/` |
 | `npm run db:check:database` (`smoke` job) | Every row of `_prisma_migrations` matches the migration file on disk (Prisma itself never checks this) |
@@ -450,6 +451,7 @@ A tripwire that stays in the platform repository stops checking an app the momen
 |---|---|---|
 | `cron-enqueue-only` | `@marinoscar/platform-api/testing` | Every `@Cron` body enqueues and does none of the work itself, except exactly three argued exemptions (queue rule 1) |
 | `on-event-no-io` | `@marinoscar/platform-api/jobs/testing` | No `@OnEvent` body does storage I/O (queue rule 1, listener half) |
+| `doctor-read-only` | `@marinoscar/platform-api/doctor/testing` | Every check of the booted app's `DoctorCheckRegistry`, run against a recording Prisma client and a write-failing storage provider, writes no row, job or object, holds no side-effecting "test" service and returns a valid outcome (rule 3 of the check contract); an exemption needs a reason |
 | `ai-kill-switch` | `@marinoscar/platform-api/ai/testing` | With `ai.enabled=false` every discovered `/api/ai/*` route except `GET /api/ai/config` answers 403 `AI_DISABLED`, `/api/admin/ai/*` stays reachable, no `ai.*` job reaches a provider (AI rule 4) |
 | `ai-rbac-matrix` | `@marinoscar/platform-api/ai/testing` | Every AI route crossed with Admin/Contributor/Viewer/anonymous; the expected permission comes from the route's `@Auth()` metadata and the grant from the seeded role permissions |
 | `ai-secret-egress` | `@marinoscar/platform-api/ai/testing` | Sentinel keys never appear in any response, header, log line, audit row, usage row, run row or error body (AI rule 2) |
@@ -482,6 +484,7 @@ runPlatformConformance({
 - **Each suite can fail.** Its package tests plant a violation (an ungated AI route, a leaked sentinel, an SDK import outside its adapter, an invented card permission, a route two destinations claim) and assert the suite names it. A suite that cannot fail is not a tripwire.
 - **Opt-outs are visible and argued.** `{ skip: 'reason' }` registers a passing `<id>: skipped by the app (<reason>)` test instead of silently running nothing; a skip with no reason, or `false`, and an unknown key in `suites`, throw. The run prints a table of the suites run and skipped.
 - **Runner-agnostic where it can be.** The harness imports neither Jest nor Vitest; it uses the global `describe`/`it`/`expect` or a `testApi` you pass. The AI suites that boot the app are Jest-only (they use `jest.fn`) and need `supertest` (an optional peer).
+- **Web suites take options.** `runPlatformWebConformance({ suites: { 'my-suite': { ...options } } })` hands the entry to the suite as the third argument of `register(api, context, options)`; `{ skip: 'reason' }` still opts out. `webConformanceSuites.register` throws on a duplicate id.
 - **Needs built packages.** Jest resolves `@marinoscar/platform-api/testing` through the package `exports` to `dist/`, so run `npm run build:packages` first (every CI job already does).
 - **Package tests** live in `packages/platform-api/test/testing/`, `test/jobs/testing/` and `test/ai/testing/`, and `packages/platform-web/test/settings/testing/`, and run with `npm run test:packages`.
 
@@ -502,6 +505,26 @@ database), `apps/api/test/prisma/scoped-access.db.spec.ts` (a user-scoped
 client never reaches another user's rows, on a real database), `apps/api/test/openapi/openapi-document.spec.ts` (the generated
 document) and `apps/api/test/production-image.spec.ts` (every script an npm
 script runs is copied into the production image).
+
+### Testing an extension
+
+The conformance suites check the platform's invariants over your app. A thing you ADD (a Doctor check, a job handler, a suite of your own) has its own kit, called from the spec beside it, so an extension author does not hand-write the contract tests. Each kit uses the real platform code and a double only where a real dependency would need a database or a network.
+
+| You add | Kit (`@marinoscar/platform-api/...`) | Proves | Worked example |
+|---|---|---|---|
+| A Doctor check | `doctor/testing`: `describeDoctorCheckConformance`, `runDoctorCheck`, `createRecordingPrisma`, `createWriteFailingStorage` | Identity, a guarded run that never throws, a valid outcome, a remedy on `warn` and `fail`, no secret in the result, and **read-only**: the check ran over a Prisma client that records every call and refuses a write, and a storage provider that refuses a write | `apps/api/test/examples/doctor/example-capability.conformance.spec.ts` |
+| A job handler | `jobs/testing`: `describeJobHandlerConformance`, `createFakeJobQueue`, `findJobHandlerContractViolations` | The static contract (type, label, a profile of exactly two numbers, the node pair both or neither, `ai.*` server-only); per payload: it settles, it is safe to run twice, it throws on a bad payload, duplicates collapse, `canDelete` is honoured | `apps/api/test/examples/jobs/example-handlers.conformance.spec.ts` |
+| A service that enqueues | `jobs/testing`: `createFakeJobQueue().asJobsService()` | The service enqueued the right job; the same work collapses onto one job in flight; the registered handler runs and retries to its budget (no database) | the last block of the same example |
+| A conformance suite of your own, API | `testing`: `conformanceSuites.register` and a `declare module` augmentation of `PlatformConformanceSuiteOptions` | The recipe is in [the testing README](../packages/platform-api/src/testing/README.md#adding-a-suite-from-an-app-or-a-package); the android-app slice's `testing/conformance.ts` is the model | `packages/platform-api/src/android-app/testing/conformance.ts` |
+| A conformance suite of your own, web | `@marinoscar/platform-web/testing`: `webConformanceSuites.register`, options as the third argument | The recipe is in [the web testing README](../packages/platform-web/src/testing/README.md#adding-a-web-suite-from-an-app-or-a-package) | `apps/web/src/__tests__/examples/testing/app-routes.suite.test.ts` |
+
+Rules for an extension's tests:
+
+- **Cheapest tier first.** A kit run is a unit test: no database, no network. Real-database behaviour of your extension (a lock, a partial index, `ON DELETE`) is still a `*.db.spec.ts`.
+- **The app's suite covers you automatically.** `doctor-read-only` runs over every check the booted app registers, and `job-handlers-contract.spec.ts` over every handler, so an extension you forget to test still cannot write from a Doctor run or declare a half node pair. The kit in your own spec is what gives you the behaviour cases (statuses, idempotency) the discovery suites cannot know.
+- **Prove the kit can fail.** A suite of your own ships a planted-violation test; the kits' own are in `packages/platform-api/test/doctor/testing/` and `test/jobs/testing/`.
+- **Jest and Vitest alike.** The kits take an optional `testApi` (`{ describe, it, expect }`) and default to the runner's globals. The two suites that boot the app (`doctor-read-only` and the AI ones) call `beforeAll` and `afterAll` on those globals.
+- **Needs built packages.** Run `npm run build:packages` before the app's Jest run, as for every package subpath.
 
 ## API test configuration
 

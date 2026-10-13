@@ -177,7 +177,7 @@ export interface JobPayloadScenario {
 export interface JobCanDeleteScenario {
   /** The expectation's name. */
   readonly name: string;
-  /** Fields of the job row to ask about (default: a settled job of the handler's type). */
+  /** Fields of the job row to ask about (default: a pending job of the handler's type with an empty payload). */
   readonly job?: Partial<Job>;
   /** `allow` when `canDelete` returns `null`, `veto` when it returns a reason. */
   readonly expected: 'allow' | 'veto';
@@ -214,8 +214,8 @@ export interface JobHandlerConformanceOptions extends JobHandlerContractOptions 
   readonly testApi?: ConformanceTestApi;
 }
 
-/** The job row a `canDelete` expectation asks about. */
-function settledJobOf(handler: JobHandler, overrides: Partial<Job> | undefined): Job {
+/** The job row a `canDelete` expectation asks about: a pending job of the handler's type, as the admin delete meets one. */
+function deletableJobOf(handler: JobHandler, overrides: Partial<Job> | undefined): Job {
   const at = new Date(0);
   return {
     id: 'job-can-delete',
@@ -223,17 +223,17 @@ function settledJobOf(handler: JobHandler, overrides: Partial<Job> | undefined):
     subjectType: null,
     subjectId: null,
     dedupKey: null,
-    status: 'succeeded',
+    status: 'pending',
     reason: 'rerun',
     priority: 0,
     providerKey: null,
     modelVersion: null,
     payload: {},
-    attempts: 1,
+    attempts: 0,
     lastError: null,
     createdAt: at,
-    startedAt: at,
-    finishedAt: at,
+    startedAt: null,
+    finishedAt: null,
     scheduledFor: null,
     rateLimitedAt: null,
     rateLimitHits: 0,
@@ -357,14 +357,14 @@ export function describeJobHandlerConformance(
       const handler = await build();
       if (handler.canDelete === undefined) return;
 
-      const expectations: readonly JobCanDeleteScenario[] = options.canDelete?.length ? options.canDelete : [{ name: 'a settled job', expected: 'allow' as const }];
+      const expectations: readonly JobCanDeleteScenario[] = options.canDelete?.length ? options.canDelete : [{ name: 'a pending job', expected: 'allow' as const }];
       const shapeOnly = !options.canDelete?.length;
 
       for (const expectation of expectations) {
         await expectation.arrange?.();
         const queue = newQueue();
         queue.register(handler);
-        const row = settledJobOf(handler, expectation.job);
+        const row = deletableJobOf(handler, expectation.job);
         const answer = await handler.canDelete(row);
         api.expect(answer === null || (typeof answer === 'string' && answer.trim() !== '') ? [] : [`${expectation.name}: canDelete must return null or a non-empty reason, got ${JSON.stringify(answer)}`]).toEqual([]);
 
@@ -378,10 +378,9 @@ export function describeJobHandlerConformance(
       // The queue consults the handler the way the admin service does.
       const queue = newQueue();
       queue.register(handler);
-      const settled = await queue.enqueue({ type: handler.type, reason: 'rerun', skipDedup: true });
-      const stored = queue.get(settled.id);
+      const queued = await queue.enqueue({ type: handler.type, reason: 'rerun', skipDedup: true });
+      const stored = queue.get(queued.id);
       if (stored) {
-        stored.status = 'succeeded';
         const decision = await queue.deleteJob(stored.id);
         const reason = await handler.canDelete(stored);
         api.expect(decision.deleted).toEqual(reason === null);
