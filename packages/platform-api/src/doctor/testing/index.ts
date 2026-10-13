@@ -30,5 +30,6 @@ export type {
   DoctorConformanceFixture,
   DoctorReadOnlyDoubles,
   DoctorReadOnlyExemption,
+  DoctorReadOnlyFindings,
   DoctorReadOnlyOptions,
 } from './doctor-read-only.suite';

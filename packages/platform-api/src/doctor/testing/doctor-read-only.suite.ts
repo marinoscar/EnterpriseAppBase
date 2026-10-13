@@ -300,6 +300,24 @@ export async function auditDoctorChecks(
 }
 
 /**
+ * The findings of {@link findReadOnlyViolations}, one sentence each, by rule.
+ *
+ * @stability experimental
+ */
+export interface DoctorReadOnlyFindings {
+  /** Checks that wrote through Prisma. */
+  readonly prisma: string[];
+  /** Checks that wrote to object storage. */
+  readonly storage: string[];
+  /** Checks that hold a side-effecting "test" service. */
+  readonly services: string[];
+  /** Contract problems of the outcomes of the checks the service would call. */
+  readonly outcomes: string[];
+  /** Exemptions that name no registered check. */
+  readonly staleExemptions: string[];
+}
+
+/**
  * The read-only findings of a set of audits, one sentence each, minus the
  * exempt checks. Pure, so the rule is tested against planted violators as well
  * as the real registry.
@@ -313,7 +331,7 @@ export async function auditDoctorChecks(
 export function findReadOnlyViolations(
   audits: readonly DoctorCheckAudit[],
   exempt: readonly DoctorReadOnlyExemption[] = [],
-): { prisma: string[]; storage: string[]; services: string[]; outcomes: string[]; staleExemptions: string[] } {
+): DoctorReadOnlyFindings {
   const exemptIds = new Set(exempt.map((entry) => entry.id));
   const live = audits.filter((audit) => !exemptIds.has(audit.id));
   const known = new Set(audits.map((audit) => audit.id));
