@@ -107,6 +107,8 @@ function applyOverlay(state: OnboardingResponse, overlay: OnboardingSettingsWrit
     settings: settings as OnboardingState,
     user: mark(state.user),
     admin: state.admin ? mark(state.admin) : null,
+    // The other audiences' blocks (org_admin, an app's own) keep their skips in step with the overlay.
+    ...(state.audiences ? { audiences: Object.fromEntries(Object.entries(state.audiences).map(([id, block]) => [id, mark(block)])) } : {}),
   };
 }
 
