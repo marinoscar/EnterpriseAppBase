@@ -1,0 +1,38 @@
+# ONE-OFF: adds the missing `next` dist-tag to the six platform packages.
+# Runs once on the push that adds it (or by hand), then is deleted in the next commit.
+name: One-off npm dist-tag
+on:
+  push:
+    branches: [claude/sweet-dijkstra-x0bf2o]
+    paths: [.github/workflows/oneoff-npm-dist-tag.yml]
+  workflow_dispatch:
+    inputs:
+      secret_name:
+        description: Name of the repository secret holding the npm token
+        default: NPM_TOKEN
+permissions:
+  contents: read
+jobs:
+  dist-tag:
+    runs-on: ubuntu-latest
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets[inputs.secret_name || 'NPM_TOKEN'] }}
+    steps:
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: Require a token
+        run: test -n "$NODE_AUTH_TOKEN" || { echo "::error::the npm token secret is empty or missing"; exit 1; }
+      - name: Who am I
+        run: npm whoami
+      - name: Add the next dist-tag
+        run: |
+          for p in contract api web db cli infra; do
+            npm dist-tag add "@marinoscar/platform-$p@0.1.0-next.3" next
+          done
+      - name: Show the result
+        run: |
+          for p in contract api web db cli infra; do
+            echo "== $p"; npm dist-tag ls "@marinoscar/platform-$p"
+          done
