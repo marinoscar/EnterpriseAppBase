@@ -577,5 +577,5 @@ describe('the complete registry', () => {
       .filter((result) => (result.remedy ?? '') === '');
 
     expect(missing).toEqual([]);
-  });
+  }, 30_000); // database-reachable does a real TCP connect (own 5 s timeout) that context() cannot fake.
 });
