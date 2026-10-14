@@ -78,6 +78,12 @@ yourself; let doctor do it, and fix whatever it reports.
   created silently. This application ships no `db` service
   (`base.compose.yml` deliberately has none), so the PostgreSQL server itself
   (managed or self-hosted) is yours to stand up before you install.
+  Have an **administrative login** for it to hand (`postgres`, your provider's
+  master user): `install` uses it once to create the dedicated role the API
+  runs as, and does not keep it (section 2.1).
+  `doctor`'s required `database-role-ordinary` check fails when the login in
+  `.env` is a superuser or has `BYPASSRLS`, because row-level security — the
+  tenant isolation between organizations — does not apply to either.
 - Google OAuth credentials whose **redirect URI matches
   `https://<domain>/api/auth/google/callback`** — the exact domain you're
   about to deploy under, not a placeholder. Alongside the wizard's shape
@@ -184,6 +190,11 @@ it.
    - **If this box has no shared proxy yet**, `install` asks whether to
      bootstrap one — see the prerequisites section above. `--bootstrap-proxy`
      answers yes without asking.
+   - **If the database login you enter is a superuser** (or has `BYPASSRLS`),
+     `install` asks whether to create a dedicated role and use that instead —
+     see section 2.1. `--provision-app-role`
+     answers yes without asking, and `--transfer-ownership` consents in
+     advance to re-owning a database that already holds data.
 
    `--skip-oauth-check` skips the live Google credentials probe (a malformed
    client id then only warns, rather than failing) — useful for a test
@@ -228,6 +239,101 @@ it.
 
 Full flag reference and exit codes: [`apps/cli/README.md`, "Deploying to a
 server"](../../apps/cli/README.md#deploying-to-a-server).
+
+### 2.1 The database login: a dedicated role
+
+The API must not connect as an administrator. **Row-level security does
+not apply to a superuser or to a role with `BYPASSRLS`**, so an API running
+as one serves every organization's rows to every other organization, with
+nothing in the logs. `install` therefore provisions the role the API runs
+as, rather than copying into `.env` whatever login you typed:
+
+1. You enter a database login at the `POSTGRES_USER` / `POSTGRES_PASSWORD`
+   prompts, as before — an administrative one is fine. (Non-interactively,
+   name it with `--admin-user <name>` and put its password in
+   `APPCTL_DB_ADMIN_PASSWORD` in the environment, or `DB_ADMIN_PASSWORD` in
+   the answers file. **There is no flag for the password**; a flag is
+   argv. Then `POSTGRES_USER` / `POSTGRES_PASSWORD` need not be answered.)
+2. If that login is a superuser or `BYPASSRLS`, `install` says so and asks
+   whether to create a dedicated role (`--provision-app-role` answers yes).
+   Nothing is changed before every consent has been given.
+3. It creates the role — named `<app>_app` from the product identity, or
+   `--app-db-user <name>` — as `LOGIN NOSUPERUSER NOBYPASSRLS CREATEDB
+   CREATEROLE`, with `createrole_self_grant = 'inherit, set'` (PostgreSQL
+   16), exactly the role `postgres-init/10-application-role.sh` creates for
+   a development volume. `CREATEDB` and `CREATEROLE` are what database
+   restore and the worker-node offload broker need.
+4. The role's password is **generated** (32 random bytes, URL-safe), never
+   prompted, and sent to the server as a SCRAM-SHA-256 verifier on `psql`'s
+   stdin — never in argv, and never as plaintext in the server's statement
+   log. **`.env` (mode `0600`) is the only place it is stored.** It is not
+   printed, journaled or recorded in the state file; `--show-credentials`
+   prints the login once at the end for a password manager.
+5. The administrative login is held **in memory for the run only**. It is
+   never written to `.env`, the journal, the state file or the answers
+   output, and every later step — migrate, seed, the API — runs as the role.
+6. If the database already exists, `install` re-owns the database, schema
+   `public` and the tables, sequences, enum types, views and functions in it
+   to the role with `ALTER ... OWNER TO`, in one transaction. It never uses
+   `REASSIGN OWNED BY`, which also moves objects in other databases and at
+   the cluster level. **Take a backup first** (`pg_dump`, or your provider's
+   snapshot): for a database that holds data `install` prints that
+   recommendation and asks for consent (`--transfer-ownership`). If the
+   database does not exist yet, the role simply creates it (`--create-database`)
+   and owns it from the start.
+
+It is idempotent. Re-running `install`, `--resume`, or `update` finds the
+role and reuses the credentials in `.env` — **it does not rotate the
+password** — and a resumed run needs no administrator at all. A role that
+exists but that nothing on record opens (an install that died between
+creating it and writing `.env`) gets a new password set; that needs the
+administrator again.
+
+| Flag | What it does |
+|---|---|
+| `--app-db-user <name>` | The role to provision (default `<app>_app`; letters, digits, `_`, `$`; not `postgres` or `pg_*`). Answers key `APP_DB_USER`. |
+| `--admin-user <name>` | The administrative login that provisions it, instead of the one entered at the prompt. Answers key `DB_ADMIN_USER`; password in `APPCTL_DB_ADMIN_PASSWORD` or the answers key `DB_ADMIN_PASSWORD`. These keys are removed from the answers and never reach `.env`. |
+| `--provision-app-role` | Consent in advance to create the role when the login is privileged (a non-interactive run is otherwise refused). |
+| `--transfer-ownership` | Consent in advance to change the owner of an existing, non-empty database's objects. |
+| `--allow-reduced-role` | Consent in advance to a role the server would not give `CREATEROLE` / `createrole_self_grant` (below). |
+| `--skip-role-provisioning` | Create nothing: `POSTGRES_USER` must already be an ordinary role you made, which `database-role-ordinary` then verifies. |
+| `--allow-superuser` | Run the API as the privileged login anyway. It says, on screen and in the journal, that **tenant isolation is off**, and is recorded in the deployment state so `doctor` reports a choice already made as a warning rather than a failure. |
+| `--rotate-app-password` | Generate a new password for the role, write it to `.env`, and (on `update`) restart the API. The role can do this alone; no administrator is needed. |
+| `--show-credentials` | Print the generated login once at the end. Never journaled. |
+
+**Managed providers (RDS, Cloud SQL, Azure, ...).** A master user is often
+not allowed to give a new role `CREATEROLE` or to set
+`createrole_self_grant`. `install` then says which attribute it could not
+grant and what stops working without it (worker-node offload cannot mint
+per-job roles; restore and node-side dumps cannot use or drop roles the
+application creates), leaves the deployment where it was, and proceeds only
+with `--allow-reduced-role` (or a yes at the prompt) — it never silently
+weakens the role. If the administrator cannot create roles at all, the
+error prints the `CREATE ROLE ...` statement (with a `<password>`
+placeholder) to run by hand; then re-run with `--skip-role-provisioning`.
+`pg_hba.conf` must also admit the new role from this host, not only the
+administrator; the error says so when it does not.
+
+**Moving an existing superuser deployment.** Run `appctl deploy doctor`: a
+deployment whose `.env` holds a superuser now fails `database-role-ordinary`
+and names the fix. Then:
+
+```bash
+# Back up first. Then, with the login already in .env acting as the administrator:
+appctl deploy update --provision-app-role --transfer-ownership
+```
+
+`update` provisions the role, re-owns the database, rewrites `POSTGRES_USER`
+and `POSTGRES_PASSWORD` in `.env` with the same atomic writer install uses
+(mode `0600` kept), and restarts the API. It asks for the same two consents
+interactively; without them, `update` **warns and carries on** — an
+unattended `update` from cron must not start failing on a deployment that
+predates this — and an update that finds the revision unchanged skips the
+check unless one of the role flags is passed, so a cron run stays quiet.
+Use `--admin-user` when the login in `.env` should not be the administrator.
+
+To rotate later: `appctl deploy update --rotate-app-password`. To go back
+(not recommended): `--allow-superuser`.
 
 ## 3. After install: the first login (do this before anything else)
 
@@ -322,6 +428,16 @@ database, and the first symptom is a confusing 403 with nothing in the logs
 pointing at "you needed to re-seed." Pass `--skip-seed`
 only if you've hand-edited seeded rows (a role's permission set, say) and
 don't want them upserted back to their defaults.
+
+**`update` checks the database role, and warns rather than fails.** If
+`POSTGRES_USER` in `.env` is a superuser or has `BYPASSRLS` (a deployment
+installed before `install` provisioned a dedicated role), the `database-role`
+step says that row-level security is inert and how to fix it, and carries on.
+`--provision-app-role` (with `--transfer-ownership` for a database that holds
+data) migrates the deployment onto a dedicated role; section 2.1 has the
+whole procedure, including `--rotate-app-password`. The check is cheap but not
+free, so on a revision that has not moved it runs only when one of the role
+flags is passed — and `appctl deploy doctor` flags the deployment either way.
 
 **There is no automatic rollback.** A partly-applied database migration
 can't be safely undone by checking out the old application code — that's a
@@ -936,6 +1052,7 @@ the first thing to check — `deploy status`'s container list will show it.
 |---|---|---|
 | Certificate issuance fails during `install` | The domain's DNS doesn't actually point at this server. | `doctor --domain <domain>` runs `dns-resolves` and `dns-points-here` specifically for this — the failure names both addresses (what the domain resolves to, and what this server's own address is) so a CDN or a stale record is obvious at a glance. |
 | Login redirects loop, or Google rejects the callback | `GOOGLE_CALLBACK_URL` disagrees with the domain you're actually serving. | `GOOGLE_CALLBACK_URL` is **derived automatically** from the domain you gave during install (`https://<domain>/api/auth/google/callback`) unless you deliberately overrode it in the wizard's `--all` review. If you're seeing this, something overrode the derived value — check the deployed `.env` and either fix it there or re-run the wizard for that key. |
+| `database-role-ordinary` fails, or the Doctor reports `db.rls_role` | `POSTGRES_USER` is a superuser or has `BYPASSRLS`, so row-level security is inert. | `appctl deploy update --provision-app-role --transfer-ownership` (back up first); see section 2.1. |
 | Migration step succeeds, but the app can't connect to the database afterward | `POSTGRES_PASSWORD` contains a URL-reserved character (`@`, `:`, `/`, `#`). | The API and the `prisma:*` scripts percent-encode the password when they build the database URL, so this points at a hand-built connection string or an out-of-date checkout. Update the checkout (`appctl deploy update`), or choose a password without those characters. |
 | `install`/`doctor` reports the loopback port is already in use, by something that isn't this deployment | Another app on the same VPS is already bound to that port. | Pick a different port for this app with `APP_BIND_PORT` in its `.env` (or `--port` during install), or stop whatever's holding the port. `doctor`'s `bind-port-free` check is written to *not* flag this app's own already-running nginx as a conflict — a false positive here means it's genuinely something else. |
 | Repeated `install` attempts start failing with a rate-limit error from Let's Encrypt | You burned the hourly/weekly certificate budget on earlier failed attempts (section 8). | Wait — retrying immediately makes it worse. Use `--staging` for everything except the attempt you actually intend to keep. |
@@ -956,6 +1073,7 @@ the first thing to check — `deploy status`'s container list will show it.
 - [ ] On a host with more than one application, an explicit `--root` passed to every command except `deploy list`
 - [ ] Google OAuth redirect URI matches `https://<domain>/api/auth/google/callback` exactly, and the live credentials probe (or `--skip-oauth-check`) passes
 - [ ] External PostgreSQL reachable, with credentials `doctor`/`install`'s environment validation accepts — the database itself may not exist yet, `install` will offer to create it
+- [ ] An administrative login for that PostgreSQL to hand — `install` uses it once to create the dedicated role the API runs as (or supply your own ordinary role with `--skip-role-provisioning`)
 - [ ] First install run with `--staging` if this is a new domain or a first attempt on this server
 - [ ] `appctl deploy install --domain <domain>` completed, including the external HTTPS verification step
 - [ ] Logged in at `https://<domain>` as `INITIAL_ADMIN_EMAIL` — this, not the seed, is what creates the admin account

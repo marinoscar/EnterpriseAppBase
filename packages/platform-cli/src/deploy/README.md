@@ -6,10 +6,10 @@ The deploy pipelines' extension surface: the step registry, the built-in step id
 
 `deploy install` and `deploy update` are lists of steps. An app inserts its own with `registerDeployStep({ pipeline, id, after | before | replaces, step })` right after, right before or in place of a named step, or skips a built-in with `replaces` and `skipWhen`; `--resume`, the journal, `DeployHooks` and the TUI's progress view treat it like any other. `planDeploySteps(pipeline)` lists a pipeline without running it. `registerDeployCheck` adds a prerequisite check to `doctor` and the install and update preflight. `registerProxyStreamPath` (or `createCli({ proxy: { streamPaths } })`) makes the VPS host proxy stream an app route unbuffered, and `registerEdgeConfigFile` adds a single-file nginx mount to the stale-inode check of `deploy update`.
 
-Built-in step ids (a stable surface; renaming one is a breaking change):
+Built-in step ids (a stable surface; renaming one is a breaking change, adding one is not; the update pipeline gained `database-role` in #980). The install pipeline's `environment` step also provisions the application database role (`ensureApplicationRole`, see [the runbook](../../../../docs/runbooks/deploy-to-vps.md#21-the-database-login-a-dedicated-role)), so an app step placed `after: 'environment'` sees `.env` already holding the role's generated login, and a step never sees the administrative login it was created with.
 
 - `install` (`INSTALL_STEP_IDS`): `preflight`, `checkout`, `environment`, `validate-environment`, `ensure-database`, `version`, `build`, `migrate`, `seed`, `start`, `health`, `deploy-info`, `proxy-bootstrap`, `publish`, `renewal`, `verify`, `publish-version`.
-- `update` (`UPDATE_STEP_IDS`): `preflight`, `fetch`, `environment-drift`, `ensure-database`, `version`, `maintenance-on`, `build`, `migrate`, `seed`, `restart`, `maintenance-off`, `edge-config`, `health`, `deploy-info`, `publish`, `renewal`, `verify`, `publish-version`.
+- `update` (`UPDATE_STEP_IDS`): `preflight`, `fetch`, `environment-drift`, `database-role`, `ensure-database`, `version`, `maintenance-on`, `build`, `migrate`, `seed`, `restart`, `maintenance-off`, `edge-config`, `health`, `deploy-info`, `publish`, `renewal`, `verify`, `publish-version`.
 
 Not in scope: the compose file list (`@marinoscar/platform-infra`'s `composeFilesForMode`) and the built-in steps' internals.
 

@@ -1822,14 +1822,34 @@ the job roles it creates).
   `REASSIGN OWNED BY postgres`: it also moves the cluster's own databases.
 - **CI** (`smoke`, `deploy-e2e`): a step runs the same script against the
   service container.
-- **Production**: provision the role the same way, run the migrations as it,
-  and set `POSTGRES_USER` to it. A superuser may remain for the cluster
-  administration connection only.
+- **Production** (`appctl deploy install`, #980): the CLI provisions the role
+  itself rather than copying the operator's login into `.env`. An
+  administrative login (a superuser, a provider's master user) is used **once,
+  in memory** to create the role (`LOGIN NOSUPERUSER NOBYPASSRLS CREATEDB
+  CREATEROLE`, `createrole_self_grant = 'inherit, set'`), with a generated
+  password (32 random bytes, sent as a SCRAM-SHA-256 verifier on `psql`'s stdin,
+  never in argv or the statement log); the database, schema `public` and every
+  table, sequence and enum type in it are re-owned to it with `ALTER ... OWNER
+  TO` (never `REASSIGN OWNED BY`; consent and a backup recommendation for a
+  database that holds data); and `.env` (mode `0600`, the only place the
+  password is stored) receives the role as `POSTGRES_USER` / `POSTGRES_PASSWORD`.
+  The administrator is never written to `.env`, the journal or the state file.
+  Migrations, the seed and the API then run as the role. The required deploy
+  check `database-role-ordinary` (install's `validate-environment` and
+  `ensure-database`, and `deploy doctor`) fails when the effective
+  `POSTGRES_USER` is a superuser or has `BYPASSRLS`; `--allow-superuser` is the
+  explicit, recorded escape hatch and says that tenant isolation is off. A
+  provider that will not grant `CREATEROLE` or `createrole_self_grant` is
+  reported attribute by attribute and needs `--allow-reduced-role`. An existing
+  deployment moves with `appctl deploy update --provision-app-role`; the
+  password rotates only with `--rotate-app-password`. See
+  [the runbook](runbooks/deploy-to-vps.md#21-the-database-login-a-dedicated-role).
 
 **The Doctor check `db.rls_role`** fails while any table has `FORCE` and the
 role the API connects as is a superuser or has `BYPASSRLS`, naming the role and
-the remedy. Everything else in this section can be correct and the deployment
-still isolates nothing without it.
+the remedy; `database-role-ordinary` is the deploy-time form of the same test,
+run before the API starts. Everything else in this section can be correct and
+the deployment still isolates nothing without it.
 
 ### Tests that hold this in place
 

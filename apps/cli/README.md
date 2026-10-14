@@ -445,6 +445,26 @@ schedules a twice-daily renewal only when nothing already owns it).
 `--skip-oauth-check` skips the live Google credentials probe (a malformed
 client id then only warns instead of failing).
 
+**The API never runs as the login you type** (#980). Row-level security does
+not apply to a superuser or a `BYPASSRLS` role, so when the database login you
+enter is one, `install` asks whether to create a dedicated `<app>_app` role
+(`LOGIN NOSUPERUSER NOBYPASSRLS CREATEDB CREATEROLE`) with a generated
+password, uses your login once, in memory, to do it, moves the database's
+ownership to the role, and writes **the role** to `.env` (mode `0600`, the only
+place the password lives). `--provision-app-role` and `--transfer-ownership`
+give those two consents in advance (take a backup first: the second changes the
+owner of an existing database's objects); `--admin-user` names the
+administrative login explicitly (its password comes from
+`APPCTL_DB_ADMIN_PASSWORD` or the answers key `DB_ADMIN_PASSWORD`, never a flag,
+never `.env`); `--skip-role-provisioning` supplies your own ordinary role, which
+the required `database-role-ordinary` check then verifies; `--allow-superuser`
+runs as the privileged login anyway and says tenant isolation is off;
+`--allow-reduced-role` accepts a managed provider's refusal to grant
+`CREATEROLE`. A re-run reuses the role and its recorded password; only
+`--rotate-app-password` replaces it. `deploy update` migrates an existing
+superuser deployment the same way. The runbook has the whole procedure:
+[`docs/runbooks/deploy-to-vps.md`, section 2.1](../../docs/runbooks/deploy-to-vps.md#21-the-database-login-a-dedicated-role).
+
 Other flags, from `appctl deploy install --help`:
 
 ```
@@ -483,6 +503,24 @@ Options:
                            (no prompt)
   --create-database        Create the database if it does not exist (no
                            prompt)
+  --app-db-user <name>     Name of the dedicated application database role
+                           (default: <app>_app)
+  --admin-user <name>      Administrative database login that provisions the
+                           role (password: $APPCTL_DB_ADMIN_PASSWORD or
+                           DB_ADMIN_PASSWORD in the answers file; never a flag)
+  --skip-role-provisioning Create no role; POSTGRES_USER must already be an
+                           ordinary role
+  --allow-superuser        Run the API as a superuser/BYPASSRLS login anyway
+                           (tenant isolation OFF)
+  --rotate-app-password    Generate a new password for the application role
+  --provision-app-role     Consent: create the role when the database login is
+                           a superuser (no prompt)
+  --transfer-ownership     Consent: change the owner of an existing database's
+                           objects to the role (no prompt)
+  --allow-reduced-role     Consent: accept a role the server would not give
+                           CREATEROLE/createrole_self_grant
+  --show-credentials       Print the generated application login once at the
+                           end (never journaled)
   --skip-renewal           Do not schedule certificate renewal
   --skip-oauth-check       Do not verify the Google OAuth credentials with
                            Google
@@ -517,6 +555,8 @@ appctl deploy update
 
 Brings an already-installed server up to the latest revision (or, with
 `--ref`, to a specific one): preflight, fetch, environment-drift,
+database-role (warns when `POSTGRES_USER` is a superuser; with
+`--provision-app-role` moves the deployment onto a dedicated role),
 ensure-database, version, build, migrate, seed, restart, health, publish,
 renewal, verify. It refuses to run at all if nothing is installed at
 `--root` yet. `ensure-database` and `renewal` are the same steps `install`
@@ -591,6 +631,24 @@ Options:
   --skip-proxy             Do not touch the reverse proxy
   --create-database        Create the database if it does not exist (no
                            prompt)
+  --app-db-user <name>     Name of the dedicated application database role
+                           (default: <app>_app)
+  --admin-user <name>      Administrative database login that provisions the
+                           role (password: $APPCTL_DB_ADMIN_PASSWORD or
+                           DB_ADMIN_PASSWORD in the answers file; never a flag)
+  --skip-role-provisioning Create no role; POSTGRES_USER must already be an
+                           ordinary role
+  --allow-superuser        Run the API as a superuser/BYPASSRLS login anyway
+                           (tenant isolation OFF)
+  --rotate-app-password    Generate a new password for the application role
+  --provision-app-role     Consent: create the role when the database login is
+                           a superuser (no prompt)
+  --transfer-ownership     Consent: change the owner of an existing database's
+                           objects to the role (no prompt)
+  --allow-reduced-role     Consent: accept a role the server would not give
+                           CREATEROLE/createrole_self_grant
+  --show-credentials       Print the generated application login once at the
+                           end (never journaled)
   --skip-renewal           Do not schedule certificate renewal
   --skip-oauth-check       Do not run the post-deploy OAuth sign-in smoke
   --proxy-container <name> The proxy container's name (default: "proxy-nginx")

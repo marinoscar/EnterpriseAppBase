@@ -178,7 +178,7 @@ Registered in `packages/platform-cli/src/engine/deploy/checks/`, one module per 
 |---|---|
 | Host | `docker-installed`, `docker-daemon`, `docker-compose-v2`, `git-installed`, `node-version`, `disk-space`, `memory`, `bind-port-free` |
 | Source | `gh-installed`, `gh-authenticated` |
-| Database | `database-reachable`, `database-credentials`, `database-exists`, `database-privileges`, `database-ssl`, `database-create-privilege` |
+| Database | `database-reachable`, `database-credentials`, `database-exists`, `database-role-ordinary`, `database-privileges`, `database-ssl`, `database-create-privilege` |
 | DNS | `dns-resolves`, `dns-points-here` |
 | Proxy and TLS | `proxy-root`, `proxy-conf-writable`, `acme-webroot`, `certbot-installed`, `proxy-container`, `proxy-config-valid`, `certificate-present`, `certificate-validity`, `certificate-renewal`, `certificate-renewal-paths`, `certificate-served` |
 
@@ -236,6 +236,52 @@ not exist (`3D000`). It asks first, or needs `--create-database` under
 missing database. It only ever issues `CREATE DATABASE "<name>"` on the
 `postgres` maintenance database, with the name checked against
 `^[A-Za-z_][A-Za-z0-9_$]*$` and the password passed via `PGPASSWORD`.
+
+### The application database role
+
+`ensureApplicationRole` (`app-role.ts`, #980) is the one implementation of
+"detect, offer, provision, transfer", called by install's `environment` step
+(between the wizard and the `.env` write) and by update's `database-role` step.
+The required check `database-role-ordinary` (`rolsuper` / `rolbypassrls` of
+`current_user`) gates `validate-environment`, the `ensure-database` re-verify and
+`doctor`: row-level security is skipped for a superuser or a `BYPASSRLS` role, so
+an API running as one isolates no organization from another.
+
+- **The administrative login is used once and kept in memory.** It is the login
+  the operator entered at the `POSTGRES_USER` prompt when that login is
+  privileged, or `--admin-user` with its password from
+  `<PREFIX>DB_ADMIN_PASSWORD` or the answers key `DB_ADMIN_PASSWORD` (never a
+  flag). The answers keys `DB_ADMIN_USER`, `DB_ADMIN_PASSWORD` and `APP_DB_USER`
+  are removed from the answers before the environment is built, so none can
+  reach `.env`; the journal's redactor learns the administrator's password
+  before any line is written.
+- **The role** is `LOGIN NOSUPERUSER NOBYPASSRLS CREATEDB`, then `CREATEROLE`
+  and `ALTER ROLE ... SET createrole_self_grant = 'inherit, set'`, as separate
+  statements so a provider that refuses one is reported for what it is and
+  accepted only with `--allow-reduced-role`. The name passes the same
+  conservative grammar as a database name and is double-quoted.
+- **The password** is `randomBytes(32)` base64url, generated, never prompted,
+  and reaches the server as a SCRAM-SHA-256 verifier on `psql -f -`'s stdin
+  (`runPsqlScript`; `runCommand` gained `input`), so it is in neither argv nor
+  the server's statement log. A test pins the verifier against the RFC 7677
+  example. `.env` (0600) is the only place the password is stored.
+- **Idempotent.** A role that exists and whose recorded credentials authenticate
+  is reused untouched; a new password is set only for `--rotate-app-password` or
+  for a role nothing on record opens. An existing role that is itself a superuser
+  is never altered or used.
+- **Ownership** of an existing database moves with `ALTER DATABASE`, `ALTER
+  SCHEMA public` and a `DO` block of `ALTER ... OWNER TO` over tables, views,
+  materialized views, foreign tables, unlinked sequences, enum types and
+  functions (extension-owned objects skipped), in one transaction. There is no
+  `REASSIGN OWNED BY`: it also moves objects in other databases and cluster
+  objects. Consent (`--transfer-ownership` or a prompt, after a backup
+  recommendation) is taken before anything is mutated.
+- **update warns, install refuses.** Not consented is a refusal in install (it
+  will not start an API as a superuser unasked) and a warning in update (an
+  unattended update must not begin failing on a deployment that predates this);
+  on an unchanged revision the step runs only when a role flag is passed.
+  `--allow-superuser` is recorded in the state (`allowSuperuser`) so doctor
+  reports the choice as a warning.
 
 ### OAuth probe
 
