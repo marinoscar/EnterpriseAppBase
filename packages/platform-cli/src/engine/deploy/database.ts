@@ -133,6 +133,11 @@ export interface EnsureDatabaseOptions extends Omit<ConsentOptions, 'flag'> {
   /** Where to report, one line at a time. */
   onLine?: ((line: string) => void) | undefined;
   /**
+   * `--allow-superuser` (#980): the re-verify's `database-role-ordinary`
+   * reports a warning instead of a failure.
+   */
+  allowSuperuser?: boolean | undefined;
+  /**
    * The environment file POSTGRES_DB was read from, named in every refusal
    * (#396): "does not exist yet" and "a typo" look identical from here, so the
    * operator is told exactly which line to correct. Absent: "the environment
@@ -163,8 +168,17 @@ export interface EnsureDatabaseResult {
   checks: CompletedCheck[];
 }
 
-function checkContextFor(options: Pick<EnsureDatabaseOptions, 'env' | 'runCommand'>): CheckContext {
-  return { runCommand: options.runCommand, deployRoot: '', bindPort: 0, proxyRoot: '', env: options.env };
+function checkContextFor(
+  options: Pick<EnsureDatabaseOptions, 'env' | 'runCommand' | 'allowSuperuser'>,
+): CheckContext {
+  return {
+    runCommand: options.runCommand,
+    deployRoot: '',
+    bindPort: 0,
+    proxyRoot: '',
+    env: options.env,
+    ...(options.allowSuperuser === true ? { allowSuperuser: true } : {}),
+  };
 }
 
 /** "correct POSTGRES_DB in <file>" -- named, because a typo looks like absence. */

@@ -224,6 +224,13 @@ export interface CheckContext {
    * somebody else and are never touched.
    */
   proxyBootstrap?: boolean | undefined;
+  /**
+   * True when the operator chose to run the API as a superuser or BYPASSRLS
+   * role anyway (`--allow-superuser`, recorded in the deployment state, #980).
+   * `database-role-ordinary` then reports a warning that names the consequence
+   * instead of failing.
+   */
+  allowSuperuser?: boolean | undefined;
 }
 
 export type Severity = 'required' | 'recommended';

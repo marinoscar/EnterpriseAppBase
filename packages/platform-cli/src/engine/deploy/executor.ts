@@ -82,6 +82,13 @@ export interface RunCommandOptions {
    * to identity so the module is usable without one.
    */
   redact?: ((value: string) => string) | undefined;
+  /**
+   * Written to the child's stdin, which is then closed. Absent: stdin is
+   * ignored. The channel for a payload that must NOT be in argv -- a SQL
+   * script carrying a password verifier, for `psql -f -` (#980). It is never
+   * echoed into a result, an error or a journal line by this module.
+   */
+  input?: string | undefined;
 }
 
 export interface CommandResult {
@@ -218,7 +225,7 @@ export async function runCommand(
       cwd: options.cwd,
       // No `shell: true`. See rule 1 in the header.
       shell: false,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: [options.input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
       ...(options.env === undefined ? {} : { env: options.env }),
     });
 
@@ -244,6 +251,13 @@ export async function runCommand(
       if (timer !== undefined) clearTimeout(timer);
       options.signal?.removeEventListener('abort', onAbort);
     };
+
+    if (options.input !== undefined) {
+      // An early-exiting child closes the pipe; that EPIPE is the child's
+      // exit status to report, not a second failure of ours.
+      child.stdin?.on('error', () => undefined);
+      child.stdin?.end(options.input);
+    }
 
     child.stdout?.setEncoding('utf8');
     child.stderr?.setEncoding('utf8');

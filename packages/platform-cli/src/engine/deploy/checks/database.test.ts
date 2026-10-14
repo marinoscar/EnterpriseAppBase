@@ -7,6 +7,7 @@ import {
   canCreateDatabase,
   databaseSettings,
   runPsql,
+  runPsqlScript,
   type DatabaseSettings,
 } from './database.js';
 import type { Check, CheckContext, CheckFs } from './types.js';
@@ -321,5 +322,130 @@ describe('database-exists, as doctor runs it (#396)', () => {
     expect(seen).toHaveLength(1);
     expect(seen[0]?.endsWith('select 1')).toBe(true);
     expect(seen.join('\n')).not.toMatch(/CREATE|DROP|ALTER/);
+  });
+});
+
+// =============================================================================
+// database-role-ordinary  (issue #980)
+// =============================================================================
+//
+// The property, not the capability: row-level security is skipped for a
+// superuser and for a BYPASSRLS role, so an API connecting as one serves every
+// organization's rows to every other.
+// =============================================================================
+describe('database-role-ordinary', () => {
+  const role = (answer: string) =>
+    context({ runCommand: fakeRunCommand(() => ({ exitCode: 0, stdout: answer })) });
+
+  it('is a REQUIRED check, run after the credentials are known good, in the database group', () => {
+    const check = find('database-role-ordinary');
+    expect(check.severity).toBe('required');
+    expect(check.requires).toEqual(['database-credentials']);
+    const ids = DATABASE_CHECKS.map((candidate) => candidate.id);
+    expect(ids.indexOf('database-exists')).toBeLessThan(ids.indexOf('database-role-ordinary'));
+    // Included in the preflight/validate-environment subset, which filters on this prefix.
+    expect(ids.every((id) => id.startsWith('database-'))).toBe(true);
+  });
+
+  it('passes for an ordinary role', async () => {
+    const result = await find('database-role-ordinary').run(role('f|f|t|t'));
+    expect(result.status).toBe('pass');
+    expect(result.detail).toContain('row-level security applies');
+  });
+
+  it('fails for a superuser, naming the consequence and every way out', async () => {
+    const result = await find('database-role-ordinary').run(role('t|t|t|t'));
+    expect(result.status).toBe('fail');
+    expect(result.detail).toContain('a superuser');
+    expect(result.detail).toContain('INERT');
+    expect(result.remedy).toContain('--provision-app-role');
+    expect(result.remedy).toContain('NOSUPERUSER NOBYPASSRLS');
+    expect(result.remedy).toContain('--allow-superuser');
+    expect(result.remedy).toContain('appctl');
+  });
+
+  it('fails for BYPASSRLS without SUPERUSER', async () => {
+    const result = await find('database-role-ordinary').run(role('f|t|f|t'));
+    expect(result.status).toBe('fail');
+    expect(result.detail).toContain('BYPASSRLS');
+    expect(result.detail).not.toContain('superuser');
+  });
+
+  it('only warns, saying tenant isolation is off, with --allow-superuser', async () => {
+    const result = await find('database-role-ordinary').run(
+      context({
+        allowSuperuser: true,
+        runCommand: fakeRunCommand(() => ({ exitCode: 0, stdout: 't|t|t|t' })),
+      }),
+    );
+    expect(result.status).toBe('warn');
+    expect(result.detail).toContain('tenant isolation is OFF');
+    expect(result.remedy).toContain('--provision-app-role');
+  });
+
+  it('warns rather than failing when the answer cannot be read', async () => {
+    const unreadable = await find('database-role-ordinary').run(role(''));
+    expect(unreadable.status).toBe('warn');
+    const refused = await find('database-role-ordinary').run(
+      context({ runCommand: fakeRunCommand(() => ({ exitCode: 2, stderr: 'psql: error: could not connect' })) }),
+    );
+    expect(refused.status).toBe('warn');
+    expect(refused.detail).toContain('could not connect');
+  });
+
+  it('is read-only: one pg_roles SELECT against the maintenance database, password only in PGPASSWORD', async () => {
+    const seen: string[] = [];
+    const envs: Array<NodeJS.ProcessEnv | undefined> = [];
+    await find('database-role-ordinary').run(
+      context({
+        runCommand: fakeRunCommand((argv, options) => {
+          seen.push(argv.join(' '));
+          envs.push(options.env);
+          return { exitCode: 0, stdout: 'f|f|f|f' };
+        }),
+      }),
+    );
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain('from pg_roles where rolname = current_user');
+    expect(seen[0]).toContain('-d postgres');
+    expect(seen[0]).not.toMatch(/CREATE|DROP|ALTER|GRANT/);
+    expect(seen[0]).not.toContain(SETTINGS.password);
+    expect(envs[0]?.PGPASSWORD).toBe(SETTINGS.password);
+  });
+});
+
+describe('runPsqlScript (#980)', () => {
+  it('sends the script on stdin, never in argv, and the password only through PGPASSWORD', async () => {
+    const calls: Array<{ argv: readonly string[]; options: RunCommandOptions }> = [];
+    const result = await runPsqlScript(
+      fakeRunCommand((argv, options) => {
+        calls.push({ argv, options });
+        return { exitCode: 0, stdout: '' };
+      }),
+      SETTINGS,
+      'appdb',
+      "ALTER ROLE r PASSWORD 'SCRAM-SHA-256$4096:a$b:c';\n",
+    );
+
+    expect(result.ok).toBe(true);
+    const [call] = calls;
+    expect(call?.options.input).toContain('SCRAM-SHA-256');
+    expect(call?.argv.join(' ')).not.toContain('SCRAM');
+    expect(call?.argv.join(' ')).not.toContain(SETTINGS.password);
+    expect(call?.argv).toEqual(expect.arrayContaining(['-i', '-f', '-', 'ON_ERROR_STOP=1', 'PGPASSWORD']));
+    expect(call?.options.env?.PGPASSWORD).toBe(SETTINGS.password);
+  });
+
+  it('scrubs the named secrets from what psql says back, which includes the failing statement', async () => {
+    const result = await runPsqlScript(
+      fakeRunCommand(() => ({ exitCode: 1, stderr: 'ERROR: syntax\nLINE 1: ALTER ROLE r PASSWORD \'hunter2-verifier\'' })),
+      SETTINGS,
+      'appdb',
+      'select 1;',
+      { secrets: ['hunter2-verifier'] },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.stderr).not.toContain('hunter2-verifier');
+    expect(result.stderr).toContain('***');
   });
 });

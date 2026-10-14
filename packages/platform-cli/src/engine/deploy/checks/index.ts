@@ -96,10 +96,13 @@ export {
   canCreateDatabase,
   databaseSettings,
   probeTcp,
+  readRoleAttributes,
   runPsql,
+  runPsqlScript,
   type CreateDatabaseCapability,
   type DatabaseSettings,
   type PsqlResult,
+  type RoleAttributes,
 } from './database.js';
 export { DNS_CHECKS } from './dns.js';
 export {
