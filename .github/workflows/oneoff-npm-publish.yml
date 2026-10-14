@@ -1,9 +1,9 @@
 name: One-off npm publish
 on:
   workflow_dispatch:
-permissions:
-  contents: write
-  id-token: write
+  push:
+    branches: [claude/sweet-dijkstra-x0bf2o]
+    paths: ['.github/workflows/oneoff-npm-publish.yml']
 jobs:
   publish:
     runs-on: ubuntu-latest
