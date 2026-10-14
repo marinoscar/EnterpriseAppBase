@@ -9,7 +9,7 @@ You pick the cheapest tier that can actually prove the claim, and you never weak
 
 ## Before you start, read
 
-- [docs/TESTING.md](../../docs/TESTING.md): the tiers, helpers, mocking strategy and the rules for a new `*.db.spec.ts`.
+- [docs/TESTING.md](../../docs/TESTING.md): the tiers, helpers, mocking strategy and the rules for a new `*.db.spec.ts` (read the section for your tier).
 - [CLAUDE.md](../../CLAUDE.md): the mandatory rules the tripwire suites enforce.
 - The spec for the feature under test in [docs/specs/](../../docs/specs/); its Guardrails section lists the suites that already cover it.
 

@@ -8,9 +8,9 @@ The UI presents and collects; the API decides. Never put business logic or an au
 
 ## Before you start, read
 
-- [CLAUDE.md](../../CLAUDE.md): the mandatory Settings UI Pattern and AI platform rules.
+- [CLAUDE.md](../../CLAUDE.md): the mandatory Settings UI Pattern and AI platform rules. Read the section you need.
 - [docs/specs/settings-ui.md](../../docs/specs/settings-ui.md): registries, cards vs. tabs, breakpoint gates, accessibility.
-- [docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md): web routes, settings-page inventory, permission matrix.
+- [docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md): web routes, settings-page inventory, permission matrix (read the relevant section only).
 - [docs/API.md](../../docs/API.md): response envelope, errors, pagination, SSE.
 - [docs/TESTING.md](../../docs/TESTING.md): Vitest, React Testing Library and MSW conventions.
 - The spec for the feature you touch in [docs/specs/](../../docs/specs/).
@@ -20,10 +20,10 @@ The UI presents and collects; the API decides. Never put business logic or an au
 - **Every settings page is a registry entry.** Admin cards go in `apps/web/src/config/adminSections.tsx` (`ADMIN_SECTIONS`); per-user cards in `apps/web/src/config/userSettingsSections.tsx` (`USER_SETTINGS_SECTIONS`). A route without an entry is not acceptable. Append new cards; do not insert. See [settings-ui](../../docs/specs/settings-ui.md).
 - **A new page is a card, not a tab.** Tabs are only for parallel content inside one destination (the packaged `UsersPage`, `packages/platform-web/src/identity/ui/users/UsersPage.tsx`: Users, Allowlist).
 - **The card `permission` is the exact string the controller enforces.** Read it off the controller's `@Auth(...)`; never invent or approximate it.
-- **Reuse `apps/web/src/components/settings/SettingsHub.tsx`.** A new hub is a binding over it (`sections`, `hubKey`, `title`, `subtitle`, `features`); do not fork or copy it.
-- **The five breakpoint gates move together, at `sm` (600px).** `Layout.tsx`'s `showRail` and `<main>` bottom padding (`components/common/`), `BottomNav.tsx`, `AppBar.tsx` (`components/navigation/`), and `SettingsHub.tsx`'s `isCompactWindow`. Change one, check all five.
-- **AI surfaces are feature-gated.** A card behind the AI platform declares `feature: 'ai'`; the admin `AI` card does not (it is where AI is switched on). The browser never calls a provider or sees a key; it calls `/api/ai/*` through `services/ai.ts`. See [ai-platform](../../docs/specs/ai-platform.md).
-- **API access goes through `services/api.ts`**, wrapped in a hook under `hooks/`. UI permission checks (`usePermissions`) only hide controls; the API enforces them.
+- **Reuse `SettingsHub` from `@marinoscar/platform-web/settings/ui` (`packages/platform-web/src/settings/ui/SettingsHub.tsx`).** A new hub is a binding over it (`sections`, `hubKey`, `title`, `subtitle`, `features`); do not fork or copy it.
+- **The five breakpoint gates move together, at `sm` (600px).** `ShellLayout`'s `showRail` and `<main>` bottom padding, `ShellBottomNav`, `ShellAppBar`'s `isCompactWindow` (all in `packages/platform-web/src/shell/ui/`), and `SettingsHub`'s `isCompactWindow`. The app's `Layout.tsx`, `AppBar.tsx`, `NavigationRail.tsx` and `BottomNav.tsx` only bind slots. Change one, check all five.
+- **AI surfaces are feature-gated.** A card behind the AI platform declares `feature: 'ai'`; the admin `AI` card does not (it is where AI is switched on). The browser never calls a provider or sees a key; it calls `/api/ai/*` through the hooks of `@marinoscar/platform-web/ai` (`packages/platform-web/src/ai/headless/`). See [ai-platform](../../docs/specs/ai-platform.md).
+- **API access goes through `apps/web/src/services/api.ts`**, wrapped in a hook (`apps/web/src/hooks/` for the app's own, `@marinoscar/platform-web/*` for packaged features). UI permission checks (`usePermissions`, `packages/platform-web/src/identity/headless/use-permissions.ts`) only hide controls; the API enforces them.
 - **Theme and layout.** Use the MUI theme in `apps/web/src/theme/` and `ThemeContext`; lay out mobile-first and test at phone width.
 
 ## Commands

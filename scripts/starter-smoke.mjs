@@ -158,8 +158,25 @@ function assertCreatedIdentity(dir) {
   log('created project: acmectl --help, <title>, manifest, worker fragment and identity scan all carry Acme Hub');
 }
 
+/** The project carries the dual-tool AI setup (Claude Code and OpenCode): shared rules, config and the same agent names in both folders. */
+export function assertAssistantFiles(dir) {
+  for (const file of ['AGENTS.md', 'CLAUDE.md', 'opencode.json', '.claude/settings.json']) {
+    if (!existsSync(join(dir, file))) throw new Error(`the project is missing ${file}`);
+  }
+  if (!/^@AGENTS\.md$/m.test(readFileSync(join(dir, 'CLAUDE.md'), 'utf8'))) throw new Error('CLAUDE.md does not import @AGENTS.md');
+  JSON.parse(readFileSync(join(dir, 'opencode.json'), 'utf8'));
+  const names = (folder) => readdirSync(join(dir, folder)).filter((f) => f.endsWith('.md')).sort();
+  const claude = names('.claude/agents');
+  const opencode = names('.opencode/agents');
+  if (claude.length === 0 || claude.join() !== opencode.join()) {
+    throw new Error(`.claude/agents (${claude.join(', ')}) and .opencode/agents (${opencode.join(', ')}) must list the same agents`);
+  }
+  log(`assistant files: AGENTS.md, CLAUDE.md, opencode.json, .claude/settings.json and ${claude.length} agents in both folders`);
+}
+
 function smoke(dir, opts, overrides) {
   const env = cleanEnv();
+  assertAssistantFiles(dir);
   writeOverrides(dir, overrides);
   run(NPM, ['install', '--no-audit', '--no-fund'], dir, { env });
   // Platform lock and drift: the composed schema, the installed migrations

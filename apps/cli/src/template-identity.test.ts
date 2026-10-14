@@ -173,12 +173,12 @@ const ALLOWLIST: ReadonlySet<string> = new Set([
   'docs/runbooks/release-platform-packages.md',
   // The starter (issue #741) is a separate project with an identity of its own
   // (`starter/packages/shared/identity.json`, guarded by the starter block at
-  // the end of this file). Its README and CLAUDE.md link to the platform
+  // the end of this file). Its README and AGENTS.md link to the platform
   // repository's package READMEs and seam-request template: cross-repository
   // references every app keeps, not rebrand targets of this checkout.
   'starter/packages/shared/identity.json',
   'starter/README.md',
-  'starter/CLAUDE.md',
+  'starter/AGENTS.md',
 ]);
 
 // Deliberately NOT allowlisted, on purpose, spelled out so nobody "fixes" this

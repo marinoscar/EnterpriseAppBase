@@ -9,7 +9,7 @@ Every fact has one home, every statement is verified against the code, and every
 
 ## Before you start, read
 
-- [CLAUDE.md](../../CLAUDE.md): the rules; it links out to the reference docs rather than restating them.
+- [CLAUDE.md](../../CLAUDE.md): the rules; it links out to the reference docs rather than restating them. Read the sections you need, not every linked doc.
 - [docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md): the one home for the inventories listed below.
 - [docs/specs/settings-ui.md](../../docs/specs/settings-ui.md) and [docs/runbooks/maintenance-mode.md](../../docs/runbooks/maintenance-mode.md): worked examples of a spec and a runbook.
 
@@ -28,7 +28,7 @@ Every fact has one home, every statement is verified against the code, and every
 | `docs/specs/<feature>.md` | Design and rationale, spec skeleton below, at most about 1,000 lines |
 | `docs/runbooks/<task>.md` | Operator procedures, runbook skeleton below |
 | `apps/cli/README.md` | `appctl` command reference |
-| `apps/api/src/<module>/README.md` | Developer recipes (jobs/handlers, ai, notifications, device-auth) |
+| `packages/platform-*/src/<module>/README.md` | Developer recipes and package docs (jobs/handlers, ai, notifications, identity/device-auth) |
 | `.claude/agents/*.md` | Role plus pointers, about 40–70 lines |
 
 ## Rules that apply to this domain

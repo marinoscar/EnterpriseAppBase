@@ -25,6 +25,12 @@ import { dirname, join, resolve, relative } from 'node:path';
 // A package README ships to npm, so a broken link there is a broken link in
 // a published artifact.
 //
+// Since #983 it also scans the AI-assistant instruction files that two tools
+// load: the root `AGENTS.md`, every nested `AGENTS.md` / `CLAUDE.md` under
+// `apps/*` and `packages/*`, `starter/AGENTS.md` and `starter/CLAUDE.md`,
+// `.opencode/agents/*.md` and every `.md` under `.claude/skills/`. A broken
+// link there costs a small-context model a wasted read, so it is checked too.
+//
 // WHAT THIS DOES NOT DO: fetch a URL, or understand Markdown beyond fenced
 // code blocks and link syntax. A relative link is resolved against the
 // CONTAINING FILE's own directory (the same rule every Markdown renderer and
@@ -37,13 +43,11 @@ import { dirname, join, resolve, relative } from 'node:path';
 //
 // FENCED CODE BLOCKS ARE STRIPPED FIRST, line-for-line (blanked, not
 // deleted, so line numbers in a failure message still point at the right
-// line of the original file) — `.claude/agents/docs-dev.md` contains a whole
-// EXAMPLE README.md, fenced, with its own `docs/SECURITY.md` and
-// `docs/OBSERVABILITY.md` links that describe a generic project structure
-// and were never meant to resolve against this repository. Scanning the
-// fence would make this test permanently red over documentation ABOUT
-// documentation, which is a worse failure mode than the bug it exists to
-// catch.
+// line of the original file) — a fenced example (a sample command, a sample
+// link in a "how to write docs" snippet) describes a generic project and was
+// never meant to resolve against this repository. Scanning the fence would
+// make this test permanently red over documentation ABOUT documentation,
+// which is a worse failure mode than the bug it exists to catch.
 // =============================================================================
 
 const REPO_ROOT = resolve(__dirname, '..', '..', '..');
@@ -101,6 +105,36 @@ function packageReadmes(root: string): string[] {
   return found;
 }
 
+/** Nested `AGENTS.md` / `CLAUDE.md` directly inside each `apps/*` and `packages/*` directory. */
+function nestedAssistantFiles(root: string): string[] {
+  const found: string[] = [];
+  for (const group of ['apps', 'packages']) {
+    const groupDir = join(root, group);
+    if (!existsSync(groupDir)) continue;
+    for (const entry of readdirSync(groupDir, { withFileTypes: true })) {
+      if (!entry.isDirectory() || SKIPPED_DIRS.has(entry.name)) continue;
+      for (const name of ['AGENTS.md', 'CLAUDE.md']) {
+        const path = join(groupDir, entry.name, name);
+        if (existsSync(path)) found.push(path);
+      }
+    }
+  }
+  return found;
+}
+
+/** AI-assistant instruction files (#983): AGENTS.md files, OpenCode agents, Claude skills, the starter's pair. */
+function assistantConfigFiles(root: string): string[] {
+  const files: string[] = [];
+  for (const name of ['AGENTS.md', join('starter', 'AGENTS.md'), join('starter', 'CLAUDE.md')]) {
+    const path = join(root, name);
+    if (existsSync(path)) files.push(path);
+  }
+  files.push(...nestedAssistantFiles(root));
+  files.push(...markdownFilesIn(join(root, '.opencode', 'agents')));
+  files.push(...markdownFilesUnder(join(root, '.claude', 'skills')));
+  return files;
+}
+
 /** The full set of files this guard scans, repo-root-relative order-independent. */
 function scannedFiles(root: string = REPO_ROOT): string[] {
   const files: string[] = [];
@@ -115,6 +149,7 @@ function scannedFiles(root: string = REPO_ROOT): string[] {
   // nested directory of unrelated material under .claude/agents/.
   files.push(...markdownFilesIn(join(root, '.claude', 'agents')));
   files.push(...packageReadmes(root));
+  files.push(...assistantConfigFiles(root));
 
   return files;
 }
@@ -230,6 +265,38 @@ describe('repo-level documentation links resolve (#335)', () => {
       .map((entry) => entry.name);
     expect(platformPackages.length).toBeGreaterThanOrEqual(6);
     for (const name of platformPackages) expect(scanned).toContain(`packages/${name}/README.md`);
+  });
+
+  it('scans the AI-assistant instruction files (#983)', () => {
+    const scanned = files.map((file) => relative(REPO_ROOT, file).split('\\').join('/'));
+    for (const expected of ['AGENTS.md', 'apps/api/AGENTS.md', '.opencode/agents/backend-dev.md', '.claude/skills/new-project/SKILL.md']) {
+      expect(scanned).toContain(expected);
+    }
+  });
+
+  it('fails on a broken link in AGENTS.md, a nested CLAUDE.md, an OpenCode agent or a skill (#983)', () => {
+    const root = mkdtempSync(join(tmpdir(), 'docs-links-'));
+    try {
+      const write = (path: string, text: string) => {
+        mkdirSync(dirname(join(root, path)), { recursive: true });
+        writeFileSync(join(root, path), text);
+      };
+      write('docs/real.md', '# Real\n');
+      write('AGENTS.md', '[ok](docs/real.md)\n[gone](docs/gone.md)\n');
+      write('apps/x/CLAUDE.md', '[gone](../../docs/gone2.md)\n');
+      write('apps/x/node_modules/AGENTS.md', '[skipped](nowhere.md)\n');
+      write('.opencode/agents/a.md', '```\n[fenced](nowhere.md)\n```\n[gone](../../docs/gone3.md)\n');
+      write('.claude/skills/s/SKILL.md', '[gone](../../../docs/gone4.md)\n');
+
+      expect(brokenLinks(root)).toEqual([
+        'AGENTS.md:2 -> "docs/gone.md" (resolved: docs/gone.md)',
+        'apps/x/CLAUDE.md:1 -> "../../docs/gone2.md" (resolved: docs/gone2.md)',
+        '.opencode/agents/a.md:4 -> "../../docs/gone3.md" (resolved: docs/gone3.md)',
+        '.claude/skills/s/SKILL.md:1 -> "../../../docs/gone4.md" (resolved: docs/gone4.md)',
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('fails on a broken link in a package or slice README, but not in node_modules, dist or docs-api (#693)', () => {
