@@ -220,7 +220,12 @@ One row per platform release: version, the Release workflow run, where it went, 
 
 | Version | Date | Workflow run | Channels | Consumer smoke | Provenance |
 |---|---|---|---|---|---|
-| `0.1.0-next.0` | prepared 2026-10-06 (issue #697) | pending: the `Release` run on `main` after the version commit merges | GitHub release `platform-v0.1.0-next.0` (created by `github-release`); npm `next` pending the owner prerequisites | `pack-smoke`: api and web pass on the packed tarballs | pending the first npm publish (`npm audit signatures` in `registry-smoke`) |
+| `0.1.0-next.1` | tag `platform-v0.1.0-next.1` | not recorded | GitHub prerelease with 6 npm-pack tarballs; not on npm | not recorded | none (not on npm) |
+| `0.1.0-next.2` | tag `platform-v0.1.0-next.2` | not recorded | GitHub prerelease with 6 npm-pack tarballs; not on npm | not recorded | none (not on npm) |
+| `0.1.0-next.3` | published 2026-10-07 | manual bootstrap by the owner, not a `Release` run | GitHub prerelease with 6 npm-pack tarballs; npm (all six packages, by hand) | not recorded | none (published by hand, no attestation) |
+| `0.1.0-next.4` | planned, not yet released | pending: the Version Packages pull request | planned: GitHub prerelease, then npm once trusted publishing is enabled | pending | pending the first automated npm publish |
+
+Note: `0.1.0-next.3` was published by hand by the owner as the bootstrap, with no provenance attestation. The plan was a `0.0.0` bootstrap on the `bootstrap` tag, but `0.1.0-next.3` was published and npm set `latest` automatically on first publish, so `latest` and `bootstrap` both point at it and there is no `next` dist-tag. Fix, per package: `npm dist-tag add @marinoscar/platform-<x>@0.1.0-next.3 next`. `release.yml` still runs in dry-run mode until owner prerequisites 3 to 5 are done; 120 changesets are pending beyond `next.3`.
 
 ## In a fork
 
