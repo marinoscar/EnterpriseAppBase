@@ -39,6 +39,8 @@ export interface FakeInvocation {
   cwd: string;
   /** The environment the caller passed, for asserting a secret was NOT in argv. */
   env?: NodeJS.ProcessEnv | undefined;
+  /** What was written to the command's stdin (`RunCommandOptions.input`), if anything. */
+  input?: string | undefined;
 }
 
 /** What a matched command answers with. A string is shorthand for stdout. */
@@ -161,6 +163,7 @@ export function createFakeVps(options: FakeVpsOptions = {}): FakeVps {
       argv,
       cwd: runOptions.cwd,
       ...(runOptions.env === undefined ? {} : { env: runOptions.env }),
+      ...(runOptions.input === undefined ? {} : { input: runOptions.input }),
     };
     invocations.push(invocation);
 

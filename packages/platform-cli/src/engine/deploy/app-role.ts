@@ -1,6 +1,6 @@
 import { createHash, createHmac, pbkdf2Sync, randomBytes } from 'node:crypto';
 
-import { cliIdentity, cliName, hasCliIdentity } from '../identity.js';
+import { cliIdentity, cliName, envVar, hasCliIdentity } from '../identity.js';
 import { PreconditionError, UsageError } from '../errors.js';
 import {
   MAINTENANCE_DATABASE,
@@ -11,7 +11,9 @@ import {
   type DatabaseSettings,
   type RoleAttributes,
 } from './checks/index.js';
+import { canPrompt, promptSecret, type PromptContext } from '../prompt.js';
 import { consented, obtainConsent, type ConsentOptions } from './consent.js';
+import { metadataFor, type EnvVarMetadata } from './env-metadata.js';
 import { CREATABLE_DATABASE_NAME, assertCreatableDatabaseName } from './database.js';
 import type { runCommand } from './executor.js';
 
@@ -239,6 +241,184 @@ export function ownershipScript(role: string, database: string): string {
   ].join('\n');
 }
 
+/**
+ * The role a run provisions: the flag; else the application login a previous
+ * run recorded (so a re-run finds ITS role instead of making a second); else
+ * `<app>_app`. A recorded name that is the administrative login, or one this
+ * would not create (`postgres`), is no application role and is passed over.
+ */
+export function plannedRoleName(input: {
+  flag?: string | undefined;
+  recordedUser?: string | undefined;
+  adminUser?: string | undefined;
+}): string {
+  if (input.flag !== undefined) return input.flag;
+  const recorded = input.recordedUser;
+  if (
+    recorded !== undefined &&
+    recorded !== input.adminUser &&
+    CREATABLE_ROLE_NAME.test(recorded) &&
+    Buffer.byteLength(recorded) <= MAX_IDENTIFIER_BYTES &&
+    !RESERVED_ROLE.test(recorded)
+  ) {
+    return recorded;
+  }
+  return defaultAppRoleName();
+}
+
+// -- the options the commands share ---------------------------------------------
+
+/**
+ * The application-role options `install` and `update` share (#980). Flat on
+ * purpose: the TUI sets toggles as top-level option keys.
+ */
+export interface AppRoleOptions {
+  /** `--app-db-user`. */
+  appDbUser?: string | undefined;
+  /** `--admin-user`; the password is never a flag (see `resolveAdminLogin`). */
+  adminUser?: string | undefined;
+  /** From the answers file (`DB_ADMIN_PASSWORD`) or the environment; never argv. */
+  adminPassword?: string | undefined;
+  /** `--skip-role-provisioning`. */
+  skipRoleProvisioning?: boolean | undefined;
+  /** `--allow-superuser`. */
+  allowSuperuser?: boolean | undefined;
+  /** `--rotate-app-password`. */
+  rotateAppPassword?: boolean | undefined;
+  /** `--provision-app-role`. */
+  provisionAppRole?: boolean | undefined;
+  /** `--transfer-ownership`. */
+  transferOwnership?: boolean | undefined;
+  /** `--allow-reduced-role`. */
+  allowReducedRole?: boolean | undefined;
+  /** `--show-credentials`. */
+  showCredentials?: boolean | undefined;
+}
+
+/** The answers-file keys that feed `AppRoleOptions`; none of them ever reaches `.env`. */
+export const APP_ROLE_ANSWER_KEYS = ['DB_ADMIN_USER', 'DB_ADMIN_PASSWORD', 'APP_DB_USER'] as const;
+
+/**
+ * Splits the role keys out of an answers map. They are INPUT to provisioning,
+ * not environment: left in the map they would be written to `.env` as unknown
+ * keys -- the administrative password included, which must never be on disk.
+ */
+export function extractRoleAnswers(answers: ReadonlyMap<string, string> | undefined): {
+  answers: Map<string, string> | undefined;
+  role: Pick<AppRoleOptions, 'adminUser' | 'adminPassword' | 'appDbUser'>;
+} {
+  if (answers === undefined) return { answers: undefined, role: {} };
+  const rest = new Map(answers);
+  const take = (key: (typeof APP_ROLE_ANSWER_KEYS)[number]): string | undefined => {
+    const value = rest.get(key);
+    rest.delete(key);
+    return value === undefined || value === '' ? undefined : value;
+  };
+  const adminUser = take('DB_ADMIN_USER');
+  const adminPassword = take('DB_ADMIN_PASSWORD');
+  const appDbUser = take('APP_DB_USER');
+  return {
+    answers: rest.size === 0 ? undefined : rest,
+    role: {
+      ...(adminUser === undefined ? {} : { adminUser }),
+      ...(adminPassword === undefined ? {} : { adminPassword }),
+      ...(appDbUser === undefined ? {} : { appDbUser }),
+    },
+  };
+}
+
+/**
+ * The explicit administrative login, or undefined when none was named. The
+ * password comes from the options (an answers file), then the environment
+ * (`<PREFIX>DB_ADMIN_PASSWORD`, so it is in neither argv nor shell history),
+ * then -- on a terminal -- a masked prompt. It is held in memory only.
+ */
+export async function resolveAdminLogin(
+  options: Pick<AppRoleOptions, 'adminUser' | 'adminPassword'>,
+  prompt: { promptContext?: PromptContext | undefined; nonInteractive?: boolean | undefined },
+): Promise<AdminLogin | undefined> {
+  if (options.adminUser === undefined) return undefined;
+  const fromEnvironment = process.env[envVar('DB_ADMIN_PASSWORD')];
+  const supplied = options.adminPassword ?? (fromEnvironment === '' ? undefined : fromEnvironment);
+  if (supplied !== undefined) return { user: options.adminUser, password: supplied };
+  if (prompt.nonInteractive !== true && canPrompt(prompt.promptContext)) {
+    const typed = await promptSecret(
+      `  Password for the administrative login "${options.adminUser}" (used once, not saved): `,
+      prompt.promptContext,
+    );
+    if (typed !== '') return { user: options.adminUser, password: typed };
+  }
+  throw new UsageError(
+    `--admin-user ${options.adminUser} needs its password. It is never a flag: set ${envVar('DB_ADMIN_PASSWORD')} in the environment, ` +
+      'or put DB_ADMIN_PASSWORD in the answers file (neither is written to .env).',
+  );
+}
+
+/**
+ * The wizard's view of POSTGRES_USER / POSTGRES_PASSWORD when an explicit
+ * administrative login is in use: they are decided by provisioning, so they are
+ * not asked. Both are overwritten with the real values before anything is written.
+ */
+export function provisioningMetadata(role: string): (key: string) => EnvVarMetadata {
+  return (key) => {
+    const base = metadataFor(key);
+    if (key === 'POSTGRES_USER') return { ...base, essential: false, fixed: role };
+    if (key === 'POSTGRES_PASSWORD') return { ...base, essential: false, fixed: '(set by role provisioning)' };
+    return base;
+  };
+}
+
+/**
+ * The wizard's view of POSTGRES_USER when the operator is simply asked for a
+ * login: the prompt says an administrative one is fine, because it is used once
+ * and replaced. (`metadataFor` itself stays as it was: it is pinned by
+ * env-metadata-equivalence.test.ts, and this help belongs to install.)
+ */
+export function loginHelpMetadata(key: string): EnvVarMetadata {
+  const base = metadataFor(key);
+  if (key !== 'POSTGRES_USER') return base;
+  return {
+    ...base,
+    help:
+      'The database login. An administrative login is fine: it is used once to create a dedicated\n' +
+      'ordinary role for the application (row-level security does not apply to a superuser), and the\n' +
+      "role's generated credentials, not these, are saved to .env.",
+  };
+}
+
+/** The options `ensureApplicationRole` takes from the shared flags. */
+export function roleOptionsFrom(
+  options: AppRoleOptions & Omit<ConsentOptions, 'flag'>,
+  admin: AdminLogin | undefined,
+): Pick<
+  EnsureApplicationRoleOptions,
+  | 'admin'
+  | 'roleName'
+  | 'skip'
+  | 'allowSuperuser'
+  | 'rotate'
+  | 'provisionConsent'
+  | 'transferOwnership'
+  | 'allowReducedRole'
+  | 'nonInteractive'
+  | 'promptContext'
+  | 'ask'
+> {
+  return {
+    admin,
+    roleName: options.appDbUser,
+    skip: options.skipRoleProvisioning,
+    allowSuperuser: options.allowSuperuser,
+    rotate: options.rotateAppPassword,
+    provisionConsent: options.provisionAppRole,
+    transferOwnership: options.transferOwnership,
+    allowReducedRole: options.allowReducedRole,
+    nonInteractive: options.nonInteractive,
+    promptContext: options.promptContext,
+    ask: options.ask,
+  };
+}
+
 // -- the one implementation ---------------------------------------------------
 
 export interface AdminLogin {
@@ -432,14 +612,11 @@ export async function ensureApplicationRole(
 
   // 2. The role this will provision.
   const recorded = options.recordedEnv;
-  const recordedUser = recorded?.get('POSTGRES_USER');
-  const recordedIsUsable =
-    explicit &&
-    recordedUser !== undefined &&
-    recordedUser !== adminName &&
-    CREATABLE_ROLE_NAME.test(recordedUser) &&
-    !RESERVED_ROLE.test(recordedUser);
-  const roleName = options.roleName ?? (recordedIsUsable ? (recordedUser as string) : defaultAppRoleName());
+  const roleName = plannedRoleName({
+    flag: options.roleName,
+    recordedUser: recorded?.get('POSTGRES_USER'),
+    adminUser: adminName,
+  });
   assertCreatableRoleName(roleName);
   assertCreatableDatabaseName(entered.database);
   if (roleName === adminName) {

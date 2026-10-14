@@ -41,7 +41,7 @@ export interface FakeOwners {
 
 export interface FakePostgresState {
   roles: Map<string, FakeRole>;
-  /** database name -> present */
+  /** database names present */
   databases: Set<string>;
   /** Owners of the application database, by database. */
   owners: Map<string, FakeOwners>;
@@ -64,6 +64,8 @@ export interface SeenCall {
 
 export interface FakePostgres {
   run: typeof runCommand;
+  /** The synchronous core of `run`, for a harness whose routes cannot await. */
+  respond(argv: readonly string[], options: RunCommandOptions): CommandResult;
   state: FakePostgresState;
   seen: SeenCall[];
   /** Calls whose SQL changed something (CREATE, ALTER, GRANT). */
@@ -119,7 +121,7 @@ export function createFakePostgres(initial: {
     throw new CommandFailedError(stderr, result);
   };
 
-  const run = (async (argv: readonly string[], options: RunCommandOptions): Promise<CommandResult> => {
+  const respond = (argv: readonly string[], options: RunCommandOptions): CommandResult => {
     const at = (flagName: string): string => argv[argv.indexOf(flagName) + 1] ?? '';
     const user = at('-U');
     const database = at('-d');
@@ -148,6 +150,10 @@ export function createFakePostgres(initial: {
     }
     if (!role.canLogin) return fail(argv, options, `psql: error: FATAL:  role "${user}" is not permitted to log in`);
 
+    if (database !== '' && database !== 'postgres' && !state.databases.has(database)) {
+      return fail(argv, options, `psql: error: FATAL:  database "${database}" does not exist (3D000)`);
+    }
+
     for (const failure of state.failures) {
       if (failure.match.test(sql)) {
         return fail(argv, options, typeof failure.stderr === 'function' ? failure.stderr(sql) : failure.stderr);
@@ -174,6 +180,14 @@ export function createFakePostgres(initial: {
       return ok(owners === undefined ? '' : `${owners.databaseOwner}|${owners.schemaOwner}|${owners.toMove}|${owners.total}`);
     }
     if (/^select 1$/.test(sql.trim())) return ok('1');
+    if (/has_schema_privilege/.test(sql) || /rolcreatedb or rolsuper/.test(sql)) return ok('t');
+    const createDatabase = /^CREATE DATABASE "([^"]+)"$/.exec(sql.trim());
+    if (createDatabase !== null) {
+      if (!role.superuser && !role.createDb) return fail(argv, options, 'ERROR:  permission denied to create database (42501)');
+      state.databases.add(createDatabase[1] as string);
+      state.owners.set(createDatabase[1] as string, { databaseOwner: user, schemaOwner: user, toMove: 0, total: 0 });
+      return ok();
+    }
 
     // -- writes -----------------------------------------------------------------
     const create = /CREATE ROLE "([^"]+)" LOGIN NOSUPERUSER NOBYPASSRLS CREATEDB PASSWORD '([^']*)'/.exec(sql);
@@ -236,12 +250,49 @@ export function createFakePostgres(initial: {
     }
 
     return fail(argv, options, `fake-postgres: nothing answers ${JSON.stringify(sql.slice(0, 120))}`);
-  }) as typeof runCommand;
+  };
+
+  const run = (async (argv: readonly string[], options: RunCommandOptions): Promise<CommandResult> =>
+    respond(argv, options)) as typeof runCommand;
 
   return {
     run,
+    respond,
     state,
     seen,
-    mutations: () => seen.filter((call) => /\b(CREATE|ALTER|GRANT)\b/.test(call.sql)),
+    mutations: () => seen.filter((call) => /^\s*(BEGIN;\s*)?(CREATE (ROLE|DATABASE)|ALTER (ROLE|DATABASE|SCHEMA)|GRANT) /i.test(call.sql)),
+  };
+}
+
+/**
+ * A fake-vps route that sends every `psql` invocation to `postgres`.
+ *
+ * The invocation's stdin is not part of fake-vps's record of it, so the route
+ * is given the fake itself and reads `input` from the call's options -- which
+ * `createFakeVps` now forwards as `invocation.input`.
+ */
+export function postgresRoute(postgres: FakePostgres): {
+  match: (invocation: { argv: readonly string[] }) => boolean;
+  answer: (invocation: {
+    argv: readonly string[];
+    cwd: string;
+    env?: NodeJS.ProcessEnv | undefined;
+    input?: string | undefined;
+  }) => { stdout?: string; stderr?: string; fail?: Error };
+} {
+  return {
+    match: (invocation) => invocation.argv.includes('psql'),
+    answer: (invocation) => {
+      try {
+        const result = postgres.respond(invocation.argv, {
+          cwd: invocation.cwd,
+          env: invocation.env,
+          input: invocation.input,
+        });
+        return { stdout: result.stdout };
+      } catch (error) {
+        return { fail: error as Error };
+      }
+    },
   };
 }

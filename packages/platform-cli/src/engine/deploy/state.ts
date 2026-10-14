@@ -218,6 +218,14 @@ export interface DeployState {
   history?: DeploymentHistoryEntry[] | undefined;
   /** The published proxy as last observed by a successful run (v2, issue #392). */
   proxy?: DeployProxyFacts | undefined;
+  /**
+   * The operator chose to run the API as a superuser or BYPASSRLS login
+   * (`--allow-superuser`, #980). Recorded so `deploy doctor`, which only reads
+   * this file, reports `database-role-ordinary` as a warning that names the
+   * consequence instead of a failure for a choice already made. Optional, and
+   * the state version is deliberately NOT bumped for it.
+   */
+  allowSuperuser?: boolean | undefined;
 }
 
 /**
