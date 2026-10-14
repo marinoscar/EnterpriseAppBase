@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { basename, join } from 'node:path';
 
 import { cliName, cliVersion } from '../identity.js';
@@ -13,7 +13,7 @@ import {
 } from './checks/index.js';
 import { parseEnvExample, parseEnvFile } from './env-spec.js';
 import { composeFileArgs, composeFilesFor, effectiveGroups } from './compose-files.js';
-import { writeEnvFile } from './env-file.js';
+import { writeEnvContents, writeEnvFile } from './env-file.js';
 import { isDeployment } from './deployment-evidence.js';
 import { runEnvWizard } from './env-wizard.js';
 import type { EnvGroup } from './env-metadata.js';
@@ -32,6 +32,7 @@ import {
   provisioningMetadata,
   resolveAdminLogin,
   roleOptionsFrom,
+  superuserRecord,
   type AppRoleOptions,
 } from './app-role.js';
 import { ensureDatabase, onlyDatabaseMissing, unattendedDatabaseRefusal } from './database.js';
@@ -219,6 +220,8 @@ interface InstallContext extends StepContext {
    * password from the moment it exists.
    */
   appCredentials?: { user: string; password: string } | undefined;
+  /** The privileged login `--allow-superuser` kept (#980), for the state to record. */
+  superuserKept?: string | undefined;
 }
 
 /**
@@ -764,43 +767,6 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
             : { ctx: context.options.promptContext }),
         });
 
-        // ⚠ BEFORE ANYTHING USES THEM, and BEFORE the provisioning below replaces
-        // the login the operator typed: the redactor learns the entered password
-        // (it may be an administrator's) and the administrative one, so no line
-        // of this run can carry either.
-        context.journal.addSecrets([
-          ...secretsFrom(values),
-          ...(admin === undefined ? [] : [{ key: 'DB_ADMIN_PASSWORD', value: admin.password }]),
-        ]);
-
-        // #980: the API must not run as the operator's (often superuser) login.
-        // Detect a privileged one, offer a dedicated role, provision it with the
-        // login used ONCE and held in memory, and write the role's generated
-        // credentials instead. The administrator never reaches `.env`.
-        const role = await ensureApplicationRole({
-          env: values,
-          ...(onDisk === undefined ? {} : { recordedEnv: onDisk }),
-          runCommand: context.runCommand,
-          onLine: (line) => context.journal.line(line),
-          whenNotConsented: 'refuse',
-          ...roleOptionsFrom(context.options, admin),
-        });
-        context.journal.line(`Database role: ${role.outcome}: ${role.detail}`);
-        if (role.outcome === 'superuser-allowed') {
-          const warning = `warning: --allow-superuser: ${values.get('POSTGRES_USER') ?? 'the database login'} bypasses row-level security. Tenant isolation is OFF.`;
-          context.journal.line(warning);
-          context.hooks?.onProgress?.(warning);
-        }
-        if (role.credentials !== undefined) {
-          values.set('POSTGRES_USER', role.credentials.user);
-          values.set('POSTGRES_PASSWORD', role.credentials.password);
-          context.journal.addSecrets([{ key: 'POSTGRES_PASSWORD', value: role.credentials.password }]);
-          context.appCredentials = role.credentials;
-          context.hooks?.onProgress?.(
-            `Database role "${role.credentials.user}" is ready; its generated password is saved to .env only.`,
-          );
-        }
-
         values.set('APP_BIND_PORT', String(context.options.bindPort));
 
         // ⚠ THE CLI'S OWN KEY, AND THE BIND MOUNT DOES NOT WORK WITHOUT IT.
@@ -830,6 +796,62 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
         // port. That is an outage caused by a bookkeeping change, and `-p`
         // already solves the problem it would solve.
         values.set('DEPLOY_ROOT', context.options.deployRoot);
+
+        // ⚠ BEFORE ANYTHING USES THEM, and BEFORE the provisioning below replaces
+        // the login the operator typed: the redactor learns the entered password
+        // (it may be an administrator's) and the administrative one, so no line
+        // of this run can carry either.
+        context.journal.addSecrets([
+          ...secretsFrom(values),
+          ...(admin === undefined ? [] : [{ key: 'DB_ADMIN_PASSWORD', value: admin.password }]),
+        ]);
+
+        // #980: the API must not run as the operator's (often superuser) login.
+        // Detect a privileged one, offer a dedicated role, provision it with the
+        // login used ONCE and held in memory, and write the role's generated
+        // credentials instead. The administrator never reaches `.env`.
+        //
+        // ⚠ THE STORE IS WRITTEN BEFORE THE SERVER'S PASSWORD CHANGES, and put
+        // back if that fails: `values` is complete here (APP_BIND_PORT and
+        // DEPLOY_ROOT are set above), so what lands on disk first is a whole
+        // `.env`, not a fragment.
+        const previousEnvironment = existsSync(path) ? readFileSync(path, 'utf8') : undefined;
+        const role = await ensureApplicationRole({
+          env: values,
+          ...(onDisk === undefined ? {} : { recordedEnv: onDisk }),
+          runCommand: context.runCommand,
+          onLine: (line) => context.journal.line(line),
+          onSecrets: (secrets) => context.journal.addSecrets(secrets),
+          store: {
+            write: (credentials) => {
+              values.set('POSTGRES_USER', credentials.user);
+              values.set('POSTGRES_PASSWORD', credentials.password);
+              mkdirSync(composeCwd(context.options.deployRoot), { recursive: true });
+              writeEnvFile(path, values, specs);
+            },
+            restore: () => {
+              if (previousEnvironment === undefined) rmSync(path, { force: true });
+              else writeEnvContents(path, previousEnvironment);
+            },
+          },
+          whenNotConsented: 'refuse',
+          ...roleOptionsFrom(context.options, admin),
+        });
+        context.journal.line(`Database role: ${role.outcome}: ${role.detail}`);
+        if (role.outcome === 'superuser-allowed') {
+          const warning = `warning: --allow-superuser: ${values.get('POSTGRES_USER') ?? 'the database login'} bypasses row-level security. Tenant isolation is OFF.`;
+          context.journal.line(warning);
+          context.hooks?.onProgress?.(warning);
+          context.superuserKept = values.get('POSTGRES_USER');
+        }
+        if (role.credentials !== undefined) {
+          values.set('POSTGRES_USER', role.credentials.user);
+          values.set('POSTGRES_PASSWORD', role.credentials.password);
+          context.appCredentials = role.credentials;
+          context.hooks?.onProgress?.(
+            `Database role "${role.credentials.user}" is ready; its generated password is saved to .env only.`,
+          );
+        }
 
         mkdirSync(composeCwd(context.options.deployRoot), { recursive: true });
         writeEnvFile(path, values, specs);
@@ -1516,7 +1538,7 @@ export async function runInstall(requested: InstallOptions): Promise<InstallResu
         ...(options.proxyRoot === undefined ? {} : { proxyRoot: options.proxyRoot }),
         ...recordedRuntime(context),
         completedSteps: result.completed,
-        ...allowSuperuserRecord(options, existingState),
+        ...allowSuperuserRecord(context, existingState),
         lastOutcome: 'failure',
         lastFailedStep: result.failed.id,
         lastAttemptAt: attemptedAt,
@@ -1586,7 +1608,7 @@ export async function runInstall(requested: InstallOptions): Promise<InstallResu
     // (`effectiveGroups`, #567), so the record says what actually runs.
     groups: effectiveGroups(options.groups),
     completedSteps: result.completed,
-    ...allowSuperuserRecord(options, existingState),
+    ...allowSuperuserRecord(context, existingState),
     // Stated explicitly rather than left absent, so a later reader never has
     // to infer success from the shape of the record.
     lastOutcome: 'success',
@@ -1636,15 +1658,17 @@ export async function runInstall(requested: InstallOptions): Promise<InstallResu
 }
 
 /**
- * `allowSuperuser` as the state records it (#980): set by `--allow-superuser`,
- * kept from a previous run otherwise, so `deploy doctor` -- which only reads
- * the record -- reports the choice as made rather than as a failure.
+ * `allowSuperuser` as the state records it (#980): the login `--allow-superuser`
+ * kept in THIS run, or the one a previous run recorded while `.env` still holds
+ * that same login. Anything else records nothing, so a choice never outlives the
+ * login it was made for -- once POSTGRES_USER is an ordinary role the flag is
+ * gone, and a later superuser fails `deploy doctor` instead of being waved through.
  */
 function allowSuperuserRecord(
-  options: Pick<InstallOptions, 'allowSuperuser' | 'rotateAppPassword'>,
+  context: InstallContext,
   existing: DeployState | undefined,
-): { allowSuperuser?: true } {
-  return options.allowSuperuser === true || existing?.allowSuperuser === true ? { allowSuperuser: true } : {};
+): Pick<DeployState, 'allowSuperuser' | 'allowSuperuserLogin'> {
+  return superuserRecord(context.superuserKept, existing, environmentOf(context)?.get('POSTGRES_USER'));
 }
 
 /**

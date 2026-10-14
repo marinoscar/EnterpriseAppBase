@@ -8,8 +8,11 @@ import {
   listRegisteredDeployChecks,
   SOURCE_CHECK_IDS,
   checksPassed,
+  databaseSettings,
   gitCredentialStateFor,
+  readRoleAttributes,
   runChecks,
+  runPsql,
   severityOf,
   type CheckContext,
 } from './checks/index.js';
@@ -18,7 +21,7 @@ import { genuinelyNewKeys } from './env-absence.js';
 import { effectiveGroups } from './compose-files.js';
 import { adoptDeployment } from './adopt.js';
 import { describeEvidence } from './deployment-evidence.js';
-import { readEnvFile, writeEnvFile } from './env-file.js';
+import { readEnvFile, writeEnvContents, writeEnvFile } from './env-file.js';
 import {
   generateValue,
   metadataFor,
@@ -33,6 +36,9 @@ import {
   ensureApplicationRole,
   resolveAdminLogin,
   roleOptionsFrom,
+  superuserAllowedFor,
+  superuserConsequence,
+  superuserRecord,
   type AppRoleOptions,
 } from './app-role.js';
 import { ensureDatabase } from './database.js';
@@ -161,6 +167,8 @@ export interface UpdateOptions extends AppRoleOptions {
   maintenance?: boolean | undefined;
   /** The HTTP client for the health/OAuth smoke. Test seam. */
   fetch?: FetchLike | undefined;
+  /** How long `database-role` waits for the api after moving the login (default 120s). Test seam. */
+  healthWaitMs?: number | undefined;
   /** Replaces the terminal yes/no question for the consent gates. Test seam. */
   ask?: ((question: string) => Promise<boolean>) | undefined;
 }
@@ -423,6 +431,23 @@ async function readRunningEdgeConfig(context: UpdateContext): Promise<RunningRea
       error: error instanceof Error ? error.message.split('\n')[0] : String(error),
     };
   }
+}
+
+/**
+ * Records, or clears, `--allow-superuser` in the state (#980): `kept` is the
+ * privileged login kept in this run, if any; otherwise a previous record
+ * survives only while `.env` still holds that login.
+ */
+function recordSuperuser(context: UpdateContext, kept: string | undefined, currentUser: string | undefined): void {
+  const record = superuserRecord(kept, context.state, currentUser);
+  if (
+    record.allowSuperuser === context.state.allowSuperuser &&
+    record.allowSuperuserLogin === context.state.allowSuperuserLogin
+  ) {
+    return;
+  }
+  context.state = { ...context.state, ...record };
+  writeState(context.state);
 }
 
 /** Whether the flags ask for database-role work even when the revision has not moved. */
@@ -773,7 +798,6 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
       // -- which is also the only way an unchanged deployment ever gets
       // migrated off a superuser login. A moved revision always checks.
       skip: (context) => {
-        if (context.options.skipRoleProvisioning === true) return 'skipped with --skip-role-provisioning';
         if (context.unchanged === true && !wantsRoleWork(context.options)) {
           return `already up to date; pass --provision-app-role to check the database role anyway`;
         }
@@ -789,6 +813,25 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
           context.journal.line('No environment file; nothing to check.');
           return;
         }
+        const currentUser = env.get('POSTGRES_USER');
+        const warn = (message: string): void => {
+          context.journal.line(message);
+          context.hooks?.onProgress?.(message);
+        };
+
+        // --skip-role-provisioning creates nothing, but a superuser login is
+        // still worth the same warning every other path gives.
+        if (context.options.skipRoleProvisioning === true) {
+          const settings = databaseSettings(env);
+          const probe = settings === undefined ? undefined : await readRoleAttributes(context.runCommand, settings);
+          if (probe?.attributes !== undefined && (probe.attributes.superuser || probe.attributes.bypassRls)) {
+            warn(`warning: --skip-role-provisioning: ${superuserConsequence(currentUser ?? 'the database login')}`);
+          } else {
+            context.journal.line('--skip-role-provisioning: no role is created; database-role-ordinary verifies the one supplied');
+          }
+          return;
+        }
+
         const admin = await resolveAdminLogin(context.options, {
           promptContext: context.options.promptContext,
           nonInteractive: context.options.nonInteractive,
@@ -797,47 +840,61 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
           context.journal.addSecrets([{ key: 'DB_ADMIN_PASSWORD', value: admin.password }]);
         }
 
+        // The file as it is now: put back if the server refuses the new password,
+        // and the target of a revert if the API does not come up on it.
+        const envPath = envFilePath(context.options.deployRoot);
+        const templatePath = join(composeCwd(context.options.deployRoot), '.env.example');
+        const specs = existsSync(templatePath) ? parseEnvExample(readFileSync(templatePath, 'utf8')) : [];
+        const previousContents = existsSync(envPath) ? readFileSync(envPath, 'utf8') : undefined;
+        const previousLogin = { user: currentUser, password: env.get('POSTGRES_PASSWORD') ?? '' };
+
         const role = await ensureApplicationRole({
           env,
           recordedEnv: env,
           runCommand: context.runCommand,
           onLine: (line) => context.journal.line(line),
+          onSecrets: (secrets) => context.journal.addSecrets(secrets),
+          // Atomic, 0600, over the file on disk (not the in-memory map, which a
+          // drift step may have only half-built) and BEFORE the server's password
+          // changes; put back byte for byte if that fails.
+          store: {
+            write: (credentials) => {
+              const values = existsSync(envPath) ? readEnvFile(envPath) : new Map(env);
+              values.set('POSTGRES_USER', credentials.user);
+              values.set('POSTGRES_PASSWORD', credentials.password);
+              writeEnvFile(envPath, values, specs);
+            },
+            restore: () => {
+              if (previousContents !== undefined) writeEnvContents(envPath, previousContents);
+            },
+          },
           // An unattended update must not start failing on a deployment that
-          // predates this: not consented is a loud warning, and install is where
-          // it is a refusal.
+          // predates this: not consented, and anything wrong before the server
+          // changed, is a loud warning; install is where it is a refusal.
           whenNotConsented: 'warn',
           ...roleOptionsFrom(context.options, admin),
         });
         context.journal.line(`Database role: ${role.outcome}: ${role.detail}`);
 
         if (role.outcome === 'superuser-allowed') {
-          const warning = `warning: --allow-superuser: ${env.get('POSTGRES_USER') ?? 'the database login'} bypasses row-level security. Tenant isolation is OFF.`;
-          context.journal.line(warning);
-          context.hooks?.onProgress?.(warning);
-          context.state = { ...context.state, allowSuperuser: true };
-          writeState(context.state);
+          warn(`warning: --allow-superuser: ${superuserConsequence(currentUser ?? 'the database login')}`);
+          recordSuperuser(context, currentUser, currentUser);
           return;
         }
         if (role.outcome === 'declined') {
           context.hooks?.onProgress?.(`warning: ${role.detail}`);
           return;
         }
+        // An ordinary login (it already was one, or it is now) means any recorded
+        // --allow-superuser no longer applies. Anything that could not tell leaves it.
+        if (role.outcome !== 'unknown') recordSuperuser(context, undefined, undefined);
         if (role.credentials === undefined) return;
 
-        // Rewritten with the one atomic writer, at 0600, over the file on disk
-        // (not the in-memory map, which a drift step may have only half-built).
-        const envPath = envFilePath(context.options.deployRoot);
-        const templatePath = join(composeCwd(context.options.deployRoot), '.env.example');
-        const specs = existsSync(templatePath) ? parseEnvExample(readFileSync(templatePath, 'utf8')) : [];
-        const values = existsSync(envPath) ? readEnvFile(envPath) : new Map(env);
-        values.set('POSTGRES_USER', role.credentials.user);
-        values.set('POSTGRES_PASSWORD', role.credentials.password);
-        context.journal.addSecrets([{ key: 'POSTGRES_PASSWORD', value: role.credentials.password }]);
-        writeEnvFile(envPath, values, specs);
-        context.env = values;
-        context.appCredentials = role.credentials;
+        const credentials = role.credentials;
+        context.env = readEnvFile(envPath);
+        context.appCredentials = credentials;
         context.hooks?.onProgress?.(
-          `${role.outcome === 'rotated' ? 'Rotated' : 'Moved the deployment onto'} database role "${role.credentials.user}"; the generated password is saved to .env only.`,
+          `${role.outcome === 'rotated' ? 'Rotated' : 'Moved the deployment onto'} database role "${credentials.user}"; the generated password is saved to .env only.`,
         );
 
         // A moved revision restarts the stack further on, with this .env. An
@@ -850,12 +907,37 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
             deployRoot: context.options.deployRoot,
             bindPort: context.state.bindPort,
             composeProject: composeProjectFor(context.state),
+            ...(context.options.healthWaitMs === undefined
+              ? {}
+              : { waitMs: context.options.healthWaitMs, intervalMs: Math.min(50, context.options.healthWaitMs) }),
             ...(context.hooks === undefined ? {} : { hooks: context.hooks }),
           });
           if (!probe.ok) {
+            const why = `The API did not become ready on database role "${credentials.user}": ${probe.error ?? `HTTP ${probe.status ?? '?'}`}.`;
+            // The previous login can be returned to only if it still opens the
+            // database: the old administrator does; a rotated password does not.
+            const settings = databaseSettings(env);
+            const previousWorks =
+              settings !== undefined &&
+              previousContents !== undefined &&
+              previousLogin.user !== undefined &&
+              previousLogin.user !== credentials.user &&
+              (await runPsql(context.runCommand, { ...settings, ...previousLogin, user: previousLogin.user }, 'postgres', 'select 1')).ok;
+            if (previousWorks && previousContents !== undefined) {
+              writeEnvContents(envPath, previousContents);
+              context.env = parseEnvFile(previousContents);
+              await compose(context, [...RECREATE_API], { timeoutMs: 5 * 60_000 }).catch(() => undefined);
+              throw new Error(
+                `${why} .env was put back to the previous login "${previousLogin.user}", which still works, and the api was restarted on it. ` +
+                  `The role "${credentials.user}" exists and owns the database; check the API logs (pg_hba.conf from the container network is the usual cause) and re-run.`,
+              );
+            }
             throw new Error(
-              `The API did not become ready on the new database role: ${probe.error ?? `HTTP ${probe.status ?? '?'}`}. ` +
-                'The role was created and .env points at it; check the API logs (pg_hba.conf from the container network is the usual cause).',
+              `${why} .env now holds the login "${credentials.user}" with its NEW password` +
+                (previousLogin.user === credentials.user
+                  ? ' (the previous password no longer works)'
+                  : ' (the previous login could not be used again)') +
+                '. Check the API logs (pg_hba.conf from the container network is the usual cause); nothing else was changed.',
             );
           }
         }
@@ -879,7 +961,7 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
           env,
           runCommand: context.runCommand,
           createDatabase: context.options.createDatabase,
-          ...(context.options.allowSuperuser === true || context.state.allowSuperuser === true
+          ...(context.options.allowSuperuser === true || superuserAllowedFor(context.state, env.get('POSTGRES_USER'))
             ? { allowSuperuser: true }
             : {}),
           ...consentOptions(context),

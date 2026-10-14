@@ -4,7 +4,7 @@ import { basename, join, resolve } from 'node:path';
 import type { Command } from 'commander';
 
 import { cliName, envVar } from '../identity.js';
-import { extractRoleAnswers, type AppRoleOptions } from '../deploy/app-role.js';
+import { extractRoleAnswers, superuserAllowedFor, type AppRoleOptions } from '../deploy/app-role.js';
 import {
   allChecks,
   checksPassed,
@@ -903,7 +903,7 @@ export async function runDoctorCommand(
     ...(options.domain === undefined ? {} : { domain: options.domain }),
     // #980: a choice already made (--allow-superuser at install/update) is a
     // warning that names the consequence, not a failure to fix.
-    ...(recorded?.allowSuperuser === true ? { allowSuperuser: true } : {}),
+    ...(superuserAllowedFor(recorded, readEnvironment(app.deployRoot)?.env.get('POSTGRES_USER')) ? { allowSuperuser: true } : {}),
     ...(readEnvironment(app.deployRoot) ?? {}),
   };
 

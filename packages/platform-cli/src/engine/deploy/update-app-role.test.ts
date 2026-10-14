@@ -14,6 +14,7 @@ import {
   serveHealth,
   unattendedAnswers,
 } from './testing/fake-vps.js';
+import { superuserAllowedFor } from './app-role.js';
 import { runUpdate, type UpdateOptions } from './update.js';
 
 // =============================================================================
@@ -242,11 +243,32 @@ describe('update on a superuser deployment', () => {
     expect(readState(vps.deployRoot)?.lastCommand).toBe('update');
   });
 
-  it('--skip-role-provisioning does not even connect for it', async () => {
+  it('--skip-role-provisioning creates nothing but still warns about a superuser login', async () => {
     const { vps, postgres } = await legacyDeployment();
-    await update(vps, { skipRoleProvisioning: true });
+    const progress: string[] = [];
+    await update(vps, { skipRoleProvisioning: true, hooks: { onProgress: (message: string) => progress.push(message) } });
     expect(postgres.mutations()).toHaveLength(0);
     expect(envOf(vps).get('POSTGRES_USER')).toBe('admin');
+    expect(progress.join('\n')).toMatch(/tenant isolation is OFF/);
+  });
+
+  it('records --allow-superuser for the login it was chosen for, and clears it once the login is ordinary', async () => {
+    const { vps } = await legacyDeployment();
+    await update(vps, { allowSuperuser: true });
+    expect(readState(vps.deployRoot)).toMatchObject({ allowSuperuser: true, allowSuperuserLogin: 'admin' });
+
+    await update(vps, { provisionAppRole: true, transferOwnership: true });
+    const state = readState(vps.deployRoot);
+    expect(envOf(vps).get('POSTGRES_USER')).toBe(ROLE);
+    expect(state?.allowSuperuser).toBeUndefined();
+    expect(state?.allowSuperuserLogin).toBeUndefined();
+  });
+
+  it('a recorded choice does not apply to a different login', () => {
+    expect(superuserAllowedFor({ allowSuperuser: true, allowSuperuserLogin: 'admin' }, 'admin')).toBe(true);
+    expect(superuserAllowedFor({ allowSuperuser: true, allowSuperuserLogin: 'admin' }, 'someone_else')).toBe(false);
+    expect(superuserAllowedFor({ allowSuperuser: true }, 'admin')).toBe(false);
+    expect(superuserAllowedFor(undefined, 'admin')).toBe(false);
   });
 });
 
@@ -336,5 +358,134 @@ describe('update secret egress', () => {
     const { vps } = await legacyDeployment();
     const result = await update(vps, { provisionAppRole: true, transferOwnership: true, showCredentials: true });
     expect(result.credentials).toEqual({ user: ROLE, password: envOf(vps).get('POSTGRES_PASSWORD') });
+  });
+});
+
+describe('update keeps .env and the server in agreement', () => {
+  const envPath = (vps: ReturnType<typeof createFakeVps>) => join(vps.deployRoot, 'repo', 'infra', 'compose', '.env');
+
+  it('leaves .env byte for byte as it was when the server refuses the new password', async () => {
+    const { vps, postgres } = await legacyDeployment();
+    const before = readFileSync(envPath(vps), 'utf8');
+    postgres.state.failures.push({ match: /ALTER ROLE "[^"]+" PASSWORD/, stderr: 'ERROR: boom' });
+
+    await expect(update(vps, { provisionAppRole: true, transferOwnership: true })).rejects.toThrow(/Could not set the password/);
+
+    expect(readFileSync(envPath(vps), 'utf8')).toBe(before);
+    expect(statSync(envPath(vps)).mode & 0o777).toBe(0o600);
+    expect(postgres.state.roles.get(ROLE)?.verifier).toBeUndefined();
+  });
+
+  it('writes the new login before the password is changed', async () => {
+    const { vps, postgres } = await legacyDeployment();
+    let wasInEnvWhenSet: boolean | undefined;
+    const run = vps.runCommand;
+    vps.runCommand = (async (argv, options) => {
+      if (/ALTER ROLE "[^"]+" PASSWORD/.test(options.input ?? '')) {
+        wasInEnvWhenSet = envOf(vps).get('POSTGRES_USER') === ROLE && (envOf(vps).get('POSTGRES_PASSWORD') ?? '').length === 43;
+      }
+      return run(argv, options);
+    }) as typeof vps.runCommand;
+
+    await update(vps, { provisionAppRole: true, transferOwnership: true });
+
+    expect(wasInEnvWhenSet).toBe(true);
+    expect(verifierMatches(envOf(vps).get('POSTGRES_PASSWORD') ?? '', postgres.state.roles.get(ROLE)?.verifier ?? '')).toBe(true);
+  });
+
+  it('reverts .env to the previous login, which still works, when the api does not come up on the new one', async () => {
+    const { vps } = await legacyDeployment();
+    vps.route(['git', 'rev-parse', 'HEAD'], 'a'.repeat(40));
+    const before = readFileSync(envPath(vps), 'utf8');
+    api.setReady(false);
+    try {
+      const error = await update(vps, {
+        force: false,
+        provisionAppRole: true,
+        transferOwnership: true,
+        healthWaitMs: 100,
+      }).catch((caught: unknown) => caught);
+
+      expect((error as Error).message).toMatch(/did not become ready on database role "example_app"/);
+      expect((error as Error).message).toMatch(/put back to the previous login "admin"/);
+      expect(readFileSync(envPath(vps), 'utf8')).toBe(before);
+      // The api was restarted on it.
+      const recreates = vps.calls('docker', 'compose').filter((call) => call.argv.join(' ').includes('--force-recreate api'));
+      expect(recreates).toHaveLength(2);
+    } finally {
+      api.setReady(true);
+    }
+  });
+
+  it('names the login now in .env when the previous one cannot be used again (a rotated password)', async () => {
+    const postgres = createFakePostgres({ roles: { shop: ordinaryRole({ password: 'shop-password-0123456789' }) }, databases: ['appdb'] });
+    const vps = createFakeVps({
+      envExample: TEMPLATE,
+      routes: [{ match: (invocation) => invocation.argv.includes('curl'), answer: '200' }, postgresRoute(postgres)],
+    });
+    await runInstall({
+      deployRoot: vps.deployRoot,
+      bindPort: api.port,
+      proxyRoot: join(vps.appsRoot, 'proxy'),
+      domain: 'app.example.test',
+      repo: 'https://example.test/o/r',
+      ref: 'main',
+      runCommand: vps.runCommand,
+      fetch: fakeGoogleFetch().fetch,
+      answers: new Map([...ANSWERS, ['POSTGRES_PORT', String(probe.port)], ['POSTGRES_USER', 'shop'], ['POSTGRES_PASSWORD', 'shop-password-0123456789']]),
+      nonInteractive: true,
+      skipDoctor: true,
+      skipProxy: true,
+      skipSeed: true,
+      noVersionBump: true,
+    });
+    mkdirSync(join(vps.deployRoot, 'repo', '.git'), { recursive: true });
+    vps.route(['df'], DF);
+    vps.route(['git', 'rev-parse', 'HEAD'], 'a'.repeat(40));
+    api.setReady(false);
+    try {
+      const error = await update(vps, { force: false, rotateAppPassword: true, healthWaitMs: 100 }).catch((caught: unknown) => caught);
+      expect((error as Error).message).toMatch(/\.env now holds the login "shop" with its NEW password/);
+      expect((error as Error).message).toMatch(/previous password no longer works/);
+      const now = envOf(vps).get('POSTGRES_PASSWORD') ?? '';
+      expect(verifierMatches(now, postgres.state.roles.get('shop')?.verifier ?? '')).toBe(true);
+    } finally {
+      api.setReady(true);
+    }
+  });
+
+  it('does not fail an unattended update for a database named my-app', async () => {
+    const postgres = createFakePostgres({
+      roles: { admin: superRole({ password: ADMIN_SECRET }) },
+      databases: ['my-app'],
+      owners: { 'my-app': { databaseOwner: 'admin', schemaOwner: 'admin', toMove: 3, total: 4 } },
+    });
+    const vps = createFakeVps({
+      envExample: TEMPLATE,
+      routes: [{ match: (invocation) => invocation.argv.includes('curl'), answer: '200' }, postgresRoute(postgres)],
+    });
+    await runInstall({
+      deployRoot: vps.deployRoot,
+      bindPort: api.port,
+      proxyRoot: join(vps.appsRoot, 'proxy'),
+      domain: 'app.example.test',
+      repo: 'https://example.test/o/r',
+      ref: 'main',
+      runCommand: vps.runCommand,
+      fetch: fakeGoogleFetch().fetch,
+      answers: new Map([...ANSWERS, ['POSTGRES_PORT', String(probe.port)], ['POSTGRES_DB', 'my-app']]),
+      nonInteractive: true,
+      skipDoctor: true,
+      skipProxy: true,
+      skipSeed: true,
+      noVersionBump: true,
+      allowSuperuser: true,
+    });
+    mkdirSync(join(vps.deployRoot, 'repo', '.git'), { recursive: true });
+    vps.route(['df'], DF);
+    vps.route(['git', 'rev-parse', 'HEAD'], 'e'.repeat(40));
+    // The old fake VPS install ran as the administrator; now update, with no consent flags at all.
+    const result = await update(vps, { answers: new Map([...ANSWERS, ['POSTGRES_PORT', String(probe.port)], ['POSTGRES_DB', 'my-app']]) });
+    expect(result.changed).toBe(true);
   });
 });

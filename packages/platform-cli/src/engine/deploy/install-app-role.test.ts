@@ -369,3 +369,81 @@ describe('secret egress, through the whole pipeline', () => {
     expect((error as Error).message).not.toContain(ADMIN_SECRET);
   });
 });
+
+describe('install keeps .env and the server in agreement (#980)', () => {
+  const envPath = (vps: ReturnType<typeof createFakeVps>) => join(vps.deployRoot, 'repo', 'infra', 'compose', '.env');
+
+  it('writes a whole .env before the server learns the password', async () => {
+    const { vps, postgres } = setup();
+    let atPassword: Map<string, string> | undefined;
+    const run = vps.runCommand;
+    vps.runCommand = (async (argv, options) => {
+      if (/ALTER ROLE "[^"]+" PASSWORD/.test(options.input ?? '')) atPassword = envOf(vps);
+      return run(argv, options);
+    }) as typeof vps.runCommand;
+
+    await install(vps, { provisionAppRole: true });
+
+    expect(atPassword?.get('POSTGRES_USER')).toBe(ROLE);
+    // A complete file, not a fragment: the CLI's own markers are there already.
+    expect(atPassword?.get('DEPLOY_ROOT')).toBe(vps.deployRoot);
+    expect(atPassword?.get('APP_BIND_PORT')).toBe(String(api.port));
+    expect(verifierMatches(atPassword?.get('POSTGRES_PASSWORD') ?? '', postgres.state.roles.get(ROLE)?.verifier ?? '')).toBe(true);
+  });
+
+  it('removes the .env it wrote when the server refuses the password, so the administrator was never left on disk', async () => {
+    const postgres = createFakePostgres({
+      roles: { admin: superRole({ password: ADMIN_SECRET }) },
+      databases: ['appdb'],
+      failures: [{ match: /ALTER ROLE "[^"]+" PASSWORD/, stderr: 'ERROR: boom' }],
+    });
+    const { vps } = setup(postgres);
+
+    await expect(install(vps, { provisionAppRole: true })).rejects.toThrow(/Could not set the password/);
+
+    expect(existsSync(envPath(vps))).toBe(false);
+    expect(postgres.state.roles.get(ROLE)?.verifier).toBeUndefined();
+    for (const file of everyFile(vps.deployRoot)) {
+      expect(readFileSync(file, 'utf8'), file).not.toContain(ADMIN_SECRET);
+    }
+  });
+
+  it('restores the previous .env, not a hole, when there was one', async () => {
+    const { vps, postgres } = setup();
+    await install(vps, { provisionAppRole: true });
+    const before = readFileSync(envPath(vps), 'utf8');
+    postgres.state.failures.push({ match: /ALTER ROLE "[^"]+" PASSWORD/, stderr: 'ERROR: boom' });
+
+    await expect(install(vps, { reinstall: true, provisionAppRole: true, rotateAppPassword: true })).rejects.toThrow(/Could not set/);
+
+    expect(readFileSync(envPath(vps), 'utf8')).toBe(before);
+    expect(statSync(envPath(vps)).mode & 0o777).toBe(0o600);
+  });
+
+  it('records --allow-superuser for the login it kept, and drops it once the login is a provisioned role', async () => {
+    const { vps } = setup();
+    await install(vps, { allowSuperuser: true });
+    expect(readState(vps.deployRoot)).toMatchObject({ allowSuperuser: true, allowSuperuserLogin: 'admin' });
+
+    await install(vps, { reinstall: true, provisionAppRole: true, transferOwnership: true });
+    expect(readState(vps.deployRoot)?.allowSuperuser).toBeUndefined();
+    expect(readState(vps.deployRoot)?.allowSuperuserLogin).toBeUndefined();
+  });
+
+  it('refuses to reset a role it did not make, and writes no .env for the attempt', async () => {
+    const postgres = createFakePostgres({
+      roles: {
+        admin: superRole({ password: ADMIN_SECRET }),
+        [ROLE]: ordinaryRole({ password: 'another-deployments-password-0123' }),
+      },
+      databases: ['appdb'],
+    });
+    const { vps } = setup(postgres);
+
+    await expect(install(vps, { provisionAppRole: true })).rejects.toThrow(/--rotate-app-password/);
+
+    expect(existsSync(envPath(vps))).toBe(false);
+    expect(postgres.mutations()).toHaveLength(0);
+    expect(postgres.state.roles.get(ROLE)?.password).toBe('another-deployments-password-0123');
+  });
+});

@@ -226,6 +226,12 @@ export interface DeployState {
    * the state version is deliberately NOT bumped for it.
    */
   allowSuperuser?: boolean | undefined;
+  /**
+   * The login `allowSuperuser` was chosen for. The choice applies only while
+   * `.env` still holds this POSTGRES_USER (see `superuserAllowedFor`), so it can
+   * never outlive the login it was made for.
+   */
+  allowSuperuserLogin?: string | undefined;
 }
 
 /**
