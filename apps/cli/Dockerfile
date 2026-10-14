@@ -56,6 +56,11 @@ COPY packages/shared ./packages/shared/
 # telemetry compose file list from its manifest. The CLI's `prebuild` builds
 # its dist/ in the build stage.
 COPY packages/platform-infra ./packages/platform-infra/
+# And @marinoscar/platform-contract (#989): a dependency of
+# @marinoscar/platform-cli, built by the CLI's `prebuild` and loaded at boot.
+# It must be a workspace directory BEFORE `npm ci` below, or the build fails
+# with "No workspaces found: --workspace=@marinoscar/platform-contract".
+COPY packages/platform-contract ./packages/platform-contract/
 # And @marinoscar/platform-cli (#706, #715): the whole CLI, node engine
 # included, that apps/cli composes with createCli. Built by the same
 # `prebuild`; its runtime dependencies (commander, ink, ...) come with it.
@@ -78,6 +83,7 @@ RUN npm run build
 # -----------------------------------------------------------------------------
 FROM base AS production
 COPY --from=deps /app ./
+COPY --from=build /app/packages/platform-contract/dist ./packages/platform-contract/dist
 COPY --from=build /app/packages/platform-infra/dist ./packages/platform-infra/dist
 COPY --from=build /app/packages/platform-cli/dist ./packages/platform-cli/dist
 COPY --from=build /app/apps/cli/dist ./apps/cli/dist
