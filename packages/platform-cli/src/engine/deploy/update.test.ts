@@ -28,6 +28,7 @@ describe('the update pipeline', () => {
       'preflight',
       'fetch',
       'environment-drift',
+      'database-role',
       'ensure-database',
       'version',
       'maintenance-on',

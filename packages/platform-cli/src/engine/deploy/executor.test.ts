@@ -39,6 +39,30 @@ describe('stripAnsi', () => {
   });
 });
 
+describe('runCommand: input (#980)', () => {
+  const echoStdin = 'process.stdin.on("data", (c) => process.stdout.write(c))';
+
+  it('writes the input to stdin and closes it, so the child sees end-of-file', async () => {
+    const result = await runCommand(node(echoStdin), { cwd: CWD, input: 'select 1;\n' });
+    expect(result.stdout).toBe('select 1;');
+  });
+
+  it('is not part of the argv a result or an error records', async () => {
+    const secret = 'stdin-only-secret-4f9e';
+    const error = await runCommand(node(`${echoStdin}; process.stdin.on("end", () => process.exit(3))`), {
+      cwd: CWD,
+      input: secret,
+    }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(CommandFailedError);
+    expect(JSON.stringify((error as CommandFailedError).result.argv)).not.toContain(secret);
+  });
+
+  it('does not fail on a child that exits without reading its input', async () => {
+    const result = await runCommand(node('process.exit(0)'), { cwd: CWD, input: 'x'.repeat(1_000_000) });
+    expect(result.exitCode).toBe(0);
+  });
+});
+
 describe('runCommand', () => {
   it('resolves with stdout for a successful command', async () => {
     const result = await runCommand(node('process.stdout.write("hello")'), {

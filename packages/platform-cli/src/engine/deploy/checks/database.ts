@@ -1,5 +1,6 @@
 import { connect } from 'node:net';
 
+import { cliName } from '../../identity.js';
 import type { runCommand } from '../executor.js';
 import type { Check, CheckContext, CheckResult } from './types.js';
 
@@ -158,6 +159,103 @@ async function psql(
   }
 }
 
+/**
+ * Runs a SQL SCRIPT through `psql -f -`, the script travelling on stdin.
+ *
+ * The one way to run something that carries a secret (#980): a `CREATE ROLE`
+ * with a password verifier must not be in argv (`ps`, the journal's argv
+ * record, a thrown error all print argv), and `psql -c` neither takes a
+ * script nor interpolates variables. `ON_ERROR_STOP` makes the first error
+ * the exit status. Never throws; `secrets` are scrubbed from the stderr and
+ * stdout returned, because psql echoes the failing statement's text.
+ */
+export async function runPsqlScript(
+  run: typeof runCommand,
+  settings: DatabaseSettings,
+  database: string,
+  script: string,
+  options: { secrets?: readonly string[] } = {},
+): Promise<PsqlResult> {
+  const scrub = (text: string): string =>
+    (options.secrets ?? [])
+      .filter((secret) => secret !== '')
+      .reduce((value, secret) => value.split(secret).join('***'), text);
+
+  const argv = [
+    'docker', 'run', '--rm', '-i', '--network', 'host',
+    '-e', 'PGPASSWORD',
+    '-e', 'PGCONNECT_TIMEOUT=5',
+    ...(settings.ssl ? ['-e', 'PGSSLMODE=require'] : []),
+    PSQL_IMAGE,
+    'psql', '-X', '-q', '-v', 'ON_ERROR_STOP=1',
+    '-h', settings.host,
+    '-p', settings.port,
+    '-U', settings.user,
+    '-d', database,
+    '-f', '-',
+  ];
+
+  try {
+    const result = await run(argv, {
+      cwd: process.cwd(),
+      timeoutMs: 120_000,
+      env: { ...process.env, PGPASSWORD: settings.password },
+      input: script,
+      redact: scrub,
+    });
+    return { ok: true, stdout: scrub(result.stdout.trim()), stderr: scrub(result.stderr.trim()) };
+  } catch (error) {
+    const failure = error as { result?: { stdout?: string; stderr?: string } };
+    return {
+      ok: false,
+      stdout: scrub((failure.result?.stdout ?? '').trim()),
+      stderr: scrub(
+        (failure.result?.stderr ?? '').trim() ||
+          (error instanceof Error ? error.message : String(error)),
+      ),
+    };
+  }
+}
+
+/** What `readRoleAttributes` found about the connecting role. */
+export interface RoleAttributes {
+  superuser: boolean;
+  bypassRls: boolean;
+  createRole: boolean;
+  createDb: boolean;
+}
+
+/**
+ * The attributes of the role `settings` connects as, from the `postgres`
+ * maintenance database (roles are cluster-wide). Read-only. `undefined`, with
+ * the first line of psql's complaint, when it could not be told.
+ */
+export async function readRoleAttributes(
+  run: typeof runCommand,
+  settings: DatabaseSettings,
+): Promise<{ attributes?: RoleAttributes; error?: string }> {
+  const result = await runPsql(
+    run,
+    settings,
+    MAINTENANCE_DATABASE,
+    'select rolsuper, rolbypassrls, rolcreaterole, rolcreatedb from pg_roles where rolname = current_user',
+  );
+  if (!result.ok) return { error: firstLine(result.stderr) };
+
+  const fields = result.stdout.trim().split('|');
+  if (fields.length !== 4 || fields.some((field) => field !== 't' && field !== 'f')) {
+    return { error: `unexpected answer: ${result.stdout.trim() === '' ? '(empty)' : 'not a role row'}` };
+  }
+  return {
+    attributes: {
+      superuser: fields[0] === 't',
+      bypassRls: fields[1] === 't',
+      createRole: fields[2] === 't',
+      createDb: fields[3] === 't',
+    },
+  };
+}
+
 const databaseReachable: Check = {
   id: 'database-reachable',
   title: 'Database reachable',
@@ -289,6 +387,59 @@ const databasePrivileges: Check = {
   },
 };
 
+const databaseRoleOrdinary: Check = {
+  id: 'database-role-ordinary',
+  title: 'Database role is ordinary',
+  // REQUIRED, and this is the point of #980. Row-level security is skipped
+  // entirely for a superuser or a BYPASSRLS role, so an API that connects as one
+  // serves every organization's rows to every other organization. The checks
+  // above test capability; this one tests the property.
+  severity: 'required',
+  requires: ['database-credentials'],
+  async run(context) {
+    const settings = databaseSettings(context.env);
+    if (settings === undefined) return NO_ENVIRONMENT;
+
+    const { attributes, error } = await readRoleAttributes(context.runCommand, settings);
+    if (attributes === undefined) {
+      return {
+        status: 'warn',
+        detail: `could not determine whether ${settings.user} is an ordinary role${error === undefined ? '' : `: ${error}`}`,
+        remedy: `Check by hand: select rolsuper, rolbypassrls from pg_roles where rolname = ${quoteLiteral(settings.user)};`,
+      };
+    }
+
+    const reasons = [
+      ...(attributes.superuser ? ['a superuser'] : []),
+      ...(attributes.bypassRls ? ['BYPASSRLS'] : []),
+    ];
+    if (reasons.length === 0) {
+      return {
+        status: 'pass',
+        detail: `${settings.user} is an ordinary role (not SUPERUSER, not BYPASSRLS): row-level security applies`,
+      };
+    }
+
+    const what = `${settings.user} is ${reasons.join(' and ')}`;
+    if (context.allowSuperuser === true) {
+      return {
+        status: 'warn',
+        detail: `${what}: row-level security is INERT and tenant isolation is OFF (allowed with --allow-superuser)`,
+        remedy: `Every organization can read every other organization's rows. Provision a dedicated role: ${cliName()} deploy update --provision-app-role`,
+      };
+    }
+    return {
+      status: 'fail',
+      detail: `${what}: row-level security is INERT, so every organization can read every other organization's rows`,
+      remedy:
+        `Run the API as a dedicated ordinary role. Have ${cliName()} create one and move the deployment onto it: ` +
+        `${cliName()} deploy update --provision-app-role (on a new install, enter the administrative login and it is provisioned). ` +
+        `Or supply your own: CREATE ROLE app_user LOGIN NOSUPERUSER NOBYPASSRLS CREATEDB CREATEROLE PASSWORD '<password>'; then set POSTGRES_USER and POSTGRES_PASSWORD. ` +
+        `To run as ${settings.user} knowingly (tenant isolation off), pass --allow-superuser.`,
+    };
+  },
+};
+
 const databaseSsl: Check = {
   id: 'database-ssl',
   title: 'Database TLS',
@@ -363,6 +514,11 @@ export async function canCreateDatabase(
   return { canCreate: undefined, error: `unexpected answer: ${answer || '(empty)'}` };
 }
 
+/** Single-quotes a string for display in a remedy. */
+function quoteLiteral(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
 /** Double-quotes an identifier for display in a remedy. */
 function quoteIdentifier(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
@@ -407,6 +563,7 @@ export const DATABASE_CHECKS: readonly Check[] = [
   databaseReachable,
   databaseCredentials,
   databaseExists,
+  databaseRoleOrdinary,
   databaseCreatePrivilege,
   databasePrivileges,
   databaseSsl,

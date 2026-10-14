@@ -991,3 +991,143 @@ describe('appctl deploy install / update: the #391 flags reach the pipeline opti
     ).rejects.toBeDefined();
   });
 });
+
+// =============================================================================
+// The application-role flags and answers keys  (#980)
+// =============================================================================
+describe('appctl deploy install / update: the application-role flags (#980)', () => {
+  async function installWith(argv: readonly string[], captured: string[] = []): Promise<InstallOptions> {
+    vi.mocked(installModule.runInstall).mockReset();
+    vi.mocked(installModule.runInstall).mockResolvedValue({
+      deployRoot: '/tmp/x',
+      commitSha: 'a'.repeat(40),
+      journalPath: '/tmp/x/logs/1.log',
+      nextStep: 'Log in.',
+      ...(argv.includes('--show-credentials')
+        ? { credentials: { user: 'example_app', password: 'GENERATED-PASSWORD-0123456789' } }
+        : {}),
+    });
+    const program = new Command();
+    program.exitOverride();
+    registerDeployCommand(program, {
+      stdout: { write: () => true },
+      stderr: { write: (chunk: string) => captured.push(chunk) > 0 },
+      isTty: false,
+    });
+    await program.parseAsync(
+      ['deploy', 'install', '--root', '/tmp/appctl-flags-test', '--domain', 'app.example.test', ...argv],
+      { from: 'user' },
+    );
+    return vi.mocked(installModule.runInstall).mock.calls[0]?.[0] as InstallOptions;
+  }
+
+  async function updateWith(argv: readonly string[]): Promise<UpdateOptions> {
+    vi.mocked(updateModule.runUpdate).mockReset();
+    vi.mocked(updateModule.runUpdate).mockResolvedValue({
+      changed: false,
+      commitSha: 'a'.repeat(40),
+      journalPath: '/tmp/x/logs/1.log',
+      durationMs: 0,
+    });
+    const program = new Command();
+    program.exitOverride();
+    registerDeployCommand(program, { stdout: { write: () => true }, stderr: { write: () => true }, isTty: false });
+    await program.parseAsync(['deploy', 'update', '--root', '/tmp/appctl-flags-test', ...argv], { from: 'user' });
+    return vi.mocked(updateModule.runUpdate).mock.calls[0]?.[0] as UpdateOptions;
+  }
+
+  const ALL = [
+    '--app-db-user', 'shop_app',
+    '--admin-user', 'master',
+    '--skip-role-provisioning',
+    '--allow-superuser',
+    '--rotate-app-password',
+    '--provision-app-role',
+    '--transfer-ownership',
+    '--allow-reduced-role',
+    '--show-credentials',
+  ];
+
+  it('every flag reaches install', async () => {
+    const options = await installWith(ALL);
+    expect(options).toMatchObject({
+      appDbUser: 'shop_app',
+      adminUser: 'master',
+      skipRoleProvisioning: true,
+      allowSuperuser: true,
+      rotateAppPassword: true,
+      provisionAppRole: true,
+      transferOwnership: true,
+      allowReducedRole: true,
+      showCredentials: true,
+    });
+  });
+
+  it('every flag reaches update', async () => {
+    const options = await updateWith(ALL);
+    expect(options).toMatchObject({
+      appDbUser: 'shop_app',
+      adminUser: 'master',
+      skipRoleProvisioning: true,
+      allowSuperuser: true,
+      rotateAppPassword: true,
+      provisionAppRole: true,
+      transferOwnership: true,
+      allowReducedRole: true,
+      showCredentials: true,
+    });
+  });
+
+  it('are absent, not false, when not passed', async () => {
+    const options = await installWith([]);
+    for (const key of ['appDbUser', 'adminUser', 'adminPassword', 'skipRoleProvisioning', 'allowSuperuser', 'rotateAppPassword', 'provisionAppRole', 'transferOwnership', 'allowReducedRole', 'showCredentials']) {
+      expect(options, key).not.toHaveProperty(key);
+    }
+  });
+
+  it('there is no flag for the administrative password: a flag is argv', async () => {
+    const program = new Command();
+    program.exitOverride();
+    registerDeployCommand(program, { stdout: { write: () => true }, stderr: { write: () => true }, isTty: false });
+    await expect(
+      program.parseAsync(['deploy', 'install', '--root', '/tmp/x', '--admin-password', 'x'], { from: 'user' }),
+    ).rejects.toBeDefined();
+  });
+
+  it('takes the role keys from an answers file and keeps them out of the answers (so out of .env)', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'appctl-role-answers-'));
+    const file = join(directory, 'answers.env');
+    writeFileSync(
+      file,
+      'DB_ADMIN_USER=master\nDB_ADMIN_PASSWORD=answers-file-admin-secret\nAPP_DB_USER=shop_app\nPOSTGRES_DB=appdb\n',
+      { mode: 0o600 },
+    );
+
+    const options = await installWith(['--answers-file', file]);
+
+    expect(options.adminUser).toBe('master');
+    expect(options.adminPassword).toBe('answers-file-admin-secret');
+    expect(options.appDbUser).toBe('shop_app');
+    expect([...(options.answers ?? [])]).toEqual([['POSTGRES_DB', 'appdb']]);
+    expect(JSON.stringify([...(options.answers ?? [])])).not.toContain('answers-file-admin-secret');
+  });
+
+  it('a flag wins over the answers file', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'appctl-role-answers-'));
+    const file = join(directory, 'answers.env');
+    writeFileSync(file, 'APP_DB_USER=from_file\nDB_ADMIN_USER=file_admin\n', { mode: 0o600 });
+    const options = await installWith(['--answers-file', file, '--app-db-user', 'from_flag', '--admin-user', 'flag_admin']);
+    expect(options.appDbUser).toBe('from_flag');
+    expect(options.adminUser).toBe('flag_admin');
+  });
+
+  it('prints the generated login only with --show-credentials', async () => {
+    const shown: string[] = [];
+    await installWith(['--show-credentials'], shown);
+    expect(shown.join('')).toContain('POSTGRES_PASSWORD=GENERATED-PASSWORD-0123456789');
+
+    const hidden: string[] = [];
+    await installWith([], hidden);
+    expect(hidden.join('')).not.toContain('POSTGRES_PASSWORD');
+  });
+});

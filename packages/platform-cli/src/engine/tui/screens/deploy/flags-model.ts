@@ -86,6 +86,42 @@ export const INSTALL_TOGGLES: readonly ToggleFlag[] = [
     help: 'Consent in advance: the screen cannot stop mid-run to ask, so without this a missing database stops the install.',
   },
   {
+    flag: '--provision-app-role',
+    option: 'provisionAppRole',
+    label: 'Create a dedicated database role',
+    help: 'Consent in advance: when the database login is a superuser, create an ordinary role for the API and use that (row-level security does not apply to a superuser).',
+  },
+  {
+    flag: '--transfer-ownership',
+    option: 'transferOwnership',
+    label: 'Re-own an existing database to that role',
+    help: 'Consent in advance to ALTER ... OWNER TO on the objects of a database that already holds data. Take a backup first.',
+  },
+  {
+    flag: '--allow-reduced-role',
+    option: 'allowReducedRole',
+    label: 'Accept a role without CREATEROLE',
+    help: 'Managed providers often withhold it; worker-node offload and restore are limited without it.',
+  },
+  {
+    flag: '--rotate-app-password',
+    option: 'rotateAppPassword',
+    label: 'Rotate the application role password',
+    help: 'Generates a new password, writes it to .env and restarts the API.',
+  },
+  {
+    flag: '--skip-role-provisioning',
+    option: 'skipRoleProvisioning',
+    label: 'Create no role',
+    help: 'POSTGRES_USER must already be an ordinary role; database-role-ordinary verifies it.',
+  },
+  {
+    flag: '--allow-superuser',
+    option: 'allowSuperuser',
+    label: 'Run as a superuser anyway',
+    help: 'Tenant isolation is OFF: every organization can read every other organization\'s rows.',
+  },
+  {
     flag: '--bootstrap-proxy',
     option: 'bootstrapProxy',
     label: 'Create the shared proxy if there is none',
@@ -161,6 +197,42 @@ export const UPDATE_TOGGLES: readonly ToggleFlag[] = [
     help: 'Consent in advance: the screen cannot stop mid-run to ask.',
   },
   {
+    flag: '--provision-app-role',
+    option: 'provisionAppRole',
+    label: 'Create a dedicated database role',
+    help: 'Consent in advance: when the database login is a superuser, create an ordinary role for the API and use that (row-level security does not apply to a superuser).',
+  },
+  {
+    flag: '--transfer-ownership',
+    option: 'transferOwnership',
+    label: 'Re-own an existing database to that role',
+    help: 'Consent in advance to ALTER ... OWNER TO on the objects of a database that already holds data. Take a backup first.',
+  },
+  {
+    flag: '--allow-reduced-role',
+    option: 'allowReducedRole',
+    label: 'Accept a role without CREATEROLE',
+    help: 'Managed providers often withhold it; worker-node offload and restore are limited without it.',
+  },
+  {
+    flag: '--rotate-app-password',
+    option: 'rotateAppPassword',
+    label: 'Rotate the application role password',
+    help: 'Generates a new password, writes it to .env and restarts the API.',
+  },
+  {
+    flag: '--skip-role-provisioning',
+    option: 'skipRoleProvisioning',
+    label: 'Create no role',
+    help: 'POSTGRES_USER must already be an ordinary role; database-role-ordinary verifies it.',
+  },
+  {
+    flag: '--allow-superuser',
+    option: 'allowSuperuser',
+    label: 'Run as a superuser anyway',
+    help: 'Tenant isolation is OFF: every organization can read every other organization\'s rows.',
+  },
+  {
     flag: '--skip-renewal',
     option: 'skipRenewal',
     label: 'Do not schedule certificate renewal',
@@ -206,6 +278,12 @@ export const NOT_IN_TUI: Readonly<Record<string, string>> = Object.freeze({
     'Every answer is collected by the screen itself; a second channel for them would be two sources of truth for one value.',
   '--answers-file':
     'Same as --answer: the screen collects them.',
+  '--app-db-user':
+    'A value flag with no screen field; the application role is named by default from the product identity. Use the CLI to choose another.',
+  '--admin-user':
+    'The administrative password is never a flag and the screen has no secret field for a second login: it collects the one database login in the form, and --provision-app-role makes that login the administrator.',
+  '--show-credentials':
+    'Prints the generated application login to the terminal; ink owns the terminal. It is in .env (mode 0600).',
 });
 
 /** The options object a set of chosen toggles produces. */
