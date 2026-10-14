@@ -29,6 +29,12 @@ import {
 import { runEnvWizard } from './env-wizard.js';
 import { runCommand as defaultRunCommand, type CommandResult } from './executor.js';
 import { reconcileEdgeConfig, parseSha256sum, edgeConfigFiles, type RunningRead } from './edge-config.js';
+import {
+  ensureApplicationRole,
+  resolveAdminLogin,
+  roleOptionsFrom,
+  type AppRoleOptions,
+} from './app-role.js';
 import { ensureDatabase } from './database.js';
 import { collectHealth, isHealthy, waitForHealthy, type FetchLike } from './health.js';
 import type { DeployHooks } from './hooks.js';
@@ -105,7 +111,7 @@ import type { PromptContext } from '../prompt.js';
 //      it, which is an honest manual recovery path.
 // =============================================================================
 
-export interface UpdateOptions {
+export interface UpdateOptions extends AppRoleOptions {
   deployRoot: string;
   ref?: string | undefined;
   force?: boolean | undefined;
@@ -172,6 +178,8 @@ interface UpdateContext extends StepContext {
   env?: Map<string, string> | undefined;
   /** Set when the remote has not moved, so the rest of the pipeline stands down. */
   unchanged?: boolean | undefined;
+  /** The application login `database-role` provisioned or rotated, for `--show-credentials`. */
+  appCredentials?: { user: string; password: string } | undefined;
   /** The result of the `version` step, read by `publish-version`. */
   version?: VersionStepResult | undefined;
   /** Resolved by `publish` when it runs; recorded in the state afterwards. */
@@ -415,6 +423,17 @@ async function readRunningEdgeConfig(context: UpdateContext): Promise<RunningRea
       error: error instanceof Error ? error.message.split('\n')[0] : String(error),
     };
   }
+}
+
+/** Whether the flags ask for database-role work even when the revision has not moved. */
+function wantsRoleWork(options: UpdateOptions): boolean {
+  return (
+    options.provisionAppRole === true ||
+    options.rotateAppPassword === true ||
+    options.allowSuperuser === true ||
+    options.adminUser !== undefined ||
+    options.appDbUser !== undefined
+  );
 }
 
 /** Every step after `fetch` stands down when the remote has not moved. */
@@ -746,6 +765,103 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
       },
     },
     {
+      id: 'database-role',
+      title: 'Check the database role',
+      // ⚠ NOT `skipWhenUnchanged`, but not unconditional either. A cron'd
+      // `update` that finds nothing new must stay cheap and quiet, so on an
+      // unchanged revision this runs only when the operator asked for role work
+      // -- which is also the only way an unchanged deployment ever gets
+      // migrated off a superuser login. A moved revision always checks.
+      skip: (context) => {
+        if (context.options.skipRoleProvisioning === true) return 'skipped with --skip-role-provisioning';
+        if (context.unchanged === true && !wantsRoleWork(context.options)) {
+          return `already up to date; pass --provision-app-role to check the database role anyway`;
+        }
+        return undefined;
+      },
+      async run(context) {
+        // #980: a deployment whose POSTGRES_USER is a superuser runs with
+        // row-level security inert. Offer the same migration install does --
+        // provision, transfer ownership, rewrite .env, restart -- from the
+        // login already in .env (it is the administrator), or --admin-user.
+        const env = environmentOfUpdate(context);
+        if (env === undefined) {
+          context.journal.line('No environment file; nothing to check.');
+          return;
+        }
+        const admin = await resolveAdminLogin(context.options, {
+          promptContext: context.options.promptContext,
+          nonInteractive: context.options.nonInteractive,
+        });
+        if (admin !== undefined) {
+          context.journal.addSecrets([{ key: 'DB_ADMIN_PASSWORD', value: admin.password }]);
+        }
+
+        const role = await ensureApplicationRole({
+          env,
+          recordedEnv: env,
+          runCommand: context.runCommand,
+          onLine: (line) => context.journal.line(line),
+          // An unattended update must not start failing on a deployment that
+          // predates this: not consented is a loud warning, and install is where
+          // it is a refusal.
+          whenNotConsented: 'warn',
+          ...roleOptionsFrom(context.options, admin),
+        });
+        context.journal.line(`Database role: ${role.outcome}: ${role.detail}`);
+
+        if (role.outcome === 'superuser-allowed') {
+          const warning = `warning: --allow-superuser: ${env.get('POSTGRES_USER') ?? 'the database login'} bypasses row-level security. Tenant isolation is OFF.`;
+          context.journal.line(warning);
+          context.hooks?.onProgress?.(warning);
+          context.state = { ...context.state, allowSuperuser: true };
+          writeState(context.state);
+          return;
+        }
+        if (role.outcome === 'declined') {
+          context.hooks?.onProgress?.(`warning: ${role.detail}`);
+          return;
+        }
+        if (role.credentials === undefined) return;
+
+        // Rewritten with the one atomic writer, at 0600, over the file on disk
+        // (not the in-memory map, which a drift step may have only half-built).
+        const envPath = envFilePath(context.options.deployRoot);
+        const templatePath = join(composeCwd(context.options.deployRoot), '.env.example');
+        const specs = existsSync(templatePath) ? parseEnvExample(readFileSync(templatePath, 'utf8')) : [];
+        const values = existsSync(envPath) ? readEnvFile(envPath) : new Map(env);
+        values.set('POSTGRES_USER', role.credentials.user);
+        values.set('POSTGRES_PASSWORD', role.credentials.password);
+        context.journal.addSecrets([{ key: 'POSTGRES_PASSWORD', value: role.credentials.password }]);
+        writeEnvFile(envPath, values, specs);
+        context.env = values;
+        context.appCredentials = role.credentials;
+        context.hooks?.onProgress?.(
+          `${role.outcome === 'rotated' ? 'Rotated' : 'Moved the deployment onto'} database role "${role.credentials.user}"; the generated password is saved to .env only.`,
+        );
+
+        // A moved revision restarts the stack further on, with this .env. An
+        // unchanged one restarts nothing, so the api is recreated here and
+        // proved up: it must not be left running on the old login or dead on the new.
+        if (context.unchanged === true) {
+          await compose(context, [...RECREATE_API], { timeoutMs: 5 * 60_000 });
+          const probe = await waitForHealthy({
+            runCommand: context.runCommand,
+            deployRoot: context.options.deployRoot,
+            bindPort: context.state.bindPort,
+            composeProject: composeProjectFor(context.state),
+            ...(context.hooks === undefined ? {} : { hooks: context.hooks }),
+          });
+          if (!probe.ok) {
+            throw new Error(
+              `The API did not become ready on the new database role: ${probe.error ?? `HTTP ${probe.status ?? '?'}`}. ` +
+                'The role was created and .env points at it; check the API logs (pg_hba.conf from the container network is the usual cause).',
+            );
+          }
+        }
+      },
+    },
+    {
       id: 'ensure-database',
       title: 'Make sure the database exists',
       skip: skipWhenUnchanged,
@@ -763,6 +879,9 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
           env,
           runCommand: context.runCommand,
           createDatabase: context.options.createDatabase,
+          ...(context.options.allowSuperuser === true || context.state.allowSuperuser === true
+            ? { allowSuperuser: true }
+            : {}),
           ...consentOptions(context),
           envPath: envFilePath(context.options.deployRoot),
           onLine: (line) => context.journal.line(line),
@@ -1160,6 +1279,11 @@ export interface UpdateResult {
   commitSha: string;
   journalPath: string;
   durationMs: number;
+  /**
+   * The application login `database-role` provisioned or rotated. Present ONLY
+   * with `--show-credentials` (#980); otherwise it is in `.env` and nowhere else.
+   */
+  credentials?: { user: string; password: string } | undefined;
 }
 
 /**
@@ -1270,6 +1394,7 @@ export async function runUpdate(options: UpdateOptions): Promise<UpdateResult> {
       commitSha: context.commitSha ?? state.commitSha,
       journalPath: journal.path,
       durationMs: Date.now() - startedAt,
+      ...shownCredentials(options, context),
     };
   }
 
@@ -1298,7 +1423,9 @@ export async function runUpdate(options: UpdateOptions): Promise<UpdateResult> {
   });
 
   writeState({
-    ...state,
+    // `context.state`, not `state`: a step may have recorded something on it
+    // (`database-role` records --allow-superuser, #980).
+    ...context.state,
     ref: context.target?.ref ?? state.ref,
     commitSha: context.commitSha ?? state.commitSha,
     previousSha: context.previousSha,
@@ -1341,6 +1468,17 @@ export async function runUpdate(options: UpdateOptions): Promise<UpdateResult> {
     commitSha: context.commitSha ?? state.commitSha,
     journalPath: journal.path,
     durationMs: Date.now() - startedAt,
+    ...shownCredentials(options, context),
   };
+}
+
+/** The credentials a run provisioned, when -- and only when -- `--show-credentials` asked. */
+function shownCredentials(
+  options: UpdateOptions,
+  context: UpdateContext,
+): { credentials?: { user: string; password: string } } {
+  return options.showCredentials === true && context.appCredentials !== undefined
+    ? { credentials: context.appCredentials }
+    : {};
 }
 

@@ -3,7 +3,8 @@ import { basename, join, resolve } from 'node:path';
 
 import type { Command } from 'commander';
 
-import { cliName } from '../identity.js';
+import { cliName, envVar } from '../identity.js';
+import { extractRoleAnswers, type AppRoleOptions } from '../deploy/app-role.js';
 import {
   allChecks,
   checksPassed,
@@ -230,6 +231,18 @@ export function registerDeployCommand(
     .option('--skip-seed', 'Do not run the database seed')
     .option('--bootstrap-proxy', 'Create the shared proxy if this server has none (no prompt)')
     .option('--create-database', 'Create the database if it does not exist (no prompt)')
+    .option('--app-db-user <name>', 'Name of the dedicated application database role (default: <app>_app)')
+    .option(
+      '--admin-user <name>',
+      'Administrative database login that provisions the role (password: $' + envVar('DB_ADMIN_PASSWORD') + ' or DB_ADMIN_PASSWORD in the answers file; never a flag)',
+    )
+    .option('--skip-role-provisioning', 'Create no role; POSTGRES_USER must already be an ordinary role')
+    .option('--allow-superuser', 'Run the API as a superuser/BYPASSRLS login anyway (tenant isolation OFF)')
+    .option('--rotate-app-password', 'Generate a new password for the application role')
+    .option('--provision-app-role', 'Consent: create the role when the database login is a superuser (no prompt)')
+    .option('--transfer-ownership', 'Consent: change the owner of an existing database\'s objects to the role (no prompt)')
+    .option('--allow-reduced-role', 'Consent: accept a role the server would not give CREATEROLE/createrole_self_grant')
+    .option('--show-credentials', 'Print the generated application login once at the end (never journaled)')
     .option('--skip-renewal', 'Do not schedule certificate renewal')
     .option('--skip-oauth-check', 'Do not verify the Google OAuth credentials with Google')
     .option('--no-cache', 'Rebuild images without the layer cache')
@@ -251,7 +264,9 @@ export function registerDeployCommand(
         `  ${cliName()} deploy install --non-interactive --domain app.example.com`,
         '',
         'What it does, in order: checks prerequisites, clones the repository,',
-        'collects the environment, validates the database and the Google OAuth',
+        'collects the environment, provisions a dedicated, ordinary database role',
+        'when the login you enter is a superuser (row-level security does not',
+        'apply to one), validates the database and the Google OAuth',
         'credentials, creates the database if it is missing (asked, or',
         '--create-database), builds the images, migrates, seeds, starts the',
         'stack, waits for health, creates the shared proxy if the server has',
@@ -292,6 +307,18 @@ export function registerDeployCommand(
     .option('--skip-seed', 'Do not re-run the database seed')
     .option('--skip-proxy', 'Do not touch the reverse proxy')
     .option('--create-database', 'Create the database if it does not exist (no prompt)')
+    .option('--app-db-user <name>', 'Name of the dedicated application database role (default: <app>_app)')
+    .option(
+      '--admin-user <name>',
+      'Administrative database login that provisions the role (password: $' + envVar('DB_ADMIN_PASSWORD') + ' or DB_ADMIN_PASSWORD in the answers file; never a flag)',
+    )
+    .option('--skip-role-provisioning', 'Create no role; POSTGRES_USER must already be an ordinary role')
+    .option('--allow-superuser', 'Run the API as a superuser/BYPASSRLS login anyway (tenant isolation OFF)')
+    .option('--rotate-app-password', 'Generate a new password for the application role')
+    .option('--provision-app-role', 'Consent: create the role when the database login is a superuser (no prompt)')
+    .option('--transfer-ownership', 'Consent: change the owner of an existing database\'s objects to the role (no prompt)')
+    .option('--allow-reduced-role', 'Consent: accept a role the server would not give CREATEROLE/createrole_self_grant')
+    .option('--show-credentials', 'Print the generated application login once at the end (never journaled)')
     .option('--skip-renewal', 'Do not schedule certificate renewal')
     .option('--skip-oauth-check', 'Do not run the post-deploy OAuth sign-in smoke')
     .option('--proxy-container <name>', PROXY_CONTAINER_HELP)
@@ -874,6 +901,9 @@ export async function runDoctorCommand(
     ...(gitCredentialed === undefined ? {} : { gitCredentialed }),
     bindPort: Number(options.port),
     ...(options.domain === undefined ? {} : { domain: options.domain }),
+    // #980: a choice already made (--allow-superuser at install/update) is a
+    // warning that names the consequence, not a failure to fix.
+    ...(recorded?.allowSuperuser === true ? { allowSuperuser: true } : {}),
     ...(readEnvironment(app.deployRoot) ?? {}),
   };
 
@@ -1253,11 +1283,53 @@ export function renderHealth(
 // `appctl deploy install`  (issue #180)
 // ---------------------------------------------------------------------------
 
+/**
+ * The application-role flags (#980), shared by install and update. The
+ * administrative PASSWORD is deliberately not one of them: a flag is argv.
+ */
+interface AppRoleCommandOptions {
+  appDbUser?: string | undefined;
+  adminUser?: string | undefined;
+  skipRoleProvisioning?: boolean | undefined;
+  allowSuperuser?: boolean | undefined;
+  rotateAppPassword?: boolean | undefined;
+  provisionAppRole?: boolean | undefined;
+  transferOwnership?: boolean | undefined;
+  allowReducedRole?: boolean | undefined;
+  showCredentials?: boolean | undefined;
+}
+
+/**
+ * The role options a run starts with: the flags, over the answers-file keys
+ * (`DB_ADMIN_USER`, `DB_ADMIN_PASSWORD`, `APP_DB_USER`), which are removed from
+ * the answers so none of them -- the administrative password above all -- can
+ * reach `.env`. A flag wins over the file, like `--answer` does.
+ */
+function appRoleOptions(
+  options: AppRoleCommandOptions,
+  fromAnswers: ReturnType<typeof extractRoleAnswers>['role'],
+): AppRoleOptions {
+  const appDbUser = options.appDbUser ?? fromAnswers.appDbUser;
+  const adminUser = options.adminUser ?? fromAnswers.adminUser;
+  return {
+    ...(appDbUser === undefined ? {} : { appDbUser }),
+    ...(adminUser === undefined ? {} : { adminUser }),
+    ...(fromAnswers.adminPassword === undefined ? {} : { adminPassword: fromAnswers.adminPassword }),
+    ...(options.skipRoleProvisioning === true ? { skipRoleProvisioning: true } : {}),
+    ...(options.allowSuperuser === true ? { allowSuperuser: true } : {}),
+    ...(options.rotateAppPassword === true ? { rotateAppPassword: true } : {}),
+    ...(options.provisionAppRole === true ? { provisionAppRole: true } : {}),
+    ...(options.transferOwnership === true ? { transferOwnership: true } : {}),
+    ...(options.allowReducedRole === true ? { allowReducedRole: true } : {}),
+    ...(options.showCredentials === true ? { showCredentials: true } : {}),
+  };
+}
+
 function collectGroup(value: string, previous: string[]): string[] {
   return [...previous, value];
 }
 
-export interface InstallCommandOptions {
+export interface InstallCommandOptions extends AppRoleCommandOptions {
   answer?: ReadonlyMap<string, string> | undefined;
   answersFile?: string | undefined;
   /** Rank 1. Absent now means absent: the default was removed. */
@@ -1411,11 +1483,12 @@ export async function runInstallCommand(
   const stderr = ctx?.stderr ?? process.stderr;
   const json = options.json === true;
 
-  const answers = collectedAnswers(options, (message) =>
-    stderr.write(`warning: ${message}\n`),
+  const { answers, role } = extractRoleAnswers(
+    collectedAnswers(options, (message) => stderr.write(`warning: ${message}\n`)),
   );
 
   const installOptions: InstallOptions = {
+    ...appRoleOptions(options, role),
     deployRoot: app.deployRoot,
     bindPort: Number(options.port),
     proxyRoot: options.proxyRoot,
@@ -1483,6 +1556,27 @@ export async function runInstallCommand(
       '',
     ].join('\n'),
   );
+  writeCredentials(stderr, result.credentials);
+}
+
+/**
+ * Shows the generated application database login ONCE, on request
+ * (`--show-credentials`, #980). To the terminal only: never the journal, and
+ * the caller passes nothing unless it was asked.
+ */
+function writeCredentials(
+  stderr: { write(chunk: string): unknown },
+  credentials: { user: string; password: string } | undefined,
+): void {
+  if (credentials === undefined) return;
+  stderr.write(
+    [
+      '  Application database login (shown once; it is also in the deployment\'s .env, mode 0600):',
+      `    POSTGRES_USER=${credentials.user}`,
+      `    POSTGRES_PASSWORD=${credentials.password}`,
+      '',
+    ].join('\n'),
+  );
 }
 
 
@@ -1490,7 +1584,7 @@ export async function runInstallCommand(
 // `appctl deploy update`  (issue #182)
 // ---------------------------------------------------------------------------
 
-export interface UpdateCommandOptions {
+export interface UpdateCommandOptions extends AppRoleCommandOptions {
   answer?: ReadonlyMap<string, string> | undefined;
   answersFile?: string | undefined;
   /** Rank 1. Absent now means absent: the default was removed. */
@@ -1535,11 +1629,12 @@ export async function runUpdateCommand(
   const stderr = ctx?.stderr ?? process.stderr;
   const json = options.json === true;
 
-  const answers = collectedAnswers(options, (message) =>
-    stderr.write(`warning: ${message}\n`),
+  const { answers, role } = extractRoleAnswers(
+    collectedAnswers(options, (message) => stderr.write(`warning: ${message}\n`)),
   );
 
   const updateOptions: UpdateOptions = {
+    ...appRoleOptions(options, role),
     deployRoot: app.deployRoot,
     ...(proxy.mode === undefined ? {} : { proxyMode: proxy.mode }),
     ...(proxy.container === undefined ? {} : { proxyContainer: proxy.container }),
@@ -1584,6 +1679,7 @@ export async function runUpdateCommand(
 
   if (!result.changed) {
     stderr.write(`\n  Already at ${result.commitSha.slice(0, 12)}. Nothing to do.\n\n`);
+    writeCredentials(stderr, result.credentials);
     return;
   }
 
@@ -1598,4 +1694,5 @@ export async function runUpdateCommand(
       '',
     ].join('\n'),
   );
+  writeCredentials(stderr, result.credentials);
 }

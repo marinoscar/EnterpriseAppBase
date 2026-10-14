@@ -76,6 +76,7 @@ export const UPDATE_STEP_IDS = Object.freeze([
   'preflight',
   'fetch',
   'environment-drift',
+  'database-role',
   'ensure-database',
   'version',
   'maintenance-on',
