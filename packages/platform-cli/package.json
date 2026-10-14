@@ -1,6 +1,6 @@
 {
   "name": "@marinoscar/platform-cli",
-  "version": "0.1.0-next.3",
+  "version": "0.1.0-next.4",
   "description": "CLI commands, TUI building blocks, deploy pipeline and worker-node engine of the platform (ESM).",
   "license": "MIT",
   "type": "module",
@@ -78,8 +78,8 @@
     "test:run": "vitest run"
   },
   "dependencies": {
-    "@marinoscar/platform-contract": "0.1.0-next.3",
-    "@marinoscar/platform-infra": "0.1.0-next.3",
+    "@marinoscar/platform-contract": "0.1.0-next.4",
+    "@marinoscar/platform-infra": "0.1.0-next.4",
     "commander": "^14.0.2",
     "ink": "^7.1.1",
     "ink-select-input": "^6.2.0",
