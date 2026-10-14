@@ -18,6 +18,34 @@ In this order:
 6. [RENAMING.md](RENAMING.md): starting a new product from the starter (`new-project.mjs create`), renaming an app, and the legacy flow for existing forks.
 7. [ADMIN-GUIDE.md](ADMIN-GUIDE.md): what an administrator or user can do in the application, with where each feature is and who may use it.
 
+## Doc map by task
+
+Find the right doc without loading the whole index. Read a doc by section (grep its headings, then read a range), never whole.
+
+| Task | Read |
+|---|---|
+| Understand the subsystems, permission matrix, tables, job types | [ARCHITECTURE.md](ARCHITECTURE.md) (permissions: §7) |
+| Auth, credential kinds, sessions, RLS | [SECURITY-ARCHITECTURE.md](SECURITY-ARCHITECTURE.md) (RLS: §18) |
+| Add or change an endpoint | [API.md](API.md), then `/api/docs` (OpenAPI) |
+| Run the dev loop, change the database | [DEVELOPMENT.md](DEVELOPMENT.md#making-database-changes) |
+| Add a migration for a platform table | [DEVELOPMENT.md](DEVELOPMENT.md#authoring-a-platform-migration) |
+| Write or run tests, conformance suites | [TESTING.md](TESTING.md) |
+| Add a settings page | [specs/settings-ui.md](specs/settings-ui.md) |
+| Add a job type or long-running work | [specs/job-queue.md](specs/job-queue.md), [handlers README](../packages/platform-api/src/jobs/handlers/README.md) |
+| Make a job run on a worker node | [specs/worker-nodes.md](specs/worker-nodes.md) |
+| Use AI or add an AI provider | [specs/ai-platform.md](specs/ai-platform.md), [ai README](../packages/platform-api/src/ai/README.md) |
+| Add a notification | [notifications README](../packages/platform-api/src/notifications/README.md), [specs/browser-notifications.md](specs/browser-notifications.md) |
+| Add a Doctor check | [specs/doctor.md](specs/doctor.md#4-extending-it-in-a-fork) |
+| Extend a slice from an app or package | [EXTENDING.md](EXTENDING.md) |
+| Find which package carries a slice | [SLICES.md](SLICES.md) |
+| Document a package | [AI-ASSISTANTS.md](AI-ASSISTANTS.md) | How Claude Code and OpenCode share the repository rules: `AGENTS.md` files, `CLAUDE.md` imports, agents folders and context budgets |
+| [PACKAGES.md](PACKAGES.md) |
+| Rename or start a new app | [RENAMING.md](RENAMING.md) |
+| Adopt the platform packages in a fork | [ADOPTING-THE-PLATFORM.md](ADOPTING-THE-PLATFORM.md) |
+| Deploy or operate | [Runbooks](#runbooks) |
+| Use the app as an administrator | [ADMIN-GUIDE.md](ADMIN-GUIDE.md) |
+| Work with Claude Code or OpenCode on this repo | [AI-ASSISTANTS.md](AI-ASSISTANTS.md) |
+
 ## Guides
 
 | Guide | What it covers |
