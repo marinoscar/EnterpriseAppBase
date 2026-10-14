@@ -970,7 +970,7 @@ ECS, not EKS. Whether RDS Proxy pins connections when `set_config(..., true)` is
 
 **PROPOSED.**
 
-Implemented by `.changeset/` and `.github/workflows/release.yml`; the operator procedure, including the owner's npm and GitHub prerequisites, is [runbooks/release-platform-packages.md](../runbooks/release-platform-packages.md).
+Implemented by `.changeset/` and `.github/workflows/release.yml`, which still runs in dry-run mode: publishing through trusted publishing awaits the owner enabling it, and npm currently carries only the manually bootstrapped `0.1.0-next.3` (published by hand, without provenance). The operator procedure, including the owner's npm and GitHub prerequisites, is [runbooks/release-platform-packages.md](../runbooks/release-platform-packages.md).
 
 | Topic | Choice |
 |---|---|
@@ -1046,7 +1046,7 @@ flowchart LR
 | kvox | Not started; it waits for the EvoPath retrospective. |
 | MemoriaHub | Not started; it waits for the kvox retrospective. |
 
-The platform side is complete for the program's scope: the six packages, the slices, the starter and the reference app. npm carries only the `0.1.0-next.3` bootstrap release; the next publish waits for the owner to enable trusted publishing ([release runbook](../runbooks/release-platform-packages.md)). How an existing app moves onto the packages: [Adopting the platform](../ADOPTING-THE-PLATFORM.md).
+The platform side is complete for the program's scope: the six packages, the slices, the starter and the reference app. npm carries only the `0.1.0-next.3` release, published by hand as the bootstrap (no provenance); the automated publish (`release.yml` is implemented but runs in dry-run mode) waits for the owner to enable trusted publishing ([release runbook](../runbooks/release-platform-packages.md)). How an existing app moves onto the packages: [Adopting the platform](../ADOPTING-THE-PLATFORM.md).
 
 ### Harvest from the apps, not only the base
 

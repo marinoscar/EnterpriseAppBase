@@ -220,7 +220,12 @@ One row per platform release: version, the Release workflow run, where it went, 
 
 | Version | Date | Workflow run | Channels | Consumer smoke | Provenance |
 |---|---|---|---|---|---|
-| `0.1.0-next.0` | prepared 2026-10-06 (issue #697) | pending: the `Release` run on `main` after the version commit merges | GitHub release `platform-v0.1.0-next.0` (created by `github-release`); npm `next` pending the owner prerequisites | `pack-smoke`: api and web pass on the packed tarballs | pending the first npm publish (`npm audit signatures` in `registry-smoke`) |
+| `0.1.0-next.1` | tag `platform-v0.1.0-next.1` | not recorded | GitHub prerelease with 6 npm-pack tarballs; not on npm | not recorded | none (not on npm) |
+| `0.1.0-next.2` | tag `platform-v0.1.0-next.2` | not recorded | GitHub prerelease with 6 npm-pack tarballs; not on npm | not recorded | none (not on npm) |
+| `0.1.0-next.3` | published 2026-10-07 | manual bootstrap by the owner, not a `Release` run | GitHub prerelease with 6 npm-pack tarballs; npm (all six packages, by hand) | not recorded | none (published by hand, no attestation) |
+| `0.1.0-next.4` | published 2026-10-14; tag `platform-v0.1.0-next.4` | Version Packages PR #986 (merged); one-off manually started workflow, run 38556121188, with a repository-secret npm token (not trusted publishing, not the `Release` publish job) | npm (all six packages, `next` dist-tag); no GitHub prerelease with tarballs yet | `Consumer smoke (packed tarballs)` and `Starter (packed tarballs)` passed in the PR CI on the version commit | SLSA provenance v1 attestation on all six packages (requested by the one-off workflow, verified on the registry) |
+
+Note: `0.1.0-next.3` was published by hand by the owner as the bootstrap, with no provenance attestation. The plan was a `0.0.0` bootstrap on the `bootstrap` tag, but `0.1.0-next.3` was published and npm set `latest` automatically on first publish, so `latest` and `bootstrap` both pointed at it. The `next` dist-tag now exists and points at `0.1.0-next.4` for all six packages; `latest` and `bootstrap` still point at `0.1.0-next.3`. `0.1.0-next.4` was published by a one-off manually started workflow, not by `release.yml`: the `Release` workflow's own publish, GitHub release and images jobs did not run for it (dry-run mode). Four of the six packages took a few minutes to appear on the registry after the job reported success; that was propagation lag, not a failure. `release.yml` still runs in dry-run mode until trusted publishing is enabled and `NPM_PUBLISH_ENABLED` is `true` (owner prerequisites 3 to 5).
 
 ## In a fork
 
