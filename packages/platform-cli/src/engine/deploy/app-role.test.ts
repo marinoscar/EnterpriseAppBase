@@ -1,6 +1,6 @@
 import { createHash, createHmac } from 'node:crypto';
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import { PreconditionError, UsageError } from '../errors.js';
 import { replaceCliIdentityForTests } from '../identity.js';
@@ -9,9 +9,13 @@ import {
   createRoleStatement,
   defaultAppRoleName,
   ensureApplicationRole,
+  extractRoleAnswers,
   generateAppPassword,
   grantCreateRoleStatement,
   ownershipScript,
+  plannedRoleName,
+  provisioningMetadata,
+  resolveAdminLogin,
   scramSha256Verifier,
   selfGrantStatement,
   type EnsureApplicationRoleOptions,
@@ -612,5 +616,87 @@ describe('secret egress', () => {
     expect((error as Error).message).not.toContain(ADMIN_SECRET);
     expect((error as Error).message).not.toContain(FIXED_PASSWORD);
     expect((error as Error).message).toContain("PASSWORD '<password>'");
+  });
+});
+
+describe('the role a run provisions', () => {
+  it('prefers the flag, then the application login a previous run recorded, then <app>_app', () => {
+    expect(plannedRoleName({ flag: 'shop_app', recordedUser: 'old_app', adminUser: 'admin' })).toBe('shop_app');
+    expect(plannedRoleName({ recordedUser: 'old_app', adminUser: 'admin' })).toBe('old_app');
+    expect(plannedRoleName({ adminUser: 'admin' })).toBe('example_app');
+  });
+
+  it('passes over a recorded login that is the administrator or one this will not create', () => {
+    expect(plannedRoleName({ recordedUser: 'admin', adminUser: 'admin' })).toBe('example_app');
+    expect(plannedRoleName({ recordedUser: 'postgres', adminUser: 'master' })).toBe('example_app');
+    expect(plannedRoleName({ recordedUser: 'has-hyphen', adminUser: 'master' })).toBe('example_app');
+  });
+});
+
+describe('the answers keys', () => {
+  it('splits the role keys out, so none of them can be written to .env', () => {
+    const { answers, role } = extractRoleAnswers(
+      new Map([
+        ['DB_ADMIN_USER', 'master'],
+        ['DB_ADMIN_PASSWORD', 'the-admin-secret'],
+        ['APP_DB_USER', 'shop_app'],
+        ['POSTGRES_DB', 'appdb'],
+      ]),
+    );
+    expect(role).toEqual({ adminUser: 'master', adminPassword: 'the-admin-secret', appDbUser: 'shop_app' });
+    expect([...(answers ?? [])]).toEqual([['POSTGRES_DB', 'appdb']]);
+  });
+
+  it('leaves an answers map with nothing else as undefined, and blanks as unset', () => {
+    expect(extractRoleAnswers(new Map([['DB_ADMIN_PASSWORD', 'x']])).answers).toBeUndefined();
+    expect(extractRoleAnswers(new Map([['APP_DB_USER', '']])).role).toEqual({});
+    expect(extractRoleAnswers(undefined)).toEqual({ answers: undefined, role: {} });
+  });
+});
+
+describe('the administrative password', () => {
+  const variable = 'APPCTL_DB_ADMIN_PASSWORD';
+  const before = process.env[variable];
+  afterEach(() => {
+    if (before === undefined) delete process.env[variable];
+    else process.env[variable] = before;
+  });
+
+  it('is needed only when an administrative user is named', async () => {
+    expect(await resolveAdminLogin({}, { nonInteractive: true })).toBeUndefined();
+  });
+
+  it('comes from the environment, named by the CLI identity, never from a flag', async () => {
+    process.env[variable] = 'from-the-environment-secret';
+    expect(await resolveAdminLogin({ adminUser: 'master' }, { nonInteractive: true })).toEqual({
+      user: 'master',
+      password: 'from-the-environment-secret',
+    });
+  });
+
+  it('comes from the answers file when given there, ahead of the environment', async () => {
+    process.env[variable] = 'from-the-environment-secret';
+    expect(
+      await resolveAdminLogin({ adminUser: 'master', adminPassword: 'from-the-file-secret' }, { nonInteractive: true }),
+    ).toEqual({ user: 'master', password: 'from-the-file-secret' });
+  });
+
+  it('is refused, naming the variable, when nobody can supply it', async () => {
+    delete process.env[variable];
+    const error = await resolveAdminLogin({ adminUser: 'master' }, { nonInteractive: true }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(UsageError);
+    expect((error as Error).message).toContain(variable);
+    expect((error as Error).message).toContain('never a flag');
+  });
+});
+
+describe('the wizard under provisioning', () => {
+  it('does not ask for the login the provisioning decides, and never prints the password', () => {
+    const user = provisioningMetadata('example_app')('POSTGRES_USER');
+    const password = provisioningMetadata('example_app')('POSTGRES_PASSWORD');
+    expect(user).toMatchObject({ essential: false, fixed: 'example_app' });
+    expect(password.essential).toBe(false);
+    expect(password.fixed).not.toMatch(/postgres/i);
+    expect(provisioningMetadata('x')('POSTGRES_DB').essential).toBe(true);
   });
 });
