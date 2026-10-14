@@ -14,7 +14,8 @@ import {
 import { canPrompt, promptSecret, type PromptContext } from '../prompt.js';
 import { consented, obtainConsent, type ConsentOptions } from './consent.js';
 import { metadataFor, type EnvVarMetadata } from './env-metadata.js';
-import { CREATABLE_DATABASE_NAME, assertCreatableDatabaseName } from './database.js';
+import type { SecretEntry } from './journal.js';
+import { CREATABLE_DATABASE_NAME } from './database.js';
 import type { runCommand } from './executor.js';
 
 // =============================================================================
@@ -84,11 +85,6 @@ export function quoteRole(name: string): string {
   return `"${name}"`;
 }
 
-function quoteDatabase(name: string): string {
-  assertCreatableDatabaseName(name);
-  return `"${name}"`;
-}
-
 /** Quotes an administrative login for GRANT, which may be any name the server holds. */
 function quoteAny(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
@@ -137,13 +133,22 @@ export function scramSha256Verifier(password: string, salt: Buffer = randomBytes
 // Built from validated, quoted identifiers; the one value (the verifier) is
 // base64 and `$`/`:`, so quoting it as a literal cannot be broken out of.
 
-/** The attributes the role is created with; CREATEROLE follows separately (see grants). */
-export function createRoleStatement(role: string, verifier: string): string {
-  return `CREATE ROLE ${quoteRole(role)} LOGIN NOSUPERUSER NOBYPASSRLS CREATEDB PASSWORD ${literal(verifier)}`;
+/**
+ * The attributes the role is created with; CREATEROLE follows separately (see
+ * grants). NO PASSWORD: it is set last (`setPasswordStatement`), after `.env`
+ * holds it, so a failure part-way never leaves a password nobody has.
+ */
+export function createRoleStatement(role: string): string {
+  return `CREATE ROLE ${quoteRole(role)} LOGIN NOSUPERUSER NOBYPASSRLS CREATEDB`;
 }
 
 export function setPasswordStatement(role: string, verifier: string): string {
   return `ALTER ROLE ${quoteRole(role)} PASSWORD ${literal(verifier)}`;
+}
+
+/** A role that exists but cannot log in (NOLOGIN) is enabled, not left to fail at pg_hba. */
+export function enableLoginStatement(role: string): string {
+  return `ALTER ROLE ${quoteRole(role)} LOGIN`;
 }
 
 /** So the node-offload broker can mint per-job roles, as 10-application-role.sh does. */
@@ -164,16 +169,30 @@ export function grantMembershipStatement(role: string, admin: string): string {
   return `GRANT ${quoteRole(role)} TO ${quoteAny(admin)}`;
 }
 
+export function revokeMembershipStatement(role: string, admin: string): string {
+  return `REVOKE ${quoteRole(role)} FROM ${quoteAny(admin)}`;
+}
+
+/** The relation kinds that carry an owner we move: tables, partitioned, views, materialized, foreign, sequences, composite types. */
+const OWNED_RELATIONS = `('r','p','v','m','f','S','c')`;
+
+/** A sequence a column owns (serial/identity): it follows its table and cannot be re-owned alone. */
+const LINKED_SEQUENCE = (alias: string): string =>
+  `(${alias}.relkind = 'S' and exists (select 1 from pg_depend l where l.classid = 'pg_class'::regclass and l.objid = ${alias}.oid and l.refclassid = 'pg_class'::regclass and l.deptype in ('a','i')))`;
+
 function ownerInfoStatement(role: string): string {
   assertCreatableRoleName(role);
   const owner = literal(role);
-  const objects = `c.relnamespace = s.oid and c.relkind in ('r','p','v','m','f','S')`;
+  const extension = (catalog: string, alias: string): string =>
+    `not exists (select 1 from pg_depend e where e.classid = '${catalog}'::regclass and e.objid = ${alias}.oid and e.deptype = 'e')`;
+  const objects = `c.relnamespace = s.oid and c.relkind in ${OWNED_RELATIONS} and ${extension('pg_class', 'c')}`;
   return (
     `select pg_get_userbyid(d.datdba) || '|' || pg_get_userbyid(s.nspowner) || '|' || ` +
-    `((select count(*) from pg_class c where ${objects} and pg_get_userbyid(c.relowner) <> ${owner}) + ` +
-    `(select count(*) from pg_type t where t.typnamespace = s.oid and t.typtype = 'e' and pg_get_userbyid(t.typowner) <> ${owner}) + ` +
-    `(select count(*) from pg_proc p where p.pronamespace = s.oid and p.prokind in ('f','p') and pg_get_userbyid(p.proowner) <> ${owner} ` +
-    `and not exists (select 1 from pg_depend e where e.classid = 'pg_proc'::regclass and e.objid = p.oid and e.deptype = 'e'))) || '|' || ` +
+    // What would MOVE: extension members are never re-owned, a column-linked sequence follows its table.
+    `((select count(*) from pg_class c where ${objects} and not ${LINKED_SEQUENCE('c')} and pg_get_userbyid(c.relowner) <> ${owner}) + ` +
+    `(select count(*) from pg_type t where t.typnamespace = s.oid and t.typtype in ('e','d','r') and pg_get_userbyid(t.typowner) <> ${owner} and ${extension('pg_type', 't')}) + ` +
+    `(select count(*) from pg_proc p where p.pronamespace = s.oid and p.prokind in ('f','p') and pg_get_userbyid(p.proowner) <> ${owner} and ${extension('pg_proc', 'p')})) || '|' || ` +
+    // What is THERE (for "does this database hold data").
     `(select count(*) from pg_class c where ${objects}) ` +
     `from pg_database d, pg_namespace s where d.datname = current_database() and s.nspname = 'public'`
   );
@@ -185,8 +204,11 @@ function ownerInfoStatement(role: string): string {
  * `REASSIGN OWNED BY` here and a test keeps it that way (it also rewrites
  * ownership in OTHER databases and of cluster objects the role never owned).
  *
- * Extension-owned objects are skipped (they cannot be re-owned), and so are
- * sequences linked to a column, which follow their table.
+ * Extension-owned objects are skipped (they cannot be re-owned). A sequence a
+ * column owns follows its table; one that is still owned by someone else when
+ * its table is the role's is granted to the role instead, so the role can use
+ * it. The database name is quoted, not validated: this only ever alters a
+ * database that already exists, whatever it is called.
  */
 export function ownershipScript(role: string, database: string): string {
   const target = literal(role);
@@ -194,37 +216,43 @@ export function ownershipScript(role: string, database: string): string {
     `NOT EXISTS (SELECT 1 FROM pg_depend e WHERE e.classid = '${catalog}'::regclass AND e.objid = o.oid AND e.deptype = 'e')`;
   return [
     'BEGIN;',
-    `ALTER DATABASE ${quoteDatabase(database)} OWNER TO ${quoteRole(role)};`,
-    `ALTER SCHEMA public OWNER TO ${quoteRole(role)};`,
+    `ALTER DATABASE ${quoteAny(database)} OWNER TO ${quoteRole(role)};`,
     'DO $ownership$',
     'DECLARE',
     `  target constant text := ${target};`,
     '  item record;',
     'BEGIN',
+    // PostgreSQL 15+: `public` belongs to pg_database_owner, which is the new database owner already.
+    "  IF (SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname = 'public') NOT IN (target, 'pg_database_owner') THEN",
+    "    EXECUTE format('ALTER SCHEMA public OWNER TO %I', target);",
+    '  END IF;',
     '  FOR item IN',
-    "    SELECT o.relname AS name, CASE o.relkind WHEN 'v' THEN 'VIEW' WHEN 'm' THEN 'MATERIALIZED VIEW' WHEN 'f' THEN 'FOREIGN TABLE' ELSE 'TABLE' END AS kind",
+    "    SELECT o.relname AS name, CASE o.relkind WHEN 'v' THEN 'VIEW' WHEN 'm' THEN 'MATERIALIZED VIEW' WHEN 'f' THEN 'FOREIGN TABLE' WHEN 'c' THEN 'TYPE' ELSE 'TABLE' END AS kind",
     '    FROM pg_class o JOIN pg_namespace n ON n.oid = o.relnamespace',
-    `    WHERE n.nspname = 'public' AND o.relkind IN ('r','p','v','m','f') AND pg_get_userbyid(o.relowner) <> target AND ${notExtension('pg_class')}`,
+    `    WHERE n.nspname = 'public' AND o.relkind IN ('r','p','v','m','f','c') AND pg_get_userbyid(o.relowner) <> target AND ${notExtension('pg_class')}`,
     '    ORDER BY o.oid',
     '  LOOP',
     "    EXECUTE format('ALTER %s public.%I OWNER TO %I', item.kind, item.name, target);",
     '  END LOOP;',
     '  FOR item IN',
-    '    SELECT o.relname AS name',
+    '    SELECT o.relname AS name, EXISTS (SELECT 1 FROM pg_depend l WHERE l.classid = \'pg_class\'::regclass AND l.objid = o.oid AND l.refclassid = \'pg_class\'::regclass AND l.deptype IN (\'a\',\'i\')) AS linked',
     '    FROM pg_class o JOIN pg_namespace n ON n.oid = o.relnamespace',
     `    WHERE n.nspname = 'public' AND o.relkind = 'S' AND pg_get_userbyid(o.relowner) <> target AND ${notExtension('pg_class')}`,
-    "      AND NOT EXISTS (SELECT 1 FROM pg_depend l WHERE l.classid = 'pg_class'::regclass AND l.objid = o.oid AND l.refclassid = 'pg_class'::regclass AND l.deptype IN ('a','i'))",
     '    ORDER BY o.oid',
     '  LOOP',
-    "    EXECUTE format('ALTER SEQUENCE public.%I OWNER TO %I', item.name, target);",
+    '    IF item.linked THEN',
+    "      EXECUTE format('GRANT ALL ON SEQUENCE public.%I TO %I', item.name, target);",
+    '    ELSE',
+    "      EXECUTE format('ALTER SEQUENCE public.%I OWNER TO %I', item.name, target);",
+    '    END IF;',
     '  END LOOP;',
     '  FOR item IN',
-    '    SELECT o.typname AS name',
+    "    SELECT o.typname AS name, CASE o.typtype WHEN 'd' THEN 'DOMAIN' ELSE 'TYPE' END AS kind",
     '    FROM pg_type o JOIN pg_namespace n ON n.oid = o.typnamespace',
-    `    WHERE n.nspname = 'public' AND o.typtype = 'e' AND pg_get_userbyid(o.typowner) <> target AND ${notExtension('pg_type')}`,
+    `    WHERE n.nspname = 'public' AND o.typtype IN ('e','d','r') AND pg_get_userbyid(o.typowner) <> target AND ${notExtension('pg_type')}`,
     '    ORDER BY o.oid',
     '  LOOP',
-    "    EXECUTE format('ALTER TYPE public.%I OWNER TO %I', item.name, target);",
+    "    EXECUTE format('ALTER %s public.%I OWNER TO %I', item.kind, item.name, target);",
     '  END LOOP;',
     '  FOR item IN',
     "    SELECT o.oid::regprocedure::text AS name, CASE o.prokind WHEN 'p' THEN 'PROCEDURE' ELSE 'FUNCTION' END AS kind",
@@ -462,6 +490,30 @@ export interface EnsureApplicationRoleOptions extends Omit<ConsentOptions, 'flag
   whenNotConsented: 'refuse' | 'warn';
   /** Replaces the password generator; the test seam. */
   generatePassword?: (() => string) | undefined;
+  /**
+   * Where the application login is stored (`.env`). When given, the new login is
+   * written there BEFORE the server's password is changed and put back if the
+   * change fails, so `.env` and the server never disagree about a password that
+   * was lost. Absent: the caller writes `result.credentials` itself.
+   */
+  store?: CredentialStore | undefined;
+  /**
+   * Told about every secret the moment it exists -- the generated password and
+   * its verifier -- BEFORE any statement carries them, so the journal's redactor
+   * has them for every line that follows.
+   */
+  onSecrets?: ((secrets: readonly SecretEntry[]) => void) | undefined;
+}
+
+/**
+ * Where the application login lives (the deployment's `.env`), written
+ * atomically at 0600 by the caller's own writer.
+ */
+export interface CredentialStore {
+  /** Writes the login. Throws when it cannot: nothing on the server has changed yet. */
+  write(credentials: { user: string; password: string }): void | Promise<void>;
+  /** Puts back exactly what was there before `write`. */
+  restore(): void | Promise<void>;
 }
 
 export type ApplicationRoleOutcome =
@@ -558,14 +610,65 @@ const CONSEQUENCE: Readonly<Record<string, string>> = {
  * update's `database-role` step call it, and a fork's own wizard MUST call it
  * rather than reimplement any part of "detect, offer, provision, transfer":
  * the consent rules, the statements and the refusals are all here so that no
- * two callers can disagree about them. It never writes `.env` or a journal
- * itself -- the caller does, from `result.credentials`.
+ * two callers can disagree about them.
  *
- * Nothing is mutated before every consent has been obtained, so a "no" leaves
- * the server exactly as it was.
+ * ORDER OF EFFECTS, because a password lost between the server and `.env` locks
+ * the application out of its own database:
+ *
+ *   1. everything is read and every consent obtained before the server is
+ *      touched, so a "no", a refusal or an unreadable answer changes nothing;
+ *   2. then the role, its attributes and the ownership (none of which carry a
+ *      secret);
+ *   3. the PASSWORD LAST: the new login is written to `.env` first
+ *      (`options.store`, atomic, 0600), then `ALTER ROLE ... PASSWORD`, then the
+ *      role logs in once as proof. A failure at the `ALTER` puts the old `.env`
+ *      back; a failure after it keeps the password the server now has.
  */
 export async function ensureApplicationRole(
   options: EnsureApplicationRoleOptions,
+): Promise<ApplicationRoleResult> {
+  const progress = { mutated: false };
+  try {
+    return await provision(options, progress);
+  } catch (error) {
+    // update must not start failing on a deployment that predates this: anything
+    // that goes wrong BEFORE the server was changed is a warning there, not a failure.
+    if (
+      !progress.mutated &&
+      options.whenNotConsented === 'warn' &&
+      (error instanceof PreconditionError || error instanceof UsageError)
+    ) {
+      options.onLine?.(error.message);
+      return unchanged('declined', error.message);
+    }
+    throw error;
+  }
+}
+
+/** psql's answer to "may this role log in with that password?", kept apart from "wrong password". */
+type LoginProbe = 'ok' | 'rejected' | 'unknown';
+
+/**
+ * Whether `user` opens `database` with `password`. Only a rejected PASSWORD is
+ * `rejected`: a pg_hba.conf refusal, a revoked CONNECT, a timeout or anything
+ * else is `unknown`, because resetting a password fixes none of them.
+ */
+async function probeLogin(
+  run: typeof runCommand,
+  settings: DatabaseSettings,
+  database: string,
+): Promise<{ result: LoginProbe; detail: string }> {
+  const answer = await runPsql(run, settings, database, 'select 1');
+  if (answer.ok) return { result: 'ok', detail: '' };
+  if (/28P01|password authentication failed/i.test(answer.stderr)) {
+    return { result: 'rejected', detail: firstLine(answer.stderr) };
+  }
+  return { result: 'unknown', detail: firstLine(answer.stderr) };
+}
+
+async function provision(
+  options: EnsureApplicationRoleOptions,
+  progress: { mutated: boolean },
 ): Promise<ApplicationRoleResult> {
   const line = (text: string): void => options.onLine?.(text);
   const entered = databaseSettings(options.env);
@@ -598,7 +701,7 @@ export async function ensureApplicationRole(
   const privileged = attributes.superuser || attributes.bypassRls;
 
   if (!explicit && !privileged) {
-    if (options.rotate === true) return await rotateOwnPassword(options, entered);
+    if (options.rotate === true) return await rotateOwnPassword(options, entered, progress);
     line(`${adminName} is an ordinary role: nothing to provision`);
     return unchanged('ordinary', `${adminName} is an ordinary role`);
   }
@@ -618,7 +721,6 @@ export async function ensureApplicationRole(
     adminUser: adminName,
   });
   assertCreatableRoleName(roleName);
-  assertCreatableDatabaseName(entered.database);
   if (roleName === adminName) {
     throw new UsageError(
       `The application role cannot be the administrative login "${adminName}". Pass a different --app-db-user.`,
@@ -688,6 +790,10 @@ export async function ensureApplicationRole(
     `select 1 from pg_database where datname = ${literal(entered.database)}`,
   );
   const databaseExists = databaseProbe.ok && databaseProbe.stdout.trim() === '1';
+  // The role is proven, and its recorded password probed, against the database
+  // it will actually use once that exists: the maintenance database says nothing
+  // about CONNECT on the application database or a pg_hba.conf line for it.
+  const probeDatabase = databaseExists ? entered.database : MAINTENANCE_DATABASE;
 
   let owners: OwnerInfo | undefined;
   if (databaseExists) {
@@ -707,7 +813,9 @@ export async function ensureApplicationRole(
   }
   const needsTransfer =
     owners !== undefined &&
-    (owners.databaseOwner !== roleName || owners.schemaOwner !== roleName || owners.toMove > 0);
+    (owners.databaseOwner !== roleName ||
+      (owners.schemaOwner !== roleName && owners.schemaOwner !== 'pg_database_owner') ||
+      owners.toMove > 0);
 
   // 5. Consent to change the owner of an existing, non-empty database.
   if (needsTransfer && owners !== undefined && owners.total > 0) {
@@ -734,31 +842,75 @@ export async function ensureApplicationRole(
     }
   }
 
-  // 6. The password: reuse what authenticates, set one otherwise.
-  const generate = options.generatePassword ?? generateAppPassword;
+  // 6. The password: reuse what authenticates. A role that ALREADY EXISTS is
+  // somebody's -- staging and production of one fork on one cluster default to
+  // the same `<repo>_app` -- so its password is never reset because the
+  // credentials on record merely fail: that needs --rotate-app-password, or a
+  // yes that names the role.
   let reuse = false;
-  if (existing !== undefined && options.rotate !== true && existingPassword !== undefined && existingPassword !== '') {
-    const login = await runPsql(
-      options.runCommand,
-      { ...maintenance, user: roleName, password: existingPassword },
-      MAINTENANCE_DATABASE,
-      'select 1',
-    );
-    reuse = login.ok;
+  if (existing !== undefined && options.rotate !== true) {
+    if (existingPassword !== undefined && existingPassword !== '') {
+      const login = await probeLogin(
+        options.runCommand,
+        { ...maintenance, user: roleName, password: existingPassword },
+        probeDatabase,
+      );
+      if (login.result === 'ok') {
+        reuse = true;
+      } else if (login.result === 'unknown') {
+        throw new PreconditionError(
+          `Could not check the credentials on record for role "${roleName}" (${login.detail}). ` +
+            'That is not a wrong password (a pg_hba.conf line, a revoked CONNECT or the network), so its password was left as it is. ' +
+            'Fix the connection and re-run; --rotate-app-password sets a new password regardless.',
+        );
+      }
+    }
+    if (!reuse) {
+      const why =
+        existingPassword === undefined || existingPassword === ''
+          ? 'nothing on record opens it'
+          : 'the password on record is rejected';
+      const consent = await obtainConsent(
+        `Role "${roleName}" already exists and ${why}. It may belong to another deployment on this cluster, or to an earlier install that died. ` +
+          `Set a NEW password for "${roleName}"? Whatever uses its current password is locked out.`,
+        {
+          flag: undefined,
+          nonInteractive: options.nonInteractive,
+          promptContext: options.promptContext,
+          ask: options.ask,
+        },
+      );
+      if (!consented(consent)) {
+        throw new PreconditionError(
+          `Role "${roleName}" already exists and ${why}, so its password was not changed. ` +
+            `If it belongs to another deployment on this cluster, choose a different role with --app-db-user. ` +
+            `If it is this deployment's (an earlier install died), re-run with --rotate-app-password to set a new password.`,
+        );
+      }
+    }
   }
+  const generate = options.generatePassword ?? generateAppPassword;
   const password = reuse ? (existingPassword as string) : generate();
   const verifier = reuse ? '' : scramSha256Verifier(password);
+  // Before any statement carries them.
+  if (!reuse) {
+    options.onSecrets?.([
+      { key: 'POSTGRES_PASSWORD', value: password },
+      { key: 'POSTGRES_PASSWORD_VERIFIER', value: verifier },
+    ]);
+  }
   const secrets = [password, verifier, connection.password].filter((secret) => secret !== '');
   const script = async (database: string, sql: string): Promise<{ ok: boolean; stderr: string }> => {
     const result = await runPsqlScript(options.runCommand, connection, database, sql, { secrets });
     return { ok: result.ok, stderr: result.stderr };
   };
 
-  // 7. The role.
+  // 7. The role. From here the server changes.
+  progress.mutated = true;
   let created = false;
   const degraded: string[] = [];
   if (existing === undefined) {
-    const result = await script(MAINTENANCE_DATABASE, `${createRoleStatement(roleName, verifier)};\n`);
+    const result = await script(MAINTENANCE_DATABASE, `${createRoleStatement(roleName)};\n`);
     if (!result.ok) {
       throw new PreconditionError(
         NOT_PERMITTED.test(result.stderr)
@@ -771,17 +923,26 @@ export async function ensureApplicationRole(
     }
     created = true;
     line(`Created role "${roleName}" (LOGIN NOSUPERUSER NOBYPASSRLS CREATEDB)`);
-  } else if (!reuse) {
-    const result = await script(MAINTENANCE_DATABASE, `${setPasswordStatement(roleName, verifier)};\n`);
-    if (!result.ok) throw new PreconditionError(`Could not set the password of role "${roleName}": ${firstLine(result.stderr)}`);
-    line(
-      options.rotate === true
-        ? `Rotated the password of role "${roleName}"`
-        : `Role "${roleName}" exists but nothing on record opens it: its password was set`,
-    );
   } else {
-    line(`Role "${roleName}" exists and its recorded credentials work: reused, not rotated`);
+    line(
+      reuse
+        ? `Role "${roleName}" exists and its recorded credentials work: reused, not rotated`
+        : options.rotate === true
+          ? `Role "${roleName}" exists: its password will be rotated`
+          : `Role "${roleName}" exists: its password will be reset, as agreed`,
+    );
+    if (!existing.canLogin) {
+      const login = await script(MAINTENANCE_DATABASE, `${enableLoginStatement(roleName)};\n`);
+      if (!login.ok) {
+        throw new PreconditionError(
+          `Role "${roleName}" exists but cannot log in (NOLOGIN), and enabling it failed: ${firstLine(login.stderr)}\n` +
+            `  Run ALTER ROLE ${quoteRole(roleName)} LOGIN; as an administrator, or choose another role with --app-db-user.`,
+        );
+      }
+      line(`Enabled LOGIN on role "${roleName}"`);
+    }
   }
+  const afterCreate = `The role "${roleName}" exists; re-run with --rotate-app-password once the cause is fixed.`;
 
   if (existing !== undefined && !existing.createDb) {
     const result = await script(MAINTENANCE_DATABASE, `ALTER ROLE ${quoteRole(roleName)} CREATEDB;\n`);
@@ -819,45 +980,95 @@ export async function ensureApplicationRole(
       },
     );
     if (!consented(consent)) {
+      // The password was not set, so nothing but the (password-less) role was left behind.
       return notConsented(
         `Role "${roleName}" exists but lacks what the platform expects:\n${costs.join('\n')}\n` +
-          '  The deployment was not moved onto it. Ask the provider for a login that can grant them, or re-run with --allow-reduced-role to accept the limits.',
+          '  The deployment was not moved onto it and no password was set. Ask the provider for a login that can grant them, or re-run with --allow-reduced-role to accept the limits.',
       );
     }
   }
 
   // 8. Ownership. A non-superuser administrator must be able to SET ROLE to the
-  // new owner to give it things.
+  // new owner to give it things; that membership is revoked again afterwards if
+  // this run is what created it.
   let ownershipTransferred = false;
   if (needsTransfer) {
+    let granted = false;
     if (!attributes.superuser) {
-      await script(MAINTENANCE_DATABASE, `${grantMembershipStatement(roleName, adminName)};\n`);
+      let canSet = await runPsql(
+        options.runCommand,
+        maintenance,
+        MAINTENANCE_DATABASE,
+        `select pg_has_role(${literal(adminName)}, ${literal(roleName)}, 'SET')`,
+      );
+      // `SET` is a PostgreSQL 16 privilege type; before it, membership is the question.
+      if (!canSet.ok) {
+        canSet = await runPsql(
+          options.runCommand,
+          maintenance,
+          MAINTENANCE_DATABASE,
+          `select pg_has_role(${literal(adminName)}, ${literal(roleName)}, 'MEMBER')`,
+        );
+      }
+      if (!(canSet.ok && canSet.stdout.trim().startsWith('t'))) {
+        const grant = await script(MAINTENANCE_DATABASE, `${grantMembershipStatement(roleName, adminName)};\n`);
+        if (!grant.ok) {
+          throw new PreconditionError(
+            `"${adminName}" cannot act as "${roleName}" to give it the database: ${firstLine(grant.stderr)}\n  ${afterCreate}`,
+          );
+        }
+        granted = true;
+      }
     }
     const result = await script(entered.database, ownershipScript(roleName, entered.database));
+    if (granted) {
+      const revoke = await script(MAINTENANCE_DATABASE, `${revokeMembershipStatement(roleName, adminName)};\n`);
+      if (!revoke.ok) line(`warning: could not revoke the temporary membership of "${adminName}" in "${roleName}": ${firstLine(revoke.stderr)}`);
+    }
     if (!result.ok) {
       throw new PreconditionError(
         `Could not transfer ownership of "${entered.database}" to "${roleName}": ${firstLine(result.stderr)}\n` +
-          '  Nothing was partially changed (one transaction). The role exists; re-run once the cause is fixed.',
+          `  Nothing was partially changed (one transaction), and no password was set. ${afterCreate}`,
       );
     }
     ownershipTransferred = true;
     line(`Transferred ownership of "${entered.database}" and its objects to "${roleName}"`);
   }
 
-  // 9. Prove the role opens before the deployment is pointed at it.
-  const proof = await runPsql(
-    options.runCommand,
-    { ...maintenance, user: roleName, password },
-    MAINTENANCE_DATABASE,
-    'select 1',
-  );
-  if (!proof.ok) {
+  // 9. The PASSWORD, last. `.env` first: if it cannot be written the server is
+  // untouched; if the ALTER fails `.env` is put back; once the ALTER has
+  // succeeded `.env` holds what the server holds.
+  const credentials = { user: roleName, password };
+  await options.store?.write(credentials);
+  if (!reuse) {
+    const set = await script(MAINTENANCE_DATABASE, `${setPasswordStatement(roleName, verifier)};\n`);
+    if (!set.ok) {
+      await options.store?.restore();
+      throw new PreconditionError(
+        `Could not set the password of role "${roleName}": ${firstLine(set.stderr)}\n  .env was left as it was. ${afterCreate}`,
+      );
+    }
+    if (created) line(`Set the password of the new role "${roleName}"`);
+  }
+
+  // Prove the role opens, against the database it will use, before the
+  // deployment is pointed at it.
+  const proof = await probeLogin(options.runCommand, { ...maintenance, user: roleName, password }, probeDatabase);
+  if (proof.result !== 'ok') {
+    // When the old .env was this very role, its old password is dead now and the
+    // new one is what the server has, so that is what .env keeps.
+    const keepNew = !reuse && recorded?.get('POSTGRES_USER') === roleName;
+    if (!keepNew) await options.store?.restore();
     throw new PreconditionError(
-      `Role "${roleName}" was provisioned but cannot log in from this host: ${firstLine(proof.stderr)}\n` +
-        (/no pg_hba\.conf entry/i.test(proof.stderr)
+      `Role "${roleName}" was provisioned but cannot log in from this host: ${proof.detail}\n` +
+        (/no pg_hba\.conf entry/i.test(proof.detail)
           ? `  pg_hba.conf has no entry for "${roleName}" from here: add one (the administrative login is not the only one that needs access).\n`
           : '') +
-        '  The deployment was not moved onto it.',
+        (keepNew
+          ? `  The server now has the NEW password for "${roleName}" and .env holds it.`
+          : options.store === undefined
+            ? '  The deployment was not moved onto it.'
+            : `  The deployment was not moved onto it: .env is back to its previous login. ${afterCreate}`),
     );
   }
 
@@ -865,7 +1076,7 @@ export async function ensureApplicationRole(
     outcome: 'provisioned',
     detail: created ? `created role "${roleName}"` : `using role "${roleName}"`,
     roleName,
-    credentials: { user: roleName, password },
+    credentials,
     created,
     ownershipTransferred,
     degraded,
@@ -876,9 +1087,19 @@ export async function ensureApplicationRole(
 async function rotateOwnPassword(
   options: EnsureApplicationRoleOptions,
   login: DatabaseSettings,
+  progress: { mutated: boolean },
 ): Promise<ApplicationRoleResult> {
   const password = (options.generatePassword ?? generateAppPassword)();
   const verifier = scramSha256Verifier(password);
+  options.onSecrets?.([
+    { key: 'POSTGRES_PASSWORD', value: password },
+    { key: 'POSTGRES_PASSWORD_VERIFIER', value: verifier },
+  ]);
+  const credentials = { user: login.user, password };
+
+  // `.env` first: if it cannot be written the server is untouched.
+  await options.store?.write(credentials);
+  progress.mutated = true;
   const result = await runPsqlScript(
     options.runCommand,
     login,
@@ -887,14 +1108,26 @@ async function rotateOwnPassword(
     { secrets: [password, verifier, login.password] },
   );
   if (!result.ok) {
-    throw new PreconditionError(`Could not rotate the password of "${login.user}": ${firstLine(result.stderr)}`);
+    await options.store?.restore();
+    throw new PreconditionError(
+      `Could not rotate the password of "${login.user}": ${firstLine(result.stderr)}\n  .env was left as it was.`,
+    );
   }
   options.onLine?.(`Rotated the password of role "${login.user}"`);
+
+  const proof = await probeLogin(options.runCommand, { ...login, password }, login.database);
+  if (proof.result !== 'ok') {
+    // The server has the new password: .env keeps it.
+    throw new PreconditionError(
+      `The password of "${login.user}" was rotated but the new one did not open ${login.database}: ${proof.detail}\n` +
+        '  The server has the NEW password and .env holds it.',
+    );
+  }
   return {
     outcome: 'rotated',
     detail: `rotated the password of "${login.user}"`,
     roleName: login.user,
-    credentials: { user: login.user, password },
+    credentials,
     created: false,
     ownershipTransferred: false,
     degraded: [],
@@ -915,4 +1148,34 @@ export function superuserConsequence(user: string): string {
     `${user} bypasses row-level security: tenant isolation is OFF and every organization can read every other organization's rows. ` +
     `${cliName()} deploy update --provision-app-role moves the deployment onto a dedicated role.`
   );
+}
+
+/**
+ * Whether `--allow-superuser` was chosen for THIS login. The record is the
+ * state's (`allowSuperuser` + `allowSuperuserLogin`); a flag with no matching
+ * login is stale and permits nothing.
+ */
+export function superuserAllowedFor(
+  state: { allowSuperuser?: boolean | undefined; allowSuperuserLogin?: string | undefined } | undefined,
+  user: string | undefined,
+): boolean {
+  return state?.allowSuperuser === true && user !== undefined && state.allowSuperuserLogin === user;
+}
+
+/**
+ * What the state records about `--allow-superuser` after a run: the login kept
+ * in this run, else the previous record while `.env` still holds that login,
+ * else nothing.
+ */
+export function superuserRecord(
+  kept: string | undefined,
+  previous: { allowSuperuser?: boolean | undefined; allowSuperuserLogin?: string | undefined } | undefined,
+  currentUser: string | undefined,
+): { allowSuperuser: true | undefined; allowSuperuserLogin: string | undefined } {
+  if (kept !== undefined) return { allowSuperuser: true, allowSuperuserLogin: kept };
+  if (superuserAllowedFor(previous, currentUser)) {
+    return { allowSuperuser: true, allowSuperuserLogin: currentUser as string };
+  }
+  // Explicit undefined, so spreading it over an earlier record CLEARS the choice.
+  return { allowSuperuser: undefined, allowSuperuserLogin: undefined };
 }

@@ -49,6 +49,8 @@ export interface FakePostgresState {
   failures: { match: RegExp; stderr: string | ((sql: string) => string) }[];
   /** Whether `createrole_self_grant` is a setting on this server. */
   hasSelfGrantSetting: boolean;
+  /** `<role>><member>` pairs a GRANT made and no REVOKE has taken back. */
+  memberships: Set<string>;
 }
 
 export interface SeenCall {
@@ -105,6 +107,7 @@ export function createFakePostgres(initial: {
     owners: new Map(Object.entries(initial.owners ?? {})),
     failures: [...(initial.failures ?? [])],
     hasSelfGrantSetting: initial.hasSelfGrantSetting ?? true,
+    memberships: new Set(),
   };
   const seen: SeenCall[] = [];
 
@@ -190,7 +193,7 @@ export function createFakePostgres(initial: {
     }
 
     // -- writes -----------------------------------------------------------------
-    const create = /CREATE ROLE "([^"]+)" LOGIN NOSUPERUSER NOBYPASSRLS CREATEDB PASSWORD '([^']*)'/.exec(sql);
+    const create = /CREATE ROLE "([^"]+)" LOGIN NOSUPERUSER NOBYPASSRLS CREATEDB/.exec(sql);
     if (create !== null) {
       if (!role.superuser && !role.createRole) {
         return fail(argv, options, 'ERROR:  permission denied to create role (42501)');
@@ -201,7 +204,6 @@ export function createFakePostgres(initial: {
         createRole: false,
         createDb: true,
         canLogin: true,
-        verifier: create[2] as string,
         selfGrant: false,
       });
       return ok();
@@ -214,6 +216,11 @@ export function createFakePostgres(initial: {
         return fail(argv, options, 'ERROR:  permission denied to alter role (42501)');
       }
       target.verifier = password[2] as string;
+      return ok();
+    }
+    const login = /ALTER ROLE "([^"]+)" LOGIN/.exec(sql);
+    if (login !== null) {
+      (state.roles.get(login[1] as string) as FakeRole).canLogin = true;
       return ok();
     }
     const createRole = /ALTER ROLE "([^"]+)" CREATEROLE/.exec(sql);
@@ -237,7 +244,20 @@ export function createFakePostgres(initial: {
       (state.roles.get(selfGrant[1] as string) as FakeRole).selfGrant = true;
       return ok();
     }
-    if (/^GRANT "[^"]+" TO "/.test(sql.trim())) return ok();
+    const hasRole = /pg_has_role\('((?:[^']|'')*)', '((?:[^']|'')*)', '(SET|MEMBER)'\)/.exec(sql);
+    if (hasRole !== null) {
+      return ok(state.memberships.has(`${hasRole[2]}>${hasRole[1]}`) ? 't' : 'f');
+    }
+    const grant = /^GRANT "([^"]+)" TO "([^"]+)"/.exec(sql.trim());
+    if (grant !== null) {
+      state.memberships.add(`${grant[1]}>${grant[2]}`);
+      return ok();
+    }
+    const revoke = /^REVOKE "([^"]+)" FROM "([^"]+)"/.exec(sql.trim());
+    if (revoke !== null) {
+      state.memberships.delete(`${revoke[1]}>${revoke[2]}`);
+      return ok();
+    }
     const ownership = /ALTER DATABASE "([^"]+)" OWNER TO "([^"]+)"/.exec(sql);
     if (ownership !== null) {
       state.owners.set(ownership[1] as string, {
@@ -260,7 +280,7 @@ export function createFakePostgres(initial: {
     respond,
     state,
     seen,
-    mutations: () => seen.filter((call) => /^\s*(BEGIN;\s*)?(CREATE (ROLE|DATABASE)|ALTER (ROLE|DATABASE|SCHEMA)|GRANT) /i.test(call.sql)),
+    mutations: () => seen.filter((call) => /^\s*(BEGIN;\s*)?(CREATE (ROLE|DATABASE)|ALTER (ROLE|DATABASE|SCHEMA)|GRANT|REVOKE) /i.test(call.sql)),
   };
 }
 
