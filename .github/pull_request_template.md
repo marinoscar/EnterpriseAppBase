@@ -4,7 +4,7 @@
 
 ## Linked issue
 
-<!-- Fixes #123 / Relates to #123 — every feature or bug fix needs a tracking issue and its own worktree, see CLAUDE.md -->
+<!-- Fixes #123 / Relates to #123 — every feature or bug fix needs a tracking issue and its own worktree, see AGENTS.md -->
 
 ## Type of Change
 
@@ -40,7 +40,7 @@
 - [ ] Spec (`docs/specs/*.md`)
 - [ ] Runbook (`docs/runbooks/*.md`)
 - [ ] README
-- [ ] CLAUDE.md
+- [ ] AGENTS.md / CLAUDE.md
 - [ ] None needed
 
 ## Checklist
