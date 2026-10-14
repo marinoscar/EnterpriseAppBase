@@ -41,6 +41,7 @@
     "api-storage-slice",
     "augmentation-targets-entry-modules",
     "cli-android-slice",
+    "cli-check-test-timeout",
     "cli-core-create-cli",
     "cli-deploy-application-role",
     "cli-infra-extension-points",

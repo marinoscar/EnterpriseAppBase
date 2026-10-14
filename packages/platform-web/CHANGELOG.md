@@ -1,5 +1,11 @@
 # @marinoscar/platform-web
 
+## 0.1.0-next.5
+
+### Patch Changes
+
+- @marinoscar/platform-contract@0.1.0-next.5
+
 ## 0.1.0-next.4
 
 ### Minor Changes

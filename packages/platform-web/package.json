@@ -1,6 +1,6 @@
 {
   "name": "@marinoscar/platform-web",
-  "version": "0.1.0-next.4",
+  "version": "0.1.0-next.5",
   "description": "React pages, components and hooks of the platform (ESM).",
   "license": "MIT",
   "type": "module",
@@ -278,7 +278,7 @@
     "test:run": "vitest run"
   },
   "dependencies": {
-    "@marinoscar/platform-contract": "0.1.0-next.4"
+    "@marinoscar/platform-contract": "0.1.0-next.5"
   },
   "peerDependencies": {
     "@codemirror/lang-sql": "^6.10.0",
