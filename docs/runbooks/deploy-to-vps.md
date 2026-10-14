@@ -284,10 +284,31 @@ as, rather than copying into `.env` whatever login you typed:
 
 It is idempotent. Re-running `install`, `--resume`, or `update` finds the
 role and reuses the credentials in `.env` — **it does not rotate the
-password** — and a resumed run needs no administrator at all. A role that
-exists but that nothing on record opens (an install that died between
-creating it and writing `.env`) gets a new password set; that needs the
-administrator again.
+password** — and a resumed run needs no administrator at all.
+
+**An existing role is never taken over silently.** If the role already exists
+and the credentials on record do not open it (nothing is on record, or the
+password is rejected), `install` refuses, because staging and production of one
+fork on one cluster default to the same `<repo>_app` and the second install
+must not lock the first out. Choose another role with `--app-db-user`, or — if
+the role is this deployment's (an earlier install died between creating it and
+writing `.env`) — re-run with `--rotate-app-password`, or answer yes to the
+interactive question that names the role. A check that *could not be made*
+(a `pg_hba.conf` line, a revoked `CONNECT`, a timeout) is not a wrong password
+and never resets one. The recorded password is tried against the application
+database, not the maintenance one.
+
+**Order of effects.** Nothing on the server changes before every consent has
+been given. The role, its attributes and the ownership come first; the
+**password is set last**, after `.env` (atomic, mode `0600`) already holds it.
+If the server then refuses the password, `.env` is put back byte for byte; if
+the role cannot log in afterwards, `.env` goes back to the previous login when
+that was a different one (the administrator still works) and keeps the new
+password when the previous one was this very role (its old password is gone).
+A role that was created in a run that then failed has no password; re-run with
+`--rotate-app-password`. On an unchanged-revision `update` that moves the
+login, an api that does not become healthy gets `.env` reverted to the previous
+login if it still works, or the error names the login `.env` now holds.
 
 | Flag | What it does |
 |---|---|
@@ -297,8 +318,8 @@ administrator again.
 | `--transfer-ownership` | Consent in advance to change the owner of an existing, non-empty database's objects. |
 | `--allow-reduced-role` | Consent in advance to a role the server would not give `CREATEROLE` / `createrole_self_grant` (below). |
 | `--skip-role-provisioning` | Create nothing: `POSTGRES_USER` must already be an ordinary role you made, which `database-role-ordinary` then verifies. |
-| `--allow-superuser` | Run the API as the privileged login anyway. It says, on screen and in the journal, that **tenant isolation is off**, and is recorded in the deployment state so `doctor` reports a choice already made as a warning rather than a failure. |
-| `--rotate-app-password` | Generate a new password for the role, write it to `.env`, and (on `update`) restart the API. The role can do this alone; no administrator is needed. |
+| `--allow-superuser` | Run the API as the privileged login anyway. It says, on screen and in the journal, that **tenant isolation is off**, and is recorded in the deployment state **for that login** so `doctor` reports a choice already made as a warning rather than a failure. The record is dropped as soon as `POSTGRES_USER` is an ordinary role, and never applies to another login. |
+| `--rotate-app-password` | Generate a new password for the role, write it to `.env` first, then set it on the server, and (on `update`) restart the API. The role can do this alone; no administrator is needed. It is also how an existing role is taken over (above). |
 | `--show-credentials` | Print the generated login once at the end. Never journaled. |
 
 **Managed providers (RDS, Cloud SQL, Azure, ...).** A master user is often
@@ -334,6 +355,25 @@ Use `--admin-user` when the login in `.env` should not be the administrator.
 
 To rotate later: `appctl deploy update --rotate-app-password`. To go back
 (not recommended): `--allow-superuser`.
+
+**Known limits of the role provisioning.**
+
+- Ownership is moved for tables, partitioned tables, views, materialized
+  views, foreign tables, sequences, standalone composite types, enum, domain
+  and range types and functions/procedures in schema `public`. Aggregates,
+  operators, casts, text-search objects and objects in other schemas are not
+  moved; a database that keeps application objects elsewhere needs those
+  re-owned by hand (`ALTER ... OWNER TO`).
+- A sequence a column owns (`serial`, identity) follows its table; one that is
+  still owned by someone else when its table is the role's cannot be re-owned
+  alone, so the role is granted `ALL` on it instead.
+- An `update` that finds `POSTGRES_USER` is a superuser **warns** and carries
+  on: the warning is a journal line and a progress message, so under cron or
+  `--json` it is visible in the journal and in `deploy doctor`, not on stdout.
+  `--skip-role-provisioning` on a superuser login prints the same warning.
+- If a non-superuser administrator has to be able to act as the role to give it
+  the database, `install` grants that membership for the transfer and revokes it
+  afterwards when it was the one that granted it.
 
 ## 3. After install: the first login (do this before anything else)
 

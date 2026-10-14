@@ -265,10 +265,20 @@ an API running as one isolates no organization from another.
   (`runPsqlScript`; `runCommand` gained `input`), so it is in neither argv nor
   the server's statement log. A test pins the verifier against the RFC 7677
   example. `.env` (0600) is the only place the password is stored.
-- **Idempotent.** A role that exists and whose recorded credentials authenticate
-  is reused untouched; a new password is set only for `--rotate-app-password` or
-  for a role nothing on record opens. An existing role that is itself a superuser
-  is never altered or used.
+- **Idempotent, and never a takeover.** A role that exists and whose recorded
+  credentials authenticate (against the application database) is reused
+  untouched. A new password is set only for `--rotate-app-password` or an
+  interactive yes that names the role: a role that exists and that nothing on
+  record opens may be another deployment's (staging and production of one fork
+  share `<repo>_app`), so it is refused, not reset. A check that could not be
+  made (pg_hba, revoked CONNECT, timeout) is never read as a wrong password. An
+  existing role that is itself a superuser is never altered or used.
+- **The password is set last.** Role, attributes and ownership first; then the
+  new login is written to `.env` (the caller's `CredentialStore`), then `ALTER
+  ROLE ... PASSWORD`, then the role logs in once. A failure at the ALTER puts
+  `.env` back; one after it keeps the password the server has, unless `.env`
+  held another login, which is restored. The generated password and verifier
+  reach the journal's redactor (`onSecrets`) before any statement carries them.
 - **Ownership** of an existing database moves with `ALTER DATABASE`, `ALTER
   SCHEMA public` and a `DO` block of `ALTER ... OWNER TO` over tables, views,
   materialized views, foreign tables, unlinked sequences, enum types and
@@ -280,8 +290,10 @@ an API running as one isolates no organization from another.
   will not start an API as a superuser unasked) and a warning in update (an
   unattended update must not begin failing on a deployment that predates this);
   on an unchanged revision the step runs only when a role flag is passed.
-  `--allow-superuser` is recorded in the state (`allowSuperuser`) so doctor
-  reports the choice as a warning.
+  `--allow-superuser` is recorded in the state (`allowSuperuser` and the
+  `allowSuperuserLogin` it applies to) so doctor reports the choice as a
+  warning; doctor stays read-only, and the record is dropped by install/update
+  once the login is an ordinary role and ignored for any other login.
 
 ### OAuth probe
 
