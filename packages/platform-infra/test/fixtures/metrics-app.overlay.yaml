@@ -1,0 +1,19 @@
+# Test overlay (package tests and the CI `otelcol validate` step): the safe
+# pattern from app-collector.example.yaml, a NEW named pipeline that reuses the
+# platform's processors and exporters by name and leaves every platform
+# pipeline untouched.
+receivers:
+  prometheus/app:
+    config:
+      scrape_configs:
+        - job_name: app-sidecar
+          scrape_interval: 30s
+          static_configs:
+            - targets: ["sidecar:9464"]
+
+service:
+  pipelines:
+    metrics/app:
+      receivers: [prometheus/app]
+      processors: [memory_limiter, attributes/redact, transform/promote_labels, batch]
+      exporters: [otlphttp/greptime]

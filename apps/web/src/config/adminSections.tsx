@@ -1,0 +1,630 @@
+/**
+ * The admin (Console) settings information architecture — ONE declaration,
+ * three consumers.
+ *
+ * Issue #91, epic #90. The admin surface used to be two tab-strip pages
+ * (`SystemSettingsPage` with three tabs, `UserManagementPage` with two) plus a
+ * separate list of rail destinations in `config/destinations.ts`. That is the
+ * same shape of mistake issue #55 already fixed once for library navigation:
+ * when the page, the menu, and the rail each keep their own list of what
+ * exists and who may see it, three gates give three answers, and a user ends
+ * up with a reachable page, a menu entry pointing at it, and no rail row.
+ *
+ * So the IA is declared here exactly once and read by:
+ *
+ *   1. `SettingsHubPage`            — the card grid, and the phone drill-down
+ *   2. `NavigationRail` Console mode — the rail's contents on any `/admin/*`
+ *   3. `AppBar`                      — resolving an admin route to its title
+ *
+ * "Console mode invents no new admin IA" is enforced structurally rather than
+ * by convention: there is one array, so a card added here appears in all three
+ * surfaces, and none of them can drift from the others.
+ *
+ * `Icon` is declared as a COMPONENT, never as a rendered element — exactly as
+ * `config/destinations.ts` does, and for the same reason. The hub draws it at
+ * 40px and the rail at ~20px, so the size cannot be baked in at declaration
+ * time. Storing `<AdminIcon />` here would freeze it at the default size and
+ * make every consumer clone the element to resize it.
+ *
+ * Why `.tsx` when the file holds no JSX: the icon values are React component
+ * types, and keeping the extension consistent with the rest of the config
+ * surface means adding a rendered fallback later is not a file rename.
+ */
+
+import EmailOutlinedIcon from '@mui/icons-material/EmailOutlined';
+import NotificationsActiveOutlinedIcon from '@mui/icons-material/NotificationsActiveOutlined';
+import BuildCircleOutlinedIcon from '@mui/icons-material/BuildCircleOutlined';
+import VpnKeyOutlinedIcon from '@mui/icons-material/VpnKeyOutlined';
+import CloudOutlinedIcon from '@mui/icons-material/CloudOutlined';
+// Operations (#266, epic #254). One icon per card; the Jobs, Job Insights and
+// Worker Nodes cards bring their own from the packaged jobs slice (#854).
+// Broadcasts (#325, epic #319) — the one Operations card that is not a view
+// onto machinery, but an action taken through it.
+import CampaignOutlinedIcon from '@mui/icons-material/CampaignOutlined';
+// About (#401, epic #397) — the running system's own identity: which commit,
+// which version, installed when.
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import AutoAwesomeOutlinedIcon from '@mui/icons-material/AutoAwesomeOutlined';
+import ModelTrainingOutlinedIcon from '@mui/icons-material/ModelTrainingOutlined';
+import DataUsageOutlinedIcon from '@mui/icons-material/DataUsageOutlined';
+// Observability (#537, epic #528; #578) — the telemetry policy page, the
+// explorer and the dashboard, packaged since #704 (cards and icons from the slice).
+import { telemetryAdminCards } from '@marinoscar/platform-web/telemetry/ui';
+// Doctor (#634; a packaged page since #696: card and icon from its descriptor).
+import { doctorSettingsPage } from '@marinoscar/platform-web/doctor/ui';
+// Access and Organizations (#727): the identity slice's cards, as data.
+import { identityAdminSections } from '@marinoscar/platform-web/identity/ui';
+// The jobs slice's Operations cards (#854): Jobs, Job Insights, Worker Nodes.
+import { dbBackupAdminSections } from '@marinoscar/platform-web/db-backup/ui';
+import { jobsAdminSections } from '@marinoscar/platform-web/jobs/ui';
+// Setup guide (#745; a packaged page: card and icon from its descriptor).
+import { setupGuideSettingsPage } from '@marinoscar/platform-web/onboarding/ui';
+// Android app (#746; a packaged page: card and icon from its descriptor).
+import { androidAppSettingsPage } from '@marinoscar/platform-web/android-app/ui';
+
+// The card and section TYPES and the helpers every surface runs over this
+// registry (`visibleSettingsSections`, `settingsPageTitle`, `isFeatureEnabled`)
+// are the settings slice's (`@marinoscar/platform-web/settings/ui`, #733); the
+// registry itself stays here, in the app. `orgs` is this app's own feature key
+// (#726), added to the open `SettingsFeatureRegistry` in
+// `hooks/useSettingsFeatures.ts`.
+import { DANGER_ZONE_GROUP_LABEL } from '@marinoscar/platform-web/user-data/headless';
+import { factoryResetSettingsPage } from '@marinoscar/platform-web/user-data/ui';
+import type { SettingsSectionDef } from '@marinoscar/platform-web/settings/ui';
+import SettingsSuggestOutlinedIcon from '@mui/icons-material/SettingsSuggestOutlined';
+
+/**
+ * The admin sections, in hub order.
+ *
+ * GATING IS BY PERMISSION, NOT BY ROLE — a role check here is what produced
+ * the split-brain described in `destinations.ts`'s header. The strings are the
+ * ones the API enforces:
+ *
+ *   - `system_settings:read`  → `system-settings.controller.ts` (GET)
+ *   - `system_settings:write` → `system-settings.controller.ts` (PUT/PATCH)
+ *   - `users:read`            → `users.controller.ts`
+ *   - `jobs:read`             → `jobs/job-admin.controller.ts`
+ *   - `nodes:read`            → the worker-node controller (#267)
+ *   - `db_backup:read`        → the database-backup controller (#268)
+ *   - `push:read`             → the push-config controller (#355)
+ *   - `storage_config:read`   → the storage-config controller (#375)
+ *
+ * `Users & Allowlist` gates on `users:read` alone even though it hosts data
+ * from two controllers (Users → `users:read`, Allowlist → `allowlist:read`).
+ * That mirrors the existing destination gate: the CARD gate is about
+ * reachability, and the page is worth reaching for its Users half alone; the
+ * Allowlist half gates itself on `allowlist:read` inside the page.
+ */
+export const ADMIN_SECTIONS: SettingsSectionDef[] = [
+  {
+    label: 'General',
+    cards: [
+      {
+        // Issue #124, epic #109. `system_settings:read` is the string
+        // `email-settings.controller.ts` enforces on its GET, exactly as the
+        // `Notifications` card below mirrors `system-settings.controller.ts` —
+        // the registry never invents a permission. Saving and test-sending need
+        // `system_settings:write`, which the PAGE gates internally: the card
+        // gate is about REACHABILITY, and a read-only admin diagnosing "why is
+        // mail broken" is worth letting in to look.
+        title: 'Email',
+        description:
+          'Choose how the application sends email, and send a test message to prove it works.',
+        Icon: EmailOutlinedIcon,
+        path: '/admin/settings/email',
+        permission: 'system_settings:read',
+      },
+      {
+        // Issue #225, epic #215. `system_settings:read` is the string
+        // `system-settings.controller.ts` enforces on its GET, because this
+        // setting lives in the system settings document. Saving needs
+        // `system_settings:write`, which the PAGE gates internally: the card gate is about REACHABILITY, and "are
+        // browser notifications on for this deployment, and which events are
+        // suppressed" is worth reading for anyone answering "why did nobody get
+        // notified".
+        title: 'Notifications',
+        description:
+          'Turn browser notifications on or off for everyone, and suppress individual events.',
+        Icon: NotificationsActiveOutlinedIcon,
+        path: '/admin/settings/notifications',
+        permission: 'system_settings:read',
+      },
+      {
+        // Issue #355. `push:read` / `push:write` is a permission pair OF ITS
+        // OWN, not a reuse of `system_settings:*`: generating/rotating key
+        // material has a real, described blast radius (every existing
+        // subscriber goes dark until it re-subscribes) that should not ride
+        // along with routine settings edits, mirroring why `broadcasts:*` and
+        // `nodes:*` were split out rather than folded into
+        // `system_settings:*`/`jobs:*`. `push:read` is the string
+        // `push-config.controller.ts` enforces on its GET — the registry
+        // never invents a permission, it mirrors one. Generating, rotating,
+        // enabling/disabling and removing all need `push:write`, which the
+        // PAGE gates internally: the card gate is about REACHABILITY, and "is
+        // web push configured, and by whom" is worth reading for anyone
+        // diagnosing why push notifications are not arriving.
+        title: 'Web Push',
+        description:
+          'Generate a VAPID key pair, enable or rotate it, and control whether this deployment can send browser push notifications.',
+        Icon: VpnKeyOutlinedIcon,
+        path: '/admin/settings/push',
+        permission: 'push:read',
+      },
+      {
+        // Issue #376, epic #372. `storage_config:read` / `storage_config:write`
+        // is a permission pair OF ITS OWN, and it is neither of the two pairs
+        // that already look like they would do.
+        //
+        // NOT `system_settings:*`: a wrong bucket, a wrong endpoint or a
+        // rotated-out secret does not degrade one feature, it breaks every
+        // upload, avatar, job artifact and database backup in the deployment at
+        // once — the same "distinct blast radius" argument `nodes:*`,
+        // `db_backup:*`, `broadcasts:*` and `push:*` each made before it.
+        //
+        // NOT `storage:*`, which is the closer-looking mistake: THAT pair gates
+        // OBJECT ACCESS and is seeded to Viewer and Contributor, so every
+        // ordinary user of this application holds `storage:read`. Mirroring it
+        // here would put the deployment's credential-bearing configuration
+        // screen in front of the entire user base.
+        //
+        // `storage_config:read` is the string `storage/config/storage-config
+        // .controller.ts` enforces on its GET — the registry never invents a
+        // permission, it mirrors one. Saving, testing the connection and
+        // creating the bucket all need `storage_config:write`, which the PAGE
+        // gates internally by disabling its controls: the card gate is about
+        // REACHABILITY, and "which bucket is this deployment writing to, and
+        // does it think it is configured" is worth reading for anyone answering
+        // "why did that upload fail".
+        //
+        // GENERAL, NOT OPERATIONS: this is configuration an administrator SETS
+        // and which then sits there, exactly like Email and Web Push beside it.
+        // Operations is the running system — work in flight, the machines
+        // executing it, the copies of the data taken while it ran.
+        title: 'Storage',
+        description:
+          'Point this deployment at an object store, prove the credentials work, and create the bucket if it is not there yet.',
+        Icon: CloudOutlinedIcon,
+        path: '/admin/settings/storage',
+        permission: 'storage_config:read',
+      },
+      {
+        // Issue #258, epic #254. `system_settings:read` is the string
+        // `host/maintenance/maintenance.controller.ts` enforces on its GET —
+        // the registry never invents a permission, it mirrors one. That
+        // controller deliberately adds NO permission of its own: a maintenance
+        // window IS a system setting, stored in the `maintenance` namespace of
+        // that row and nowhere else, so `system_settings:read` / `:write`
+        // already mean exactly what this page needs them to mean.
+        //
+        // Opening and closing a window needs `system_settings:write`, which the
+        // PAGE gates internally by disabling its controls: the card gate is
+        // about REACHABILITY, and "is this deployment deliberately out of
+        // service, and which layer is deciding that" is worth reading for
+        // anyone answering "why is nothing working".
+        title: 'Maintenance',
+        description:
+          'Take the application out of service for planned work, with a message for anyone who tries to use it.',
+        Icon: BuildCircleOutlinedIcon,
+        path: '/admin/settings/maintenance',
+        permission: 'system_settings:read',
+      },
+      // Issue #745, appended to General: the administrator's derived setup
+      // checklist (required: storage, email, access; recommended: AI, Web
+      // Push, backups), from `@marinoscar/platform-web/onboarding/ui`.
+      // `system_settings:read` is the permission under which
+      // `@marinoscar/platform-api/onboarding` returns the admin block and
+      // serves the activation metrics; its Activation section is a section of
+      // the page, not a card or a tab.
+      { ...setupGuideSettingsPage.card, Icon: setupGuideSettingsPage.Icon },
+      // Issue #746. APPENDED to General after Setup guide (EvoPath's place):
+      // which Android app builds the deployment trusts, and the APKs it
+      // hosts, are configuration an administrator sets. `system_settings:read`
+      // is the exact string `GET /api/admin/android-app`
+      // (`@marinoscar/platform-api/android-app`) enforces; every write is
+      // gated inside the page on `system_settings:write`. No `feature`.
+      { ...androidAppSettingsPage.card, Icon: androidAppSettingsPage.Icon },
+    ],
+  },
+  {
+    label: 'Access',
+    // The identity slice's card (#727), from `@marinoscar/platform-web/identity/ui`
+    // as data: `Users & Allowlist`, `/admin/settings/users`, `users:read`.
+    cards: [...identityAdminSections.access],
+  },
+  /**
+   * Operations — the deployment's moving parts (issue #266, epic #254).
+   *
+   * A THIRD GROUP rather than more cards under `General`, because the question
+   * it answers is a different one. `General` is configuration: values an
+   * administrator SETS, which then sit there. These four are the running
+   * system: work in flight, machines executing it, and the copy of the data
+   * taken while it ran. An operator opens `General` to change something and
+   * opens this group to find out what is happening — and putting the two under
+   * one heading would make the twelve-card grid a single undifferentiated wall
+   * exactly when someone is scanning it during an incident.
+   *
+   * ===========================================================================
+   * ALL FOUR CARDS WERE DECLARED AT ONCE, BEFORE THEIR PAGES EXISTED
+   * ===========================================================================
+   *
+   * `Worker Nodes` and `Database Backup` landed in later issues (#271 routed
+   * the first; #287, the epic's last issue, routed the second). Both were
+   * declared back in #266 anyway, `disabled: true` and with NO `path`, and the
+   * reason is concrete rather than aesthetic:
+   *
+   * The settings hub is under visual-regression testing at
+   * `maxDiffPixels: 4`. Any change to the card grid — a card added to a
+   * section, a new section, a title long enough to wrap — reflows the layout
+   * and requires the baselines to be regenerated inside a pinned Playwright
+   * container. Adding these four cards one issue at a time means doing that
+   * four times, with four chances to land a stale or mis-generated baseline,
+   * and three of those regenerations would be for a grid nobody has shipped a
+   * page behind yet. Declaring the whole group at once makes it ONE reflow and
+   * ONE baseline regeneration for the epic.
+   *
+   * That reasoning is about ADDING a card, and it does not argue against
+   * flipping one when its page ships: routing `Worker Nodes` (#271), and then
+   * `Database Backup` (#287), changes what a card in the existing grid renders
+   * — a "Coming soon" chip becomes a `CardActionArea`, and the rail gains the
+   * row it was skipping — so the baselines move once more each time, for a card
+   * somebody can now actually open. As of #287 no card in this group is inert,
+   * which is the state the group was declared in advance to reach.
+   *
+   * `disabled: true` AND no `path` together, not either alone, for a card that
+   * is still unbuilt. They are belt-and-braces on purpose, because the two
+   * consumers treat them differently and both treatments must be right: `SettingsHub` renders an
+   * inert card with a "Coming soon" chip and — importantly — no
+   * `CardActionArea` at all, so the card is not a tab stop and does not ripple;
+   * `NavigationRail` skips the row entirely rather than drawing a link to
+   * nowhere. A card carrying a `path` to an unrouted page would instead send a
+   * click to `App.tsx`'s `*` catch-all and land the operator on the home page
+   * with no explanation.
+   *
+   * ===========================================================================
+   * THE PERMISSIONS ARE THE CONTROLLERS' OWN STRINGS
+   * ===========================================================================
+   *
+   * Per `CLAUDE.md` Settings UI Pattern rule 3, verified against the API rather
+   * than assumed:
+   *
+   *   - `jobs:read`      → `jobs/job-admin.controller.ts` (`PERMISSIONS.JOBS_READ`),
+   *                        which both Jobs cards mirror: the list, the stats
+   *                        and the insights read all sit behind it. The five
+   *                        writes need `jobs:write`, which each PAGE gates
+   *                        internally by disabling its controls — the card gate
+   *                        is about REACHABILITY, and "what is the queue doing"
+   *                        is worth reading for anyone answering "why has
+   *                        nothing happened".
+   *   - `nodes:read`     → `nodes/nodes-admin.controller.ts`
+   *                        (`PERMISSIONS.NODES_READ`), the string it enforces
+   *                        on the fleet list, the node detail and the
+   *                        credential list; also `node-credential.controller.ts`.
+   *                        DELIBERATELY NOT `jobs:read`: `roles.constants.ts`
+   *                        splits the two, so a Workers card gated on
+   *                        `jobs:read` would advertise a permission that
+   *                        controller never checks, and the hub would decide
+   *                        reachability on evidence unrelated to whether the
+   *                        request behind it will be authorized.
+   *   - `db_backup:read` → the backup controller (#268). NOT
+   *                        `system_settings:read`: `roles.constants.ts`
+   *                        reserves a dedicated `db_backup:read/write/restore`
+   *                        triple for this surface precisely so backup access
+   *                        can be granted without handing over the settings
+   *                        document, and mirroring the settings permission here
+   *                        would quietly undo that.
+   *
+   * All five strings are seeded to ADMIN ONLY (`prisma/seed-data.ts`), so in
+   * practice this whole group is invisible to Contributor and Viewer today. The
+   * cards still gate per permission and not on the admin ROLE, because a later
+   * issue widening one read to an operations role must not have to touch this
+   * file — and because a role check here is the split-brain `destinations.ts`'s
+   * header exists to describe.
+   *
+   * The `/admin/settings` route gate is deliberately NOT widened to include
+   * `jobs:read`. It mirrors `console`'s `anyPermission` in
+   * `config/destinations.ts` byte for byte (asserted in
+   * `destinations.test.ts`), and every holder of these permissions is an admin
+   * who also holds `system_settings:read`, so nothing is unreachable. Widening
+   * one side without the other is exactly the disagreement that test exists to
+   * catch.
+   */
+  {
+    label: 'Operations',
+    cards: [
+      // Jobs, Job Insights and Worker Nodes ship as data from the packaged jobs
+      // slice since #854 (`jobsAdminSections.operations`, in this order), with
+      // the permissions above unchanged: `jobs:read` on both Jobs cards,
+      // `nodes:read` on Worker Nodes (the `nodes-admin.controller.ts` string,
+      // deliberately not `jobs:read`). Job Insights nests UNDER the Jobs route,
+      // which `settingsPageTitle`'s longest-prefix rule resolves correctly (a
+      // bare `startsWith` would let `Jobs` claim it and title the page "Jobs"
+      // in the compact AppBar); asserted in `settingsCards.test.ts`.
+      // Writes (`jobs:write`, `nodes:write`) are gated inside the pages: the
+      // card gate is about REACHABILITY.
+      ...jobsAdminSections.operations,
+      // The `Database Backup` card (#287), the db-backup slice's since #740
+      // (`dbBackupAdminSections.operations`), at the position it always had.
+      // `permission: 'db_backup:read'` is the literal string
+      // `DatabaseBackupController` (`packages/platform-api/src/db-backup/`)
+      // enforces on its config read, its run list and its run detail; the
+      // page gates `db_backup:write` and `db_backup:restore` internally by
+      // disabling its controls (the card gate is about REACHABILITY).
+      ...dbBackupAdminSections.operations,
+      {
+        // Issue #325, epic #319. `broadcasts:read` is the literal string
+        // `notifications/broadcasts/broadcasts.controller.ts`
+        // (`@marinoscar/platform-api/notifications`) enforces on its
+        // audience count, its list and its detail read
+        // (`PERMISSIONS.BROADCASTS_READ`) — the registry never invents a
+        // permission, it mirrors one. Composing, scheduling, cancelling,
+        // deleting and test-sending need `broadcasts:write`, which the PAGE
+        // gates internally by disabling its controls: the card gate is about
+        // REACHABILITY, and "what has been announced, and is anything queued to
+        // go out" is worth reading for anyone answering "did everyone get told".
+        //
+        // OPERATIONS, NOT GENERAL, per this section's own header. General holds
+        // values an administrator SETS, which then sit there; a broadcast is
+        // work you dispatch and then watch — it has a status, a progress
+        // counter and a cancel — and it belongs one card away from Jobs, where
+        // its fan-out becomes visible.
+        //
+        // ⚠ NOT THE SAME PAGE AS General → Notifications, and the descriptions
+        // are written to keep them apart. That card is the deployment-wide KILL
+        // SWITCH: it decides whether browser notifications may be raised at all
+        // and which events are suppressed. This one composes and sends a single
+        // announcement to every user. Confusing the two during an incident is
+        // the difference between silencing every notification in the product
+        // and telling everybody what is happening.
+        title: 'Broadcasts',
+        description:
+          'Write an announcement and send it to every active user now or at a scheduled time, then watch it go out.',
+        Icon: CampaignOutlinedIcon,
+        path: '/admin/settings/broadcasts',
+        // #738: ANY OF the two strings the packaged controller accepts
+        // (`@Auth({ anyPermissions: [...] })`): `broadcasts:read` (system
+        // scope, every user) and `org_broadcasts:read` (org scope, held through
+        // the `org_admin` membership role; that organization's members only).
+        // One destination, so one card with a permission list, never a second
+        // `Org broadcasts` card for the same page.
+        permission: ['broadcasts:read', 'org_broadcasts:read'],
+      },
+      {
+        // Issue #401, epic #397. `system_settings:read` is the literal string
+        // `about/about.controller.ts` enforces on its single GET
+        // (`PERMISSIONS.SYSTEM_SETTINGS_READ`) — the registry never invents a
+        // permission, it mirrors one. That controller deliberately adds NO
+        // permission of its own, and argues the point in its own header: the
+        // cases that justify a SPLIT pair elsewhere in this file (`push:*`,
+        // `broadcasts:*`, `nodes:*`, `storage_config:*`) all turn on a distinct
+        // blast radius — key material, a send to every user, a fleet, a
+        // credential-bearing screen. A read-only report of what is deployed has
+        // none of that, and its blast radius is exactly the deployment
+        // configuration `system_settings:read` already describes.
+        //
+        // THERE IS NO WRITE SIDE AT ALL. Every other card in this file notes
+        // which actions its page gates internally; this one has none — the
+        // endpoint is a single GET and the page renders it. So the card gate is
+        // the only gate, and it is still about REACHABILITY: "what commit is
+        // this box running, and did the deploy that put it there finish" is the
+        // question an operator opens first during an incident.
+        //
+        // OPERATIONS, NOT GENERAL, per this section's own header. General holds
+        // values an administrator SETS, which then sit there. Nothing on this
+        // page is settable: it is a read-only view of the running system, the
+        // same kind of question Jobs (what work is in flight), Worker Nodes
+        // (which machines are executing it) and Database Backup (which copies
+        // were taken while it ran) each answer on their own axis. This one
+        // answers the most basic of them — what IS the running system.
+        //
+        // APPENDED rather than inserted, the same rule `Broadcasts` followed:
+        // the hub, the rail and the drill-down list all render this array in
+        // declaration order, so an insertion would move five existing cards for
+        // a reader who has learnt where they are — and would reflow the grid
+        // further than the one added card requires. See §4 of this file's
+        // Operations header on why every grid change costs a baseline
+        // regeneration.
+        title: 'About',
+        description:
+          'See exactly what is deployed here: the version running, the commit it was built from, and when it was installed.',
+        Icon: InfoOutlinedIcon,
+        path: '/admin/settings/about',
+        permission: 'system_settings:read',
+      },
+    ],
+  },
+  {
+    // Issue #425, epic #419. A FOURTH group, APPENDED — the same append-only
+    // rule `Broadcasts` and `About` followed inside Operations, one level up:
+    // the hub, the rail and the drill-down list render this array in
+    // declaration order, and appending keeps every existing card where it was
+    // (the pixel baselines in `tests/visual` hold at `maxDiffPixels: 4`).
+    //
+    // Both cards gate on `ai_config:read`, the literal string the admin AI
+    // controller enforces on its reads (`PERMISSIONS.AI_CONFIG_READ`, #423 /
+    // #428). Saving, storing a key, probing a provider and editing a model all
+    // need `ai_config:write`, which each PAGE gates internally — the card gate
+    // is about REACHABILITY.
+    label: 'AI',
+    cards: [
+      {
+        // NO `feature`, deliberately: this is the page an administrator
+        // switches AI ON from. Gating it on AI being on would make the switch
+        // unreachable in exactly the state it exists to change.
+        title: 'AI',
+        description:
+          'Switch AI on for this deployment, choose whose keys pay for calls, and configure each provider.',
+        Icon: AutoAwesomeOutlinedIcon,
+        path: '/admin/settings/ai',
+        permission: 'ai_config:read',
+      },
+      {
+        // Nested UNDER the AI route, so `settingsPageTitle`'s longest-prefix
+        // rule titles it "AI Models" rather than "AI" — the Job Insights
+        // precedent. Feature-gated: a model catalogue for a switched-off
+        // feature is a page about nothing.
+        title: 'AI Models',
+        description:
+          'Review the models each provider offers, classify what they can do, and choose which ones users may call.',
+        Icon: ModelTrainingOutlinedIcon,
+        path: '/admin/settings/ai/models',
+        permission: 'ai_config:read',
+        feature: 'ai',
+      },
+      {
+        // Issue #444, epic #420. APPENDED to the AI group (append-only, as
+        // above). `ai_config:read` is the literal string the admin AI usage
+        // route (`GET /api/admin/ai/usage`, #443) enforces — the same read
+        // permission as the rest of `/api/admin/ai/*`. Read-only: the page has
+        // no write side. Nested under the AI route (longest prefix titles it
+        // "AI Usage") and feature-gated like AI Models.
+        title: 'AI Usage',
+        description:
+          "See who is calling AI, which models they use, and how much of it the organization's key pays for.",
+        Icon: DataUsageOutlinedIcon,
+        path: '/admin/settings/ai/usage',
+        permission: 'ai_config:read',
+        feature: 'ai',
+      },
+      {
+        // Issue #739 (PP-8.6). APPENDED to the AI group (append-only, as
+        // above): the ACTIVE ORGANIZATION's own provider keys and its
+        // effective AI policy. `org_ai_config:read` is the literal ORG
+        // permission `@marinoscar/platform-api/ai`'s `org-keys.controller.ts`
+        // enforces on `GET /api/admin/ai/org-keys`, held through the
+        // `org_admin` membership role; writes are gated inside the page
+        // (`org_ai_config:write`). A card of its own, never a tab on the AI
+        // page: "which key does my organization pay with" is a different
+        // question from "how is AI configured for the deployment". In the AI
+        // group rather than Organizations because it exists in a single-org
+        // deployment too (the one organization may hold its own key), and the
+        // Organizations group is multi-org only. Nested under the AI route
+        // (longest prefix titles it) and feature-gated like AI Models.
+        title: 'Organization AI keys',
+        description: "Set your organization's own AI provider keys and see its effective AI policy.",
+        Icon: VpnKeyOutlinedIcon,
+        path: '/admin/settings/ai/organization-keys',
+        permission: 'org_ai_config:read',
+        feature: 'ai',
+      },
+    ],
+  },
+  {
+    // Issue #537, epic #528. A FIFTH group, APPENDED after AI — the same
+    // append-only rule every earlier group followed: the hub, the rail and the
+    // drill-down list render this array in declaration order, so appending
+    // keeps every existing card where it was. (It still reflows the hub grid
+    // below the AI group, so the `tests/visual` hub baselines move once.)
+    //
+    // OBSERVABILITY, NOT OPERATIONS: Operations is the running system's work
+    // (jobs, nodes, backups); this group is the system's own traces, logs and
+    // metrics, and the tools for asking questions of them.
+    //
+    // The permissions are the literal strings the telemetry controllers
+    // enforce (`PERMISSIONS.TELEMETRY_*` in `roles.constants.ts`):
+    //   - `telemetry:read`  → `telemetry/telemetry-admin.controller.ts` (#534),
+    //                         on GET config and GET status. Saving needs
+    //                         `telemetry:write`, which the PAGE gates.
+    //   - `telemetry:query` → the explorer controller (#535), on query, schema
+    //                         and export — and, with `ai:use`, the assistant
+    //                         stream (#536).
+    label: 'Observability',
+    cards: [
+      // Issue #537 (Telemetry, Telemetry Explorer), #578 (Telemetry
+      // Dashboard). Packaged since #704: the three cards come from
+      // `@marinoscar/platform-web/telemetry/ui` as data and are spread HERE,
+      // where the three literals were, so the order is unchanged. Their text,
+      // icons, permissions and features are the ones these literals carried:
+      //   - Telemetry: `telemetry:read`, NO `feature` (the `AI` card's
+      //     precedent: this is the page telemetry is switched on from).
+      //   - Telemetry Explorer, Telemetry Dashboard: `telemetry:query`,
+      //     `feature: 'telemetry'`, nested under the Telemetry route so
+      //     `settingsPageTitle`'s longest-prefix rule titles them.
+      ...telemetryAdminCards,
+      {
+        // Issue #634. APPENDED as the last Observability card (append-only).
+        // `system_settings:read`, the exact permission
+        // `@marinoscar/platform-api/doctor` enforces on `GET /api/admin/doctor`
+        // (`DEFAULT_DOCTOR_PERMISSION`, bound in `apps/api/src/doctor/doctor.config.ts`).
+        // NO `feature`, deliberately: the Doctor reports on AI and telemetry
+        // while they are switched off (as `skip`), which is exactly when an
+        // administrator asks why a capability is missing. No `alwaysShow`.
+        // Since #696 the card is the packaged page's descriptor
+        // (`@marinoscar/platform-web/doctor/ui`): title, description, path and
+        // permission come from it, word for word what the page shows.
+        ...doctorSettingsPage.card,
+        Icon: doctorSettingsPage.Icon,
+      },
+    ],
+  },
+  /**
+   * Organizations (#726, PP-6.7) — APPENDED after every existing card, never
+   * inserted between them (CLAUDE.md Settings UI Pattern rule 1), and both
+   * cards carry `feature: 'orgs'`: they exist only in a multi-organization
+   * deployment (`TENANCY_MODE=multi`, as `/api/auth/me` reports). In
+   * single-org mode the spec says "org management hidden", so this whole
+   * group disappears and the grid is exactly what it was before.
+   *
+   * TWO CARDS, TWO QUESTIONS, TWO KINDS OF PERMISSION:
+   *
+   *   - `Organization` is the CURRENT org's people, for that org's own
+   *     administrator: `org_members:read`, the ORG permission
+   *     `organizations/org-members.controller.ts` enforces on
+   *     `GET /api/org/members`, held through the `org_admin` membership role.
+   *     Its two tabs (Members, Invites) are parallel content inside one
+   *     destination ("who belongs to this org"), the `UsersPage` precedent;
+   *     the Invites tab gates itself on `org_invites:read`.
+   *   - `Organizations` is the deployment's list of orgs, for its operator:
+   *     `organizations:read`, the SYSTEM permission
+   *     `organizations/organizations-admin.controller.ts` enforces.
+   *
+   * Writes are gated inside each page (`org_members:write`,
+   * `org_invites:write`, `organizations:write`), not by a second card.
+   *
+   * `Organization settings` (#733, PP-8.1) — APPENDED as the last card: the
+   * active organization's overrides of the org-overridable system settings
+   * namespaces. `org_settings:read`, the ORG permission
+   * `@marinoscar/platform-api/settings`'s `org-settings.controller.ts`
+   * enforces on `GET /api/org-settings`; writes are gated inside the page
+   * (`org_settings:write`). A card next to `Organization`, never a tab on it:
+   * "how this org is configured" is a different question from "who belongs
+   * to it". Same `feature: 'orgs'` gate (multi-organization mode only).
+   */
+  {
+    label: 'Organizations',
+    // The identity slice's cards (#727), as data: `Organization`
+    // (`org_members:read`) and `Organizations` (`organizations:read`), both
+    // `feature: 'orgs'`, in this order; then the settings slice's
+    // `Organization settings` (`org_settings:read`, #733).
+    cards: [
+      ...identityAdminSections.organizations,
+      {
+        title: 'Organization settings',
+        description:
+          "Override, for your current organization, the settings the deployment lets an organization change.",
+        Icon: SettingsSuggestOutlinedIcon,
+        path: '/admin/settings/organization-settings',
+        permission: 'org_settings:read',
+        feature: 'orgs',
+      },
+    ],
+  },
+  // Issue #743 (PP-9.1). `Danger Zone`, PINNED LAST: the one documented
+  // exception to append-only (docs/specs/settings-ui.md). A group added later
+  // is inserted BEFORE this one, never after; the settings registry test
+  // asserts it (`dangerZoneLastViolations`). The packaged factory reset page
+  // (`@marinoscar/platform-web/user-data/ui`): `system:factory_reset`, the
+  // exact SYSTEM permission the user-data slice's controller enforces (Admin
+  // only; never implied by `system_settings:write`). No `feature`. The group
+  // sits alone and is never folded into Operations.
+  {
+    label: DANGER_ZONE_GROUP_LABEL,
+    cards: [{ ...factoryResetSettingsPage.card, Icon: factoryResetSettingsPage.Icon }],
+  },
+];
+
+/**
+ * The Console hub itself — the one admin route that owns no card, and so the
+ * title `settingsPageTitle` falls back to.
+ */
+export const ADMIN_HUB_PATH = '/admin/settings';
+export const ADMIN_HUB_TITLE = 'Settings';

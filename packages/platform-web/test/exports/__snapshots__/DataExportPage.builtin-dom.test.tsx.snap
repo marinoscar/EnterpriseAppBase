@@ -1,0 +1,113 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`DataExportPage builtin markup > loaded, nothing exported yet 1`] = `
+"<div class="MuiContainer-root MuiContainer-maxWidthMd css-u4uvlt-MuiContainer-root">
+<div class="MuiBox-root css-1lkmtz">
+<h1 class="MuiTypography-root MuiTypography-h4 MuiTypography-gutterBottom css-1it4a80-MuiTypography-root">Download your data</h1>
+<p class="MuiTypography-root MuiTypography-body1 css-1xz17g7-MuiTypography-root">Export a copy of what this application stores about you, as JSON, CSV or an Excel workbook. Files are kept for a few days.</p>
+<div class="MuiStack-root css-13xtn19-MuiStack-root">
+<button class="MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-sizeMedium MuiButton-colorPrimary css-1bmmi1a-MuiButtonBase-root-MuiButton-root" tabindex="0" type="button">New export</button>
+</div>
+<div class="MuiPaper-root MuiPaper-outlined MuiPaper-rounded MuiCard-root css-196bwzp-MuiPaper-root-MuiCard-root" aria-busy="false">
+<div class="MuiCardContent-root css-1lt5qva-MuiCardContent-root">
+<h2 class="MuiTypography-root MuiTypography-h6 MuiTypography-gutterBottom css-1wmifpn-MuiTypography-root">Recent exports</h2>
+<p class="MuiTypography-root MuiTypography-body1 css-rizt0-MuiTypography-root">You have not exported anything yet.</p>
+</div>
+</div>
+</div>
+</div>"
+`;
+
+exports[`DataExportPage builtin markup > loaded, with exports 1`] = `
+"<div class="MuiContainer-root MuiContainer-maxWidthMd css-u4uvlt-MuiContainer-root">
+<div class="MuiBox-root css-1lkmtz">
+<h1 class="MuiTypography-root MuiTypography-h4 MuiTypography-gutterBottom css-1it4a80-MuiTypography-root">Download your data</h1>
+<p class="MuiTypography-root MuiTypography-body1 css-1xz17g7-MuiTypography-root">Export a copy of what this application stores about you, as JSON, CSV or an Excel workbook. Files are kept for a few days.</p>
+<div class="MuiStack-root css-13xtn19-MuiStack-root">
+<button class="MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-sizeMedium MuiButton-colorPrimary css-1bmmi1a-MuiButtonBase-root-MuiButton-root" tabindex="0" type="button">New export</button>
+</div>
+<div class="MuiPaper-root MuiPaper-outlined MuiPaper-rounded MuiCard-root css-196bwzp-MuiPaper-root-MuiCard-root" aria-busy="false">
+<div class="MuiCardContent-root css-1lt5qva-MuiCardContent-root">
+<h2 class="MuiTypography-root MuiTypography-h6 MuiTypography-gutterBottom css-1wmifpn-MuiTypography-root">Recent exports</h2>
+<div class="MuiBox-root css-0">
+<ul class="MuiList-root css-54zhjy-MuiList-root" aria-label="Your exports">
+<li class="MuiListItem-root MuiListItem-gutters MuiListItem-padding MuiListItem-divider css-1i15ou7-MuiListItem-root">
+<div class="MuiListItemText-root MuiListItemText-multiline css-jkt2ot-MuiListItemText-root">
+<span class="MuiTypography-root MuiTypography-body1 MuiListItemText-primary css-rizt0-MuiTypography-root">Your data (JSON)</span>
+<p class="MuiTypography-root MuiTypography-body2 MuiListItemText-secondary css-1a1whku-MuiTypography-root">10/8/2026, 10:00:00 AM · 2.0 KB</p>
+</div>
+<div class="MuiStack-root css-kdc3n8-MuiStack-root">
+<div class="MuiChip-root MuiChip-outlined MuiChip-sizeSmall MuiChip-colorSuccess css-2nu2az-MuiChip-root">
+<span class="MuiChip-label css-19m61dl-MuiChip-label">Ready to download</span>
+</div>
+<button class="MuiButtonBase-root MuiButton-root MuiButton-outlined MuiButton-sizeSmall MuiButton-colorPrimary css-9g2lvq-MuiButtonBase-root-MuiButton-root" tabindex="0" type="button" aria-label="Download Your data (JSON)">Download</button>
+</div>
+</li>
+<li class="MuiListItem-root MuiListItem-gutters MuiListItem-padding MuiListItem-divider css-1i15ou7-MuiListItem-root">
+<div class="MuiListItemText-root MuiListItemText-multiline css-jkt2ot-MuiListItemText-root">
+<span class="MuiTypography-root MuiTypography-body1 MuiListItemText-primary css-rizt0-MuiTypography-root">Organization data (CSV)</span>
+<p class="MuiTypography-root MuiTypography-body2 MuiListItemText-secondary css-1a1whku-MuiTypography-root">10/7/2026, 10:00:00 AM · The file could not be built</p>
+</div>
+<div class="MuiStack-root css-kdc3n8-MuiStack-root">
+<div class="MuiChip-root MuiChip-outlined MuiChip-sizeSmall MuiChip-colorError css-55ida-MuiChip-root">
+<span class="MuiChip-label css-19m61dl-MuiChip-label">Failed</span>
+</div>
+</div>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+</div>"
+`;
+
+exports[`DataExportPage builtin markup > when the exports could not be read 1`] = `
+"<div class="MuiContainer-root MuiContainer-maxWidthMd css-u4uvlt-MuiContainer-root">
+<div class="MuiBox-root css-1lkmtz">
+<h1 class="MuiTypography-root MuiTypography-h4 MuiTypography-gutterBottom css-1it4a80-MuiTypography-root">Download your data</h1>
+<p class="MuiTypography-root MuiTypography-body1 css-1xz17g7-MuiTypography-root">Export a copy of what this application stores about you, as JSON, CSV or an Excel workbook. Files are kept for a few days.</p>
+<div class="MuiPaper-root MuiPaper-elevation MuiPaper-rounded MuiPaper-elevation0 MuiAlert-root MuiAlert-colorError MuiAlert-standard css-6js25r-MuiPaper-root-MuiAlert-root" role="alert" style="--Paper-shadow: none;">
+<div class="MuiAlert-icon css-vab54s-MuiAlert-icon">
+<svg class="MuiSvgIcon-root MuiSvgIcon-fontSizeInherit css-1ckov0h-MuiSvgIcon-root" focusable="false" aria-hidden="true" viewBox="0 0 24 24" data-testid="ErrorOutlineIcon">
+<path d="M11 15h2v2h-2zm0-8h2v6h-2zm.99-5C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z">
+</path>
+</svg>
+</div>
+<div class="MuiAlert-message css-zioonp-MuiAlert-message">down</div>
+</div>
+<div class="MuiStack-root css-13xtn19-MuiStack-root">
+<button class="MuiButtonBase-root MuiButton-root MuiButton-contained MuiButton-sizeMedium MuiButton-colorPrimary css-1bmmi1a-MuiButtonBase-root-MuiButton-root" tabindex="0" type="button">New export</button>
+</div>
+<div class="MuiPaper-root MuiPaper-outlined MuiPaper-rounded MuiCard-root css-196bwzp-MuiPaper-root-MuiCard-root" aria-busy="false">
+<div class="MuiCardContent-root css-1lt5qva-MuiCardContent-root">
+<h2 class="MuiTypography-root MuiTypography-h6 MuiTypography-gutterBottom css-1wmifpn-MuiTypography-root">Recent exports</h2>
+<p class="MuiTypography-root MuiTypography-body1 css-rizt0-MuiTypography-root">You have not exported anything yet.</p>
+</div>
+</div>
+</div>
+</div>"
+`;
+
+exports[`DataExportPage builtin markup > while loading 1`] = `
+"<div class="MuiContainer-root MuiContainer-maxWidthMd css-u4uvlt-MuiContainer-root">
+<div class="MuiBox-root css-1lkmtz">
+<h1 class="MuiTypography-root MuiTypography-h4 MuiTypography-gutterBottom css-1it4a80-MuiTypography-root">Download your data</h1>
+<p class="MuiTypography-root MuiTypography-body1 css-1xz17g7-MuiTypography-root">Export a copy of what this application stores about you, as JSON, CSV or an Excel workbook. Files are kept for a few days.</p>
+<div class="MuiStack-root css-13xtn19-MuiStack-root">
+<button class="MuiButtonBase-root Mui-disabled MuiButton-root MuiButton-contained MuiButton-sizeMedium MuiButton-colorPrimary css-1bmmi1a-MuiButtonBase-root-MuiButton-root" tabindex="-1" type="button" disabled="">New export</button>
+</div>
+<div class="MuiPaper-root MuiPaper-outlined MuiPaper-rounded MuiCard-root css-196bwzp-MuiPaper-root-MuiCard-root" aria-busy="true">
+<div class="MuiCardContent-root css-1lt5qva-MuiCardContent-root">
+<h2 class="MuiTypography-root MuiTypography-h6 MuiTypography-gutterBottom css-1wmifpn-MuiTypography-root">Recent exports</h2>
+<div class="MuiStack-root css-jfdv4h-MuiStack-root" aria-label="Loading your exports">
+<span class="MuiSkeleton-root MuiSkeleton-rounded MuiSkeleton-pulse css-1q505s5-MuiSkeleton-root" style="height: 48px;">
+</span>
+<span class="MuiSkeleton-root MuiSkeleton-rounded MuiSkeleton-pulse css-1q505s5-MuiSkeleton-root" style="height: 48px;">
+</span>
+</div>
+</div>
+</div>
+</div>
+</div>"
+`;

@@ -1,0 +1,10 @@
+import { Cron } from '@nestjs/schedule';
+
+export class ExemptTask {
+  constructor(private readonly prisma: any) {}
+
+  @Cron('*/5 * * * *')
+  async reap(): Promise<void> {
+    await this.prisma.job.updateMany({ data: { status: 'queued' } });
+  }
+}

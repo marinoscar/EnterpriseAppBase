@@ -1,0 +1,346 @@
+{
+  "$comment": "Hand-maintained facts of docs/SLICES.md that no source carries: group, one-line gives, standalone level and note, and the settings-card paths the reference app declares for a slice. Merged and validated by scripts/generate-slices-doc.mjs (npm run check:slices-doc).",
+  "$example": {
+    "dir": "tests/consumer-smoke/api-slim",
+    "package": "platform-api",
+    "slices": [
+      "core",
+      "otel-core",
+      "telemetry"
+    ]
+  },
+  "slices": {
+    "core": {
+      "group": "foundation",
+      "gives": "The registry primitive, the host ports, the principal and scope contract, the exception filter, the secret cipher and scoped data access every other API slice stands on; the host providers and API client adapter on the web; the command and env-spec registries in the CLI.",
+      "standalone": {
+        "level": "yes",
+        "note": "The bottom of every package graph, with no slice dependencies. In the API and web packages it is the only slice whose peers are required: an app that imports anything from the package installs them."
+      }
+    },
+    "testing": {
+      "group": "foundation",
+      "gives": "The conformance harness (`runPlatformConformance`, `runPlatformWebConformance`) that proves an app wires the slices correctly, and the shared test helpers.",
+      "standalone": {
+        "level": "yes",
+        "note": "Import it from tests, never from application code. Each slice's own `/testing` entry point adds the suites that slice owns, and its peers."
+      }
+    },
+    "doctor": {
+      "group": "foundation",
+      "gives": "The admin Doctor: a read-only check registry every slice adds its checks to, the report, the support bundle and the Doctor page.",
+      "standalone": {
+        "level": "with-slices",
+        "note": "The check registry and the report need only core. A check that probes another slice is registered by that slice, so it appears only when the app mounts it."
+      }
+    },
+    "otel-core": {
+      "group": "foundation",
+      "gives": "The OpenTelemetry SDK behind a runtime export gate, the metric name registry and the `@Trace()` decorator, so a service emits traces and metrics without owning an exporter.",
+      "standalone": {
+        "level": "yes",
+        "note": "Imports core only. Proven standalone by the backend-only consumer below: `OtelMetricsModule.forRoot()` boots and `@Trace()` runs."
+      }
+    },
+    "telemetry": {
+      "group": "foundation",
+      "gives": "Observability for the app: the runtime-configured GreptimeDB connection, the SQL explorer, the AI assistant, the dashboard with its health verdict and metric groups, and the retention job.",
+      "standalone": {
+        "level": "app-ports",
+        "note": "Imports core, otel-core and doctor. Mounting `TelemetryModule` additionally needs the app to bind the six telemetry host ports and to supply the access decorators; the backend-only consumer below imports it and builds its module metadata but does not boot it."
+      }
+    },
+    "sharing": {
+      "group": "feature",
+      "gives": "Groups, members and invites inside an organization, group-owned resources, per-resource grants, link shares and the access policy that decides who can see a record.",
+      "standalone": {
+        "level": "app-ports",
+        "note": "Imports only core, doctor and otel-core; it does not import identity. The app declares which of its models are group-owned and binds the access policy through host ports."
+      }
+    },
+    "identity": {
+      "group": "feature",
+      "gives": "Sign-in (Google and registered providers), JWT sessions with rotating refresh tokens, users, roles and permissions, the allowlist, personal access tokens, the device flow and organizations.",
+      "standalone": {
+        "level": "with-slices",
+        "note": "Imports core, doctor and otel-core. The app binds its host ports (for example the notifier and the user defaults). Almost every other feature slice depends on it for `@Auth()` and the principal."
+      }
+    },
+    "settings": {
+      "group": "feature",
+      "gives": "The system, organization and user settings documents, the namespace registries they are composed from and the resolver that reads a setting through the layers; in the web package the settings hub and the profile, appearance and organization settings pages.",
+      "standalone": {
+        "level": "with-slices",
+        "note": "Imports core and identity. The app registers the namespaces it needs; the web half also imports onboarding."
+      },
+      "appCards": [
+        "/admin/settings/organization-settings",
+        "/settings/profile",
+        "/settings/appearance"
+      ]
+    },
+    "credentials": {
+      "group": "feature",
+      "gives": "The encrypted credential store in three tiers (deployment, organization, user) and the purpose registries, so no feature stores a key of its own.",
+      "standalone": {
+        "level": "with-slices",
+        "note": "Imports core only. Secrets are encrypted with the deployment's `SECRETS_ENCRYPTION_KEY`."
+      }
+    },
+    "onboarding": {
+      "group": "feature",
+      "gives": "First-run guidance: the welcome dialog, the admin Setup guide and the per-user Get started checklist, built from step and fact registries other slices add to.",
+      "standalone": {
+        "level": "with-slices",
+        "note": "Imports core, identity, doctor and settings in the API. Each step is a registry entry; a slice that is not mounted contributes no steps."
+      }
+    },
+    "email": {
+      "group": "feature",
+      "gives": "Outgoing email: SES and SMTP transports configured at runtime, the template registry with the platform's templates, the layout theme and the safe-HTML helpers.",
+      "standalone": {
+        "level": "with-slices",
+        "note": "Imports core, identity, settings and credentials, because its transport settings and secrets live in those slices."
+      },
+      "appCards": [
+        "/admin/settings/email"
+      ]
+    },
+    "jobs": {
+      "group": "feature",
+      "gives": "The background job queue: enqueue with dedup, leased claims, the worker pool, the retention engine and the admin Jobs and Job Insights pages.",
+      "standalone": {
+        "level": "with-slices",
+        "note": "Imports core, doctor, otel-core, identity and settings. Every other slice that does background work enqueues through it."
+      }
+    },
+    "nodes": {
+      "group": "feature",
+      "gives": "The worker-node fleet: node credentials, the control and data planes, per-job brokered secrets and the Worker Nodes admin page.",
+      "standalone": {
+        "level": "with-slices",
+        "note": "Imports jobs and the slices jobs imports. Executing jobs on a node needs the CLI `node` slice, which is in a different package."
+      }
+    },
+    "storage": {
+      "group": "feature",
+      "gives": "Object storage: the S3 provider configured at runtime, the objects API, the object-key prefix registry and the storage admin page.",
+      "standalone": {
+        "level": "with-slices",
+        "note": "Imports core, identity, settings, credentials, jobs and nodes: post-upload processors run as jobs and the provider credentials come from the credential store."
+      },
+      "appCards": [
+        "/admin/settings/storage"
+      ]
+    },
+    "notifications": {
+      "group": "feature",
+      "gives": "Notifications: event, channel and template registries, the dispatcher with its policy, the in-app inbox with its SSE stream, Web Push and admin broadcasts.",
+      "standalone": {
+        "level": "with-slices",
+        "note": "Imports core, identity, settings, credentials, email, jobs and nodes. The email channel is only as live as the email slice."
+      },
+      "appCards": [
+        "/admin/settings/notifications",
+        "/admin/settings/push",
+        "/admin/settings/broadcasts",
+        "/settings/notifications"
+      ]
+    },
+    "exports": {
+      "group": "feature",
+      "gives": "Data export: user and organization exports built from registered sources and writers, signed downloads, expiry and redaction.",
+      "standalone": {
+        "level": "with-slices",
+        "note": "Imports core, identity, jobs and storage: an export is a job that writes an archive to object storage."
+      }
+    },
+    "ai": {
+      "group": "feature",
+      "gives": "The AI platform: multi-provider, bring-your-own-key AI behind `AiService.forUser`, with organization keys, caps, usage and cost accounting, and the admin and user pages.",
+      "standalone": {
+        "level": "with-slices",
+        "note": "Imports core, identity, settings, credentials, jobs, nodes and storage. Provider SDKs are imported only inside the slice, and AI jobs run on the server, never on a node."
+      },
+      "appCards": [
+        "/admin/settings/ai",
+        "/admin/settings/ai/models",
+        "/admin/settings/ai/usage",
+        "/admin/settings/ai/organization-keys",
+        "/settings/ai"
+      ]
+    },
+    "db-backup": {
+      "group": "feature",
+      "gives": "Database backup and restore: streamed `pg_dump` into object storage, schedule and retention, the guarded in-app restore and the admin page.",
+      "standalone": {
+        "level": "with-slices",
+        "note": "Imports core, identity, settings, email, jobs and storage. The dump and restore need a direct PostgreSQL connection, not a transaction-mode pooler."
+      }
+    },
+    "android-app": {
+      "group": "feature",
+      "gives": "The server half of the Android companion: trusted apps and Digital Asset Links, hosted APK releases with signed downloads, the `android_app` push channel and the admin page.",
+      "standalone": {
+        "level": "with-slices",
+        "note": "Imports core, identity, settings, storage and notifications. The Android project itself ships in `@marinoscar/platform-infra`."
+      }
+    },
+    "user-data": {
+      "group": "feature",
+      "gives": "Deleting data: per-user data reset with scopes, the admin factory reset and organization offboarding, driven by registered categories and a relation-ordered purge planner.",
+      "standalone": {
+        "level": "with-slices",
+        "note": "Imports core, identity, jobs, storage, sharing, exports and host. Each model that gains a user relation registers a keep or delete decision."
+      }
+    },
+    "manifest": {
+      "group": "foundation",
+      "gives": "The platform roles, the permission sets every slice declares and the model-ownership inventory the app reads once, instead of listing them slice by slice.",
+      "standalone": {
+        "level": "with-slices",
+        "note": "Imports every declaring slice, so it pulls in the whole permission surface. Use it when the app mounts most slices; skip it when the app mounts one."
+      }
+    },
+    "host": {
+      "group": "foundation",
+      "gives": "The host core: the event bus, maintenance mode with its guard, the response envelope, the exception filter, request ids, health, CORS, the OpenAPI document and the About page.",
+      "standalone": {
+        "level": "with-slices",
+        "note": "Imports core, doctor, otel-core, identity, settings, nodes and db-backup in the API package; the web half imports core and identity."
+      },
+      "appCards": [
+        "/admin/settings/maintenance",
+        "/admin/settings/about"
+      ]
+    },
+    "shell": {
+      "group": "foundation",
+      "gives": "The web app shell: layout, app bar, navigation rail with Console mode, bottom navigation, user menu and the shell theme.",
+      "standalone": {
+        "level": "with-slices",
+        "note": "Web only; imports core, settings and identity. Its five breakpoint gates move together."
+      }
+    },
+    "datatable": {
+      "group": "foundation",
+      "gives": "The responsive `DataTable`: a virtualized grid on desktop and cards on phones, with sort, filter, selection, CSV export and per-user column preferences.",
+      "standalone": {
+        "level": "yes",
+        "note": "Web only; imports core only. Its column preferences go through a port that defaults to the user-settings API and can be replaced."
+      }
+    },
+    "compose": {
+      "group": "tooling",
+      "gives": "`platform db compose`: assembles the Prisma schema from the platform fragments and the app's own.",
+      "standalone": {
+        "level": "yes",
+        "note": "Database tooling that imports no other slice. Run it from the app's `db:compose` script."
+      }
+    },
+    "lock": {
+      "group": "tooling",
+      "gives": "`platform.lock`: the checksums of every platform migration, and the check that an installed migration is never edited.",
+      "standalone": {
+        "level": "yes",
+        "note": "Database tooling that imports no other slice; the base of sync, drift and baseline."
+      }
+    },
+    "sync": {
+      "group": "tooling",
+      "gives": "`platform db sync`: installs package migrations missing from the app's migration history.",
+      "standalone": {
+        "level": "yes",
+        "note": "Database tooling; imports lock."
+      }
+    },
+    "drift": {
+      "group": "tooling",
+      "gives": "`platform db drift`: replays the history in a shadow database and compares it with the schema and the raw-SQL indexes.",
+      "standalone": {
+        "level": "yes",
+        "note": "Database tooling; imports lock and sync, and needs PostgreSQL at run time (`pg` and `prisma` are runtime peers)."
+      }
+    },
+    "baseline": {
+      "group": "tooling",
+      "gives": "`platform db baseline`: adopts the platform migration history in an existing database.",
+      "standalone": {
+        "level": "yes",
+        "note": "Database tooling; imports lock, sync and drift, and needs the target database."
+      }
+    },
+    "bin": {
+      "group": "tooling",
+      "gives": "The `platform` command line (`platform db compose`, `sync`, `drift`, `baseline`) exposed by the package.",
+      "standalone": {
+        "level": "yes",
+        "note": "Database tooling; wraps the slices above."
+      }
+    },
+    "seed": {
+      "group": "tooling",
+      "gives": "The idempotent platform seed: roles, permissions, default role grants, the global system settings row, the initial administrator's allowlist entry and the default organization.",
+      "standalone": {
+        "level": "yes",
+        "note": "Depends on no other slice and imports no Prisma client: the app hands it its own client, which is typed structurally."
+      }
+    },
+    "engine": {
+      "group": "tooling",
+      "gives": "The CLI factory `createCli`, the program, configuration, device login and the shared output and error model every command builds on.",
+      "standalone": {
+        "level": "yes",
+        "note": "CLI package; imports core and telemetry."
+      }
+    },
+    "commands": {
+      "group": "tooling",
+      "gives": "The built-in commands (`init`, `login`, `api`, `config`, `node`, `deploy`) as registrars, and the error model with its exit codes.",
+      "standalone": {
+        "level": "with-slices",
+        "note": "CLI package; imports the engine."
+      }
+    },
+    "tui": {
+      "group": "tooling",
+      "gives": "The interactive terminal menu and its screen registry.",
+      "standalone": {
+        "level": "with-slices",
+        "note": "CLI package; imports the engine and needs a real terminal."
+      }
+    },
+    "deploy": {
+      "group": "tooling",
+      "gives": "The deploy pipelines: the step registry, the dry-run plan and the deploy hooks.",
+      "standalone": {
+        "level": "with-slices",
+        "note": "CLI package; imports the engine."
+      }
+    },
+    "node": {
+      "group": "tooling",
+      "gives": "The worker node's executor contract and registry, so an app adds one more node-eligible job type.",
+      "standalone": {
+        "level": "with-slices",
+        "note": "CLI package; imports the engine and talks to the API's nodes slice."
+      }
+    },
+    "api-client": {
+      "group": "tooling",
+      "gives": "The CLI's HTTP client for the platform API: base URL, bearer auth, envelope, timeouts and typed errors.",
+      "standalone": {
+        "level": "with-slices",
+        "note": "CLI package; imports the engine."
+      }
+    },
+    "android": {
+      "group": "tooling",
+      "gives": "The `android` command group (doctor, keystore, version, build, publish, release, releases), the optional deploy step and the TUI screen.",
+      "standalone": {
+        "level": "with-slices",
+        "note": "CLI package; imports core and the engine, and publishes to the API's android-app slice."
+      }
+    }
+  }
+}

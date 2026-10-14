@@ -59,23 +59,305 @@ export const mockPermissions = {
     name: 'allowlist:write',
     description: 'Modify allowlist',
   },
+  // The background queue's admin surface (#264, epic #254). Seeded to Admin
+  // only in `prisma/seed-data.ts`, and mirrored that way below.
+  jobsRead: {
+    id: randomUUID(),
+    name: 'jobs:read',
+    description: 'View queued, running and completed jobs',
+  },
+  jobsWrite: {
+    id: randomUUID(),
+    name: 'jobs:write',
+    description: 'Enqueue, retry and cancel jobs',
+  },
+  // The worker fleet (#267, epic #254). Split from `jobs:*` deliberately —
+  // see `common/constants/roles.constants.ts` — and, like the queue's pair,
+  // seeded to Admin ONLY in `prisma/seed-data.ts`. Mirrored that way below so
+  // an integration test that expects a viewer to be refused a node surface is
+  // testing the real grant and not a fixture that happened to be generous.
+  nodesRead: {
+    id: randomUUID(),
+    name: 'nodes:read',
+    description: 'View worker nodes and their health',
+  },
+  nodesWrite: {
+    id: randomUUID(),
+    name: 'nodes:write',
+    description: 'Register, drain and remove worker nodes',
+  },
+  // Admin notification broadcasts (#320/#324, epic #319). Seeded to Admin ONLY
+  // in `prisma/seed-data.ts` and mirrored that way below: a broadcast reaches
+  // every active user in the deployment, so an integration test that expects a
+  // viewer to be refused these routes must be testing the real grant rather
+  // than a fixture that happened to be generous.
+  broadcastsRead: {
+    id: randomUUID(),
+    name: 'broadcasts:read',
+    description: 'View notification broadcasts and their delivery history',
+  },
+  broadcastsWrite: {
+    id: randomUUID(),
+    name: 'broadcasts:write',
+    description: 'Compose, schedule, cancel and send notification broadcasts',
+  },
+  // Database backup (#283, epic #254). Seeded to Admin ONLY in
+  // `prisma/seed-data.ts`, and mirrored that way below — a fixture that were
+  // more generous than the seed would make an integration test asserting that a
+  // viewer is refused pass for the wrong reason.
+  //
+  // `db_backup:restore` gates the two routes that replace the production
+  // database (#286) and nothing else; it is seeded to Admin like the other two.
+  // A spec that needs the OPPOSITE — an Admin who may schedule backups but must
+  // NOT be able to restore — narrows this fixture per request rather than
+  // weakening it here, because the fixture's job is to mirror the seed.
+  dbBackupRead: {
+    id: randomUUID(),
+    name: 'db_backup:read',
+    description: 'View backup schedule, history and status',
+  },
+  dbBackupWrite: {
+    id: randomUUID(),
+    name: 'db_backup:write',
+    description: 'Configure the backup schedule and run a backup',
+  },
+  dbBackupRestore: {
+    id: randomUUID(),
+    name: 'db_backup:restore',
+    description: 'Restore the database from a backup',
+  },
+  // Runtime-configurable Web Push (VAPID) admin UI (#355). Seeded to Admin
+  // ONLY in `prisma/seed-data.ts`, and mirrored that way below — split from
+  // `system_settings:*` deliberately (see `common/constants/roles.constants.ts`),
+  // so a fixture that granted it more broadly than the seed would make an
+  // integration test asserting a viewer is refused pass for the wrong reason.
+  pushRead: {
+    id: randomUUID(),
+    name: 'push:read',
+    description: 'View the Web Push (VAPID) configuration',
+  },
+  pushWrite: {
+    id: randomUUID(),
+    name: 'push:write',
+    description: 'Generate, rotate, enable/disable and remove the Web Push key pair',
+  },
+  // Object-storage CONFIGURATION (#375, epic #372). Seeded to Admin ONLY in
+  // `prisma/seed-data.ts`, and mirrored that way below.
+  //
+  // ⚠ NOT the same thing as `storage:read`/`storage:write`, which gate object
+  // ACCESS and which Viewer and Contributor genuinely hold. This pair decides
+  // WHICH object store the deployment uses and under whose key, and a fixture
+  // that handed it to a viewer would make an integration test asserting a
+  // viewer is refused pass for the wrong reason.
+  storageConfigRead: {
+    id: randomUUID(),
+    name: 'storage_config:read',
+    description: 'View the object-storage configuration',
+  },
+  storageConfigWrite: {
+    id: randomUUID(),
+    name: 'storage_config:write',
+    description: 'Change, test and provision the object-storage configuration',
+  },
+  // Object-storage object ACCESS (#516). Mirrored from `prisma/seed-data.ts`
+  // exactly: Admin holds all three; Contributor holds read + write; Viewer
+  // holds read only. `storage:delete_any` is Admin-only — a fixture that gave
+  // it to a viewer or contributor would make an integration test asserting
+  // either is refused pass for the wrong reason.
+  storageRead: {
+    id: randomUUID(),
+    name: 'storage:read',
+    description: 'Read object metadata, get download URLs',
+  },
+  storageWrite: {
+    id: randomUUID(),
+    name: 'storage:write',
+    description: 'Upload, update metadata',
+  },
+  storageDeleteAny: {
+    id: randomUUID(),
+    name: 'storage:delete_any',
+    description: 'Admin: delete any object',
+  },
+  // AI platform (#423, #428, epic #419; #499), mirrored from
+  // `prisma/seed-data.ts`: `ai_config:*` is Admin-only; `ai:use` is held by
+  // Admin and Contributor but deliberately NOT Viewer (#499) — see
+  // `rolePermissionsMap.viewer` below and `prisma/seed-data.ts`'s comment on
+  // the same grant for the full reasoning.
+  aiConfigRead: {
+    id: randomUUID(),
+    name: 'ai_config:read',
+    description: 'View the AI platform configuration',
+  },
+  aiConfigWrite: {
+    id: randomUUID(),
+    name: 'ai_config:write',
+    description: 'Change the AI platform configuration, keys and model catalog',
+  },
+  aiUse: {
+    id: randomUUID(),
+    name: 'ai:use',
+    description: 'Use AI features',
+  },
+  // #739: one organization's AI keys, usage and policy overrides (org scope,
+  // `org_admin`), mirrored from the AI slice's declarations.
+  orgAiConfigRead: {
+    id: randomUUID(),
+    name: 'org_ai_config:read',
+    description: "View this organization's AI keys, usage and AI policy overrides",
+  },
+  orgAiConfigWrite: {
+    id: randomUUID(),
+    name: 'org_ai_config:write',
+    description: "Set or remove this organization's AI provider keys and tighten its AI policy",
+  },
+  // Telemetry (epic #528, story #533), mirrored from `prisma/seed-data.ts`:
+  // all three are Admin-only, matching `db_backup:*`/`ai_config:*` above — a
+  // fixture that were more generous than the seed would make an integration
+  // test asserting a viewer is refused pass for the wrong reason.
+  telemetryRead: {
+    id: randomUUID(),
+    name: 'telemetry:read',
+    description: 'View telemetry settings and status',
+  },
+  telemetryWrite: {
+    id: randomUUID(),
+    name: 'telemetry:write',
+    description: 'Change telemetry settings',
+  },
+  telemetryQuery: {
+    id: randomUUID(),
+    name: 'telemetry:query',
+    description: 'Run SQL, export and use the AI assistant against telemetry',
+  },
+  // The organization permissions (#723, PP-6.3). ORG scope, seeded to
+  // `org_admin` only; enforced by the org admin endpoints (#726).
+  orgMembersRead: {
+    id: randomUUID(),
+    name: 'org_members:read',
+    description: 'View the members of the organization and their organization roles',
+  },
+  orgMembersWrite: {
+    id: randomUUID(),
+    name: 'org_members:write',
+    description: 'Change organization members: their organization role, suspend or remove them',
+  },
+  orgInvitesRead: {
+    id: randomUUID(),
+    name: 'org_invites:read',
+    description: 'View pending and past invitations to the organization',
+  },
+  orgInvitesWrite: {
+    id: randomUUID(),
+    name: 'org_invites:write',
+    description: 'Invite people to the organization and revoke invitations',
+  },
+  // The deployment's list of organizations (#726, PP-6.7). SYSTEM scope,
+  // seeded to `admin` only.
+  organizationsRead: {
+    id: randomUUID(),
+    name: 'organizations:read',
+    description: "List the deployment's organizations and their member counts",
+  },
+  organizationsWrite: {
+    id: randomUUID(),
+    name: 'organizations:write',
+    description: 'Create organizations (with a first administrator invitation) and rename them',
+  },
+  // The sharing slice (#728, PP-7.1). ORG scope: read for every org role,
+  // write for org_admin and contributor, admin for org_admin.
+  groupsRead: {
+    id: randomUUID(),
+    name: 'groups:read',
+    description: 'View the groups you belong to, answer your group invitations and leave a group',
+  },
+  groupsWrite: {
+    id: randomUUID(),
+    name: 'groups:write',
+    description: 'Create groups and manage the members and invitations of groups you administer',
+  },
+  groupsAdmin: {
+    id: randomUUID(),
+    name: 'groups:admin',
+    description: 'View and administer every group of the organization, including groups you do not belong to',
+  },
+  // Grants (#729, PP-7.2). ORG scope, the same matrix as groups.
+  sharingRead: {
+    id: randomUUID(),
+    name: 'sharing:read',
+    description: 'View what is shared with you and who a record you can share is shared with, and remove your own access',
+  },
+  sharingWrite: {
+    id: randomUUID(),
+    name: 'sharing:write',
+    description: 'Share records you are allowed to share with people and groups of the organization, and change or revoke those shares',
+  },
+  sharingAdmin: {
+    id: randomUUID(),
+    name: 'sharing:admin',
+    description: 'Manage the shares of every record of the organization, including records you do not own',
+  },
+  // The settings slice's org layer (#733, PP-8.1). ORG scope, org_admin only.
+  orgSettingsRead: {
+    id: randomUUID(),
+    name: 'org_settings:read',
+    description: "Read the active organization's settings overrides",
+  },
+  orgSettingsWrite: {
+    id: randomUUID(),
+    name: 'org_settings:write',
+    description: "Modify the active organization's settings overrides",
+  },
+  // Org-targeted broadcasts (#738, PP-8.5). ORG scope, org_admin only.
+  orgBroadcastsRead: {
+    id: randomUUID(),
+    name: 'org_broadcasts:read',
+    description: "View the active organization's notification broadcasts",
+  },
+  orgBroadcastsWrite: {
+    id: randomUUID(),
+    name: 'org_broadcasts:write',
+    description: 'Compose, schedule, cancel and send notification broadcasts to the active organization',
+  },
+  // The user-data slice (#743, PP-9.1). SYSTEM scope, admin only.
+  systemFactoryReset: {
+    id: randomUUID(),
+    name: 'system:factory_reset',
+    description: 'Factory reset: delete every other user and all application data, keeping configuration and backups',
+  },
+  orgsOffboard: {
+    id: randomUUID(),
+    name: 'orgs:offboard',
+    description: 'Offboard an organization: delete it with all its data, members and invitations',
+  },
 };
 
+// `scope` mirrors `roles.scope` (#723, PP-6.3): `admin` is the system role,
+// the others are org roles held on a membership.
 export const mockRoles = {
   admin: {
     id: randomUUID(),
     name: 'admin',
     description: 'Full system access',
+    scope: 'system' as const,
   },
   contributor: {
     id: randomUUID(),
     name: 'contributor',
     description: 'Standard user capabilities',
+    scope: 'org' as const,
   },
   viewer: {
     id: randomUUID(),
     name: 'viewer',
     description: 'Read-only access',
+    scope: 'org' as const,
+  },
+  org_admin: {
+    id: randomUUID(),
+    name: 'org_admin',
+    description: 'Organization administrator',
+    scope: 'org' as const,
   },
 };
 
@@ -91,7 +373,24 @@ export interface CreateMockUserOptions {
   profileImageUrl?: string | null;
   providerProfileImageUrl?: string | null;
   isActive?: boolean;
+  /**
+   * PRE-SPLIT shape: the role is held in `user_roles` with its full grant set
+   * (admin: every permission). The principal factory still honours it, so the
+   * existing RBAC suites run unchanged. Ignored when `systemRoles` or
+   * `orgRoleName` is given.
+   */
   roleName?: 'admin' | 'contributor' | 'viewer';
+  /**
+   * SPLIT shape (#723): system roles held in `user_roles`, with system grants
+   * only. Giving this or `orgRoleName` selects the split shape.
+   */
+  systemRoles?: Array<'admin'>;
+  /** SPLIT shape (#723): the org role on the default-org membership; `null` for no membership. */
+  orgRoleName?: 'org_admin' | 'contributor' | 'viewer' | null;
+  /** SPLIT shape (#723): the membership's status (default `active`). */
+  membershipStatus?: 'active' | 'suspended';
+  /** Keep the bare pre-split shape (no membership) for specs of the legacy-token path. */
+  withoutMembership?: boolean;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -200,8 +499,8 @@ export function createMockUserSettings(
       theme: 'system',
       profile: {
         displayName: null,
-        useProviderImage: true,
-        customImageUrl: null,
+        imageSource: 'provider',
+        imageObjectId: null,
       },
       updatedAt: new Date().toISOString(),
       version: 1,
@@ -239,9 +538,17 @@ export function createMockSystemSettings(
     id = randomUUID(),
     key = 'default',
     value = {
-      ui: { allowUserThemeOverride: true },
-      security: { jwtAccessTtlMinutes: 15, refreshTtlDays: 14 },
-      features: {},
+      notifications: { browserEnabled: true, disabledEvents: [] },
+      jobs: {
+        history: { retentionDays: 30, purgeEnabled: true },
+        stuckThresholdMinutes: 30,
+      },
+      nodes: {
+        staleHeartbeatSeconds: 90,
+        offlineStaleMultiplier: 4,
+        offlineRetentionDays: 30,
+        jobSecretBrokerEnabled: false,
+      },
     },
     version = 1,
     updatedByUserId = null,
@@ -351,16 +658,135 @@ export const rolePermissionsMap = {
     mockPermissions.rbacManage,
     mockPermissions.allowlistRead,
     mockPermissions.allowlistWrite,
+    mockPermissions.jobsRead,
+    mockPermissions.jobsWrite,
+    mockPermissions.nodesRead,
+    mockPermissions.nodesWrite,
+    mockPermissions.broadcastsRead,
+    mockPermissions.broadcastsWrite,
+    mockPermissions.dbBackupRead,
+    mockPermissions.dbBackupWrite,
+    mockPermissions.dbBackupRestore,
+    mockPermissions.pushRead,
+    mockPermissions.pushWrite,
+    mockPermissions.storageConfigRead,
+    mockPermissions.storageConfigWrite,
+    mockPermissions.aiConfigRead,
+    mockPermissions.aiConfigWrite,
+    mockPermissions.aiUse,
+    // #516 — Admin holds all three object-ACCESS permissions, including
+    // `storage:delete_any` (see the comment on `mockPermissions` above).
+    mockPermissions.storageRead,
+    mockPermissions.storageWrite,
+    mockPermissions.storageDeleteAny,
+    mockPermissions.telemetryRead,
+    mockPermissions.telemetryWrite,
+    mockPermissions.telemetryQuery,
+    mockPermissions.organizationsRead,
+    mockPermissions.organizationsWrite,
+    mockPermissions.systemFactoryReset,
+    mockPermissions.orgsOffboard,
+    mockPermissions.groupsRead,
+    mockPermissions.groupsWrite,
+    mockPermissions.groupsAdmin,
+    mockPermissions.sharingRead,
+    mockPermissions.sharingWrite,
+    mockPermissions.sharingAdmin,
+    mockPermissions.orgSettingsRead,
+    mockPermissions.orgSettingsWrite,
+    mockPermissions.orgBroadcastsRead,
+    mockPermissions.orgBroadcastsWrite,
+    mockPermissions.orgAiConfigRead,
+    mockPermissions.orgAiConfigWrite,
   ],
   contributor: [
     mockPermissions.userSettingsRead,
     mockPermissions.userSettingsWrite,
+    mockPermissions.aiUse,
+    // #516 — read + write, mirroring `prisma/seed-data.ts`; never `delete_any`.
+    mockPermissions.storageRead,
+    mockPermissions.storageWrite,
+    mockPermissions.groupsRead,
+    mockPermissions.groupsWrite,
+    mockPermissions.sharingRead,
+    mockPermissions.sharingWrite,
   ],
+  // #499 — deliberately NO `aiUse` here, unlike Contributor above. Viewer is
+  // the DEFAULT role every new user lands in, so a fixture that granted it
+  // AI use more generously than the real seed would make an integration test
+  // asserting a viewer is refused an AI route pass for the wrong reason. A
+  // test that needs an "everyday, allowed" AI caller uses `roleName:
+  // 'contributor'` instead.
+  //
+  // #516 — read only, mirroring `prisma/seed-data.ts`; never `storage:write`
+  // or `storage:delete_any`. A test that needs a caller who may write storage
+  // objects uses `roleName: 'contributor'` instead.
   viewer: [
     mockPermissions.userSettingsRead,
     mockPermissions.userSettingsWrite,
+    mockPermissions.storageRead,
+    mockPermissions.groupsRead,
+    mockPermissions.sharingRead,
   ],
 };
+
+/** Org-scoped permission names (#723): the grants that live on org roles. */
+const ORG_SCOPED_PERMISSIONS = new Set([
+  'user_settings:read',
+  'user_settings:write',
+  'storage:read',
+  'storage:write',
+  'ai:use',
+  'org_members:read',
+  'org_members:write',
+  'org_invites:read',
+  'org_invites:write',
+  'groups:read',
+  'groups:write',
+  'groups:admin',
+  'sharing:read',
+  'sharing:write',
+  'sharing:admin',
+  'org_settings:read',
+  'org_settings:write',
+  'org_broadcasts:read',
+  'org_broadcasts:write',
+  'org_ai_config:read',
+  'org_ai_config:write',
+]);
+
+/**
+ * The grants after the RBAC split (#723), mirroring the seeded catalog: the
+ * system `admin` role holds every system permission, `org_admin` every org
+ * permission; contributor and viewer are unchanged.
+ */
+export const splitRolePermissionsMap = {
+  admin: rolePermissionsMap.admin.filter((permission) => !ORG_SCOPED_PERMISSIONS.has(permission.name)),
+  org_admin: [
+    ...rolePermissionsMap.admin.filter((permission) => ORG_SCOPED_PERMISSIONS.has(permission.name)),
+    mockPermissions.orgMembersRead,
+    mockPermissions.orgMembersWrite,
+    mockPermissions.orgInvitesRead,
+    mockPermissions.orgInvitesWrite,
+  ],
+  contributor: rolePermissionsMap.contributor,
+  viewer: rolePermissionsMap.viewer,
+};
+
+/** The default organization every mock membership belongs to (matches `setupBaseMocks`). */
+export const MOCK_DEFAULT_ORG_ID = 'org-default';
+
+function roleWithGrants(roleName: keyof typeof splitRolePermissionsMap, grants: Array<{ id: string; name: string; description: string | null }>) {
+  const role = mockRoles[roleName];
+  return {
+    ...role,
+    rolePermissions: grants.map((permission) => ({
+      roleId: role.id,
+      permissionId: permission.id,
+      permission,
+    })),
+  };
+}
 
 // ============================================================================
 // Complete User with Relations
@@ -390,6 +816,7 @@ export interface MockUserWithRelations {
       }>;
     };
   }>;
+  memberships?: any[];
   identities?: any[];
   userSettings?: any;
 }
@@ -397,6 +824,9 @@ export interface MockUserWithRelations {
 export function createMockUserWithRelations(
   options: CreateMockUserOptions = {},
 ): MockUserWithRelations {
+  if (options.systemRoles !== undefined || options.orgRoleName !== undefined) {
+    return createSplitMockUser(options);
+  }
   const user = createMockUser(options);
   const roleName = options.roleName || 'viewer';
   const role = mockRoles[roleName];
@@ -428,10 +858,70 @@ export function createMockUserWithRelations(
     userId: user.id,
   });
 
+  // Row-level security scopes tenant data to the caller's active organization
+  // (#725), so a pre-split mock user also holds an active membership in the
+  // default organization, carrying the same role. Effective roles and
+  // permissions are unchanged (the principal unions and de-duplicates them).
+  // `withoutMembership` keeps the bare pre-split shape for the specs that
+  // exercise the legacy-token path.
+  const membership = options.withoutMembership
+    ? []
+    : [
+        {
+          id: randomUUID(),
+          orgId: MOCK_DEFAULT_ORG_ID,
+          userId: user.id,
+          status: 'active',
+          lastActiveAt: new Date(),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          roleId: role.id,
+          org: { id: MOCK_DEFAULT_ORG_ID, isDefault: true },
+          role: roleWithPermissions,
+        },
+      ];
+
   return {
     ...user,
     userRoles: [{ ...userRole, role: roleWithPermissions }],
+    memberships: membership,
     identities: [identity],
     userSettings: settings,
+  };
+}
+
+/**
+ * A user in the post-split shape (#723): `userRoles` holds system roles with
+ * system grants, and the default-org membership carries the org role.
+ */
+function createSplitMockUser(options: CreateMockUserOptions): MockUserWithRelations {
+  const user = createMockUser(options);
+  const systemRoles = options.systemRoles ?? [];
+  const orgRoleName = options.orgRoleName === undefined ? 'viewer' : options.orgRoleName;
+
+  return {
+    ...user,
+    userRoles: systemRoles.map((roleName) => ({
+      ...createMockUserRole({ userId: user.id, roleId: mockRoles[roleName].id }),
+      role: roleWithGrants(roleName, splitRolePermissionsMap[roleName]),
+    })),
+    memberships: orgRoleName
+      ? [
+          {
+            id: randomUUID(),
+            orgId: MOCK_DEFAULT_ORG_ID,
+            userId: user.id,
+            status: options.membershipStatus ?? 'active',
+            lastActiveAt: new Date(),
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            roleId: mockRoles[orgRoleName].id,
+            org: { id: MOCK_DEFAULT_ORG_ID, isDefault: true },
+            role: roleWithGrants(orgRoleName, splitRolePermissionsMap[orgRoleName]),
+          },
+        ]
+      : [],
+    identities: [createMockUserIdentity({ userId: user.id, providerEmail: user.email })],
+    userSettings: createMockUserSettings({ userId: user.id }),
   };
 }

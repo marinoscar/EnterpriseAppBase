@@ -1,0 +1,100 @@
+name: Android
+
+# Builds the reference Android shell (apps/android): a Trusted Web Activity around
+# the web app on the platform's :platform-core module
+# (packages/platform-infra/android/platform-core). See
+# docs/specs/native-companion-architecture.md and docs/runbooks/android-release.md.
+#
+# Debug only, so the workflow needs no secret: JVM unit tests of :platform-core and
+# :app, and the debug APK as an artifact. The version comes from
+# apps/android/version.properties and the identity from packages/shared/identity.json,
+# so this file carries no product literal.
+#
+# Signed release builds in CI are an owner step (the keystore as repository secrets,
+# see the release runbook). Gate any such step by mapping the secret to a job-level
+# `env` variable and checking `if: env.ANDROID_KEYSTORE_BASE64 != ''`: the `secrets`
+# context is not available in `if:`, and the step then skips cleanly in forks.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/android/**'
+      - 'packages/platform-infra/android/**'
+      - 'packages/shared/identity.json'
+      - '.github/workflows/android.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/android/**'
+      - 'packages/platform-infra/android/**'
+      - 'packages/shared/identity.json'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Keep Gradle within a standard runner's memory and avoid a lingering daemon.
+  GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.workers.max=2
+
+defaults:
+  run:
+    working-directory: apps/android
+
+jobs:
+  test:
+    name: Unit tests & debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+          cache-dependency-path: |
+            apps/android/*.gradle.kts
+            apps/android/app/*.gradle.kts
+            apps/android/gradle/libs.versions.toml
+            apps/android/gradle/wrapper/gradle-wrapper.properties
+            packages/platform-infra/android/platform-core/*.gradle.kts
+
+      - uses: android-actions/setup-android@v3
+        with:
+          # The action's default list includes `tools`, which the SDK repository no
+          # longer publishes, so the step fails. Install exactly what the build needs.
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+
+      - name: Read identity and version
+        id: meta
+        run: scripts/build-meta.sh >> "$GITHUB_OUTPUT"
+
+      # No `npm ci`: settings.gradle.kts falls back to packages/platform-infra/android/platform-core
+      # when node_modules is not installed.
+      - name: Unit tests and debug build
+        run: ./gradlew --no-daemon testDebugUnitTest assembleDebug
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-test-reports
+          path: |
+            apps/android/app/build/reports/tests/
+            packages/platform-infra/android/platform-core/build/reports/tests/
+          retention-days: 7
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.apk_stem }}-debug
+          path: apps/android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 14

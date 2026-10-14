@@ -1,0 +1,72 @@
+import { Inject, Injectable, OnModuleInit, Optional } from '@nestjs/common';
+import { DEFAULT_IDENTITY_OPTIONS, IDENTITY_OPTIONS, type ResolvedIdentityModuleOptions } from '../../identity.options';
+import { ConfigService } from '@nestjs/config';
+
+import { ROLES } from '../../identity.constants';
+import { DoctorCheck, DoctorCheckOutcome } from '../../../doctor/index';
+import { DoctorCheckRegistry } from '../../../doctor/index';
+import { PLATFORM_PRISMA } from '../../../core/index';
+import type { IdentityPrisma } from '../../ports';
+
+/** Pure: judges the bootstrap variable and the number of active admins. */
+export function decideInitialAdmin(input: { initialAdminEmailSet: boolean; activeAdmins: number }): DoctorCheckOutcome {
+  const data = { activeAdmins: input.activeAdmins, initialAdminEmailSet: input.initialAdminEmailSet };
+
+  if (input.activeAdmins === 0) {
+    return {
+      status: 'fail',
+      detail: 'No active user holds the Admin role',
+      remedy: input.initialAdminEmailSet
+        ? 'Sign in with the INITIAL_ADMIN_EMAIL account; it is granted Admin on sign-in.'
+        : 'Set INITIAL_ADMIN_EMAIL to your email address, restart the API and sign in with that account.',
+      data,
+    };
+  }
+
+  if (!input.initialAdminEmailSet) {
+    return {
+      status: 'warn',
+      detail: `${input.activeAdmins} active admin(s), but INITIAL_ADMIN_EMAIL is not set`,
+      remedy:
+        'Set INITIAL_ADMIN_EMAIL so there is always a way back in: that account bypasses the ' +
+        'allowlist and is granted Admin on sign-in.',
+      data,
+    };
+  }
+
+  return { status: 'pass', detail: `${input.activeAdmins} active admin(s)`, data };
+}
+
+/** `auth` / `auth.initial-admin` — somebody can administer this deployment. */
+@Injectable()
+export class InitialAdminDoctorCheck implements DoctorCheck, OnModuleInit {
+  readonly id = 'auth.initial-admin';
+  readonly category = 'auth';
+  readonly label = 'Administrator access';
+  readonly settingsPath = '/admin/settings/users';
+  readonly dependsOn = ['db.connection'];
+
+  constructor(
+    private readonly registry: DoctorCheckRegistry,
+    private readonly config: ConfigService,
+    @Inject(PLATFORM_PRISMA) private readonly prisma: IdentityPrisma,
+    @Optional() @Inject(IDENTITY_OPTIONS)
+    private readonly identityOptions: ResolvedIdentityModuleOptions = DEFAULT_IDENTITY_OPTIONS,
+  ) {}
+
+  onModuleInit(): void {
+    this.registry.register(this);
+  }
+
+  async run(): Promise<DoctorCheckOutcome> {
+    const email = this.config.get<string>(this.identityOptions.initialAdminEmailEnv);
+    const activeAdmins = await this.prisma.user.count({
+      where: { isActive: true, userRoles: { some: { role: { name: ROLES.ADMIN } } } },
+    });
+
+    return decideInitialAdmin({
+      initialAdminEmailSet: typeof email === 'string' && email.trim() !== '',
+      activeAdmins: Number(activeAdmins ?? 0),
+    });
+  }
+}

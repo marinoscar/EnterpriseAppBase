@@ -1,0 +1,26 @@
+{
+  // Typecheck config (`npm run typecheck` = tsc --noEmit), covering src/ and
+  // test/. Mirrors apps/api/tsconfig.json, with one deliberate difference:
+  // `removeComments` is false. apps/api strips comments from its own build;
+  // a published package must keep TSDoc in its .d.ts files.
+  //
+  // CommonJS: `"type": "commonjs"` plus NodeNext (tsconfig.base.json) emits
+  // require()/exports. Built with tsc, never esbuild/tsup: Nest dependency
+  // injection reads `design:paramtypes`, which only tsc (or SWC with decorator
+  // metadata) emits. test/index.spec.ts proves the metadata survives.
+  //
+  // `rootDir: "."` is explicit for ts-jest's transpileModule path (TS5011,
+  // see apps/api/test/jest.config.js); the build narrows it to ./src.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "removeComments": false,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "allowSyntheticDefaultImports": true,
+    "rootDir": ".",
+    "noFallthroughCasesInSwitch": true,
+    "types": ["node", "jest"]
+  },
+  "include": ["src/**/*", "test/**/*"],
+  "exclude": ["node_modules", "dist"]
+}
