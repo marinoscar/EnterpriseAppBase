@@ -4,6 +4,9 @@ on:
   push:
     branches: [claude/sweet-dijkstra-x0bf2o]
     paths: ['.github/workflows/oneoff-npm-publish.yml']
+permissions:
+  contents: write
+  id-token: write
 jobs:
   publish:
     runs-on: ubuntu-latest
