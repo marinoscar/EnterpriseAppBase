@@ -231,3 +231,9 @@ jobs:
       - if: steps.scope.outputs.run == 'true'
         name: Web consumer smoke
         run: node tests/consumer-smoke/run.mjs --project web --from tarballs "$RUNNER_TEMP/tarballs"
+
+      # Issue #991: plain Node, only the ai-providers tarball plus openai, the
+      # Anthropic SDK and zod; no Nest, OpenTelemetry, Prisma, passport or AWS.
+      - if: steps.scope.outputs.run == 'true'
+        name: AI providers consumer smoke (plain Node)
+        run: node tests/consumer-smoke/run.mjs --project ai-providers --from tarballs "$RUNNER_TEMP/tarballs"
