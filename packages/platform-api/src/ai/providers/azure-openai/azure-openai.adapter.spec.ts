@@ -4,10 +4,10 @@ import { AiError } from '../../core/ai-error';
 import type { AiCallContext, AiProviderAdapter } from '../../core/provider-adapter.interface';
 import { AiProviderRegistry } from '../../core/provider-registry';
 import type { AiStreamEvent } from '../../core/types/responses.types';
-import { conformanceChatResponder, conformanceResponsesResponder } from '../openai/testing/conformance-responders';
-import { OpenAiMockServer } from '../openai/testing/openai-mock-transport';
+import { conformanceChatResponder, conformanceResponsesResponder } from '@marinoscar/platform-ai-providers/openai/testing';
+import { OpenAiMockServer } from '@marinoscar/platform-ai-providers/openai/testing';
 import { azureOpenAiBaseUrl, AzureOpenAiClientFactory } from './azure-openai-client.factory';
-import { AZURE_OPENAI_DEFAULT_API_VERSION, azureOpenAiSettings } from './azure-openai-settings';
+import { AZURE_OPENAI_DEFAULT_API_VERSION, azureOpenAiSettings } from '@marinoscar/platform-ai-providers/openai';
 import { AzureOpenAiProviderAdapter } from './azure-openai.adapter';
 
 const KEY = 'azure-key-VALID-abcdefghijklmnop';

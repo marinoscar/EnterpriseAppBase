@@ -13,8 +13,8 @@ import { AiInputItem, AiStreamEvent } from '../../core/types/responses.types';
 import { GeminiClientFactory, GEMINI_DEFAULT_BASE_URL } from './gemini-client.factory';
 import { GEMINI_PROVIDER_CALL_SPAN, GeminiProviderAdapter } from './gemini.adapter';
 import { GeminiProviderModule } from './gemini.module';
-import { functionCallPart, responseFixture, streamChunksFor, textPart, thoughtPart } from './testing/gemini-fixtures';
-import { GeminiMockServer, MockGeminiModel } from './testing/gemini-mock-transport';
+import { functionCallPart, responseFixture, streamChunksFor, textPart, thoughtPart } from '@marinoscar/platform-ai-providers/gemini/testing';
+import { GeminiMockServer, MockGeminiModel } from '@marinoscar/platform-ai-providers/gemini/testing';
 
 // ---- a recording tracer (no SDK dependency) -----------------------------------
 

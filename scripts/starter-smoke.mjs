@@ -35,7 +35,7 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const PLATFORM_PACKAGES = ['contract', 'api', 'web', 'db', 'cli', 'infra'];
+const PLATFORM_PACKAGES = ['contract', 'ai-providers', 'api', 'web', 'db', 'cli', 'infra'];
 const PREFIX = '@marinoscar/platform-';
 const NPM = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const SKIP_DIRS = new Set(['node_modules', 'dist', 'coverage']);

@@ -12,8 +12,8 @@ import { AiProviderRegistry } from '../../core/provider-registry';
 import { describeAiProviderConformance } from '../../testing/conformance';
 import { AnthropicClientFactory } from './anthropic-client.factory';
 import { AnthropicProviderAdapter } from './anthropic.adapter';
-import { messageFixture, textBlock, toolUseBlock } from './testing/anthropic-fixtures';
-import { AnthropicMockServer, MockAnthropicReply } from './testing/anthropic-mock-transport';
+import { messageFixture, textBlock, toolUseBlock } from '@marinoscar/platform-ai-providers/anthropic/testing';
+import { AnthropicMockServer, MockAnthropicReply } from '@marinoscar/platform-ai-providers/anthropic/testing';
 
 const VALID_KEY = 'sk-ant-api03-conformance-valid-0000';
 const INVALID_KEY = 'sk-ant-api03-conformance-revoked-00';

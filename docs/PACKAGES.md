@@ -34,6 +34,8 @@ Build, test and lint commands for the packages themselves are in [DEVELOPMENT.md
 | Slices page | [`scripts/generate-slices-doc.mjs`](../scripts/generate-slices-doc.mjs) (`npm run check:slices-doc`) | [`SLICES.md`](SLICES.md) differs from the page generated from the graph, the peers, the exports, the slice READMEs and [`platform-slice-notes.json`](../packages/platform-slice-notes.json); a slice has no notes entry; or the minimal consumer's dependencies drift from the peers of the slices it imports ([below](#the-slices-page)) |
 | Link check | [`apps/api/test/docs-links.spec.ts`](../apps/api/test/docs-links.spec.ts) (`npm test --workspace=api`) | A relative link in a package or slice README does not resolve |
 
+`@marinoscar/platform-ai-providers` is a framework-free library package: its slices are the provider subpaths (`openai`, `anthropic`, `gemini`), each with a slice README under `src/<provider>/`, and its root README follows the same template. It is a package for plain Node consumers; `@marinoscar/platform-api/ai` re-exports it.
+
 All of it runs in the `package-docs` job of [`.github/workflows/packages.yml`](../.github/workflows/packages.yml), which also uploads each package's generated reference as the `api-reference` artifact. The TSDoc lint, the slice peer check and the closed id list check run in that workflow's `packages` job, the link check in `ci.yml`'s API tests.
 
 ## The README

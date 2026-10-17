@@ -161,6 +161,7 @@ const ALLOWLIST: ReadonlySet<string> = new Set([
   // platform repository it is built from (npm provenance checks it). A fork
   // consumes these packages unchanged, so the URL is not a rebrand target;
   // scripts/rename.mjs never touches them (rename-script.test.ts).
+  'packages/platform-ai-providers/package.json',
   'packages/platform-api/package.json',
   'packages/platform-cli/package.json',
   'packages/platform-contract/package.json',

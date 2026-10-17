@@ -24,7 +24,7 @@ import {
   mapOpenAiResponseFailure,
   openAiErrorCode,
   retryAfterFromHeaders,
-} from './openai-errors';
+} from '@marinoscar/platform-ai-providers/openai';
 
 const LEAKY_KEY = 'sk-proj-THIS-IS-SECRET-1234567890';
 

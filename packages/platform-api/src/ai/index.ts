@@ -123,7 +123,7 @@ export { AnthropicProviderModule } from './providers/anthropic/anthropic.module'
 export { GeminiProviderModule } from './providers/gemini/gemini.module';
 export { AzureOpenAiProviderModule } from './providers/azure-openai/azure-openai.module';
 export { OpenAiCompatibleProviderModule } from './providers/openai-compatible/openai-compatible.module';
-export { OPENAI_TTS1_VOICES, classifyOpenAiModel } from './providers/openai/openai-model-catalog';
+export { OPENAI_TTS1_VOICES, classifyOpenAiModel } from '@marinoscar/platform-ai-providers/openai';
 
 // ---- the HTTP surface (controllers and wire schemas, for route discovery and contract tests) -----
 export { AiAdminController } from './config/ai-admin.controller';

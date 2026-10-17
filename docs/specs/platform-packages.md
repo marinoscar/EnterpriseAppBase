@@ -1,6 +1,6 @@
 # Platform packages: turning EnterpriseAppBase into a package-based platform
 
-> **Status:** Shipped in the platform repository (the six packages, the slices, the starter and the reference app exist); adoption by EvoPath is in progress, kvox and MemoriaHub have not started; npm carries only the `0.1.0-next.3` bootstrap release until trusted publishing is enabled. **Date:** 2026-10-04, revised 2026-10-09 · **Code:** `packages/platform-{contract,api,web,db,cli,infra}/`, `starter/`, and the reference app in `apps/api`, `apps/web`, `apps/cli` · **API:** per slice, see `/api/docs` · **Admin UI:** per slice, see [the admin guide](../ADMIN-GUIDE.md) · **Runbook:** [release the platform packages](../runbooks/release-platform-packages.md), [database baseline](../runbooks/database-baseline.md), [platform drift report](../runbooks/platform-drift-report.md) · **Guide:** [adopting the platform](../ADOPTING-THE-PLATFORM.md) · **Recipe:** [Definition of done for a slice](#definition-of-done-for-a-slice)
+> **Status:** Shipped in the platform repository (the seven packages, the slices, the starter and the reference app exist); adoption by EvoPath is in progress, kvox and MemoriaHub have not started; npm carries only the `0.1.0-next.3` bootstrap release until trusted publishing is enabled. **Date:** 2026-10-04, revised 2026-10-09 · **Code:** `packages/platform-{contract,api,web,db,cli,infra}/`, `starter/`, and the reference app in `apps/api`, `apps/web`, `apps/cli` · **API:** per slice, see `/api/docs` · **Admin UI:** per slice, see [the admin guide](../ADMIN-GUIDE.md) · **Runbook:** [release the platform packages](../runbooks/release-platform-packages.md), [database baseline](../runbooks/database-baseline.md), [platform drift report](../runbooks/platform-drift-report.md) · **Guide:** [adopting the platform](../ADOPTING-THE-PLATFORM.md) · **Recipe:** [Definition of done for a slice](#definition-of-done-for-a-slice)
 
 EnterpriseAppBase stops being a template that apps fork and becomes the platform repository: it publishes versioned packages, and each product (EvoPath, kvox, MemoriaHub) keeps only its domain code and consumes the platform. A fix or feature lands once in a package, ships in one release, and every app picks it up through a normal version bump.
 
@@ -242,7 +242,7 @@ flowchart TB
 
 | Directory | Role |
 |---|---|
-| `packages/*` | The platform: `platform-contract`, `platform-api`, `platform-web`, `platform-db`, `platform-cli` and `platform-infra`, plus `packages/shared`, which carries the product identity. |
+| `packages/*` | The platform: `platform-contract`, `platform-ai-providers`, `platform-api`, `platform-web`, `platform-db`, `platform-cli` and `platform-infra`, plus `packages/shared`, which carries the product identity. |
 | `apps/api`, `apps/web`, `apps/cli` | The **reference app**. These existing apps stay in place (there is no move to an `apps/reference` directory); they are built on the packages. The e2e and visual tests run against them, so the platform is always exercised as an app would use it. |
 | `starter/` | What `new-project` copies. It depends on published versions, never on workspace paths. |
 | `docs/` | Platform docs, the Extension Contract, and architecture decision records. |
@@ -251,11 +251,12 @@ flowchart TB
 
 **PROPOSED** (revised during the discussion).
 
-Publish about **six layer packages**, released in lockstep under **one platform version**:
+Publish about **seven packages** (six layers and the AI provider library), released in lockstep under **one platform version**:
 
 | Package | Holds |
 |---|---|
 | `@marinoscar/platform-contract` | Zod DTOs and types shared by api and web |
+| `@marinoscar/platform-ai-providers` | Framework-free AI provider adapters and core types (plain Node; `@marinoscar/platform-api/ai` builds on it) |
 | `@marinoscar/platform-api` | NestJS dynamic modules |
 | `@marinoscar/platform-web` | React pages, components and hooks |
 | `@marinoscar/platform-db` | Prisma schema fragments, SQL migrations, seed functions |

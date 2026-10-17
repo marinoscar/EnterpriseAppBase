@@ -88,7 +88,7 @@ describe('.changeset/config.json', () => {
       expect(manifest.name).toBe(`@marinoscar/${d.split('/')[1]}`);
       return manifest.name;
     });
-    expect(expected.length).toBe(6);
+    expect(expected.length).toBe(7);
     const group = config.fixed[0] ?? [];
     expect([...group].sort()).toEqual([...expected].sort());
     expect(new Set(group).size).toBe(group.length);

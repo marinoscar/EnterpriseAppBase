@@ -14,8 +14,8 @@ import { AiProviderRegistry } from '../../core/provider-registry';
 import { describeAiProviderConformance } from '../../testing/conformance';
 import { GeminiClientFactory } from './gemini-client.factory';
 import { GeminiProviderAdapter } from './gemini.adapter';
-import { functionCallPart, responseFixture, signature, textPart, thoughtPart } from './testing/gemini-fixtures';
-import { GeminiMockServer, MockGeminiReply } from './testing/gemini-mock-transport';
+import { functionCallPart, responseFixture, signature, textPart, thoughtPart } from '@marinoscar/platform-ai-providers/gemini/testing';
+import { GeminiMockServer, MockGeminiReply } from '@marinoscar/platform-ai-providers/gemini/testing';
 
 const VALID_KEY = 'AIzaSy-conformance-valid-000000000000';
 const INVALID_KEY = 'AIzaSy-conformance-revoked-0000000000';

@@ -14,7 +14,18 @@
 //   - NO file of the web or the contract may import one (the browser must never
 //     hold a provider SDK any more than it may hold a provider key);
 //   - NO app `package.json` and no other package declares a provider SDK: they
-//     are dependencies of `@marinoscar/platform-api` only.
+//     are declared by the owning packages only.
+//
+// THE SDK OWNER SINCE #991. The five adapters, and every import of their
+// SDKs, live in `@marinoscar/platform-ai-providers` (`src/<provider>/`, see
+// {@link aiProvidersPackageSdkDirs}); `@marinoscar/platform-api`'s
+// `ai/providers/<id>/` folders keep only the Nest bindings, which import no
+// SDK, so the platform package's tree is scanned with no exempt directory at
+// all. Two manifests may declare the SDKs, which is why `sdkOwner` takes a
+// list: `@marinoscar/platform-ai-providers` (optional peers, so a plain-Node
+// consumer installs only the SDK it uses) and `@marinoscar/platform-api`
+// (dependencies, so an app on the platform gets all three installed, as
+// before, and the lean package's optional peers resolve to them).
 //
 // THE BANNED LIST IS PACKAGE NAMES, NOT A GREP FOR "openai" AS A STRING, so a
 // comment or a variable named `openaiKeyHint` does not fail the suite. It is
@@ -82,6 +93,11 @@ export interface SdkOwnerManifest {
 /**
  * How an app configures the `ai-no-sdk-leak` suite.
  *
+ * Since #991 the provider SDKs are imported only by
+ * `@marinoscar/platform-ai-providers`: scan that package with
+ * `sdkDirs: aiProvidersPackageSdkDirs(<its src>)`, and the platform package
+ * with no `sdkDirs` (its provider folders import no SDK).
+ *
  * @example
  * ```ts
  * aiNoSdkLeak: {
@@ -104,11 +120,12 @@ export interface AiNoSdkLeakOptions {
   /** Trees the browser ships (web sources, contract sources): no SDK import anywhere. */
   webTrees: readonly SdkLeakTree[];
   /**
-   * The one manifest allowed to declare provider SDKs, and the SDK names it
-   * must declare (proves the check reads real dependencies). Omit when the app
-   * consumes the package from `node_modules`: the package owns its dependencies.
+   * The manifest (or manifests) allowed to declare provider SDKs, and the SDK
+   * names each must declare (proves the check reads real dependencies). Omit
+   * when the app consumes the packages from `node_modules`: the packages own
+   * their dependencies.
    */
-  sdkOwner?: SdkOwnerManifest;
+  sdkOwner?: SdkOwnerManifest | readonly SdkOwnerManifest[];
   /** Absolute `package.json` paths that must declare no provider SDK. */
   noSdkManifests: readonly string[];
   /** More SDK package names to ban, beyond {@link PROVIDER_SDK_PACKAGES}. */
@@ -154,9 +171,41 @@ export const PROVIDER_SDK_PACKAGES: readonly string[] = Object.freeze([
 ]);
 
 /**
+ * The top-level directories of `@marinoscar/platform-ai-providers` that may
+ * import a provider SDK, in the form {@link SdkLeakTree.sdkDirs} takes: every
+ * directory directly under `packageRoot` (that package's `src`, or its
+ * `dist`) except `core/`, the provider-agnostic core, which imports none.
+ * One directory per provider subpath (`openai/`, `anthropic/`, `gemini/`), so
+ * a provider added there is covered without editing this list.
+ *
+ * @param packageRoot - the root of the `@marinoscar/platform-ai-providers` tree being scanned.
+ * @returns one `<provider>/` entry per provider directory, empty when `packageRoot` does not exist.
+ *
+ * @stability experimental
+ */
+export function aiProvidersPackageSdkDirs(packageRoot: string): string[] {
+  const dir = resolve(packageRoot);
+  if (!statSync(dir, { throwIfNoEntry: false })) return [];
+
+  return readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entry.name !== 'core')
+    .map((entry) => `${entry.name}/`);
+}
+
+/** The `sdkOwner` option as a list. */
+function sdkOwners(options: AiNoSdkLeakOptions): readonly SdkOwnerManifest[] {
+  if (!options.sdkOwner) return [];
+
+  return Array.isArray(options.sdkOwner) ? (options.sdkOwner as readonly SdkOwnerManifest[]) : [options.sdkOwner as SdkOwnerManifest];
+}
+
+/**
  * The platform package's own adapter directories, in the form
  * {@link SdkLeakTree.sdkDirs} takes: one per provider the AI slice ships,
- * relative to `packageRoot` (the package's `src`, or its `dist`).
+ * relative to `packageRoot` (the package's `src`, or its `dist`). Since #991
+ * these folders hold only the Nest bindings of the adapters and import no
+ * SDK; the SDK imports are in `@marinoscar/platform-ai-providers` (see
+ * {@link aiProvidersPackageSdkDirs}).
  *
  * @param packageRoot - the root of the package tree being scanned.
  * @returns one `<slice>/<providers>/<id>/` entry per provider directory, empty when the slice is not under `packageRoot`.
@@ -342,9 +391,9 @@ function check(_context: ConformanceContext, options: AiNoSdkLeakOptions): Confo
   scanned['providerDirs'] = providerDirs.length;
   scanned['registeredSdkPackages'] = registered.length;
 
-  if (options.sdkOwner) {
-    const declared = declaredSdks(readManifest(options.sdkOwner.manifest), banned);
-    scanned['sdkOwner#declared'] = options.sdkOwner.declares.filter((name) => declared.includes(name)).length;
+  for (const [index, owner] of sdkOwners(options).entries()) {
+    const declared = declaredSdks(readManifest(owner.manifest), banned);
+    scanned[index === 0 ? 'sdkOwner#declared' : `sdkOwner#declared#${index}`] = owner.declares.filter((name) => declared.includes(name)).length;
   }
   for (const path of options.noSdkManifests) {
     for (const sdk of declaredSdks(readManifest(path), bannedInManifests)) findings.push(finding(`manifest|${path}`, `declares "${sdk}"`));
@@ -399,12 +448,16 @@ function cases(options: AiNoSdkLeakOptions): ReadonlyArray<ConformanceCase> {
     });
   }
 
-  if (options.sdkOwner) {
-    const owner = options.sdkOwner;
+  for (const [index, owner] of sdkOwners(options).entries()) {
+    const key = index === 0 ? 'sdkOwner#declared' : `sdkOwner#declared#${index}`;
     out.push({
-      name: 'declares the shipped SDKs in the owning package only',
+      // The first owner keeps the title the single-owner form always had.
+      name:
+        index === 0
+          ? 'declares the shipped SDKs in the owning package only'
+          : `declares the shipped SDKs in the owning package only (${owner.manifest.split(/[\\/]/).slice(-2).join('/')})`,
       run: (report, expect) => {
-        expect(report.scanned['sdkOwner#declared']!).toBeGreaterThanOrEqual(owner.declares.length);
+        expect(report.scanned[key]!).toBeGreaterThanOrEqual(owner.declares.length);
       },
     });
   }

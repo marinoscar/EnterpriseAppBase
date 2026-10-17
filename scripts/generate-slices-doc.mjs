@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Generates docs/SLICES.md, the one page that answers, for every platform
-// slice: what it is and gives you, which of the six packages carry it (with
+// slice: what it is and gives you, which of the seven packages carry it (with
 // the subpath imports), the admin cards and permissions it adds, the slices
 // and peer dependencies it needs, and whether it can be used on its own.
 //
@@ -62,7 +62,7 @@ const DOC_PATH = 'docs/SLICES.md';
 const SOURCE_FILE = /\.(?:ts|tsx|mts|cts)$/;
 const SKIPPED_DIRS = new Set(['node_modules', 'dist', 'docs-api']);
 
-/** The six packages by layer, with the label the page uses for each. */
+/** The seven packages by layer, with the label the page uses for each. */
 export const PACKAGES = [
   { dir: 'platform-api', label: 'API' },
   { dir: 'platform-web', label: 'Web' },
@@ -70,6 +70,7 @@ export const PACKAGES = [
   { dir: 'platform-db', label: 'DB' },
   { dir: 'platform-cli', label: 'CLI' },
   { dir: 'platform-infra', label: 'Infra' },
+  { dir: 'platform-ai-providers', label: 'AI providers' },
 ];
 
 /** The groups of the notes file, in page order. */
@@ -710,11 +711,11 @@ export function renderDoc(model, root = DEFAULT_ROOT) {
     '',
     '> **Generated page.** Run `npm run docs:slices` after changing a slice, its README, its peers or its notes; `npm run check:slices-doc` (CI) fails when this page is stale. Hand-written facts live in [`packages/platform-slice-notes.json`](../packages/platform-slice-notes.json).',
     '',
-    'One page for every platform slice: what it is and gives you, which of the six packages carry it and the subpath imports, the admin cards and permissions it adds, the slices and peer dependencies it needs, and whether it can be used on its own. Design and rationale: [platform-packages spec](specs/platform-packages.md); documentation standard: [PACKAGES.md](PACKAGES.md).',
+    'One page for every platform slice: what it is and gives you, which of the seven packages carry it and the subpath imports, the admin cards and permissions it adds, the slices and peer dependencies it needs, and whether it can be used on its own. Design and rationale: [platform-packages spec](specs/platform-packages.md); documentation standard: [PACKAGES.md](PACKAGES.md).',
     '',
     '## How slices, packages and npm relate',
     '',
-    '- **Six npm packages, one per layer**: `@marinoscar/platform-api` (NestJS), `@marinoscar/platform-web` (React and MUI), `@marinoscar/platform-contract` (zod wire shapes), `@marinoscar/platform-db` (schema fragments, migrations, seed), `@marinoscar/platform-cli` (the CLI factory, TUI, node engine) and `@marinoscar/platform-infra` (Compose, nginx and env fragments).',
+    '- **Seven npm packages**: `@marinoscar/platform-api` (NestJS), `@marinoscar/platform-web` (React and MUI), `@marinoscar/platform-contract` (zod wire shapes), `@marinoscar/platform-db` (schema fragments, migrations, seed), `@marinoscar/platform-cli` (the CLI factory, TUI, node engine) `@marinoscar/platform-infra` (Compose, nginx and env fragments) and `@marinoscar/platform-ai-providers` (the framework-free AI provider adapters and core types; the AI slice\'s adapters, with no slice of its own).',
     '- **A slice is a subpath import, not a package.** `@marinoscar/platform-api/telemetry` and `@marinoscar/platform-web/telemetry/ui` are the telemetry slice in two packages. A capability usually spans several packages under one slice name; the "Carried by" column and each slice\'s table list them.',
     '- **Slices form a graph** ([`packages/platform-slices.json`](../packages/platform-slices.json)): a slice may import only the slices listed for it. Depending on a slice costs no extra npm package, because it is in the same package; it costs that slice\'s peers and its wiring (host ports, settings, permissions).',
     '- **Peers are per slice.** A package\'s `peerDependencies` are the union of what its slices need, but only what the always-needed slices (`core`) use is required; every other peer is `optional`. A slice\'s peers are its own plus those of its slice dependencies ([`packages/platform-slice-peers.json`](../packages/platform-slice-peers.json); rules in [PACKAGES.md](PACKAGES.md#peer-dependencies-per-slice)). npm does not install an optional peer, so an app installs the peers of the slices it imports.',

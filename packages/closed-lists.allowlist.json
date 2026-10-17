@@ -7,27 +7,27 @@
       "reason": "the fixed steps of the provider connection test, in attempt order; not an implementation id"
     },
     {
-      "file": "packages/platform-api/src/ai/core/types/file-inputs.types.ts",
+      "file": "packages/platform-ai-providers/src/core/types/file-inputs.types.ts",
       "symbol": "AI_STORAGE_INPUT_IMAGE_MIME_TYPES",
       "reason": "MIME allowlist deciding image versus file input; a validation limit, not an id vocabulary"
     },
     {
-      "file": "packages/platform-api/src/ai/core/types/media.types.ts",
+      "file": "packages/platform-ai-providers/src/core/types/media.types.ts",
       "symbol": "AI_IMAGE_INPUT_MIME_TYPES",
       "reason": "MIME allowlist for source images; a validation limit"
     },
     {
-      "file": "packages/platform-api/src/ai/core/types/media.types.ts",
+      "file": "packages/platform-ai-providers/src/core/types/media.types.ts",
       "symbol": "AI_TRANSCRIPTION_INPUT_MIME_TYPES",
       "reason": "MIME allowlist for transcription input; a validation limit"
     },
     {
-      "file": "packages/platform-api/src/ai/core/types/responses.types.ts",
+      "file": "packages/platform-ai-providers/src/core/types/responses.types.ts",
       "symbol": "AI_HOSTED_TOOL_TYPES",
       "reason": "discriminator of the typed AiHostedTool union; each member has its own request shape and gate"
     },
     {
-      "file": "packages/platform-api/src/ai/core/types/responses.types.ts",
+      "file": "packages/platform-ai-providers/src/core/types/responses.types.ts",
       "symbol": "AiMessageRole",
       "reason": "chat message roles of the provider wire formats; adapters map each one"
     },

@@ -80,7 +80,7 @@
 
 import { join } from 'node:path';
 
-import { aiPackageProviderDirs } from '@marinoscar/platform-api/ai/testing';
+import { aiProvidersPackageSdkDirs } from '@marinoscar/platform-api/ai/testing';
 import { runPlatformConformance } from '@marinoscar/platform-api/testing';
 // Importing a slice's testing entry REGISTERS its suites with the harness.
 import '@marinoscar/platform-api/ai/testing';
@@ -96,6 +96,7 @@ import { API_SOURCE_ROOT, CRON_SOURCE_ROOTS, JOBS_SLICE_SOURCE_ROOT, NODES_SLICE
 
 const REPO = join(__dirname, '..', '..', '..');
 const PACKAGE_API_SRC = join(REPO, 'packages', 'platform-api', 'src');
+const PACKAGE_AI_PROVIDERS_SRC = join(REPO, 'packages', 'platform-ai-providers', 'src');
 
 /**
  * ⚠ THE EXEMPTION LIST. THREE ENTRIES, AND EACH ONE IS ARGUED.
@@ -174,17 +175,22 @@ runPlatformConformance({
     aiSecretEgress: { fixture: aiConformanceFixture },
     aiKeyPolicy: { fixture: aiConformanceFixture },
     aiJobsServerOnly: { fixture: aiConformanceFixture },
-    // AI rule 1: a provider SDK is imported only inside its adapter's directory
-    // (the package's own, listed by `aiPackageProviderDirs`); the app, the web
-    // and the contract import none, and no manifest but the package's declares one.
+    // AI rule 1: a provider SDK is imported only inside its adapter's directory.
+    // Since #991 those directories are in @marinoscar/platform-ai-providers
+    // (one per provider subpath, listed by `aiProvidersPackageSdkDirs`); the
+    // platform package's own `ai/providers/<id>/` folders keep only the Nest
+    // bindings and import no SDK, so its tree has no exempt directory. The app,
+    // the web and the contract import none, and no manifest but the two owners
+    // declares one.
     aiNoSdkLeak: {
       apiTrees: [
         {
-          name: '@marinoscar/platform-api',
-          root: PACKAGE_API_SRC,
-          sdkDirs: aiPackageProviderDirs(PACKAGE_API_SRC),
-          minFiles: 100,
+          name: '@marinoscar/platform-ai-providers',
+          root: PACKAGE_AI_PROVIDERS_SRC,
+          sdkDirs: aiProvidersPackageSdkDirs(PACKAGE_AI_PROVIDERS_SRC),
+          minFiles: 30,
         },
+        { name: '@marinoscar/platform-api', root: PACKAGE_API_SRC, minFiles: 100 },
         { name: 'apps/api/src', root: API_SOURCE_ROOT, minFiles: 100 },
       ],
       webTrees: [
@@ -196,10 +202,20 @@ runPlatformConformance({
       // `registerAiProvider` may import its SDK (the example imports none; a real
       // provider's folder, `platform-extensions/ai/<id>/`, would).
       providerDirs: ['platform-extensions/ai/'],
-      sdkOwner: {
-        manifest: join(REPO, 'packages', 'platform-api', 'package.json'),
-        declares: ['openai', '@anthropic-ai/sdk', '@google/genai'],
-      },
+      // Two owners (#991): the lean package declares the SDKs as OPTIONAL peers
+      // (a plain-Node consumer installs only the one it uses), and the platform
+      // package keeps them as dependencies so an app on the platform still gets
+      // all three installed, which also satisfies the lean package's peers.
+      sdkOwner: [
+        {
+          manifest: join(REPO, 'packages', 'platform-api', 'package.json'),
+          declares: ['openai', '@anthropic-ai/sdk', '@google/genai'],
+        },
+        {
+          manifest: join(REPO, 'packages', 'platform-ai-providers', 'package.json'),
+          declares: ['openai', '@anthropic-ai/sdk', '@google/genai'],
+        },
+      ],
       noSdkManifests: [
         join(REPO, 'package.json'),
         join(REPO, 'apps', 'api', 'package.json'),
@@ -215,13 +231,14 @@ runPlatformConformance({
     // AI rule 6 (the base allows no orchestration library anywhere; an app that
     // adopts one passes its allowed roots).
     aiOrchestrationBoundary: {
-      apiSourceRoots: [API_SOURCE_ROOT, PACKAGE_API_SRC],
+      apiSourceRoots: [API_SOURCE_ROOT, PACKAGE_API_SRC, PACKAGE_AI_PROVIDERS_SRC],
       webSourceRoots: [join(REPO, 'apps', 'web', 'src'), join(REPO, 'packages', 'platform-web', 'src')],
       packageJsonPaths: [
         join(REPO, 'package.json'),
         join(REPO, 'apps', 'api', 'package.json'),
         join(REPO, 'apps', 'web', 'package.json'),
         join(REPO, 'packages', 'platform-api', 'package.json'),
+        join(REPO, 'packages', 'platform-ai-providers', 'package.json'),
         join(REPO, 'packages', 'platform-web', 'package.json'),
         join(REPO, 'packages', 'platform-contract', 'package.json'),
       ],

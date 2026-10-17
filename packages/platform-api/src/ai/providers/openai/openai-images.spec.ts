@@ -13,9 +13,9 @@ import {
   isOpenAiDallE,
   toOpenAiImageEditRequest,
   toOpenAiImageGenerateRequest,
-} from './openai-images.mapper';
+} from '@marinoscar/platform-ai-providers/openai';
 import { OpenAiProviderAdapter } from './openai.adapter';
-import { MOCK_PNG_BASE64, OpenAiMockServer } from './testing/openai-mock-transport';
+import { MOCK_PNG_BASE64, OpenAiMockServer } from '@marinoscar/platform-ai-providers/openai/testing';
 
 const VALID_KEY = 'sk-proj-IMAGES-valid-abcdefghijk';
 const INVALID_KEY = 'sk-proj-IMAGES-revoked-lmnopqrs';

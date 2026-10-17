@@ -550,7 +550,7 @@ jobs:
 
       # Only the packages the API and the node CLI import; the web package is
       # the slowest to build and nothing here uses it.
-      - run: npm run build --workspace=@marinoscar/platform-contract --workspace=@marinoscar/platform-api --workspace=@marinoscar/platform-db --workspace=@marinoscar/platform-infra --workspace=@marinoscar/platform-cli
+      - run: npm run build --workspace=@marinoscar/platform-contract --workspace=@marinoscar/platform-ai-providers --workspace=@marinoscar/platform-api --workspace=@marinoscar/platform-db --workspace=@marinoscar/platform-infra --workspace=@marinoscar/platform-cli
 
       - run: npx prisma generate
         working-directory: apps/api
@@ -855,7 +855,7 @@ jobs:
       - name: Pack the six packages
         run: |
           mkdir -p "$RUNNER_TEMP/tarballs"
-          for p in contract api web db cli infra; do npm pack -w "@marinoscar/platform-$p" --pack-destination "$RUNNER_TEMP/tarballs"; done
+          for p in contract ai-providers api web db cli infra; do npm pack -w "@marinoscar/platform-$p" --pack-destination "$RUNNER_TEMP/tarballs"; done
 
       - name: Starter against the tarballs (with the db tier)
         env:

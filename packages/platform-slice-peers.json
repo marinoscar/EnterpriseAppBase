@@ -1,6 +1,6 @@
 {
   "$comment": "Per-slice direct peer dependencies (bare imports of non-test sources), checked by scripts/check-slice-peers.mjs. See docs/PACKAGES.md#peer-dependencies-per-slice.",
-  "$universal": {"platform-api": ["core"], "platform-web": ["core"], "platform-contract": "*", "platform-db": ["lock"], "platform-cli": ["core"], "platform-infra": []},
+  "$universal": {"platform-api": ["core"], "platform-web": ["core"], "platform-contract": "*", "platform-db": ["lock"], "platform-cli": ["core"], "platform-infra": [], "platform-ai-providers": ["core"]},
   "$implies": {
     "platform-api": {
       "@nestjs/common": ["reflect-metadata", "rxjs"],
@@ -125,5 +125,11 @@
   },
   "platform-infra": {
     "telemetry": []
+  },
+  "platform-ai-providers": {
+    "core": ["zod"],
+    "openai": ["openai", "zod"],
+    "anthropic": ["@anthropic-ai/sdk"],
+    "gemini": ["@google/genai"]
   }
 }
