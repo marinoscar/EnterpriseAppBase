@@ -38,7 +38,7 @@ import { fileURLToPath } from 'node:url';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, '..', '..');
 const PROJECTS = ['api', 'api-slim', 'web'];
-const PLATFORM_PACKAGES = ['contract', 'api', 'web', 'db', 'cli', 'infra'];
+const PLATFORM_PACKAGES = ['contract', 'ai-providers', 'api', 'web', 'db', 'cli', 'infra'];
 const PLATFORM_PREFIX = '@marinoscar/platform-';
 const NPM = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 

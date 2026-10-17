@@ -77,7 +77,7 @@ jobs:
       # a wrong `type`, or a broken dual-format stub.
       - name: Smoke imports
         run: |
-          node -e "require('@marinoscar/platform-api'); require('@marinoscar/platform-db'); require('@marinoscar/platform-contract')"
+          node -e "require('@marinoscar/platform-ai-providers'); require('@marinoscar/platform-ai-providers/openai'); require('@marinoscar/platform-api'); require('@marinoscar/platform-db'); require('@marinoscar/platform-contract')"
           node --input-type=module -e "await import('@marinoscar/platform-web'); await import('@marinoscar/platform-cli'); await import('@marinoscar/platform-infra'); await import('@marinoscar/platform-contract')"
 
   # Package documentation standard (issue #693; docs/PACKAGES.md): TypeDoc
@@ -216,7 +216,7 @@ jobs:
         name: Pack the six packages
         run: |
           mkdir -p "$RUNNER_TEMP/tarballs"
-          for p in contract api web db cli infra; do npm pack -w "@marinoscar/platform-$p" --pack-destination "$RUNNER_TEMP/tarballs"; done
+          for p in contract ai-providers api web db cli infra; do npm pack -w "@marinoscar/platform-$p" --pack-destination "$RUNNER_TEMP/tarballs"; done
           ls "$RUNNER_TEMP/tarballs" >> "$GITHUB_STEP_SUMMARY"
 
       - if: steps.scope.outputs.run == 'true'

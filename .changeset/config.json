@@ -5,6 +5,7 @@
   "fixed": [
     [
       "@marinoscar/platform-contract",
+      "@marinoscar/platform-ai-providers",
       "@marinoscar/platform-api",
       "@marinoscar/platform-web",
       "@marinoscar/platform-db",

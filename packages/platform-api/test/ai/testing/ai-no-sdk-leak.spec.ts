@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { Module } from '@nestjs/common';
 import { z } from 'zod';
 
-import { aiPackageProviderDirs } from '../../../src/ai/testing';
+import { aiPackageProviderDirs, aiProvidersPackageSdkDirs } from '../../../src/ai/testing';
 import type { AiNoSdkLeakOptions } from '../../../src/ai/testing';
 import { registerAiProvider } from '../../../src/ai/providers/ai-provider-definition';
 import { runPlatformConformance } from '../../../src/testing';
@@ -65,6 +65,30 @@ describe('the ai-no-sdk-leak suite', () => {
     );
     expect(dirs.every((dir) => dir.endsWith('/'))).toBe(true);
     expect(aiPackageProviderDirs(join(SRC, 'does-not-exist'))).toEqual([]);
+  });
+
+  it('lists the provider directories of @marinoscar/platform-ai-providers, every one but core (#991)', () => {
+    const lean = join(__dirname, '..', '..', '..', '..', 'platform-ai-providers', 'src');
+
+    expect(aiProvidersPackageSdkDirs(lean)).toEqual(expect.arrayContaining(['anthropic/', 'gemini/', 'openai/']));
+    expect(aiProvidersPackageSdkDirs(lean)).not.toContain('core/');
+    expect(aiProvidersPackageSdkDirs(join(lean, 'does-not-exist'))).toEqual([]);
+  });
+
+  it('checks every manifest of a list of SDK owners, each in its own case (#991)', async () => {
+    const results = await run({
+      apiTrees: [],
+      webTrees: [],
+      sdkOwner: [
+        { manifest: manifest({ dependencies: { openai: '^7' } }), declares: ['openai'] },
+        { manifest: manifest({ peerDependencies: {} }), declares: ['openai'] },
+      ],
+      noSdkManifests: [],
+    });
+
+    expect(results.get('declares the shipped SDKs in the owning package only')).toBeNull();
+    const second = [...results].find(([title]) => title.startsWith('declares the shipped SDKs in the owning package only ('));
+    expect(second?.[1]).not.toBeNull();
   });
 
   it('passes a clean app, a web tree, a package with its adapter directory and clean manifests', async () => {

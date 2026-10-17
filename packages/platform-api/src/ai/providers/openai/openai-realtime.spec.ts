@@ -11,15 +11,15 @@ import { AiProviderRegistry } from '../../core/provider-registry';
 import type { AiCallContext } from '../../core/provider-adapter.interface';
 import { AI_REALTIME_CLIENT_SECRET_TTL_SECONDS } from '../../core/types/media.types';
 import { OpenAiClientFactory } from './openai-client.factory';
-import { classifyOpenAiModel, OPENAI_REALTIME_VOICES } from './openai-model-catalog';
+import { classifyOpenAiModel, OPENAI_REALTIME_VOICES } from '@marinoscar/platform-ai-providers/openai';
 import {
   fromOpenAiClientSecretResponse,
   openAiRealtimeConnectUrl,
   OPENAI_REALTIME_MAX_OUTPUT_TOKENS,
   toOpenAiClientSecretRequest,
-} from './openai-realtime.mapper';
+} from '@marinoscar/platform-ai-providers/openai';
 import { OpenAiProviderAdapter } from './openai.adapter';
-import { MOCK_REALTIME_SECRET_PREFIX, OpenAiMockServer } from './testing/openai-mock-transport';
+import { MOCK_REALTIME_SECRET_PREFIX, OpenAiMockServer } from '@marinoscar/platform-ai-providers/openai/testing';
 
 const VALID_KEY = 'sk-proj-REALTIME-valid-abcdefghijk';
 const INVALID_KEY = 'sk-proj-REALTIME-revoked-lmnopqrs';

@@ -14,9 +14,14 @@ const CORE_DIR = __dirname;
  * (`ai-error.ts` reads `RateLimitError` from it, as it read `../../jobs/` before).
  * `@marinoscar/platform-contract/ai` is the slice's own wire contract: the id
  * patterns of the open capability and operation vocabularies (PP-14.17, #935).
+ * `@marinoscar/platform-ai-providers` (root entry only) is where the
+ * provider-agnostic core moved (#991); its root is SDK-free by construction
+ * (the SDKs load only from its `./openai`, `./anthropic` and `./gemini`
+ * subpaths, which `ai/core` never imports).
  */
 const ALLOWED_PACKAGES = new Set([
   'zod',
+  '@marinoscar/platform-ai-providers',
   '@nestjs/common',
   '@marinoscar/platform-api/jobs',
   '@marinoscar/platform-contract/ai',

@@ -99,6 +99,11 @@ COPY packages/platform-db ./packages/platform-db/
 # cannot boot without its built `dist/` either. Copied whole and built before
 # platform-api below, for the same reasons.
 COPY packages/platform-contract ./packages/platform-contract/
+# `@marinoscar/platform-ai-providers` (issue #991) is a dependency of
+# `@marinoscar/platform-api`: the AI provider adapters and the AI core types
+# moved there, and platform-api loads it at boot. Copied whole and built
+# before platform-api below, for the same reasons.
+COPY packages/platform-ai-providers ./packages/platform-ai-providers/
 # Prisma schema and config are needed by `prisma generate` below
 COPY apps/api/prisma ./apps/api/prisma/
 COPY apps/api/prisma.config.ts ./apps/api/
@@ -108,10 +113,11 @@ RUN npm ci --workspace=api --include-workspace-root --ignore-scripts
 # schema only and never opens a connection.
 RUN cd apps/api && \
     DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npx prisma generate
-# Compile the contract (dual CommonJS/ESM) and then the platform package (tsc,
-# so decorator metadata survives) into their dist/, which the `exports` maps
-# point at.
+# Compile the contract (dual CommonJS/ESM), the AI provider adapters (tsc) and
+# then the platform package (tsc, so decorator metadata survives) into their
+# dist/, which the `exports` maps point at.
 RUN npm run build --workspace=@marinoscar/platform-contract && \
+    npm run build --workspace=@marinoscar/platform-ai-providers && \
     npm run build --workspace=@marinoscar/platform-api
 RUN npm run build --workspace=@marinoscar/platform-db
 

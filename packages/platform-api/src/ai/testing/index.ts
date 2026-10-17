@@ -128,6 +128,7 @@ export {
   PROVIDER_SDK_PACKAGES,
   aiNoSdkLeakSuite,
   aiPackageProviderDirs,
+  aiProvidersPackageSdkDirs,
   declaredSdks,
   findSdkLeaks,
   importSpecifiers,

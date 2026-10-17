@@ -9,8 +9,8 @@ import { AiStreamEvent } from '../../core/types/responses.types';
 import { OPENAI_DEFAULT_BASE_URL, OpenAiClientFactory } from './openai-client.factory';
 import { AI_PROVIDER_CALL_SPAN, OpenAiProviderAdapter } from './openai.adapter';
 import { OpenAiProviderModule } from './openai.module';
-import { messageItem, responseFixture } from './testing/openai-fixtures';
-import { OpenAiMockServer } from './testing/openai-mock-transport';
+import { messageItem, responseFixture } from '@marinoscar/platform-ai-providers/openai/testing';
+import { OpenAiMockServer } from '@marinoscar/platform-ai-providers/openai/testing';
 
 // ---- a recording tracer (no SDK dependency) -----------------------------------
 

@@ -14,8 +14,8 @@ import type { AiResolvedStorageInput } from '../../core/types/file-inputs.types'
 import type { AiResponseRequest, AiStreamEvent } from '../../core/types/responses.types';
 import { OpenAiClientFactory } from './openai-client.factory';
 import { OpenAiProviderAdapter } from './openai.adapter';
-import { messageItem, responseFixture } from './testing/openai-fixtures';
-import { OpenAiMockServer } from './testing/openai-mock-transport';
+import { messageItem, responseFixture } from '@marinoscar/platform-ai-providers/openai/testing';
+import { OpenAiMockServer } from '@marinoscar/platform-ai-providers/openai/testing';
 
 const KEY = 'sk-proj-FILES-valid-abcdefghijk';
 const PRESIGNED = 'https://bucket.test/uploads/cat.png?X-Amz-Expires=600&X-Amz-Signature=presigned-sig-123';
