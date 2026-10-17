@@ -11,7 +11,7 @@
 //   node scripts/sync-starter-versions.mjs            # set every range to ^<version>
 //   node scripts/sync-starter-versions.mjs --check    # CI: exit 1 when a range excludes <version>
 //
-// <version> is packages/platform-api/package.json's (the six packages share
+// <version> is packages/platform-api/package.json's (the seven packages share
 // one version, a Changesets "fixed" group). Node built-ins only; importing it
 // runs nothing.
 // =============================================================================
