@@ -341,6 +341,30 @@
         "level": "with-slices",
         "note": "CLI package; imports core and the engine, and publishes to the API's android-app slice."
       }
+    },
+    "openai": {
+      "group": "feature",
+      "gives": "The OpenAI wire family as a framework-free adapter: OpenAI, OpenAI-compatible and Azure OpenAI (`createOpenAiAdapter`), with the redirect and family guards.",
+      "standalone": {
+        "level": "yes",
+        "note": "Plain Node: no Nest, no database, no OpenTelemetry SDK. Imports only the package root core, zod and this provider's optional SDK peer."
+      }
+    },
+    "anthropic": {
+      "group": "feature",
+      "gives": "The Anthropic Messages API adapter (`createAnthropicAdapter`), stateless, without Nest.",
+      "standalone": {
+        "level": "yes",
+        "note": "Plain Node: no Nest, no database, no OpenTelemetry SDK. Imports only the package root core, zod and this provider's optional SDK peer."
+      }
+    },
+    "gemini": {
+      "group": "feature",
+      "gives": "The Google Gemini adapter (`createGeminiAdapter`): generateContent and embeddings, without Nest.",
+      "standalone": {
+        "level": "yes",
+        "note": "Plain Node: no Nest, no database, no OpenTelemetry SDK. Imports only the package root core, zod and this provider's optional SDK peer."
+      }
     }
   }
 }

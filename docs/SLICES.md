@@ -4,11 +4,11 @@
 
 > **Generated page.** Run `npm run docs:slices` after changing a slice, its README, its peers or its notes; `npm run check:slices-doc` (CI) fails when this page is stale. Hand-written facts live in [`packages/platform-slice-notes.json`](../packages/platform-slice-notes.json).
 
-One page for every platform slice: what it is and gives you, which of the six packages carry it and the subpath imports, the admin cards and permissions it adds, the slices and peer dependencies it needs, and whether it can be used on its own. Design and rationale: [platform-packages spec](specs/platform-packages.md); documentation standard: [PACKAGES.md](PACKAGES.md).
+One page for every platform slice: what it is and gives you, which of the seven packages carry it and the subpath imports, the admin cards and permissions it adds, the slices and peer dependencies it needs, and whether it can be used on its own. Design and rationale: [platform-packages spec](specs/platform-packages.md); documentation standard: [PACKAGES.md](PACKAGES.md).
 
 ## How slices, packages and npm relate
 
-- **Six npm packages, one per layer**: `@marinoscar/platform-api` (NestJS), `@marinoscar/platform-web` (React and MUI), `@marinoscar/platform-contract` (zod wire shapes), `@marinoscar/platform-db` (schema fragments, migrations, seed), `@marinoscar/platform-cli` (the CLI factory, TUI, node engine) and `@marinoscar/platform-infra` (Compose, nginx and env fragments).
+- **Seven npm packages**: `@marinoscar/platform-api` (NestJS), `@marinoscar/platform-web` (React and MUI), `@marinoscar/platform-contract` (zod wire shapes), `@marinoscar/platform-db` (schema fragments, migrations, seed), `@marinoscar/platform-cli` (the CLI factory, TUI, node engine) `@marinoscar/platform-infra` (Compose, nginx and env fragments) and `@marinoscar/platform-ai-providers` (the framework-free AI provider adapters and core types; the AI slice's adapters, with no slice of its own).
 - **A slice is a subpath import, not a package.** `@marinoscar/platform-api/telemetry` and `@marinoscar/platform-web/telemetry/ui` are the telemetry slice in two packages. A capability usually spans several packages under one slice name; the "Carried by" column and each slice's table list them.
 - **Slices form a graph** ([`packages/platform-slices.json`](../packages/platform-slices.json)): a slice may import only the slices listed for it. Depending on a slice costs no extra npm package, because it is in the same package; it costs that slice's peers and its wiring (host ports, settings, permissions).
 - **Peers are per slice.** A package's `peerDependencies` are the union of what its slices need, but only what the always-needed slices (`core`) use is required; every other peer is `optional`. A slice's peers are its own plus those of its slice dependencies ([`packages/platform-slice-peers.json`](../packages/platform-slice-peers.json); rules in [PACKAGES.md](PACKAGES.md#peer-dependencies-per-slice)). npm does not install an optional peer, so an app installs the peers of the slices it imports.
@@ -25,6 +25,7 @@ The required peers of each package:
 | DB (`@marinoscar/platform-db`) | `zod` |
 | CLI (`@marinoscar/platform-cli`) | none |
 | Infra (`@marinoscar/platform-infra`) | none |
+| AI providers (`@marinoscar/platform-ai-providers`) | `zod` |
 
 ## Slice index
 
@@ -32,7 +33,7 @@ Standalone: **Yes** means the slice imports and runs with the foundation slices 
 
 | Slice | What it gives you | Carried by | Needs (slices) | Standalone |
 |---|---|---|---|---|
-| [`core`](#core) | The registry primitive, the host ports, the principal and scope contract, the exception filter, the secret cipher and scoped data access every other API slice stands on; the host providers and API client adapter on the web; the command and env-spec registries in the CLI. | API, Web, CLI | none | Yes |
+| [`core`](#core) | The registry primitive, the host ports, the principal and scope contract, the exception filter, the secret cipher and scoped data access every other API slice stands on; the host providers and API client adapter on the web; the command and env-spec registries in the CLI. | API, Web, CLI, AI providers | none | Yes |
 | [`testing`](#testing) | The conformance harness (`runPlatformConformance`, `runPlatformWebConformance`) that proves an app wires the slices correctly, and the shared test helpers. | API, Web, CLI | `core`, `engine` | Yes |
 | [`doctor`](#doctor) | The admin Doctor: a read-only check registry every slice adds its checks to, the report, the support bundle and the Doctor page. | API, Web, Contract | `core` | With slices |
 | [`otel-core`](#otel-core) | The OpenTelemetry SDK behind a runtime export gate, the metric name registry and the `@Trace()` decorator, so a service emits traces and metrics without owning an exporter. | API | `core` | Yes |
@@ -56,6 +57,9 @@ Standalone: **Yes** means the slice imports and runs with the foundation slices 
 | [`db-backup`](#db-backup) | Database backup and restore: streamed `pg_dump` into object storage, schedule and retention, the guarded in-app restore and the admin page. | API, Web, Contract | `core`, `doctor`, `email`, `identity`, `jobs`, `otel-core`, `settings`, `storage` | With slices |
 | [`android-app`](#android-app) | The server half of the Android companion: trusted apps and Digital Asset Links, hosted APK releases with signed downloads, the `android_app` push channel and the admin page. | API, Web, Contract | `core`, `doctor`, `identity`, `notifications`, `settings`, `storage` | With slices |
 | [`user-data`](#user-data) | Deleting data: per-user data reset with scopes, the admin factory reset and organization offboarding, driven by registered categories and a relation-ordered purge planner. | API, Web, Contract | `core`, `doctor`, `exports`, `host`, `identity`, `jobs`, `otel-core`, `sharing`, `storage` | With slices |
+| [`openai`](#openai) | The OpenAI wire family as a framework-free adapter: OpenAI, OpenAI-compatible and Azure OpenAI (`createOpenAiAdapter`), with the redirect and family guards. | AI providers | `core` | Yes |
+| [`anthropic`](#anthropic) | The Anthropic Messages API adapter (`createAnthropicAdapter`), stateless, without Nest. | AI providers | `core` | Yes |
+| [`gemini`](#gemini) | The Google Gemini adapter (`createGeminiAdapter`): generateContent and embeddings, without Nest. | AI providers | `core` | Yes |
 | [`compose`](#compose) | `platform db compose`: assembles the Prisma schema from the platform fragments and the app's own. | DB | none | Yes |
 | [`lock`](#lock) | `platform.lock`: the checksums of every platform migration, and the check that an installed migration is never edited. | DB | none | Yes |
 | [`sync`](#sync) | `platform db sync`: installs package migrations missing from the app's migration history. | DB | `lock` | Yes |
@@ -86,6 +90,7 @@ What every other slice stands on: the registry primitive and host ports, the Ope
 | API (`platform-api`) | `/core`, `/core/testing` | none | none | [README](../packages/platform-api/src/core/README.md) |
 | Web (`platform-web`) | `/core` | none | none | [README](../packages/platform-web/src/core/README.md) |
 | CLI (`platform-cli`) | `/core` | none | none | [README](../packages/platform-cli/src/core/README.md) |
+| AI providers (`platform-ai-providers`) | no subpath export | none | none | none |
 
 **Admin and settings cards.**
 
@@ -603,6 +608,60 @@ None.
 **Permissions it adds.** `system:factory_reset`, `orgs:offboard`
 
 **Standalone (With slices).** Imports core, identity, jobs, storage, sharing, exports and host. Each model that gains a user relation registers a keep or delete decision. Transitive slice dependencies in API: `core`, `credentials`, `db-backup`, `doctor`, `email`, `exports`, `host`, `identity`, `jobs`, `nodes`, `otel-core`, `settings`, `sharing`, `storage`.
+
+### openai
+
+**What it gives you.** The OpenAI wire family as a framework-free adapter: OpenAI, OpenAI-compatible and Azure OpenAI (`createOpenAiAdapter`), with the redirect and family guards.
+
+**What it is** (from its README). The `./openai` subpath: the OpenAI wire family: `OpenAiProviderAdapter` (Responses API, embeddings, images, audio, realtime), `OpenAiCompatibleProviderAdapter` (a self-hosted or third-party server, `./compatible/`) and `AzureOpenAiProviderAdapter` (`./azure/`), their client factories, per-call settings readers, and more.
+
+| Part | Import paths | Depends on (slices) | Install beyond the required peers | README |
+|---|---|---|---|---|
+| AI providers (`platform-ai-providers`) | `/openai`, `/openai/testing` | `core` | `openai` | [README](../packages/platform-ai-providers/src/openai/README.md) |
+
+**Admin and settings cards.**
+
+None.
+
+**Permissions it adds.** none declared by this slice
+
+**Standalone (Yes).** Plain Node: no Nest, no database, no OpenTelemetry SDK. Imports only the package root core, zod and this provider's optional SDK peer. Transitive slice dependencies in AI providers: `core`.
+
+### anthropic
+
+**What it gives you.** The Anthropic Messages API adapter (`createAnthropicAdapter`), stateless, without Nest.
+
+**What it is** (from its README). The `./anthropic` subpath: the Anthropic adapter (`AnthropicProviderAdapter`, Messages API), its client factory, the messages and stream mappers, error mapping and the model catalog.
+
+| Part | Import paths | Depends on (slices) | Install beyond the required peers | README |
+|---|---|---|---|---|
+| AI providers (`platform-ai-providers`) | `/anthropic`, `/anthropic/testing` | `core` | `@anthropic-ai/sdk` | [README](../packages/platform-ai-providers/src/anthropic/README.md) |
+
+**Admin and settings cards.**
+
+None.
+
+**Permissions it adds.** none declared by this slice
+
+**Standalone (Yes).** Plain Node: no Nest, no database, no OpenTelemetry SDK. Imports only the package root core, zod and this provider's optional SDK peer. Transitive slice dependencies in AI providers: `core`.
+
+### gemini
+
+**What it gives you.** The Google Gemini adapter (`createGeminiAdapter`): generateContent and embeddings, without Nest.
+
+**What it is** (from its README). The `./gemini` subpath: the Google Gemini adapter (`GeminiProviderAdapter`), its client factory, the content, stream and embeddings mappers, error mapping and the model catalog.
+
+| Part | Import paths | Depends on (slices) | Install beyond the required peers | README |
+|---|---|---|---|---|
+| AI providers (`platform-ai-providers`) | `/gemini`, `/gemini/testing` | `core` | `@google/genai` | [README](../packages/platform-ai-providers/src/gemini/README.md) |
+
+**Admin and settings cards.**
+
+None.
+
+**Permissions it adds.** none declared by this slice
+
+**Standalone (Yes).** Plain Node: no Nest, no database, no OpenTelemetry SDK. Imports only the package root core, zod and this provider's optional SDK peer. Transitive slice dependencies in AI providers: `core`.
 
 ## Tooling slices
 

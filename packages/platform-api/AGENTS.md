@@ -23,7 +23,7 @@ Root rules ([AGENTS.md](../../AGENTS.md)) apply. This is the published NestJS pl
 ## Recipes (read the README, do not reinvent)
 
 - Job type: [src/jobs/handlers/README.md](src/jobs/handlers/README.md) (queue rules 1 to 5 in root AGENTS.md; `type` is permanent).
-- AI: [src/ai/README.md](src/ai/README.md) (SDKs only in `ai/providers/<provider>/`).
+- AI: [src/ai/README.md](src/ai/README.md) (SDKs only in `packages/platform-ai-providers/src/<provider>/`).
 - Notification: [src/notifications/README.md](src/notifications/README.md) (`notify()` after commit).
 - Doctor check: [docs/specs/doctor.md](../../docs/specs/doctor.md#4-extending-it-in-a-fork).
 

@@ -27,8 +27,9 @@ Source of truth for every claim below:
   store.
 - `packages/platform-api/src/ai/core/ai-error.ts` — every `AiErrorCode` in the
   troubleshooting table.
-- `packages/platform-api/src/ai/providers/<provider>/` — each provider adapter and its
-  model classifier.
+- `packages/platform-ai-providers/src/<provider>/` — each provider adapter and its
+  model classifier; `packages/platform-api/src/ai/providers/<provider>/` — its Nest
+  subclass and definition.
 - `packages/platform-web/src/ai/ui/AiConfigPage.tsx`, `AiModelsPage.tsx`,
   `AiUsagePage.tsx` — the admin UI; `packages/platform-web/src/ai/ui/OrgAiKeysPage.tsx`
   — the Organization AI keys page.

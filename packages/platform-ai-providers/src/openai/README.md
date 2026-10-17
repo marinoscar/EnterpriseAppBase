@@ -54,7 +54,7 @@ None here. `./openai/testing`: `OpenAiMockServer` and the Responses and Chat Com
 
 ## Upgrade notes
 
-New in 0.1.0-next.5 (#991): moved from `@marinoscar/platform-api/ai`'s `providers/` folder without a behaviour change.
+New in 0.1.0-next.5: moved from `@marinoscar/platform-api/ai`'s `providers/` folder without a behaviour change.
 
 ## Troubleshooting
 
