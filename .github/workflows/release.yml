@@ -71,7 +71,7 @@ jobs:
       # reported as a warning and in the job summary instead, and the
       # `pending` output, set before the PR is attempted, still gates publish.
       - id: cs
-        uses: changesets/action@v1
+        uses: changesets/action@v2
         continue-on-error: true
         with:
           version: npm run version-packages
