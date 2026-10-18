@@ -12,11 +12,13 @@
     "@marinoscar/platform-db": "0.0.0",
     "@marinoscar/platform-infra": "0.0.0",
     "@marinoscar/platform-web": "0.0.0",
-    "@app/shared": "1.0.0"
+    "@app/shared": "1.0.0",
+    "@marinoscar/platform-ai-providers": "0.1.0-next.5"
   },
   "changesets": [
     "ai-open-operations",
     "ai-provider-registry",
+    "ai-providers-package",
     "ai-slotless-provider-admin-save",
     "api-ai-slice",
     "api-android-app-slice",
