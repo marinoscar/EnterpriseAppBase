@@ -13,8 +13,8 @@ import { z } from 'zod';
 import { AnthropicClientFactory, ANTHROPIC_DEFAULT_BASE_URL } from './anthropic-client.factory';
 import { ANTHROPIC_PROVIDER_CALL_SPAN, AnthropicProviderAdapter } from './anthropic.adapter';
 import { AnthropicProviderModule } from './anthropic.module';
-import { messageFixture, textBlock, thinkingBlock, toolUseBlock } from './testing/anthropic-fixtures';
-import { AnthropicMockServer } from './testing/anthropic-mock-transport';
+import { messageFixture, textBlock, thinkingBlock, toolUseBlock } from '@marinoscar/platform-ai-providers/anthropic/testing';
+import { AnthropicMockServer } from '@marinoscar/platform-ai-providers/anthropic/testing';
 
 // ---- a recording tracer (no SDK dependency) -----------------------------------
 

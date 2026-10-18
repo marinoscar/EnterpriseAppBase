@@ -10,7 +10,7 @@ One governed path from a feature to a model, so no feature holds a provider SDK,
 |---|---|---|
 | Module | `ai.module.ts`, `ai.options.ts`, `ports.ts` | `AiModule.forRoot(options)` and the host ports the app binds |
 | Core | `core/` | The provider-neutral contract: requests, responses, stream events, capabilities, `AiError`, the provider registry, tools and structured output |
-| Providers | `providers/<provider>/` | The five adapters; the only files that import `openai`, `@anthropic-ai/sdk` or `@google/genai` |
+| Providers | `providers/<provider>/` | Nest subclasses of the five adapters of [`@marinoscar/platform-ai-providers`](../../../platform-ai-providers/README.md), their modules and definitions; the SDKs are imported only in that package |
 | Catalogue | `catalog/` | Model discovery and classification (`ai_models`), the `ai.catalog.refresh` job |
 | Policy | `config/`, `ai.system-settings.ts`, `ai.user-settings.ts` | The `ai` settings namespaces (with the org layer), the kill switch (`AiEnabledGuard`, `AiOrgEnabledInterceptor`), the deployment's provider keys, `/api/admin/ai/*` |
 | Keys | `keys/` | A user's own keys (`/api/ai/keys`), an organization's own keys (`/api/admin/ai/org-keys`), `AiKeyResolver`, `UsableModelsService` |
@@ -146,7 +146,7 @@ Ships inside `@marinoscar/platform-api`; import it by its subpath:
 import { AiModule, AiService, registerAiFeature } from '@marinoscar/platform-api/ai';
 ```
 
-The three provider SDKs (`openai`, `@anthropic-ai/sdk`, `@google/genai`) are dependencies of `@marinoscar/platform-api` itself, imported only under `providers/<provider>/` (each pinned by its SDK-boundary spec). The slice depends on no generated Prisma client: it declares the `ai` fragment's tables structurally (`AiDb`, `AiPrisma`, the `*Row` types) and receives the app's client through core's `PLATFORM_PRISMA` port and the bypass client through `AI_SYSTEM_PRISMA`. Never install an orchestration package outside an app's orchestration directory (see Security notes).
+The framework-free core types and the five adapters live in `@marinoscar/platform-ai-providers`; `core/` and `providers/<provider>/` here re-export and subclass them (same names, tokens and spans; `core/ai-error.ts` splices `HttpException` into `AiError`'s prototype). The three provider SDKs (`openai`, `@anthropic-ai/sdk`, `@google/genai`) are imported only under `packages/platform-ai-providers/src/<provider>/` (each pinned by its SDK-boundary spec there). The slice depends on no generated Prisma client: it declares the `ai` fragment's tables structurally (`AiDb`, `AiPrisma`, the `*Row` types) and receives the app's client through core's `PLATFORM_PRISMA` port and the bypass client through `AI_SYSTEM_PRISMA`. Never install an orchestration package outside an app's orchestration directory (see Security notes).
 
 ## Quick start
 

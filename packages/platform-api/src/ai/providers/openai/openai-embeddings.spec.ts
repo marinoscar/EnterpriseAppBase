@@ -13,9 +13,9 @@ import {
   fromOpenAiEmbeddingResponse,
   openAiEmbeddingSupportsDimensions,
   toOpenAiEmbeddingRequest,
-} from './openai-embeddings.mapper';
+} from '@marinoscar/platform-ai-providers/openai';
 import { AI_PROVIDER_CALL_SPAN, OpenAiProviderAdapter } from './openai.adapter';
-import { mockEmbeddingsBody, OpenAiMockServer } from './testing/openai-mock-transport';
+import { mockEmbeddingsBody, OpenAiMockServer } from '@marinoscar/platform-ai-providers/openai/testing';
 
 const VALID_KEY = 'sk-proj-EMBED-valid-abcdefghijkl';
 const INVALID_KEY = 'sk-proj-EMBED-revoked-mnopqrstu';

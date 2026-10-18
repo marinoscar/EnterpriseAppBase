@@ -12,8 +12,8 @@
 
 import { AiProviderRegistry } from '../../core/provider-registry';
 import { describeAiProviderConformance } from '../../testing/conformance';
-import { conformanceChatResponder, conformanceResponsesResponder } from '../openai/testing/conformance-responders';
-import { OpenAiMockServer, mockEmbeddingsBody } from '../openai/testing/openai-mock-transport';
+import { conformanceChatResponder, conformanceResponsesResponder } from '@marinoscar/platform-ai-providers/openai/testing';
+import { OpenAiMockServer, mockEmbeddingsBody } from '@marinoscar/platform-ai-providers/openai/testing';
 import { AzureOpenAiClientFactory } from './azure-openai-client.factory';
 import { AzureOpenAiProviderAdapter } from './azure-openai.adapter';
 

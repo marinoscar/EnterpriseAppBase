@@ -6,7 +6,7 @@ import {
   mapGeminiError,
   parseGeminiErrorBody,
   parseGeminiRetryDelay,
-} from './gemini-errors';
+} from '@marinoscar/platform-ai-providers/gemini';
 
 const SECRET = 'AIzaSy-SECRET-000000000000000000000';
 

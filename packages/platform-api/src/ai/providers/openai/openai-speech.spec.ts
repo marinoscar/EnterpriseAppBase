@@ -7,10 +7,10 @@ import { aiModelCapabilitiesSchema } from '../../core/capabilities';
 import { AiProviderRegistry } from '../../core/provider-registry';
 import type { AiCallContext } from '../../core/provider-adapter.interface';
 import { OpenAiClientFactory } from './openai-client.factory';
-import { fromOpenAiSpeechResponse, isOpenAiTts1, toOpenAiSpeechRequest } from './openai-audio.mapper';
-import { classifyOpenAiModel, OPENAI_SPEECH_VOICES, OPENAI_TTS1_VOICES } from './openai-model-catalog';
+import { fromOpenAiSpeechResponse, isOpenAiTts1, toOpenAiSpeechRequest } from '@marinoscar/platform-ai-providers/openai';
+import { classifyOpenAiModel, OPENAI_SPEECH_VOICES, OPENAI_TTS1_VOICES } from '@marinoscar/platform-ai-providers/openai';
 import { OpenAiProviderAdapter } from './openai.adapter';
-import { mockSpeechBytes, OpenAiMockServer } from './testing/openai-mock-transport';
+import { mockSpeechBytes, OpenAiMockServer } from '@marinoscar/platform-ai-providers/openai/testing';
 
 const VALID_KEY = 'sk-proj-SPEECH-valid-abcdefghijk';
 const INVALID_KEY = 'sk-proj-SPEECH-revoked-lmnopqrs';

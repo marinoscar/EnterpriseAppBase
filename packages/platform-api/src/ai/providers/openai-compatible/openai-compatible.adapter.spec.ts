@@ -6,10 +6,10 @@ import {
 } from '../../core/provider-adapter.interface';
 import { AiProviderRegistry } from '../../core/provider-registry';
 import type { AiStreamEvent } from '../../core/types/responses.types';
-import { conformanceChatResponder, conformanceResponsesResponder } from '../openai/testing/conformance-responders';
-import { OpenAiMockServer } from '../openai/testing/openai-mock-transport';
+import { conformanceChatResponder, conformanceResponsesResponder } from '@marinoscar/platform-ai-providers/openai/testing';
+import { OpenAiMockServer } from '@marinoscar/platform-ai-providers/openai/testing';
 import { OpenAiCompatibleClientFactory } from './openai-compatible-client.factory';
-import { openAiCompatibleSettings } from './openai-compatible-settings';
+import { openAiCompatibleSettings } from '@marinoscar/platform-ai-providers/openai';
 import { OpenAiCompatibleProviderAdapter } from './openai-compatible.adapter';
 
 const KEY = 'lmstudio-key-VALID-abcdefgh';

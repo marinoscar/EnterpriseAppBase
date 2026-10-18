@@ -157,6 +157,7 @@ describe('packages/platform-slices.json', () => {
 
   it('declares every platform package', () => {
     expect(Object.keys(graph).sort()).toEqual([
+      'platform-ai-providers',
       'platform-api',
       'platform-cli',
       'platform-contract',

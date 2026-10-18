@@ -116,7 +116,7 @@ jobs:
             reason="NPM_PUBLISH_ENABLED is not true"
           else
             missing=""; unpublished=""
-            for p in contract api web db cli infra; do
+            for p in contract ai-providers api web db cli infra; do
               name="@marinoscar/platform-$p"
               if ! npm view "$name" name >/dev/null 2>&1; then missing="$missing $name"; continue; fi
               got=$(npm view "$name@$v" version 2>/dev/null || true)
@@ -242,8 +242,8 @@ jobs:
           REASON: ${{ needs.gate.outputs.reason }}
           VERSION: ${{ needs.gate.outputs.version }}
         run: |
-          for p in contract api web db cli infra; do npm publish --dry-run --tag next -w "@marinoscar/platform-$p"; done
-          mkdir -p tarballs && for p in contract api web db cli infra; do npm pack -w "@marinoscar/platform-$p" --pack-destination tarballs; done
+          for p in contract ai-providers api web db cli infra; do npm publish --dry-run --tag next -w "@marinoscar/platform-$p"; done
+          mkdir -p tarballs && for p in contract ai-providers api web db cli infra; do npm pack -w "@marinoscar/platform-$p" --pack-destination tarballs; done
           echo "dry run: $REASON (version $VERSION)" >> "$GITHUB_STEP_SUMMARY"
           ls tarballs >> "$GITHUB_STEP_SUMMARY"
 
@@ -349,7 +349,7 @@ jobs:
         name: Pack the six packages
         run: |
           mkdir -p "$RUNNER_TEMP/tarballs"
-          for p in contract api web db cli infra; do npm pack -w "@marinoscar/platform-$p" --pack-destination "$RUNNER_TEMP/tarballs"; done
+          for p in contract ai-providers api web db cli infra; do npm pack -w "@marinoscar/platform-$p" --pack-destination "$RUNNER_TEMP/tarballs"; done
 
       - if: steps.d.outputs.go == 'true'
         name: Consumer smoke on the tarballs
@@ -373,7 +373,7 @@ jobs:
             echo '```'
             echo
             echo "See docs/runbooks/release-platform-packages.md (Install from a GitHub release)."
-            for p in contract api web db cli infra; do
+            for p in contract ai-providers api web db cli infra; do
               echo
               echo "## @marinoscar/platform-$p"
               awk -v v="$VERSION" '$0 == "## " v {f=1; next} f && /^## / {exit} f' "packages/platform-$p/CHANGELOG.md" 2>/dev/null || true

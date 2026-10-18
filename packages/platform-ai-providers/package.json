@@ -1,0 +1,96 @@
+{
+  "name": "@marinoscar/platform-ai-providers",
+  "version": "0.1.0-next.5",
+  "description": "Framework-free AI provider adapters (OpenAI, OpenAI-compatible, Azure OpenAI, Anthropic, Gemini) and their core types. Runs in a plain Node process: no Nest, no database, no OpenTelemetry SDK.",
+  "license": "MIT",
+  "type": "commonjs",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=24"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/marinoscar/EnterpriseAppBase.git",
+    "directory": "packages/platform-ai-providers"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./openai": {
+      "types": "./dist/openai/index.d.ts",
+      "default": "./dist/openai/index.js"
+    },
+    "./openai/testing": {
+      "types": "./dist/openai/testing/index.d.ts",
+      "default": "./dist/openai/testing/index.js"
+    },
+    "./anthropic": {
+      "types": "./dist/anthropic/index.d.ts",
+      "default": "./dist/anthropic/index.js"
+    },
+    "./anthropic/testing": {
+      "types": "./dist/anthropic/testing/index.d.ts",
+      "default": "./dist/anthropic/testing/index.js"
+    },
+    "./gemini": {
+      "types": "./dist/gemini/index.d.ts",
+      "default": "./dist/gemini/index.js"
+    },
+    "./gemini/testing": {
+      "types": "./dist/gemini/testing/index.d.ts",
+      "default": "./dist/gemini/testing/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "prebuild": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "prepack": "node ../../scripts/copy-license.mjs",
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
+    "typecheck": "tsc --noEmit",
+    "docs": "typedoc --options typedoc.json",
+    "test": "jest --config ./test/jest.config.js",
+    "test:run": "jest --config ./test/jest.config.js --ci"
+  },
+  "peerDependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
+    "@google/genai": "^2.24.0",
+    "openai": "^7.23.0",
+    "zod": "^4.4.3"
+  },
+  "peerDependenciesMeta": {
+    "@anthropic-ai/sdk": {
+      "optional": true
+    },
+    "@google/genai": {
+      "optional": true
+    },
+    "openai": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
+    "@google/genai": "^2.24.0",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^22.15.32",
+    "jest": "^30.4.2",
+    "openai": "^7.23.0",
+    "ts-jest": "^29.4.12",
+    "typescript": "^6.0.3",
+    "zod": "^4.4.3"
+  }
+}

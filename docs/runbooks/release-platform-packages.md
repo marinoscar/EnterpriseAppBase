@@ -1,12 +1,12 @@
 # Runbook: release the platform packages
 
-Version and publish the six `@marinoscar/platform-*` packages (`contract`, `api`, `web`, `db`, `cli`, `infra`) to public npm. They share one version, release from a protected GitHub Actions workflow with npm trusted publishing and provenance, and go out on the `next` dist-tag before anything reaches `latest`. Design: [platform packages spec, Release pipeline](../specs/platform-packages.md#release-pipeline).
+Version and publish the seven `@marinoscar/platform-*` packages (`contract`, `ai-providers`, `api`, `web`, `db`, `cli`, `infra`) to public npm. They share one version, release from a protected GitHub Actions workflow with npm trusted publishing and provenance, and go out on the `next` dist-tag before anything reaches `latest`. Design: [platform packages spec, Release pipeline](../specs/platform-packages.md#release-pipeline).
 
 The moving parts:
 
 | Part | Where |
 |---|---|
-| Version tool | Changesets: `.changeset/config.json` (one "fixed" group of the six packages), `.changeset/pre.json` (pre-release mode, tag `next`) |
+| Version tool | Changesets: `.changeset/config.json` (one "fixed" group of the seven packages), `.changeset/pre.json` (pre-release mode, tag `next`) |
 | Root scripts | `npm run changeset`, `npm run version-packages`, `npm run release` |
 | Release workflow | `.github/workflows/release.yml`: `version`, `gate`, `publish`, `publish-dry-run`, `registry-smoke`, `github-release` |
 | Pull request check | `changeset-check` job in `.github/workflows/packages.yml` |
@@ -19,10 +19,10 @@ This flow is separate from the app release: `deploy.yml` and `v*` tags keep vers
 ## How a release flows
 
 1. A pull request that changes a platform package adds a changeset (`npx changeset`). `changeset-check` fails it otherwise.
-2. When it merges, `release.yml` runs on `main`. The `version` job sees pending changesets and opens (or updates) the **Version Packages** pull request, titled `chore(release): version platform packages`. It bumps all six `package.json` versions in lockstep, writes each `CHANGELOG.md` and refreshes `package-lock.json`.
+2. When it merges, `release.yml` runs on `main`. The `version` job sees pending changesets and opens (or updates) the **Version Packages** pull request, titled `chore(release): version platform packages`. It bumps all seven `package.json` versions in lockstep, writes each `CHANGELOG.md` and refreshes `package-lock.json`.
 3. When the Version Packages pull request merges, `release.yml` runs again. No changesets are pending now, so the `gate` job decides between a real publish and a dry run.
 4. The real publish waits in the protected `npm-publish` environment for a reviewer's approval, then publishes with `npx changeset publish` (pre mode puts it on `next`) and pushes the git tag `platform-v<version>`. The `registry-smoke` job then installs that version from npm into the consumer smoke and verifies provenance.
-5. Independently of npm, the `github-release` job attaches the six `npm pack` tarballs to the GitHub release `platform-v<version>` (the [interim channel](#install-from-a-github-release)), once per version.
+5. Independently of npm, the `github-release` job attaches the seven `npm pack` tarballs to the GitHub release `platform-v<version>` (the [interim channel](#install-from-a-github-release)), once per version.
 
 ```mermaid
 flowchart LR
@@ -42,15 +42,15 @@ flowchart LR
 These steps need the repository owner. Until they are done the workflow runs in **dry-run mode**, and it stays there until the owner flips one repository variable.
 
 1. **npm scope.** Make sure the `@marinoscar` scope exists and is yours: either your npm user is `marinoscar`, or create an npm organisation named `marinoscar` at https://www.npmjs.com/org/create. Enable two-factor authentication for the account (https://www.npmjs.com/settings/~/tfa), "Authorization and writes".
-2. **Bootstrap the six package names** (npm only lets you attach a trusted publisher to a package that already exists). From a clean checkout of `main` after this issue merges, on your own machine (signed in with `npm login`):
+2. **Bootstrap the seven package names** (npm only lets you attach a trusted publisher to a package that already exists; `@marinoscar/platform-ai-providers` is new, so the owner must bootstrap it and attach its trusted publisher before the gate lets a real publish through; the gate loop in `release.yml` already lists it). From a clean checkout of `main` after this issue merges, on your own machine (signed in with `npm login`):
    ```bash
    npm ci && npm run build:packages
-   for p in contract api web db cli infra; do
+   for p in contract ai-providers api web db cli infra; do
      npm publish -w @marinoscar/platform-$p --access public --tag bootstrap   # publishes 0.0.0 under a throwaway dist-tag
    done
    ```
    `0.0.0` under the `bootstrap` tag is never installed by `latest` or `next` consumers.
-3. **Trusted publisher, per package.** For each of the six packages open `https://www.npmjs.com/package/@marinoscar/platform-<x>/access` → *Trusted Publisher* → *GitHub Actions*, and enter: owner `marinoscar`, repository `EnterpriseAppBase`, workflow filename `release.yml`, environment `npm-publish`. Then, on the same page, set *Publishing access* to "Require two-factor authentication and disallow tokens".
+3. **Trusted publisher, per package.** For each of the seven packages open `https://www.npmjs.com/package/@marinoscar/platform-<x>/access` → *Trusted Publisher* → *GitHub Actions*, and enter: owner `marinoscar`, repository `EnterpriseAppBase`, workflow filename `release.yml`, environment `npm-publish`. Then, on the same page, set *Publishing access* to "Require two-factor authentication and disallow tokens".
 4. **Protected environment.** GitHub → repository *Settings → Environments → New environment* `npm-publish` (https://github.com/marinoscar/EnterpriseAppBase/settings/environments): add yourself as a required reviewer; *Deployment branches and tags* → "Selected branches" → `main`.
 5. **Turn publishing on.** *Settings → Secrets and variables → Actions → Variables* (https://github.com/marinoscar/EnterpriseAppBase/settings/variables/actions): create repository variable `NPM_PUBLISH_ENABLED` = `true`.
 
@@ -63,7 +63,7 @@ No npm token is ever created or stored. The publish job authenticates to npm wit
 
 ### What happens before they are done
 
-The workflow runs on every push to `main` anyway. The `gate` job reads the variable and the registry without any credential and selects the dry run when `NPM_PUBLISH_ENABLED` is not `true`, when any of the six names is not on npm yet, or when the current version is already published. The `publish-dry-run` job then builds, tests and packs the packages, runs `npm publish --dry-run --tag next` for each, uploads the tarballs as the `platform-tarballs` workflow artifact and writes the reason to the job summary, for example `dry run: NPM_PUBLISH_ENABLED is not true (version 0.0.0)`. It has no environment and no `id-token` permission, so it never waits for approval and cannot publish.
+The workflow runs on every push to `main` anyway. The `gate` job reads the variable and the registry without any credential and selects the dry run when `NPM_PUBLISH_ENABLED` is not `true`, when any of the seven names is not on npm yet, or when the current version is already published. The `publish-dry-run` job then builds, tests and packs the packages, runs `npm publish --dry-run --tag next` for each, uploads the tarballs as the `platform-tarballs` workflow artifact and writes the reason to the job summary, for example `dry run: NPM_PUBLISH_ENABLED is not true (version 0.0.0)`. It has no environment and no `id-token` permission, so it never waits for approval and cannot publish.
 
 To see it on a branch, run the workflow by hand: *Actions → Release → Run workflow* and pick the branch. On a branch the `version` job is skipped and the dry run always runs.
 
@@ -78,7 +78,7 @@ npx changeset          # pick the packages, the bump, and write the summary
 git add .changeset     # commit it with the change it describes
 ```
 
-The packages are one fixed group, so bumping one bumps all six to the same version. Pick the bump by the extension surface (exports, options, registries, tokens, events, slots, models, migrations): `patch` for a fix, `minor` for an addition, `major` for anything that breaks an app built on the previous version; a `major` changeset carries a migration note in its body. A change with no release impact (tests, internal refactors with no behaviour change) still records that fact:
+The packages are one fixed group, so bumping one bumps all seven to the same version. Pick the bump by the extension surface (exports, options, registries, tokens, events, slots, models, migrations): `patch` for a fix, `minor` for an addition, `major` for anything that breaks an app built on the previous version; a `major` changeset carries a migration note in its body. A change with no release impact (tests, internal refactors with no behaviour change) still records that fact:
 
 ```bash
 npx changeset --empty
@@ -88,7 +88,7 @@ npx changeset --empty
 
 ## The Version Packages pull request
 
-Opened and kept current by the `version` job; never edit versions by hand. It runs `npm run version-packages` (`changeset version && npm install --package-lock-only`), so the lockfile is in step. In pre mode the versions read `x.y.z-next.N`: the first one, from `.changeset/initial-platform-scaffold.md`, is `0.1.0-next.0` for all six. Review the six `CHANGELOG.md` diffs, then merge it like any other pull request. `changeset-check` skips it (its branch is `changeset-release/main`), and likewise skips any pull request in which the platform version changes, since a version commit consumes changesets instead of adding one (the first `next` version, `0.1.0-next.0`, was prepared that way on the issue #697 branch).
+Opened and kept current by the `version` job; never edit versions by hand. It runs `npm run version-packages` (`changeset version && npm install --package-lock-only`), so the lockfile is in step. In pre mode the versions read `x.y.z-next.N`: the first one, from `.changeset/initial-platform-scaffold.md`, is `0.1.0-next.0` for all seven. Review the seven `CHANGELOG.md` diffs, then merge it like any other pull request. `changeset-check` skips it (its branch is `changeset-release/main`), and likewise skips any pull request in which the platform version changes, since a version commit consumes changesets instead of adding one (the first `next` version, `0.1.0-next.0`, was prepared that way on the issue #697 branch).
 
 ## Publish
 
@@ -104,7 +104,7 @@ Never run `npm publish` for a release from your own machine; the only manual pub
 
 ## Install from a GitHub release
 
-The interim channel while the npm prerequisites are not done, and a fallback afterwards. The `github-release` job of `release.yml` runs on `main` when no changesets are pending (the Version Packages pull request merged) and no release exists yet for the version in the packages' `package.json`. It builds and tests the packages, packs the six, runs the [consumption smoke](#consumption-smoke) on the tarballs, creates the GitHub release `platform-v<version>` with the tarballs attached (a **prerelease** for `x.y.z-next.N`, never marked as the repository's latest release, so the app's `v*` releases are unaffected), and installs the api smoke from the release URLs. It needs only the workflow's `GITHUB_TOKEN` with `contents: write`; no npm credential and no approval. A manual run (*Actions → Release → Run workflow* on `main`) re-uploads the assets of an existing release, for example after a failed upload.
+The interim channel while the npm prerequisites are not done, and a fallback afterwards. The `github-release` job of `release.yml` runs on `main` when no changesets are pending (the Version Packages pull request merged) and no release exists yet for the version in the packages' `package.json`. It builds and tests the packages, packs the seven, runs the [consumption smoke](#consumption-smoke) on the tarballs, creates the GitHub release `platform-v<version>` with the tarballs attached (a **prerelease** for `x.y.z-next.N`, never marked as the repository's latest release, so the app's `v*` releases are unaffected), and installs the api smoke from the release URLs. It needs only the workflow's `GITHUB_TOKEN` with `contents: write`; no npm credential and no approval. A manual run (*Actions → Release → Run workflow* on `main`) re-uploads the assets of an existing release, for example after a failed upload.
 
 A consumer pins the tarballs by URL in its `package.json`, with the same version for every platform package it uses:
 
@@ -156,10 +156,10 @@ It reports the packages with verified registry signatures and verified attestati
 
 ## Deprecate a bad version
 
-Never unpublish: consumers' lockfiles and caches hold the version, and npm blocks re-using a version number anyway. Deprecate it, for all six (one version is one compatibility statement), and release a fix:
+Never unpublish: consumers' lockfiles and caches hold the version, and npm blocks re-using a version number anyway. Deprecate it, for all seven (one version is one compatibility statement), and release a fix:
 
 ```bash
-for p in contract api web db cli infra; do
+for p in contract ai-providers api web db cli infra; do
   npm deprecate "@marinoscar/platform-$p@0.1.0-next.3" "Broken release; use 0.1.0-next.4 or later"
 done
 ```
@@ -185,9 +185,9 @@ npm run prisma:generate --workspace=api
 npm run build:packages
 npm run test:run --workspace=cli          # includes changeset-config.test.ts
 npx changeset status
-for p in contract api web db cli infra; do npm publish --dry-run --tag next -w @marinoscar/platform-$p; done
+for p in contract ai-providers api web db cli infra; do npm publish --dry-run --tag next -w @marinoscar/platform-$p; done
 node scripts/check-package-pack.mjs       # LICENSE in every tarball, publish metadata
-mkdir -p /tmp/pp-tarballs && for p in contract api web db cli infra; do npm pack -w @marinoscar/platform-$p --pack-destination /tmp/pp-tarballs; done
+mkdir -p /tmp/pp-tarballs && for p in contract ai-providers api web db cli infra; do npm pack -w @marinoscar/platform-$p --pack-destination /tmp/pp-tarballs; done
 node tests/consumer-smoke/run.mjs --project api --from tarballs /tmp/pp-tarballs
 node tests/consumer-smoke/run.mjs --project web --from tarballs /tmp/pp-tarballs
 # after a release:

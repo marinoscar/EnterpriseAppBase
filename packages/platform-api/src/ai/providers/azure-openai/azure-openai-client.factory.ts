@@ -1,79 +1,38 @@
 // =============================================================================
-// Azure OpenAI SDK client factory (issue #448, epic #421)
+// AzureOpenAiClientFactory: the Nest binding (issue #991)
 // =============================================================================
 //
-// One `AzureOpenAI` client PER CALL, built from that call's context — the
-// key is resolved per call, exactly as for OpenAI — with every option the SDK
-// would otherwise read from the environment pinned explicitly:
-//
-//   - `baseURL` is passed, never `endpoint`: `AzureOpenAI` defaults `baseURL`
-//     to `OPENAI_BASE_URL` and refuses `endpoint` beside it, so an ambient
-//     variable on a host would otherwise break (or redirect) every call. The
-//     base is `<endpoint>/openai`, the path the SDK itself derives.
-//   - `apiVersion` and `apiKey` are always explicit (the SDK falls back to
-//     `OPENAI_API_VERSION` / `AZURE_OPENAI_API_KEY`).
-//   - the key travels in Azure's `api-key` header (the SDK's own behaviour).
-//   - `maxRetries: 0`, no SDK logging, and a `fetch` that follows no
-//     redirect (`openai-redirect-guard.ts`).
-//
-// No `deployment` is pinned on the client: the adapter puts the DEPLOYMENT
-// NAME in the request's `model`, and the SDK routes Chat Completions and
-// embeddings to `/deployments/<model>/...` from it while the Responses API
-// takes it as the body's `model` — so one client serves every model.
+// The factory itself (one SDK client per call, every SDK option pinned) lives
+// in `@marinoscar/platform-ai-providers/openai`. This subclass keeps the
+// platform's injectable class, its constructor signature and its optional
+// `AZURE_OPENAI_CLIENT_OPTIONS` injection token, so the provider module and any test
+// that provides the token wire it exactly as before. It imports no SDK.
 // =============================================================================
 
 import { Inject, Injectable, Optional } from '@nestjs/common';
-import { AzureOpenAI } from 'openai';
-
-import { AiError } from '../../core/ai-error';
-import type { AiCallContext } from '../../core/provider-adapter.interface';
 import {
-  assertOpenAiApiKey,
+  AzureOpenAiClientFactory as BaseAzureOpenAiClientFactory,
   type OpenAiClientOptions,
-  pinnedOpenAiClientOptions,
-} from '../openai/openai-client.factory';
-import { noRedirectFetch } from '../openai/openai-redirect-guard';
-import { AZURE_OPENAI_FAMILY, type AzureOpenAiSettings } from './azure-openai-settings';
+} from '@marinoscar/platform-ai-providers/openai';
 
-/** DI token for the Azure client's options (tests inject a mocked `fetch`). */
+/** DI token for `OpenAiClientOptions` (optional; tests and forks provide it). */
 export const AZURE_OPENAI_CLIENT_OPTIONS = Symbol('AZURE_OPENAI_CLIENT_OPTIONS');
 
 /**
- * `<endpoint>/openai` — the resource endpoint without trailing slashes, and
- * without a doubled `/openai` when the administrator already typed it.
+ * The injectable AzureOpenAiClientFactory: the framework-free factory of
+ * `@marinoscar/platform-ai-providers/openai` with its options injected.
+ *
+ * @stability experimental
  */
-export function azureOpenAiBaseUrl(endpoint: string): string {
-  const trimmed = endpoint.replace(/\/+$/, '');
-
-  return /\/openai$/i.test(trimmed) ? trimmed : `${trimmed}/openai`;
-}
-
 @Injectable()
-export class AzureOpenAiClientFactory {
-  private readonly options: OpenAiClientOptions;
-
-  constructor(@Optional() @Inject(AZURE_OPENAI_CLIENT_OPTIONS) options?: OpenAiClientOptions) {
-    this.options = options ?? {};
-  }
-
+export class AzureOpenAiClientFactory extends BaseAzureOpenAiClientFactory {
   /**
-   * The client for one call. Throws `AI_KEY_INVALID` for an empty key and
-   * `AI_PROVIDER_UNAVAILABLE` when no endpoint is configured.
+   * @param options - the client options (a mocked `fetch` in tests); none in production.
    */
-  create(ctx: AiCallContext, settings: AzureOpenAiSettings): AzureOpenAI {
-    assertOpenAiApiKey(ctx, AZURE_OPENAI_FAMILY);
-
-    if (!ctx.baseUrl) {
-      throw new AiError('AI_PROVIDER_UNAVAILABLE', 'No Azure OpenAI endpoint is configured.', {
-        details: { provider: AZURE_OPENAI_FAMILY.providerId, missing: 'baseUrl' },
-      });
-    }
-
-    return new AzureOpenAI({
-      apiKey: ctx.apiKey,
-      baseURL: azureOpenAiBaseUrl(ctx.baseUrl),
-      apiVersion: settings.apiVersion,
-      ...pinnedOpenAiClientOptions(this.options, noRedirectFetch(this.options.fetch)),
-    });
+  constructor(@Optional() @Inject(AZURE_OPENAI_CLIENT_OPTIONS) options?: OpenAiClientOptions) {
+    super(options);
   }
 }
+
+// The rest of what this path exported before #991, unchanged.
+export { azureOpenAiBaseUrl } from '@marinoscar/platform-ai-providers/openai';

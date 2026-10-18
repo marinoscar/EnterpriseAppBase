@@ -807,7 +807,7 @@ refusals are plain `400`s with `details.reason` and `details.provider`:
 
 ### 2.24 The five built-in providers
 
-These ship in the package under `providers/<provider>/` and register their
+The adapters ship in `@marinoscar/platform-ai-providers`; their Nest subclasses ship in this package under `providers/<provider>/` and register their
 definitions through the same `registerAiProvider` an app uses
 (`providers/builtin-ai-providers.ts`): no private fast path. A provider an app
 adds (§4) is an adapter plus a definition and has no section here; the
@@ -1175,11 +1175,11 @@ as `providers/azure-openai/` and `providers/openai-compatible/` do for an
 OpenAI-wire server.
 
 1. **Implement `AiProviderAdapter`** in
-   `packages/platform-api/src/ai/providers/<provider>/`, as above. Declare
+   `packages/platform-ai-providers/src/<provider>/` (a lean, DI-free class and a `create<Provider>Adapter` factory, exported from the `./<provider>` subpath, with a `./<provider>/testing` mock transport), then a Nest subclass, module and definition in `packages/platform-api/src/ai/providers/<provider>/`. Declare
    `supportsPreviousResponseId: false` if it stores no responses and
    `supportsHostedTools: false` if it has none of the hosted tools. Declare
    `fileInputStrategy` if it accepts stored inputs. Import the provider's SDK
-   only in this folder.
+   only in the package folder, and add it as an optional peer of `@marinoscar/platform-ai-providers` with a new subpath export.
 2. **Self-register** from `onModuleInit()` in the folder's `<provider>.module.ts`,
    as above.
 3. **Write a classifier**: a curated rule table over known model-id shapes,
@@ -1223,11 +1223,11 @@ guardrails below discover all of these automatically.
 | Sentinel keys (admin, this user, another user) never appear in bodies, headers, logs, audit `meta`, usage rows, run rows or errors; the ephemeral secret only in `data.clientSecret` | `ai-secret-egress` |
 | The byok/fallback/keyless resolution rule over every inference route, sync and queued | `ai-key-policy` |
 | Every `ai.*` job type is in `JobHandlerRegistry.serverOnlyTypes()` | `ai-jobs-server-only` |
-| No file outside `ai/providers/<provider>/` imports a provider SDK, in the app, the web, the contract or the package (the trees the app passes), except the app folders passed as `providerDirs`; every registered definition's `sdkPackages` is banned outside them | `ai-no-sdk-leak` |
+| No file outside `packages/platform-ai-providers/src/<provider>/` imports a provider SDK, in the app, the web, the contract or the package (the trees the app passes), except the app folders passed as `providerDirs`; every registered definition's `sdkPackages` is banned outside them | `ai-no-sdk-leak` |
 | `@langchain/*` only under the allowed orchestration roots; no banned orchestration package installed or imported | `ai-orchestration-boundary` (`runOrchestrationBoundarySuite` from `/ai/testing`) |
 | The organization tier: the org kill switch, org keys never served under an effective `byok` to a non-administrator, org-key sentinels never egress | the `ai-kill-switch`, `ai-key-policy` and `ai-secret-egress` suites above, plus `apps/api/test/ai/ai-org-keys.integration.spec.ts` and `ai-org-usage.db.spec.ts` |
 | No provider SDK in `ai/core` | `packages/platform-api/src/ai/core/no-provider-sdk.spec.ts` |
-| Each SDK confined to its folder(s) | `packages/platform-api/src/ai/providers/openai/openai-sdk-boundary.spec.ts`, `anthropic/anthropic-sdk-boundary.spec.ts`, `gemini/gemini-sdk-boundary.spec.ts` |
+| Each SDK confined to its folder(s) | `packages/platform-ai-providers/src/openai/openai-sdk-boundary.spec.ts`, `anthropic/anthropic-sdk-boundary.spec.ts`, `gemini/gemini-sdk-boundary.spec.ts` |
 | AI registry cards carry a permission the API enforces (from its generated catalog, and `x-rbac` when the OpenAPI document is available) and `feature: 'ai'` except the admin switch | `settings-ai-cards` (`@marinoscar/platform-web/settings/testing`, run by `apps/web/src/__tests__/conformance.test.ts`) |
 | Resolution matrix; org key never returned under `byok` | `packages/platform-api/src/ai/keys/ai-key-resolver.service.spec.ts` |
 | Capability support derived from ports and implemented operations only | `packages/platform-api/src/ai/core/provider-registry.spec.ts`, `packages/platform-api/src/ai/core/open-vocabularies.spec.ts` |

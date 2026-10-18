@@ -12,9 +12,9 @@ import {
   OPENAI_TRANSCRIPTION_MAX_BYTES,
   openAiAudioFileName,
   toOpenAiTranscriptionRequest,
-} from './openai-audio.mapper';
+} from '@marinoscar/platform-ai-providers/openai';
 import { OpenAiProviderAdapter } from './openai.adapter';
-import { MOCK_TRANSCRIPT, OpenAiMockServer } from './testing/openai-mock-transport';
+import { MOCK_TRANSCRIPT, OpenAiMockServer } from '@marinoscar/platform-ai-providers/openai/testing';
 
 const VALID_KEY = 'sk-proj-AUDIO-valid-abcdefghijklm';
 const INVALID_KEY = 'sk-proj-AUDIO-revoked-nopqrstuv';

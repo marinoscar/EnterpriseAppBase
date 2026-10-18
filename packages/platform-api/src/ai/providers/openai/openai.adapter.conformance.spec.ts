@@ -10,7 +10,7 @@ import { AiProviderRegistry } from '../../core/provider-registry';
 import { describeAiProviderConformance } from '../../testing/conformance';
 import { OpenAiClientFactory } from './openai-client.factory';
 import { OpenAiProviderAdapter } from './openai.adapter';
-import { functionCallItem, messageItem, responseFixture } from './testing/openai-fixtures';
+import { functionCallItem, messageItem, responseFixture } from '@marinoscar/platform-ai-providers/openai/testing';
 import {
   MockReply,
   OpenAiMockServer,
@@ -18,7 +18,7 @@ import {
   mockImagesBody,
   mockSpeechBytes,
   mockTranscriptionBody,
-} from './testing/openai-mock-transport';
+} from '@marinoscar/platform-ai-providers/openai/testing';
 
 const VALID_KEY = 'sk-proj-conformance-valid-000000';
 const INVALID_KEY = 'sk-proj-conformance-revoked-0000';
