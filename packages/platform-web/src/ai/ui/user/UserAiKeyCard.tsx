@@ -40,7 +40,11 @@ import {
 import type { AiProbeResult, UserAiKey } from '../../headless/types.js';
 import { aiCodeText, aiErrorText } from './aiErrorText.js';
 
-/** The provider a {@link UserAiKeyCard} manages a key for. */
+/**
+ * The provider a {@link UserAiKeyCard} manages a key for.
+ *
+ * @stability stable
+ */
 export interface UserAiKeyCardProvider {
   /** Stable provider id. */
   id: string;
@@ -50,7 +54,11 @@ export interface UserAiKeyCardProvider {
   hasOrgKey: boolean;
 }
 
-/** Props of {@link UserAiKeyCard}. */
+/**
+ * Props of {@link UserAiKeyCard}.
+ *
+ * @stability stable
+ */
 export interface UserAiKeyCardProps {
   /** The provider the card manages. */
   provider: UserAiKeyCardProvider;
@@ -134,7 +142,11 @@ function ProbeResult({ result }: { result: AiProbeResult }) {
   );
 }
 
-/** A settings card where a user saves, tests and removes their own key for one AI provider. */
+/**
+ * A settings card where a user saves, tests and removes their own key for one AI provider.
+ *
+ * @stability stable
+ */
 export function UserAiKeyCard({
   provider,
   keyView,

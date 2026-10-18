@@ -24,7 +24,7 @@ export interface ShellPreferences {
 /**
  * Where a host keeps {@link ShellPreferences}.
  *
- * @extensionPoint port
+ * @extensionPoint option
  * @stability experimental
  */
 export interface ShellPreferencesPort {

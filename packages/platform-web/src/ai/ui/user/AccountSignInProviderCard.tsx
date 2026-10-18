@@ -42,7 +42,11 @@ import {
 } from '@mui/material';
 import { aiErrorText } from './aiErrorText.js';
 
-/** The current sign-in state of the account behind an account-sign-in provider. */
+/**
+ * The current sign-in state of the account behind an account-sign-in provider.
+ *
+ * @stability experimental
+ */
 export interface AccountSignInStatus {
   /** The user is signed in to the provider account. */
   signedIn: boolean;
@@ -54,7 +58,11 @@ export interface AccountSignInStatus {
   error?: string | null;
 }
 
-/** The consent a provider requires before the user may enable and sign in. */
+/**
+ * The consent a provider requires before the user may enable and sign in.
+ *
+ * @stability experimental
+ */
 export interface AccountSignInConsent {
   /** Consent must be given before the provider can be used. */
   required: boolean;
@@ -72,7 +80,11 @@ export interface AccountSignInConsent {
   onRevoke?: () => Promise<void>;
 }
 
-/** Props of {@link AccountSignInProviderCard}. */
+/**
+ * Props of {@link AccountSignInProviderCard}.
+ *
+ * @stability experimental
+ */
 export interface AccountSignInProviderCardProps {
   /** The provider the card describes. */
   provider: {
@@ -132,6 +144,8 @@ type Busy = 'enable' | 'accept' | 'revoke' | 'signin' | 'signout' | 'model' | 'r
  * A settings card for a provider that signs in with the user's own account
  * instead of an API key: enable switch, optional consent, sign-in state,
  * capabilities and model choice.
+ *
+ * @stability experimental
  */
 export function AccountSignInProviderCard({
   provider,

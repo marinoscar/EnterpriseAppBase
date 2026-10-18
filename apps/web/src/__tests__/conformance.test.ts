@@ -31,6 +31,8 @@ import { fileURLToPath } from 'node:url';
 import { runPlatformWebConformance } from '@marinoscar/platform-web/testing';
 // Importing a slice's testing entry REGISTERS its suites with the harness.
 import '@marinoscar/platform-web/settings/testing';
+// The shell-local-host suite: the packaged chrome renders under a local identity and never calls the API.
+import '@marinoscar/platform-web/shell/testing';
 
 import { ADMIN_HUB_PATH, ADMIN_HUB_TITLE, ADMIN_SECTIONS } from '../config/adminSections';
 import {
