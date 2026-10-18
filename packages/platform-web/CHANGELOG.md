@@ -1,5 +1,16 @@
 # @marinoscar/platform-web
 
+## 0.1.0-next.7
+
+### Minor Changes
+
+- 58d2ef5: Export the AI slice's prop-driven presentational cards from `@marinoscar/platform-web/ai/ui` so other hosts (such as a desktop app) reuse them instead of copying them (#998): `UserAiKeyCard`, `KeylessProviderCard` with `KEYLESS_PROVIDER_TEXT`, `DefaultAiModelPicker`, and the `aiErrorText` and `aiCodeText` helpers, with their prop types. Adds `AccountSignInProviderCard`, a new presentational card for providers that sign in with an account rather than an API key (enable switch, blocking consent dialog, sign in and out, status, model picker, capability list, error with retry), driven entirely by props with no network or API hooks. `UserAiKeysPage` is unchanged.
+- 58d2ef5: Local host mode for the app shell (#997). `usePermissions` falls back from the `AuthContext` to the `PlatformHostProvider` viewer (and throws a clear error naming both when neither is mounted); `@marinoscar/platform-web/identity/headless` gains `LocalIdentityProvider`, `createLocalAuthContextValue`, `LocalIdentityInput` and `AuthContextValue.mode` (`'server' | 'local'`); `@marinoscar/platform-web/shell/headless` gains `ShellPreferencesPort`, `ShellPreferences`, `ShellPreferencesProvider` and `createLocalStorageShellPreferencesPort`, and `useShellRailPreference` uses the port when a provider is mounted (the `/user-settings` default is unchanged otherwise); `ShellUserMenu` gains `hideSignOut`, `hideOrgSwitcher` (both default on in local mode) and `extraItems` (`ShellUserMenuItem`); a new `@marinoscar/platform-web/shell/testing` entry registers the `shell-local-host` conformance suite. Ordering change: `ShellBottomNav` renders destinations marked `pinned` at the end of the bar and of its More sheet (stable partition, non-pinned first).
+
+### Patch Changes
+
+- @marinoscar/platform-contract@0.1.0-next.7
+
 ## 0.1.0-next.6
 
 ### Patch Changes

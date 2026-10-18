@@ -17,6 +17,7 @@
   },
   "changesets": [
     "ai-open-operations",
+    "ai-presentational-cards",
     "ai-provider-registry",
     "ai-providers-package",
     "ai-slotless-provider-admin-save",
@@ -125,6 +126,7 @@
     "sharing-docs-examples",
     "sharing-grantee-kinds",
     "sharing-open-vocabularies",
+    "shell-local-host-mode",
     "slice-peer-dependencies",
     "storage-driver-registry",
     "support-bundle",
