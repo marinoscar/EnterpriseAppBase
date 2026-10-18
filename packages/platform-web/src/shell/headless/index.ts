@@ -21,6 +21,12 @@ export type {
   ShellRailPreference,
   ShellSettingsSurface,
 } from './navigation.js';
+export {
+  ShellPreferencesProvider,
+  createLocalStorageShellPreferencesPort,
+  useOptionalShellPreferencesPort,
+} from './preferences.js';
+export type { ShellPreferences, ShellPreferencesPort, ShellPreferencesProviderProps } from './preferences.js';
 export { useShellRailPreference } from './rail-preference.js';
 export type { ShellRailPreferenceOptions, UseShellRailPreferenceResult } from './rail-preference.js';
 export {

@@ -239,6 +239,10 @@
       "types": "./dist/shell/ui/index.d.ts",
       "default": "./dist/shell/ui/index.js"
     },
+    "./shell/testing": {
+      "types": "./dist/shell/testing/index.d.ts",
+      "default": "./dist/shell/testing/index.js"
+    },
     "./host/headless": {
       "types": "./dist/host/headless/index.d.ts",
       "default": "./dist/host/headless/index.js"

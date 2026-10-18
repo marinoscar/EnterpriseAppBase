@@ -14,6 +14,16 @@
 // destination no longer squeezes the labels. With `maxItems` or fewer the bar
 // is exactly what it always was. The sheet lives inside this component, which
 // renders below `sm` only, so it adds no breakpoint gate.
+//
+// PINNED DESTINATIONS (`ShellDestination.pinned`) ARE EXCLUDED from the bar and
+// its More sheet. `pinned` means "a mode at the foot of the rail, not a peer of
+// the library destinations" (the Console); on a phone the bar is for the
+// library peers, and a mode with its own entry elsewhere (the user menu keeps
+// every destination) would take a scarce tab. The rail and the user menu still
+// list them.
+//
+// LOCAL MODE: `usePermissions` falls back to the host's viewer and the local
+// identity, and nothing here calls the API, so the bar works with no session.
 // =============================================================================
 
 import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
@@ -228,8 +238,8 @@ export function ShellBottomNav({ navigation, maxItems = DEFAULT_MAX_ITEMS }: She
 
   if (!isCompactWindow) return null;
 
-  const visibleDestinations = navigation.destinations.filter((destination) =>
-    isDestinationVisible(destination, hasPermission, features),
+  const visibleDestinations = navigation.destinations.filter(
+    (destination) => destination.pinned !== true && isDestinationVisible(destination, hasPermission, features),
   );
 
   const limit = Number.isFinite(maxItems) ? Math.max(2, Math.floor(maxItems)) : DEFAULT_MAX_ITEMS;

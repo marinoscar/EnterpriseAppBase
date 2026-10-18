@@ -52,6 +52,68 @@ The smallest app needs no binding file at all (the starter's `App.tsx`):
 </ShellRoot>
 ```
 
+### Running in a local (single-user, no-API) host
+
+A second host (an Electron app with one user, no sign-in and no `/user-settings` API; issue #997) renders the same shell as the web app. The shell needs no server in this mode: permissions come from the platform host's `viewer`, the identity is a fixed local one, and the rail's collapse preference is kept by a port (here `localStorage`).
+
+```tsx
+import { PlatformHostProvider, type PlatformApiClient, type PlatformWebHost } from '@marinoscar/platform-web/core';
+import { LocalIdentityProvider } from '@marinoscar/platform-web/identity/headless';
+import {
+  ShellPreferencesProvider,
+  createLocalStorageShellPreferencesPort,
+  createShellTheme,
+  type ShellNavigation,
+} from '@marinoscar/platform-web/shell/headless';
+import { ShellLayout, ShellRoot } from '@marinoscar/platform-web/shell/ui';
+import { HashRouter, Route, Routes } from 'react-router-dom';
+
+// Nothing in local mode calls the API; a client whose every method rejects makes a stray call fail loudly.
+const noApi: PlatformApiClient = {
+  get: () => Promise.reject(new Error('no API in local mode')),
+  post: () => Promise.reject(new Error('no API in local mode')),
+  put: () => Promise.reject(new Error('no API in local mode')),
+  patch: () => Promise.reject(new Error('no API in local mode')),
+  delete: () => Promise.reject(new Error('no API in local mode')),
+};
+
+const PERMISSIONS = ['transcripts:read', 'transcripts:write', 'notes:read'] as const; // what the local server grants
+const host: PlatformWebHost = {
+  api: noApi,
+  viewer: { userId: 'local', hasPermission: (p) => PERMISSIONS.includes(p as never), isFeatureEnabled: () => true },
+};
+const preferences = createLocalStorageShellPreferencesPort(); // key defaults to a package-owned name
+
+export function App({ navigation }: { navigation: ShellNavigation }) {
+  return (
+    <ShellRoot themes={{ light: createShellTheme('light'), dark: createShellTheme('dark') }}>
+      <HashRouter>
+        <PlatformHostProvider host={host}>
+          <LocalIdentityProvider userId="local" displayName="Oscar" permissions={PERMISSIONS}>
+            <ShellPreferencesProvider port={preferences}>
+              <Routes>
+                <Route element={<ShellLayout navigation={navigation} brand="KVox" />}>{/* the app's routes */}</Route>
+              </Routes>
+            </ShellPreferencesProvider>
+          </LocalIdentityProvider>
+        </PlatformHostProvider>
+      </HashRouter>
+    </ShellRoot>
+  );
+}
+```
+
+The tree, outermost first: `ShellRoot` (theme, `localStorage` only) > router > `PlatformHostProvider` (the `viewer` is the permission source for the page-level hooks) > `LocalIdentityProvider` (the `AuthContext` the shell surfaces read) > `ShellPreferencesProvider` (the rail preference) > `ShellLayout` with `ShellAppBar`, `ShellNavigationRail`, `ShellBottomNav` and `ShellUserMenu` as its default surfaces. No surface makes a request, so the `api` of the host is never called.
+
+- **Permissions.** `usePermissions()` resolves, in order, the mounted `AuthContext`, then `PlatformHost.viewer` (`hasPermission`, `userId`), and throws only when neither is mounted; the message names both. With an `AuthContext` present (every web app) nothing changes. Keep the `permissions` of `LocalIdentityProvider` and the `viewer` in step: the shell surfaces gate `permission` / `anyPermission` through the first, `SettingsHub` and the packaged pages through the second.
+- **Local identity.** `LocalIdentityProvider` (props `LocalIdentityInput`: `userId`, `displayName` (default `'You'`), `email`, `permissions`, `roles`) provides `createLocalAuthContextValue(input)`: always authenticated, `providers: []`, `mode: 'local'`, and `login`, `logout`, `switchOrg` and `setAccessToken` as no-ops that resolve. Pass a stable `permissions` array (a module constant). See the [identity README](../identity/README.md#local-identity-no-sign-in-host).
+- **Rail preference.** `ShellPreferencesPort` (`read()`, `write(patch)`, each sync or async) holds `ShellPreferences` (`{ railCollapsed? }`, open for later preferences). When a `ShellPreferencesProvider` is mounted, `useShellRailPreference` reads and writes through its port and never calls `/user-settings`; without one the default `/user-settings` binding is unchanged. `createLocalStorageShellPreferencesPort(key?)` stores one JSON object and tolerates a missing or blocked `localStorage` (the default is kept, nothing throws). Theme mode stays in `ShellRoot`.
+- **User menu.** In `mode === 'local'` `ShellUserMenu` hides the sign-out row and the organization switcher and shows the initials of `displayName` on the avatar. `hideSignOut` and `hideOrgSwitcher` override the default either way (both default to `true` in local mode, `false` otherwise). `extraItems` (`ShellUserMenuItem[]`, each `{ key, label, icon?, onClick | to }`) render above sign-out, in any mode.
+- **Pinned destinations.** `ShellBottomNav` leaves out destinations marked `pinned` (they live at the rail's foot), so one `ShellNavigation` serves the rail and the phone bar; an app no longer needs a second navigation object for the bar. The More sheet does not list them either.
+- **Not changed.** The five breakpoint gates stay at `sm`; local mode adds no breakpoint and no gate.
+
+An app proves the wiring in its own CI with the `shell-local-host` web conformance suite ([testing README](../testing/README.md#conformance-suite)): the same tree rendered with a host `api` whose methods all reject, asserting zero calls.
+
 ## Configuration
 
 `ShellNavigation` (declare it once, at module scope):
@@ -65,7 +127,7 @@ The smallest app needs no binding file at all (the starter's `App.tsx`):
 | `homePath` | `string` | `'/'` | Where the brand goes; the destination at it is left out of the user menu. |
 | `useRailPreference` | `() => ShellRailPreference` | `useShellRailPreference` | The desktop rail's collapse preference, as a stable hook reference. |
 
-`ShellLayout` props: `navigation`, `brand`, and the slots `appBar`, `rail`, `bottomNav` (default: the packaged surface for `navigation`), `banners` (inside `<main>`, above the page), `overlays` (after the bottom bar), `children` (default `<Outlet />`). `ShellAppBar` props: `navigation`, `brand`, `actions` (both treatments), `wideActions` (outside the drill-down), `userMenu` (default `ShellUserMenu`). `ShellUserMenu` props: `navigation`, `items(close)`, `footer`, `logoutLabel` (default `'Logout'`). `ShellBottomNav` props: `navigation`, `maxItems` (default 4, at least 2). `ShellThemeProvider` and `ShellRoot` props: `themes: { light, dark, ...modes }` (extra keys are theme modes by id, see [Theme modes](#theme-modes)), `storageKey` (default `'theme_mode'`). `createShellTheme(mode, { palette?, extend? })`. No environment variable.
+`ShellLayout` props: `navigation`, `brand`, and the slots `appBar`, `rail`, `bottomNav` (default: the packaged surface for `navigation`), `banners` (inside `<main>`, above the page), `overlays` (after the bottom bar), `children` (default `<Outlet />`). `ShellAppBar` props: `navigation`, `brand`, `actions` (both treatments), `wideActions` (outside the drill-down), `userMenu` (default `ShellUserMenu`). `ShellUserMenu` props: `navigation`, `items(close)`, `footer`, `logoutLabel` (default `'Logout'`), `hideSignOut` and `hideOrgSwitcher` (default `true` when the auth context's `mode` is `'local'`, else `false`), `extraItems` (`ShellUserMenuItem[]`, default none; see [Running in a local host](#running-in-a-local-single-user-no-api-host)). `ShellBottomNav` props: `navigation`, `maxItems` (default 4, at least 2); destinations marked `pinned` are never drawn in the bar or its More sheet. `ShellThemeProvider` and `ShellRoot` props: `themes: { light, dark, ...modes }` (extra keys are theme modes by id, see [Theme modes](#theme-modes)), `storageKey` (default `'theme_mode'`). `createShellTheme(mode, { palette?, extend? })`. No environment variable.
 
 ## Extension-point catalog
 
@@ -110,7 +172,7 @@ The stored `theme` user setting reaches a custom mode when the API registered th
 
 ## Data
 
-None. The rail's preference is the `navigation` namespace of the user settings (`railCollapsed`), owned by the settings slice; the theme choice is kept in this browser's `localStorage`.
+None. The rail's preference is the `navigation` namespace of the user settings (`railCollapsed`), owned by the settings slice, unless the host mounts a `ShellPreferencesProvider`, whose port then owns it (the localStorage port keeps one JSON object under its key in this browser); the theme choice is kept in this browser's `localStorage`.
 
 ## Permissions and settings
 
@@ -137,9 +199,11 @@ Every permission check here only chooses what to draw; the route guards and the 
 
 ## Conformance suite
 
-None in this slice. The reference app's `Layout`, `AppBar`, `NavigationRail`, `BottomNav`, `UserMenu` and `destinations` tests run every surface through its bindings (exactly one navigation surface at every width, the gate-3 padding, route ownership against `App.tsx`), and `tests/visual` pins the pixels; the settings slice's suites cover the registries the shell reads.
+`shell-local-host` (web suite, owner slice `shell`; issue #997): a host with one local user and no API renders `ShellRoot` > `PlatformHostProvider` > `LocalIdentityProvider` > `ShellPreferencesProvider` > `ShellLayout` (app bar, rail, bottom bar, user menu) with zero calls to the host's `api`, destinations follow the local permissions, the rail preference survives a remount through the port, and the user menu shows no sign-out and no organization switcher. It takes the host's `navigation` and local `permissions` under `suites['shell-local-host']`, or an argued `{ skip: 'reason' }` (a host with a server skips it); see the [testing README](../testing/README.md#conformance-suite). Besides it, the reference app's `Layout`, `AppBar`, `NavigationRail`, `BottomNav`, `UserMenu` and `destinations` tests run every surface through its bindings (exactly one navigation surface at every width, the gate-3 padding, route ownership against `App.tsx`), and `tests/visual` pins the pixels; the settings slice's suites cover the registries the shell reads.
 
 ## Upgrade notes
+
+#997 (additive, minor): local host mode. `usePermissions` falls back to `PlatformHost.viewer` when no `AuthContext` is mounted; `AuthContextValue` gains an optional `mode`; `ShellPreferencesPort` and its provider are new; `ShellUserMenu` gains `hideSignOut`, `hideOrgSwitcher` and `extraItems`. **One visible change for existing apps:** `ShellBottomNav` no longer draws destinations marked `pinned` (before, a pinned destination appeared in the phone bar as well as at the rail's foot). An app that kept a second navigation object only to drop its pinned destinations from the bar (KVox's `KVOX_BOTTOM_BAR_NAVIGATION`) deletes it; an app that wants a pinned destination in the bar unpins it. With an `AuthContext` and no `ShellPreferencesProvider`, every other surface renders as before.
 
 PP-14.25 (additive): `ShellDestination` gains `badge`, `group`, `external` and `onClick`; `ShellBottomNav` gains `maxItems` (default 4) and the More sheet, so a navigation with more than four visible destinations now overflows into it where it used to squeeze five or more tabs into the bar (an app that wants every tab sets `maxItems`); `ShellThemeMode` and `ShellThemes` are open; `applyTheme` of the platform host accepts any theme id the document lists. A navigation with four or fewer destinations and none of the new fields renders the markup it did (`test/shell/ShellNavigation.builtin-dom.test.tsx`).
 
@@ -150,6 +214,9 @@ New in #868. From the reference app or a fork of it: `components/common/Layout.t
 - **`ShellLayout: pass navigation, or the appBar slot`.** A default surface needs the navigation; pass it, or pass every surface as a slot.
 - **No theme toggle in the AppBar.** No `ShellThemeProvider` (or `ShellRoot`) above it.
 - **A destination never shows.** Its `feature` is not registered or answers off (`registerSettingsFeature`), or the viewer lacks its `permission` / every `anyPermission`.
+- **`usePermissions` throws "no AuthContext and no PlatformHost".** A host without a server mounted neither. Mount `LocalIdentityProvider` (and `PlatformHostProvider`), see [Running in a local host](#running-in-a-local-single-user-no-api-host).
+- **A local host still calls `/user-settings`.** No `ShellPreferencesProvider` above the shell; the default rail preference is the API binding.
+- **A pinned destination is missing from the phone bar.** By design: the bottom bar leaves `pinned` destinations out.
 - **Two navigation surfaces, or none, between 600px and 900px.** A gate moved alone; all five are `sm`.
 
 ## Links

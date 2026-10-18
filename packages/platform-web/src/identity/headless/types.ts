@@ -172,6 +172,13 @@ export interface AuthContextValue {
    * Rejects when the API refuses; the current session is then unchanged.
    */
   switchOrg: (orgId: string) => Promise<void>;
+  /**
+   * Where the identity comes from. Absent or `'server'`: an {@link AuthProvider}
+   * session against the API. `'local'`: a {@link LocalIdentityProvider}, a
+   * single local user with no API (a desktop host); the shell hides sign-out and
+   * the organization switcher by default and nothing here reaches the network.
+   */
+  mode?: 'server' | 'local';
 }
 
 /**

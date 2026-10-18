@@ -5,7 +5,7 @@
 // `@marinoscar/platform-web/identity/headless` and `/identity/ui`. Narrow on
 // purpose: only what a sibling uses.
 
-export { useAuth, usePermissions } from './headless/index.js';
+export { useAuth, usePermissions, LocalIdentityProvider } from './headless/index.js';
 export type {
   IdentityDataTableProps,
   IdentityTableColumn,

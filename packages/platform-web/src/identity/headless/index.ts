@@ -5,6 +5,8 @@
 // ../README.md. Explicit named exports only.
 
 export { AuthContext, AuthProvider, useAuth, useOptionalAuth } from './auth-context.js';
+export { LocalIdentityProvider, createLocalAuthContextValue } from './local-identity.js';
+export type { LocalIdentityInput, LocalIdentityProviderProps } from './local-identity.js';
 export { useCurrentUserExtension, userExtension } from './user-extensions.js';
 export type { AuthProviderProps } from './auth-context.js';
 export type {
