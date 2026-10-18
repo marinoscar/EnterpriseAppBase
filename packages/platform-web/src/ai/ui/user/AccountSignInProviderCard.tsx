@@ -42,8 +42,11 @@ import {
 } from '@mui/material';
 import { aiErrorText } from './aiErrorText.js';
 
+/** The current sign-in state of the account behind an account-sign-in provider. */
 export interface AccountSignInStatus {
+  /** The user is signed in to the provider account. */
   signedIn: boolean;
+  /** The signed-in account's login or display name, when known. */
   login?: string | null;
   /** A status check is in flight. */
   checking?: boolean;
@@ -51,37 +54,85 @@ export interface AccountSignInStatus {
   error?: string | null;
 }
 
+/** The consent a provider requires before the user may enable and sign in. */
 export interface AccountSignInConsent {
+  /** Consent must be given before the provider can be used. */
   required: boolean;
   /** When the user agreed; absent or null while consent is still pending. */
   acceptedAt?: string | null;
+  /** Heading of the consent notice. */
   title: string;
+  /** The consent text shown to the user. */
   body: ReactNode;
   /** Defaults to `I agree`. */
   acceptLabel?: string;
+  /** Record the user's consent. Rejects on failure. */
   onAccept: () => Promise<void>;
   /** When given, a signed-in user can withdraw consent. */
   onRevoke?: () => Promise<void>;
 }
 
+/** Props of {@link AccountSignInProviderCard}. */
 export interface AccountSignInProviderCardProps {
-  provider: { id: string; displayName: string; description?: ReactNode; icon?: ReactNode };
+  /** The provider the card describes. */
+  provider: {
+    /** Stable provider id. */
+    id: string;
+    /** Name shown in the card header. */
+    displayName: string;
+    /** Optional text shown under the name. */
+    description?: ReactNode;
+    /** Optional icon shown beside the name. */
+    icon?: ReactNode;
+  };
+  /** The user has switched this provider on. */
   enabled: boolean;
+  /** Persist the on/off switch. Rejects on failure. */
   onEnabledChange: (enabled: boolean) => Promise<void>;
+  /** Consent gate; omit when the provider needs none. */
   consent?: AccountSignInConsent;
+  /** The current sign-in state. */
   status: AccountSignInStatus;
+  /** Start the sign-in flow. Rejects on failure. */
   onSignIn: () => Promise<void>;
+  /** Sign out of the provider account. Rejects on failure. */
   onSignOut: () => Promise<void>;
+  /** Re-check the sign-in state; when omitted the refresh control is hidden. */
   onRefreshStatus?: () => Promise<void>;
-  capabilities?: { label: string; available: boolean; note?: string }[];
-  models?: { id: string; label: string }[];
+  /** What the signed-in account can do, one row per capability. */
+  capabilities?: {
+    /** Capability name. */
+    label: string;
+    /** The account supports it. */
+    available: boolean;
+    /** Optional qualifier shown beside the label. */
+    note?: string;
+  }[];
+  /** Models the user may choose from. */
+  models?: {
+    /** Model id. */
+    id: string;
+    /** Name shown in the model list. */
+    label: string;
+  }[];
+  /** The chosen model id, or null/undefined when none is chosen. */
   model?: string | null;
+  /** Persist a new model choice. Rejects on failure. */
   onModelChange?: (id: string) => Promise<void>;
-  slots?: { footer?: ReactNode };
+  /** Extension slots. */
+  slots?: {
+    /** Content rendered at the bottom of the card. */
+    footer?: ReactNode;
+  };
 }
 
 type Busy = 'enable' | 'accept' | 'revoke' | 'signin' | 'signout' | 'model' | 'refresh' | null;
 
+/**
+ * A settings card for a provider that signs in with the user's own account
+ * instead of an API key: enable switch, optional consent, sign-in state,
+ * capabilities and model choice.
+ */
 export function AccountSignInProviderCard({
   provider,
   enabled,

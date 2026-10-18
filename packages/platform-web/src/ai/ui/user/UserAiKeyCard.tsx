@@ -40,13 +40,19 @@ import {
 import type { AiProbeResult, UserAiKey } from '../../headless/types.js';
 import { aiCodeText, aiErrorText } from './aiErrorText.js';
 
+/** The provider a {@link UserAiKeyCard} manages a key for. */
 export interface UserAiKeyCardProvider {
+  /** Stable provider id. */
   id: string;
+  /** Name shown in the card header. */
   displayName: string;
+  /** The organisation holds a key for this provider. */
   hasOrgKey: boolean;
 }
 
+/** Props of {@link UserAiKeyCard}. */
 export interface UserAiKeyCardProps {
+  /** The provider the card manages. */
   provider: UserAiKeyCardProvider;
   /** The masked view for this provider; absent until the list has loaded. */
   keyView?: UserAiKey;
@@ -56,8 +62,11 @@ export interface UserAiKeyCardProps {
    * an AI administrator (`ai_config:write`, #593).
    */
   orgFallback: boolean;
+  /** Store the user's key for a provider and return its masked view. Rejects on failure. */
   onSave: (provider: string, apiKey: string) => Promise<UserAiKey>;
+  /** Probe a key (the typed one, or the stored one when omitted). */
   onTest: (provider: string, apiKey?: string) => Promise<AiProbeResult>;
+  /** Delete the user's stored key. Rejects on failure. */
   onRemove: (provider: string) => Promise<void>;
   /** Called after anything that can change which models are usable. */
   onChanged?: () => void;
@@ -125,6 +134,7 @@ function ProbeResult({ result }: { result: AiProbeResult }) {
   );
 }
 
+/** A settings card where a user saves, tests and removes their own key for one AI provider. */
 export function UserAiKeyCard({
   provider,
   keyView,
