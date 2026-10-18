@@ -4,7 +4,8 @@
 
 import { useCallback, useMemo } from 'react';
 
-import { useAuth } from './auth-context.js';
+import { useOptionalPlatformHost } from '../../core/index.js';
+import { useOptionalAuth } from './auth-context.js';
 
 /**
  * What {@link usePermissions} returns. The predicates keep a stable identity
@@ -35,8 +36,13 @@ export interface UsePermissionsReturn {
 /**
  * The signed-in user's permissions and roles, as predicates.
  *
+ * The source, in order: the {@link AuthContext} (an `AuthProvider`, or the
+ * `LocalIdentityProvider` of a local host); else the `PlatformHostProvider`'s
+ * viewer (`hasPermission` only: the viewer port cannot list permissions or
+ * roles, so `permissions` and `roles` are empty and `isAdmin` is `false`).
+ *
  * @returns see {@link UsePermissionsReturn}.
- * @throws Error outside an `AuthProvider`.
+ * @throws Error when neither an `AuthProvider`/`LocalIdentityProvider` nor a `PlatformHostProvider` is mounted.
  *
  * @example
  * ```tsx
@@ -48,7 +54,9 @@ export interface UsePermissionsReturn {
  * @stability stable
  */
 export function usePermissions(): UsePermissionsReturn {
-  const { user } = useAuth();
+  const auth = useOptionalAuth();
+  const viewer = useOptionalPlatformHost()?.viewer ?? null;
+  const user = auth?.user;
 
   const permissions = useMemo(() => {
     return new Set(user?.permissions || []);
@@ -58,25 +66,28 @@ export function usePermissions(): UsePermissionsReturn {
     return new Set(user?.roles?.map((r) => r.name) || []);
   }, [user?.roles]);
 
+  // The viewer port answers one permission at a time; used only without an AuthContext.
+  const viewerCheck = auth === null ? viewer : null;
+
   const hasPermission = useCallback(
     (permission: string): boolean => {
-      return permissions.has(permission);
+      return viewerCheck ? viewerCheck.hasPermission(permission) : permissions.has(permission);
     },
-    [permissions],
+    [permissions, viewerCheck],
   );
 
   const hasAnyPermission = useCallback(
     (...perms: string[]): boolean => {
-      return perms.some((p) => permissions.has(p));
+      return perms.some((p) => hasPermission(p));
     },
-    [permissions],
+    [hasPermission],
   );
 
   const hasAllPermissions = useCallback(
     (...perms: string[]): boolean => {
-      return perms.every((p) => permissions.has(p));
+      return perms.every((p) => hasPermission(p));
     },
-    [permissions],
+    [hasPermission],
   );
 
   const hasRole = useCallback(
@@ -96,6 +107,14 @@ export function usePermissions(): UsePermissionsReturn {
   const isAdmin = useMemo(() => {
     return roles.has('admin');
   }, [roles]);
+
+  if (auth === null && viewer === null) {
+    throw new Error(
+      'usePermissions: no permission source. Mount an AuthProvider (or a LocalIdentityProvider for a local host) ' +
+        "from '@marinoscar/platform-web/identity/headless', or a PlatformHostProvider from '@marinoscar/platform-web/core' " +
+        '(its viewer answers hasPermission).',
+    );
+  }
 
   return {
     permissions,

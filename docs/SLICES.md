@@ -234,7 +234,7 @@ None.
 
 | Part | Import paths | Depends on (slices) | Install beyond the required peers | README |
 |---|---|---|---|---|
-| Web (`platform-web`) | `/shell/headless`, `/shell/ui` | `core`, `settings`, `identity` | `@mui/icons-material`, `react-router-dom` | [README](../packages/platform-web/src/shell/README.md) |
+| Web (`platform-web`) | `/shell/headless`, `/shell/testing`, `/shell/ui` | `core`, `settings`, `identity` | `@mui/icons-material`, `react-router-dom`; `/testing` adds `@testing-library/react` | [README](../packages/platform-web/src/shell/README.md) |
 
 **Admin and settings cards.**
 

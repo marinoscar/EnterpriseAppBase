@@ -13,13 +13,32 @@ import { Avatar, Box, Divider, IconButton, ListItemIcon, ListItemText, Menu, Men
 import { Logout as LogoutIcon } from '@mui/icons-material';
 import { useState } from 'react';
 import type { MouseEvent, ReactElement, ReactNode } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link as RouterLink, useNavigate } from 'react-router-dom';
 
 import { useAuth, usePermissions } from '../../identity/index.js';
 import { useSettingsFeatures } from '../../settings/index.js';
 import { isDestinationVisible } from '../headless/navigation.js';
 import type { ShellDestination, ShellNavigation } from '../headless/navigation.js';
 import { DestinationIcon, EXTERNAL_LINK_PROPS, destinationAccessibleName, runDestinationClick, useDestinationBadge } from './destination-parts.js';
+
+/**
+ * One extra row of the user menu ({@link ShellUserMenuProps.extraItems}). Give
+ * `to` to navigate (a router link) or `onClick` to act; both may be given.
+ *
+ * @stability experimental
+ */
+export interface ShellUserMenuItem {
+  /** Stable key of the row. */
+  key: string;
+  /** The row's label. */
+  label: string;
+  /** The row's icon. */
+  icon?: ReactNode;
+  /** Called when the row is chosen; the menu then closes. */
+  onClick?: () => void;
+  /** A route to navigate to when the row is chosen. */
+  to?: string;
+}
 
 /**
  * Props of {@link ShellUserMenu}.
@@ -43,6 +62,20 @@ export interface ShellUserMenuProps {
   footer?: ReactNode;
   /** The sign-out row's label. Default `'Logout'`. */
   logoutLabel?: string;
+  /**
+   * Hide the sign-out row. Defaults to `true` when the auth context is in
+   * `'local'` mode (there is no session to end), else `false`.
+   */
+  hideSignOut?: boolean;
+  /**
+   * Hide the organization switcher. Defaults to `true` in `'local'` mode, else
+   * `false`. This menu draws no switcher itself; the flag is for the app's own
+   * `items` and `footer`, which receive nothing, and is kept so a host states
+   * its intent in one place (the shell never reaches the API for it).
+   */
+  hideOrgSwitcher?: boolean;
+  /** Rows rendered above sign-out, after the destinations and `items`. */
+  extraItems?: ShellUserMenuItem[];
 }
 
 /** One destination's row. A component of its own so the destination's `badge` (which may call hooks) has a stable hook order. */
@@ -75,9 +108,21 @@ function UserMenuRow({ destination, onNavigate }: { destination: ShellDestinatio
  * @extensionPoint slot
  * @stability experimental
  */
-export function ShellUserMenu({ navigation, items, footer, logoutLabel = 'Logout' }: ShellUserMenuProps): ReactElement | null {
+export function ShellUserMenu({
+  navigation,
+  items,
+  footer,
+  logoutLabel = 'Logout',
+  hideSignOut,
+  hideOrgSwitcher,
+  extraItems,
+}: ShellUserMenuProps): ReactElement | null {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
-  const { user, logout } = useAuth();
+  const { user, logout, mode } = useAuth();
+  const isLocal = mode === 'local';
+  const signOutHidden = hideSignOut ?? isLocal;
+  // No org switcher is drawn here; resolved so the prop has one defined meaning.
+  void (hideOrgSwitcher ?? isLocal);
   const { hasPermission } = usePermissions();
   const features = useSettingsFeatures();
   const navigate = useNavigate();
@@ -116,7 +161,7 @@ export function ShellUserMenu({ navigation, items, footer, logoutLabel = 'Logout
       .map((n) => n[0])
       .join('')
       .toUpperCase()
-      .slice(0, 2) || user.email[0]!.toUpperCase();
+      .slice(0, 2) || (user.email[0]?.toUpperCase() ?? '?');
 
   return (
     <>
@@ -152,9 +197,11 @@ export function ShellUserMenu({ navigation, items, footer, logoutLabel = 'Logout
           <Typography variant="subtitle2" noWrap>
             {user.displayName || 'No name set'}
           </Typography>
-          <Typography variant="body2" color="text.secondary" noWrap>
-            {user.email}
-          </Typography>
+          {user.email !== '' && (
+            <Typography variant="body2" color="text.secondary" noWrap>
+              {user.email}
+            </Typography>
+          )}
         </Box>
 
         <Divider />
@@ -165,14 +212,30 @@ export function ShellUserMenu({ navigation, items, footer, logoutLabel = 'Logout
 
         {items?.(handleClose)}
 
-        <Divider />
+        {extraItems?.map((item) => (
+          <MenuItem
+            key={item.key}
+            {...(item.to === undefined ? {} : { component: RouterLink, to: item.to })}
+            onClick={() => {
+              item.onClick?.();
+              handleClose();
+            }}
+          >
+            {item.icon !== undefined && <ListItemIcon>{item.icon}</ListItemIcon>}
+            <ListItemText>{item.label}</ListItemText>
+          </MenuItem>
+        ))}
 
-        <MenuItem onClick={handleLogout}>
-          <ListItemIcon>
-            <LogoutIcon fontSize="small" />
-          </ListItemIcon>
-          <ListItemText>{logoutLabel}</ListItemText>
-        </MenuItem>
+        {!signOutHidden && <Divider />}
+
+        {!signOutHidden && (
+          <MenuItem onClick={handleLogout}>
+            <ListItemIcon>
+              <LogoutIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>{logoutLabel}</ListItemText>
+          </MenuItem>
+        )}
 
         {footer !== undefined && footer !== null && <Divider />}
         {footer}

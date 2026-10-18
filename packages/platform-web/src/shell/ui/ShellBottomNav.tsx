@@ -14,6 +14,17 @@
 // destination no longer squeezes the labels. With `maxItems` or fewer the bar
 // is exactly what it always was. The sheet lives inside this component, which
 // renders below `sm` only, so it adds no breakpoint gate.
+//
+// PINNED DESTINATIONS (`ShellDestination.pinned`) ARE RENDERED AT THE END of the
+// bar (and of its More sheet). `pinned` means "a mode at the foot of the rail,
+// not a peer of the library destinations" (the Console), so it goes last on the
+// bar like the rail, and stays reachable on a phone. The visible destinations
+// are stable-partitioned (non-pinned first in their original order, pinned
+// last) before the `maxItems` overflow is applied, so with an overflow a pinned
+// destination lands in the More sheet, after the non-pinned ones.
+//
+// LOCAL MODE: `usePermissions` falls back to the host's viewer and the local
+// identity, and nothing here calls the API, so the bar works with no session.
 // =============================================================================
 
 import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
@@ -228,9 +239,9 @@ export function ShellBottomNav({ navigation, maxItems = DEFAULT_MAX_ITEMS }: She
 
   if (!isCompactWindow) return null;
 
-  const visibleDestinations = navigation.destinations.filter((destination) =>
-    isDestinationVisible(destination, hasPermission, features),
-  );
+  const visible = navigation.destinations.filter((destination) => isDestinationVisible(destination, hasPermission, features));
+  // Stable partition: non-pinned first (original order), pinned last.
+  const visibleDestinations = [...visible.filter((d) => d.pinned !== true), ...visible.filter((d) => d.pinned === true)];
 
   const limit = Number.isFinite(maxItems) ? Math.max(2, Math.floor(maxItems)) : DEFAULT_MAX_ITEMS;
   const overflows = visibleDestinations.length > limit;

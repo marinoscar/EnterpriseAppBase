@@ -9,13 +9,33 @@
  */
 import { Box, Card, CardContent, Chip, Stack, Typography } from '@mui/material';
 
-/** What every surface says about a keyless provider. */
+/**
+ * What every surface says about a keyless provider.
+ *
+ * @stability stable
+ */
 export const KEYLESS_PROVIDER_TEXT = 'No key needed — this server is keyless';
 
+/**
+ * Props of {@link KeylessProviderCard}.
+ *
+ * @stability stable
+ */
 export interface KeylessProviderCardProps {
-  provider: { id: string; displayName: string };
+  /** The keyless provider the card describes. */
+  provider: {
+    /** Stable provider id. */
+    id: string;
+    /** Name shown in the card. */
+    displayName: string;
+  };
 }
 
+/**
+ * A read-only card for a provider that needs no key, in place of the key form.
+ *
+ * @stability stable
+ */
 export function KeylessProviderCard({ provider }: KeylessProviderCardProps) {
   return (
     <Card component="section" aria-label={`${provider.displayName} key`}>

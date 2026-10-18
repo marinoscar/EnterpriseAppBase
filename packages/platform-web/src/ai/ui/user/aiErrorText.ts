@@ -17,13 +17,21 @@ const FRIENDLY: Record<string, string> = {
   AI_RATE_LIMITED: 'The provider is rate limiting requests. Try again shortly',
 };
 
-/** A friendly sentence for an AI error code; unknown codes get a generic one. */
+/**
+ * A friendly sentence for an AI error code; unknown codes get a generic one.
+ *
+ * @stability stable
+ */
 export function aiCodeText(code: string | null | undefined): string {
   if (!code) return 'Something went wrong';
   return FRIENDLY[code] ?? `The provider reported an error (${code})`;
 }
 
-/** A friendly sentence for a thrown error from an AI call. */
+/**
+ * A friendly sentence for a thrown error from an AI call.
+ *
+ * @stability stable
+ */
 export function aiErrorText(err: unknown, fallback: string): string {
   const reason = toAiErrorInfo(err).code;
   if (reason && FRIENDLY[reason]) return FRIENDLY[reason];

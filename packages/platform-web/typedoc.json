@@ -62,6 +62,7 @@
     "src/user-data/ui/index.ts",
     "src/shell/headless/index.ts",
     "src/shell/ui/index.ts",
+    "src/shell/testing/index.ts",
     "src/host/headless/index.ts",
     "src/host/ui/index.ts"
   ],

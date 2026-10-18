@@ -331,6 +331,15 @@ Available now (PP-14.25). Full reference: [the shell README](../packages/platfor
 5. **More than four destinations:** the phone bar draws three and a More sheet (`maxItems`, default 4); the reference app has four, so it never overflows.
 6. **A theme mode:** `registerThemeMode({ id: 'high-contrast', label: 'High contrast', theme })` at module scope in `theme/index.ts`, and the same id with `registerThemePreference` on the API so the Appearance page offers it (`themeOptions`). The stored choice then reaches the shell through `applyTheme` (your `setMode`). Carry your token contracts (`withTelemetryTokens`) in the theme, or the pages that read them cannot draw under it.
 
+### Run the shell in a single-user host with no API
+
+Available now (#997). A second host (KVox Desktop: Electron, one user, no sign-in, no `/user-settings`) uses the same shell as the web app. Full reference and example tree: [the shell README](../packages/platform-web/src/shell/README.md#running-in-a-local-single-user-no-api-host); the identity side: [the identity README](../packages/platform-web/src/identity/README.md#local-identity-no-sign-in-host).
+
+1. **Mount, outermost first:** `ShellRoot` > router > `PlatformHostProvider` (a `viewer` that answers `hasPermission`, and an `api` that rejects) > `LocalIdentityProvider` (`userId`, `displayName`, `permissions`) > `ShellPreferencesProvider` (`createLocalStorageShellPreferencesPort()`) > `ShellLayout`.
+2. **Permissions** come from the mounted `AuthContext`, else `PlatformHost.viewer`; keep the two lists from one constant.
+3. **The user menu** hides sign-out and the organization switcher in local mode; add rows with `extraItems`. **The phone bar** renders `pinned` destinations at its end (in the More sheet when it overflows), so one `ShellNavigation` serves both surfaces.
+4. **Prove it** in the host's CI with the `shell-local-host` web conformance suite.
+
 ### Add a side table with an `extend model` relation
 
 Full reference: [the platform-db README](../packages/platform-db/README.md#extension-point-catalog) and [the app fragments README](../apps/api/prisma/fragments/README.md). Only a model its owner marked `// @extensible` takes a back-relation: `User`, `Organization`, `Role`, `Job`, `Group`, `Grant`, `AiRun`, `StorageObject`, `Notification`, `NotificationDelivery` and `Credential` (what an app may hang on each, and why `Permission` stays closed: [the platform-db README](../packages/platform-db/README.md#extension-point-catalog)). Never add a column to a platform table: a per-user or per-organization field goes in [metadata](#add-app-metadata-to-users-and-organizations).

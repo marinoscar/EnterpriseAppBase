@@ -26,13 +26,21 @@ import {
 import type { UsableAiModel } from '../../headless/types.js';
 import type { AiDefaultModel } from '../../headless/types.js';
 
+/**
+ * Props of {@link DefaultAiModelPicker}.
+ *
+ * @stability stable
+ */
 export interface DefaultAiModelPickerProps {
+  /** The models the user can currently use. */
   models: UsableAiModel[];
   /** The saved default, or null/undefined when none has been chosen. */
   value: AiDefaultModel | null | undefined;
   /** Persist a new default (null clears it). Rejects on failure. */
   onChange: (next: AiDefaultModel | null) => Promise<void>;
+  /** Disable the control (for example while AI is off). */
   disabled?: boolean;
+  /** Display name per provider id, used to group and label models. */
   providerNames: Record<string, string>;
 }
 
@@ -41,6 +49,11 @@ const SEP = '\u0000';
 
 const toValue = (model: AiDefaultModel) => `${model.provider}${SEP}${model.modelId}`;
 
+/**
+ * A select that lets the user pick, or clear, their default AI model.
+ *
+ * @stability stable
+ */
 export function DefaultAiModelPicker({
   models,
   value,

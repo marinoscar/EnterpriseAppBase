@@ -77,6 +77,7 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | `AuthProvider` | component | `AuthProvider(props: { client; onBeforeLogout?; loginPath?; callbackPath?; children }): ReactElement` | Hold the session for the routed tree | stable | [example](../../../../apps/web/src/App.tsx) |
 | `useAuth` | hook | `useAuth(): AuthContextValue` | Read the user, the providers and the session actions | stable | [example](../../../../apps/web/src/platform/platformHost.tsx) |
 | `usePermissions` | hook | `usePermissions(): UsePermissionsReturn` | Hide or disable controls the viewer cannot use | stable | [example](../../../../apps/web/src/platform/platformHost.tsx) |
+| `LocalIdentityProvider` | component | `LocalIdentityProvider(props: { userId; displayName?; email?; permissions; roles?; children }): ReactElement` | Give a host with no sign-in (a desktop shell) a fixed local user and permission set so the shell, guards and `useAuth` work without an API | experimental | [example](../../../../apps/web/src/__tests__/examples/shell/local-host.test.tsx) |
 | `RequireAuth` | component | `RequireAuth(props: { loading?; loginPath?; children? }): ReactElement` | Gate routes on a signed-in user | stable | [example](../../../../apps/web/src/App.tsx) |
 | `RequirePermission` | component | `RequirePermission(props: { permission?; permissions?; requireAll?; role?; roles?; children; fallback? }): ReactElement` | Gate a route or content on the exact permission the API enforces | stable | [example](../../../../apps/web/src/App.tsx) |
 | `RequireMultiOrg` | component | `RequireMultiOrg(props: { children; fallback? }): ReactElement` | Gate an org-administration route on multi-org mode | stable | [example](../../../../apps/web/src/App.tsx) |
@@ -112,7 +113,35 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | `identityAdminSections` | component | `{ access: IdentitySettingsCard[]; organizations: IdentitySettingsCard[] }` | Spread the identity admin cards into the app's `ADMIN_SECTIONS` | experimental | [example](../../../../apps/web/src/config/adminSections.tsx) |
 | `identityUserSettingsSections` | component | `{ security: IdentitySettingsCard[] }` | Spread the Access Tokens card into the app's `USER_SETTINGS_SECTIONS` | experimental | [example](../../../../apps/web/src/config/userSettingsSections.tsx) |
 
-Supporting exports. `/identity/headless`: `AuthContext`, `useOptionalAuth`, the types `AuthContextValue`, `AuthUser`, `AuthRole`, `AuthProviderInfo`, `AuthSessionClient`, `LoginOptions`, `OrgSummary`, `OrgMembershipSummary`, the props types of the guards and the provider, `UsePermissionsReturn`, `userExtension` (one extension's contribution from a user payload: the signed-in user or a row of the user list), `getRegisteredAuthProvider`, `listRegisteredAuthProviders`, `AuthProviderDescriptor`, `lastAuthProvider`, `rememberAuthProvider`, `validAuthProviderId`, `createIdentityApi`, `useIdentityApi`, `useIdentityWebAdapters`, `ORG_ROLES` (deprecated: the platform's three org roles; no packaged page reads it), `UseRolesOptions`, `UseRolesReturn`, `RoleDescriptor`, `RoleScope` and the row, page and query types of the API client, the `Use*Return` types, the table types (`IdentityDataTableComponent`, `IdentityDataTableProps`, `IdentityTableColumn`, `IdentityTableRowAction`, `IdentityTableFilter`, `IdentityTableSortState` and their unions), and the device-activation logic (`readCredentialKind`, `sanitizeDeviceText`, `DEVICE_PAT_APPROX_DAYS`, the display bounds, `DeviceCredentialKind`). `/identity/ui`: `LoginPageProps`, `LoginPageSlots`, `LoginProvidersSlotProps`, `AuthCallbackPageProps`, `UsersPageProps`, `UsersPageTab`, `UserListProps`, `OrganizationPageProps`, `OrganizationsPageProps`, `OrgMembersPanelProps`, `UserTokensPageProps`, `ActivateDevicePageProps`, `SignInErrorView` and its props, the sign-in copy (`createSignInErrorContent(appName)`, `SIGN_IN_ERROR_CODES`, `DEFAULT_SIGN_IN_ERROR_CODE`, `resolveSignInErrorCode` and the types), `OAuthButton` and its props, `BUILT_IN_AUTH_PROVIDERS`, the list components `PersonalAccessTokens`, `UserList`, `AllowlistTable`, `OrgMembersPanel`, `OrgInvitesPanel` (each takes an optional `roles` from `useRoles('org')`, which `OrganizationPage` reads once and shares), `buildUserColumns(roles?)`, and `IdentitySettingsCard`.
+Supporting exports. `/identity/headless`: `AuthContext`, `useOptionalAuth`, `LocalIdentityProvider`, `createLocalAuthContextValue`, `LocalIdentityInput`, the types `AuthContextValue`, `AuthUser`, `AuthRole`, `AuthProviderInfo`, `AuthSessionClient`, `LoginOptions`, `OrgSummary`, `OrgMembershipSummary`, the props types of the guards and the provider, `UsePermissionsReturn`, `userExtension` (one extension's contribution from a user payload: the signed-in user or a row of the user list), `getRegisteredAuthProvider`, `listRegisteredAuthProviders`, `AuthProviderDescriptor`, `lastAuthProvider`, `rememberAuthProvider`, `validAuthProviderId`, `createIdentityApi`, `useIdentityApi`, `useIdentityWebAdapters`, `ORG_ROLES` (deprecated: the platform's three org roles; no packaged page reads it), `UseRolesOptions`, `UseRolesReturn`, `RoleDescriptor`, `RoleScope` and the row, page and query types of the API client, the `Use*Return` types, the table types (`IdentityDataTableComponent`, `IdentityDataTableProps`, `IdentityTableColumn`, `IdentityTableRowAction`, `IdentityTableFilter`, `IdentityTableSortState` and their unions), and the device-activation logic (`readCredentialKind`, `sanitizeDeviceText`, `DEVICE_PAT_APPROX_DAYS`, the display bounds, `DeviceCredentialKind`). `/identity/ui`: `LoginPageProps`, `LoginPageSlots`, `LoginProvidersSlotProps`, `AuthCallbackPageProps`, `UsersPageProps`, `UsersPageTab`, `UserListProps`, `OrganizationPageProps`, `OrganizationsPageProps`, `OrgMembersPanelProps`, `UserTokensPageProps`, `ActivateDevicePageProps`, `SignInErrorView` and its props, the sign-in copy (`createSignInErrorContent(appName)`, `SIGN_IN_ERROR_CODES`, `DEFAULT_SIGN_IN_ERROR_CODE`, `resolveSignInErrorCode` and the types), `OAuthButton` and its props, `BUILT_IN_AUTH_PROVIDERS`, the list components `PersonalAccessTokens`, `UserList`, `AllowlistTable`, `OrgMembersPanel`, `OrgInvitesPanel` (each takes an optional `roles` from `useRoles('org')`, which `OrganizationPage` reads once and shares), `buildUserColumns(roles?)`, and `IdentitySettingsCard`.
+
+### Local identity (no sign-in host)
+
+A host with one user and no API (KVox Desktop, issue #997) mounts `LocalIdentityProvider` instead of `AuthProvider`. It provides an `AuthContext` value built by `createLocalAuthContextValue`, so the shell surfaces and `useAuth` consumers work without a session, a token or any request.
+
+```tsx
+import { LocalIdentityProvider } from '@marinoscar/platform-web/identity/headless';
+
+<PlatformHostProvider host={host}>
+  <LocalIdentityProvider userId="local" displayName="Oscar" permissions={LOCAL_PERMISSIONS}>
+    <ShellLayout navigation={NAVIGATION} brand="KVox" />
+  </LocalIdentityProvider>
+</PlatformHostProvider>
+```
+
+| `LocalIdentityInput` field | Type | Default | Meaning |
+|---|---|---|---|
+| `userId` | `string` | required | The one user's id. |
+| `displayName` | `string` | `'You'` | Shown in the user menu; its initials are the avatar. |
+| `email` | `string \| null` | none | Shown in the user menu when set. |
+| `permissions` | `readonly string[]` | required | What `usePermissions().hasPermission` answers `true` for. Pass a stable array. |
+| `roles` | `readonly string[]` | `[]` | What `usePermissions().hasRole` answers `true` for. |
+
+The value is always authenticated (`isAuthenticated: true`), lists no sign-in providers (`providers: []`) and sets `mode: 'local'`; `login`, `logout`, `switchOrg` and `setAccessToken` are no-ops that return resolved promises. `AuthContextValue.mode` is a new optional `'server' | 'local'` (absent means `'server'`, which `AuthProvider` sets), so UI can adapt: the shell's `ShellUserMenu` hides sign-out and the organization switcher in `'local'` mode.
+
+`usePermissions()` now resolves its source in this order: the mounted `AuthContext` (`AuthProvider` or `LocalIdentityProvider`), then `PlatformHost.viewer` (`hasPermission`, `userId`), and it throws only when neither is mounted, with a message naming both. A page that sits under a `PlatformHostProvider` alone therefore answers permission questions from the viewer; with an `AuthContext` present the behaviour is what it was. The viewer's and the local identity's permissions are two copies of one list: build both from the same constant.
+
+This is a convenience for display, not authorization: the local host's own server (or nothing) decides what is allowed. `RequireAuth` passes in local mode because the value is authenticated; do not use local mode in a deployment that has an API (use `AuthProvider`).
 
 ### Roles
 
@@ -180,6 +209,8 @@ None in the web package. The API side runs the identity conformance suite (`@mar
 
 First packaged release (#727, PP-6.6 parts 3 to 5; part 5 deleted the reference app's compatibility re-exports, so the app imports the slice only from these entry points). Moving from the app's own copies: mount `AuthProvider` from `/identity/headless` with your transport as `client` and your logout clean-up as `onBeforeLogout`; mount `IdentityWebAdaptersProvider` with your product name, spinner and table; spread `identityAdminSections` / `identityUserSettingsSections` where your literal cards were; route to the packaged pages. Behaviour, texts and test ids are unchanged. `ProtectedRoute` is `RequireAuth` with the spinner passed as `loading`. The sign-in copy is `createSignInErrorContent(appName)`, no longer a constant naming the app.
 
+#997 (additive): `/identity/headless` gains `LocalIdentityProvider`, `createLocalAuthContextValue` and `LocalIdentityInput` (see [Local identity](#local-identity-no-sign-in-host)); `AuthContextValue` gains an optional `mode` (`'server' | 'local'`); `usePermissions` falls back to `PlatformHost.viewer` when no `AuthContext` is mounted instead of throwing at once. An app with an `AuthProvider` sees no change.
+
 PP-14.25 (additive): `UsersPage`, `UserList`, `OrganizationPage`, `OrgMembersPanel`, `OrganizationsPage`, `UserTokensPage`, `ActivateDevicePage`, `AuthCallbackPage` and `LoginPage` take `slots` (see [Page slots](#page-slots)); `AuthUser` and `UserListItem` gain an optional `extensions`, with `useCurrentUserExtension` and `userExtension` to read it. Pages with no slot render the markup they always did. `LoginPage.slots.Title` keeps working; the new `Header` replaces it. A test that mocked `UserList` or the page as a component with no props keeps working.
 
 ## Troubleshooting
@@ -187,6 +218,7 @@ PP-14.25 (additive): `UsersPage`, `UserList`, `OrganizationPage`, `OrgMembersPan
 | Symptom | Cause and fix |
 |---|---|
 | `useAuth must be used within an AuthProvider` | Mount `AuthProvider` inside the router, above every route. |
+| `usePermissions` throws naming `AuthContext` and `PlatformHost` | Neither is mounted. A host with a server mounts `AuthProvider`; a single-user host without one mounts `PlatformHostProvider` (its `viewer`) and `LocalIdentityProvider`. |
 | `useIdentityApi: no identity client` | A page or hook renders outside `PlatformHostProvider` and the adapters carry no `api`. Mount the host (or pass `adapters.api`). |
 | The lists look different from the rest of the app | No `DataTable` adapter: the plain MUI fallback renders. Hand the app's table in `IdentityWebAdapters.DataTable`. |
 | The sign-in error says "this app" | `IdentityWebAdapters.appName` is not set. |

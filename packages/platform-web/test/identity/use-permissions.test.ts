@@ -9,9 +9,11 @@ import type { AuthContextValue, AuthUser as User } from '../../src/identity/head
 const asAuth = (value: Partial<AuthContextValue>): AuthContextValue => value as AuthContextValue;
 
 // Mock the AuthContext
-vi.mock('../../src/identity/headless/auth-context.js', () => ({
-  useAuth: vi.fn(),
-}));
+// usePermissions reads useOptionalAuth (issue #997); it delegates to the mocked useAuth here.
+vi.mock('../../src/identity/headless/auth-context.js', () => {
+  const useAuth = vi.fn();
+  return { useAuth, useOptionalAuth: () => useAuth() };
+});
 
 describe('usePermissions', () => {
   beforeEach(() => {

@@ -18,13 +18,15 @@
 //    the old one (failure): the revert is the same path as the commit.
 // =============================================================================
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { PlatformApiClient } from '../../core/index.js';
 import { useUserSettings } from '../../settings/index.js';
 import type { UserSettingsDocument, UserSettingsUpdateBase } from '../../settings/index.js';
 import { useIsMounted } from '../internal/use-is-mounted.js';
 import type { ShellRailPreference } from './navigation.js';
+import { useOptionalShellPreferencesPort } from './preferences.js';
+import type { ShellPreferencesPort } from './preferences.js';
 
 interface NavigationDocument extends UserSettingsDocument {
   navigation?: { railCollapsed?: boolean } | null;
@@ -67,6 +69,51 @@ export interface UseShellRailPreferenceResult extends ShellRailPreference {
  * @stability experimental
  */
 export function useShellRailPreference(options: ShellRailPreferenceOptions = {}): UseShellRailPreferenceResult {
+  // The source is fixed for the life of the shell (a provider is mounted or it
+  // is not), so choosing between the two hooks here keeps the hook order stable.
+  const port = useOptionalShellPreferencesPort();
+  return port ? usePortRailPreference(port) : useServerRailPreference(options);
+}
+
+/** The preference over a host's {@link ShellPreferencesPort}; never touches the API. */
+function usePortRailPreference(port: ShellPreferencesPort): UseShellRailPreferenceResult {
+  const [railCollapsed, setRailCollapsed] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  // A write made before the first read resolves wins over the stale read.
+  const touched = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.resolve()
+      .then(() => port.read())
+      .then((stored) => {
+        if (cancelled || touched.current) return;
+        setRailCollapsed(stored.railCollapsed === true);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [port]);
+
+  const toggleRailCollapsed = useCallback(() => {
+    touched.current = true;
+    const next = !railCollapsed;
+    setRailCollapsed(next);
+    void Promise.resolve()
+      .then(() => port.write({ railCollapsed: next }))
+      // The choice stays for this session when the port cannot keep it.
+      .catch(() => undefined);
+  }, [port, railCollapsed]);
+
+  return { railCollapsed, toggleRailCollapsed, isLoading };
+}
+
+/** The preference over `/user-settings` (the default). */
+function useServerRailPreference(options: ShellRailPreferenceOptions): UseShellRailPreferenceResult {
   const { settings, isLoading, updateSettings } = useUserSettings<NavigationDocument, NavigationUpdate>({
     syncTheme: false,
     ...(options.api === undefined ? {} : { api: options.api }),

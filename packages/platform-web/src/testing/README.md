@@ -133,11 +133,22 @@ Test-only. A host that answers from a table has no authorization at all; never m
 
 ## Conformance suite
 
-This slice is the web harness. The suites it runs are registered by slices; see the [settings README](../settings/README.md#conformance-suite) for `settings-registry-gates`, `settings-registry-shape`, `settings-ai-cards`, `settings-card-routes` and `settings-route-ownership`, and the [API testing README](../../../platform-api/src/testing/README.md#conformance-suite) for the table of every suite id of the platform. The harness itself is pinned by `test/testing/web-conformance.test.ts` (an unknown id and a skip without a reason throw, a duplicate id throws, options reach the suite, the registry freezes on the first run, the summary lists the suites run and skipped).
+This slice is the web harness. The suites it runs are registered by slices. The web suite ids, with the slice that owns each:
+
+| Suite id | Owner slice | What it proves | How an app runs it |
+|---|---|---|---|
+| `settings-registry-gates` | settings | Every settings card's `permission` / `feature` is a string the API enforces. | Runs from the app's registries ([settings README](../settings/README.md#conformance-suite)). |
+| `settings-registry-shape` | settings | One declaration per card; the registries are well formed. | As above. |
+| `settings-ai-cards` | settings | Every AI card declares `feature: 'ai'` (the admin `AI` card excepted). | As above. |
+| `settings-card-routes` | settings | Every card has a route. | As above. |
+| `settings-route-ownership` | settings | Every route belongs to a destination (`external: true` destinations excepted). | As above. |
+| `shell-local-host` | shell | A single-user host with no API renders the whole shell (`ShellRoot` > `PlatformHostProvider` > `LocalIdentityProvider` > `ShellPreferencesProvider` > `ShellLayout`) with zero calls to the host `api`; destinations follow the local permissions; the rail preference survives a remount through the port; the user menu has no sign-out and no organization switcher. | `suites: { 'shell-local-host': { navigation, permissions } }` in a host with no API, or `{ skip: 'reason' }` in a web app with a server (#997, [shell README](../shell/README.md#running-in-a-local-single-user-no-api-host)). |
+
+See the [settings README](../settings/README.md#conformance-suite) for the first five, and the [API testing README](../../../platform-api/src/testing/README.md#conformance-suite) for the table of every suite id of the platform. The harness itself is pinned by `test/testing/web-conformance.test.ts` (an unknown id and a skip without a reason throw, a duplicate id throws, options reach the suite, the registry freezes on the first run, the summary lists the suites run and skipped).
 
 ## Upgrade notes
 
-None (first release, #696).
+None (first release, #696). #997 adds the web suite `shell-local-host` (additive: an app that runs the harness gets it, and must pass its options or skip it with a reason).
 
 ## Troubleshooting
 

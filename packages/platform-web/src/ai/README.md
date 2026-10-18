@@ -79,6 +79,65 @@ registerAiPlaygroundMode({
 
 The mode appears after the built-ins, lists the usable models that declare its capability, is disabled with `unavailableReason` when there are none, and its `Panel` is mounted once visited (so its inputs survive a mode switch). A registration with a built-in's id replaces that mode where it stands. The registry file imports no panel, so registering from the main chunk does not pull the playground in; reuse the packaged Transcribe panel with `AiTranscribeMode` from `/ai/ui/playground-page` (lazily). A runnable example: [`example-playground-mode.test.tsx`](../../../../apps/web/src/__tests__/examples/ai/example-playground-mode.test.tsx).
 
+### Presentational cards for other hosts
+
+A second host (a desktop shell, a package-built app) that draws its own AI settings page can reuse the cards the user keys page is built from. `/ai/ui` exports them with no network code: each card is prop-driven, calls only the callbacks it is given and styles itself with theme tokens only.
+
+| Export | Use |
+|---|---|
+| `UserAiKeyCard` (+ `UserAiKeyCardProps`, `UserAiKeyCardProvider`) | A provider whose key the user pastes: masked status, a write-only key field, Save, Test and Remove |
+| `KeylessProviderCard` (+ props, `KEYLESS_PROVIDER_TEXT`) | A provider that needs no key (a local model server); the fixed text is exported so a host can match it |
+| `AccountSignInProviderCard` (+ props) | A provider whose own SDK owns sign-in (GitHub Copilot): no API key, a Sign in and Sign out flow |
+| `DefaultAiModelPicker` (+ props) | The default-model select the user keys page draws |
+| `aiErrorText`, `aiCodeText` | The user-facing text for an `AiError` or an AI error code, so a custom card reads like the packaged ones |
+
+`UserAiKeyCard` bound to a host's own API. The three callbacks are the whole contract; the card never builds a URL:
+
+```tsx
+import { UserAiKeyCard } from '@marinoscar/platform-web/ai/ui';
+
+<UserAiKeyCard
+  provider={{ id: 'openai', displayName: 'OpenAI', hasOrgKey: false }}
+  keyView={keys.openai}                 // the masked view from your list call; absent until loaded
+  orgFallback={false}
+  onSave={(provider, apiKey) => hostApi.putUserKey(provider, apiKey)}    // resolves the masked UserAiKey
+  onTest={(provider, apiKey) => hostApi.probeUserKey(provider, apiKey)}  // resolves an AiProbeResult
+  onRemove={(provider) => hostApi.deleteUserKey(provider)}
+  onChanged={refreshUsableModels}
+/>
+```
+
+`AccountSignInProviderCard` for a provider whose SDK signs the user in. The host owns the SDK calls and passes state in; the card renders the state machine: off, enabled without consent (a blocking consent dialog), consented and signed out (a Sign in button with a busy state), signed in (a chip with the login, the model picker, the capability list and Sign out), and error (the `aiErrorText` message with Try again):
+
+```tsx
+import { AccountSignInProviderCard } from '@marinoscar/platform-web/ai/ui';
+
+<AccountSignInProviderCard
+  provider={{ id: 'copilot', displayName: 'GitHub Copilot', description: 'Uses your Copilot subscription.' }}
+  enabled={settings.copilotEnabled}
+  onEnabledChange={setCopilotEnabled}
+  consent={{
+    required: true,
+    acceptedAt: settings.copilotConsentAt,
+    title: 'Send content to GitHub Copilot?',
+    body: 'Your prompts leave this device for GitHub.',
+    onAccept: acceptConsent,
+    onRevoke: revokeConsent,
+  }}
+  status={{ signedIn: auth.signedIn, login: auth.login, checking: auth.checking, error: auth.error }}
+  onSignIn={copilot.signIn}
+  onSignOut={copilot.signOut}
+  onRefreshStatus={copilot.refresh}
+  capabilities={[{ label: 'Chat', available: true }, { label: 'Embeddings', available: false, note: 'Not offered' }]}
+  models={models}
+  model={model}
+  onModelChange={setModel}
+  slots={{ footer: <UsageNote /> }}
+/>
+```
+
+The AI rules are unchanged. For a provider the platform routes, keys never leave the server and the browser never calls a provider: `UserAiKeyCard`'s callbacks go to your API, which resolves and holds the key ([AI Platform Rules](../../../../AGENTS.md)). `AccountSignInProviderCard` has no key at all and no provider logic; it is for a host whose SDK performs the sign-in itself, and that SDK integration (the sign-in flow, the Copilot-specific consent text and capability list) lives in the host, for Copilot in the kvox repository, never in this package.
+
 ## Configuration
 
 The pages take no props. Each hook takes `{ api? }` (`AiHookOptions`): the transport (default: the platform host's, or a transport whose calls reject with "No platform transport is available"). `AiWebAdaptersProvider` takes `adapters: AiWebAdapters`, a module constant with one optional member: `Spinner` (default an MUI `CircularProgress`). The model catalogue and the usage breakdowns draw through the datatable slice's `DataTable` directly (#899).

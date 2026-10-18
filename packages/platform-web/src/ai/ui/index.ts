@@ -44,3 +44,18 @@ export type {
   AiPlaygroundModeId,
   AiPlaygroundPanelProps,
 } from './playground/aiPlaygroundModes.js';
+// Prop-driven presentational cards other hosts reuse (issue #998): no hooks, no
+// network, everything arrives as props.
+export { UserAiKeyCard } from './user/UserAiKeyCard.js';
+export type { UserAiKeyCardProps, UserAiKeyCardProvider } from './user/UserAiKeyCard.js';
+export { KeylessProviderCard, KEYLESS_PROVIDER_TEXT } from './user/KeylessProviderCard.js';
+export type { KeylessProviderCardProps } from './user/KeylessProviderCard.js';
+export { aiErrorText, aiCodeText } from './user/aiErrorText.js';
+export { DefaultAiModelPicker } from './user/DefaultAiModelPicker.js';
+export type { DefaultAiModelPickerProps } from './user/DefaultAiModelPicker.js';
+export { AccountSignInProviderCard } from './user/AccountSignInProviderCard.js';
+export type {
+  AccountSignInStatus,
+  AccountSignInConsent,
+  AccountSignInProviderCardProps,
+} from './user/AccountSignInProviderCard.js';
