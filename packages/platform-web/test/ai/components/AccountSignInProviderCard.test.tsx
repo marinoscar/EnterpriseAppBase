@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { userEvent } from '@testing-library/user-event';
 import { render } from '../harness.js';
 import { AccountSignInProviderCard } from '../../../src/ai/ui/user/AccountSignInProviderCard.js';
 import type { AccountSignInProviderCardProps } from '../../../src/ai/ui/user/AccountSignInProviderCard.js';

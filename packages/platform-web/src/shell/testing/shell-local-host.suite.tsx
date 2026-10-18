@@ -141,12 +141,20 @@ function register(api: WebConformanceTestApi): void {
       }
     });
 
-    it('draws the bottom bar without pinned destinations and never calls the API (narrow window)', async () => {
+    it('draws the bottom bar with the pinned destination last and never calls the API (narrow window)', async () => {
       const { calls, restore } = mountShell(NARROW);
       try {
         expect(screen.queryAllByText('Notes').length >= 1).toBe(true);
-        expect(screen.queryAllByText('Tools')).toHaveLength(0);
+        expect(screen.queryAllByText('Tools').length >= 1).toBe(true);
         expect(screen.queryAllByText('Secret')).toHaveLength(0);
+        const tools = screen.getAllByText('Tools')[0];
+        const notes = screen.getAllByText('Notes')[0];
+        // Pinned goes at the END of the bar: Notes precedes Tools in document order.
+        expect(
+          tools !== undefined &&
+            notes !== undefined &&
+            (notes.compareDocumentPosition(tools) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+        ).toBe(true);
 
         await Promise.resolve();
         expect(calls).toEqual([]);

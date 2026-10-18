@@ -54,20 +54,23 @@ describe('the unread badge, group and external link', () => {
     expect(help).toHaveAttribute('rel', 'noopener noreferrer');
   });
 
-  it('puts the extra destinations behind More on the phone bar and flags it when one is unread', async () => {
+  it('puts the pinned Console and the help link behind More on the phone bar, and badges the Inbox tab', async () => {
     setViewportWidth(375);
     renderWithProviders(<ShellBottomNav navigation={withExamples} />, { wrapperOptions: { user: mockAdminUser } });
-    // An administrator sees Home, User Settings and Console; the two examples make five:
-    // three tabs and More (the default `maxItems` is 4).
+    // An administrator sees Home, User Settings, Console (pinned), Inbox and Help: five. Pinned goes last,
+    // so the bar is three tabs and More (the default `maxItems` is 4); Console and Help are in More.
     expect(screen.getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual([
       'Home',
       'User Settings',
-      'Console',
+      'Inbox',
       'More destinations',
     ]);
     act(() => unreadStore.set(2));
-    await userEvent.click(await screen.findByRole('button', { name: 'More destinations (new activity)' }));
-    expect(await screen.findByRole('link', { name: 'Inbox (2)' })).toBeInTheDocument();
+    // The unread count shows on the Inbox tab itself; nothing in the sheet is badged, so More has no dot.
+    expect(await screen.findByRole('button', { name: 'Inbox (2)' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'More destinations' }));
+    expect(await screen.findByRole('link', { name: 'Console' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Help centre/ })).toBeInTheDocument();
   });
 
   it('leaves the reference app navigation as it was: at most four destinations, so no More and no badge', () => {

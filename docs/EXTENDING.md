@@ -337,7 +337,7 @@ Available now (#997). A second host (KVox Desktop: Electron, one user, no sign-i
 
 1. **Mount, outermost first:** `ShellRoot` > router > `PlatformHostProvider` (a `viewer` that answers `hasPermission`, and an `api` that rejects) > `LocalIdentityProvider` (`userId`, `displayName`, `permissions`) > `ShellPreferencesProvider` (`createLocalStorageShellPreferencesPort()`) > `ShellLayout`.
 2. **Permissions** come from the mounted `AuthContext`, else `PlatformHost.viewer`; keep the two lists from one constant.
-3. **The user menu** hides sign-out and the organization switcher in local mode; add rows with `extraItems`. **The phone bar** leaves `pinned` destinations out, so one `ShellNavigation` serves both surfaces.
+3. **The user menu** hides sign-out and the organization switcher in local mode; add rows with `extraItems`. **The phone bar** renders `pinned` destinations at its end (in the More sheet when it overflows), so one `ShellNavigation` serves both surfaces.
 4. **Prove it** in the host's CI with the `shell-local-host` web conformance suite.
 
 ### Add a side table with an `extend model` relation

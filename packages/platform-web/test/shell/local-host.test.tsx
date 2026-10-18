@@ -249,12 +249,15 @@ describe('local host mode: the full shell with no API', () => {
     expectNoApiCalls(api);
   });
 
-  it('excludes the pinned destination from the bottom bar', async () => {
+  it('renders the pinned destination last on the bottom bar', async () => {
     setViewportWidth(375);
     const api = rejectingApi();
     render(<Tree api={api} identity={IDENTITY} />);
     expect(await screen.findByRole('button', { name: 'Home' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Help' })).not.toBeInTheDocument();
+    const help = screen.getByRole('button', { name: 'Help' });
+    const bar = help.parentElement as HTMLElement;
+    const buttons = within(bar).getAllByRole('button');
+    expect(buttons[buttons.length - 1]).toBe(help);
     expectNoApiCalls(api);
   });
 });
