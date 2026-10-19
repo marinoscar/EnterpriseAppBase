@@ -286,4 +286,55 @@ describe('.github/workflows/release.yml', () => {
     expect(release).toMatch(/repository\.url/);
     expect(release).toMatch(/"\$home" != "\$GH_REPO"/);
   });
+
+  it('skips the dry run while changesets are pending', () => {
+    expect(job('publish-dry-run')).toMatch(/needs\.version\.outputs\.pending != 'true'/);
+  });
+
+  it('gates the publish on CI instead of re-running the tests', () => {
+    const publish = job('publish');
+    expect(publish).toMatch(/uses: \.\/\.github\/actions\/require-ci-green/);
+    expect(publish).toMatch(/^      checks: read\b/m);
+    expect(publish).not.toMatch(/test:packages/);
+  });
+
+  it('gates the GitHub release on CI instead of re-running the tests', () => {
+    const release = job('github-release');
+    expect(release).toMatch(/uses: \.\/\.github\/actions\/require-ci-green/);
+    expect(release).toMatch(/^      checks: read\b/m);
+    expect(release).not.toMatch(/test:packages/);
+  });
+
+  it('keeps exactly two id-token grants (publish and the images call)', () => {
+    const grants = workflow.split('\n').filter((line) => /^\s*id-token: write/.test(line));
+    expect(grants).toHaveLength(2);
+  });
+});
+
+describe('.github/actions/require-ci-green/action.yml', () => {
+  const path = join(REPO_ROOT, '.github', 'actions', 'require-ci-green', 'action.yml');
+
+  it('exists as a composite action', () => {
+    expect(existsSync(path)).toBe(true);
+    expect(readFileSync(path, 'utf8')).toMatch(/using: composite/);
+  });
+
+  it('requires the three CI checks by default', () => {
+    const action = readFileSync(path, 'utf8');
+    for (const name of ['Build, lint & test packages', 'Package docs', 'Consumer smoke (packed tarballs)']) {
+      expect(action).toContain(name);
+    }
+  });
+
+  it('waits on missing or running checks and fails on a red one', () => {
+    const action = readFileSync(path, 'utf8');
+    expect(action).toMatch(/missing/);
+    expect(action).toMatch(/running/);
+    expect(action).toMatch(/failed/);
+    expect(action).toMatch(/exit 1/);
+  });
+
+  it('references no npm token', () => {
+    expect(readFileSync(path, 'utf8')).not.toMatch(/NPM_TOKEN|NODE_AUTH_TOKEN/);
+  });
 });

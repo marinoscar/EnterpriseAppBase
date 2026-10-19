@@ -14,12 +14,20 @@ name: Release
 #                    is not on the registry yet.
 #   publish          the real publish: trusted publishing (OIDC) with
 #                    provenance, from the protected `npm-publish` environment.
+#                    It does not re-run the tests: after the build, the
+#                    require-ci-green action waits (up to 30 minutes) for the CI
+#                    checks of the same commit and fails if one is missing or red.
 #   images           after a real publish: the container images of the same
 #                    version, through images.yml (workflow_call).
-#   publish-dry-run  every other case: the same build, tests and pack, then
-#                    `npm publish --dry-run`, with the tarballs uploaded as the
-#                    `platform-tarballs` artifact. No environment, no id-token,
-#                    so it never waits for approval and can never publish.
+#   publish-dry-run  every other case except a push while changesets are still
+#                    pending (that run only opens the Version Packages PR, so
+#                    there is nothing to rehearse): the same build, tests and
+#                    pack, then `npm publish --dry-run`, with the tarballs
+#                    uploaded as the `platform-tarballs` artifact. No
+#                    environment, no id-token, so it never waits for approval
+#                    and can never publish.
+#   github-release   attaches the tarballs to the platform-v<version> release; it
+#                    gates on require-ci-green too instead of re-running tests.
 #
 # There is no npm token secret, ever: the publish job authenticates with its OIDC
 # token. The app release flow (deploy.yml, `v*` tags) is separate and
@@ -149,6 +157,7 @@ jobs:
     permissions:
       contents: write # push the platform-v<version> tag
       id-token: write # OIDC for trusted publishing and provenance
+      checks: read # require-ci-green reads the check runs of this commit
     outputs:
       version: ${{ steps.v.outputs.version }}
       channel: ${{ steps.v.outputs.channel }}
@@ -167,7 +176,10 @@ jobs:
 
       - run: npm run build:packages
 
-      - run: npm run test:packages
+      # The tests are not run a second time: ci.yml and packages.yml already ran
+      # them on this very commit (the push to main). The publish only needs that
+      # verdict, and the reviewer's approval above usually outlasts it.
+      - uses: ./.github/actions/require-ci-green
 
       # In pre mode `changeset publish` uses the `next` dist-tag by itself;
       # never force the latest dist-tag. Versions already on the registry are skipped,
@@ -213,9 +225,12 @@ jobs:
     name: Publish dry run
     needs: [version, gate]
     # Every run the real publish does not take (including a manual run on a
-    # branch, where `version` is skipped).
+    # branch, where `version` is skipped), except a push while changesets are
+    # still pending: that run only opens or updates the Version Packages PR,
+    # there is nothing to rehearse, and the build and tests are CI's job.
     if: >-
       !cancelled() && needs.gate.result == 'success' &&
+      needs.version.outputs.pending != 'true' &&
       !(github.ref == 'refs/heads/main' &&
         needs.version.outputs.pending == 'false' &&
         needs.gate.outputs.publish == 'true' &&
@@ -300,6 +315,7 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: write # create the release and its platform-v<version> tag
+      checks: read # require-ci-green reads the check runs of this commit
     env:
       VERSION: ${{ needs.gate.outputs.version }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -342,8 +358,11 @@ jobs:
       - if: steps.d.outputs.go == 'true'
         run: npm run build:packages
 
+      # CI already ran the tests on this commit; only its verdict is needed.
       - if: steps.d.outputs.go == 'true'
-        run: npm run test:packages
+        uses: ./.github/actions/require-ci-green
+        with:
+          timeout-minutes: '15' # this job has a 30 minute budget in all
 
       - if: steps.d.outputs.go == 'true'
         name: Pack the six packages

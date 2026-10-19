@@ -891,7 +891,7 @@ triggers:
 | `single-instance` | `npm ci`, then `npm run check:single-instance`: one copy of each single-instance library in `package-lock.json` and as resolved from every workspace (see [DEVELOPMENT.md](DEVELOPMENT.md#single-instance-dependencies)) |
 | `pack-smoke` | On pushes to `main` and pull requests that touch the packages: build, `npm pack` the six, then the [consumer smoke](#consumer-smoke-packed-and-published-packages) for `api` and `web` against the tarballs |
 
-`.github/workflows/release.yml` runs the consumer smoke twice more:
+`.github/workflows/release.yml` does not re-run the package tests: its `publish` and `github-release` jobs run the `require-ci-green` action, which waits for the `packages` (`Build, lint & test packages`), `Package docs` and `pack-smoke` (`Consumer smoke (packed tarballs)`) checks of the same commit. It runs the consumer smoke twice more:
 `github-release` on the tarballs it attaches to the GitHub release
 `platform-v<version>` (and the api project from the release URLs), and
 `registry-smoke` after a real npm publish, with `npm audit signatures`.
