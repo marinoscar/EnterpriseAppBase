@@ -1,0 +1,68 @@
+name: Require CI green
+description: >-
+  Fails unless the named CI checks of the current commit all finished with
+  success. Release jobs use it instead of re-running the tests CI already ran
+  on the same commit (the push to main runs ci.yml and packages.yml). A check
+  that has not appeared or is still running is waited for, up to the timeout;
+  a missing or red one fails the job.
+
+inputs:
+  checks:
+    description: Check names that must be successful, one per line.
+    default: |-
+      Build, lint & test packages
+      Package docs
+      Consumer smoke (packed tarballs)
+  timeout-minutes:
+    description: How long to wait for checks that are still running.
+    default: '30'
+  token:
+    description: "Token with the checks read permission."
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        GH_REPO: ${{ github.repository }}
+        SHA: ${{ github.sha }}
+        CHECKS: ${{ inputs.checks }}
+        TIMEOUT_MIN: ${{ inputs.timeout-minutes }}
+      run: |
+        set -euo pipefail
+        deadline=$((SECONDS + TIMEOUT_MIN * 60))
+        while true; do
+          runs=$(gh api "repos/$GH_REPO/commits/$SHA/check-runs?per_page=100" --jq '.check_runs')
+          waiting=""
+          failed=""
+          while IFS= read -r name; do
+            [ -n "$name" ] || continue
+            # The latest run of that name on this commit (a re-run replaces it).
+            verdict=$(jq -r --arg n "$name" '
+              [.[] | select(.name == $n)] | sort_by(.started_at) | last
+              | if . == null then "missing"
+                elif .status != "completed" then "running"
+                else .conclusion end' <<<"$runs")
+            case "$verdict" in
+              success) ;;
+              missing|running) waiting="$waiting; $name ($verdict)" ;;
+              *) failed="$failed; $name ($verdict)" ;;
+            esac
+          done <<<"$CHECKS"
+          if [ -n "$failed" ]; then
+            echo "::error::CI is not green on $SHA${failed}"
+            exit 1
+          fi
+          if [ -z "$waiting" ]; then
+            echo "CI is green on $SHA for every required check."
+            exit 0
+          fi
+          if [ "$SECONDS" -ge "$deadline" ]; then
+            echo "::error::Timed out waiting for CI on $SHA${waiting}"
+            exit 1
+          fi
+          echo "Waiting for CI on $SHA${waiting}"
+          sleep 30
+        done

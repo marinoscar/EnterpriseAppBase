@@ -19,9 +19,9 @@ This flow is separate from the app release: `deploy.yml` and `v*` tags keep vers
 ## How a release flows
 
 1. A pull request that changes a platform package adds a changeset (`npx changeset`). `changeset-check` fails it otherwise.
-2. When it merges, `release.yml` runs on `main`. The `version` job sees pending changesets and opens (or updates) the **Version Packages** pull request, titled `chore(release): version platform packages`. It bumps all seven `package.json` versions in lockstep, writes each `CHANGELOG.md` and refreshes `package-lock.json`.
+2. When it merges, `release.yml` runs on `main`. The `version` job sees pending changesets and opens (or updates) the **Version Packages** pull request, titled `chore(release): version platform packages`. It bumps all seven `package.json` versions in lockstep, writes each `CHANGELOG.md` and refreshes `package-lock.json`. Nothing else runs on that push: with changesets pending there is nothing to rehearse, so the `publish-dry-run` job is skipped and the build and tests are CI's job.
 3. When the Version Packages pull request merges, `release.yml` runs again. No changesets are pending now, so the `gate` job decides between a real publish and a dry run.
-4. The real publish waits in the protected `npm-publish` environment for a reviewer's approval, then publishes with `npx changeset publish` (pre mode puts it on `next`) and pushes the git tag `platform-v<version>`. The `registry-smoke` job then installs that version from npm into the consumer smoke and verifies provenance.
+4. The real publish waits in the protected `npm-publish` environment for a reviewer's approval, then builds, waits for the `ci.yml` and `packages.yml` checks of the same commit to be green (it does not re-run the tests), publishes with `npx changeset publish` (pre mode puts it on `next`) and pushes the git tag `platform-v<version>`. The `registry-smoke` job then installs that version from npm into the consumer smoke and verifies provenance.
 5. Independently of npm, the `github-release` job attaches the seven `npm pack` tarballs to the GitHub release `platform-v<version>` (the [interim channel](#install-from-a-github-release)), once per version.
 
 ```mermaid
@@ -63,7 +63,7 @@ No npm token is ever created or stored. The publish job authenticates to npm wit
 
 ### What happens before they are done
 
-The workflow runs on every push to `main` anyway. The `gate` job reads the variable and the registry without any credential and selects the dry run when `NPM_PUBLISH_ENABLED` is not `true`, when any of the seven names is not on npm yet, or when the current version is already published. The `publish-dry-run` job then builds, tests and packs the packages, runs `npm publish --dry-run --tag next` for each, uploads the tarballs as the `platform-tarballs` workflow artifact and writes the reason to the job summary, for example `dry run: NPM_PUBLISH_ENABLED is not true (version 0.0.0)`. It has no environment and no `id-token` permission, so it never waits for approval and cannot publish.
+The workflow runs on every push to `main` anyway. The `gate` job reads the variable and the registry without any credential and selects the dry run when `NPM_PUBLISH_ENABLED` is not `true`, when any of the seven names is not on npm yet, or when the current version is already published. The `publish-dry-run` job (skipped while changesets are pending, since that push only opens the Version Packages pull request) then builds, tests and packs the packages, runs `npm publish --dry-run --tag next` for each, uploads the tarballs as the `platform-tarballs` workflow artifact and writes the reason to the job summary, for example `dry run: NPM_PUBLISH_ENABLED is not true (version 0.0.0)`. It has no environment and no `id-token` permission, so it never waits for approval and cannot publish.
 
 To see it on a branch, run the workflow by hand: *Actions → Release → Run workflow* and pick the branch. On a branch the `version` job is skipped and the dry run always runs.
 
@@ -96,7 +96,7 @@ After the Version Packages pull request merges:
 
 1. Open the `Release` run on `main`. The `gate` summary says `publishing <version>: ...` and the `publish` job waits for review.
 2. Approve the `npm-publish` deployment.
-3. The job upgrades npm to 11.5.1 or later (trusted publishing needs it), builds and tests the packages, and runs `npx changeset publish` with provenance on. Versions already on the registry are skipped, so re-running a failed job is safe.
+3. The job upgrades npm to 11.5.1 or later (trusted publishing needs it), builds the packages and runs the `require-ci-green` action (`.github/actions/require-ci-green`), then runs `npx changeset publish` with provenance on. It does not re-run the tests: the action waits up to 30 minutes for the checks `Build, lint & test packages`, `Package docs` and `Consumer smoke (packed tarballs)` of the same commit to be successful, and fails if one is missing after the timeout or red. It needs the `checks: read` permission, which the job declares. Versions already on the registry are skipped, so re-running a failed job is safe.
 4. It pushes the git tag `platform-v<version>` and writes the published version to the job summary.
 5. The `images` job then calls `.github/workflows/images.yml` with that version and the channel (`next` in pre mode, `latest` after it), which builds, signs and attests the api, web, worker and stack-agent images ([container-images runbook](container-images.md)).
 
@@ -104,7 +104,7 @@ Never run `npm publish` for a release from your own machine; the only manual pub
 
 ## Install from a GitHub release
 
-The interim channel while the npm prerequisites are not done, and a fallback afterwards. The `github-release` job of `release.yml` runs on `main` when no changesets are pending (the Version Packages pull request merged) and no release exists yet for the version in the packages' `package.json`. It builds and tests the packages, packs the seven, runs the [consumption smoke](#consumption-smoke) on the tarballs, creates the GitHub release `platform-v<version>` with the tarballs attached (a **prerelease** for `x.y.z-next.N`, never marked as the repository's latest release, so the app's `v*` releases are unaffected), and installs the api smoke from the release URLs. It needs only the workflow's `GITHUB_TOKEN` with `contents: write`; no npm credential and no approval. A manual run (*Actions → Release → Run workflow* on `main`) re-uploads the assets of an existing release, for example after a failed upload.
+The interim channel while the npm prerequisites are not done, and a fallback afterwards. The `github-release` job of `release.yml` runs on `main` when no changesets are pending (the Version Packages pull request merged) and no release exists yet for the version in the packages' `package.json`. It builds the packages, requires the same CI checks of the commit to be green through `require-ci-green` (it does not re-run the tests), packs the seven, runs the [consumption smoke](#consumption-smoke) on the tarballs, creates the GitHub release `platform-v<version>` with the tarballs attached (a **prerelease** for `x.y.z-next.N`, never marked as the repository's latest release, so the app's `v*` releases are unaffected), and installs the api smoke from the release URLs. It needs only the workflow's `GITHUB_TOKEN` with `contents: write`; no npm credential and no approval. A manual run (*Actions → Release → Run workflow* on `main`) re-uploads the assets of an existing release, for example after a failed upload.
 
 A consumer pins the tarballs by URL in its `package.json`, with the same version for every platform package it uses:
 
@@ -204,6 +204,7 @@ node tests/consumer-smoke/run.mjs --from registry next --audit-signatures # afte
 | `dry run: not on npm yet (bootstrap them first): ...` | Prerequisite 2 is not done for the listed packages |
 | `dry run: version <v> is already on npm` | Nothing new to publish: no Version Packages pull request has merged since the last release |
 | Warning "The Version Packages PR could not be opened or updated" | Prerequisite 6, or the `version-packages` script failed: read the `version` job log |
+| `require-ci-green` times out or fails (in `publish` or `github-release`) | The `Build, lint & test packages`, `Package docs` or `Consumer smoke (packed tarballs)` check of that commit is red, never started, or was still running after 30 minutes. Wait for or re-run CI on `main` for that commit, then re-run the Release job |
 | `publish` fails with `E404`/`ENEEDAUTH`/`E403` | The trusted publisher does not match: owner, repository, workflow filename `release.yml` and environment `npm-publish` must be exact (prerequisite 3) |
 | `publish` fails asking for an OTP | The package still allows token publishing with 2FA on writes; set *Publishing access* as in prerequisite 3 |
 | `npm pack`/`npm publish` prints `Root LICENSE missing` | The root `LICENSE` file is gone; restore it (the packages are MIT and must ship it) |
