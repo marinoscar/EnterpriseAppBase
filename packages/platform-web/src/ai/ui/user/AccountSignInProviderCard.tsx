@@ -12,7 +12,8 @@
  *  - disabled: only the title, description and the `Enable {name}` switch.
  *  - enabled, consent required and not yet given: a blocking dialog; the
  *    sign-in button does not render until the user agrees.
- *  - consented, signed out: `Sign in with {name}`.
+ *  - consented, signed out: `Sign in with {name}`; disabled, with the reason
+ *    shown under it, while `signInUnavailableReason` is set.
  *  - signed in: `Signed in as {login}`, model picker, capabilities, `Sign out`.
  */
 import { useRef, useState, type ReactNode } from 'react';
@@ -107,6 +108,13 @@ export interface AccountSignInProviderCardProps {
   status: AccountSignInStatus;
   /** Start the sign-in flow. Rejects on failure. */
   onSignIn: () => Promise<void>;
+  /**
+   * Why the user cannot sign in yet (for example a runtime that is not installed).
+   * While set and signed out: the Sign in button is disabled, this text is shown under
+   * the buttons and tied to the button with aria-describedby, and Try again never starts
+   * a sign-in. Ignored while signed in. Unset (the default): sign-in is offered as usual.
+   */
+  signInUnavailableReason?: ReactNode;
   /** Sign out of the provider account. Rejects on failure. */
   onSignOut: () => Promise<void>;
   /** Re-check the sign-in state; when omitted the refresh control is hidden. */
@@ -154,6 +162,7 @@ export function AccountSignInProviderCard({
   consent,
   status,
   onSignIn,
+  signInUnavailableReason,
   onSignOut,
   onRefreshStatus,
   capabilities,
@@ -166,24 +175,31 @@ export function AccountSignInProviderCard({
   const [actionError, setActionError] = useState<string | null>(null);
   // The last action that failed, so Try again can run it again.
   const lastFailed = useRef<(() => Promise<void>) | null>(null);
+  const lastFailedKind = useRef<Busy>(null);
 
   const name = provider.displayName;
   const titleId = `account-signin-${provider.id}-title`;
   const consentTitleId = `account-signin-${provider.id}-consent-title`;
+  const signInUnavailableId = `account-signin-${provider.id}-signin-unavailable`;
   const consentPending = enabled && !!consent?.required && !consent.acceptedAt;
   const ready = enabled && !consentPending;
   const errorText = actionError ?? status.error ?? null;
+  // Sign-in is blocked only while signed out and the host gave a reason.
+  const signInBlocked =
+    !status.signedIn && signInUnavailableReason != null && signInUnavailableReason !== false;
 
   /** Run one action: busy while pending, a worded error and a retry if it rejects. */
   const run = async (kind: Exclude<Busy, null>, action: () => Promise<void>, fallback: string) => {
     setBusy(kind);
     setActionError(null);
     lastFailed.current = null;
+    lastFailedKind.current = null;
     try {
       await action();
     } catch (err) {
       setActionError(aiErrorText(err, fallback));
       lastFailed.current = () => run(kind, action, fallback);
+      lastFailedKind.current = kind;
     } finally {
       setBusy(null);
     }
@@ -194,8 +210,9 @@ export function AccountSignInProviderCard({
     if (onRefreshStatus) {
       void run('refresh', onRefreshStatus, 'Could not check status');
     } else if (lastFailed.current) {
-      void lastFailed.current();
-    } else if (!status.signedIn) {
+      // A failed sign-in is not retried while sign-in is unavailable.
+      if (!(signInBlocked && lastFailedKind.current === 'signin')) void lastFailed.current();
+    } else if (!status.signedIn && !signInBlocked) {
       void signIn();
     }
   };
@@ -342,32 +359,40 @@ export function AccountSignInProviderCard({
                   </Stack>
                 </>
               ) : (
-                <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
-                  <Button
-                    variant="contained"
-                    disabled={busy !== null}
-                    startIcon={busy === 'signin' ? <CircularProgress size={16} color="inherit" /> : undefined}
-                    onClick={() => void signIn()}
-                  >
-                    {busy === 'signin' ? 'Signing in…' : `Sign in with ${name}`}
-                  </Button>
-                  {onRefreshStatus ? (
+                <>
+                  <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
                     <Button
-                      disabled={busy !== null || !!status.checking}
-                      onClick={() => void run('refresh', onRefreshStatus, 'Could not check status')}
+                      variant="contained"
+                      disabled={busy !== null || signInBlocked}
+                      aria-describedby={signInBlocked ? signInUnavailableId : undefined}
+                      startIcon={busy === 'signin' ? <CircularProgress size={16} color="inherit" /> : undefined}
+                      onClick={() => void signIn()}
                     >
-                      Check status
+                      {busy === 'signin' ? 'Signing in…' : `Sign in with ${name}`}
                     </Button>
+                    {onRefreshStatus ? (
+                      <Button
+                        disabled={busy !== null || !!status.checking}
+                        onClick={() => void run('refresh', onRefreshStatus, 'Could not check status')}
+                      >
+                        Check status
+                      </Button>
+                    ) : null}
+                    {consent?.onRevoke && consent.required && consent.acceptedAt ? (
+                      <Button
+                        disabled={busy !== null}
+                        onClick={() => void run('revoke', consent.onRevoke!, 'Could not withdraw consent')}
+                      >
+                        Withdraw consent
+                      </Button>
+                    ) : null}
+                  </Stack>
+                  {signInBlocked ? (
+                    <Typography id={signInUnavailableId} variant="body2" color="text.secondary" component="div">
+                      {signInUnavailableReason}
+                    </Typography>
                   ) : null}
-                  {consent?.onRevoke && consent.required && consent.acceptedAt ? (
-                    <Button
-                      disabled={busy !== null}
-                      onClick={() => void run('revoke', consent.onRevoke!, 'Could not withdraw consent')}
-                    >
-                      Withdraw consent
-                    </Button>
-                  ) : null}
-                </Stack>
+                </>
               )}
 
               {slots?.footer ? <Box>{slots.footer}</Box> : null}
