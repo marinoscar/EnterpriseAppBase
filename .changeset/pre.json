@@ -139,6 +139,7 @@
     "telemetry-web-slice",
     "user-data-modular-resets",
     "user-data-slice",
+    "web-account-signin-unavailable-reason",
     "web-ai-datatable-direct",
     "web-ai-pages-package",
     "web-ai-require-enabled",

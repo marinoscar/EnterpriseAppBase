@@ -1,6 +1,6 @@
 {
   "name": "@marinoscar/platform-ai-providers",
-  "version": "0.1.0-next.7",
+  "version": "0.1.0-next.8",
   "description": "Framework-free AI provider adapters (OpenAI, OpenAI-compatible, Azure OpenAI, Anthropic, Gemini) and their core types. Runs in a plain Node process: no Nest, no database, no OpenTelemetry SDK.",
   "license": "MIT",
   "type": "commonjs",
