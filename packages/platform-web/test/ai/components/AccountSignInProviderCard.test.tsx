@@ -5,6 +5,7 @@
  * status, so each test drives it with props and `rerender`s the new status the
  * way a host would after an action resolves.
  */
+import type { ReactNode } from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
@@ -274,6 +275,271 @@ describe('AccountSignInProviderCard', () => {
       render(<AccountSignInProviderCard {...props({ onRefreshStatus })} />);
       await userEvent.click(screen.getByRole('button', { name: 'Check status' }));
       await waitFor(() => expect(onRefreshStatus).toHaveBeenCalledTimes(1));
+    });
+  });
+
+  // Issue #1003: the host can say why sign-in is not possible yet.
+  describe('signInUnavailableReason', () => {
+    const REASON = 'Install the Copilot CLI first';
+    const signInName = `Sign in with ${NAME}`;
+    const reasonNode = (
+      <span data-testid="reason-node">
+        Copilot CLI is missing. <a href="https://example.com/install">Install it</a>
+      </span>
+    );
+
+    describe('set, signed out, enabled and consented', () => {
+      const cases: [string, ReactNode][] = [
+        ['a string', REASON],
+        ['a ReactNode', reasonNode],
+      ];
+
+      it.each(cases)('disables the button, shows the reason and describes the button (%s)', (_label, reason) => {
+        render(
+          <AccountSignInProviderCard
+            {...props({
+              signInUnavailableReason: reason,
+              consent: consent({ acceptedAt: '2026-01-01T00:00:00Z' }),
+            })}
+          />,
+        );
+        const button = screen.getByRole('button', { name: signInName });
+        expect(button).toBeDisabled();
+
+        const describedBy = button.getAttribute('aria-describedby');
+        expect(describedBy).toBeTruthy();
+        const holder = document.getElementById(describedBy!);
+        expect(holder).not.toBeNull();
+        expect(holder).toBeVisible();
+        if (typeof reason === 'string') {
+          expect(holder).toHaveTextContent(reason);
+          expect(screen.getByText(reason)).toBeVisible();
+          expect(button).toHaveAccessibleDescription(reason);
+        } else {
+          expect(holder).toHaveTextContent('Copilot CLI is missing.');
+          expect(within(holder!).getByRole('link', { name: 'Install it' })).toHaveAttribute(
+            'href',
+            'https://example.com/install',
+          );
+          expect(button).toHaveAccessibleDescription(/Copilot CLI is missing\. Install it/);
+        }
+      });
+
+      it.each(cases)('does not call onSignIn when the disabled button is clicked (%s)', async (_label, reason) => {
+        const onSignIn = vi.fn().mockResolvedValue(undefined);
+        render(<AccountSignInProviderCard {...props({ onSignIn, signInUnavailableReason: reason })} />);
+        // MUI sets pointer-events: none on a disabled button; click it anyway.
+        await userEvent.setup({ pointerEventsCheck: 0 }).click(screen.getByRole('button', { name: signInName }));
+        expect(onSignIn).not.toHaveBeenCalled();
+        expect(screen.getByRole('button', { name: signInName })).toBeDisabled();
+      });
+    });
+
+    describe('unset (undefined), null or false', () => {
+      const unset: [string, ReactNode][] = [
+        ['undefined', undefined],
+        ['null', null],
+        ['false', false],
+      ];
+
+      it.each(unset)('keeps sign-in available (%s)', async (_label, reason) => {
+        const onSignIn = vi.fn().mockResolvedValue(undefined);
+        render(<AccountSignInProviderCard {...props({ onSignIn, signInUnavailableReason: reason })} />);
+        const button = screen.getByRole('button', { name: signInName });
+        expect(button).toBeEnabled();
+        expect(button).not.toHaveAttribute('aria-describedby');
+        expect(document.querySelector('[id$="signin-unavailable"]')).toBeNull();
+        expect(button).toHaveAccessibleDescription('');
+
+        await userEvent.click(button);
+        await waitFor(() => expect(onSignIn).toHaveBeenCalledTimes(1));
+      });
+    });
+
+    describe('signed in', () => {
+      const signedIn = { signedIn: true, login: 'octocat' };
+
+      it('ignores the reason: it is not shown and Sign out works', async () => {
+        const onSignOut = vi.fn().mockResolvedValue(undefined);
+        render(
+          <AccountSignInProviderCard
+            {...props({ status: signedIn, onSignOut, signInUnavailableReason: REASON })}
+          />,
+        );
+        expect(screen.queryByText(REASON)).not.toBeInTheDocument();
+        expect(document.querySelector('[id$="signin-unavailable"]')).toBeNull();
+        expect(screen.getByText('Signed in as octocat')).toBeInTheDocument();
+
+        const signOut = screen.getByRole('button', { name: 'Sign out' });
+        expect(signOut).toBeEnabled();
+        expect(signOut).not.toHaveAttribute('aria-describedby');
+        await userEvent.click(signOut);
+        await waitFor(() => expect(onSignOut).toHaveBeenCalledTimes(1));
+      });
+
+      it('ignores the reason: Withdraw consent works', async () => {
+        const onRevoke = vi.fn().mockResolvedValue(undefined);
+        const c = consent({ acceptedAt: '2026-01-01T00:00:00Z', onRevoke });
+        render(
+          <AccountSignInProviderCard {...props({ status: signedIn, consent: c, signInUnavailableReason: REASON })} />,
+        );
+        expect(screen.queryByText(REASON)).not.toBeInTheDocument();
+        await userEvent.click(screen.getByRole('button', { name: 'Withdraw consent' }));
+        await waitFor(() => expect(onRevoke).toHaveBeenCalledTimes(1));
+      });
+    });
+
+    describe('Try again', () => {
+      it('retries a failed sign-out (another kind of action) while the reason is set', async () => {
+        const onSignOut = vi
+          .fn()
+          .mockRejectedValueOnce(new Error('Sign-out refused'))
+          .mockResolvedValue(undefined);
+        const onSignIn = vi.fn().mockResolvedValue(undefined);
+        render(
+          <AccountSignInProviderCard
+            {...props({
+              status: { signedIn: true, login: 'octocat' },
+              onSignOut,
+              onSignIn,
+              signInUnavailableReason: REASON,
+            })}
+          />,
+        );
+        await userEvent.click(screen.getByRole('button', { name: 'Sign out' }));
+        expect(await screen.findByRole('alert')).toHaveTextContent('Sign-out refused');
+
+        await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+        await waitFor(() => expect(onSignOut).toHaveBeenCalledTimes(2));
+        expect(onSignIn).not.toHaveBeenCalled();
+        await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+      });
+
+      it('retries a failed model change while the reason is set', async () => {
+        const onModelChange = vi
+          .fn()
+          .mockRejectedValueOnce(new Error('Model unavailable'))
+          .mockResolvedValue(undefined);
+        const onSignIn = vi.fn().mockResolvedValue(undefined);
+        render(
+          <AccountSignInProviderCard
+            {...props({
+              status: { signedIn: true, login: 'octocat' },
+              models: [
+                { id: 'm1', label: 'Model One' },
+                { id: 'm2', label: 'Model Two' },
+              ],
+              model: 'm1',
+              onModelChange,
+              onSignIn,
+              signInUnavailableReason: REASON,
+            })}
+          />,
+        );
+        await userEvent.click(screen.getByRole('combobox', { name: 'Model' }));
+        await userEvent.click(await screen.findByRole('option', { name: 'Model Two' }));
+        expect(await screen.findByRole('alert')).toHaveTextContent('Model unavailable');
+
+        await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+        await waitFor(() => expect(onModelChange).toHaveBeenCalledTimes(2));
+        expect(onModelChange).toHaveBeenLastCalledWith('m2');
+        expect(onSignIn).not.toHaveBeenCalled();
+      });
+
+      it('retries a failed enable-switch change while signed out with the reason set', async () => {
+        const onEnabledChange = vi
+          .fn()
+          .mockRejectedValueOnce(new Error('Could not save'))
+          .mockResolvedValue(undefined);
+        const onSignIn = vi.fn().mockResolvedValue(undefined);
+        render(
+          <AccountSignInProviderCard {...props({ onEnabledChange, onSignIn, signInUnavailableReason: REASON })} />,
+        );
+        await userEvent.click(screen.getByLabelText(`Enable ${NAME}`));
+        expect(await screen.findByRole('alert')).toHaveTextContent('Could not save');
+
+        await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+        await waitFor(() => expect(onEnabledChange).toHaveBeenCalledTimes(2));
+        expect(onEnabledChange).toHaveBeenLastCalledWith(false);
+        expect(onSignIn).not.toHaveBeenCalled();
+      });
+
+      it('does not re-run a sign-in that failed once the host sets the reason', async () => {
+        const onSignIn = vi.fn().mockRejectedValue(new Error('Device flow expired'));
+        const base = props({ onSignIn });
+        const { rerender } = render(<AccountSignInProviderCard {...base} />);
+
+        await userEvent.click(screen.getByRole('button', { name: signInName }));
+        expect(await screen.findByRole('alert')).toHaveTextContent('Device flow expired');
+        expect(onSignIn).toHaveBeenCalledTimes(1);
+
+        rerender(<AccountSignInProviderCard {...base} signInUnavailableReason={REASON} />);
+        expect(screen.getByRole('button', { name: signInName })).toBeDisabled();
+
+        await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+        expect(onSignIn).toHaveBeenCalledTimes(1);
+      });
+
+      it('does not start a sign-in for a status error while the reason is set', async () => {
+        const onSignIn = vi.fn().mockResolvedValue(undefined);
+        render(
+          <AccountSignInProviderCard
+            {...props({
+              onSignIn,
+              status: { signedIn: false, error: 'Session expired' },
+              signInUnavailableReason: REASON,
+            })}
+          />,
+        );
+        expect(screen.getByRole('alert')).toHaveTextContent('Session expired');
+        await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+        expect(onSignIn).not.toHaveBeenCalled();
+      });
+
+      it('still starts a sign-in for a status error when no reason is set', async () => {
+        const onSignIn = vi.fn().mockResolvedValue(undefined);
+        render(
+          <AccountSignInProviderCard
+            {...props({ onSignIn, status: { signedIn: false, error: 'Session expired' } })}
+          />,
+        );
+        await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+        await waitFor(() => expect(onSignIn).toHaveBeenCalledTimes(1));
+      });
+
+      it.each([
+        ['set', REASON],
+        ['unset', undefined],
+      ])('calls onRefreshStatus when it is given and the reason is %s', async (_label, reason) => {
+        const onRefreshStatus = vi.fn().mockResolvedValue(undefined);
+        const onSignIn = vi.fn().mockResolvedValue(undefined);
+        render(
+          <AccountSignInProviderCard
+            {...props({
+              onSignIn,
+              onRefreshStatus,
+              status: { signedIn: false, error: 'Session expired' },
+              signInUnavailableReason: reason,
+            })}
+          />,
+        );
+        await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+        await waitFor(() => expect(onRefreshStatus).toHaveBeenCalledTimes(1));
+        expect(onSignIn).not.toHaveBeenCalled();
+      });
+    });
+
+    it('re-enables the button and removes the reason when the host turns it off again', () => {
+      const base = props();
+      const { rerender } = render(<AccountSignInProviderCard {...base} signInUnavailableReason={REASON} />);
+      expect(screen.getByRole('button', { name: signInName })).toBeDisabled();
+      expect(screen.getByText(REASON)).toBeInTheDocument();
+
+      rerender(<AccountSignInProviderCard {...base} signInUnavailableReason={undefined} />);
+      const button = screen.getByRole('button', { name: signInName });
+      expect(button).toBeEnabled();
+      expect(button).not.toHaveAttribute('aria-describedby');
+      expect(screen.queryByText(REASON)).not.toBeInTheDocument();
     });
   });
 });
