@@ -136,6 +136,12 @@ import { AccountSignInProviderCard } from '@marinoscar/platform-web/ai/ui';
 />
 ```
 
+`signInUnavailableReason?: ReactNode` is for a provider that needs a step before sign-in can work (KVox's Copilot card: the runtime must be downloaded first). While it is set and the user is signed out, Sign in is disabled, the reason is shown under the buttons and tied to the Sign in button with `aria-describedby`, and Try again never starts a sign-in. It is ignored while signed in; unset, the card behaves as before:
+
+```tsx
+signInUnavailableReason={runtimeReady ? undefined : 'Download the runtime first.'}
+```
+
 The AI rules are unchanged. For a provider the platform routes, keys never leave the server and the browser never calls a provider: `UserAiKeyCard`'s callbacks go to your API, which resolves and holds the key ([AI Platform Rules](../../../../AGENTS.md)). `AccountSignInProviderCard` has no key at all and no provider logic; it is for a host whose SDK performs the sign-in itself, and that SDK integration (the sign-in flow, the Copilot-specific consent text and capability list) lives in the host, for Copilot in the kvox repository, never in this package.
 
 ## Configuration
