@@ -27,6 +27,12 @@ function props(overrides: Partial<AccountSignInProviderCardProps> = {}): Account
   };
 }
 
+/** Props without `onEnabledChange`: the host decides `enabled` elsewhere (#1006). */
+function switchless(overrides: Partial<AccountSignInProviderCardProps> = {}): AccountSignInProviderCardProps {
+  const { onEnabledChange: _omitted, ...rest } = props(overrides);
+  return rest;
+}
+
 const consent = (overrides: Record<string, unknown> = {}) => ({
   required: true,
   acceptedAt: null,
@@ -540,6 +546,108 @@ describe('AccountSignInProviderCard', () => {
       expect(button).toBeEnabled();
       expect(button).not.toHaveAttribute('aria-describedby');
       expect(screen.queryByText(REASON)).not.toBeInTheDocument();
+    });
+  });
+
+  // Issue #1006: a host that picks one provider among several renders no switch.
+  describe('switchless (no onEnabledChange)', () => {
+    const accepted = '2026-01-01T00:00:00Z';
+
+    it('renders no switch at all', () => {
+      render(<AccountSignInProviderCard {...switchless()} />);
+      expect(screen.queryByRole('switch')).not.toBeInTheDocument();
+      expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(`Enable ${NAME}`)).not.toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: NAME })).toBeInTheDocument();
+    });
+
+    it('still renders nothing past the header while the host says disabled', () => {
+      render(<AccountSignInProviderCard {...switchless({ enabled: false, consent: consent() })} />);
+      expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button')).not.toBeInTheDocument();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+
+    it('keeps the switch, and it works, when onEnabledChange is given', async () => {
+      const onEnabledChange = vi.fn().mockResolvedValue(undefined);
+      render(<AccountSignInProviderCard {...props({ onEnabledChange })} />);
+      const toggle = screen.getByRole('switch', { name: `Enable ${NAME}` });
+      expect(toggle).toBeChecked();
+      await userEvent.click(toggle);
+      await waitFor(() => expect(onEnabledChange).toHaveBeenCalledWith(false));
+    });
+
+    it('offers Sign in when consented and signed out, and calls onSignIn', async () => {
+      const onSignIn = vi.fn().mockResolvedValue(undefined);
+      render(<AccountSignInProviderCard {...switchless({ onSignIn, consent: consent({ acceptedAt: accepted }) })} />);
+      await userEvent.click(screen.getByRole('button', { name: `Sign in with ${NAME}` }));
+      await waitFor(() => expect(onSignIn).toHaveBeenCalledTimes(1));
+    });
+
+    it('honours signInUnavailableReason', () => {
+      const REASON = 'Install the Copilot CLI first';
+      render(
+        <AccountSignInProviderCard
+          {...switchless({ consent: consent({ acceptedAt: accepted }), signInUnavailableReason: REASON })}
+        />,
+      );
+      const button = screen.getByRole('button', { name: `Sign in with ${NAME}` });
+      expect(button).toBeDisabled();
+      expect(button).toHaveAccessibleDescription(REASON);
+    });
+  });
+
+  describe('consent Not now (#1006)', () => {
+    it('calls onDecline when given, not onEnabledChange', async () => {
+      const onEnabledChange = vi.fn().mockResolvedValue(undefined);
+      const onDecline = vi.fn().mockResolvedValue(undefined);
+      const c = consent({ onDecline });
+      render(<AccountSignInProviderCard {...props({ consent: c, onEnabledChange })} />);
+      await userEvent.click(screen.getByRole('button', { name: 'Not now' }));
+      await waitFor(() => expect(onDecline).toHaveBeenCalledTimes(1));
+      expect(onEnabledChange).not.toHaveBeenCalled();
+      expect(c.onAccept).not.toHaveBeenCalled();
+    });
+
+    it('calls onDecline on a switchless card', async () => {
+      const onDecline = vi.fn().mockResolvedValue(undefined);
+      render(<AccountSignInProviderCard {...switchless({ consent: consent({ onDecline }) })} />);
+      await userEvent.click(screen.getByRole('button', { name: 'Not now' }));
+      await waitFor(() => expect(onDecline).toHaveBeenCalledTimes(1));
+    });
+
+    it('shows a worded error with the same handling when onDecline rejects', async () => {
+      const onDecline = vi.fn().mockRejectedValue(new Error('Could not switch back'));
+      render(<AccountSignInProviderCard {...switchless({ consent: consent({ onDecline }) })} />);
+      await userEvent.click(screen.getByRole('button', { name: 'Not now' }));
+      const dialog = screen.getByRole('dialog');
+      expect(await within(dialog).findByRole('alert')).toHaveTextContent('Could not switch back');
+      expect(within(dialog).getByRole('button', { name: 'Not now' })).toBeEnabled();
+    });
+
+    it('falls back to onEnabledChange(false) when only that is given', async () => {
+      const onEnabledChange = vi.fn().mockResolvedValue(undefined);
+      render(<AccountSignInProviderCard {...props({ consent: consent(), onEnabledChange })} />);
+      await userEvent.click(screen.getByRole('button', { name: 'Not now' }));
+      await waitFor(() => expect(onEnabledChange).toHaveBeenCalledWith(false));
+    });
+
+    it('is not rendered when neither onDecline nor onEnabledChange is given; Accept still works', async () => {
+      const c = consent();
+      render(<AccountSignInProviderCard {...switchless({ consent: c })} />);
+      const dialog = screen.getByRole('dialog', { name: 'Allow Copilot access' });
+      expect(within(dialog).queryByRole('button', { name: 'Not now' })).not.toBeInTheDocument();
+      await userEvent.click(within(dialog).getByRole('button', { name: 'I agree' }));
+      await waitFor(() => expect(c.onAccept).toHaveBeenCalledTimes(1));
+    });
+
+    it('Accept calls onAccept, not onDecline', async () => {
+      const onDecline = vi.fn().mockResolvedValue(undefined);
+      const c = consent({ onDecline });
+      render(<AccountSignInProviderCard {...switchless({ consent: c })} />);
+      await userEvent.click(screen.getByRole('button', { name: 'I agree' }));
+      await waitFor(() => expect(c.onAccept).toHaveBeenCalledTimes(1));
+      expect(onDecline).not.toHaveBeenCalled();
     });
   });
 });

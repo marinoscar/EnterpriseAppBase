@@ -142,6 +142,15 @@ import { AccountSignInProviderCard } from '@marinoscar/platform-web/ai/ui';
 signInUnavailableReason={runtimeReady ? undefined : 'Download the runtime first.'}
 ```
 
+`onEnabledChange` is optional (#1006). Omit it when the host decides elsewhere whether this provider is used, for example a choice of one provider among several: the card renders no switch and `enabled` is the host's. The consent dialog's **Not now** then runs `consent.onDecline` (by default it calls `onEnabledChange(false)`); with neither, **Not now** is not shown:
+
+```tsx
+<AccountSignInProviderCard
+  enabled={settings.provider === 'copilot'}
+  consent={{ ...copilotConsent, onDecline: () => setProvider(previousProvider) }}
+  {...signInProps} />
+```
+
 The AI rules are unchanged. For a provider the platform routes, keys never leave the server and the browser never calls a provider: `UserAiKeyCard`'s callbacks go to your API, which resolves and holds the key ([AI Platform Rules](../../../../AGENTS.md)). `AccountSignInProviderCard` has no key at all and no provider logic; it is for a host whose SDK performs the sign-in itself, and that SDK integration (the sign-in flow, the Copilot-specific consent text and capability list) lives in the host, for Copilot in the kvox repository, never in this package.
 
 ## Configuration
