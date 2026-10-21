@@ -10,6 +10,7 @@
  *
  * State machine (accessible names are part of the contract):
  *  - disabled: only the title, description and the `Enable {name}` switch.
+ *  - switchless (no `onEnabledChange`): no switch; the host decides `enabled`.
  *  - enabled, consent required and not yet given: a blocking dialog; the
  *    sign-in button does not render until the user agrees.
  *  - consented, signed out: `Sign in with {name}`; disabled, with the reason
@@ -79,6 +80,11 @@ export interface AccountSignInConsent {
   onAccept: () => Promise<void>;
   /** When given, a signed-in user can withdraw consent. */
   onRevoke?: () => Promise<void>;
+  /**
+   * What **Not now** does; default `onEnabledChange(false)`. A host without
+   * `onEnabledChange` passes it, for example to go back to its previous provider.
+   */
+  onDecline?: () => Promise<void>;
 }
 
 /**
@@ -100,8 +106,12 @@ export interface AccountSignInProviderCardProps {
   };
   /** The user has switched this provider on. */
   enabled: boolean;
-  /** Persist the on/off switch. Rejects on failure. */
-  onEnabledChange: (enabled: boolean) => Promise<void>;
+  /**
+   * Persist the on/off switch. Omit it when the host decides elsewhere whether
+   * this provider is used (for example a choice of one provider among several):
+   * the card then renders no switch and `enabled` is the host's. Rejects on failure.
+   */
+  onEnabledChange?: (enabled: boolean) => Promise<void>;
   /** Consent gate; omit when the provider needs none. */
   consent?: AccountSignInConsent;
   /** The current sign-in state. */
@@ -150,7 +160,7 @@ type Busy = 'enable' | 'accept' | 'revoke' | 'signin' | 'signout' | 'model' | 'r
 
 /**
  * A settings card for a provider that signs in with the user's own account
- * instead of an API key: enable switch, optional consent, sign-in state,
+ * instead of an API key: optional enable switch, optional consent, sign-in state,
  * capabilities and model choice.
  *
  * @stability experimental
@@ -206,6 +216,9 @@ export function AccountSignInProviderCard({
   };
 
   const signIn = () => run('signin', onSignIn, 'Sign-in failed');
+  // Not now: the host's decline, else switching the provider off; neither hides it.
+  const decline =
+    consent?.onDecline ?? (onEnabledChange ? () => onEnabledChange(false) : undefined);
   const retry = () => {
     if (onRefreshStatus) {
       void run('refresh', onRefreshStatus, 'Could not check status');
@@ -235,21 +248,23 @@ export function AccountSignInProviderCard({
                 ) : null}
               </Box>
             </Stack>
-            <FormControlLabel
-              sx={{ mr: 0, flexShrink: 0 }}
-              label=""
-              control={
-                <Switch
-                  checked={enabled}
-                  disabled={busy === 'enable'}
-                  onChange={(e) => {
-                    const next = e.target.checked;
-                    void run('enable', () => onEnabledChange(next), `Could not update ${name}`);
-                  }}
-                  slotProps={{ input: { 'aria-label': `Enable ${name}` } }}
-                />
-              }
-            />
+            {onEnabledChange ? (
+              <FormControlLabel
+                sx={{ mr: 0, flexShrink: 0 }}
+                label=""
+                control={
+                  <Switch
+                    checked={enabled}
+                    disabled={busy === 'enable'}
+                    onChange={(e) => {
+                      const next = e.target.checked;
+                      void run('enable', () => onEnabledChange(next), `Could not update ${name}`);
+                    }}
+                    slotProps={{ input: { 'aria-label': `Enable ${name}` } }}
+                  />
+                }
+              />
+            ) : null}
           </Stack>
 
           {ready ? (
@@ -415,12 +430,14 @@ export function AccountSignInProviderCard({
             ) : null}
           </DialogContent>
           <DialogActions>
-            <Button
-              disabled={busy !== null}
-              onClick={() => void run('enable', () => onEnabledChange(false), `Could not update ${name}`)}
-            >
-              Not now
-            </Button>
+            {decline ? (
+              <Button
+                disabled={busy !== null}
+                onClick={() => void run('enable', decline, `Could not update ${name}`)}
+              >
+                Not now
+              </Button>
+            ) : null}
             <Button
               variant="contained"
               disabled={busy !== null}
