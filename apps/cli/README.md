@@ -572,7 +572,11 @@ appctl deploy update --ref v1.4.0
 If the resolved ref's commit hasn't moved since the last successful run,
 `update` exits `0` **without doing anything** — no rebuild, no restart —
 which is what makes it safe to run unattended, e.g. from cron. `--force`
-rebuilds anyway even when the revision is unchanged.
+rebuilds anyway even when the revision is unchanged. The comparison is
+against the revision the last *successful* run left the checkout at
+(`deployedHead` in the state file), not against the checkout itself: the
+checkout is moved before the build, so a plain re-run after a failed update
+does the whole update again, with no `--force`.
 
 The database seed **re-runs by default** on every `update`. The seed is
 entirely upserts, and re-running it is the only way a permission or role a

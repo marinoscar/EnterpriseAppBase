@@ -448,7 +448,15 @@ installed at `--root` — run `install` first.
 
 **If the revision hasn't moved, `update` exits `0` and does nothing else** —
 no rebuild, no restart, no seed. That's what makes it safe to run
-unattended, for example from cron. The one check that runs regardless is
+unattended, for example from cron. "Hasn't moved" means the checkout is at the
+revision the last *successful* install or update left it at (recorded as
+`deployedHead` in `.appctl-deploy.json`). The checkout is moved to the new
+revision *before* the build, so after a failed run the next plain `update`
+sees a checkout that is ahead of the last good deploy and runs the **whole**
+update again (drift check, build, migrate, restart, maintenance-off); you do
+not need `--force` to retry once the cause is fixed. A state file written by an
+older CLI has no marker and keeps the old rule (an unmoved checkout is up to
+date). The one check that runs regardless is
 the **edge-config** step (see "The application's nginx after an update" below):
 
 ```cron
@@ -1101,6 +1109,7 @@ the first thing to check — `deploy status`'s container list will show it.
 | Under many open tabs, new requests fail and the nginx error log says `worker_connections are not enough` (or `Too many open files`) | Each SSE stream holds two nginx connections for its lifetime, and the proxy is still on the stock 1024 connections, or its container's `nofile` limit is too low for `worker_rlimit_nofile`. | Check and raise the limits on the shared proxy and the application's nginx: section 9.1. |
 | The site serves an expired (or about-to-expire) certificate even though `certs` reports it was renewed | The certificate on disk was renewed, but the proxy was never reloaded, so it is still serving the old one. | `doctor`'s `certificate-served` check catches exactly this by comparing the certificate on the wire against the one on disk. The remedy is one line: `docker exec <proxy-container> nginx -t && docker exec <proxy-container> nginx -s reload` (drop the `docker exec` prefix in host mode) — see section 10. |
 | `git clone`/`git fetch` fails with an authentication prompt or error partway through `install`, against a private repository | The repository URL is an HTTPS GitHub URL, and neither `gh` nor another git credential helper is set up for it. | Install and log in with the GitHub CLI (`gh auth login`) before running `install` — `doctor`'s `gh-installed`/`gh-authenticated` checks catch this ahead of time and are `required` in exactly this situation. An SSH deploy key is unaffected either way; `gh` is only ever a credential source for HTTPS. |
+| `update` fails at `Build images` with `required variable STACK_AGENT_TOKEN is missing a value` (or another `required variable ... is missing a value`) | The CLI on the server is **older than the revision** being deployed. The CLI is installed and updated separately from the application (`/opt/infra/cli/<repo>` or `~/.appctl/app`, not the deployment's `repo/` checkout), and only a CLI that knows the new required variable generates it in the `.env` during `update`. An older CLI starts the build with no value and compose refuses. The same refusal appears if the key was deleted from `infra/compose/.env`. | **Update the CLI first, then retry.** Re-run the installer (`curl -fsSL .../install.sh \| bash`, or `bash install.sh` from a clone) or, for an app whose bootstrap script provides it, `bash bootstrap-vps.sh --repo <owner>/<name> --update`, then `appctl deploy update` (no `--force` needed: a retry after a failed update runs every step). A current CLI prints this explanation itself. Stopgap without updating the CLI: add the key to `infra/compose/.env` by hand (`STACK_AGENT_TOKEN=$(openssl rand -hex 32)`), then retry with the old CLI **and `--force`**, which that CLI needs because it still treats the already-fetched checkout as "up to date". |
 | The seed step fails during `install`/`update` with `FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory` | Fixed as of this version. Earlier, the seed's `ts-node` invocation fully type-checked `prisma/seed.ts`/`seed-data.ts` against the generated Prisma Client types at runtime, which could exceed the api container's 512M memory cap as the schema grew. | Update to a version carrying the fix (`apps/api/prisma.config.ts`'s seed command runs with `--transpile-only`) and re-run `update`. That type-check now runs separately, in CI, via `npm run prisma:typecheck --workspace=api`. |
 
 ## Summary checklist
