@@ -227,6 +227,39 @@ export interface CheckoutResult {
 }
 
 /**
+ * The deployment checkout's HEAD right now, or undefined when it cannot be read.
+ *
+ * Recorded as `DeployState.deployedHead` at the end of every successful run;
+ * see that field for why it is measured rather than copied.
+ */
+export async function checkoutHead(
+  deployRoot: string,
+  run: typeof runCommand,
+): Promise<string | undefined> {
+  const sha = await git({ cwd: join(deployRoot, 'repo'), runCommand: run }, ['rev-parse', 'HEAD']);
+  return sha === undefined || sha === '' ? undefined : sha;
+}
+
+/**
+ * Whether the deployment already runs what the checkout now holds.
+ *
+ * Unchanged ONLY when the checkout did not move AND it is still at the last
+ * successfully deployed revision. `fetch` moves the checkout before anything is
+ * built, so "did not move" alone is also true of a retry after a failed run.
+ *
+ * With no recorded marker (a state file from before `deployedHead`) the answer
+ * is the previous rule: an unmoved checkout is up to date.
+ */
+export function isAlreadyDeployed(
+  checkout: Pick<CheckoutResult, 'sha' | 'changed'>,
+  deployedHead: string | undefined,
+): boolean {
+  if (checkout.changed) return false;
+  if (deployedHead === undefined || deployedHead === '') return true;
+  return deployedHead === checkout.sha;
+}
+
+/**
  * Clones or updates the checkout, idempotently.
  *
  * The same call performs a first install and every later update, which is what

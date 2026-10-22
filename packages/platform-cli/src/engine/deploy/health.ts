@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 
 import { composeFileArgs } from './compose-files.js';
+import { explainComposeFailure } from './compose-hints.js';
 import type { runCommand } from './executor.js';
 import type { DeployHooks } from './hooks.js';
 import type { DeployState } from './state.js';
@@ -65,6 +66,13 @@ export interface HealthReport {
    * failed smoke means for a deploy.
    */
   oauth?: OAuthSmoke | undefined;
+  /**
+   * Why `docker compose` could not even list the containers, when it refused
+   * over a required variable with no value (the explanation from
+   * compose-hints.ts). Absent otherwise: every other compose failure still
+   * reads as "none reported", as before.
+   */
+  composeProblem?: string | undefined;
   deployed?: Pick<DeployState, 'commitSha' | 'ref' | 'lastDeployedAt' | 'lastCommand'> | undefined;
 }
 
@@ -177,6 +185,13 @@ export function describeFetchFailure(error: unknown): string {
 export async function containerStates(
   options: HealthOptions,
 ): Promise<ContainerState[]> {
+  return (await readContainers(options)).containers;
+}
+
+/** `containerStates` plus the one failure worth explaining; see `HealthReport.composeProblem`. */
+async function readContainers(
+  options: HealthOptions,
+): Promise<{ containers: ContainerState[]; problem?: string }> {
   try {
     const result = await options.runCommand(
       ['docker', 'compose', ...composeArgs(options), 'ps', '--format', 'json'],
@@ -186,13 +201,13 @@ export async function containerStates(
     // Compose emits either one JSON array or one object per line depending on
     // version, so both are accepted rather than pinning a version.
     const text = result.stdout.trim();
-    if (text === '') return [];
+    if (text === '') return { containers: [] };
 
     const rows: unknown[] = text.startsWith('[')
       ? (JSON.parse(text) as unknown[])
       : text.split('\n').map((line) => JSON.parse(line) as unknown);
 
-    return rows.map((row) => {
+    const containers = rows.map((row) => {
       const entry = row as Record<string, unknown>;
       return {
         name: String(entry['Name'] ?? ''),
@@ -204,8 +219,14 @@ export async function containerStates(
           : { health: String(entry['Health']) }),
       };
     });
-  } catch {
-    return [];
+    return { containers };
+  } catch (error) {
+    // Swallowed as before -- status must still render -- except for a compose
+    // "required variable" refusal, which `none reported` would otherwise hide.
+    const explained = explainComposeFailure(error, join(composeCwd(options.deployRoot), '.env'));
+    return explained !== error && explained instanceof Error
+      ? { containers: [], problem: explained.message }
+      : { containers: [] };
   }
 }
 
@@ -268,8 +289,8 @@ export async function collectHealth(options: HealthOptions): Promise<HealthRepor
     ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
   };
 
-  const [containers, live, ready, frontend, migrations] = await Promise.all([
-    containerStates(options),
+  const [{ containers, problem: composeProblem }, live, ready, frontend, migrations] = await Promise.all([
+    readContainers(options),
     probe(`${base}/api/health/live`, fetchOptions),
     probe(`${base}/api/health/ready`, fetchOptions),
     // The frontend gets its own probe because it fails INDEPENDENTLY of the
@@ -294,6 +315,7 @@ export async function collectHealth(options: HealthOptions): Promise<HealthRepor
 
   return {
     containers,
+    ...(composeProblem === undefined ? {} : { composeProblem }),
     local: { live, ready, frontend },
     ...(external === undefined ? {} : { external }),
     migrations,

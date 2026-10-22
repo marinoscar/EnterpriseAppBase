@@ -60,7 +60,8 @@ import {
   type ProxyTarget,
   type ResolvedProxyRuntime,
 } from './proxy.js';
-import { ensureCheckout, resolveRepoTarget, resolveRepoUrl, type RepoTarget } from './repo.js';
+import { checkoutHead, ensureCheckout, resolveRepoTarget, resolveRepoUrl, type RepoTarget } from './repo.js';
+import { explainComposeFailure } from './compose-hints.js';
 import {
   DEPLOY_STATE_VERSION,
   appendHistory,
@@ -498,14 +499,20 @@ async function compose(
   await ensureStackNetworks(context, extra, context.options.groups);
 
   const argv = composeArgv(extra, context.composeProject, context.options.groups, composeCwd(context.options.deployRoot));
-  const result = await context.runCommand(argv, {
-    cwd: composeCwd(context.options.deployRoot),
-    timeoutMs: options?.timeoutMs ?? 30 * 60_000,
-    redact: context.journal.redact,
-    ...(context.hooks?.onLog === undefined
-      ? {}
-      : { onLine: (line: string) => context.hooks?.onLog?.(line) }),
-  });
+  let result: Awaited<ReturnType<typeof defaultRunCommand>>;
+  try {
+    result = await context.runCommand(argv, {
+      cwd: composeCwd(context.options.deployRoot),
+      timeoutMs: options?.timeoutMs ?? 30 * 60_000,
+      redact: context.journal.redact,
+      ...(context.hooks?.onLog === undefined
+        ? {}
+        : { onLine: (line: string) => context.hooks?.onLog?.(line) }),
+    });
+  } catch (error) {
+    // See compose-hints.ts: a required compose variable with no value.
+    throw explainComposeFailure(error, join(composeCwd(context.options.deployRoot), '.env'));
+  }
   context.journal.command(result);
 }
 
@@ -1581,12 +1588,15 @@ export async function runInstall(requested: InstallOptions): Promise<InstallResu
     outcome: 'success',
   });
   const installedAt = existingState?.installedAt ?? now;
+  // The marker `update` compares the checkout against; see DeployState.deployedHead.
+  const deployedHead = await checkoutHead(options.deployRoot, context.runCommand);
 
   writeState({
     version: DEPLOY_STATE_VERSION,
     repoUrl: context.target?.url ?? '',
     ref: context.target?.ref ?? '',
     commitSha: context.commitSha ?? '',
+    ...(deployedHead === undefined ? {} : { deployedHead }),
     ...(options.domain === undefined ? {} : { domain: options.domain }),
     bindPort: options.bindPort,
     deployRoot: options.deployRoot,
