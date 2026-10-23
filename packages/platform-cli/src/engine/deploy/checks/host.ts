@@ -277,12 +277,28 @@ const bindPortFree: Check = {
       '--filter',
       `publish=${context.bindPort}`,
       '--format',
-      '{{.Names}}',
+      '{{.Names}}|{{.Label "com.docker.compose.project"}}',
     ]);
-    const project = basename(context.deployRoot);
-    const names = owner.stdout.split('\n').filter((name) => name !== '');
+    const holders = owner.stdout
+      .split('\n')
+      .filter((line) => line !== '')
+      .map((line) => {
+        const [name = '', project = ''] = line.split('|');
+        return { name, project };
+      });
+    const names = holders.map((holder) => holder.name);
 
-    if (names.some((name) => name.includes(project))) {
+    // The recorded compose project is the truth: a deployment installed before
+    // it was recorded runs under `compose`, which no folder name matches. The
+    // folder name is only the fallback when no project is known.
+    const folder = basename(context.deployRoot);
+    const ours = holders.some((holder) =>
+      context.composeProject === undefined
+        ? holder.name.includes(folder)
+        : holder.project === context.composeProject,
+    );
+
+    if (ours) {
       return {
         status: 'pass',
         detail: `held by this deployment (${names.join(', ')})`,

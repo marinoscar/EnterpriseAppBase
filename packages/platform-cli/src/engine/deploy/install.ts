@@ -633,6 +633,8 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
           runCommand: context.runCommand,
           deployRoot: context.options.deployRoot,
           bindPort: context.options.bindPort,
+          // What this install will record, so install and doctor agree.
+          composeProject: context.composeProject,
           proxyRoot: context.options.proxyRoot,
           // Resolved before the checks, because it decides which of them are
           // required: certbot-installed only on the host, renewal-path hygiene
@@ -884,6 +886,7 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
             runCommand: context.runCommand,
             deployRoot: context.options.deployRoot,
             bindPort: context.options.bindPort,
+            composeProject: context.composeProject,
             proxyRoot: context.options.proxyRoot,
             env: context.env,
             ...(context.options.allowSuperuser === true ? { allowSuperuser: true } : {}),

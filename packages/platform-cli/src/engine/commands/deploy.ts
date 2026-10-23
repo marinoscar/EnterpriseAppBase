@@ -897,6 +897,8 @@ export async function runDoctorCommand(
     deployRoot: app.deployRoot,
     proxyRoot: options.proxyRoot,
     proxyRuntime,
+    // Only a recorded deployment has a project to name; a bare host has none.
+    ...(recorded === undefined ? {} : { composeProject: composeProjectFor(recorded) }),
     ...(repoUrl === undefined ? {} : { repoUrl }),
     ...(gitCredentialed === undefined ? {} : { gitCredentialed }),
     bindPort: Number(options.port),

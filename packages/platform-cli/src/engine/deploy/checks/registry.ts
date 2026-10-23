@@ -33,6 +33,13 @@ export interface DeployCheckContext {
   readonly deployRoot: string;
   /** The loopback port the shared proxy forwards to. */
   readonly bindPort: number;
+  /**
+   * The deployment's compose project: the `com.docker.compose.project` label
+   * on its containers. Use it, not `basename(deployRoot)`, to recognise the
+   * deployment's own containers; a deployment installed before the project was
+   * recorded runs under `compose`. `undefined` when no state exists yet.
+   */
+  readonly composeProject: string | undefined;
   /** The shared reverse proxy's directory. */
   readonly proxyRoot: string;
   /** The public hostname, when one is known. */
@@ -174,6 +181,7 @@ export function toRunnerCheck(check: DeployCheck): Check {
       check.run({
         deployRoot: context.deployRoot,
         bindPort: context.bindPort,
+        composeProject: context.composeProject,
         proxyRoot: context.proxyRoot,
         domain: context.domain,
         env: context.env === undefined ? undefined : redactedValues(() => context.env),

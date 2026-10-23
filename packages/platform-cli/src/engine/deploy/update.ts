@@ -544,6 +544,7 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
           runCommand: context.runCommand,
           deployRoot: context.options.deployRoot,
           bindPort: context.state.bindPort,
+          composeProject: composeProjectFor(context.state),
           // From the record, not reconstructed. Deriving it as
           // `<deployRoot>/../../proxy` silently ignored a non-default
           // --proxy-root given at install time, and wrote the vhost somewhere
