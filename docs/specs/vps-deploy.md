@@ -182,6 +182,12 @@ Registered in `packages/platform-cli/src/engine/deploy/checks/`, one module per 
 | DNS | `dns-resolves`, `dns-points-here` |
 | Proxy and TLS | `proxy-root`, `proxy-conf-writable`, `acme-webroot`, `certbot-installed`, `proxy-container`, `proxy-config-valid`, `certificate-present`, `certificate-validity`, `certificate-renewal`, `certificate-renewal-paths`, `certificate-served` |
 
+`bind-port-free` and app checks recognise the deployment's own containers by
+`CheckContext.composeProject` (`DeployCheckContext.composeProject` for
+`registerDeployCheck`), the deployment's compose project: `compose` for a
+deployment installed before the project was recorded. Use it, not
+`basename(deployRoot)`; it is absent only before any state exists.
+
 `certbot-installed` is required only when the proxy runs on the host. DNS and
 TLS checks run when `--domain` is given.
 
