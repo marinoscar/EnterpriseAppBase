@@ -37,9 +37,10 @@ export interface DeployCheckContext {
    * The deployment's compose project: the `com.docker.compose.project` label
    * on its containers. Use it, not `basename(deployRoot)`, to recognise the
    * deployment's own containers; a deployment installed before the project was
-   * recorded runs under `compose`. `undefined` when no state exists yet.
+   * recorded runs under `compose`. Optional: absent when no state exists yet;
+   * fall back to the folder name only then.
    */
-  readonly composeProject: string | undefined;
+  readonly composeProject?: string | undefined;
   /** The shared reverse proxy's directory. */
   readonly proxyRoot: string;
   /** The public hostname, when one is known. */

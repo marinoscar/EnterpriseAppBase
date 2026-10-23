@@ -186,7 +186,8 @@ Registered in `packages/platform-cli/src/engine/deploy/checks/`, one module per 
 `CheckContext.composeProject` (`DeployCheckContext.composeProject` for
 `registerDeployCheck`), the deployment's compose project: `compose` for a
 deployment installed before the project was recorded. Use it, not
-`basename(deployRoot)`; it is absent only before any state exists.
+`basename(deployRoot)`, and fall back to the folder name only when it is
+absent (optional on `DeployCheckContext`; absent before any state exists).
 
 `certbot-installed` is required only when the proxy runs on the host. DNS and
 TLS checks run when `--domain` is given.
