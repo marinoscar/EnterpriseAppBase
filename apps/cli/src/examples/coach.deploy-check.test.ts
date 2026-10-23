@@ -18,6 +18,7 @@ const context = (env?: Record<string, string>): DeployCheckContext => {
   return {
     deployRoot: '/opt/infra/apps/app',
     bindPort: 3535,
+    composeProject: 'compose',
     proxyRoot: '/opt/infra/proxy',
     domain: undefined,
     skipProxy: false,
