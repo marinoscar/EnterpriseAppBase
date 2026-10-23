@@ -55,7 +55,15 @@ import {
   type ProxyTarget,
   type ResolvedProxyRuntime,
 } from './proxy.js';
-import { ensureCheckout, normaliseRepoUrl, resolveRepoTarget, type RepoTarget } from './repo.js';
+import {
+  checkoutHead,
+  ensureCheckout,
+  isAlreadyDeployed,
+  normaliseRepoUrl,
+  resolveRepoTarget,
+  type RepoTarget,
+} from './repo.js';
+import { explainComposeFailure } from './compose-hints.js';
 import {
   NotInstalledError,
   appendHistory,
@@ -181,6 +189,7 @@ interface UpdateContext extends StepContext {
   journal: Journal;
   state: DeployState;
   target?: RepoTarget | undefined;
+  /** The last revision that deployed successfully (never merely the checkout's previous HEAD); see `fetch`. */
   previousSha?: string | undefined;
   commitSha?: string | undefined;
   env?: Map<string, string> | undefined;
@@ -295,15 +304,22 @@ async function compose(
   await ensureStackNetworks(context, extra, groupsOf(context));
 
   const argv = composeArgv(extra, composeProjectFor(context.state), groupsOf(context), composeCwd(context.options.deployRoot));
-  const result = await context.runCommand(argv, {
-    cwd: composeCwd(context.options.deployRoot),
-    timeoutMs: options?.timeoutMs ?? 30 * 60_000,
-    ...(options?.allowExitCodes === undefined ? {} : { allowExitCodes: options.allowExitCodes }),
-    redact: context.journal.redact,
-    ...(context.hooks?.onLog === undefined
-      ? {}
-      : { onLine: (line: string) => context.hooks?.onLog?.(line) }),
-  });
+  let result: CommandResult;
+  try {
+    result = await context.runCommand(argv, {
+      cwd: composeCwd(context.options.deployRoot),
+      timeoutMs: options?.timeoutMs ?? 30 * 60_000,
+      ...(options?.allowExitCodes === undefined ? {} : { allowExitCodes: options.allowExitCodes }),
+      redact: context.journal.redact,
+      ...(context.hooks?.onLog === undefined
+        ? {}
+        : { onLine: (line: string) => context.hooks?.onLog?.(line) }),
+    });
+  } catch (error) {
+    // A compose "required variable ... is missing a value" says nothing about
+    // WHY; see compose-hints.ts. The compose output is kept above the hint.
+    throw explainComposeFailure(error, envFilePath(context.options.deployRoot));
+  }
   context.journal.command(result);
   return result;
 }
@@ -588,13 +604,31 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
         });
 
         context.target = target;
-        context.previousSha = checkout.previousSha;
         context.commitSha = checkout.sha;
 
+        // ⚠ "UNCHANGED" IS NOT "THE CHECKOUT DID NOT MOVE". This step moves the
+        // checkout BEFORE build, migrate and restart, while the recorded state
+        // only advances when the whole run succeeds. After a failed run the
+        // checkout therefore already sits on the new revision, and the next
+        // plain `update` used to find "nothing to do" -- skipping the drift
+        // heal, the build, the migration and the maintenance-off -- and exit 0.
+        // The deployment is up to date only when the checkout is ALSO still at
+        // the last revision that deployed successfully (`deployedHead`).
+        const deployedHead = context.state.deployedHead;
         const moved = checkout.changed;
         const rebuildAnyway = context.options.force === true || context.options.noCache === true;
 
-        if (!moved && !rebuildAnyway) {
+        // What this run replaces: the last GOOD revision. For a state file from
+        // before the marker, the checkout's previous HEAD is the best evidence
+        // there is -- and is recorded below as the marker, so that a failure of
+        // THIS run no longer poisons the next one.
+        const lastGood =
+          deployedHead !== undefined && deployedHead !== ''
+            ? deployedHead
+            : checkout.previousSha;
+        context.previousSha = lastGood;
+
+        if (!rebuildAnyway && isAlreadyDeployed(checkout, deployedHead)) {
           // Several minutes of build and a restart for a no-op is exactly the
           // friction that stops people updating often.
           context.unchanged = true;
@@ -602,15 +636,26 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
           return;
         }
 
-        context.journal.line(
-          `${checkout.previousSha ?? 'unknown'} -> ${checkout.sha} (${target.ref})`,
-        );
+        if (!moved && !rebuildAnyway) {
+          context.journal.line(
+            `The checkout is at ${checkout.sha}, but the last successful deploy was ${deployedHead ?? 'unknown'}: ` +
+              `an earlier update did not finish. Running the full update.`,
+          );
+        }
+        context.journal.line(`${lastGood ?? 'unknown'} -> ${checkout.sha} (${target.ref})`);
 
         // Recorded BEFORE anything is mutated, so a failed update still leaves
         // behind what it was replacing.
         writeState({
           ...context.state,
-          previousSha: checkout.previousSha,
+          previousSha: lastGood,
+          // Seeds the marker for a state file that predates it, but only when
+          // the checkout genuinely moved: with no move there is no evidence the
+          // old HEAD ever deployed, and an invented marker would make a failed
+          // forced rebuild look finished.
+          ...(deployedHead === undefined && lastGood !== undefined && lastGood !== checkout.sha
+            ? { deployedHead: lastGood }
+            : {}),
           lastDeployedAt: new Date().toISOString(),
         } as DeployState);
       },
@@ -1120,6 +1165,12 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
       // runs) -- the next update, flag or no flag, finds the leftover key and
       // clears it, rather than leaving the deployment stuck until someone
       // notices by hand.
+      //
+      // That holds because `skipWhenUnchanged` means "deployed AND unchanged":
+      // after a failed run the checkout has moved but `deployedHead` has not,
+      // so the retry is NOT unchanged and this step runs (see `fetch`). A
+      // retry that is a genuine no-op has no window to clear, because the last
+      // run finished.
       skip: skipWhenUnchanged,
       async run(context) {
         await disableMaintenanceMode(context);
@@ -1458,7 +1509,10 @@ export async function runUpdate(options: UpdateOptions): Promise<UpdateResult> {
 
   if (result.failed !== undefined) {
     journal.finish('failure', `${result.failed.id}: ${result.failed.detail ?? ''}`);
-    const previous = context.previousSha ?? state.commitSha;
+    // The last revision that DEPLOYED. `fetch` has already moved the checkout
+    // (and, on a retry, the checkout's own previous HEAD is the broken
+    // revision), so it is never named here; see `deployedHead`.
+    const previous = context.previousSha ?? state.deployedHead ?? state.commitSha;
 
     throw new Error(
       `${result.failed.title} failed: ${result.failed.detail ?? 'unknown error'}\n` +
@@ -1493,6 +1547,11 @@ export async function runUpdate(options: UpdateOptions): Promise<UpdateResult> {
     container: runtime.container,
     runCommand: context.runCommand,
   });
+  // ⚠ MEASURED, NOT COPIED FROM `commitSha`: the version step may have
+  // committed a bump that `publish-version` then pushed or rolled back out.
+  // HEAD now is what the next `fetch` finds for an unmoved remote. Unreadable
+  // means no marker (the previous rule), never a stale one.
+  const deployedHead = await checkoutHead(options.deployRoot, context.runCommand);
   const history = appendHistory(state.history, {
     at: now,
     command: 'update',
@@ -1511,6 +1570,7 @@ export async function runUpdate(options: UpdateOptions): Promise<UpdateResult> {
     ref: context.target?.ref ?? state.ref,
     commitSha: context.commitSha ?? state.commitSha,
     previousSha: context.previousSha,
+    deployedHead,
     lastDeployedAt: now,
     lastCommand: 'update',
     appctlVersion: cliVersion(),

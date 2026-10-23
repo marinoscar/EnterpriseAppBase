@@ -118,6 +118,33 @@ export interface DeployState {
   /** The revision this replaced, for a manual roll-back. */
   previousSha?: string | undefined;
   /**
+   * The checkout's HEAD when the last SUCCESSFUL install or update finished:
+   * the last revision this deployment is known to have been built, migrated and
+   * started from.
+   *
+   * ⚠ WHY THIS IS NOT `commitSha`. `update`'s `fetch` step hard-resets the
+   * CHECKOUT to the new revision BEFORE build, migrate and restart, so after a
+   * failed run the checkout sits on a revision that never deployed. Comparing
+   * the checkout with itself ("did HEAD move?") then reports "already up to
+   * date" on the retry and skips every step. `update` therefore treats the
+   * deployment as unchanged only when the checkout did not move AND it is
+   * still at this revision.
+   *
+   * ⚠ MEASURED AFTER THE RUN (`git rev-parse HEAD` in the checkout), not copied
+   * from `commitSha`. The version step commits a bump on top of the fetched
+   * revision and `publish-version` either pushes it (the remote becomes that
+   * commit) or rolls it back out (HEAD returns to the fetched revision);
+   * `commitSha` names the bump commit in both cases. HEAD at the end is exactly
+   * what the next `fetch` finds for an unmoved remote, so the comparison can
+   * never fail forever and rebuild on every cron tick.
+   *
+   * Written ONLY on success. Absent in every state file written before it
+   * existed, and then `update` keeps its previous rule (an unmoved checkout is
+   * an up-to-date deployment). Optional, and the state version is deliberately
+   * NOT bumped for it.
+   */
+  deployedHead?: string | undefined;
+  /**
    * The shared reverse-proxy root this deployment's vhost was written into.
    *
    * Recorded because it cannot be re-derived: a deployment installed with a

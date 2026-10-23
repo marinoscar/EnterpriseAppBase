@@ -36,6 +36,7 @@ import { describeEvidence, resolveEnvPath } from './deployment-evidence.js';
 import { readEnvFile } from './env-file.js';
 import { runCommand as defaultRunCommand } from './executor.js';
 import type { DeployHooks } from './hooks.js';
+import { explainComposeFailure } from './compose-hints.js';
 import { composeArgv, composeCwd, composeProjectFor, secretsFrom } from './install.js';
 import { openJournal } from './journal.js';
 import {
@@ -334,7 +335,9 @@ export async function runUninstall(options: UninstallOptions): Promise<Uninstall
   } catch (error) {
     // The containers may already be gone; that is not a reason to leave the
     // rest of the deployment on disk.
-    warnings.push(`Could not stop the stack cleanly: ${(error as Error).message}`);
+    warnings.push(
+      `Could not stop the stack cleanly: ${(explainComposeFailure(error, join(composeCwd(options.deployRoot), '.env')) as Error).message}`,
+    );
   }
 
   // ⚠ ORDER IS LOAD-BEARING, TWICE OVER. The drop runs AFTER `down -v`, so the

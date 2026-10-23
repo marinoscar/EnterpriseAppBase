@@ -16,6 +16,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { runStatusCommand } from '../../commands/deploy.js';
 import { isDeployment, resolveEnvPath } from '../deployment-evidence.js';
 import { parseEnvExample, parseEnvFile } from '../env-spec.js';
+import { CommandFailedError } from '../executor.js';
 import { runInstall, type InstallOptions } from '../install.js';
 import { deployStatePath, readState, writeState, type DeployState } from '../state.js';
 import { runUpdate } from '../update.js';
@@ -1249,5 +1250,319 @@ describe('the compose files follow the recorded groups, through the real pipelin
     );
     await updateUnattended(kept);
     expect(envOf(kept).get('STACK_AGENT_TOKEN')).toBe(chosen);
+  });
+});
+
+// =============================================================================
+// A failed update must not poison the retry
+// =============================================================================
+//
+// `fetch` hard-resets the CHECKOUT to the new revision before build, migrate
+// and restart, while `state.commitSha` only advances when the run succeeds. The
+// next plain `update` used to compare the checkout with the revision it had just
+// fetched, find them equal, and stand down: no drift heal, no build, no
+// migration, no maintenance-off, and a SUCCESS exit. These tests drive that
+// exact sequence through the real pipeline.
+// =============================================================================
+
+describe('a failed update does not poison the retry', () => {
+  const A = 'a'.repeat(40);
+  const B = 'b'.repeat(40);
+  const C = 'c'.repeat(40);
+
+  /** A checkout that behaves like one: HEAD moves on `checkout`, commit and push. */
+  interface FakeRepo {
+    head: string;
+    remote: string;
+    pushFails: boolean;
+    commits: number;
+  }
+
+  function fakeRepo(vps: ReturnType<typeof createFakeVps>, start: { head: string; remote: string }): FakeRepo {
+    const repo: FakeRepo = { ...start, pushFails: false, commits: 0 };
+    const git = (invocation: { argv: readonly string[] }, word: string): boolean =>
+      invocation.argv[0] === 'git' && invocation.argv.includes(word);
+
+    vps.route(['git', 'rev-parse', '--verify'], () => repo.remote);
+    vps.route(['git', 'rev-parse', 'HEAD'], () => repo.head);
+    vps.route(
+      (invocation) => invocation.argv[0] === 'git' && invocation.argv[1] === 'checkout',
+      (invocation) => {
+        repo.head = invocation.argv.at(-1) as string;
+        return '';
+      },
+    );
+    vps.route(
+      (invocation) => git(invocation, 'commit'),
+      () => {
+        repo.commits += 1;
+        repo.head = `d${String(repo.commits).padStart(39, '0')}`;
+        return '';
+      },
+    );
+    vps.route(
+      (invocation) => git(invocation, 'push'),
+      () => {
+        if (repo.pushFails) return { fail: new Error('push rejected') };
+        repo.remote = repo.head;
+        return '';
+      },
+    );
+    return repo;
+  }
+
+  async function installed(): Promise<{ vps: ReturnType<typeof createFakeVps>; repo: FakeRepo }> {
+    const vps = vpsWithTemplate();
+    await install(vps);
+    mkdirSync(join(vps.deployRoot, 'repo', '.git'), { recursive: true });
+    vps.route(
+      ['df'],
+      'Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/sda1 100000000 10000000 80000000 12% /',
+    );
+    const repo = fakeRepo(vps, { head: A, remote: A });
+    return { vps, repo };
+  }
+
+  function envOf(vps: ReturnType<typeof createFakeVps>): Map<string, string> {
+    return parseEnvFile(readFileSync(resolveEnvPath(vps.deployRoot) as string, 'utf8'));
+  }
+
+  function buildCalls(vps: ReturnType<typeof createFakeVps>): number {
+    return vps.calls('docker', 'compose').filter((call) => call.argv.includes('build')).length;
+  }
+
+  /** Makes every `docker compose ... build` fail while `broken.on` is set. */
+  function breakableBuild(vps: ReturnType<typeof createFakeVps>): { on: boolean } {
+    const broken = { on: false };
+    vps.route(
+      (invocation) =>
+        invocation.argv[0] === 'docker' &&
+        invocation.argv[1] === 'compose' &&
+        invocation.argv.includes('build'),
+      () => {
+        if (!broken.on) return '';
+        const stderr = 'service "stack-agent": required variable STACK_AGENT_TOKEN is missing a value';
+        return {
+          fail: new CommandFailedError(`\`docker compose build\` exited 1\n    ${stderr}`, {
+            argv: ['docker', 'compose', 'build'],
+            cwd: vps.deployRoot,
+            exitCode: 1,
+            stdout: '',
+            stderr,
+            durationMs: 0,
+            timedOut: false,
+          }),
+        };
+      },
+    );
+    return broken;
+  }
+
+  function updateRun(
+    vps: ReturnType<typeof createFakeVps>,
+    extra: Partial<Parameters<typeof runUpdate>[0]> = {},
+  ) {
+    const outcomes = new Map<string, string>();
+    const promise = runUpdate({
+      deployRoot: vps.deployRoot,
+      runCommand: vps.runCommand,
+      nonInteractive: true,
+      skipProxy: true,
+      skipSeed: true,
+      noVersionBump: true,
+      answers: new Map([...ANSWERS, ['POSTGRES_PORT', String(probe.port)]]),
+      hooks: { onStepResult: (result) => outcomes.set(result.id, result.outcome) },
+      ...extra,
+    });
+    return { promise, outcomes };
+  }
+
+  /** The state with the marker removed, as a CLI that predates it wrote it. */
+  function withoutMarker(vps: ReturnType<typeof createFakeVps>): void {
+    const state = { ...(readState(vps.deployRoot) as DeployState) } as DeployState & {
+      deployedHead?: string;
+    };
+    delete state.deployedHead;
+    writeState(state);
+  }
+
+  it('records the checkout HEAD as the deployed marker on install, and does not move it on a failed update', async () => {
+    const { vps, repo } = await installed();
+    expect(readState(vps.deployRoot)?.deployedHead).toBe(A);
+
+    const broken = breakableBuild(vps);
+    broken.on = true;
+    repo.remote = B;
+    await expect(updateRun(vps).promise).rejects.toThrow();
+
+    expect(readState(vps.deployRoot)?.deployedHead).toBe(A);
+  });
+
+  it('runs the whole update on a plain retry after a failed build, and heals what the first run never reached', async () => {
+    const { vps, repo } = await installed();
+    const broken = breakableBuild(vps);
+    repo.remote = B;
+    broken.on = true;
+
+    await expect(updateRun(vps).promise).rejects.toThrow(/Build images failed/);
+    // The checkout moved; the recorded revision did not.
+    expect(repo.head).toBe(B);
+    expect(readState(vps.deployRoot)?.commitSha).toBe(A);
+
+    // The operator fixes the cause. Here: the token was lost, and the build works again.
+    broken.on = false;
+    const envPath = resolveEnvPath(vps.deployRoot) as string;
+    writeFileSync(
+      envPath,
+      readFileSync(envPath, 'utf8')
+        .split('\n')
+        .filter((line) => !line.startsWith('STACK_AGENT_TOKEN='))
+        .join('\n'),
+    );
+    const buildsBefore = buildCalls(vps);
+
+    const retry = updateRun(vps);
+    const result = await retry.promise;
+
+    expect(result.changed).toBe(true);
+    expect(result.commitSha).toBe(B);
+    // The revision the retry replaced is the last GOOD one, not the broken one.
+    expect(result.previousSha).toBe(A);
+    for (const id of ['environment-drift', 'build', 'migrate', 'restart', 'maintenance-off']) {
+      expect(retry.outcomes.get(id), id).not.toBe('skipped');
+    }
+    expect(buildCalls(vps)).toBe(buildsBefore + 1);
+    expect(envOf(vps).get('STACK_AGENT_TOKEN')).toMatch(/^[0-9a-f]{64}$/);
+    expect(readState(vps.deployRoot)?.commitSha).toBe(B);
+  });
+
+  it('names the last GOOD revision in the rollback hint after a second failure', async () => {
+    const { vps, repo } = await installed();
+    const broken = breakableBuild(vps);
+    broken.on = true;
+
+    repo.remote = B;
+    await expect(updateRun(vps).promise).rejects.toThrow(`--ref ${A} --force`);
+
+    // Still broken, and the remote moved again: the hint must not name B.
+    repo.remote = C;
+    const second = await updateRun(vps).promise.then(
+      () => undefined,
+      (error: Error) => error,
+    );
+    expect(second?.message).toContain(`--ref ${A} --force`);
+    expect(second?.message).not.toContain(`--ref ${B}`);
+    expect(readState(vps.deployRoot)?.previousSha).toBe(A);
+  });
+
+  it('retrying the SAME broken revision fails again rather than reporting "already up to date"', async () => {
+    const { vps, repo } = await installed();
+    const broken = breakableBuild(vps);
+    broken.on = true;
+    repo.remote = B;
+
+    await expect(updateRun(vps).promise).rejects.toThrow();
+    await expect(updateRun(vps).promise).rejects.toThrow(`--ref ${A} --force`);
+  });
+
+  it('clears a maintenance window a failed run left behind, on the next plain update', async () => {
+    const { vps, repo } = await installed();
+    const broken = breakableBuild(vps);
+    broken.on = true;
+    repo.remote = B;
+
+    await expect(updateRun(vps, { maintenance: true }).promise).rejects.toThrow(/Build images failed/);
+    expect(envOf(vps).get('MAINTENANCE_MODE')).toBe('true');
+
+    broken.on = false;
+    const retry = updateRun(vps);
+    await retry.promise;
+
+    expect(retry.outcomes.get('maintenance-off')).not.toBe('skipped');
+    expect(envOf(vps).has('MAINTENANCE_MODE')).toBe(false);
+  });
+
+  it('stays a cheap no-op against an unchanged remote after a SUCCESSFUL update', async () => {
+    const { vps, repo } = await installed();
+    repo.remote = B;
+    await updateRun(vps).promise;
+    expect(readState(vps.deployRoot)?.commitSha).toBe(B);
+
+    const before = buildCalls(vps);
+    for (let run = 0; run < 3; run += 1) {
+      const again = updateRun(vps);
+      const result = await again.promise;
+      expect(result.changed).toBe(false);
+      expect(again.outcomes.get('build')).toBe('skipped');
+    }
+    expect(buildCalls(vps)).toBe(before);
+  });
+
+  it('stays a no-op after a version-bump update, whether or not the bump was pushed', async () => {
+    for (const pushFails of [false, true]) {
+      const { vps, repo } = await installed();
+      repo.pushFails = pushFails;
+      repo.remote = B;
+      mkdirSync(join(vps.deployRoot, 'repo', 'apps', 'api'), { recursive: true });
+      writeFileSync(join(vps.deployRoot, 'repo', 'apps', 'api', 'package.json'), '{"version":"1.0.0"}\n');
+
+      const first = await updateRun(vps, { noVersionBump: false }).promise;
+      expect(first.changed).toBe(true);
+      expect(repo.commits).toBe(1);
+      // Pushed: the bump commit is the remote. Not pushed: it is rolled back out.
+      expect(repo.head).toBe(pushFails ? B : repo.remote);
+
+      const before = buildCalls(vps);
+      for (let run = 0; run < 2; run += 1) {
+        const again = await updateRun(vps, { noVersionBump: false }).promise;
+        expect(again.changed, `pushFails=${String(pushFails)} run ${String(run)}`).toBe(false);
+      }
+      expect(buildCalls(vps)).toBe(before);
+      expect(repo.commits).toBe(1);
+    }
+  });
+
+  it('behaves as before for a state file written before the marker existed', async () => {
+    const { vps, repo } = await installed();
+    withoutMarker(vps);
+
+    // Unchanged remote and no marker: the legacy rule, a no-op.
+    expect((await updateRun(vps).promise).changed).toBe(false);
+
+    // A moved remote and no marker: a full run that SUCCEEDS and records the marker.
+    repo.remote = B;
+    expect((await updateRun(vps).promise).changed).toBe(true);
+    expect((readState(vps.deployRoot) as { deployedHead?: string }).deployedHead).toBe(B);
+  });
+
+  it('heals the first failure even when the state predates the marker', async () => {
+    const { vps, repo } = await installed();
+    withoutMarker(vps);
+    const broken = breakableBuild(vps);
+    broken.on = true;
+    repo.remote = B;
+
+    await expect(updateRun(vps).promise).rejects.toThrow();
+    broken.on = false;
+    const retry = await updateRun(vps).promise;
+
+    expect(retry.changed).toBe(true);
+    expect(retry.previousSha).toBe(A);
+  });
+
+  it("explains a missing compose variable in this CLI's terms and keeps the compose output", async () => {
+    const { vps, repo } = await installed();
+    const broken = breakableBuild(vps);
+    broken.on = true;
+    repo.remote = B;
+
+    const failure = await updateRun(vps).promise.then(
+      () => undefined,
+      (error: Error) => error,
+    );
+
+    expect(failure?.message).toContain('required variable STACK_AGENT_TOKEN is missing a value');
+    expect(failure?.message).toMatch(/older than the revision/);
+    expect(failure?.message).toContain('deploy update');
   });
 });

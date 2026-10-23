@@ -1230,6 +1230,11 @@ export function renderHealth(
   lines.push('\n  Containers\n\n');
   if (report.containers.length === 0) {
     lines.push('  none reported\n');
+    if (report.composeProblem !== undefined) {
+      // docker compose refused over a required variable; say why, indented
+      // under the section it explains.
+      lines.push(`\n${report.composeProblem.split('\n').map((line) => `  ${line}`).join('\n')}\n`);
+    }
   } else {
     for (const container of report.containers) {
       const health = container.health === undefined ? '' : ` (${container.health})`;
