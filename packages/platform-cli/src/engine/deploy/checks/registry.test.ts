@@ -44,7 +44,7 @@ describe('registerDeployCheck', () => {
       }),
     );
     await runChecks(allChecks().filter((check) => check.id === 'coach-token'), context({ COACH_API_TOKEN: 'hunter2', APP_URL: 'https://a' }));
-    expect(Object.keys(seen ?? {}).sort()).toEqual(['bindPort', 'deployRoot', 'domain', 'env', 'proxyRoot', 'skipProxy']);
+    expect(Object.keys(seen ?? {}).sort()).toEqual(['bindPort', 'composeProject', 'deployRoot', 'domain', 'env', 'proxyRoot', 'skipProxy']);
     expect(seen?.env?.get('APP_URL')).toBe('https://a');
     expect(seen?.env?.get('COACH_API_TOKEN')).toBeUndefined();
     expect(seen?.env?.has('COACH_API_TOKEN')).toBe(true);

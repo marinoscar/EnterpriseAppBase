@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { CommandResult, runCommand } from './executor.js';
 import type { HealthReport } from './health.js';
 import * as healthModule from './health.js';
+import { registerDeployCheck, resetDeployCheckRegistryForTests } from './checks/registry.js';
 import { DeployStateError, NotInstalledError, deployStatePath } from './state.js';
 import { buildUpdateSteps, runUpdate } from './update.js';
 
@@ -365,6 +366,32 @@ describe('the preflight step: gh is required only for an unreadable HTTPS GitHub
       env: new Map<string, string>(),
     };
   }
+
+  it('hands app checks the deployment compose project, legacy `compose` included', async () => {
+    const seen: Array<string | undefined> = [];
+    registerDeployCheck({
+      id: 'records-project',
+      title: 'Records the project',
+      severity: 'required',
+      run: async (checkContext) => {
+        seen.push(checkContext.composeProject);
+        return { status: 'pass', detail: 'ok' };
+      },
+    });
+    try {
+      const root = mkdtempSync(join(tmpdir(), 'appctl-update-preflight-'));
+      const run = makeRunCommand(() => undefined);
+      const legacy = contextFor(root, { repoUrl: 'git@github.com:acme/widgets.git' }, run);
+      const recorded = contextFor(root, { repoUrl: 'git@github.com:acme/widgets.git', composeProject: 'demo' }, run);
+
+      await preflightStep().run(legacy as never);
+      await preflightStep().run(recorded as never);
+
+      expect(seen).toEqual(['compose', 'demo']);
+    } finally {
+      resetDeployCheckRegistryForTests();
+    }
+  });
 
   it('does not require gh at all for a non-github (or ssh) repository', async () => {
     const root = mkdtempSync(join(tmpdir(), 'appctl-update-preflight-'));

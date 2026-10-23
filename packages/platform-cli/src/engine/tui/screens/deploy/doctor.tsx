@@ -5,6 +5,7 @@ import { allChecks, runChecks, type CompletedCheck } from '../../../deploy/check
 import { runCommand, withSignal } from '../../../deploy/executor.js';
 import type { DeployHooks } from '../../../deploy/hooks.js';
 import { DEFAULT_APPS_ROOT, deployRootFor } from '../../../deploy/layout.js';
+import { composeProjectFor } from '../../../deploy/install.js';
 import { describeProxyRuntime, resolveRecordedProxyRuntime } from '../../../deploy/proxy.js';
 import { readState, type DeployState } from '../../../deploy/state.js';
 import { Frame } from '../../layout.js';
@@ -274,6 +275,7 @@ async function performDoctor(
       bindPort: settings.bindPort,
       proxyRoot,
       proxyRuntime,
+      ...(target.state === undefined ? {} : { composeProject: composeProjectFor(target.state) }),
       ...(domain === '' ? {} : { domain }),
       ...(seed.values.size === 0 ? {} : { env: seed.values }),
     },

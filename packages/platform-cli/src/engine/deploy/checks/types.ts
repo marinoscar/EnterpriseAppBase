@@ -173,6 +173,14 @@ export interface CheckContext {
   deployRoot: string;
   /** Loopback port the shared proxy forwards to. */
   bindPort: number;
+  /**
+   * The deployment's compose project (`composeProjectFor(state)`): the value
+   * of the `com.docker.compose.project` label on its containers. Use it, not
+   * `basename(deployRoot)`, to recognise the deployment's own containers: a
+   * deployment installed before the project was recorded runs under
+   * `compose`. Absent when a check runs before any state exists.
+   */
+  composeProject?: string | undefined;
   /** The shared reverse proxy's directory. */
   proxyRoot: string;
   /** Public hostname, when one is known. DNS and TLS checks need it. */

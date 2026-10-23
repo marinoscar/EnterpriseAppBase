@@ -321,6 +321,52 @@ describe('bind-port-free', () => {
   });
 });
 
+describe('bind-port-free: the deployment is recognised by its compose project', () => {
+  const holding = (stdout: string) =>
+    fakeRunCommand((argv) => (argv.join(' ').startsWith('docker ps') ? { exitCode: 0, stdout } : HEALTHY(argv)));
+
+  it('passes a legacy `compose` project whose folder name differs', async () => {
+    const result = await find('bind-port-free').run(
+      context({
+        portFree: async () => false,
+        deployRoot: '/opt/infra/apps/kvox',
+        composeProject: 'compose',
+        runCommand: holding('compose-nginx-1|compose'),
+      }),
+    );
+
+    expect(result.status).toBe('pass');
+    expect(result.detail).toContain('compose-nginx-1');
+  });
+
+  it('still fails a container of another project, even one named like the folder', async () => {
+    const result = await find('bind-port-free').run(
+      context({
+        portFree: async () => false,
+        deployRoot: '/opt/infra/apps/demo',
+        composeProject: 'compose',
+        runCommand: holding('demo-nginx-1|other'),
+      }),
+    );
+
+    expect(result.status).toBe('fail');
+    expect(result.detail).toContain('demo-nginx-1');
+    expect(result.remedy).toContain('APP_BIND_PORT');
+  });
+
+  it('falls back to the folder-name match when no project is known', async () => {
+    const result = await find('bind-port-free').run(
+      context({
+        portFree: async () => false,
+        composeProject: undefined,
+        runCommand: holding('demo-nginx-1|demo'),
+      }),
+    );
+
+    expect(result.status).toBe('pass');
+  });
+});
+
 describe('proxy checks', () => {
   it('fails when the proxy directory is absent', async () => {
     const result = await find('proxy-root').run(context({ fs: emptyFs }));
