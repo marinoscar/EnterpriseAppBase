@@ -1,5 +1,12 @@
 # @marinoscar/platform-api
 
+## 0.1.0-next.11
+
+### Patch Changes
+
+- @marinoscar/platform-contract@0.1.0-next.11
+- @marinoscar/platform-ai-providers@0.1.0-next.11
+
 ## 0.1.0-next.10
 
 ### Patch Changes

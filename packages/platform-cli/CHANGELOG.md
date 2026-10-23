@@ -1,5 +1,13 @@
 # @marinoscar/platform-cli
 
+## 0.1.0-next.11
+
+### Patch Changes
+
+- f8b2aeb: Deploy checks now know the deployment's compose project: `CheckContext` and the narrow `DeployCheckContext` handed to `registerDeployCheck` carry `composeProject` (the recorded project, `compose` for a deployment installed before it was recorded). `bind-port-free` recognises its own containers by that project instead of the folder name, so a legacy-project deployment is no longer refused by its own `compose-nginx-1` during `update` or `doctor`.
+  - @marinoscar/platform-contract@0.1.0-next.11
+  - @marinoscar/platform-infra@0.1.0-next.11
+
 ## 0.1.0-next.10
 
 ### Patch Changes
