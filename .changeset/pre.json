@@ -48,6 +48,7 @@
     "cli-core-create-cli",
     "cli-deploy-application-role",
     "cli-infra-extension-points",
+    "cli-update-retry-after-failure",
     "conformance-invariant-suites",
     "contract-android-app",
     "contract-doctor-schemas",
