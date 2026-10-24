@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -1129,5 +1129,249 @@ describe('appctl deploy install / update: the application-role flags (#980)', ()
     const hidden: string[] = [];
     await installWith([], hidden);
     expect(hidden.join('')).not.toContain('POSTGRES_PASSWORD');
+  });
+});
+
+// =============================================================================
+// `deploy doctor` and `deploy status` ask the compose project the containers
+// really run under  (#1015)
+// =============================================================================
+//
+// A deployment installed by a pre-platform CLI runs under an app-named compose
+// project and records none; the engine read that as the legacy `compose`, so
+// doctor's port check treated the deployment's own containers as foreign and
+// status looked for a stack that was not there. Both now ask Docker (once, when
+// the record names no project) and say so on stderr.
+// =============================================================================
+describe('the compose project the containers really run under (#1015)', () => {
+  /** A deployment whose state records `recorded` (or no compose project at all). */
+  function rootRecording(recorded: Partial<DeployState> = {}): string {
+    const root = installedRoot();
+    const state = JSON.parse(readFileSync(deployStatePath(root), 'utf8')) as DeployState;
+    writeFileSync(deployStatePath(root), JSON.stringify({ ...state, ...recorded }));
+    return root;
+  }
+
+  const isListingContainers = (argv: readonly string[]): boolean =>
+    argv[0] === 'docker' && argv[1] === 'ps' && argv.includes('-aq');
+  const isReadingComposeLabels = (argv: readonly string[]): boolean =>
+    argv[0] === 'docker' && argv[1] === 'inspect' && argv.some((word) => word.includes('com.docker.compose.project'));
+
+  interface Probe {
+    run: typeof import('../deploy/executor.js').runCommand;
+    /** Every argv the command ran, in order. */
+    argvs: string[][];
+  }
+
+  /**
+   * Docker holds `containers` (`[project, directory]`, a relative directory
+   * being inside `root`); anything else is answered by `rest`.
+   */
+  function dockerWith(
+    root: string,
+    containers: ReadonlyArray<readonly [string, string]> | 'down',
+    rest: typeof import('../deploy/executor.js').runCommand = noProcesses,
+  ): Probe {
+    const argvs: string[][] = [];
+    const answer = (argv: readonly string[], options: RunCommandOptions, stdout: string): CommandResult => ({
+      argv: [...argv],
+      cwd: options.cwd,
+      exitCode: 0,
+      stdout,
+      stderr: '',
+      durationMs: 1,
+      timedOut: false,
+    });
+    const run = (async (argv: readonly string[], options: RunCommandOptions): Promise<CommandResult> => {
+      argvs.push([...argv]);
+      if (isListingContainers(argv)) {
+        if (containers === 'down') throw new Error('Cannot connect to the Docker daemon');
+        return answer(argv, options, containers.map((_, index) => `id${index}`).join('\n'));
+      }
+      if (isReadingComposeLabels(argv)) {
+        if (containers === 'down') throw new Error('Cannot connect to the Docker daemon');
+        return answer(
+          argv,
+          options,
+          containers.map(([project, dir]) => `${project}|${dir.startsWith('/') ? dir : join(root, dir)}`).join('\n'),
+        );
+      }
+      return await rest(argv, options);
+    }) as typeof import('../deploy/executor.js').runCommand;
+    return { run, argvs };
+  }
+
+  /** Whether the command asked Docker which compose project owns the containers (doctor's own proxy probe does not count). */
+  const askedDocker = (probe: Probe): boolean =>
+    probe.argvs.some((argv) => isListingContainers(argv) || isReadingComposeLabels(argv));
+
+  const UNDER_APP_NAMED_PROJECT = [
+    ['myapp', 'repo/infra/compose'],
+    ['myapp', 'repo/infra/compose'],
+  ] as const;
+
+  function projectSeenBy(seen: Array<string | undefined>): Check {
+    return {
+      id: 'project',
+      title: 'project',
+      severity: 'recommended',
+      async run(context) {
+        seen.push(context.composeProject);
+        return { status: 'pass', detail: 'ok' };
+      },
+    };
+  }
+
+  describe('doctor', () => {
+    it('hands the checks the project Docker reports and prints the note on stderr', async () => {
+      const root = rootRecording();
+      const seen: Array<string | undefined> = [];
+
+      const result = await runDoctor(['--root', root], [projectSeenBy(seen)], {
+        runCommand: dockerWith(root, UNDER_APP_NAMED_PROJECT).run,
+      });
+
+      expect(result.error).toBeUndefined();
+      expect(seen).toEqual(['myapp']);
+      expect(result.stderr).toContain('appctl: note: recorded compose project myapp');
+      expect(result.stderr).toContain(root);
+      expect(JSON.parse(readFileSync(deployStatePath(root), 'utf8'))).toMatchObject({ composeProject: 'myapp' });
+    });
+
+    it('keeps stdout a clean JSON document under --json: the note goes to stderr only', async () => {
+      const root = rootRecording();
+
+      const result = await runDoctor(['--root', root, '--json'], HEALTHY, {
+        runCommand: dockerWith(root, UNDER_APP_NAMED_PROJECT).run,
+      });
+
+      expect(() => JSON.parse(result.stdout)).not.toThrow();
+      expect(result.stdout).not.toContain('compose project');
+      expect(result.stderr).toContain('note: recorded compose project myapp');
+    });
+
+    it('prints the warning, and keeps `compose`, when several projects run in the folder', async () => {
+      const root = rootRecording();
+      const seen: Array<string | undefined> = [];
+
+      const result = await runDoctor(['--root', root], [projectSeenBy(seen)], {
+        runCommand: dockerWith(root, [
+          ['zeta', 'repo'],
+          ['alpha', 'repo'],
+        ]).run,
+      });
+
+      expect(seen).toEqual(['compose']);
+      expect(result.stderr).toContain('warning:');
+      expect(result.stderr).toContain('alpha, zeta');
+      expect(result.stderr).toContain(deployStatePath(root));
+    });
+
+    it('leaves a recorded project alone and does not ask Docker', async () => {
+      const root = rootRecording({ composeProject: 'pinned' });
+      const seen: Array<string | undefined> = [];
+      const probe = dockerWith(root, UNDER_APP_NAMED_PROJECT);
+
+      const result = await runDoctor(['--root', root], [projectSeenBy(seen)], { runCommand: probe.run });
+
+      expect(seen).toEqual(['pinned']);
+      expect(askedDocker(probe)).toBe(false);
+      expect(result.stderr).not.toContain('compose project');
+    });
+
+    it('is unchanged when Docker cannot be asked: `compose`, and nothing on stderr about it', async () => {
+      const root = rootRecording();
+      const seen: Array<string | undefined> = [];
+
+      const result = await runDoctor(['--root', root], [projectSeenBy(seen)], {
+        runCommand: dockerWith(root, 'down').run,
+      });
+
+      expect(result.error).toBeUndefined();
+      expect(seen).toEqual(['compose']);
+      expect(result.stderr).not.toContain('compose project');
+    });
+
+    it('names no project at all for a host with no record, and does not ask Docker', async () => {
+      const bare = mkdtempSync(join(tmpdir(), 'appctl-bare-'));
+      const seen: Array<string | undefined> = [];
+      const probe = dockerWith(bare, UNDER_APP_NAMED_PROJECT);
+
+      await runDoctor(['--root', bare], [projectSeenBy(seen)], { runCommand: probe.run });
+
+      expect(seen).toEqual([undefined]);
+      expect(askedDocker(probe)).toBe(false);
+    });
+  });
+
+  describe('status', () => {
+    /** The `docker compose ... ps` call status makes, which must name the project. */
+    const psCall = (probe: Probe): string[] | undefined =>
+      probe.argvs.find((argv) => argv[0] === 'docker' && argv[1] === 'compose' && argv.includes('ps'));
+
+    it('looks for the containers in the project Docker reports, and prints the note on stderr', async () => {
+      const root = rootRecording();
+      const probe = dockerWith(root, UNDER_APP_NAMED_PROJECT, composeRunCommand(ALL_RUNNING, 'Database schema is up to date!'));
+
+      const result = await runStatus(['--root', root], {
+        runCommand: probe.run,
+        fetch: (async () => new Response('', { status: 200 })) as typeof globalThis.fetch,
+      });
+
+      expect(result.error).toBeUndefined();
+      expect(psCall(probe)?.slice(0, 4)).toEqual(['docker', 'compose', '-p', 'myapp']);
+      expect(result.stderr).toContain('appctl: note: recorded compose project myapp');
+    });
+
+    it('keeps stdout a clean JSON document under --json', async () => {
+      const root = rootRecording();
+      const probe = dockerWith(root, UNDER_APP_NAMED_PROJECT, composeRunCommand(ALL_RUNNING, 'Database schema is up to date!'));
+
+      const result = await runStatus(['--root', root, '--json'], {
+        runCommand: probe.run,
+        fetch: (async () => new Response('', { status: 200 })) as typeof globalThis.fetch,
+      });
+
+      expect((JSON.parse(result.stdout) as { healthy: boolean }).healthy).toBe(true);
+      expect(result.stderr).toContain('note: recorded compose project myapp');
+    });
+
+    it('leaves a recorded project alone and does not ask Docker', async () => {
+      const root = rootRecording({ composeProject: 'pinned' });
+      const probe = dockerWith(root, UNDER_APP_NAMED_PROJECT, composeRunCommand(ALL_RUNNING, 'Database schema is up to date!'));
+
+      const result = await runStatus(['--root', root], {
+        runCommand: probe.run,
+        fetch: (async () => new Response('', { status: 200 })) as typeof globalThis.fetch,
+      });
+
+      expect(psCall(probe)?.slice(0, 4)).toEqual(['docker', 'compose', '-p', 'pinned']);
+      expect(askedDocker(probe)).toBe(false);
+      expect(result.stderr).not.toContain('compose project');
+    });
+
+    it('is unchanged when Docker cannot be asked: `-p compose`, and the verdict is not affected', async () => {
+      const root = rootRecording();
+      const probe = dockerWith(root, 'down', composeRunCommand(ALL_RUNNING, 'Database schema is up to date!'));
+
+      const result = await runStatus(['--root', root], {
+        runCommand: probe.run,
+        fetch: (async () => new Response('', { status: 200 })) as typeof globalThis.fetch,
+      });
+
+      expect(result.error).toBeUndefined();
+      expect(psCall(probe)?.slice(0, 4)).toEqual(['docker', 'compose', '-p', 'compose']);
+      expect(result.stderr).not.toContain('compose project');
+    });
+
+    it('does not ask Docker, nor invent a project, for a folder that is not a deployment', async () => {
+      const empty = mkdtempSync(join(tmpdir(), 'appctl-empty-'));
+      const probe = dockerWith(empty, UNDER_APP_NAMED_PROJECT, composeRunCommand(ALL_RUNNING, 'x'));
+
+      const result = await runStatus(['--root', empty], { runCommand: probe.run });
+
+      expect(exitCodeFor(result.error)).toBe(EXIT.USAGE);
+      expect(askedDocker(probe)).toBe(false);
+    });
   });
 });
