@@ -64,6 +64,7 @@ import {
   type RepoTarget,
 } from './repo.js';
 import { explainComposeFailure } from './compose-hints.js';
+import { reconcileComposeProject } from './compose-project.js';
 import {
   NotInstalledError,
   appendHistory,
@@ -1479,7 +1480,18 @@ export async function runUpdate(options: UpdateOptions): Promise<UpdateResult> {
   // was no deployment while they stood in one, and pointing them at `install`,
   // whose precondition is the opposite. Where the record is missing and the
   // evidence is there, ADOPT.
-  const state = await resolveStateForUpdate(options);
+  const loaded = await resolveStateForUpdate(options);
+  // ⚠ BEFORE ANY `composeArgv` CALL: a server installed by a pre-platform CLI
+  // under an app-named project records none, and `composeProjectFor` would
+  // then answer `compose` -- and `up -d` would start a second stack beside the
+  // real one, on the bind port. Docker knows which project the containers are
+  // in; see compose-project.ts. Never fails the update.
+  const reconciled = await reconcileComposeProject({
+    deployRoot: options.deployRoot,
+    state: loaded,
+    runCommand: options.runCommand ?? defaultRunCommand,
+  });
+  const state = reconciled.state ?? loaded;
   const startedAt = Date.now();
 
   const path = envFilePath(options.deployRoot);
@@ -1490,6 +1502,10 @@ export async function runUpdate(options: UpdateOptions): Promise<UpdateResult> {
   });
   // Announced at once, so a screen can show where the log is while it runs.
   options.hooks?.onJournal?.(journal.path);
+  if (reconciled.message !== undefined) {
+    journal.line(reconciled.message);
+    options.hooks?.onProgress?.(reconciled.message);
+  }
 
   const context: UpdateContext = {
     options,
