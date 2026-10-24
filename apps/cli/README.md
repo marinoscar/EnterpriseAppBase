@@ -1154,7 +1154,11 @@ docker compose -f worker.compose.yml -f worker.build.compose.yml up --build   # 
 ```
 
 Only `APPCTL_SERVER_URL` and `APPCTL_TOKEN` are required. Leave
-`APPCTL_NODE_NAME` and `APPCTL_NODE_ID` unset when scaling. Why, and what the
+`APPCTL_NODE_NAME` and `APPCTL_NODE_ID` unset when scaling. To run several
+workers on one machine, set `WORKER_REPLICAS`, `WORKER_CPUS` and `WORKER_MEMORY`
+in `.env.worker` (each replica gets its own state volume; the limits are per
+replica); sizing is in
+[section 4.2 of the runbook](../../docs/runbooks/run-worker-nodes.md#42-several-workers-on-one-machine). Why, and what the
 compose file's `restart`, `stop_grace_period` and exec-form `ENTRYPOINT` are
 for, is in
 [`docs/runbooks/run-worker-nodes.md`, "Run a fleet in containers"](../../docs/runbooks/run-worker-nodes.md#4-run-a-fleet-in-containers).
