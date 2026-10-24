@@ -18,7 +18,7 @@ Subpath exports, each with its own README:
 | `/core` | `registerCliCommand`, `registerEnvSpecFragment`, `registerEnvGroup`, `registerEnvGenerator`, `annotateEnvKey` and the env-key metadata helpers | [core](src/core/README.md) |
 | `/commands` | The six built-in command registrars and the error model | [commands](src/commands/README.md) |
 | `/tui` | `registerTuiScreen`, `registerTuiScreenSection` and the built-in screen order | [tui](src/tui/README.md) |
-| `/deploy` | `registerDeployStep`, `registerDeployCheck`, `registerProxyStreamPath`, `registerEdgeConfigFile`, the built-in step ids, `planDeploySteps`, `DeployHooks`, the env template helpers | [deploy](src/deploy/README.md) |
+| `/deploy` | `registerDeployStep`, `registerDeployCheck`, `registerProxyStreamPath`, `registerEdgeConfigFile`, `detectComposeProject`, `isPathUnder`, the built-in step ids, `planDeploySteps`, `DeployHooks`, the env template helpers | [deploy](src/deploy/README.md) |
 | `/node` | `JobExecutor`, `ExecutorRegistry`, `registerNodeExecutor` | [node](src/node/README.md) |
 | `/api-client` | `ApiClient`, `resolveApiBaseUrl` and the API errors | [api-client](src/api-client/README.md) |
 | `/telemetry` | The worker's span relay and the telemetry env-spec fragment | [telemetry](src/telemetry/README.md) |

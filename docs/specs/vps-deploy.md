@@ -184,8 +184,9 @@ Registered in `packages/platform-cli/src/engine/deploy/checks/`, one module per 
 
 `bind-port-free` and app checks recognise the deployment's own containers by
 `CheckContext.composeProject` (`DeployCheckContext.composeProject` for
-`registerDeployCheck`), the deployment's compose project: `compose` for a
-deployment installed before the project was recorded. Use it, not
+`registerDeployCheck`), the deployment's compose project: the recorded one, or, for a
+deployment installed before the project was recorded, the one Docker reports
+(see Compose project name), `compose` only when Docker cannot say. Use it, not
 `basename(deployRoot)`, and fall back to the folder name only when it is
 absent (optional on `DeployCheckContext`; absent before any state exists).
 
@@ -333,10 +334,18 @@ version with no write, commit or push.
 ### Compose project name
 
 Recorded at install (`composeProject`, the deployment directory's basename)
-and passed as `-p` on every call; never re-derived. A deployment that predates
-the field keeps the name `compose`, which is what Compose derived for it
-originally. Renaming an existing project would start a second stack on the same
-port.
+and passed as `-p` on every call; never re-derived. A deployment whose state
+records none (or only the legacy `compose`) is confirmed against Docker before
+`update`, `status` and `doctor` (and the TUI doctor): the engine reads
+`com.docker.compose.project` off the containers whose
+`com.docker.compose.project.working_dir` is inside the deploy root and, when
+they all belong to one other project, records it (the previous state file is
+kept once as `.appctl-deploy.json.bak`, `0600`). A recorded non-legacy project
+is never overwritten; an ambiguous answer writes nothing and warns. `install`,
+`uninstall` and `deploy about` are not reconciled, and a failed `install` no
+longer records the assumed `compose`. Only when Docker cannot say does a state
+with no record fall back to `compose`. Renaming an existing project would
+start a second stack on the same port.
 
 ### Run journal
 
