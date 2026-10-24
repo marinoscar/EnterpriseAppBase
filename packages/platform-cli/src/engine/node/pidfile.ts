@@ -139,7 +139,13 @@ export async function checkForRunningInstance(paths: {
   const reclaimed: InstanceCheck['reclaimed'] = [];
 
   const pid = readPidfile(paths.pidPath);
-  if (pid !== undefined && isProcessAlive(pid)) {
+  // A pidfile naming THIS process is the litter of a previous container, not a
+  // second instance: in a container the worker is PID 1 every time, so after a
+  // SIGKILL or an OOM kill the restarted worker reads its own pid out of the
+  // volume. `kill(ownPid, 0)` succeeds, and without this guard the worker
+  // would refuse to start forever. The socket probe below stays the
+  // authoritative check for a live instance sharing this directory.
+  if (pid !== undefined && pid !== process.pid && isProcessAlive(pid)) {
     return { running: true, pid, reclaimed };
   }
   if (pid !== undefined) {

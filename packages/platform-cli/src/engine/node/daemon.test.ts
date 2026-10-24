@@ -107,6 +107,43 @@ describe('pidfile helpers', () => {
     expect(existsSync(socketPath)).toBe(false);
   });
 
+  it('treats a pidfile naming THIS process as stale — a container worker is always PID 1', async () => {
+    const { pidPath, socketPath } = paths();
+    // After a SIGKILL or an OOM kill the restarted worker reads its own pid
+    // out of the state volume; kill(ownPid, 0) succeeds, so without the guard
+    // it would refuse to start forever.
+    writePidfile(pidPath, process.pid);
+
+    const check = await checkForRunningInstance({ pidPath, socketPath });
+    expect(check.running).toBe(false);
+    expect(check.reclaimed).toContain('pidfile');
+    expect(existsSync(pidPath)).toBe(false);
+  });
+
+  it('still refuses when the pidfile names this process but a LIVE socket answers', async () => {
+    const { pidPath, socketPath } = paths();
+    writePidfile(pidPath, process.pid);
+    const server = createServer();
+    await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+    cleanups.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
+
+    // The socket probe stays authoritative for a live instance sharing the directory.
+    const check = await checkForRunningInstance({ pidPath, socketPath });
+    expect(check.running).toBe(true);
+    expect(existsSync(socketPath)).toBe(true);
+  });
+
+  it('still refuses when the pidfile names ANOTHER live process', async () => {
+    const { pidPath, socketPath } = paths();
+    writePidfile(pidPath, process.ppid);
+
+    const check = await checkForRunningInstance({ pidPath, socketPath });
+    expect(check.running).toBe(true);
+    expect(check.pid).toBe(process.ppid);
+    expect(check.reclaimed).toEqual([]);
+    expect(readPidfile(pidPath)).toBe(process.ppid);
+  });
+
   it('refuses when something is actually listening on the socket', async () => {
     const { pidPath, socketPath } = paths();
     const server = createServer();
