@@ -2,6 +2,31 @@
 
 This folder contains utility scripts for database and development operations.
 
+## Scripts at a glance
+
+| Script | npm script | What it does |
+|---|---|---|
+| `prisma-env.js` | `prisma:*` | Builds `DATABASE_URL` from `POSTGRES_*` and runs the Prisma CLI (below) |
+| `dump-openapi.ts` | `openapi:dump` | Writes the OpenAPI document without a database |
+| `generate-permission-catalog.ts` | `catalog:permissions` | Writes the role and permission registries to `prisma/catalog/permissions.json`, which the seed reads; `-- --check` exits 1 when the committed file is stale. See [common/permissions/README.md](../src/common/permissions/README.md) |
+| `generate-settings-catalog.ts` | `catalog:settings` | Writes the system settings namespace defaults to `prisma/catalog/system-settings-defaults.json`, which the seed reads; `-- --check` exits 1 when the committed file is stale (below) |
+
+## generate-settings-catalog.ts
+
+Renders `prisma/catalog/system-settings-defaults.json`, the system settings
+defaults `prisma/seed-data.ts` seeds, from the settings namespace registry
+(`src/settings/registry/`). The seed cannot import `src/` (it runs under
+ts-node outside the Nest build, and the production image carries `prisma/` but
+not `src/`), so it reads this committed, generated copy instead.
+
+```bash
+npm run catalog:settings --workspace=api             # regenerate after changing a namespace or a default
+npm run catalog:settings --workspace=api -- --check  # exit 1, printing the fix, when the file is stale
+```
+
+`test/settings/settings-catalog.spec.ts` runs the same staleness check in
+`npm test`. See [src/settings/registry/README.md](../src/settings/registry/README.md).
+
 ## prisma-env.js
 
 A helper script that constructs `DATABASE_URL` from individual PostgreSQL environment variables before executing Prisma CLI commands.
@@ -164,7 +189,7 @@ npm run prisma:migrate
 
 **Error: "Connection timeout" or "Can't reach database"**
 - Check that environment variables are set correctly
-- Verify database is running: `docker compose ps db`
+- Verify database is running and accessible
 - Test connection: `psql -h $POSTGRES_HOST -p $POSTGRES_PORT -U $POSTGRES_USER -d $POSTGRES_DB`
 
 **Error: "Authentication failed"**

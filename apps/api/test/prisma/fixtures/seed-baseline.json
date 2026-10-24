@@ -1,0 +1,453 @@
+{
+  "$comment": "Captured from the database the PRE-change prisma/seed.ts produced (issue #712, PP-5.5): roles, permissions and role_permissions by name, the global system_settings row, and the row counts. seed-platform.db.spec.ts proves the registry-driven seed writes exactly this. Do not regenerate it to make a test pass: when seeded data changes on purpose, edit it here in the same commit so the change shows in review. Edited on purpose by issue #723 (PP-6.3): the org_admin role, the four org_* permissions, admin's org grants moved to org_admin, and the scoped role descriptions. Edited on purpose by issue #726 (PP-6.7): the two system permissions organizations:read and organizations:write, granted to admin. Edited on purpose by issue #728 (PP-7.1): the three org permissions groups:read (every org role), groups:write (org_admin, contributor) and groups:admin (org_admin). Edited on purpose by issue #729 (PP-7.2): the three org permissions sharing:read (every org role), sharing:write (org_admin, contributor) and sharing:admin (org_admin). Edited on purpose by issue #733 (PP-8.1): the two org permissions org_settings:read and org_settings:write, granted to org_admin. Edited on purpose by issue #738 (PP-8.5): the two org permissions org_broadcasts:read and org_broadcasts:write, granted to org_admin. Edited on purpose by issue #743 (PP-9.1): the two system permissions system:factory_reset and orgs:offboard, granted to admin. Edited on purpose by issue #925 (PP-14.7): the storage namespace is stored as { provider, drivers } (one entry per built-in driver, all empty / not configured) instead of the flat bucket, region, endpoint, accountId, accessKeyId and forcePathStyle fields; legacy flat rows still load through the read-time adapter, but the seed writes the new shape.",
+  "counts": {
+    "roles": 4,
+    "permissions": 51,
+    "allowedEmails": 1,
+    "systemSettings": 1,
+    "rolePermissions": 65
+  },
+  "roles": [
+    {
+      "name": "admin",
+      "description": "System administrator - operate the deployment: users, roles and all system settings"
+    },
+    {
+      "name": "contributor",
+      "description": "Organization member - manage own settings and storage objects, use AI"
+    },
+    {
+      "name": "org_admin",
+      "description": "Organization administrator - everything a contributor can do, plus manage the organization members and invites"
+    },
+    {
+      "name": "viewer",
+      "description": "Read-only organization member - view content and manage own settings"
+    }
+  ],
+  "permissions": [
+    {
+      "name": "ai:use",
+      "description": "Call AI models using a saved key"
+    },
+    {
+      "name": "ai_config:read",
+      "description": "View the deployment-wide AI platform policy"
+    },
+    {
+      "name": "ai_config:write",
+      "description": "Change whether AI is enabled, the key policy, per-provider configuration and the deployment-wide defaults"
+    },
+    {
+      "name": "allowlist:read",
+      "description": "View allowlisted emails"
+    },
+    {
+      "name": "allowlist:write",
+      "description": "Manage allowlisted emails"
+    },
+    {
+      "name": "broadcasts:read",
+      "description": "View notification broadcasts and their delivery history"
+    },
+    {
+      "name": "broadcasts:write",
+      "description": "Compose, schedule, cancel and send notification broadcasts"
+    },
+    {
+      "name": "db_backup:read",
+      "description": "View backup schedule, history and status"
+    },
+    {
+      "name": "db_backup:restore",
+      "description": "Restore the database from a backup"
+    },
+    {
+      "name": "db_backup:write",
+      "description": "Configure the backup schedule and run a backup"
+    },
+    {
+      "name": "groups:admin",
+      "description": "View and administer every group of the organization, including groups you do not belong to"
+    },
+    {
+      "name": "groups:read",
+      "description": "View the groups you belong to, answer your group invitations and leave a group"
+    },
+    {
+      "name": "groups:write",
+      "description": "Create groups and manage the members and invitations of groups you administer"
+    },
+    {
+      "name": "jobs:read",
+      "description": "View queued, running and completed jobs"
+    },
+    {
+      "name": "jobs:write",
+      "description": "Enqueue, retry and cancel jobs"
+    },
+    {
+      "name": "nodes:read",
+      "description": "View worker nodes and their health"
+    },
+    {
+      "name": "nodes:write",
+      "description": "Register, drain and remove worker nodes"
+    },
+    {
+      "name": "org_ai_config:read",
+      "description": "View this organization's AI keys, usage and AI policy overrides"
+    },
+    {
+      "name": "org_ai_config:write",
+      "description": "Set or remove this organization's AI provider keys and tighten its AI policy"
+    },
+    {
+      "name": "org_broadcasts:read",
+      "description": "View the active organization's notification broadcasts"
+    },
+    {
+      "name": "org_broadcasts:write",
+      "description": "Compose, schedule, cancel and send notification broadcasts to the active organization"
+    },
+    {
+      "name": "org_invites:read",
+      "description": "View pending and past invitations to the organization"
+    },
+    {
+      "name": "org_invites:write",
+      "description": "Invite people to the organization and revoke invitations"
+    },
+    {
+      "name": "org_members:read",
+      "description": "View the members of the organization and their organization roles"
+    },
+    {
+      "name": "org_members:write",
+      "description": "Change organization members: their organization role, suspend or remove them"
+    },
+    {
+      "name": "org_settings:read",
+      "description": "Read the active organization's settings overrides"
+    },
+    {
+      "name": "org_settings:write",
+      "description": "Modify the active organization's settings overrides"
+    },
+    {
+      "name": "organizations:read",
+      "description": "List the deployment's organizations and their member counts"
+    },
+    {
+      "name": "organizations:write",
+      "description": "Create organizations (with a first administrator invitation) and rename them"
+    },
+    {
+      "name": "orgs:offboard",
+      "description": "Offboard an organization: delete it with all its data, members and invitations"
+    },
+    {
+      "name": "push:read",
+      "description": "View Web Push (VAPID) configuration"
+    },
+    {
+      "name": "push:write",
+      "description": "Generate, rotate, enable/disable and remove Web Push VAPID keys"
+    },
+    {
+      "name": "rbac:manage",
+      "description": "Manage roles and permissions"
+    },
+    {
+      "name": "sharing:admin",
+      "description": "Manage the shares of every record of the organization, including records you do not own"
+    },
+    {
+      "name": "sharing:read",
+      "description": "View what is shared with you and who a record you can share is shared with, and remove your own access"
+    },
+    {
+      "name": "sharing:write",
+      "description": "Share records you are allowed to share with people and groups of the organization, and change or revoke those shares"
+    },
+    {
+      "name": "storage:delete_any",
+      "description": "Admin: delete any object"
+    },
+    {
+      "name": "storage:read",
+      "description": "Read object metadata, get download URLs"
+    },
+    {
+      "name": "storage:write",
+      "description": "Upload, update metadata"
+    },
+    {
+      "name": "storage_config:read",
+      "description": "View the object-storage configuration and the masked status of its stored secret key"
+    },
+    {
+      "name": "storage_config:write",
+      "description": "Change the object-storage provider, bucket, endpoint and credential, test a configuration, and provision a bucket"
+    },
+    {
+      "name": "system:factory_reset",
+      "description": "Factory reset: delete every other user and all application data, keeping configuration and backups"
+    },
+    {
+      "name": "system_settings:read",
+      "description": "Read system settings"
+    },
+    {
+      "name": "system_settings:write",
+      "description": "Modify system settings"
+    },
+    {
+      "name": "telemetry:query",
+      "description": "Run SQL, export and use the AI assistant against telemetry"
+    },
+    {
+      "name": "telemetry:read",
+      "description": "View telemetry settings and status"
+    },
+    {
+      "name": "telemetry:write",
+      "description": "Change telemetry settings"
+    },
+    {
+      "name": "user_settings:read",
+      "description": "Read own user settings"
+    },
+    {
+      "name": "user_settings:write",
+      "description": "Modify own user settings"
+    },
+    {
+      "name": "users:read",
+      "description": "View user list and details"
+    },
+    {
+      "name": "users:write",
+      "description": "Modify user accounts"
+    }
+  ],
+  "rolePermissions": {
+    "admin": [
+      "ai_config:read",
+      "ai_config:write",
+      "allowlist:read",
+      "allowlist:write",
+      "broadcasts:read",
+      "broadcasts:write",
+      "db_backup:read",
+      "db_backup:restore",
+      "db_backup:write",
+      "jobs:read",
+      "jobs:write",
+      "nodes:read",
+      "nodes:write",
+      "organizations:read",
+      "organizations:write",
+      "orgs:offboard",
+      "push:read",
+      "push:write",
+      "rbac:manage",
+      "storage:delete_any",
+      "storage_config:read",
+      "storage_config:write",
+      "system:factory_reset",
+      "system_settings:read",
+      "system_settings:write",
+      "telemetry:query",
+      "telemetry:read",
+      "telemetry:write",
+      "users:read",
+      "users:write"
+    ],
+    "contributor": [
+      "ai:use",
+      "groups:read",
+      "groups:write",
+      "sharing:read",
+      "sharing:write",
+      "storage:read",
+      "storage:write",
+      "user_settings:read",
+      "user_settings:write"
+    ],
+    "org_admin": [
+      "ai:use",
+      "groups:admin",
+      "groups:read",
+      "groups:write",
+      "org_ai_config:read",
+      "org_ai_config:write",
+      "org_broadcasts:read",
+      "org_broadcasts:write",
+      "org_invites:read",
+      "org_invites:write",
+      "org_members:read",
+      "org_members:write",
+      "org_settings:read",
+      "org_settings:write",
+      "sharing:admin",
+      "sharing:read",
+      "sharing:write",
+      "storage:read",
+      "storage:write",
+      "user_settings:read",
+      "user_settings:write"
+    ],
+    "viewer": [
+      "groups:read",
+      "sharing:read",
+      "storage:read",
+      "user_settings:read",
+      "user_settings:write"
+    ]
+  },
+  "systemSettings": {
+    "key": "global",
+    "value": {
+      "ai": {
+        "limits": {},
+        "enabled": false,
+        "defaults": {
+          "allowRealtime": false,
+          "allowBackgroundRuns": true
+        },
+        "keyPolicy": "byok",
+        "providers": {
+          "gemini": {
+            "enabled": false
+          },
+          "openai": {
+            "enabled": false
+          },
+          "anthropic": {
+            "enabled": false
+          },
+          "azure-openai": {
+            "enabled": false
+          },
+          "openai-compatible": {
+            "enabled": false
+          }
+        },
+        "hostedTools": {
+          "mcp": false,
+          "web_search": false,
+          "file_search": false,
+          "mcpAllowedHosts": [],
+          "code_interpreter": false,
+          "image_generation": false
+        },
+        "logPromptContent": false,
+        "usageRetentionDays": 180,
+        "deploymentKeyServesOrgs": true
+      },
+      "jobs": {
+        "history": {
+          "purgeEnabled": true,
+          "retentionDays": 30
+        },
+        "stuckThresholdMinutes": 30
+      },
+      "nodes": {
+        "offlineRetentionDays": 30,
+        "staleHeartbeatSeconds": 90,
+        "jobSecretBrokerEnabled": false,
+        "offlineStaleMultiplier": 4
+      },
+      "storage": {
+        "provider": "s3",
+        "drivers": {
+          "s3": {
+            "bucket": "",
+            "region": "",
+            "endpoint": "",
+            "accessKeyId": "",
+            "forcePathStyle": null
+          },
+          "r2": {
+            "bucket": "",
+            "accountId": "",
+            "region": "",
+            "endpoint": "",
+            "accessKeyId": "",
+            "forcePathStyle": null
+          },
+          "s3compatible": {
+            "bucket": "",
+            "region": "",
+            "endpoint": "",
+            "accessKeyId": "",
+            "forcePathStyle": null
+          }
+        }
+      },
+      "retention": {
+        "aiRuns": {
+          "days": 90,
+          "enabled": true
+        },
+        "auditEvents": {
+          "days": 365,
+          "enabled": false
+        },
+        "notifications": {
+          "days": 180,
+          "enabled": true
+        },
+        "notificationDeliveries": {
+          "days": 90,
+          "enabled": true
+        }
+      },
+      "telemetry": {
+        "query": {
+          "maxRows": 10000,
+          "timeoutSeconds": 30
+        },
+        "enabled": false,
+        "assistant": {
+          "enabled": false,
+          "modelId": null,
+          "maxSteps": 15,
+          "provider": null,
+          "shareResults": true,
+          "maxResultRowsToModel": 100
+        },
+        "instanceId": null,
+        "retentionDays": 30
+      },
+      "maintenance": {
+        "enabled": false,
+        "message": "This service is temporarily unavailable for scheduled maintenance. Please try again shortly.",
+        "startedAt": null,
+        "allowAdmins": true,
+        "startedById": null
+      },
+      "notifications": {
+        "browserEnabled": true,
+        "disabledEvents": []
+      },
+      "databaseBackup": {
+        "enabled": false,
+        "timezone": "UTC",
+        "dayOfWeek": 0,
+        "frequency": "daily",
+        "timeOfDay": "02:00",
+        "dayOfMonth": 1,
+        "retentionCount": 7,
+        "runStaleMinutes": 120,
+        "storageProvider": "",
+        "compressionLevel": 6,
+        "nodeOffloadEnabled": false,
+        "restoreRollbackMode": "retain_database",
+        "oldDatabaseRetentionHours": 48
+      }
+    },
+    "version": 1
+  }
+}

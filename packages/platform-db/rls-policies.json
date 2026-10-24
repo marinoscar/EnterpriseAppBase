@@ -1,0 +1,74 @@
+{
+  "policies": [
+    {
+      "name": "storage_objects_org_isolation",
+      "table": "storage_objects",
+      "reason": "Organization isolation: a row is visible only when org_id equals the transaction-local app.org_id (or the transaction carries app.rls_bypass). Prisma cannot express policies.",
+      "doc": "docs/SECURITY-ARCHITECTURE.md",
+      "createdIn": "0025_org_scoped_rls"
+    },
+    {
+      "name": "storage_object_chunks_org_isolation",
+      "table": "storage_object_chunks",
+      "reason": "Organization isolation of upload parts; the chunk carries its own org_id because a policy cannot join through its parent.",
+      "doc": "docs/SECURITY-ARCHITECTURE.md",
+      "createdIn": "0025_org_scoped_rls"
+    },
+    {
+      "name": "ai_runs_org_isolation",
+      "table": "ai_runs",
+      "reason": "Organization isolation of background AI runs, whose request column holds the full prompt.",
+      "doc": "docs/SECURITY-ARCHITECTURE.md",
+      "createdIn": "0025_org_scoped_rls"
+    },
+    {
+      "name": "ai_usage_events_org_isolation",
+      "table": "ai_usage_events",
+      "reason": "Organization isolation of AI usage accounting; a row with a NULL org_id is visible to the bypass (system) client only.",
+      "doc": "docs/SECURITY-ARCHITECTURE.md",
+      "createdIn": "0025_org_scoped_rls"
+    },
+    {
+      "name": "groups_org_isolation",
+      "table": "groups",
+      "reason": "Organization isolation of sharing groups (PP-7.1): a group lives inside one organization and is never a tenant.",
+      "doc": "docs/SECURITY-ARCHITECTURE.md",
+      "createdIn": "0026_add_groups"
+    },
+    {
+      "name": "group_members_org_isolation",
+      "table": "group_members",
+      "reason": "Organization isolation of group memberships; the row carries the group's org_id (composite key to groups) because a policy cannot join through its parent.",
+      "doc": "docs/SECURITY-ARCHITECTURE.md",
+      "createdIn": "0026_add_groups"
+    },
+    {
+      "name": "group_invites_org_isolation",
+      "table": "group_invites",
+      "reason": "Organization isolation of group invitations, which hold invitee e-mail addresses.",
+      "doc": "docs/SECURITY-ARCHITECTURE.md",
+      "createdIn": "0026_add_groups"
+    },
+    {
+      "name": "grants_org_isolation",
+      "table": "grants",
+      "reason": "Organization isolation of grants (PP-7.2): a grant shares one record inside its organization and can never name another organization's user or group.",
+      "doc": "docs/SECURITY-ARCHITECTURE.md",
+      "createdIn": "0027_add_grants"
+    },
+    {
+      "name": "org_settings_org_isolation",
+      "table": "org_settings",
+      "reason": "Organization isolation of an organization's settings overrides (PP-8.1): one row per organization, read and written only inside runInOrg.",
+      "doc": "docs/SECURITY-ARCHITECTURE.md",
+      "createdIn": "0028_add_org_settings"
+    },
+    {
+      "name": "org_credentials_org_isolation",
+      "table": "org_credentials",
+      "reason": "Organization isolation of organization-owned encrypted credentials (PP-8.8): an org's key is visible only inside that organization's scope.",
+      "doc": "docs/SECURITY-ARCHITECTURE.md",
+      "createdIn": "0029_add_org_credentials"
+    }
+  ]
+}

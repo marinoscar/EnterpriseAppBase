@@ -1,0 +1,8 @@
+{
+  "productName": "My App",
+  "tagline": "An application built on the platform packages.",
+  "repoSlug": "your-org/my-app",
+  "themeColor": "#1976d2",
+  "backgroundColor": "#ffffff",
+  "cliName": "appctl"
+}

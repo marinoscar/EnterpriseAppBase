@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Merged into every app that includes :platform-core. No activity is declared here:
+     the app declares its launcher (a TwaLauncher subclass) and its own screens. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Web Push delegated from the web app through the TWA, and the app's own notices. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <queries>
+        <!-- Lets androidbrowserhelper find a browser that supports Custom Tabs / TWAs. -->
+        <intent>
+            <action android:name="android.support.customtabs.action.CustomTabsService" />
+        </intent>
+    </queries>
+</manifest>

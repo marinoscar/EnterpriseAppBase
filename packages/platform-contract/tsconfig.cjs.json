@@ -1,0 +1,13 @@
+{
+  // CommonJS half of the dual build, for the API (apps/api is CommonJS).
+  // The package is `"type": "module"`, so NodeNext would emit ESM here;
+  // `module: CommonJS` forces require()/exports output instead. The emitted
+  // files only load as CommonJS because scripts/write-dist-stubs.mjs writes
+  // dist/cjs/package.json = {"type":"commonjs"} afterwards.
+  "extends": "./tsconfig.build.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "Bundler",
+    "outDir": "./dist/cjs"
+  }
+}

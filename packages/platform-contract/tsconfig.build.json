@@ -1,0 +1,23 @@
+{
+  // Shared emit settings for the dual build. Not run on its own: the `build`
+  // script runs tsconfig.cjs.json and tsconfig.esm.json, which both extend
+  // this file and only choose the module format and the output directory.
+  //
+  // Each half carries its own declarations (dist/cjs/*.d.ts, dist/esm/*.d.ts)
+  // rather than one shared dist/types: a .d.ts takes its module format from
+  // the nearest package.json, so a single ESM-format copy would make every
+  // CommonJS consumer on `moduleResolution: node16` fail with TS1479
+  // ("masquerading as ESM"). The `exports` map pairs each condition with the
+  // declarations of the same format.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    // src/ uses no Node API (the contract also runs in the browser, and the
+    // lint forbids Node built-ins there, #701), so the build needs no
+    // @types/node: the web image builds this package without installing it.
+    // tsconfig.json keeps "node" for the tests.
+    "types": []
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts"]
+}

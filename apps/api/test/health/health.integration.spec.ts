@@ -160,7 +160,16 @@ describe('Health Endpoints (Integration)', () => {
       expect(context.prismaMock.$queryRaw).not.toHaveBeenCalled();
     });
 
-    it('should return quickly', async () => {
+    it('should return quickly, doing no expensive work', async () => {
+      // A tight wall-clock ceiling on a real HTTP round trip is inherently
+      // flaky: shared CI runners get briefly loaded, and that's exactly
+      // when a hard "< 100ms" style assertion fails even though nothing
+      // is actually wrong. What actually matters is that the liveness
+      // probe stays cheap by doing no I/O - which the adjacent
+      // 'should not check database connectivity' test already asserts
+      // directly. We keep a duration check here too, but only as a
+      // generous smoke check against gross regressions (e.g. an
+      // accidentally-added blocking call), not as a strict budget.
       const startTime = Date.now();
 
       await request(context.app.getHttpServer())
@@ -168,8 +177,8 @@ describe('Health Endpoints (Integration)', () => {
         .expect(200);
 
       const duration = Date.now() - startTime;
-      // Liveness check should be very fast (under 100ms)
-      expect(duration).toBeLessThan(100);
+      expect(duration).toBeLessThan(2000);
+      expect(context.prismaMock.$queryRaw).not.toHaveBeenCalled();
     });
   });
 

@@ -1,325 +1,125 @@
 # CLAUDE.md
 
-This file provides guidance for AI assistants working on this codebase.
+@AGENTS.md
 
-## Project Overview
+Claude Code loads the shared rules above (project overview, structure, every MANDATORY section, key commands) from [AGENTS.md](AGENTS.md). This file adds only what is specific to Claude Code: the full documentation table, the subagent delegation rules and the cloud-session exception. How Claude Code and OpenCode share these files: [docs/AI-ASSISTANTS.md](docs/AI-ASSISTANTS.md).
 
-Web Application Foundation with React UI + Node API + PostgreSQL. Production-grade foundation with OAuth authentication, RBAC authorization, and flexible settings framework.
+## Cloud sessions
 
-## Technology Stack
+The worktree rule in AGENTS.md has an exception: when the environment has already put you on a designated branch (for example a cloud session), work there instead of creating a worktree.
 
-- **Backend**: Node.js + TypeScript, NestJS with Fastify adapter
-- **Frontend**: React + TypeScript, Material UI (MUI)
-- **Database**: PostgreSQL with Prisma ORM
-- **Auth**: Passport strategies (Google OAuth required)
-- **Testing**: Jest + Supertest (backend), React Testing Library + Jest (frontend)
-- **Observability**: OpenTelemetry, Uptrace, Pino structured logging
-- **Containerization**: Docker + Docker Compose
-- **Reverse Proxy**: Nginx (same-origin routing)
+## Where things are documented
 
-## Repository Structure
-
-```
-/
-  apps/
-    api/                    # Backend API
-      src/
-      test/
-      prisma/
-        schema.prisma
-        migrations/
-      Dockerfile            # API container (near its code)
-    web/                    # Frontend React app
-      src/
-      src/__tests__/
-      Dockerfile            # Web container (near its code)
-  docs/                     # Documentation
-  infra/                    # Infrastructure configuration
-    compose/
-      base.compose.yml       # Core services: api, web, db, nginx
-      dev.compose.yml        # Development overrides (hot reload, volumes)
-      prod.compose.yml       # Production overrides (resource limits)
-      otel.compose.yml       # Observability: uptrace, clickhouse, otel-collector
-      .env.example           # Environment variables template
-    nginx/
-      nginx.conf             # Nginx routing configuration
-    otel/
-      otel-collector-config.yaml   # OTEL Collector config
-      uptrace.yml            # Uptrace configuration
-  tests/e2e/                # Optional E2E tests
-```
-
-## Architecture Principles
-
-1. **Separation of Concerns**: UI handles presentation only; API handles all business logic and authorization
-2. **Same-Origin Hosting**: UI at `/`, API at `/api`, Swagger at `/api/docs`
-3. **Security by Default**: All API endpoints require authentication unless explicitly public
-4. **API-First**: All business logic resides in the API layer
-
-## Key Commands
-
-```bash
-# Setup: copy environment template
-cp infra/compose/.env.example infra/compose/.env
-
-# Start development (from infra/compose folder)
-cd infra/compose && docker compose -f base.compose.yml -f dev.compose.yml up
-
-# Start development with observability (Uptrace UI at http://localhost:14318)
-cd infra/compose && docker compose -f base.compose.yml -f dev.compose.yml -f otel.compose.yml up
-
-# Start production mode
-cd infra/compose && docker compose -f base.compose.yml -f prod.compose.yml up
-
-# Run API tests
-cd apps/api && npm test
-
-# Run frontend tests
-cd apps/web && npm test
-
-# Generate Prisma client after schema changes
-cd apps/api && npm run prisma:generate
-
-# Create a new migration (development)
-cd apps/api && npm run prisma:migrate:dev -- --name <migration_name>
-
-# Apply migrations (production)
-cd apps/api && npm run prisma:migrate
-
-# Note: Use npm scripts (prisma:*) instead of direct npx commands
-# They automatically construct DATABASE_URL from individual env vars
-```
-
-## Service URLs (Development)
-
-- **Application**: http://localhost:3535 (via Nginx)
-- **Swagger UI**: http://localhost:3535/api/docs
-- **Uptrace**: http://localhost:14318 (when otel stack running)
-
-## API Endpoints (MVP)
-
-### Authentication
-- `GET /api/auth/providers` - List enabled OAuth providers
-- `GET /api/auth/google` - Initiate Google OAuth
-- `GET /api/auth/google/callback` - OAuth callback
-- `POST /api/auth/refresh` - Refresh access token
-- `POST /api/auth/logout` - Logout and invalidate session
-- `POST /api/auth/logout-all` - Logout from all devices
-- `GET /api/auth/me` - Get current user
-
-### Device Authorization (RFC 8628)
-- `POST /api/auth/device/code` - Generate device code (Public)
-- `POST /api/auth/device/token` - Poll for authorization (Public)
-- `GET /api/auth/device/activate` - Get activation info
-- `POST /api/auth/device/authorize` - Approve/deny device
-- `GET /api/auth/device/sessions` - List device sessions
-- `DELETE /api/auth/device/sessions/{id}` - Revoke device session
-
-### Users (Admin-only)
-- `GET /api/users` - List users (paginated)
-- `GET /api/users/{id}` - Get user by ID
-- `PATCH /api/users/{id}` - Update user (roles, activation)
-- `PUT /api/users/{id}/roles` - Update user roles
-
-### Settings
-- `GET /api/user-settings` - Get current user's settings
-- `PUT /api/user-settings` - Replace user settings
-- `PATCH /api/user-settings` - Partial update user settings
-- `GET /api/system-settings` - Get system settings
-- `PUT /api/system-settings` - Replace system settings (Admin)
-- `PATCH /api/system-settings` - Partial update system settings (Admin)
-
-### Allowlist (Admin-only)
-- `GET /api/allowlist` - List allowlisted emails (paginated, filterable)
-- `POST /api/allowlist` - Add email to allowlist
-- `DELETE /api/allowlist/{id}` - Remove email from allowlist
-
-### Health
-- `GET /api/health/live` - Liveness check
-- `GET /api/health/ready` - Readiness check (includes DB)
-
-## RBAC Model
-
-### Roles
-- **Admin**: Full access, manage users and system settings
-- **Contributor**: Standard capabilities, manage own settings
-- **Viewer**: Least privilege (default), manage own settings
-
-### Key Permissions
-- `system_settings:read/write` - System settings access
-- `user_settings:read/write` - User settings access
-- `users:read/write` - User management
-- `rbac:manage` - Role assignment
-- `allowlist:read/write` - Allowlist management (Admin only)
-
-## Database Tables
-
-- `users` - User accounts with profile info
-- `user_identities` - OAuth provider identities (provider + subject)
-- `roles` / `permissions` / `role_permissions` - RBAC
-- `user_roles` - User-to-role assignments
-- `system_settings` - Global app settings (JSONB)
-- `user_settings` - Per-user settings (JSONB)
-- `audit_events` - Action audit log
-- `refresh_tokens` - JWT refresh tokens (hashed)
-- `allowed_emails` - Allowlist for access control
-- `device_codes` - Device authorization codes (RFC 8628)
-
-## Access Control: Email Allowlist
-
-The application uses an **email allowlist** to restrict access to pre-authorized users only.
-
-### How It Works
-1. Admins add email addresses to the allowlist before users can login
-2. During OAuth login, the user's email is checked against the allowlist
-3. If the email is not in the allowlist, login is denied with a clear error message
-4. Exception: `INITIAL_ADMIN_EMAIL` always bypasses the allowlist check
-
-### Configuration
-- `INITIAL_ADMIN_EMAIL` environment variable grants initial admin access
-- This email is automatically added to the allowlist during database seeding
-
-### Admin Management
-- Access allowlist management at `/admin/users` (Allowlist tab)
-- Two tabs available:
-  - **Users**: Manage existing registered users
-  - **Allowlist**: Pre-authorize email addresses for future logins
-
-### Status Tracking
-- **Pending**: Email added to allowlist but user hasn't logged in yet
-- **Claimed**: User has successfully logged in and created an account
-- Claimed entries cannot be removed (prevents accidentally removing existing user access)
-
-## Security Guidelines
-
-- Secrets via environment variables only (see `.env.example`)
-- JWT access tokens are short-lived (15 min default)
-- Refresh tokens in HttpOnly cookies with rotation
-- Input validation on all endpoints
-- File uploads: images only, size/type limits, randomized filenames
-- Email allowlist restricts application access to pre-authorized users
-
-## Testing Requirements
-
-- Unit tests: isolated logic (services, guards, validators)
-- Integration tests: API + DB + RBAC flows with test DB
-- Mock OAuth in CI (no real Google dependency)
-- Frontend: component and hook tests
-
-## Environment Variables
-
-Key variables (see `infra/compose/.env.example` for full list):
-
-**Application:**
-- `NODE_ENV` - Environment (development/production)
-- `PORT` - API port (default: 3000)
-- `APP_URL` - Base URL (default: http://localhost:3535)
-
-**Database (individual connection parameters):**
-- `POSTGRES_HOST` - Database hostname (default: db in Docker, localhost otherwise)
-- `POSTGRES_PORT` - Database port (default: 5432)
-- `POSTGRES_USER` - Database user (default: postgres)
-- `POSTGRES_PASSWORD` - Database password (default: postgres)
-- `POSTGRES_DB` - Database name (default: appdb)
-- `POSTGRES_SSL` - Enable SSL connection (default: false)
-
-Note: `DATABASE_URL` is constructed automatically from these variables at runtime.
-
-**Authentication:**
-- `JWT_SECRET` - JWT signing secret (min 32 chars)
-- `JWT_ACCESS_TTL_MINUTES` - Access token TTL (default: 15)
-- `JWT_REFRESH_TTL_DAYS` - Refresh token TTL (default: 14)
-- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` - Google OAuth credentials
-- `INITIAL_ADMIN_EMAIL` - First user with this email becomes Admin
-- `DEVICE_CODE_EXPIRY_MINUTES` - Device code lifetime (default: 15)
-- `DEVICE_CODE_POLL_INTERVAL` - Device polling interval in seconds (default: 5)
-
-**Observability:**
-- `OTEL_ENABLED` - Enable OpenTelemetry (default: true)
-- `OTEL_EXPORTER_OTLP_ENDPOINT` - OTEL Collector endpoint
-- `UPTRACE_DSN` - Uptrace connection string
-
-## Common Patterns
-
-### Adding a New API Endpoint
-1. Create controller method with decorators for auth/RBAC
-2. Add service method with business logic
-3. Update OpenAPI annotations
-4. Add unit + integration tests
-5. Update API.md if needed
-
-### Adding a New Setting
-1. Update Zod schema for validation
-2. Add migration if schema structure changes
-3. Update TypeScript types
-4. Add frontend UI if user-facing
+| Topic | Read |
+|---|---|
+| Architecture, subsystem map; permission matrix, Prisma models, job-type inventory, settings-page inventory, compose files | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (permissions: [§7](docs/ARCHITECTURE.md#7-authorization)) |
+| Architecture decision records (ADRs: index, template, accepted decisions) | [docs/adr/README.md](docs/adr/README.md) |
+| Security design, credential kinds, sessions, email allowlist, tenant isolation (row-level security, the bypass client, the application role) | [docs/SECURITY-ARCHITECTURE.md](docs/SECURITY-ARCHITECTURE.md) (RLS: [§18](docs/SECURITY-ARCHITECTURE.md#18-tenant-isolation-rls)) |
+| API conventions (auth, errors, pagination, If-Match, SSE); per-endpoint reference is the generated OpenAPI at `/api/docs` | [docs/API.md](docs/API.md) |
+| Testing (tiers, helpers, tripwire suites, e2e, visual) | [docs/TESTING.md](docs/TESTING.md) |
+| Dev loop, Fastify/Prisma/Passport gotchas, debugging | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) |
+| Renaming a fork | [docs/RENAMING.md](docs/RENAMING.md) |
+| Extending a slice from an app or a package (the extension ladder, the rule that overrides go through `forRoot` bindings, a recipe per extension point, shipping an extension as its own npm package) and the extensibility audit tracker (per slice: verdict, closed points with `file:line`, the PP-14 story that fixes each) | [docs/EXTENDING.md](docs/EXTENDING.md), [docs/EXTENSIBILITY-AUDIT.md](docs/EXTENSIBILITY-AUDIT.md) |
+| The closed id list guardrail (`npm run check:closed-lists`: what it flags, the BUILTIN rule, the allowlist `packages/closed-lists.allowlist.json` and its reasons; the rule it enforces is [open an id vocabulary](docs/EXTENDING.md#open-an-id-vocabulary)) | [docs/PACKAGES.md](docs/PACKAGES.md#closed-id-lists) |
+| Device authorization and personal access tokens | [docs/DEVICE-AUTH.md](docs/DEVICE-AUTH.md), [docs/personal-access-tokens.md](docs/personal-access-tokens.md) |
+| Spec: AI platform | [docs/specs/ai-platform.md](docs/specs/ai-platform.md) |
+| Spec: browser notifications and Web Push | [docs/specs/browser-notifications.md](docs/specs/browser-notifications.md) |
+| Spec: database backup | [docs/specs/database-backup.md](docs/specs/database-backup.md) |
+| Spec: database restore | [docs/specs/database-restore.md](docs/specs/database-restore.md) |
+| Spec: admin Doctor (check contract, read-only rule, check inventory) | [docs/specs/doctor.md](docs/specs/doctor.md) |
+| Spec: data export (export sources and writers, `user-data` / `org-data` exports, signed downloads, expiry, redaction, secret egress; web: `ExportDialog`, `ExportsList`, `DataExportPage`; contract: the wire shapes) | [docs/specs/data-export.md](docs/specs/data-export.md), [packages/platform-api/src/exports/README.md](packages/platform-api/src/exports/README.md), [packages/platform-web/src/exports/README.md](packages/platform-web/src/exports/README.md), [packages/platform-contract/src/exports/README.md](packages/platform-contract/src/exports/README.md) |
+| Spec: user-data reset, factory reset and organization offboarding (Danger Zone; add a keep/delete decision when a model gains a user relation; scopes, categories, offboarding preconditions) | [docs/specs/user-data-reset.md](docs/specs/user-data-reset.md) |
+| Spec: first-run onboarding (welcome dialog, Setup guide, Get started, step and fact registries, activation metrics, feature notices; web: `OnboardingProvider`, the pages; contract: the wire shapes) | [docs/specs/onboarding.md](docs/specs/onboarding.md), [packages/platform-api/src/onboarding/README.md](packages/platform-api/src/onboarding/README.md), [packages/platform-web/src/onboarding/README.md](packages/platform-web/src/onboarding/README.md), [packages/platform-contract/src/onboarding/README.md](packages/platform-contract/src/onboarding/README.md) |
+| Spec: background job queue | [docs/specs/job-queue.md](docs/specs/job-queue.md) |
+| Spec: maintenance mode | [docs/specs/maintenance-mode.md](docs/specs/maintenance-mode.md) |
+| Spec: admin broadcasts | [docs/specs/notification-broadcasts.md](docs/specs/notification-broadcasts.md) |
+| Spec: settings UI | [docs/specs/settings-ui.md](docs/specs/settings-ui.md) |
+| Spec: object storage providers | [docs/specs/storage-providers.md](docs/specs/storage-providers.md) |
+| Spec: per-user credentials (add a user key type: §4) | [docs/specs/user-credentials.md](docs/specs/user-credentials.md#4-extending-it-in-a-fork) |
+| Spec: telemetry (GreptimeDB, explorer) | [docs/specs/telemetry.md](docs/specs/telemetry.md) |
+| Spec: VPS deploy | [docs/specs/vps-deploy.md](docs/specs/vps-deploy.md) |
+| Spec: worker nodes | [docs/specs/worker-nodes.md](docs/specs/worker-nodes.md) |
+| Spec: native companion architecture (Android: TWA plus native module, the five coordination channels, Kotlin `platform-core`, hosted APK releases, assetlinks, the `android_app` push channel; adding a native capability: §4) | [docs/specs/native-companion-architecture.md](docs/specs/native-companion-architecture.md) |
+| Spec: platform packages (package-based platform, extension contract, tenancy, migrations, adoption roadmap and status; shipped, adoption in progress) | [docs/specs/platform-packages.md](docs/specs/platform-packages.md) |
+| Using the app as an administrator or user (where each feature is, who may use it, the main steps) | [docs/ADMIN-GUIDE.md](docs/ADMIN-GUIDE.md) |
+| Adopting the platform packages in an existing fork or app (order, what each step deletes, checks, rollback, seam requests, pitfalls) | [docs/ADOPTING-THE-PLATFORM.md](docs/ADOPTING-THE-PLATFORM.md) |
+| Package documentation standard and checks (README template, TSDoc tags, extension-point catalog, TypeDoc, `check:package-docs`) | [docs/PACKAGES.md](docs/PACKAGES.md) |
+| Slice catalog (every slice: which packages carry it, subpath imports, admin cards, permissions, slice and peer dependencies, standalone use, backend-only telemetry; generated by `npm run docs:slices`, checked by `check:slices-doc`) | [docs/SLICES.md](docs/SLICES.md) |
+| Runbooks (operator procedures) | [docs/README.md#runbooks](docs/README.md#runbooks) |
+| Runbooks: deploy to a VPS, run worker nodes | [docs/runbooks/deploy-to-vps.md](docs/runbooks/deploy-to-vps.md), [docs/runbooks/run-worker-nodes.md](docs/runbooks/run-worker-nodes.md) |
+| Runbook: telemetry (enable, retention, BI access) | [docs/runbooks/telemetry.md](docs/runbooks/telemetry.md) |
+| Runbooks: Android app (install, trust, pair, troubleshooting) and APK releases (CLI, terminal menu, deploy step, web upload, CI, rollback) | [docs/runbooks/android-app.md](docs/runbooks/android-app.md), [docs/runbooks/android-release.md](docs/runbooks/android-release.md) |
+| Runbook: triage with the Doctor | [docs/runbooks/doctor.md](docs/runbooks/doctor.md) |
+| Runbook: multi-organization mode (`TENANCY_MODE=multi`, first organization, invitations, members) | [docs/runbooks/multi-org.md](docs/runbooks/multi-org.md) |
+| Runbook: cross-repo drift report (`scripts/platform-drift.mjs`) | [docs/runbooks/platform-drift-report.md](docs/runbooks/platform-drift-report.md) |
+| Runbook: container images (GHCR names, tags, cosign verify, SBOM, pinning to the platform version) | [docs/runbooks/container-images.md](docs/runbooks/container-images.md) |
+| Runbook: release the platform packages | [docs/runbooks/release-platform-packages.md](docs/runbooks/release-platform-packages.md) |
+| Runbook: air-gapped deployments | [docs/runbooks/air-gapped.md](docs/runbooks/air-gapped.md) |
+| Runbook: database baseline (adopt the platform migration history in an existing database: rehearse on a restored backup, `platform db baseline`, rollback) | [docs/runbooks/database-baseline.md](docs/runbooks/database-baseline.md) |
+| Runbook: factory reset a deployment, reset user data, offboard an organization (back up first, verify, recover) | [docs/runbooks/factory-reset.md](docs/runbooks/factory-reset.md) |
+| `appctl` CLI command reference | [apps/cli/README.md](apps/cli/README.md) |
+| Recipe: add a job type | [packages/platform-api/src/jobs/handlers/README.md](packages/platform-api/src/jobs/handlers/README.md) |
+| Recipe: use AI in a feature (`@marinoscar/platform-api/ai`) | [packages/platform-api/src/ai/README.md](packages/platform-api/src/ai/README.md) |
+| Recipe: add a notification | [packages/platform-api/src/notifications/README.md](packages/platform-api/src/notifications/README.md) |
+| Recipe: add a doctor check | [docs/specs/doctor.md §4](docs/specs/doctor.md#4-extending-it-in-a-fork) |
+| Recipe: add an AI provider | [docs/specs/ai-platform.md §4](docs/specs/ai-platform.md#4-extending-it-in-a-fork) |
+| Package: telemetry (extension points: metric groups, verdict, host ports, conformance, in five packages) | [packages/platform-api/src/telemetry/README.md](packages/platform-api/src/telemetry/README.md) |
+| Package: identity (sign-in, sessions, users, allowlist, PATs, device flow, organizations; `IdentityModule.forRoot`, `registerAuthProvider`, `IDENTITY_NOTIFIER`, `USER_DEFAULTS`, identity events, conformance; web `AuthProvider`, guards, `LoginPage` slots; contract `AUTH_ERROR_CODES`) | [packages/platform-api/src/identity/README.md](packages/platform-api/src/identity/README.md), [packages/platform-web/src/identity/README.md](packages/platform-web/src/identity/README.md), [packages/platform-contract/src/identity/README.md](packages/platform-contract/src/identity/README.md) |
+| Package: sharing (groups, members, invites, group-owned resources, `Scope.groupIds`, grants, `AccessPolicy`, "resources I can see", link shares and the public-route pattern; a tested example per extension point in `apps/api/test/examples/sharing/` and `apps/web/src/__tests__/examples/sharing/`, the conformance suite, the kvox and MemoriaHub migration recipes; web: `ShareDialog`, the hooks, the group pages, `/s`) | [packages/platform-api/src/sharing/README.md](packages/platform-api/src/sharing/README.md), [packages/platform-web/src/sharing/README.md](packages/platform-web/src/sharing/README.md) |
+| Package: settings (namespace registries, system then org then user resolution, `/api/org-settings`, the row store; web: `SettingsHub`, the open feature registry, the settings hooks, and the packaged `OrgSettingsPage`, `UserProfilePage` and `UserAppearancePage` with the optional `applyTheme` and `api.postFormData` host ports) | [packages/platform-api/src/settings/README.md](packages/platform-api/src/settings/README.md), [packages/platform-web/src/settings/README.md](packages/platform-web/src/settings/README.md) |
+| Package: email (`EmailModule.forRoot`, SES and SMTP transports, the template registry and `EmailTemplateDataMap` augmentation, overrides, the layout theme and brand mark, safe-HTML helpers; web: the email settings page and hook) | [packages/platform-api/src/email/README.md](packages/platform-api/src/email/README.md), [packages/platform-web/src/email/README.md](packages/platform-web/src/email/README.md) |
+| Package: notifications (`NotificationsModule.forRoot`, the event, channel and template registries with open channel ids, `NotificationsService` and the notify-after-commit rule, the org layer of the `notifications` policy, runtime Web Push keys, broadcasts with `targetOrgId` and `org_broadcasts:*`, the SSE stream on the event bus, conformance; web: `configureNotificationsWeb`, `NotificationProvider`, `NotificationBell` slots, the pages, the service-worker helpers; contract: the wire shapes) | [packages/platform-api/src/notifications/README.md](packages/platform-api/src/notifications/README.md), [packages/platform-web/src/notifications/README.md](packages/platform-web/src/notifications/README.md), [packages/platform-contract/src/notifications/README.md](packages/platform-contract/src/notifications/README.md) |
+| Package: jobs and nodes (the queue, `JobHandler` and its registry, the label registry, `JobScope`, `org_id` on jobs, the worker-node fleet, `NODE_OBJECT_STORE`, the `nodes.node.offline` event, the `on-event-no-io` conformance suite; web: the Jobs and Job Insights admin pages and the job hooks and client, `@marinoscar/platform-web/jobs`, and the Worker Nodes page with the fleet and credential hooks and client, `@marinoscar/platform-web/nodes`; contract: the admin job and node wire shapes) | [packages/platform-api/src/jobs/README.md](packages/platform-api/src/jobs/README.md), [packages/platform-api/src/nodes/README.md](packages/platform-api/src/nodes/README.md), [packages/platform-web/src/jobs/README.md](packages/platform-web/src/jobs/README.md), [packages/platform-contract/src/jobs/README.md](packages/platform-contract/src/jobs/README.md), [packages/platform-contract/src/nodes/README.md](packages/platform-contract/src/nodes/README.md) |
+| Package: db-backup (`DbBackupModule.forRoot` with `deploymentMode`/`restoreEnabled`, the host ports, the `database-backups/` key prefix, the `RestoreCarryOver` registry, the `rls_bypass` restore gate, the `dbBackup` conformance suite; web: `DbBackupPage`, the hooks, `DbBackupWebAdaptersProvider`; contract: the wire shapes) | [packages/platform-api/src/db-backup/README.md](packages/platform-api/src/db-backup/README.md), [packages/platform-web/src/db-backup/README.md](packages/platform-web/src/db-backup/README.md), [packages/platform-contract/src/db-backup/README.md](packages/platform-contract/src/db-backup/README.md) |
+| Package: android-app (trusted apps and `/.well-known/assetlinks.json`, hosted APK releases, `registerAndroidDeviceSource`, the `android_app` notification channel and `push_subscriptions.platform`, doctor checks, conformance; web: `captureTwaLaunch`, `isRunningInTwa`, `AndroidUpdateBanner`, the admin page; CLI: the `android` group, deploy step and TUI screen; Kotlin: `:platform-core`, `TwaLauncher`, `identity.gradle.kts`; the identity `android` block) | [packages/platform-api/src/android-app/README.md](packages/platform-api/src/android-app/README.md), [packages/platform-web/src/android-app/README.md](packages/platform-web/src/android-app/README.md), [packages/platform-cli/src/android/README.md](packages/platform-cli/src/android/README.md), [packages/platform-infra/android/platform-core/README.md](packages/platform-infra/android/platform-core/README.md) |
+| Package: user-data (category, scope, keep/delete hint, factory-reset step and offboarding-precondition registries; the relation-ordered purge planner; `user.data.purge`, `admin.factory_reset`, `org.offboard`; web: the Danger Zone and factory reset pages, the offboarding dialog; contract: phrases and schemas) | [packages/platform-api/src/user-data/README.md](packages/platform-api/src/user-data/README.md), [packages/platform-web/src/user-data/README.md](packages/platform-web/src/user-data/README.md), [packages/platform-contract/src/user-data/README.md](packages/platform-contract/src/user-data/README.md) |
+| Package: credentials (the encrypted credential store in three tiers: the deployment's `CredentialsService`, a user's `UserCredentialsService`, an organization's `OrgCredentialsService`; `UserCredentialResolver` (user, then organization, then deployment); the purpose registries `registerCredentialPurpose` and `registerUserCredentialPurpose`; web: the write-only `SecretField`; contract: the presentation-safe credential shapes) | [packages/platform-api/src/credentials/README.md](packages/platform-api/src/credentials/README.md), [packages/platform-web/src/credentials/README.md](packages/platform-web/src/credentials/README.md), [packages/platform-contract/src/credentials/README.md](packages/platform-contract/src/credentials/README.md) |
+| Package: storage (the storage provider and objects API, the storage-config admin routes, the post-upload processor registry and its job, the object-key prefix registry with org-aware keys, the purge entry point behind `npm run storage:purge`, profile images; web: `StorageConfigPage`, `useStorageConfig` and the objects client; contract: the `storage` settings namespace and wire shapes) | [packages/platform-api/src/storage/README.md](packages/platform-api/src/storage/README.md), [packages/platform-web/src/storage/README.md](packages/platform-web/src/storage/README.md), [packages/platform-contract/src/storage/README.md](packages/platform-contract/src/storage/README.md) |
+| Package: AI (`@marinoscar/platform-api/ai`: `AiModule.forRoot`, `AiService.forUser`, the five provider adapters and where their SDKs may be imported, the organization tier (org keys, tighten-only `ai` settings layer, caps and usage), the feature registry, the test kit and the seven `ai-*` conformance suites; web: the Organization AI keys page, the admin Config, Models and Usage pages, the user AI keys and Playground pages, and their hooks, with `AiWebAdaptersProvider` slotting the app's spinner (the lists use `@marinoscar/platform-web/datatable` directly); the prop-driven presentational cards other hosts reuse (`UserAiKeyCard`, `KeylessProviderCard`, `AccountSignInProviderCard` for SDK sign-in providers, `DefaultAiModelPicker`, `aiErrorText`); contract: the `ai` settings schemas) | [packages/platform-api/src/ai/README.md](packages/platform-api/src/ai/README.md), [packages/platform-web/src/ai/README.md](packages/platform-web/src/ai/README.md), [packages/platform-contract/src/ai/README.md](packages/platform-contract/src/ai/README.md) |
+| Package: AI providers (`@marinoscar/platform-ai-providers`: the framework-free core and the OpenAI, OpenAI-compatible, Azure OpenAI, Anthropic and Gemini adapters on the `.`, `./openai`, `./anthropic`, `./gemini` and `./<provider>/testing` subpaths; DI-free `create*Adapter`, the redirect and family guards, optional SDK peers; `platform-api/ai` re-exports it) | [packages/platform-ai-providers/README.md](packages/platform-ai-providers/README.md), [openai](packages/platform-ai-providers/src/openai/README.md), [anthropic](packages/platform-ai-providers/src/anthropic/README.md), [gemini](packages/platform-ai-providers/src/gemini/README.md) |
+| Package: doctor (`DoctorModule.forRoot`, the check registry and the read-only rule, the support bundle; web: `DoctorPage` and `useDoctor`; contract: the report and support-bundle shapes) | [packages/platform-api/src/doctor/README.md](packages/platform-api/src/doctor/README.md), [packages/platform-web/src/doctor/README.md](packages/platform-web/src/doctor/README.md), [packages/platform-contract/src/doctor/README.md](packages/platform-contract/src/doctor/README.md) |
+| Package: datatable (web-only: `DataTable` and its column, sort, filter, selection and responsive-card parts, `@marinoscar/platform-web/datatable/headless`, `/ui` and `/testing`; per-user column preferences behind the `DataTablePreferencesPort`, defaulting to `/user-settings` over the host API) | [packages/platform-web/src/datatable/README.md](packages/platform-web/src/datatable/README.md) |
+| Package: core and otel-core (the registry primitive, the org-aware principal and scope contract, the exception filter, the secret cipher, scoped data access and the user-owned data registry, the host ports; `otel-core`: the OpenTelemetry SDK behind a runtime export gate, the metric name registry, `@Trace()`; web: the host ports and `PlatformHostProvider`) and the three package overviews (peer dependencies, subpath exports) | [packages/platform-api/src/core/README.md](packages/platform-api/src/core/README.md), [packages/platform-api/src/otel-core/README.md](packages/platform-api/src/otel-core/README.md), [packages/platform-web/src/core/README.md](packages/platform-web/src/core/README.md), [packages/platform-api/README.md](packages/platform-api/README.md), [packages/platform-web/README.md](packages/platform-web/README.md), [packages/platform-contract/README.md](packages/platform-contract/README.md) |
+| Package: web shell (`ShellLayout`, `ShellAppBar`, `ShellNavigationRail` with Console mode, `ShellBottomNav`, `ShellUserMenu`, the `ShellNavigation` model, the rail preference, `createShellTheme` and `ShellThemeProvider`/`ShellRoot`, `ShellProviders`; the five breakpoint gates; core's `createPlatformApiClient` adapter) | [packages/platform-web/src/shell/README.md](packages/platform-web/src/shell/README.md), [packages/platform-web/src/core/README.md](packages/platform-web/src/core/README.md) |
+| Package: conformance harness (`runPlatformConformance` for the API, `runPlatformWebConformance` for the web; the table of every suite id, its owner slice and how an app runs, extends or skips it with a reason) | [packages/platform-api/src/testing/README.md](packages/platform-api/src/testing/README.md), [packages/platform-web/src/testing/README.md](packages/platform-web/src/testing/README.md), [docs/TESTING.md](docs/TESTING.md#platform-conformance) |
+| Package: platform-db, platform-cli, platform-infra (schema fragments, migrations, the lock, `platform db compose/sync/drift/baseline`; the `createCli` factory, TUI and worker-node engine; the Compose, nginx and env fragments and `platform-infra sync`) | [packages/platform-db/README.md](packages/platform-db/README.md), [packages/platform-cli/README.md](packages/platform-cli/README.md), [packages/platform-infra/README.md](packages/platform-infra/README.md) |
+| Package: host (`PlatformHostCoreModule.forRoot()`: the event bus, `AppMetricsService`, maintenance mode with `MaintenanceGuard` as the platform's `APP_GUARD` (first; an app's own global guards are declared in the `host` suite's `allowedAppGuards`) and `registerMaintenanceBypass`, `registerHealthIndicator`, `registerAboutContributor`, `registerDeploymentMode`/`registerDeploymentCapability`, `registerResponseMetaContributor`, the `{data}` envelope, `HttpExceptionFilter`, request ids; `createOpenApiDocument` and `registerPlatformDocs`; `AboutModule.forRoot({ apiVersion })` serving `GET /api/admin/about`; the `host` conformance suite; web: `@marinoscar/platform-web/host/headless` and `/host/ui` with `AboutPage`, the admin `MaintenancePage` and the public `MaintenanceScreen`, `MaintenanceGate`, `MaintenanceBanner` and the PWA `InstallPrompt`/`UpdatePrompt`; the health controller and `DatabaseHealthIndicator` mounted by `PlatformHostCoreModule`, and the `cors-options` builder `buildCorsOptions(raw, extra)`) | [packages/platform-api/src/host/README.md](packages/platform-api/src/host/README.md), [packages/platform-web/src/host/README.md](packages/platform-web/src/host/README.md) |
+| Package: manifest (the platform roles and the permission sets of every declaring slice, `registerPlatformPermissions`, `platformPermissionCatalog`, the platform user-owned model inventory and `PLATFORM_MODEL_OWNERSHIP`, with `registerPlatformUserOwnedModels` and `registerPlatformModelOwnership`) | [packages/platform-api/src/manifest/README.md](packages/platform-api/src/manifest/README.md) |
+| Starter: a new app on the published packages (`new-project.mjs create`, the starter's rename plan, the `starter` CI job, `sync-starter-versions.mjs`; eleven optional slices toggled by `starter/packages/shared/slices.json`) | [starter/README.md](starter/README.md), [docs/RENAMING.md](docs/RENAMING.md#starting-a-whole-new-project) |
 
 ## Specialized Subagents (MANDATORY)
 
-**CRITICAL REQUIREMENT**: This project uses specialized subagents for all development work. You MUST delegate tasks to the appropriate subagent. Do NOT attempt to perform development tasks directly without using the designated agent.
+Delegate development work to the matching subagent in `.claude/agents/`. Each agent carries its domain's rules and points to the docs that own the details, so delegation keeps patterns consistent.
 
-### Why Subagents Are Mandatory
-- Each agent contains domain-specific knowledge from the System Specification
-- Agents ensure consistent patterns and conventions across the codebase
-- Agents have the full context needed for their specialized area
-- Direct implementation without agents risks missing requirements
+| Agent | Domain | MUST use for |
+|---|---|---|
+| `backend-dev` | NestJS API, Fastify, auth, RBAC | **Any** backend code: endpoints, services, guards, middleware, JWT, OAuth |
+| `frontend-dev` | React, MUI, TypeScript | **Any** frontend code: components, pages, hooks, theming, responsive design |
+| `database-dev` | PostgreSQL, Prisma | **Any** database work: schema, migrations, seeds, queries |
+| `testing-dev` | Jest/Supertest (API), Vitest/RTL (web) | **Any** testing: unit, integration, typecheck, fixtures |
+| `docs-dev` | Technical documentation | **Any** documentation: ARCHITECTURE.md, SECURITY-ARCHITECTURE.md, API.md, README, specs, runbooks |
+| `ops-dev` | Routine operations (Haiku) | Rebuilding/restarting containers, running Prisma migrations, running typecheck |
 
-### Available Agents
+Delegation rules:
 
-| Agent | Domain | MUST Use For |
-|-------|--------|--------------|
-| `backend-dev` | NestJS API, Fastify, auth, RBAC | **ANY** backend code: endpoints, services, guards, middleware, JWT, OAuth |
-| `frontend-dev` | React, MUI, TypeScript | **ANY** frontend code: components, pages, hooks, theming, responsive design |
-| `database-dev` | PostgreSQL, Prisma | **ANY** database work: schema changes, migrations, seeds, queries |
-| `testing-dev` | Jest, Supertest, RTL | **ANY** testing: unit tests, integration tests, typecheck, test fixtures |
-| `docs-dev` | Technical documentation | **ANY** documentation: ARCHITECTURE.md, SECURITY.md, API.md, README updates |
+1. Backend code changes → `backend-dev`.
+2. Frontend code changes → `frontend-dev`.
+3. Database/Prisma changes → `database-dev`.
+4. Writing or updating tests → `testing-dev`.
+5. Documentation updates → `docs-dev`.
+6. Routine ops (container rebuilds, migrations, typecheck) → `ops-dev`. `ops-dev` must **never** perform state-changing git operations (pull, merge, push, commit, worktree or branch management); the main agent does those, and `ops-dev` refuses them.
 
-### Mandatory Delegation Rules
+Multi-domain tasks invoke several agents in sequence, for example a new user setting: `database-dev` (migration) → `backend-dev` (endpoint) → `frontend-dev` (UI) → `testing-dev` (tests) → `docs-dev` (docs).
 
-1. **Backend code changes** → ALWAYS use `backend-dev`
-2. **Frontend code changes** → ALWAYS use `frontend-dev`
-3. **Database/Prisma changes** → ALWAYS use `database-dev`
-4. **Writing or updating tests** → ALWAYS use `testing-dev`
-5. **Documentation updates** → ALWAYS use `docs-dev`
-
-### Multi-Domain Tasks
-
-For tasks spanning multiple domains, you MUST invoke multiple agents sequentially:
-
-**Example: "Add a new user preference setting"**
-1. `database-dev` → Add migration for schema change
-2. `backend-dev` → Implement API endpoint
-3. `frontend-dev` → Build UI component
-4. `testing-dev` → Write tests for all layers
-5. `docs-dev` → Update API documentation
-
-### Usage Examples
 ```
-# Backend work - MUST use backend-dev
 "Use backend-dev to implement the user settings endpoint"
-
-# Frontend work - MUST use frontend-dev
-"Use frontend-dev to create the theme toggle component"
-
-# Database work - MUST use database-dev
-"Use database-dev to add audit_events table migration"
-
-# Testing work - MUST use testing-dev
 "Use testing-dev to write integration tests for auth"
-
-# Documentation work - MUST use docs-dev
-"Use docs-dev to update SECURITY.md with new auth flow"
+"Use ops-dev to rebuild the api container and run migrations"
 ```
 
-### What You Should NOT Do Directly
-- Do NOT write NestJS controllers, services, or guards without `backend-dev`
-- Do NOT create React components or pages without `frontend-dev`
-- Do NOT modify Prisma schema or create migrations without `database-dev`
-- Do NOT write Jest/RTL tests without `testing-dev`
-- Do NOT update documentation files without `docs-dev`
+Do not write controllers, services, guards, components, Prisma schema, migrations, tests or documentation directly. The only exceptions:
 
-The only exceptions are:
-- Reading files to understand context
-- Answering questions about the codebase
-- Planning and coordination between agents
-- Running simple commands (git status, npm install, etc.)
+- Reading files to understand context.
+- Answering questions about the codebase.
+- Planning and coordinating between agents.
+- Running simple commands (`git status`, `npm install`, etc.).

@@ -1,0 +1,24 @@
+{
+  // The settings a consumer API has (apps/api/tsconfig.json): CommonJS output,
+  // decorator metadata for Nest's DI, strict. NodeNext resolution is the check
+  // that the package's `exports` map and `.d.ts` files resolve from outside
+  // the monorepo. skipLibCheck stays off so the shipped declarations are
+  // type-checked too.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "strict": true,
+    "skipLibCheck": false,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "noFallthroughCasesInSwitch": true,
+    "rootDir": "src",
+    "outDir": "dist",
+    "sourceMap": true,
+    "types": ["node"]
+  },
+  "include": ["src"]
+}

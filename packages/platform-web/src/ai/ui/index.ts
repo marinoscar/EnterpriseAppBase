@@ -1,0 +1,61 @@
+// `@marinoscar/platform-web/ai/ui`: the AI slice's packaged pages (issues #739,
+// PP-8.6, and #890): the Organization AI keys page as the default export, so
+// the app keeps `lazy(() => import('@marinoscar/platform-web/ai/ui'))`, and
+// every other AI page as a named export. Each page is also a subpath of its
+// own (`./config-page`, `./models-page`, `./usage-page`, `./keys-page`,
+// `./playground-page`) so the app lazy-loads one chunk per route.
+// Documented in ../README.md.
+
+export { default, default as OrgAiKeysPage, ORG_AI_KEYS_DESCRIPTION } from './OrgAiKeysPage.js';
+export type { OrgAiKeysPageProps, OrgAiKeysPageSlots } from './OrgAiKeysPage.js';
+export { default as AiConfigPage } from './AiConfigPage.js';
+export type { AiConfigPageProps, AiConfigPageSlots, AiProviderCardExtraProps } from './AiConfigPage.js';
+export { default as AiModelsPage } from './AiModelsPage.js';
+export type { AiModelsPageProps, AiModelsPageSlots } from './AiModelsPage.js';
+export { default as AiUsagePage } from './AiUsagePage.js';
+export type { AiUsagePageProps, AiUsagePageSlots } from './AiUsagePage.js';
+export { default as UserAiKeysPage } from './UserAiKeysPage.js';
+export type { UserAiKeysPageProps, UserAiKeysPageSlots } from './UserAiKeysPage.js';
+export { default as AiPlaygroundPage } from './AiPlaygroundPage.js';
+export type { AiPlaygroundPageProps, AiPlaygroundPageSlots } from './AiPlaygroundPage.js';
+export { RequireAiEnabled } from './RequireAiEnabled.js';
+export type { RequireAiEnabledProps } from './RequireAiEnabled.js';
+export {
+  AiGenericProviderCard,
+  getAiProviderCard,
+  registerAiProviderCard,
+} from './provider-cards.js';
+export type {
+  AiDeploymentRow,
+  AiProviderCardComponent,
+  AiProviderCardProps,
+  AiProviderFormErrors,
+  AiProviderFormValue,
+} from './provider-cards.js';
+export {
+  getAiPlaygroundMode,
+  listAiPlaygroundModes,
+  registerAiPlaygroundMode,
+} from './playground/aiPlaygroundModes.js';
+export type {
+  AiPlaygroundMode,
+  BuiltinAiPlaygroundModeId,
+  AiPlaygroundModeDefinition,
+  AiPlaygroundModeId,
+  AiPlaygroundPanelProps,
+} from './playground/aiPlaygroundModes.js';
+// Prop-driven presentational cards other hosts reuse (issue #998): no hooks, no
+// network, everything arrives as props.
+export { UserAiKeyCard } from './user/UserAiKeyCard.js';
+export type { UserAiKeyCardProps, UserAiKeyCardProvider } from './user/UserAiKeyCard.js';
+export { KeylessProviderCard, KEYLESS_PROVIDER_TEXT } from './user/KeylessProviderCard.js';
+export type { KeylessProviderCardProps } from './user/KeylessProviderCard.js';
+export { aiErrorText, aiCodeText } from './user/aiErrorText.js';
+export { DefaultAiModelPicker } from './user/DefaultAiModelPicker.js';
+export type { DefaultAiModelPickerProps } from './user/DefaultAiModelPicker.js';
+export { AccountSignInProviderCard } from './user/AccountSignInProviderCard.js';
+export type {
+  AccountSignInStatus,
+  AccountSignInConsent,
+  AccountSignInProviderCardProps,
+} from './user/AccountSignInProviderCard.js';
