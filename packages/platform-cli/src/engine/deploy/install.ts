@@ -1481,10 +1481,8 @@ export async function runInstall(requested: InstallOptions): Promise<InstallResu
   // A FRESH install gets its own compose project; anything already here keeps
   // the one it is running under. See composeProjectFor for why renaming an
   // existing deployment's project is an outage rather than a tidy-up.
-  const composeProject =
-    existingState === undefined && !isDeployment(options.deployRoot)
-      ? basename(options.deployRoot)
-      : composeProjectFor(existingState);
+  const freshProject = existingState === undefined && !isDeployment(options.deployRoot);
+  const composeProject = freshProject ? basename(options.deployRoot) : composeProjectFor(existingState);
 
   const context: InstallContext = {
     options,
@@ -1543,7 +1541,14 @@ export async function runInstall(requested: InstallOptions): Promise<InstallResu
         lastDeployedAt: existingState?.lastDeployedAt ?? '',
         lastCommand: 'install',
         appctlVersion: cliVersion(),
-        composeProject,
+        // ⚠ ONLY A NAME THIS RUN CHOSE IS A RECORD. For a deployment that was
+        // already here, `composeProject` above is the legacy `compose` assumed
+        // for an absent value, and writing it back from a FAILED attempt made
+        // a guess look recorded: later runs then could not tell "the operator
+        // pinned compose" from "nothing was ever recorded", and a server
+        // running under an app-named project kept being driven as `compose`.
+        // The spread of `existingState` above already keeps a real record.
+        ...(freshProject ? { composeProject } : {}),
         ...(options.domain === undefined ? {} : { domain: options.domain }),
         ...(options.proxyRoot === undefined ? {} : { proxyRoot: options.proxyRoot }),
         ...recordedRuntime(context),

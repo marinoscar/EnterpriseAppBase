@@ -62,6 +62,7 @@ import {
 import { runUpdate, type UpdateOptions } from '../deploy/update.js';
 import type { EnvGroup } from '../deploy/env-metadata.js';
 import { runCommand } from '../deploy/executor.js';
+import { reconcileComposeProject } from '../deploy/compose-project.js';
 import { CliError, EXIT, PreconditionError, UsageError, type ExitCode } from '../errors.js';
 import { shouldUseColour } from '../output.js';
 
@@ -874,7 +875,12 @@ export async function runDoctorCommand(
   // Flags, then what an installed deployment recorded, then detection. Read-
   // only: `docker inspect` and `nginx -v` change nothing, so doctor stays safe
   // to run against production at any time.
-  const recorded = readRecordSafely(app.deployRoot);
+  const loaded = readRecordSafely(app.deployRoot);
+  // The compose project the containers really run under, before any check
+  // names one: see compose-project.ts. Never fails the command.
+  const reconciled = await reconcileComposeProject({ deployRoot: app.deployRoot, state: loaded, runCommand: run });
+  const recorded = reconciled.state;
+  if (reconciled.message !== undefined) stderr.write(`${cliName()}: ${reconciled.message}\n`);
   const proxyRuntime = await resolveRecordedProxyRuntime({
     proxyRoot: options.proxyRoot,
     flags: proxyFlags(options),
@@ -1147,15 +1153,23 @@ export async function runStatusCommand(
   // unhealthy" -- a monitoring script must be able to tell them apart. That
   // distinction is preserved; it is just asked of the deployment rather than of
   // the bookkeeping about it.
-  const state = readState(app.deployRoot);
-  if (state === undefined && !isDeployment(app.deployRoot)) {
+  const loaded = readState(app.deployRoot);
+  if (loaded === undefined && !isDeployment(app.deployRoot)) {
     throw new UsageError(
       `No deployment found at ${app.deployRoot}. Run \`${cliName()} deploy install\` first, or pass --root.`,
     );
   }
 
+  // ⚠ The compose project the containers really run under, not merely the
+  // recorded one: `status` reads the containers, and asking the wrong project
+  // reports a healthy stack as absent. See compose-project.ts; never fails.
+  const run = ctx?.runCommand ?? runCommand;
+  const reconciled = await reconcileComposeProject({ deployRoot: app.deployRoot, state: loaded, runCommand: run });
+  const state = reconciled.state;
+  if (reconciled.message !== undefined) stderr.write(`${cliName()}: ${reconciled.message}\n`);
+
   const report = await collectHealth({
-    runCommand: ctx?.runCommand ?? runCommand,
+    runCommand: run,
     deployRoot: app.deployRoot,
     bindPort: Number(options.port),
     ...(options.domain === undefined ? {} : { domain: options.domain }),

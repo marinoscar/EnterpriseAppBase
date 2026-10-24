@@ -2,6 +2,7 @@ import { Box, Text } from 'ink';
 import { useState, type ReactNode } from 'react';
 
 import { allChecks, runChecks, type CompletedCheck } from '../../../deploy/checks/index.js';
+import { reconcileComposeProject } from '../../../deploy/compose-project.js';
 import { runCommand, withSignal } from '../../../deploy/executor.js';
 import type { DeployHooks } from '../../../deploy/hooks.js';
 import { DEFAULT_APPS_ROOT, deployRootFor } from '../../../deploy/layout.js';
@@ -256,13 +257,19 @@ async function performDoctor(
   const run = withSignal(runCommand, signal);
   const proxyRoot = settings.proxyRoot;
 
+  // The compose project the containers really run under, as `deploy doctor`
+  // does before any check names one (compose-project.ts); never fails.
+  const reconciled = await reconcileComposeProject({ deployRoot, state: target.state, runCommand: run });
+  const state = reconciled.state;
+  if (reconciled.message !== undefined) hooks.onLog?.(reconciled.message);
+
   // Same resolution as `deploy doctor`: the flags, else the record, else
   // detection. The flags are the Advanced step's overrides, and nothing else.
-  const overrides = proxyOverrides(settings, target.state);
+  const overrides = proxyOverrides(settings, state);
   const proxyRuntime = await resolveRecordedProxyRuntime({
     proxyRoot,
     flags: { mode: overrides.proxyMode, container: overrides.proxyContainer },
-    recorded: target.state,
+    recorded: state,
     runCommand: run,
   });
   hooks.onLog?.(describeProxyRuntime(proxyRuntime));
@@ -275,7 +282,7 @@ async function performDoctor(
       bindPort: settings.bindPort,
       proxyRoot,
       proxyRuntime,
-      ...(target.state === undefined ? {} : { composeProject: composeProjectFor(target.state) }),
+      ...(state === undefined ? {} : { composeProject: composeProjectFor(state) }),
       ...(domain === '' ? {} : { domain }),
       ...(seed.values.size === 0 ? {} : { env: seed.values }),
     },
