@@ -9,7 +9,7 @@ What the package owns:
 - the Compose files `base`, `dev`, `devdb`, `prod`, `vps` (with the stack agent), `worker`, `worker.build` and `test`, and the order Compose applies them in per mode (`composeFilesForMode()`, `dev`, `devdb`, `prod`, `vps`, `worker` and `test`, plus the modes an app adds with `registerComposeMode`), with the app's overlays last;
 - `postgres-init/10-application-role.sh`, the executable init script `devdb` and `test` mount at `/docker-entrypoint-initdb.d`: it creates the ordinary (`NOSUPERUSER NOBYPASSRLS`) role the API runs as, so row-level security applies to it;
 - `nginx.conf` with its include points (`app.d/http`, `server`, `locations`, `csp` and the Permissions-Policy file), the two CSP maps and the `platform/` snippets (`security-headers.conf`, `sse-proxy.conf`);
-- the platform's environment variables (`env/base.env.example`) and the worker's (`env/worker.env.example`);
+- the platform's environment variables (`env/base.env.example`) and the worker's (`env/worker.env.example`, including `WORKER_REPLICAS`, `WORKER_CPUS` and `WORKER_MEMORY` for several workers on one machine; the worker Compose file gives each replica its own anonymous state volume, see the [worker runbook](../../docs/runbooks/run-worker-nodes.md#42-several-workers-on-one-machine));
 - identity rendering: the app's CLI name, env prefix, service name, worker image and test database names written into those files (`deriveInfraIdentity()`, `renderInfraText()`);
 - the `platform-infra sync` command and its lock;
 - `runInfraConformance` (`@marinoscar/platform-infra/testing`): the app's own test that its overlays merge and its `app.d/` is valid nginx.
