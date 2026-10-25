@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import { registerDeployCheck, resetDeployCheckRegistryForTests } from './checks/registry.js';
+import { inspectOutput, psOutput, type FakeContainer } from './testing/fake-containers.js';
 import { DEPLOY_STATE_VERSION, deployStatePath, readState, writeState, type DeployState } from './state.js';
 import { createFakeVps, serveHealth, type FakeVps } from './testing/fake-vps.js';
 import { runUpdate } from './update.js';
@@ -40,10 +41,11 @@ afterEach(() => {
 });
 
 /**
- * One container: its compose project and the directory compose ran from. A
- * relative directory is inside the deployment; an absolute one is taken as is.
+ * One container: its compose project and the directory compose ran from (a
+ * relative directory is inside the deployment; an absolute one is taken as is),
+ * and optionally its name, whether it runs (default yes) and the ports it publishes.
  */
-type Container = readonly [project: string, workingDir: string];
+type Container = readonly [project: string, workingDir: string, extra?: Partial<FakeContainer>];
 
 interface Deployment {
   vps: FakeVps;
@@ -78,16 +80,18 @@ function deployment(containers: readonly Container[] | 'down', recorded: Partial
   vps.route(['df'], DF);
   vps.route(['git', 'rev-parse', 'HEAD'], 'e'.repeat(40));
   vps.route((invocation) => invocation.argv.includes('curl'), '200');
+  const records = (): FakeContainer[] =>
+    containers === 'down'
+      ? []
+      : containers.map(([project, dir, extra]) => ({
+          project,
+          workingDir: dir.startsWith('/') ? dir : vps.path(dir),
+          ...extra,
+        }));
   vps.route(['docker', 'ps', '-aq'], (): { stdout?: string; fail?: Error } =>
-    containers === 'down'
-      ? { fail: new Error('Cannot connect to the Docker daemon') }
-      : { stdout: containers.map((_, index) => `id${index}`).join('\n') },
+    containers === 'down' ? { fail: new Error('Cannot connect to the Docker daemon') } : { stdout: psOutput(records()) },
   );
-  vps.route(['docker', 'inspect', '--format'], () =>
-    containers === 'down'
-      ? ''
-      : containers.map(([project, dir]) => `${project}|${dir.startsWith('/') ? dir : vps.path(dir)}`).join('\n'),
-  );
+  vps.route(['docker', 'inspect', '--format'], () => (containers === 'down' ? '' : inspectOutput(records())));
 
   const seenByChecks: Array<string | undefined> = [];
   registerDeployCheck({
@@ -204,15 +208,14 @@ describe('runUpdate uses the compose project Docker reports when none is recorde
     expect(readState(subject.vps.deployRoot)?.composeProject).toBe('myapp');
   });
 
-  it('keeps the project the operator recorded, and does not ask Docker at all', async () => {
+  it('keeps the project the operator recorded when Docker only knows another, and rewrites nothing', async () => {
     const subject = deployment(INSTALLED_BY_AN_OLDER_CLI, { composeProject: 'pinned' });
 
     await update(subject);
 
     expect(composeProjects(subject.vps).every((project) => project === 'pinned')).toBe(true);
     expect(subject.seenByChecks).toEqual(['pinned']);
-    expect(subject.vps.calls('docker', 'ps')).toEqual([]);
-    expect(subject.vps.calls('docker', 'inspect', '--format')).toEqual([]);
+    expect(readState(subject.vps.deployRoot)?.composeProject).toBe('pinned');
     expect(existsSync(`${deployStatePath(subject.vps.deployRoot)}.bak`)).toBe(false);
     expect(subject.progress.some((message) => message.includes('compose project'))).toBe(false);
   });
@@ -251,5 +254,100 @@ describe('runUpdate uses the compose project Docker reports when none is recorde
     expect(composeProjects(subject.vps).every((project) => project === 'compose')).toBe(true);
     expect(readState(subject.vps.deployRoot)?.composeProject).toBeUndefined();
     expect(existsSync(`${deployStatePath(subject.vps.deployRoot)}.bak`)).toBe(false);
+  });
+});
+
+// =============================================================================
+// REGRESSION #1020: two projects in one folder, the port holder decides
+// =============================================================================
+//
+// The production failure: the live stack runs under `myapp` (`myapp-nginx-1`
+// publishes the bind port), containers of the legacy `compose` sit in the same
+// folder, and the state records no project. `{compose, myapp}` was "ambiguous"
+// and, because `compose` was among them, the engine kept `compose`, ran
+// `docker compose -p compose up -d` and built a parallel stack that died on the
+// port.
+// =============================================================================
+
+describe('runUpdate with two compose projects in the deploy folder (#1020)', () => {
+  /** The live stack under `myapp`, publishing the bind port. */
+  const liveStack = (): Container[] => [
+    ['myapp', 'repo/infra/compose', { name: 'myapp-nginx-1', ports: [api.port] }],
+    ['myapp', 'repo/infra/compose', { name: 'myapp-api-1' }],
+  ];
+
+  it('REGRESSION #1020: a running `myapp` stack beside stopped `compose-*` leftovers is driven as `-p myapp` everywhere, never `-p compose`', async () => {
+    const subject = deployment([
+      ...liveStack(),
+      ['compose', 'repo/infra/compose', { name: 'compose-api-1', running: false }],
+      ['compose', 'repo/infra/compose', { name: 'compose-web-1', running: false }],
+      ['compose', 'repo/infra/compose', { name: 'compose-greptimedb-1', running: false }],
+    ]);
+
+    await update(subject);
+
+    const projects = composeProjects(subject.vps);
+    expect(projects.length).toBeGreaterThan(0);
+    expect(projects.every((project) => project === 'myapp')).toBe(true);
+    const changing = mutations(subject.vps);
+    expect(changing.some((argv) => argv.includes('up'))).toBe(true);
+    for (const argv of changing) expect(argv.slice(0, 4)).toEqual(['docker', 'compose', '-p', 'myapp']);
+    expect(subject.vps.invocations.some((call) => call.argv.join(' ').includes('-p compose'))).toBe(false);
+    expect(subject.seenByChecks).toEqual(['myapp']);
+    expect(readState(subject.vps.deployRoot)?.composeProject).toBe('myapp');
+    expect(subject.progress.some((message) => message.includes('recorded compose project myapp'))).toBe(true);
+  });
+
+  it('PASSES preflight, still as `-p myapp` and with a warning, while a stopped `compose-nginx-1` is configured to publish the port beside the running `myapp-nginx-1`', async () => {
+    // What the failed run of #1020 left behind: created, never started, and
+    // configured to publish the same port. The live holder proves no collision.
+    const subject = deployment([
+      ...liveStack(),
+      ['compose', 'repo/infra/compose', { name: 'compose-nginx-1', running: false, ports: [api.port] }],
+    ]);
+
+    const result = await update(subject);
+
+    const projects = composeProjects(subject.vps);
+    expect(projects.length).toBeGreaterThan(0);
+    expect(projects.every((project) => project === 'myapp')).toBe(true);
+    expect(subject.vps.invocations.some((call) => call.argv.join(' ').includes('-p compose'))).toBe(false);
+    expect(mutations(subject.vps).some((argv) => argv.includes('up'))).toBe(true);
+    const warning = subject.progress.find((message) => message.startsWith('warning: bind-port-owner'));
+    expect(warning).toContain('compose-nginx-1');
+    expect(warning).toContain('xargs -r docker rm -f');
+    expect(readFileSync(result.journalPath, 'utf8')).toContain('warn bind-port-owner');
+  });
+
+  it('still refuses at preflight, before anything is built, when the stopped `compose-nginx-1` is the only container holding the port', async () => {
+    const subject = deployment([
+      ['myapp', 'repo/infra/compose', { name: 'myapp-api-1' }],
+      ['compose', 'repo/infra/compose', { name: 'compose-nginx-1', running: false, ports: [api.port] }],
+    ], { composeProject: 'myapp' });
+
+    await expect(update(subject)).rejects.toThrow(/bind-port-owner/);
+
+    expect(mutations(subject.vps)).toEqual([]);
+  });
+
+  it('FAILS at preflight, before build, when the record names another project than the one holding the bind port', async () => {
+    const subject = deployment(liveStack(), { composeProject: 'pinned' });
+
+    const failure = await update(subject).then(
+      () => undefined,
+      (error: unknown) => error as Error,
+    );
+
+    expect(failure?.message).toContain('bind-port-owner');
+    expect(failure?.message).toContain('myapp');
+    expect(failure?.message).toContain('pinned');
+    expect(failure?.message).toContain('composeProject');
+    expect(failure?.message).toContain(deployStatePath(subject.vps.deployRoot));
+    // Nothing was built, started or stopped, and `up` never ran under any project.
+    expect(mutations(subject.vps)).toEqual([]);
+    expect(subject.vps.calls('docker', 'compose').filter((call) => call.argv.includes('-f'))).toEqual([]);
+    // The recorded decision is untouched, and the operator was warned before the check failed.
+    expect(readState(subject.vps.deployRoot)?.composeProject).toBe('pinned');
+    expect(subject.progress.some((message) => message.startsWith('warning:') && message.includes('myapp'))).toBe(true);
   });
 });

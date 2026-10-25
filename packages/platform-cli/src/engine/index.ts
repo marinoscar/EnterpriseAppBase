@@ -252,7 +252,12 @@ export type { BuiltinEnvGroup, DeriveContext, EnvGroup, EnvVarMetadata } from '.
 export { ENV_GROUPS } from './deploy/env-metadata.js';
 export { effectiveGroups } from './deploy/compose-files.js';
 export { detectComposeProject, isPathUnder } from './deploy/compose-project.js';
-export type { ComposeProjectCommandRunner, ComposeProjectDetection } from './deploy/compose-project.js';
+export type {
+  ComposeContainer,
+  ComposeProjectBasis,
+  ComposeProjectCommandRunner,
+  ComposeProjectDetection,
+} from './deploy/compose-project.js';
 
 // The wizard, and the three prompt primitives it needed (#175). `confirm`,
 // `promptSecret` and `select` live in prompt.ts beside the one-question helper

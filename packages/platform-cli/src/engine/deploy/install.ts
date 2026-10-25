@@ -62,6 +62,8 @@ import {
 } from './proxy.js';
 import { checkoutHead, ensureCheckout, resolveRepoTarget, resolveRepoUrl, type RepoTarget } from './repo.js';
 import { explainComposeFailure } from './compose-hints.js';
+import { freshComposeProject } from './compose-containers.js';
+import { detectComposeProject, reconcileComposeProject } from './compose-project.js';
 import {
   DEPLOY_STATE_VERSION,
   appendHistory,
@@ -1442,7 +1444,7 @@ export async function runInstall(requested: InstallOptions): Promise<InstallResu
   // The duration a history entry records is the whole run, precondition
   // checks included -- what the operator actually waited.
   const startedAt = Date.now();
-  const existingState = readState(options.deployRoot);
+  const loadedState = readState(options.deployRoot);
 
   // The mirror of the defect `update` had, and the same wrong question asked
   // from the other side. Guarding on the RECORD means a deployment whose state
@@ -1452,13 +1454,13 @@ export async function runInstall(requested: InstallOptions): Promise<InstallResu
   //
   // The guard is EVIDENCE OR RECORD. Either is enough to say something is
   // already here; requiring both would reintroduce the same gap.
-  const alreadyDeployed = existingState !== undefined || isDeployment(options.deployRoot);
+  const alreadyDeployed = loadedState !== undefined || isDeployment(options.deployRoot);
 
   if (alreadyDeployed && options.reinstall !== true && options.resume !== true) {
     const at =
-      existingState === undefined
+      loadedState === undefined
         ? 'it has a checkout and an environment file, but no deployment record'
-        : `${existingState.commitSha.slice(0, 12)}`;
+        : `${loadedState.commitSha.slice(0, 12)}`;
     throw new UsageError(
       `A deployment already exists at ${options.deployRoot} (${at}). Use \`${cliName()} deploy update\` to bring it up to date, or --reinstall to start over.`,
     );
@@ -1481,8 +1483,46 @@ export async function runInstall(requested: InstallOptions): Promise<InstallResu
   // A FRESH install gets its own compose project; anything already here keeps
   // the one it is running under. See composeProjectFor for why renaming an
   // existing deployment's project is an outage rather than a tidy-up.
-  const freshProject = existingState === undefined && !isDeployment(options.deployRoot);
-  const composeProject = freshProject ? basename(options.deployRoot) : composeProjectFor(existingState);
+  const freshProject = loadedState === undefined && !isDeployment(options.deployRoot);
+  let existingState = loadedState;
+  let composeProject = freshProject ? freshComposeProject(options.deployRoot) : composeProjectFor(existingState);
+  // True when the project below came from Docker for a deployment with NO
+  // record: evidence, so the failure path may record it like a fresh name.
+  let projectFromDocker = false;
+
+  // ⚠ AN EXISTING DEPLOYMENT RUNS UNDER THE PROJECT DOCKER SAYS, NOT THE ONE
+  // ASSUMED (#1020). `--resume` and `--reinstall` run compose calls and the
+  // preflight below; with the legacy `compose` assumed for a stack that really
+  // runs under an app-named project they would start a second stack on the
+  // bind port, exactly the outage `update` reconciles away. Never fails the
+  // install; a fresh install keeps its own name.
+  if (!freshProject) {
+    const asked = options.runCommand ?? defaultRunCommand;
+    if (loadedState !== undefined) {
+      const reconciled = await reconcileComposeProject({ deployRoot: options.deployRoot, state: loadedState, runCommand: asked });
+      existingState = reconciled.state ?? loadedState;
+      composeProject = composeProjectFor(existingState);
+      if (reconciled.message !== undefined) {
+        journal.line(reconciled.message);
+        options.hooks?.onProgress?.(reconciled.message);
+      }
+    } else {
+      // A checkout and an environment file, but no record: nothing to rewrite,
+      // so the detected project is carried in memory and recorded on success.
+      const detection = await detectComposeProject(options.deployRoot, asked, { bindPort: options.bindPort });
+      if (detection.kind === 'found' && detection.project !== LEGACY_COMPOSE_PROJECT) {
+        composeProject = detection.project;
+        projectFromDocker = true;
+        journal.line(`note: compose project ${detection.project} for ${options.deployRoot} (its containers run under it; no deployment record).`);
+      } else if (detection.kind === 'ambiguous') {
+        const warning =
+          `warning: containers of ${options.deployRoot} run under several compose projects (${detection.projects.join(', ')}) ` +
+          `and no deployment record says which; using ${composeProject}.`;
+        journal.line(warning);
+        options.hooks?.onProgress?.(warning);
+      }
+    }
+  }
 
   const context: InstallContext = {
     options,
@@ -1548,7 +1588,7 @@ export async function runInstall(requested: InstallOptions): Promise<InstallResu
         // pinned compose" from "nothing was ever recorded", and a server
         // running under an app-named project kept being driven as `compose`.
         // The spread of `existingState` above already keeps a real record.
-        ...(freshProject ? { composeProject } : {}),
+        ...(freshProject || projectFromDocker ? { composeProject } : {}),
         ...(options.domain === undefined ? {} : { domain: options.domain }),
         ...(options.proxyRoot === undefined ? {} : { proxyRoot: options.proxyRoot }),
         ...recordedRuntime(context),

@@ -9,6 +9,7 @@ import type { Check, CompletedCheck } from '../deploy/checks/index.js';
 import { DEPLOY_STATE_VERSION, deployStatePath, type DeployState } from '../deploy/state.js';
 import type { CommandResult, RunCommandOptions } from '../deploy/executor.js';
 import type { HealthReport } from '../deploy/health.js';
+import { inspectOutput, psOutput, type FakeContainer } from '../deploy/testing/fake-containers.js';
 import * as installModule from '../deploy/install.js';
 import type { InstallOptions } from '../deploy/install.js';
 import * as updateModule from '../deploy/update.js';
@@ -1164,12 +1165,13 @@ describe('the compose project the containers really run under (#1015)', () => {
   }
 
   /**
-   * Docker holds `containers` (`[project, directory]`, a relative directory
-   * being inside `root`); anything else is answered by `rest`.
+   * Docker holds `containers` (`[project, directory, extra?]`, a relative
+   * directory being inside `root`; `extra` names the container, says whether it
+   * runs and which ports it publishes); anything else is answered by `rest`.
    */
   function dockerWith(
     root: string,
-    containers: ReadonlyArray<readonly [string, string]> | 'down',
+    containers: ReadonlyArray<readonly [string, string, Partial<FakeContainer>?]> | 'down',
     rest: typeof import('../deploy/executor.js').runCommand = noProcesses,
   ): Probe {
     const argvs: string[][] = [];
@@ -1182,19 +1184,17 @@ describe('the compose project the containers really run under (#1015)', () => {
       durationMs: 1,
       timedOut: false,
     });
+    const records = (held: ReadonlyArray<readonly [string, string, Partial<FakeContainer>?]>): FakeContainer[] =>
+      held.map(([project, dir, extra]) => ({ project, workingDir: dir.startsWith('/') ? dir : join(root, dir), ...extra }));
     const run = (async (argv: readonly string[], options: RunCommandOptions): Promise<CommandResult> => {
       argvs.push([...argv]);
       if (isListingContainers(argv)) {
         if (containers === 'down') throw new Error('Cannot connect to the Docker daemon');
-        return answer(argv, options, containers.map((_, index) => `id${index}`).join('\n'));
+        return answer(argv, options, psOutput(records(containers)));
       }
       if (isReadingComposeLabels(argv)) {
         if (containers === 'down') throw new Error('Cannot connect to the Docker daemon');
-        return answer(
-          argv,
-          options,
-          containers.map(([project, dir]) => `${project}|${dir.startsWith('/') ? dir : join(root, dir)}`).join('\n'),
-        );
+        return answer(argv, options, inspectOutput(records(containers)));
       }
       return await rest(argv, options);
     }) as typeof import('../deploy/executor.js').runCommand;
@@ -1267,7 +1267,7 @@ describe('the compose project the containers really run under (#1015)', () => {
       expect(result.stderr).toContain(deployStatePath(root));
     });
 
-    it('leaves a recorded project alone and does not ask Docker', async () => {
+    it('leaves a recorded project alone and says nothing when no container holds the bind port', async () => {
       const root = rootRecording({ composeProject: 'pinned' });
       const seen: Array<string | undefined> = [];
       const probe = dockerWith(root, UNDER_APP_NAMED_PROJECT);
@@ -1275,8 +1275,35 @@ describe('the compose project the containers really run under (#1015)', () => {
       const result = await runDoctor(['--root', root], [projectSeenBy(seen)], { runCommand: probe.run });
 
       expect(seen).toEqual(['pinned']);
-      expect(askedDocker(probe)).toBe(false);
       expect(result.stderr).not.toContain('compose project');
+      expect(JSON.parse(readFileSync(deployStatePath(root), 'utf8'))).toMatchObject({ composeProject: 'pinned' });
+    });
+
+    it('leaves a recorded project alone but warns on stderr when another project holds the bind port (#1020)', async () => {
+      const root = rootRecording({ composeProject: 'pinned' });
+      const seen: Array<string | undefined> = [];
+      const probe = dockerWith(root, [['myapp', 'repo/infra/compose', { ports: [3535] }]]);
+
+      const result = await runDoctor(['--root', root], [projectSeenBy(seen)], { runCommand: probe.run });
+
+      expect(seen).toEqual(['pinned']);
+      expect(result.stderr).toContain('warning:');
+      expect(result.stderr).toContain('myapp');
+      expect(result.stderr).toContain(deployStatePath(root));
+    });
+
+    it('decides by the container holding the bind port when `compose` leftovers share the folder (#1020)', async () => {
+      const root = rootRecording();
+      const seen: Array<string | undefined> = [];
+      const probe = dockerWith(root, [
+        ['myapp', 'repo/infra/compose', { ports: [3535] }],
+        ['compose', 'repo/infra/compose', { running: false }],
+      ]);
+
+      const result = await runDoctor(['--root', root], [projectSeenBy(seen)], { runCommand: probe.run });
+
+      expect(seen).toEqual(['myapp']);
+      expect(result.stderr).toContain('note: recorded compose project myapp');
     });
 
     it('is unchanged when Docker cannot be asked: `compose`, and nothing on stderr about it', async () => {
@@ -1336,7 +1363,7 @@ describe('the compose project the containers really run under (#1015)', () => {
       expect(result.stderr).toContain('note: recorded compose project myapp');
     });
 
-    it('leaves a recorded project alone and does not ask Docker', async () => {
+    it('leaves a recorded project alone', async () => {
       const root = rootRecording({ composeProject: 'pinned' });
       const probe = dockerWith(root, UNDER_APP_NAMED_PROJECT, composeRunCommand(ALL_RUNNING, 'Database schema is up to date!'));
 
@@ -1346,7 +1373,6 @@ describe('the compose project the containers really run under (#1015)', () => {
       });
 
       expect(psCall(probe)?.slice(0, 4)).toEqual(['docker', 'compose', '-p', 'pinned']);
-      expect(askedDocker(probe)).toBe(false);
       expect(result.stderr).not.toContain('compose project');
     });
 
