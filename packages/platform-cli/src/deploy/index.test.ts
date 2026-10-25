@@ -34,19 +34,23 @@ describe('@marinoscar/platform-cli/deploy: the compose project helpers', () => {
 
   it('works through the subpath export as an app would call it', async () => {
     const run: ComposeProjectCommandRunner = async (argv) => ({
-      stdout: argv[1] === 'ps' ? 'id0\n' : 'myapp|/opt/infra/apps/myapp/repo/infra/compose\n',
+      stdout: argv[1] === 'ps' ? 'id0\n' : '/myapp-nginx-1|true|3535,|myapp|/opt/infra/apps/myapp/repo/infra/compose\n',
     });
 
     const detection: ComposeProjectDetection = await detectComposeProject('/opt/infra/apps/myapp', run);
 
-    expect(detection).toEqual({ kind: 'found', project: 'myapp' });
+    expect(detection).toEqual({ kind: 'found', project: 'myapp', basis: 'only' });
     expect(isPathUnder('/opt/infra/apps/myapp/repo', '/opt/infra/apps/myapp')).toBe(true);
     expect(isPathUnder('/opt/infra/apps/myapp-2', '/opt/infra/apps/myapp')).toBe(false);
   });
 
   it('types ComposeProjectDetection as the four outcomes, discriminated by kind', () => {
     expectTypeOf<ComposeProjectDetection['kind']>().toEqualTypeOf<'found' | 'none' | 'ambiguous' | 'unavailable'>();
-    expectTypeOf<Extract<ComposeProjectDetection, { kind: 'found' }>>().toEqualTypeOf<{ kind: 'found'; project: string }>();
+    expectTypeOf<Extract<ComposeProjectDetection, { kind: 'found' }>>().toEqualTypeOf<{
+      kind: 'found';
+      project: string;
+      basis: 'bind-port' | 'running' | 'only';
+    }>();
     expectTypeOf<Extract<ComposeProjectDetection, { kind: 'ambiguous' }>>().toEqualTypeOf<{
       kind: 'ambiguous';
       projects: string[];

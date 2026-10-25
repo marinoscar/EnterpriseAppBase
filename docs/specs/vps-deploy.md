@@ -177,6 +177,7 @@ Registered in `packages/platform-cli/src/engine/deploy/checks/`, one module per 
 | Area | Check ids |
 |---|---|
 | Host | `docker-installed`, `docker-daemon`, `docker-compose-v2`, `git-installed`, `node-version`, `disk-space`, `memory`, `bind-port-free` |
+| Compose project | `bind-port-owner` (required; also in the `update` preflight), `stray-compose-stack` (recommended, `doctor` only) |
 | Source | `gh-installed`, `gh-authenticated` |
 | Database | `database-reachable`, `database-credentials`, `database-exists`, `database-role-ordinary`, `database-privileges`, `database-ssl`, `database-create-privilege` |
 | DNS | `dns-resolves`, `dns-points-here` |
@@ -338,13 +339,31 @@ and passed as `-p` on every call; never re-derived. A deployment whose state
 records none (or only the legacy `compose`) is confirmed against Docker before
 `update`, `status` and `doctor` (and the TUI doctor): the engine reads
 `com.docker.compose.project` off the containers whose
-`com.docker.compose.project.working_dir` is inside the deploy root and, when
-they all belong to one other project, records it (the previous state file is
-kept once as `.appctl-deploy.json.bak`, `0600`). A recorded non-legacy project
-is never overwritten; an ambiguous answer writes nothing and warns. `install`,
-`uninstall` and `deploy about` are not reconciled, and a failed `install` no
-longer records the assumed `compose`. Only when Docker cannot say does a state
-with no record fall back to `compose`. Renaming an existing project would
+`com.docker.compose.project.working_dir` is inside the deploy root. A folder can
+hold containers of two projects (the live stack and the leftovers of the legacy
+`compose`), so the project is picked by the strongest evidence, in order: the
+project whose container publishes the bind port (running containers first; a
+stopped leftover is configured to publish it too), the only project with a
+running container, the only project. The project found is recorded when the
+state has none or the legacy `compose` (the previous state file is kept once as
+`.appctl-deploy.json.bak`, `0600`). When nothing separates the projects the
+record is kept and a warning names them and the state file. A recorded
+non-legacy project is never overwritten, but a warning is printed when another
+project holds the bind port. `install --resume` and `--reinstall` reconcile the
+same way before their first compose or check call; `uninstall` and
+`deploy about` do not, and a failed `install` records only a name it chose or
+Docker named. Only when Docker cannot say does a state with no record fall back
+to `compose`.
+
+The required check `bind-port-owner` (`update` and `install` preflight, and
+`doctor`) is the backstop: any container, in any state, that publishes the bind
+port under a project other than the one the run passes to `-p` fails the run
+before anything is built, naming both projects, the `composeProject` fix in the
+state file and the command that removes the leftovers. A stopped leftover
+inside the deploy root only warns when a running container of the run's own
+project holds the port. `stray-compose-stack`
+only warns, in `doctor`, about containers of another project started from the
+deploy root. Neither removes anything. Renaming an existing project would
 start a second stack on the same port.
 
 ### Run journal

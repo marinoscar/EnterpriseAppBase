@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { parseEnvExample } from './env-spec.js';
 import { runInstall, type InstallOptions } from './install.js';
 import { DEPLOY_STATE_VERSION, deployStatePath, readState, writeState, type DeployState } from './state.js';
+import { inspectOutput, psOutput, type FakeContainer } from './testing/fake-containers.js';
 import { createFakePostgres, postgresRoute, superRole } from './testing/fake-postgres.js';
 import {
   createFakeVps,
@@ -216,5 +217,125 @@ describe('a SUCCESSFUL install is unchanged', () => {
     await install(vps, { reinstall: true });
 
     expect(readState(vps.deployRoot)?.composeProject).toBe('compose');
+  });
+});
+
+// =============================================================================
+// `install --resume` and `--reinstall` run under the project Docker says  (#1020)
+// =============================================================================
+//
+// Installing over a deployment that is already here ran its compose calls and
+// its preflight with the legacy `compose` assumed for a record naming no
+// project, exactly the second-stack outage `update` reconciles away. The same
+// reconcile now runs before the first compose or check call.
+// =============================================================================
+
+describe('installing over an existing deployment reconciles the compose project (#1020)', () => {
+  /** The live `myapp` stack holding the bind port, beside stopped legacy `compose` leftovers. */
+  function containers(vps: FakeVps): FakeContainer[] {
+    const workingDir = join(vps.deployRoot, 'repo', 'infra', 'compose');
+    return [
+      { project: 'myapp', workingDir, name: 'myapp-nginx-1', ports: [api.port] },
+      { project: 'myapp', workingDir, name: 'myapp-api-1' },
+      { project: 'compose', workingDir, name: 'compose-api-1', running: false },
+    ];
+  }
+
+  function withDocker(vps: FakeVps): FakeVps {
+    vps.route(['docker', 'ps', '-aq'], () => psOutput(containers(vps)));
+    vps.route(['docker', 'inspect', '--format'], () => inspectOutput(containers(vps)));
+    return vps;
+  }
+
+  function succeedingOverLiveStack(): FakeVps {
+    const postgres = createFakePostgres({ roles: { admin: superRole({ password: ADMIN_SECRET }) }, databases: ['appdb'] });
+    return withDocker(
+      createFakeVps({
+        envExample: TEMPLATE,
+        withCheckout: true,
+        files: { '.env': 'APP_BIND_PORT=3535\n' },
+        routes: [{ match: (invocation) => invocation.argv.includes('curl'), answer: '200' }, postgresRoute(postgres)],
+      }),
+    );
+  }
+
+  const projectsOf = (vps: FakeVps): Array<string | undefined> =>
+    vps
+      .calls('docker', 'compose')
+      .filter((call) => call.argv.includes('-f'))
+      .map((call) => (call.argv.includes('-p') ? call.argv[call.argv.indexOf('-p') + 1] : undefined));
+
+  it('REGRESSION #1020: a reinstall of a record naming no project drives every compose call as `-p myapp`', async () => {
+    const vps = succeedingOverLiveStack();
+    writeState(recordOf(vps, { bindPort: api.port }));
+    const progress: string[] = [];
+
+    await install(vps, { reinstall: true, hooks: { onProgress: (message: string) => progress.push(message) } });
+
+    const projects = projectsOf(vps);
+    expect(projects.length).toBeGreaterThan(0);
+    expect(projects.every((project) => project === 'myapp')).toBe(true);
+    expect(vps.invocations.some((call) => call.argv.join(' ').includes('-p compose'))).toBe(false);
+    expect(readState(vps.deployRoot)?.composeProject).toBe('myapp');
+    expect(progress.some((message) => message.includes('recorded compose project myapp'))).toBe(true);
+  });
+
+  it('corrects the record even when the run then fails, so --resume starts from the truth', async () => {
+    const vps = withDocker(existingDeployment());
+    writeState(recordOf(vps, { bindPort: api.port }));
+
+    await expect(install(vps, { resume: true })).rejects.toThrow('failed');
+
+    expect(written(vps)['composeProject']).toBe('myapp');
+  });
+
+  it('uses the project Docker names for a deployment with a checkout and no record at all, and records it', async () => {
+    const vps = succeedingOverLiveStack();
+
+    await install(vps, { reinstall: true });
+
+    expect(projectsOf(vps).every((project) => project === 'myapp')).toBe(true);
+    expect(readState(vps.deployRoot)?.composeProject).toBe('myapp');
+  });
+
+  it('keeps a failed run recording the project Docker named when there was no record', async () => {
+    const vps = withDocker(existingDeployment());
+
+    await expect(install(vps, { reinstall: true })).rejects.toThrow('failed');
+
+    expect(written(vps)['composeProject']).toBe('myapp');
+  });
+
+  it('leaves a FRESH install on its own folder name and does not ask Docker which project to use', async () => {
+    const vps = withDocker(
+      createFakeVps({
+        envExample: TEMPLATE,
+        routes: [{ match: (invocation) => invocation.argv.includes('curl'), answer: '200' }, postgresRoute(createFakePostgres({ roles: { admin: superRole({ password: ADMIN_SECRET }) }, databases: ['appdb'] }))],
+      }),
+    );
+    // Only the preflight's own question about the port may reach Docker: no foreign
+    // claimant exists, so a fresh install passes and names its folder.
+    vps.route(['docker', 'ps', '-aq'], () => '');
+
+    await install(vps);
+
+    expect(readState(vps.deployRoot)?.composeProject).toBe(basename(vps.deployRoot));
+  });
+
+  it('stops a FRESH install at preflight when another stack already holds its bind port', async () => {
+    const vps = createFakeVps({ envExample: TEMPLATE });
+    const foreign: FakeContainer[] = [
+      { project: 'otherapp', workingDir: '/opt/infra/apps/otherapp/repo/infra/compose', name: 'otherapp-nginx-1', ports: [api.port] },
+    ];
+    vps.route(['docker', 'ps', '-aq'], () => psOutput(foreign));
+    vps.route(['docker', 'inspect', '--format'], () => inspectOutput(foreign));
+
+    const error = await install(vps, { skipDoctor: false }).catch((caught: unknown) => caught);
+
+    expect((error as Error).message).toContain('bind-port-owner');
+    expect((error as Error).message).toContain('otherapp-nginx-1');
+    expect((error as Error).message).toContain('--port');
+    expect(readState(vps.deployRoot)?.lastFailedStep).toBe('preflight');
+    expect(vps.invocations.some((call) => call.argv.includes('clone'))).toBe(false);
   });
 });

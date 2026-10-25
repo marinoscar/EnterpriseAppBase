@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Check } from '../../../deploy/checks/index.js';
 import type { runCommand } from '../../../deploy/executor.js';
 import { DEPLOY_STATE_VERSION, deployStatePath, type DeployState } from '../../../deploy/state.js';
+import { inspectOutput, psOutput, type FakeContainer } from '../../../deploy/testing/fake-containers.js';
 import { DoctorScreen } from './doctor.js';
 
 // =============================================================================
@@ -107,8 +108,8 @@ let release: () => void;
 let seen: Array<string | undefined>;
 let docker: string[][];
 
-/** What `docker ps -aq` and `docker inspect` answer: `[project, directory]`, relative to the deployment. */
-type Container = readonly [project: string, directory: string];
+/** What `docker ps -aq` and `docker inspect` answer: `[project, directory, extra?]`, relative to the deployment. */
+type Container = readonly [project: string, directory: string, extra?: Partial<FakeContainer>];
 
 function useDocker(containers: readonly Container[] | 'down'): void {
   world.run = (async (argv: readonly string[]) => {
@@ -118,9 +119,8 @@ function useDocker(containers: readonly Container[] | 'down'): void {
     if (!isPs && !isInspect) throw new Error(`${argv[0] ?? ''}: command not found`);
     docker.push([...argv]);
     if (containers === 'down') throw new Error('Cannot connect to the Docker daemon');
-    const stdout = isPs
-      ? containers.map((_, index) => `id${index}`).join('\n')
-      : containers.map(([project, directory]) => `${project}|${join(root, directory)}`).join('\n');
+    const records = containers.map(([project, directory, extra]) => ({ project, workingDir: join(root, directory), ...extra }));
+    const stdout = isPs ? psOutput(records) : inspectOutput(records);
     return { argv: [...argv], cwd: '', exitCode: 0, stdout, stderr: '', durationMs: 0, timedOut: false };
   }) as unknown as typeof runCommand;
 }
@@ -216,7 +216,7 @@ describe('the TUI doctor: the compose project the containers really run under', 
     expect(JSON.parse(readFileSync(deployStatePath(root), 'utf8'))).not.toHaveProperty('composeProject');
   });
 
-  it('leaves a recorded project alone, says nothing and does not ask Docker', async () => {
+  it('leaves a recorded project alone and says nothing when no container holds the bind port', async () => {
     recordWith({ composeProject: 'pinned' });
     useDocker([['myapp', 'repo/infra/compose']]);
     harness = await mount('myapp');
@@ -225,8 +225,8 @@ describe('the TUI doctor: the compose project the containers really run under', 
 
     await eventuallyContains(harness.frame, 'running');
     expect(seen).toEqual(['pinned']);
-    expect(docker).toEqual([]);
     expect(harness.frame()).not.toContain('recorded compose project');
+    expect(JSON.parse(readFileSync(deployStatePath(root), 'utf8'))).toMatchObject({ composeProject: 'pinned' });
   });
 
   it('is unchanged when Docker cannot be asked: `compose`, and no note', async () => {

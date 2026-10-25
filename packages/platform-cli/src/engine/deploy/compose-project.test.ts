@@ -13,6 +13,7 @@ import {
 import { LEGACY_COMPOSE_PROJECT, composeArgv, composeProjectFor } from './install.js';
 import { isDeployment } from './deployment-evidence.js';
 import { DEPLOY_STATE_VERSION, deployStatePath, readState, writeState, type DeployState } from './state.js';
+import { inspectOutput, psOutput, type FakeContainer as FakeContainerRecord } from './testing/fake-containers.js';
 
 /**
  * The compose project name is the one piece of bookkeeping in this CLI that can
@@ -121,8 +122,11 @@ describe('composeArgv', () => {
 const COMPOSE_PROJECT_LABEL = 'com.docker.compose.project';
 const COMPOSE_WORKING_DIR_LABEL = 'com.docker.compose.project.working_dir';
 
-/** What the fake `docker inspect` prints per container: `project|workingDir`. */
-type FakeContainer = readonly [project: string, workingDir: string];
+/**
+ * A container as these tests write it: `[project, workingDir, extra?]`, where
+ * `extra` sets the name, whether it runs (default yes) and the ports it publishes.
+ */
+type FakeContainer = readonly [project: string, workingDir: string, extra?: Partial<FakeContainerRecord>];
 
 interface FakeDocker {
   run: ComposeProjectCommandRunner;
@@ -136,10 +140,9 @@ function fakeDocker(containers: readonly FakeContainer[] | 'down'): FakeDocker {
   const run: ComposeProjectCommandRunner = async (argv, options) => {
     calls.push({ argv: [...argv], options });
     if (containers === 'down') throw new Error('Cannot connect to the Docker daemon');
-    if (argv[1] === 'ps') return { stdout: containers.map((_, index) => `id${index}`).join('\n') + '\n' };
-    if (argv[1] === 'inspect') {
-      return { stdout: containers.map(([project, dir]) => `${project}|${dir}`).join('\n') + '\n' };
-    }
+    const records = containers.map(([project, workingDir, extra]) => ({ project, workingDir, ...extra }));
+    if (argv[1] === 'ps') return { stdout: psOutput(records) + '\n' };
+    if (argv[1] === 'inspect') return { stdout: inspectOutput(records) + '\n' };
     throw new Error(`unexpected command ${argv.join(' ')}`);
   };
   return { run, calls };
@@ -216,13 +219,14 @@ describe('detectComposeProject', () => {
       ['tools', '/opt/tools'],
     ]);
 
-    expect(await detectComposeProject(root, docker.run)).toEqual({ kind: 'found', project: 'myapp' });
+    expect(await detectComposeProject(root, docker.run)).toEqual({ kind: 'found', project: 'myapp', basis: 'only' });
   });
 
   it('also matches a container started from the folder itself', async () => {
     expect(await detectComposeProject(root, fakeDocker([['myapp', root]]).run)).toEqual({
       kind: 'found',
       project: 'myapp',
+      basis: 'only',
     });
   });
 
@@ -250,6 +254,109 @@ describe('detectComposeProject', () => {
     ]);
 
     expect(await detectComposeProject(root, docker.run)).toEqual({ kind: 'ambiguous', projects: ['alpha', 'zeta'] });
+  });
+
+  describe('several projects in one folder: the strongest evidence decides (#1020)', () => {
+    const repo = (): string => join(root, 'repo', 'infra', 'compose');
+
+    it('prefers the project whose container publishes the bind port', async () => {
+      const docker = fakeDocker([
+        ['kvox', repo(), { ports: [3535] }],
+        ['compose', repo(), { running: false }],
+      ]);
+
+      expect(await detectComposeProject(root, docker.run, { bindPort: 3535 })).toEqual({
+        kind: 'found',
+        project: 'kvox',
+        basis: 'bind-port',
+      });
+    });
+
+    it('prefers a RUNNING port holder over a stopped one that is configured to publish the same port', async () => {
+      const docker = fakeDocker([
+        ['compose', repo(), { running: false, ports: [3535] }],
+        ['kvox', repo(), { ports: [3535] }],
+      ]);
+
+      expect(await detectComposeProject(root, docker.run, { bindPort: 3535 })).toMatchObject({
+        project: 'kvox',
+        basis: 'bind-port',
+      });
+    });
+
+    it('uses a stopped port holder when no running container publishes the port', async () => {
+      const docker = fakeDocker([
+        ['compose', repo(), { running: false, ports: [3535] }],
+        ['kvox', repo()],
+      ]);
+
+      expect(await detectComposeProject(root, docker.run, { bindPort: 3535 })).toMatchObject({
+        project: 'compose',
+        basis: 'bind-port',
+      });
+    });
+
+    it('is ambiguous when two running projects publish the port', async () => {
+      const docker = fakeDocker([
+        ['alpha', repo(), { ports: [3535] }],
+        ['zeta', repo(), { ports: [3535] }],
+      ]);
+
+      expect(await detectComposeProject(root, docker.run, { bindPort: 3535 })).toEqual({
+        kind: 'ambiguous',
+        projects: ['alpha', 'zeta'],
+      });
+    });
+
+    it('ignores a port holder outside the folder, and a port that is only another port', async () => {
+      const docker = fakeDocker([
+        ['elsewhere', '/opt/tools', { ports: [3535] }],
+        ['kvox', repo(), { ports: [3536] }],
+        ['compose', repo(), { running: false }],
+      ]);
+
+      // Nothing here holds 3535, so the running project decides.
+      expect(await detectComposeProject(root, docker.run, { bindPort: 3535 })).toEqual({
+        kind: 'found',
+        project: 'kvox',
+        basis: 'running',
+      });
+    });
+
+    it('counts a port range and ignores an empty HostPort', async () => {
+      const ranged = fakeDocker([
+        ['kvox', repo(), { ports: ['3530-3540'] }],
+        ['compose', repo(), { running: false }],
+      ]);
+      const unpinned = fakeDocker([
+        ['kvox', repo(), { ports: [''] }],
+        ['compose', repo(), { running: false }],
+      ]);
+
+      expect(await detectComposeProject(root, ranged.run, { bindPort: 3535 })).toMatchObject({ basis: 'bind-port' });
+      expect(await detectComposeProject(root, unpinned.run, { bindPort: 3535 })).toMatchObject({ basis: 'running' });
+    });
+
+    it('decides by the running containers without a bind port (the 2-argument form)', async () => {
+      const docker = fakeDocker([
+        ['kvox', repo()],
+        ['compose', repo(), { running: false }],
+      ]);
+
+      expect(await detectComposeProject(root, docker.run)).toEqual({ kind: 'found', project: 'kvox', basis: 'running' });
+    });
+
+    it('is ambiguous when nothing separates the projects', async () => {
+      const docker = fakeDocker([
+        ['kvox', repo(), { running: false }],
+        ['compose', repo(), { running: false }],
+      ]);
+
+      expect(await detectComposeProject(root, docker.run, { bindPort: 3535 })).toEqual({
+        kind: 'ambiguous',
+        projects: ['compose', 'kvox'],
+      });
+    });
   });
 
   it('is unavailable, never a throw, when the runner rejects', async () => {
@@ -288,21 +395,24 @@ describe('detectComposeProject', () => {
   });
 
   it('ignores a container with no labels (the nil-guard line `|`) and one missing either label', async () => {
-    const run = rawDocker('a\nb\nc\nd\n', `|\n|${root}/repo\nlost|\nmyapp|${root}/repo\n`);
+    const run = rawDocker(
+      'a\nb\nc\nd\n',
+      `/a|true||||\n/b|true|||${root}/repo\n/c|true|||lost|\n/d|true||myapp|${root}/repo\n`,
+    );
 
-    expect(await detectComposeProject(root, run)).toEqual({ kind: 'found', project: 'myapp' });
+    expect(await detectComposeProject(root, run)).toEqual({ kind: 'found', project: 'myapp', basis: 'only' });
   });
 
   it('ignores a line without a separator, such as the `<no value>` an unguarded template prints', async () => {
-    const run = rawDocker('a\n', `<no value>\nmyapp|${root}\n`);
+    const run = rawDocker('a\nb\n', `<no value>\n/b|true||myapp|${root}\n`);
 
-    expect(await detectComposeProject(root, run)).toEqual({ kind: 'found', project: 'myapp' });
+    expect(await detectComposeProject(root, run)).toEqual({ kind: 'found', project: 'myapp', basis: 'only' });
   });
 
   it('keeps a working directory that itself contains a separator', async () => {
-    const run = rawDocker('a\n', `myapp|${root}/re|po\n`);
+    const run = rawDocker('a\n', `/a|true||myapp|${root}/re|po\n`);
 
-    expect(await detectComposeProject(root, run)).toEqual({ kind: 'found', project: 'myapp' });
+    expect(await detectComposeProject(root, run)).toEqual({ kind: 'found', project: 'myapp', basis: 'only' });
   });
 
   it('asks Docker once for the ids, then ONCE for every inspect, ids as separate argv entries', async () => {
@@ -321,6 +431,17 @@ describe('detectComposeProject', () => {
     // The ids come last, one argv entry each: no shell string anywhere.
     expect(inspect.slice(4)).toEqual(['id0', 'id1', 'id2']);
     expect(inspect.slice(4).some((entry) => /\s/.test(entry))).toBe(false);
+  });
+
+  it('asks the inspect for the name, the running state and the published ports as well', async () => {
+    const docker = fakeDocker([['myapp', root]]);
+
+    await detectComposeProject(root, docker.run, { bindPort: 3535 });
+
+    const format = docker.calls[1]?.argv[3] ?? '';
+    expect(format).toContain('.Name');
+    expect(format).toContain('.State.Running');
+    expect(format).toContain('.HostConfig.PortBindings');
   });
 
   it('asks the inspect for BOTH compose labels, guarding a container without labels', async () => {
@@ -478,16 +599,37 @@ describe('reconcileComposeProject', () => {
     expect(result.message).toContain('had none');
   });
 
-  it('never overwrites a project recorded on purpose, and never asks Docker', async () => {
+  it('never overwrites a project recorded on purpose, and says nothing when Docker agrees or has no evidence', async () => {
     const state = install({ composeProject: 'pinned' });
     const before = readFileSync(statePath, 'utf8');
-    const run = vi.fn(fakeDocker([['myapp', underRoot()]]).run);
 
-    const result = await reconcileComposeProject({ deployRoot: root, state, runCommand: run });
+    for (const containers of [
+      [['pinned', underRoot(), { ports: [3535] }]],
+      [['myapp', underRoot()]],
+      [],
+    ] as FakeContainer[][]) {
+      const result = await reconcileComposeProject({ deployRoot: root, state, runCommand: fakeDocker(containers).run });
 
-    expect(run).not.toHaveBeenCalled();
+      expect(result.state).toBe(state);
+      expect(result.message).toBeUndefined();
+    }
+    expect(readFileSync(statePath, 'utf8')).toBe(before);
+    expect(existsSync(`${statePath}.bak`)).toBe(false);
+  });
+
+  it('never overwrites a recorded project, but WARNS when the container holding the bind port is of another one (#1020)', async () => {
+    const state = install({ composeProject: 'pinned' });
+    const before = readFileSync(statePath, 'utf8');
+    const docker = fakeDocker([['myapp', underRoot(), { ports: [3535] }]]);
+
+    const result = await reconcileComposeProject({ deployRoot: root, state, runCommand: docker.run });
+
     expect(result.state).toBe(state);
-    expect(result.message).toBeUndefined();
+    expect(result.message).toContain('warning');
+    expect(result.message).toContain('pinned');
+    expect(result.message).toContain('myapp');
+    expect(result.message).toContain('3535');
+    expect(result.message).toContain(statePath);
     expect(readFileSync(statePath, 'utf8')).toBe(before);
     expect(existsSync(`${statePath}.bak`)).toBe(false);
   });
@@ -534,19 +676,17 @@ describe('reconcileComposeProject', () => {
     expect(existsSync(`${statePath}.bak`)).toBe(false);
   });
 
-  it('is idempotent: a second run changes nothing, says nothing and does not ask Docker', async () => {
+  it('is idempotent: a second run changes nothing and says nothing', async () => {
     const state = install();
     const docker = fakeDocker([['myapp', underRoot()]]);
     const first = await reconcileComposeProject({ deployRoot: root, state, runCommand: docker.run });
     const after = readFileSync(statePath, 'utf8');
-    const asked = docker.calls.length;
 
     const again = await reconcileComposeProject({ deployRoot: root, state: first.state, runCommand: docker.run });
 
     expect(again.message).toBeUndefined();
     expect(again.state).toBe(first.state);
     expect(readFileSync(statePath, 'utf8')).toBe(after);
-    expect(docker.calls).toHaveLength(asked);
   });
 
   it('warns, naming the projects and the state file, and writes nothing, when several projects run here', async () => {
@@ -567,7 +707,7 @@ describe('reconcileComposeProject', () => {
     expect(existsSync(`${statePath}.bak`)).toBe(false);
   });
 
-  it('is silent when the several projects include `compose`, which the engine already uses', async () => {
+  it('is NOT silent when the several projects include `compose` and nothing is decisive (#1020)', async () => {
     const state = install();
     const before = readFileSync(statePath, 'utf8');
     const docker = fakeDocker([
@@ -577,10 +717,53 @@ describe('reconcileComposeProject', () => {
 
     const result = await reconcileComposeProject({ deployRoot: root, state, runCommand: docker.run });
 
-    expect(result.message).toBeUndefined();
+    expect(result.message).toContain('warning');
+    expect(result.message).toContain('compose, myapp');
+    expect(result.message).toContain(statePath);
     expect(result.state).toBe(state);
     expect(readFileSync(statePath, 'utf8')).toBe(before);
     expect(existsSync(`${statePath}.bak`)).toBe(false);
+  });
+
+  it('REGRESSION #1020: records the project that holds the bind port, not the legacy `compose` beside it', async () => {
+    const state = install();
+    // The live stack, plus the legacy project's leftovers: one stopped nginx that
+    // is CONFIGURED to publish the same port.
+    const docker = fakeDocker([
+      ['myapp', underRoot(), { name: 'myapp-nginx-1', ports: [3535] }],
+      ['myapp', underRoot(), { name: 'myapp-api-1' }],
+      ['compose', underRoot(), { name: 'compose-nginx-1', running: false, ports: [3535] }],
+      ['compose', underRoot(), { name: 'compose-api-1', running: false }],
+    ]);
+
+    const result = await reconcileComposeProject({ deployRoot: root, state, runCommand: docker.run });
+
+    expect(result.state?.composeProject).toBe('myapp');
+    expect(raw()['composeProject']).toBe('myapp');
+    expect(result.message).toContain('it holds port 3535');
+  });
+
+  it('decides by the running containers when none publishes the port', async () => {
+    const state = install();
+    const docker = fakeDocker([
+      ['myapp', underRoot()],
+      ['compose', underRoot(), { running: false }],
+    ]);
+
+    const result = await reconcileComposeProject({ deployRoot: root, state, runCommand: docker.run });
+
+    expect(result.state?.composeProject).toBe('myapp');
+    expect(result.message).toContain('only project with a running container');
+  });
+
+  it('says the project is the only one here when it alone has containers', async () => {
+    const result = await reconcileComposeProject({
+      deployRoot: root,
+      state: install(),
+      runCommand: fakeDocker([['myapp', underRoot(), { running: false }]]).run,
+    });
+
+    expect(result.message).toContain('only project with containers here');
   });
 
   it('still returns the corrected project, and says it was not recorded, when the file cannot be written', async () => {
