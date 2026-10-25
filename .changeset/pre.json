@@ -46,6 +46,7 @@
     "cli-android-slice",
     "cli-check-compose-project",
     "cli-check-test-timeout",
+    "cli-compose-project-port-holder",
     "cli-core-create-cli",
     "cli-deploy-application-role",
     "cli-derive-compose-project",
