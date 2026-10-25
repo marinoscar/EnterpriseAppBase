@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { cpus, totalmem } from 'node:os';
+import { readFileSync } from 'node:fs';
+import { availableParallelism, cpus, totalmem } from 'node:os';
 import { getHeapStatistics } from 'node:v8';
 
 import { envFlagOn } from './env-flags.js';
@@ -82,7 +83,7 @@ export function resolveHeapLimitMb(options?: HeapLimitOptions): number {
     return clamp(value, MIN_HEAP_LIMIT_MB, MAX_HEAP_LIMIT_MB);
   }
 
-  const total = options?.totalMemoryBytes ?? safeTotalMem();
+  const total = options?.totalMemoryBytes ?? effectiveMemoryBytes();
   if (total <= 0) return 0;
   return clamp(Math.round((total * HEAP_FRACTION_OF_RAM) / 1024 / 1024), MIN_HEAP_LIMIT_MB, MAX_HEAP_LIMIT_MB);
 }
@@ -103,10 +104,15 @@ export function currentHeapLimitMb(): number {
  * operator to discover the flag is how a fleet ends up running at a fraction
  * of what it was provisioned for. Bounded by RAM as well as cores because the
  * limiting resource for a worker is usually memory per slot, not CPU.
+ *
+ * "The box" is what THIS process may use: a container with a memory or CPU
+ * limit sees its limit, not the host. That is what lets several replicas share
+ * one large machine, each sized to its own slice instead of every replica
+ * sizing itself to the whole host.
  */
 export function resolveDefaultConcurrency(options?: { cpuCount?: number | undefined; totalMemoryBytes?: number | undefined }): number {
-  const cores = options?.cpuCount ?? safeCpuCount();
-  const totalMb = Math.round((options?.totalMemoryBytes ?? safeTotalMem()) / 1024 / 1024);
+  const cores = options?.cpuCount ?? effectiveCpuCount();
+  const totalMb = Math.round((options?.totalMemoryBytes ?? effectiveMemoryBytes()) / 1024 / 1024);
 
   // One slot per core, minus one for everything else on the box; and one slot
   // per gigabyte, so a 1 GB VPS with 8 cores does not run eight jobs.
@@ -240,10 +246,73 @@ function safeTotalMem(): number {
   }
 }
 
+/**
+ * Memory this process may actually use, in bytes: host RAM, or the cgroup
+ * limit when that is lower (`process.constrainedMemory()`, Node 20+). An
+ * unconstrained cgroup reports `0` or a value above host RAM, both of which
+ * fall out of the `min`.
+ */
+export function effectiveMemoryBytes(
+  options?: { totalMemoryBytes?: number | undefined; constrainedMemoryBytes?: number | undefined },
+): number {
+  const total = options?.totalMemoryBytes ?? safeTotalMem();
+  let constrained = options?.constrainedMemoryBytes;
+  if (constrained === undefined) {
+    try {
+      constrained = typeof process.constrainedMemory === 'function' ? process.constrainedMemory() : 0;
+    } catch {
+      constrained = 0;
+    }
+  }
+  if (!Number.isFinite(constrained) || constrained <= 0) return total;
+  return total > 0 ? Math.min(total, constrained) : constrained;
+}
+
+/**
+ * CPU quota from the cgroup, as a (possibly fractional) core count, or
+ * `undefined` when none is set. Reads cgroup v2 `cpu.max` ("<quota|max> <period>")
+ * and falls back to v1 `cpu.cfs_quota_us` / `cpu.cfs_period_us`. `read` is the
+ * test seam; any unreadable file means "no quota".
+ */
+export function readCgroupCpuQuota(read: (path: string) => string = (path) => readFileSync(path, 'utf8')): number | undefined {
+  const parse = (quota: string, period: string): number | undefined => {
+    if (quota === 'max') return undefined;
+    const q = Number(quota);
+    const p = Number(period);
+    return Number.isFinite(q) && Number.isFinite(p) && q > 0 && p > 0 ? q / p : undefined;
+  };
+  try {
+    const [quota = '', period = ''] = read('/sys/fs/cgroup/cpu.max').trim().split(/\s+/);
+    return parse(quota, period);
+  } catch {
+    // Not cgroup v2; try v1.
+  }
+  try {
+    return parse(
+      read('/sys/fs/cgroup/cpu/cpu.cfs_quota_us').trim(),
+      read('/sys/fs/cgroup/cpu/cpu.cfs_period_us').trim(),
+    );
+  } catch {
+    return undefined;
+  }
+}
+
+/** Whole cores this process may use: the CPU count, or the cgroup quota (rounded up) when lower. */
+export function effectiveCpuCount(options?: { cpuCount?: number | undefined; quota?: number | undefined }): number {
+  const count = options?.cpuCount ?? safeCpuCount();
+  const quota = options && 'quota' in options ? options.quota : readCgroupCpuQuota();
+  if (quota === undefined || !Number.isFinite(quota) || quota <= 0) return count;
+  return Math.max(1, Math.min(count, Math.ceil(quota)));
+}
+
 function safeCpuCount(): number {
   try {
-    return cpus().length;
+    return availableParallelism();
   } catch {
-    return 1;
+    try {
+      return cpus().length;
+    } catch {
+      return 1;
+    }
   }
 }

@@ -4,6 +4,7 @@
 # The recommended way to run workers: containers, not a per-machine install.
 #
 #   docker compose -f worker.compose.yml up -d
+#   WORKER_REPLICAS=4 docker compose -f worker.compose.yml up -d
 #   docker compose -f worker.compose.yml up -d --scale worker=4
 #
 # IMAGE-ONLY. No checkout is needed to run a fleet — that is the point of
@@ -11,16 +12,31 @@
 # build from source instead.
 #
 # -----------------------------------------------------------------------------
-# SCALING NEEDS NO COORDINATION
+# SEVERAL WORKERS ON ONE MACHINE
 # -----------------------------------------------------------------------------
-# Each replica registers as its own node (its name derives from the container
-# hostname, which Docker makes unique) and they load-balance through the
-# server's `FOR UPDATE SKIP LOCKED` claim. Two replicas can never receive the
-# same job, and none of them is configured to know the others exist.
+# Scaling needs no coordination. Each replica registers as its own node (its
+# name derives from the container hostname, which Docker makes unique) and they
+# load-balance through the server's `FOR UPDATE SKIP LOCKED` claim. Two
+# replicas can never receive the same job, and none of them is configured to
+# know the others exist.
 #
 # Do NOT set @@PLATFORM_ENV_PREFIX@@NODE_NAME or @@PLATFORM_ENV_PREFIX@@NODE_ID when scaling: every replica
 # would then reattach to the SAME node row, and the server's per-node claim cap
 # would be shared between processes that each think they own it.
+#
+# Each replica has its OWN state directory. The volume below is anonymous on
+# purpose: Compose gives every replica of a service the same NAMED volume, and
+# replicas sharing one directory share one pidfile and one socket, so all but
+# the first refuse to start. An anonymous volume belongs to one container and
+# survives its restart, so a replica still re-attaches to its node row and
+# keeps the heap snapshot the memory watchdog writes before it exits.
+# `docker compose down -v` removes the volumes.
+#
+# Size the replicas to the machine. A replica sizes its default concurrency and
+# old-space limit to what its container may use, so WORKER_MEMORY and
+# WORKER_CPUS (per replica; 0 means no limit) are what make N replicas share one
+# large host instead of each assuming it has all of it. For example, 8 replicas
+# on 64 cores and 256 GB: WORKER_REPLICAS=8 WORKER_CPUS=8 WORKER_MEMORY=30g.
 #
 # -----------------------------------------------------------------------------
 # NO PRODUCT, APP OR REPOSITORY NAME APPEARS IN THIS FILE
@@ -45,6 +61,13 @@ services:
     # SIGKILLs; a job killed mid-flight has to wait out its lease before the
     # server retries it anywhere.
     stop_grace_period: 300s
+
+    # How many workers `up` starts (`--scale worker=N` overrides it), and the
+    # limits each one gets. 0 is Docker's "no limit".
+    deploy:
+      replicas: ${WORKER_REPLICAS:-1}
+    mem_limit: ${WORKER_MEMORY:-0}
+    cpus: ${WORKER_CPUS:-0}
 
     environment:
       # ---- Required ---------------------------------------------------------
@@ -79,12 +102,10 @@ services:
       @@PLATFORM_ENV_PREFIX@@HEAP_SNAPSHOTS: ${@@PLATFORM_ENV_PREFIX@@HEAP_SNAPSHOTS:-}
 
     volumes:
-      # State survives a restart, so a replica re-attaches to its node row
-      # instead of leaking a new one. Named per-replica by Docker when scaled.
-      - worker-state:/var/lib/worker
+      # One state directory PER REPLICA (see above): anonymous, never named.
+      # It survives a restart, so a replica re-attaches to its node row
+      # instead of leaking a new one.
+      - /var/lib/worker
 
     # The worker makes only OUTBOUND connections. It needs no ports, no inbound
     # rule, and no database access whatsoever.
-
-volumes:
-  worker-state:

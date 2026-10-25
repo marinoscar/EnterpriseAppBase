@@ -16,7 +16,7 @@
         "infra/compose/devdb.compose.yml": "3eb626711e6a4cd68178fe09ed8449c10c9c862782f1797891ad2a61bf9f6441",
         "infra/compose/prod.compose.yml": "027ca7b6c38af5c056a465d849af205528f78a3c2ebc6a57b7a8534877125e6a",
         "infra/compose/vps.compose.yml": "e09db906af528c82543d04fb8e459f7b12803a36d38df838a822c1e29a1e8384",
-        "infra/compose/worker.compose.yml": "2a3483d2c514d6278db0b75dbb436ae82ff91d53549883a81a14d88dc131cf59",
+        "infra/compose/worker.compose.yml": "0d51c27362c13d3e08d1d35863e0681df359f9e5c879bc0db2f81479435a4dfe",
         "infra/compose/worker.build.compose.yml": "8675ce8b0dfb5e8de057d9fed224bea918abfebf6c856d8c643156baf28c27d8",
         "infra/compose/test.compose.yml": "288e69608ea0fec9df8d2662fb2f41be57859432127c9ac48dcca2d3cce00ee8",
         "infra/compose/postgres-init/10-application-role.sh": "a7ea0ac5bdd7fa7537a3653e9e0c92fa8ca512718b1a7de60832666552dfb1f0"
@@ -38,7 +38,7 @@
     "env": {
       "files": {
         "infra/compose/.env.example": "89d47a2626a6d2f332c3ae88b4b44ee5c3bab7b20a27a39d1a67deec3526f72c",
-        "infra/compose/.env.worker.example": "fcd72cfc171509675e72ef6f18c9e2d44cfd088e177159ed46d5acd99a17fdf6"
+        "infra/compose/.env.worker.example": "3b6e728d7a3a6cc91a2f111a873621dc621d664412fc4bf413f67057f55e1e0b"
       }
     },
     "telemetry": {

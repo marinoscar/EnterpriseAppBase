@@ -134,7 +134,7 @@ the generated table in
 | `restart: unless-stopped` | The memory valve exits deliberately; without this a clean drain leaves the worker down |
 | `stop_grace_period: 300s` | Long enough for a real drain before Docker escalates to `SIGKILL`; a job killed mid-flight waits out its lease before it is retried anywhere |
 | Exec-form `ENTRYPOINT` | Shell form wraps PID 1 in `/bin/sh -c`, which does not forward `SIGTERM` — the drain would never run |
-| A volume at `/var/lib/worker` | State survives a restart, so a replica re-attaches instead of leaking a node row |
+| An anonymous volume at `/var/lib/worker`, one per replica | State survives a restart, so a replica re-attaches instead of leaking a node row; never a named volume, which every replica would share (section 4.2) |
 
 If the container cannot write its config file back (a read-only home is
 common), the worker warns and keeps going.
@@ -191,6 +191,70 @@ cosign verify ghcr.io/<owner>/<repo>-worker@sha256:<digest> \
 An app built on the `@marinoscar/platform-*` packages pins the worker to the
 same version as its packages. Tags, channels, the SBOM and that pinning are in
 [container-images.md](container-images.md).
+
+### 4.2 Several workers on one machine
+
+One big machine runs several replicas. Each replica is its own node, so a
+64-core host with 8 replicas shows 8 workers in the fleet, each claiming up to
+its own concurrency.
+
+Set three variables in `.env.worker`:
+
+| Variable | Meaning | Default |
+|---|---|---|
+| `WORKER_REPLICAS` | How many workers `up` starts. `--scale worker=N` on the command line overrides it | 1 |
+| `WORKER_CPUS` | CPUs **per replica** (a Compose `cpus` limit) | empty or `0`: no limit |
+| `WORKER_MEMORY` | Memory **per replica** (a Compose `mem_limit`, for example `30g`) | empty or `0`: no limit |
+
+```bash
+# .env.worker: 8 replicas on a host with 64 cores and 256 GB
+WORKER_REPLICAS=8
+WORKER_CPUS=8
+WORKER_MEMORY=30g
+```
+
+```bash
+cd infra/compose
+docker compose --env-file .env.worker -f worker.compose.yml up -d
+```
+
+**Why the limits matter.** A replica sizes its default concurrency and its
+old-space heap limit to what its own process may use: the container's cgroup
+memory limit and CPU quota (section 7). With no limit, the process sees the
+whole host, so all 8 replicas each size themselves to 64 cores and 256 GB and
+oversubscribe the machine eight times over. Leave some memory for the host: 8
+times 30g is 240g of 256 GB. If you cannot set container limits, set
+`APPCTL_CONCURRENCY` explicitly instead.
+
+**Each replica has its own state directory.** `worker.compose.yml` mounts an
+anonymous volume at `/var/lib/worker`, and Compose creates one per container.
+That directory holds the pidfile, the control socket, the config file and heap
+snapshots, so replicas must never share it.
+
+| Event | The replica's state |
+|---|---|
+| `restart`, `stop` then `start`, a memory-valve exit | Kept: the replica re-attaches to its node row |
+| `up` recreating the container (image or config change) | The container gets a new hostname, so it registers as a new node and the old row goes offline; `up --renew-anon-volumes` also discards the state |
+| `docker compose down -v` | Removed with the containers |
+| `docker compose down` (no `-v`) | Containers go; the anonymous volumes stay behind as dangling volumes until `docker volume prune` |
+
+A pidfile that names the current process is stale, so a container killed by
+`SIGKILL` or the kernel OOM killer (and restarted, always as PID 1) starts again
+instead of refusing.
+
+**Do not set `APPCTL_NODE_NAME` or `APPCTL_NODE_ID`.** A node's identity is
+`(owner, name)`, and the name defaults to the container hostname, which Docker
+makes unique per replica. A fixed name makes every replica reattach to one row
+(see the note in section 4).
+
+**Confirm it worked.**
+
+1. `docker compose --env-file .env.worker -f worker.compose.yml ps` lists
+   `WORKER_REPLICAS` containers, all `running`.
+2. Open `/admin/settings/workers`: N distinct nodes are `online`, one per
+   container hostname, each with a fresh heartbeat.
+3. `docker compose --env-file .env.worker -f worker.compose.yml logs worker`
+   shows no `A worker is already running here`.
 
 ## 5. Capabilities and the startup self-test
 
@@ -301,7 +365,11 @@ a supervisor is watching.
 
 **Heap tuning.** The worker re-execs itself once at startup with a RAM-aware
 `--max-old-space-size`, because Node's default old-space limit is low for a
-machine dedicated to being a worker. The original process becomes a
+machine dedicated to being a worker. "RAM-aware" means the memory the process
+may use: a container's cgroup limit when there is one, the whole machine
+otherwise. The default concurrency is sized the same way, from the cgroup CPU
+quota. Several replicas on one host therefore need per-replica limits
+(section 4.2). The original process becomes a
 signal-forwarding shim, so a container `SIGTERM` still reaches the worker and
 still drains. Set `APPCTL_HEAP_LIMIT_MB=0` when a cgroup or a PaaS already
 manages memory — a second opinion there is worse than none.
@@ -453,6 +521,9 @@ server (`OTEL_ENABLED`); see [telemetry.md](telemetry.md).
 | `doctor` says 404 on `/api/nodes` | The server predates worker nodes | Upgrade the server |
 | The node shows online in the admin UI but does nothing | It has no executor for any advertised type | `appctl node status` lists what it can actually run |
 | Jobs fail immediately with a rate-limit message | A provider is throttling | Nothing to do — the server defers those without charging an attempt |
+| A replica exits with `A worker is already running here (pid N)` while others run | Replicas share one state directory, typically because a named volume (such as `worker-state`) is mounted at `/var/lib/worker` | Use the shipped `worker.compose.yml` (anonymous volume, one per replica), or give each replica its own `APPCTL_STATE_DIR`; then `docker compose down -v` and `up` again |
+| A worker in a container never restarts after being killed, with the same message | An older CLI treated the pidfile left by a `SIGKILL` or OOM kill as live (a restarted container is PID 1 again) | Upgrade the worker image; the current CLI treats a pidfile naming its own process as stale |
+| Replicas on one host starve each other or the machine | No per-replica limits, so each sized itself to the whole host | Set `WORKER_CPUS` and `WORKER_MEMORY` (section 4.2) |
 | The worker vanishes when you log out | No systemd lingering | `loginctl enable-linger $USER` |
 
 ## Summary checklist
@@ -473,6 +544,8 @@ server (`OTEL_ENABLED`); see [telemetry.md](telemetry.md).
 - [ ] `restart: unless-stopped` and `stop_grace_period` kept in
       `worker.compose.yml`
 - [ ] Nodes appear at `/admin/settings/workers`
+- [ ] More than one replica on a host: `WORKER_REPLICAS`, `WORKER_CPUS` and
+      `WORKER_MEMORY` set, and N distinct nodes online (section 4.2)
 - [ ] `WORKER_IMAGE` pinned to a release or a verified digest, not the
       placeholder default
 

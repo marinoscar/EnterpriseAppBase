@@ -14,6 +14,11 @@
         "target": "production"
       },
       "command": null,
+      "deploy": {
+        "placement": {},
+        "replicas": 1,
+        "resources": {}
+      },
       "entrypoint": null,
       "environment": {
         "APPCTL_CONCURRENCY": "",
@@ -39,17 +44,11 @@
       "stop_grace_period": "5m0s",
       "volumes": [
         {
-          "source": "worker-state",
           "target": "/var/lib/worker",
           "type": "volume",
           "volume": {}
         }
       ]
-    }
-  },
-  "volumes": {
-    "worker-state": {
-      "name": "compose_worker-state"
     }
   }
 }

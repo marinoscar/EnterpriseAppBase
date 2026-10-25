@@ -4,7 +4,10 @@ import {
   HEAP_FRACTION_OF_RAM,
   MAX_HEAP_LIMIT_MB,
   MIN_HEAP_LIMIT_MB,
+  effectiveCpuCount,
+  effectiveMemoryBytes,
   maybeReexecWithHeapLimit,
+  readCgroupCpuQuota,
   resolveDefaultConcurrency,
   resolveHeapLimitMb,
 } from './runtime-tuning.js';
@@ -56,6 +59,117 @@ describe('resolveDefaultConcurrency', () => {
 
   it('stays within the server’s own cap', () => {
     expect(resolveDefaultConcurrency({ cpuCount: 512, totalMemoryBytes: 1024 * GB })).toBe(64);
+  });
+});
+
+describe('effectiveMemoryBytes', () => {
+  it('is the cgroup limit when it is below host RAM', () => {
+    expect(effectiveMemoryBytes({ totalMemoryBytes: 256 * GB, constrainedMemoryBytes: 30 * GB })).toBe(30 * GB);
+  });
+
+  it('falls back to host RAM when there is no usable limit', () => {
+    // 0 is what an unconstrained cgroup reports.
+    expect(effectiveMemoryBytes({ totalMemoryBytes: 16 * GB, constrainedMemoryBytes: 0 })).toBe(16 * GB);
+    expect(effectiveMemoryBytes({ totalMemoryBytes: 16 * GB, constrainedMemoryBytes: Number.NaN })).toBe(16 * GB);
+    expect(effectiveMemoryBytes({ totalMemoryBytes: 16 * GB, constrainedMemoryBytes: -1 })).toBe(16 * GB);
+    // An "unlimited" cgroup v1 reports a value near 2^63; it is above host RAM.
+    expect(effectiveMemoryBytes({ totalMemoryBytes: 16 * GB, constrainedMemoryBytes: 9_223_372_036_854_771_712 })).toBe(
+      16 * GB,
+    );
+  });
+
+  it('uses the limit alone when host RAM is unknown', () => {
+    expect(effectiveMemoryBytes({ totalMemoryBytes: 0, constrainedMemoryBytes: 8 * GB })).toBe(8 * GB);
+  });
+});
+
+describe('readCgroupCpuQuota', () => {
+  const files = (map: Record<string, string>) => (path: string): string => {
+    const value = map[path];
+    if (value === undefined) throw new Error(`ENOENT: ${path}`);
+    return value;
+  };
+
+  it('reads a cgroup v2 cpu.max quota', () => {
+    expect(readCgroupCpuQuota(files({ '/sys/fs/cgroup/cpu.max': '800000 100000\n' }))).toBe(8);
+  });
+
+  it('keeps a fractional quota fractional', () => {
+    expect(readCgroupCpuQuota(files({ '/sys/fs/cgroup/cpu.max': '150000 100000\n' }))).toBe(1.5);
+  });
+
+  it('reports no quota for "max"', () => {
+    expect(readCgroupCpuQuota(files({ '/sys/fs/cgroup/cpu.max': 'max 100000\n' }))).toBeUndefined();
+  });
+
+  it('falls back to cgroup v1 when cpu.max is absent', () => {
+    expect(
+      readCgroupCpuQuota(
+        files({ '/sys/fs/cgroup/cpu/cpu.cfs_quota_us': '400000\n', '/sys/fs/cgroup/cpu/cpu.cfs_period_us': '100000\n' }),
+      ),
+    ).toBe(4);
+  });
+
+  it('treats a v1 quota of -1 as no quota', () => {
+    expect(
+      readCgroupCpuQuota(
+        files({ '/sys/fs/cgroup/cpu/cpu.cfs_quota_us': '-1\n', '/sys/fs/cgroup/cpu/cpu.cfs_period_us': '100000\n' }),
+      ),
+    ).toBeUndefined();
+  });
+
+  it('reports no quota when nothing is readable or the content is garbage', () => {
+    expect(readCgroupCpuQuota(files({}))).toBeUndefined();
+    expect(readCgroupCpuQuota(files({ '/sys/fs/cgroup/cpu.max': 'lots of cpu\n' }))).toBeUndefined();
+  });
+});
+
+describe('effectiveCpuCount', () => {
+  it('is the CPU count when there is no quota', () => {
+    expect(effectiveCpuCount({ cpuCount: 64, quota: undefined })).toBe(64);
+  });
+
+  it('is the quota, rounded up, when it is lower', () => {
+    expect(effectiveCpuCount({ cpuCount: 64, quota: 8 })).toBe(8);
+    expect(effectiveCpuCount({ cpuCount: 64, quota: 1.5 })).toBe(2);
+  });
+
+  it('never exceeds the CPU count and is at least 1', () => {
+    expect(effectiveCpuCount({ cpuCount: 4, quota: 16 })).toBe(4);
+    expect(effectiveCpuCount({ cpuCount: 4, quota: 0.25 })).toBe(1);
+  });
+
+  it('ignores a nonsensical quota', () => {
+    expect(effectiveCpuCount({ cpuCount: 4, quota: 0 })).toBe(4);
+    expect(effectiveCpuCount({ cpuCount: 4, quota: Number.NaN })).toBe(4);
+  });
+});
+
+describe('several replicas on one large host', () => {
+  // 64 cores and 256 GB, split into replicas limited to 8 cores and 30 GB each.
+  const replica = {
+    cpuCount: effectiveCpuCount({ cpuCount: 64, quota: 8 }),
+    totalMemoryBytes: effectiveMemoryBytes({ totalMemoryBytes: 256 * GB, constrainedMemoryBytes: 30 * GB }),
+  };
+
+  it('sizes concurrency to the replica, not the host', () => {
+    expect(replica.cpuCount).toBe(8);
+    expect(resolveDefaultConcurrency(replica)).toBeLessThanOrEqual(7);
+    // Sized to the host it would be capped only by the server (63 here).
+    expect(resolveDefaultConcurrency({ cpuCount: 64, totalMemoryBytes: 256 * GB })).toBeGreaterThan(7);
+  });
+
+  it('derives the heap limit from the replica memory, not host RAM', () => {
+    const heap = resolveHeapLimitMb({ env: {}, totalMemoryBytes: replica.totalMemoryBytes });
+    // Half of 30 GB is above the ceiling, so the clamp is what applies here.
+    expect(heap).toBe(MAX_HEAP_LIMIT_MB);
+
+    // The derivation is only visible below the ceiling: a 12 GB replica gets a 6 GB heap, not the host's ceiling.
+    const small = effectiveMemoryBytes({ totalMemoryBytes: 256 * GB, constrainedMemoryBytes: 12 * GB });
+    expect(resolveHeapLimitMb({ env: {}, totalMemoryBytes: small })).toBe(
+      Math.round((12 * GB * HEAP_FRACTION_OF_RAM) / 1024 / 1024),
+    );
+    expect(resolveHeapLimitMb({ env: {}, totalMemoryBytes: 256 * GB })).toBe(MAX_HEAP_LIMIT_MB);
   });
 });
 

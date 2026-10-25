@@ -267,3 +267,83 @@ describe.skipIf(!HAS_COMPOSE)('app compose overlays, with no platform file edite
     expect(overlaid.services).toEqual(rest);
   });
 });
+
+// =============================================================================
+// The worker fleet on one large host
+// =============================================================================
+//
+// Replicas of one service share a NAMED volume, and replicas sharing a state
+// directory share one pidfile and one socket, so all but the first refuse to
+// start. The state volume is therefore anonymous (one per container), and the
+// replica count and per-replica limits come from the environment.
+// =============================================================================
+
+type WorkerService = {
+  deploy?: { replicas?: number };
+  mem_limit?: string | number;
+  cpus?: number | string;
+  volumes?: { type?: string; source?: string; target?: string }[];
+};
+
+describe('the worker fleet template (static)', () => {
+  const template = readFileSync(join(PACKAGE_ROOT, 'compose', 'worker.compose.yml'), 'utf8');
+  const envExample = readFileSync(join(PACKAGE_ROOT, 'env', 'worker.env.example'), 'utf8');
+  const code = template
+    .split('\n')
+    .filter((line) => !line.trimStart().startsWith('#'))
+    .join('\n');
+
+  it('declares no top-level volumes block, so no named state volume can exist', () => {
+    expect(code).not.toMatch(/^volumes:/m);
+    expect(code).not.toContain('worker-state');
+  });
+
+  it('mounts /var/lib/worker as an anonymous volume (no "source:" part)', () => {
+    expect(code).toMatch(/^\s+- \/var\/lib\/worker\s*$/m);
+    expect(code).not.toMatch(/^\s+- [^\s:]+:\/var\/lib\/worker/m);
+  });
+
+  it('takes the replica count and per-replica limits from the environment', () => {
+    expect(code).toContain('replicas: ${WORKER_REPLICAS:-1}');
+    expect(code).toContain('mem_limit: ${WORKER_MEMORY:-0}');
+    expect(code).toContain('cpus: ${WORKER_CPUS:-0}');
+  });
+
+  it('declares WORKER_REPLICAS, WORKER_CPUS and WORKER_MEMORY empty in the env example', () => {
+    for (const name of ['WORKER_REPLICAS', 'WORKER_CPUS', 'WORKER_MEMORY']) {
+      expect(envExample).toMatch(new RegExp(`^${name}=$`, 'm'));
+    }
+  });
+});
+
+describe.skipIf(!HAS_COMPOSE)('the worker fleet (docker compose config)', () => {
+  const composeDir = join(REPO_ROOT, 'infra', 'compose');
+  const worker = (extraEnv: Record<string, string> = {}): WorkerService =>
+    (renderCompose(composeDir, ['worker.compose.yml'], extraEnv) as { services: { worker: WorkerService } }).services
+      .worker;
+
+  it('mounts no named volume (and none with a source) at /var/lib/worker', () => {
+    const state = (worker().volumes ?? []).filter((v) => v.target === '/var/lib/worker');
+    expect(state).toHaveLength(1);
+    expect(state[0]?.source).toBeUndefined();
+    expect(state[0]?.type).toBe('volume');
+    const project = renderCompose(composeDir, ['worker.compose.yml']) as { volumes?: Record<string, unknown> };
+    expect(Object.keys(project.volumes ?? {})).toEqual([]);
+  });
+
+  it('renders one replica by default, and WORKER_REPLICAS when set', () => {
+    expect(worker().deploy?.replicas).toBe(1);
+    expect(worker({ WORKER_REPLICAS: '' }).deploy?.replicas).toBe(1);
+    expect(worker({ WORKER_REPLICAS: '4' }).deploy?.replicas).toBe(4);
+  });
+
+  it('sets no limit by default, and WORKER_MEMORY / WORKER_CPUS per replica when set', () => {
+    const unlimited = worker();
+    expect(unlimited.mem_limit ?? 0).toBe(0);
+    expect(unlimited.cpus ?? 0).toBe(0);
+
+    const limited = worker({ WORKER_MEMORY: '30g', WORKER_CPUS: '8' });
+    expect(String(limited.mem_limit)).toBe(String(30 * 1024 ** 3));
+    expect(Number(limited.cpus)).toBe(8);
+  });
+});

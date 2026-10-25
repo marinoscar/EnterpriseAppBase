@@ -68,6 +68,7 @@ Everything mounted under `/api/nodes` is reachable by an unattended, possibly mo
 - Without idempotence every container restart leaks a new row, and within a week the fleet page is a list of ghosts. That is why a node's name belongs in its config file rather than being generated at startup.
 - **A fresh heartbeat warns but proceeds** (last-writer-wins, with a log line naming both hosts). The common cause is a container recreated before its last heartbeat aged out; refusing would turn a normal restart into a startup failure.
 - **`disabled` survives re-registration**, so `docker restart` cannot undo an operator's kill switch. `draining` does not survive: a re-registered process holds nothing to drain.
+- **Several nodes per machine.** One node per container, any number of containers per host. Each has its own state directory (the pidfile, socket and config file live there), so the shipped `worker.compose.yml` mounts an anonymous volume per replica rather than a named one. Identity is `(owner, name)` and the name defaults to the container hostname, which Docker makes unique, so replicas register as distinct rows; an explicit `NODE_NAME` or `NODE_ID` on a scaled service collapses them onto one. Operator steps and sizing: [run-worker-nodes.md](../runbooks/run-worker-nodes.md#42-several-workers-on-one-machine).
 - An empty `eligibleTypes` is legal ("I can run nothing yet"). `concurrency` is 1–64; `eligibleTypes` holds at most 100 entries.
 
 ### Heartbeat and status ownership
