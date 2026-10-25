@@ -3,6 +3,7 @@ import type { Check, CheckContext } from './types.js';
 import { severityOf } from './types.js';
 import { DATABASE_CHECKS } from './database.js';
 import { DNS_CHECKS } from './dns.js';
+import { COMPOSE_CHECKS } from './compose.js';
 import { HOST_CHECKS } from './host.js';
 import { SOURCE_CHECKS } from './source.js';
 import { TLS_CHECKS } from './tls.js';
@@ -21,6 +22,8 @@ import { TLS_CHECKS } from './tls.js';
 // with no docker should say so before it starts probing databases.
 export const ALL_CHECKS: readonly Check[] = [
   ...HOST_CHECKS,
+  // After docker-daemon (in HOST_CHECKS), which both require.
+  ...COMPOSE_CHECKS,
   // After git-installed (in HOST_CHECKS), which gh-installed requires.
   ...SOURCE_CHECKS,
   ...DATABASE_CHECKS,
@@ -81,6 +84,7 @@ export {
   type DeployCheckResult,
 } from './registry.js';
 export { HOST_CHECKS, evaluateDf, probe } from './host.js';
+export { COMPOSE_CHECKS } from './compose.js';
 export {
   SOURCE_CHECKS,
   SOURCE_CHECK_IDS,

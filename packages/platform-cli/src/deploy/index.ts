@@ -33,6 +33,8 @@ export {
 export type {
   AppDeployStepRegistration,
   BuiltinEnvGroup,
+  ComposeContainer,
+  ComposeProjectBasis,
   ComposeProjectCommandRunner,
   ComposeProjectDetection,
   DeployCheckContext,

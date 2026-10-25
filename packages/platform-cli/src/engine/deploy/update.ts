@@ -532,6 +532,9 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
           'docker-compose-v2',
           'git-installed',
           'disk-space',
+          // The run's compose project must be the one whose containers hold
+          // the bind port; otherwise `up -d` starts a second stack (#1020).
+          'bind-port-owner',
         ]);
 
         // `fetch` talks to the recorded repository, so whether git can still
@@ -575,13 +578,21 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
 
         for (const result of results) {
           context.journal.line(`${result.status} ${result.id}: ${result.detail}`);
+          // A warning does not stop the run, so say it where the operator is
+          // looking (`bind-port-owner`: a stopped leftover beside the live stack).
+          if (result.status === 'warn') {
+            context.hooks?.onProgress?.(`warning: ${result.id}: ${result.detail}${result.remedy === undefined ? '' : ` (${result.remedy})`}`);
+          }
         }
 
         if (!checksPassed(results)) {
           throw new PreconditionError(
             results
               .filter((result) => result.status === 'fail')
-              .map((result) => `${result.id}: ${result.detail}`)
+              // The remedy rides along, as install's preflight does: a failure
+              // whose fix is in a place the operator cannot see is no help
+              // (`bind-port-owner` names the state file and the command).
+              .map((result) => `${result.id}: ${result.detail}${result.remedy === undefined ? '' : `\n    ${result.remedy}`}`)
               .join('\n'),
           );
         }
