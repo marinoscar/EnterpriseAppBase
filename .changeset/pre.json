@@ -53,6 +53,7 @@
     "cli-free-ports",
     "cli-infra-extension-points",
     "cli-stack-ports-free",
+    "cli-update-notice",
     "cli-update-retry-after-failure",
     "cli-versioned-manifests",
     "conformance-invariant-suites",

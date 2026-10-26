@@ -1,5 +1,20 @@
 # @marinoscar/platform-cli
 
+## 0.1.0-next.17
+
+### Patch Changes
+
+- 331eee4: The CLI can tell the operator a newer version exists. `createCli({ updateNotice: { latestVersion, upgradeHint, intervalMs?, timeoutMs? } })` (type `UpdateNoticeOptions`, experimental) checks when the CLI starts and, when the newest version is semver-greater than the running one, writes one line to stderr after the command's output: `<cli> <latest> is available (you have <current>). Update: <upgradeHint>`. Operators ran an old app CLI on servers without knowing a newer one had fixed the failure in front of them.
+
+  Unset means off: an app that does not pass the option makes no request and is unchanged. The check starts in parallel with the command and is never awaited before it; at the end the CLI waits only for what remains of `timeoutMs` (default 1500 ms from the start). At most one network check per `intervalMs` (default 24 hours), cached in `~/.<cli>/update-check.json` (`{ checkedAt, latest }`, written atomically with mode 0600; a missing or corrupt file is a new check; a failed check is recorded with the last known version, so an offline server does not retry on every command). Failure, timeout, a throwing or hanging `latestVersion` and any version that is not strict semver 2.0.0 (prereleases ordered by the spec) are silent, and the exit code and stdout never change. The interactive menu shows the line once, when it exits.
+
+  Never shown: when `CI` is set, when stderr is not a terminal, for `--json`, `--version`/`-v`, `--help`/`-h` and `help`, for the worker daemon `node start`, or when `<PREFIX>_NO_UPDATE_CHECK=1` is set (`APPCTL_NO_UPDATE_CHECK`, the prefix from the CLI identity). `createCli` validates the option (a `latestVersion` function, a non-empty single-line `upgradeHint`, a non-negative `intervalMs`, a positive `timeoutMs`) and throws a `UsageError` otherwise. `RunOptions` gains `updateCheck` (environment, home directory, stderr and clock) as a test seam.
+
+  New helper `githubRawManifest({ repo, ref = 'main', path, timeoutMs = 1500, fetch? })` builds a `latestVersion` that reads `version` from `https://raw.githubusercontent.com/<repo>/<ref>/<path>`: HTTPS only, no credentials, no redirects, the body capped at 256 KiB, only a valid semver `version` accepted, everything else `undefined`; `repo` must be `owner/name` and `ref` / `path` plain relative paths (a `UsageError` when it is built). `latestVersion` receives an `AbortSignal` that `createCli` aborts at the deadline. Docs: the CLI README (options table, a section and the extension-point catalog), `docs/EXTENDING.md` and the reference app's example `coach.update-notice.ts` (not wired).
+
+  - @marinoscar/platform-contract@0.1.0-next.17
+  - @marinoscar/platform-infra@0.1.0-next.17
+
 ## 0.1.0-next.16
 
 ### Patch Changes
