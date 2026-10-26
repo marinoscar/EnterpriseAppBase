@@ -26,6 +26,7 @@ import { buildProgram, run, type RunOptions } from './program.js';
 import { freezeCliRegistries } from './registries.js';
 import { registerTuiScreen, type TuiScreenRegistration } from './tui/screen-registry.js';
 import { registerTuiScreenSection, type TuiSectionRegistration } from './tui/section-registry.js';
+import { setUpdateNotice, type UpdateNoticeOptions } from './update-notice-options.js';
 
 // =============================================================================
 // createCli: the one call an app makes  (PP-8.9, #715)
@@ -138,6 +139,12 @@ export interface CreateCliOptions {
    * the version step writes.
    */
   deploy?: CreateCliDeployOptions | undefined;
+  /**
+   * The start-up update notice: when a newer version of this CLI exists, one
+   * line on stderr after the command's output. Unset means no check. See
+   * {@link UpdateNoticeOptions} and `githubRawManifest`.
+   */
+  updateNotice?: UpdateNoticeOptions | undefined;
 }
 
 /**
@@ -163,7 +170,9 @@ export interface CliInstance {
  * @returns The program and its `run`.
  * @throws Error when the identity is invalid or a different one is already
  *   set, when `deploy.versionedManifests` is empty, not a list of relative
- *   `package.json` paths, or has a duplicate, when an app command's name, TUI route, deploy step id or executor
+ *   `package.json` paths, or has a duplicate, when `updateNotice` has no
+ *   `latestVersion` function, an empty or multi-line `upgradeHint`, or a bad
+ *   `intervalMs` / `timeoutMs`, when an app command's name, TUI route, deploy step id or executor
  *   type is taken (or a step's `after` names no step), when an env key gets
  *   two owners, or when it registers anything after an earlier `createCli`
  *   froze the registries.
@@ -174,6 +183,7 @@ export function createCli(options: CreateCliOptions): CliInstance {
   // Validated first of the additions: a bad list throws here, before anything
   // is registered, and the default is restored when the app sets none.
   setVersionedManifests(options.deploy?.versionedManifests);
+  setUpdateNotice(options.updateNotice);
   ensurePlatformRegistrations();
   for (const generator of options.envGenerators ?? []) registerEnvGenerator(generator);
   for (const group of options.envGroups ?? []) registerEnvGroup(group);
