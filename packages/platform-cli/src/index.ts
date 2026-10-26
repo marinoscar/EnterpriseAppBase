@@ -33,6 +33,7 @@ export {
 export type {
   CliIdentity,
   CliInstance,
+  CreateCliDeployOptions,
   CreateCliOptions,
   CreateCliProxyOptions,
   ExitCode,

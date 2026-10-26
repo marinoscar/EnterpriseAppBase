@@ -33,6 +33,7 @@ import { CLI_VERSION } from './package-info.js';
 //   proxy             stream paths for the VPS host proxy  examples/coach.proxy-stream.ts
 //   edgeConfigFiles   a single-file nginx mount to check   examples/coach.edge-config.ts
 //   tuiSections       a section of the node/deploy screens examples/fleet-note.tui-section.tsx
+//   deploy            manifests the version step writes    examples/coach.versioned-manifests.ts
 //
 // The CLI conformance suites (`registerCliConformanceSuite`, examples/coach.conformance-suite.ts)
 // and the compose modes (`registerComposeMode` of @marinoscar/platform-infra,

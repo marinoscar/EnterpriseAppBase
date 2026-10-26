@@ -9,6 +9,7 @@ import {
 } from '../core/index.js';
 
 import { resetPlatformRegistrationsForTests } from './builtin-registrations.js';
+import { resetVersionedManifestsForTests } from './deploy/app-version.js';
 import { freezeDeployCheckRegistry, resetDeployCheckRegistryForTests } from './deploy/checks/registry.js';
 import { freezeEdgeConfigRegistry, resetEdgeConfigRegistryForTests } from './deploy/edge-config.js';
 import { freezeProxyStreamRegistry, resetProxyStreamRegistryForTests } from './deploy/proxy-streams.js';
@@ -60,4 +61,5 @@ export function resetCliRegistriesForTests(): void {
   resetEnvAnnotationRegistryForTests();
   resetDeployCheckRegistryForTests();
   resetEdgeConfigRegistryForTests();
+  resetVersionedManifestsForTests();
 }

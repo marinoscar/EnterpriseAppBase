@@ -30,7 +30,7 @@ export type { CliIdentity, ResolvedCliIdentity } from './identity.js';
 export { PLATFORM_CLI_VERSION } from './package-info.js';
 
 export { createCli } from './create-cli.js';
-export type { CliInstance, CreateCliOptions, CreateCliProxyOptions } from './create-cli.js';
+export type { CliInstance, CreateCliDeployOptions, CreateCliOptions, CreateCliProxyOptions } from './create-cli.js';
 
 export {
   PLATFORM_ENV_FRAGMENT_ID,

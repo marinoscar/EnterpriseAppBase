@@ -47,13 +47,128 @@ import { join } from 'node:path';
 
 import { UsageError } from '../errors.js';
 
-/** Manifests that must move in lockstep. A fork adding one adds it here. */
+/**
+ * The manifests the version step reads and writes when an app does not choose:
+ * the four workspaces that move in lockstep with the release.
+ *
+ * An app overrides the list with `createCli({ deploy: { versionedManifests } })`
+ * (an app whose CLI keeps its own version leaves `apps/cli` out). This constant
+ * is the DEFAULT, not the list in force: read the list in force through
+ * {@link versionedManifests}.
+ */
 export const VERSIONED_MANIFESTS = [
   'apps/api/package.json',
   'apps/web/package.json',
   'apps/cli/package.json',
   'packages/shared/package.json',
 ] as const;
+
+/** One path segment of a manifest path: no separators, no whitespace, no regex-hostile surprises. */
+const MANIFEST_SEGMENT = /^[A-Za-z0-9._@+-]+$/;
+
+/**
+ * Throws unless `list` is a usable list of versioned manifests.
+ *
+ * The rules, each with the failure it prevents:
+ * - non-empty: an empty list would make the version step a silent no-op that
+ *   still commits and stamps a version nobody wrote;
+ * - relative POSIX paths whose last segment is `package.json`, under a
+ *   directory (the root manifest is not supported: its lockfile entry is the
+ *   empty key and the textual edit is keyed on a workspace path);
+ * - no `..` or `.` segments, no empty segments, no backslashes: the path is
+ *   also the lockfile's workspace key and a `git add` argument;
+ * - no duplicates: a duplicate is written twice and staged twice.
+ *
+ * @param list - The candidate list.
+ * @throws UsageError naming the entry and the rule it broke.
+ * @internal
+ */
+export function assertValidVersionedManifests(list: readonly string[]): void {
+  if (!Array.isArray(list) || list.length === 0) {
+    throw new UsageError(
+      'deploy.versionedManifests must list at least one manifest (for example "apps/api/package.json").',
+    );
+  }
+
+  const seen = new Set<string>();
+  for (const entry of list as readonly unknown[]) {
+    if (typeof entry !== 'string' || entry === '') {
+      throw new UsageError('deploy.versionedManifests entries must be non-empty strings.');
+    }
+    const shown = JSON.stringify(entry);
+    if (entry.startsWith('/') || /^[A-Za-z]:/.test(entry)) {
+      throw new UsageError(`deploy.versionedManifests entry ${shown} must be a path relative to the repository root.`);
+    }
+    if (entry.includes('\\')) {
+      throw new UsageError(`deploy.versionedManifests entry ${shown} must use "/" separators.`);
+    }
+    const segments = entry.split('/');
+    if (segments.includes('..')) {
+      throw new UsageError(`deploy.versionedManifests entry ${shown} must not contain "..".`);
+    }
+    if (segments.some((segment) => segment === '.' || segment === '' || !MANIFEST_SEGMENT.test(segment))) {
+      throw new UsageError(
+        `deploy.versionedManifests entry ${shown} must be a plain relative path such as "apps/api/package.json".`,
+      );
+    }
+    if (segments[segments.length - 1] !== 'package.json') {
+      throw new UsageError(`deploy.versionedManifests entry ${shown} must end in "package.json".`);
+    }
+    if (segments.length < 2) {
+      throw new UsageError(
+        `deploy.versionedManifests entry ${shown} is the root manifest, which is not supported; name a workspace manifest such as "apps/api/package.json".`,
+      );
+    }
+    if (seen.has(entry)) {
+      throw new UsageError(`deploy.versionedManifests lists ${shown} more than once.`);
+    }
+    seen.add(entry);
+  }
+}
+
+let configuredManifests: readonly string[] | undefined;
+
+/**
+ * Sets the manifests the version step uses for this process; `createCli` calls
+ * it with `options.deploy?.versionedManifests`. `undefined` restores the
+ * default ({@link VERSIONED_MANIFESTS}).
+ *
+ * @param list - The manifests, validated by {@link assertValidVersionedManifests}.
+ * @throws UsageError on an invalid list; nothing is changed then.
+ * @internal
+ */
+export function setVersionedManifests(list: readonly string[] | undefined): void {
+  if (list === undefined) {
+    configuredManifests = undefined;
+    return;
+  }
+  assertValidVersionedManifests(list);
+  configuredManifests = Object.freeze([...list]);
+}
+
+/** Restores the default list. Tests only (`resetCliForTests` calls it). */
+export function resetVersionedManifestsForTests(): void {
+  configuredManifests = undefined;
+}
+
+/**
+ * The manifests in force: the app's `deploy.versionedManifests`, else the
+ * default four. THE FIRST ENTRY IS THE VERSION SOURCE: {@link currentVersion}
+ * reads the release version from it (falling through to later entries only
+ * when it is absent or carries no version).
+ *
+ * @internal
+ */
+export function versionedManifests(): readonly string[] {
+  return configuredManifests ?? VERSIONED_MANIFESTS;
+}
+
+/** An explicit list (validated) or the one in force. */
+function resolveManifests(explicit: readonly string[] | undefined): readonly string[] {
+  if (explicit === undefined) return versionedManifests();
+  assertValidVersionedManifests(explicit);
+  return explicit;
+}
 
 export interface SemVer {
   major: number;
@@ -99,9 +214,15 @@ function parseManifest(raw: string): { version?: unknown } | undefined {
   }
 }
 
-/** The clone's current version, read from the first manifest that has one. */
-export function currentVersion(checkoutPath: string): string {
-  for (const relative of VERSIONED_MANIFESTS) {
+/**
+ * The clone's current version, read from the FIRST listed manifest (the
+ * version source); a later one answers only when the first is absent or has no
+ * version. A manifest the app left out of the list is never read.
+ *
+ * @param manifests - The list to use; defaults to {@link versionedManifests}.
+ */
+export function currentVersion(checkoutPath: string, manifests?: readonly string[]): string {
+  for (const relative of resolveManifests(manifests)) {
     try {
       const manifest = JSON.parse(readFileSync(join(checkoutPath, relative), 'utf8')) as {
         version?: unknown;
@@ -173,11 +294,13 @@ export interface VersionWriteResult {
 export function writeVersion(
   checkoutPath: string,
   version: string,
+  manifests?: readonly string[],
 ): VersionWriteResult {
   const changed: string[] = [];
   const absent: string[] = [];
+  const listed = resolveManifests(manifests);
 
-  for (const relative of VERSIONED_MANIFESTS) {
+  for (const relative of listed) {
     const path = join(checkoutPath, relative);
     let raw: string;
     try {
@@ -247,7 +370,7 @@ export function writeVersion(
   const lockPath = join(checkoutPath, 'package-lock.json');
   try {
     const raw = readFileSync(lockPath, 'utf8');
-    const updated = updateLockfile(raw, version);
+    const updated = updateLockfile(raw, version, listed);
     if (updated !== raw) {
       writeFileSync(lockPath, updated);
       changed.push('package-lock.json');
@@ -260,16 +383,19 @@ export function writeVersion(
 }
 
 /**
- * Rewrites each workspace entry's `version` in the lockfile.
+ * Rewrites the `version` of each LISTED workspace's entry in the lockfile; a
+ * workspace the app did not list keeps its entry byte for byte.
  *
  * Keyed on the workspace PATH (`"apps/api": {`), so this can never touch a
  * dependency that merely happens to share a version string.
+ *
+ * @param manifests - The list to use; defaults to {@link versionedManifests}.
  */
-export function updateLockfile(raw: string, version: string): string {
+export function updateLockfile(raw: string, version: string, manifests?: readonly string[]): string {
   let out = raw;
 
-  for (const relative of VERSIONED_MANIFESTS) {
-    const workspace = relative.replace(/\/package\.json$/, '');
+  for (const relative of resolveManifests(manifests)) {
+    const workspace = escapeRegExp(relative.replace(/\/package\.json$/, ''));
     // The entry opens with its path key; the `version` field follows within a
     // few lines. Bounded so a malformed lockfile cannot make this run away.
     const pattern = new RegExp(
