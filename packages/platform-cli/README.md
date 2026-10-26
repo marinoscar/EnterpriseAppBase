@@ -84,8 +84,9 @@ void main();
 | `deploySteps` | `DeployStepRegistration[]` | `[]` | Steps inserted into `deploy install` / `update`. Same as `registerDeployStep`. |
 | `nodeExecutors` | `JobExecutor[]` | `[]` | Executors for the app's node-eligible job types. Same as `registerNodeExecutor`. |
 | `envSpecFragments` | `EnvSpecFragment[]` | `[]` | Metadata for the app's `.env.example` keys. Same as `registerEnvSpecFragment`. |
+| `deploy.versionedManifests` | `string[]` | the four of the reference layout | The manifests the deploy `version` step reads and writes: repository-relative POSIX paths ending in `package.json` (`apps/api/package.json`). **The first is the version source.** Only these manifests and their `package-lock.json` workspace entries change; an app whose CLI keeps its own version leaves `apps/cli/package.json` out. Validated at `createCli`: at least one, no `..`, no duplicates, no root manifest. |
 
-The options and the `register*` functions feed the same registries: string ids, a duplicate-id error, a deterministic order (built-ins first, then registration order), and frozen when `createCli` returns, so a late registration throws instead of going missing. A broken composition (a taken command name, TUI route, deploy step id, check id, env group or generator kind or executor type; a step anchored on an unknown step; an env key with two owners; an invalid stream path or edge-config path) throws at `createCli`. The newer options are `envGroups`, `envGenerators`, `envAnnotations`, `deployChecks`, `edgeConfigFiles`, `tuiSections` and `proxy: { streamPaths }`.
+The options and the `register*` functions feed the same registries: string ids, a duplicate-id error, a deterministic order (built-ins first, then registration order), and frozen when `createCli` returns, so a late registration throws instead of going missing. A broken composition (a taken command name, TUI route, deploy step id, check id, env group or generator kind or executor type; a step anchored on an unknown step; an env key with two owners; an invalid stream path or edge-config path) throws at `createCli`. The newer options are `envGroups`, `envGenerators`, `envAnnotations`, `deployChecks`, `edgeConfigFiles`, `tuiSections`, `proxy: { streamPaths }` and `deploy: { versionedManifests }`. A bad `deploy.versionedManifests` (empty, a duplicate, `..`, an entry that does not end in `package.json`) throws at `createCli` too.
 
 ## Extension-point catalog
 
@@ -94,6 +95,7 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../docs/
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `CreateCliOptions` | option | `createCli(options: CreateCliOptions): CliInstance` | Build the app's CLI: its identity and version, plus its commands, TUI screens, deploy steps, node executors and env-spec fragments | experimental | [example](../../apps/cli/src/app.ts) |
+| `CreateCliDeployOptions` | option | `createCli({ deploy: { versionedManifests?: readonly string[] } })` | Choose the workspace manifests the deploy `version` step writes (default `apps/api`, `apps/web`, `apps/cli`, `packages/shared`); an app whose CLI keeps its own version leaves `apps/cli` out. The first entry is the version source | experimental | [example](../../apps/cli/src/examples/coach.versioned-manifests.ts) |
 
 The registries are catalogued by the entry point that exports them, each with a compiled, tested example in the reference app:
 

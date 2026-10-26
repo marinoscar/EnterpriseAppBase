@@ -711,6 +711,41 @@ change.
 | How do I see it took effect? | `sudo cat /opt/infra/proxy/nginx/conf.d/<domain>.conf` shows the `location <path>` block; `curl -N https://<domain><path>` streams. |
 | Does it change an app that declares nothing? | No. Its vhost is byte-identical to what it was. |
 
+### 6.4 An app whose CLI keeps its own version
+
+<a id="own-cli-version"></a>
+
+Every `install` and `update` asks for the release version (`--app-version`),
+writes it into the app's workspace manifests and the lockfile's workspace
+entries, and commits it as `chore(release): <version>`. By default that is four
+manifests: `apps/api`, `apps/web`, `apps/cli` and `packages/shared`. If your
+CLI is versioned on its own (its version is recorded as `appctlVersion` in the
+deploy state, in the deploy-info document and in every request's User-Agent,
+and you bump it per CLI change), the release must not touch it: a production
+`chore(release): 1.2.3` moved such a CLI from 1.10.7 to 1.2.3.
+
+List the manifests the release owns, without `apps/cli`, in the app's
+`src/cli.ts` options:
+
+```ts
+createCli({
+  ...APP_CLI_OPTIONS,
+  deploy: { versionedManifests: ['apps/api/package.json', 'apps/web/package.json', 'packages/shared/package.json'] },
+});
+```
+
+commit it and ship it. The option is read when the CLI is built, so the
+`appctl` that runs the deploy must be built from a commit that has it (rebuild
+it on the server, as for any CLI change).
+
+| Question | Answer |
+|---|---|
+| Where is the current version read from? | The **first** listed manifest (`apps/api/package.json` above). The suggested bump and the "must sort above the current version" check use it, so the CLI's own number never decides the release number. |
+| What changes in the commit? | Only the listed manifests and, in `package-lock.json`, only the `version` of the same workspaces. The `apps/cli` manifest and its lockfile entry are byte for byte what they were. The step's journal line names every file written. |
+| What is refused? | An empty list, a duplicate, a path with `..` or a leading `/`, an entry that is not a `package.json`, and the root `package.json`. `createCli` throws, so the CLI does not start. |
+| Does it change an app that sets nothing? | No. The default is the four manifests. |
+| Does `--no-version-bump` still work? | Yes: nothing is written, committed or pushed, and the version stamped into `.env` is the first listed manifest's. |
+
 ## 7. Logs
 
 Every `doctor`, `install`, `update`, and `uninstall` run writes two files under

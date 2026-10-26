@@ -432,3 +432,136 @@ describe('stampAppVersion', () => {
     expect(readEnvFile(envPath).get('APP_VERSION')).toBe('1.2.3');
   });
 });
+
+// =============================================================================
+// An app chooses which manifests the step writes (issue #1030): kvox keeps its
+// CLI on its own version, and a production deploy rewrote it from 1.10.7 to the
+// app release.
+// =============================================================================
+describe('runVersionStep with a custom manifest list', () => {
+  const WITHOUT_CLI = ['apps/api/package.json', 'apps/web/package.json', 'packages/shared/package.json'];
+
+  /** The default repo, then the CLI moved to its own version in a second commit. */
+  function makeRepoWithOwnCliVersion(appVersion = '1.2.2', cliVersion = '1.10.7'): string {
+    const repo = makeRepo(appVersion);
+    writeFileSync(join(repo, 'apps/cli/package.json'), manifestJson(cliVersion));
+    git(repo, 'commit', '--quiet', '-am', 'cli keeps its own version');
+    return repo;
+  }
+
+  const versionOf = (repo: string, relative: string): string =>
+    (JSON.parse(readFileSync(join(repo, relative), 'utf8')) as { version: string }).version;
+
+  it('moves the listed manifests and leaves the CLI manifest at its own version', async () => {
+    const repo = makeRepoWithOwnCliVersion();
+    const cliBefore = readFileSync(join(repo, 'apps/cli/package.json'), 'utf8');
+
+    const result = await runVersionStep({ checkoutPath: repo, requested: '1.2.3', manifests: WITHOUT_CLI });
+
+    expect(result.bumped).toBe(true);
+    for (const relative of WITHOUT_CLI) expect(versionOf(repo, relative)).toBe('1.2.3');
+    expect(readFileSync(join(repo, 'apps/cli/package.json'), 'utf8')).toBe(cliBefore);
+    expect(versionOf(repo, 'apps/cli/package.json')).toBe('1.10.7');
+  });
+
+  it('still makes ONE commit, leaves the tree clean, and the commit holds only the listed files', async () => {
+    const repo = makeRepoWithOwnCliVersion();
+    const before = git(repo, 'rev-parse', 'HEAD');
+
+    const result = await runVersionStep({ checkoutPath: repo, requested: '1.2.3', manifests: WITHOUT_CLI });
+
+    expect(git(repo, 'status', '--porcelain')).toBe('');
+    expect(git(repo, 'rev-list', '--count', `${before}..HEAD`)).toBe('1');
+    expect(git(repo, 'log', '-1', '--format=%s')).toBe('chore(release): 1.2.3');
+    expect(git(repo, 'diff', '--name-only', before, 'HEAD').split('\n').sort()).toEqual([...WITHOUT_CLI].sort());
+    expect(result.commitSha).toBe(git(repo, 'rev-parse', 'HEAD'));
+  });
+
+  it('names the files it wrote in the step detail and in `files`', async () => {
+    const repo = makeRepoWithOwnCliVersion();
+
+    const result = await runVersionStep({ checkoutPath: repo, requested: '1.2.3', manifests: WITHOUT_CLI });
+
+    expect(result.files).toEqual(WITHOUT_CLI);
+    expect(result.detail).toBe(`wrote 1.2.3 to ${WITHOUT_CLI.join(', ')} and committed`);
+    expect(result.detail).not.toContain('apps/cli');
+  });
+
+  it('reads the current version from the first listed manifest, so the suggestion follows it', async () => {
+    const repo = makeRepoWithOwnCliVersion('1.2.2', '1.10.7');
+
+    const fromApi = await runVersionStep({ checkoutPath: repo, manifests: WITHOUT_CLI });
+    expect(fromApi.version).toBe('1.2.3');
+
+    const other = makeRepoWithOwnCliVersion('1.2.2', '1.10.7');
+    const fromCli = await runVersionStep({
+      checkoutPath: other,
+      manifests: ['apps/cli/package.json', 'apps/api/package.json'],
+    });
+    expect(fromCli.version).toBe('1.10.8');
+  });
+
+  it('keeps assertMovesForward: a version that does not sort above the first manifest is refused untouched', async () => {
+    const repo = makeRepoWithOwnCliVersion('1.2.2', '1.10.7');
+    const before = git(repo, 'rev-parse', 'HEAD');
+
+    // The first listed manifest is the version source: 1.5.0 sorts above the
+    // app's 1.2.2 but not above the CLI's 1.10.7 when the CLI is listed first.
+    await expect(runVersionStep({ checkoutPath: repo, requested: '1.2.2', manifests: WITHOUT_CLI })).rejects.toBeInstanceOf(UsageError);
+    await expect(
+      runVersionStep({ checkoutPath: repo, requested: '1.5.0', manifests: ['apps/cli/package.json'] }),
+    ).rejects.toBeInstanceOf(UsageError);
+
+    expect(git(repo, 'rev-parse', 'HEAD')).toBe(before);
+    expect(git(repo, 'status', '--porcelain')).toBe('');
+  });
+
+  it('stages and commits the lockfile with only the listed workspaces moved', async () => {
+    const repo = makeRepoWithOwnCliVersion('1.2.2', '1.10.7');
+    const lock = {
+      lockfileVersion: 3,
+      packages: {
+        '': { name: 'root', workspaces: ['apps/*', 'packages/*'] },
+        'apps/api': { version: '1.2.2' },
+        'apps/web': { version: '1.2.2' },
+        'apps/cli': { version: '1.10.7' },
+        'packages/shared': { version: '1.2.2' },
+      },
+    };
+    writeFileSync(join(repo, 'package-lock.json'), JSON.stringify(lock, null, 2) + '\n');
+    git(repo, 'add', 'package-lock.json');
+    git(repo, 'commit', '--quiet', '-m', 'lockfile');
+
+    const result = await runVersionStep({ checkoutPath: repo, requested: '1.2.3', manifests: WITHOUT_CLI });
+
+    expect(result.files).toContain('package-lock.json');
+    expect(git(repo, 'status', '--porcelain')).toBe('');
+    const after = JSON.parse(readFileSync(join(repo, 'package-lock.json'), 'utf8')) as typeof lock;
+    expect(after.packages['apps/api'].version).toBe('1.2.3');
+    expect(after.packages['apps/web'].version).toBe('1.2.3');
+    expect(after.packages['packages/shared'].version).toBe('1.2.3');
+    expect(after.packages['apps/cli'].version).toBe('1.10.7');
+  });
+
+  it('refuses an invalid list before touching anything', async () => {
+    const repo = makeRepoWithOwnCliVersion();
+    const before = git(repo, 'rev-parse', 'HEAD');
+
+    await expect(runVersionStep({ checkoutPath: repo, manifests: [] })).rejects.toBeInstanceOf(UsageError);
+    await expect(
+      runVersionStep({ checkoutPath: repo, manifests: ['apps/api/package.json', 'apps/api/package.json'] }),
+    ).rejects.toBeInstanceOf(UsageError);
+
+    expect(git(repo, 'rev-parse', 'HEAD')).toBe(before);
+    expect(git(repo, 'status', '--porcelain')).toBe('');
+  });
+
+  it('with no list, still writes all four (the default is unchanged)', async () => {
+    const repo = makeRepo('1.0.0');
+
+    const result = await runVersionStep({ checkoutPath: repo, requested: '1.2.3' });
+
+    expect(result.files).toEqual([...VERSIONED_MANIFESTS]);
+    for (const relative of VERSIONED_MANIFESTS) expect(versionOf(repo, relative)).toBe('1.2.3');
+  });
+});

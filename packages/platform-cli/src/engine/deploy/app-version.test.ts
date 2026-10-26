@@ -2,18 +2,22 @@ import { dirname, join, resolve } from 'node:path';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import { UsageError } from '../errors.js';
 import {
   VERSIONED_MANIFESTS,
   assertMovesForward,
+  assertValidVersionedManifests,
   compareSemVer,
   currentVersion,
   formatSemVer,
   parseSemVer,
+  resetVersionedManifestsForTests,
+  setVersionedManifests,
   suggestNext,
   updateLockfile,
+  versionedManifests,
   writeVersion,
 } from './app-version.js';
 
@@ -341,5 +345,222 @@ describe('updateLockfile', () => {
   it('is a no-op for a lockfile that carries none of the versioned workspaces', () => {
     const raw = JSON.stringify({ packages: { 'node_modules/left-pad': { version: '1.0.0' } } });
     expect(updateLockfile(raw, '9.9.9')).toBe(raw);
+  });
+});
+
+// =============================================================================
+// The manifest list is an app option (issue #1030).
+//
+// An app whose CLI keeps its own version (kvox) must be able to leave
+// `apps/cli` out: a production deploy rewrote its CLI from 1.10.7 to the app
+// release 1.2.3. The default stays the four manifests so nothing changes for an
+// app that does not set the option.
+// =============================================================================
+describe('the versioned manifests option', () => {
+  afterEach(() => resetVersionedManifestsForTests());
+
+  const WITHOUT_CLI = ['apps/api/package.json', 'apps/web/package.json', 'packages/shared/package.json'];
+
+  it('defaults to the four manifests, in the documented order', () => {
+    expect(versionedManifests()).toEqual([
+      'apps/api/package.json',
+      'apps/web/package.json',
+      'apps/cli/package.json',
+      'packages/shared/package.json',
+    ]);
+  });
+
+  it('setVersionedManifests(undefined) restores the default', () => {
+    setVersionedManifests(WITHOUT_CLI);
+    expect(versionedManifests()).toEqual(WITHOUT_CLI);
+    setVersionedManifests(undefined);
+    expect(versionedManifests()).toEqual([...VERSIONED_MANIFESTS]);
+  });
+
+  it('keeps the previous list when a new one is invalid', () => {
+    setVersionedManifests(WITHOUT_CLI);
+    expect(() => setVersionedManifests([])).toThrow(UsageError);
+    expect(versionedManifests()).toEqual(WITHOUT_CLI);
+  });
+
+  describe('validation', () => {
+    const reject = (list: readonly string[], pattern: RegExp): void => {
+      expect(() => assertValidVersionedManifests(list)).toThrow(UsageError);
+      expect(() => assertValidVersionedManifests(list)).toThrow(pattern);
+    };
+
+    it('accepts a plain list, a nested workspace and a scoped directory', () => {
+      expect(() => assertValidVersionedManifests(['apps/api/package.json'])).not.toThrow();
+      expect(() => assertValidVersionedManifests(['packages/@scope/lib/package.json'])).not.toThrow();
+      expect(() => assertValidVersionedManifests([...VERSIONED_MANIFESTS])).not.toThrow();
+    });
+
+    it('requires at least one entry', () => {
+      reject([], /at least one/);
+    });
+
+    it('requires a non-empty string', () => {
+      reject([''], /non-empty/);
+      reject([42 as unknown as string], /non-empty/);
+    });
+
+    it('refuses an absolute path, a drive path and backslashes', () => {
+      reject(['/apps/api/package.json'], /relative/);
+      reject(['C:/apps/api/package.json'], /relative/);
+      reject(['apps\\api\\package.json'], /"\/" separators/);
+    });
+
+    it('refuses ".." anywhere', () => {
+      reject(['../apps/api/package.json'], /\.\./);
+      reject(['apps/../api/package.json'], /\.\./);
+    });
+
+    it('refuses "." and empty segments, so the path is also a valid lockfile key', () => {
+      reject(['./apps/api/package.json'], /plain relative path/);
+      reject(['apps//api/package.json'], /plain relative path/);
+      reject(['apps/api/package.json/'], /plain relative path/);
+    });
+
+    it('requires the last segment to be package.json', () => {
+      reject(['apps/api/composer.json'], /end in "package\.json"/);
+      reject(['apps/api/package.json.bak'], /end in "package\.json"/);
+      reject(['apps/api'], /end in "package\.json"/);
+      reject(['apps/api/my-package.json'], /end in "package\.json"/);
+    });
+
+    it('refuses the root manifest, whose lockfile entry is keyed differently', () => {
+      reject(['package.json'], /root manifest/);
+    });
+
+    it('refuses a duplicate, naming it', () => {
+      reject(['apps/api/package.json', 'apps/web/package.json', 'apps/api/package.json'], /"apps\/api\/package\.json" more than once/);
+    });
+  });
+
+  describe('currentVersion', () => {
+    it('reads the version from the FIRST listed manifest, even when a later one differs', () => {
+      const dir = makeCheckout('1.0.0');
+      writeFileSync(join(dir, 'apps/cli/package.json'), manifestJson('1.10.7'));
+      writeFileSync(join(dir, 'apps/web/package.json'), manifestJson('7.7.7'));
+
+      expect(currentVersion(dir, ['apps/cli/package.json', 'apps/api/package.json'])).toBe('1.10.7');
+      expect(currentVersion(dir, ['apps/web/package.json', 'apps/cli/package.json'])).toBe('7.7.7');
+      // The default order still reads apps/api first.
+      expect(currentVersion(dir)).toBe('1.0.0');
+    });
+
+    it('never reads a manifest the app left out', () => {
+      const dir = makeCheckout('2.0.0');
+      writeFileSync(join(dir, 'apps/cli/package.json'), manifestJson('9.9.9'));
+      // Nothing listed carries a version: the fiction, not the excluded CLI's 9.9.9.
+      writeFileSync(join(dir, 'apps/api/package.json'), JSON.stringify({ name: 'x' }));
+      expect(currentVersion(dir, ['apps/api/package.json'])).toBe('1.0.0');
+    });
+
+    it('uses the list set for the process when none is passed', () => {
+      const dir = makeCheckout('1.0.0');
+      writeFileSync(join(dir, 'apps/web/package.json'), manifestJson('4.0.0'));
+      setVersionedManifests(['apps/web/package.json']);
+      expect(currentVersion(dir)).toBe('4.0.0');
+    });
+
+    it('rejects an invalid explicit list', () => {
+      expect(() => currentVersion(makeCheckout(), ['../x/package.json'])).toThrow(UsageError);
+    });
+  });
+
+  describe('writeVersion', () => {
+    it('writes only the listed manifests and leaves the others byte for byte', () => {
+      const dir = makeCheckout('1.0.0');
+      writeFileSync(join(dir, 'apps/cli/package.json'), manifestJson('1.10.7'));
+      const cliBefore = readFileSync(join(dir, 'apps/cli/package.json'), 'utf8');
+
+      const result = writeVersion(dir, '1.2.3', WITHOUT_CLI);
+
+      expect(result.changed.sort()).toEqual([...WITHOUT_CLI].sort());
+      expect(result.absent).toEqual(['package-lock.json']);
+      expect(readFileSync(join(dir, 'apps/cli/package.json'), 'utf8')).toBe(cliBefore);
+      for (const relative of WITHOUT_CLI) {
+        const parsed = JSON.parse(readFileSync(join(dir, relative), 'utf8')) as { version: string };
+        expect(parsed.version).toBe('1.2.3');
+      }
+    });
+
+    it('uses the list set for the process when none is passed', () => {
+      const dir = makeCheckout('1.0.0');
+      setVersionedManifests(WITHOUT_CLI);
+
+      const result = writeVersion(dir, '1.2.3');
+
+      expect(result.changed).not.toContain('apps/cli/package.json');
+      expect(JSON.parse(readFileSync(join(dir, 'apps/cli/package.json'), 'utf8'))).toMatchObject({ version: '1.0.0' });
+    });
+
+    it('moves only the listed workspaces in the real lockfile and keeps the rest of it byte for byte', () => {
+      const dir = makeCheckout(realLockfileVersion());
+      writeFileSync(join(dir, 'package-lock.json'), REAL_LOCKFILE);
+
+      const result = writeVersion(dir, '1.2.3', WITHOUT_CLI);
+
+      expect(result.changed).toContain('package-lock.json');
+      const updated = JSON.parse(readFileSync(join(dir, 'package-lock.json'), 'utf8')) as {
+        packages: Record<string, { version?: string }>;
+      };
+      const original = JSON.parse(REAL_LOCKFILE) as { packages: Record<string, { version?: string }> };
+
+      expect(updated.packages['apps/api']?.version).toBe('1.2.3');
+      expect(updated.packages['apps/web']?.version).toBe('1.2.3');
+      expect(updated.packages['packages/shared']?.version).toBe('1.2.3');
+      expect(updated.packages['apps/cli']).toEqual(original.packages['apps/cli']);
+
+      const expected = structuredClone(original) as typeof original;
+      for (const path of ['apps/api', 'apps/web', 'packages/shared']) {
+        const entry = expected.packages[path];
+        if (entry === undefined) throw new Error(`fixture missing ${path}`);
+        entry.version = '1.2.3';
+      }
+      expect(updated).toEqual(expected);
+    });
+
+    it('does not rewrite the lockfile at all when the listed workspaces already carry the version', () => {
+      const dir = makeCheckout(realLockfileVersion());
+      writeFileSync(join(dir, 'package-lock.json'), REAL_LOCKFILE);
+      const result = writeVersion(dir, realLockfileVersion(), ['apps/api/package.json']);
+      expect(result.changed).toEqual([]);
+      expect(readFileSync(join(dir, 'package-lock.json'), 'utf8')).toBe(REAL_LOCKFILE);
+    });
+  });
+
+  describe('updateLockfile', () => {
+    const raw = JSON.stringify(
+      {
+        packages: {
+          'apps/api': { version: '1.0.0' },
+          'apps/cli': { version: '1.10.7' },
+          'node_modules/some-lib': { version: '1.0.0' },
+        },
+      },
+      null,
+      2,
+    );
+
+    it('touches only the listed workspace entries', () => {
+      const out = JSON.parse(updateLockfile(raw, '2.0.0', ['apps/api/package.json'])) as {
+        packages: Record<string, { version: string }>;
+      };
+      expect(out.packages['apps/api']?.version).toBe('2.0.0');
+      expect(out.packages['apps/cli']?.version).toBe('1.10.7');
+      expect(out.packages['node_modules/some-lib']?.version).toBe('1.0.0');
+    });
+
+    it('treats a listed path literally, never as a pattern', () => {
+      // "." would match any character if it reached the RegExp unescaped.
+      const lock = JSON.stringify({ packages: { 'apps/a.b': { version: '1.0.0' }, 'apps/aXb': { version: '1.0.0' } } }, null, 2);
+      const out = JSON.parse(updateLockfile(lock, '2.0.0', ['apps/a.b/package.json'])) as {
+        packages: Record<string, { version: string }>;
+      };
+      expect(out.packages['apps/a.b']?.version).toBe('2.0.0');
+      expect(out.packages['apps/aXb']?.version).toBe('1.0.0');
+    });
   });
 });
