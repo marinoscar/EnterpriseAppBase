@@ -554,7 +554,9 @@ appctl deploy update
 ```
 
 Brings an already-installed server up to the latest revision (or, with
-`--ref`, to a specific one): preflight, fetch, environment-drift,
+`--ref`, to a specific one): preflight, fetch, environment-drift (a
+published-port key it adds, such as the telemetry port, gets a free port when
+the default is held by another app; a value already in `.env` is never moved),
 stack-ports (fails before any container is touched when a host port the stack
 publishes, such as greptimedb's 14003, is held by another stack or process),
 database-role (warns when `POSTGRES_USER` is a superuser; with

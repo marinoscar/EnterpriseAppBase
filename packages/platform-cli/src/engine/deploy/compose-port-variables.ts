@@ -72,18 +72,20 @@ function itemValue(line: string): string | undefined {
 }
 
 /**
- * The raw `ports:` entries of `service` after applying every file in order:
+ * The raw `ports:` entries of every service after applying every file in order:
  * `ports: !override` / `!reset` drops what the earlier files listed (as compose
- * does), a plain `ports:` adds to it.
+ * does), a plain `ports:` adds to it. Services appear in the order they are
+ * first seen with a `ports:` key.
  */
-function rawPortsOf(service: string, texts: readonly string[]): RawPortEntry[] {
-  let entries: RawPortEntry[] = [];
+function rawPortsByService(texts: readonly string[]): Map<string, RawPortEntry[]> {
+  const byService = new Map<string, RawPortEntry[]>();
 
   for (const text of texts) {
     let inServices = false;
     let serviceIndent = -1;
-    let inService = false;
-    let portsIndent = -1; // >= 0 while inside this service's `ports:` list
+    let current: string | undefined;
+    let entries: RawPortEntry[] | undefined; // the list being filled while inside a `ports:` list
+    let portsIndent = -1; // >= 0 while inside a service's `ports:` list
 
     for (const line of text.split(/\r?\n/)) {
       const trimmed = line.trim();
@@ -92,7 +94,7 @@ function rawPortsOf(service: string, texts: readonly string[]): RawPortEntry[] {
 
       if (indent === 0) {
         inServices = /^services:\s*(#.*)?$/.test(trimmed);
-        inService = false;
+        current = undefined;
         portsIndent = -1;
         continue;
       }
@@ -107,26 +109,31 @@ function rawPortsOf(service: string, texts: readonly string[]): RawPortEntry[] {
       if (portsIndent >= 0) {
         const value = itemValue(line);
         const split = value === undefined ? undefined : splitPortSpec(value);
-        if (split !== undefined) entries.push(split);
+        if (split !== undefined) entries?.push(split);
         continue;
       }
 
       // The first key under `services:` fixes the indent of the service names.
       if (serviceIndent === -1) serviceIndent = indent;
       if (indent === serviceIndent) {
-        const name = /^([A-Za-z0-9_.-]+):/.exec(trimmed)?.[1];
-        inService = name === service;
+        current = /^([A-Za-z0-9_.-]+):/.exec(trimmed)?.[1];
         continue;
       }
-      if (!inService) continue;
+      if (current === undefined) continue;
 
       const ports = /^ports:\s*(!override|!reset)?\s*(\[\s*\])?\s*(#.*)?$/.exec(trimmed);
       if (ports === null) continue;
-      if (ports[1] !== undefined) entries = [];
+      if (ports[1] !== undefined || !byService.has(current)) byService.set(current, []);
+      entries = byService.get(current);
       if (ports[2] === undefined) portsIndent = indent;
     }
   }
-  return entries;
+  return byService;
+}
+
+/** The raw `ports:` entries of one service after applying every file in order. */
+function rawPortsOf(service: string, texts: readonly string[]): RawPortEntry[] {
+  return rawPortsByService(texts).get(service) ?? [];
 }
 
 /** Whether an interpolated published token (`14003`, `8000-8010`) covers `port`. */
@@ -167,4 +174,68 @@ export function portVariableFor(options: {
   // The last file wins, so the last matching entry names the variable.
   const last = matching[matching.length - 1];
   return last === undefined ? undefined : variableOf(last.published);
+}
+
+/**
+ * One environment variable that sets a published host port, with every place
+ * the stack publishes it.
+ *
+ * @stability experimental
+ */
+export interface PortVariable {
+  /** The variable name, such as `GREPTIME_BIND_PG_PORT`. */
+  variable: string;
+  /** Each short-syntax entry that publishes the variable's port, in file order. */
+  claims: Array<{ service: string; hostIp: string; protocol: string }>;
+  /** The compose file's own default (`${VAR:-14003}`), when it names one. */
+  defaultPort: number | undefined;
+}
+
+// A published token that is exactly one variable: ${NAME}, ${NAME:-14003}, ${NAME-14003}, ${NAME:?message} or $NAME.
+const WHOLE_VARIABLE = /^(?:\$\{([A-Za-z_][A-Za-z0-9_]*)(?:(:?)([-?])([^}]*))?\}|\$([A-Za-z_][A-Za-z0-9_]*))$/;
+
+/**
+ * Every environment variable that sets ONE published host port, derived from
+ * the compose files the run uses (the same raw scan as `portVariableFor`, in the
+ * other direction: from the files to the variables, with no compose render
+ * needed, so it works before the `.env` is complete).
+ *
+ * Only a published side that is exactly one variable counts. A literal port, a
+ * range, or a token that mixes text and a variable (`${A}0`) has no single
+ * variable an installer could pick a value for, and is left to the
+ * `stack-ports-free` check. A variable that publishes the same port twice (TCP
+ * and UDP) is one entry with two claims.
+ *
+ * @param options - The compose files' text in merge order, and the environment
+ *   used to interpolate the host address (`${BIND_ADDRESS:-127.0.0.1}`).
+ * @returns the variables, by the order in which the files first list their services.
+ * @stability experimental
+ */
+export function publishedPortVariables(options: {
+  /** The text of each compose file, in merge order. */
+  files: readonly string[];
+  env: ReadonlyMap<string, string>;
+}): PortVariable[] {
+  const found = new Map<string, PortVariable>();
+
+  for (const [service, entries] of rawPortsByService(options.files)) {
+    for (const entry of entries) {
+      const match = WHOLE_VARIABLE.exec(entry.published.trim());
+      const variable = match?.[1] ?? match?.[5];
+      if (match === null || variable === undefined) continue;
+
+      const argument = (match[4] ?? '').trim();
+      const defaultPort = match[3] === '-' && /^[0-9]+$/.test(argument) ? Number(argument) : undefined;
+      const hostIp = interpolate(entry.hostIp, options.env).replace(/^\[|\]$/g, '');
+
+      const known = found.get(variable);
+      if (known === undefined) {
+        found.set(variable, { variable, claims: [{ service, hostIp, protocol: entry.protocol }], defaultPort });
+      } else {
+        known.claims.push({ service, hostIp, protocol: entry.protocol });
+        known.defaultPort ??= defaultPort;
+      }
+    }
+  }
+  return [...found.values()];
 }

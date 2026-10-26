@@ -12,6 +12,7 @@ import { runInstall } from '../../../deploy/install.js';
 import { DEFAULT_APPS_ROOT, deployRootFor } from '../../../deploy/layout.js';
 import { findGitRoot } from '../../../deploy/repo.js';
 import { readState, type DeployState } from '../../../deploy/state.js';
+import { DEFAULT_BIND_PORT } from '../../../commands/deploy.js';
 import {
   advancedDefaults,
   advancedFields,
@@ -506,6 +507,9 @@ async function performInstall(
     // leaving it running on a production server.
     runCommand: withSignal(runCommand, signal),
     bindPort: target.settings.bindPort,
+    // #1027: the screen's port field opens on the default; accepting it for a
+    // deployment with no record lets the install move to a free port.
+    ...(target.state === undefined && target.settings.bindPort === DEFAULT_BIND_PORT ? { bindPortIsDefault: true } : {}),
     proxyRoot: target.settings.proxyRoot,
     // Only what OVERRIDES the record; see `proxyOverrides`.
     ...proxyOverrides(target.settings, target.state),

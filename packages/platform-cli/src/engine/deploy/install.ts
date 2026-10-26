@@ -11,7 +11,7 @@ import {
   runChecks,
   type CheckContext,
 } from './checks/index.js';
-import { parseEnvExample, parseEnvFile } from './env-spec.js';
+import { parseEnvExample, parseEnvFile, type EnvVarSpec } from './env-spec.js';
 import { composeFilesFor, effectiveGroups } from './compose-files.js';
 import { composeArgv, composeCwd } from './compose-command.js';
 import { writeEnvContents, writeEnvFile } from './env-file.js';
@@ -63,7 +63,9 @@ import {
 } from './proxy.js';
 import { checkoutHead, ensureCheckout, resolveRepoTarget, resolveRepoUrl, type RepoTarget } from './repo.js';
 import { explainComposeFailure } from './compose-hints.js';
-import { freshComposeProject } from './compose-containers.js';
+import { freshComposeProject, listComposeContainers } from './compose-containers.js';
+import { isLoopbackPortFree } from './checks/types.js';
+import { describePick, foreignContainers, isPort, pickFreePort, planPortValues, readComposeFileTexts } from './free-ports.js';
 import { detectComposeProject, reconcileComposeProject } from './compose-project.js';
 import {
   DEPLOY_STATE_VERSION,
@@ -120,6 +122,20 @@ export interface InstallOptions extends AppRoleOptions {
   deployRoot: string;
   domain?: string | undefined;
   bindPort: number;
+  /**
+   * True when `bindPort` is the default nobody asked for (`--port` was not
+   * passed), so a fresh install may move it to a free port (#1027): it walks up
+   * from `bindPort` past a port another app holds, and the CHOSEN number is what
+   * `.env`, the state, the vhost and the health probe then use. Absent or false
+   * means the operator named the port: it is kept, and the preflight fails if it
+   * is taken. A deployment that already has an `APP_BIND_PORT` keeps it either way.
+   */
+  bindPortIsDefault?: boolean | undefined;
+  /**
+   * Says whether nothing listens on a loopback port (true = free). Test seam
+   * for the free-port search and the port checks; defaults to a real bind.
+   */
+  portFree?: ((port: number) => Promise<boolean>) | undefined;
   proxyRoot: string;
   /**
    * How the shared proxy runs. Absent means "as recorded, else detected" --
@@ -237,6 +253,50 @@ function environmentOf(context: InstallContext): Map<string, string> | undefined
   if (context.env !== undefined) return context.env;
   const path = envFilePath(context.options.deployRoot);
   return existsSync(path) ? parseEnvFile(readFileSync(path, 'utf8')) : undefined;
+}
+
+
+/**
+ * `existing` plus a free port for every published-port variable of the
+ * template that has no value in it (#1027).
+ *
+ * "No value" is the rule that keeps an existing deployment safe: an `.env`
+ * that already holds `GREPTIME_BIND_PG_PORT` keeps it even when something else
+ * took the port since (an SSH tunnel may depend on it; `stack-ports-free`
+ * reports the clash with the fix), and so does an operator's answer. A variable
+ * the `.env` lacks (a reinstall over an environment from before the key
+ * existed) is decided like a fresh install's.
+ *
+ * `APP_BIND_PORT` is not decided here: `settleBindPort` chose it before the
+ * pipeline ran, and the step writes it from `options.bindPort`.
+ */
+async function withFreePorts(
+  context: InstallContext,
+  specs: readonly EnvVarSpec[],
+  existing: Map<string, string> | undefined,
+): Promise<Map<string, string> | undefined> {
+  const project = context.composeProject ?? freshComposeProject(context.options.deployRoot);
+  const decisions = await planPortValues({
+    files: readComposeFileTexts(context.options.deployRoot, context.options.groups),
+    eligible: new Set(specs.map((spec) => spec.key)),
+    given: existing ?? new Map<string, string>(),
+    defaults: new Map(specs.map((spec) => [spec.key, spec.defaultValue])),
+    exclude: new Set(['APP_BIND_PORT']),
+    taken: [context.options.bindPort],
+    containers: foreignContainers(await listComposeContainers(context.runCommand), project),
+    probe: context.options.portFree,
+  });
+  if (decisions.length === 0) return existing;
+
+  const planned = new Map(existing ?? []);
+  for (const decision of decisions) {
+    planned.set(decision.variable, String(decision.port));
+    if (decision.message !== undefined) {
+      context.journal.line(`Picked a free host port: ${decision.message}`);
+      context.hooks?.onProgress?.(`Picked a free host port: ${decision.message}`);
+    }
+  }
+  return planned;
 }
 
 /** The question the proxy-bootstrap gate asks. */
@@ -619,6 +679,7 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
           // This preflight runs before the `environment` step has written the
           // `.env`; the `stack-ports` step asks again with the final one.
           environmentPending: true,
+          ...(context.options.portFree === undefined ? {} : { portFree: context.options.portFree }),
           proxyRoot: context.options.proxyRoot,
           // Resolved before the checks, because it decides which of them are
           // required: certbot-installed only on the host, renewal-path hygiene
@@ -730,6 +791,12 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
         });
         const onDisk = existsSync(path) ? parseEnvFile(readFileSync(path, 'utf8')) : undefined;
 
+        // #1027: a free host port for every published-port variable nobody gave a
+        // value (the default may be another app's). Decided BEFORE the wizard so
+        // `--all` shows the pick as the default to accept or change, and an
+        // answer or an existing `.env` value is never overridden.
+        const withPorts = await withFreePorts(context, specs, existing);
+
         const { values } = await runEnvWizard({
           specs,
           // With --skip-proxy and no --domain there is no public hostname to
@@ -749,7 +816,7 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
                   }),
                 ),
               }),
-          ...(existing === undefined ? {} : { existing }),
+          ...(withPorts === undefined ? {} : { existing: withPorts }),
           ...(context.options.all === undefined ? {} : { all: context.options.all }),
           ...(context.options.nonInteractive === undefined
             ? {}
@@ -946,6 +1013,7 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
             composeProject: context.composeProject,
             groups: context.options.groups,
             proxyRoot: context.options.proxyRoot,
+            ...(context.options.portFree === undefined ? {} : { portFree: context.options.portFree }),
           },
           line: (text) => context.journal.line(text),
           warn: (text) => context.hooks?.onProgress?.(text),
@@ -1441,6 +1509,55 @@ export interface InstallResult {
   credentials?: { user: string; password: string } | undefined;
 }
 
+/**
+ * Settles `options.bindPort` BEFORE anything reads it (#1027).
+ *
+ * When `--port` was not passed (`bindPortIsDefault`), the default is a starting
+ * point, not a promise: a deployment that already wrote `APP_BIND_PORT` keeps
+ * it (a re-run must never move a port a proxy vhost and a tunnel point at), and
+ * a fresh one walks up from the default past any port another app holds. The
+ * result is written back into `options`, the one object every step, the
+ * preflight, the state, the vhost, the health probe and the final summary read,
+ * so none of them can see the default after this ran.
+ *
+ * Only the `.env` counts as a record here: the state's `bindPort` of a run that
+ * failed before the environment step is a choice that was never written, and is
+ * made again (it lands on the same port unless something took it since).
+ */
+async function settleBindPort(
+  options: InstallOptions,
+  input: { project: string; runCommand: typeof defaultRunCommand; journal: Journal },
+): Promise<void> {
+  if (options.bindPortIsDefault !== true) return;
+
+  const path = envFilePath(options.deployRoot);
+  const recorded = existsSync(path) ? Number(parseEnvFile(readFileSync(path, 'utf8')).get('APP_BIND_PORT')) : Number.NaN;
+  if (isPort(recorded)) {
+    if (recorded !== options.bindPort) {
+      input.journal.line(`Keeping APP_BIND_PORT=${recorded} from the existing environment file (the default ${options.bindPort} was not asked for).`);
+      options.bindPort = recorded;
+    }
+    return;
+  }
+
+  const containers = foreignContainers(await listComposeContainers(input.runCommand), input.project);
+  // Any address: `bind-port-owner` counts a container that publishes the port anywhere.
+  const pick = await pickFreePort({
+    preferred: options.bindPort,
+    hostIp: '',
+    protocol: 'tcp',
+    containers: containers ?? [],
+    probe: options.portFree ?? isLoopbackPortFree,
+    label: 'APP_BIND_PORT',
+  });
+  const message = describePick('APP_BIND_PORT', pick, options.bindPort);
+  options.bindPort = pick.port;
+  if (message !== undefined) {
+    input.journal.line(`Picked a free host port: ${message}`);
+    options.hooks?.onProgress?.(`Picked a free host port: ${message}`);
+  }
+}
+
 export async function runInstall(requested: InstallOptions): Promise<InstallResult> {
   // Every step reads `options.groups`, so widening it once here is what puts
   // the always-on groups (#567) into the wizard, the compose file list, the
@@ -1491,6 +1608,14 @@ export async function runInstall(requested: InstallOptions): Promise<InstallResu
   const freshProject = loadedState === undefined && !isDeployment(options.deployRoot);
   let existingState = loadedState;
   let composeProject = freshProject ? freshComposeProject(options.deployRoot) : composeProjectFor(existingState);
+
+  // ⚠ BEFORE ANY READER OF `options.bindPort`, the project detection below
+  // included: see settleBindPort (#1027).
+  await settleBindPort(options, {
+    project: composeProject,
+    runCommand: options.runCommand ?? defaultRunCommand,
+    journal,
+  });
   // True when the project below came from Docker for a deployment with NO
   // record: evidence, so the failure path may record it like a fresh name.
   let projectFromDocker = false;
