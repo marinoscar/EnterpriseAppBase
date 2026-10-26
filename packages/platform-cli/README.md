@@ -85,8 +85,36 @@ void main();
 | `nodeExecutors` | `JobExecutor[]` | `[]` | Executors for the app's node-eligible job types. Same as `registerNodeExecutor`. |
 | `envSpecFragments` | `EnvSpecFragment[]` | `[]` | Metadata for the app's `.env.example` keys. Same as `registerEnvSpecFragment`. |
 | `deploy.versionedManifests` | `string[]` | the four of the reference layout | The manifests the deploy `version` step reads and writes: repository-relative POSIX paths ending in `package.json` (`apps/api/package.json`). **The first is the version source.** Only these manifests and their `package-lock.json` workspace entries change; an app whose CLI keeps its own version leaves `apps/cli/package.json` out. Validated at `createCli`: at least one, no `..`, no duplicates, no root manifest. |
+| `updateNotice` | `{ latestVersion, upgradeHint, intervalMs?, timeoutMs? }` | unset (no check) | The [start-up update notice](#the-start-up-update-notice): `latestVersion(signal?)` returns the newest version or `undefined` (use `githubRawManifest({ repo, ref?, path })` to read a `package.json` on GitHub), `upgradeHint` is the text after `Update:` (one line, non-empty), `intervalMs` is the least time between network checks (default 24 hours), `timeoutMs` the longest the end of a command waits for the answer (default 1500). Validated at `createCli`. |
 
-The options and the `register*` functions feed the same registries: string ids, a duplicate-id error, a deterministic order (built-ins first, then registration order), and frozen when `createCli` returns, so a late registration throws instead of going missing. A broken composition (a taken command name, TUI route, deploy step id, check id, env group or generator kind or executor type; a step anchored on an unknown step; an env key with two owners; an invalid stream path or edge-config path) throws at `createCli`. The newer options are `envGroups`, `envGenerators`, `envAnnotations`, `deployChecks`, `edgeConfigFiles`, `tuiSections`, `proxy: { streamPaths }` and `deploy: { versionedManifests }`. A bad `deploy.versionedManifests` (empty, a duplicate, `..`, an entry that does not end in `package.json`) throws at `createCli` too.
+The options and the `register*` functions feed the same registries: string ids, a duplicate-id error, a deterministic order (built-ins first, then registration order), and frozen when `createCli` returns, so a late registration throws instead of going missing. A broken composition (a taken command name, TUI route, deploy step id, check id, env group or generator kind or executor type; a step anchored on an unknown step; an env key with two owners; an invalid stream path or edge-config path) throws at `createCli`. The newer options are `envGroups`, `envGenerators`, `envAnnotations`, `deployChecks`, `edgeConfigFiles`, `tuiSections`, `proxy: { streamPaths }`, `deploy: { versionedManifests }` and `updateNotice`. A bad `deploy.versionedManifests` (empty, a duplicate, `..`, an entry that does not end in `package.json`) or a bad `updateNotice` (no `latestVersion`, an empty or multi-line `upgradeHint`, a negative `intervalMs`, a non-positive `timeoutMs`) throws at `createCli` too.
+
+### The start-up update notice
+
+Operators run an old app CLI on a server without knowing a newer one exists. With `createCli({ updateNotice })` the CLI checks when it starts and, if the newest version is semver-greater than the running one, writes one line to stderr after the command's output:
+
+```
+appctl 1.11.0 is available (you have 1.10.7). Update: git pull && npm ci && npm run build
+```
+
+```ts
+import { createCli, githubRawManifest } from '@marinoscar/platform-cli';
+
+createCli({
+  ...APP_CLI_OPTIONS,
+  updateNotice: {
+    latestVersion: githubRawManifest({ repo: 'owner/name', ref: 'main', path: 'apps/cli/package.json' }),
+    upgradeHint: 'git pull && npm ci && npm run build',
+  },
+});
+```
+
+- **Unset means off.** An app that does not pass `updateNotice` makes no request, reads no file and prints nothing.
+- **At most one network check per `intervalMs` (24 hours).** The answer is cached in `~/.<name>/update-check.json` (`{ "checkedAt": "<ISO time>", "latest": "<version>" }`, written atomically with mode 0600; a missing or corrupt file just means a new check). A failed check is recorded too, keeping the last known version, so an offline server does not retry on every command. Within the interval the notice comes from the cache, with no network.
+- **Never in the command's way.** The check starts before the command and runs beside it. After the command, the CLI waits for what remains of `timeoutMs` (counted from the start, so a command longer than that waits for nothing), then stores the answer. Failure, timeout, a throwing or hanging `latestVersion` and a version that is not valid semver are silent. The exit code and stdout never change, and only the one stderr line is written. The interactive menu shows the line when it exits, after the terminal is restored.
+- **Never shown** when `CI` (or `CONTINUOUS_INTEGRATION`) is set; when stderr is not a terminal; for `--json`, `--version`/`-v`, `--help`/`-h` and `help`; for the worker daemon `node start` (every form: `--headless`, `--daemon`, the systemd unit); or when the operator sets `<PREFIX>_NO_UPDATE_CHECK=1` (`APPCTL_NO_UPDATE_CHECK`; the prefix is the CLI identity's `envPrefix`). The other `node` commands and `deploy` check normally.
+- **`githubRawManifest({ repo, ref = 'main', path, timeoutMs = 1500 })`** reads `https://raw.githubusercontent.com/<repo>/<ref>/<path>`: HTTPS only, no credentials (a private repository answers 404 and stays silent), no redirects, a body capped at 256 KiB, and only a valid semver `version` accepted. It never throws at run time; `repo` must be `owner/name` and `ref`/`path` plain relative paths, or it throws a `UsageError` when it is built. Any other source is a function returning the version.
+- **The latest version is proven before it is printed**: the network value and the cache file are both parsed as strict semver 2.0.0 (prereleases order correctly: `1.2.3` is newer than `1.2.3-rc.1`, not the reverse).
 
 ## Extension-point catalog
 
@@ -96,6 +124,7 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../docs/
 |---|---|---|---|---|---|
 | `CreateCliOptions` | option | `createCli(options: CreateCliOptions): CliInstance` | Build the app's CLI: its identity and version, plus its commands, TUI screens, deploy steps, node executors and env-spec fragments | experimental | [example](../../apps/cli/src/app.ts) |
 | `CreateCliDeployOptions` | option | `createCli({ deploy: { versionedManifests?: readonly string[] } })` | Choose the workspace manifests the deploy `version` step writes (default `apps/api`, `apps/web`, `apps/cli`, `packages/shared`); an app whose CLI keeps its own version leaves `apps/cli` out. The first entry is the version source | experimental | [example](../../apps/cli/src/examples/coach.versioned-manifests.ts) |
+| `UpdateNoticeOptions` | option | `createCli({ updateNotice?: { latestVersion: (signal?: AbortSignal) => Promise<string \| undefined>; upgradeHint: string; intervalMs?: number; timeoutMs?: number } })` | Tell the operator, with one stderr line after the command, that a newer version of the CLI exists (cached for 24 hours, silent on any failure, never in CI or for `--json` / `--version` / the worker daemon). Read the version from a GitHub manifest with `githubRawManifest` | experimental | [example](../../apps/cli/src/examples/coach.update-notice.ts) |
 
 The registries are catalogued by the entry point that exports them, each with a compiled, tested example in the reference app:
 
@@ -128,7 +157,7 @@ None of its own. Every command acts with the permissions of the token `login` st
 
 ## UI
 
-None in the web app. In a terminal: the ink TUI (`menu`, `login`, `invoke`, `status`, `node`, `deploy`, `logout`, plus the app's registered screens), opened only by a bare invocation in a real terminal (`<NAME>_NO_TUI` disables it).
+None in the web app. In a terminal: the ink TUI (`menu`, `login`, `invoke`, `status`, `node`, `deploy`, `logout`, plus the app's registered screens), opened only by a bare invocation in a real terminal (`<NAME>_NO_TUI` disables it). `<NAME>_NO_UPDATE_CHECK=1` turns the [update notice](#the-start-up-update-notice) off.
 
 ## Infra
 

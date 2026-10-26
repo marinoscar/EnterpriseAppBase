@@ -1332,6 +1332,7 @@ builds the same CLI, and a duplicate id throws at startup.
 | A step in `deploy install` / `update` | `deploySteps` (`registerDeployStep`, `/deploy`) | [`examples/announce.deploy-step.ts`](src/examples/announce.deploy-step.ts) |
 | A node-eligible job type | `nodeExecutors` (`registerNodeExecutor`, `/node`) | [`examples/echo.executor.ts`](src/examples/echo.executor.ts) |
 | Metadata for `app.env.example` keys | `envSpecFragments` (`registerEnvSpecFragment`, `/core`) | the platform's `telemetry` fragment |
+| A "newer CLI available" line at start | `updateNotice` (with `githubRawManifest`; `APPCTL_NO_UPDATE_CHECK=1` turns it off) | [`examples/coach.update-notice.ts`](src/examples/coach.update-notice.ts) |
 
 ```ts
 // src/app.ts

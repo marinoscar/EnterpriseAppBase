@@ -1282,6 +1282,19 @@ Imports: `@marinoscar/platform-cli` (`createCli`). Example: [`coach.versioned-ma
 3. **Only the listed files change**: a manifest left out and its lockfile workspace entry are byte for byte untouched. The step's journal line names every file written.
 4. **A bad list throws at `createCli`**: empty, a duplicate, `..`, an absolute path, an entry that is not a `package.json`, the root manifest.
 
+### Tell the operator a newer CLI exists
+
+Imports: `@marinoscar/platform-cli` (`createCli`, `githubRawManifest`). Example: [`coach.update-notice.ts`](../apps/cli/src/examples/coach.update-notice.ts); reference: [platform-cli README](../packages/platform-cli/README.md#the-start-up-update-notice).
+
+Operators run an old app CLI on a server without knowing a newer one exists. An app turns on a start-up notice; left unset, the CLI makes no request and nothing changes.
+
+1. **Declare where the newest version is and how to update**: `createCli({ updateNotice: { latestVersion: githubRawManifest({ repo: 'owner/name', ref: 'main', path: 'apps/cli/package.json' }), upgradeHint: 'git pull && npm ci && npm run build' } })`. `latestVersion(signal?)` is any function that resolves the newest version or `undefined`; `githubRawManifest` is the one for a `package.json` on GitHub. `upgradeHint` is one non-empty line.
+2. **What the operator sees**: one line on stderr after the command's output, `<cli> <latest> is available (you have <current>). Update: <upgradeHint>`, only when the latest is semver-greater than the running version. The exit code and stdout never change.
+3. **How it runs**: the check starts with the command and runs beside it; the end of the command waits for what remains of `timeoutMs` (default 1500 ms). At most one network check per `intervalMs` (default 24 hours); the answer is cached in `~/.<cli>/update-check.json`. Offline, a timeout or a bad answer is silent.
+4. **When it is skipped**: `CI` set, stderr not a terminal, `--json`, `--version`, `--help`, the worker daemon `node start`, or `<PREFIX>_NO_UPDATE_CHECK=1` (the prefix follows the CLI identity, `APPCTL_NO_UPDATE_CHECK`). Tell operators about that variable if they want it off on a workstation.
+5. **A bad option throws at `createCli`**: no `latestVersion`, an empty or multi-line `upgradeHint`, a negative `intervalMs`, a non-positive `timeoutMs`; `githubRawManifest` throws for a `repo` that is not `owner/name` or a `ref` / `path` that is not a plain relative path.
+6. **Test it** without a network: pass a `fetch` to `githubRawManifest`, and `run(argv, { updateCheck: { env, home, stderr } })` for the environment, the home directory and the stream. The example's test does both.
+
 ### Extend the CSP without copying it
 
 Files: `infra/nginx/app.d/csp/`, [`connect-src.conf.example`](../infra/nginx/app.d/csp/connect-src.conf.example).
