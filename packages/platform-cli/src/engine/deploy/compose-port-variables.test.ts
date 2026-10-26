@@ -3,7 +3,7 @@ import { join, resolve } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { portVariableFor } from './compose-port-variables.js';
+import { portVariableFor, publishedPortVariables } from './compose-port-variables.js';
 import { composeFilesFor } from './compose-files.js';
 import type { PublishedPort } from './compose-ports.js';
 
@@ -89,5 +89,70 @@ describe('portVariableFor on small files', () => {
     const files = [['services:', '  web:', '    # a comment', '    ports:', '    - "${W_PORT:-6000}:80"   # trailing', '    restart: always'].join('\n')];
 
     expect(portVariableFor({ port: port('web', 6000, ''), files, env: env() })).toBe('W_PORT');
+  });
+});
+
+// =============================================================================
+// Which variables set a published port?  (#1027, the other direction)
+// =============================================================================
+describe('publishedPortVariables against the real compose files', () => {
+  const files = composeFilesFor(undefined, COMPOSE_DIR).map((name) => readFileSync(join(COMPOSE_DIR, name), 'utf8'));
+
+  it('finds exactly the two a VPS stack publishes, with their defaults and loopback address', () => {
+    expect(publishedPortVariables({ files, env: env() })).toEqual([
+      { variable: 'APP_BIND_PORT', claims: [{ service: 'nginx', hostIp: '127.0.0.1', protocol: 'tcp' }], defaultPort: 3535 },
+      { variable: 'GREPTIME_BIND_PG_PORT', claims: [{ service: 'greptimedb', hostIp: '127.0.0.1', protocol: 'tcp' }], defaultPort: 14003 },
+    ]);
+  });
+});
+
+describe('publishedPortVariables on small files', () => {
+  it('reads ${V:-n}, ${V-n}, ${V} and $V, and leaves a literal, a range and a mixed token alone', () => {
+    const file = [
+      'services:',
+      '  web:',
+      '    ports:',
+      '      - "${A_PORT:-8080}:80"',
+      '      - "${B_PORT-8081}:81"',
+      '      - "${C_PORT}:82"',
+      '      - "$D_PORT:83"',
+      '      - "9000:84"',
+      '      - "8100-8102:85"',
+      '      - "${E_PORT}0:86"',
+      '      - "${F_PORT:?set F_PORT}:87"',
+    ].join('\n');
+
+    expect(publishedPortVariables({ files: [file], env: env() }).map(({ variable, defaultPort }) => [variable, defaultPort])).toEqual([
+      ['A_PORT', 8080],
+      ['B_PORT', 8081],
+      ['C_PORT', undefined],
+      ['D_PORT', undefined],
+      ['F_PORT', undefined],
+    ]);
+  });
+
+  it('keeps two entries of one variable as two claims (TCP and UDP), and takes the host address from the environment', () => {
+    const file = [
+      'services:',
+      '  dns:',
+      '    ports:',
+      '      - "${BIND_ADDRESS:-127.0.0.1}:${DNS_PORT:-5353}:53/tcp"',
+      '      - "${BIND_ADDRESS:-127.0.0.1}:${DNS_PORT:-5353}:53/udp"',
+    ].join('\n');
+
+    const [only, ...rest] = publishedPortVariables({ files: [file], env: env({ BIND_ADDRESS: '10.0.0.5' }) });
+
+    expect(rest).toEqual([]);
+    expect(only?.claims).toEqual([
+      { service: 'dns', hostIp: '10.0.0.5', protocol: 'tcp' },
+      { service: 'dns', hostIp: '10.0.0.5', protocol: 'udp' },
+    ]);
+  });
+
+  it('applies `ports: !override` across files, per service', () => {
+    const first = ['services:', '  web:', '    ports:', '      - "${OLD_PORT:-8080}:80"', '  db:', '    ports:', '      - "${DB_PORT:-5432}:5432"'].join('\n');
+    const second = ['services:', '  web:', '    ports: !override', '      - "127.0.0.1:${NEW_PORT:-8080}:80"'].join('\n');
+
+    expect(publishedPortVariables({ files: [first, second], env: env() }).map(({ variable }) => variable)).toEqual(['NEW_PORT', 'DB_PORT']);
   });
 });

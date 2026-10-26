@@ -75,11 +75,14 @@ function docker(options: Docker): { run: CheckContext['runCommand']; seen: strin
   return { run, seen };
 }
 
-/** A filesystem holding the real compose files and the given `.env`. */
-function files(env = ''): CheckFs {
+/** A filesystem holding the real compose files and, when `env` is given, a `.env` with that text. */
+function files(env?: string): CheckFs {
   const known = new Set(composeFilesFor(undefined, COMPOSE_DIR));
   return {
-    exists: (path) => known.has(path.slice(COMPOSE_DIR.length + 1)),
+    exists: (path) => {
+      const name = path.slice(COMPOSE_DIR.length + 1);
+      return name === '.env' ? env !== undefined : known.has(name);
+    },
     isDirectory: () => true,
     isWritable: () => true,
     readFile: (path) => {
@@ -413,5 +416,75 @@ describe('stack-ports-free: it asks for the same stack `up -d` starts, and chang
 
     expect(results.at(-1)?.status).toBe('fail');
     expect(checksPassed(results)).toBe(false);
+  });
+});
+
+// =============================================================================
+// A port whose variable the .env lacks is not final while the environment is pending  (#1027)
+// =============================================================================
+//
+// Production (kvox): the update PREFLIGHT judged the old `.env`, which has no
+// GREPTIME_BIND_PG_PORT, so it rendered the compose default 14003 and failed on
+// the other app's container -- before `environment-drift` could give the key a
+// free port. While the run may still write the `.env`, a clash on a port that is
+// only a default is deferred to the `stack-ports` step, which asks again with the
+// final file and before any container is touched. A key the `.env` has is final.
+// =============================================================================
+describe('stack-ports-free: deferring a clash on a key the environment will be given', () => {
+  const pending = { environmentPending: true } as const;
+  const withoutKey = 'APP_BIND_PORT=3535\n';
+
+  it('PASSES, naming the key, when another app holds a port whose variable is not in the .env yet', async () => {
+    const result = await check.run(context({ containers: [nginx, otherApp] }, { ...pending, env: withoutKey }));
+
+    expect(result.status).toBe('pass');
+    expect(result.detail).toContain('127.0.0.1:14003');
+    expect(result.detail).toContain('GREPTIME_BIND_PG_PORT');
+    expect(result.detail).toContain('not in /opt/infra/apps/kvox/repo/infra/compose/.env yet');
+    expect(result.detail).toContain('checked again');
+  });
+
+  it('defers a listener outside Docker the same way', async () => {
+    const result = await check.run(context({ containers: [nginx] }, { ...pending, env: withoutKey, listening: [PG] }));
+
+    expect(result.status).toBe('pass');
+    expect(result.detail).toContain('GREPTIME_BIND_PG_PORT');
+  });
+
+  it('still FAILS when the .env has the key: an existing value is final', async () => {
+    const result = await check.run(context({ containers: [nginx, otherApp] }, { ...pending, env: `${withoutKey}GREPTIME_BIND_PG_PORT=14003\n` }));
+
+    expect(result.status).toBe('fail');
+    expect(result.detail).toContain('other-greptimedb-1');
+  });
+
+  it('defers a key that is present but blank: compose reads it as unset, and the environment step treats it as no value', async () => {
+    const result = await check.run(context({ containers: [nginx, otherApp] }, { ...pending, env: `${withoutKey}GREPTIME_BIND_PG_PORT=\n` }));
+
+    expect(result.status).toBe('pass');
+  });
+
+  it('still FAILS when there is no .env at all: nothing will write one', async () => {
+    const result = await check.run(context({ containers: [nginx, otherApp] }, { ...pending }));
+
+    expect(result.status).toBe('fail');
+  });
+
+  it('still FAILS for doctor and for the later gate, which do not leave the environment pending', async () => {
+    const result = await check.run(context({ containers: [nginx, otherApp] }, { env: withoutKey }));
+
+    expect(result.status).toBe('fail');
+    expect(result.remedy).toContain('GREPTIME_BIND_PG_PORT');
+  });
+
+  it('keeps failing on a port the environment does have while deferring the one it lacks', async () => {
+    const taken: FakeContainer = { project: 'other', workingDir: '/opt/infra/apps/other/repo/infra/compose', name: 'other-nginx-1', ports: [{ hostIp: lo, port: 3600 }] };
+    const rendered = stack({ main: 3600 });
+
+    const result = await check.run(context({ containers: [taken, otherApp], config: rendered }, { ...pending, bindPort: 3535, env: 'APP_BIND_PORT=3600\n' }));
+
+    expect(result.status).toBe('fail');
+    expect(result.detail).toContain('127.0.0.1:3600');
+    expect(result.detail).not.toContain('127.0.0.1:14003');
   });
 });

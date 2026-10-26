@@ -109,7 +109,7 @@ is passed.
 |---|---|
 | `preflight` | Required doctor checks (skippable with `--skip-doctor`) |
 | `checkout` | Clone or fetch the repo at `--ref`. For a private GitHub HTTPS URL with `gh` logged in, runs `gh auth setup-git` first |
-| `environment` | The env wizard, or answers from `--answer`/`--answers-file` |
+| `environment` | The env wizard, or answers from `--answer`/`--answers-file`; a free host port for every published-port variable nobody set (see Free ports for the variables the CLI writes) |
 | `validate-environment` | Formats, database reachability and credentials, OAuth probe |
 | `stack-ports` | `stack-ports-free` against the final checkout and `.env`, before anything is built or started; not skippable (see Every host port the stack publishes) |
 | `ensure-database` | Create the database if it is the only thing missing (see below) |
@@ -414,11 +414,62 @@ same check, cannot be skipped by `--skip-doctor`, `--force` or `--resume` (a
 resumed install drops it from the completed set), and stops the run before any
 container is stopped, built or recreated.
 
-Install does not choose a free `APP_BIND_PORT` (the port is `--port`, default
-3535), so it does not choose a free `GREPTIME_BIND_PG_PORT` either: a second app
-on the host fails the `stack-ports` step with the variable to set. The stack
-agent's telemetry `compose up` (`apps/stack-agent`) is outside this check.
+The preflight sees the `.env` as it is before the run writes it, so one case is
+deferred as well: while the environment is pending, a clash on a port whose
+variable the existing `.env` does not set (it renders the compose default) is not
+a verdict, because the environment step (install) or `environment-drift` (update)
+gives such a key a free port (next section). The check passes with a note naming
+the key, and the `stack-ports` step judges the final file. A key the `.env` has,
+a `.env` that does not exist, `doctor` and the `stack-ports` step itself are not
+deferred.
 
+The stack agent's telemetry `compose up` (`apps/stack-agent`) is outside this
+check.
+
+#### Free ports for the variables the CLI writes
+
+Every app gets `APP_BIND_PORT=3535` and `GREPTIME_BIND_PG_PORT=14003` from the
+compose files, so a second app on a host used to be stopped by the check above
+and the operator edited `.env` by hand. When the CLI is about to write a value
+for a published-port variable it picks a free one (`free-ports.ts`):
+
+- The variables are derived from the compose files in the checkout
+  (`publishedPortVariables`: a `ports:` entry whose published side is exactly one
+  `${VAR:-default}`, with `!override` and `!reset` honoured), restricted to keys
+  the `.env.example` declares. An overlay that publishes a new port is covered
+  without a list.
+- **Free** means no container in any state is configured to publish the port on
+  an overlapping address and protocol (the source `stack-ports-free` uses; the
+  run's own project is ignored, its containers are recreated), nothing listens on
+  it (the loopback bind probe of `bind-port-free`, TCP on `127.0.0.1` or every
+  interface), and no other variable of the run has it. When Docker cannot be
+  asked the search is probe-only.
+- The search starts at the template default and walks upward, at most 200 ports
+  and never above 65535, so a lone app keeps `3535` and `14003` and prints
+  nothing extra. When none is free the run stops with an error naming the
+  variable and the range.
+- A pick that moved is printed and journaled with its holder:
+  `GREPTIME_BIND_PG_PORT=14013 (14003 is held by evopath-greptimedb-1)`.
+
+**An existing value is never moved.** A deployed app's port may be wired into an
+SSH tunnel, a BI tool or a firewall rule, and a quiet change would break it. So:
+
+| Run | Decides |
+|---|---|
+| `install`, fresh | Every published-port variable the answers do not give. |
+| `install --reinstall` / `--resume` over an existing `.env` | Only the keys the `.env` lacks. A key it has keeps its value, and `stack-ports-free` reports a clash on it with the fix. |
+| `update` (`environment-drift`) | Only the keys the drift step is adding (the telemetry ports on a deployment created before they existed). |
+
+`APP_BIND_PORT` is decided before the preflight, because the bind port is read
+by the preflight, the state, `deploy-info`, the vhost and the health probe. When
+`--port` is passed it is kept, and a taken port still fails the preflight
+(`bind-port-free`, `bind-port-owner`). Without `--port` (the command reads
+commander's value source; the install TUI treats an untouched default for a new
+deployment the same way) a fresh install walks up from `3535`, a deployment whose
+`.env` already has `APP_BIND_PORT` keeps it, and the chosen number is the one
+written to `.env`, recorded as `bindPort` in the state and `deploy-info` and
+proxied by the vhost. With `--all` the environment wizard shows a picked value as
+the default to accept or change.
 ### Run journal
 
 Every run writes `<root>/logs/<run>.log` and `.jsonl` (argv, cwd, exit code,

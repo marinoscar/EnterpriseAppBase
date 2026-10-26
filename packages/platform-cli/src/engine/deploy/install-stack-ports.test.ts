@@ -66,7 +66,11 @@ const rendered = (): string => {
   return JSON.stringify({ services: { nginx: { ports: [entry(api.port, 80)] }, greptimedb: { ports: [entry(PG, 4003)] } } });
 };
 
-/** A reinstall over a deployment (checkout, compose files, record) whose Docker holds 14003 under another project. */
+/**
+ * A reinstall over a deployment (checkout, compose files, record) whose Docker holds 14003 under another project.
+ * Its `.env` already carries the telemetry port: an existing value is never moved (#1027), so the clash is for the
+ * `stack-ports` step to report. A key the `.env` lacks would be given a free port instead (install-free-ports.test.ts).
+ */
 function deployment(holder: 'foreign' | 'none'): FakeVps {
   const compose = Object.fromEntries(
     composeFilesFor(undefined, INFRA).map((name) => [`repo/infra/compose/${name}`, readFileSync(join(INFRA, name), 'utf8')]),
@@ -75,7 +79,7 @@ function deployment(holder: 'foreign' | 'none'): FakeVps {
   const vps = createFakeVps({
     envExample: TEMPLATE,
     withCheckout: true,
-    files: { ...compose, '.env': 'APP_BIND_PORT=3535\n' },
+    files: { ...compose, 'repo/infra/compose/.env': `APP_BIND_PORT=3535\nGREPTIME_BIND_PG_PORT=${PG}\n` },
     routes: [{ match: (invocation) => invocation.argv.includes('curl'), answer: '200' }, postgresRoute(postgres)],
   });
   writeState({

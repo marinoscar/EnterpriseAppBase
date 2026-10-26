@@ -172,8 +172,9 @@ it.
    verification plus an OAuth sign-in smoke check, printing each step's result
    as it completes. `--domain` is the one required flag; everything else —
    `--root` (default `/opt/infra/apps`), `--proxy-root` (default
-   `/opt/infra/proxy`), `--port` (default `3535`), `--proxy-container`,
-   `--proxy-mode` — has a workable default.
+   `/opt/infra/proxy`), `--port` (default `3535`; without it, a fresh install
+   moves to the next free port when another app holds `3535`, see section 9.2),
+   `--proxy-container`, `--proxy-mode` — has a workable default.
 
    Two steps prompt before acting, and both take a non-interactive opt-in
    flag:
@@ -219,7 +220,8 @@ it.
 5. **Telemetry (OTel Collector + GreptimeDB) ships with every install** — no
    flag needed. The `GREPTIME_*` passwords and `STACK_AGENT_TOKEN` are
    generated as random hex with no prompt, and `GREPTIME_BIND_PG_PORT`
-   (default `14003`) is where GreptimeDB's PostgreSQL wire protocol is
+   (default `14003`; the next free port when another app on the box holds it,
+   see section 9.2) is where GreptimeDB's PostgreSQL wire protocol is
    published, on `127.0.0.1` only. `--group observability` is still accepted
    on `install`/`update`, as a no-op, for a script that already passes it.
    Nothing is *collected* until an administrator turns `telemetry.enabled` on
@@ -913,6 +915,44 @@ no connection is dropped). If the error log then reports
 systemd override (`sudo systemctl edit nginx`, `[Service]` `LimitNOFILE=65536`)
 and restart nginx instead of reloading it.
 
+### 9.2 Host ports are picked, not shared
+
+Every application publishes the same defaults on the host: `APP_BIND_PORT=3535`
+(nginx, which the shared proxy forwards to) and `GREPTIME_BIND_PG_PORT=14003`
+(the telemetry store's PostgreSQL port, `127.0.0.1` only). On a box with more than
+one application they cannot all have them, so the CLI picks a free port
+whenever it **writes** a value for one of these variables, and says so:
+
+```text
+Picked a free host port: GREPTIME_BIND_PG_PORT=14004 (14003 is held by evopath-greptimedb-1)
+```
+
+- **Free** means no container in any state is configured to publish it, nothing
+  listens on it, and no other variable of the same run has it. The search starts
+  at the default and walks up (200 ports at most), so the first app on a box keeps
+  `3535` and `14003`, and a default that is free prints nothing.
+- **`install`** decides every such variable you did not set yourself. `APP_BIND_PORT`
+  follows `--port` when you pass it (and the preflight still fails if that port
+  is taken); without `--port` it is picked from `3535`, and the `.env`, the
+  deployment record, the proxy vhost and the health probe all use the chosen
+  port. Running `install --reinstall` or `--resume` over an existing `.env`
+  keeps `APP_BIND_PORT` and every value it already has, and decides only the keys
+  it lacks.
+- **`update`** decides only a key it is **adding** to `.env`, for example the
+  telemetry port on a deployment created before the telemetry stack existed.
+- **An existing value is never moved**, because a tunnel, a BI tool or a
+  firewall rule may depend on it. If a port in your `.env` is later taken by
+  another app, `update` stops at `stack-ports-free` before touching a container
+  and names the variable to change (section "Troubleshooting").
+
+To change a port later, edit the variable in
+`<deploy-root>/repo/infra/compose/.env` (for example `GREPTIME_BIND_PG_PORT=14103`)
+and re-run `appctl deploy update --force`. `APP_BIND_PORT` is also carried by
+the deployment record and the proxy vhost, so change it with
+`appctl deploy install --reinstall --port <new port>` (the other values in your
+`.env` are kept). The ports in use on the box are visible with
+`docker ps --format '{{.Names}}\t{{.Ports}}'`.
+
 ## 10. Inspecting and renewing the certificate directly
 
 ```bash
@@ -1106,9 +1146,9 @@ the first thing to check — `deploy status`'s container list will show it.
 | Login redirects loop, or Google rejects the callback | `GOOGLE_CALLBACK_URL` disagrees with the domain you're actually serving. | `GOOGLE_CALLBACK_URL` is **derived automatically** from the domain you gave during install (`https://<domain>/api/auth/google/callback`) unless you deliberately overrode it in the wizard's `--all` review. If you're seeing this, something overrode the derived value — check the deployed `.env` and either fix it there or re-run the wizard for that key. |
 | `database-role-ordinary` fails, or the Doctor reports `db.rls_role` | `POSTGRES_USER` is a superuser or has `BYPASSRLS`, so row-level security is inert. | `appctl deploy update --provision-app-role --transfer-ownership` (back up first); see section 2.1. |
 | Migration step succeeds, but the app can't connect to the database afterward | `POSTGRES_PASSWORD` contains a URL-reserved character (`@`, `:`, `/`, `#`). | The API and the `prisma:*` scripts percent-encode the password when they build the database URL, so this points at a hand-built connection string or an out-of-date checkout. Update the checkout (`appctl deploy update`), or choose a password without those characters. |
-| `install`/`doctor` reports the loopback port is already in use, by something that isn't this deployment | Another app on the same VPS is already bound to that port. | Pick a different port for this app with `APP_BIND_PORT` in its `.env` (or `--port` during install), or stop whatever's holding the port. `doctor`'s `bind-port-free` check is written to *not* flag this app's own already-running nginx as a conflict: it recognises the owner by the deployment's recorded compose project, falling back to the folder name only when none is known. A failure here means it's genuinely something else. |
+| `install`/`doctor` reports the loopback port is already in use, by something that isn't this deployment | Another app on the same VPS is already bound to that port. A fresh install without `--port` picks a free port by itself (section 9.2), so this appears when `--port` named the taken port, or for a deployment that already has an `APP_BIND_PORT`. | Pick a different port for this app with `--port` during install (`--reinstall` for an existing deployment), or stop whatever's holding the port. `doctor`'s `bind-port-free` check is written to *not* flag this app's own already-running nginx as a conflict: it recognises the owner by the deployment's recorded compose project, falling back to the folder name only when none is known. A failure here means it's genuinely something else. |
 | `doctor`/`update` refuses the port, naming the deployment's own `<app>-nginx-1` | The deployment was installed by an older CLI under an app-named compose project and recorded none, so the check looked for `compose-nginx-1`. | Current CLIs ask Docker which project the containers run under and record it (previous state kept as `.appctl-deploy.json.bak`) before `update`, `status` and `doctor`; run one of them. If the engine warns that the answer is ambiguous, or on an older CLI, read the label with `docker inspect --format '{{ index .Config.Labels "com.docker.compose.project" }}' <app>-nginx-1` and set `composeProject` to it in `<deploy-root>/.appctl-deploy.json`. |
-| `update` or `install` stops with `stack-ports-free`, or the stack started and failed with `Bind for 127.0.0.1:<port> failed: port is already allocated` (usually `14003`, greptimedb) | A host port the stack publishes, other than the bind port, is held by a container of another compose project (a leftover of this folder, or another app on the same VPS, whose telemetry stack defaults to the same `GREPTIME_BIND_PG_PORT`) or by a process outside Docker. `bind-port-owner` only looks at the bind port. The check asks `docker compose config --format json` for every published port before anything is built, so a current CLI stops before it touches the running stack. | Read the failure: it names the port, the service, the holder and the fix. For another app or a process: set the variable it names to a free port in `<deploy-root>/repo/infra/compose/.env` (for example `GREPTIME_BIND_PG_PORT=14103`), or stop the holder, then re-run `update`. For a leftover of this folder under another project: if that project is the live stack set `composeProject` to it in `<deploy-root>/.appctl-deploy.json`, otherwise remove it with the printed `docker ps -aq --filter label=com.docker.compose.project=<project> --filter label=com.docker.compose.project.working_dir=<dir> \| xargs -r docker rm -f`. A stopped leftover only warns while this stack's own container holds the port. Neither the check nor the CLI removes anything. On an older CLI the stack is already half recreated: free the port the same way and run `update --force`. |
+| `update` or `install` stops with `stack-ports-free`, or the stack started and failed with `Bind for 127.0.0.1:<port> failed: port is already allocated` (usually `14003`, greptimedb) | A host port the stack publishes, other than the bind port, is held by a container of another compose project (a leftover of this folder, or another app on the same VPS, whose telemetry stack defaults to the same `GREPTIME_BIND_PG_PORT`) or by a process outside Docker. `bind-port-owner` only looks at the bind port. The check asks `docker compose config --format json` for every published port before anything is built, so a current CLI stops before it touches the running stack. | Read the failure: it names the port, the service, the holder and the fix. For another app or a process: set the variable it names to a free port in `<deploy-root>/repo/infra/compose/.env` (for example `GREPTIME_BIND_PG_PORT=14103`), or stop the holder, then re-run `update`. For a leftover of this folder under another project: if that project is the live stack set `composeProject` to it in `<deploy-root>/.appctl-deploy.json`, otherwise remove it with the printed `docker ps -aq --filter label=com.docker.compose.project=<project> --filter label=com.docker.compose.project.working_dir=<dir> \| xargs -r docker rm -f`. A stopped leftover only warns while this stack's own container holds the port. Neither the check nor the CLI removes anything. A key the `.env` did not have yet would not have stopped here: the CLI gives it a free port when it writes it (section 9.2); a value that is already in the `.env` is never moved, so it is yours to change. On an older CLI the stack is already half recreated: free the port the same way and run `update --force`. |
 | Repeated `install` attempts start failing with a rate-limit error from Let's Encrypt | You burned the hourly/weekly certificate budget on earlier failed attempts (section 8). | Wait — retrying immediately makes it worse. Use `--staging` for everything except the attempt you actually intend to keep. |
 | `docker compose` commands fail as if the command doesn't exist, or behave unexpectedly | The standalone `docker-compose` **v1** binary is installed instead of the Compose **v2 plugin** (`docker compose`, no hyphen). | `doctor`'s `docker-compose-v2` check catches this directly. Install the v2 plugin per Docker's current documentation; v1 is not a supported substitute anywhere in this pipeline. |
 | `status`/health checks show the API healthy, but the site itself returns 502 | The web container's own nginx and the shared proxy's upstream port have drifted out of agreement. | This is why `status` probes the frontend **separately** from `/api/health/ready` — an API-only health check would show green while the site is down. A stock deployment is guarded by a test asserting these two ports agree; if you've modified `apps/web/nginx.conf` or `infra/nginx/nginx.conf` in a fork, check that they still match. |
