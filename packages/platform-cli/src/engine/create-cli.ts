@@ -14,6 +14,7 @@ import {
 } from '../core/index.js';
 
 import { ensurePlatformRegistrations } from './builtin-registrations.js';
+import { setVersionedManifests } from './deploy/app-version.js';
 import { registerEdgeConfigFile, type EdgeConfigFile } from './deploy/edge-config.js';
 import { registerDeployCheck, type DeployCheck } from './deploy/checks/registry.js';
 import { registerProxyStreamPath, type ProxyStreamPathRegistration } from './deploy/proxy-streams.js';
@@ -58,6 +59,40 @@ export interface CreateCliProxyOptions {
 }
 
 /**
+ * What the app decides about `deploy install` / `deploy update` beyond the
+ * registries, for {@link CreateCliOptions}.
+ *
+ * @stability experimental
+ * @extensionPoint option
+ */
+export interface CreateCliDeployOptions {
+  /**
+   * The workspace manifests the deploy's version step reads and writes, as
+   * repository-relative POSIX paths ending in `package.json`
+   * (`['apps/api/package.json', 'apps/web/package.json']`). Default: the four
+   * of the reference layout (`apps/api`, `apps/web`, `apps/cli`,
+   * `packages/shared`), so an app that does not set it is unchanged.
+   *
+   * THE FIRST ENTRY IS THE VERSION SOURCE: the current release version is read
+   * from it, and the suggested bump starts there. The step writes the new
+   * version only into the listed manifests and only into the `package-lock.json`
+   * workspace entries of those same paths; a workspace left out (an app whose
+   * CLI keeps its own version leaves out `apps/cli/package.json`) keeps its
+   * version and its lockfile entry byte for byte.
+   *
+   * Validated at `createCli`: at least one entry, each a relative path under a
+   * directory ending in `package.json` (the root manifest is not supported),
+   * no `..`, no duplicates.
+   *
+   * @example
+   * ```ts
+   * createCli({ ...APP_CLI_OPTIONS, deploy: { versionedManifests: ['apps/api/package.json', 'apps/web/package.json', 'packages/shared/package.json'] } });
+   * ```
+   */
+  versionedManifests?: readonly string[] | undefined;
+}
+
+/**
  * Options of {@link createCli}: the app's identity and version, and what it
  * adds through the CLI's registries.
  *
@@ -97,6 +132,12 @@ export interface CreateCliOptions {
    * `registerProxyStreamPath`.
    */
   proxy?: CreateCliProxyOptions | undefined;
+  /**
+   * What `deploy install` / `deploy update` need to know about the app that
+   * the registries do not carry. `versionedManifests` chooses the manifests
+   * the version step writes.
+   */
+  deploy?: CreateCliDeployOptions | undefined;
 }
 
 /**
@@ -121,7 +162,8 @@ export interface CliInstance {
  * @param options - The identity, the app version and the app's additions.
  * @returns The program and its `run`.
  * @throws Error when the identity is invalid or a different one is already
- *   set, when an app command's name, TUI route, deploy step id or executor
+ *   set, when `deploy.versionedManifests` is empty, not a list of relative
+ *   `package.json` paths, or has a duplicate, when an app command's name, TUI route, deploy step id or executor
  *   type is taken (or a step's `after` names no step), when an env key gets
  *   two owners, or when it registers anything after an earlier `createCli`
  *   froze the registries.
@@ -129,6 +171,9 @@ export interface CliInstance {
  */
 export function createCli(options: CreateCliOptions): CliInstance {
   setCliIdentity(options.identity, options.version);
+  // Validated first of the additions: a bad list throws here, before anything
+  // is registered, and the default is restored when the app sets none.
+  setVersionedManifests(options.deploy?.versionedManifests);
   ensurePlatformRegistrations();
   for (const generator of options.envGenerators ?? []) registerEnvGenerator(generator);
   for (const group of options.envGroups ?? []) registerEnvGroup(group);

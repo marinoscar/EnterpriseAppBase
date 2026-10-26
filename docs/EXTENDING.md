@@ -1271,6 +1271,17 @@ An SSE or other long-lived route has two hops to configure. The app's own nginx:
 2. **Redeploy.** `deploy install` and `deploy update` render one unbuffered location per path with the directives of the platform's SSE locations.
 3. **Paths are validated** because the vhost is shared by every site on the server: a leading `/`, letters, digits and `. _ ~ / : @ + , = -` only. A newline, `;`, quote, brace, `$`, `#` or space throws before any file is written. An app that declares no path gets a byte-identical vhost.
 
+### Choose which manifests the deploy version step writes
+
+Imports: `@marinoscar/platform-cli` (`createCli`). Example: [`coach.versioned-manifests.ts`](../apps/cli/src/examples/coach.versioned-manifests.ts); runbook: [deploy-to-vps.md](runbooks/deploy-to-vps.md#64-an-app-whose-cli-keeps-its-own-version).
+
+`deploy install` and `deploy update` write the release version into a list of workspace manifests and the lockfile's workspace entries of the same paths. The default is the four of the reference layout (`apps/api`, `apps/web`, `apps/cli`, `packages/shared`). An app whose CLI keeps its own version would have it overwritten by every release.
+
+1. **Declare the list**: `createCli({ deploy: { versionedManifests: ['apps/api/package.json', 'apps/web/package.json', 'packages/shared/package.json'] } })`. Repository-relative POSIX paths ending in `package.json`.
+2. **The first entry is the version source**: the current version, the suggested patch bump and the forward-only check read it. Put the manifest that carries the app release first.
+3. **Only the listed files change**: a manifest left out and its lockfile workspace entry are byte for byte untouched. The step's journal line names every file written.
+4. **A bad list throws at `createCli`**: empty, a duplicate, `..`, an absolute path, an entry that is not a `package.json`, the root manifest.
+
 ### Extend the CSP without copying it
 
 Files: `infra/nginx/app.d/csp/`, [`connect-src.conf.example`](../infra/nginx/app.d/csp/connect-src.conf.example).

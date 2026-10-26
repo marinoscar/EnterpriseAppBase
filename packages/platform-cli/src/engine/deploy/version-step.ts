@@ -60,6 +60,13 @@ export interface VersionStepOptions {
   requested?: string | undefined;
   /** `--no-version-bump`. */
   disabled?: boolean | undefined;
+  /**
+   * The manifests to read and write. Defaults to the list `createCli` set
+   * (`deploy.versionedManifests`), else the default four; the first is the
+   * version source. Nothing outside this list (and the lockfile entries of
+   * these workspaces) is touched.
+   */
+  manifests?: readonly string[] | undefined;
   runCommand?: typeof defaultRunCommand | undefined;
 }
 
@@ -71,6 +78,8 @@ export interface VersionStepResult {
   baseSha?: string | undefined;
   /** The bump commit. This is what the deployment records as deployed. */
   commitSha?: string | undefined;
+  /** The files written and committed (manifests, then `package-lock.json`). */
+  files?: readonly string[] | undefined;
   detail: string;
 }
 
@@ -95,7 +104,7 @@ async function git(
 export async function runVersionStep(
   options: VersionStepOptions,
 ): Promise<VersionStepResult> {
-  const current = currentVersion(options.checkoutPath);
+  const current = currentVersion(options.checkoutPath, options.manifests);
 
   if (options.disabled === true) {
     return { bumped: false, version: current, detail: 'skipped with --no-version-bump' };
@@ -108,7 +117,7 @@ export async function runVersionStep(
   assertMovesForward(version, current);
 
   const baseSha = await git(options, ['rev-parse', 'HEAD']);
-  const { changed } = writeVersion(options.checkoutPath, version);
+  const { changed } = writeVersion(options.checkoutPath, version, options.manifests);
 
   if (changed.length === 0) {
     return { bumped: false, version, baseSha, detail: 'every manifest already carries this version' };
@@ -133,7 +142,8 @@ export async function runVersionStep(
     version,
     baseSha,
     commitSha,
-    detail: `wrote ${version} to ${String(changed.length)} file(s) and committed`,
+    files: changed,
+    detail: `wrote ${version} to ${changed.join(', ')} and committed`,
   };
 }
 

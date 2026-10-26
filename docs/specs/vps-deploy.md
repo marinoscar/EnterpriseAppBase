@@ -328,9 +328,20 @@ warning, for test deployments with dummy credentials.
 ### Deploy-time version bump
 
 The `version` step asks for (or takes `--app-version`) the release version,
-writes it into the manifests listed in `app-version.ts` (`VERSIONED_MANIFESTS`)
-and the lockfile's workspace entries **textually**, and commits in the same
-step. `publish-version` pushes it last, as
+writes it into the manifests the app chose (`createCli({ deploy: {
+versionedManifests } })`, default the four of `app-version.ts`'s
+`VERSIONED_MANIFESTS`: `apps/api`, `apps/web`, `apps/cli`, `packages/shared`)
+and the lockfile's workspace entries of those same paths, **textually**, and
+commits in the same step. **The first listed manifest is the version source**:
+the current version, and so the suggested bump and the forward-only check, are
+read from it. A manifest the app left out is neither read nor written, and its
+lockfile entry is byte for byte unchanged; an app whose CLI keeps its own
+version (recorded as `appctlVersion` in the state, in the deploy-info and in
+the User-Agent) leaves `apps/cli/package.json` out. The list is validated when
+the CLI is built (non-empty, repository-relative `package.json` paths under a
+directory, no `..`, no duplicates). The step's journal line names the files
+written (`wrote 1.2.3 to apps/api/package.json, ... and committed`).
+`publish-version` pushes it last, as
 `git push origin HEAD:refs/heads/<ref>`, never with `--force` and never
 retried. A failed push is a warning and the local commit is rolled back, so the
 clone always ends at `origin/<ref>`. `--no-version-bump` deploys the current
