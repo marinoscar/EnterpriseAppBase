@@ -51,6 +51,7 @@
     "cli-deploy-application-role",
     "cli-derive-compose-project",
     "cli-infra-extension-points",
+    "cli-stack-ports-free",
     "cli-update-retry-after-failure",
     "conformance-invariant-suites",
     "contract-android-app",

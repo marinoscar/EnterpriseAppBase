@@ -1,5 +1,20 @@
 # @marinoscar/platform-cli
 
+## 0.1.0-next.14
+
+### Patch Changes
+
+- e19b705: `deploy update` no longer recreates a running stack into a host-port clash. Telemetry is always on, and `vps.telemetry.compose.yml` publishes a second host port, `127.0.0.1:${GREPTIME_BIND_PG_PORT:-14003}`, that every app on the host shares by default. `docker compose up -d` recreated web, api and nginx and only then failed on `Bind for 127.0.0.1:14003 failed: port is already allocated`, leaving the site down; `bind-port-owner` and `bind-port-free` only looked at the bind port.
+
+  New required check `stack-ports-free` (the `update` and `install` preflight, and `doctor`). It renders the stack with `docker compose config --format json` under the run's own project, files and `.env`, and fails before anything is built when any published host port is held by a container of another compose project in any state, or by a process outside Docker. The failure names the port, the service, the holder and the fix: the `.env` key that sets the port (derived from the compose files, such as `GREPTIME_BIND_PG_PORT`, with the path of the `.env`), or, for a leftover started from the deploy folder, the `composeProject` fix and the exact `docker ps -aq ... | xargs -r docker rm -f` command. Containers of the run's own project are fine, a stopped container of another stack only warns while the run's own container holds the port, and the bind port's container question stays with `bind-port-owner`. A stack that cannot be rendered fails with compose's error; Docker unreachable skips. Nothing is removed or changed.
+
+  New `stack-ports` step in both pipelines (`INSTALL_STEP_IDS`, `UPDATE_STEP_IDS`): the preflight sees the checkout and `.env` before the run changes them, so the question is asked again with the final files, in `update` after `environment-drift` and before `database-role` (the first step that can recreate a container), in `install` after `validate-environment`. It is not skipped by `--skip-doctor`, `--force` or `--resume`. `install` does not choose a free `GREPTIME_BIND_PG_PORT` (it does not choose `APP_BIND_PORT` either); a second app on the host now fails with the variable to set in the `.env`.
+
+  `ComposeContainer` gains `bindings` (the host address and protocol of each published port) and `publishesPort` takes an optional address and protocol to match. `CheckContext` gains `groups` and `environmentPending`.
+
+  - @marinoscar/platform-contract@0.1.0-next.14
+  - @marinoscar/platform-infra@0.1.0-next.14
+
 ## 0.1.0-next.13
 
 ### Patch Changes
