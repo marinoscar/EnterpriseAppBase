@@ -121,6 +121,12 @@ export function defaultRoutes(): FakeRoute[] {
     { match: ['git', 'symbolic-ref'], answer: 'refs/remotes/origin/main' },
     { match: ['git', 'status', '--porcelain'], answer: '' },
     { match: ['git'], answer: '' },
+    // `stack-ports-free` renders the stack (#1024): an empty project, i.e. no
+    // host ports to collide with. A test about a port overrides this route.
+    {
+      match: ({ argv }) => argv[0] === 'docker' && argv[1] === 'compose' && argv.slice(-3).join(' ') === 'config --format json',
+      answer: '{"services":{}}',
+    },
     { match: ['docker', 'compose'], answer: '' },
     // The proxy-container check (#390): the shared proxy is up.
     {

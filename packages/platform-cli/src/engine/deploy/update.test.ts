@@ -29,6 +29,7 @@ describe('the update pipeline', () => {
       'preflight',
       'fetch',
       'environment-drift',
+      'stack-ports',
       'database-role',
       'ensure-database',
       'version',
@@ -46,6 +47,17 @@ describe('the update pipeline', () => {
       'verify',
       'publish-version',
     ]);
+  });
+
+  it('asks about the stack ports after the new revision and its environment are in, and before any step that can touch a container (#1024)', () => {
+    const gate = ids.indexOf('stack-ports');
+
+    expect(gate).toBeGreaterThan(ids.indexOf('fetch'));
+    expect(gate).toBeGreaterThan(ids.indexOf('environment-drift'));
+    // `database-role` can recreate the api; the rest stop, build or recreate.
+    for (const id of ['database-role', 'maintenance-on', 'build', 'migrate', 'restart', 'maintenance-off', 'edge-config']) {
+      expect(gate).toBeLessThan(ids.indexOf(id));
+    }
   });
 
   it('records what was deployed as soon as the API answers', () => {

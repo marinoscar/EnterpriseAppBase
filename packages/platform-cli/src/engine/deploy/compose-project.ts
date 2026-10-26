@@ -11,7 +11,7 @@ import {
 import { LEGACY_COMPOSE_PROJECT } from './install.js';
 import { deployStatePath, writeState, type DeployState } from './state.js';
 
-export { isPathUnder, type ComposeContainer, type ComposeProjectCommandRunner } from './compose-containers.js';
+export { isPathUnder, type ComposeContainer, type ComposePortBinding, type ComposeProjectCommandRunner } from './compose-containers.js';
 
 // =============================================================================
 // Which compose project does this deployment really run under?

@@ -905,6 +905,8 @@ export async function runDoctorCommand(
     proxyRuntime,
     // Only a recorded deployment has a project to name; a bare host has none.
     ...(recorded === undefined ? {} : { composeProject: composeProjectFor(recorded) }),
+    // The compose files `stack-ports-free` renders: the recorded groups, plus the always-on ones.
+    ...(recorded?.groups === undefined ? {} : { groups: recorded.groups }),
     ...(repoUrl === undefined ? {} : { repoUrl }),
     ...(gitCredentialed === undefined ? {} : { gitCredentialed }),
     bindPort: Number(options.port),

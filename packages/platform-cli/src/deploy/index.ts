@@ -34,6 +34,7 @@ export type {
   AppDeployStepRegistration,
   BuiltinEnvGroup,
   ComposeContainer,
+  ComposePortBinding,
   ComposeProjectBasis,
   ComposeProjectCommandRunner,
   ComposeProjectDetection,

@@ -283,6 +283,7 @@ async function performDoctor(
       proxyRoot,
       proxyRuntime,
       ...(state === undefined ? {} : { composeProject: composeProjectFor(state) }),
+      ...(state?.groups === undefined ? {} : { groups: state.groups }),
       ...(domain === '' ? {} : { domain }),
       ...(seed.values.size === 0 ? {} : { env: seed.values }),
     },

@@ -20,20 +20,29 @@ const COMPOSE_WORKING_DIR_LABEL = 'com.docker.compose.project.working_dir';
 const DOCKER_QUERY_TIMEOUT_MS = 10_000;
 
 /**
- * One line per container: name, running state, published host ports, compose
+ * One line per container: name, running state, host port bindings, compose
  * project, then compose working directory.
+ *
+ * The bindings are `{{json .HostConfig.PortBindings}}`, one compact JSON object
+ * (`{"4003/tcp":[{"HostIp":"127.0.0.1","HostPort":"14003"}]}`, `null` for none).
+ * `json` is the template function the Docker CLI ships, so the field NAMES are
+ * the API's JSON ones whichever way the CLI renders (typed, or the raw-JSON
+ * fallback it takes when a typed field is missing): a bare `.HostIp` would
+ * fail on a CLI whose typed struct calls it `HostIP`, and a failed inspect is a
+ * skipped check. The JSON holds no `|` and no newline. A wildcard publish has an
+ * empty `HostIp`.
  *
  * `{{if .Config.Labels}}` guards a container created without any labels, whose
  * `Labels` is null rather than an empty map (`index` on nil renders
  * `<no value>` into the line otherwise); the separators sit outside the guards
  * so every line has all five fields. `PortBindings` is the CONFIGURED publish,
- * present on a stopped or merely created container too, and a nil map ranges
- * over nothing. The working directory comes last so a path containing the
- * separator survives; none of the fields before it can contain one.
+ * present on a stopped or merely created container too. The working directory
+ * comes last so a path containing the separator survives; none of the fields
+ * before it can contain one.
  */
 const INSPECT_FORMAT =
   '{{.Name}}|{{.State.Running}}|' +
-  '{{range $port, $bindings := .HostConfig.PortBindings}}{{range $bindings}}{{.HostPort}},{{end}}{{end}}|' +
+  '{{json .HostConfig.PortBindings}}|' +
   `{{if .Config.Labels}}{{index .Config.Labels "${COMPOSE_PROJECT_LABEL}"}}{{end}}|` +
   `{{if .Config.Labels}}{{index .Config.Labels "${COMPOSE_WORKING_DIR_LABEL}"}}{{end}}`;
 
@@ -54,6 +63,21 @@ export type ComposeProjectCommandRunner = (
 }>;
 
 /**
+ * One host port binding of a container: where on the host, and for which
+ * protocol, it is configured to listen.
+ *
+ * @stability experimental
+ */
+export interface ComposePortBinding {
+  /** The host address; `''` is every interface (Docker prints it for a bare `3535:80`). */
+  hostIp: string;
+  /** The host port, or a range such as `8000-8010`. Never empty (Docker picks one: no claim). */
+  hostPort: string;
+  /** `tcp`, `udp` or `sctp`; `''` when the key carried none (read as any protocol). */
+  protocol: string;
+}
+
+/**
  * One container as the deploy checks and the detection see it.
  *
  * @stability experimental
@@ -65,6 +89,8 @@ export interface ComposeContainer {
   running: boolean;
   /** The host ports it is configured to publish (a range stays `8000-8010`); empty `HostPort`s are no claim and are not listed. */
   hostPorts: string[];
+  /** The same claims with their host address and protocol, for a check that must tell `127.0.0.1:14003` from `0.0.0.0:14003` or a UDP port from a TCP one. */
+  bindings: ComposePortBinding[];
   /** Its `com.docker.compose.project` label, `''` when it is not a compose container. */
   project: string;
   /** Its `com.docker.compose.project.working_dir` label, `''` when absent. */
@@ -99,21 +125,82 @@ export function freshComposeProject(deployRoot: string): string {
   return basename(deployRoot);
 }
 
+/** Whether two host addresses can be bound at once: a wildcard (`''`, `0.0.0.0`, `::`) overlaps every address. */
+export function hostIpsOverlap(left: string, right: string): boolean {
+  const wildcard = (ip: string): boolean => ip === '' || ip === '0.0.0.0' || ip === '::' || ip === '[::]';
+  return wildcard(left) || wildcard(right) || left === right;
+}
+
+/** Whether `port` is `entry` (`3535`) or inside it (`8000-8010`). */
+function entryCovers(entry: string, port: number): boolean {
+  const [first = '', last = first] = entry.split('-');
+  const low = Number(first);
+  const high = Number(last);
+  return Number.isInteger(low) && Number.isInteger(high) && low <= port && port <= high;
+}
+
 /**
  * Whether `container` is configured to publish host port `port`. An empty
  * `HostPort` (Docker picks one) is no claim; a range claims every port in it.
  *
+ * Without `match` any address and protocol counts, which is what the bind-port
+ * checks want (a promise of port 3535 on ANY address is a promise of 3535). With
+ * `match.hostIp` only a binding whose address can be bound at the same time
+ * counts (`127.0.0.1` against `0.0.0.0` overlaps, against `127.0.0.2` does not);
+ * with `match.protocol` only that protocol counts (a binding that recorded none
+ * counts for every protocol).
+ *
  * @param container - The container.
  * @param port - The host port.
+ * @param match - Narrow the claim to an address and/or protocol.
  * @returns true when the container publishes it.
  */
-export function publishesPort(container: Pick<ComposeContainer, 'hostPorts'>, port: number): boolean {
-  return container.hostPorts.some((entry) => {
-    const [first = '', last = first] = entry.split('-');
-    const low = Number(first);
-    const high = Number(last);
-    return Number.isInteger(low) && Number.isInteger(high) && low <= port && port <= high;
-  });
+export function publishesPort(
+  container: Pick<ComposeContainer, 'hostPorts'> & Partial<Pick<ComposeContainer, 'bindings'>>,
+  port: number,
+  match?: { hostIp?: string | undefined; protocol?: string | undefined },
+): boolean {
+  if (match === undefined || container.bindings === undefined) {
+    return container.hostPorts.some((entry) => entryCovers(entry, port));
+  }
+  return container.bindings.some(
+    (binding) =>
+      entryCovers(binding.hostPort, port) &&
+      (match.hostIp === undefined || hostIpsOverlap(binding.hostIp, match.hostIp)) &&
+      (match.protocol === undefined || binding.protocol === '' || binding.protocol === match.protocol),
+  );
+}
+
+/**
+ * Reads the third field of an inspect line: the JSON of `PortBindings`, keyed
+ * by `<containerPort>/<protocol>`. An empty `HostPort` is Docker picking one: no
+ * claim. Anything unreadable claims nothing (an unreadable line is not a reason
+ * to fail an update).
+ */
+function parseBindings(field: string): ComposePortBinding[] {
+  const text = field.trim();
+  if (text === '' || text === 'null') return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return [];
+  }
+  if (typeof parsed !== 'object' || parsed === null) return [];
+
+  const bindings: ComposePortBinding[] = [];
+  for (const [containerPort, list] of Object.entries(parsed as Record<string, unknown>)) {
+    if (!Array.isArray(list)) continue;
+    const slash = containerPort.indexOf('/');
+    const protocol = slash === -1 ? '' : containerPort.slice(slash + 1).trim().toLowerCase();
+    for (const entry of list as unknown[]) {
+      const binding = entry as { HostIp?: unknown; HostPort?: unknown } | null;
+      const hostPort = typeof binding?.HostPort === 'string' ? binding.HostPort.trim() : '';
+      if (hostPort === '') continue;
+      bindings.push({ hostIp: typeof binding?.HostIp === 'string' ? binding.HostIp.trim() : '', hostPort, protocol });
+    }
+  }
+  return bindings;
 }
 
 /**
@@ -153,10 +240,12 @@ export async function listComposeContainers(run: ComposeProjectCommandRunner): P
       }
       if (fields.length < 4) continue;
       const [name = '', running = '', ports = '', project = ''] = fields;
+      const bindings = parseBindings(ports);
       containers.push({
         name: name.replace(/^\//, '').trim(),
         running: running.trim() === 'true',
-        hostPorts: ports.split(',').map((port) => port.trim()).filter((port) => port !== ''),
+        hostPorts: bindings.map((binding) => binding.hostPort),
+        bindings,
         project: project.trim(),
         workingDir: rest.trim(),
       });

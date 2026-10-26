@@ -254,6 +254,7 @@ export { effectiveGroups } from './deploy/compose-files.js';
 export { detectComposeProject, isPathUnder } from './deploy/compose-project.js';
 export type {
   ComposeContainer,
+  ComposePortBinding,
   ComposeProjectBasis,
   ComposeProjectCommandRunner,
   ComposeProjectDetection,

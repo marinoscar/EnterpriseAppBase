@@ -4,6 +4,7 @@ import { severityOf } from './types.js';
 import { DATABASE_CHECKS } from './database.js';
 import { DNS_CHECKS } from './dns.js';
 import { COMPOSE_CHECKS } from './compose.js';
+import { STACK_PORT_CHECKS } from './stack-ports.js';
 import { HOST_CHECKS } from './host.js';
 import { SOURCE_CHECKS } from './source.js';
 import { TLS_CHECKS } from './tls.js';
@@ -24,6 +25,8 @@ export const ALL_CHECKS: readonly Check[] = [
   ...HOST_CHECKS,
   // After docker-daemon (in HOST_CHECKS), which both require.
   ...COMPOSE_CHECKS,
+  // After docker-daemon and docker-compose-v2 (in HOST_CHECKS), which it requires.
+  ...STACK_PORT_CHECKS,
   // After git-installed (in HOST_CHECKS), which gh-installed requires.
   ...SOURCE_CHECKS,
   ...DATABASE_CHECKS,
@@ -85,6 +88,7 @@ export {
 } from './registry.js';
 export { HOST_CHECKS, evaluateDf, probe } from './host.js';
 export { COMPOSE_CHECKS } from './compose.js';
+export { STACK_PORT_CHECKS } from './stack-ports.js';
 export {
   SOURCE_CHECKS,
   SOURCE_CHECK_IDS,

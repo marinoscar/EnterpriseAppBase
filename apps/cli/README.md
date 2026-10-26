@@ -555,6 +555,8 @@ appctl deploy update
 
 Brings an already-installed server up to the latest revision (or, with
 `--ref`, to a specific one): preflight, fetch, environment-drift,
+stack-ports (fails before any container is touched when a host port the stack
+publishes, such as greptimedb's 14003, is held by another stack or process),
 database-role (warns when `POSTGRES_USER` is a superuser; with
 `--provision-app-role` moves the deployment onto a dedicated role),
 ensure-database, version, build, migrate, seed, restart, health, publish,

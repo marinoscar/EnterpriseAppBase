@@ -27,7 +27,7 @@ import type { Check, CheckContext, CheckResult } from './types.js';
 // =============================================================================
 
 /** The command that removes the containers of `project` started from `workingDir`. */
-function removalCommand(project: string, workingDir: string): string {
+export function removalCommand(project: string, workingDir: string): string {
   return (
     'docker ps -aq' +
     ` --filter label=com.docker.compose.project=${project}` +
@@ -37,19 +37,19 @@ function removalCommand(project: string, workingDir: string): string {
 }
 
 /** The project this run uses: the recorded one, else the name a fresh install would take. */
-function runProject(context: CheckContext): string {
+export function runProject(context: CheckContext): string {
   return context.composeProject ?? freshComposeProject(context.deployRoot);
 }
 
 /** A container as a short phrase: `name (project P)`, or `name (not a compose container)`. */
-function describeHolder(container: ComposeContainer): string {
+export function describeHolder(container: ComposeContainer): string {
   return container.project === ''
     ? `${container.name} (not a compose container)`
     : `${container.name} (project ${container.project})`;
 }
 
 /** The lines of a list, deduplicated and in order. */
-function unique(values: readonly string[]): string[] {
+export function unique(values: readonly string[]): string[] {
   return [...new Set(values)];
 }
 

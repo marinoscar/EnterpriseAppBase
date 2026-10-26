@@ -12,7 +12,8 @@ import {
   type CheckContext,
 } from './checks/index.js';
 import { parseEnvExample, parseEnvFile } from './env-spec.js';
-import { composeFileArgs, composeFilesFor, effectiveGroups } from './compose-files.js';
+import { composeFilesFor, effectiveGroups } from './compose-files.js';
+import { composeArgv, composeCwd } from './compose-command.js';
 import { writeEnvContents, writeEnvFile } from './env-file.js';
 import { isDeployment } from './deployment-evidence.js';
 import { runEnvWizard } from './env-wizard.js';
@@ -72,6 +73,7 @@ import {
   type DeployState,
   type HostFacts,
 } from './state.js';
+import { assertStackPortsFree, STACK_PORTS_STEP_ID } from './stack-ports-gate.js';
 import { runPipeline, type DeployStep, type StepContext } from './steps/pipeline.js';
 import { appStepContext } from './steps/app-step-context.js';
 import { withRegisteredSteps } from './steps/registry.js';
@@ -340,11 +342,9 @@ function recordedRuntime(
   return { proxyMode: runtime.mode, proxyContainer: runtime.container };
 }
 
-export function composeCwd(deployRoot: string): string {
-  // The relative build contexts in base.compose.yml (`../..`, `../nginx`)
-  // resolve against the COMPOSE FILE's directory, so this is not incidental.
-  return join(deployRoot, 'repo', 'infra', 'compose');
-}
+// composeCwd and composeArgv live in compose-command.ts (a leaf, so a deploy check can
+// build the same argv without importing this pipeline); re-exported here.
+export { composeArgv, composeCwd };
 
 /**
  * The compose project name for a deployment.
@@ -373,29 +373,6 @@ export function composeProjectFor(
   state: { composeProject?: string | undefined } | undefined,
 ): string {
   return state?.composeProject ?? LEGACY_COMPOSE_PROJECT;
-}
-
-/**
- * The full `docker compose` argv for this deployment.
- *
- * `groups` are the deployment's groups -- this run's flag, else what install
- * recorded -- and decide which compose files take part; see compose-files.ts.
- * The always-on telemetry files are included whatever is passed (#567).
- */
-export function composeArgv(
-  extra: readonly string[],
-  project?: string,
-  groups?: readonly string[] | undefined,
-  composeDir?: string,
-): string[] {
-  return [
-    'docker',
-    'compose',
-    ...(project === undefined ? [] : ['-p', project]),
-    // With the checkout's compose dir, the app's overlays come last (#714).
-    ...composeFileArgs(groups, composeDir),
-    ...extra,
-  ];
 }
 
 /**
@@ -637,6 +614,11 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
           bindPort: context.options.bindPort,
           // What this install will record, so install and doctor agree.
           composeProject: context.composeProject,
+          // The files `up -d` will use, which `stack-ports-free` renders.
+          groups: context.options.groups,
+          // This preflight runs before the `environment` step has written the
+          // `.env`; the `stack-ports` step asks again with the final one.
+          environmentPending: true,
           proxyRoot: context.options.proxyRoot,
           // Resolved before the checks, because it decides which of them are
           // required: certbot-installed only on the host, renewal-path hygiene
@@ -945,6 +927,29 @@ export function buildInstallSteps(): DeployStep<InstallContext>[] {
               '\nFix them in the environment file (or pass --skip-oauth-check for placeholder credentials), then re-run with --resume.',
           );
         }
+      },
+    },
+    {
+      // ⚠ NOT SKIPPABLE: --skip-doctor skips the preflight, and a resumed run
+      // skips every step the last one finished; neither may let a clashing host
+      // port through to `start`, whose `up -d` would recreate a running
+      // reinstall and then die on the port. The preflight above could not
+      // render the stack (no checkout, no `.env` yet); this step can. (#1024)
+      id: STACK_PORTS_STEP_ID,
+      title: 'Check the ports the stack publishes',
+      async run(context) {
+        await assertStackPortsFree({
+          context: {
+            runCommand: context.runCommand,
+            deployRoot: context.options.deployRoot,
+            bindPort: context.options.bindPort,
+            composeProject: context.composeProject,
+            groups: context.options.groups,
+            proxyRoot: context.options.proxyRoot,
+          },
+          line: (text) => context.journal.line(text),
+          warn: (text) => context.hooks?.onProgress?.(text),
+        });
       },
     },
     {
@@ -1543,7 +1548,8 @@ export async function runInstall(requested: InstallOptions): Promise<InstallResu
         }),
     completed:
       options.resume === true && existingState !== undefined
-        ? new Set(existingState.completedSteps ?? [])
+        ? // The port gate is asked on every run: a port can be taken between a failed run and its resume.
+          new Set((existingState.completedSteps ?? []).filter((id) => id !== STACK_PORTS_STEP_ID))
         : new Set<string>(),
     // Appended by `runPipeline` as each step finishes; read by `deploy-info`.
     progress: [],
