@@ -1,7 +1,7 @@
 // The core user fields `profile` and `theme` as extension points (PP-14.21):
 // `extendUserProfile` and `registerThemePreference`, their composition into the
 // request bodies and the response, and `UserSettingsService` carrying them.
-import { themePreferenceSchema, userProfileSettingsPatchSchema, userProfileSettingsSchema } from '@marinoscar/platform-contract/settings';
+import { isValidTimeZone, themePreferenceSchema, userProfileSettingsPatchSchema, userProfileSettingsSchema } from '@marinoscar/platform-contract/settings';
 import { z } from 'zod';
 
 import { withTemporaryEntries } from '../../src/core/index';
@@ -20,7 +20,7 @@ import {
 } from '../../src/settings/registry/compose';
 import { composeThemeSchema, composeUserProfilePatchSchema, composeUserProfileSchema } from '../../src/settings/registry/core-user-fields';
 
-const TZ = z.string().max(64).optional();
+const PRONOUNS = z.string().max(32).optional();
 
 /** An in-memory `user_settings` table for one user, and the two host ports. */
 function makeService() {
@@ -70,61 +70,61 @@ describe('with nothing registered the core fields are the contract schemas', () 
 describe('extendUserProfile', () => {
   it('validates, patches (null deletes), keeps and returns the added field', async () => {
     await withTemporaryEntries(userProfileFieldRegistry, [], async () => {
-      extendUserProfile({ fields: z.object({ timezone: TZ }) });
+      extendUserProfile({ fields: z.object({ pronouns: PRONOUNS }) });
       const { service } = makeService();
       await service.getSettings(USER);
 
-      const set = await service.patchSettings(USER, { profile: { timezone: 'Europe/Paris' } } as never);
-      expect(set.profile).toMatchObject({ timezone: 'Europe/Paris', imageSource: 'provider', imageObjectId: null });
+      const set = await service.patchSettings(USER, { profile: { pronouns: 'she/her' } } as never);
+      expect(set.profile).toMatchObject({ pronouns: 'she/her', imageSource: 'provider', imageObjectId: null });
 
       // An unrelated profile write keeps it.
       const renamed = await service.patchSettings(USER, { profile: { displayName: 'Ada' } } as never);
-      expect(renamed.profile).toMatchObject({ timezone: 'Europe/Paris', displayName: 'Ada' });
+      expect(renamed.profile).toMatchObject({ pronouns: 'she/her', displayName: 'Ada' });
       // A theme write keeps it too.
       const themed = await service.patchSettings(USER, { theme: 'dark' } as never);
-      expect(themed.profile).toMatchObject({ timezone: 'Europe/Paris' });
+      expect(themed.profile).toMatchObject({ pronouns: 'she/her' });
 
-      const cleared = await service.patchSettings(USER, { profile: { timezone: null } } as never);
-      expect(cleared.profile).not.toHaveProperty('timezone');
+      const cleared = await service.patchSettings(USER, { profile: { pronouns: null } } as never);
+      expect(cleared.profile).not.toHaveProperty('pronouns');
     });
   });
 
   it('is part of the request bodies and the documented response', async () => {
     await withTemporaryEntries(userProfileFieldRegistry, [], async () => {
-      extendUserProfile({ fields: z.object({ timezone: TZ }) });
-      expect(composeUpdateUserSettingsSchema().safeParse({ theme: 'dark', profile: { imageSource: 'none', timezone: 'UTC' } }).data?.profile).toMatchObject({ timezone: 'UTC' });
-      expect(composeUserSettingsSchema().safeParse({ theme: 'dark', profile: { imageSource: 'none', timezone: 'x'.repeat(65) } }).success).toBe(false);
-      expect(composePatchUserSettingsSchema().safeParse({ profile: { timezone: null } }).data?.profile).toEqual({ timezone: null });
-      expect(Object.keys(composeUserSettingsResponseSchema().shape.profile.shape)).toEqual(['displayName', 'imageSource', 'imageObjectId', 'timezone']);
+      extendUserProfile({ fields: z.object({ pronouns: PRONOUNS }) });
+      expect(composeUpdateUserSettingsSchema().safeParse({ theme: 'dark', profile: { imageSource: 'none', pronouns: 'they/them' } }).data?.profile).toMatchObject({ pronouns: 'they/them' });
+      expect(composeUserSettingsSchema().safeParse({ theme: 'dark', profile: { imageSource: 'none', pronouns: 'x'.repeat(33) } }).success).toBe(false);
+      expect(composePatchUserSettingsSchema().safeParse({ profile: { pronouns: null } }).data?.profile).toEqual({ pronouns: null });
+      expect(Object.keys(composeUserSettingsResponseSchema().shape.profile.shape)).toEqual(['displayName', 'imageSource', 'imageObjectId', 'timezone', 'pronouns']);
     });
   });
 
   it('replaces the profile on PUT (an omitted field is cleared) except the avatar reference', async () => {
     await withTemporaryEntries(userProfileFieldRegistry, [], async () => {
-      extendUserProfile({ fields: z.object({ timezone: TZ }) });
+      extendUserProfile({ fields: z.object({ pronouns: PRONOUNS }) });
       const { service } = makeService();
       await service.getSettings(USER);
-      await service.patchSettings(USER, { profile: { timezone: 'UTC' } } as never);
+      await service.patchSettings(USER, { profile: { pronouns: 'they/them' } } as never);
       const replaced = await service.replaceSettings(USER, { theme: 'light', profile: { imageSource: 'none' } } as never);
-      expect(replaced.profile).not.toHaveProperty('timezone');
+      expect(replaced.profile).not.toHaveProperty('pronouns');
       expect(replaced.theme).toBe('light');
     });
   });
 
   it('drops a stored value that no longer validates instead of returning it or failing the read', async () => {
     await withTemporaryEntries(userProfileFieldRegistry, [], async () => {
-      extendUserProfile({ fields: z.object({ timezone: z.string().max(5).optional() }) });
+      extendUserProfile({ fields: z.object({ pronouns: z.string().max(5).optional() }) });
       const { service, setStored } = makeService();
-      setStored({ theme: 'system', profile: { imageSource: 'none', timezone: 'far too long for the schema' } });
+      setStored({ theme: 'system', profile: { imageSource: 'none', pronouns: 'far too long for the schema' } });
       const response = await service.getSettings(USER);
-      expect(response.profile).not.toHaveProperty('timezone');
+      expect(response.profile).not.toHaveProperty('pronouns');
     });
   });
 
   it('refuses a field that is required, defaulted, unbounded, free-form, secret-named or a core field', async () => {
     await withTemporaryEntries(userProfileFieldRegistry, [], async () => {
-      expect(() => extendUserProfile({ fields: z.object({ timezone: z.string().max(5) }) })).toThrow(/must be optional/);
-      expect(() => extendUserProfile({ fields: z.object({ timezone: z.string().max(5).default('UTC') }) })).toThrow(/\.default\(\)/);
+      expect(() => extendUserProfile({ fields: z.object({ pronouns: z.string().max(5) }) })).toThrow(/must be optional/);
+      expect(() => extendUserProfile({ fields: z.object({ pronouns: z.string().max(5).default('UTC') }) })).toThrow(/\.default\(\)/);
       expect(() => extendUserProfile({ fields: z.object({ bio: z.string().optional() }) })).toThrow(/unbounded string/);
       expect(() => extendUserProfile({ fields: z.object({ tags: z.array(z.string().max(5)).optional() }) })).toThrow(/unbounded array/);
       expect(() => extendUserProfile({ fields: z.object({ extra: z.record(z.string(), z.string()).optional() }) })).toThrow(/free-form/);
@@ -209,5 +209,50 @@ describe('registerThemePreference', () => {
       registerThemePreference({ id: 'sepia', label: 'Sepia' });
       expect(() => registerThemePreference({ id: 'sepia', label: 'Again' })).toThrow(/Duplicate id/);
     });
+  });
+});
+
+describe('the core profile.timezone', () => {
+  it('is stored, kept, cleared with null and returned', async () => {
+    const { service } = makeService();
+    await service.getSettings(USER);
+    const set = await service.patchSettings(USER, { profile: { timezone: 'Europe/Paris' } } as never);
+    expect(set.profile).toMatchObject({ timezone: 'Europe/Paris', imageSource: 'provider', imageObjectId: null });
+    // Unrelated profile and theme writes keep it.
+    expect((await service.patchSettings(USER, { profile: { displayName: 'Ada' } } as never)).profile).toMatchObject({ timezone: 'Europe/Paris', displayName: 'Ada' });
+    expect((await service.patchSettings(USER, { theme: 'dark' } as never)).profile).toMatchObject({ timezone: 'Europe/Paris' });
+    expect((await service.getSettings(USER)).profile.timezone).toBe('Europe/Paris');
+    const cleared = await service.patchSettings(USER, { profile: { timezone: null } } as never);
+    expect(cleared.profile).not.toHaveProperty('timezone');
+  });
+
+  it('is cleared by a PUT that omits it and set by a PUT that carries it', async () => {
+    const { service } = makeService();
+    await service.getSettings(USER);
+    const put = await service.replaceSettings(USER, { theme: 'light', profile: { imageSource: 'none', timezone: 'Asia/Tokyo' } } as never);
+    expect(put.profile.timezone).toBe('Asia/Tokyo');
+    const replaced = await service.replaceSettings(USER, { theme: 'light', profile: { imageSource: 'none' } } as never);
+    expect(replaced.profile).not.toHaveProperty('timezone');
+  });
+
+  it('is part of the request bodies and the documented response, and rejects an invalid zone', () => {
+    expect(composeUpdateUserSettingsSchema().safeParse({ theme: 'dark', profile: { imageSource: 'none', timezone: 'UTC' } }).data?.profile).toMatchObject({ timezone: 'UTC' });
+    expect(composeUserSettingsSchema().safeParse({ theme: 'dark', profile: { imageSource: 'none', timezone: 'Mars/Olympus' } }).success).toBe(false);
+    expect(composePatchUserSettingsSchema().safeParse({ profile: { timezone: 'Not/AZone' } }).success).toBe(false);
+    expect(composePatchUserSettingsSchema().safeParse({ profile: { timezone: null } }).data?.profile).toEqual({ timezone: null });
+    expect(Object.keys(composeUserSettingsResponseSchema().shape.profile.shape)).toEqual(['displayName', 'imageSource', 'imageObjectId', 'timezone']);
+  });
+
+  it('drops a stored zone that is no longer valid on read', async () => {
+    const { service, setStored } = makeService();
+    setStored({ theme: 'system', profile: { imageSource: 'none', timezone: 'Mars/Olympus' } });
+    expect((await service.getSettings(USER)).profile).not.toHaveProperty('timezone');
+  });
+
+  it('cannot be taken by an extension', async () => {
+    await withTemporaryEntries(userProfileFieldRegistry, [], async () => {
+      expect(() => extendUserProfile({ fields: z.object({ timezone: z.string().max(64).optional() }) })).toThrow(/core profile field/);
+    });
+    expect(isValidTimeZone('UTC')).toBe(true);
   });
 });

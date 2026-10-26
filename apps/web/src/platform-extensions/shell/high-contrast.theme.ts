@@ -5,7 +5,7 @@
  * Two halves share one id, `high-contrast`:
  *
  *   - the API lists it as a theme the user setting accepts
- *     (`registerThemePreference` in `apps/api/src/platform-extensions/settings/examples/profile-timezone.ts`),
+ *     (`registerThemePreference` in `apps/api/src/platform-extensions/settings/examples/profile-pronouns.ts`),
  *     so the Appearance page offers it from the settings document's `themeOptions`;
  *   - the web registers the MUI theme under the same id with `registerThemeMode`,
  *     so `setMode('high-contrast')` of the shell's theme context shows it, the
