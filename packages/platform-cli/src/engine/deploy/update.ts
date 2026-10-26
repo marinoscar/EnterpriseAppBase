@@ -65,6 +65,8 @@ import {
 } from './repo.js';
 import { explainComposeFailure } from './compose-hints.js';
 import { reconcileComposeProject } from './compose-project.js';
+import { listComposeContainers } from './compose-containers.js';
+import { foreignContainers, planPortValues, readComposeFileTexts } from './free-ports.js';
 import {
   NotInstalledError,
   appendHistory,
@@ -140,6 +142,8 @@ export interface UpdateOptions extends AppRoleOptions {
   /** Overrides the recorded proxy container name. */
   proxyContainer?: string | undefined;
   runCommand?: typeof defaultRunCommand | undefined;
+  /** Says whether nothing listens on a loopback port (true = free). Test seam; defaults to a real bind. */
+  portFree?: ((port: number) => Promise<boolean>) | undefined;
   hooks?: DeployHooks | undefined;
   promptContext?: PromptContext | undefined;
   cwd?: string | undefined;
@@ -290,6 +294,44 @@ function environmentOfUpdate(context: UpdateContext): Map<string, string> | unde
   if (context.env !== undefined) return context.env;
   const path = envFilePath(context.options.deployRoot);
   return existsSync(path) ? parseEnvFile(readFileSync(path, 'utf8')) : undefined;
+}
+
+/**
+ * Free host ports for the published-port keys an update is ADDING to `.env`
+ * (#1027), as a map of key to value; empty when none applies.
+ *
+ * Only `added` keys are candidates, so a value already in the file is never
+ * moved, and an `--answers` value counts as one. Docker is asked only when a
+ * candidate exists; when it cannot be asked the search is probe-only.
+ */
+async function freePortsForNewKeys(
+  context: UpdateContext,
+  specs: readonly EnvVarSpec[],
+  added: readonly EnvVarSpec[],
+  current: ReadonlyMap<string, string>,
+): Promise<Map<string, string>> {
+  const picked = new Map<string, string>();
+  if (added.length === 0) return picked;
+
+  const files = readComposeFileTexts(context.options.deployRoot, groupsOf(context));
+  const decisions = await planPortValues({
+    files,
+    eligible: new Set(added.map((spec) => spec.key)),
+    given: new Map([...current, ...(context.options.answers ?? [])]),
+    defaults: new Map(specs.map((spec) => [spec.key, spec.defaultValue])),
+    taken: [context.state.bindPort],
+    containers: foreignContainers(await listComposeContainers(context.runCommand), composeProjectFor(context.state)),
+    probe: context.options.portFree,
+  });
+
+  for (const decision of decisions) {
+    picked.set(decision.variable, String(decision.port));
+    if (decision.message !== undefined) {
+      context.journal.line(`Picked a free host port: ${decision.message}`);
+      context.hooks?.onProgress?.(`Picked a free host port: ${decision.message}`);
+    }
+  }
+  return picked;
 }
 
 async function compose(
@@ -793,6 +835,14 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
           );
         }
 
+        // #1027: a key that is a published host port and is being ADDED (telemetry
+        // ports on a deployment from before they existed) gets a port that is
+        // free on this host instead of the template default, which another app
+        // on the server may hold. Only a missing key: a value already in `.env`,
+        // or one the operator supplied, is never moved -- `stack-ports-free`
+        // reports a clash on it, with the fix.
+        const ports = await freePortsForNewKeys(context, specs, added, current);
+
         const merged = new Map(current);
         for (const spec of generated) {
           // A value from --answers is an operator's choice, kept like one.
@@ -815,6 +865,7 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
           for (const spec of rest) {
             merged.set(spec.key, spec.defaultValue);
           }
+          for (const [key, value] of ports) merged.set(key, value);
           // The WRITER still gets the full template spec list, so section
           // banners and key order survive. Only the question list narrows.
           writeEnvFile(path, merged, specs);
@@ -840,9 +891,10 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
           // put back what was just replaced.
           existing:
             context.options.answers === undefined
-              ? merged
+              ? new Map([...merged, ...ports])
               : new Map([
                   ...current,
+                  ...ports,
                   ...context.options.answers,
                   ...generated.map((spec) => [spec.key, merged.get(spec.key) as string] as const),
                 ]),
@@ -875,6 +927,7 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
             composeProject: composeProjectFor(context.state),
             groups: groupsOf(context),
             proxyRoot: proxyRootFor(context),
+            ...(context.options.portFree === undefined ? {} : { portFree: context.options.portFree }),
           },
           line: (text) => context.journal.line(text),
           warn: (text) => context.hooks?.onProgress?.(text),

@@ -280,8 +280,10 @@ export function registerDeployCommand(
         'you pass --repo/--ref, so a fork deploys itself with no configuration.',
       ].join('\n'),
     )
-    .action(async (options: InstallCommandOptions) => {
-      await runInstallCommand(options, ctx);
+    .action(async (options: InstallCommandOptions, command: Command) => {
+      // `--port` has a default, so only the value source tells whether the
+      // operator passed it (#1027).
+      await runInstallCommand({ ...options, portIsDefault: command.getOptionValueSource('port') === 'default' }, ctx);
     });
 
   deploy
@@ -1365,6 +1367,13 @@ export interface InstallCommandOptions extends AppRoleCommandOptions {
   proxyContainer?: string | undefined;
   proxyMode?: string | undefined;
   port: string;
+  /**
+   * True when `--port` was not passed and `port` is only the default (the
+   * action sets it from commander's value source). A fresh install then moves
+   * to a free port when another app holds the default (#1027). Absent means the
+   * port was named, which a caller of `runInstallCommand` always does.
+   */
+  portIsDefault?: boolean | undefined;
   repo?: string | undefined;
   ref?: string | undefined;
   email?: string | undefined;
@@ -1514,6 +1523,7 @@ export async function runInstallCommand(
     ...appRoleOptions(options, role),
     deployRoot: app.deployRoot,
     bindPort: Number(options.port),
+    ...(options.portIsDefault === true ? { bindPortIsDefault: true } : {}),
     proxyRoot: options.proxyRoot,
     ...(proxy.mode === undefined ? {} : { proxyMode: proxy.mode }),
     ...(proxy.container === undefined ? {} : { proxyContainer: proxy.container }),

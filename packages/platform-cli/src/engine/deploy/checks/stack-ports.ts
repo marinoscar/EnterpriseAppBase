@@ -156,6 +156,34 @@ const stackPortsFree: Check = {
     const portFree = contextPortFree(context);
     const problems: Problem[] = [];
     const leftovers: Leftover[] = [];
+    const envPath = join(composeDir, '.env');
+
+    let variableEnv: Map<string, string> | undefined;
+    let fileTexts: string[] | undefined;
+    const variableOf = (published: PublishedPort): string | undefined => {
+      variableEnv ??= interpolationEnv(fs.readFile, composeDir);
+      fileTexts ??= composeFilesFor(context.groups, composeDir).map((file) => fs.readFile(join(composeDir, file)) ?? '');
+      return portVariableFor({ port: published, files: fileTexts, env: variableEnv });
+    };
+
+    // ⚠ A PORT THE ENVIRONMENT HAS NO VALUE FOR IS NOT FINAL YET (#1027). While
+    // this run may still write the `.env` (`environmentPending`), a clash on a
+    // port that is only the compose file's DEFAULT -- the `.env` exists but lacks
+    // the key, as a deployment from before the telemetry stack does -- is not a
+    // verdict: install's environment step and update's `environment-drift` give
+    // such a key a free port, and the `stack-ports` step asks again with the
+    // final file, before any container is touched. Failing here would stop the
+    // update the picker exists to unblock. A key the `.env` HAS is final, and
+    // still fails.
+    const deferred: Problem[] = [];
+    const defersToEnvironment = (published: PublishedPort): boolean => {
+      if (context.environmentPending !== true || !fs.exists(envPath)) return false;
+      const variable = variableOf(published);
+      return variable !== undefined && (variableEnv?.get(variable) ?? '') === '';
+    };
+    const report = (problem: Problem): void => {
+      (defersToEnvironment(problem.published) ? deferred : problems).push(problem);
+    };
 
     for (const published of ports) {
       const claim = { hostIp: published.hostIp, protocol: published.protocol };
@@ -173,7 +201,7 @@ const stackPortsFree: Check = {
         const ownRuns = running.some(isOwn);
         const blocking = foreign.filter((container) => container.running || !ownRuns);
         if (blocking.length > 0) {
-          problems.push({ published, holders: blocking });
+          report({ published, holders: blocking });
           continue;
         }
         const stopped = foreign.filter((container) => !container.running);
@@ -186,23 +214,23 @@ const stackPortsFree: Check = {
       // every interface, and says nothing about another address or a UDP port.
       const probeable = published.protocol === 'tcp' && (published.hostIp === '' || published.hostIp === '127.0.0.1');
       if (running.length === 0 && probeable && !(await portFree(published.port))) {
-        problems.push({ published, holders: [] });
+        report({ published, holders: [] });
       }
     }
 
     if (problems.length === 0 && leftovers.length === 0) {
-      return { status: 'pass', detail: `${ports.length} host port${ports.length === 1 ? '' : 's'} available (${ports.slice(0, MAX_LISTED).map(endpoint).join(', ')}${ports.length > MAX_LISTED ? ', ...' : ''})` };
+      const available = `${ports.length} host port${ports.length === 1 ? '' : 's'} available (${ports.slice(0, MAX_LISTED).map(endpoint).join(', ')}${ports.length > MAX_LISTED ? ', ...' : ''})`;
+      if (deferred.length === 0) return { status: 'pass', detail: available };
+      const names = unique(deferred.map(({ published }) => variableOf(published) ?? endpoint(published)));
+      return {
+        status: 'pass',
+        detail:
+          `${deferred.length} of ${available} ${deferred.length === 1 ? 'is' : 'are'} taken today (${unique(deferred.map(({ published }) => endpoint(published))).join(', ')}), ` +
+          `but ${names.join(', ')} ${names.length === 1 ? 'is' : 'are'} not in ${envPath} yet: a free port is chosen when the environment is written, and the ports are checked again then`,
+      };
     }
 
-    const envPath = join(composeDir, '.env');
     const statePath = deployStatePath(context.deployRoot);
-    let variableEnv: Map<string, string> | undefined;
-    let fileTexts: string[] | undefined;
-    const variableOf = (published: PublishedPort): string | undefined => {
-      variableEnv ??= interpolationEnv(fs.readFile, composeDir);
-      fileTexts ??= composeFilesFor(context.groups, composeDir).map((file) => fs.readFile(join(composeDir, file)) ?? '');
-      return portVariableFor({ port: published, files: fileTexts, env: variableEnv });
-    };
 
     /** How to move THIS stack off the port. */
     const moveOff = (published: PublishedPort): string => {
