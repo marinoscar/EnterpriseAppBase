@@ -73,6 +73,7 @@ describe('the install pipeline', () => {
       'checkout',
       'environment',
       'validate-environment',
+      'stack-ports',
       'ensure-database',
       'version',
       'build',
@@ -87,6 +88,12 @@ describe('the install pipeline', () => {
       'verify',
       'publish-version',
     ]);
+  });
+
+  it('asks about the stack ports with the final environment and before anything is built or started (#1024)', () => {
+    expect(ids.indexOf('stack-ports')).toBeGreaterThan(ids.indexOf('validate-environment'));
+    expect(ids.indexOf('stack-ports')).toBeLessThan(ids.indexOf('build'));
+    expect(ids.indexOf('stack-ports')).toBeLessThan(ids.indexOf('start'));
   });
 
   it('records what was deployed as soon as the API answers', () => {

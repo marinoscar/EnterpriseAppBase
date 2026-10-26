@@ -111,6 +111,7 @@ is passed.
 | `checkout` | Clone or fetch the repo at `--ref`. For a private GitHub HTTPS URL with `gh` logged in, runs `gh auth setup-git` first |
 | `environment` | The env wizard, or answers from `--answer`/`--answers-file` |
 | `validate-environment` | Formats, database reachability and credentials, OAuth probe |
+| `stack-ports` | `stack-ports-free` against the final checkout and `.env`, before anything is built or started; not skippable (see Every host port the stack publishes) |
 | `ensure-database` | Create the database if it is the only thing missing (see below) |
 | `version` | Choose, write and commit the release version (see below) |
 | `build` | `docker compose -f base -f prod -f vps build` (`--no-cache` available) |
@@ -131,7 +132,9 @@ ran.
 
 ### Update pipeline
 
-`preflight`, `fetch`, `environment-drift`, `ensure-database`, `version`,
+`preflight`, `fetch`, `environment-drift`, `stack-ports` (the same check, with the
+new revision's files and the healed `.env`, before `database-role` and every other
+step that can touch a container), `ensure-database`, `version`,
 `build`, `migrate`, `seed`, `restart`, `edge-config`, `health`, `deploy-info`,
 `publish`, `renewal`, `verify`, `publish-version`.
 
@@ -178,6 +181,7 @@ Registered in `packages/platform-cli/src/engine/deploy/checks/`, one module per 
 |---|---|
 | Host | `docker-installed`, `docker-daemon`, `docker-compose-v2`, `git-installed`, `node-version`, `disk-space`, `memory`, `bind-port-free` |
 | Compose project | `bind-port-owner` (required; also in the `update` preflight), `stray-compose-stack` (recommended, `doctor` only) |
+| Stack ports | `stack-ports-free` (required; also in the `update` preflight, and asked again by the `stack-ports` step of both pipelines) |
 | Source | `gh-installed`, `gh-authenticated` |
 | Database | `database-reachable`, `database-credentials`, `database-exists`, `database-role-ordinary`, `database-privileges`, `database-ssl`, `database-create-privilege` |
 | DNS | `dns-resolves`, `dns-points-here` |
@@ -365,6 +369,55 @@ project holds the port. `stray-compose-stack`
 only warns, in `doctor`, about containers of another project started from the
 deploy root. Neither removes anything. Renaming an existing project would
 start a second stack on the same port.
+
+#### Every host port the stack publishes
+
+`bind-port-owner` covers the bind port only. The stack publishes others
+(`vps.telemetry.compose.yml`: greptimedb on `127.0.0.1:${GREPTIME_BIND_PG_PORT:-14003}`,
+a default every app on the host shares), and `up -d` recreates web, api and
+nginx before it reaches the service whose port is taken: `Bind for
+127.0.0.1:14003 failed: port is already allocated`, with the new nginx not
+started. The required check `stack-ports-free` (`update` and `install`
+preflight, and `doctor`) asks compose itself which ports the stack publishes,
+`docker compose -p <project> -f ... config --format json` run in the checkout's
+compose directory with the process environment, exactly the invocation `up -d`
+gets (the rendered output carries every secret; it is parsed in memory and
+never logged), then fails when, for any published port:
+
+- a container of a compose project other than the run's, or no project, in any
+  state, is configured to publish it on an overlapping address and protocol; a
+  stopped one only warns while a running container of the run's own project
+  holds the same port (Docker allocates a port only to a running container);
+- a process outside Docker listens on it (a loopback bind probe, TCP on
+  `127.0.0.1` or every interface, and only when no running container accounts
+  for the listener).
+
+Containers of the run's own project are fine; they are recreated. The failure
+names the port, the service, the holder and the fix: `set <VAR>=<free port> in
+<deployRoot>/repo/infra/compose/.env` where `<VAR>` is derived from the `ports:`
+lists of the compose files (the entry that evaluates to the rendered port;
+`!override` and `!reset` are honoured), or, when a literal fixes the port, the
+overlay to change; for a leftover started from the deploy folder, the
+`composeProject` fix and the removal command. The bind port's container
+question stays with `bind-port-owner` (one message per port); the listener
+probe covers it too. A stack that cannot be rendered fails with compose's error
+(a missing required variable adds the key and the CLI-version hint); Docker
+unreachable skips. Nothing is mutated.
+
+The preflight sees the checkout and `.env` as they are before the run changes
+them, and install's runs before there is a checkout, so a render failure there
+(`CheckContext.environmentPending`) is deferred and both pipelines run the
+`stack-ports` step with the final files: update after `environment-drift` and
+before `database-role` (the first step that can recreate a container), install
+after `validate-environment` and before `ensure-database`. The step runs the
+same check, cannot be skipped by `--skip-doctor`, `--force` or `--resume` (a
+resumed install drops it from the completed set), and stops the run before any
+container is stopped, built or recreated.
+
+Install does not choose a free `APP_BIND_PORT` (the port is `--port`, default
+3535), so it does not choose a free `GREPTIME_BIND_PG_PORT` either: a second app
+on the host fails the `stack-ports` step with the variable to set. The stack
+agent's telemetry `compose up` (`apps/stack-agent`) is outside this check.
 
 ### Run journal
 
