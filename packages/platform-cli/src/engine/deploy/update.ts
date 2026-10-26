@@ -73,6 +73,7 @@ import {
   type DeployState,
   type HostFacts,
 } from './state.js';
+import { assertStackPortsFree, STACK_PORTS_STEP_ID } from './stack-ports-gate.js';
 import { runPipeline, type DeployStep, type StepContext } from './steps/pipeline.js';
 import { appStepContext } from './steps/app-step-context.js';
 import { withRegisteredSteps } from './steps/registry.js';
@@ -535,6 +536,8 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
           // The run's compose project must be the one whose containers hold
           // the bind port; otherwise `up -d` starts a second stack (#1020).
           'bind-port-owner',
+          // Every OTHER host port the stack publishes (greptimedb's 14003, #1024).
+          'stack-ports-free',
         ]);
 
         // `fetch` talks to the recorded repository, so whether git can still
@@ -549,6 +552,14 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
           deployRoot: context.options.deployRoot,
           bindPort: context.state.bindPort,
           composeProject: composeProjectFor(context.state),
+          // The files `up -d` will use, which `stack-ports-free` renders.
+          groups: groupsOf(context),
+          // `fetch` and `environment-drift` still change the files and the `.env`
+          // (the drift step generates a key a new revision requires, which a
+          // checkout moved by a failed run would otherwise fail to render
+          // without): a stack that cannot be rendered YET is judged by the
+          // `stack-ports` step, with the final ones, before anything is touched.
+          environmentPending: true,
           // From the record, not reconstructed. Deriving it as
           // `<deployRoot>/../../proxy` silently ignored a non-default
           // --proxy-root given at install time, and wrote the vhost somewhere
@@ -845,6 +856,29 @@ export function buildUpdateSteps(): DeployStep<UpdateContext>[] {
 
         writeEnvFile(path, values, specs);
         context.env = values;
+      },
+    },
+    {
+      // ⚠ BEFORE THE FIRST STEP THAT CAN TOUCH A CONTAINER (`database-role` may
+      // recreate the api). The preflight judged the OLD checkout and `.env`;
+      // `fetch` and `environment-drift` have just changed both, and a port the new
+      // revision publishes is only visible now. See stack-ports-gate.ts (#1024).
+      id: STACK_PORTS_STEP_ID,
+      title: 'Check the ports the stack publishes',
+      skip: skipWhenUnchanged,
+      async run(context) {
+        await assertStackPortsFree({
+          context: {
+            runCommand: context.runCommand,
+            deployRoot: context.options.deployRoot,
+            bindPort: context.state.bindPort,
+            composeProject: composeProjectFor(context.state),
+            groups: groupsOf(context),
+            proxyRoot: proxyRootFor(context),
+          },
+          line: (text) => context.journal.line(text),
+          warn: (text) => context.hooks?.onProgress?.(text),
+        });
       },
     },
     {

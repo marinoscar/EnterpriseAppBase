@@ -181,6 +181,22 @@ export interface CheckContext {
    * `compose`. Absent when a check runs before any state exists.
    */
   composeProject?: string | undefined;
+  /**
+   * The deployment's groups (this run's flag, else what install recorded), which
+   * decide the compose files; the always-on telemetry files are added whatever
+   * is passed. `stack-ports-free` renders the stack with them, so a check that
+   * omits them asks about a smaller stack than `up -d` starts.
+   */
+  groups?: readonly string[] | undefined;
+  /**
+   * True while this run may still change the compose files or the `.env` it is
+   * about to use (the install preflight runs before the checkout and the
+   * environment step; the update preflight runs before `fetch` and the drift
+   * step, which can supply a key the checkout now requires). A stack that cannot
+   * be rendered yet is then not a failure: the `stack-ports` step asks again
+   * once both are final, and fails there.
+   */
+  environmentPending?: boolean | undefined;
   /** The shared reverse proxy's directory. */
   proxyRoot: string;
   /** Public hostname, when one is known. DNS and TLS checks need it. */
