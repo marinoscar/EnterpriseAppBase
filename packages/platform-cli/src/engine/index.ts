@@ -32,6 +32,13 @@ export { PLATFORM_CLI_VERSION } from './package-info.js';
 export { createCli } from './create-cli.js';
 export type { CliInstance, CreateCliDeployOptions, CreateCliOptions, CreateCliProxyOptions } from './create-cli.js';
 
+// The start-up update notice (#1033): the option type, the GitHub manifest
+// helper, and the context `run` takes as a test seam.
+export { githubRawManifest } from './github-raw-manifest.js';
+export type { GithubRawManifestOptions } from './github-raw-manifest.js';
+export type { UpdateCheckContext } from './update-notice.js';
+export type { UpdateNoticeOptions } from './update-notice-options.js';
+
 export {
   PLATFORM_ENV_FRAGMENT_ID,
   ensurePlatformRegistrations,

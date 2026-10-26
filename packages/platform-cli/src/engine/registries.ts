@@ -18,6 +18,7 @@ import { resetCapabilityRegistriesForTests } from './node/capabilities.js';
 import { freezeNodeExecutorRegistry, resetNodeExecutorRegistryForTests } from './node/executors/registry.js';
 import { freezeTuiSectionRegistry, resetTuiSectionRegistryForTests } from './tui/section-registry.js';
 import { freezeTuiScreenRegistry, resetTuiScreenRegistryForTests } from './tui/screen-registry.js';
+import { resetUpdateNoticeForTests } from './update-notice-options.js';
 
 // =============================================================================
 // The CLI's registries, together  (PP-8.9, #715)
@@ -62,4 +63,5 @@ export function resetCliRegistriesForTests(): void {
   resetDeployCheckRegistryForTests();
   resetEdgeConfigRegistryForTests();
   resetVersionedManifestsForTests();
+  resetUpdateNoticeForTests();
 }

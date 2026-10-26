@@ -12,6 +12,7 @@ import { EXIT, exitCodeFor, formatError } from './errors.js';
 import { PLATFORM_CLI_VERSION } from './package-info.js';
 import { ensurePlatformRegistrations } from './builtin-registrations.js';
 import { evaluateTuiGate, type TtyContext } from './tui/tty.js';
+import { beginUpdateCheck, type UpdateCheckContext } from './update-notice.js';
 
 // =============================================================================
 // Command wiring  (issue #140, epic #110)
@@ -138,6 +139,8 @@ export interface RunOptions {
   tty?: TtyContext | undefined;
   /** Replaces the dynamic import of the ink app. */
   startTui?: (() => Promise<number>) | undefined;
+  /** Environment, home directory, stderr and clock the start-up update notice reads (a test seam). */
+  updateCheck?: UpdateCheckContext | undefined;
 }
 
 /**
@@ -158,6 +161,21 @@ export async function run(argv: string[], options?: RunOptions): Promise<number>
     return exitCodeFor(error);
   }
 
+  // The start-up update notice (#1033). `begin` starts the check in parallel
+  // with whatever runs below and awaits nothing; `finish` runs AFTER it, and is
+  // the only place anything is written, so the notice follows the command's
+  // output (and, for the TUI, comes after ink has unmounted and restored the
+  // terminal). Both are inert when the app did not pass `updateNotice`, and
+  // neither can throw or change `code`.
+  const updateCheck = beginUpdateCheck(argv, options?.updateCheck);
+  try {
+    return await runProgram(program, argv, options);
+  } finally {
+    await updateCheck.finish();
+  }
+}
+
+async function runProgram(program: Command, argv: string[], options: RunOptions | undefined): Promise<number> {
   // ---------------------------------------------------------------------------
   // NO ARGUMENTS: the ONLY invocation that can open the ink TUI (#145).
   // ---------------------------------------------------------------------------
