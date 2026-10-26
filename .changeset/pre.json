@@ -54,6 +54,7 @@
     "cli-infra-extension-points",
     "cli-stack-ports-free",
     "cli-update-retry-after-failure",
+    "cli-versioned-manifests",
     "conformance-invariant-suites",
     "contract-android-app",
     "contract-doctor-schemas",
