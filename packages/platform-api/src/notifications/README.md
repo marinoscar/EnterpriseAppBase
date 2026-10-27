@@ -4,6 +4,8 @@ The platform's notification framework: the event, channel and template registrie
 
 ## Purpose and scope
 
+Dates in a notification follow the recipient's time zone: the dispatcher reads `profile.timezone` with the recipient (`NotificationRecipient.timeZone`) and the email, bell and push renderers print dates in it (`BrowserNotificationTemplate` is `(data, ctx?: { timeZone? })`). A recipient with no stored zone (an address with no account, or an account on "Automatic") renders in UTC, labelled, unless the caller passes `NotifyOptions.timeZone` as a hint (the sharing invite passes the inviter's zone through `SharingNotifier`). Rendering only; the hint never changes who is notified.
+
 One way to tell a user something: raise a registered event by key, after the write that caused it commits, and let the dispatcher decide which channels it reaches.
 
 | Part | Source | What it is |

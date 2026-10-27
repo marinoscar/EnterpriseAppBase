@@ -42,7 +42,7 @@ Standalone: **Yes** means the slice imports and runs with the foundation slices 
 | [`host`](#host) | The host core: the event bus, maintenance mode with its guard, the response envelope, the exception filter, request ids, health, CORS, the OpenAPI document and the About page. | API, Web | `core`, `db-backup`, `doctor`, `identity`, `nodes`, `otel-core`, `settings` | With slices |
 | [`shell`](#shell) | The web app shell: layout, app bar, navigation rail with Console mode, bottom navigation, user menu and the shell theme. | Web | `core`, `identity`, `settings` | With slices |
 | [`datatable`](#datatable) | The responsive `DataTable`: a virtualized grid on desktop and cards on phones, with sort, filter, selection, CSV export and per-user column preferences. | Web | `core` | Yes |
-| [`timezone`](#timezone) | The display time zone (the user's `profile.timezone`, else the device's), date and time formatters that render in it, and the world-map time zone picker the profile page uses. | Web | `core`, `identity` | With slices |
+| [`timezone`](#timezone) | The display time zone (the user's `profile.timezone`, else the device's), date and time formatters that render in it, and the world-map time zone picker the profile page uses; in the contract, the pure zone math (`zonedDayStart`, `zonedDateKey`, `addCalendarInZone`) the API and the web share, and the `X-Time-Zone` header name. | Web, Contract | `core`, `identity` | With slices |
 | [`sharing`](#sharing) | Groups, members and invites inside an organization, group-owned resources, per-resource grants, link shares and the access policy that decides who can see a record. | API, Web, Contract | `core`, `doctor`, `otel-core` | With app ports |
 | [`identity`](#identity) | Sign-in (Google and registered providers), JWT sessions with rotating refresh tokens, users, roles and permissions, the allowlist, personal access tokens, the device flow and organizations. | API, Web, Contract | `core`, `doctor`, `otel-core` | With slices |
 | [`settings`](#settings) | The system, organization and user settings documents, the namespace registries they are composed from and the resolver that reads a setting through the layers; in the web package the settings hub and the profile, appearance and organization settings pages. | API, Web, Contract | `core`, `credentials`, `identity`, `onboarding`, `timezone` | With slices |
@@ -265,13 +265,14 @@ None.
 
 ### timezone
 
-**What it gives you.** The display time zone (the user's `profile.timezone`, else the device's), date and time formatters that render in it, and the world-map time zone picker the profile page uses.
+**What it gives you.** The display time zone (the user's `profile.timezone`, else the device's), date and time formatters that render in it, and the world-map time zone picker the profile page uses; in the contract, the pure zone math (`zonedDayStart`, `zonedDateKey`, `addCalendarInZone`) the API and the web share, and the `X-Time-Zone` header name.
 
 **What it is** (from its README). The time zone slice of the web package, in two entries.
 
 | Part | Import paths | Depends on (slices) | Install beyond the required peers | README |
 |---|---|---|---|---|
 | Web (`platform-web`) | `/timezone/headless`, `/timezone/ui` | `core`, `identity` | `@mui/icons-material`, `react-router-dom` | [README](../packages/platform-web/src/timezone/README.md) |
+| Contract (`platform-contract`) | `/timezone` | none | none | [README](../packages/platform-contract/src/timezone/README.md) |
 
 **Admin and settings cards.**
 
@@ -279,7 +280,7 @@ None.
 
 **Permissions it adds.** none declared by this slice
 
-**Standalone (With slices).** Web only; imports core and, for the sign-out reset, identity's optional auth context. The formatters work with no provider; `UserTimeZoneSync` needs a transport to load the user's choice. Transitive slice dependencies in Web: `core`, `identity`.
+**Standalone (With slices).** The web slice imports core and, for the sign-out reset, identity's optional auth context; the formatters work with no provider and `UserTimeZoneSync` needs a transport to load the user's choice. The contract slice is zod-free and depends on nothing. Transitive slice dependencies in Web: `core`, `identity`.
 
 ## Feature slices
 

@@ -123,3 +123,28 @@ describe('SettingsResolver.resolveUser', () => {
     }),
   );
 });
+
+describe('SettingsResolver time zones', () => {
+  const row = (value: unknown) => ({ id: 'u', userId: ALICE, value, version: 1, updatedAt: new Date() });
+
+  it('reads the stored profile zone, null without a row or for an invalid zone, and never creates a row', async () => {
+    const s = services();
+    expect(await s.resolver.resolveUserTimeZone(ALICE)).toBeNull();
+    s.prisma.userSettings.rows.set(ALICE, row({ profile: { imageSource: 'none', timezone: 'America/Costa_Rica' } }));
+    expect(await s.resolver.resolveUserTimeZone(ALICE)).toBe('America/Costa_Rica');
+    s.prisma.userSettings.rows.set(ALICE, row({ profile: { imageSource: 'none', timezone: 'Mars/Olympus' } }));
+    expect(await s.resolver.resolveUserTimeZone(ALICE)).toBeNull();
+    expect(s.prisma.userSettings.create).not.toHaveBeenCalled();
+  });
+
+  it('resolves a request zone: profile, then the X-Time-Zone header, then UTC', async () => {
+    const s = services();
+    const withHeader = (v?: string) => ({ headers: v === undefined ? {} : { 'x-time-zone': v } });
+    expect(await s.resolver.resolveRequestTimeZone(withHeader(), ALICE)).toBe('UTC');
+    expect(await s.resolver.resolveRequestTimeZone(withHeader('Asia/Tokyo'), ALICE)).toBe('Asia/Tokyo');
+    expect(await s.resolver.resolveRequestTimeZone(withHeader('not/a-zone'), ALICE)).toBe('UTC');
+    expect(await s.resolver.resolveRequestTimeZone(withHeader('Asia/Tokyo'))).toBe('Asia/Tokyo');
+    s.prisma.userSettings.rows.set(ALICE, row({ profile: { imageSource: 'none', timezone: 'America/Chicago' } }));
+    expect(await s.resolver.resolveRequestTimeZone(withHeader('Asia/Tokyo'), ALICE)).toBe('America/Chicago');
+  });
+});

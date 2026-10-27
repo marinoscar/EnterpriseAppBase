@@ -1,4 +1,5 @@
 import { SafeHtml, html, plainText, renderLayout } from './layout';
+import { formatEmailDateTime } from './format-date';
 import { resolveEmailRenderContext, type EmailRenderContext } from './render-context';
 import {
   TRANSACTIONAL_EMAIL_HEADERS,
@@ -69,7 +70,7 @@ export interface JobFailedEmailData {
    */
   executor: string | null;
 
-  /** When the job was settled `failed`. Rendered as UTC; see `formatTimestamp`. */
+  /** When the job was settled `failed`. Rendered in the recipient's zone, with the UTC time alongside. */
   failedAt: Date;
 
   /**
@@ -84,12 +85,11 @@ export interface JobFailedEmailData {
 const JOBS_ADMIN_PATH = '/admin/settings/jobs';
 
 /**
- * ISO 8601, in UTC, with the `Z` left on — the same choice, for the same
- * reason, as every other template here: the server does not know the reader's
- * time zone, and this timestamp's job is to be matched against a log line.
+ * The recipient's local time with the zone label and, outside UTC, the UTC time
+ * in parentheses (matchable against log lines). See `formatEmailDateTime`.
  */
-function formatTimestamp(value: Date): string {
-  return value.toISOString();
+function formatTimestamp(value: Date, ctx: EmailRenderContext): string {
+  return formatEmailDateTime(value, ctx);
 }
 
 /** `null` is a fact about the row, not a blank. Give it words. */
@@ -119,7 +119,7 @@ function detailRow(label: string, value: string): SafeHtml {
 export function jobFailedEmail(data: JobFailedEmailData, ctx?: EmailRenderContext): RenderedEmail {
   const context = resolveEmailRenderContext(ctx);
   const appName = context.appName;
-  const timestamp = formatTimestamp(data.failedAt);
+  const timestamp = formatTimestamp(data.failedAt, context);
   const error = orNone(data.error);
   const executor = orNone(data.executor);
 

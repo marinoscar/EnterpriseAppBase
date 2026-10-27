@@ -1,12 +1,13 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 
 import { AUDIT_SINK, type AuditSink } from '../core/index';
+import { SettingsResolver } from '../settings/index';
 import { EMAIL_OPTIONS, UNCONFIGURED_EMAIL_OPTIONS, type ResolvedEmailModuleOptions } from './email.options';
 import { EmailSettingsService } from './email-settings.service';
 import type { EmailProviderKind, EmailSettings } from './email-settings.schema';
 import type { EmailMessage } from './email.types';
 import { EmailTransportResolver } from './transports/email-transport.resolver';
-import { renderEmailTemplate } from './templates';
+import { currentEmailRenderContext, renderEmailTemplate } from './templates';
 import type { TestEmailResult } from './dto/test-email-result.dto';
 
 // =============================================================================
@@ -126,6 +127,12 @@ export interface TestSendActor {
   id: string;
   /** The caller's own address: the only recipient a test send can have. */
   email: string;
+  /**
+   * The zone the message's timestamps render in: the controller resolves it
+   * for the request (profile, then `X-Time-Zone`, then UTC). Absent, the
+   * service reads the caller's `profile.timezone`, else UTC.
+   */
+  timeZone?: string | null;
 }
 
 /**
@@ -149,6 +156,7 @@ export class EmailTestSendService {
     // `provider`: an app's transport is used here exactly as `ses` and `smtp` are.
     private readonly transports: EmailTransportResolver,
     @Optional() @Inject(EMAIL_OPTIONS) options?: Pick<ResolvedEmailModuleOptions, 'appUrl'>,
+    @Optional() private readonly settings?: SettingsResolver,
   ) {
     this.options = options ?? UNCONFIGURED_EMAIL_OPTIONS;
   }
@@ -242,6 +250,7 @@ export class EmailTestSendService {
       }
     }
 
+    const timeZone = actor.timeZone !== undefined ? actor.timeZone : await this.actorTimeZone(actor.id);
     const rendered = renderEmailTemplate('test-email', {
       recipientEmail: actor.email,
       providerKind,
@@ -250,7 +259,7 @@ export class EmailTestSendService {
       // difference between a test and an unexplained message in an inbox.
       triggeredBy: actor.email,
       settingsUrl: this.settingsUrl(),
-    });
+    }, { ...currentEmailRenderContext(), timeZone });
 
     const message: EmailMessage = {
       to: actor.email,
@@ -311,6 +320,15 @@ export class EmailTestSendService {
    * trail with the same fields. A second, hand-rolled failure literal is how
    * one of them ends up without an audit row.
    */
+  /** The caller's stored `profile.timezone`, or `null` (UTC, labelled) when none or unreadable. */
+  private async actorTimeZone(userId: string): Promise<string | null> {
+    try {
+      return (await this.settings?.resolveUserTimeZone(userId)) ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   private async failure(
     actor: TestSendActor,
     providerKind: EmailProviderKind | null,

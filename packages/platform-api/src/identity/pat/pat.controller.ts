@@ -8,6 +8,9 @@ import {
   ParseUUIDPipe,
   HttpCode,
   HttpStatus,
+  Inject,
+  Optional,
+  Req,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -18,7 +21,13 @@ import {
 
 import { PatService } from './pat.service';
 import { Auth } from '../auth/decorators/auth.decorator';
-import type { Principal } from '../../core/index';
+import {
+  REQUEST_TIME_ZONE_RESOLVER,
+  resolveRequestTimeZoneWith,
+  type Principal,
+  type RequestTimeZoneResolver,
+  type RequestWithHeaders,
+} from '../../core/index';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { CurrentPrincipal } from '../auth/decorators/current-principal.decorator';
 import { CreatePatDto } from './dto/create-pat.dto';
@@ -27,12 +36,22 @@ import { PatCreatedResponseDto, PatListItemDto } from './dto/pat-response.dto';
 @ApiTags('Personal Access Tokens')
 @Controller('pat')
 export class PatController {
-  constructor(private readonly patService: PatService) {}
+  constructor(
+    private readonly patService: PatService,
+    // Bound by the settings slice when mounted (identity sits below it): without it the
+    // `X-Time-Zone` header, then UTC, decide.
+    @Optional() @Inject(REQUEST_TIME_ZONE_RESOLVER) private readonly timeZones?: RequestTimeZoneResolver,
+  ) {}
 
   @Post()
   @Auth()
   @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Create a new Personal Access Token' })
+  @ApiOperation({
+    summary: 'Create a new Personal Access Token',
+    description:
+      'A `days` or `months` lifetime is calendar arithmetic in the caller\'s time zone (profile, then the `X-Time-Zone` header, then UTC): ' +
+      'the time of day is kept across DST and a month end clamps (Jan 31 plus one month is Feb 28). `minutes` is elapsed time.',
+  })
   @ApiResponse({
     status: 201,
     description: 'Token created - raw token is shown only once',
@@ -45,10 +64,15 @@ export class PatController {
   async createToken(
     @Body() dto: CreatePatDto,
     @CurrentPrincipal() principal: Principal,
+    @Req() request: RequestWithHeaders,
   ): Promise<PatCreatedResponseDto> {
+    // Day and month lifetimes are calendar arithmetic in the requester's zone
+    // (profile, then `X-Time-Zone`, then UTC).
+    const timeZone = await resolveRequestTimeZoneWith(this.timeZones, request, principal.userId);
     // #724: bound to the caller's active org unless `orgId` names another.
     return this.patService.createToken(principal.userId, dto, {
       activeOrgId: principal.activeOrgId,
+      timeZone,
     });
   }
 

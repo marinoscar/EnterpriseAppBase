@@ -1,4 +1,5 @@
 import { SafeHtml, html, plainText, renderLayout } from './layout';
+import { formatEmailDateTime } from './format-date';
 import { resolveEmailRenderContext, type EmailRenderContext } from './render-context';
 import {
   TRANSACTIONAL_EMAIL_HEADERS,
@@ -58,9 +59,12 @@ export interface NodeOfflineEmailData {
 /** Where the CTA points, appended to `appUrl`. Matches `adminSections.tsx`. */
 const WORKERS_ADMIN_PATH = '/admin/settings/workers';
 
-/** ISO 8601 in UTC — matched against log lines, never against a wall clock. */
-function formatTimestamp(value: Date): string {
-  return value.toISOString();
+/**
+ * The recipient's local time with the zone label and, outside UTC, the UTC time
+ * in parentheses (matchable against log lines). See `formatEmailDateTime`.
+ */
+function formatTimestamp(value: Date, ctx: EmailRenderContext): string {
+  return formatEmailDateTime(value, ctx);
 }
 
 /**
@@ -70,10 +74,10 @@ function formatTimestamp(value: Date): string {
  * most alarming value in the message must not render as whitespace that reads
  * like a formatting bug.
  */
-function formatHeartbeat(value: Date | null): string {
+function formatHeartbeat(value: Date | null, ctx: EmailRenderContext): string {
   return value === null
     ? 'Never — it registered and never sent a heartbeat'
-    : formatTimestamp(value);
+    : formatTimestamp(value, ctx);
 }
 
 /** One row of the detail table. `value` is escaped by the `html` tag. */
@@ -98,8 +102,8 @@ function detailRow(label: string, value: string): SafeHtml {
 export function nodeOfflineEmail(data: NodeOfflineEmailData, ctx?: EmailRenderContext): RenderedEmail {
   const context = resolveEmailRenderContext(ctx);
   const appName = context.appName;
-  const heartbeat = formatHeartbeat(data.lastHeartbeatAt);
-  const markedAt = formatTimestamp(data.markedOfflineAt);
+  const heartbeat = formatHeartbeat(data.lastHeartbeatAt, context);
+  const markedAt = formatTimestamp(data.markedOfflineAt, context);
 
   // The SUBJECT DELIBERATELY DOES NOT CARRY THE NODE NAME. Subject lines are
   // not HTML and are therefore not escaped by the `html` tag, so putting an

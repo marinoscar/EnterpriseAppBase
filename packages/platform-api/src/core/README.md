@@ -310,6 +310,10 @@ import { describeVocabularyConformance } from '@marinoscar/platform-api/core/tes
 describeVocabularyConformance({ describe, it, expect }, { expectedAppReasons: ['transcript-reindex'] });
 ```
 
+### The request time zone
+
+`REQUEST_TIME_ZONE_RESOLVER` (token), `RequestTimeZoneResolver`, `readRequestTimeZoneHeader(request)`, `chooseTimeZone(profile, header)` and `resolveRequestTimeZoneWith(resolver, request, userId)` decide which zone a request-scoped date operation uses: the user's stored `profile.timezone`, then a valid `X-Time-Zone` header (`TIME_ZONE_HEADER` of `@marinoscar/platform-contract/timezone`; the device zone a client sends for a user on "Automatic"), then `UTC`. `SettingsModule` binds the token to `SettingsResolver` (`resolveRequestTimeZone(request, userId?)`); a slice below settings injects it `@Optional()` and passes it to `resolveRequestTimeZoneWith`, which falls back to header then UTC when no settings slice is mounted. An app uses the same pieces for its own routes (prompts, bucketing, extraction dates). Background work has no request: use the profile zone, then UTC.
+
 ### Logging, metrics and spans
 
 No port. Packaged code logs with `new Logger(Context)` from `@nestjs/common`, which the app may route to its own logger through `app.useLogger`. Metrics and spans use `@opentelemetry/api` (a peer) until `otel-core` (#700) ships.

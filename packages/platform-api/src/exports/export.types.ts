@@ -90,6 +90,14 @@ export interface ExportContext {
   readonly pageSize: number;
   /** The export's clock: one instant for the whole export. */
   readonly now: Date;
+  /**
+   * The requester's IANA time zone, captured when the export was queued (their
+   * profile zone, else the `X-Time-Zone` header, else `UTC`). A source cuts its
+   * day-based request fields (`from`/`to` days) in this zone with
+   * `zonedDayStart(day, ctx.timeZone)` from `@marinoscar/platform-contract/timezone`,
+   * and the default file name uses the zone's day.
+   */
+  readonly timeZone: string;
 }
 
 /**

@@ -1,4 +1,5 @@
 import { SafeHtml, html, plainText, renderLayout } from './layout';
+import { formatEmailDateTime } from './format-date';
 import { resolveEmailRenderContext, type EmailRenderContext } from './render-context';
 import {
   TRANSACTIONAL_EMAIL_HEADERS,
@@ -86,9 +87,12 @@ export interface RestoreCompletedEmailData {
 /** Where the CTA points, appended to `appUrl`. Matches `adminSections.tsx`. */
 const DB_BACKUP_ADMIN_PATH = '/admin/settings/db-backup';
 
-/** ISO 8601 in UTC — matched against log lines, never against a wall clock. */
-function formatTimestamp(value: Date): string {
-  return value.toISOString();
+/**
+ * The recipient's local time with the zone label and, outside UTC, the UTC time
+ * in parentheses (matchable against log lines). See `formatEmailDateTime`.
+ */
+function formatTimestamp(value: Date, ctx: EmailRenderContext): string {
+  return formatEmailDateTime(value, ctx);
 }
 
 /** `null` is a fact about the row, not a blank. Give it words. */
@@ -121,11 +125,11 @@ export function restoreCompletedEmail(
 ): RenderedEmail {
   const context = resolveEmailRenderContext(ctx);
   const appName = context.appName;
-  const completedAt = formatTimestamp(data.completedAt);
+  const completedAt = formatTimestamp(data.completedAt, context);
   const takenAt =
     data.backupTakenAt === null
       ? 'Not recorded'
-      : formatTimestamp(data.backupTakenAt);
+      : formatTimestamp(data.backupTakenAt, context);
   const triggeredBy = orNone(data.triggeredBy);
   const rollback =
     data.preRestoreBackupId === null

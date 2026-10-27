@@ -51,6 +51,8 @@ import {
 } from '../../storage/index';
 import { exportJobPayloadSchema, type ExportJobPayload, type ExportResult } from '../export-job';
 import { exportSourceRegistry, exportWriterRegistry, guardWriterColumns } from '../export.registries';
+import { isValidTimeZone } from '@marinoscar/platform-contract/settings';
+import { DEFAULT_SERVER_TIME_ZONE, zonedDateKey } from '@marinoscar/platform-contract/timezone';
 import type { ExportContext, ExportSource, ExportWriter } from '../export.types';
 import {
   EXPORT_AUDIT_ACTION,
@@ -172,10 +174,11 @@ export class ExportRunHandler implements JobHandler, OnModuleInit {
       datamodel: this.options.datamodel,
       pageSize: this.options.pageSize,
       now,
+      timeZone: isValidTimeZone(payload.timeZone) ? payload.timeZone : DEFAULT_SERVER_TIME_ZONE,
     };
     const fileName = source.fileName
       ? source.fileName(ctx, request, writer.extension)
-      : `${this.options.appSlug()}-${source.id}-${now.toISOString().slice(0, 10)}.${writer.extension}`;
+      : `${this.options.appSlug()}-${source.id}-${zonedDateKey(now, ctx.timeZone)}.${writer.extension}`;
     const storageKey =
       payload.scope === 'user'
         ? buildObjectKey('exports-users', { userId: payload.subjectId }, `${job.id}.${writer.extension}`)

@@ -17,6 +17,12 @@ import {
   type AiUsageSeriesItem,
 } from './dto/ai-usage.dto';
 import type { AiUsageCost } from '@marinoscar/platform-contract/ai';
+import {
+  DEFAULT_SERVER_TIME_ZONE,
+  addDaysToDateKey,
+  zonedDateKey,
+  zonedDayStart,
+} from '@marinoscar/platform-contract/timezone';
 
 // =============================================================================
 // AiUsageService — aggregates over `ai_usage_events` (issue #443, epic #420)
@@ -35,10 +41,18 @@ import type { AiUsageCost } from '@marinoscar/platform-contract/ai';
 // admin report and the `(user_id, created_at)` index for a user's own.
 //
 // ⚠ THE GROUP KEY IS A FIXED SQL FRAGMENT PICKED FROM `GROUP_KEY_SQL` BY AN
-// ENUM THE DTO VALIDATED — never text from the request. It must also contain
-// no bound parameter: it appears three times in each statement, and Postgres
-// only matches `GROUPING(expr)` / `SELECT expr` to `GROUP BY expr` when the
-// three are textually the same expression.
+// ENUM THE DTO VALIDATED — never text from the request. The `day` key carries
+// the report's time zone as a BOUND parameter (`AT TIME ZONE $n`), and a
+// parameter repeated in `GROUPING(expr)` / `SELECT expr` / `GROUP BY expr`
+// becomes three different placeholders that Postgres will not match. So the key
+// is computed ONCE, in the derived table `src` (`gkey`), and every statement
+// groups by the plain column.
+//
+// DAYS ARE CALENDAR DAYS IN THE REPORT'S TIME ZONE (the caller's `tz`, else
+// their profile zone, else UTC), echoed back as `timeZone`. `from`/`to` are
+// local midnights converted to instants, so a day may be 23 or 25 hours long.
+// The AI DAILY LIMITS are not this: they reset at UTC midnight on purpose (see
+// the limits service).
 //
 // Every count/sum is cast at the database (`::int`, `::float8`): `count(*)` is
 // `bigint` and `sum(int)` is `bigint`/`numeric`, which Prisma returns as a JS
@@ -56,8 +70,8 @@ export const AI_USAGE_NO_USER_KEY = 'system';
 /** Stable reason code for an unusable range (in `details.reason`). */
 export const AI_USAGE_RANGE_INVALID = 'AI_USAGE_RANGE_INVALID';
 
-const GROUP_KEY_SQL: Record<AiUsageGroupBy, Prisma.Sql> = {
-  day: Prisma.raw(`to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD')`),
+/** The group key fragments. `day` is built per report (it binds the zone), see {@link groupKeySql}. */
+const GROUP_KEY_SQL: Record<Exclude<AiUsageGroupBy, 'day'>, Prisma.Sql> = {
   user: Prisma.raw(`user_id::text`),
   model: Prisma.raw(`provider || ':' || model_id`),
   provider: Prisma.raw(`provider`),
@@ -100,14 +114,20 @@ export interface AiUsageQuery {
    * user's own.
    */
   withCost?: boolean;
+  /**
+   * IANA zone whose calendar days the report is cut by; resolved by the
+   * controller (query `tz`, else the caller's profile zone). Default `UTC`.
+   */
+  timeZone?: string;
 }
 
-/** A resolved window: `from`/`to` inclusive UTC days, `start`/`end` the half-open instants. */
+/** A resolved window: `from`/`to` inclusive calendar days in `timeZone`, `start`/`end` the half-open instants. */
 export interface AiUsageRange {
   from: string;
   to: string;
   start: Date;
   end: Date;
+  timeZone: string;
 }
 
 interface AggregateRow {
@@ -197,9 +217,9 @@ export class AiUsageService {
    * every organization's through the system client.
    */
   async report(query: AiUsageQuery, now: Date = new Date(), orgId?: string): Promise<AiUsageReport> {
-    const range = resolveAiUsageRange(query.from, query.to, now);
-    const key = GROUP_KEY_SQL[query.groupBy];
-    const where = whereSql(range, query);
+    const range = resolveAiUsageRange(query.from, query.to, now, query.timeZone);
+    const key = Prisma.raw('gkey');
+    const src = sourceSql(groupKeySql(query.groupBy, range.timeZone), whereSql(range, query));
 
     const db = orgId ? this.prisma.forOrg(orgId) : this.system.asSystem('admin-aggregate');
     const [rows, unitRows] = await Promise.all([
@@ -216,8 +236,7 @@ export class AiUsageService {
           (count(*) FILTER (WHERE key_source = 'org'))::int AS org_requests,
           coalesce(sum(input_tokens) FILTER (WHERE key_source = 'org'), 0)::float8 AS org_input_tokens,
           coalesce(sum(output_tokens) FILTER (WHERE key_source = 'org'), 0)::float8 AS org_output_tokens
-        FROM ai_usage_events
-        ${where}
+        FROM ${src}
         GROUP BY GROUPING SETS ((${key}), ())
       `),
       // `CASE` rather than a WHERE on `jsonb_typeof`: `jsonb_each` raises on a
@@ -229,12 +248,11 @@ export class AiUsageService {
           ${key} AS key,
           u.unit AS unit,
           sum((u.amount)::numeric)::float8 AS amount
-        FROM ai_usage_events,
+        FROM ${src},
           LATERAL jsonb_each(
             CASE WHEN jsonb_typeof(units) = 'object' THEN units ELSE '{}'::jsonb END
           ) AS u(unit, amount)
-        ${where}
-          AND jsonb_typeof(u.amount) = 'number'
+        WHERE jsonb_typeof(u.amount) = 'number'
         GROUP BY GROUPING SETS ((${key}, u.unit), (u.unit))
       `),
     ]);
@@ -267,7 +285,7 @@ export class AiUsageService {
     const priced = query.withCost === true && this.pricing !== undefined;
 
     if (priced) {
-      const costs = await this.costs(db, key, where);
+      const costs = await this.costs(db, key, src);
 
       totals = { ...totals, cost: costs.total };
       for (const group of groups) group.bucket = { ...group.bucket, cost: costs.byKey.get(group.key) ?? null };
@@ -280,6 +298,7 @@ export class AiUsageService {
 
     return {
       range: { from: range.from, to: range.to },
+      timeZone: range.timeZone,
       groupBy: query.groupBy,
       ...(query.withCost === true ? { priced } : {}),
       totals,
@@ -346,7 +365,7 @@ export class AiUsageService {
   private async costs(
     db: { $queryRaw<T = unknown>(query: unknown, ...values: unknown[]): Promise<T> },
     key: Prisma.Sql,
-    where: Prisma.Sql,
+    src: Prisma.Sql,
   ): Promise<{ byKey: Map<string | null, AiUsageCost | null>; total: AiUsageCost | null }> {
     const pricing = this.pricing as AiPricing;
     const [rows, unitRows] = await Promise.all([
@@ -361,8 +380,7 @@ export class AiUsageService {
           coalesce(sum(output_tokens), 0)::float8 AS output_tokens,
           coalesce(sum(reasoning_tokens), 0)::float8 AS reasoning_tokens,
           coalesce(sum(cached_input_tokens), 0)::float8 AS cached_input_tokens
-        FROM ai_usage_events
-        ${where}
+        FROM ${src}
         GROUP BY ${key}, provider, model_id, operation
       `),
       db.$queryRaw<SliceUnitsRow[]>(Prisma.sql`
@@ -373,12 +391,11 @@ export class AiUsageService {
           operation,
           u.unit AS unit,
           sum((u.amount)::numeric)::float8 AS amount
-        FROM ai_usage_events,
+        FROM ${src},
           LATERAL jsonb_each(
             CASE WHEN jsonb_typeof(units) = 'object' THEN units ELSE '{}'::jsonb END
           ) AS u(unit, amount)
-        ${where}
-          AND jsonb_typeof(u.amount) = 'number'
+        WHERE jsonb_typeof(u.amount) = 'number'
         GROUP BY ${key}, provider, model_id, operation, u.unit
       `),
     ]);
@@ -473,6 +490,21 @@ export class AiUsageService {
   }
 }
 
+/**
+ * The group key expression. `day` is the calendar day in `timeZone`, bound as a
+ * parameter (the key is evaluated once, in {@link sourceSql}).
+ */
+function groupKeySql(groupBy: AiUsageGroupBy, timeZone: string): Prisma.Sql {
+  return groupBy === 'day'
+    ? Prisma.sql`to_char(created_at AT TIME ZONE ${timeZone}::text, 'YYYY-MM-DD')`
+    : GROUP_KEY_SQL[groupBy];
+}
+
+/** The filtered rows with the group key computed once as `gkey`. */
+function sourceSql(key: Prisma.Sql, where: Prisma.Sql): Prisma.Sql {
+  return Prisma.sql`(SELECT *, ${key} AS gkey FROM ai_usage_events ${where}) AS src`;
+}
+
 function whereSql(range: AiUsageRange, query: AiUsageQuery): Prisma.Sql {
   const clauses: Prisma.Sql[] = [
     Prisma.sql`created_at >= ${range.start}::timestamptz`,
@@ -492,54 +524,59 @@ function whereSql(range: AiUsageRange, query: AiUsageQuery): Prisma.Sql {
  * The window a report covers. Pure, so the defaults and bounds are unit
  * testable without a database.
  *
- * Defaults: `to` = today (UTC); `from` = `to` minus 29 days (30 days
- * inclusive). Refused with 400 `AI_USAGE_RANGE_INVALID` when `from` is after
+ * Days are CALENDAR DAYS IN `timeZone`. Defaults: `to` = today there; `from` =
+ * `to` minus 29 days (30 days inclusive). `start` is local midnight of `from`
+ * and `end` local midnight after `to`, as instants, so a DST day is 23 or 25
+ * hours long. Refused with 400 `AI_USAGE_RANGE_INVALID` when `from` is after
  * `to` or the span exceeds `MAX_AI_USAGE_RANGE_DAYS` — refused, not clamped:
  * a caller who asked for a year and silently got a quarter would compare the
  * wrong numbers (the job-insights argument).
  */
-export function resolveAiUsageRange(from: string | undefined, to: string | undefined, now: Date): AiUsageRange {
-  const toDay = to ? parseDay(to) : startOfUtcDay(now);
-  const fromDay = from ? parseDay(from) : new Date(toDay.getTime() - (DEFAULT_AI_USAGE_RANGE_DAYS - 1) * DAY_MS);
+export function resolveAiUsageRange(
+  from: string | undefined,
+  to: string | undefined,
+  now: Date,
+  timeZone: string = DEFAULT_SERVER_TIME_ZONE,
+): AiUsageRange {
+  const toDay = to ? checkedDay(to) : zonedDateKey(now, timeZone);
+  const fromDay = from ? checkedDay(from) : addDaysToDateKey(toDay, -(DEFAULT_AI_USAGE_RANGE_DAYS - 1));
 
-  if (fromDay.getTime() > toDay.getTime()) {
+  if (fromDay > toDay) {
     throw rangeError('`from` must not be after `to`.');
   }
 
-  const days = Math.round((toDay.getTime() - fromDay.getTime()) / DAY_MS) + 1;
+  const days = Math.round((dayNumber(toDay) - dayNumber(fromDay))) + 1;
 
   if (days > MAX_AI_USAGE_RANGE_DAYS) {
     throw rangeError(`The range covers ${days} days; at most ${MAX_AI_USAGE_RANGE_DAYS} are allowed.`);
   }
 
   return {
-    from: isoDay(fromDay),
-    to: isoDay(toDay),
-    start: fromDay,
-    end: new Date(toDay.getTime() + DAY_MS),
+    from: fromDay,
+    to: toDay,
+    start: zonedDayStart(fromDay, timeZone),
+    end: zonedDayStart(addDaysToDateKey(toDay, 1), timeZone),
+    timeZone,
   };
 }
 
-function parseDay(day: string): Date {
+/** Whole days since the epoch of a `YYYY-MM-DD` (zone-free calendar arithmetic). */
+function dayNumber(day: string): number {
+  return Date.parse(`${day}T00:00:00.000Z`) / DAY_MS;
+}
+
+function checkedDay(day: string): string {
   const parsed = new Date(`${day}T00:00:00.000Z`);
 
-  if (Number.isNaN(parsed.getTime()) || isoDay(parsed) !== day) {
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== day) {
     throw rangeError(`"${day}" is not a valid date (YYYY-MM-DD).`);
   }
 
-  return parsed;
+  return day;
 }
 
 function rangeError(message: string): BadRequestException {
   return new BadRequestException({ message, details: { reason: AI_USAGE_RANGE_INVALID } });
-}
-
-function startOfUtcDay(date: Date): Date {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-}
-
-function isoDay(date: Date): string {
-  return date.toISOString().slice(0, 10);
 }
 
 export function emptyBucket(): AiUsageBucket {
@@ -572,7 +609,7 @@ function toBucket(row: AggregateRow, units: Record<string, number>): AiUsageBuck
   };
 }
 
-/** Every day of the range, in order, with a zero bucket where nothing was recorded. */
+/** Every calendar day of the range, in order, with a zero bucket where nothing was recorded. */
 function zeroFilledDays(
   range: AiUsageRange,
   groups: Array<{ key: string | null; bucket: AiUsageBucket }>,
@@ -580,8 +617,8 @@ function zeroFilledDays(
   const byDay = new Map(groups.map((g) => [g.key, g.bucket]));
   const series: AiUsageSeriesItem[] = [];
 
-  for (let t = range.start.getTime(); t < range.end.getTime(); t += DAY_MS) {
-    const day = isoDay(new Date(t));
+  // Stepped on the calendar (never by 24 hours), so a DST day cannot skip or repeat a key.
+  for (let day = range.from; day <= range.to; day = addDaysToDateKey(day, 1)) {
     series.push({ key: day, label: day, ...(byDay.get(day) ?? emptyBucket()) });
   }
 

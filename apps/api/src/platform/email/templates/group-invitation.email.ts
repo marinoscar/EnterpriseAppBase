@@ -6,6 +6,8 @@ import {
 import {
   SafeHtml,
   TRANSACTIONAL_EMAIL_HEADERS,
+  formatEmailDate,
+  formatEmailDateTime,
   html,
   plainText,
   renderLayout,
@@ -38,5 +40,7 @@ export function groupInvitationEmail(data: GroupInvitationEmailData, ctx?: Email
     renderLayout: (options) => renderLayout({ ...options, bodyHtml: options.bodyHtml as SafeHtml }, context),
     plainText: (options) => plainText(options, context),
     headers: TRANSACTIONAL_EMAIL_HEADERS,
+    formatDate: (value) => formatEmailDate(value, context),
+    formatDateTime: (value) => formatEmailDateTime(value, context),
   });
 }

@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { PatService } from '../../../src/identity/pat/pat.service';
+import { PatService, computePatExpiry } from '../../../src/identity/pat/pat.service';
 import { PrismaService } from '../support/app-doubles';
 import { createMockPrismaService, MockPrismaService } from '../support/prisma.mock';
 import { CreatePatDto } from '../../../src/identity/pat/dto/create-pat.dto';
@@ -696,5 +696,33 @@ describe('PatService', () => {
       jest.spyOn(tenancyMode, 'currentTenancyMode').mockReturnValue('multi');
       await expect(service.validateToken('pat_' + 'f'.repeat(64))).resolves.toBeNull();
     });
+  });
+});
+
+describe('computePatExpiry (calendar arithmetic in the requester zone)', () => {
+  // 2026-01-31 20:30 in Costa Rica (UTC-6) is 2026-02-01T02:30Z: UTC month math would start from February.
+  const lateJan31 = new Date('2026-02-01T02:30:00.000Z');
+
+  it('clamps a month end in the requester zone: Jan 31 + 1 month is Feb 28, time of day kept', () => {
+    const expiry = computePatExpiry(lateJan31, 'months', 1, 'America/Costa_Rica');
+    expect(expiry.toISOString()).toBe('2026-03-01T02:30:00.000Z'); // Feb 28 20:30 local
+  });
+
+  it('is leap-year aware', () => {
+    expect(computePatExpiry(new Date('2028-01-31T12:00:00.000Z'), 'months', 1, 'UTC').toISOString()).toBe('2028-02-29T12:00:00.000Z');
+  });
+
+  it('keeps the wall-clock time of day across a DST change when adding days', () => {
+    // 10:00 CST on 2026-03-07 plus 2 days is 10:00 CDT on 2026-03-09: 47 hours later, not 48.
+    const start = new Date('2026-03-07T16:00:00.000Z');
+    expect(computePatExpiry(start, 'days', 2, 'America/Chicago').toISOString()).toBe('2026-03-09T15:00:00.000Z');
+    expect(computePatExpiry(start, 'days', 2, 'UTC').toISOString()).toBe('2026-03-09T16:00:00.000Z');
+  });
+
+  it('adds minutes as elapsed time and treats a missing or invalid zone as UTC', () => {
+    const start = new Date('2026-03-07T16:00:00.000Z');
+    expect(computePatExpiry(start, 'minutes', 90, 'America/Chicago').toISOString()).toBe('2026-03-07T17:30:00.000Z');
+    expect(computePatExpiry(start, 'days', 1, null).toISOString()).toBe('2026-03-08T16:00:00.000Z');
+    expect(computePatExpiry(start, 'days', 1, 'Nope/Zone').toISOString()).toBe('2026-03-08T16:00:00.000Z');
   });
 });

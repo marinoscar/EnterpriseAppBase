@@ -243,6 +243,8 @@ describe('AiLimitsService (#450)', () => {
 
       expect(err.retryAfterMs).toBe(2 * 60 * 60 * 1000);
       expect(detailsOf(err)).toMatchObject({ limit: 'perUser.requestsPerDay', max: 2, window: 'day' });
+      // The reset instant is UTC midnight, as ISO, so a client renders it in the user's own zone.
+      expect(detailsOf(err).resetsAt).toBe(new Date(utcMidnight(T0) + 24 * 60 * 60 * 1000).toISOString());
     });
 
     it('counts calls whoever paid — the user\'s own key and the org key alike', async () => {

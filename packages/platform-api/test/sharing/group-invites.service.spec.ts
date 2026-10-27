@@ -86,7 +86,7 @@ describe('GroupInvitesService.create', () => {
     const audit = tx.auditEvent.create.mock.calls[0][0].data;
     expect(audit.action).toBe('group:invite_created');
     expect(stringsIn(audit).some((s) => s.includes('@'))).toBe(false);
-    expect(notifier.notify).toHaveBeenCalledWith('groups.invitation', BOB, expect.objectContaining({ groupName: 'Family', role: 'editor', recipientEmail: 'bob@example.com' }));
+    expect(notifier.notify).toHaveBeenCalledWith('groups.invitation', BOB, expect.objectContaining({ groupName: 'Family', role: 'editor', recipientEmail: 'bob@example.com' }), { actorUserId: ALICE });
     expect(notifier.notifyAddress).not.toHaveBeenCalled();
     expect(stringsIn(emitted).some((s) => s.includes('@'))).toBe(false);
   });
@@ -97,7 +97,7 @@ describe('GroupInvitesService.create', () => {
     const { service, notifier } = build(tx, 'single', options({ inviteTtlDays: null }));
     const invite = await service.create(principal(), GROUP, { email: 'new@example.com', role: 'viewer' });
     expect(invite.expiresAt).toBeNull();
-    expect(notifier.notifyAddress).toHaveBeenCalledWith('groups.invitation', 'new@example.com', expect.objectContaining({ role: 'viewer' }));
+    expect(notifier.notifyAddress).toHaveBeenCalledWith('groups.invitation', 'new@example.com', expect.objectContaining({ role: 'viewer' }), { actorUserId: ALICE });
   });
 
   it('sends no notification when the transaction fails', async () => {

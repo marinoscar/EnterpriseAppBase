@@ -10,21 +10,26 @@
 //      it (`requestFieldsOf`: two date pickers and a checkbox);
 //   2. a `collect` that pages its query by id with an EXPLICIT owner filter
 //      (`ctx.db` is the bypass client) and yields rows lazily;
-//   3. a `fileName` built from validated values only.
+//   3. a `fileName` built from validated values only;
+//   4. day fields read in the REQUESTER's time zone (`ctx.timeZone`, captured
+//      when the export was queued): `from`/`to` are calendar days there, so
+//      they become local midnights (`zonedDayStart`), not UTC midnights.
 //
 // Domain sources (EvoPath's `health`, kvox's `transcript`) follow the same
 // shape and register from `app-registrations/exports.ts`.
 // =============================================================================
 
+import { zonedDateKey, zonedDayStart } from '@marinoscar/platform-api/exports';
 import type { ExportContext, ExportRow, ExportSource, ExportTable } from '@marinoscar/platform-api/exports';
+import { addDaysToDateKey } from '@marinoscar/platform-contract/timezone';
 import { z } from 'zod';
 
 const day = z.iso.date();
 
 export const exampleNotificationInboxRequestSchema = z
   .object({
-    from: day.optional().describe('First day, inclusive (UTC)'),
-    to: day.optional().describe('Last day, inclusive (UTC)'),
+    from: day.optional().describe('First day, inclusive (your time zone)'),
+    to: day.optional().describe('Last day, inclusive (your time zone)'),
     unreadOnly: z.boolean().default(false).describe('Only notifications you have not read'),
   })
   .strict()
@@ -36,8 +41,9 @@ async function* inboxRows(ctx: ExportContext, req: ExampleNotificationInboxReque
   const where: Record<string, unknown> = { userId: ctx.subjectId };
   if (req.from || req.to) {
     where.createdAt = {
-      ...(req.from ? { gte: new Date(`${req.from}T00:00:00.000Z`) } : {}),
-      ...(req.to ? { lt: new Date(new Date(`${req.to}T00:00:00.000Z`).getTime() + 86_400_000) } : {}),
+      ...(req.from ? { gte: zonedDayStart(req.from, ctx.timeZone) } : {}),
+      // Local midnight after `to`, so a 23- or 25-hour DST day is covered exactly.
+      ...(req.to ? { lt: zonedDayStart(addDaysToDateKey(req.to, 1), ctx.timeZone) } : {}),
     };
   }
   if (req.unreadOnly) where.readAt = null;
@@ -91,7 +97,7 @@ export const EXAMPLE_NOTIFICATION_INBOX_SOURCE: ExportSource<ExampleNotification
   fileName(ctx, req, ext) {
     // Validated `YYYY-MM-DD` values and the source id only: always matches
     // EXPORT_FILE_NAME_PATTERN, so the header never needs escaping.
-    const range = req.from || req.to ? `-${req.from ?? 'start'}-${req.to ?? ctx.now.toISOString().slice(0, 10)}` : '';
+    const range = req.from || req.to ? `-${req.from ?? 'start'}-${req.to ?? zonedDateKey(ctx.now, ctx.timeZone)}` : '';
     return `notification-inbox${range}.${ext}`;
   },
 };

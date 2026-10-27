@@ -41,14 +41,14 @@ const JOB_FAILED: JobFailedEmailData = {
   error: 'the provider refused the request',
   attempts: 3,
   executor: 'node-7',
-  failedAt: new Date('2026-01-01T00:00:00.000Z'),
+  failedAt: new Date('Jan 1, 2026, 12:00 AM UTC'),
   appUrl: APP_URL,
 };
 
 const NODE_OFFLINE: NodeOfflineEmailData = {
   nodeId: 'node-abc',
   nodeName: 'worker-eu-1',
-  lastHeartbeatAt: new Date('2026-01-01T00:00:00.000Z'),
+  lastHeartbeatAt: new Date('Jan 1, 2026, 12:00 AM UTC'),
   markedOfflineAt: new Date('2026-01-01T00:06:00.000Z'),
   staleAfterMinutes: 6,
   appUrl: APP_URL,
@@ -58,16 +58,16 @@ const BACKUP_FAILED: BackupFailedEmailData = {
   runId: 'run-abc',
   outcome: 'failed',
   error: 'pg_dump exited with code 1',
-  startedAt: new Date('2026-01-01T00:00:00.000Z'),
-  failedAt: new Date('2026-01-01T00:10:00.000Z'),
+  startedAt: new Date('Jan 1, 2026, 12:00 AM UTC'),
+  failedAt: new Date('Jan 1, 2026, 12:10 AM UTC'),
   trigger: 'scheduled',
   appUrl: APP_URL,
 };
 
 const RESTORE_COMPLETED: RestoreCompletedEmailData = {
   runId: 'run-abc',
-  backupTakenAt: new Date('2026-01-01T00:00:00.000Z'),
-  completedAt: new Date('2026-01-02T03:04:05.000Z'),
+  backupTakenAt: new Date('Jan 1, 2026, 12:00 AM UTC'),
+  completedAt: new Date('Jan 2, 2026, 3:04 AM UTC'),
   triggeredBy: 'ops@example.com',
   preRestoreBackupId: 'run-pre',
   appUrl: APP_URL,
@@ -91,7 +91,7 @@ describe('job-failed', () => {
       expect(part).toContain('the provider refused the request');
       expect(part).toContain('3');
       expect(part).toContain('node-7');
-      expect(part).toContain('2026-01-01T00:00:00.000Z');
+      expect(part).toContain('Jan 1, 2026, 12:00 AM UTC');
     }
   });
 
@@ -115,7 +115,7 @@ describe('node-offline', () => {
     for (const part of [rendered.html, rendered.text]) {
       expect(part).toContain('worker-eu-1');
       expect(part).toContain('node-abc');
-      expect(part).toContain('2026-01-01T00:00:00.000Z');
+      expect(part).toContain('Jan 1, 2026, 12:00 AM UTC');
       expect(part).toContain('6 minute(s)');
     }
   });
@@ -154,7 +154,7 @@ describe('backup-failed', () => {
       expect(part).toContain('run-abc');
       expect(part).toContain('failed');
       expect(part).toContain('scheduled');
-      expect(part).toContain('2026-01-01T00:10:00.000Z');
+      expect(part).toContain('Jan 1, 2026, 12:10 AM UTC');
       expect(part).toContain('pg_dump exited with code 1');
     }
   });
@@ -188,7 +188,7 @@ describe('restore-completed', () => {
   it('leads with the CUT-OFF, which is the fact that decides whether to act now', () => {
     for (const part of [rendered.html, rendered.text]) {
       // The archive's own timestamp, not the restore's.
-      expect(part).toContain('2026-01-01T00:00:00.000Z');
+      expect(part).toContain('Jan 1, 2026, 12:00 AM UTC');
       expect(part).toMatch(/not present/i);
     }
   });
@@ -196,7 +196,7 @@ describe('restore-completed', () => {
   it('carries the source run, the completion time and the actor into BOTH parts', () => {
     for (const part of [rendered.html, rendered.text]) {
       expect(part).toContain('run-abc');
-      expect(part).toContain('2026-01-02T03:04:05.000Z');
+      expect(part).toContain('Jan 2, 2026, 3:04 AM UTC');
       expect(part).toContain('ops@example.com');
     }
   });

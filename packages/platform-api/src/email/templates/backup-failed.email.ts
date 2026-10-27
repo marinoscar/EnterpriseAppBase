@@ -1,4 +1,5 @@
 import { SafeHtml, html, plainText, renderLayout } from './layout';
+import { formatEmailDateTime } from './format-date';
 import { resolveEmailRenderContext, type EmailRenderContext } from './render-context';
 import {
   TRANSACTIONAL_EMAIL_HEADERS,
@@ -73,9 +74,12 @@ export interface BackupFailedEmailData {
 /** Where the CTA points, appended to `appUrl`. Matches `adminSections.tsx`. */
 const DB_BACKUP_ADMIN_PATH = '/admin/settings/db-backup';
 
-/** ISO 8601 in UTC — matched against log lines, never against a wall clock. */
-function formatTimestamp(value: Date): string {
-  return value.toISOString();
+/**
+ * The recipient's local time with the zone label and, outside UTC, the UTC time
+ * in parentheses (matchable against log lines). See `formatEmailDateTime`.
+ */
+function formatTimestamp(value: Date, ctx: EmailRenderContext): string {
+  return formatEmailDateTime(value, ctx);
 }
 
 /** `null` is a fact about the row, not a blank. Give it words. */
@@ -112,9 +116,9 @@ function detailRow(label: string, value: string): SafeHtml {
 export function backupFailedEmail(data: BackupFailedEmailData, ctx?: EmailRenderContext): RenderedEmail {
   const context = resolveEmailRenderContext(ctx);
   const appName = context.appName;
-  const failedAt = formatTimestamp(data.failedAt);
+  const failedAt = formatTimestamp(data.failedAt, context);
   const startedAt =
-    data.startedAt === null ? 'Not recorded' : formatTimestamp(data.startedAt);
+    data.startedAt === null ? 'Not recorded' : formatTimestamp(data.startedAt, context);
   const error = orNone(data.error);
   const trigger = orNone(data.trigger);
   const sentence = outcomeSentence(data.outcome);

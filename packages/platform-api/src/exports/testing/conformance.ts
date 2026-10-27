@@ -268,6 +268,7 @@ export async function runSentinelExports(
         datamodel: options.datamodel,
         pageSize: 10,
         now: new Date('2026-01-01T00:00:00.000Z'),
+        timeZone: 'UTC',
       };
       const { bytes } = await collectExportOutput(writer, source.collect(ctx, source.requestSchema.parse({})), source.id);
       outputs.push({ source: source.id, format: writer.id, text: exportFileText(bytes) });

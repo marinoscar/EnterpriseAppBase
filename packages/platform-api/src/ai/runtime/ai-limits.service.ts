@@ -44,7 +44,12 @@
 //
 //  - Per UTC day (`perUser.requestsPerDay`, `orgKey.requestsPerDayPerUser`,
 //    `orgKey.tokensPerDayPerUser`): `ai_usage_events` counts / sums since UTC
-//    midnight — the same day boundary the usage report uses. Tokens are
+//    midnight. THE DAY IS UTC ON PURPOSE, whatever zone the caller lives in:
+//    a per-user zone would let anyone move their own reset by changing their
+//    profile time zone (quota abuse), and the organization-wide budgets need
+//    one boundary for every member. The usage REPORT, by contrast, is cut in
+//    the caller's zone. The error carries the reset instant (`details.resetsAt`,
+//    ISO 8601) so a client renders it in the user's zone. Tokens are
 //    `input_tokens + output_tokens` (reasoning tokens are part of output, and
 //    cached input tokens part of input, in every provider's accounting).
 //
@@ -385,6 +390,8 @@ export class AiLimitsService {
           limit: window.name,
           max: window.max,
           window: 'day',
+          // The next UTC midnight as an instant: clients render it in the user's own zone.
+          resetsAt: new Date(utcMidnight(now) + DAY_MS).toISOString(),
           ...(window.orgOnly ? { keySource: 'org' } : {}),
           ...(window.wholeOrg ? { scope: 'org' } : {}),
           provider: call.provider,

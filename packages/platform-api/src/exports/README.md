@@ -134,6 +134,8 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 - `collect(ctx, req)`: an `AsyncIterable<ExportTable>`, read-only.
 - `fileName?(ctx, req, ext)`: optional.
 
+`ctx.timeZone` is the requester's IANA zone, captured when the export was queued (profile zone, else the `X-Time-Zone` header, else `UTC`) and stored in the job payload. A source reads its day fields in it: `zonedDayStart(req.from, ctx.timeZone)` is the local midnight as an instant, `zonedDateKey(instant, ctx.timeZone)` the zone's day (both re-exported here from `@marinoscar/platform-contract/timezone`), and the default file name carries the zone's day. The route resolves the zone through the optional `REQUEST_TIME_ZONE_RESOLVER` (exports cannot import settings).
+
 `ctx.db` is the bypass client: every query names its owner (`ctx.subjectId`) or organization explicitly, pages by id, and never writes. A table's `rows` is lazy: never load a whole table.
 
 ### The writer contract

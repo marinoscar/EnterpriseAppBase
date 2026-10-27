@@ -29,7 +29,15 @@
 
 import { Inject, Injectable } from '@nestjs/common';
 
-import { PLATFORM_PRISMA } from '../core/index';
+import { readProfileTimeZone } from '@marinoscar/platform-contract/settings';
+
+import {
+  PLATFORM_PRISMA,
+  chooseTimeZone,
+  readRequestTimeZoneHeader,
+  type RequestTimeZoneResolver,
+  type RequestWithHeaders,
+} from '../core/index';
 import type { SettingsPrisma } from './data/settings-db';
 import { OrgSettingsService } from './org-settings/org-settings.service';
 import { applyOrgLayer, asPlainObject } from './org-settings/org-layer';
@@ -52,7 +60,7 @@ import { DEFAULT_USER_SETTINGS } from './user-settings/user-settings.service';
  * @stability stable
  */
 @Injectable()
-export class SettingsResolver {
+export class SettingsResolver implements RequestTimeZoneResolver {
   constructor(
     private readonly systemSettings: SystemSettingsService,
     private readonly orgSettings: OrgSettingsService,
@@ -102,5 +110,46 @@ export class SettingsResolver {
     if (stored === undefined) return undefined;
     const parsed = ns!.schema.safeParse(stored);
     return parsed.success ? (parsed.data as T) : undefined;
+  }
+
+  /**
+   * One user's IANA zone, `profile.timezone`, when stored and still valid.
+   * Reads through {@link SettingsResolver.resolveUser} (`profile`), so it never
+   * creates a row. `null` means "follow the device" (Automatic): the caller
+   * applies its own fallback.
+   *
+   * @param userId - the user.
+   * @returns the zone id, or `null`.
+   */
+  async resolveUserTimeZone(userId: string): Promise<string | null> {
+    const profile = await this.resolveUser<unknown>('profile', userId);
+    return readProfileTimeZone({ profile });
+  }
+
+  /**
+   * The zone a request-scoped date operation should use: the requester's
+   * stored `profile.timezone`, then a valid `X-Time-Zone` header (the device
+   * zone a client sends for a user on "Automatic"), then `UTC`. Never throws:
+   * a failed settings read falls through to the header.
+   *
+   * @param request - the incoming request (Fastify request or anything with `headers`).
+   * @param userId - the requester, when signed in.
+   * @returns a valid IANA zone id.
+   *
+   * @example
+   * ```ts
+   * const tz = await this.settings.resolveRequestTimeZone(request, principal.userId);
+   * ```
+   */
+  async resolveRequestTimeZone(request: RequestWithHeaders | undefined, userId?: string | null): Promise<string> {
+    let profile: string | null = null;
+    if (userId) {
+      try {
+        profile = await this.resolveUserTimeZone(userId);
+      } catch {
+        profile = null;
+      }
+    }
+    return chooseTimeZone(profile, readRequestTimeZoneHeader(request));
   }
 }

@@ -114,12 +114,12 @@ export class SharingEffects {
    * @param data - the template data.
    * @param grantId - the grant, for the log line.
    */
-  notifySharedWithYou(userId: string, data: SharedWithYouNotificationData, grantId: string): void {
+  notifySharedWithYou(userId: string, data: SharedWithYouNotificationData, grantId: string, actorUserId?: string | null): void {
     if (!this.notifier) return;
     const failed = (error: unknown) =>
       this.logger.warn(`Share notification for grant ${grantId} could not be dispatched: ${error instanceof Error ? error.message : String(error)}`);
     try {
-      Promise.resolve(this.notifier.notify(SHARED_WITH_YOU_EVENT_KEY, userId, data)).catch(failed);
+      Promise.resolve(this.notifier.notify(SHARED_WITH_YOU_EVENT_KEY, userId, data, { actorUserId })).catch(failed);
     } catch (error) {
       failed(error);
     }
@@ -135,11 +135,15 @@ export class SharingEffects {
    * @param data - the template data.
    * @param inviteId - the invite, for the log line.
    */
-  notifyInvitation(recipient: { userId: string | null; email: string }, data: GroupInvitationNotificationData, inviteId: string): void {
+  notifyInvitation(
+    recipient: { userId: string | null; email: string; actorUserId?: string | null },
+    data: GroupInvitationNotificationData,
+    inviteId: string,
+  ): void {
     if (!this.notifier) return;
     const sent = recipient.userId
-      ? this.notifier.notify(GROUPS_INVITATION_EVENT_KEY, recipient.userId, data)
-      : this.notifier.notifyAddress(GROUPS_INVITATION_EVENT_KEY, recipient.email, data);
+      ? this.notifier.notify(GROUPS_INVITATION_EVENT_KEY, recipient.userId, data, { actorUserId: recipient.actorUserId })
+      : this.notifier.notifyAddress(GROUPS_INVITATION_EVENT_KEY, recipient.email, data, { actorUserId: recipient.actorUserId });
     Promise.resolve(sent).catch((error: unknown) =>
       this.logger.warn(`Group invitation ${inviteId} could not be dispatched: ${error instanceof Error ? error.message : String(error)}`),
     );

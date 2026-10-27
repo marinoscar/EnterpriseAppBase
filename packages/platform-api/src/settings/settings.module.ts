@@ -19,6 +19,7 @@
 
 import { DynamicModule, Module } from '@nestjs/common';
 
+import { REQUEST_TIME_ZONE_RESOLVER } from '../core/index';
 import { PrincipalCacheModule } from '../identity/index';
 import { OrgSettingsController } from './org-settings/org-settings.controller';
 import { OrgSettingsService } from './org-settings/org-settings.service';
@@ -87,8 +88,12 @@ export class SettingsModule {
       // `UserSettingsService` invalidates cached principals (PP-1.12, #683).
       imports: [PrincipalCacheModule, ...resolved.imports],
       controllers,
-      providers: [{ provide: SETTINGS_OPTIONS, useValue: resolved }, ...EXPORTED],
-      exports: [SETTINGS_OPTIONS, ...EXPORTED],
+      providers: [
+        { provide: SETTINGS_OPTIONS, useValue: resolved },
+        { provide: REQUEST_TIME_ZONE_RESOLVER, useExisting: SettingsResolver },
+        ...EXPORTED,
+      ],
+      exports: [SETTINGS_OPTIONS, REQUEST_TIME_ZONE_RESOLVER, ...EXPORTED],
     };
   }
 }

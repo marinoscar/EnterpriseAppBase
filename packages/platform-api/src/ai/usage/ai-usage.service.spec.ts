@@ -74,6 +74,31 @@ describe('resolveAiUsageRange', () => {
   });
 });
 
+describe('resolveAiUsageRange in a time zone', () => {
+  it('cuts today and the window in the zone: 2026-09-26T03:00Z is still Sep 25 in Costa Rica', () => {
+    const range = resolveAiUsageRange(undefined, undefined, new Date('2026-09-26T03:00:00.000Z'), 'America/Costa_Rica');
+
+    expect(range.timeZone).toBe('America/Costa_Rica');
+    expect(range.to).toBe('2026-09-25');
+    expect(range.from).toBe('2026-08-27');
+    expect(range.start.toISOString()).toBe('2026-08-27T06:00:00.000Z');
+    expect(range.end.toISOString()).toBe('2026-09-26T06:00:00.000Z');
+  });
+
+  it('uses local midnights across DST: the spring-forward day is 23 hours', () => {
+    const range = resolveAiUsageRange('2026-03-07', '2026-03-09', NOW, 'America/Chicago');
+
+    expect(range.start.toISOString()).toBe('2026-03-07T06:00:00.000Z');
+    expect(range.end.toISOString()).toBe('2026-03-10T05:00:00.000Z');
+    // 3 calendar days, 71 hours: one day lost an hour.
+    expect((range.end.getTime() - range.start.getTime()) / 3_600_000).toBe(71);
+  });
+
+  it('defaults to UTC', () => {
+    expect(resolveAiUsageRange(undefined, undefined, NOW).timeZone).toBe('UTC');
+  });
+});
+
 describe('AiUsageService.report', () => {
   let queryRaw: jest.Mock;
   let findUsers: jest.Mock;
@@ -236,7 +261,34 @@ describe('AiUsageService.report', () => {
     await service.report({ groupBy: 'keySource' }, NOW);
 
     expect(sqlOf(0).sql).not.toContain('user_id =');
-    expect(sqlOf(0).sql).toContain('GROUP BY GROUPING SETS ((key_source), ())');
+    // The key is computed once in the derived table, so a bound zone cannot split the GROUPING match.
+    expect(sqlOf(0).sql).toContain('GROUP BY GROUPING SETS ((gkey), ())');
+    expect(sqlOf(0).sql).toContain('key_source AS gkey');
+  });
+
+  it('binds the zone as a parameter, echoes it, and zero-fills calendar days across a DST change', async () => {
+    script([aggRow('2026-03-08', { requests: 2 })]);
+
+    const report = await service.report(
+      { groupBy: 'day', from: '2026-03-07', to: '2026-03-09', timeZone: 'America/Chicago' },
+      NOW,
+    );
+
+    expect(sqlOf(0).sql).toContain('AT TIME ZONE');
+    expect(sqlOf(0).values).toContain('America/Chicago');
+    expect(sqlOf(0).sql).not.toContain('America/Chicago');
+    expect(report.timeZone).toBe('America/Chicago');
+    expect(report.series.map((s) => [s.key, s.requests])).toEqual([
+      ['2026-03-07', 0],
+      ['2026-03-08', 2],
+      ['2026-03-09', 0],
+    ]);
+  });
+
+  it('reports UTC when no zone is given', async () => {
+    script([]);
+
+    expect((await service.report({ groupBy: 'day' }, NOW)).timeZone).toBe('UTC');
   });
 });
 

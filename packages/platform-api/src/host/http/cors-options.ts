@@ -70,7 +70,11 @@ export interface AllowlistCorsOptions {
 export interface ExtraCorsOptions {
   /** `Access-Control-Allow-Methods`. */
   methods?: string | string[];
-  /** `Access-Control-Allow-Headers`. */
+  /**
+   * `Access-Control-Allow-Headers`. Leave it unset (the default) and the CORS plugin reflects the
+   * preflight's `Access-Control-Request-Headers`, which is how a cross-origin client's
+   * `X-Time-Zone` (the device zone) is allowed; set it and you must list `X-Time-Zone` yourself.
+   */
   allowedHeaders?: string | string[];
   /** `Access-Control-Expose-Headers`, so a browser script may read these response headers. */
   exposedHeaders?: string | string[];

@@ -490,7 +490,7 @@ export class PushNotificationChannel implements NotificationChannelSender {
     }
 
     try {
-      return { ok: true, content: template(data as never) };
+      return { ok: true, content: template(data as never, { timeZone: context.recipient.timeZone ?? null }) };
     } catch (err) {
       return {
         ok: false,

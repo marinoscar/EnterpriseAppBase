@@ -200,6 +200,16 @@
         "default": "./dist/cjs/user-data/index.js"
       }
     },
+    "./timezone": {
+      "import": {
+        "types": "./dist/esm/timezone/index.d.ts",
+        "default": "./dist/esm/timezone/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/timezone/index.d.ts",
+        "default": "./dist/cjs/timezone/index.js"
+      }
+    },
     "./package.json": "./package.json"
   },
   "files": [

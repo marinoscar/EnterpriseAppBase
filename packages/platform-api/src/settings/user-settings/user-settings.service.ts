@@ -5,7 +5,7 @@ import {
   Injectable,
   Logger,
 } from '@nestjs/common';
-import { isValidTimeZone } from '@marinoscar/platform-contract/settings';
+import { readProfileTimeZone } from '@marinoscar/platform-contract/settings';
 import type { ThemeOption, ThemePreference, UserProfileSettingsValue } from '@marinoscar/platform-contract/settings';
 
 import { PLATFORM_PRISMA } from '../../core/index';
@@ -32,9 +32,8 @@ import {
 
 /** The core `profile.timezone` out of a stored profile, when it is still a valid zone. */
 function readProfileTimezone(stored: unknown): { timezone?: string } {
-  if (stored === null || typeof stored !== 'object') return {};
-  const value = (stored as Record<string, unknown>).timezone;
-  return isValidTimeZone(value) ? { timezone: value } : {};
+  const timezone = readProfileTimeZone({ profile: stored });
+  return timezone ? { timezone } : {};
 }
 
 /** `profile.timezone` after a PATCH: the patch's value wins, `null` deletes it, absent keeps the stored one. */

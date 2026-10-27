@@ -3,6 +3,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import {
   EmailSettingsService,
   EmailTransportResolver,
+  currentEmailRenderContext,
   findEmailTemplate,
   formatFromHeader,
 } from '../../email/index';
@@ -191,7 +192,7 @@ export class EmailNotificationChannel implements NotificationChannelSender {
       return { success: false, error: 'No sender address is configured.' };
     }
 
-    const rendered = this.render(templateName, context.data);
+    const rendered = this.render(templateName, context.data, context.recipient.timeZone ?? null);
     if (!rendered.ok) {
       return { success: false, error: rendered.error };
     }
@@ -295,6 +296,7 @@ export class EmailNotificationChannel implements NotificationChannelSender {
   private render(
     templateName: EmailTemplateName,
     data: unknown,
+    timeZone: string | null = null,
   ): { ok: true; email: RenderedEmail } | { ok: false; error: string } {
     const template = findEmailTemplate(templateName);
 
@@ -314,7 +316,7 @@ export class EmailNotificationChannel implements NotificationChannelSender {
       // callable shape `findEmailTemplate` can offer for a name it did not
       // know statically, so there is no type to check `data` against here —
       // which is precisely why the call is inside a `try`.
-      return { ok: true, email: template(data as never) };
+      return { ok: true, email: template(data as never, { ...currentEmailRenderContext(), timeZone }) };
     } catch (err) {
       return {
         ok: false,

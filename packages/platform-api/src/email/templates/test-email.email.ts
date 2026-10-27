@@ -1,6 +1,7 @@
 import type { EmailProviderKind } from '../email-settings.schema';
 import { labelOfEmailTransport } from '../transports/email-transport';
 import { SafeHtml, html, plainText, renderLayout } from './layout';
+import { formatEmailDateTime } from './format-date';
 import { resolveEmailRenderContext, type EmailRenderContext } from './render-context';
 import {
   TRANSACTIONAL_EMAIL_HEADERS,
@@ -47,7 +48,7 @@ export interface TestEmailData {
   /** Transport that actually carried this message. The key diagnostic fact. */
   providerKind: EmailProviderKind;
 
-  /** When the send was initiated. Rendered as UTC — see `formatTimestamp`. */
+  /** When the send was initiated. Rendered in the recipient's zone, with the UTC time alongside. */
   sentAt: Date;
 
   /**
@@ -71,17 +72,11 @@ export interface TestEmailData {
 }
 
 /**
- * ISO 8601, in UTC, with the `Z` left on.
- *
- * NOT LOCALISED, deliberately. The server does not know the reader's time
- * zone, and a locale-formatted timestamp with no offset ("31/08/2026, 14:05")
- * is ambiguous in exactly the situation this email exists for — correlating a
- * message against a log line or a delivery record, both of which are UTC.
- * An unfamiliar format the reader can match against a log beats a familiar one
- * they cannot.
+ * The recipient's local time with the zone label and, outside UTC, the UTC time
+ * in parentheses (matchable against log lines). See `formatEmailDateTime`.
  */
-function formatTimestamp(value: Date): string {
-  return value.toISOString();
+function formatTimestamp(value: Date, ctx: EmailRenderContext): string {
+  return formatEmailDateTime(value, ctx);
 }
 
 /**
@@ -113,7 +108,7 @@ export function testEmail(data: TestEmailData, ctx?: EmailRenderContext): Render
   const context = resolveEmailRenderContext(ctx);
   const appName = context.appName;
   const providerLabel = labelOfEmailTransport(data.providerKind);
-  const timestamp = formatTimestamp(data.sentAt);
+  const timestamp = formatTimestamp(data.sentAt, context);
 
   // The timestamp is IN THE SUBJECT, which looks like clutter and is not.
   // Gmail and Outlook both thread on identical subject lines, so a second test

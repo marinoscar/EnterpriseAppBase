@@ -73,6 +73,8 @@ export const exportJobPayloadSchema = z.object({
   subjectId: z.string().min(1),
   /** The organization the file's `storage_objects` row belongs to. */
   orgId: z.string().min(1),
+  /** The requester's IANA zone at enqueue time; absent on a job queued before it existed (read as UTC). */
+  timeZone: z.string().min(1).max(64).optional(),
   /** Present once the file is committed. */
   result: exportResultSchema.optional(),
 });

@@ -1,9 +1,10 @@
-import { Controller, Get, Query, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Controller, Get, Query, Req, UseGuards, UseInterceptors } from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { Auth, CurrentOrg, CurrentUser } from '../../identity/index';
 import { PERMISSIONS } from '../ai.constants';
-import { ApiDataResponse } from '../../core/index';
+import { ApiDataResponse, type RequestWithHeaders } from '../../core/index';
+import { SettingsResolver } from '../../settings/index';
 import { ErrorDto } from '../../core/index';
 import { AiEnabledGuard } from '../config/ai-enabled.guard';
 import { AiOrgEnabledInterceptor } from '../config/ai-org-enabled.interceptor';
@@ -40,14 +41,17 @@ import {
 @UseGuards(AiEnabledGuard)
 @UseInterceptors(AiOrgEnabledInterceptor)
 export class AiUsageController {
-  constructor(private readonly usage: AiUsageService) {}
+  constructor(
+    private readonly usage: AiUsageService,
+    private readonly settings: SettingsResolver,
+  ) {}
 
   @Get('me')
   @Auth({ permissions: [PERMISSIONS.AI_USE] })
   @ApiOperation({
     summary: 'My AI usage',
     description:
-      'Your own recorded provider round trips, summed over a window of UTC days, both ' +
+      'Your own recorded provider round trips, summed over a window of calendar days in `timeZone` (query `tz`, default your profile zone), both ' +
       `inclusive — default the last ${DEFAULT_AI_USAGE_RANGE_DAYS} days, at most ` +
       `${MAX_AI_USAGE_RANGE_DAYS}. Same shape as the admin report; \`groupBy\` is \`day\` ` +
       '(chronological, zero-filled) or `model` (key `<provider>:<modelId>`). The `orgKey*` ' +
@@ -55,8 +59,9 @@ export class AiUsageController {
       'Refused with **400** (`details.reason: "AI_USAGE_RANGE_INVALID"`) for a reversed or ' +
       'over-long range.',
   })
-  @ApiQuery({ name: 'from', required: false, type: String, description: 'First UTC day included, `YYYY-MM-DD`.' })
-  @ApiQuery({ name: 'to', required: false, type: String, description: 'Last UTC day included, `YYYY-MM-DD`. Default today.' })
+  @ApiQuery({ name: 'from', required: false, type: String, description: 'First day included in `timeZone`, `YYYY-MM-DD`.' })
+  @ApiQuery({ name: 'to', required: false, type: String, description: 'Last day included in `timeZone`, `YYYY-MM-DD`. Default today there.' })
+  @ApiQuery({ name: 'tz', required: false, type: String, description: 'IANA time zone the days are cut in (`America/Costa_Rica`). Default: your profile zone, then the `X-Time-Zone` header, then `UTC`. Echoed as `timeZone`.' })
   @ApiQuery({ name: 'groupBy', required: false, enum: AI_USAGE_ME_GROUP_BY, description: 'Default `day`.' })
   @ApiDataResponse(AiUsageReportDto, { description: 'Your usage report' })
   @ApiResponse({ status: 400, description: 'Invalid query, or `AI_USAGE_RANGE_INVALID`', type: ErrorDto })
@@ -65,7 +70,9 @@ export class AiUsageController {
     @Query() query: AiUsageMeQueryDto,
     @CurrentUser('id') userId: string,
     @CurrentOrg() orgId: string,
+    @Req() request: RequestWithHeaders,
   ): Promise<AiUsageReport> {
-    return this.usage.report({ from: query.from, to: query.to, groupBy: query.groupBy, userId }, undefined, orgId);
+    const timeZone = query.tz ?? (await this.settings.resolveRequestTimeZone(request, userId));
+    return this.usage.report({ from: query.from, to: query.to, groupBy: query.groupBy, userId, timeZone }, undefined, orgId);
   }
 }

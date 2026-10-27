@@ -35,6 +35,7 @@ export type {
   SharingJobRecord,
   SharingJobsPort,
   SharingNotifier,
+  SharingNotifyHint,
   SharingSystemReason,
   SharingTenancy,
 } from './ports';

@@ -43,6 +43,8 @@ import {
   type ExportView,
 } from '@marinoscar/platform-contract/exports';
 
+import { isValidTimeZone } from '@marinoscar/platform-contract/settings';
+import { DEFAULT_SERVER_TIME_ZONE } from '@marinoscar/platform-contract/timezone';
 import { PLATFORM_PRISMA } from '../core/index';
 import { JobsService, type JobsInputJsonValue } from '../jobs/index';
 import { STORAGE_PROVIDER, type StorageProvider } from '../storage/index';
@@ -66,6 +68,11 @@ export interface ExportPrincipal {
   readonly permissions: readonly string[];
   /** The active organization, when the credential has one. */
   readonly activeOrgId?: string | null;
+  /**
+   * The requester's IANA zone for this request (profile, then `X-Time-Zone`, then UTC),
+   * stored in the job payload so the export renders its days in it. Absent means UTC.
+   */
+  readonly timeZone?: string | null;
 }
 
 /**
@@ -230,6 +237,7 @@ export class ExportsService {
       scope: source.scope,
       subjectId,
       orgId,
+      ...(principal.timeZone && isValidTimeZone(principal.timeZone) ? { timeZone: principal.timeZone } : { timeZone: DEFAULT_SERVER_TIME_ZONE }),
     };
     // Distinct requests are distinct work: two exports of different formats
     // must not collapse onto one job.

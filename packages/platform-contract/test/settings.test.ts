@@ -131,3 +131,15 @@ describe('dataTables stored layout extras and saved views (PP-14.20)', () => {
     expect(DATA_TABLE_ENTRY_MAX_BYTES).toBe(32768);
   });
 });
+
+describe('readProfileTimeZone', () => {
+  it('reads a valid stored zone and nothing else', async () => {
+    const { readProfileTimeZone } = await import('../src/settings/index.js');
+    expect(readProfileTimeZone({ profile: { timezone: 'America/Costa_Rica' } })).toBe('America/Costa_Rica');
+    expect(readProfileTimeZone({ profile: { timezone: 'Nope/Zone' } })).toBeNull();
+    expect(readProfileTimeZone({ profile: {} })).toBeNull();
+    expect(readProfileTimeZone({})).toBeNull();
+    expect(readProfileTimeZone(null)).toBeNull();
+    expect(readProfileTimeZone('x')).toBeNull();
+  });
+});
