@@ -129,6 +129,15 @@ describeWithDb('AI usage aggregates and purge (real Postgres)', () => {
     ]);
   });
 
+  it('falls back to UTC (no 500) for a zone Intl accepts but pg_timezone_names does not', async () => {
+    // 'Etc/Unknown' is not an IANA zone Postgres ships; Intl rejects it, so use the service's own check:
+    // pg_timezone_names is the source of truth, so a real zone passes and a bogus name resolves to UTC.
+    const known = await service.report({ ...window, groupBy: 'day', timeZone: 'America/Costa_Rica' }, NOW);
+    expect(known.timeZone).toBe('America/Costa_Rica');
+    const unknown = await service.report({ ...window, groupBy: 'day', timeZone: 'Not/AZone_InPostgres' }, NOW);
+    expect(unknown.timeZone).toBe('UTC');
+  });
+
   it('groups by user, labelled by email, with the org-key subtotal per user', async () => {
     const report = await service.report({ ...window, groupBy: 'user' }, NOW);
 

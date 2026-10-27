@@ -9,7 +9,14 @@ const WHEN = new Date('2026-10-27T02:42:00.000Z');
 
 describe('formatEmailDateTime', () => {
   it('renders in the recipient zone, with the zone label and the UTC time alongside', () => {
-    expect(formatEmailDateTime(WHEN, { timeZone: 'America/Chicago' })).toBe('Oct 26, 2026, 9:42 PM CDT (02:42 UTC)');
+    expect(formatEmailDateTime(WHEN, { timeZone: 'America/Chicago' })).toBe('Oct 26, 2026, 9:42 PM CDT (Oct 27, 02:42 UTC)');
+  });
+
+  it('names the UTC date in the suffix only when it differs from the local one', () => {
+    // 02:42Z Oct 27 is Oct 26 in Chicago: different days.
+    expect(formatEmailDateTime(WHEN, { timeZone: 'America/Chicago' })).toBe('Oct 26, 2026, 9:42 PM CDT (Oct 27, 02:42 UTC)');
+    // 16:42Z Oct 27 is Oct 27 in Chicago: same day.
+    expect(formatEmailDateTime(new Date('2026-10-27T16:42:00.000Z'), { timeZone: 'America/Chicago' })).toBe('Oct 27, 2026, 11:42 AM CDT (16:42 UTC)');
   });
 
   it('renders UTC without a duplicate suffix, for a missing, null or invalid zone', () => {
@@ -39,8 +46,8 @@ describe('a template renders in the recipient zone', () => {
     const base = roleChangedEmail(data);
     const zoned = roleChangedEmail(data, { ...currentEmailRenderContext(), timeZone: 'America/Chicago' });
     expect(base.text).toContain('Oct 27, 2026, 2:42 AM UTC');
-    expect(zoned.text).toContain('Oct 26, 2026, 9:42 PM CDT (02:42 UTC)');
-    expect(zoned.html).toContain('Oct 26, 2026, 9:42 PM CDT (02:42 UTC)');
+    expect(zoned.text).toContain('Oct 26, 2026, 9:42 PM CDT (Oct 27, 02:42 UTC)');
+    expect(zoned.html).toContain('Oct 26, 2026, 9:42 PM CDT (Oct 27, 02:42 UTC)');
   });
 });
 

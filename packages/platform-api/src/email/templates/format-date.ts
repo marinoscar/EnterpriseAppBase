@@ -8,12 +8,12 @@
 // because these timestamps are matched against log lines and delivery records,
 // which are UTC:
 //
-//   Oct 26, 2026, 8:42 PM CDT (01:42 UTC)
+//   Oct 26, 2026, 9:42 PM CDT (Oct 27, 02:42 UTC)
 //
 // Pure and framework-free. No clock: the value is passed in.
 // =============================================================================
 
-import { DEFAULT_SERVER_TIME_ZONE } from '@marinoscar/platform-contract/timezone';
+import { DEFAULT_SERVER_TIME_ZONE, zonedDateKey } from '@marinoscar/platform-contract/timezone';
 
 /**
  * What the formatters read from the render context.
@@ -45,6 +45,12 @@ function effectiveZone(ctx: EmailDateContext | undefined): string {
   }
 }
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function utcDay(date: Date): string {
+  return `${MONTHS[date.getUTCMonth()]} ${date.getUTCDate()}`;
+}
+
 function utcClock(date: Date): string {
   const hh = String(date.getUTCHours()).padStart(2, '0');
   const mm = String(date.getUTCMinutes()).padStart(2, '0');
@@ -58,7 +64,7 @@ function utcClock(date: Date): string {
  *
  * @param value - the instant (a `Date`, epoch milliseconds or an ISO string).
  * @param ctx - the render context (only `timeZone` is read).
- * @returns e.g. `Oct 26, 2026, 8:42 PM CDT (01:42 UTC)`, or `Unknown time` for an unparseable value.
+ * @returns e.g. `Oct 26, 2026, 9:42 PM CDT (Oct 27, 02:42 UTC)`, with the UTC date added when it differs from the local one, or `Unknown time` for an unparseable value.
  *
  * @stability experimental
  */
@@ -75,7 +81,10 @@ export function formatEmailDateTime(value: EmailDateInput, ctx?: EmailDateContex
     minute: '2-digit',
     timeZoneName: 'short',
   }).format(date).replace(/[\u202f\u00a0]/g, ' '); // newer ICU puts a narrow no-break space before AM/PM
-  return timeZone === DEFAULT_SERVER_TIME_ZONE || local.endsWith(' UTC') ? local : `${local} (${utcClock(date)})`;
+  if (timeZone === DEFAULT_SERVER_TIME_ZONE || local.endsWith(' UTC')) return local;
+  // When the UTC calendar day differs from the local one, name it, or the suffix misleads.
+  const sameDay = zonedDateKey(date, timeZone) === zonedDateKey(date, DEFAULT_SERVER_TIME_ZONE);
+  return `${local} (${sameDay ? '' : `${utcDay(date)}, `}${utcClock(date)})`;
 }
 
 /**

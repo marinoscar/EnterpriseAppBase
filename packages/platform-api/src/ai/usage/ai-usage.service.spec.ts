@@ -267,6 +267,7 @@ describe('AiUsageService.report', () => {
   });
 
   it('binds the zone as a parameter, echoes it, and zero-fills calendar days across a DST change', async () => {
+    queryRaw.mockResolvedValueOnce([{ '?column?': 1 }]); // pg_timezone_names knows it
     script([aggRow('2026-03-08', { requests: 2 })]);
 
     const report = await service.report(
@@ -274,15 +275,38 @@ describe('AiUsageService.report', () => {
       NOW,
     );
 
-    expect(sqlOf(0).sql).toContain('AT TIME ZONE');
-    expect(sqlOf(0).values).toContain('America/Chicago');
-    expect(sqlOf(0).sql).not.toContain('America/Chicago');
+    expect(sqlOf(1).sql).toContain('AT TIME ZONE');
+    expect(sqlOf(1).values).toContain('America/Chicago');
+    expect(sqlOf(1).sql).not.toContain('America/Chicago');
     expect(report.timeZone).toBe('America/Chicago');
     expect(report.series.map((s) => [s.key, s.requests])).toEqual([
       ['2026-03-07', 0],
       ['2026-03-08', 2],
       ['2026-03-09', 0],
     ]);
+  });
+
+  it('falls back to UTC, once per zone, when Postgres does not know a zone Intl accepts', async () => {
+    queryRaw.mockResolvedValueOnce([]); // pg_timezone_names: unknown
+    script([]);
+
+    const first = await service.report({ groupBy: 'day', from: '2026-03-07', to: '2026-03-08', timeZone: 'America/Chicago' }, NOW);
+
+    expect(sqlOf(0).sql).toContain('pg_timezone_names');
+    expect(sqlOf(0).values).toEqual(['America/Chicago']);
+    expect(first.timeZone).toBe('UTC');
+    expect(sqlOf(1).values).toContain('UTC');
+
+    script([]); // no second lookup: the answer is cached
+    const second = await service.report({ groupBy: 'day', timeZone: 'America/Chicago' }, NOW);
+    expect(second.timeZone).toBe('UTC');
+    expect(queryRaw).toHaveBeenCalledTimes(5);
+  });
+
+  it('never queries Postgres for UTC', async () => {
+    script([]);
+    await service.report({ groupBy: 'day', timeZone: 'UTC' }, NOW);
+    expect(queryRaw).toHaveBeenCalledTimes(2);
   });
 
   it('reports UTC when no zone is given', async () => {

@@ -119,7 +119,7 @@ describe('EmailNotificationChannel renders in the recipient zone', () => {
   };
 
   it('prints the local time with the zone label and the UTC time alongside', async () => {
-    expect(await textFor('America/Chicago')).toContain('Oct 26, 2026, 9:42 PM CDT (02:42 UTC)');
+    expect(await textFor('America/Chicago')).toContain('Oct 26, 2026, 9:42 PM CDT (Oct 27, 02:42 UTC)');
   });
 
   it('prints UTC, labelled, when the recipient has no zone', async () => {

@@ -217,11 +217,13 @@ export class AiUsageService {
    * every organization's through the system client.
    */
   async report(query: AiUsageQuery, now: Date = new Date(), orgId?: string): Promise<AiUsageReport> {
-    const range = resolveAiUsageRange(query.from, query.to, now, query.timeZone);
+    const db = orgId ? this.prisma.forOrg(orgId) : this.system.asSystem('admin-aggregate');
+    // A zone Intl accepts but Postgres does not know would make `AT TIME ZONE` fail: fall back to UTC.
+    const timeZone = await this.databaseKnowsZone(db, query.timeZone);
+    const range = resolveAiUsageRange(query.from, query.to, now, timeZone);
     const key = Prisma.raw('gkey');
     const src = sourceSql(groupKeySql(query.groupBy, range.timeZone), whereSql(range, query));
 
-    const db = orgId ? this.prisma.forOrg(orgId) : this.system.asSystem('admin-aggregate');
     const [rows, unitRows] = await Promise.all([
       db.$queryRaw<AggregateRow[]>(Prisma.sql`
         SELECT
@@ -304,6 +306,28 @@ export class AiUsageService {
       totals,
       series,
     };
+  }
+
+  /** Per-zone answers of `pg_timezone_names`, kept for the life of the process. */
+  private readonly knownZones = new Map<string, boolean>();
+
+  /**
+   * The zone to bucket in: `requested` when Postgres knows it (checked once per
+   * zone against `pg_timezone_names`, then cached), else UTC. UTC is never queried.
+   */
+  private async databaseKnowsZone(
+    db: { $queryRaw<T = unknown>(query: unknown, ...values: unknown[]): Promise<T> },
+    requested: string | undefined,
+  ): Promise<string> {
+    if (!requested || requested === DEFAULT_SERVER_TIME_ZONE) return DEFAULT_SERVER_TIME_ZONE;
+    let known = this.knownZones.get(requested);
+    if (known === undefined) {
+      const rows = await db.$queryRaw<unknown[]>(Prisma.sql`SELECT 1 FROM pg_timezone_names WHERE name = ${requested} LIMIT 1`);
+      known = Array.isArray(rows) && rows.length > 0;
+      this.knownZones.set(requested, known);
+      if (!known) this.logger.warn(`Postgres does not know the time zone "${requested}"; the usage report falls back to UTC`);
+    }
+    return known ? requested : DEFAULT_SERVER_TIME_ZONE;
   }
 
   /** Non-day groups, labelled, most requests first (ties by key, so the order is stable). */
