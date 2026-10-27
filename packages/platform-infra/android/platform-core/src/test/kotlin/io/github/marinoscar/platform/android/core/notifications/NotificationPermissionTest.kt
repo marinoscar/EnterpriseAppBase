@@ -50,37 +50,37 @@ class NotificationPermissionTest {
     // --- UI mapping ---------------------------------------------------------------------------
 
     @Test fun `row for each state`() {
-        val granted = NotificationPermissions.row(NotificationPermissionState.GRANTED, "Acme")
+        val granted = NotificationPermissions.row(NotificationPermissionState.GRANTED, "Org Kappa")
         assertTrue(granted.ok)
         assertNull(granted.action)
         assertNull(granted.actionLabel)
         assertEquals("Allowed", granted.status)
 
         listOf(NotificationPermissionState.NOT_ASKED, NotificationPermissionState.DENIED).forEach {
-            val row = NotificationPermissions.row(it, "Acme")
+            val row = NotificationPermissions.row(it, "Org Kappa")
             assertFalse(row.ok)
             assertEquals(NotificationAction.REQUEST, row.action)
             assertEquals("Allow", row.actionLabel)
         }
 
         listOf(NotificationPermissionState.PERMANENTLY_DENIED, NotificationPermissionState.DISABLED).forEach {
-            val row = NotificationPermissions.row(it, "Acme")
+            val row = NotificationPermissions.row(it, "Org Kappa")
             assertFalse(row.ok)
             assertEquals(NotificationAction.OPEN_SETTINGS, row.action)
             assertEquals("Open settings", row.actionLabel)
         }
-        assertEquals("Blocked", NotificationPermissions.row(NotificationPermissionState.PERMANENTLY_DENIED, "Acme").status)
+        assertEquals("Blocked", NotificationPermissions.row(NotificationPermissionState.PERMANENTLY_DENIED, "Org Kappa").status)
     }
 
     @Test fun `row action matches the action mapping and names the product`() {
         NotificationPermissionState.entries.forEach {
-            val row = NotificationPermissions.row(it, "Acme")
+            val row = NotificationPermissions.row(it, "Org Kappa")
             assertEquals(it.name, NotificationPermissions.action(it), row.action)
-            row.detail?.let { detail -> assertTrue(detail, "Acme" in detail) }
+            row.detail?.let { detail -> assertTrue(detail, "Org Kappa" in detail) }
         }
         assertEquals(
-            "Allow notifications so Acme can tell you about updates, re-pairing and reminders.",
-            NotificationPermissions.row(NotificationPermissionState.NOT_ASKED, "Acme").detail,
+            "Allow notifications so Org Kappa can tell you about updates, re-pairing and reminders.",
+            NotificationPermissions.row(NotificationPermissionState.NOT_ASKED, "Org Kappa").detail,
         )
     }
 

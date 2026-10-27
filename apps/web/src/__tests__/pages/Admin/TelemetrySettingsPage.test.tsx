@@ -286,15 +286,15 @@ describe('TelemetrySettingsPage', () => {
       renderPage();
       await waitForForm();
 
-      await user.type(screen.getByLabelText('Instance identifier'), 'acme-prod');
+      await user.type(screen.getByLabelText('Instance identifier'), 'kappa-prod');
       await user.click(screen.getByRole('button', { name: 'Save Changes' }));
 
       await waitFor(() => expect(calls).toHaveLength(1));
-      expect(calls[0].body.instanceId).toBe('acme-prod');
+      expect(calls[0].body.instanceId).toBe('kappa-prod');
       expect(calls[0].ifMatch).toBe(String(mockTelemetryAdminConfig.version));
       await waitFor(() =>
         expect(screen.getByTestId('telemetry-instance-id-effective')).toHaveTextContent(
-          'acme-prod',
+          'kappa-prod',
         ),
       );
     });
@@ -305,8 +305,8 @@ describe('TelemetrySettingsPage', () => {
           HttpResponse.json({
             data: {
               ...mockTelemetryAdminConfig,
-              instanceId: 'acme-prod',
-              instanceIdEffective: 'acme-prod',
+              instanceId: 'kappa-prod',
+              instanceIdEffective: 'kappa-prod',
             },
           }),
         ),
@@ -317,7 +317,7 @@ describe('TelemetrySettingsPage', () => {
       await waitForForm();
 
       const field = screen.getByLabelText('Instance identifier');
-      expect(field).toHaveValue('acme-prod');
+      expect(field).toHaveValue('kappa-prod');
       await user.clear(field);
       await user.click(screen.getByRole('button', { name: 'Save Changes' }));
 
@@ -333,7 +333,7 @@ describe('TelemetrySettingsPage', () => {
       await waitForForm();
 
       const field = screen.getByLabelText('Instance identifier');
-      await user.type(field, 'Acme Prod');
+      await user.type(field, 'Kappa Prod');
       expect(field).toHaveAttribute('aria-invalid', 'true');
       expect(screen.getByText(/Use 1-63 lowercase letters/)).toBeInTheDocument();
       const saveButton = screen.getByRole('button', { name: 'Save Changes' });
@@ -345,11 +345,11 @@ describe('TelemetrySettingsPage', () => {
       expect(saveButton).toBeDisabled();
 
       await user.clear(field);
-      await user.type(field, 'acme.prod_1');
+      await user.type(field, 'kappa.prod_1');
       expect(screen.queryByText(/Use 1-63 lowercase letters/)).not.toBeInTheDocument();
       await user.click(saveButton);
       await waitFor(() => expect(calls).toHaveLength(1));
-      expect(calls[0].body.instanceId).toBe('acme.prod_1');
+      expect(calls[0].body.instanceId).toBe('kappa.prod_1');
     });
   });
 

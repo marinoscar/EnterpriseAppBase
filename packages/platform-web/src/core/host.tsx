@@ -147,7 +147,7 @@ export function usePlatformViewer(): PlatformViewer {
  * package if the app is untrusted code.
  *
  * @typeParam T - the port's type, as the package declares it.
- * @param key - the key the package exports (`'acme.transcripts'` or `Symbol.for('@acme/transcripts/port')`).
+ * @param key - the key the package exports (`'kappa.transcripts'` or `Symbol.for('@kappa/transcripts/port')`).
  * @returns the port the app supplied.
  * @throws Error outside a {@link PlatformHostProvider}, or when `host.extensions` has no entry for `key`.
  *
@@ -155,7 +155,7 @@ export function usePlatformViewer(): PlatformViewer {
  * @stability experimental
  * @example
  * ```tsx
- * export const TRANSCRIPTS_PORT = Symbol.for('@acme/transcripts/port');
+ * export const TRANSCRIPTS_PORT = Symbol.for('@kappa/transcripts/port');
  * const port = usePlatformPort<TranscriptsPort>(TRANSCRIPTS_PORT);
  * ```
  */

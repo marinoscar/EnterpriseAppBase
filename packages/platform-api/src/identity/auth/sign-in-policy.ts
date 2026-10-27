@@ -91,7 +91,7 @@ export type SignInDecision = SignInAllow | SignInDeny;
  * ```ts
  * class CompanyDomainPolicy implements SignInPolicy {
  *   async beforeLogin(profile: ExternalProfile): Promise<SignInDecision> {
- *     return profile.email?.endsWith('@acme.example')
+ *     return profile.email?.endsWith('@kappa.example.test')
  *       ? { allow: true }
  *       : { allow: false, reason: 'access_denied' };
  *   }

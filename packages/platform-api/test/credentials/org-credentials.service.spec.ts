@@ -23,8 +23,8 @@ afterAll(() => {
   else process.env.SECRETS_ENCRYPTION_KEY = ORIGINAL_KEY;
 });
 
-const ACME = '3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d';
-const GLOBEX = 'a1b2c3d4-e5f6-4789-9abc-def012345678';
+const KAPPA = '3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d';
+const SIGMA = 'a1b2c3d4-e5f6-4789-9abc-def012345678';
 const ADMIN = '0b6f1d7e-3c2a-4f5b-9e8d-7a6c5b4d3e2f';
 
 interface Row {
@@ -94,13 +94,13 @@ describe('OrgCredentialsService', () => {
   });
 
   it('stores ciphertext under the org-bound domain and reads back plaintext', async () => {
-    const info = await service.setSecret(ACME, 'partner_api', 'default', 'acme-partner-token-9876', {
+    const info = await service.setSecret(KAPPA, 'partner_api', 'default', 'kappa-partner-token-9876', {
       label: 'Partner token',
       updatedByUserId: ADMIN,
     });
 
-    const row = store.get(key(ACME, 'partner_api', 'default')) as Row;
-    expect(row.secret).not.toContain('acme-partner-token-9876');
+    const row = store.get(key(KAPPA, 'partner_api', 'default')) as Row;
+    expect(row.secret).not.toContain('kappa-partner-token-9876');
     expect(row.hint).toBe('••••9876');
     expect(info).toEqual({
       purpose: 'partner_api',
@@ -111,89 +111,89 @@ describe('OrgCredentialsService', () => {
       createdAt: expect.any(Date),
       updatedAt: expect.any(Date),
     });
-    await expect(service.getSecret(ACME, 'partner_api')).resolves.toBe('acme-partner-token-9876');
+    await expect(service.getSecret(KAPPA, 'partner_api')).resolves.toBe('kappa-partner-token-9876');
   });
 
   it('runs every query on the org-scoped client (forOrg extends the port)', async () => {
-    await service.describe(ACME, 'partner_api', 'default');
+    await service.describe(KAPPA, 'partner_api', 'default');
     expect(prisma.$extends).toHaveBeenCalled();
   });
 
   it("refuses to decrypt another organization's ciphertext copied into this row", async () => {
-    await service.setSecret(GLOBEX, 'partner_api', 'default', 'globex-token-0000');
-    const stolen = (store.get(key(GLOBEX, 'partner_api', 'default')) as Row).secret;
-    await service.setSecret(ACME, 'partner_api', 'default', 'acme-token-1111');
-    (store.get(key(ACME, 'partner_api', 'default')) as Row).secret = stolen;
+    await service.setSecret(SIGMA, 'partner_api', 'default', 'sigma-token-0000');
+    const stolen = (store.get(key(SIGMA, 'partner_api', 'default')) as Row).secret;
+    await service.setSecret(KAPPA, 'partner_api', 'default', 'kappa-token-1111');
+    (store.get(key(KAPPA, 'partner_api', 'default')) as Row).secret = stolen;
 
-    await expect(service.getSecret(ACME, 'partner_api', 'default')).rejects.toThrow(InternalServerErrorException);
+    await expect(service.getSecret(KAPPA, 'partner_api', 'default')).rejects.toThrow(InternalServerErrorException);
   });
 
   it('decrypts a row written directly under orgCredentialPurpose (the domain is the contract)', async () => {
-    store.set(key(ACME, 'partner_api', 'default'), {
+    store.set(key(KAPPA, 'partner_api', 'default'), {
       id: 'x',
-      orgId: ACME,
+      orgId: KAPPA,
       purpose: 'partner_api',
       name: 'default',
-      secret: encryptSecret('direct', orgCredentialPurpose(ACME, 'partner_api')),
+      secret: encryptSecret('direct', orgCredentialPurpose(KAPPA, 'partner_api')),
       hint: null,
       label: null,
       updatedByUserId: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    await expect(service.getSecret(ACME, 'partner_api', 'default')).resolves.toBe('direct');
+    await expect(service.getSecret(KAPPA, 'partner_api', 'default')).resolves.toBe('direct');
   });
 
   it('describes and lists without the secret, ordered by purpose then name', async () => {
-    await service.setSecret(ACME, 'partner_api', 'b', 'secret-bbbbbbbb');
-    await service.setSecret(ACME, 'partner_api', 'a', 'secret-aaaaaaaa');
-    await service.setSecret(ACME, 'org_only', 'default', 'secret-oooooooo');
-    await service.setSecret(GLOBEX, 'partner_api', 'a', 'secret-gggggggg');
+    await service.setSecret(KAPPA, 'partner_api', 'b', 'secret-bbbbbbbb');
+    await service.setSecret(KAPPA, 'partner_api', 'a', 'secret-aaaaaaaa');
+    await service.setSecret(KAPPA, 'org_only', 'default', 'secret-oooooooo');
+    await service.setSecret(SIGMA, 'partner_api', 'a', 'secret-gggggggg');
 
-    const list = await service.list(ACME);
+    const list = await service.list(KAPPA);
     expect(list.map((i) => `${i.purpose}/${i.name}`)).toEqual(['org_only/default', 'partner_api/a', 'partner_api/b']);
     for (const info of list) expect(Object.keys(info)).not.toContain('secret');
-    await expect(service.list(ACME, 'partner_api')).resolves.toHaveLength(2);
-    await expect(service.describe(ACME, 'partner_api', 'missing')).resolves.toBeNull();
+    await expect(service.list(KAPPA, 'partner_api')).resolves.toHaveLength(2);
+    await expect(service.describe(KAPPA, 'partner_api', 'missing')).resolves.toBeNull();
   });
 
   it('blank preserves the secret and applies metadata; blank with nothing stored is a 400', async () => {
-    await service.setSecret(ACME, 'partner_api', 'default', 'keep-me-12345678');
-    const before = (store.get(key(ACME, 'partner_api', 'default')) as Row).secret;
+    await service.setSecret(KAPPA, 'partner_api', 'default', 'keep-me-12345678');
+    const before = (store.get(key(KAPPA, 'partner_api', 'default')) as Row).secret;
 
-    const info = await service.setSecret(ACME, 'partner_api', 'default', '', { label: 'Renamed' });
+    const info = await service.setSecret(KAPPA, 'partner_api', 'default', '', { label: 'Renamed' });
     expect(info.label).toBe('Renamed');
-    expect((store.get(key(ACME, 'partner_api', 'default')) as Row).secret).toBe(before);
+    expect((store.get(key(KAPPA, 'partner_api', 'default')) as Row).secret).toBe(before);
 
-    await expect(service.setSecret(ACME, 'partner_api', 'default', undefined)).resolves.toMatchObject({ label: 'Renamed' });
-    await expect(service.setSecret(ACME, 'partner_api', 'new', null)).rejects.toThrow(BadRequestException);
+    await expect(service.setSecret(KAPPA, 'partner_api', 'default', undefined)).resolves.toMatchObject({ label: 'Renamed' });
+    await expect(service.setSecret(KAPPA, 'partner_api', 'new', null)).rejects.toThrow(BadRequestException);
   });
 
   it('deletes idempotently', async () => {
-    await service.setSecret(ACME, 'partner_api', 'default', 'delete-me-1234567');
-    await service.deleteSecret(ACME, 'partner_api', 'default');
-    await service.deleteSecret(ACME, 'partner_api', 'default');
-    await expect(service.getSecret(ACME, 'partner_api', 'default')).resolves.toBeNull();
+    await service.setSecret(KAPPA, 'partner_api', 'default', 'delete-me-1234567');
+    await service.deleteSecret(KAPPA, 'partner_api', 'default');
+    await service.deleteSecret(KAPPA, 'partner_api', 'default');
+    await expect(service.getSecret(KAPPA, 'partner_api', 'default')).resolves.toBeNull();
   });
 
   it('refuses an unregistered purpose, and a system-only one, with a 500-class error', async () => {
-    await expect(service.setSecret(ACME, 'typo_purpose', 'default', 'x-12345678')).rejects.toThrow(InternalServerErrorException);
-    await expect(service.setSecret(ACME, 'smtp', 'default', 'x-12345678')).rejects.toThrow(/not registered for the org tier/);
+    await expect(service.setSecret(KAPPA, 'typo_purpose', 'default', 'x-12345678')).rejects.toThrow(InternalServerErrorException);
+    await expect(service.setSecret(KAPPA, 'smtp', 'default', 'x-12345678')).rejects.toThrow(/not registered for the org tier/);
     expect(prisma.orgCredential.upsert).not.toHaveBeenCalled();
   });
 
   it.each([
-    ['an uppercase org id', ACME.toUpperCase(), 'partner_api', 'default'],
-    ['a non-UUID org id', 'acme', 'partner_api', 'default'],
-    ['a purpose with ":"', ACME, 'a:b', 'default'],
-    ['a padded name', ACME, 'partner_api', ' default'],
+    ['an uppercase org id', KAPPA.toUpperCase(), 'partner_api', 'default'],
+    ['a non-UUID org id', 'kappa', 'partner_api', 'default'],
+    ['a purpose with ":"', KAPPA, 'a:b', 'default'],
+    ['a padded name', KAPPA, 'partner_api', ' default'],
   ])('rejects %s with a 400', async (_label, orgId, purpose, name) => {
     await expect(service.getSecret(orgId, purpose, name)).rejects.toThrow(BadRequestException);
   });
 
   it('never logs the secret or its hint', async () => {
     const log = jest.spyOn((service as unknown as { logger: { log: (m: string) => void } }).logger, 'log').mockImplementation(() => undefined);
-    await service.setSecret(ACME, 'partner_api', 'default', 'super-secret-value-4321');
+    await service.setSecret(KAPPA, 'partner_api', 'default', 'super-secret-value-4321');
     for (const [message] of log.mock.calls) {
       expect(String(message)).not.toContain('super-secret-value-4321');
       expect(String(message)).not.toContain('4321');

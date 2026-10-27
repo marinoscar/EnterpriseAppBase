@@ -34,7 +34,7 @@ export const AI_SCHEMA_PRESETS: [AiSchemaPreset, ...AiSchemaPreset[]] = [
     label: 'Extract contact',
     name: 'contact',
     examplePrompt:
-      'Extract the contact: "Hi, I\'m Dana Ruiz from Acme Corp — reach me at dana@acme.test or +1 555 0100."',
+      'Extract the contact: "Hi, I\'m Dana Ruiz from Org Kappa — reach me at dana@kappa.example.test or +1 555 0100."',
     jsonSchema: {
       type: 'object',
       properties: {

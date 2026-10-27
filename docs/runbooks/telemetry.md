@@ -272,7 +272,7 @@ well-known credential.
    curl -sS -X PUT https://<your-deployment>/api/admin/telemetry/config \
      -H "Authorization: Bearer <admin access token>" \
      -H 'Content-Type: application/json' \
-     -d '{"instanceId": "acme-prod"}'
+     -d '{"instanceId": "kappa-prod"}'
    ```
 
    **Keep it stable once set.** Changing it later splits one deployment's

@@ -89,18 +89,18 @@ describe('email layout theme', () => {
   it('replaces the footer in both parts when told to', () => {
     const ctx = createEmailRenderContext({
       appName: TEST_APP_NAME,
-      layout: { footerHtml: html`Sent by Acme Ltd, 1 Main St.`, footerText: ['Sent by Acme Ltd, 1 Main St.'] },
+      layout: { footerHtml: html`Sent by Org Kappa, 1 Main St.`, footerText: ['Sent by Org Kappa, 1 Main St.'] },
     });
-    expect(renderLayout(BODY, ctx)).toContain('Sent by Acme Ltd, 1 Main St.');
+    expect(renderLayout(BODY, ctx)).toContain('Sent by Org Kappa, 1 Main St.');
     expect(renderLayout(BODY, ctx)).not.toContain('This is an automated message');
     const text = plainText({ title: 'Hello', lines: ['Body'] }, ctx);
-    expect(text.endsWith('--\r\nSent by Acme Ltd, 1 Main St.')).toBe(true);
+    expect(text.endsWith('--\r\nSent by Org Kappa, 1 Main St.')).toBe(true);
   });
 
   it('names the product from the context in the wordmark, the footer and the text part', () => {
-    const ctx = createEmailRenderContext({ appName: 'Acme Portal' });
-    expect(renderLayout(BODY, ctx)).toContain('This is an automated message from Acme Portal.');
-    expect(plainText({ title: 'Hello', lines: ['Body'] }, ctx).startsWith('Acme Portal\r\n')).toBe(true);
+    const ctx = createEmailRenderContext({ appName: 'Kappa Portal' });
+    expect(renderLayout(BODY, ctx)).toContain('This is an automated message from Kappa Portal.');
+    expect(plainText({ title: 'Hello', lines: ['Body'] }, ctx).startsWith('Kappa Portal\r\n')).toBe(true);
   });
 
   it.each([

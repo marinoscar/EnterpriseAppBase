@@ -16,17 +16,17 @@ describe('deriveInfraIdentity()', () => {
   it('derives the env prefix from the CLI name the way the CLI does', () => {
     expect(deriveInfraIdentity({ cliName: 'appctl' }).envPrefix).toBe('APPCTL_');
     expect(deriveInfraIdentity({ cliName: 'evopathcli' }).envPrefix).toBe('EVOPATHCLI_');
-    expect(deriveInfraIdentity({ cliName: 'acme-ctl' }).envPrefix).toBe('ACME_CTL_');
+    expect(deriveInfraIdentity({ cliName: 'kappa-ctl' }).envPrefix).toBe('KAPPA_CTL_');
   });
 
   it('derives the service and test database names from the product slug', () => {
-    expect(deriveInfraIdentity({ cliName: 'acmectl', productName: 'Acme Hub' })).toEqual({
-      cliName: 'acmectl',
-      envPrefix: 'ACMECTL_',
-      serviceName: 'acme-hub-api',
+    expect(deriveInfraIdentity({ cliName: 'kappactl', productName: 'Kappa Hub' })).toEqual({
+      cliName: 'kappactl',
+      envPrefix: 'KAPPACTL_',
+      serviceName: 'kappa-hub-api',
       workerImage: DEFAULT_WORKER_IMAGE,
-      testDatabase: 'acme_hub_test',
-      testContainer: 'acme-hub-db-test',
+      testDatabase: 'kappa_hub_test',
+      testContainer: 'kappa-hub-db-test',
     });
   });
 
@@ -36,8 +36,8 @@ describe('deriveInfraIdentity()', () => {
   });
 
   it('takes an explicit value over the derived one', () => {
-    const identity = deriveInfraIdentity({ cliName: 'kvox', workerImage: 'ghcr.io/acme/kvox-worker:1.2.3', serviceName: 'kvox' });
-    expect(identity.workerImage).toBe('ghcr.io/acme/kvox-worker:1.2.3');
+    const identity = deriveInfraIdentity({ cliName: 'kvox', workerImage: 'ghcr.io/kappa/kvox-worker:1.2.3', serviceName: 'kvox' });
+    expect(identity.workerImage).toBe('ghcr.io/kappa/kvox-worker:1.2.3');
     expect(identity.serviceName).toBe('kvox');
   });
 

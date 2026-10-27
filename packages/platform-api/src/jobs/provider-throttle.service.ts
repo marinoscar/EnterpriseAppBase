@@ -54,13 +54,13 @@
 //
 //     onModuleInit() {
 //       this.registry.register(this);
-//       this.throttle.registerProviderKey(this.type, 'acme-vision');
+//       this.throttle.registerProviderKey(this.type, 'kappa-vision');
 //     }
 //
 // SEVERAL JOB TYPES SHOULD SHARE ONE KEY when they share one quota — that is
 // the entire reason the key is not just the job type. Three handlers hitting
 // the same vendor account are one bucket, and mapping all three to
-// `'acme-vision'` is what makes a 429 on any of them back off the other two.
+// `'kappa-vision'` is what makes a 429 on any of them back off the other two.
 // Conversely, two handlers hitting two different vendors must NOT share a
 // key, or one vendor's outage silently stalls work that had nothing to do
 // with it.

@@ -4,7 +4,7 @@
 //
 // The platform's own slices are a fixed list (`PLATFORM_PERMISSION_SLICES`):
 // their declarations and their seed order are data in this package. A slice
-// that lives OUTSIDE the platform (an app's own package, `@acme/reports`)
+// that lives OUTSIDE the platform (an app's own package, `@kappa/reports`)
 // declares its roles and permissions the same way and registers them here, at
 // import time, BEFORE the app's manifest calls `registerPlatformPermissions()`.
 // The manifest then registers them after the platform's own sets and before the
@@ -34,7 +34,7 @@ export interface PermissionSetRegistration {
   readonly permissions?: Declarations<PermissionDeclaration>;
 }
 
-/** A slice id: `acme-reports`. */
+/** A slice id: `kappa-reports`. */
 const SLICE_ID_PATTERN = /^[a-z][a-z0-9-]{1,47}$/;
 
 /**
@@ -72,9 +72,9 @@ export const permissionSetRegistry: Registry<PermissionSetRegistration> = define
  *
  * @example
  * ```ts
- * // @acme/reports, imported before the app's permission manifest
+ * // @kappa/reports, imported before the app's permission manifest
  * registerPermissionSet({
- *   slice: 'acme-reports',
+ *   slice: 'kappa-reports',
  *   roles: [{ id: 'analyst', description: 'Runs reports', scope: 'org' }],
  *   permissions: [{ id: 'reports:run', description: 'Run a report', scope: 'org', defaultGrants: ['org_admin', 'analyst'] }],
  * });

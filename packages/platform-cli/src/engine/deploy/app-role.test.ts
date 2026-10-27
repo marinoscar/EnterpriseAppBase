@@ -74,9 +74,9 @@ function options(
 describe('the role name and the default', () => {
   it('derives <app>_app from the identity, once', () => {
     expect(defaultAppRoleName()).toBe('example_app');
-    const restore = replaceCliIdentityForTests({ name: 'forkctl', displayName: 'Fork', repoSlug: 'fork/Acme-Portal' });
+    const restore = replaceCliIdentityForTests({ name: 'forkctl', displayName: 'Fork', repoSlug: 'fork/Kappa-Portal' });
     try {
-      expect(defaultAppRoleName()).toBe('acme_portal_app');
+      expect(defaultAppRoleName()).toBe('kappa_portal_app');
     } finally {
       restore();
     }

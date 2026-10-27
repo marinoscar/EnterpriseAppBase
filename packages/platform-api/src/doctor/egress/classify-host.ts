@@ -128,7 +128,7 @@ export function hostnameOf(value: string | null | undefined): string | null {
  * @example
  * ```ts
  * classifyHost('minio:9000');                   // 'private'
- * classifyHost('contoso.openai.azure.com');     // 'public'
+ * classifyHost('theta.openai.azure.com');     // 'public'
  * classifyHost('');                             // 'unknown'
  * ```
  *

@@ -19,10 +19,10 @@ export class ActiveOrgDto {
   @ApiProperty({ example: '0b6f1c2e-7a53-4a8e-9d0c-2f6a1e9b7c11', description: 'Organization ID', format: 'uuid' })
   id!: string;
 
-  @ApiProperty({ example: 'Acme', description: 'Organization name' })
+  @ApiProperty({ example: 'Org Kappa', description: 'Organization name' })
   name!: string;
 
-  @ApiProperty({ example: 'acme', description: 'Organization slug' })
+  @ApiProperty({ example: 'kappa', description: 'Organization slug' })
   slug!: string;
 }
 
@@ -33,10 +33,10 @@ export class OrgMembershipDto {
   @ApiProperty({ example: '0b6f1c2e-7a53-4a8e-9d0c-2f6a1e9b7c11', description: 'Organization ID', format: 'uuid' })
   orgId!: string;
 
-  @ApiProperty({ example: 'Acme', description: 'Organization name' })
+  @ApiProperty({ example: 'Org Kappa', description: 'Organization name' })
   name!: string;
 
-  @ApiProperty({ example: 'acme', description: 'Organization slug' })
+  @ApiProperty({ example: 'kappa', description: 'Organization slug' })
   slug!: string;
 
   @ApiProperty({ example: 'viewer', description: 'The org role on this membership (`org_admin`, `contributor` or `viewer`)' })

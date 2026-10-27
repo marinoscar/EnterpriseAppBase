@@ -13,11 +13,11 @@ import {
 } from './compose.js';
 import type { CommandRunner, RunResult } from './runner.js';
 
-const DIR = '/opt/infra/apps/acme/repo/infra/compose';
+const DIR = '/opt/infra/apps/kappa/repo/infra/compose';
 const f = (name: string): string => `${DIR}/${name}`;
 
 const LABELS = {
-  'com.docker.compose.project': 'acme',
+  'com.docker.compose.project': 'kappa',
   'com.docker.compose.project.working_dir': DIR,
   'com.docker.compose.project.config_files': [
     f('base.compose.yml'),
@@ -32,7 +32,7 @@ const LABELS = {
 describe('parseLabels', () => {
   it('reads project, working dir and the ordered file list', () => {
     expect(parseLabels(LABELS)).toEqual({
-      project: 'acme',
+      project: 'kappa',
       workingDir: DIR,
       configFiles: [
         f('base.compose.yml'),
@@ -50,7 +50,7 @@ describe('parseLabels', () => {
   });
 
   it('refuses a project name compose would not accept', () => {
-    expect(() => parseLabels({ ...LABELS, 'com.docker.compose.project': 'Acme; rm -rf /' })).toThrow(
+    expect(() => parseLabels({ ...LABELS, 'com.docker.compose.project': 'Org Kappa; rm -rf /' })).toThrow(
       /project/,
     );
   });
@@ -162,7 +162,7 @@ describe('createDiscovery', () => {
     await discover();
 
     expect(calls).toEqual([['docker', 'inspect', '--format', '{{json .Config.Labels}}', 'a1b2c3d4e5f6']]);
-    expect(target.project).toBe('acme');
+    expect(target.project).toBe('kappa');
     expect(target.workingDir).toBe(DIR);
     expect(target.files.map((file) => file.slice(DIR.length + 1))).toEqual([
       'base.compose.yml',
@@ -184,7 +184,7 @@ describe('createDiscovery', () => {
     const discover = createDiscovery({ runner, containerId: 'a1b2c3d4e5f6', fileExists: () => true });
 
     await expect(discover()).rejects.toThrow(DiscoveryError);
-    await expect(discover()).resolves.toMatchObject({ project: 'acme' });
+    await expect(discover()).resolves.toMatchObject({ project: 'kappa' });
   });
 
   it('refuses a HOSTNAME that is not a container reference', async () => {
@@ -212,7 +212,7 @@ describe('createDiscovery', () => {
 
 describe('compose argv', () => {
   const target: ComposeTarget = {
-    project: 'acme',
+    project: 'kappa',
     workingDir: DIR,
     files: [f('base.compose.yml'), f('vps.compose.yml')],
   };
@@ -220,7 +220,7 @@ describe('compose argv', () => {
   it('pins project, directory and files', () => {
     expect(composeBase(target)).toEqual([
       'docker', 'compose', '--ansi', 'never',
-      '-p', 'acme',
+      '-p', 'kappa',
       '--project-directory', DIR,
       '-f', f('base.compose.yml'),
       '-f', f('vps.compose.yml'),

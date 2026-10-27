@@ -28,7 +28,7 @@ const CASES: ReadonlyArray<{ template: string; label: string; data: unknown }> =
     label: 'full',
     data: {
       recipientEmail: 'guest@example.test',
-      orgName: `Acme ${HOSTILE}`,
+      orgName: `Org Kappa ${HOSTILE}`,
       roleName: 'Member',
       invitedBy: 'Ada Admin',
       signInUrl: 'https://app.example.test/login',

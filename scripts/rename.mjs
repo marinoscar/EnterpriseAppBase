@@ -115,7 +115,7 @@ export function starterRenameScript(root) {
 // and exempt the resulting literals in exactly the files that use them as
 // prose — never anywhere else, and never for a real fork that merely shares
 // one of these words by coincidence.
-export const EXAMPLE_IDENTITY = { name: 'Acme Hub', repo: 'oscar/acme-hub' };
+export const EXAMPLE_IDENTITY = { name: 'Kappa Hub', repo: 'oscar/kappa-hub' };
 
 /** Files whose prose walks through `EXAMPLE_IDENTITY` as a worked example. */
 export const EXAMPLE_DOC_FILES = ['docs/RENAMING.md', 'packages/shared/README.md', 'scripts/rename.mjs'];
@@ -581,7 +581,7 @@ function warnAboutCliRename(from, to) {
   RENAMING THE CLI BINARY: ${from} -> ${to}
 
   This is a bigger change than renaming the product, and it is deliberately a
-  separate decision — a product called "Acme" may still ship a binary called
+  separate decision — a product called "Org Kappa" may still ship a binary called
   "${from}".
 
   It will leave work behind that this script does not do:

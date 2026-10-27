@@ -68,12 +68,12 @@ interface FixtureIdentity {
 
 const BASE_ID: FixtureIdentity = {
   productName: 'Base Product',
-  repoSlug: 'acme/base-repo',
+  repoSlug: 'kappa/base-repo',
   cliName: 'appctl',
 };
 const APP_ID: FixtureIdentity = {
   productName: 'EvoPath',
-  repoSlug: 'acme/evopath',
+  repoSlug: 'kappa/evopath',
   cliName: 'evopathcli',
 };
 
@@ -277,8 +277,8 @@ describe('identity renames', () => {
         `export function help() { return 'run ${cli} --help'; }`,
       ].join('\n');
     const report = drift(
-      { 'apps/cli/src/branding.ts': source('appctl', 'APPCTL', 'Base Product', 'acme/base-repo') },
-      { 'apps/cli/src/branding.ts': source('evopathcli', 'EVOPATHCLI', 'EvoPath', 'acme/evopath') }
+      { 'apps/cli/src/branding.ts': source('appctl', 'APPCTL', 'Base Product', 'kappa/base-repo') },
+      { 'apps/cli/src/branding.ts': source('evopathcli', 'EVOPATHCLI', 'EvoPath', 'kappa/evopath') }
     );
     expect(fileEntry(report, 'apps/cli/src/branding.ts').status).toBe('normalised-identical');
     // The table the reader sees in the Markdown header.
@@ -693,8 +693,8 @@ describe('normaliseText', () => {
 
 describe('replacements', () => {
   const table = buildReplacements(
-    deriveIdentity({ productName: 'Base Product', repoSlug: 'acme/base-repo', cliName: 'appctl' }),
-    deriveIdentity({ productName: 'EvoPath', repoSlug: 'acme/evopath', cliName: 'evopathcli' })
+    deriveIdentity({ productName: 'Base Product', repoSlug: 'kappa/base-repo', cliName: 'appctl' }),
+    deriveIdentity({ productName: 'EvoPath', repoSlug: 'kappa/evopath', cliName: 'evopathcli' })
   );
 
   it('replaces only on letter/digit boundaries, so appctl does not eat appctlx', () => {

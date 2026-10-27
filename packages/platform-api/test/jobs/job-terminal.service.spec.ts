@@ -1237,8 +1237,8 @@ describe('JobTerminalService', () => {
         clock
       );
 
-      realThrottle.registerProviderKey('vision.describe', 'acme-vision');
-      realThrottle.registerProviderKey('vision.tag', 'acme-vision');
+      realThrottle.registerProviderKey('vision.describe', 'kappa-vision');
+      realThrottle.registerProviderKey('vision.tag', 'kappa-vision');
       realThrottle.registerProviderKey('speech.transcribe', 'other-vendor');
 
       const wired = new JobTerminalService(
@@ -1272,8 +1272,8 @@ describe('JobTerminalService', () => {
         clock
       );
 
-      realThrottle.registerProviderKey('vision.describe', 'acme-vision');
-      realThrottle.registerProviderKey('vision.tag', 'acme-vision');
+      realThrottle.registerProviderKey('vision.describe', 'kappa-vision');
+      realThrottle.registerProviderKey('vision.tag', 'kappa-vision');
 
       const wired = new JobTerminalService(
         prismaStub(),

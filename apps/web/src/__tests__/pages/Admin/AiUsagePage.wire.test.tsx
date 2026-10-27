@@ -52,7 +52,7 @@ describe('AiUsagePage — wire contract', () => {
 
   it('reads the day series and the user breakdown over one 30-day ISO-date range', async () => {
     await renderLoaded();
-    await screen.findByText('dana@acme.test');
+    await screen.findByText('dana@kappa.example.test');
 
     expect(captured.map((params) => params.get('groupBy')).sort()).toEqual(['day', 'user']);
     for (const params of captured) {
@@ -73,7 +73,7 @@ describe('AiUsagePage — wire contract', () => {
     expect(screen.getByRole('region', { name: 'Paid by organization key' })).toHaveTextContent(
       '30 requests',
     );
-    expect(await screen.findByText('lee@acme.test')).toBeInTheDocument();
+    expect(await screen.findByText('lee@kappa.example.test')).toBeInTheDocument();
   });
 
   it('sends the chosen grouping, and re-reads both reports for a new range', async () => {

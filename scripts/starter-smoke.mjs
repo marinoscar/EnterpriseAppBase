@@ -20,7 +20,7 @@
 //   --from tarballs   use the `marinoscar-platform-*.tgz` files in <dir>.
 //   --from registry   override every platform package with <tag> (`next`).
 //   --project <dir>   the project to smoke (default: starter/).
-//   --create          first run `new-project.mjs create` (Acme Hub, acmectl)
+//   --create          first run `new-project.mjs create` (Kappa Hub, kappactl)
 //                     into a temp directory, then smoke that project.
 //   --db              also run the API's db tier (needs POSTGRES_* of a
 //                     database the script may migrate).
@@ -136,26 +136,26 @@ function copyProject(source) {
 
 function createProject() {
   const parent = tempDir('create');
-  const dir = join(parent, 'acme-hub');
-  run(process.execPath, [join(REPO_ROOT, 'scripts', 'new-project.mjs'), 'create', '--dir', dir, '--name', 'Acme Hub', '--repo', 'acme/acme-hub', '--cli', 'acmectl', '--dry-run'], REPO_ROOT);
+  const dir = join(parent, 'kappa-hub');
+  run(process.execPath, [join(REPO_ROOT, 'scripts', 'new-project.mjs'), 'create', '--dir', dir, '--name', 'Kappa Hub', '--repo', 'kappa/kappa-hub', '--cli', 'kappactl', '--dry-run'], REPO_ROOT);
   if (existsSync(dir)) throw new Error('create --dry-run wrote the target directory');
-  run(process.execPath, [join(REPO_ROOT, 'scripts', 'new-project.mjs'), 'create', '--dir', dir, '--name', 'Acme Hub', '--repo', 'acme/acme-hub', '--cli', 'acmectl'], REPO_ROOT);
+  run(process.execPath, [join(REPO_ROOT, 'scripts', 'new-project.mjs'), 'create', '--dir', dir, '--name', 'Kappa Hub', '--repo', 'kappa/kappa-hub', '--cli', 'kappactl'], REPO_ROOT);
   return { dir, parent };
 }
 
 /** The created project carries the new identity everywhere a user sees it, and none of the starter's. */
 function assertCreatedIdentity(dir) {
   const help = spawnSync(process.execPath, [join(dir, 'apps', 'cli', 'dist', 'cli.js'), '--help'], { encoding: 'utf8' });
-  if (!/Usage: acmectl\b/.test(help.stdout)) throw new Error(`the built CLI does not name acmectl:\n${help.stdout}${help.stderr}`);
+  if (!/Usage: kappactl\b/.test(help.stdout)) throw new Error(`the built CLI does not name kappactl:\n${help.stdout}${help.stderr}`);
   const html = readFileSync(join(dir, 'apps', 'web', 'dist', 'index.html'), 'utf8');
-  if (!html.includes('<title>Acme Hub</title>')) throw new Error('the built web <title> is not "Acme Hub"');
+  if (!html.includes('<title>Kappa Hub</title>')) throw new Error('the built web <title> is not "Kappa Hub"');
   const manifest = JSON.parse(readFileSync(join(dir, 'apps', 'web', 'dist', 'manifest.webmanifest'), 'utf8'));
-  if (manifest.name !== 'Acme Hub') throw new Error(`the web manifest names "${manifest.name}"`);
-  if (!readFileSync(join(dir, 'infra', 'compose', 'worker.compose.yml'), 'utf8').includes('ACMECTL_TOKEN')) {
-    throw new Error('the worker fragment does not render ACMECTL_*');
+  if (manifest.name !== 'Kappa Hub') throw new Error(`the web manifest names "${manifest.name}"`);
+  if (!readFileSync(join(dir, 'infra', 'compose', 'worker.compose.yml'), 'utf8').includes('KAPPACTL_TOKEN')) {
+    throw new Error('the worker fragment does not render KAPPACTL_*');
   }
   run(process.execPath, [join(REPO_ROOT, 'scripts', 'starter-identity.mjs'), '--root', dir], REPO_ROOT);
-  log('created project: acmectl --help, <title>, manifest, worker fragment and identity scan all carry Acme Hub');
+  log('created project: kappactl --help, <title>, manifest, worker fragment and identity scan all carry Kappa Hub');
 }
 
 /** The project carries the dual-tool AI setup (Claude Code and OpenCode): shared rules, config and the same agent names in both folders. */

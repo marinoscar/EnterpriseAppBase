@@ -45,7 +45,7 @@ describe('a package port supplied through host.extensions', () => {
           <OpenTranscriptButton id="t-42" />
         </PlatformHostProvider>,
       ),
-    ).toThrow(/no extension port Symbol\(@acme\/transcripts\/port\).*host\.extensions/);
+    ).toThrow(/no extension port Symbol\(@kappa\/transcripts\/port\).*host\.extensions/);
 
     consoleError.mockRestore();
   });

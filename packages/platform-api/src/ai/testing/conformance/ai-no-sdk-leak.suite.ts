@@ -500,11 +500,11 @@ function cases(options: AiNoSdkLeakOptions): ReadonlyArray<ConformanceCase> {
       name: 'the detector bans a registered provider SDK outside the provider directories, and allows it inside',
       run: (_report, expect) => {
         const planted: SourceFile[] = [
-          { rel: 'platform-extensions/ai/acme/acme.adapter.ts', source: `${IMPORT} { Acme } from 'acme-sdk/client';` },
-          { rel: 'features/summary.service.ts', source: `${IMPORT} { Acme } from 'acme-sdk';` },
+          { rel: 'platform-extensions/ai/kappa/kappa.adapter.ts', source: `${IMPORT} { Org Kappa } from 'kappa-sdk/client';` },
+          { rel: 'features/summary.service.ts', source: `${IMPORT} { Org Kappa } from 'kappa-sdk';` },
         ];
-        expect(findSdkLeaks(planted, ['platform-extensions/ai/'], [...PROVIDER_SDK_PACKAGES, 'acme-sdk'])).toEqual([
-          'features/summary.service.ts: imports "acme-sdk"',
+        expect(findSdkLeaks(planted, ['platform-extensions/ai/'], [...PROVIDER_SDK_PACKAGES, 'kappa-sdk'])).toEqual([
+          'features/summary.service.ts: imports "kappa-sdk"',
         ]);
       },
     },

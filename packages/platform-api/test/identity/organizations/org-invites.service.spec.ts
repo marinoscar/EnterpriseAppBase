@@ -70,7 +70,7 @@ describe('OrgInvitesService (#726)', () => {
       metrics as unknown as AppMetricsService,
     );
 
-    prisma.organization.findUnique.mockResolvedValue({ id: ORG, name: 'Acme' } as never);
+    prisma.organization.findUnique.mockResolvedValue({ id: ORG, name: 'Org Kappa' } as never);
     prisma.role.findUnique.mockImplementation((async ({ where }: any) => ({
       id: `role-${where.name}`,
       name: where.name,
@@ -101,7 +101,7 @@ describe('OrgInvitesService (#726)', () => {
       expect(ttlMs).toBeGreaterThan((ORG_INVITE_TTL_DAYS - 1) * 86_400_000);
       expect(ttlMs).toBeLessThanOrEqual(ORG_INVITE_TTL_DAYS * 86_400_000);
       expect(prisma.allowedEmail.create).toHaveBeenCalledWith({
-        data: { email: EMAIL, addedById: ACTOR, notes: 'Invited to organization Acme' },
+        data: { email: EMAIL, addedById: ACTOR, notes: 'Invited to organization Org Kappa' },
       });
 
       expect(events).toEqual([
@@ -113,7 +113,7 @@ describe('OrgInvitesService (#726)', () => {
       ]);
       expect(notifications.notifyAddress).toHaveBeenCalledWith('org.invitation', EMAIL, {
         recipientEmail: EMAIL,
-        orgName: 'Acme',
+        orgName: 'Org Kappa',
         roleName: 'contributor',
         invitedBy: 'Ana Admin',
         signInUrl: 'https://app.example.com/login',

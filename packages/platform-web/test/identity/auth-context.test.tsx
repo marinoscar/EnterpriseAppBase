@@ -48,14 +48,14 @@ describe('AuthProvider', () => {
     const me = {
       ...USER,
       tenancyMode: 'multi' as const,
-      activeOrg: { id: 'o1', name: 'Acme', slug: 'acme' },
-      memberships: [{ orgId: 'o1', name: 'Acme', slug: 'acme', role: 'org_admin' }],
+      activeOrg: { id: 'o1', name: 'Org Kappa', slug: 'kappa' },
+      memberships: [{ orgId: 'o1', name: 'Org Kappa', slug: 'kappa', role: 'org_admin' }],
     };
     const client = fakeSessionClient({ refreshed: true, me });
     const { result } = renderHook(() => useAuth(), { wrapper: wrapper({ client }) });
     await waitFor(() => expect(result.current.isAuthenticated).toBe(true));
     expect(result.current.user?.email).toBe('ada@example.com');
-    expect(result.current.activeOrg).toEqual({ id: 'o1', name: 'Acme', slug: 'acme' });
+    expect(result.current.activeOrg).toEqual({ id: 'o1', name: 'Org Kappa', slug: 'kappa' });
     expect(result.current.memberships).toHaveLength(1);
   });
 

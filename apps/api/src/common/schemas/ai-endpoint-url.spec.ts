@@ -15,8 +15,8 @@ import {
 
 describe('aiEndpointUrlProblem (#448)', () => {
   it.each([
-    'https://contoso.openai.azure.com',
-    'https://contoso.openai.azure.com/',
+    'https://theta.openai.azure.com',
+    'https://theta.openai.azure.com/',
     'https://gateway.example.com/azure',
   ])('accepts the Azure endpoint %s', (url) => {
     expect(aiEndpointUrlProblem(url, AI_AZURE_ENDPOINT_SCHEMES)).toBeNull();
@@ -32,7 +32,7 @@ describe('aiEndpointUrlProblem (#448)', () => {
   });
 
   it.each([
-    ['plain http for Azure', 'http://contoso.openai.azure.com', AI_AZURE_ENDPOINT_SCHEMES, /scheme/],
+    ['plain http for Azure', 'http://theta.openai.azure.com', AI_AZURE_ENDPOINT_SCHEMES, /scheme/],
     ['a file: URL', 'file:///etc/passwd', AI_COMPATIBLE_ENDPOINT_SCHEMES, /scheme/],
     ['a gopher: URL', 'gopher://internal:70/', AI_COMPATIBLE_ENDPOINT_SCHEMES, /scheme/],
     ['a data: URL', 'data:text/plain,hello', AI_COMPATIBLE_ENDPOINT_SCHEMES, /scheme/],
@@ -51,7 +51,7 @@ describe('the #448 provider slots', () => {
     expect(
       systemAiAzureProviderSchema.safeParse({
         enabled: true,
-        baseUrl: 'https://contoso.openai.azure.com',
+        baseUrl: 'https://theta.openai.azure.com',
         apiVersion: '2025-04-01-preview',
         apiStyle: 'responses',
         deployments: { 'gpt-4o-mini': 'mini-prod', 'text-embedding-3-small': 'embed_v1.2' },
@@ -95,10 +95,10 @@ describe('the #448 provider slots', () => {
   // a 400 for an `http` Azure endpoint, before anything is stored.
   it('applies the same URL rules to a PATCH when the namespace merges it', () => {
     const current = AI_SYSTEM_SETTINGS.defaults;
-    const patch = { providers: { 'azure-openai': { baseUrl: 'http://contoso.openai.azure.com' } } };
+    const patch = { providers: { 'azure-openai': { baseUrl: 'http://theta.openai.azure.com' } } };
 
     expect(systemAiPatchSchema.safeParse(patch).success).toBe(true);
     expect(() => AI_SYSTEM_SETTINGS.merge(current, patch)).toThrow(BadRequestException);
-    expect(() => AI_SYSTEM_SETTINGS.merge(current, { providers: { 'azure-openai': { baseUrl: 'https://contoso.openai.azure.com' } } })).not.toThrow();
+    expect(() => AI_SYSTEM_SETTINGS.merge(current, { providers: { 'azure-openai': { baseUrl: 'https://theta.openai.azure.com' } } })).not.toThrow();
   });
 });

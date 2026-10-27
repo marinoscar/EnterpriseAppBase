@@ -40,7 +40,7 @@ An app that shipped before adopting the platform copies its legacy values here v
 Do not edit these files by hand. Run the codemod:
 
 ```bash
-node scripts/rename.mjs --name "Acme Hub" --repo acme/acme-hub --theme '#7c3aed'
+node scripts/rename.mjs --name "Kappa Hub" --repo kappa/kappa-hub --theme '#7c3aed'
 ```
 
 `scripts/rename.mjs` reads the current values from `identity.json`, rewrites

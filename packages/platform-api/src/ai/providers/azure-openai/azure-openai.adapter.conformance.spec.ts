@@ -19,7 +19,7 @@ import { AzureOpenAiProviderAdapter } from './azure-openai.adapter';
 
 const VALID_KEY = 'azure-conformance-valid-0000000000';
 const INVALID_KEY = 'azure-conformance-revoked-00000000';
-const ENDPOINT = 'https://contoso.openai.azure.com';
+const ENDPOINT = 'https://theta.openai.azure.com';
 const MODEL = 'gpt-4o-2024-08-06';
 const BROKEN_MODEL = 'gpt-4o-broken';
 const EMBEDDING_MODEL = 'text-embedding-3-small';

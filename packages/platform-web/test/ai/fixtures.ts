@@ -123,12 +123,12 @@ export const mockAiAdminConfigWithCompatible: AiAdminConfig = {
       displayName: 'Azure OpenAI',
       registered: true,
       enabled: true,
-      baseUrl: 'https://contoso.openai.azure.com',
+      baseUrl: 'https://theta.openai.azure.com',
       settingsFields: ['baseUrl', 'apiVersion', 'apiStyle', 'deployments'],
       settings: {
-        baseUrl: 'https://contoso.openai.azure.com',
+        baseUrl: 'https://theta.openai.azure.com',
         apiVersion: '2024-10-21',
-        deployments: { 'gpt-4o': 'contoso-gpt-4o' },
+        deployments: { 'gpt-4o': 'theta-gpt-4o' },
       },
       requiresBaseUrl: true,
       help: {
@@ -137,7 +137,7 @@ export const mockAiAdminConfigWithCompatible: AiAdminConfig = {
       },
       apiVersion: '2024-10-21',
       apiStyle: null,
-      deployments: { 'gpt-4o': 'contoso-gpt-4o' },
+      deployments: { 'gpt-4o': 'theta-gpt-4o' },
       requiresKey: null,
       keyStatus: { configured: true, hint: '••••az12', updatedAt: T0, updatedByUserId: 'admin-user-id' },
       supportedCapabilities: ['responses', 'structured_output', 'tools', 'streaming'],
@@ -620,11 +620,11 @@ export const mockAiStructuredResponse: AiResponse = {
   output: [
     {
       type: 'message',
-      text: '{"name":"Dana Ruiz","email":"dana@acme.test","phone":"+1 555 0100","company":"Acme Corp"}',
+      text: '{"name":"Dana Ruiz","email":"dana@kappa.example.test","phone":"+1 555 0100","company":"Org Kappa"}',
     },
   ],
-  outputText: '{"name":"Dana Ruiz","email":"dana@acme.test","phone":"+1 555 0100","company":"Acme Corp"}',
-  parsed: { name: 'Dana Ruiz', email: 'dana@acme.test', phone: '+1 555 0100', company: 'Acme Corp' },
+  outputText: '{"name":"Dana Ruiz","email":"dana@kappa.example.test","phone":"+1 555 0100","company":"Org Kappa"}',
+  parsed: { name: 'Dana Ruiz', email: 'dana@kappa.example.test', phone: '+1 555 0100', company: 'Org Kappa' },
   usage: { inputTokens: 40, outputTokens: 30 },
   finishReason: 'stop',
 };
@@ -676,8 +676,8 @@ const USAGE_SERIES: Record<AiUsageGroupBy, AiUsageSeriesEntry[]> = {
     usageEntry('2026-09-26', '2026-09-26', { requests: 80, failed: 4, inputTokens: 32_000, outputTokens: 8_500 }),
   ],
   user: [
-    usageEntry('user-dana', 'dana@acme.test', { requests: 90, failed: 5, inputTokens: 36_000, outputTokens: 9_000 }),
-    usageEntry('user-lee', 'lee@acme.test', { requests: 30, failed: 1, inputTokens: 12_000, outputTokens: 3_500 }),
+    usageEntry('user-dana', 'dana@kappa.example.test', { requests: 90, failed: 5, inputTokens: 36_000, outputTokens: 9_000 }),
+    usageEntry('user-lee', 'lee@kappa.example.test', { requests: 30, failed: 1, inputTokens: 12_000, outputTokens: 3_500 }),
   ],
   model: [
     usageEntry('gpt-5-mini', 'gpt-5-mini', { requests: 100, failed: 5, inputTokens: 40_000, outputTokens: 10_000 }),
@@ -692,7 +692,7 @@ const USAGE_SERIES: Record<AiUsageGroupBy, AiUsageSeriesEntry[]> = {
   ],
   // #739: per organization; `none` is the organization-less catalogue-sync rows.
   org: [
-    usageEntry('8c1e7f4a-3b2d-4c5e-9f60-1a2b3c4d5e6f', 'Acme', { requests: 100, failed: 4, inputTokens: 40_000, outputTokens: 11_000 }),
+    usageEntry('8c1e7f4a-3b2d-4c5e-9f60-1a2b3c4d5e6f', 'Org Kappa', { requests: 100, failed: 4, inputTokens: 40_000, outputTokens: 11_000 }),
     usageEntry('none', 'No organization', { requests: 24, failed: 2, inputTokens: 8_900, outputTokens: 1_800 }),
   ],
   // PP-14.17: per registered feature (`none`: calls made without one), and per operation.

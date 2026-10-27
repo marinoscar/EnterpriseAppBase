@@ -390,7 +390,7 @@ function slugifyName(name: string): string {
  *
  * @example
  * ```ts
- * androidIdentity({ productName: 'Acme Hub', repoSlug: 'acme/acme-hub' }).applicationId; // 'com.acmehub.android'
+ * androidIdentity({ productName: 'Kappa Hub', repoSlug: 'kappa/kappa-hub' }).applicationId; // 'com.kappahub.android'
  * ```
  *
  * @stability experimental

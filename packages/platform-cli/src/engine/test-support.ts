@@ -36,7 +36,7 @@ export const TEST_CLI_IDENTITY: Readonly<CliIdentity> = Object.freeze({
  * @stability experimental
  * @example
  * ```ts
- * const restore = useTestCliIdentity({ name: 'acmectl', displayName: 'Acme CLI', repoSlug: 'acme/acme' });
+ * const restore = useTestCliIdentity({ name: 'kappactl', displayName: 'Kappa CLI', repoSlug: 'kappa/kappa' });
  * afterEach(restore);
  * ```
  */

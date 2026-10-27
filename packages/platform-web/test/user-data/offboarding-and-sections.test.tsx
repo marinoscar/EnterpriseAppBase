@@ -7,7 +7,7 @@ import { DANGER_ZONE_GROUP_LABEL, dangerZoneLastViolations } from '../../src/use
 import { OffboardOrganizationButton, dangerZoneSettingsPage, factoryResetSettingsPage } from '../../src/user-data/ui/index.js';
 import { hostWith, renderWithHost } from './fixtures.js';
 
-const ORG = { id: 'o-1', name: 'Acme', slug: 'acme', isDefault: false };
+const ORG = { id: 'o-1', name: 'Org Kappa', slug: 'kappa', isDefault: false };
 const SUMMARY: OrgOffboardingSummary = {
   org: { id: ORG.id, name: ORG.name, slug: ORG.slug, isDefault: false },
   blockedReason: null,
@@ -42,7 +42,7 @@ describe('OffboardOrganizationButton', () => {
     const dialog = await screen.findByRole('dialog');
     expect(await within(dialog).findByText(/none in 7 days/)).toBeInTheDocument();
     await user.click(within(dialog).getByRole('checkbox'));
-    await user.type(within(dialog).getByLabelText(/Type acme/), 'acme');
+    await user.type(within(dialog).getByLabelText(/Type kappa/), 'kappa');
     const confirm = within(dialog).getByRole('button', { name: 'Offboard' });
     expect(confirm).toBeDisabled(); // the skip reason is missing
     await user.type(within(dialog).getByLabelText(/Why go ahead anyway/), 'exported by the customer');
@@ -51,7 +51,7 @@ describe('OffboardOrganizationButton', () => {
     await user.click(confirm);
     expect(await within(dialog).findByText('Done.', undefined, { timeout: 8000 })).toBeInTheDocument();
     expect(host.requests.find((r) => r.method === 'POST')?.body).toEqual({
-      confirmation: 'acme',
+      confirmation: 'kappa',
       userDisposition: 'purge',
       skipExport: { reason: 'exported by the customer' },
     });

@@ -38,7 +38,7 @@ export interface StubTelemetryPortsOptions {
    * Secrets the credential store holds. A bare key is a credential name
    * (`reader`, `admin`) under purpose `telemetry_greptime`; a key with a colon
    * is `<purpose>:<name>`, for a registered store's own secrets
-   * (`telemetry_acme:apiKey`).
+   * (`telemetry_kappa:apiKey`).
    */
   credentials?: Readonly<Record<string, string>>;
   /** A patch over the `telemetry` policy defaults (`{ enabled: true }`); `query` and `assistant` merge one level deep. */

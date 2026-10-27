@@ -39,7 +39,7 @@ describe('classifyHost (#773)', () => {
     // public
     ['api.openai.com', 'public'],
     ['https://api.openai.com/v1', 'public'],
-    ['contoso.openai.azure.com', 'public'],
+    ['theta.openai.azure.com', 'public'],
     ['acct.r2.cloudflarestorage.com', 'public'],
     ['accounts.google.com', 'public'],
     ['s3.us-east-1.amazonaws.com', 'public'],

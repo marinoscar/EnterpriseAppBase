@@ -36,7 +36,7 @@ import { APP_CREDENTIAL_PURPOSES, APP_USER_CREDENTIAL_PURPOSES } from '../../src
 
 const API_ROOT = resolve(__dirname, '..', '..');
 const ALICE = '0b6f1d7e-3c2a-4f5b-9e8d-7a6c5b4d3e2f';
-const ACME = '3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d';
+const KAPPA = '3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d';
 
 describe('the app registers its credential purposes', () => {
   it('declares every platform system purpose with its owner and tiers, and no app purpose upstream', () => {
@@ -92,7 +92,7 @@ describe('the reference examples', () => {
       orgGet.mockResolvedValue('org-key');
       systemGet.mockResolvedValue('deployment-key');
       const r = await resolver();
-      await expect(r.resolve(ALICE, 'webhook_signing_key', undefined, { orgId: ACME })).resolves.toEqual({
+      await expect(r.resolve(ALICE, 'webhook_signing_key', undefined, { orgId: KAPPA })).resolves.toEqual({
         source: 'none',
         purpose: 'webhook_signing_key',
       });
@@ -106,15 +106,15 @@ describe('the reference examples', () => {
     withExamples(async () => {
       const r = await resolver();
       systemGet.mockResolvedValue('deployment-token');
-      await expect(r.resolve(ALICE, 'partner_api_token', undefined, { orgId: ACME })).resolves.toMatchObject({ source: 'system' });
-      orgGet.mockResolvedValue('acme-token');
-      await expect(r.resolve(ALICE, 'partner_api_token', undefined, { orgId: ACME })).resolves.toMatchObject({
+      await expect(r.resolve(ALICE, 'partner_api_token', undefined, { orgId: KAPPA })).resolves.toMatchObject({ source: 'system' });
+      orgGet.mockResolvedValue('kappa-token');
+      await expect(r.resolve(ALICE, 'partner_api_token', undefined, { orgId: KAPPA })).resolves.toMatchObject({
         source: 'org',
-        secret: 'acme-token',
+        secret: 'kappa-token',
       });
-      expect(orgGet).toHaveBeenLastCalledWith(ACME, 'partner_api', 'default');
+      expect(orgGet).toHaveBeenLastCalledWith(KAPPA, 'partner_api', 'default');
       userGet.mockResolvedValue('alice-token');
-      await expect(r.resolve(ALICE, 'partner_api_token', undefined, { orgId: ACME })).resolves.toMatchObject({ source: 'user' });
+      await expect(r.resolve(ALICE, 'partner_api_token', undefined, { orgId: KAPPA })).resolves.toMatchObject({ source: 'user' });
     }));
 });
 

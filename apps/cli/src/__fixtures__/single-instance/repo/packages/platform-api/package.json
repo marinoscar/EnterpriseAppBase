@@ -1,5 +1,5 @@
 {
-  "name": "@acme/platform-api",
+  "name": "@kappa/platform-api",
   "version": "0.1.0",
   "peerDependencies": {
     "@nestjs/core": "^11.2.0",

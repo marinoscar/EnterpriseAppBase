@@ -51,9 +51,9 @@ const STARTER_DIR = join(REPO_ROOT, 'starter');
 const USAGE = `
 Start a new product from the starter (published platform packages):
 
-  node scripts/new-project.mjs create --dir ../acme-hub --name "Acme Hub" --repo acme/acme-hub
-       [--cli acmectl] [--theme "#c62828"] [--background "#ffffff"] [--tagline "..."]
-       [--license mit|proprietary --holder "Acme Inc"] [--dry-run]
+  node scripts/new-project.mjs create --dir ../kappa-hub --name "Kappa Hub" --repo kappa/kappa-hub
+       [--cli kappactl] [--theme "#c62828"] [--background "#ffffff"] [--tagline "..."]
+       [--license mit|proprietary --holder "Org Kappa"] [--dry-run]
 
   Copies starter/ into --dir (which must be empty or absent), runs the copy's own
   scripts/rename.mjs with the new identity, writes LICENSE when asked, resets the

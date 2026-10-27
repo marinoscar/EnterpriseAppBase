@@ -1,5 +1,5 @@
 {
-  "name": "@acme/platform-web",
+  "name": "@kappa/platform-web",
   "version": "0.1.0",
   "peerDependencies": {
     "@mui/material": "^9.3.0",

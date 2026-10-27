@@ -37,7 +37,7 @@ function setup(view: { provider?: string; configured?: boolean; settings?: Recor
   const storageAdmin = {
     describeForAdmin: jest.fn().mockResolvedValue({
       provider,
-      drivers: { [provider]: { bucket: 'acme-files', accessKeyId: 'AKIAEXAMPLEKEYID', ...settings } },
+      drivers: { [provider]: { bucket: 'kappa-files', accessKeyId: 'AKIAEXAMPLEKEYID', ...settings } },
       configured,
       secretStatus: { configured: true, hint: '••••XYZ' },
     }),
@@ -57,7 +57,7 @@ describe('StorageEgressContributor (#773)', () => {
       hosts: ['s3.eu-central-1.amazonaws.com'],
       scope: 'public',
     });
-    expect(JSON.stringify(dep)).not.toMatch(/AKIA|XYZ|acme-files/);
+    expect(JSON.stringify(dep)).not.toMatch(/AKIA|XYZ|kappa-files/);
   });
 
   it('uses the effective endpoint host: MinIO is private, R2 is public', async () => {
@@ -76,12 +76,12 @@ describe('StorageEgressContributor (#773)', () => {
   });
 
   it("asks the active driver for its hosts, under the driver's own id and label", async () => {
-    const [dep] = await setup({ provider: 'toy-cloud', settings: { account: 'acme' } }).describe();
+    const [dep] = await setup({ provider: 'toy-cloud', settings: { account: 'kappa' } }).describe();
 
     expect(dep).toMatchObject({
       id: 'storage.toy-cloud',
       capability: 'Object storage (Toy cloud)',
-      hosts: ['acme.blob.toy.example'],
+      hosts: ['kappa.blob.toy.example'],
       enabled: true,
     });
   });

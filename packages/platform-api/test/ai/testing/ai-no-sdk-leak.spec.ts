@@ -41,17 +41,17 @@ async function run(options: AiNoSdkLeakOptions): Promise<Map<string, Error | nul
 }
 
 @Module({})
-class AcmeModule {}
+class KappaModule {}
 
 // A provider an app registered that imports its own SDK (PP-14.6).
 registerAiProvider({
-  id: 'acme-sdk-provider',
-  label: 'Acme',
-  module: AcmeModule,
+  id: 'kappa-sdk-provider',
+  label: 'Org Kappa',
+  module: KappaModule,
   settingsSchema: z.object({}),
   defaults: {},
   requiresKey: true,
-  sdkPackages: ['acme-sdk'],
+  sdkPackages: ['kappa-sdk'],
 });
 
 const cleanApp = (): Record<string, string> => ({ 'a.ts': 'export const a = 1;\n', 'b.ts': 'export const b = 2;\n' });
@@ -196,7 +196,7 @@ describe('the ai-no-sdk-leak suite', () => {
   describe('provider directories and registered SDK packages (PP-14.6)', () => {
     const appWithAdapter = (): Record<string, string> => ({
       ...cleanApp(),
-      'platform-extensions/ai/acme/acme.adapter.ts': sdkImport('acme-sdk'),
+      'platform-extensions/ai/kappa/kappa.adapter.ts': sdkImport('kappa-sdk'),
     });
 
     it('lets an app-side adapter folder import its registered SDK, and nothing else', async () => {
@@ -213,15 +213,15 @@ describe('the ai-no-sdk-leak suite', () => {
 
     it('bans the registered SDK everywhere outside the provider directories', async () => {
       const results = await run({
-        apiTrees: [{ name: 'app', root: tree({ ...appWithAdapter(), 'features/summary.service.ts': sdkImport('acme-sdk') }), minFiles: 2 }],
+        apiTrees: [{ name: 'app', root: tree({ ...appWithAdapter(), 'features/summary.service.ts': sdkImport('kappa-sdk') }), minFiles: 2 }],
         webTrees: [],
         noSdkManifests: [],
         providerDirs: ['platform-extensions/ai/'],
       });
 
       const failure = results.get('app: imports no provider SDK anywhere: a feature calls AiService.forUser');
-      expect(failure!.message).toContain('features/summary.service.ts: imports "acme-sdk"');
-      expect(failure!.message).not.toContain('acme.adapter.ts');
+      expect(failure!.message).toContain('features/summary.service.ts: imports "kappa-sdk"');
+      expect(failure!.message).not.toContain('kappa.adapter.ts');
     });
 
     it('exempts any SDK an adapter folder imports, not only the one its definition lists', async () => {
@@ -238,13 +238,13 @@ describe('the ai-no-sdk-leak suite', () => {
     it('never exempts a web tree', async () => {
       const results = await run({
         apiTrees: [],
-        webTrees: [{ name: 'web', root: tree({ ...cleanApp(), 'platform-extensions/ai/chat.tsx': sdkImport('acme-sdk') }), minFiles: 2 }],
+        webTrees: [{ name: 'web', root: tree({ ...cleanApp(), 'platform-extensions/ai/chat.tsx': sdkImport('kappa-sdk') }), minFiles: 2 }],
         noSdkManifests: [],
         providerDirs: ['platform-extensions/ai/'],
       });
 
       const [, error] = [...results].find(([title]) => title.startsWith('web: imports no provider SDK'))!;
-      expect(error!.message).toContain('chat.tsx: imports "acme-sdk"');
+      expect(error!.message).toContain('chat.tsx: imports "kappa-sdk"');
     });
 
     it('a provider directory that holds no source file fails (a typo exempts nothing)', async () => {
@@ -263,13 +263,13 @@ describe('the ai-no-sdk-leak suite', () => {
       const results = await run({
         apiTrees: [],
         webTrees: [],
-        noSdkManifests: [manifest({ name: 'api', dependencies: { 'acme-sdk': '^1', openai: '^7' } })],
-        extraSdkPackages: ['acme-sdk'],
+        noSdkManifests: [manifest({ name: 'api', dependencies: { 'kappa-sdk': '^1', openai: '^7' } })],
+        extraSdkPackages: ['kappa-sdk'],
       });
       const failure = [...results].find(([title]) => title.endsWith('declares no provider SDK'))![1];
 
       expect(failure!.message).toContain('declares "openai"');
-      expect(failure!.message).not.toContain('acme-sdk');
+      expect(failure!.message).not.toContain('kappa-sdk');
     });
   });
 });

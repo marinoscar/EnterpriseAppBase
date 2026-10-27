@@ -41,7 +41,7 @@ describe('embeddingMath', () => {
 
 describe('AiEmbeddingsResult', () => {
   const result: AiEmbeddingsResponse = {
-    provider: 'acme',
+    provider: 'kappa',
     model: 'embed-x',
     dimensions: 10,
     vectors: [

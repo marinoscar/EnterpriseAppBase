@@ -246,13 +246,13 @@ function codemodExemptions(identity: Identity): Map<string, string[]> {
  *
  * Why this exists: `docs/RENAMING.md`, `packages/shared/README.md` and
  * `scripts/rename.mjs`'s own `USAGE` string all walk through
- * `node scripts/rename.mjs --name "Acme Hub" --repo oscar/acme-hub ...` as a
+ * `node scripts/rename.mjs --name "Kappa Hub" --repo oscar/kappa-hub ...` as a
  * worked example — the exact command the issue's own repro uses. A fork that
  * copies that example verbatim ends up with an identity equal to the
  * example, and this guard's patterns (built from the CURRENT identity) then
  * match that same example prose in those three files. It is not a stale
  * leftover — the prose was never rewritten by a rename, it always said
- * "Acme Hub" — so it needs its own exemption, separate from
+ * "Kappa Hub" — so it needs its own exemption, separate from
  * `codemodExemptions` above (which is about the codemod's OUTPUT, not
  * unrelated documentation that happens to share the new name by
  * coincidence).
@@ -429,7 +429,7 @@ describe('exampleDocExemptions (issue #514)', () => {
     expect([...exemptions.keys()].sort()).toEqual([...EXAMPLE_DOC_FILES].sort());
     for (const file of EXAMPLE_DOC_FILES) {
       expect(exemptions.get(file)).toEqual(
-        expect.arrayContaining([EXAMPLE_IDENTITY.name, EXAMPLE_IDENTITY.repo, 'acme-hub']),
+        expect.arrayContaining([EXAMPLE_IDENTITY.name, EXAMPLE_IDENTITY.repo, 'kappa-hub']),
       );
     }
   });

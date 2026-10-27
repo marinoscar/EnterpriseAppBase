@@ -57,7 +57,7 @@ describe('LoginPage', () => {
       <LoginPage
         slots={{
           Logo: () => <p>app logo</p>,
-          Title: () => <h1>Sign in to Acme</h1>,
+          Title: () => <h1>Sign in to Org Kappa</h1>,
           Footer: () => <p>legal links</p>,
           ProviderButton: ({ provider, onClick }) => <button onClick={onClick}>use {provider}</button>,
         }}
@@ -66,7 +66,7 @@ describe('LoginPage', () => {
       '/login',
     );
     expect(screen.getByText('app logo')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Sign in to Acme' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Sign in to Org Kappa' })).toBeInTheDocument();
     expect(screen.getByText('legal links')).toBeInTheDocument();
     expect(screen.queryByText(/By signing in, you agree/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'use google' })).toBeInTheDocument();
@@ -101,12 +101,12 @@ describe('OAuthButton', () => {
       <>
         <OAuthButton provider="github" onClick={() => undefined} />
         <OAuthButton provider="oidc" onClick={() => undefined} />
-        <OAuthButton provider="acme" onClick={() => undefined} />
+        <OAuthButton provider="kappa" onClick={() => undefined} />
       </>,
     );
     expect(screen.getByRole('button', { name: 'Continue with GitHub' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Continue with SSO/ })).toHaveTextContent('key');
-    expect(screen.getByRole('button', { name: 'Continue with acme' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Continue with kappa' })).toBeInTheDocument();
   });
 
   it('lets an app override a built-in look', () => {
@@ -130,9 +130,9 @@ describe('AuthCallbackPage', () => {
   });
 
   it('shows the copy for a known code and the generic copy for anything else, naming the app', async () => {
-    renderAt(<AuthCallbackPage />, authValue({ user: null }), '/auth/callback?error=not_allowlisted', { appName: 'Acme' });
+    renderAt(<AuthCallbackPage />, authValue({ user: null }), '/auth/callback?error=not_allowlisted', { appName: 'Org Kappa' });
     expect(await screen.findByRole('heading', { name: "You don't have access yet" })).toBeInTheDocument();
-    expect(screen.getByText(/isn't approved to use Acme yet/)).toBeInTheDocument();
+    expect(screen.getByText(/isn't approved to use Org Kappa yet/)).toBeInTheDocument();
   });
 
   it('never renders a free-text error and drops the token when /auth/me fails', async () => {
@@ -152,7 +152,7 @@ describe('AuthCallbackPage', () => {
 
 describe('sign-in copy', () => {
   it('has copy for every code and narrows unknown values', () => {
-    const content = createSignInErrorContent('Acme');
+    const content = createSignInErrorContent('Org Kappa');
     expect(Object.keys(content).sort()).toEqual([...SIGN_IN_ERROR_CODES].sort());
     expect(resolveSignInErrorCode('<script>')).toBe('authentication_failed');
     expect(resolveSignInErrorCode('account_disabled')).toBe('account_disabled');

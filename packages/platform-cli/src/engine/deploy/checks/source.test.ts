@@ -67,45 +67,45 @@ function find(id: string): Check {
 
 describe('isHttpsGithubUrl', () => {
   it('is true for a plain https github URL', () => {
-    expect(isHttpsGithubUrl('https://github.com/acme/widgets')).toBe(true);
+    expect(isHttpsGithubUrl('https://github.com/kappa/widgets')).toBe(true);
   });
 
   it('is true with a trailing .git', () => {
-    expect(isHttpsGithubUrl('https://github.com/acme/widgets.git')).toBe(true);
+    expect(isHttpsGithubUrl('https://github.com/kappa/widgets.git')).toBe(true);
   });
 
   it('tolerates www.', () => {
-    expect(isHttpsGithubUrl('https://www.github.com/acme/widgets')).toBe(true);
+    expect(isHttpsGithubUrl('https://www.github.com/kappa/widgets')).toBe(true);
   });
 
   it('is true with embedded credentials, which it strips before testing', () => {
     // Userinfo assembled at runtime so secret scanners don't read the fixture as a credential.
     const userinfo = ['x-access-token', 'placeholder'].join(':');
-    expect(isHttpsGithubUrl(`https://${userinfo}@github.com/acme/widgets`)).toBe(true);
+    expect(isHttpsGithubUrl(`https://${userinfo}@github.com/kappa/widgets`)).toBe(true);
   });
 
   it('is case-insensitive on scheme and host', () => {
-    expect(isHttpsGithubUrl('HTTPS://GITHUB.COM/acme/widgets')).toBe(true);
+    expect(isHttpsGithubUrl('HTTPS://GITHUB.COM/kappa/widgets')).toBe(true);
   });
 
   it('tolerates surrounding whitespace', () => {
-    expect(isHttpsGithubUrl('  https://github.com/acme/widgets  ')).toBe(true);
+    expect(isHttpsGithubUrl('  https://github.com/kappa/widgets  ')).toBe(true);
   });
 
   it('is false for an ssh URL, even to github', () => {
-    expect(isHttpsGithubUrl('git@github.com:acme/widgets.git')).toBe(false);
+    expect(isHttpsGithubUrl('git@github.com:kappa/widgets.git')).toBe(false);
   });
 
   it('is false for an explicit ssh:// scheme', () => {
-    expect(isHttpsGithubUrl('ssh://git@github.com/acme/widgets.git')).toBe(false);
+    expect(isHttpsGithubUrl('ssh://git@github.com/kappa/widgets.git')).toBe(false);
   });
 
   it('is false for a non-github host', () => {
-    expect(isHttpsGithubUrl('https://gitlab.com/acme/widgets')).toBe(false);
+    expect(isHttpsGithubUrl('https://gitlab.com/kappa/widgets')).toBe(false);
   });
 
   it('is false for a github URL with no owner/repo', () => {
-    expect(isHttpsGithubUrl('https://github.com/acme')).toBe(false);
+    expect(isHttpsGithubUrl('https://github.com/kappa')).toBe(false);
   });
 
   it('is false for a bare host with nothing after it', () => {
@@ -178,10 +178,10 @@ describe('gitHasCredentialFor', () => {
       return { exitCode: 0, stdout: 'abc123\tHEAD' };
     });
 
-    const ok = await gitHasCredentialFor('https://github.com/acme/widgets', run);
+    const ok = await gitHasCredentialFor('https://github.com/kappa/widgets', run);
 
     expect(ok).toBe(true);
-    expect(seenArgv).toEqual([['git', 'ls-remote', 'https://github.com/acme/widgets', 'HEAD']]);
+    expect(seenArgv).toEqual([['git', 'ls-remote', 'https://github.com/kappa/widgets', 'HEAD']]);
     expect(seenEnv[0]?.GIT_TERMINAL_PROMPT).toBe('0');
     expect(seenEnv[0]?.GIT_ASKPASS).toBe('/bin/true');
   });
@@ -189,13 +189,13 @@ describe('gitHasCredentialFor', () => {
   it('is false, never throwing, on any failure', async () => {
     const run = fakeRunCommand(() => ({ exitCode: 128, stderr: 'fatal: could not read Username' }));
 
-    expect(await gitHasCredentialFor('https://github.com/acme/private', run)).toBe(false);
+    expect(await gitHasCredentialFor('https://github.com/kappa/private', run)).toBe(false);
   });
 
   it('is false when the command itself is missing', async () => {
     const run = fakeRunCommand(() => undefined);
 
-    expect(await gitHasCredentialFor('https://github.com/acme/widgets', run)).toBe(false);
+    expect(await gitHasCredentialFor('https://github.com/kappa/widgets', run)).toBe(false);
   });
 });
 
@@ -218,17 +218,17 @@ describe('gitCredentialStateFor', () => {
       return { exitCode: 0 };
     });
 
-    expect(await gitCredentialStateFor('git@github.com:acme/widgets.git', run)).toBeUndefined();
-    expect(await gitCredentialStateFor('https://gitlab.com/acme/widgets', run)).toBeUndefined();
+    expect(await gitCredentialStateFor('git@github.com:kappa/widgets.git', run)).toBeUndefined();
+    expect(await gitCredentialStateFor('https://gitlab.com/kappa/widgets', run)).toBeUndefined();
     expect(called).toBe(false);
   });
 
   it('probes and returns the answer for an HTTPS GitHub URL', async () => {
     const run = fakeRunCommand(() => ({ exitCode: 0, stdout: 'ok' }));
-    expect(await gitCredentialStateFor('https://github.com/acme/widgets', run)).toBe(true);
+    expect(await gitCredentialStateFor('https://github.com/kappa/widgets', run)).toBe(true);
 
     const failing = fakeRunCommand(() => ({ exitCode: 128, stderr: 'auth failed' }));
-    expect(await gitCredentialStateFor('https://github.com/acme/widgets', failing)).toBe(false);
+    expect(await gitCredentialStateFor('https://github.com/kappa/widgets', failing)).toBe(false);
   });
 });
 
@@ -238,23 +238,23 @@ describe('needsGithubCli', () => {
   });
 
   it('is false for a non-github URL, regardless of gitCredentialed', () => {
-    expect(needsGithubCli({ repoUrl: 'https://gitlab.com/acme/widgets', gitCredentialed: false })).toBe(false);
+    expect(needsGithubCli({ repoUrl: 'https://gitlab.com/kappa/widgets', gitCredentialed: false })).toBe(false);
   });
 
   it('is false for an ssh github URL', () => {
-    expect(needsGithubCli({ repoUrl: 'git@github.com:acme/widgets.git', gitCredentialed: false })).toBe(false);
+    expect(needsGithubCli({ repoUrl: 'git@github.com:kappa/widgets.git', gitCredentialed: false })).toBe(false);
   });
 
   it('is true only for an HTTPS github URL git was probed and found unable to read', () => {
-    expect(needsGithubCli({ repoUrl: 'https://github.com/acme/widgets', gitCredentialed: false })).toBe(true);
+    expect(needsGithubCli({ repoUrl: 'https://github.com/kappa/widgets', gitCredentialed: false })).toBe(true);
   });
 
   it('is false when git can already read it', () => {
-    expect(needsGithubCli({ repoUrl: 'https://github.com/acme/widgets', gitCredentialed: true })).toBe(false);
+    expect(needsGithubCli({ repoUrl: 'https://github.com/kappa/widgets', gitCredentialed: true })).toBe(false);
   });
 
   it('is false -- not promoted -- when unprobed (gitCredentialed undefined)', () => {
-    expect(needsGithubCli({ repoUrl: 'https://github.com/acme/widgets', gitCredentialed: undefined })).toBe(false);
+    expect(needsGithubCli({ repoUrl: 'https://github.com/kappa/widgets', gitCredentialed: undefined })).toBe(false);
   });
 });
 
@@ -279,7 +279,7 @@ describe('gh-installed: the promotion matrix', () => {
 
   it('is SKIPPED (not needed) when the repo is not an HTTPS GitHub URL', async () => {
     const result = await find('gh-installed').run(
-      context({ repoUrl: 'git@github.com:acme/widgets.git' }),
+      context({ repoUrl: 'git@github.com:kappa/widgets.git' }),
     );
 
     expect(result.status).toBe('skip');
@@ -289,7 +289,7 @@ describe('gh-installed: the promotion matrix', () => {
 
   it('is SKIPPED (not needed) when git can already read the HTTPS GitHub URL', async () => {
     const result = await find('gh-installed').run(
-      context({ repoUrl: 'https://github.com/acme/widgets', gitCredentialed: true }),
+      context({ repoUrl: 'https://github.com/kappa/widgets', gitCredentialed: true }),
     );
 
     expect(result.status).toBe('skip');
@@ -298,21 +298,21 @@ describe('gh-installed: the promotion matrix', () => {
 
   it('is REQUIRED and FAILS when the HTTPS GitHub clone has no credential', async () => {
     const check = find('gh-installed');
-    const ctx = context({ repoUrl: 'https://github.com/acme/widgets', gitCredentialed: false });
+    const ctx = context({ repoUrl: 'https://github.com/kappa/widgets', gitCredentialed: false });
 
     expect(check.severityFor?.(ctx)).toBe('required');
 
     const result = await check.run(ctx);
     expect(result.status).toBe('fail');
     expect(result.detail).toContain('not installed');
-    expect(result.detail).toContain('https://github.com/acme/widgets');
+    expect(result.detail).toContain('https://github.com/kappa/widgets');
     expect(result.detail).toContain('authentication prompt');
     expect(result.remedy).toContain('apt-get install gh');
   });
 
   it('stays RECOMMENDED (warn, not fail) when gitCredentialed is unprobed (undefined)', async () => {
     const check = find('gh-installed');
-    const ctx = context({ repoUrl: 'https://github.com/acme/widgets', gitCredentialed: undefined });
+    const ctx = context({ repoUrl: 'https://github.com/kappa/widgets', gitCredentialed: undefined });
 
     expect(check.severityFor?.(ctx)).toBe('recommended');
     const result = await check.run(ctx);
@@ -331,7 +331,7 @@ describe('gh-installed: the promotion matrix', () => {
   it('passes even when required, if gh happens to be installed', async () => {
     const result = await find('gh-installed').run(
       context({
-        repoUrl: 'https://github.com/acme/widgets',
+        repoUrl: 'https://github.com/kappa/widgets',
         gitCredentialed: false,
         runCommand: fakeRunCommand(() => ({ exitCode: 0, stdout: 'gh version 2.63.0\n' })),
       }),
@@ -352,7 +352,7 @@ describe('gh-authenticated: the promotion matrix and token safety', () => {
 
   it('is SKIPPED when gh is not needed at all', async () => {
     const result = await find('gh-authenticated').run(
-      context({ repoUrl: 'https://gitlab.com/acme/widgets' }),
+      context({ repoUrl: 'https://gitlab.com/kappa/widgets' }),
     );
 
     expect(result.status).toBe('skip');
@@ -360,7 +360,7 @@ describe('gh-authenticated: the promotion matrix and token safety', () => {
 
   it('is REQUIRED and FAILS when the HTTPS GitHub clone has no credential and gh is not logged in', async () => {
     const check = find('gh-authenticated');
-    const ctx = context({ repoUrl: 'https://github.com/acme/widgets', gitCredentialed: false });
+    const ctx = context({ repoUrl: 'https://github.com/kappa/widgets', gitCredentialed: false });
 
     expect(check.severityFor?.(ctx)).toBe('required');
     const result = await check.run(ctx);
@@ -393,7 +393,7 @@ describe('gh-authenticated: the promotion matrix and token safety', () => {
   it('mentions gh auth setup-git only when this run actually needs gh for the clone', async () => {
     const needed = await find('gh-authenticated').run(
       context({
-        repoUrl: 'https://github.com/acme/widgets',
+        repoUrl: 'https://github.com/kappa/widgets',
         gitCredentialed: false,
         runCommand: fakeRunCommand(() => ({ exitCode: 0, stdout: '✓ Logged in to github.com account someone\n' })),
       }),
@@ -411,7 +411,7 @@ describe('gh-authenticated: the promotion matrix and token safety', () => {
   it('never echoes a token even when reporting the not-logged-in failure', async () => {
     const result = await find('gh-authenticated').run(
       context({
-        repoUrl: 'https://github.com/acme/widgets',
+        repoUrl: 'https://github.com/kappa/widgets',
         gitCredentialed: false,
         runCommand: fakeRunCommand(() => ({
           exitCode: 1,

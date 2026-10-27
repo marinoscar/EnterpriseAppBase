@@ -257,7 +257,7 @@ describe('scripts/rename.mjs on a starter-based app (issue #741)', () => {
     if (app) rmSync(app, { recursive: true, force: true });
   });
 
-  const args = () => ['--root', app, '--name', 'Acme Hub', '--repo', 'acme/acme-hub', '--cli-name', 'acmectl', '--theme', '#c62828'];
+  const args = () => ['--root', app, '--name', 'Kappa Hub', '--repo', 'kappa/kappa-hub', '--cli-name', 'kappactl', '--theme', '#c62828'];
 
   it('applies only the starter plan, each edit with its declared hit count', () => {
     const result = run(args());
@@ -281,10 +281,10 @@ describe('scripts/rename.mjs on a starter-based app (issue #741)', () => {
       'packages/shared/identity.json',
     ]);
     expect(JSON.parse(readFileSync(join(app, 'packages', 'shared', 'identity.json'), 'utf8'))).toMatchObject({
-      productName: 'Acme Hub',
-      repoSlug: 'acme/acme-hub',
+      productName: 'Kappa Hub',
+      repoSlug: 'kappa/kappa-hub',
       themeColor: '#c62828',
-      cliName: 'acmectl',
+      cliName: 'kappactl',
     });
   });
 

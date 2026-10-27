@@ -93,8 +93,8 @@ describe('ShellLayout: the five coupled breakpoint gates', () => {
 
   it('builds the default AppBar, rail and bottom bar from the navigation', async () => {
     setViewportWidth(DESKTOP);
-    renderShell(<ShellLayout navigation={NAVIGATION} brand="Acme"><p>page</p></ShellLayout>);
-    expect(screen.getByRole('banner')).toHaveTextContent('Acme');
+    renderShell(<ShellLayout navigation={NAVIGATION} brand="Org Kappa"><p>page</p></ShellLayout>);
+    expect(screen.getByRole('banner')).toHaveTextContent('Org Kappa');
     expect(screen.getByRole('navigation', { name: 'Main navigation' })).toBeInTheDocument();
 
     await act(async () => setViewportWidth(PHONE));
@@ -115,7 +115,7 @@ describe('ShellAppBar (gate 5)', () => {
     renderShell(
       <ShellAppBar
         navigation={NAVIGATION}
-        brand="Acme"
+        brand="Org Kappa"
         actions={<button type="button">Bell</button>}
         wideActions={<button type="button">Org</button>}
         userMenu={<span data-testid="menu" />}
@@ -128,7 +128,7 @@ describe('ShellAppBar (gate 5)', () => {
     // No theme toggle without a ShellThemeProvider.
     expect(screen.queryByRole('button', { name: 'toggle theme' })).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByText('Acme'));
+    await userEvent.click(screen.getByText('Org Kappa'));
     expect(screen.getByTestId('where')).toHaveTextContent(/^\/$/);
   });
 
@@ -137,14 +137,14 @@ describe('ShellAppBar (gate 5)', () => {
     renderShell(
       <ShellAppBar
         navigation={NAVIGATION}
-        brand="Acme"
+        brand="Org Kappa"
         actions={<button type="button">Bell</button>}
         wideActions={<button type="button">Org</button>}
         userMenu={<span />}
       />,
       { route: '/admin/settings/jobs/insights' },
     );
-    expect(screen.queryByText('Acme')).not.toBeInTheDocument();
+    expect(screen.queryByText('Org Kappa')).not.toBeInTheDocument();
     // The longest matching card wins.
     expect(screen.getByText('Job Insights')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Bell' })).toBeInTheDocument();
@@ -157,17 +157,17 @@ describe('ShellAppBar (gate 5)', () => {
 
   it("goes home from a hub's own drill-down, and keeps the brand off settings routes", async () => {
     setViewportWidth(PHONE);
-    renderShell(<ShellAppBar navigation={NAVIGATION} brand="Acme" userMenu={<span />} />, { route: '/settings' });
+    renderShell(<ShellAppBar navigation={NAVIGATION} brand="Org Kappa" userMenu={<span />} />, { route: '/settings' });
     expect(screen.getByText('Settings')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Back' }));
     expect(screen.getByTestId('where')).toHaveTextContent(/^\/$/);
-    expect(screen.getByText('Acme')).toBeInTheDocument();
+    expect(screen.getByText('Org Kappa')).toBeInTheDocument();
   });
 
   it('keeps the brand at sm and up on a settings route', () => {
     setViewportWidth(600);
-    renderShell(<ShellAppBar navigation={NAVIGATION} brand="Acme" userMenu={<span />} />, { route: '/settings/profile' });
-    expect(screen.getByText('Acme')).toBeInTheDocument();
+    renderShell(<ShellAppBar navigation={NAVIGATION} brand="Org Kappa" userMenu={<span />} />, { route: '/settings/profile' });
+    expect(screen.getByText('Org Kappa')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument();
   });
 
@@ -177,7 +177,7 @@ describe('ShellAppBar (gate 5)', () => {
     function Mode() {
       return <span data-testid="mode">{useShellTheme().mode}</span>;
     }
-    renderShell(<ShellAppBar navigation={NAVIGATION} brand="Acme" userMenu={<span />} />, {
+    renderShell(<ShellAppBar navigation={NAVIGATION} brand="Org Kappa" userMenu={<span />} />, {
       wrap: (children) => (
         <ShellThemeProvider themes={{ light: createShellTheme('light'), dark: createShellTheme('dark') }}>
           {children}
@@ -292,19 +292,19 @@ describe('ShellUserMenu', () => {
 
 describe('ShellRoot and ShellThemeProvider', () => {
   it('applies the resolved theme and honours a stored choice', () => {
-    localStorage.setItem('acme_theme', 'dark');
+    localStorage.setItem('kappa_theme', 'dark');
     function Palette() {
       return <span data-testid="palette">{useTheme().palette.mode}</span>;
     }
     renderShell(<Palette />, {
       wrap: (children) => (
-        <ShellRoot storageKey="acme_theme" themes={{ light: createShellTheme('light'), dark: createShellTheme('dark') }}>
+        <ShellRoot storageKey="kappa_theme" themes={{ light: createShellTheme('light'), dark: createShellTheme('dark') }}>
           {children}
         </ShellRoot>
       ),
     });
     expect(screen.getByTestId('palette')).toHaveTextContent('dark');
-    localStorage.removeItem('acme_theme');
+    localStorage.removeItem('kappa_theme');
   });
 
   it('useShellTheme throws outside the provider', () => {

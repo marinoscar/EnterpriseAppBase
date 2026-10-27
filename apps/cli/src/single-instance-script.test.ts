@@ -41,7 +41,7 @@ import {
 // FIXTURES (src/__fixtures__/single-instance/)
 // -----------------------------------------------------------------------------
 // - `repo/`: a minimal repository root (root `workspaces`, two apps, two
-//   `packages/platform-*` workspaces under an invented `@acme` scope, so a
+//   `packages/platform-*` workspaces under an invented `@kappa` scope, so a
 //   fork that renames itself never touches this file). Tests copy it to a
 //   temp directory before adding a platform package or a `node_modules`
 //   tree; the checked-in copy is never written to.
@@ -121,8 +121,8 @@ function installedRepo(): string {
   installPackage(root, '@nestjs/core', '11.2.1');
   installPackage(root, 'zod', '4.4.3');
   installPackage(root, 'ink', '7.1.1');
-  linkPackage(root, '@acme/platform-web', join(root, 'packages', 'platform-web'));
-  linkPackage(root, '@acme/platform-api', join(root, 'packages', 'platform-api'));
+  linkPackage(root, '@kappa/platform-web', join(root, 'packages', 'platform-web'));
+  linkPackage(root, '@kappa/platform-api', join(root, 'packages', 'platform-api'));
   writeFileSync(join(root, 'package-lock.json'), readFileSync(lockfilePath('clean')));
   return root;
 }
@@ -168,26 +168,26 @@ describe('the guarded list', () => {
 
   it('discovers the platform packages from packages/platform-*/package.json', () => {
     expect(discoverPlatformPackages(FIXTURE_REPO)).toEqual([
-      '@acme/platform-api',
-      '@acme/platform-web',
+      '@kappa/platform-api',
+      '@kappa/platform-web',
     ]);
   });
 
   it('guards a seventh platform package without editing the script', () => {
     const root = copyRepo();
     writeJson(join(root, 'packages', 'platform-extra', 'package.json'), {
-      name: '@acme/platform-extra',
+      name: '@kappa/platform-extra',
     });
     // A directory without a manifest is not a package.
     mkdirSync(join(root, 'packages', 'platform-empty'));
-    expect(guardedNames(root)).toContain('@acme/platform-extra');
+    expect(guardedNames(root)).toContain('@kappa/platform-extra');
     expect(guardedNames(root)).not.toContain('platform-empty');
 
     const lock = lockfile('clean');
-    lock.packages['node_modules/@acme/platform-extra'] = { version: '1.0.0' };
-    lock.packages['apps/web/node_modules/@acme/platform-extra'] = { version: '1.1.0' };
+    lock.packages['node_modules/@kappa/platform-extra'] = { version: '1.0.0' };
+    lock.packages['apps/web/node_modules/@kappa/platform-extra'] = { version: '1.1.0' };
     const dups = findLockfileDuplicates(lock, guardedNames(root));
-    expect(dups.map((d: { name: string }) => d.name)).toEqual(['@acme/platform-extra']);
+    expect(dups.map((d: { name: string }) => d.name)).toEqual(['@kappa/platform-extra']);
   });
 
   it('discovers the platform packages of this repository', () => {
@@ -217,7 +217,7 @@ describe('workspace discovery', () => {
 });
 
 describe('findLockfileDuplicates', () => {
-  const names = [...SINGLE_INSTANCE_PACKAGES, '@acme/platform-web', '@acme/platform-api'];
+  const names = [...SINGLE_INSTANCE_PACKAGES, '@kappa/platform-web', '@kappa/platform-api'];
 
   it('finds nothing in a clean lockfile', () => {
     expect(findLockfileDuplicates(lockfile('clean'), names)).toEqual([]);
@@ -250,15 +250,15 @@ describe('findLockfileDuplicates', () => {
 
   it('flags a registry copy of a platform package beside its workspace link', () => {
     const lock = lockfile('linked-workspace');
-    lock.packages['apps/web/node_modules/@acme/platform-web'] = { version: '0.0.9' };
+    lock.packages['apps/web/node_modules/@kappa/platform-web'] = { version: '0.0.9' };
     const dup = must(findLockfileDuplicates(lock, names)[0]);
-    expect(dup.name).toBe('@acme/platform-web');
+    expect(dup.name).toBe('@kappa/platform-web');
     expect(dup.instances).toHaveLength(2);
     expect(dup.instances).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ link: 'packages/platform-web', version: '0.1.0' }),
         expect.objectContaining({
-          location: 'apps/web/node_modules/@acme/platform-web',
+          location: 'apps/web/node_modules/@kappa/platform-web',
           version: '0.0.9',
         }),
       ])
@@ -288,8 +288,8 @@ describe('fixHint', () => {
   });
 
   it('names the dependency that pulls a transitive copy', () => {
-    expect(fixHint('react', 'node_modules/@acme/widget/node_modules/react')).toMatch(
-      /^@acme\/widget asks for/
+    expect(fixHint('react', 'node_modules/@kappa/widget/node_modules/react')).toMatch(
+      /^@kappa\/widget asks for/
     );
   });
 
@@ -305,8 +305,8 @@ describe('findResolutionSplits', () => {
     '@nestjs/core',
     'zod',
     'ink',
-    '@acme/platform-web',
-    '@acme/platform-api',
+    '@kappa/platform-web',
+    '@kappa/platform-api',
   ];
 
   it('finds nothing when every workspace resolves to the hoisted copy', () => {
@@ -339,10 +339,10 @@ describe('findResolutionSplits', () => {
   it('checks an npm-linked platform package, which resolves its peers from its own checkout', () => {
     const root = installedRepo();
     const outside = join(TMP, `linked-checkout-${++counter}`);
-    writeJson(join(outside, 'package.json'), { name: '@acme/platform-web', version: '0.2.0' });
+    writeJson(join(outside, 'package.json'), { name: '@kappa/platform-web', version: '0.2.0' });
     installPackage(outside, 'react', '19.0.0');
-    rmSync(join(root, 'node_modules', '@acme', 'platform-web'));
-    linkPackage(root, '@acme/platform-web', outside);
+    rmSync(join(root, 'node_modules', '@kappa', 'platform-web'));
+    linkPackage(root, '@kappa/platform-web', outside);
 
     const splits = findResolutionSplits(root, discoverWorkspaces(root), names);
     // Every workspace resolves the package to the linked checkout (one
@@ -350,7 +350,7 @@ describe('findResolutionSplits', () => {
     expect(splits.map((s: { name: string }) => s.name)).toEqual(['react']);
     const react = must(splits.find((s: { name: string }) => s.name === 'react'));
     expect(react.instances.flatMap((i: { origins: string[] }) => i.origins)).toEqual(
-      expect.arrayContaining([expect.stringMatching(/^@acme\/platform-web \(at /)])
+      expect.arrayContaining([expect.stringMatching(/^@kappa\/platform-web \(at /)])
     );
   });
 
@@ -368,7 +368,7 @@ describe('the CLI', () => {
     expect(result.status).toBe(0);
     expect(result.stdout).toMatch(/Single-instance check passed/);
     expect(result.stdout).toMatch(/react\s+19\.2\.8/);
-    expect(result.stdout).toMatch(/@acme\/platform-web\s+0\.1\.0/);
+    expect(result.stdout).toMatch(/@kappa\/platform-web\s+0\.1\.0/);
     expect(result.stdout).toMatch(/fastify\s+not installed/);
   });
 
@@ -441,7 +441,7 @@ describe('the CLI', () => {
       resolution: unknown;
     };
     expect(report.ok).toBe(false);
-    expect(report.guarded).toContain('@acme/platform-web');
+    expect(report.guarded).toContain('@kappa/platform-web');
     expect(report.resolution).toBeNull();
     expect(report.lockfile.duplicates).toEqual([
       {
@@ -475,10 +475,10 @@ describe('the CLI', () => {
     const root = join(TMP, `consumer-${++counter}`);
     writeJson(join(root, 'package.json'), {
       name: 'consumer',
-      dependencies: { '@acme/platform-web': '0.1.0', react: '^19.2.8' },
+      dependencies: { '@kappa/platform-web': '0.1.0', react: '^19.2.8' },
     });
     installPackage(root, 'react', '19.2.8');
-    const platformWeb = installPackage(root, '@acme/platform-web', '0.1.0');
+    const platformWeb = installPackage(root, '@kappa/platform-web', '0.1.0');
     if (nestedReact) installPackage(platformWeb, 'react', '19.1.0');
     writeJson(join(root, 'package-lock.json'), {
       name: 'consumer',
@@ -486,8 +486,8 @@ describe('the CLI', () => {
       packages: {
         '': { name: 'consumer' },
         'node_modules/react': { version: '19.2.8' },
-        'node_modules/@acme/platform-web': { version: '0.1.0' },
-        ...(nestedReact ? { 'node_modules/@acme/platform-web/node_modules/react': { version: '19.1.0' } } : {}),
+        'node_modules/@kappa/platform-web': { version: '0.1.0' },
+        ...(nestedReact ? { 'node_modules/@kappa/platform-web/node_modules/react': { version: '19.1.0' } } : {}),
       },
     });
     return root;
@@ -495,12 +495,12 @@ describe('the CLI', () => {
 
   it('guards the --guard names on top of the fixed list', () => {
     const root = consumerProject();
-    expect(guardedNames(root)).not.toContain('@acme/platform-web');
-    expect(guardedNames(root, ['@acme/platform-web'])).toContain('@acme/platform-web');
+    expect(guardedNames(root)).not.toContain('@kappa/platform-web');
+    expect(guardedNames(root, ['@kappa/platform-web'])).toContain('@kappa/platform-web');
   });
 
   it('checks a consumer project with no workspaces from its own root', () => {
-    const result = runScript(['--root', consumerProject(), '--guard', '@acme/platform-web', '--json']);
+    const result = runScript(['--root', consumerProject(), '--guard', '@kappa/platform-web', '--json']);
     expect(result.status).toBe(0);
     const report = JSON.parse(result.stdout) as {
       ok: boolean;
@@ -508,15 +508,15 @@ describe('the CLI', () => {
       resolution: { workspaces: string[]; splits: unknown[] };
     };
     expect(report.ok).toBe(true);
-    expect(report.guarded).toContain('@acme/platform-web');
+    expect(report.guarded).toContain('@kappa/platform-web');
     expect(report.resolution.workspaces).toEqual(['.']);
   });
 
   it('exits 1 when an installed platform package in a consumer carries its own react', () => {
-    const result = runScript(['--root', consumerProject(true), '--guard', '@acme/platform-web']);
+    const result = runScript(['--root', consumerProject(true), '--guard', '@kappa/platform-web']);
     expect(result.status).toBe(1);
     expect(result.stderr).toMatch(/react: 2 copies/);
-    expect(result.stderr).toContain('node_modules/@acme/platform-web/node_modules/react');
+    expect(result.stderr).toContain('node_modules/@kappa/platform-web/node_modules/react');
   });
 
   it.each([

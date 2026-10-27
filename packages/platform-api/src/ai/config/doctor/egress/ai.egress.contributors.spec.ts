@@ -98,7 +98,7 @@ describe('AiProvidersEgressContributor (#773)', () => {
       config(
         policy(true, {
           'openai-compatible': { enabled: true, baseUrl: 'http://user:pw@ollama:11434/v1?x=1', requiresKey: false },
-          'azure-openai': { enabled: true, baseUrl: 'https://contoso.openai.azure.com/', apiVersion: '2024-10-21' },
+          'azure-openai': { enabled: true, baseUrl: 'https://theta.openai.azure.com/', apiVersion: '2024-10-21' },
           openai: { enabled: true, baseUrl: 'https://proxy.corp.internal/openai/v1' },
         }),
       ),
@@ -107,7 +107,7 @@ describe('AiProvidersEgressContributor (#773)', () => {
     const byId = Object.fromEntries(deps.map((d) => [d.id, d]));
 
     expect(byId['ai.provider.openai-compatible']).toMatchObject({ hosts: ['ollama'], scope: 'private', enabled: true });
-    expect(byId['ai.provider.azure-openai']).toMatchObject({ hosts: ['contoso.openai.azure.com'], scope: 'public' });
+    expect(byId['ai.provider.azure-openai']).toMatchObject({ hosts: ['theta.openai.azure.com'], scope: 'public' });
     expect(byId['ai.provider.openai']).toMatchObject({ hosts: ['proxy.corp.internal'], scope: 'private' });
     expect(JSON.stringify(deps)).not.toMatch(/pw|11434|\/v1|x=1/);
   });
