@@ -17,6 +17,7 @@ import type { ReactElement } from 'react';
 
 import { savedSecretHelperText } from '../headless/index.js';
 import type { SavedSecretHelperTextOptions, SavedSecretInfo } from '../headless/index.js';
+import { useDisplayTimeZone } from '../../core/index.js';
 
 /**
  * The props of {@link SecretField}.
@@ -37,7 +38,7 @@ export interface SecretFieldProps {
   emptyHelp?: string;
   /** What the secret is called in the helper text; default `'key'`. */
   noun?: string;
-  /** Formats the last-change date; default `toLocaleDateString()`. */
+  /** Formats the last-change date; default the numeric date in the display time zone. */
   formatDate?: SavedSecretHelperTextOptions['formatDate'];
   /** Disables the input (a viewer without the write permission). */
   disabled?: boolean;
@@ -87,6 +88,7 @@ export interface SecretFieldSlots {
  * @stability experimental
  */
 export function SecretField(props: SecretFieldProps): ReactElement {
+  useDisplayTimeZone(); // "updated" renders in the display zone.
   const generatedId = useId();
   const id = props.id ?? `secret-field-${generatedId.replace(/[^A-Za-z0-9_-]/g, '')}`;
   const helper =

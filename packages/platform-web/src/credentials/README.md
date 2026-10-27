@@ -50,7 +50,7 @@ const [value, setValue] = useState('');
 | `saved` | `{ hint; label?; updatedAt? } \| null` | `null` | What the API says is stored (a credential info's presentation fields). |
 | `emptyHelp` | `string` | `'No <noun> is saved yet.'` | The helper text when nothing is stored. |
 | `noun` | `string` | `'key'` | What the secret is called in the helper text. |
-| `formatDate` | `(date: Date) => string` | `toLocaleDateString()` | The last-change date format. |
+| `formatDate` | `(date: Date) => string` | the numeric date (`toLocaleDateString()`'s fields) in the display time zone | The last-change date format. |
 | `disabled` | `boolean` | `false` | For a viewer without the write permission. |
 | `error` | `string \| null` | none | Shown instead of the helper text; sets `aria-invalid`. |
 | `name`, `id` | `string` | `id` generated | The input's name and id. |

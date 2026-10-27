@@ -43,6 +43,7 @@ import { useMetricUnitFormats } from '../../../../headless/context/metricUnitFor
 import { formatMetricValue, formatTimestamp, type MetricUnitFormats } from '../../../../headless/lib/format.js';
 import { readTopN, writeTopN, type TopNOption } from '../../../../headless/lib/metrics/topNPreference.js';
 import { useTelemetryTokens } from '../../../../theme/telemetryTokens.js';
+import { useDisplayTimeZone } from '../../../../../core/index.js';
 
 type Row = Record<string, DashboardMetricCell>;
 
@@ -186,6 +187,7 @@ export function MetricTable({
   now = Date.now(),
   topN,
 }: MetricTableProps) {
+  useDisplayTimeZone(); // The timestamps render in the display zone.
   const formats = useMetricUnitFormats();
   const byKey = new Map(table.columns.map((column) => [column.key, column]));
   const specs: MetricTableColumnSpec[] = (

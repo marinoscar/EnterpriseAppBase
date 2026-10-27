@@ -32,7 +32,7 @@ import {
 } from '@mui/material';
 import type { OrgAiKeyView } from '@marinoscar/platform-contract/ai';
 
-import { PageSlotsFrame, usePlatformViewer } from '../../core/index.js';
+import { NUMERIC_DATE, PageSlotsFrame, formatDate, useDisplayTimeZone, usePlatformViewer } from '../../core/index.js';
 import type { PageSlotsBase } from '../../core/index.js';
 import { useOrgAiKeys, useOrgAiPolicy } from '../headless/index.js';
 
@@ -53,6 +53,7 @@ function ProviderRow(props: {
   onSet: (provider: string, apiKey: string) => Promise<boolean>;
   onRemove: (provider: string) => Promise<boolean>;
 }): ReactElement {
+  useDisplayTimeZone(); // "verified" renders in the display zone.
   const { entry, canWrite, pending } = props;
   const [draft, setDraft] = useState('');
   const fieldId = `org-ai-key-${entry.provider}`;
@@ -67,7 +68,7 @@ function ProviderRow(props: {
               <Chip size="small" color="success" label="Key set" />
               <Typography variant="body2" color="text.secondary">
                 {entry.hint ?? ''}
-                {entry.verifiedAt ? ` · verified ${new Date(entry.verifiedAt).toLocaleDateString()}` : ''}
+                {entry.verifiedAt ? ` · verified ${formatDate(entry.verifiedAt, NUMERIC_DATE)}` : ''}
               </Typography>
             </Stack>
           ) : (

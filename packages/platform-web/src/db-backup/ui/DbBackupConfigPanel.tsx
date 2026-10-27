@@ -74,6 +74,8 @@ import type {
   RestoreRollbackMode,
   UpdateDbBackupConfigInput,
 } from '../headless/index.js';
+import { useDisplayTimeZone } from '../../core/index.js';
+import { formatDateTime } from '../internal/format.js';
 
 /**
  * The editable half of `DbBackupConfig` — the computed fields are not settable.
@@ -173,6 +175,7 @@ export function DbBackupConfigPanel({
   onSave,
   onSaved,
 }: DbBackupConfigPanelProps) {
+  useDisplayTimeZone(); // "Next scheduled backup" renders in the display zone.
   const [form, setForm] = useState<ConfigForm>(() => toForm(config));
 
   /**
@@ -422,7 +425,7 @@ export function DbBackupConfigPanel({
               lands where the question is asked. */}
           <Typography variant="body2" color="text.secondary" data-testid="db-backup-next-run">
             {config.nextRunAt
-              ? `Next scheduled backup: ${new Date(config.nextRunAt).toLocaleString()}`
+              ? `Next scheduled backup: ${formatDateTime(config.nextRunAt)}`
               : 'No backup is scheduled.'}
           </Typography>
         </Stack>

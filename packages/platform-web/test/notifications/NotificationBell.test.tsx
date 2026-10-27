@@ -1,10 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { act, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { render } from './test-utils.js';
 import { NotificationBell } from '../../src/notifications/ui/NotificationBell.js';
 import type { NotificationContextValue } from '../../src/notifications/headless/NotificationContext.js';
 import type { AppNotification } from '../../src/notifications/headless/types.js';
+import { setPreferredTimeZone } from '../../src/core/index.js';
 
 /**
  * Issue #127, epic #109. `NotificationBell` reads `NotificationContext`
@@ -273,5 +274,40 @@ describe('NotificationBell', () => {
         expect(screen.queryByText(/mark all read/i)).not.toBeInTheDocument();
       });
     });
+  });
+});
+
+describe('NotificationBell in the display time zone', () => {
+  const CREATED_AT = '2026-01-15T18:30:00.000Z';
+
+  beforeEach(() => {
+    useNotificationsMock.mockReset();
+  });
+  afterEach(() => setPreferredTimeZone(null));
+
+  it("dates each row's tooltip in the user's zone, and follows a zone change", async () => {
+    // 18:30 UTC is 03:30 the next day in Tokyo and 12:30 in Costa Rica.
+    setPreferredTimeZone('Asia/Tokyo');
+    const user = userEvent.setup();
+    useNotificationsMock.mockReturnValue(
+      makeFixture({ unreadCount: 1, notifications: [makeNotification({ createdAt: CREATED_AT })] }),
+    );
+
+    render(<NotificationBell />);
+    await user.click(screen.getByLabelText('Notifications, 1 unread'));
+
+    const time = await waitFor(() => {
+      const element = document.querySelector(`time[datetime="${CREATED_AT}"]`);
+      expect(element).not.toBeNull();
+      return element as HTMLElement;
+    });
+    expect(time).toHaveAttribute('title', new Date(CREATED_AT).toLocaleString(undefined, { timeZone: 'Asia/Tokyo' }));
+    expect(time.getAttribute('title')).not.toBe(new Date(CREATED_AT).toLocaleString(undefined, { timeZone: 'UTC' }));
+
+    act(() => setPreferredTimeZone('America/Costa_Rica'));
+    expect(time).toHaveAttribute(
+      'title',
+      new Date(CREATED_AT).toLocaleString(undefined, { timeZone: 'America/Costa_Rica' }),
+    );
   });
 });

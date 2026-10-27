@@ -14,6 +14,7 @@ import { timelineXAxis } from './timelineAxis.js';
 import { ZoomBrush } from './ZoomBrush.js';
 import type { TimelineChartProps } from './ApiTimelineChart.js';
 import { useTelemetryTokens } from '../../../theme/telemetryTokens.js';
+import { useDisplayTimeZone } from '../../../../core/index.js';
 
 export interface LogSeverityChartProps extends TimelineChartProps {
   buckets: DashboardLogsBucket[];
@@ -29,6 +30,7 @@ export function LogSeverityChart({
   zoom,
   onZoomBuckets,
 }: LogSeverityChartProps) {
+  useDisplayTimeZone(); // The time axis and timestamps render in the display zone.
   const { status } = useTelemetryTokens();
   const starts = buckets.map((bucket) => bucket.t);
   const bands: { id: keyof Omit<DashboardLogsBucket, 't'>; label: string; color: string; shown: boolean }[] = [

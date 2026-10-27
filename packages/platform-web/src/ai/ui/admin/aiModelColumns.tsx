@@ -20,6 +20,7 @@ import type { DataTableColumn } from '../../../datatable/index.js';
 import type { AiModel } from '../../headless/types.js';
 import { AiCapabilityChips } from '../shared/AiCapabilityChips.js';
 import { capabilitySummary } from '../shared/aiCapabilities.js';
+import { NUMERIC_DATE_TIME, formatDateTime } from '../../../core/index.js';
 
 /** Persistence key for `user_settings.dataTables`. */
 export const TABLE_ID = 'ai-models';
@@ -144,7 +145,7 @@ export function buildAiModelColumns({
       label: 'Last seen',
       priority: 'secondary',
       minWidth: 170,
-      value: (model) => new Date(model.lastSeenAt).toLocaleString(),
+      value: (model) => formatDateTime(model.lastSeenAt, NUMERIC_DATE_TIME),
     },
     {
       id: 'enabled',

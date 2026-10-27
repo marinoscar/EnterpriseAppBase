@@ -87,7 +87,7 @@ import ErrorOutlineIcon from '@mui/icons-material/ErrorOutlineOutlined';
 import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutlined';
 import NetworkCheckIcon from '@mui/icons-material/NetworkCheck';
 import { Navigate } from 'react-router-dom';
-import { PageSlotsFrame, usePlatformViewer } from '../../core/index.js';
+import { NUMERIC_DATE_TIME, PageSlotsFrame, formatDateTime, useDisplayTimeZone, usePlatformViewer } from '../../core/index.js';
 import type { PageSlotsBase } from '../../core/index.js';
 import { reportsBucketMissing, useStorageConfig } from '../headless/index.js';
 import type {
@@ -375,6 +375,7 @@ export interface StorageConfigPageProps {
  * @stability experimental
  */
 export default function StorageConfigPage(props: StorageConfigPageProps = {}) {
+  useDisplayTimeZone(); // "Last updated" renders in the display zone.
   const { slots } = props;
   const { hasPermission } = usePlatformViewer();
   const {
@@ -587,7 +588,7 @@ export default function StorageConfigPage(props: StorageConfigPageProps = {}) {
         {config?.updatedBy && config.updatedAt && (
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
             Last updated by {config.updatedBy.email} on{' '}
-            {new Date(config.updatedAt).toLocaleString()}
+            {formatDateTime(config.updatedAt, NUMERIC_DATE_TIME)}
           </Typography>
         )}
 

@@ -32,6 +32,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
+import { useDisplayTimeZone } from '../../../core/index.js';
 import type { TableSlots } from '../../../core/index.js';
 import { useAuth } from '../../headless/index.js';
 import { usePermissions } from '../../headless/index.js';
@@ -82,6 +83,7 @@ export interface OrgMembersPanelProps {
  * @stability stable
  */
 export function OrgMembersPanel({ roles: rolesFromPage, slots }: OrgMembersPanelProps = {}): ReactElement {
+  useDisplayTimeZone(); // "Last active" renders in the display zone.
   const RowActions = slots?.RowActions;
   const DetailPanel = slots?.DetailPanel;
   const Toolbar = slots?.Toolbar;

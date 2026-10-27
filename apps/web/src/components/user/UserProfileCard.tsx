@@ -12,8 +12,10 @@ import {
 import { Settings as SettingsIcon } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@marinoscar/platform-web/identity/headless';
+import { NUMERIC_DATE, formatDate, useDisplayTimeZone } from '@marinoscar/platform-web/timezone/headless';
 
 export function UserProfileCard() {
+  useDisplayTimeZone(); // "Member since" renders in the user's display zone.
   const { user } = useAuth();
   const navigate = useNavigate();
 
@@ -86,7 +88,7 @@ export function UserProfileCard() {
               Member since
             </Typography>
             <Typography variant="body1" gutterBottom>
-              {new Date(user.createdAt).toLocaleDateString()}
+              {formatDate(user.createdAt, NUMERIC_DATE)}
             </Typography>
           </Box>
 

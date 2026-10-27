@@ -15,6 +15,7 @@ import { Divider, Grid, TextField, Typography } from '@mui/material';
 import type { EmailCredentialStatusDto } from '@marinoscar/platform-contract/email';
 
 import type { EmailTransportPanelOptions, EmailTransportPanelProps } from './emailTransportPanelRegistry.js';
+import { NUMERIC_DATE, formatDate, useDisplayTimeZone } from '../../core/index.js';
 
 const text = (value: unknown): string => (typeof value === 'string' ? value : '');
 
@@ -30,7 +31,7 @@ function sesSecretAccessKeyHelperText(status: EmailCredentialStatusDto): string 
     return 'No secret access key is saved yet. SES cannot send until one is.';
   }
   const which = status.hint ? ` (${status.hint})` : '';
-  const when = status.updatedAt ? `, last changed ${new Date(status.updatedAt).toLocaleDateString()}` : '';
+  const when = status.updatedAt ? `, last changed ${formatDate(status.updatedAt, NUMERIC_DATE)}` : '';
   return `A secret access key is saved${which}${when}. Leave this blank to keep it, or type a new one to replace it.`;
 }
 
@@ -74,6 +75,7 @@ export const sesSettingsToInput: NonNullable<EmailTransportPanelOptions['toInput
  * @stability experimental
  */
 export function SesTransportPanel({ value, onChange, secrets, onSecretChange, secretStatuses, errors, canWrite }: EmailTransportPanelProps) {
+  useDisplayTimeZone(); // "last changed" renders in the display zone.
   const status = secretStatuses.secretAccessKey ?? NOT_SAVED;
 
   return (

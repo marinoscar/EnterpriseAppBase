@@ -17,7 +17,8 @@
  *     declared") rather than as a gap.
  */
 
-import { describe, it, expect } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect } from 'vitest';
+import { setPreferredTimeZone } from '../../src/core/index.js';
 import {
   NODE_CREDENTIALS_TABLE_ID,
   NODES_TABLE_ID,
@@ -168,6 +169,9 @@ describe('health and status are two columns, and both are rendered from the API'
 });
 
 describe('the fleet columns', () => {
+  beforeEach(() => setPreferredTimeZone('UTC'));
+  afterEach(() => setPreferredTimeZone(null));
+
   it('makes the row-unique scalar unique across owners, since it names the delete button', () => {
     // `WorkerNode.name` is unique PER OWNER, and this page shows everybody's.
     // Two `worker-1` rows would otherwise give two delete buttons both
@@ -191,7 +195,16 @@ describe('the fleet columns', () => {
     const scalar = heartbeat.value?.(node({ lastHeartbeatAt: '2026-01-01T11:59:00.000Z' }));
 
     expect(scalar).not.toMatch(/ago|Just now/i);
-    expect(scalar).toBe(new Date('2026-01-01T11:59:00.000Z').toLocaleString());
+    expect(scalar).toBe(new Date('2026-01-01T11:59:00.000Z').toLocaleString(undefined, { timeZone: 'UTC' }));
+  });
+
+  it('renders the absolute heartbeat in the display time zone', () => {
+    // 11:59 UTC is 20:59 in Tokyo: the user's chosen zone, not the machine's.
+    setPreferredTimeZone('Asia/Tokyo');
+    const heartbeat = column<WorkerNode>(nodeColumns, 'lastHeartbeatAt');
+    expect(heartbeat.value?.(node({ lastHeartbeatAt: '2026-01-01T11:59:00.000Z' }))).toBe(
+      new Date('2026-01-01T11:59:00.000Z').toLocaleString(undefined, { timeZone: 'Asia/Tokyo' }),
+    );
   });
 
   it('spells a missing heartbeat "Never", because it is the most suspicious row on the page', () => {

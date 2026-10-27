@@ -18,6 +18,7 @@ import { Divider, FormControlLabel, Grid, Switch, TextField, Typography } from '
 import type { EmailCredentialStatusDto } from '@marinoscar/platform-contract/email';
 
 import type { EmailTransportPanelOptions, EmailTransportPanelProps } from './emailTransportPanelRegistry.js';
+import { NUMERIC_DATE, formatDate, useDisplayTimeZone } from '../../core/index.js';
 
 const DEFAULT_SMTP_PORT = 587;
 
@@ -52,7 +53,7 @@ function smtpPasswordHelperText(status: EmailCredentialStatusDto): string {
     return 'No password is saved yet. Leave blank if this server does not need one.';
   }
   const which = status.hint ? ` (${status.hint})` : '';
-  const when = status.updatedAt ? `, last changed ${new Date(status.updatedAt).toLocaleDateString()}` : '';
+  const when = status.updatedAt ? `, last changed ${formatDate(status.updatedAt, NUMERIC_DATE)}` : '';
   return `A password is saved${which}${when}. Leave this blank to keep it, or type a new one to replace it.`;
 }
 
@@ -108,6 +109,7 @@ export const smtpSettingsToInput: NonNullable<EmailTransportPanelOptions['toInpu
  * @stability experimental
  */
 export function SmtpTransportPanel({ value, onChange, secrets, onSecretChange, secretStatuses, errors, canWrite }: EmailTransportPanelProps) {
+  useDisplayTimeZone(); // "last changed" renders in the display zone.
   const status = secretStatuses.password ?? NOT_SAVED;
 
   return (

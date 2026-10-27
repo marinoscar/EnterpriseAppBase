@@ -67,7 +67,7 @@ import {
 } from '@mui/material';
 import MonitorHeartOutlinedIcon from '@mui/icons-material/MonitorHeartOutlined';
 import { Link as RouterLink, Navigate } from 'react-router-dom';
-import { usePlatformViewer } from '../../../core/index.js';
+import { NUMERIC_DATE_TIME, formatDateTime, useDisplayTimeZone, usePlatformViewer } from '../../../core/index.js';
 import type { PageSlotsBase } from '../../../core/index.js';
 import { useTelemetryAdmin } from '../../headless/hooks/useTelemetryAdmin.js';
 import {
@@ -505,6 +505,7 @@ export interface TelemetrySettingsPageProps {
  * @stability experimental
  */
 export default function TelemetrySettingsPage({ slots }: TelemetrySettingsPageProps = {}) {
+  useDisplayTimeZone(); // "Last updated" renders in the display zone.
   const { hasPermission } = usePlatformViewer();
   const {
     config,
@@ -627,7 +628,7 @@ export default function TelemetrySettingsPage({ slots }: TelemetrySettingsPagePr
         {config?.updatedBy && config.updatedAt && (
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
             Last updated by {config.updatedBy.email} on{' '}
-            {new Date(config.updatedAt).toLocaleString()}
+            {formatDateTime(config.updatedAt, NUMERIC_DATE_TIME)}
           </Typography>
         )}
 

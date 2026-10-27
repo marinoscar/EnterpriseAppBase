@@ -48,6 +48,7 @@ import {
 } from '../../../headless/services/telemetryDashboard.js';
 import { DEFAULT_DASHBOARD_STATE, isZoomed, type DashboardState } from '../../../headless/lib/dashboardState.js';
 import { formatTimestamp } from '../../../headless/lib/format.js';
+import { useDisplayTimeZone } from '../../../../core/index.js';
 
 /**
  * The dashboard's layout: decided by the page from the viewport.
@@ -90,6 +91,7 @@ export function zoomLabel(state: DashboardState): string {
 }
 
 export function ResetZoomChip({ state, onChange }: Pick<DashboardFilterBarProps, 'state' | 'onChange'>) {
+  useDisplayTimeZone(); // The timestamps render in the display zone.
   if (!isZoomed(state)) return null;
   return (
     <Chip

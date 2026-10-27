@@ -62,6 +62,7 @@ import type { PluggableDescriptor } from '@marinoscar/platform-contract/settings
 import type { AiProviderFormErrors, AiProviderFormValue } from './aiProviderForm.js';
 import { AiProviderKeyActions, keyHelperText, MIN_KEY_LENGTH } from './AiProviderKeyActions.js';
 import { AiCapabilityChips } from '../shared/AiCapabilityChips.js';
+import { useDisplayTimeZone } from '../../../core/index.js';
 
 export { keyHelperText } from './AiProviderKeyActions.js';
 export type { AiProviderFormValue } from './aiProviderForm.js';
@@ -285,6 +286,7 @@ export function AiProviderCard({
   onClearTestResult,
   onTest,
 }: AiProviderCardProps) {
+  useDisplayTimeZone(); // The key helper text dates render in the display zone.
   const switchId = `ai-provider-${provider.id}-enabled`;
   /** WRITE-ONLY — see the file header. */
   const [apiKey, setApiKey] = useState('');

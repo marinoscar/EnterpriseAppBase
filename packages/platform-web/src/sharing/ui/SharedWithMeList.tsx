@@ -9,6 +9,7 @@ import { Link as RouterLink } from 'react-router-dom';
 import type { SharingClient } from '../headless/client.js';
 import { useSharedWithMe } from '../headless/useSharedWithMe.js';
 import { expiryText, humanizeType } from '../internal/format.js';
+import { useDisplayTimeZone } from '../../core/index.js';
 
 /**
  * The parts of {@link SharedWithMeList} an app may replace.
@@ -71,6 +72,7 @@ export interface SharedWithMeListProps {
  * @stability experimental
  */
 export function SharedWithMeList(props: SharedWithMeListProps): ReactElement {
+  useDisplayTimeZone(); // The expiry dates render in the display zone.
   const shared = useSharedWithMe(props.resourceType, props.client ? { client: props.client } : {});
   const items = shared.data?.items ?? [];
 

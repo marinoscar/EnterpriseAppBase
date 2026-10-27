@@ -53,6 +53,7 @@ import {
 import CheckIcon from '@mui/icons-material/Check';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import type { NodeCredentialCreated } from '../headless/index.js';
+import { NUMERIC_DATE_TIME, formatDateTime, useDisplayTimeZone } from '../../core/index.js';
 
 interface NodeCredentialRevealDialogProps {
   open: boolean;
@@ -66,6 +67,7 @@ export function NodeCredentialRevealDialog({
   onClose,
   credential,
 }: NodeCredentialRevealDialogProps) {
+  useDisplayTimeZone(); // "Expires" renders in the display zone.
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
@@ -132,7 +134,7 @@ export function NodeCredentialRevealDialog({
               {/* The terms, beside the value, while both are still on screen. */}
               <strong>{credential.name}</strong> ·{' '}
               {credential.expiresAt
-                ? `Expires ${new Date(credential.expiresAt).toLocaleString()}`
+                ? `Expires ${formatDateTime(credential.expiresAt, NUMERIC_DATE_TIME)}`
                 : 'Never expires — revoke it to cut the node off'}
             </Typography>
           )}

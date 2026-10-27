@@ -132,7 +132,7 @@ import type {
   DbBackupTableFilter as JobsTableFilter,
   DbBackupTableRowAction as DataTableRowAction,
 } from '../headless/index.js';
-import { usePlatformViewer, useTableSlotColumns } from '../../core/index.js';
+import { useDisplayTimeZone, usePlatformViewer, useTableSlotColumns } from '../../core/index.js';
 import type { PageHeaderSlotProps, PageSlot, PageSlotsBase } from '../../core/index.js';
 import { DB_BACKUP_PAGE_DESCRIPTION, DB_BACKUP_PAGE_TITLE } from './copy.js';
 import { DbBackupConfigPanel } from './DbBackupConfigPanel.js';
@@ -171,6 +171,7 @@ import {
   formatRunDuration,
   readIsFilter,
 } from './dbBackupTable.js';
+import { formatDateTime } from '../internal/format.js';
 
 // The same words as the admin card (`dbBackupAdminSections`), from one place.
 const PAGE_TITLE = DB_BACKUP_PAGE_TITLE;
@@ -431,7 +432,9 @@ export default function DbBackupPage(props: DbBackupPageProps = {}) {
   const restoreAvailable = config?.restore.available === true;
   const canRestore = hasPermission('db_backup:restore') && restoreAvailable;
 
-  const baseColumns = useMemo(() => buildBackupRunColumns(renderedAt), [renderedAt]);
+  // The time columns render in the display zone: rebuild on a zone change.
+  const timeZone = useDisplayTimeZone();
+  const baseColumns = useMemo(() => buildBackupRunColumns(renderedAt), [renderedAt, timeZone]);
   const runActionsSlot = useMemo<PageSlot<{ row: DbBackupRun }> | undefined>(
     () =>
       RunRowActions
@@ -513,7 +516,7 @@ export default function DbBackupPage(props: DbBackupPageProps = {}) {
         confirm: {
           title: 'Delete this backup?',
           description: (run) =>
-            `The archive taken on ${new Date(run.createdAt).toLocaleString()} and its record ` +
+            `The archive taken on ${formatDateTime(run.createdAt)} and its record ` +
             'are removed. This cannot be undone, and it is one fewer point you can restore to.',
           confirmLabel: 'Delete',
         },
@@ -642,7 +645,7 @@ export default function DbBackupPage(props: DbBackupPageProps = {}) {
         {restoringRun && (
           <Alert severity="warning" sx={{ mb: 3 }} data-testid="db-backup-restore-in-flight">
             <AlertTitle>A restore is in progress</AlertTitle>
-            The archive from {new Date(restoringRun.createdAt).toLocaleString()} is being
+            The archive from {formatDateTime(restoringRun.createdAt)} is being
             restored. The application keeps serving until the swap, which restarts it.
           </Alert>
         )}

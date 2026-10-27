@@ -32,7 +32,7 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { Alert, Box, Container, Paper, Snackbar, Typography } from '@mui/material';
 import { Navigate } from 'react-router-dom';
-import { PageSlotsFrame } from '../../core/index.js';
+import { NUMERIC_DATE_TIME, PageSlotsFrame, formatDateTime, useDisplayTimeZone } from '../../core/index.js';
 import type { PageSlotsBase } from '../../core/index.js';
 import { usePermissions } from '../../identity/index.js';
 import { useSystemSettings } from '../../settings/index.js';
@@ -82,6 +82,7 @@ export function SystemSettingsSection({
   children,
   slots,
 }: SystemSettingsSectionProps) {
+  useDisplayTimeZone(); // "Last updated" renders in the display zone.
   const { hasPermission } = usePermissions();
   const { settings, isLoading, error, isSaving, updateSettings } = useSystemSettings<SystemSettings>();
 
@@ -132,7 +133,7 @@ export function SystemSettingsSection({
         {settings?.updatedBy && (
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
             Last updated by {settings.updatedBy.email} on{' '}
-            {new Date(settings.updatedAt).toLocaleString()}
+            {formatDateTime(settings.updatedAt, NUMERIC_DATE_TIME)}
           </Typography>
         )}
 

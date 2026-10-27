@@ -61,6 +61,7 @@ import { useNotifications } from '../headless/NotificationContext.js';
 import { isInternalLink } from '../headless/internalLink.js';
 import { formatRelativeTime } from './relativeTime.js';
 import type { AppNotification } from '../headless/types.js';
+import { NUMERIC_DATE_TIME, formatDateTime, useDisplayTimeZone } from '../../core/index.js';
 
 /**
  * The badge stops counting here and shows "20+".
@@ -115,6 +116,7 @@ export interface NotificationBellProps {
  * @stability experimental
  */
 export function NotificationBell({ slots }: NotificationBellProps = {}) {
+  useDisplayTimeZone(); // The absolute time in each tooltip renders in the display zone.
   const centre = useNotifications();
   const navigate = useNavigate();
   const anchorRef = useRef<HTMLButtonElement | null>(null);
@@ -349,7 +351,7 @@ export function NotificationBell({ slots }: NotificationBellProps = {}) {
                           <Box
                             component="time"
                             dateTime={notification.createdAt}
-                            title={new Date(notification.createdAt).toLocaleString()}
+                            title={formatDateTime(notification.createdAt, NUMERIC_DATE_TIME)}
                           >
                             {formatRelativeTime(notification.createdAt, renderedAt)}
                           </Box>

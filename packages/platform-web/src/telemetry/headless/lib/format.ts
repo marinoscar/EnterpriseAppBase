@@ -4,6 +4,7 @@
  */
 import { BUILTIN_METRIC_UNITS } from '@marinoscar/platform-contract/telemetry';
 import type { MetricUnitDescriptor } from '@marinoscar/platform-contract/telemetry';
+import { formatDateTime, formatTime } from '../../../core/index.js';
 
 /**
  * A tile value as a number, or `null` (`int8` may arrive as a string).
@@ -263,7 +264,8 @@ export function formatRelative(iso: string, now: number = Date.now()): string {
 }
 
 /**
- * A readable absolute timestamp (local time, to the second).
+ * A readable absolute timestamp, to the second, in the viewer's display time
+ * zone (the user's `profile.timezone`, else the device's).
  *
  * @stability experimental
  */
@@ -271,7 +273,7 @@ export function formatTimestamp(iso: string | null): string {
   if (!iso) return '—';
   const then = Date.parse(iso);
   if (!Number.isFinite(then)) return iso;
-  return new Date(then).toLocaleString(undefined, {
+  return formatDateTime(then, {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
@@ -282,18 +284,18 @@ export function formatTimestamp(iso: string | null): string {
 }
 
 /**
- * A bucket's x-axis label: time of day, plus the date for multi-day spans.
+ * A bucket's x-axis label: time of day, plus the date for multi-day spans, in
+ * the viewer's display time zone.
  *
  * @stability experimental
  */
 export function formatBucketLabel(iso: string, spanMs: number): string {
   const then = Date.parse(iso);
   if (!Number.isFinite(then)) return iso;
-  const date = new Date(then);
   if (spanMs > 24 * 60 * 60_000) {
-    return date.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return formatDateTime(then, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   }
-  return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  return formatTime(then, { hour: '2-digit', minute: '2-digit' });
 }
 
 /**

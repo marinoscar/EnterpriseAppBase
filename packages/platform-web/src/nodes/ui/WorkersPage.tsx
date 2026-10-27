@@ -105,7 +105,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import MonitorHeartIcon from '@mui/icons-material/MonitorHeart';
 import { Navigate } from 'react-router-dom';
 
-import { usePlatformViewer, useTableSlotColumns } from '../../core/index.js';
+import { useDisplayTimeZone, usePlatformViewer, useTableSlotColumns } from '../../core/index.js';
 import type { PageSlot, PageSlotsBase, TableSlots } from '../../core/index.js';
 import {
   WORKER_NODES_POLL_INTERVAL_MS,
@@ -284,7 +284,9 @@ export function WorkersPage(props: WorkersPageProps = {}): ReactElement {
   const actions = useNodeActions(refreshAll);
   useVisiblePolling(refreshAll, WORKER_NODES_POLL_INTERVAL_MS);
 
-  const baseColumns = useMemo(() => buildWorkerNodeColumns(renderedAt), [renderedAt]);
+  // The time columns render in the display zone: rebuild on a zone change.
+  const timeZone = useDisplayTimeZone();
+  const baseColumns = useMemo(() => buildWorkerNodeColumns(renderedAt), [renderedAt, timeZone]);
   const columns = useTableSlotColumns<WorkerNode, NodesTableColumn<WorkerNode>>(baseColumns, slots);
 
   const canWrite = hasPermission('nodes:write');

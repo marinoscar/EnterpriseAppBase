@@ -94,7 +94,7 @@ import { DataTable } from './datatable.js';
 import type { DataTableFilterModel, DataTableRowAction } from './datatable.js';
 import { BroadcastComposer } from './BroadcastComposer.js';
 import { BroadcastDetailDialog } from './BroadcastDetailDialog.js';
-import { PageSlotsFrame } from '../../core/index.js';
+import { PageSlotsFrame, useDisplayTimeZone } from '../../core/index.js';
 import type { PageSlotsBase } from '../../core/index.js';
 import { usePermissions } from '../../identity/index.js';
 import { useNotificationChannels } from '../headless/useNotificationChannels.js';
@@ -242,7 +242,9 @@ export default function BroadcastsPage(props: BroadcastsPageProps = {}) {
     () => new Map((channelDescriptors ?? []).map((channel) => [channel.id, channel.label])),
     [channelDescriptors],
   );
-  const columns = useMemo(() => buildBroadcastColumns(channelLabels), [channelLabels]);
+  // The time columns render in the display zone: rebuild on a zone change.
+  const timeZone = useDisplayTimeZone();
+  const columns = useMemo(() => buildBroadcastColumns(channelLabels), [channelLabels, timeZone]);
 
   const canWrite = hasPermission('broadcasts:write');
 

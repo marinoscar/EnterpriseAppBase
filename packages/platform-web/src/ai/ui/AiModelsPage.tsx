@@ -63,7 +63,7 @@ import { DataTable } from '../../datatable/index.js';
 import type { DataTableColumn, DataTableRowAction } from '../../datatable/index.js';
 import { PageSlotsFrame, useTableSlotColumns } from '../../core/index.js';
 import type { PageSlotsBase, TableSlots } from '../../core/index.js';
-import { usePlatformViewer } from '../../core/index.js';
+import { useDisplayTimeZone, usePlatformViewer } from '../../core/index.js';
 import { useAiAdminConfig } from '../headless/use-ai-admin-config.js';
 import { useAiCapabilities } from '../headless/use-ai-capabilities.js';
 import { useAiModels } from '../headless/use-ai-models.js';
@@ -184,9 +184,11 @@ export default function AiModelsPage(props: AiModelsPageProps = {}) {
     [setEnabled],
   );
 
+  // "Last seen" renders in the display zone: rebuild on a zone change.
+  const timeZone = useDisplayTimeZone();
   const baseColumns = useMemo(
     () => buildAiModelColumns({ canWrite, pendingIds, onToggleEnabled }),
-    [canWrite, pendingIds, onToggleEnabled],
+    [canWrite, pendingIds, onToggleEnabled, timeZone],
   );
   const columns = useTableSlotColumns<AiModel, DataTableColumn<AiModel>>(baseColumns, slots);
 

@@ -41,6 +41,7 @@ import { DashboardPanel, type PanelAction } from './DashboardPanel.js';
 import type { DashboardLayout } from './DashboardFilterBar.js';
 import { formatDuration, formatRelative, formatTimestamp } from '../../../headless/lib/format.js';
 import { useTelemetryTokens } from '../../../theme/telemetryTokens.js';
+import { useDisplayTimeZone } from '../../../../core/index.js';
 
 const pct = (value: number) => `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}%`;
 const ms = (value: number | null) => (value === null ? '—' : formatDuration(value));
@@ -214,6 +215,7 @@ export interface TopProblemsProps {
 }
 
 export function TopProblems({ routes, errors, layout, actions = [], now = Date.now() }: TopProblemsProps) {
+  useDisplayTimeZone(); // The timestamps render in the display zone.
   const [kind, setKind] = useState<TopProblemsKind>('routes');
   const actionsOf = (which: TopProblemsKind) => (typeof actions === 'function' ? actions(which) : actions);
 

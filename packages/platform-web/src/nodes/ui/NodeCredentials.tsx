@@ -66,6 +66,7 @@ import type {
 } from '../headless/index.js';
 import { CreateNodeCredentialDialog } from './CreateNodeCredentialDialog.js';
 import { NodeCredentialRevealDialog } from './NodeCredentialRevealDialog.js';
+import { useDisplayTimeZone } from '../../core/index.js';
 
 type DataTableRowAction<Row> = NodesTableRowAction<Row>;
 
@@ -128,7 +129,9 @@ export function NodeCredentials({
    */
   const [revealed, setRevealed] = useState<NodeCredentialCreated | null>(null);
 
-  const columns = useMemo(() => buildNodeCredentialColumns(now), [now]);
+  // The date columns render in the display zone: rebuild on a zone change.
+  const timeZone = useDisplayTimeZone();
+  const columns = useMemo(() => buildNodeCredentialColumns(now), [now, timeZone]);
 
   const rowActions = useMemo(() => {
     // The ARRAY is gated, never a rendered-then-hidden control: a reader

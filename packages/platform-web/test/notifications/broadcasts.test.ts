@@ -19,7 +19,9 @@
  *      moves the broadcast two hours earlier with nothing on screen to warn
  *      them. So the round-trip is asserted directly, and asserted again over a
  *      DST boundary, where the local offset on the two sides of the conversion
- *      is genuinely different.
+ *      is genuinely different. The wall clock is the user's DISPLAY zone (the
+ *      core store's `getDisplayTimeZone()`), so each case pins it with
+ *      `setPreferredTimeZone` rather than depending on the machine's zone.
  *
  * The limit constants are the wire contract's own (#738): the composer's
  * character counters are built from these numbers, and a counter that
@@ -52,6 +54,7 @@ import {
   sendTestBroadcast,
 } from '../../src/notifications/headless/broadcasts.js';
 import type { Broadcast, CreateBroadcastRequest } from '../../src/notifications/headless/broadcasts.js';
+import { setPreferredTimeZone } from '../../src/core/index.js';
 
 
 function broadcast(overrides: Partial<Broadcast> = {}): Broadcast {
@@ -125,6 +128,8 @@ describe('the limits are the wire contract\u2019s', () => {
 // =============================================================================
 
 describe('localInputToIso / isoToLocalInput', () => {
+  afterEach(() => setPreferredTimeZone(null));
+
   it('round-trips a wall-clock value through an instant and back', () => {
     const input = '2026-06-15T09:30';
     const iso = localInputToIso(input);
@@ -133,40 +138,39 @@ describe('localInputToIso / isoToLocalInput', () => {
     expect(isoToLocalInput(iso as string)).toBe(input);
   });
 
-  it('reads back the LOCAL wall clock, not the UTC one', () => {
+  it('reads back the wall clock of the display zone, not the UTC one', () => {
     // The regression this whole pair exists for. `toISOString().slice(0, 16)`
     // would return the UTC rendering, which differs from the input by the
-    // local offset — and in any zone that is not UTC, this assertion catches
-    // it. In UTC itself the two agree, so the assertion below is what actually
-    // pins the intent regardless of where the suite runs.
-    const input = '2026-06-15T09:30';
-    const iso = localInputToIso(input) as string;
-    const date = new Date(iso);
+    // zone's offset. Pinned to Tokyo (UTC+9, no DST), so the assertion is never
+    // vacuous, whatever zone the suite runs in.
+    setPreferredTimeZone('Asia/Tokyo');
+    expect(localInputToIso('2026-06-15T09:30')).toBe('2026-06-15T00:30:00.000Z');
+    expect(isoToLocalInput('2026-06-15T00:30:00.000Z')).toBe('2026-06-15T09:30');
+  });
 
-    expect(isoToLocalInput(iso)).toBe(
-      `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-` +
-        `${String(date.getDate()).padStart(2, '0')}T` +
-        `${String(date.getHours()).padStart(2, '0')}:` +
-        `${String(date.getMinutes()).padStart(2, '0')}`,
-    );
+  it('follows the display zone, not the browser zone, and takes an explicit zone', () => {
+    // The same wall clock is a different instant for a user who chose another
+    // zone: the field means what every other time on the page means.
+    setPreferredTimeZone('America/Costa_Rica');
+    expect(localInputToIso('2026-06-15T09:30')).toBe('2026-06-15T15:30:00.000Z');
+    expect(localInputToIso('2026-06-15T09:30', 'UTC')).toBe('2026-06-15T09:30:00.000Z');
+    expect(isoToLocalInput('2026-06-15T15:30:00.000Z', 'Asia/Kolkata')).toBe('2026-06-15T21:00');
   });
 
   /**
-   * Run `assertions` with the process pinned to a zone that really observes
-   * DST, then restore whatever the suite was running in.
+   * Run `assertions` with the display zone pinned to one that really observes
+   * DST, then follow the device again.
    *
    * WITHOUT THIS, THE DST CASE IS VACUOUS. CI runs in UTC, where every offset
    * is zero and a UTC-based `isoToLocalInput` would pass every assertion in
-   * this file. Node re-reads `process.env.TZ` on the next `Date` construction,
-   * so setting it here genuinely changes what the local getters return.
+   * this file.
    */
   function inTimeZone(zone: string, assertions: () => void) {
-    const original = process.env.TZ;
-    process.env.TZ = zone;
+    setPreferredTimeZone(zone);
     try {
       assertions();
     } finally {
-      process.env.TZ = original;
+      setPreferredTimeZone(null);
     }
   }
 
@@ -205,6 +209,20 @@ describe('localInputToIso / isoToLocalInput', () => {
     });
   });
 
+  it('resolves a wall clock that occurs twice to the earlier instant, and one in the spring gap forward', () => {
+    inTimeZone('America/New_York', () => {
+      // 01:30 happens twice on 2026-11-01: EDT (05:30Z) first, then EST (06:30Z).
+      expect(localInputToIso('2026-11-01T01:30')).toBe('2026-11-01T05:30:00.000Z');
+      // 02:30 never happens on 2026-03-08: a native control reads it as 03:30 EDT.
+      expect(localInputToIso('2026-03-08T02:30')).toBe('2026-03-08T07:30:00.000Z');
+    });
+    inTimeZone('Europe/Paris', () => {
+      // East of UTC, the other branch: 01:30 CET on the spring-forward day.
+      expect(localInputToIso('2026-03-29T01:30')).toBe('2026-03-29T00:30:00.000Z');
+      expect(localInputToIso('2026-03-29T03:30')).toBe('2026-03-29T01:30:00.000Z');
+    });
+  });
+
   it('pads every component to the width the input control requires', () => {
     // A single-digit month, day, hour or minute that is not padded produces a
     // value a native `datetime-local` silently rejects — the field renders
@@ -219,6 +237,10 @@ describe('localInputToIso / isoToLocalInput', () => {
     // the API reject a malformed date the admin never typed.
     expect(localInputToIso('')).toBeNull();
     expect(localInputToIso('not a date')).toBeNull();
+    // An overflowing field is not a date the admin typed.
+    expect(localInputToIso('2026-02-30T09:00')).toBeNull();
+    expect(localInputToIso('2026-13-01T09:00')).toBeNull();
+    expect(localInputToIso('2026-01-01T24:00')).toBeNull();
   });
 
   it('renders an unparseable instant as an empty field rather than throwing', () => {

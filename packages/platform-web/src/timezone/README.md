@@ -1,16 +1,18 @@
 # @marinoscar/platform-web/timezone
 
-The time zone slice of the web package, in two entries: `/timezone/headless` (the display-zone store, the formatters that render in it, the zone catalog, the map geometry and `UserTimeZoneSync`) and `/timezone/ui` (`TimeZoneMap`, the world map; `TimeZonePickerDialog`, the picker built on it; `TimeZoneField`, the compact read-out with a "Change time zone" link). It depends on `core` (the transport) and `identity` (the optional auth context, to clear the choice on sign-out) (`packages/platform-slices.json`). The settings slice depends on it: the profile card draws `TimeZoneField` and `useUserSettings` keeps the store on `profile.timezone`.
+The time zone slice of the web package, in two entries: `/timezone/headless` (the display-zone store, the formatters that render in it, the zone catalog, the map geometry and `UserTimeZoneSync`) and `/timezone/ui` (`TimeZoneMap`, the world map; `TimeZonePickerDialog`, the picker built on it; `TimeZoneField`, the compact read-out with a "Change time zone" link). It depends on `core` (the transport, and the display-zone store and formatters themselves) and `identity` (the optional auth context, to clear the choice on sign-out) (`packages/platform-slices.json`). The settings slice depends on it: the profile card draws `TimeZoneField` and `useUserSettings` keeps the store on `profile.timezone`.
 
 ## Purpose and scope
 
 Every time the packaged UI shows is rendered in one zone: the zone the user chose on their profile (`profile.timezone`, an IANA id), else the device's zone, else UTC. The slice owns that decision and the picker that changes it.
 
-- **One store, outside React.** `getDisplayTimeZone()` answers for a pure formatter, a hook or any code; `setPreferredTimeZone(id | null)` changes it and notifies `subscribeDisplayTimeZone` listeners; `useDisplayTimeZone()` re-renders a component on change. The choice is cached in `localStorage` (`platform.timezone`) so a reload renders in the right zone before the settings fetch lands.
+- **One store, outside React, in `core`.** The store and the formatters live in `src/core/time-zone/` and are exported by `@marinoscar/platform-web/core`, because every slice renders dates and the slice graph lets every slice import `core` (identity, which this slice depends on, included: importing this slice from it would be a cycle). `/timezone/headless` re-exports the same functions, one instance. `getDisplayTimeZone()` answers for a pure formatter, a hook or any code; `setPreferredTimeZone(id | null)` changes it and notifies `subscribeDisplayTimeZone` listeners; `useDisplayTimeZone()` re-renders a component on change. The choice is cached in `localStorage` (`platform.timezone`) so a reload renders in the right zone before the settings fetch lands.
 - **Formatters with a default zone.** `formatDateTime`, `formatDate` and `formatTime` take `Intl.DateTimeFormatOptions` plus `locale` and `fallback` (default `—`), and default `timeZone` to the display zone. A server fact defined in one zone (a backup schedule in UTC) passes `timeZone` explicitly. `zonedDateKey` gives the `YYYY-MM-DD` day of a moment in the zone, for "Today" and grouping.
 - **A picker people enjoy.** A dot-matrix world map with the selected zone's UTC-offset band, a pin per zone and a pulsing ring on the selection, a search by city, country, id or offset (`UTC+5:30`, `GMT-6`), and a summary with the live local time. Full screen on a phone.
 
-Not here: sweeping each page's own date formatting onto the formatters (each slice's own change), and the server's validation of `profile.timezone` (`isValidTimeZone` and `timeZoneIdSchema` of `@marinoscar/platform-contract/settings`; the settings API).
+Every date the packaged pages show renders in this zone: each slice formats through the core formatters (with `NUMERIC_DATE_TIME`, `NUMERIC_DATE` or `NUMERIC_TIME` where the page used `toLocaleString()` and its kin) and subscribes with `useDisplayTimeZone()`. Deliberate UTC renderings stay UTC (the AI usage days, the telemetry assistant's prompt, a `… UTC` label beside a local one), and the broadcast composer's `datetime-local` field is read and written in the display zone.
+
+Not here: the server's validation of `profile.timezone` (`isValidTimeZone` and `timeZoneIdSchema` of `@marinoscar/platform-contract/settings`; the settings API).
 
 ## Install and peer dependencies
 
@@ -86,7 +88,7 @@ No permission of its own. `UserTimeZoneSync` calls `GET /api/user-settings` (`us
 - **Interaction.** A click or tap anywhere picks the nearest zone pin (`nearestZone`, longitude wraps); a fine pointer previews the nearest zone with its city, country, offset and local time. The ring's pulse stops under `prefers-reduced-motion`.
 - **Responsive.** The dialog is full screen below `sm` (600px) with a close button, a `md` dialog above. This `down('sm')` read is not one of the five shell breakpoint gates.
 - **Accessibility.** The map is one `role="img"` labelled with the selection; the accessible way to choose is the search field (an Autocomplete with an explicit label), the Automatic switch and the device button. The summary is a polite live region.
-- **Code splitting.** `TimeZoneField` imports the dialog with `React.lazy`, and the store and formatters by file, so a page that formats dates never loads the map data.
+- **Code splitting.** `TimeZoneField` imports the dialog with `React.lazy`, and the store and formatters come from `core`, so a page that formats dates never loads the map data.
 
 ## Infra
 
@@ -108,7 +110,9 @@ None. The slice's behaviour is pinned by its package tests (`test/timezone/`) an
 
 ## Upgrade notes
 
-New. `profile.timezone` became a core profile field; an app that drew it with the profile card's `ExtraFields` slot drops that field (the reference app's example is now `PronounsField.example.tsx`). `useUserSettings` of the settings slice gains `syncTimeZone` (default `true`).
+The store and formatters moved to `core` (`@marinoscar/platform-web/core`), unchanged; this slice re-exports them, so imports from `/timezone/headless` keep working. New: `NUMERIC_DATE_TIME`, `NUMERIC_DATE`, `NUMERIC_TIME`. Every packaged page now renders in the display zone (see Purpose and scope).
+
+First release: new. `profile.timezone` became a core profile field; an app that drew it with the profile card's `ExtraFields` slot drops that field (the reference app's example is now `PronounsField.example.tsx`). `useUserSettings` of the settings slice gains `syncTimeZone` (default `true`).
 
 ## Troubleshooting
 

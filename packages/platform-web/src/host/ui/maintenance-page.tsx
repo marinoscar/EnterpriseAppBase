@@ -71,7 +71,7 @@ import {
   Typography,
 } from '@mui/material';
 import { Navigate } from 'react-router-dom';
-import { PageSlotsFrame } from '../../core/index.js';
+import { NUMERIC_DATE_TIME, PageSlotsFrame, formatDateTime, useDisplayTimeZone } from '../../core/index.js';
 import type { PageSlotsBase } from '../../core/index.js';
 import { usePermissions } from '../../identity/index.js';
 import type { MaintenanceSource, MaintenanceStatus } from '../headless/contract.js';
@@ -182,6 +182,7 @@ export interface MaintenancePageProps {
  * @stability experimental
  */
 export function MaintenancePage(props: MaintenancePageProps = {}) {
+  useDisplayTimeZone(); // "Opened" renders in the display zone.
   const { slots } = props;
   const { hasPermission } = usePermissions();
   const { status, isLoading, loadError, isSaving, saveError, save } = useMaintenance();
@@ -303,7 +304,7 @@ export function MaintenancePage(props: MaintenancePageProps = {}) {
                     to attribute a window to — so it is rendered only when the
                     API actually supplies it, never invented. */}
                 {status.startedAt && (
-                  <span>Opened {new Date(status.startedAt).toLocaleString()}</span>
+                  <span>Opened {formatDateTime(status.startedAt, NUMERIC_DATE_TIME)}</span>
                 )}
               </Stack>
             </Alert>
