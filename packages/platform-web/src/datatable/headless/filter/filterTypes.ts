@@ -17,6 +17,8 @@
 
 import type { ComponentType } from 'react';
 
+import { zonedDateKey } from '../../../core/index.js';
+
 import type {
   BuiltinDataTableFilterType,
   BuiltinFilterOperator,
@@ -233,6 +235,23 @@ const text = (value: unknown): string => (value === null || value === undefined 
 const isEmptyValue = (value: unknown): boolean => value === null || value === undefined || value === '';
 const asList = (operand: DataTableFilterValue): Array<string | number> => (Array.isArray(operand) ? operand : operand === null ? [] : [operand as string | number]);
 
+/** A bare `YYYY-MM-DD` (no time part): a calendar day, not an instant. */
+const BARE_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * The calendar day a filter value names: a bare `YYYY-MM-DD` as is; an instant
+ * (ISO string with a time, epoch milliseconds, a `Date`) as its day in the
+ * display zone; anything unparsable by its first ten characters, as before.
+ */
+function calendarDayOf(value: unknown): string {
+  if (typeof value === 'string' && BARE_DAY.test(value)) return value;
+  if (typeof value === 'string' || typeof value === 'number' || value instanceof Date) {
+    const key = zonedDateKey(value);
+    if (key !== null) return key;
+  }
+  return text(value).slice(0, 10);
+}
+
 function matchesEmptiness(value: unknown, operator: FilterOperator): boolean | undefined {
   if (operator === 'isEmpty') return isEmptyValue(value);
   if (operator === 'isNotEmpty') return !isEmptyValue(value);
@@ -310,13 +329,15 @@ const BUILTIN_TYPES: ReadonlyArray<DataTableFilterTypeDef & { type: BuiltinDataT
       const empty = matchesEmptiness(value, operator);
       if (empty !== undefined) return empty;
       if (isEmptyValue(value)) return false;
-      // Dates travel as YYYY-MM-DD; a datetime value compares by its day.
-      const day = text(value).slice(0, 10);
+      // Operands travel as YYYY-MM-DD days. A bare day compares as is; an
+      // instant compares by the calendar day it falls on in the display zone
+      // (never its UTC `.slice(0, 10)`, which is the wrong day near midnight).
+      const day = calendarDayOf(value);
       if (operator === 'between') {
-        const [from, to] = asList(operand).map(String);
+        const [from, to] = asList(operand).map(calendarDayOf);
         return from !== undefined && to !== undefined && day >= from && day <= to;
       }
-      const other = text(operand).slice(0, 10);
+      const other = calendarDayOf(operand);
       if (operator === 'before') return day < other;
       if (operator === 'after') return day > other;
       return false;

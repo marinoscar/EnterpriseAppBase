@@ -155,6 +155,24 @@ export function isValidTimeZone(id: unknown): id is string {
 }
 
 /**
+ * The valid `profile.timezone` out of a stored user-settings document
+ * (`{ profile: { timezone } }`), or `null` when absent, malformed or no longer
+ * a zone the runtime knows. Pure; never throws.
+ *
+ * @param settingsValue - the stored `user_settings.value` (or `null`/`undefined` when no row exists).
+ * @returns the IANA zone id, or `null`.
+ *
+ * @stability experimental
+ */
+export function readProfileTimeZone(settingsValue: unknown): string | null {
+  if (!settingsValue || typeof settingsValue !== 'object') return null;
+  const profile = (settingsValue as Record<string, unknown>).profile;
+  if (!profile || typeof profile !== 'object') return null;
+  const tz = (profile as Record<string, unknown>).timezone;
+  return isValidTimeZone(tz) ? tz : null;
+}
+
+/**
  * `profile.timezone`: an IANA time zone id.
  *
  * @stability experimental

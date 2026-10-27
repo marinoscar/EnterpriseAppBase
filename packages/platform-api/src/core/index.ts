@@ -20,6 +20,13 @@ export * from './pluggable/index';
 // DI-time ports (`AUDIT_SINK`, `SYSTEM_SETTINGS_STORE`, `PLATFORM_PRISMA`) and
 // `PlatformHostModule`, which binds them. Every packaged slice reuses them.
 export * from './host/index';
+export {
+  REQUEST_TIME_ZONE_RESOLVER,
+  chooseTimeZone,
+  readRequestTimeZoneHeader,
+  resolveRequestTimeZoneWith,
+} from './timezone/request-time-zone';
+export type { RequestTimeZoneResolver, RequestWithHeaders } from './timezone/request-time-zone';
 
 // Roles and permissions (issue #676, packaged by #866): the role and
 // permission registries every slice declares into, the declaration types, and

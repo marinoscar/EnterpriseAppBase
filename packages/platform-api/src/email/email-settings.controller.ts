@@ -7,11 +7,13 @@ import {
   HttpStatus,
   Post,
   Put,
+  Req,
 } from '@nestjs/common';
 import { ApiHeader, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
+import type { RequestWithHeaders } from '../core/index';
 import { Auth, CurrentUser, type RequestUser } from '../identity/index';
-import { SETTINGS_PERMISSIONS } from '../settings/index';
+import { SETTINGS_PERMISSIONS, SettingsResolver } from '../settings/index';
 import { EmailSettingsService } from './email-settings.service';
 import { EmailTestSendService } from './email-test-send.service';
 import { EmailSettingsResponseDto } from './dto/email-settings-response.dto';
@@ -67,6 +69,7 @@ export class EmailSettingsController {
   constructor(
     private readonly emailSettings: EmailSettingsService,
     private readonly testSend: EmailTestSendService,
+    private readonly settings: SettingsResolver,
   ) {}
 
   /**
@@ -170,9 +173,11 @@ export class EmailSettingsController {
       "provider's verbatim message.",
     type: TestEmailResultDto,
   })
-  async sendTestEmail(@CurrentUser() user: RequestUser) {
+  async sendTestEmail(@CurrentUser() user: RequestUser, @Req() request: RequestWithHeaders) {
     // The recipient is the session's own address. Nothing from the request
     // body reaches the transport — there is no body, and no parameter for one.
-    return this.testSend.sendTest({ id: user.id, email: user.email });
+    // Timestamps render in the caller's zone: profile, then X-Time-Zone, then UTC.
+    const timeZone = await this.settings.resolveRequestTimeZone(request, user.id);
+    return this.testSend.sendTest({ id: user.id, email: user.email, timeZone });
   }
 }

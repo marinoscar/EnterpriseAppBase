@@ -12,6 +12,8 @@ Since PP-14.5 (#923) it also carries the wire shapes of a **pluggable kind**: th
 
 Not here: the namespaces other slices own (`ai`, `notifications`, `jobs`, ...; each with its slice), the services and routes (`@marinoscar/platform-api/settings`), the hub (`@marinoscar/platform-web/settings`).
 
+`readProfileTimeZone(settingsValue)` reads a stored `user_settings.value` and returns its valid `profile.timezone` (or `null`); the settings service, the notification recipient loader and `SettingsResolver.resolveUserTimeZone` all use it, so "which zone does this user have" has one answer. The zone math itself is `@marinoscar/platform-contract/timezone`.
+
 ## Install and peer dependencies
 
 Ships inside `@marinoscar/platform-contract`; import it by its subpath:

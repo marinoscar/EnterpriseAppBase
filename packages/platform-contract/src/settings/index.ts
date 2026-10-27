@@ -67,6 +67,7 @@ export {
   themePreferenceSchema,
   TIME_ZONE_ID_MAX,
   isValidTimeZone,
+  readProfileTimeZone,
   timeZoneIdSchema,
   userProfileSettingsPatchSchema,
   userProfileSettingsSchema,

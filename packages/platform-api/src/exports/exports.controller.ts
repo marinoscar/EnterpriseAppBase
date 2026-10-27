@@ -9,7 +9,7 @@
 // body and the query are zod DTOs built from `@marinoscar/platform-contract/exports`.
 // =============================================================================
 
-import { Body, Controller, ForbiddenException, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, HttpCode, HttpStatus, Inject, Optional, Param, ParseUUIDPipe, Post, Req } from '@nestjs/common';
 import { ApiBody, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import {
   EXPORT_LIST_LIMIT,
@@ -24,7 +24,13 @@ import {
 } from '@marinoscar/platform-contract/exports';
 import { createZodDto } from 'nestjs-zod';
 
-import { ApiDataResponse } from '../core/index';
+import {
+  ApiDataResponse,
+  REQUEST_TIME_ZONE_RESOLVER,
+  resolveRequestTimeZoneWith,
+  type RequestTimeZoneResolver,
+  type RequestWithHeaders,
+} from '../core/index';
 import type { Principal } from '../core/index';
 import { Auth, CurrentPrincipal } from '../identity/index';
 import { ExportsService, type ExportPrincipal } from './exports.service';
@@ -72,7 +78,12 @@ function principalOf(principal: Principal | undefined): ExportPrincipal {
 @ApiTags('Exports')
 @Controller('exports')
 export class ExportsController {
-  constructor(private readonly exports: ExportsService) {}
+  constructor(
+    private readonly exports: ExportsService,
+    // Bound by the settings slice when it is mounted (exports cannot import it): without it the
+    // `X-Time-Zone` header, then UTC, decide.
+    @Optional() @Inject(REQUEST_TIME_ZONE_RESOLVER) private readonly timeZones?: RequestTimeZoneResolver,
+  ) {}
 
   /**
    * The sources and formats the caller may use.
@@ -110,7 +121,8 @@ export class ExportsController {
       'Queues an `export.run` job and answers `202` with the export (status `pending`). The export id is the job id. ' +
       '`request` is validated by the source\'s own schema. An `org` source exports the active organization, or ' +
       '`orgId` with the source\'s cross-organization permission. Poll `GET /api/exports/{id}` until `ready`; the requester ' +
-      'is also notified (`export.ready` / `export.failed`).',
+      'is also notified (`export.ready` / `export.failed`). The requester\'s time zone (profile, then the `X-Time-Zone` header, then UTC) is ' +
+      'captured with the request: sources cut their day fields in it and the default file name carries that zone\'s day.',
   })
   @ApiBody({ type: CreateExportDto })
   @ApiDataResponse(ExportResponseDto, { status: 202, description: 'Queued.' })
@@ -118,8 +130,15 @@ export class ExportsController {
   @ApiResponse({ status: 403, description: "Missing the source's permission" })
   @ApiResponse({ status: 404, description: 'Unknown organization (cross-organization export)' })
   @ApiResponse({ status: 429, description: 'Too many exports in progress for this account or organization' })
-  create(@CurrentPrincipal() user: Principal | undefined, @Body() body: CreateExportDto): Promise<ExportView> {
-    return this.exports.create(principalOf(user), body as unknown as CreateExport);
+  async create(
+    @CurrentPrincipal() user: Principal | undefined,
+    @Body() body: CreateExportDto,
+    @Req() request: RequestWithHeaders,
+  ): Promise<ExportView> {
+    const principal = principalOf(user);
+    // Captured now and stored on the job: the file renders in the zone the requester had when they asked.
+    const timeZone = await resolveRequestTimeZoneWith(this.timeZones, request, principal.id);
+    return this.exports.create({ ...principal, timeZone }, body as unknown as CreateExport);
   }
 
   /**

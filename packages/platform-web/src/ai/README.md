@@ -201,6 +201,12 @@ Six pages (the admin AI page draws each provider with a registered card, or the 
 
 Every page takes one optional `slots` prop ([Page slots](../core/README.md#page-slots)): `Header`, `BeforeContent`, `Sections` (at both ends), `AfterContent`. `AiConfigPage` also takes `ProviderCardExtra` (called once per listed provider, drawn under its card with `{ provider, canWrite, aiEnabled }`: data, never a client); `AiModelsPage` and `AiUsagePage` take the table slots (`Columns`, `RowActions`, `DetailPanel`, `Toolbar`; the usage slots shape the breakdown table, `AiUsageTable` takes the same `slots` for an app that draws it itself). With no slot the markup is unchanged (`test/ai/AiPages.builtin-dom.test.tsx` pins it against a snapshot recorded from the pages before the change).
 
+### Usage days and limits in the user's zone
+
+The usage reports are cut in calendar days of the viewer's zone. `aiUsageRangeForDays(days, now?, timeZone?)` takes today as `zonedDateKey(now, zone)` (default the display zone) and steps back with the contract's `addDaysToDateKey`; `useAiUsage` and `useMyAiUsage` send `tz` (default the display zone, re-fetching when it changes) to `GET /admin/ai/usage` and `GET /ai/usage/me`, and the report echoes the zone it used as `AiUsageReport.timeZone`. `fillDailySeries` zero-fills the range by stepping day keys (never 24-hour instants, so a DST day neither skips nor repeats a key) and `formatUsageDay` formats a key as the day it names. `AiUsagePage` labels the range with the report's zone, `2026-09-28 to 2026-10-27 (America/Costa_Rica)`, falling back to `(UTC)` for a server that echoes none. No packaged page reads `GET /admin/ai/org-usage` yet; a host that does sends `tz` the same way.
+
+The rate limits themselves are not cut in the user's zone: the daily windows reset at UTC midnight for everyone (a user cannot move their own reset). An `AI_RATE_LIMITED` refusal from one of the deployment's limits carries `details.resetsAt`; `toAiErrorInfo` reads it into `AiErrorInfo.resetsAt`, and `aiErrorCopy` (so `AiErrorAlert`) and `aiErrorText` say "resets at" that instant in the viewer's display zone (`formatDateTime`). Without it the copy keeps "Daily limits reset at midnight UTC".
+
 ## Infra
 
 None. A browser bundle.
@@ -220,6 +226,8 @@ None of its own: the API logs and audits every key change (`org_ai_config:set_ke
 None. `test/ai/` covers the slice without an app (the organization page, the hooks that fetch, the admin pages over mocked hooks and the shared components, against a test host); the reference app keeps the wire tests of every page and hook against its real transport and MSW (`apps/web/src/__tests__/pages/*wire*`, `hooks/useAi*`, `platform/aiClient.test.ts`), and its web conformance suites (`settings-ai-cards`, run from `apps/web/src/__tests__/conformance.test.ts`) and `settingsCards.test.ts` pin each card's permission and feature gate.
 
 ## Upgrade notes
+
+Zone date operations: additive. `aiUsageRangeForDays` gains `timeZone` (default the display zone; it used UTC), `AiUsageQuery` and `AiMyUsageQuery` gain `tz`, `AiUsageReport` gains `timeZone`, and `AiErrorInfo` gains `resetsAt`. The usage hooks send `tz` by default, so a report's days are the viewer's days; pass `tz: 'UTC'` for the old cut. The usage page's range label names the report's zone instead of `(UTC)`.
 
 New subpaths in #739: `/ai/headless` and `/ai/ui`. In #899: the AI slice now depends on `datatable` and draws the model catalogue and usage breakdowns with its `DataTable`; `AiWebAdapters.DataTable` and the `AiDataTable*`/`AiTable*` types are gone (the pages' columns are `DataTableColumn`s). `/ai/ui/require-ai-enabled` (the `RequireAiEnabled` route guard, also exported by `/ai/ui`). In #890: `/ai/ui/config-page`, `/models-page`, `/usage-page`, `/keys-page` and `/playground-page`. The AI calls moved from the reference app's `services/ai.ts`: each now takes the `PlatformApiClient` as its first argument, and the hooks take `{ api? }` last. `PlatformApiClient` gained an optional `postFormData`, and `PlatformRequestOptions` gained `jsonBody` (a DELETE body); an app whose `createPlatformApiClient` is current has both.
 

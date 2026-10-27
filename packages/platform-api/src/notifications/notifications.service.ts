@@ -1,3 +1,4 @@
+import { isValidTimeZone, readProfileTimeZone } from '@marinoscar/platform-contract/settings';
 import { Inject, Injectable, Logger, Optional, type OnModuleDestroy } from '@nestjs/common';
 import { trace } from '@opentelemetry/api';
 
@@ -1094,6 +1095,7 @@ export class NotificationsService implements OnModuleDestroy {
       email: user.email,
       preferences: readNotificationPreferences(user.userSettings?.value),
       orgId: user.memberships?.[0]?.orgId ?? null,
+      timeZone: readProfileTimeZone(user.userSettings?.value),
     };
   }
 
@@ -1112,6 +1114,12 @@ export class NotificationsService implements OnModuleDestroy {
     data: unknown,
     options?: NotifyOptions,
   ): Promise<NotifyNowResult> {
+    // RENDER ZONE: the recipient's own profile zone, else the caller's hint
+    // (an address with no account, or an account on "Automatic"), else UTC.
+    // Text only; nothing about who receives what depends on it.
+    const hint = isValidTimeZone(options?.timeZone) ? options!.timeZone! : null;
+    if (!recipient.timeZone && hint) recipient = { ...recipient, timeZone: hint };
+
     // THE ADMIN GATE (#226), read ONCE per dispatch and carried in the context
     // below. Both halves of the browser decision — which channels to fan out to,
     // and whether the streamed event may raise an OS toast — are then derived

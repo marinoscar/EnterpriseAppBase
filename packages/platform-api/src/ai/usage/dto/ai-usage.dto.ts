@@ -1,4 +1,5 @@
 import { aiFeatureIdSchema, aiUsageCostSchema } from '@marinoscar/platform-contract/ai';
+import { timeZoneIdSchema } from '@marinoscar/platform-contract/settings';
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
@@ -13,8 +14,10 @@ import { z } from 'zod';
 // renders either. Aggregated in SQL over `ai_usage_events` (the `created_at`
 // and `(user_id, created_at)` indexes); see `ai-usage.service.ts`.
 //
-// DATES ARE UTC CALENDAR DAYS, BOTH ENDS INCLUSIVE. `from=2026-09-01&to=
-// 2026-09-30` is thirty whole UTC days. Default: the last 30 days ending today;
+// DATES ARE CALENDAR DAYS IN THE REPORT'S TIME ZONE, BOTH ENDS INCLUSIVE.
+// `tz` (an IANA id) defaults to the caller's `profile.timezone`, then the
+// `X-Time-Zone` header, then UTC; the report echoes the zone used as
+// `timeZone`. `from=2026-09-01&to=2026-09-30` is thirty whole days there. Default: the last 30 days ending today;
 // the span is at most `MAX_AI_USAGE_RANGE_DAYS` (the job-insights bound).
 // =============================================================================
 
@@ -48,16 +51,20 @@ export type AiUsageGroupBy = (typeof AI_USAGE_ADMIN_GROUP_BY)[number];
 const isoDay = z.iso.date();
 
 export const aiUsageMeQuerySchema = z.object({
-  /** First UTC day included (`YYYY-MM-DD`). Default: 29 days before `to`. */
+  /** First day included (`YYYY-MM-DD`, in `tz`). Default: 29 days before `to`. */
   from: isoDay.optional(),
-  /** Last UTC day included (`YYYY-MM-DD`). Default: today (UTC). */
+  /** Last day included (`YYYY-MM-DD`, in `tz`). Default: today in `tz`. */
   to: isoDay.optional(),
+  /** IANA time zone the days are cut in. Default: your profile zone, then `X-Time-Zone`, then UTC. */
+  tz: timeZoneIdSchema.optional(),
   groupBy: z.enum(AI_USAGE_ME_GROUP_BY).default('day'),
 });
 
 export const aiUsageAdminQuerySchema = z.object({
   from: isoDay.optional(),
   to: isoDay.optional(),
+  /** IANA time zone the days are cut in. Default: the caller's profile zone, then `X-Time-Zone`, then UTC. */
+  tz: timeZoneIdSchema.optional(),
   groupBy: z.enum(AI_USAGE_ADMIN_GROUP_BY).default('day'),
   /** Only this user's events. */
   userId: z.uuid().optional(),
@@ -78,6 +85,8 @@ export const aiUsageAdminQuerySchema = z.object({
 export const aiUsageOrgQuerySchema = z.object({
   from: isoDay.optional(),
   to: isoDay.optional(),
+  /** IANA time zone the days are cut in. Default: the caller's profile zone, then `X-Time-Zone`, then UTC. */
+  tz: timeZoneIdSchema.optional(),
   groupBy: z.enum(AI_USAGE_ORG_GROUP_BY).default('day'),
   userId: z.uuid().optional(),
   provider: z.string().min(1).max(64).optional(),
@@ -155,8 +164,10 @@ export const aiUsageSeriesItemSchema = aiUsageBucketSchema.extend({
 });
 
 export const aiUsageReportSchema = z.object({
-  /** The window actually reported, UTC days, both inclusive. */
+  /** The window actually reported: calendar days in `timeZone`, both inclusive. */
   range: z.object({ from: isoDay, to: isoDay }),
+  /** The IANA zone the days were cut in (the request's `tz`, else the caller's zone, else `UTC`). */
+  timeZone: timeZoneIdSchema,
   groupBy: z.enum(AI_USAGE_ADMIN_GROUP_BY),
   /** Whether a pricing port is bound, so buckets carry a `cost` (PP-14.17). */
   priced: z.boolean().optional(),

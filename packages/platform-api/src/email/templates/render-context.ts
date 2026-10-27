@@ -33,6 +33,11 @@ export interface EmailRenderContext {
   readonly appUrl: string | null;
   /** The resolved layout: theme, brand mark, footer. */
   readonly layout: ResolvedEmailLayout;
+  /**
+   * The recipient's IANA time zone, for dates in the message (see `formatEmailDateTime`).
+   * Absent, `null` or invalid renders in UTC. Set per message, never by `configureEmailRendering`.
+   */
+  readonly timeZone?: string | null;
 }
 
 /**

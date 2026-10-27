@@ -6,6 +6,7 @@
  * it is `toAiErrorInfo`'s job (`services/aiErrors.ts`, the one helper every
  * AI surface uses); this module only words the code for the AI Keys page.
  */
+import { formatDateTime } from '../../../core/index.js';
 import { toAiErrorInfo } from '../../headless/errors.js';
 
 const FRIENDLY: Record<string, string> = {
@@ -28,12 +29,19 @@ export function aiCodeText(code: string | null | undefined): string {
 }
 
 /**
- * A friendly sentence for a thrown error from an AI call.
+ * A friendly sentence for a thrown error from an AI call. An `AI_RATE_LIMITED`
+ * that carries `details.resetsAt` (one of the deployment's own limits) says
+ * when it resets, in the viewer's display zone:
+ * `A usage limit was reached; it resets at Oct 28, 2026, 6:00 PM`.
  *
  * @stability stable
  */
 export function aiErrorText(err: unknown, fallback: string): string {
-  const reason = toAiErrorInfo(err).code;
+  const info = toAiErrorInfo(err);
+  const reason = info.code;
+  if (reason === 'AI_RATE_LIMITED' && info.resetsAt) {
+    return `A usage limit was reached; it resets at ${formatDateTime(info.resetsAt)}`;
+  }
   if (reason && FRIENDLY[reason]) return FRIENDLY[reason];
   if (err instanceof Error && err.message) return err.message;
   return fallback;

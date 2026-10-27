@@ -1,4 +1,5 @@
 import { SafeHtml, html, plainText, renderLayout } from './layout';
+import { formatEmailDateTime } from './format-date';
 import { resolveEmailRenderContext, type EmailRenderContext } from './render-context';
 import {
   TRANSACTIONAL_EMAIL_HEADERS,
@@ -71,7 +72,7 @@ export interface RoleChangedEmailData {
   /** Roles held AFTER the change, as stored. May be empty — access can be removed entirely. */
   currentRoles: string[];
 
-  /** When the change was made. Rendered as UTC; see `formatTimestamp`. */
+  /** When the change was made. Rendered in the recipient's zone, with the UTC time alongside. */
   changedAt: Date;
 
   /**
@@ -100,13 +101,11 @@ function formatRoles(roles: string[]): string {
 }
 
 /**
- * ISO 8601, in UTC, with the `Z` left on — the same choice, for the same
- * reason, as `test-email.email.ts`: the server does not know the reader's time
- * zone, and this timestamp's job is to be matched against an audit row or a
- * log line, both of which are UTC.
+ * The recipient's local time with the zone label and, outside UTC, the UTC time
+ * in parentheses (matchable against log lines). See `formatEmailDateTime`.
  */
-function formatTimestamp(value: Date): string {
-  return value.toISOString();
+function formatTimestamp(value: Date, ctx: EmailRenderContext): string {
+  return formatEmailDateTime(value, ctx);
 }
 
 /** One row of the before/after table. `value` is escaped by the `html` tag. */
@@ -133,7 +132,7 @@ export function roleChangedEmail(data: RoleChangedEmailData, ctx?: EmailRenderCo
   const appName = context.appName;
   const previous = formatRoles(data.previousRoles);
   const current = formatRoles(data.currentRoles);
-  const timestamp = formatTimestamp(data.changedAt);
+  const timestamp = formatTimestamp(data.changedAt, context);
 
   const subject = `Your access to ${appName} has changed`;
 

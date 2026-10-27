@@ -41,7 +41,7 @@ import {
   fillDailySeries,
   formatCount,
 } from './usage/index.js';
-import { PageSlotsFrame, usePlatformViewer } from '../../core/index.js';
+import { PageSlotsFrame, useDisplayTimeZone, usePlatformViewer } from '../../core/index.js';
 import type { PageSlotsBase, TableSlots } from '../../core/index.js';
 import type { DataTableColumn } from '../../datatable/index.js';
 import { useAiUsage } from '../headless/use-ai-usage.js';
@@ -153,10 +153,12 @@ export default function AiUsagePage(props: AiUsagePageProps = {}) {
   const { hasPermission } = usePlatformViewer();
   const [rangeDays, setRangeDays] = useState<AiUsageRangeDays>(AI_USAGE_DEFAULT_RANGE_DAYS);
   const [groupBy, setGroupBy] = useState<BreakdownGroupBy>('user');
-  const range = useMemo(() => aiUsageRangeForDays(rangeDays), [rangeDays]);
+  // The window and both reports are cut in one zone: the display zone.
+  const zone = useDisplayTimeZone();
+  const range = useMemo(() => aiUsageRangeForDays(rangeDays, new Date(), zone), [rangeDays, zone]);
 
-  const daily = useAiUsage({ groupBy: 'day', ...range });
-  const breakdown = useAiUsage({ groupBy, ...range });
+  const daily = useAiUsage({ groupBy: 'day', ...range, tz: zone });
+  const breakdown = useAiUsage({ groupBy, ...range, tz: zone });
 
   const days = useMemo(() => (daily.report ? fillDailySeries(daily.report) : []), [daily.report]);
   const breakdownRows = useMemo(
@@ -221,10 +223,11 @@ export default function AiUsagePage(props: AiUsagePageProps = {}) {
             Refresh
           </Button>
           <Box sx={{ flexGrow: 1 }} />
-          {/* The API's OWN range, not the button pressed — it is what the numbers cover. */}
+          {/* The API's OWN range and zone, not the button pressed: it is what the numbers cover. */}
           {daily.report && (
             <Typography variant="caption" color="text.secondary">
-              {daily.report.range.from.slice(0, 10)} to {daily.report.range.to.slice(0, 10)} (UTC)
+              {daily.report.range.from.slice(0, 10)} to {daily.report.range.to.slice(0, 10)}{' '}
+              {`(${daily.report.timeZone ?? 'UTC'})`}
             </Typography>
           )}
         </Stack>

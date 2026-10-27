@@ -4,6 +4,8 @@ import {
   NotFoundException,
   Logger,
   Optional, Inject } from '@nestjs/common';
+import { isValidTimeZone } from '@marinoscar/platform-contract/settings';
+import { DEFAULT_SERVER_TIME_ZONE, addCalendarInZone } from '@marinoscar/platform-contract/timezone';
 import { PLATFORM_PRISMA } from '../../core/index';
 import type { IdentityPrisma } from '../ports';
 import { createHash, randomBytes } from 'node:crypto';
@@ -23,6 +25,34 @@ export const PAT_REVOKED_AUDIT_ACTION = 'pat:revoked';
 export interface PatCreationContext {
   /** The caller's active org (already validated by its credential path). */
   activeOrgId?: string | null;
+  /**
+   * The requester's IANA zone: day and month durations are calendar arithmetic
+   * on their wall clock (`addCalendarInZone`), keeping the time of day across
+   * DST and clamping month ends. The controller resolves it (profile, then
+   * `X-Time-Zone`, then UTC); absent or invalid means UTC.
+   */
+  timeZone?: string | null;
+}
+
+/**
+ * When a PAT created at `from` expires. Minutes are elapsed time; days and
+ * months are CALENDAR arithmetic in the requester's zone (the same function the
+ * web's preview uses, `addCalendarInZone` of `@marinoscar/platform-contract/timezone`):
+ * the time of day is kept across a DST change, and Jan 31 plus one month is
+ * Feb 28 (29 in a leap year).
+ *
+ * @param from - the creation instant.
+ * @param unit - `minutes`, `days` or `months`.
+ * @param value - how many.
+ * @param timeZone - the requester's IANA zone; absent or invalid means UTC.
+ * @returns the expiry instant.
+ */
+export function computePatExpiry(from: Date, unit: string, value: number, timeZone?: string | null): Date {
+  if (unit === 'minutes') return new Date(from.getTime() + value * 60_000);
+  const zone = timeZone && isValidTimeZone(timeZone) ? timeZone : DEFAULT_SERVER_TIME_ZONE;
+  if (unit === 'days') return addCalendarInZone(from, { days: value }, zone);
+  if (unit === 'months') return addCalendarInZone(from, { months: value }, zone);
+  return new Date(from.getTime());
 }
 
 /**
@@ -65,14 +95,7 @@ export class PatService {
     const tokenPrefix = `pat_${hexPart.slice(0, 4)}`;
 
     // Compute expiresAt based on durationUnit
-    const expiresAt = new Date();
-    if (dto.durationUnit === 'minutes') {
-      expiresAt.setMinutes(expiresAt.getMinutes() + dto.durationValue);
-    } else if (dto.durationUnit === 'days') {
-      expiresAt.setDate(expiresAt.getDate() + dto.durationValue);
-    } else if (dto.durationUnit === 'months') {
-      expiresAt.setMonth(expiresAt.getMonth() + dto.durationValue);
-    }
+    const expiresAt = computePatExpiry(new Date(), dto.durationUnit, dto.durationValue, context.timeZone);
 
     const pat = await this.prisma.personalAccessToken.create({
       data: {

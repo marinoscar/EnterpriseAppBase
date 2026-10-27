@@ -5,6 +5,8 @@ import type { NotificationsJsonValue, NotificationsInputJsonValue, Notifications
 import * as webpush from 'web-push';
 import { WebPushError } from 'web-push';
 
+import { readProfileTimeZone } from '@marinoscar/platform-contract/settings';
+import { formatEmailDateTime } from '../email/index';
 import { PLATFORM_PRISMA } from '../core/index';
 import type { NotificationsPrisma } from './data/notifications-db';
 import { describeThrown } from './describe-thrown';
@@ -142,7 +144,7 @@ export class PushTestService {
    * the answer, reported in the body with HTTP 200. It can still throw on an
    * unexpected database error, which is a real 500.
    */
-  async runTest(userId: string, input: PushTestRequest): Promise<PushTestResponse> {
+  async runTest(userId: string, input: PushTestRequest, timeZone?: string | null): Promise<PushTestResponse> {
     const startedAt = Date.now();
     const ranAt = new Date(startedAt);
     const testId = `push-test-${randomUUID()}`;
@@ -173,7 +175,7 @@ export class PushTestService {
       id: testId,
       eventKey: PUSH_TEST_EVENT_KEY,
       title: 'Test push notification',
-      body: `If you can see this, Web Push works on this device. Sent at ${ranAt.toISOString()}.`,
+      body: `If you can see this, Web Push works on this device. Sent at ${formatEmailDateTime(ranAt, { timeZone: timeZone ?? readProfileTimeZone(userSettings?.value) })}.`,
       link: PUSH_TEST_LINK,
       test: true,
     });

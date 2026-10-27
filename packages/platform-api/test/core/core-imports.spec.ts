@@ -29,6 +29,8 @@ const ALLOWED_EXTERNAL = [
   // contract's wire shapes (the field descriptor, the id pattern) it produces and validates.
   /^zod$/,
   /^@marinoscar\/platform-contract\/settings$/,
+  // The request time zone helpers (default zone and header name).
+  /^@marinoscar\/platform-contract\/timezone$/,
 ];
 
 /** The schema-independent Prisma entry point, and the only directory allowed to import it. */

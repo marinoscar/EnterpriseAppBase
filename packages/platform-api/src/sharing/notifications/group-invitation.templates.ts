@@ -165,6 +165,32 @@ export interface GroupInvitationEmailKit {
   plainText(options: { title: string; lines: [string, ...string[]]; ctaLabel?: string; ctaUrl?: string }): string;
   /** Headers every system message carries (`Auto-Submitted`, ...). */
   headers: Readonly<Record<string, string>>;
+  /**
+   * Renders an ISO instant as a calendar day in the recipient's zone, zone label included
+   * (the app binds `formatEmailDate` of `@marinoscar/platform-api/email` to the recipient's
+   * render context). Optional: without it the day is the UTC date, labelled `UTC`.
+   */
+  formatDate?(value: string): string;
+  /**
+   * Renders an ISO instant as a date and time in the recipient's zone, zone label included
+   * (`formatEmailDateTime`). Optional: without it the UTC date and time, labelled `UTC`.
+   */
+  formatDateTime?(value: string): string;
+}
+
+/**
+ * The calendar day of an ISO instant for a message: the kit's zone-aware
+ * formatter, or the UTC date with a `UTC` label (the sharing slice cannot read
+ * a recipient's zone itself).
+ *
+ * @param value - an ISO 8601 instant.
+ * @param kit - the app's e-mail helpers.
+ * @returns the day, labelled with its zone.
+ *
+ * @stability experimental
+ */
+export function formatKitDate(value: string, kit: Pick<GroupInvitationEmailKit, 'formatDate'>): string {
+  return kit.formatDate ? kit.formatDate(value) : `${value.slice(0, 10)} (UTC)`;
 }
 
 /**
@@ -205,7 +231,7 @@ export function renderGroupInvitationEmail(data: GroupInvitationNotificationData
     ? kit.html`<p style="margin:0 0 16px 0;"><strong>${invitedBy}</strong> sent this invitation, so they are the person to ask if you were not expecting it.</p>`
     : kit.empty;
   const expiry = data.expiresAt
-    ? kit.html`<p style="margin:0 0 16px 0;">The invitation expires on ${data.expiresAt.slice(0, 10)}.</p>`
+    ? kit.html`<p style="margin:0 0 16px 0;">The invitation expires on ${formatKitDate(data.expiresAt, kit)}.</p>`
     : kit.empty;
 
   const bodyHtml = kit.html`
@@ -232,7 +258,7 @@ export function renderGroupInvitationEmail(data: GroupInvitationNotificationData
 
   const lines: [string, ...string[]] = [`${data.recipientEmail} has been invited to join the group ${data.groupName} on ${kit.appName} as ${role}.`];
   if (invitedBy) lines.push('', `${invitedBy} sent this invitation, so they are the person to ask if you were not expecting it.`);
-  if (data.expiresAt) lines.push('', `The invitation expires on ${data.expiresAt.slice(0, 10)}.`);
+  if (data.expiresAt) lines.push('', `The invitation expires on ${formatKitDate(data.expiresAt, kit)}.`);
   lines.push(
     '',
     'Sign in with that same address and open your group invitations to accept or decline it.',

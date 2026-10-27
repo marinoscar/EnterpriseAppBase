@@ -20,7 +20,7 @@ import { DataExportPage, ExportDialog, ExportsList } from '@marinoscar/platform-
 import { createTestPlatformHost } from '@marinoscar/platform-web/testing';
 import type { TestApiResponse, TestPlatformHost } from '@marinoscar/platform-web/testing';
 
-import { InboxRangeForm } from '../../platform-extensions/exports/InboxRangeForm.example';
+import { InboxRangeForm, inboxPresetRange } from '../../platform-extensions/exports/InboxRangeForm.example';
 
 const ID = '7d1e5bb4-62a4-4c1f-9b3c-3f2d9a6c8e10';
 
@@ -108,6 +108,14 @@ describe('exports binding', () => {
     const body = host.requests[0]!.body as { request: Record<string, string> };
     expect(Object.keys(body.request).sort()).toEqual(['from', 'to']);
     expect(body.request.from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it("the inbox presets are calendar days ending today in the viewer's zone", () => {
+    // 03:00 UTC on Oct 27 is still Oct 26 in Costa Rica.
+    const now = new Date('2026-10-27T03:00:00.000Z');
+    expect(inboxPresetRange(7, now, 'America/Costa_Rica')).toEqual({ from: '2026-10-20', to: '2026-10-26' });
+    expect(inboxPresetRange(7, now, 'UTC')).toEqual({ from: '2026-10-21', to: '2026-10-27' });
+    expect(inboxPresetRange(1, now, 'Asia/Tokyo')).toEqual({ from: '2026-10-27', to: '2026-10-27' });
   });
 
   it('ExportsList downloads a ready export from a fresh URL', async () => {

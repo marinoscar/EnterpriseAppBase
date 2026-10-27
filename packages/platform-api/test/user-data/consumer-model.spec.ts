@@ -124,6 +124,7 @@ describe('a consumer registers a new user-owned model (#880)', () => {
       datamodel: exportDatamodel,
       pageSize: 10,
       now: new Date('2026-01-01T00:00:00.000Z'),
+      timeZone: 'UTC',
     };
     for await (const table of userDataTables(context) as AsyncIterable<ExportTable>) {
       out[table.dataset] = [];

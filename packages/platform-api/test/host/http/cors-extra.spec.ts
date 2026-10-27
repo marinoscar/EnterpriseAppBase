@@ -8,6 +8,10 @@ describe('buildCorsOptions extra options (PP-14.13)', () => {
     expect(buildCorsOptions('https://a.example', {})).toEqual({ origin: ['https://a.example'], credentials: true });
   });
 
+  it('sets no allowedHeaders by default, so the plugin reflects the request (X-Time-Zone included)', () => {
+    expect(buildCorsOptions('https://a.example')).not.toHaveProperty('allowedHeaders');
+  });
+
   it('adds methods, headers and max age to the allowlist policy', () => {
     expect(
       buildCorsOptions('https://a.example', {

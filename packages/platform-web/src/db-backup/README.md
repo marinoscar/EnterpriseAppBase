@@ -73,6 +73,8 @@ The card and the route: `db_backup:read`. Inside the page, writes need `db_backu
 
 `/ui`: the page (default and named export) with its slots, `DbBackupConfigPanel`, `DbBackupRestoreDialog` and `dbBackupAdminSections`. The page title and the card share `DB_BACKUP_PAGE_TITLE`.
 
+The policy panel's **Timezone** is the deployment's schedule zone (`databaseBackup.timezone`, the zone the cron fires in), not the viewer's profile zone. It is a free-text picker (MUI `Autocomplete` with `freeSolo`) suggesting the runtime's own IANA list (`Intl.supportedValuesOf('timeZone')`, `UTC` first): never a hand-kept list, and a zone it does not list is still sent, because the API validates by performing the projection and its `400` is shown verbatim. It is not the timezone slice's `TimeZoneField`: `db-backup` may depend on `core` only (`packages/platform-slices.json`), and that field's `null` means "follow this device", which a deployment setting has no use for. **Next scheduled backup** is the server's own `nextRunAt`, rendered in the viewer's display zone.
+
 ## Infra
 
 None.
@@ -90,6 +92,8 @@ The page never decides a restore: the confirmation literal is the contract's, th
 None of its own. The hook and table suites live in `packages/platform-web/test/db-backup/`; the page suite stays in the reference app ([`DbBackupPage.test.tsx`](../../../../apps/web/src/__tests__/pages/Admin/DbBackupPage.test.tsx), saas rendering included), as the jobs page suites do, and the app's `settingsCards.test.ts` pins the card's permission to the controller.
 
 ## Upgrade notes
+
+Zone date operations: the schedule's Timezone field is a free-text picker over the runtime's zone list instead of a plain text field (same label, same value, still unvalidated in the browser); the page's markup changed accordingly.
 
 PP-14.23: the page takes the page-slot contract. One behaviour change on the one slot that existed: `Sections` is rendered at both ends of the page (`position: 'top'` under the header and `'bottom'` after the run history) instead of once at the bottom, so a `Sections` component written for the old page returns `null` when `position` is `'top'`; `DbBackupSectionsProps` gains `position`. With no slot the markup is unchanged.
 

@@ -11,16 +11,33 @@
 
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { SharingNotifier } from '@marinoscar/platform-api/sharing';
+import type { SharingNotifier, SharingNotifyHint } from '@marinoscar/platform-api/sharing';
 
 import { NotificationsService } from '@marinoscar/platform-api/notifications';
+import { SettingsResolver } from '@marinoscar/platform-api/settings';
 
 @Injectable()
 export class SharingNotifierAdapter implements SharingNotifier {
   constructor(
     private readonly notifications: NotificationsService,
     private readonly config: ConfigService,
+    private readonly settings: SettingsResolver,
   ) {}
+
+  /**
+   * The acting user's zone as a render hint: the sharing slice cannot read
+   * settings, so the app resolves it. Used only when the recipient has no zone
+   * of their own (no account, or on "Automatic"); UTC (labelled) otherwise.
+   */
+  private async zoneHint(hint?: SharingNotifyHint): Promise<{ timeZone: string } | undefined> {
+    if (!hint?.actorUserId) return undefined;
+    try {
+      const timeZone = await this.settings.resolveUserTimeZone(hint.actorUserId);
+      return timeZone ? { timeZone } : undefined;
+    } catch {
+      return undefined;
+    }
+  }
 
   private withSignInUrl(data: unknown): unknown {
     const appUrl = this.config.get<string>('appUrl');
@@ -33,11 +50,11 @@ export class SharingNotifierAdapter implements SharingNotifier {
     return { ...fields, signInUrl: `${base}/login`, ...(path ? { openUrl: `${base}${path}` } : {}) };
   }
 
-  notify(eventKey: string, userId: string, data: unknown): Promise<void> {
-    return this.notifications.notify(eventKey, userId, this.withSignInUrl(data));
+  async notify(eventKey: string, userId: string, data: unknown, hint?: SharingNotifyHint): Promise<void> {
+    return this.notifications.notify(eventKey, userId, this.withSignInUrl(data), await this.zoneHint(hint));
   }
 
-  notifyAddress(eventKey: string, email: string, data: unknown): Promise<void> {
-    return this.notifications.notifyAddress(eventKey, email, this.withSignInUrl(data));
+  async notifyAddress(eventKey: string, email: string, data: unknown, hint?: SharingNotifyHint): Promise<void> {
+    return this.notifications.notifyAddress(eventKey, email, this.withSignInUrl(data), await this.zoneHint(hint));
   }
 }

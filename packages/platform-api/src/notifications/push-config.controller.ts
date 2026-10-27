@@ -8,11 +8,13 @@ import {
   HttpStatus,
   Post,
   Put,
+  Req,
 } from '@nestjs/common';
 import { ApiHeader, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { Auth, CurrentUser } from '../identity/index';
-import { ApiDataResponse } from '../core/index';
+import { ApiDataResponse, type RequestWithHeaders } from '../core/index';
+import { SettingsResolver } from '../settings/index';
 import { PERMISSIONS } from './notifications.constants';
 import { PushConfigService } from './push-config.service';
 import { PushTestService } from './push-test.service';
@@ -67,6 +69,7 @@ export class PushConfigController {
   constructor(
     private readonly pushConfig: PushConfigService,
     private readonly pushTest: PushTestService,
+    private readonly settings: SettingsResolver,
   ) {}
 
   @Get()
@@ -252,7 +255,9 @@ export class PushConfigController {
   async sendTest(
     @Body() dto: PushTestRequestDto,
     @CurrentUser('id') userId: string,
+    @Req() request: RequestWithHeaders,
   ) {
-    return this.pushTest.runTest(userId, dto);
+    const timeZone = await this.settings.resolveRequestTimeZone(request, userId);
+    return this.pushTest.runTest(userId, dto, timeZone);
   }
 }

@@ -60,6 +60,7 @@
  */
 
 import { ApiError } from './client.js';
+import { timeZoneHeader } from '../time-zone/request.js';
 
 // =============================================================================
 // The parser — pure, synchronous, and free of both DOM and network
@@ -501,7 +502,7 @@ export function connectSse(options: SseOptions): SseConnection {
     // would make a fetch that never connected look like a stable one.
     openedAt = null;
 
-    const headers: Record<string, string> = { Accept: 'text/event-stream' };
+    const headers: Record<string, string> = { ...timeZoneHeader(), Accept: 'text/event-stream' };
     const auth = authorization();
     if (auth) headers.Authorization = auth;
 
@@ -718,6 +719,7 @@ export async function postSse<T>(options: PostSseOptions<T>): Promise<void> {
 
   const send = (): Promise<Response> => {
     const headers: Record<string, string> = {
+      ...timeZoneHeader(),
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
     };

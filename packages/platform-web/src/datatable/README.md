@@ -74,6 +74,28 @@ With a `PlatformHostProvider` above it the layout is kept in the user's settings
 | `DataTablePreferencesProvider` `port` | `DataTablePreferencesPort` | the user-settings routes over the host transport | Where layouts are kept |
 | `runDataTableConformanceSuite` `themes` | `{ light, dark }` | MUI defaults | The themes the axe passes render under |
 
+### Date filters and time zones
+
+A `date` filter's operands are calendar days (`YYYY-MM-DD`). On the page (`matchesFilters`, `matchesFilterValue`) a bare day value compares as the day it names, and an instant (an ISO string with a time, epoch milliseconds, a `Date`) compares by the day it falls on in the viewer's display zone (`zonedDateKey` of core), never by its UTC `.slice(0, 10)`, which is the next day in the evening west of Greenwich.
+
+A server-side table must not send the bare days either: the server would read them in its own zone. Map the filter onto the half-open instant range of those days in the viewer's zone with `zonedDayRangeToInstants(fromKey, toKey?, tz?)` from `/datatable/headless`, and filter `createdAt >= from AND createdAt < to`:
+
+```ts
+import { zonedDayRangeToInstants } from '@marinoscar/platform-web/datatable/headless';
+
+// filter: { columnId: 'createdAt', operator: 'between', value: ['2026-10-01', '2026-10-31'] }
+const [fromKey, toKey] = filter.value as [string, string];
+const { from, to } = zonedDayRangeToInstants(fromKey, toKey); // display zone by default
+params.set('createdFrom', from); // 2026-10-01T06:00:00.000Z in America/Costa_Rica
+params.set('createdTo', to);     // 2026-11-01T06:00:00.000Z (exclusive)
+// 'after' day D:  createdFrom = zonedDayRangeToInstants(D).to
+// 'before' day D: createdTo   = zonedDayRangeToInstants(D).from
+```
+
+The helper uses the contract's DST-safe `zonedDayStart` (a 23- or 25-hour day is covered exactly), reads an unknown zone as UTC and throws `RangeError` for a key that is not a real day. A route that takes bare days and cuts them itself in the requester's zone (the export sources, the AI usage reports) is the other honest option; the packaged client's `X-Time-Zone` header tells it the zone.
+
+The CSV export names its file for today in the display zone (`exportFilename(base, now?, timeZone?)`).
+
 ## Extension-point catalog
 
 The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
@@ -130,6 +152,8 @@ None. The table logs a `console.warn` when a preference cannot be loaded or save
 `installLayoutStubs()` and its helpers (`setContainerWidth`, `resetContainerWidth`, `setInitialContainerWidth`) give jsdom a layout: it measures nothing, so without them the container-width hook and the grid's virtualizer see a 0 by 0 viewport.
 
 ## Upgrade notes
+
+Zone date operations: the built-in `date` filter compares an instant by its calendar day in the display zone instead of its UTC prefix (a bare `YYYY-MM-DD` is unchanged), so a row stamped late in the evening west of UTC now matches the day the user saw it on. New: `zonedDayRangeToInstants` (see [Date filters and time zones](#date-filters-and-time-zones)). `exportFilename` gains `timeZone` and dates the file in the display zone.
 
 Extended in PP-14.20: `FilterOperator` and `DataTableFilterType` are `Builtin | (string & {})` (the built-in unions are `BuiltinFilterOperator` and `BuiltinDataTableFilterType`), `OPERATORS_BY_FILTER_TYPE` is keyed by the built-ins, an unregistered filter type makes a column unfilterable, `DataTableStoredLayout` gains `extra` and `savedViews`, and `DataTableLayoutPrefs` gains `extra`, `setExtra`, `savedViews`, `saveView`, `applyView` and `deleteView`. `reset` keeps the saved views. The four slices' (jobs, nodes, identity, db-backup) table filter-model operator unions (`JobsTableFilterModelOperator` and its siblings) gain `(string & {})` to stay assignable both ways. The markup of a table that uses none of the new seams is unchanged (pinned by a recorded snapshot).
 

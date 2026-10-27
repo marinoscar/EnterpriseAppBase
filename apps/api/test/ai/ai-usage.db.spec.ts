@@ -115,6 +115,29 @@ describeWithDb('AI usage aggregates and purge (real Postgres)', () => {
     ]);
   });
 
+  it('cuts days in the report time zone (bound parameter), echoing it, with a window of local midnights', async () => {
+    // America/Costa_Rica is UTC-6 all year. 2026-09-01T00:00:00Z is 2026-08-31 18:00 there, so the window
+    // 2026-09-01..2026-09-03 starts at 06:00Z and the first two day-1 rows (00:00Z, 23:59Z) split.
+    const report = await service.report({ ...window, groupBy: 'day', timeZone: 'America/Costa_Rica' }, NOW);
+
+    expect(report.timeZone).toBe('America/Costa_Rica');
+    expect(report.range).toEqual({ from: '2026-09-01', to: '2026-09-03' });
+    expect(report.series.map((s) => [s.key, s.requests])).toEqual([
+      ['2026-09-01', 1], // 2026-09-01T23:59:59.999Z is 17:59 on Sep 1; the 00:00Z row is Aug 31 locally, outside
+      ['2026-09-02', 1], // 2026-09-02T08:00Z is 02:00 on Sep 2
+      ['2026-09-03', 3], // 10:00Z and 11:00Z, plus 2026-09-04T00:00Z (18:00 on Sep 3 locally: inside the local window)
+    ]);
+  });
+
+  it('falls back to UTC (no 500) for a zone Intl accepts but pg_timezone_names does not', async () => {
+    // 'Etc/Unknown' is not an IANA zone Postgres ships; Intl rejects it, so use the service's own check:
+    // pg_timezone_names is the source of truth, so a real zone passes and a bogus name resolves to UTC.
+    const known = await service.report({ ...window, groupBy: 'day', timeZone: 'America/Costa_Rica' }, NOW);
+    expect(known.timeZone).toBe('America/Costa_Rica');
+    const unknown = await service.report({ ...window, groupBy: 'day', timeZone: 'Not/AZone_InPostgres' }, NOW);
+    expect(unknown.timeZone).toBe('UTC');
+  });
+
   it('groups by user, labelled by email, with the org-key subtotal per user', async () => {
     const report = await service.report({ ...window, groupBy: 'user' }, NOW);
 

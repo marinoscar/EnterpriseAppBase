@@ -99,6 +99,7 @@ describe('the exports conformance suite', () => {
       datamodel: FIXTURE_DATAMODEL,
       pageSize: 10,
       now: new Date(),
+      timeZone: 'UTC',
     };
     const { bytes } = await collectExportOutput(leaky as never, USER_DATA_EXPORT_SOURCE.collect(ctx, {}));
     expect(bytes.toString('utf8')).not.toContain('tokenHash');

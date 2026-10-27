@@ -46,9 +46,16 @@ export interface AiErrorInfo {
   max?: number;
   /** The window. */
   window?: 'minute' | 'day';
+  /**
+   * On an `AI_RATE_LIMITED` refused by one of the deployment's own limits: the
+   * instant the window resets, ISO 8601 (`details.resetsAt`). The daily
+   * windows reset at UTC midnight for everyone; render the instant in the
+   * viewer's zone (`formatDateTime`). Absent from an older server.
+   */
+  resetsAt?: string;
 }
 
-type AiErrorDetails = Pick<AiErrorInfo, 'retryAfterMs' | 'limit' | 'max' | 'window'> & {
+type AiErrorDetails = Pick<AiErrorInfo, 'retryAfterMs' | 'limit' | 'max' | 'window' | 'resetsAt'> & {
   /** The reason. */
   reason?: string;
 };
@@ -62,6 +69,7 @@ function readDetails(details: unknown): AiErrorDetails {
   if (typeof record.limit === 'string') out.limit = record.limit;
   if (typeof record.max === 'number') out.max = record.max;
   if (record.window === 'minute' || record.window === 'day') out.window = record.window;
+  if (typeof record.resetsAt === 'string' && !Number.isNaN(Date.parse(record.resetsAt))) out.resetsAt = record.resetsAt;
   return out;
 }
 

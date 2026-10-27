@@ -14,6 +14,8 @@
 // packaged pages.
 // =============================================================================
 
+import { timeZoneHeader } from '../time-zone/request.js';
+
 /**
  * Per-request options of {@link PlatformHttpClient}: the browser's `RequestInit`
  * plus the client's own switches.
@@ -187,7 +189,12 @@ export class PlatformHttpClient {
     const { skipAuth = false, responseType = 'json', ...fetchOptions } = options;
     const baseUrl = this.options.baseUrl;
 
+    // Every request names the viewer's display zone, so the API cuts calendar
+    // days in it for a user who stored none ("Automatic"); the server prefers
+    // the stored `profile.timezone` anyway. A caller's own header wins.
+    const zoneHeader = timeZoneHeader();
     const headers: HeadersInit = {
+      ...zoneHeader,
       ...fetchOptions.headers,
     };
 
@@ -218,6 +225,7 @@ export class PlatformHttpClient {
       if (refreshed) {
         // Update authorization header with new token and retry ONCE
         const retryHeaders: HeadersInit = {
+          ...zoneHeader,
           ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
           ...fetchOptions.headers,
           Authorization: `Bearer ${this.accessToken}`,

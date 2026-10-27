@@ -247,7 +247,7 @@ export class GroupInvitesService {
       },
     });
     this.effects.notifyInvitation(
-      { userId: result.recipientUserId, email: result.invite.email },
+      { userId: result.recipientUserId, email: result.invite.email, actorUserId: principal.userId },
       {
         recipientEmail: result.invite.email,
         groupName: result.groupName,

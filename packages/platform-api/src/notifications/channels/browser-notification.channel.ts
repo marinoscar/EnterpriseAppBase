@@ -286,7 +286,7 @@ export class BrowserNotificationChannel implements NotificationChannelSender {
       // a caller's typo throws a `TypeError` at runtime, and letting that
       // propagate would violate #125's containment rule — a bad payload would
       // take down the role change that triggered it.
-      return { ok: true, content: template(data as never) };
+      return { ok: true, content: template(data as never, { timeZone: context.recipient.timeZone ?? null }) };
     } catch (err) {
       return {
         ok: false,

@@ -15,6 +15,7 @@
 import { useEffect } from 'react';
 import { Alert, AlertTitle, Button } from '@mui/material';
 import { Link as RouterLink } from 'react-router-dom';
+import { formatDateTime } from '../../../core/index.js';
 import type { AiErrorInfo } from '../../headless/errors.js';
 import { useAiConfig } from '../../headless/use-ai-config.js';
 
@@ -72,11 +73,14 @@ function deploymentLimitCopy(error: AiErrorInfo & { limit: string }): AiErrorCop
   const retry = error.retryAfterMs !== undefined ? formatRetryAfter(error.retryAfterMs) : null;
   const daily = error.window === 'day' || /PerDay/.test(error.limit);
   const orgKey = error.limit.startsWith('orgKey.');
+  // The reset instant, in the viewer's zone, when the server sent one; the
+  // daily windows themselves are cut at UTC midnight for everyone.
+  const resets = error.resetsAt ? ` It resets at ${formatDateTime(error.resetsAt)}.` : null;
   return {
     title: `Limit reached (${describeLimit(error.limit, error.max)})`,
     body:
       (retry ? `Try again in ${retry}.` : 'Try again later.') +
-      (daily ? ' Daily limits reset at midnight UTC.' : '') +
+      (resets ?? (daily ? ' Daily limits reset at midnight UTC.' : '')) +
       ' This limit is set by your administrator.' +
       (orgKey ? ' Adding your own API key lifts it.' : ''),
     severity: 'warning',

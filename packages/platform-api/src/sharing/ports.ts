@@ -153,7 +153,7 @@ export interface SharingNotifier {
    * @param userId - the recipient.
    * @param data - the template data.
    */
-  notify(eventKey: string, userId: string, data: unknown): Promise<void>;
+  notify(eventKey: string, userId: string, data: unknown, hint?: SharingNotifyHint): Promise<void>;
   /**
    * E-mails an address that has no account yet.
    *
@@ -161,7 +161,21 @@ export interface SharingNotifier {
    * @param email - the recipient address.
    * @param data - the template data.
    */
-  notifyAddress(eventKey: string, email: string, data: unknown): Promise<void>;
+  notifyAddress(eventKey: string, email: string, data: unknown, hint?: SharingNotifyHint): Promise<void>;
+}
+
+/**
+ * Context the slice passes along with a notification. The slice cannot read
+ * settings, so it names the person whose time zone is a sensible default and
+ * the app's notifier resolves it: an address with no account has no zone of
+ * its own, and the inviter's is the best guess for dates in the message.
+ * Optional and advisory: without it the message renders in UTC, labelled.
+ *
+ * @stability experimental
+ */
+export interface SharingNotifyHint {
+  /** The user who triggered the notification (the inviter, the sharer). */
+  readonly actorUserId?: string | null;
 }
 
 /**

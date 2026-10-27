@@ -24,6 +24,7 @@
  */
 
 import type { DataTableColumn, DataTableExportFetchPage } from '../types.js';
+import { getDisplayTimeZone, zonedDateKey } from '../../../core/index.js';
 import { extractColumnValue } from '../columns.js';
 import { toCsvFile } from './csv.js';
 
@@ -173,11 +174,22 @@ export function slugifyExportName(name: string | undefined | null): string {
  *
  * Dated because an export is a snapshot: two files downloaded a week apart must
  * not collide in a Downloads folder, and `jobs (3).csv` tells nobody anything.
+ * The date is today in the viewer's display zone (`zonedDateKey`), so a file
+ * saved at 9 PM in Costa Rica is named for that day, not tomorrow's UTC date.
+ *
+ * @param base - the table's name; slugified.
+ * @param now - the instant of the export; default now.
+ * @param timeZone - the zone the date is read in; default the display zone.
  *
  * @stability experimental
  */
-export function exportFilename(base: string | undefined | null, now: Date = new Date()): string {
-  const iso = Number.isNaN(now.getTime()) ? '' : `-${now.toISOString().slice(0, 10)}`;
+export function exportFilename(
+  base: string | undefined | null,
+  now: Date = new Date(),
+  timeZone: string = getDisplayTimeZone(),
+): string {
+  const day = zonedDateKey(now, timeZone);
+  const iso = day === null ? '' : `-${day}`;
   return `${slugifyExportName(base)}${iso}.csv`;
 }
 

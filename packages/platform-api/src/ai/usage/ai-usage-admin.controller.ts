@@ -1,9 +1,10 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Query, Req } from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 
-import { Auth, CurrentOrg } from '../../identity/index';
+import { Auth, CurrentOrg, CurrentUser } from '../../identity/index';
 import { PERMISSIONS } from '../ai.constants';
-import { ApiDataResponse } from '../../core/index';
+import { ApiDataResponse, type RequestWithHeaders } from '../../core/index';
+import { SettingsResolver } from '../../settings/index';
 import { ErrorDto } from '../../core/index';
 import { AiUsageService } from './ai-usage.service';
 import {
@@ -38,14 +39,17 @@ import {
 @ApiTags('AI Administration')
 @Controller('admin/ai')
 export class AiUsageAdminController {
-  constructor(private readonly usage: AiUsageService) {}
+  constructor(
+    private readonly usage: AiUsageService,
+    private readonly settings: SettingsResolver,
+  ) {}
 
   @Get('usage')
   @Auth({ permissions: [PERMISSIONS.AI_CONFIG_READ] })
   @ApiOperation({
     summary: 'AI usage aggregates across all users (Admin only)',
     description:
-      'Sums the recorded provider round trips (`ai_usage_events`) over a window of UTC days, ' +
+      'Sums the recorded provider round trips (`ai_usage_events`) over a window of calendar days in `timeZone` (query `tz`, default the caller\'s profile zone, then UTC), ' +
       `both inclusive — default the last ${DEFAULT_AI_USAGE_RANGE_DAYS} days, at most ` +
       `${MAX_AI_USAGE_RANGE_DAYS} — as \`totals\` plus one \`series\` entry per group.\n\n` +
       '`groupBy`: `day` (chronological, zero-filled), `user` (label is the email; events ' +
@@ -62,8 +66,9 @@ export class AiUsageAdminController {
       'Reachable while AI is disabled. Refused with **400** (`details.reason: ' +
       '"AI_USAGE_RANGE_INVALID"`) for a reversed or over-long range.',
   })
-  @ApiQuery({ name: 'from', required: false, type: String, description: 'First UTC day included, `YYYY-MM-DD`.' })
-  @ApiQuery({ name: 'to', required: false, type: String, description: 'Last UTC day included, `YYYY-MM-DD`. Default today.' })
+  @ApiQuery({ name: 'from', required: false, type: String, description: 'First day included in `timeZone`, `YYYY-MM-DD`.' })
+  @ApiQuery({ name: 'to', required: false, type: String, description: 'Last day included in `timeZone`, `YYYY-MM-DD`. Default today there.' })
+  @ApiQuery({ name: 'tz', required: false, type: String, description: 'IANA time zone the days are cut in (`America/Costa_Rica`). Default: your profile zone, then the `X-Time-Zone` header, then `UTC`. Echoed as `timeZone`.' })
   @ApiQuery({ name: 'groupBy', required: false, enum: AI_USAGE_ADMIN_GROUP_BY, description: 'Default `day`.' })
   @ApiQuery({ name: 'userId', required: false, type: String, format: 'uuid', description: "Only this user's events." })
   @ApiQuery({ name: 'provider', required: false, type: String, description: "Only this provider's events." })
@@ -72,8 +77,14 @@ export class AiUsageAdminController {
   @ApiQuery({ name: 'feature', required: false, type: String, description: 'Only events recorded for this registered AI feature.' })
   @ApiDataResponse(AiUsageReportDto, { description: 'The usage report' })
   @ApiResponse({ status: 400, description: 'Invalid query, or `AI_USAGE_RANGE_INVALID`', type: ErrorDto })
-  async report(@Query() query: AiUsageAdminQueryDto): Promise<AiUsageReport> {
-    return this.usage.report({ ...query, withCost: true });
+  async report(
+    @Query() query: AiUsageAdminQueryDto,
+    @CurrentUser('id') userId: string,
+    @Req() request: RequestWithHeaders,
+  ): Promise<AiUsageReport> {
+    const { tz, ...filters } = query;
+    const timeZone = tz ?? (await this.settings.resolveRequestTimeZone(request, userId));
+    return this.usage.report({ ...filters, timeZone, withCost: true });
   }
 
   @Get('org-usage')
@@ -86,8 +97,9 @@ export class AiUsageAdminController {
       'row-level-security scope, so no other organization\'s rows are visible. Gated by ' +
       '`org_ai_config:read` in that organization. Reachable while AI is disabled.',
   })
-  @ApiQuery({ name: 'from', required: false, type: String, description: 'First UTC day included, `YYYY-MM-DD`.' })
-  @ApiQuery({ name: 'to', required: false, type: String, description: 'Last UTC day included, `YYYY-MM-DD`. Default today.' })
+  @ApiQuery({ name: 'from', required: false, type: String, description: 'First day included in `timeZone`, `YYYY-MM-DD`.' })
+  @ApiQuery({ name: 'to', required: false, type: String, description: 'Last day included in `timeZone`, `YYYY-MM-DD`. Default today there.' })
+  @ApiQuery({ name: 'tz', required: false, type: String, description: 'IANA time zone the days are cut in (`America/Costa_Rica`). Default: your profile zone, then the `X-Time-Zone` header, then `UTC`. Echoed as `timeZone`.' })
   @ApiQuery({ name: 'groupBy', required: false, enum: AI_USAGE_ORG_GROUP_BY, description: 'Default `day`.' })
   @ApiQuery({ name: 'userId', required: false, type: String, format: 'uuid', description: "Only this member's events." })
   @ApiQuery({ name: 'provider', required: false, type: String, description: "Only this provider's events." })
@@ -96,7 +108,14 @@ export class AiUsageAdminController {
   @ApiDataResponse(AiUsageReportDto, { description: "The organization's usage report" })
   @ApiResponse({ status: 400, description: 'Invalid query, or `AI_USAGE_RANGE_INVALID`', type: ErrorDto })
   @ApiResponse({ status: 403, description: 'Missing `org_ai_config:read` in the active organization', type: ErrorDto })
-  async orgReport(@Query() query: AiUsageOrgQueryDto, @CurrentOrg() orgId: string): Promise<AiUsageReport> {
-    return this.usage.report({ ...query, orgId, withCost: true }, new Date(), orgId);
+  async orgReport(
+    @Query() query: AiUsageOrgQueryDto,
+    @CurrentOrg() orgId: string,
+    @CurrentUser('id') userId: string,
+    @Req() request: RequestWithHeaders,
+  ): Promise<AiUsageReport> {
+    const { tz, ...filters } = query;
+    const timeZone = tz ?? (await this.settings.resolveRequestTimeZone(request, userId));
+    return this.usage.report({ ...filters, orgId, timeZone, withCost: true }, new Date(), orgId);
   }
 }

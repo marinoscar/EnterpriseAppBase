@@ -2,6 +2,7 @@ import { EmailSettingsController } from '../../src/email/email-settings.controll
 import { EmailSettingsService } from '../../src/email/email-settings.service';
 import { EmailTestSendService } from '../../src/email/email-test-send.service';
 import { PERMISSIONS_KEY, type RequestUser } from '../../src/identity/index';
+import type { SettingsResolver } from '../../src/settings/index';
 
 // =============================================================================
 // EmailSettingsController — tests (issue #124, epic #109)
@@ -27,6 +28,8 @@ describe('EmailSettingsController', () => {
     isActive: true,
   };
 
+  const request = { headers: {} };
+
   beforeEach(async () => {
     mockEmailSettings = {
       describeForAdmin: jest.fn().mockResolvedValue({ provider: null, enabled: false }),
@@ -42,6 +45,7 @@ describe('EmailSettingsController', () => {
     controller = new EmailSettingsController(
       mockEmailSettings as unknown as EmailSettingsService,
       mockTestSend as unknown as EmailTestSendService,
+      { resolveRequestTimeZone: jest.fn().mockResolvedValue('America/Costa_Rica') } as unknown as SettingsResolver,
     );
   });
 
@@ -116,21 +120,22 @@ describe('EmailSettingsController', () => {
   });
 
   describe('POST /email-settings/test', () => {
-    it('sends exactly { id, email } from the authenticated caller — nothing else reaches the service', async () => {
-      await controller.sendTestEmail(user);
+    it('sends exactly { id, email, timeZone } from the authenticated caller — nothing else reaches the service', async () => {
+      await controller.sendTestEmail(user, request);
 
       expect(mockTestSend.sendTest).toHaveBeenCalledTimes(1);
       expect(mockTestSend.sendTest).toHaveBeenCalledWith({
         id: user.id,
         email: user.email,
+        timeZone: 'America/Costa_Rica',
       });
     });
 
-    it('has no @Body() parameter to receive a recipient from: the handler signature takes only the current user', () => {
+    it('has no @Body() parameter to receive a recipient from: the handler signature takes only the current user and the request (for its time zone header)', () => {
       // Reflects the actual method arity rather than asserting on decorator
       // metadata, so a future refactor that quietly adds a body parameter
       // (even one that types as unused) fails this test.
-      expect(controller.sendTestEmail.length).toBe(1);
+      expect(controller.sendTestEmail.length).toBe(2);
     });
 
     it('returns whatever the service reports, unchanged — including a failed attempt', async () => {
@@ -144,7 +149,7 @@ describe('EmailSettingsController', () => {
       };
       mockTestSend.sendTest.mockResolvedValue(failure);
 
-      const result = await controller.sendTestEmail(user);
+      const result = await controller.sendTestEmail(user, request);
 
       expect(result).toEqual(failure);
     });

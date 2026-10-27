@@ -389,7 +389,7 @@ export class GrantsService {
         { name: outcome.inserted ? SHARING_EVENTS.GRANT_CREATED : SHARING_EVENTS.GRANT_UPDATED, payload: eventPayload(outcome.row, outcome.previousRole, principal.userId) },
       ]);
     }
-    if (outcome.notify) this.effects.notifySharedWithYou(outcome.row.granteeUserId!, outcome.notify, outcome.row.id);
+    if (outcome.notify) this.effects.notifySharedWithYou(outcome.row.granteeUserId!, outcome.notify, outcome.row.id, principal.userId);
     return (await this.describeGrantees({ items: [toGrantDto(outcome.row)] })).items[0]!;
   }
 
@@ -565,7 +565,7 @@ export class GrantsService {
           : eventPayload(outcome.row, outcome.previousRole, principal.userId);
       this.effects.grantCommitted([{ name: SHARING_EVENTS.GRANT_UPDATED, payload }]);
     }
-    if (outcome.notify) this.effects.notifySharedWithYou(outcome.row.granteeUserId!, outcome.notify, outcome.row.id);
+    if (outcome.notify) this.effects.notifySharedWithYou(outcome.row.granteeUserId!, outcome.notify, outcome.row.id, principal.userId);
     return (await this.describeGrantees({ items: [toGrantDto(outcome.row)] })).items[0]!;
   }
 

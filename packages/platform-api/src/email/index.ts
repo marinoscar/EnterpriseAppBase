@@ -128,6 +128,8 @@ export {
   emailTemplateRegistry,
   escapeHtml,
   findEmailTemplate,
+  formatEmailDate,
+  formatEmailDateTime,
   html,
   isEmailRenderingConfigured,
   isEmailTemplateName,
@@ -151,6 +153,8 @@ export {
   withLayoutAttachments,
 } from './templates/index';
 export type {
+  EmailDateContext,
+  EmailDateInput,
   AllowlistInvitationEmailData,
   BackupFailedEmailData,
   BackupFailureOutcome,

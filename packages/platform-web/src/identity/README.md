@@ -177,6 +177,10 @@ The API's `registerCurrentUserExtension` and `registerUserListExtension` ([ident
 
 **Custom providers.** The API lists a provider that owns its sign-in flow (a popup, a native SDK, a form) with `mode: 'custom'` on `GET /api/auth/providers`; a redirect provider's entry is unchanged. `useAuth().login(id)` stores the return URL and the id as before, then, for a custom provider, calls `start()` of the look registered for it with `registerAuthProvider` instead of navigating to `/api/auth/<id>` (it logs an error when none is registered). A redirect provider needs no web code beyond an optional look. The flow must end at `/auth/callback?token=...` or by calling `setAccessToken` and `refreshUser`. Worked example: [`company-sso.tsx`](../../../../apps/web/src/platform-extensions/identity/company-sso.tsx).
 
+### Token expiry preview
+
+The Create token dialog of `/settings/tokens` previews the expiry the API will store: a minutes duration is added as is; days and months are calendar steps on the wall clock of the user's display zone (`addCalendarInZone(now, { days } or { months }, zone)` of [`@marinoscar/platform-contract/timezone`](../../../platform-contract/src/timezone/README.md)), the function the PAT service runs in the requester's zone (profile, else the `X-Time-Zone` header the client sends). So "30 days" keeps the time of day across a DST change, and "1 month" from Jan 31 is Feb 28 (or 29). An unknown zone falls back to UTC on both sides.
+
 ## Data
 
 None. The browser holds the session in memory (the access token in the client, the user in context) and the sign-in return URL in `sessionStorage` (`auth_return_url`); every record is read and written through the API.
@@ -206,6 +210,8 @@ Authorization stays in the API: the guards and `usePermissions` decide what is s
 None in the web package. The API side runs the identity conformance suite (`@marinoscar/platform-api/identity/testing`). The reference app's `apps/web/src/__tests__/config/` registry tests check the identity cards (one declaration, exact permissions, features) and the package's `test/identity/` covers the provider, guards, client, hooks, registry, pages, slots and the table seam.
 
 ## Upgrade notes
+
+Zone date operations: the Create token dialog's expiry preview uses calendar days and months in the display zone (it added 24-hour days and browser-local months), matching the API's own computation. No API change.
 
 First packaged release (#727, PP-6.6 parts 3 to 5; part 5 deleted the reference app's compatibility re-exports, so the app imports the slice only from these entry points). Moving from the app's own copies: mount `AuthProvider` from `/identity/headless` with your transport as `client` and your logout clean-up as `onBeforeLogout`; mount `IdentityWebAdaptersProvider` with your product name, spinner and table; spread `identityAdminSections` / `identityUserSettingsSections` where your literal cards were; route to the packaged pages. Behaviour, texts and test ids are unchanged. `ProtectedRoute` is `RequireAuth` with the spinner passed as `loading`. The sign-in copy is `createSignInErrorContent(appName)`, no longer a constant naming the app.
 

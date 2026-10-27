@@ -17,7 +17,7 @@
 // is the generic "An item was shared with you".
 // =============================================================================
 
-import type { GroupInvitationEmailKit, SafeHtmlLike } from './group-invitation.templates';
+import { formatKitDate, type GroupInvitationEmailKit, type SafeHtmlLike } from './group-invitation.templates';
 
 /**
  * The notification event key. Persisted in preferences and delivery rows:
@@ -181,7 +181,7 @@ export function renderSharedWithYouEmail(data: SharedWithYouNotificationData, ki
     ? kit.html`<p style="margin:0 0 16px 0;">Your role on ${what} was changed${by}: you are now ${role}.</p>`
     : kit.html`<p style="margin:0 0 16px 0;">${what} was shared with you${by} as ${role}.</p>`;
   const expiry = data.expiresAt
-    ? kit.html`<p style="margin:0 0 16px 0;">Your access ends on ${data.expiresAt.slice(0, 10)}.</p>`
+    ? kit.html`<p style="margin:0 0 16px 0;">Your access ends on ${formatKitDate(data.expiresAt, kit)}.</p>`
     : kit.empty;
   const bodyHtml = kit.html`
     ${lead}
@@ -208,7 +208,7 @@ export function renderSharedWithYouEmail(data: SharedWithYouNotificationData, ki
   const lines: [string, ...string[]] = [
     changed ? `Your role on ${name} was changed${byText}: you are now ${role}.` : `${name} was shared with you${byText} as ${role}.`,
   ];
-  if (data.expiresAt) lines.push('', `Your access ends on ${data.expiresAt.slice(0, 10)}.`);
+  if (data.expiresAt) lines.push('', `Your access ends on ${formatKitDate(data.expiresAt, kit)}.`);
   lines.push('', `You can find everything shared with you under "Shared with me" in ${kit.appName}.`);
   const text = kit.plainText({ title: heading, lines, ...cta });
 

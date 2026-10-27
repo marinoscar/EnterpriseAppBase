@@ -12,7 +12,15 @@ import {
   Typography,
 } from '@mui/material';
 import type { PatCreatedResponse, PatDurationUnit } from '../../headless/index.js';
-import { NUMERIC_DATE, NUMERIC_TIME, formatDate, formatTime, useDisplayTimeZone } from '../../../core/index.js';
+import { addCalendarInZone, type CalendarDuration } from '@marinoscar/platform-contract/timezone';
+import {
+  NUMERIC_DATE,
+  NUMERIC_TIME,
+  formatDate,
+  formatTime,
+  getDisplayTimeZone,
+  useDisplayTimeZone,
+} from '../../../core/index.js';
 
 interface CreatePatDialogProps {
   open: boolean;
@@ -31,23 +39,50 @@ const DURATION_UNITS: { value: PatDurationUnit; label: string }[] = [
   { value: 'months', label: 'Months' },
 ];
 
-function computeExpiresAt(durationValue: number, durationUnit: PatDurationUnit): Date {
-  const now = new Date();
+/**
+ * The expiry the server will compute for a token created now: minutes are a
+ * plain duration; days and months are calendar steps on the wall clock of
+ * `timeZone` (`addCalendarInZone` of `@marinoscar/platform-contract/timezone`,
+ * the function the PAT service calls with the requester's zone), so the time
+ * of day is kept across a DST change and a month step clamps to a shorter
+ * month's end. Exported for tests only (not part of the package entry).
+ *
+ * @param durationValue - the whole number of units.
+ * @param durationUnit - minutes, days or months.
+ * @param now - the starting instant.
+ * @param timeZone - the zone of the calendar steps; default the display zone.
+ * @returns the expiry instant.
+ *
+ * @internal
+ */
+export function computeExpiresAt(
+  durationValue: number,
+  durationUnit: PatDurationUnit,
+  now: Date = new Date(),
+  timeZone: string = getDisplayTimeZone(),
+): Date {
   switch (durationUnit) {
     case 'minutes':
       return new Date(now.getTime() + durationValue * 60 * 1000);
     case 'days':
-      return new Date(now.getTime() + durationValue * 24 * 60 * 60 * 1000);
-    case 'months': {
-      const d = new Date(now);
-      d.setMonth(d.getMonth() + durationValue);
-      return d;
-    }
+      return inZone(now, { days: durationValue }, timeZone);
+    case 'months':
+      return inZone(now, { months: durationValue }, timeZone);
+  }
+}
+
+function inZone(now: Date, duration: CalendarDuration, timeZone: string): Date {
+  try {
+    return addCalendarInZone(now, duration, timeZone);
+  } catch {
+    // A zone the runtime does not know: the server falls back to UTC too.
+    return addCalendarInZone(now, duration, 'UTC');
   }
 }
 
 export function CreatePatDialog({ open, onClose, onCreated, onCreate }: CreatePatDialogProps) {
-  useDisplayTimeZone(); // The expiry preview renders in the display zone.
+  // The expiry preview is computed and rendered in the display zone.
+  const zone = useDisplayTimeZone();
   const [name, setName] = useState('');
   const [durationValue, setDurationValue] = useState('30');
   const [durationUnit, setDurationUnit] = useState<PatDurationUnit>('days');
@@ -62,7 +97,7 @@ export function CreatePatDialog({ open, onClose, onCreated, onCreate }: CreatePa
     parsedDurationValue <= 999;
 
   const expiresAt =
-    isDurationValid ? computeExpiresAt(parsedDurationValue, durationUnit) : null;
+    isDurationValid ? computeExpiresAt(parsedDurationValue, durationUnit, new Date(), zone) : null;
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();

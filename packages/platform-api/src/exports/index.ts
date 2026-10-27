@@ -44,6 +44,9 @@ export {
   writerSupportsSource,
   writersFor,
 } from './export.registries';
+// Zone math for sources that cut day fields in `ctx.timeZone` (shared with the web: one implementation).
+export { zonedDateKey, zonedDayStart } from '@marinoscar/platform-contract/timezone';
+
 export type {
   ExportCell,
   ExportColumn,

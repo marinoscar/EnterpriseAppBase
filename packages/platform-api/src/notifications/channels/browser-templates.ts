@@ -24,7 +24,7 @@
 
 import type { BackupFailedEmailData } from '../../email/index';
 import type { BroadcastEmailData } from '../../email/index';
-import type { NodeOfflineEmailData } from '../../email/index';
+import { formatEmailDateTime, type NodeOfflineEmailData } from '../../email/index';
 import type { RestoreCompletedEmailData } from '../../email/index';
 import type { RoleChangedEmailData } from '../../email/index';
 
@@ -62,7 +62,20 @@ export interface BrowserNotificationContent {
  */
 export type BrowserNotificationTemplate = (
   data: never,
+  ctx?: BrowserRenderContext,
 ) => BrowserNotificationContent;
+
+/**
+ * What a bell, toast or push renderer may read besides its data: the
+ * recipient's zone, for the dates in the text. Absent or `null` renders in UTC
+ * (labelled).
+ *
+ * @stability experimental
+ */
+export interface BrowserRenderContext {
+  /** The recipient's IANA time zone (`profile.timezone`), when known. */
+  readonly timeZone?: string | null;
+}
 
 /**
  * Role names as the bell row should show them, or an explicit word for none.
@@ -194,13 +207,13 @@ export const roleChangedBrowserTemplate: BrowserNotificationTemplate = (data: ne
  *
  * @stability experimental
  */
-export const nodeOfflineBrowserTemplate: BrowserNotificationTemplate = (data: never): BrowserNotificationContent => {
+export const nodeOfflineBrowserTemplate: BrowserNotificationTemplate = (data: never, ctx?: BrowserRenderContext): BrowserNotificationContent => {
   const { nodeName, lastHeartbeatAt } = data as NodeOfflineEmailData;
 
   const heard =
     lastHeartbeatAt === null
       ? 'It never sent a heartbeat.'
-      : `Last heartbeat ${lastHeartbeatAt.toISOString()}.`;
+      : `Last heartbeat ${formatEmailDateTime(lastHeartbeatAt, ctx)}.`;
 
   return {
     title: 'Worker node went offline',
@@ -239,11 +252,11 @@ export const backupFailedBrowserTemplate: BrowserNotificationTemplate = (data: n
  *
  * @stability experimental
  */
-export const restoreCompletedBrowserTemplate: BrowserNotificationTemplate = (data: never): BrowserNotificationContent => {
+export const restoreCompletedBrowserTemplate: BrowserNotificationTemplate = (data: never, ctx?: BrowserRenderContext): BrowserNotificationContent => {
   const { runId, backupTakenAt } = data as RestoreCompletedEmailData;
 
   const takenAt =
-    backupTakenAt === null ? 'an unrecorded time' : backupTakenAt.toISOString();
+    backupTakenAt === null ? 'an unrecorded time' : formatEmailDateTime(backupTakenAt, ctx);
 
   return {
     title: 'Database restored from a backup',

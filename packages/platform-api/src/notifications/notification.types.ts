@@ -75,6 +75,14 @@ export interface NotificationRecipient {
    * opinion.
    */
   orgId?: string | null;
+
+  /**
+   * The recipient's IANA time zone (`profile.timezone`), so the email, bell
+   * and push renderers print dates in their zone. `null`/absent renders in UTC
+   * (always labelled). Set by the service for an account, or from
+   * {@link NotifyOptions.timeZone} for an address with no account.
+   */
+  timeZone?: string | null;
 }
 
 /**
@@ -140,6 +148,15 @@ export interface NotifyOptions {
    * policy, never loosens it.
    */
   orgId?: string | null;
+
+  /**
+   * A time zone hint for rendering dates, used only when the recipient has no
+   * stored zone of their own: an address with no account (`notifyAddress`), or
+   * an account on "Automatic". A caller that knows a sensible zone (the
+   * inviter's) passes it; an invalid value is ignored. Rendering never
+   * widens delivery: this affects text only.
+   */
+  timeZone?: string | null;
 }
 
 /**

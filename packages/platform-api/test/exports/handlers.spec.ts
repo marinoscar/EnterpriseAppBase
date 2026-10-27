@@ -148,6 +148,20 @@ describe('export.run', () => {
     expect(metrics.add).toHaveBeenCalledWith('exportsRuns', 1, { source: 'user-data', format: 'json', outcome: 'completed' });
   });
 
+  it("names the file after the requester's local day, and hands sources the zone", async () => {
+    // 02:00Z on Oct 9 is still Oct 8 evening in Costa Rica (UTC-6) and already Oct 9 in UTC.
+    const late = new Date('2026-10-09T02:00:00.000Z');
+    const costaRica = setup();
+    costaRica.handler.now = () => late;
+    await costaRica.handler.process(job(payload({ timeZone: 'America/Costa_Rica' })));
+    expect(costaRica.writes[1]!.upsert.create.name).toBe('app-user-data-2026-10-08.json');
+
+    const utc = setup();
+    utc.handler.now = () => late;
+    await utc.handler.process(job(payload()));
+    expect(utc.writes[1]!.upsert.create.name).toBe('app-user-data-2026-10-09.json');
+  });
+
   it('an org export goes under exports/orgs/<orgId>/', async () => {
     registerExportSource({ ...USER_DATA_EXPORT_SOURCE, id: 'org-copy', scope: 'org', crossOrgPermission: undefined });
     const { handler, storage } = setup();

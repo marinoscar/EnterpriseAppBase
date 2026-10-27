@@ -30,7 +30,7 @@ import { EXAMPLE_SINGLE_CSV_WRITER } from './example-single-csv.writer';
 
 const USER = '11111111-1111-4111-8111-111111111111';
 
-function ctx(rows: Array<Record<string, unknown>>, queries: unknown[] = []): ExportContext {
+function ctx(rows: Array<Record<string, unknown>>, queries: unknown[] = [], timeZone = 'UTC'): ExportContext {
   return {
     exportId: 'e',
     scope: 'user',
@@ -47,6 +47,7 @@ function ctx(rows: Array<Record<string, unknown>>, queries: unknown[] = []): Exp
     datamodel: Prisma.dmmf.datamodel,
     pageSize: 50,
     now: new Date('2026-10-08T00:00:00.000Z'),
+    timeZone,
   };
 }
 
@@ -146,6 +147,24 @@ describe('exports reference examples', () => {
       '﻿dataset,id,event,title,body,read_at,created_at\r\nnotifications,n1,user.welcome,\'=cmd,Hi,,2026-10-02T00:00:00.000Z\r\n',
     );
     expect(EXAMPLE_NOTIFICATION_INBOX_SOURCE.fileName!(ctx([]), request, 'csv')).toBe('notification-inbox-2026-10-01-2026-10-08.csv');
+  });
+
+  it("reads the from/to days in the requester's zone: local midnights, and the file name's default end day is the zone's", async () => {
+    const queries: unknown[] = [];
+    const request = EXAMPLE_NOTIFICATION_INBOX_SOURCE.requestSchema.parse({ from: '2026-10-01', to: '2026-10-03' });
+    await collectExportOutput(
+      EXAMPLE_SINGLE_CSV_WRITER,
+      EXAMPLE_NOTIFICATION_INBOX_SOURCE.collect(ctx([], queries, 'America/Costa_Rica'), request),
+      'example-notification-inbox',
+    );
+    // Costa Rica is UTC-6: local midnight of Oct 1 is 06:00Z, and the day after Oct 3 starts 2026-10-04T06:00Z.
+    expect(queries[0]).toMatchObject({
+      userId: USER,
+      createdAt: { gte: new Date('2026-10-01T06:00:00.000Z'), lt: new Date('2026-10-04T06:00:00.000Z') },
+    });
+    // 2026-10-08T00:00Z is still Oct 7 in Costa Rica.
+    const open = EXAMPLE_NOTIFICATION_INBOX_SOURCE.requestSchema.parse({ from: '2026-10-01' });
+    expect(EXAMPLE_NOTIFICATION_INBOX_SOURCE.fileName!(ctx([], [], 'America/Costa_Rica'), open, 'csv')).toBe('notification-inbox-2026-10-01-2026-10-07.csv');
   });
 
   it('the writer ends its output and reports the rows of every dataset', async () => {

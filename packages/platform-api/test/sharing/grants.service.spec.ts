@@ -114,7 +114,7 @@ describe('GrantsService.create', () => {
       title: '<Q3> notes',
       path: `/docs/${DOC_A}`,
       sharedBy: 'Alice',
-    });
+    }, { actorUserId: ALICE });
   });
 
   it('upserts on the partial unique index of the grantee kind, never a findFirst pre-check', async () => {

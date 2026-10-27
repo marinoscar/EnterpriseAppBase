@@ -99,10 +99,18 @@ describe('ExportsService', () => {
       reason: 'rerun',
       subjectType: 'user',
       subjectId: UUID.user,
-      payload: { source: 'user-data', format: 'json', request: {}, requestedById: UUID.user, scope: 'user', subjectId: UUID.user, orgId: UUID.orgA },
+      payload: { source: 'user-data', format: 'json', request: {}, requestedById: UUID.user, scope: 'user', subjectId: UUID.user, orgId: UUID.orgA, timeZone: 'UTC' },
       skipDedup: true,
       orgId: UUID.orgA,
     });
+  });
+
+  it("captures the requester's time zone in the job payload, and falls back to UTC for an invalid one", async () => {
+    const { service, enqueue } = setup();
+    await service.create({ ...member, timeZone: 'America/Costa_Rica' }, { source: 'user-data', format: 'json', request: {} });
+    expect(enqueue.mock.calls[0]![0].payload).toMatchObject({ timeZone: 'America/Costa_Rica' });
+    await service.create({ ...member, timeZone: 'Not/AZone' }, { source: 'user-data', format: 'json', request: {} });
+    expect(enqueue.mock.calls[1]![0].payload).toMatchObject({ timeZone: 'UTC' });
   });
 
   it('400 for an unknown source, an unknown format and a request the source refuses', async () => {

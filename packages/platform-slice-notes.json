@@ -232,10 +232,10 @@
     },
     "timezone": {
       "group": "foundation",
-      "gives": "The display time zone (the user's `profile.timezone`, else the device's), date and time formatters that render in it, and the world-map time zone picker the profile page uses.",
+      "gives": "The display time zone (the user's `profile.timezone`, else the device's), date and time formatters that render in it, and the world-map time zone picker the profile page uses; in the contract, the pure zone math (`zonedDayStart`, `zonedDateKey`, `addCalendarInZone`) the API and the web share, and the `X-Time-Zone` header name.",
       "standalone": {
         "level": "with-slices",
-        "note": "Web only; imports core and, for the sign-out reset, identity's optional auth context. The formatters work with no provider; `UserTimeZoneSync` needs a transport to load the user's choice."
+        "note": "The web slice imports core and, for the sign-out reset, identity's optional auth context; the formatters work with no provider and `UserTimeZoneSync` needs a transport to load the user's choice. The contract slice is zod-free and depends on nothing."
       }
     },
     "compose": {

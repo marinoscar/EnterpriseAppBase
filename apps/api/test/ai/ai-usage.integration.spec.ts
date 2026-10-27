@@ -114,6 +114,7 @@ describe('AI usage aggregates HTTP API Integration', () => {
       expect(res.body.data).toEqual({
         range: { from: '2026-09-01', to: '2026-09-26' },
         groupBy: 'model',
+        timeZone: 'UTC',
         totals: expect.objectContaining({ requests: 2, inputTokens: 20, outputTokens: 10, units: {} }),
         series: [expect.objectContaining({ key: 'openai:fake-model', label: 'fake-model', requests: 2 })],
       });

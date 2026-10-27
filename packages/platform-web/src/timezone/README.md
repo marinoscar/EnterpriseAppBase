@@ -10,7 +10,9 @@ Every time the packaged UI shows is rendered in one zone: the zone the user chos
 - **Formatters with a default zone.** `formatDateTime`, `formatDate` and `formatTime` take `Intl.DateTimeFormatOptions` plus `locale` and `fallback` (default `—`), and default `timeZone` to the display zone. A server fact defined in one zone (a backup schedule in UTC) passes `timeZone` explicitly. `zonedDateKey` gives the `YYYY-MM-DD` day of a moment in the zone, for "Today" and grouping.
 - **A picker people enjoy.** A dot-matrix world map with the selected zone's UTC-offset band, a pin per zone and a pulsing ring on the selection, a search by city, country, id or offset (`UTC+5:30`, `GMT-6`), and a summary with the live local time. Full screen on a phone.
 
-Every date the packaged pages show renders in this zone: each slice formats through the core formatters (with `NUMERIC_DATE_TIME`, `NUMERIC_DATE` or `NUMERIC_TIME` where the page used `toLocaleString()` and its kin) and subscribes with `useDisplayTimeZone()`. Deliberate UTC renderings stay UTC (the AI usage days, the telemetry assistant's prompt, a `… UTC` label beside a local one), and the broadcast composer's `datetime-local` field is read and written in the display zone.
+Every date the packaged pages show renders in this zone: each slice formats through the core formatters (with `NUMERIC_DATE_TIME`, `NUMERIC_DATE` or `NUMERIC_TIME` where the page used `toLocaleString()` and its kin) and subscribes with `useDisplayTimeZone()`. Deliberate UTC renderings stay UTC (the telemetry assistant's prompt, a `… UTC` label beside a local one), and the broadcast composer's `datetime-local` field is read and written in the display zone.
+
+**Date operations follow the zone too, not only display.** The zone math is the contract's ([`@marinoscar/platform-contract/timezone`](../../../platform-contract/src/timezone/README.md)): the web's `zonedDateKey` and `getTimeZoneOffsetMinutes` delegate to it, so the browser and the API compute the same calendar day. The packaged transports send `X-Time-Zone` with the display zone on every request ([core README](../core/README.md#display-time-zone)); the server resolves the stored `profile.timezone`, then that header, then UTC. Built on it: the AI usage reports cut and label days in the viewer's zone and the rate-limit copy says when a limit resets in it ([ai README](../ai/README.md)), the PAT expiry preview steps calendar days and months in it ([identity README](../identity/README.md#token-expiry-preview)), the DataTable date filter and CSV file name use its days and `zonedDayRangeToInstants` maps a day filter onto server instants ([datatable README](../datatable/README.md#date-filters-and-time-zones)). Two things deliberately do not: a share's expiry stays a rolling `days * 24h` (a grant is a length of access, not a calendar date), and the AI daily limits reset at UTC midnight for everyone.
 
 Not here: the server's validation of `profile.timezone` (`isValidTimeZone` and `timeZoneIdSchema` of `@marinoscar/platform-contract/settings`; the settings API).
 
@@ -63,6 +65,8 @@ The profile page needs nothing: `UserProfilePage` draws the time zone row and sa
 
 The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../../docs/EXTENDING.md).
 
+`useDisplayTimeZone` (re-exported here) is declared in core and catalogued in the [core README](../core/README.md#extension-point-catalog).
+
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
 | `UserTimeZoneSync` | component | `UserTimeZoneSync(props: { api?; children? }): ReactElement` | Load the signed-in user's `profile.timezone` into the store once per sign-in, and clear it on sign-out | experimental | [example](../../../../apps/web/src/App.tsx) |
@@ -108,6 +112,8 @@ None. A failed settings load is dropped silently; the device's zone is the fallb
 None. The slice's behaviour is pinned by its package tests (`test/timezone/`) and the profile card's (`test/settings/ui/ProfileSettings.timezone.test.tsx`).
 
 ## Upgrade notes
+
+Zone date operations: the AI usage days now follow the display zone (they were a deliberate UTC rendering); the requests every packaged transport sends carry `X-Time-Zone`. See Purpose and scope.
 
 The store and formatters moved to `core` (`@marinoscar/platform-web/core`), unchanged; this slice re-exports them, so imports from `/timezone/headless` keep working. New: `NUMERIC_DATE_TIME`, `NUMERIC_DATE`, `NUMERIC_TIME`. Every packaged page now renders in the display zone (see Purpose and scope).
 

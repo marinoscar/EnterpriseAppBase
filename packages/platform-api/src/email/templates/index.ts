@@ -41,6 +41,9 @@ export {
 } from './render-context';
 export type { EmailRenderContext, EmailRenderingOptions } from './render-context';
 
+export { formatEmailDate, formatEmailDateTime } from './format-date';
+export type { EmailDateContext, EmailDateInput } from './format-date';
+
 export { DEFAULT_EMAIL_LAYOUT_THEME, DEFAULT_EMAIL_TONES, resolveEmailLayout } from './layout-theme';
 export type {
   EmailBrandMark,

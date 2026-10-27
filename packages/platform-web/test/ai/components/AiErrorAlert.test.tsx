@@ -12,6 +12,8 @@ import { mockAiPublicConfigEnabled } from '../fixtures.js';
 import { toAiErrorInfo } from '../../../src/ai/headless/errors.js';
 import type { AiErrorInfo } from '../../../src/ai/headless/errors.js';
 import { ApiError } from '../harness.js';
+import { formatDateTime, setPreferredTimeZone } from '../../../src/core/index.js';
+import { aiErrorText } from '../../../src/ai/ui/user/aiErrorText.js';
 
 /**
  * `AiErrorAlert` — issue #434. The single code → copy mapping every AI
@@ -143,6 +145,40 @@ describe('AiErrorAlert', () => {
       expect(screen.getByText('Limit reached (1,000 requests per day)')).toBeInTheDocument();
       expect(screen.getByRole('alert')).toHaveTextContent(
         'Try again in 5 hours. Daily limits reset at midnight UTC.',
+      );
+    });
+
+    it("says when a limit resets in the viewer's zone when the server sends resetsAt", () => {
+      setPreferredTimeZone('America/Costa_Rica');
+      try {
+        const info = toAiErrorInfo(
+          new ApiError('limit', 429, 'TOO_MANY_REQUESTS', {
+            reason: 'AI_RATE_LIMITED',
+            limit: 'perUser.requestsPerDay',
+            max: 1000,
+            window: 'day',
+            resetsAt: '2026-10-28T00:00:00.000Z',
+          }),
+        );
+        expect(info.resetsAt).toBe('2026-10-28T00:00:00.000Z');
+        const copy = aiErrorCopy(info);
+        // UTC midnight of the 28th is 6 PM on the 27th in Costa Rica.
+        expect(copy.body).toContain(`It resets at ${formatDateTime('2026-10-28T00:00:00.000Z')}.`);
+        expect(formatDateTime('2026-10-28T00:00:00.000Z', { locale: 'en-US' })).toMatch(/Oct 27, 2026.*6:00/);
+        expect(copy.body).not.toMatch(/midnight UTC/);
+        expect(aiErrorText(new ApiError('limit', 429, 'TOO_MANY_REQUESTS', { reason: 'AI_RATE_LIMITED', resetsAt: '2026-10-28T00:00:00.000Z' }), 'x')).toBe(
+          `A usage limit was reached; it resets at ${formatDateTime('2026-10-28T00:00:00.000Z')}`,
+        );
+      } finally {
+        setPreferredTimeZone(null);
+      }
+    });
+
+    it('ignores an unparsable resetsAt', () => {
+      const info = toAiErrorInfo(new ApiError('x', 429, 'TOO_MANY_REQUESTS', { reason: 'AI_RATE_LIMITED', resetsAt: 'soon' }));
+      expect(info.resetsAt).toBeUndefined();
+      expect(aiErrorText(new ApiError('x', 429, 'TOO_MANY_REQUESTS', { reason: 'AI_RATE_LIMITED' }), 'x')).toBe(
+        'The provider is rate limiting requests. Try again shortly',
       );
     });
 
