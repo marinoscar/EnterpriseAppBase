@@ -128,7 +128,7 @@ export {
   restoreCompletedBrowserTemplate,
   roleChangedBrowserTemplate,
 } from './channels/browser-templates';
-export type { BrowserNotificationContent, BrowserNotificationTemplate } from './channels/browser-templates';
+export type { BrowserNotificationContent, BrowserNotificationTemplate, BrowserRenderContext } from './channels/browser-templates';
 export { sanitizeLink } from './channels/browser-notification.channel';
 
 // ---- preferences, policy, settings namespaces ------------------------------------------

@@ -12,12 +12,17 @@ export type DateKey = string;
  * @stability experimental
  */
 export interface ZonedParts {
+  /** The four-digit year. */
   readonly year: number;
   /** 1 to 12. */
   readonly month: number;
+  /** Day of the month, 1 to 31. */
   readonly day: number;
+  /** 0 to 23. */
   readonly hour: number;
+  /** 0 to 59. */
   readonly minute: number;
+  /** 0 to 59. */
   readonly second: number;
 }
 
@@ -188,7 +193,15 @@ export function zonedDayStart(day: DateKey, timeZone: string): Date {
  *
  * @stability experimental
  */
-export type CalendarDuration = { readonly days: number } | { readonly months: number };
+export type CalendarDuration =
+  | {
+      /** Calendar days to add (negative to subtract). */
+      readonly days: number;
+    }
+  | {
+      /** Calendar months to add (negative to subtract); the day clamps to the month's last day. */
+      readonly months: number;
+    };
 
 /**
  * `instant` plus calendar days or months, computed on the wall clock of

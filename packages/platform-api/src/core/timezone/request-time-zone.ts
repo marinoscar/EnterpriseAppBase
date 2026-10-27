@@ -22,6 +22,7 @@ import { DEFAULT_SERVER_TIME_ZONE, TIME_ZONE_HEADER } from '@marinoscar/platform
  * @stability experimental
  */
 export interface RequestWithHeaders {
+  /** The request headers, lower-cased names as Node and Fastify deliver them. */
   readonly headers: Readonly<Record<string, string | string[] | undefined>>;
 }
 
