@@ -1,0 +1,7 @@
+---
+"@marinoscar/platform-db": minor
+---
+
+Put `org_id` on the tenant-scoped tables and turn row-level security on (#725, platform migration `0025_org_scoped_rls`). `storage_objects`, `storage_object_chunks` and `ai_runs` get a NOT NULL `org_id` (foreign key `RESTRICT`), `ai_usage_events` a nullable one (`SET NULL`), `audit_events` a nullable one (`SET NULL`, no policy). The four `org` tables get `ENABLE` and `FORCE ROW LEVEL SECURITY` and a `<table>_org_isolation` policy keyed on the transaction-local `app.org_id` or `app.rls_bypass`; a chunk references its object through the composite key `(object_id, org_id)`. Existing rows are backfilled to the default organization (system audit actions and catalogue usage events keep NULL). The application role must be NOSUPERUSER NOBYPASSRLS or every policy is inert.
+
+`Organization` is now `// @extensible`. New: `RLS_POLICIES` (from the shipped `rls-policies.json`), `assertRlsPolicies`, `checkRlsPolicySources`, `scanRlsPolicies` and `checkRlsPolicies`; `platform db drift` asserts the policies against `pg_policies` and the forced flag against `pg_class` (the `rlsPolicies` list in `platform.lock` carries an app's own); `runDbConformance()` gains the policy tripwire. The manifest gains an optional `rls` flag (`platform db promote --rls --touches`), and `platform db baseline` stops with `RLS_OPT_IN_REQUIRED` before a migration flagged `rls` that sits above `--through` until the app passes `--allow-rls`; it also asserts the live policies up to `--through`.

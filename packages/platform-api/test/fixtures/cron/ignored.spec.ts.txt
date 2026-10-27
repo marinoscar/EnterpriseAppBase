@@ -1,0 +1,9 @@
+import { Cron } from '@nestjs/schedule';
+
+// A spec file is never scanned, even though it names a cron that deletes.
+export class IgnoredSpecTask {
+  @Cron('0 0 * * *')
+  async tick(prisma: any): Promise<void> {
+    await prisma.session.deleteMany({});
+  }
+}

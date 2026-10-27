@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { server } from '../mocks/server';
 import { render } from '../utils/test-utils';
-import LoginPage from '../../pages/LoginPage';
+import LoginPage from '../../identity/LoginPage';
 
 describe('LoginPage', () => {
   beforeEach(() => {
@@ -12,6 +12,25 @@ describe('LoginPage', () => {
   });
 
   describe('Rendering', () => {
+    it('shows the session-expired notice when the session was lost', async () => {
+      render(<LoginPage />, {
+        wrapperOptions: { authenticated: false, sessionExpired: true },
+      });
+
+      expect(await screen.findByTestId('session-expired-notice')).toHaveTextContent(
+        /your session expired\. please sign in again\./i,
+      );
+    });
+
+    it('shows no session-expired notice on an ordinary visit', async () => {
+      render(<LoginPage />, {
+        wrapperOptions: { authenticated: false },
+      });
+
+      await screen.findByRole('heading', { name: /welcome/i });
+      expect(screen.queryByTestId('session-expired-notice')).not.toBeInTheDocument();
+    });
+
     it('should render login page title', async () => {
       render(<LoginPage />, {
         wrapperOptions: { authenticated: false },

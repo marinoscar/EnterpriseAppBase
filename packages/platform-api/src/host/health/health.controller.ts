@@ -1,0 +1,256 @@
+import { Controller, Get, Inject, ServiceUnavailableException, type Type } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { HealthCheck, HealthCheckService, HealthCheckResult } from '@nestjs/terminus';
+import { AllowDuringMaintenance, type PlatformHost } from '../../core/index';
+import { resolveHostAccess } from '../internal/host-access';
+import { HealthIndicatorRunner } from './health-indicator.runner';
+import {
+  MAINTENANCE_ERROR_MARKER,
+  MAINTENANCE_RETRY_AFTER_SECONDS,
+} from '../maintenance/maintenance.guard';
+import { MaintenanceModeService } from '../maintenance/maintenance-mode.service';
+
+/**
+ * The liveness answer.
+ *
+ * @stability experimental
+ */
+export interface LivenessResult {
+  /** Always `ok` while the process answers. */
+  status: string;
+  /** When the answer was built (ISO 8601). */
+  timestamp: string;
+}
+
+/**
+ * A Terminus result stamped with the time it was built.
+ *
+ * @stability experimental
+ */
+export type TimestampedHealthResult = HealthCheckResult & {
+  /** When the answer was built (ISO 8601). */
+  timestamp: string;
+};
+
+/**
+ * What the health controller exposes (the shape tests and wiring rely on).
+ *
+ * @stability experimental
+ */
+export interface HealthControllerInstance {
+  /** `GET /api/health/live`. */
+  liveness(): LivenessResult;
+  /** `GET /api/health/ready`. */
+  readiness(): Promise<TimestampedHealthResult>;
+  /** `GET /api/health`. */
+  fullHealth(): Promise<TimestampedHealthResult>;
+}
+
+/**
+ * The health controller class.
+ *
+ * @stability experimental
+ */
+export type HealthControllerClass = new (
+  health: HealthCheckService,
+  indicators: HealthIndicatorRunner,
+  maintenance: MaintenanceModeService
+) => HealthControllerInstance;
+
+/**
+ * The health probes `GET /api/health`, `/live` and `/ready`, public and
+ * reachable during maintenance (moved from the reference app by #901).
+ * Mounted by `PlatformHostCoreModule.forRoot()`.
+ *
+ * WHAT THE PROBES RUN. The indicators registered with `registerHealthIndicator`
+ * (the built-in `database` first): `ready` runs the critical ones, `health`
+ * runs all of them, `live` none. The routes are public, so each indicator's
+ * result is bounded and secret-filtered by `HealthIndicatorRunner`.
+ *
+ * DELIBERATELY ASYMMETRIC UNDER MAINTENANCE (#257, epic #254).
+ *
+ * The whole controller is exempt from the maintenance guard — every route on it
+ * is a probe, and a probe that answers 503 because it was BLOCKED tells an
+ * orchestrator nothing about the process it is probing. What each probe reports
+ * during a window is then decided route by route, below, and the two answers
+ * are deliberately different:
+ *
+ *   * `live` stays 200. Liveness means "this process is not hung"; that is
+ *     still true during a window, and reporting otherwise would have the
+ *     orchestrator KILL AND RESTART THE CONTAINER in the middle of the very
+ *     upgrade the window was opened for.
+ *   * `ready` reports 503. Readiness means "send me traffic", which is exactly
+ *     what must not happen, so a load balancer drains this instance instead.
+ *
+ * Exported for the reference app's wiring and tests; not a stable extension
+ * point (the probes are mounted by `PlatformHostCoreModule.forRoot()`).
+ *
+ * @param host - the app's `definePlatformHost(...)`, whose `access.allowPublic`
+ *   marks the routes public; omitted, the identity slice's `@Public()` is used.
+ * @returns the controller class.
+ *
+ * @internal
+ */
+export function createHealthController(host?: PlatformHost): HealthControllerClass {
+  const access = resolveHostAccess(host);
+  const publicRoute = access.allowPublic();
+
+  @ApiTags('Health')
+  @Controller('health')
+  @AllowDuringMaintenance()
+  class HealthController implements HealthControllerInstance {
+    constructor(
+      @Inject(HealthCheckService) private readonly health: HealthCheckService,
+      @Inject(HealthIndicatorRunner) private readonly indicators: HealthIndicatorRunner,
+      @Inject(MaintenanceModeService) private readonly maintenance: MaintenanceModeService
+    ) {}
+
+    @Get('live')
+    @publicRoute
+    @ApiOperation({
+      summary: 'Liveness probe',
+      description:
+        'Checks if the application process is running. Used by orchestrators to detect hung processes.',
+    })
+    @ApiResponse({
+      status: 200,
+      description: 'Application is alive',
+      schema: {
+        type: 'object',
+        properties: {
+          status: { type: 'string', example: 'ok' },
+          timestamp: { type: 'string', format: 'date-time' },
+        },
+      },
+    })
+    liveness() {
+      return {
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+      };
+    }
+
+    @Get('ready')
+    @publicRoute
+    @HealthCheck()
+    @ApiOperation({
+      summary: 'Readiness probe',
+      description:
+        'Checks if the application is ready to receive traffic. Includes database connectivity check.',
+    })
+    @ApiResponse({
+      status: 200,
+      description: 'Application is ready',
+      schema: {
+        type: 'object',
+        properties: {
+          status: { type: 'string', example: 'ok' },
+          info: {
+            type: 'object',
+            properties: {
+              database: {
+                type: 'object',
+                properties: {
+                  status: { type: 'string', example: 'up' },
+                },
+              },
+            },
+          },
+          timestamp: { type: 'string', format: 'date-time' },
+        },
+      },
+    })
+    @ApiResponse({
+      status: 503,
+      description: 'Application is not ready',
+      schema: {
+        type: 'object',
+        properties: {
+          status: { type: 'string', example: 'error' },
+          error: {
+            type: 'object',
+            properties: {
+              database: {
+                type: 'object',
+                properties: {
+                  status: { type: 'string', example: 'down' },
+                  message: { type: 'string' },
+                },
+              },
+            },
+          },
+          timestamp: { type: 'string', format: 'date-time' },
+        },
+      },
+    })
+    async readiness(): Promise<TimestampedHealthResult> {
+      // ------------------------------------------------------------------------
+      // BEFORE THE DATABASE PROBE, and that ordering is the requirement.
+      // ------------------------------------------------------------------------
+      //
+      // The case this exists for is the restore swap (#285), which renames the
+      // live database out from under this process: for those seconds there is no
+      // database under the expected name, the probe below would fail on a
+      // connection error, and readiness would report 503 for a reason that reads
+      // like a fault. Answering the maintenance question first means this
+      // instance drains for the reason that is actually true, with a body that
+      // says so — and it means readiness keeps answering correctly at the one
+      // moment the probe cannot reach storage at all.
+      //
+      // `resolve()` never throws: an unreadable row degrades to the last known
+      // state (see MaintenanceModeService.readPersisted), so this cannot turn a
+      // database outage into a 500 on the readiness probe.
+      if (await this.maintenance.isEnabled()) {
+        throw new ServiceUnavailableException({
+          message: 'Service is in maintenance mode',
+          // Same marker the guard puts on a blocked request, under `details` for
+          // the same reason — `HttpExceptionFilter` rebuilds bodies from a fixed
+          // key allowlist and would strip a custom top-level field. No
+          // `Retry-After` header here, though: that header is the guard's
+          // contract with API CLIENTS, and this response is read by probes.
+          details: {
+            reason: MAINTENANCE_ERROR_MARKER,
+            retryAfterSeconds: MAINTENANCE_RETRY_AFTER_SECONDS,
+          },
+        });
+      }
+
+      // The CRITICAL indicators: all up is 200, any down is 503.
+      const result = await this.health.check(this.indicators.functions('ready'));
+
+      return {
+        ...result,
+        timestamp: new Date().toISOString(),
+      };
+    }
+
+    @Get()
+    @publicRoute
+    @HealthCheck()
+    @ApiOperation({
+      summary: 'Full health check',
+      description: 'Comprehensive health check including all dependencies.',
+    })
+    @ApiResponse({ status: 200, description: 'All checks passed' })
+    @ApiResponse({ status: 503, description: 'One or more checks failed' })
+    async fullHealth(): Promise<TimestampedHealthResult> {
+      // EVERY registered indicator (`registerHealthIndicator`), critical or not.
+      const result = await this.health.check(this.indicators.functions('full'));
+
+      return {
+        ...result,
+        timestamp: new Date().toISOString(),
+      };
+    }
+  }
+
+  return HealthController;
+}
+
+/**
+ * The health controller with the identity slice's `@Public()` (no `host`).
+ *
+ * @internal
+ */
+export const HealthController: HealthControllerClass = createHealthController();
+export type HealthController = HealthControllerInstance;

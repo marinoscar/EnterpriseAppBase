@@ -1,0 +1,55 @@
+{
+  "name": "compose",
+  "networks": {
+    "default": {
+      "ipam": {},
+      "name": "compose_default"
+    }
+  },
+  "services": {
+    "worker": {
+      "build": {
+        "context": "<ROOT>",
+        "dockerfile": "apps/cli/Dockerfile",
+        "target": "production"
+      },
+      "command": null,
+      "entrypoint": null,
+      "environment": {
+        "APPCTL_CONCURRENCY": "",
+        "APPCTL_ELIGIBLE_TYPES": "",
+        "APPCTL_HEADLESS": "true",
+        "APPCTL_HEAP_LIMIT_MB": "",
+        "APPCTL_HEAP_SNAPSHOTS": "",
+        "APPCTL_HEAP_TUNED": "",
+        "APPCTL_MEMORY_THRESHOLD": "",
+        "APPCTL_MEMORY_WATCHDOG": "",
+        "APPCTL_NODE_ID": "",
+        "APPCTL_NODE_NAME": "",
+        "APPCTL_POLL_INTERVAL_MS": "",
+        "APPCTL_SERVER_URL": "https://app.example.test",
+        "APPCTL_STATE_DIR": "/var/lib/worker",
+        "APPCTL_TOKEN": "nod_snapshot"
+      },
+      "image": "worker:local",
+      "networks": {
+        "default": null
+      },
+      "restart": "unless-stopped",
+      "stop_grace_period": "5m0s",
+      "volumes": [
+        {
+          "source": "worker-state",
+          "target": "/var/lib/worker",
+          "type": "volume",
+          "volume": {}
+        }
+      ]
+    }
+  },
+  "volumes": {
+    "worker-state": {
+      "name": "compose_worker-state"
+    }
+  }
+}

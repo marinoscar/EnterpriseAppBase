@@ -6,59 +6,164 @@ import {
   FastifyAdapter,
   NestFastifyApplication,
 } from '@nestjs/platform-fastify';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import fastifyCookie from '@fastify/cookie';
+import multipart from '@fastify/multipart';
+import {
+  STORAGE_OPTIONS,
+  simpleUploadFileSizeLimit,
+  type ResolvedStorageModuleOptions,
+} from '@marinoscar/platform-api/storage';
 import { AppModule } from './app.module';
+import { PrismaService } from './prisma/prisma.service';
+import { verifyEncryptionKeyAtStartup } from '@marinoscar/platform-api/core';
+import { verifyTenancyModeAtStartup } from '@marinoscar/platform-api/identity';
+import { APP_OPENAPI } from './openapi/document';
+import {
+  buildCorsOptions,
+  isSameOriginOnly,
+  registerPlatformDocs,
+  verifyDeploymentModeAtStartup,
+  verifyDeploymentNetworkAtStartup,
+} from '@marinoscar/platform-api/host';
+import { registerRequestSpanAttributes } from '@marinoscar/platform-api/otel-core';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
+
+  // Safety check: prevent test auth module in production
+  if (process.env.NODE_ENV === 'production' && process.env.TEST_AUTH_ENABLED === 'true') {
+    throw new Error('TEST_AUTH_ENABLED must not be true in production');
+  }
+
+  // CORS policy (#517). Parsed HERE, before the application or its database
+  // connection exists, so a wildcard or malformed CORS_ORIGIN fails the boot
+  // immediately with its own message. Applied further down, after the prefix.
+  const corsOptions = buildCorsOptions(process.env.CORS_ORIGIN);
+
+  // DEPLOYMENT_MODE (#685). Parsed HERE, beside CORS_ORIGIN and for the same
+  // reason: it needs nothing but the environment, so a typo stops the boot
+  // before a database connection exists, with a message naming the variable
+  // and its allowed values. FAIL-FAST rather than a default, unlike
+  // JOBS_WORKER_MODE: either guess would change whether in-app database
+  // restore is available. Logs the mode once. `DeploymentModeService` parses
+  // the same value again through the same function, so the two cannot differ.
+  verifyDeploymentModeAtStartup(process.env, logger);
+
+  // DEPLOYMENT_NETWORK (#773). Same fail-fast rule and place as DEPLOYMENT_MODE:
+  // an invalid value stops the boot here, naming the variable and its values.
+  verifyDeploymentNetworkAtStartup(process.env, logger);
+
+  // TENANCY_MODE (PP-6.2, #722). Same fail-fast rule and place: an invalid
+  // value stops the boot here, naming the variable and its values, and the
+  // mode is logged once. The config factory parses it again through the same
+  // function (so a boot path that skips main.ts fails too).
+  verifyTenancyModeAtStartup(process.env, logger);
 
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
     new FastifyAdapter({ logger: true }),
   );
 
+  // Route and caller attributes on the HTTP server span (#650): `http.route`,
+  // `app.route.matched=false` for an unknown route, `app.request.bearer`.
+  // FIRST, before any plugin or route, so it runs ahead of every other
+  // onRequest hook (a CORS preflight reply included). Only when the SDK is
+  // installed; see @marinoscar/platform-api/otel-core (spans/request-span-attributes.ts).
+  registerRequestSpanAttributes(app.getHttpAdapter().getInstance(), process.env.OTEL_ENABLED === 'true');
+
+  // SECRETS_ENCRYPTION_KEY validation (#116, epic #108).
+  //
+  // HERE, and not later: this runs before the Fastify plugins and before
+  // `app.listen`, so a deployment that cannot read its own stored credentials
+  // never binds the port and never serves a request. The whole point of the
+  // issue is that this failure belongs in the deploy log rather than in a 500
+  // handed to the first administrator who opens a settings page.
+  //
+  // AFTER `NestFactory.create`, and not before, because the check is not a pure
+  // environment check: it asks the database whether any credential is actually
+  // stored, and PrismaService only exists (and is only connected, via its
+  // onModuleInit) once the container is up. That question is what lets this be
+  // strict about the state that matters without breaking every deployment and
+  // the `Smoke (boot compiled API)` CI job, neither of which sets the variable.
+  // The full reasoning — including why there is no development fallback key and
+  // no NODE_ENV branch — is in the header of encryption-key-startup-check.ts in
+  // @marinoscar/platform-api/core (src/core/crypto/). The package takes the
+  // count as a callback so core never imports this app's Prisma client.
+  //
+  // Throwing rather than exiting explicitly, matching the TEST_AUTH_ENABLED
+  // guard above: `bootstrap()` is called unhandled at the bottom of this file,
+  // so a rejection is an uncaught exception and Node exits non-zero with the
+  // message on stderr. Not calling `app.close()` first is deliberate — the
+  // process is about to die and the OS reclaims the connection, so closing
+  // would only add a way for a shutdown hang to swallow the diagnosis.
+  await verifyEncryptionKeyAtStartup(() => app.get(PrismaService).credential.count(), logger);
+
   // Register cookie plugin
   await app.register(fastifyCookie, {
     secret: process.env.COOKIE_SECRET || process.env.JWT_SECRET,
   });
 
+  // Register multipart plugin for file uploads.
+  //
+  // The simple upload route (`POST /api/storage/objects`) is capped at 100MB,
+  // or at the deployment's `storage.maxFileSize` (MAX_FILE_SIZE) when that is
+  // smaller (#519), so a deployment limit below 100MB also binds this route.
+  // Larger files go through the resumable upload, which `ObjectsService`
+  // checks against the same `storage.maxFileSize`.
+  // The ceiling is `StorageModule.forRoot({ maxSimpleUploadBytes })` (#736;
+  // default 100MB, `DEFAULT_MAX_SIMPLE_UPLOAD_BYTES`).
+  const storageOptions = app.get<ResolvedStorageModuleOptions>(STORAGE_OPTIONS, { strict: false });
+  const maxFileSize = app.get(ConfigService).get<number>('storage.maxFileSize');
+  await app.register(multipart, {
+    limits: {
+      fileSize: simpleUploadFileSizeLimit(maxFileSize, storageOptions.maxSimpleUploadBytes),
+      files: 1,
+    },
+  });
+
   // Global prefix for all routes
   app.setGlobalPrefix('api');
 
-  // Enable CORS (same-origin by default, configurable)
-  app.enableCors({
-    origin: process.env.CORS_ORIGIN || true,
-    credentials: true,
-  });
+  // CORS: same-origin only unless CORS_ORIGIN lists trusted origins (#517).
+  // nginx (and the Vite dev proxy) serve the web app and /api from one origin,
+  // and the CLI and worker nodes are not browsers, so the default emits no
+  // CORS headers at all. See `buildCorsOptions` in @marinoscar/platform-api/host.
+  app.enableCors(corsOptions);
+  logger.log(
+    isSameOriginOnly(corsOptions)
+      ? 'CORS: same-origin only (CORS_ORIGIN unset; no cross-origin access)'
+      : `CORS: allowlist of ${corsOptions.origin.length} origin(s) with credentials: ${corsOptions.origin.join(', ')}`,
+  );
 
-  // Swagger/OpenAPI setup
-  const config = new DocumentBuilder()
-    .setTitle('Enterprise App API')
-    .setDescription('API documentation for the Enterprise App Foundation')
-    .setVersion('1.0')
-    .addBearerAuth(
-      {
-        type: 'http',
-        scheme: 'bearer',
-        bearerFormat: 'JWT',
-        description: 'Enter JWT token',
-      },
-      'JWT-auth',
-    )
-    .build();
-
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document, {
-    jsonDocumentUrl: 'api/openapi.json',
-  });
+  // OpenAPI: the document and the two routes that serve it, from the host
+  // slice (`@marinoscar/platform-api/host`, #867). The app's identity and tag
+  // taxonomy live in `src/openapi/`, so the same document is what the test
+  // suite and `scripts/dump-openapi.ts` build — which is what makes the
+  // document CI lints the document users get.
+  //
+  // Registered AFTER `setGlobalPrefix('api')` above, because the introspection
+  // reads the prefix off the application; the dump script sets the same prefix
+  // for the same reason.
+  //
+  // `…OrDegrade` rather than a bare call: generation is the widest failure
+  // surface in this function, and it runs before the port is bound, so an
+  // unguarded throw makes a documentation defect a total outage. It logs at
+  // `error` and serves 503s on both docs paths instead. See the function's own
+  // comment for why that is not gated on NODE_ENV, and note that `openapi:dump`
+  // in CI still fails the build on a document that cannot be generated.
+  const docsReady = registerPlatformDocs(app, APP_OPENAPI, logger);
 
   const port = process.env.PORT || 3000;
   await app.listen(port, '0.0.0.0');
 
   logger.log(`Application running on port ${port}`);
-  logger.log(`Swagger UI available at /api/docs`);
+  logger.log(
+    docsReady
+      ? 'API reference available at /api/docs'
+      : 'API reference DEGRADED: /api/docs and /api/openapi.json return 503 (see error above)',
+  );
 }
 
 bootstrap();

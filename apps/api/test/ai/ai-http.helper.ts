@@ -1,0 +1,132 @@
+// =============================================================================
+// A full-AppModule test app whose AI runtime is the #432 harness (issue #433)
+// =============================================================================
+//
+// The real `AiService`, `AiRunsService` and `AiConfigService` built by
+// `createAiRuntimeHarness` (over `FakeAiProvider` registered as `openai` and
+// in-memory key/model/run tables) are substituted into the Nest container, so
+// an HTTP request exercises the real controller, the real guards
+// (`AiEnabledGuard`, JWT, `ai:use`), the real gate pipeline and the real
+// run state machine — and "the key never left" is checked against the fake's
+// own recorded calls.
+//
+// The app LISTENS on an ephemeral port (not just `inject`), because the
+// disconnect test needs a real socket it can close mid-stream.
+// =============================================================================
+
+import type { AddressInfo } from 'node:net';
+
+import { AiConfigService, type AiPolicy } from '@marinoscar/platform-api/ai';
+import { AiService } from '@marinoscar/platform-api/ai';
+import { AiRunsService } from '@marinoscar/platform-api/ai';
+import { AiOutputWriter } from '@marinoscar/platform-api/ai';
+import { AiStorageInputResolver } from '@marinoscar/platform-api/ai';
+import {
+  createAiRuntimeHarness,
+  HARNESS_OTHER_USER,
+  type AiRuntimeHarness,
+  type AiRuntimeHarnessOptions,
+} from '@marinoscar/platform-api/ai/testing';
+import type { FakeAiScript } from '@marinoscar/platform-api/ai/testing';
+import { setupBaseMocks } from '../fixtures/mock-setup.helper';
+import { closeTestApp, createTestApp, type TestContext } from '../helpers/test-app.helper';
+import { resetPrismaMock } from '../mocks/prisma.mock';
+
+// The key sentinels and the SSE parser are the conformance suites' own
+// (`@marinoscar/platform-api/ai/testing`); this file re-exports them so the
+// other AI integration specs keep one import.
+export { ALL_KEYS, OTHER_USER_KEY, parseSse } from '@marinoscar/platform-api/ai/testing';
+export type { ParsedFrame } from '@marinoscar/platform-api/ai/testing';
+
+export interface AiHttpTestApp {
+  context: TestContext;
+  harness: AiRuntimeHarness;
+  baseUrl: string;
+  /** Replace the fake provider's script for the next calls. */
+  script(next: FakeAiScript | undefined): void;
+  /** Delay (ms) the fake waits before each streamed event. */
+  setDelay(ms: number): void;
+  /** Restore a clean runtime between tests. */
+  reset(): void;
+  close(): Promise<void>;
+}
+
+const BASE_POLICY: Pick<AiPolicy, 'enabled' | 'keyPolicy' | 'logPromptContent' | 'limits'> & {
+  defaults: AiPolicy['defaults'];
+} = {
+  enabled: true,
+  keyPolicy: 'byok',
+  logPromptContent: false,
+  defaults: { allowBackgroundRuns: true, allowRealtime: false },
+  // #450: no rate limits unless a test sets them.
+  limits: {},
+};
+
+export async function createAiHttpTestApp(opts: AiRuntimeHarnessOptions = {}): Promise<AiHttpTestApp> {
+  let current: FakeAiScript | undefined;
+
+  const harness = createAiRuntimeHarness({
+    ...opts,
+    fake: {
+      ...opts.fake,
+      // Indirection, so each test can script the fake without a new app.
+      responses: (req, ctx) => {
+        if (typeof current === 'function') return current(req, ctx);
+        if (Array.isArray(current)) {
+          const next = current.shift();
+          if (!next) throw new Error('script exhausted');
+          return next;
+        }
+        return { outputText: `fake: ${typeof req.input === 'string' ? req.input : 'items'}` };
+      },
+    },
+  });
+
+  const context = await createTestApp({
+    useMockDatabase: true,
+    overrideProviders: [
+      { provide: AiService, useValue: harness.ai },
+      { provide: AiRunsService, useValue: harness.runs },
+      { provide: AiConfigService, useValue: harness.aiConfig },
+      // #437: the harness's in-memory object storage, so the image routes and
+      // the `ai.image.generate` handler read and write the same objects.
+      { provide: AiStorageInputResolver, useValue: harness.inputs },
+      { provide: AiOutputWriter, useValue: harness.outputs },
+    ],
+  });
+
+  await context.app.listen(0, '127.0.0.1');
+  const { port } = context.app.getHttpServer().address() as AddressInfo;
+
+  const fakeOptions = (harness.fake as unknown as { options: { delayMs?: number } }).options;
+
+  return {
+    context,
+    harness,
+    baseUrl: `http://127.0.0.1:${port}`,
+    script(next) {
+      current = next;
+    },
+    setDelay(ms) {
+      fakeOptions.delayMs = ms;
+    },
+    reset() {
+      resetPrismaMock();
+      setupBaseMocks();
+      current = undefined;
+      fakeOptions.delayMs = 0;
+      harness.fake.reset();
+      harness.usageEvents.length = 0;
+      harness.runRows.length = 0;
+      harness.enqueued.length = 0;
+      harness.storage.reset();
+      harness.setOrgKey(null);
+      harness.clearOrgPolicies();
+      harness.clearTenantKeys();
+      harness.clearAiConfigWriters();
+      harness.removeUserKeys(HARNESS_OTHER_USER);
+      harness.setPolicy({ ...BASE_POLICY, defaults: { ...BASE_POLICY.defaults }, limits: {} });
+    },
+    close: () => closeTestApp(context),
+  };
+}

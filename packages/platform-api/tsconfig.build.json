@@ -1,0 +1,10 @@
+{
+  // Emit config: src/ in, dist/ out, flat; test/ and specs excluded.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist"
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "test", "**/*.spec.ts", "src/telemetry/testing/parquet-child.ts"]
+}
