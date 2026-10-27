@@ -12,7 +12,7 @@
  * move at a timescale worth an interval, and refreshing is an explicit act.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { isPlatformApiError } from '../../core/index.js';
+import { isPlatformApiError, useDisplayTimeZone } from '../../core/index.js';
 import type { PlatformApiClient } from '../../core/index.js';
 import {
   type AiMyUsageGroupBy,
@@ -83,7 +83,9 @@ function useUsageReport<G extends string>(
 }
 
 /**
- * Organisation-wide usage, one grouping per call.
+ * Organisation-wide usage, one grouping per call. The days are cut in
+ * `query.tz`, default the display zone ({@link useDisplayTimeZone}, so a saved
+ * profile zone re-fetches); the report echoes the zone as `timeZone`.
  *
  * @stability experimental
  */
@@ -92,23 +94,29 @@ export function useAiUsage(
   options: AiHookOptions = {}
 ): UseAiUsageReturn<AiUsageQuery['groupBy']> {
   const api = useAiApi(options.api);
+  const displayZone = useDisplayTimeZone();
+  const tz = query.tz ?? displayZone;
   return useUsageReport(
     api,
-    () => getAiUsage(api, query),
+    () => getAiUsage(api, { ...query, tz }),
     JSON.stringify([
+      tz,
       query.groupBy,
       query.from,
       query.to,
       query.userId,
       query.provider,
       query.model,
+      query.orgId,
+      query.feature,
     ]),
     'Failed to load AI usage'
   );
 }
 
 /**
- * The caller's own usage.
+ * The caller's own usage, in calendar days of `query.tz` (default the display
+ * zone).
  *
  * @stability experimental
  */
@@ -117,10 +125,12 @@ export function useMyAiUsage(
   options: AiHookOptions = {}
 ): UseAiUsageReturn<AiMyUsageGroupBy> {
   const api = useAiApi(options.api);
+  const displayZone = useDisplayTimeZone();
+  const tz = query.tz ?? displayZone;
   return useUsageReport(
     api,
-    () => getMyAiUsage(api, query),
-    JSON.stringify([query.groupBy, query.from, query.to]),
+    () => getMyAiUsage(api, { ...query, tz }),
+    JSON.stringify([tz, query.groupBy, query.from, query.to]),
     'Failed to load your AI usage'
   );
 }

@@ -138,3 +138,21 @@ describe('offsets', () => {
     expect(formatUtcOffset(-570)).toBe('UTC−09:30');
   });
 });
+
+describe('the zone math is the contract\'s', () => {
+  it('agrees with @marinoscar/platform-contract/timezone, DST edges included', async () => {
+    const contract = await import('@marinoscar/platform-contract/timezone');
+    const instants = ['2026-03-08T06:59:59.000Z', '2026-03-08T07:00:00.000Z', '2026-11-01T05:59:59.000Z', '2026-11-01T06:00:00.000Z'];
+    for (const iso of instants) {
+      const at = new Date(iso);
+      expect(getTimeZoneOffsetMinutes('America/New_York', at)).toBe(contract.getTimeZoneOffsetMinutes(at, 'America/New_York'));
+      expect(zonedDateKey(iso, 'America/New_York')).toBe(contract.zonedDateKey(at, 'America/New_York'));
+    }
+    expect(getTimeZoneOffsetMinutes('America/New_York', new Date('2026-03-08T07:00:00.000Z'))).toBe(-240);
+  });
+
+  it('reads an unknown zone as UTC instead of throwing', () => {
+    expect(zonedDateKey('2026-01-15T23:30:00.000Z', 'Not/AZone')).toBe('2026-01-15');
+    expect(getTimeZoneOffsetMinutes('Not/AZone', new Date(MOMENT))).toBe(0);
+  });
+});

@@ -8,12 +8,20 @@
  * example inbox source's range as presets ("Last 7 days", "Last 30 days",
  * "Everything") and writes the same `{ from, to }` the API validates.
  *
+ * The days are calendar days in the viewer's display zone: the API reads
+ * `from`/`to` in the requester's zone (profile, else the `X-Time-Zone` header
+ * the packaged client sends), so "today" here and there is the same day. Never
+ * `toISOString().slice(0, 10)`, which is tomorrow's UTC date in the evening
+ * west of Greenwich.
+ *
  * Wire it with
  * `<DataExportPage slots={{ form: { 'example-notification-inbox': InboxRangeForm } }} />`.
  */
 import { FormControl, FormControlLabel, FormLabel, Radio, RadioGroup } from '@mui/material';
 import { useState, type ReactElement } from 'react';
 import type { ExportFormSlotProps } from '@marinoscar/platform-web/exports/ui';
+import { getDisplayTimeZone, zonedDateKey } from '@marinoscar/platform-web/core';
+import { addDaysToDateKey } from '@marinoscar/platform-contract/timezone';
 
 const PRESETS = [
   { value: '7', label: 'Last 7 days' },
@@ -21,8 +29,17 @@ const PRESETS = [
   { value: 'all', label: 'Everything' },
 ] as const;
 
-function isoDay(date: Date): string {
-  return date.toISOString().slice(0, 10);
+/**
+ * The last `days` calendar days ending today in `timeZone`, inclusive, as the
+ * `YYYY-MM-DD` pair the source takes.
+ */
+export function inboxPresetRange(
+  days: number,
+  now: Date = new Date(),
+  timeZone: string = getDisplayTimeZone(),
+): { from: string; to: string } {
+  const to = zonedDateKey(now, timeZone) ?? now.toISOString().slice(0, 10);
+  return { from: addDaysToDateKey(to, -(days - 1)), to };
 }
 
 export function InboxRangeForm({ onChange }: ExportFormSlotProps): ReactElement {
@@ -39,9 +56,7 @@ export function InboxRangeForm({ onChange }: ExportFormSlotProps): ReactElement 
           const preset = event.target.value;
           setCurrent(preset);
           if (preset === 'all') return onChange({});
-          const to = new Date();
-          const from = new Date(to.getTime() - Number(preset) * 86_400_000);
-          onChange({ from: isoDay(from), to: isoDay(to) });
+          onChange(inboxPresetRange(Number(preset)));
         }}
       >
         {PRESETS.map((preset) => (

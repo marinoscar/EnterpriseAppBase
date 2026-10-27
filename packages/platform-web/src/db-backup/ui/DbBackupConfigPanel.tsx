@@ -27,12 +27,17 @@
  * THE TIMEZONE IS NOT VALIDATED HERE, DELIBERATELY
  * =============================================================================
  *
- * The field is free text and this component ships no list of IANA names. The
- * API validates by PERFORMING the projection: if the zone cannot be resolved it
- * answers 400, and that message is rendered verbatim. A hand-kept list in the
- * browser would rot, would disagree with the runtime's own ICU data, and would
- * reject a zone the server can actually schedule against — the client would be
- * refusing on evidence unrelated to whether the write will succeed.
+ * The field is a free-text picker: it suggests the runtime's own IANA list
+ * (`Intl.supportedValuesOf('timeZone')`, `internal/time-zones.ts`), never a
+ * hand-kept one, and still accepts anything typed. The API validates by
+ * PERFORMING the projection: if the zone cannot be resolved it answers 400,
+ * and that message is rendered verbatim. Refusing in the browser would
+ * disagree with the server's own ICU data and reject a zone the server can
+ * actually schedule against.
+ *
+ * The zone is the DEPLOYMENT's schedule zone (the setting the cron fires in),
+ * not the viewer's profile zone; "Next scheduled backup" below is the same
+ * instant rendered in the viewer's display zone.
  *
  * =============================================================================
  * WHAT IS NOT ON THIS FORM
@@ -49,9 +54,10 @@
  * them; there is deliberately no form field for either.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
   Divider,
@@ -76,6 +82,7 @@ import type {
 } from '../headless/index.js';
 import { useDisplayTimeZone } from '../../core/index.js';
 import { formatDateTime } from '../internal/format.js';
+import { backupTimeZoneOptions } from '../internal/time-zones.js';
 
 /**
  * The editable half of `DbBackupConfig` — the computed fields are not settable.
@@ -176,6 +183,7 @@ export function DbBackupConfigPanel({
   onSaved,
 }: DbBackupConfigPanelProps) {
   useDisplayTimeZone(); // "Next scheduled backup" renders in the display zone.
+  const timeZoneOptions = useMemo(() => backupTimeZoneOptions(), []);
   const [form, setForm] = useState<ConfigForm>(() => toForm(config));
 
   /**
@@ -326,15 +334,24 @@ export function DbBackupConfigPanel({
           )}
 
           <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-            <TextField
-              fullWidth
-              label="Timezone"
+            <Autocomplete
+              freeSolo
+              options={timeZoneOptions}
               value={form.timezone}
-              onChange={(event) => update('timezone', event.target.value)}
+              inputValue={form.timezone}
+              onInputChange={(_, next) => update('timezone', next)}
               disabled={disabled}
-              placeholder="UTC"
-              // No client-side validation, deliberately — see the file header.
-              helperText="An IANA zone name, for example Europe/London"
+              autoHighlight={false}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  fullWidth
+                  label="Timezone"
+                  placeholder="UTC"
+                  // No client-side validation, deliberately — see the file header.
+                  helperText="The deployment's schedule zone (IANA), for example Europe/London"
+                />
+              )}
             />
           </Grid>
 

@@ -2,6 +2,15 @@
 // `timeZone` to `getDisplayTimeZone()`; a caller passes an explicit
 // `timeZone` (often `'UTC'`) for a server fact that is defined in one zone.
 // In `core` with the store (see ./store.ts); re-exported by the timezone slice.
+// The zone math itself (`zonedDateKey`, the offset) is the contract's
+// (`@marinoscar/platform-contract/timezone`), so the web and the API compute
+// the same calendar day; this file only adapts it to `DateInput` and the
+// display zone.
+
+import {
+  getTimeZoneOffsetMinutes as contractOffsetMinutes,
+  zonedDateKey as contractZonedDateKey,
+} from '@marinoscar/platform-contract/timezone';
 
 import { getDisplayTimeZone } from './store.js';
 
@@ -187,26 +196,25 @@ export function formatTime(value: DateInput, options?: TimeZoneFormatOptions): s
   return format(value, options, { timeStyle: 'short' });
 }
 
-function zonedParts(date: Date, timeZone: string): Record<string, number> {
-  const parts = getDateTimeFormat({
-    locale: 'en-US',
-    timeZone,
-    hourCycle: 'h23',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  }).formatToParts(date);
-  const out: Record<string, number> = {};
-  for (const part of parts) if (part.type !== 'literal') out[part.type] = Number(part.value);
-  return out;
+/**
+ * Runs a contract zone function, falling back to UTC for a zone the runtime
+ * does not know (the contract throws `RangeError`; the formatters here never
+ * throw, matching {@link getDateTimeFormat}).
+ */
+function inZone<T>(timeZone: string, run: (zone: string) => T): T {
+  try {
+    return run(timeZone);
+  } catch (error) {
+    if (error instanceof RangeError && timeZone !== 'UTC') return run('UTC');
+    throw error;
+  }
 }
 
 /**
  * The calendar day of a moment in a zone, as `YYYY-MM-DD`: the key to group
- * rows by day or to tell "Today" from "Yesterday".
+ * rows by day or to tell "Today" from "Yesterday". Delegates to `zonedDateKey`
+ * of `@marinoscar/platform-contract/timezone`, the function the API cuts days
+ * with, so both sides agree; an unknown zone falls back to UTC.
  *
  * @param value - see {@link DateInput}.
  * @param timeZone - default: the display zone.
@@ -222,13 +230,14 @@ function zonedParts(date: Date, timeZone: string): Record<string, number> {
 export function zonedDateKey(value: DateInput, timeZone?: string): string | null {
   const date = toValidDate(value);
   if (!date) return null;
-  const { year = 0, month = 0, day = 0 } = zonedParts(date, timeZone ?? getDisplayTimeZone());
-  return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  return inZone(timeZone ?? getDisplayTimeZone(), (zone) => contractZonedDateKey(date, zone));
 }
 
 /**
  * The zone's offset from UTC at a moment, in minutes (`-360` for Costa Rica,
- * `330` for India); daylight saving time included.
+ * `330` for India); daylight saving time included. Delegates to the contract's
+ * `getTimeZoneOffsetMinutes` (note the argument order differs: the contract
+ * takes the instant first); an unknown zone reads as UTC (`0`).
  *
  * @param timeZone - an IANA zone id.
  * @param at - the moment; default now.
@@ -237,10 +246,7 @@ export function zonedDateKey(value: DateInput, timeZone?: string): string | null
  * @stability experimental
  */
 export function getTimeZoneOffsetMinutes(timeZone: string, at: Date = new Date()): number {
-  const p = zonedParts(at, timeZone);
-  const asUtc = Date.UTC(p.year ?? 1970, (p.month ?? 1) - 1, p.day ?? 1, (p.hour ?? 0) % 24, p.minute ?? 0, p.second ?? 0);
-  const whole = Math.floor(at.getTime() / 1000) * 1000;
-  return Math.round((asUtc - whole) / 60_000);
+  return inZone(timeZone, (zone) => contractOffsetMinutes(at, zone));
 }
 
 /**

@@ -1,7 +1,8 @@
 /**
  * `useAiUsage` / `useMyAiUsage` (#444) against the MSW network.
  */
-import { describe, it, expect } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect } from 'vitest';
+import { setPreferredTimeZone } from '@marinoscar/platform-web/core';
 import { act, waitFor } from '@testing-library/react';
 import { renderHook } from '../utils/test-utils';
 import { delay, http, HttpResponse } from 'msw';
@@ -11,6 +12,10 @@ import { mockAiUsageEmpty, mockAiUsageReport } from '../mocks/fixtures/ai';
 import type { AiUsageQuery } from '@marinoscar/platform-web/ai/headless';
 
 const RANGE = { from: '2026-08-28', to: '2026-09-26' };
+
+// The hooks send the display zone as `tz`; pin it so the wire is deterministic.
+beforeEach(() => setPreferredTimeZone('America/Costa_Rica'));
+afterEach(() => setPreferredTimeZone(null));
 
 describe('useAiUsage', () => {
   it('starts loading, then holds the report for the grouping asked for', async () => {
@@ -42,6 +47,8 @@ describe('useAiUsage', () => {
       to: '2026-09-26',
       userId: 'user-dana',
       provider: 'openai',
+      // The days are cut in the viewer's display zone.
+      tz: 'America/Costa_Rica',
       // A blank filter is omitted, never sent as `model=`.
     });
   });
@@ -135,7 +142,7 @@ describe('useMyAiUsage', () => {
     const { result } = renderHook(() => useMyAiUsage({ groupBy: 'model', ...RANGE }));
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
-    expect(paths).toEqual(['/api/ai/usage/me?groupBy=model&from=2026-08-28&to=2026-09-26']);
+    expect(paths).toEqual(['/api/ai/usage/me?groupBy=model&from=2026-08-28&to=2026-09-26&tz=America%2FCosta_Rica']);
     expect(result.current.report?.series.map((row) => row.key)).toEqual(['gpt-5-mini', 'gpt-5']);
   });
 

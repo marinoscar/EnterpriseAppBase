@@ -1,4 +1,6 @@
 import type { PluggableDescriptor } from '@marinoscar/platform-contract/settings';
+import { addDaysToDateKey } from '@marinoscar/platform-contract/timezone';
+import { getDisplayTimeZone, zonedDateKey } from '../../core/index.js';
 
 // =============================================================================
 // Shared vocabulary
@@ -1946,6 +1948,12 @@ export interface AiUsageReport<G extends string = AiUsageGroupBy> {
     /** The to. */
     to: string;
   };
+  /**
+   * The IANA zone the days were cut in: the query's `tz`, else the caller's
+   * profile zone, else `UTC`. Absent from a server older than this field,
+   * which cut days in UTC.
+   */
+  timeZone?: string;
   /** The group by. */
   groupBy: G;
   /** Whether the deployment binds a pricing port, so totals and entries carry a `cost` (PP-14.17). */
@@ -1957,7 +1965,8 @@ export interface AiUsageReport<G extends string = AiUsageGroupBy> {
 }
 
 /**
- * `from` / `to` as ISO dates (`YYYY-MM-DD`, inclusive, UTC).
+ * `from` / `to` as calendar days (`YYYY-MM-DD`, inclusive) in the report's
+ * time zone (the query's `tz`, echoed as {@link AiUsageReport.timeZone}).
  *
  * @stability experimental
  */
@@ -1986,6 +1995,8 @@ export interface AiUsageQuery extends Partial<AiUsageRange> {
   orgId?: string;
   /** One registered AI feature's rows only (PP-14.17). */
   feature?: string;
+  /** The IANA zone the days are cut in; the hooks default it to the display zone. */
+  tz?: string;
 }
 
 /**
@@ -1996,23 +2007,38 @@ export interface AiUsageQuery extends Partial<AiUsageRange> {
 export interface AiMyUsageQuery extends Partial<AiUsageRange> {
   /** The group by. */
   groupBy: AiMyUsageGroupBy;
+  /** The IANA zone the days are cut in; the hook defaults it to the display zone. */
+  tz?: string;
 }
 
 /**
- * The last `days` days, ending today (UTC), as the inclusive ISO-date pair the
- * usage routes take. `now` is injectable for tests.
- 
+ * The last `days` calendar days, ending today in `timeZone` (default the
+ * display zone), as the inclusive `YYYY-MM-DD` pair the usage routes take.
+ * Today is `zonedDateKey(now, timeZone)` and the days are stepped with
+ * `addDaysToDateKey` of `@marinoscar/platform-contract/timezone`, the
+ * functions the API cuts the report with, so the window the page asks for is
+ * the window the server reports. Send the same zone as `tz`.
+ *
+ * @param days - the window length in days (1 is today only).
+ * @param now - the current instant; injectable for tests.
+ * @param timeZone - an IANA zone id; default {@link getDisplayTimeZone}.
+ * @returns the inclusive range.
+ *
+ * @example
+ * ```ts
+ * aiUsageRangeForDays(7, new Date('2026-10-27T03:00:00Z'), 'America/Costa_Rica');
+ * // { from: '2026-10-20', to: '2026-10-26' } (still the 26th in Costa Rica)
+ * ```
  *
  * @stability experimental
  */
-export function aiUsageRangeForDays(days: number, now: Date = new Date()): AiUsageRange {
-  const to = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const from = new Date(to.getTime() - (days - 1) * 86_400_000);
-  return { from: toIsoDate(from), to: toIsoDate(to) };
-}
-
-function toIsoDate(date: Date): string {
-  return date.toISOString().slice(0, 10);
+export function aiUsageRangeForDays(
+  days: number,
+  now: Date = new Date(),
+  timeZone: string = getDisplayTimeZone()
+): AiUsageRange {
+  const to = zonedDateKey(now, timeZone) ?? zonedDateKey(now, 'UTC')!;
+  return { from: addDaysToDateKey(to, -(Math.max(1, days) - 1)), to };
 }
 
 /**

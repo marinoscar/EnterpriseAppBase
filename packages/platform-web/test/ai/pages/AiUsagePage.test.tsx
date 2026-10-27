@@ -17,6 +17,7 @@ vi.mock('../../../src/ai/headless/use-ai-usage.js', () => ({ useAiUsage: vi.fn()
 
 import { useAiUsage, type UseAiUsageReturn } from '../../../src/ai/headless/use-ai-usage.js';
 import AiUsagePage from '../../../src/ai/ui/AiUsagePage.js';
+import { setPreferredTimeZone } from '../../../src/core/index.js';
 
 const mockUseAiUsage = vi.mocked(useAiUsage);
 
@@ -244,6 +245,29 @@ describe('AiUsagePage', () => {
 
     await user.click(screen.getByRole('button', { name: '90 days' }));
     expect(lastCalls().map(spanOf)).toEqual([90, 90]);
+  });
+
+  it("cuts the window in the display zone, sends it as tz and labels the report's own zone", () => {
+    setPreferredTimeZone('America/Costa_Rica');
+    try {
+      setUsage((query) => ({
+        report: { ...(mockAiUsageReport(query.groupBy) as AiUsageReport), timeZone: 'America/Costa_Rica' },
+      }));
+      renderPage();
+
+      const lastCalls = mockUseAiUsage.mock.calls.slice(-2).map(([query]) => query);
+      expect(lastCalls.map((query) => query.tz)).toEqual(['America/Costa_Rica', 'America/Costa_Rica']);
+      expect(screen.getByText(/ to .*\(America\/Costa_Rica\)$/)).toBeInTheDocument();
+      expect(screen.queryByText(/\(UTC\)$/)).not.toBeInTheDocument();
+    } finally {
+      setPreferredTimeZone(null);
+    }
+  });
+
+  it('labels the range UTC for a server that echoes no zone', () => {
+    setUsage(withData);
+    renderPage();
+    expect(screen.getByText(/ to .*\(UTC\)$/)).toBeInTheDocument();
   });
 
   it('refresh re-reads both reports', async () => {

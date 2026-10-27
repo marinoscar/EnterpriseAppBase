@@ -13,6 +13,7 @@
 import { useMemo } from 'react';
 import { Alert, Box, Card, CardContent, CircularProgress, Typography } from '@mui/material';
 import { AiUsageTable, AiUsageTotals, formatCount } from '../usage/index.js';
+import { useDisplayTimeZone } from '../../../core/index.js';
 import { useMyAiUsage } from '../../headless/use-ai-usage.js';
 import { AI_USAGE_DEFAULT_RANGE_DAYS, aiUsageRangeForDays } from '../../headless/types.js';
 
@@ -20,8 +21,10 @@ import { AI_USAGE_DEFAULT_RANGE_DAYS, aiUsageRangeForDays } from '../../headless
 export const MY_USAGE_TABLE_ID = 'user-ai-usage-by-model';
 
 export function MyAiUsageSection() {
-  const range = useMemo(() => aiUsageRangeForDays(AI_USAGE_DEFAULT_RANGE_DAYS), []);
-  const { report, isLoading, error } = useMyAiUsage({ groupBy: 'model', ...range });
+  // The window and the report are cut in the same zone: the display zone.
+  const zone = useDisplayTimeZone();
+  const range = useMemo(() => aiUsageRangeForDays(AI_USAGE_DEFAULT_RANGE_DAYS, new Date(), zone), [zone]);
+  const { report, isLoading, error } = useMyAiUsage({ groupBy: 'model', ...range, tz: zone });
 
   return (
     <Card component="section" aria-labelledby="my-ai-usage-title">

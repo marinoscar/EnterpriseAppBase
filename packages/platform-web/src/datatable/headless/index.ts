@@ -16,6 +16,8 @@ export {
 } from './filter/filterTypes.js';
 export type { DataTableFilterTypeDef } from './filter/filterTypes.js';
 export { matchesFilterValue, matchesFilters } from './filter/filterMatch.js';
+export { zonedDayRangeToInstants } from './filter/dateRange.js';
+export type { ZonedDayInstantRange } from './filter/dateRange.js';
 export {
   OPERATORS_BY_FILTER_TYPE,
   DEFAULT_FILTER_TYPE,

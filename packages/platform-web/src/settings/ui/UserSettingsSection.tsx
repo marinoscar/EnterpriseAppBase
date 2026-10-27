@@ -62,7 +62,7 @@ export type UserSettingsUpdate = {
   theme?: ThemePreferenceId;
   /** New profile fields, the ones an app added with `extendUserProfile` included (`null` deletes one, `timezone` among them). */
   profile?: Partial<Omit<UserSettingsResponseBase['profile'], 'timezone'>> & {
-    /** The new IANA time zone; `null` clears it (follow the device). */
+    /** The IANA zone to store, or `null` to clear it (follow the device). */
     timezone?: string | null;
   } & Record<string, unknown>;
 };

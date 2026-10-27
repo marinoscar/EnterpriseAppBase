@@ -15,10 +15,10 @@
  */
 import { fireEvent, render as rtlRender, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ReactElement, ReactNode } from 'react';
 
-import { PlatformHostProvider } from '../../src/core/index.js';
+import { NUMERIC_DATE_TIME, PlatformHostProvider, formatDateTime, setPreferredTimeZone } from '../../src/core/index.js';
 import { createTestPlatformHost } from '../../src/testing/index.js';
 import { DbBackupWebAdaptersProvider } from '../../src/db-backup/headless/index.js';
 import type { DbBackupApi, DbBackupConfig, DbBackupRun, RestorePreflight } from '../../src/db-backup/headless/index.js';
@@ -304,5 +304,41 @@ describe('an app restore gate in the restore dialog', () => {
     expect(within(dialog).queryByTestId('restore-schema-mismatch')).toBeNull();
     expect(within(dialog).queryByTestId('restore-override')).toBeNull();
     expect(within(dialog).getByText(/There is no override for this check/)).toBeTruthy();
+  });
+});
+
+describe('the deployment schedule zone picker', () => {
+  afterEach(() => setPreferredTimeZone(null));
+
+  it("suggests the runtime's zones and saves the one picked as the deployment's timezone", async () => {
+    const client = api();
+    mount(client);
+    const field = await screen.findByLabelText('Timezone');
+    expect(field).toHaveProperty('value', 'UTC');
+
+    fireEvent.change(field, { target: { value: 'Costa' } });
+    fireEvent.click(await screen.findByRole('option', { name: 'America/Costa_Rica' }));
+    expect(field).toHaveProperty('value', 'America/Costa_Rica');
+
+    fireEvent.click(await screen.findByRole('button', { name: /save/i }));
+    await waitFor(() => expect(client.updateDbBackupConfig).toHaveBeenCalledTimes(1));
+    expect(client.updateDbBackupConfig).toHaveBeenCalledWith(expect.objectContaining({ timezone: 'America/Costa_Rica' }));
+  });
+
+  it('still accepts a zone it does not list, leaving validation to the API', async () => {
+    const client = api();
+    mount(client);
+    const field = await screen.findByLabelText('Timezone');
+    fireEvent.change(field, { target: { value: 'Mars/Olympus' } });
+    fireEvent.click(await screen.findByRole('button', { name: /save/i }));
+    await waitFor(() => expect(client.updateDbBackupConfig).toHaveBeenCalledTimes(1));
+    expect(client.updateDbBackupConfig).toHaveBeenCalledWith(expect.objectContaining({ timezone: 'Mars/Olympus' }));
+  });
+
+  it("renders the next scheduled backup in the viewer's zone, not the schedule's", async () => {
+    setPreferredTimeZone('Asia/Tokyo');
+    mount(api());
+    const next = await screen.findByTestId('db-backup-next-run');
+    expect(next.textContent).toContain(formatDateTime(CONFIG.nextRunAt, { ...NUMERIC_DATE_TIME, timeZone: 'Asia/Tokyo' }));
   });
 });

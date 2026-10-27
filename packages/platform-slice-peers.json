@@ -91,6 +91,7 @@
     "sharing": ["zod"],
     "identity": ["zod"],
     "settings": ["zod"],
+    "timezone": [],
     "credentials": ["zod"],
     "onboarding": ["zod"],
     "email": ["zod"],

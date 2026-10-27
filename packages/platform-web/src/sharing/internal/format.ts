@@ -19,7 +19,16 @@ export function humanizeType(type: string): string {
 
 export const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/** `days` from now as an ISO instant, or `null` for never. */
+/**
+ * `days` from now as an ISO instant, or `null` for never.
+ *
+ * Deliberately a rolling `days * 24h` from now, not a calendar step in the
+ * user's zone: a share or link that "expires in 7 days" grants exactly that
+ * much access wherever the owner or the recipient is, and the instant is what
+ * the API stores and enforces (the dialog shows it in the display zone). A
+ * calendar step would make the grant an hour longer or shorter across a DST
+ * change for no benefit to either side.
+ */
 export function expiryFromDays(days: number | null, now: Date = new Date()): string | null {
   if (days === null) return null;
   return new Date(now.getTime() + days * 24 * 60 * 60 * 1000).toISOString();

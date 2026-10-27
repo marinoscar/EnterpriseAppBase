@@ -91,3 +91,4 @@ export {
   zonedDateKey,
 } from './time-zone/format.js';
 export type { DateInput, TimeZoneFormatOptions } from './time-zone/format.js';
+export { timeZoneHeader } from './time-zone/request.js';

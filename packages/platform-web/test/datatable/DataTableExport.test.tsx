@@ -41,6 +41,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { Chip } from '@mui/material';
 import { render } from './render.js';
 import { DataTable } from '../../src/datatable/ui/DataTable.js';
+import { setPreferredTimeZone } from '../../src/core/index.js';
 import type { DataTableColumn, DataTableFilterModel } from '../../src/datatable/headless/types.js';
 import {
   assertNoInvisibleHitTargets,
@@ -498,6 +499,20 @@ describe('export model — filename', () => {
 
   it('dates the file so two snapshots never collide', () => {
     expect(exportFilename('jobs', new Date('2026-08-05T10:00:00Z'))).toBe('jobs-2026-08-05.csv');
+  });
+
+  it("names the file for today in the viewer's zone, not the UTC date", () => {
+    // 02:30 UTC on Aug 6 is still Aug 5 in Costa Rica.
+    const lateEvening = new Date('2026-08-06T02:30:00Z');
+    expect(exportFilename('jobs', lateEvening, 'America/Costa_Rica')).toBe('jobs-2026-08-05.csv');
+    expect(exportFilename('jobs', lateEvening, 'UTC')).toBe('jobs-2026-08-06.csv');
+    setPreferredTimeZone('America/Costa_Rica');
+    try {
+      expect(exportFilename('jobs', lateEvening)).toBe('jobs-2026-08-05.csv');
+    } finally {
+      setPreferredTimeZone(null);
+    }
+    expect(exportFilename('jobs', new Date(Number.NaN))).toBe('jobs.csv');
   });
 });
 
