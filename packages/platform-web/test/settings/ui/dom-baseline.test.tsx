@@ -3,7 +3,9 @@
  * renderer and no extra theme (PP-14.21). The snapshots were recorded from the
  * components BEFORE the `ExtraFields` slots, the org field renderers and the
  * theme options were added: a change here is a change to what every app that
- * does not use them renders, which must not happen.
+ * does not use them renders, which must not happen. Re-recorded once, for a
+ * deliberate change: the core time zone row of the profile card (its live
+ * read-out, which depends on the clock and the device zone, is normalised).
  */
 import { describe, it, expect, vi } from 'vitest';
 import { waitFor } from '@testing-library/react';
@@ -14,6 +16,9 @@ import { OrgSettingsPage } from '../../../src/settings/ui/OrgSettingsPage.js';
 import { ProfileSettings } from '../../../src/settings/ui/ProfileSettings.js';
 import { ThemeSettings } from '../../../src/settings/ui/ThemeSettings.js';
 import { createTestPlatformHost } from '../../../src/testing/index.js';
+
+/** The time zone read-out names the device's zone and the current time: neither is stable. */
+const stable = (markup: string): string => markup.replace(/(data-testid="time-zone-readout">)[^<]*/g, '$1READOUT');
 
 vi.mock('../../../src/settings/headless/profile-image.js', () => ({
   useProfileImageClient: () => ({ upload: vi.fn(), remove: vi.fn(), preview: vi.fn() }),
@@ -58,7 +63,7 @@ describe('settings controls without slots: the DOM is unchanged', () => {
       <ProfileSettings profile={{ displayName: 'Ada', imageSource: 'none', imageObjectId: null }} onSave={async () => undefined} />,
       { wrapperOptions: { user: { ...mockUser, providerProfileImageUrl: null } } },
     );
-    expect(container.innerHTML).toMatchSnapshot();
+    expect(stable(container.innerHTML)).toMatchSnapshot();
   });
 
   it('OrgSettingsPage', async () => {

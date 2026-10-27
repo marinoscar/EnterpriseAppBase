@@ -45,8 +45,8 @@ export interface UserProfilePageProps {
 }
 
 /**
- * Settings, Profile (`/settings/profile`): the display name and the profile
- * picture, and the fields an app added with `extendUserProfile` when it passes
+ * Settings, Profile (`/settings/profile`): the display name, the profile
+ * picture and the time zone every time is shown in, and the fields an app added with `extendUserProfile` when it passes
  * the `ExtraFields` slot. Every user edits their own; the API grants it to all
  * roles, so the page carries no permission gate.
  *
@@ -66,7 +66,7 @@ export function UserProfilePage({ slots }: UserProfilePageProps = {}) {
     <UserSettingsSection
       slots={slots}
       title="Profile"
-      description="Your display name and profile image, and the email you signed in with."
+      description="Your display name, profile image and time zone, and the email you signed in with."
     >
       {({ settings, isSaving, save, replaceSettings }) => (
         <ProfileSettings

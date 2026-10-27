@@ -19,9 +19,10 @@ import { SettingsHub, type SettingsHubProps } from '@marinoscar/platform-web/set
 import { FactoryResetPage, OffboardOrganizationButton, UserDangerZonePage, factoryResetSettingsPage } from '@marinoscar/platform-web/user-data/ui';
 import { ShellProviders, type ShellProvider } from '@marinoscar/platform-web/shell/headless';
 import { ShellAppBar, ShellLayout, ShellUserMenu } from '@marinoscar/platform-web/shell/ui';
+import { UserTimeZoneSync } from '@marinoscar/platform-web/timezone/headless';
 import type { ReactElement } from 'react';
 
-import { api } from './api';
+import { api, platformApi } from './api';
 import { ADMIN_SECTIONS } from './config/adminSections';
 import { NAVIGATION } from './config/navigation';
 import { USER_SETTINGS_SECTIONS } from './config/userSettingsSections';
@@ -198,6 +199,8 @@ function Hub(props: Omit<SettingsHubProps, 'hasPermission' | 'features'>) {
 export default function App() {
   return (
     <AuthProvider client={api} onBeforeLogout={beforeLogout}>
+      {/* Every packaged time renders in the signed-in user's profile time zone (cleared on sign-out). */}
+      <UserTimeZoneSync api={platformApi} />
       <IdentityWebAdaptersProvider adapters={{ appName: APP_NAME }}>
         <AppRoutes />
       </IdentityWebAdaptersProvider>

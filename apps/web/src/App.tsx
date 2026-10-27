@@ -19,6 +19,7 @@ import { appIdentityAdapters } from './platform/identityAdapters';
 import './platform/notifications';
 import { removePushSubscription } from '@marinoscar/platform-web/notifications/headless';
 import { ShellProviders } from '@marinoscar/platform-web/shell/headless';
+import { UserTimeZoneSync } from '@marinoscar/platform-web/timezone/headless';
 import { APP_SHELL_PROVIDERS } from './platform/shellProviders';
 import { ThemeContextProvider, useThemeContext } from './contexts/ThemeContext';
 import { RequireAiEnabled } from '@marinoscar/platform-web/ai/ui/require-ai-enabled';
@@ -1046,6 +1047,12 @@ export default function App() {
           whole route tree: the login and callback pages render outside the
           signed-in shell. */}
       <AuthProvider client={api} onBeforeLogout={removePushSubscription}>
+        {/* The display time zone: the signed-in user's `profile.timezone`,
+            loaded once per sign-in and cleared on sign-out, so every packaged
+            time renders in it. Inside AuthProvider (it watches the session),
+            outside the shell (the platform host is not mounted here, hence
+            the explicit transport). */}
+        <UserTimeZoneSync api={appPlatformApi} />
         <IdentityWebAdaptersProvider adapters={appIdentityAdapters}>
           <AppRoutes />
         </IdentityWebAdaptersProvider>

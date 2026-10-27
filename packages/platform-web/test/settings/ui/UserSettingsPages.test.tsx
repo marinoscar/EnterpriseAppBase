@@ -158,7 +158,7 @@ describe('UserProfilePage', () => {
     render(<UserProfilePage />);
 
     expect(screen.getByRole('heading', { name: /profile/i })).toBeInTheDocument();
-    expect(screen.getByText(/your display name and profile image/i)).toBeInTheDocument();
+    expect(screen.getByText(/your display name, profile image and time zone/i)).toBeInTheDocument();
   });
 
   it('renders ProfileSettings, and not the appearance section', () => {
