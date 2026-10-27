@@ -125,7 +125,7 @@ describeWithDb('AI usage aggregates and purge (real Postgres)', () => {
     expect(report.series.map((s) => [s.key, s.requests])).toEqual([
       ['2026-09-01', 1], // 2026-09-01T23:59:59.999Z is 17:59 on Sep 1; the 00:00Z row is Aug 31 locally, outside
       ['2026-09-02', 1], // 2026-09-02T08:00Z is 02:00 on Sep 2
-      ['2026-09-03', 2], // 10:00Z and 11:00Z
+      ['2026-09-03', 3], // 10:00Z and 11:00Z, plus 2026-09-04T00:00Z (18:00 on Sep 3 locally: inside the local window)
     ]);
   });
 
