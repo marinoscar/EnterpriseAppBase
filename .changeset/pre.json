@@ -173,6 +173,8 @@
     "web-sharing-ui",
     "web-shell-slice",
     "web-storage-slice",
-    "web-timezone-slice"
+    "web-timezone-slice",
+    "zone-date-operations-api",
+    "zone-date-operations-web"
   ]
 }

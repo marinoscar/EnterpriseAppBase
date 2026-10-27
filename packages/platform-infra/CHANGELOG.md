@@ -1,5 +1,7 @@
 # @marinoscar/platform-infra
 
+## 0.1.0-next.19
+
 ## 0.1.0-next.18
 
 ### Patch Changes
