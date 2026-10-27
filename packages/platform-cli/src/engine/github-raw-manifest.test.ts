@@ -19,7 +19,7 @@ import {
 // the abort signal.
 // =============================================================================
 
-const BASE = { repo: 'acme/coach', path: 'apps/cli/package.json' } as const;
+const BASE = { repo: 'kappa/coach', path: 'apps/cli/package.json' } as const;
 
 type FetchArgs = Parameters<typeof fetch>;
 
@@ -35,13 +35,13 @@ function lastRequest(fake: typeof fetch): { url: string; init: RequestInit } {
 
 describe('githubRawManifestUrl', () => {
   it('builds an https raw.githubusercontent.com URL, defaulting the ref to main', () => {
-    expect(githubRawManifestUrl(BASE)).toBe('https://raw.githubusercontent.com/acme/coach/main/apps/cli/package.json');
+    expect(githubRawManifestUrl(BASE)).toBe('https://raw.githubusercontent.com/kappa/coach/main/apps/cli/package.json');
     expect(githubRawManifestUrl({ ...BASE, ref: 'release/1.x' })).toBe(
-      'https://raw.githubusercontent.com/acme/coach/release/1.x/apps/cli/package.json',
+      'https://raw.githubusercontent.com/kappa/coach/release/1.x/apps/cli/package.json',
     );
   });
 
-  it.each(['', 'coach', 'acme/', '/coach', 'acme/coach/extra', 'a b/coach', 'acme/co ach', 'acme/..', '../coach', 'acme/coach?x=1', 'acme/coach#f', '-acme/coach', 'ac:me/coach', 'acme/co%61ch', 'https://evil/x'])(
+  it.each(['', 'coach', 'kappa/', '/coach', 'kappa/coach/extra', 'a b/coach', 'kappa/co ach', 'kappa/..', '../coach', 'kappa/coach?x=1', 'kappa/coach#f', '-kappa/coach', 'ac:me/coach', 'kappa/co%61ch', 'https://evil/x'])(
     'rejects the repo %j',
     (repo) => {
       expect(() => githubRawManifestUrl({ ...BASE, repo })).toThrow(UsageError);
@@ -88,7 +88,7 @@ describe('githubRawManifest: the request', () => {
     await githubRawManifest({ ...BASE, fetch: fake })();
 
     const { url, init } = lastRequest(fake);
-    expect(url).toBe('https://raw.githubusercontent.com/acme/coach/main/apps/cli/package.json');
+    expect(url).toBe('https://raw.githubusercontent.com/kappa/coach/main/apps/cli/package.json');
     expect(url.startsWith('https://')).toBe(true);
     expect(init.method).toBe('GET');
     expect(init.redirect).toBe('error');

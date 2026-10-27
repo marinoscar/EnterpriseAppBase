@@ -265,7 +265,7 @@ describe('the org layer of an extension', () => {
     expect(orgLayerMode(ns.org!)).toBe('override');
     expect(Object.keys(ns.org!.schema.shape)).toEqual(['banner']);
     const system = { enabled: true, limits: { daily: 1, burst: 1 }, banner: 'hello' };
-    expect(applyOrgLayer(ns, system, { banner: 'acme' }).value).toEqual({ ...system, banner: 'acme' });
+    expect(applyOrgLayer(ns, system, { banner: 'kappa' }).value).toEqual({ ...system, banner: 'kappa' });
   });
 
   it('an override at a nested path replaces the added field only, keeping its siblings', () => {
@@ -312,7 +312,7 @@ describe('the org layer of an extension', () => {
       // The base layer tightens, the extension overrides: the layer presents as tighten.
       expect(orgLayerMode(ns.org!)).toBe('tighten');
       const system = { enabled: true, limits: { daily: 1, burst: 1 }, badge: 'new' };
-      expect(applyOrgLayer(ns, system, { enabled: false, badge: 'acme' }).value).toEqual({ ...system, enabled: false, badge: 'acme' });
+      expect(applyOrgLayer(ns, system, { enabled: false, badge: 'kappa' }).value).toEqual({ ...system, enabled: false, badge: 'kappa' });
       expect(applyOrgLayer(ns, { ...system, enabled: false }, { enabled: true }).value).toEqual({ ...system, enabled: false });
     });
 
@@ -338,7 +338,7 @@ describe('the org layer of an extension', () => {
       const system = { enabled: true, limits: { daily: 1, burst: 1 }, badge: 'new' };
       // The org tightens the base field only: the added field survives the base merge.
       expect(applyOrgLayer(ns, system, { enabled: false }).value).toEqual({ ...system, enabled: false });
-      expect(applyOrgLayer(ns, system, { enabled: false, badge: 'acme' }).value).toEqual({ ...system, enabled: false, badge: 'acme' });
+      expect(applyOrgLayer(ns, system, { enabled: false, badge: 'kappa' }).value).toEqual({ ...system, enabled: false, badge: 'kappa' });
     });
 
     it('refuses different permissions (a namespace has one org permission pair) and a field already in the layer', () => {

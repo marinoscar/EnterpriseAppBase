@@ -21,7 +21,7 @@ const ACTOR = '00000000-0000-4000-8000-0000000000a1';
 const BOB = '00000000-0000-4000-8000-0000000000b2';
 const CAROL = '00000000-0000-4000-8000-0000000000c3';
 const DEFAULT_ORG = '00000000-0000-4000-8000-0000000000d0';
-const ACME = '00000000-0000-4000-8000-0000000000e1';
+const KAPPA = '00000000-0000-4000-8000-0000000000e1';
 const JOB = '00000000-0000-4000-8000-00000000f001';
 
 const datamodel = parsePrismaSchema(`
@@ -83,22 +83,22 @@ beforeAll(() => {
 function seed(): Record<string, any[]> {
   return {
     user: [{ id: ACTOR, email: 'admin@x.test' }, { id: BOB, email: 'bob@x.test' }, { id: CAROL, email: 'carol@x.test' }],
-    organization: [{ id: DEFAULT_ORG, isDefault: true }, { id: ACME, isDefault: false }],
+    organization: [{ id: DEFAULT_ORG, isDefault: true }, { id: KAPPA, isDefault: false }],
     membership: [
       { id: 'm1', orgId: DEFAULT_ORG, userId: ACTOR, roleId: 'r-member', status: 'active' },
-      { id: 'm2', orgId: ACME, userId: BOB, roleId: 'r-member' },
-      { id: 'm3', orgId: ACME, userId: CAROL, roleId: 'r-member' },
+      { id: 'm2', orgId: KAPPA, userId: BOB, roleId: 'r-member' },
+      { id: 'm3', orgId: KAPPA, userId: CAROL, roleId: 'r-member' },
       { id: 'm4', orgId: DEFAULT_ORG, userId: CAROL, roleId: 'r-member' },
     ],
-    invite: [{ id: 'inv1', orgId: ACME }, { id: 'inv2', orgId: DEFAULT_ORG }],
+    invite: [{ id: 'inv1', orgId: KAPPA }, { id: 'inv2', orgId: DEFAULT_ORG }],
     role: [{ id: 'r-admin', name: 'org_admin' }, { id: 'r-member', name: 'contributor' }],
     notification: [{ id: 'n1', userId: ACTOR }, { id: 'n2', userId: BOB }],
-    aiRun: [{ id: 'a1', userId: BOB, orgId: ACME }, { id: 'a2', userId: null, orgId: DEFAULT_ORG }],
-    orgSettings: [{ id: 'os1', orgId: DEFAULT_ORG }, { id: 'os2', orgId: ACME }],
+    aiRun: [{ id: 'a1', userId: BOB, orgId: KAPPA }, { id: 'a2', userId: null, orgId: DEFAULT_ORG }],
+    orgSettings: [{ id: 'os1', orgId: DEFAULT_ORG }, { id: 'os2', orgId: KAPPA }],
     storageObject: [
-      { id: 's1', storageKey: 'uploads/s1', s3UploadId: null, uploadedById: BOB, orgId: ACME },
+      { id: 's1', storageKey: 'uploads/s1', s3UploadId: null, uploadedById: BOB, orgId: KAPPA },
       { id: 's2', storageKey: 'uploads/s2', s3UploadId: null, uploadedById: null, orgId: DEFAULT_ORG },
-      { id: 's3', storageKey: 'database-backups/s3', s3UploadId: null, uploadedById: null, orgId: ACME },
+      { id: 's3', storageKey: 'database-backups/s3', s3UploadId: null, uploadedById: null, orgId: KAPPA },
     ],
     workerNode: [
       { id: 'w1', name: 'alpha', createdById: ACTOR },
@@ -115,7 +115,7 @@ function seed(): Record<string, any[]> {
       { id: JOB, status: 'running', type: 'admin.factory_reset', payload: { actorUserId: ACTOR } },
       { id: 'backup-job', status: 'succeeded' },
       { id: 'old-1', status: 'succeeded' },
-      { id: 'pending-acme', status: 'pending', orgId: ACME },
+      { id: 'pending-kappa', status: 'pending', orgId: KAPPA },
       { id: 'running-1', status: 'running' },
     ],
   };
@@ -151,7 +151,7 @@ describe('admin.factory_reset', () => {
     expect(ids(fake.tables.job)).toEqual(['backup-job', JOB, 'running-1'].sort());
     expect(fake.tables.notification).toEqual([]);
     expect(fake.tables.aiRun).toEqual([]);
-    expect(ids(fake.tables.orgSettings)).toContain('os1'); // configuration kept (Acme's cascades with Acme in Postgres)
+    expect(ids(fake.tables.orgSettings)).toContain('os1'); // configuration kept (Org Kappa's cascades with Org Kappa in Postgres)
     expect(ids(fake.tables.storageObject)).toEqual(['s3']); // the backup archive survives...
     expect(fake.tables.storageObject![0]!.orgId).toBe(DEFAULT_ORG); // ...moved to the default org
     expect(ids(fake.tables.organization)).toEqual([DEFAULT_ORG]);
@@ -203,7 +203,7 @@ describe('org.offboard', () => {
   const offboardJob = (disposition: 'keep' | 'purge') => ({
     id: 'off-1',
     status: 'running',
-    payload: { orgId: ACME, actorUserId: ACTOR, userDisposition: disposition },
+    payload: { orgId: KAPPA, actorUserId: ACTOR, userDisposition: disposition },
   });
 
   it('purges only that organization, keeping its orphaned members by default', async () => {
@@ -219,7 +219,7 @@ describe('org.offboard', () => {
     expect(ids(fake.tables.invite)).toEqual(['inv2']);
     expect(ids(fake.tables.membership)).toEqual(['m1', 'm4']);
     expect(ids(fake.tables.user)).toEqual([ACTOR, BOB, CAROL].sort());
-    expect(fake.tables.job!.find((r) => r.id === 'pending-acme')).toBeUndefined();
+    expect(fake.tables.job!.find((r) => r.id === 'pending-kappa')).toBeUndefined();
     const result = fake.tables.job!.find((r) => r.id === 'off-1')!.payload.result.counts;
     expect(result).toMatchObject({ memberships: 2, invites: 1, usersKept: 1, organizations: 1 });
   });
@@ -238,7 +238,7 @@ describe('org.offboard', () => {
     fake.tables.job!.push(offboardJob('keep'));
     const { offboard } = build(fake, ['uploads/s1']);
     await expect(offboard.process(fake.tables.job!.find((r) => r.id === 'off-1') as any)).rejects.toThrow(/could not be deleted/);
-    expect(ids(fake.tables.organization)).toEqual([ACME, DEFAULT_ORG].sort());
+    expect(ids(fake.tables.organization)).toEqual([KAPPA, DEFAULT_ORG].sort());
   });
 
   it('refuses the default organization', async () => {

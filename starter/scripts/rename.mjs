@@ -42,7 +42,7 @@ export const STARTER_MARKER = 'packages/shared/identity.json';
 const USAGE = `
 Rebrand this app.
 
-  node scripts/rename.mjs --name "Acme Hub" --repo acme/acme-hub [options]
+  node scripts/rename.mjs --name "Kappa Hub" --repo kappa/kappa-hub [options]
 
 Options:
   --name <string>        Product display name.

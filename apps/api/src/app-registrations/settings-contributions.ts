@@ -14,7 +14,7 @@
 //
 // Upstream keeps this file empty forever. A fork adds its imports:
 //
-//   import '@acme/billing-settings';
+//   import '@kappa/billing-settings';
 //
 // The worked example, a contribution written the way a package would write it,
 // is `platform-extensions/settings/contribution.ts`; it is not imported here, so

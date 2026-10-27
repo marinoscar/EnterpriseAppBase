@@ -60,7 +60,7 @@ export function renderWithOnboarding(host: TestPlatformHost, element: ReactEleme
   return render(
     <MemoryRouter initialEntries={[path]}>
       <PlatformHostProvider host={host}>
-        <OnboardingProvider appName="Acme">
+        <OnboardingProvider appName="Org Kappa">
           <Routes>
             <Route path="*" element={<>{element}<Where /></>} />
           </Routes>

@@ -109,13 +109,13 @@ describe('the assembled order and contributions', () => {
     const list = assembleSystemSettingsNamespaces({
       platform: [system('platformA'), system('platformB')],
       app: [system('appA')],
-      contributions: [contribution('@acme/one', { system: [system('contribOne')] }), contribution('@acme/two', { system: [system('contribTwo')] })],
+      contributions: [contribution('@kappa/one', { system: [system('contribOne')] }), contribution('@kappa/two', { system: [system('contribTwo')] })],
     });
     expect(list.map((ns) => ns.key)).toEqual(['platformA', 'platformB', 'contribOne', 'contribTwo', 'appA']);
     const users = assembleUserSettingsNamespaces({
       platform: [user('p')],
       app: [user('a')],
-      contributions: [contribution('@acme/one', { user: [user('c')] })],
+      contributions: [contribution('@kappa/one', { user: [user('c')] })],
     });
     expect(users.map((ns) => ns.key)).toEqual(['p', 'c', 'a']);
   });
@@ -126,7 +126,7 @@ describe('the assembled order and contributions', () => {
       app: [system('appA')],
       appExtensions: [{ key: 'platformA', storedSchema: z.object({ fromApp: z.string().max(5) }), defaults: { fromApp: 'a' } }],
       contributions: [
-        contribution('@acme/one', {
+        contribution('@kappa/one', {
           system: [system('contribOne')],
           extensions: {
             system: [
@@ -154,42 +154,42 @@ describe('the assembled order and contributions', () => {
 
   it('names the contribution that collides with a platform key, or with another contribution, or with the app', () => {
     expect(() =>
-      assembleSystemSettingsNamespaces({ platform: [system('alpha')], contributions: [contribution('@acme/one', { system: [system('alpha')] })] }),
-    ).toThrow(/System settings namespace "alpha" is already registered: settings contribution "@acme\/one" declares it, but the platform already does/);
+      assembleSystemSettingsNamespaces({ platform: [system('alpha')], contributions: [contribution('@kappa/one', { system: [system('alpha')] })] }),
+    ).toThrow(/System settings namespace "alpha" is already registered: settings contribution "@kappa\/one" declares it, but the platform already does/);
     expect(() =>
       assembleSystemSettingsNamespaces({
         platform: [],
-        contributions: [contribution('@acme/one', { system: [system('alpha')] }), contribution('@acme/two', { system: [system('alpha')] })],
+        contributions: [contribution('@kappa/one', { system: [system('alpha')] }), contribution('@kappa/two', { system: [system('alpha')] })],
       }),
-    ).toThrow(/"alpha" is already registered: settings contribution "@acme\/two" declares it, but settings contribution "@acme\/one" already does/);
+    ).toThrow(/"alpha" is already registered: settings contribution "@kappa\/two" declares it, but settings contribution "@kappa\/one" already does/);
     expect(() =>
-      assembleSystemSettingsNamespaces({ platform: [], app: [system('alpha')], contributions: [contribution('@acme/one', { system: [system('alpha')] })] }),
-    ).toThrow(/"alpha" is already registered: the app declares it, but settings contribution "@acme\/one" already does/);
+      assembleSystemSettingsNamespaces({ platform: [], app: [system('alpha')], contributions: [contribution('@kappa/one', { system: [system('alpha')] })] }),
+    ).toThrow(/"alpha" is already registered: the app declares it, but settings contribution "@kappa\/one" already does/);
   });
 
   it('fails the boot, naming the key, when an extension names a namespace nobody declares', () => {
     expect(() =>
       assembleSystemSettingsNamespaces({
         platform: [system('alpha')],
-        contributions: [contribution('@acme/one', { extensions: { system: [{ key: 'missing', storedSchema: z.object({ a: z.string() }), defaults: { a: '' } }] } })],
+        contributions: [contribution('@kappa/one', { extensions: { system: [{ key: 'missing', storedSchema: z.object({ a: z.string() }), defaults: { a: '' } }] } })],
       }),
     ).toThrow(/Cannot extend system settings namespace "missing": no such namespace. Known: alpha/);
   });
 
   it('reads the collected contributions by default, in import order', async () => {
     await withTemporaryEntries(settingsContributionRegistry, [], () => {
-      registerSettingsContribution(contribution('@acme/first', { system: [system('first')] }));
-      registerSettingsContribution(contribution('@acme/second', { system: [system('second')] }));
+      registerSettingsContribution(contribution('@kappa/first', { system: [system('first')] }));
+      registerSettingsContribution(contribution('@kappa/second', { system: [system('second')] }));
       expect(assembleSystemSettingsNamespaces({ platform: [system('base')] }).map((ns) => ns.key)).toEqual(['base', 'first', 'second']);
-      expect(() => registerSettingsContribution(contribution('@acme/first'))).toThrow(/already registered/);
+      expect(() => registerSettingsContribution(contribution('@kappa/first'))).toThrow(/already registered/);
     });
-    expect(settingsContributionRegistry.has('@acme/first')).toBe(false);
+    expect(settingsContributionRegistry.has('@kappa/first')).toBe(false);
   });
 
   it('rejects a malformed contribution at registration', async () => {
     await withTemporaryEntries(settingsContributionRegistry, [], () => {
-      expect(() => registerSettingsContribution({ id: '@acme/bad', system: 'nope' as never })).toThrow(/system must be an array/);
-      expect(() => registerSettingsContribution({ id: '@acme/bad2', extensions: { user: {} as never } })).toThrow(/extensions.user must be an array/);
+      expect(() => registerSettingsContribution({ id: '@kappa/bad', system: 'nope' as never })).toThrow(/system must be an array/);
+      expect(() => registerSettingsContribution({ id: '@kappa/bad2', extensions: { user: {} as never } })).toThrow(/extensions.user must be an array/);
     });
   });
 });

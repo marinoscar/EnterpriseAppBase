@@ -162,7 +162,7 @@ function versionOf(text: string): string | undefined {
  * createCli({
  *   ...APP_CLI_OPTIONS,
  *   updateNotice: {
- *     latestVersion: githubRawManifest({ repo: 'acme/coach', path: 'apps/cli/package.json' }),
+ *     latestVersion: githubRawManifest({ repo: 'kappa/coach', path: 'apps/cli/package.json' }),
  *     upgradeHint: 'git pull && npm ci && npm run build',
  *   },
  * });

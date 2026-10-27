@@ -28,7 +28,7 @@ function setup(settings: Record<string, unknown> = {}, fetchOverride?: typeof fe
   );
   const ctx: AiCallContext = {
     apiKey: KEY,
-    baseUrl: 'https://contoso.openai.azure.com/',
+    baseUrl: 'https://theta.openai.azure.com/',
     requestId: 'req-azure-1',
     providerSettings: settings,
   };
@@ -84,7 +84,7 @@ describe('AzureOpenAiProviderAdapter', () => {
       expect(request.headers.get('api-key')).toBe(KEY);
       expect(request.headers.get('authorization')).toBeNull();
       expect(request.url.searchParams.get('api-version')).toBe(AZURE_OPENAI_DEFAULT_API_VERSION);
-      expect(request.url.origin).toBe('https://contoso.openai.azure.com');
+      expect(request.url.origin).toBe('https://theta.openai.azure.com');
     });
 
     it('uses the configured api-version, and sends the DEPLOYMENT as the model', async () => {
@@ -144,7 +144,7 @@ describe('AzureOpenAiProviderAdapter', () => {
 
         const [request] = server.requestsTo('/openai/responses');
 
-        expect(request.url.origin).toBe('https://contoso.openai.azure.com');
+        expect(request.url.origin).toBe('https://theta.openai.azure.com');
         expect(request.url.searchParams.get('api-version')).toBe(AZURE_OPENAI_DEFAULT_API_VERSION);
       } finally {
         if (saved.base === undefined) delete process.env.OPENAI_BASE_URL;
@@ -238,9 +238,9 @@ describe('AzureOpenAiProviderAdapter', () => {
 
 describe('azure-openai settings helpers', () => {
   it.each([
-    ['https://contoso.openai.azure.com', 'https://contoso.openai.azure.com/openai'],
-    ['https://contoso.openai.azure.com///', 'https://contoso.openai.azure.com/openai'],
-    ['https://contoso.openai.azure.com/openai/', 'https://contoso.openai.azure.com/openai'],
+    ['https://theta.openai.azure.com', 'https://theta.openai.azure.com/openai'],
+    ['https://theta.openai.azure.com///', 'https://theta.openai.azure.com/openai'],
+    ['https://theta.openai.azure.com/openai/', 'https://theta.openai.azure.com/openai'],
     ['https://gw.example.com/azure', 'https://gw.example.com/azure/openai'],
   ])('azureOpenAiBaseUrl(%s) is %s', (endpoint, expected) => {
     expect(azureOpenAiBaseUrl(endpoint)).toBe(expected);

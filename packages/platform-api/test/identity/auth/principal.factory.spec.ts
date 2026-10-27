@@ -108,7 +108,7 @@ describe('resolveEffectiveAccess', () => {
 });
 
 describe('selectCurrentMembership', () => {
-  const recentOther = membership({ orgId: 'org-acme', role: ORG_ADMIN, lastActiveAt: new Date('2026-10-06T00:00:00Z') });
+  const recentOther = membership({ orgId: 'org-kappa', role: ORG_ADMIN, lastActiveAt: new Date('2026-10-06T00:00:00Z') });
   const olderDefault = membership({ role: VIEWER, lastActiveAt: new Date('2026-09-01T00:00:00Z') });
 
   it('single mode: the default organization\'s membership, whatever the recency', () => {
@@ -120,7 +120,7 @@ describe('selectCurrentMembership', () => {
   });
 
   it('multi mode: the active membership used most recently', () => {
-    expect(selectCurrentMembership([olderDefault, recentOther], 'multi')?.orgId).toBe('org-acme');
+    expect(selectCurrentMembership([olderDefault, recentOther], 'multi')?.orgId).toBe('org-kappa');
   });
 
   it('multi mode: skips a suspended membership', () => {

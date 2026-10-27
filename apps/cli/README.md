@@ -1280,7 +1280,7 @@ environment-variable prefix — is derived from a separate constant:
 export const CLI_NAME = 'appctl';
 ```
 
-The split is intentional: a product called "Acme" may perfectly well still
+The split is intentional: a product called "Org Kappa" may perfectly well still
 ship a command called `appctl`, and renaming the binary moves a filesystem
 path and an environment-variable prefix, which renaming the product must not.
 

@@ -167,7 +167,7 @@ describe('network.egress (Integration, #773)', () => {
       ...view,
       drivers: {
         [view.provider]: {
-          bucket: 'acme-files',
+          bucket: 'kappa-files',
           region: view.region,
           endpoint: effectiveEndpoint ?? '',
           accountId: '',
@@ -309,7 +309,7 @@ describe('network.egress (Integration, #773)', () => {
         const { text, row } = await report(network, PUBLIC_EVERYTHING);
 
         for (const secret of Object.values(SECRETS)) expect(text).not.toContain(secret);
-        expect(text).not.toContain('acme-files');
+        expect(text).not.toContain('kappa-files');
         expect(text).not.toMatch(/\/v1|fcm\/send|\?key=|https?:\/\//);
         for (const value of Object.values(row?.data ?? {})) {
           expect(['string', 'number', 'boolean'].includes(typeof value) || value === null).toBe(true);

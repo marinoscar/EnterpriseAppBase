@@ -564,7 +564,7 @@ describe('AiConfigAdminService', () => {
           providers: {
             'azure-openai': {
               enabled: true,
-              baseUrl: 'https://contoso.openai.azure.com',
+              baseUrl: 'https://theta.openai.azure.com',
               apiVersion: '2024-10-21',
               apiStyle: 'chat_completions',
               deployments: { 'gpt-4o': 'prod-4o' },
@@ -579,7 +579,7 @@ describe('AiConfigAdminService', () => {
 
       expect(providers['azure-openai']).toEqual({
         enabled: true,
-        baseUrl: 'https://contoso.openai.azure.com',
+        baseUrl: 'https://theta.openai.azure.com',
         apiVersion: '2024-10-21',
         apiStyle: 'chat_completions',
         deployments: { 'gpt-4o': 'prod-4o' },
@@ -601,14 +601,14 @@ describe('AiConfigAdminService', () => {
         ]),
       );
       // Names only: no endpoint, deployment name or model id in the audit row.
-      expect(JSON.stringify(prisma.auditEvent.create.mock.calls[0][0].data.meta)).not.toMatch(/contoso|prod-4o|ollama/);
+      expect(JSON.stringify(prisma.auditEvent.create.mock.calls[0][0].data.meta)).not.toMatch(/theta|prod-4o|ollama/);
     });
 
     it('describes the stored fields back', async () => {
       stored = policy({
         providers: {
           ...policy().providers,
-          'azure-openai': { enabled: false, baseUrl: 'https://contoso.openai.azure.com', deployments: { a: 'b' } },
+          'azure-openai': { enabled: false, baseUrl: 'https://theta.openai.azure.com', deployments: { a: 'b' } },
           'openai-compatible': { enabled: false, apiStyle: 'responses', requiresKey: false },
         },
       });
@@ -617,7 +617,7 @@ describe('AiConfigAdminService', () => {
       const byId = Object.fromEntries(view.providers.map((p) => [p.id, p]));
 
       expect(byId['azure-openai']).toMatchObject({
-        baseUrl: 'https://contoso.openai.azure.com',
+        baseUrl: 'https://theta.openai.azure.com',
         apiVersion: null,
         apiStyle: null,
         deployments: { a: 'b' },
@@ -660,7 +660,7 @@ describe('AiConfigAdminService', () => {
     });
 
     it.each([
-      ['a plain-http Azure endpoint', { 'azure-openai': { enabled: false, baseUrl: 'http://contoso.openai.azure.com' } }],
+      ['a plain-http Azure endpoint', { 'azure-openai': { enabled: false, baseUrl: 'http://theta.openai.azure.com' } }],
       ['credentials in a compatible URL', { 'openai-compatible': { enabled: false, baseUrl: 'http://u:p@ollama.internal/v1' } }],
     ])('refuses %s as AI_PROVIDER_SETTINGS_INVALID', async (_label, providers) => {
       expect(await rejection(input({ providers }))).toMatchObject({

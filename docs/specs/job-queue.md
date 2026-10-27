@@ -292,7 +292,7 @@ Jitter keeps jobs deferred by one outage from retrying in the same millisecond. 
 ```ts
 onModuleInit() {
   this.registry.register(this);
-  this.throttle.registerProviderKey(this.type, 'acme-vision');
+  this.throttle.registerProviderKey(this.type, 'kappa-vision');
 }
 ```
 

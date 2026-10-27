@@ -27,7 +27,7 @@ import type { UsableAiModel } from '../../../src/ai/headless/types.js';
 
 function model(modelId: string, capabilities: string[]): UsableAiModel {
   return {
-    provider: 'acme',
+    provider: 'kappa',
     modelId,
     displayName: null,
     capabilities: { capabilities, inputModalities: ['text'], outputModalities: ['text'] },

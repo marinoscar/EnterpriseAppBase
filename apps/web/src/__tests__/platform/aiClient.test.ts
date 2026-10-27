@@ -366,7 +366,7 @@ describe('streamAiResponse', () => {
 
 describe('AI limits helpers (#450)', () => {
   it('aiModelLimitKey is <provider>:<modelId>, colons in the id kept', () => {
-    expect(aiModelLimitKey('openai', 'ft:gpt-4.1:acme')).toBe('openai:ft:gpt-4.1:acme');
+    expect(aiModelLimitKey('openai', 'ft:gpt-4.1:kappa')).toBe('openai:ft:gpt-4.1:kappa');
   });
 
   it('withModelLimits replaces one entry and keeps everything else', () => {

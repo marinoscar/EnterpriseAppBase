@@ -67,7 +67,7 @@ async function boot(options: Partial<DoctorModuleOptions> = {}, sections: Suppor
   const moduleRef = await Test.createTestingModule({
     imports: [
       PlatformHostModule.forRoot({ audit: { useFactory: () => audit } }),
-      DoctorModule.forRoot({ host, supportBundle: { appSlug: 'acme', principal: headerPrincipal }, ...options }),
+      DoctorModule.forRoot({ host, supportBundle: { appSlug: 'kappa', principal: headerPrincipal }, ...options }),
       appModule(sections),
     ],
   }).compile();
@@ -114,7 +114,7 @@ describe('GET /api/admin/doctor/support-bundle (DoctorModule.forRoot, test host)
     expect(response.statusCode).toBe(200);
     expect(response.headers['content-type']).toBe('application/json; charset=utf-8');
     expect(response.headers['cache-control']).toBe('no-store');
-    expect(response.headers['content-disposition']).toMatch(/^attachment; filename="support-bundle-acme-\d{8}T\d{6}Z\.json"$/);
+    expect(response.headers['content-disposition']).toMatch(/^attachment; filename="support-bundle-kappa-\d{8}T\d{6}Z\.json"$/);
     const bundle = supportBundleSchema.parse(JSON.parse(response.body));
     expect(Object.keys(bundle.sections).sort()).toEqual(['doctor', 'egress', 'meta', 'telemetry']);
     expect(bundle.sections.telemetry).toEqual({ status: 'omitted', reason: 'requires the telemetry:query permission' });
@@ -189,7 +189,7 @@ describe('GET /api/admin/doctor/support-bundle (DoctorModule.forRoot, test host)
     expect(operation?.operationId).toBe('SupportBundleController_download');
     expect(Object.keys((operation?.responses['200'] as { content: object }).content)).toEqual(['application/json']);
     expect(operation?.description).toContain('Requires `system_settings:read`.');
-    expect(operation?.description).toContain('support-bundle-acme-');
+    expect(operation?.description).toContain('support-bundle-kappa-');
     await app.close();
   });
 });

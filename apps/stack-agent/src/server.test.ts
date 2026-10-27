@@ -9,9 +9,9 @@ import { createAgent, tokenMatches, UP_TIMEOUT_MS, type AgentOptions, type LogEn
 
 const TOKEN = 'a'.repeat(24) + 'b'.repeat(24);
 const TARGET: ComposeTarget = {
-  project: 'acme',
-  workingDir: '/opt/infra/apps/acme/repo/infra/compose',
-  files: ['/opt/infra/apps/acme/repo/infra/compose/base.compose.yml'],
+  project: 'kappa',
+  workingDir: '/opt/infra/apps/kappa/repo/infra/compose',
+  files: ['/opt/infra/apps/kappa/repo/infra/compose/base.compose.yml'],
 };
 
 let server: Server | undefined;
@@ -211,13 +211,13 @@ describe('GET /v1/telemetry', () => {
 
 describe('POST /v1/telemetry/up', () => {
   it('runs compose up with a 10-minute timeout and returns the output', async () => {
-    const { url, calls } = await start({ result: { output: 'Container acme-greptimedb-1 Started' } });
+    const { url, calls } = await start({ result: { output: 'Container kappa-greptimedb-1 Started' } });
     const response = await fetch(`${url}/v1/telemetry/up`, { method: 'POST', headers: auth() });
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       ok: true,
       exitCode: 0,
-      output: 'Container acme-greptimedb-1 Started',
+      output: 'Container kappa-greptimedb-1 Started',
     });
     expect(calls[0]?.timeoutMs).toBe(UP_TIMEOUT_MS);
     expect(UP_TIMEOUT_MS).toBe(600_000);

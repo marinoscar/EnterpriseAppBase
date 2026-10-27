@@ -1,4 +1,4 @@
-const APP_NAME = 'Acme Hub';
+const APP_NAME = 'Kappa Hub';
 import { SECURITY_SCHEMES } from '../../../src/host/openapi/document';
 import {
   DEFAULT_SCALAR_CDN,
@@ -28,7 +28,7 @@ describe('renderDocsPage', () => {
   });
 
   it('names the product in the header bar', () => {
-    expect(renderDocsPage(options)).toContain('<strong>Acme Hub API</strong>');
+    expect(renderDocsPage(options)).toContain('<strong>Kappa Hub API</strong>');
   });
 
   it('loads the reference bundle from the default CDN', () => {

@@ -17,7 +17,7 @@ import type { CliIdentity } from '@marinoscar/platform-cli';
 //   3. the environment-variable prefix, `APPCTL_` (consumed by #143/#144)
 //
 // If those three were three literals, a rename would leave a binary called
-// `acmectl` reading `~/.appctl/config.json` and answering to `APPCTL_TOKEN` —
+// `kappactl` reading `~/.appctl/config.json` and answering to `APPCTL_TOKEN` —
 // and nothing would fail, which is what makes that class of bug expensive.
 //
 // TWO IDENTITIES, NOT ONE (issue #165, epic #161). The three things above are

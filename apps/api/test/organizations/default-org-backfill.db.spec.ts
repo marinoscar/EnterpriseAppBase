@@ -204,8 +204,8 @@ describeWithDb('organizations migration against real Postgres', () => {
     it('accepts any number of non-default organizations', async () => {
       await emptyPrisma.organization.createMany({
         data: [
-          { name: 'Acme', slug: 'acme' },
-          { name: 'Globex', slug: 'globex' },
+          { name: 'Org Kappa', slug: 'kappa' },
+          { name: 'Org Sigma', slug: 'sigma' },
         ],
       });
       expect(await emptyPrisma.organization.count()).toBe(3);
@@ -213,7 +213,7 @@ describeWithDb('organizations migration against real Postgres', () => {
     });
 
     it('refuses to promote a second organization to default', async () => {
-      await expect(emptyPrisma.organization.update({ where: { slug: 'acme' }, data: { isDefault: true } })).rejects.toMatchObject({
+      await expect(emptyPrisma.organization.update({ where: { slug: 'kappa' }, data: { isDefault: true } })).rejects.toMatchObject({
         code: 'P2002',
       });
     });

@@ -92,14 +92,14 @@ describe('AiConfigPage — provider-specific fields (#448)', () => {
       renderPage();
       const azure = within(card('azure-openai'));
 
-      expect(azure.getByLabelText('Endpoint')).toHaveValue('https://contoso.openai.azure.com');
+      expect(azure.getByLabelText('Endpoint')).toHaveValue('https://theta.openai.azure.com');
       expect(azure.getByText(/my-resource\.openai\.azure\.com/)).toBeInTheDocument();
       expect(azure.queryByLabelText('Base URL')).not.toBeInTheDocument();
       expect(azure.getByLabelText('API version')).toHaveValue('2024-10-21');
       expect(azure.getByLabelText('API version')).toHaveAttribute('placeholder', '2025-04-01-preview');
       expect(azure.getByRole('combobox', { name: 'API style' })).toHaveTextContent('Default (Responses API)');
       expect(azure.getByLabelText('Model id')).toHaveValue('gpt-4o');
-      expect(azure.getByLabelText('Deployment name')).toHaveValue('contoso-gpt-4o');
+      expect(azure.getByLabelText('Deployment name')).toHaveValue('theta-gpt-4o');
       expect(azure.queryByRole('switch', { name: 'Requires an API key' })).not.toBeInTheDocument();
     });
 
@@ -146,7 +146,7 @@ describe('AiConfigPage — provider-specific fields (#448)', () => {
       await user.click(azure.getByRole('button', { name: 'Add deployment' }));
       const rows = azure.getAllByLabelText('Model id');
       await user.type(rows[1], 'gpt-4o-mini');
-      await user.type(azure.getAllByLabelText('Deployment name')[1], 'contoso-mini');
+      await user.type(azure.getAllByLabelText('Deployment name')[1], 'theta-mini');
 
       // Compatible: an endpoint, enabled, and keyless.
       await user.type(compatible.getByLabelText('Base URL'), 'http://ollama:11434/v1');
@@ -160,10 +160,10 @@ describe('AiConfigPage — provider-specific fields (#448)', () => {
         openai: { enabled: false, baseUrl: null },
         'azure-openai': {
           enabled: true,
-          baseUrl: 'https://contoso.openai.azure.com',
+          baseUrl: 'https://theta.openai.azure.com',
           apiVersion: '2024-06-01',
           apiStyle: 'chat_completions',
-          deployments: { 'gpt-4o': 'contoso-gpt-4o', 'gpt-4o-mini': 'contoso-mini' },
+          deployments: { 'gpt-4o': 'theta-gpt-4o', 'gpt-4o-mini': 'theta-mini' },
         },
         'openai-compatible': {
           enabled: true,
@@ -185,7 +185,7 @@ describe('AiConfigPage — provider-specific fields (#448)', () => {
       await waitFor(() => expect(hook.save).toHaveBeenCalledTimes(1));
       expect(vi.mocked(hook.save).mock.calls[0][0].providers['azure-openai']).toEqual({
         enabled: true,
-        baseUrl: 'https://contoso.openai.azure.com',
+        baseUrl: 'https://theta.openai.azure.com',
       });
     });
   });
@@ -197,7 +197,7 @@ describe('AiConfigPage — provider-specific fields (#448)', () => {
       const azure = within(card('azure-openai'));
 
       await user.clear(azure.getByLabelText('Endpoint'));
-      await user.type(azure.getByLabelText('Endpoint'), 'http://contoso.openai.azure.com');
+      await user.type(azure.getByLabelText('Endpoint'), 'http://theta.openai.azure.com');
       expect(azure.getByText('Azure OpenAI endpoints must use https.')).toBeInTheDocument();
       expect(saveButton()).toBeDisabled();
     });
@@ -277,8 +277,8 @@ describe('AiConfigPage — provider-specific fields (#448)', () => {
       providers: [
         ...mockAiAdminConfig.providers,
         {
-          id: 'acme-llm',
-          displayName: 'Acme LLM',
+          id: 'kappa-llm',
+          displayName: 'Kappa LLM',
           registered: true,
           configurable: false,
           enabled: false,
@@ -293,12 +293,12 @@ describe('AiConfigPage — provider-specific fields (#448)', () => {
     it('is listed as "Registered, not configurable yet", with no switch or settings', () => {
       setHook(slotless);
       renderPage();
-      const acme = within(card('acme-llm'));
+      const kappa = within(card('kappa-llm'));
 
-      expect(acme.getByText('Acme LLM')).toBeInTheDocument();
-      expect(acme.getByText('Registered, not configurable yet')).toBeInTheDocument();
-      expect(acme.queryByRole('switch')).not.toBeInTheDocument();
-      expect(acme.queryByLabelText('Base URL')).not.toBeInTheDocument();
+      expect(kappa.getByText('Kappa LLM')).toBeInTheDocument();
+      expect(kappa.getByText('Registered, not configurable yet')).toBeInTheDocument();
+      expect(kappa.queryByRole('switch')).not.toBeInTheDocument();
+      expect(kappa.queryByLabelText('Base URL')).not.toBeInTheDocument();
     });
 
     it('is not sent back on save, so the save cannot fail because of it', async () => {
@@ -311,7 +311,7 @@ describe('AiConfigPage — provider-specific fields (#448)', () => {
       await waitFor(() => expect(hook.save).toHaveBeenCalledTimes(1));
       const body = vi.mocked(hook.save).mock.calls[0][0];
       expect(Object.keys(body.providers)).toEqual(mockAiAdminConfig.providers.map((p) => p.id));
-      expect(body.providers).not.toHaveProperty('acme-llm');
+      expect(body.providers).not.toHaveProperty('kappa-llm');
     });
 
     it('a configuration without one renders and saves exactly as before', async () => {

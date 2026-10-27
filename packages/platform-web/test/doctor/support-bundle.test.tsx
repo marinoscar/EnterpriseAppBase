@@ -17,7 +17,7 @@ import { MIXED } from './fixtures.js';
 
 afterEach(() => cleanup());
 
-const FILENAME = 'support-bundle-acme-20261006T090807Z.json';
+const FILENAME = 'support-bundle-kappa-20261006T090807Z.json';
 const BUNDLE = createTestBlobResponse('{"bundleVersion":1}', {
   'Content-Type': 'application/json; charset=utf-8',
   'Content-Disposition': `attachment; filename="${FILENAME}"`,

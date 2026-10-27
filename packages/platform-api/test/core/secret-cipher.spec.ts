@@ -379,7 +379,7 @@ describe('secret-cipher', () => {
 
     it('rejects a non-canonical organization id and a purpose with ":"', () => {
       expect(() => cipher.orgCredentialPurpose(ORG_A.toUpperCase(), 'ai')).toThrow(/canonical/);
-      expect(() => cipher.orgCredentialPurpose('acme', 'ai')).toThrow(/canonical/);
+      expect(() => cipher.orgCredentialPurpose('kappa', 'ai')).toThrow(/canonical/);
       expect(() => cipher.orgCredentialPurpose(ORG_A, 'a:b')).toThrow(/no ":"/);
       expect(() => cipher.orgCredentialPurpose(ORG_A, '')).toThrow(/no ":"/);
     });

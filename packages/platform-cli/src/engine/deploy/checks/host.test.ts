@@ -798,9 +798,9 @@ describe('requiredChecks(ALL_CHECKS, ctx): context-driven promotion across the w
   });
 
   it('gh-installed/gh-authenticated are promoted into the required subset exactly when the HTTPS GitHub clone has no credential', () => {
-    const needsGh = context({ repoUrl: 'https://github.com/acme/widgets', gitCredentialed: false });
-    const hasCredential = context({ repoUrl: 'https://github.com/acme/widgets', gitCredentialed: true });
-    const notGithub = context({ repoUrl: 'git@github.com:acme/widgets.git' });
+    const needsGh = context({ repoUrl: 'https://github.com/kappa/widgets', gitCredentialed: false });
+    const hasCredential = context({ repoUrl: 'https://github.com/kappa/widgets', gitCredentialed: true });
+    const notGithub = context({ repoUrl: 'git@github.com:kappa/widgets.git' });
     const unknown = context();
 
     const needsGhIds = requiredChecks(ALL_CHECKS, needsGh).map((c) => c.id);

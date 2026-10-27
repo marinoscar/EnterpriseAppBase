@@ -556,7 +556,7 @@ describe('AI secret no-egress — cross-cutting conformance (#435)', () => {
       const started = await request(app.context.app.getHttpServer())
         .post('/api/ai/audio/transcriptions')
         .set(authHeader(holderToken))
-        .send({ storageObjectId: recording.id, model: HARNESS_TRANSCRIPTION_MODEL, prompt: 'names: Acme' })
+        .send({ storageObjectId: recording.id, model: HARNESS_TRANSCRIPTION_MODEL, prompt: 'names: Org Kappa' })
         .expect(202);
 
       const handler = app.context.app.get<JobHandlerRegistry>(JobHandlerRegistry).get('ai.audio.transcribe');

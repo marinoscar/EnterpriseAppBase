@@ -76,7 +76,7 @@ describe('identity extension points in the reference app', () => {
       await notifier.userWelcomed('user-1', { recipientEmail: 'a@b.co', roles: ['viewer'] });
       await notifier.roleChanged('user-1', { recipientEmail: 'a@b.co', previousRoles: [], currentRoles: ['viewer'], changedAt: new Date(0) });
       await notifier.allowlistInvitation('c@d.co', { recipientEmail: 'c@d.co' });
-      await notifier.orgInvitation('e@f.co', { recipientEmail: 'e@f.co', orgName: 'Acme', roleName: 'viewer' });
+      await notifier.orgInvitation('e@f.co', { recipientEmail: 'e@f.co', orgName: 'Org Kappa', roleName: 'viewer' });
       expect(notify.mock.calls.map((call) => call[0])).toEqual(['user.welcome', 'security.role_changed']);
       expect(notifyAddress.mock.calls.map((call) => call[0])).toEqual(['allowlist.invitation', 'org.invitation']);
     } finally {

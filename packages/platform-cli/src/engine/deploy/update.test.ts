@@ -393,8 +393,8 @@ describe('the preflight step: gh is required only for an unreadable HTTPS GitHub
     try {
       const root = mkdtempSync(join(tmpdir(), 'appctl-update-preflight-'));
       const run = makeRunCommand(() => undefined);
-      const legacy = contextFor(root, { repoUrl: 'git@github.com:acme/widgets.git' }, run);
-      const recorded = contextFor(root, { repoUrl: 'git@github.com:acme/widgets.git', composeProject: 'demo' }, run);
+      const legacy = contextFor(root, { repoUrl: 'git@github.com:kappa/widgets.git' }, run);
+      const recorded = contextFor(root, { repoUrl: 'git@github.com:kappa/widgets.git', composeProject: 'demo' }, run);
 
       await preflightStep().run(legacy as never);
       await preflightStep().run(recorded as never);
@@ -407,7 +407,7 @@ describe('the preflight step: gh is required only for an unreadable HTTPS GitHub
 
   it('does not require gh at all for a non-github (or ssh) repository', async () => {
     const root = mkdtempSync(join(tmpdir(), 'appctl-update-preflight-'));
-    const context = contextFor(root, { repoUrl: 'git@github.com:acme/widgets.git' }, makeRunCommand(() => undefined));
+    const context = contextFor(root, { repoUrl: 'git@github.com:kappa/widgets.git' }, makeRunCommand(() => undefined));
 
     // gh is never even probed: no `gh ...` argv is answered above, so this
     // would throw "unexpected command" if gh-installed/gh-authenticated ran.
@@ -418,7 +418,7 @@ describe('the preflight step: gh is required only for an unreadable HTTPS GitHub
     const root = mkdtempSync(join(tmpdir(), 'appctl-update-preflight-'));
     const context = contextFor(
       root,
-      { repoUrl: 'https://github.com/acme/widgets' },
+      { repoUrl: 'https://github.com/kappa/widgets' },
       makeRunCommand((argv) =>
         argv.join(' ').startsWith('git ls-remote') ? { exitCode: 0, stdout: 'abc\tHEAD' } : undefined,
       ),
@@ -431,7 +431,7 @@ describe('the preflight step: gh is required only for an unreadable HTTPS GitHub
     const root = mkdtempSync(join(tmpdir(), 'appctl-update-preflight-'));
     const context = contextFor(
       root,
-      { repoUrl: 'https://github.com/acme/widgets' },
+      { repoUrl: 'https://github.com/kappa/widgets' },
       makeRunCommand((argv) => {
         const line = argv.join(' ');
         if (line.startsWith('git ls-remote')) return { exitCode: 128, stderr: 'fatal: could not read Username' };
@@ -450,7 +450,7 @@ describe('the preflight step: gh is required only for an unreadable HTTPS GitHub
     const root = mkdtempSync(join(tmpdir(), 'appctl-update-preflight-'));
     const context = contextFor(
       root,
-      { repoUrl: 'https://github.com/acme/widgets' },
+      { repoUrl: 'https://github.com/kappa/widgets' },
       makeRunCommand((argv) => {
         const line = argv.join(' ');
         if (line.startsWith('git ls-remote')) return { exitCode: 128, stderr: 'fatal: could not read Username' };

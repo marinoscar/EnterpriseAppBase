@@ -22,7 +22,7 @@ import './purposes';
 // =============================================================================
 
 const ALICE = '0b6f1d7e-3c2a-4f5b-9e8d-7a6c5b4d3e2f';
-const ACME = '3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d';
+const KAPPA = '3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d';
 
 const FIXTURE: UserCredentialPurposeDef[] = [
   {
@@ -101,7 +101,7 @@ describe('UserCredentialResolver', () => {
     it('never consults the org store, even with an orgId and an org key', async () => {
       orgGet.mockResolvedValue('org-key');
       const resolver = await build();
-      await expect(resolver.resolve(ALICE, 'webhook', undefined, { orgId: ACME })).resolves.toEqual({ source: 'none', purpose: 'webhook' });
+      await expect(resolver.resolve(ALICE, 'webhook', undefined, { orgId: KAPPA })).resolves.toEqual({ source: 'none', purpose: 'webhook' });
       expect(orgGet).not.toHaveBeenCalled();
     });
 
@@ -123,7 +123,7 @@ describe('UserCredentialResolver', () => {
       orgGet.mockResolvedValue('org-key');
       systemGet.mockResolvedValue('deployment-key');
       const resolver = await build();
-      await expect(resolver.resolve(ALICE, 'partner_token', undefined, { orgId: ACME })).resolves.toEqual({
+      await expect(resolver.resolve(ALICE, 'partner_token', undefined, { orgId: KAPPA })).resolves.toEqual({
         source: 'user',
         purpose: 'partner_token',
         secret: 'user-key',
@@ -135,19 +135,19 @@ describe('UserCredentialResolver', () => {
       orgGet.mockResolvedValue('org-key');
       systemGet.mockResolvedValue('deployment-key');
       const resolver = await build();
-      await expect(resolver.resolve(ALICE, 'partner_token', undefined, { orgId: ACME })).resolves.toEqual({
+      await expect(resolver.resolve(ALICE, 'partner_token', undefined, { orgId: KAPPA })).resolves.toEqual({
         source: 'org',
         purpose: 'partner_token',
         secret: 'org-key',
       });
-      expect(orgGet).toHaveBeenCalledWith(ACME, 'partner_api', 'default');
+      expect(orgGet).toHaveBeenCalledWith(KAPPA, 'partner_api', 'default');
       expect(systemGet).not.toHaveBeenCalled();
     });
 
     it("then the deployment's key", async () => {
       systemGet.mockResolvedValue('deployment-key');
       const resolver = await build();
-      await expect(resolver.resolve(ALICE, 'partner_token', undefined, { orgId: ACME })).resolves.toEqual({
+      await expect(resolver.resolve(ALICE, 'partner_token', undefined, { orgId: KAPPA })).resolves.toEqual({
         source: 'system',
         purpose: 'partner_token',
         secret: 'deployment-key',
@@ -157,7 +157,7 @@ describe('UserCredentialResolver', () => {
 
     it('then none', async () => {
       const resolver = await build();
-      await expect(resolver.resolve(ALICE, 'partner_token', undefined, { orgId: ACME })).resolves.toEqual({
+      await expect(resolver.resolve(ALICE, 'partner_token', undefined, { orgId: KAPPA })).resolves.toEqual({
         source: 'none',
         purpose: 'partner_token',
       });
@@ -174,13 +174,13 @@ describe('UserCredentialResolver', () => {
     it('skips the org tier when the app did not import OrgCredentialsModule', async () => {
       systemGet.mockResolvedValue('deployment-key');
       const resolver = await build(FIXTURE, false);
-      await expect(resolver.resolve(ALICE, 'partner_token', undefined, { orgId: ACME })).resolves.toMatchObject({ source: 'system' });
+      await expect(resolver.resolve(ALICE, 'partner_token', undefined, { orgId: KAPPA })).resolves.toMatchObject({ source: 'system' });
     });
 
     it("an org-only fallback never reaches the deployment's store", async () => {
       systemGet.mockResolvedValue('deployment-key');
       const resolver = await build();
-      await expect(resolver.resolve(ALICE, 'org_first_no_system', undefined, { orgId: ACME })).resolves.toEqual({
+      await expect(resolver.resolve(ALICE, 'org_first_no_system', undefined, { orgId: KAPPA })).resolves.toEqual({
         source: 'none',
         purpose: 'org_first_no_system',
       });
@@ -191,7 +191,7 @@ describe('UserCredentialResolver', () => {
       orgGet.mockRejectedValue(new InternalServerErrorException('could not be decrypted'));
       systemGet.mockResolvedValue('deployment-key');
       const resolver = await build();
-      await expect(resolver.resolve(ALICE, 'partner_token', undefined, { orgId: ACME })).rejects.toThrow(InternalServerErrorException);
+      await expect(resolver.resolve(ALICE, 'partner_token', undefined, { orgId: KAPPA })).rejects.toThrow(InternalServerErrorException);
       expect(systemGet).not.toHaveBeenCalled();
     });
   });

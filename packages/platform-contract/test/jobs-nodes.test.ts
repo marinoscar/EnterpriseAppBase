@@ -97,7 +97,7 @@ describe('jobs contract', () => {
   it('defaults the list query and accepts an orgId filter as a UUID only', () => {
     expect(jobListQuerySchema.parse({})).toMatchObject({ page: 1, pageSize: 20, processedWithin: 'all' });
     expect(jobListQuerySchema.parse({ orgId: ORG }).orgId).toBe(ORG);
-    expect(jobListQuerySchema.safeParse({ orgId: 'acme' }).success).toBe(false);
+    expect(jobListQuerySchema.safeParse({ orgId: 'kappa' }).success).toBe(false);
     expect(jobListQuerySchema.safeParse({ pageSize: '101' }).success).toBe(false);
   });
 

@@ -67,15 +67,15 @@ describeWithDb('org_credentials (real Postgres, ordinary role, row-level securit
   });
 
   it('stores, describes, lists and deletes in one organization, storing ciphertext only', async () => {
-    const info = await service.setSecret(ORG_A, PURPOSE, 'default', 'acme-partner-token-4321', { label: 'Partner', updatedByUserId: admin });
+    const info = await service.setSecret(ORG_A, PURPOSE, 'default', 'kappa-partner-token-4321', { label: 'Partner', updatedByUserId: admin });
     expect(info).toMatchObject({ purpose: PURPOSE, name: 'default', hint: '••••4321', label: 'Partner', updatedByUserId: admin });
 
     const raw = await asSystem((tx) => tx.orgCredential.findUniqueOrThrow({ where: { orgId_purpose_name: { orgId: ORG_A, purpose: PURPOSE, name: 'default' } } }));
-    expect(raw.secret).not.toContain('acme-partner-token-4321');
+    expect(raw.secret).not.toContain('kappa-partner-token-4321');
 
-    await expect(service.getSecret(ORG_A, PURPOSE, 'default')).resolves.toBe('acme-partner-token-4321');
+    await expect(service.getSecret(ORG_A, PURPOSE, 'default')).resolves.toBe('kappa-partner-token-4321');
     await expect(service.describe(ORG_A, PURPOSE, 'default')).resolves.toMatchObject({ label: 'Partner' });
-    await service.setSecret(ORG_A, PURPOSE, 'secondary', 'acme-second-token-0000');
+    await service.setSecret(ORG_A, PURPOSE, 'secondary', 'kappa-second-token-0000');
     await expect(service.list(ORG_A, PURPOSE)).resolves.toEqual([
       expect.objectContaining({ name: 'default' }),
       expect.objectContaining({ name: 'secondary' }),

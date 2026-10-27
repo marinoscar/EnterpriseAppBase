@@ -133,7 +133,7 @@ export const emailSettingsSchema = z.object({
   /** Envelope and header sender, validated as an address. */
   fromAddress: z.email().optional(),
 
-  /** Display name paired with `fromAddress`, e.g. `Acme <no-reply@acme.com>`. */
+  /** Display name paired with `fromAddress`, e.g. `Org Kappa <no-reply@kappa.example.test>`. */
   fromName: z.string().trim().min(1).max(100).optional(),
 });
 

@@ -63,7 +63,7 @@ function fixture(options: FixtureOptions): string {
   write(
     'packages/platform-x/package.json',
     JSON.stringify({
-      name: '@acme/platform-x',
+      name: '@kappa/platform-x',
       dependencies: { dep: '^1' },
       peerDependencies: peers,
       peerDependenciesMeta: Object.fromEntries((options.optional ?? ['b']).map((n) => [n, { optional: true }])),
@@ -205,7 +205,7 @@ describe('checkRepository on a fixture', () => {
     writeFileSync(
       join(root, 'packages/platform-x/package.json'),
       JSON.stringify({
-        name: '@acme/platform-x',
+        name: '@kappa/platform-x',
         dependencies: { dep: '^1' },
         peerDependencies: { a: '^1', b: '^1', orphan: '^1' },
         peerDependenciesMeta: { b: { optional: true }, orphan: { optional: true } },

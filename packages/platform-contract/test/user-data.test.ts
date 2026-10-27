@@ -39,9 +39,9 @@ describe('@marinoscar/platform-contract/user-data', () => {
   });
 
   it('defaults the offboarding user disposition to keep and requires a skip reason', () => {
-    expect(orgOffboardingRequestSchema.parse({ confirmation: 'acme' })).toEqual({ confirmation: 'acme', userDisposition: 'keep' });
-    expect(orgOffboardingRequestSchema.safeParse({ confirmation: 'acme', skipExport: { reason: '' } }).success).toBe(false);
-    expect(orgOffboardingRequestSchema.safeParse({ confirmation: 'acme', userDisposition: 'delete' }).success).toBe(false);
+    expect(orgOffboardingRequestSchema.parse({ confirmation: 'kappa' })).toEqual({ confirmation: 'kappa', userDisposition: 'keep' });
+    expect(orgOffboardingRequestSchema.safeParse({ confirmation: 'kappa', skipExport: { reason: '' } }).success).toBe(false);
+    expect(orgOffboardingRequestSchema.safeParse({ confirmation: 'kappa', userDisposition: 'delete' }).success).toBe(false);
   });
 
   it('describes a summary with nullable bytes', () => {

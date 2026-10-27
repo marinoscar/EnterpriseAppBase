@@ -77,7 +77,7 @@ describe('SettingsResolver.resolveSystem', () => {
       await on.org.patch(ORG_A, { brandingSample: { label: 'Org A' } });
       const off = services({ orgLayer: false });
       off.data.orgTable.rows.set(ORG_A, on.data.orgTable.rows.get(ORG_A)!);
-      expect(await off.resolver.resolveSystem('brandingSample', { orgId: ORG_A })).toMatchObject({ label: 'Acme' });
+      expect(await off.resolver.resolveSystem('brandingSample', { orgId: ORG_A })).toMatchObject({ label: 'Org Kappa' });
       expect(off.data.scopes).toEqual([]);
     }),
   );

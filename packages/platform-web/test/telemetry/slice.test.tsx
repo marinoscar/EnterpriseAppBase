@@ -42,8 +42,8 @@ describe('TelemetryWebAdapters reach the pages', () => {
         route: '/admin/settings/telemetry',
         responses: SETTINGS_RESPONSES,
         models: [
-          { id: 'm1', provider: 'acme', modelId: 'plain-1', label: 'Plain One', supportsToolCalling: false },
-          { id: 'm2', provider: 'acme', modelId: 'tools-2', label: 'Tools Two', supportsToolCalling: true },
+          { id: 'm1', provider: 'kappa', modelId: 'plain-1', label: 'Plain One', supportsToolCalling: false },
+          { id: 'm2', provider: 'kappa', modelId: 'tools-2', label: 'Tools Two', supportsToolCalling: true },
         ],
       },
     });
@@ -57,8 +57,8 @@ describe('TelemetryWebAdapters reach the pages', () => {
     expect(labels.findIndex((text) => text?.includes('Tools Two'))).toBeLessThan(
       labels.findIndex((text) => text?.includes('Plain One')),
     );
-    expect(within(listbox).getByText('acme · tool calling')).toBeInTheDocument();
-    expect(within(listbox).getByText('acme · tool calling not declared')).toBeInTheDocument();
+    expect(within(listbox).getByText('kappa · tool calling')).toBeInTheDocument();
+    expect(within(listbox).getByText('kappa · tool calling not declared')).toBeInTheDocument();
   });
 
   it("the settings page shows the app's spinner while the config loads", () => {

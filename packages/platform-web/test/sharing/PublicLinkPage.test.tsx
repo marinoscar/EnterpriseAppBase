@@ -31,7 +31,7 @@ function renderAt(response: TestApiResponse, registry: LinkRendererRegistry, opt
   window.history.replaceState(null, '', `/s#${TOKEN}`);
   const Frame = ({ children }: { children: React.ReactNode }) => (
     <div data-testid="brand-frame">
-      <span>Acme</span>
+      <span>Org Kappa</span>
       {children}
     </div>
   );
@@ -113,7 +113,7 @@ describe('PublicLinkPage (#731)', () => {
   it('lets the app frame every state with its branding', async () => {
     renderAt(() => Promise.reject(createTestApiError(404, 'Link not found')), registry, { frame: true });
     const frame = await screen.findByTestId('brand-frame');
-    expect(frame.textContent).toContain('Acme');
+    expect(frame.textContent).toContain('Org Kappa');
     expect(await screen.findByTestId('public-link-unavailable')).toBeTruthy();
   });
 });

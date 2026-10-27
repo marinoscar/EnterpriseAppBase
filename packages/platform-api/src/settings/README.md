@@ -136,7 +136,7 @@ The extension ladder is [docs/EXTENDING.md](../../../../docs/EXTENDING.md#extend
 2. the contributions' namespaces, in import order,
 3. the app's own namespaces,
 
-then fold the extensions (the contributions' in import order, then the app's) into whichever namespace they name, then apply the defaults overrides (calls in call order, then the app's list). Registration order is the stored JSON's key order and the OpenAPI document's, so a contribution never reorders an existing key. A key two owners declare fails the import naming both (`settings contribution "@acme/billing" declares it, but the platform already does`); an extension of a missing namespace names the key and lists the known ones; a package imported twice (two copies installed) is refused as a duplicate contribution id.
+then fold the extensions (the contributions' in import order, then the app's) into whichever namespace they name, then apply the defaults overrides (calls in call order, then the app's list). Registration order is the stored JSON's key order and the OpenAPI document's, so a contribution never reorders an existing key. A key two owners declare fails the import naming both (`settings contribution "@kappa/billing" declares it, but the platform already does`); an extension of a missing namespace names the key and lists the known ones; a package imported twice (two copies installed) is refused as a duplicate contribution id.
 
 **The core user fields.** `theme` and `profile` are core fields, not namespaces, so they have their own registries; `security` is derived from the session policy and stays closed.
 
