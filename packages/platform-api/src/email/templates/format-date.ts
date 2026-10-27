@@ -25,7 +25,11 @@ export interface EmailDateContext {
   readonly timeZone?: string | null;
 }
 
-/** A value a template may format: a `Date`, epoch milliseconds or an ISO string. */
+/**
+ * A value a template may format: a `Date`, epoch milliseconds or an ISO string.
+ *
+ * @stability experimental
+ */
 export type EmailDateInput = Date | number | string;
 
 function toDate(value: EmailDateInput): Date | null {
