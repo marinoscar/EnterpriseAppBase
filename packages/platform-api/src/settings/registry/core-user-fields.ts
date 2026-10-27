@@ -4,7 +4,7 @@
 //
 // `theme` and `profile` are core fields of a user's settings document, not
 // namespaces, so they sit outside the namespace registries. An app still needs
-// to put something in them: a `profile.timezone`, a `high-contrast` theme.
+// to put something in them: a `profile.pronouns`, a `high-contrast` theme.
 //
 //   - `extendUserProfile({ fields })` adds optional fields to `profile`. They
 //     are stored, validated, patched (`null` deletes one) and returned with
@@ -28,6 +28,7 @@ import {
   THEME_PREFERENCE_ID_PATTERN,
   THEME_PREFERENCES,
   profileImageSourceSchema,
+  timeZoneIdSchema,
   themeOptionSchema,
   themePreferenceSchema,
   userProfileSettingsPatchSchema,
@@ -50,7 +51,7 @@ import { findDefaultPaths, findSecretFieldPaths, isZodSchema, walkSchema } from 
  * @stability experimental
  */
 export interface UserProfileField {
-  /** The field name (`timezone`). Matches `/^[a-z][A-Za-z0-9]*$/`; not one of the core profile fields. */
+  /** The field name (`pronouns`). Matches `/^[a-z][A-Za-z0-9]*$/`; not one of the core profile fields. */
   readonly name: string;
   /**
    * The stored shape. It must accept `undefined` (a profile saved before the
@@ -67,7 +68,7 @@ export interface UserProfileField {
  *
  * @stability experimental
  */
-export const CORE_PROFILE_FIELDS = ['displayName', 'imageSource', 'imageObjectId'] as const;
+export const CORE_PROFILE_FIELDS = ['displayName', 'imageSource', 'imageObjectId', 'timezone'] as const;
 
 const PROFILE_FIELD_PATTERN = /^[a-z][A-Za-z0-9]*$/;
 
@@ -153,7 +154,7 @@ export const userProfileFieldRegistry = defineRegistry<UserProfileField>({
  *
  * @example
  * ```ts
- * extendUserProfile({ fields: z.object({ timezone: z.string().max(64).optional() }) });
+ * extendUserProfile({ fields: z.object({ pronouns: z.string().max(32).optional() }) });
  * ```
  *
  * @extensionPoint registry
@@ -184,7 +185,7 @@ export function composeUserProfilePatchSchema(): z.ZodObject<z.ZodRawShape> {
   ) as unknown as z.ZodObject<z.ZodRawShape>;
 }
 
-/** The documented `profile` of the user settings response: the contract's three fields, plus the registered ones. */
+/** The documented `profile` of the user settings response: the contract's core fields, plus the registered ones. */
 export function composeUserProfileResponseSchema(): z.ZodObject<z.ZodRawShape> {
   const fields = userProfileFieldRegistry.list();
   return z.object({
@@ -192,6 +193,7 @@ export function composeUserProfileResponseSchema(): z.ZodObject<z.ZodRawShape> {
     imageSource: profileImageSourceSchema,
     // Always present in responses; `null` when no avatar has been uploaded.
     imageObjectId: z.string().uuid().nullable(),
+    timezone: timeZoneIdSchema.optional(),
     ...Object.fromEntries(fields.map((field) => [field.name, field.schema])),
   });
 }

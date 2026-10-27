@@ -1,10 +1,10 @@
 // Dates and labels the sharing components show. Not exported.
 
+import { formatDate as formatZonedDate } from '../../core/index.js';
+
+/** A day in the viewer's display zone (`Oct 26, 2026`), or `''`. */
 export function formatDate(iso: string | null | undefined): string {
-  if (!iso) return '';
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return '';
-  return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  return formatZonedDate(iso, { year: 'numeric', month: 'short', day: 'numeric', fallback: '' });
 }
 
 export function expiryText(iso: string | null | undefined): string {

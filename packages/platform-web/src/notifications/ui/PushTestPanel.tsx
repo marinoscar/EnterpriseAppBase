@@ -69,6 +69,7 @@ import {
 import { requestPermissionAndSyncPush } from '../headless/pushSubscription.js';
 import { useNotificationConfig } from '../headless/useNotificationConfig.js';
 import { useIsMounted } from '../headless/useIsMounted.js';
+import { NUMERIC_DATE_TIME, formatDateTime, useDisplayTimeZone } from '../../core/index.js';
 
 type CheckLevel = 'ok' | 'warn' | 'fail' | 'info';
 
@@ -140,10 +141,10 @@ function boolLevel(value: boolean | null, nullLevel: CheckLevel = 'info'): Check
   return value ? 'ok' : 'fail';
 }
 
+/** A moment in the display zone; `never` for none, an unparsable value as is. */
 function formatDate(value: string | null): string {
   if (!value) return 'never';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+  return formatDateTime(value, { ...NUMERIC_DATE_TIME, fallback: value });
 }
 
 /** The "This browser" checklist, derived from a snapshot. */
@@ -194,7 +195,7 @@ function browserChecks(snapshot: BrowserSnapshot): Array<{ level: CheckLevel; pr
     level: sub.exists ? 'ok' : 'warn',
     primary: sub.exists ? 'Push subscription present' : 'No push subscription in this browser',
     secondary: sub.exists
-      ? `${sub.endpointPreview ?? ''}${sub.expirationTime ? ` · expires ${new Date(sub.expirationTime).toLocaleString()}` : ''}`
+      ? `${sub.endpointPreview ?? ''}${sub.expirationTime ? ` · expires ${formatDateTime(sub.expirationTime, NUMERIC_DATE_TIME)}` : ''}`
       : 'Send test push creates one.',
   });
   if (sub.exists) {
@@ -225,6 +226,7 @@ export interface PushTestPanelProps {
 }
 
 export function PushTestPanel({ config, canWrite }: PushTestPanelProps) {
+  useDisplayTimeZone(); // The diagnostics times render in the display zone.
   const isMounted = useIsMounted();
   const { config: clientConfig, error: clientConfigError, refresh: refreshClientConfig } =
     useNotificationConfig();
@@ -562,6 +564,7 @@ export function PushTestPanel({ config, canWrite }: PushTestPanelProps) {
 }
 
 function ServerResult({ result }: { result: PushTestResult }) {
+  useDisplayTimeZone(); // "ran at" and the subscription times render in the display zone.
   const overall = OVERALL_CHIP[result.overall] ?? { label: result.overall, color: 'default' as const };
   const cfg = result.config;
   return (

@@ -34,6 +34,7 @@ import { AiCapabilityChips } from '../shared/AiCapabilityChips.js';
 import { providerSettingValue, withProviderSetting } from './aiProviderForm.js';
 import type { AiProviderCardProps } from './AiProviderCard.js';
 import { AiProviderKeyActions, keyHelperText, MIN_KEY_LENGTH } from './AiProviderKeyActions.js';
+import { useDisplayTimeZone } from '../../../core/index.js';
 
 /** The descriptor's name for the deployment key field. */
 const KEY_FIELD = 'apiKey';
@@ -102,6 +103,7 @@ export function AiGenericProviderCard({
   onTest,
   descriptor,
 }: AiProviderCardProps) {
+  useDisplayTimeZone(); // The key helper text dates render in the display zone.
   const switchId = `ai-provider-${provider.id}-enabled`;
   /** WRITE-ONLY: never part of the page form; cleared once the server answers. */
   const [apiKey, setApiKey] = useState('');

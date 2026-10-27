@@ -30,6 +30,7 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutlined';
 import { AI_KEY_REMOVE_CONFIRMATION } from '../../headless/types.js';
 import type { AiProbeResult as AiProbeResultData, SecretStatus } from '../../headless/types.js';
 import { AiProbeResult } from './AiProbeResult.js';
+import { NUMERIC_DATE, formatDate } from '../../../core/index.js';
 
 /** The API's minimum key length (`PUT …/key` body, `min(8)`). */
 export const MIN_KEY_LENGTH = 8;
@@ -45,7 +46,7 @@ export function keyHelperText(status: SecretStatus): string {
   }
   const which = status.hint ? ` (${status.hint})` : '';
   const when = status.updatedAt
-    ? `, last changed ${new Date(status.updatedAt).toLocaleDateString()}`
+    ? `, last changed ${formatDate(status.updatedAt, NUMERIC_DATE)}`
     : '';
   return `A key is saved${which}${when}. Leave this blank to keep it, or type a new one to replace it.`;
 }

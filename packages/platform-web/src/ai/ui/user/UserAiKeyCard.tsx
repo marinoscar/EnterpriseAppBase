@@ -39,6 +39,7 @@ import {
 } from '@mui/material';
 import type { AiProbeResult, UserAiKey } from '../../headless/types.js';
 import { aiCodeText, aiErrorText } from './aiErrorText.js';
+import { NUMERIC_DATE_TIME, formatDateTime, useDisplayTimeZone } from '../../../core/index.js';
 
 /**
  * The provider a {@link UserAiKeyCard} manages a key for.
@@ -82,12 +83,13 @@ export interface UserAiKeyCardProps {
 
 type Busy = 'save' | 'test' | 'recheck' | 'remove' | null;
 
-function formatDate(iso: string): string {
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? iso : date.toLocaleString();
+/** The moment in the display zone, as `toLocaleString()` wrote it; an unparsable value as is. */
+function formatVerifiedAt(iso: string): string {
+  return formatDateTime(iso, { ...NUMERIC_DATE_TIME, fallback: iso });
 }
 
 function KeyStatus({ keyView }: { keyView?: UserAiKey }) {
+  useDisplayTimeZone(); // "verified" renders in the display zone.
   if (!keyView?.configured) {
     return <Chip size="small" label="Not configured" variant="outlined" />;
   }
@@ -115,7 +117,7 @@ function KeyStatus({ keyView }: { keyView?: UserAiKey }) {
       )}
       {keyView.verifiedAt && (
         <Typography variant="body2" color="text.secondary">
-          verified {formatDate(keyView.verifiedAt)}
+          verified {formatVerifiedAt(keyView.verifiedAt)}
         </Typography>
       )}
     </Stack>

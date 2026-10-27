@@ -263,6 +263,14 @@
       "types": "./dist/datatable/testing/index.d.ts",
       "default": "./dist/datatable/testing/index.js"
     },
+    "./timezone/headless": {
+      "types": "./dist/timezone/headless/index.d.ts",
+      "default": "./dist/timezone/headless/index.js"
+    },
+    "./timezone/ui": {
+      "types": "./dist/timezone/ui/index.d.ts",
+      "default": "./dist/timezone/ui/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

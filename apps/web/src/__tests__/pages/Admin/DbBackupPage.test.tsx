@@ -81,6 +81,7 @@ import {
 } from '@marinoscar/platform-web/db-backup/headless';
 import DbBackupPage from '@marinoscar/platform-web/db-backup/ui';
 import { shortId } from '@marinoscar/platform-web/jobs/headless';
+import { setPreferredTimeZone } from '@marinoscar/platform-web/timezone/headless';
 
 const mockUseConfig = vi.mocked(useDbBackupConfig);
 const mockUseRuns = vi.mocked(useDbBackupRuns);
@@ -379,11 +380,14 @@ describe('DbBackupPage', () => {
     setConfigState();
     setRunsState();
     setActionsState();
+    // Times render in the user's display zone; pin it for stable expectations.
+    setPreferredTimeZone('UTC');
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
     clearMaintenanceBlock();
+    setPreferredTimeZone(null);
   });
 
   // =========================================================================
@@ -550,7 +554,7 @@ describe('DbBackupPage', () => {
         /Next scheduled backup:/,
       );
       expect(screen.getByTestId('db-backup-next-run')).toHaveTextContent(
-        new Date(CONFIG.nextRunAt!).toLocaleString(),
+        new Date(CONFIG.nextRunAt!).toLocaleString(undefined, { timeZone: 'UTC' }),
       );
     });
 

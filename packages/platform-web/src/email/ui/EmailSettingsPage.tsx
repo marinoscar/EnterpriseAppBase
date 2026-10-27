@@ -79,7 +79,7 @@ import {
 import SendIcon from '@mui/icons-material/Send';
 import type { PluggableDescriptor } from '@marinoscar/platform-contract/settings';
 import { Navigate } from 'react-router-dom';
-import { PageSlotsFrame, usePlatformViewer } from '../../core/index.js';
+import { NUMERIC_DATE_TIME, PageSlotsFrame, formatDateTime, useDisplayTimeZone, usePlatformViewer } from '../../core/index.js';
 import type { PageSlotsBase } from '../../core/index.js';
 import { useEmailSettings } from '../headless/index.js';
 import type { EmailProviderKind, EmailSettings, EmailSettingsInput } from '../headless/index.js';
@@ -277,6 +277,7 @@ export interface EmailSettingsPageProps {
  * @stability experimental
  */
 export default function EmailSettingsPage(props: EmailSettingsPageProps = {}) {
+  useDisplayTimeZone(); // "Last updated" renders in the display zone.
   const { slots } = props;
   const viewer = usePlatformViewer();
   const { hasPermission } = viewer;
@@ -515,7 +516,7 @@ export default function EmailSettingsPage(props: EmailSettingsPageProps = {}) {
         {settings?.updatedBy && settings.updatedAt && (
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
             Last updated by {settings.updatedBy.email} on{' '}
-            {new Date(settings.updatedAt).toLocaleString()}
+            {formatDateTime(settings.updatedAt, NUMERIC_DATE_TIME)}
           </Typography>
         )}
 

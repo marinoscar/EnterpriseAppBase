@@ -34,6 +34,7 @@ import { CreatePatDialog } from './CreatePatDialog.js';
 import { PatTokenRevealDialog } from './PatTokenRevealDialog.js';
 import type { PatCreatedResponse, PersonalAccessToken } from '../../headless/index.js';
 import { TABLE_ID, buildPatColumns, getTokenStatus } from './patColumns.js';
+import { useDisplayTimeZone } from '../../../core/index.js';
 
 /**
  * The caller's personal access tokens: the list, create (the raw value is
@@ -51,7 +52,9 @@ export function PersonalAccessTokens(): ReactElement {
   const [createdTokenValue, setCreatedTokenValue] = useState<string | null>(null);
   const [revoking, setRevoking] = useState<string | null>(null);
 
-  const columns = useMemo(() => buildPatColumns(), []);
+  // The date columns render in the display zone: rebuild on a zone change.
+  const timeZone = useDisplayTimeZone();
+  const columns = useMemo(() => buildPatColumns(), [timeZone]);
 
   const handleCreated = (response: PatCreatedResponse) => {
     setCreatedTokenValue(response.token);

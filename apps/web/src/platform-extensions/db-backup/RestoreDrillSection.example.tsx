@@ -20,6 +20,7 @@
 import { Alert, Box, Paper, Typography } from '@mui/material';
 import type { ReactElement } from 'react';
 import type { DbBackupSectionsProps } from '@marinoscar/platform-web/db-backup/ui';
+import { NUMERIC_DATE, formatDate, useDisplayTimeZone } from '@marinoscar/platform-web/timezone/headless';
 
 /** A drill is due when the newest restorable backup is older than this many days. */
 export const RESTORE_DRILL_INTERVAL_DAYS = 90;
@@ -36,6 +37,7 @@ function newestRestorable(runs: DbBackupSectionsProps['runs']): DbBackupSections
 }
 
 export function RestoreDrillSection({ runs, canRestore, position }: DbBackupSectionsProps): ReactElement | null {
+  useDisplayTimeZone(); // The dates render in the user's display zone.
   // `Sections` is rendered at both ends of the page; this panel belongs below the history.
   if (position !== 'bottom') return null;
   const newest = newestRestorable(runs);
@@ -57,12 +59,12 @@ export function RestoreDrillSection({ runs, canRestore, position }: DbBackupSect
       <Box sx={{ mb: 1 }}>
         <Typography variant="body2" color="text.secondary">
           {newest
-            ? `Newest restorable backup: ${new Date(newest.createdAt).toLocaleDateString()} (verified).`
+            ? `Newest restorable backup: ${formatDate(newest.createdAt, NUMERIC_DATE)} (verified).`
             : 'No verified backup on this page to restore from.'}
         </Typography>
         <Typography variant="body2" color="text.secondary">
           {lastRestoredAt
-            ? `Last restore: ${new Date(lastRestoredAt).toLocaleDateString()}.`
+            ? `Last restore: ${formatDate(lastRestoredAt, NUMERIC_DATE)}.`
             : 'No restore has been performed from the backups on this page.'}
         </Typography>
       </Box>

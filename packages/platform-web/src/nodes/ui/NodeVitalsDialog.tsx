@@ -39,6 +39,7 @@ import {
 } from '@mui/material';
 import type { ReactNode } from 'react';
 import { useId } from 'react';
+import { useDisplayTimeZone } from '../../core/index.js';
 import type { PageSlot } from '../../core/index.js';
 import { formatDateTime, nodeCapabilityItems, nodeVitalRows } from '../headless/index.js';
 import type { NodeVitalsCounters, WorkerNode } from '../headless/index.js';
@@ -145,6 +146,7 @@ function formatCount(value: number | undefined): string {
 }
 
 export function NodeVitalsDialog({ node, now, onClose, VitalsPanel }: NodeVitalsDialogProps) {
+  useDisplayTimeZone(); // "Vitals reported" renders in the display zone.
   const theme = useTheme();
   // The same `down('sm')` compact-window read the settings UI uses (CLAUDE.md
   // rule 5): a full screen on a phone rather than a dialog that scrolls inside

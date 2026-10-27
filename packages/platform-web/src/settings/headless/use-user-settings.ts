@@ -1,12 +1,15 @@
 // `GET` / `PATCH /user-settings` (issue #733; moved from the reference app's
 // `hooks/useUserSettings.ts`, behaviour unchanged). The theme sync is the
-// app's: it passes `applyTheme` (its theme context's setter).
+// app's: it passes `applyTheme` (its theme context's setter). The time zone
+// sync is the package's: every loaded or saved document puts
+// `profile.timezone` into the timezone slice's display-zone store.
 
 import { THEME_PREFERENCES } from '@marinoscar/platform-contract/settings';
 import type { ThemeOption, ThemePreference, ThemePreferenceId, UserSettingsResponseBase } from '@marinoscar/platform-contract/settings';
 import { useCallback, useEffect, useState } from 'react';
 
 import { isPlatformApiError } from '../../core/index.js';
+import { setPreferredTimeZone, timeZoneFromProfile } from '../../timezone/index.js';
 import { useIsMounted } from '../internal/use-is-mounted.js';
 import { useSettingsApi, type SettingsHookOptions } from './use-system-settings.js';
 
@@ -57,6 +60,13 @@ export interface UseUserSettingsOptions extends SettingsHookOptions {
   syncTheme?: boolean;
   /** Applies a theme preference to the app (its theme context's setter). Keep it stable. */
   applyTheme?(theme: ThemePreferenceId): void;
+  /**
+   * Whether loading and saving push `profile.timezone` into the display-zone
+   * store of `@marinoscar/platform-web/timezone/headless` (`setPreferredTimeZone`;
+   * absent means follow the device), so a saved profile re-renders every time
+   * the packaged UI shows. Default `true`.
+   */
+  syncTimeZone?: boolean;
 }
 
 /**
@@ -124,7 +134,7 @@ export function useUserSettings<
   T extends UserSettingsDocument = UserSettingsResponseBase,
   U extends UserSettingsUpdateBase = Partial<T>,
 >(options: UseUserSettingsOptions = {}): UseUserSettingsResult<T, U> {
-  const { syncTheme = true, applyTheme } = options;
+  const { syncTheme = true, applyTheme, syncTimeZone = true } = options;
   const api = useSettingsApi(options);
   const [settings, setSettings] = useState<T | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -140,13 +150,14 @@ export function useUserSettings<
       if (isMounted()) {
         setSettings(data);
         if (syncTheme && applyTheme && isAppliableTheme(data.theme, data)) applyTheme(data.theme);
+        if (syncTimeZone) setPreferredTimeZone(timeZoneFromProfile(data.profile));
       }
     } catch (err) {
       if (isMounted()) setError(isPlatformApiError(err) ? err.message : 'Failed to load settings');
     } finally {
       if (isMounted()) setIsLoading(false);
     }
-  }, [api, applyTheme, syncTheme, isMounted]);
+  }, [api, applyTheme, syncTheme, syncTimeZone, isMounted]);
 
   useEffect(() => {
     void fetchSettings();
@@ -159,6 +170,8 @@ export function useUserSettings<
         setIsSaving(true);
         setError(null);
         const data = await api.patch<T>('/user-settings', updates, { ifMatch: settings.version.toString() });
+        // The store outlives this component: a save applies even if the page unmounted meanwhile.
+        if (syncTimeZone) setPreferredTimeZone(timeZoneFromProfile(data.profile));
         if (isMounted()) {
           setSettings(data);
           if (syncTheme && applyTheme && isAppliableTheme(updates.theme, data)) applyTheme(updates.theme as string);
@@ -174,7 +187,7 @@ export function useUserSettings<
         if (isMounted()) setIsSaving(false);
       }
     },
-    [api, settings, applyTheme, syncTheme, fetchSettings, isMounted],
+    [api, settings, applyTheme, syncTheme, syncTimeZone, fetchSettings, isMounted],
   );
 
   const updateTheme = useCallback(

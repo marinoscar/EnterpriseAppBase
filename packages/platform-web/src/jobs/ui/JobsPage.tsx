@@ -86,7 +86,7 @@ import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import InsightsIcon from '@mui/icons-material/Insights';
 import { Navigate, useNavigate } from 'react-router-dom';
 
-import { usePlatformViewer, useTableSlotColumns } from '../../core/index.js';
+import { useDisplayTimeZone, usePlatformViewer, useTableSlotColumns } from '../../core/index.js';
 import type { PageSlot, PageSlotsBase, TableSlots } from '../../core/index.js';
 import {
   JOBS_POLL_INTERVAL_MS,
@@ -319,7 +319,9 @@ export function JobsPage(props: JobsPageProps = {}): ReactElement {
     () => (stats?.byType ?? []).map((entry) => ({ value: entry.type, label: entry.label })),
     [stats],
   );
-  const baseColumns = useMemo(() => buildJobColumns(typeOptions), [typeOptions]);
+  // The time columns render in the display zone: rebuild on a zone change.
+  const timeZone = useDisplayTimeZone();
+  const baseColumns = useMemo(() => buildJobColumns(typeOptions), [typeOptions, timeZone]);
   const columns = useTableSlotColumns<Job, JobsTableColumn<Job>>(baseColumns, slots);
 
   const canWrite = hasPermission('jobs:write');

@@ -56,6 +56,7 @@
 import { Chip, Typography } from '@mui/material';
 import type { IdentityTableColumn as DataTableColumn } from '../../headless/index.js';
 import type { PersonalAccessToken } from '../../headless/index.js';
+import { NUMERIC_DATE, formatDate } from '../../../core/index.js';
 
 /** Persistence key for `user_settings.dataTables`. */
 export const TABLE_ID = 'settings-pats';
@@ -88,8 +89,9 @@ export function patRowLabel(token: PersonalAccessToken): string {
   return `${token.name} (${token.id.slice(0, ID_SUFFIX_LENGTH)})`;
 }
 
-function formatDate(value: string): string {
-  return new Date(value).toLocaleDateString();
+/** The day in the viewer's display zone, as `toLocaleDateString()` wrote it. */
+function formatDay(value: string): string {
+  return formatDate(value, NUMERIC_DATE);
 }
 
 export function buildPatColumns(): DataTableColumn<PersonalAccessToken>[] {
@@ -135,21 +137,21 @@ export function buildPatColumns(): DataTableColumn<PersonalAccessToken>[] {
       label: 'Created',
       priority: 'detail',
       width: 120,
-      value: (token) => formatDate(token.createdAt),
+      value: (token) => formatDay(token.createdAt),
     },
     {
       id: 'expiresAt',
       label: 'Expires',
       priority: 'detail',
       width: 120,
-      value: (token) => formatDate(token.expiresAt),
+      value: (token) => formatDay(token.expiresAt),
     },
     {
       id: 'lastUsedAt',
       label: 'Last Used',
       priority: 'detail',
       width: 120,
-      value: (token) => (token.lastUsedAt ? formatDate(token.lastUsedAt) : 'Never'),
+      value: (token) => (token.lastUsedAt ? formatDay(token.lastUsedAt) : 'Never'),
     },
   ];
 }

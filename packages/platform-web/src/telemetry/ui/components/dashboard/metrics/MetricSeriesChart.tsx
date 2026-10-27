@@ -17,6 +17,7 @@ import type { DashboardMetricSeries } from '../../../../headless/services/teleme
 import { useMetricUnitFormats } from '../../../../headless/context/metricUnitFormats.js';
 import { formatBucketLabel, formatMetricValue, formatTimestamp } from '../../../../headless/lib/format.js';
 import { useTelemetryTokens } from '../../../../theme/telemetryTokens.js';
+import { useDisplayTimeZone } from '../../../../../core/index.js';
 
 /** Lines past this many are left out (and said so): a 20-line chart reads as noise. */
 export const METRIC_CHART_MAX_LINES = 8;
@@ -48,6 +49,7 @@ export function MetricSeriesChart({
   colorFor,
   testId,
 }: MetricSeriesChartProps) {
+  useDisplayTimeZone(); // The time axis and timestamps render in the display zone.
   const tokens = useTelemetryTokens();
   const formats = useMetricUnitFormats();
   if (series.length === 0) return null;

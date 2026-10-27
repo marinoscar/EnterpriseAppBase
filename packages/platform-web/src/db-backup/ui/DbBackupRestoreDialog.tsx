@@ -125,6 +125,8 @@ import type {
   StartRestoreResult,
 } from '../headless/index.js';
 import { formatBytes } from './dbBackupTable.js';
+import { useDisplayTimeZone } from '../../core/index.js';
+import { formatDateTime } from '../internal/format.js';
 
 /** @stability experimental */
 export type RestoreDialogIntent = 'restore' | 'rollback';
@@ -341,6 +343,7 @@ export function DbBackupRestoreDialog({
   onRollback,
   onClose,
 }: DbBackupRestoreDialogProps) {
+  useDisplayTimeZone(); // "verified" renders in the display zone.
   const literal = intent === 'restore' ? RESTORE_CONFIRMATION : ROLLBACK_CONFIRMATION;
 
   const [acknowledged, setAcknowledged] = useState(false);
@@ -485,7 +488,7 @@ export function DbBackupRestoreDialog({
                 Archive: {formatBytes(run.sizeBytes)}
                 {run.migrationName ? ` · schema ${run.migrationName}` : ''}
                 {run.verifiedAt
-                  ? ` · verified ${new Date(run.verifiedAt).toLocaleString()}`
+                  ? ` · verified ${formatDateTime(run.verifiedAt)}`
                   : ' · never verified'}
               </Typography>
             )}

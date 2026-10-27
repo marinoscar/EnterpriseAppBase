@@ -54,6 +54,7 @@ import { Chip, Stack, Tooltip, Typography } from '@mui/material';
 import type { DataTableColumn, DataTableFilterModel } from './datatable.js';
 import { BROADCAST_STATUSES } from '../headless/broadcasts.js';
 import type { Broadcast, BroadcastStatusName } from '../headless/broadcasts.js';
+import { NUMERIC_DATE_TIME, formatDateTime as formatZonedDateTime } from '../../core/index.js';
 
 /**
  * Persistence key for `user_settings.dataTables`. A constant, never derived
@@ -133,9 +134,12 @@ export function channelLabel(channel: string, labels?: ReadonlyMap<string, strin
   return CHANNEL_LABELS[channel] ?? labels?.get(channel) ?? channel;
 }
 
-/** A timestamp in the viewer's locale, or an em dash when the API sent `null`. */
+/**
+ * A timestamp in the viewer's locale and display time zone, or an em dash when
+ * the API sent `null`. A component that renders it calls `useDisplayTimeZone()`.
+ */
 export function formatDateTime(value: string | null | undefined): string {
-  return value ? new Date(value).toLocaleString() : '—';
+  return formatZonedDateTime(value, NUMERIC_DATE_TIME);
 }
 
 /** The first 8 characters of a UUID — enough to tell two rows apart by eye. */

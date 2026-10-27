@@ -5,6 +5,7 @@ import {
   Injectable,
   Logger,
 } from '@nestjs/common';
+import { isValidTimeZone } from '@marinoscar/platform-contract/settings';
 import type { ThemeOption, ThemePreference, UserProfileSettingsValue } from '@marinoscar/platform-contract/settings';
 
 import { PLATFORM_PRISMA } from '../../core/index';
@@ -28,6 +29,19 @@ import {
   type UserSettingsNamespace,
   type UserSettingsNamespacesValue,
 } from '../registry/user-settings-namespace';
+
+/** The core `profile.timezone` out of a stored profile, when it is still a valid zone. */
+function readProfileTimezone(stored: unknown): { timezone?: string } {
+  if (stored === null || typeof stored !== 'object') return {};
+  const value = (stored as Record<string, unknown>).timezone;
+  return isValidTimeZone(value) ? { timezone: value } : {};
+}
+
+/** `profile.timezone` after a PATCH: the patch's value wins, `null` deletes it, absent keeps the stored one. */
+function mergeProfileTimezone(current: string | undefined, patch: string | null | undefined): { timezone?: string } {
+  const next = patch !== undefined ? patch : current;
+  return typeof next === 'string' ? { timezone: next } : {};
+}
 
 /**
  * A user's stored settings document: the core fields `theme` and `profile`,
@@ -134,6 +148,7 @@ export class UserSettingsService {
       profile: {
         ...readProfileExtensions(value.profile),
         ...this.profileImages.normalize(value.profile),
+        ...readProfileTimezone(value.profile),
       } as UserSettingsResponse['profile'],
       // Only while an app has registered themes: otherwise the document is
       // exactly what it always was.
@@ -321,6 +336,8 @@ export class UserSettingsService {
           dto.profile?.imageObjectId !== undefined
             ? dto.profile.imageObjectId
             : current.profile.imageObjectId,
+        // The core time zone: the patch wins, `null` deletes it, absent keeps it.
+        ...mergeProfileTimezone(current.profile.timezone, dto.profile?.timezone),
         // Fields apps added with `extendUserProfile` (PP-14.21).
         ...this.mergeProfileExtensions(
           current.profile as unknown as Record<string, unknown>,

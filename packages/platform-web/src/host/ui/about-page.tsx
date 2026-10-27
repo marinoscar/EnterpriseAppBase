@@ -125,7 +125,7 @@ import {
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { Navigate } from 'react-router-dom';
-import { PageSlotsFrame, useOptionalPlatformHost } from '../../core/index.js';
+import { NUMERIC_DATE_TIME, PageSlotsFrame, formatDateTime, useDisplayTimeZone, useOptionalPlatformHost } from '../../core/index.js';
 import type { PageSlotsBase } from '../../core/index.js';
 import { usePermissions } from '../../identity/index.js';
 import type {
@@ -218,11 +218,11 @@ function useRelativeTime(): (iso: string, now?: Date) => string {
 }
 
 function Timestamp({ value }: { value: string | null }) {
+  useDisplayTimeZone(); // The absolute time renders in the display zone.
   const formatRelativeTime = useRelativeTime();
   if (!value) return <Value value={null} />;
 
-  const parsed = new Date(value);
-  const absolute = Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
+  const absolute = formatDateTime(value, { ...NUMERIC_DATE_TIME, fallback: value });
 
   return (
     <Typography variant="body2">
@@ -365,11 +365,12 @@ function CommandChip({ command }: { command: DeployCommand | null | undefined })
 
 /** Certificate expiry, relative + absolute, coloured by how soon it lapses. */
 function CertificateExpiry({ value, now }: { value: string | null | undefined; now: Date }) {
+  useDisplayTimeZone(); // The absolute time renders in the display zone.
   if (!value) return <Value value={null} />;
   const state = certificateState(value, now);
   if (state === null) return <Value value={value} />;
 
-  const absolute = new Date(value).toLocaleString();
+  const absolute = formatDateTime(value, NUMERIC_DATE_TIME);
   const relative = formatRelativeEitherWay(value, now);
   const color =
     state === 'expired' ? 'error.main' : state === 'expiring' ? 'warning.main' : 'text.primary';
@@ -411,6 +412,7 @@ function CommitChange({ entry }: { entry: AboutHistoryEntry }) {
 }
 
 function HistoryWhen({ at, now }: { at: string; now: Date }) {
+  useDisplayTimeZone(); // The absolute time renders in the display zone.
   const formatRelativeTime = useRelativeTime();
   const parsed = new Date(at);
   if (Number.isNaN(parsed.getTime())) return <Value value={at} />;
@@ -418,7 +420,7 @@ function HistoryWhen({ at, now }: { at: string; now: Date }) {
     <Box>
       <Typography variant="body2">{formatRelativeTime(at, now)}</Typography>
       <Typography variant="caption" color="text.secondary">
-        {parsed.toLocaleString()}
+        {formatDateTime(parsed, NUMERIC_DATE_TIME)}
       </Typography>
     </Box>
   );

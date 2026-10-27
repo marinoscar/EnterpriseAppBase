@@ -80,7 +80,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import { Navigate } from 'react-router-dom';
 
-import { usePlatformViewer, useTableSlotColumns } from '../../core/index.js';
+import { useDisplayTimeZone, usePlatformViewer, useTableSlotColumns } from '../../core/index.js';
 import type { PageSlot, PageSlotsBase, TableSlots } from '../../core/index.js';
 import {
   DEFAULT_INSIGHTS_WINDOW_DAYS,
@@ -460,6 +460,7 @@ function EtaRow({ eta }: { eta: JobEta }) {
  * @stability experimental
  */
 export function JobInsightsPage(props: JobInsightsPageProps = {}): ReactElement {
+  useDisplayTimeZone(); // The window and "taken" times render in the display zone.
   const { fallbackPath = '/', slots } = props;
   const Header = slots?.Header ?? DefaultPageHeader;
   const BeforeContent = slots?.BeforeContent;

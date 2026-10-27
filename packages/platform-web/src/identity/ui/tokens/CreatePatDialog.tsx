@@ -12,6 +12,7 @@ import {
   Typography,
 } from '@mui/material';
 import type { PatCreatedResponse, PatDurationUnit } from '../../headless/index.js';
+import { NUMERIC_DATE, NUMERIC_TIME, formatDate, formatTime, useDisplayTimeZone } from '../../../core/index.js';
 
 interface CreatePatDialogProps {
   open: boolean;
@@ -46,6 +47,7 @@ function computeExpiresAt(durationValue: number, durationUnit: PatDurationUnit):
 }
 
 export function CreatePatDialog({ open, onClose, onCreated, onCreate }: CreatePatDialogProps) {
+  useDisplayTimeZone(); // The expiry preview renders in the display zone.
   const [name, setName] = useState('');
   const [durationValue, setDurationValue] = useState('30');
   const [durationUnit, setDurationUnit] = useState<PatDurationUnit>('days');
@@ -162,8 +164,8 @@ export function CreatePatDialog({ open, onClose, onCreated, onCreate }: CreatePa
             </Box>
             {expiresAt && (
               <Typography variant="body2" color="text.secondary">
-                Token will expire on {expiresAt.toLocaleDateString()} at{' '}
-                {expiresAt.toLocaleTimeString()}
+                Token will expire on {formatDate(expiresAt, NUMERIC_DATE)} at{' '}
+                {formatTime(expiresAt, NUMERIC_TIME)}
               </Typography>
             )}
           </Box>

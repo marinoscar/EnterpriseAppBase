@@ -27,6 +27,7 @@ import { formatDuration } from '../../../headless/lib/format.js';
 import { TIMELINE_AXIS_ID, timelineXAxis } from './timelineAxis.js';
 import { ZoomBrush } from './ZoomBrush.js';
 import { useTelemetryTokens } from '../../../theme/telemetryTokens.js';
+import { useDisplayTimeZone } from '../../../../core/index.js';
 
 export interface TimelineChartProps {
   height: number;
@@ -42,6 +43,7 @@ export interface ApiTimelineChartProps extends TimelineChartProps {
 }
 
 export function ApiTimelineChart({ buckets, height, spanMs, compact, zoom, onZoomBuckets }: ApiTimelineChartProps) {
+  useDisplayTimeZone(); // The time axis and timestamps render in the display zone.
   const theme = useTheme();
   const tokens = useTelemetryTokens();
   const starts = buckets.map((bucket) => bucket.t);

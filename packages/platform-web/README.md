@@ -30,6 +30,7 @@ Status: pre-release (the current channel and how to install it: the [release run
 - `@marinoscar/platform-web/shell/headless` and `@marinoscar/platform-web/shell/ui`: the app shell: `ShellLayout` (the five coupled breakpoint gates), `ShellAppBar`, `ShellNavigationRail` (with Console mode), `ShellBottomNav`, `ShellUserMenu`, the navigation model (`ShellNavigation`, `ShellDestination`), the rail's collapse preference, `createShellTheme` with `ShellThemeProvider` / `ShellRoot`, and `ShellProviders`, with slots for branding and navigation (#868). [README](src/shell/README.md).
 - `@marinoscar/platform-web/host/headless` and `@marinoscar/platform-web/host/ui`: the About page, the admin Maintenance page and the public maintenance screen, with the maintenance recogniser and block store, `createHostApi` and the `useAbout`, `useMaintenance` and `useMaintenanceBlock` hooks (#891). [README](src/host/README.md).
 - `@marinoscar/platform-web/datatable/headless`, `@marinoscar/platform-web/datatable/ui` and `@marinoscar/platform-web/datatable/testing`: the responsive `DataTable` (desktop grid, tablet expander, phone cards) with its filters, view bar, CSV export and bulk actions, the layout-preference port `DataTablePreferencesPort`, and the jsdom layout stubs and conformance suite (#897). [README](src/datatable/README.md).
+- `@marinoscar/platform-web/timezone/headless` and `@marinoscar/platform-web/timezone/ui`: the display time zone (the user's `profile.timezone`, else the device's) with its store, `useDisplayTimeZone` and `UserTimeZoneSync`, the formatters that render in it (`formatDateTime`, `formatDate`, `formatTime`, `zonedDateKey`), the zone catalog, and the world-map picker (`TimeZoneMap`, `TimeZonePickerDialog`, `TimeZoneField`). [README](src/timezone/README.md).
 
 ## Install and peer dependencies
 
@@ -53,8 +54,8 @@ Optional peers, installed for the slices that need them:
 
 | Package | Range | Needed by |
 |---|---|---|
-| `@mui/icons-material` | `^9.1.0` | every slice with a `/ui` entry (`doctor`, `identity`, `settings`, `sharing`, `onboarding`, `email`, `nodes`, `jobs`, `storage`, `notifications`, `exports`, `ai`, `db-backup`, `android-app`, `user-data`, `shell`, `host`, `datatable`, `telemetry`) |
-| `react-router-dom` | `^7.17.0` | the same slices, except `exports` and `datatable` |
+| `@mui/icons-material` | `^9.1.0` | every slice with a `/ui` entry (`doctor`, `identity`, `settings`, `sharing`, `onboarding`, `email`, `nodes`, `jobs`, `storage`, `notifications`, `exports`, `ai`, `db-backup`, `android-app`, `user-data`, `shell`, `host`, `datatable`, `telemetry`, `timezone`) |
+| `react-router-dom` | `^7.17.0` | the same slices, except `exports`, `datatable` and `timezone` |
 | `zod` | `^4.4.3` | `nodes`, `jobs` (and the app's own use of `@marinoscar/platform-contract`) |
 | `@mui/x-data-grid` | `^9.10.1` | `datatable/ui` and, since the AI lists use it, `ai/ui`; `telemetry/ui` |
 | `@mui/x-charts` | `^9.14.0` | `telemetry/ui` (#704) |

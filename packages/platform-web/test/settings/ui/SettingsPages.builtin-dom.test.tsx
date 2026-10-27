@@ -8,8 +8,9 @@
  * or an organization administrator sees with no slot passed is, element for
  * element and class for class, what they had.
  *
- * The only normalisation is React's and MUI's generated ids. Re-record only for
- * a deliberate change of a page.
+ * The only normalisations are React's and MUI's generated ids and the live
+ * time zone read-out. Re-record only for a deliberate change of a page (the
+ * profile page was re-recorded once, for its core time zone row).
  */
 import { screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
@@ -21,7 +22,13 @@ import { UserAppearancePage } from '../../../src/settings/ui/UserAppearancePage.
 import { UserProfilePage } from '../../../src/settings/ui/UserProfilePage.js';
 import { createTestPlatformHost } from '../../../src/testing/index.js';
 
-const html = (root: Element): string => root.innerHTML.replace(/_r_[0-9a-z]+_/g, '_rX_').replace(/:r[0-9a-z]+:/g, ':rX:');
+// The profile card's time zone read-out names the device's zone and the
+// current time, so it is normalised too.
+const html = (root: Element): string =>
+  root.innerHTML
+    .replace(/_r_[0-9a-z]+_/g, '_rX_')
+    .replace(/:r[0-9a-z]+:/g, ':rX:')
+    .replace(/(data-testid="time-zone-readout">)[^<]*/g, '$1READOUT');
 
 const USER_SETTINGS = {
   theme: 'dark',

@@ -45,7 +45,7 @@ import {
   type TrustedAndroidApp,
 } from '@marinoscar/platform-contract/android-app';
 
-import { PageSlotsFrame, isPlatformApiError, usePlatformViewer } from '../../core/index.js';
+import { NUMERIC_DATE_TIME, PageSlotsFrame, formatDateTime, isPlatformApiError, useDisplayTimeZone, usePlatformViewer } from '../../core/index.js';
 import type { PageSlotsBase } from '../../core/index.js';
 import { useAndroidAppClient, useAndroidAppConfig } from '../headless/hooks.js';
 import {
@@ -260,6 +260,7 @@ export function TrustedAppsSection({ canWrite }: AndroidAppSectionProps): ReactE
  * @stability experimental
  */
 export function ReleasesSection({ canWrite }: AndroidAppSectionProps): ReactElement {
+  useDisplayTimeZone(); // The release dates render in the display zone.
   const client = useAndroidAppClient();
   const [releases, setReleases] = useState<AdminRelease[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -324,7 +325,7 @@ export function ReleasesSection({ canWrite }: AndroidAppSectionProps): ReactElem
                     {release.isCurrent && <Chip size="small" color="primary" label="Current" sx={{ ml: 1 }} />}
                   </>
                 }
-                secondary={`${release.packageName} · ${formatBytes(release.sizeBytes)} · ${new Date(release.createdAt).toLocaleString()}`}
+                secondary={`${release.packageName} · ${formatBytes(release.sizeBytes)} · ${formatDateTime(release.createdAt, NUMERIC_DATE_TIME)}`}
               />
               <Stack direction="row" spacing={1}>
                 <DownloadApkButton release={release} compact />

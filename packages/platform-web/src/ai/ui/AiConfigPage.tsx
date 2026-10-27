@@ -72,7 +72,7 @@ import {
   Typography,
 } from '@mui/material';
 import { Navigate } from 'react-router-dom';
-import { PageSlotsFrame, usePlatformViewer } from '../../core/index.js';
+import { NUMERIC_DATE_TIME, PageSlotsFrame, formatDateTime, useDisplayTimeZone, usePlatformViewer } from '../../core/index.js';
 import type { PageSlot, PageSlotsBase } from '../../core/index.js';
 import { useAiAdminConfig } from '../headless/use-ai-admin-config.js';
 import { AiConfigContext } from '../headless/use-ai-config.js';
@@ -416,6 +416,7 @@ function hasErrors(errors: FormErrors): boolean {
  * @stability experimental
  */
 export default function AiConfigPage(props: AiConfigPageProps = {}) {
+  useDisplayTimeZone(); // "Last updated" renders in the display zone.
   const { slots } = props;
   const ProviderCardExtra = slots?.ProviderCardExtra;
   const { hasPermission } = usePlatformViewer();
@@ -540,7 +541,7 @@ export default function AiConfigPage(props: AiConfigPageProps = {}) {
 
         {config?.updatedBy && config.updatedAt && (
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            Last updated by {config.updatedBy.email} on {new Date(config.updatedAt).toLocaleString()}
+            Last updated by {config.updatedBy.email} on {formatDateTime(config.updatedAt, NUMERIC_DATE_TIME)}
           </Typography>
         )}
 

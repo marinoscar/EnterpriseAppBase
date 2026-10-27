@@ -23,6 +23,7 @@ import { z } from 'zod';
 import type {
   profileImageSourceSchema,
   themePreferenceSchema,
+  timeZoneIdSchema,
   userProfileSettingsPatchSchema,
   userProfileSettingsSchema,
 } from '@marinoscar/platform-contract/settings';
@@ -288,6 +289,8 @@ export type UserProfileResponseShape = {
   imageSource: typeof profileImageSourceSchema;
   /** The uploaded avatar's object id, or `null`. */
   imageObjectId: z.ZodNullable<z.ZodString>;
+  /** The user's IANA time zone; absent when they follow the device. */
+  timezone: z.ZodOptional<typeof timeZoneIdSchema>;
 };
 
 /**

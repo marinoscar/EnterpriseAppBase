@@ -13,6 +13,7 @@ import { useMyGroupInvites } from '../headless/useGroupInvites.js';
 import { expiryText } from '../internal/format.js';
 import { LiveRegion } from '../internal/live-region.js';
 import { groupRoleLabel } from './copy.js';
+import { useDisplayTimeZone } from '../../core/index.js';
 
 /**
  * The parts of {@link PendingGroupInvites} an app may replace.
@@ -77,6 +78,7 @@ function DefaultContainer({ children, count }: { children: ReactElement; count: 
  * @stability experimental
  */
 export function PendingGroupInvites(props: PendingGroupInvitesProps): ReactElement | null {
+  useDisplayTimeZone(); // The expiry dates render in the display zone.
   const clientOption = props.client ? { client: props.client } : {};
   const invites = useMyGroupInvites(clientOption);
   const actions = useGroupActions(clientOption);

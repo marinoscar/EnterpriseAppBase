@@ -38,7 +38,7 @@ export const storageWebSlice: WebSlice = {
       cards: [
         {
           title: 'Profile',
-          description: 'Your display name and profile image, and the email you signed in with.',
+          description: 'Your display name, profile image and time zone, and the email you signed in with.',
           Icon: PersonIcon,
           path: '/settings/profile',
         },

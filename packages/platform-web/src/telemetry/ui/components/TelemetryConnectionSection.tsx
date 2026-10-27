@@ -54,6 +54,7 @@ import {
   type TelemetryConnectionTestResult,
   type TelemetryCredentialStatus,
 } from '../../headless/services/telemetry.js';
+import { NUMERIC_DATE_TIME, formatDateTime, useDisplayTimeZone } from '../../../core/index.js';
 
 /** The element id the page's other alerts link to. */
 export const TELEMETRY_CONNECTION_SECTION_ID = 'telemetry-connection';
@@ -301,6 +302,7 @@ export function TelemetryConnectionSection({
   onChanged,
   refreshToken = 0,
 }: TelemetryConnectionSectionProps) {
+  useDisplayTimeZone(); // "last saved" renders in the display zone.
   const {
     connection,
     isLoading,
@@ -601,7 +603,7 @@ export function TelemetryConnectionSection({
           {connection.updatedBy && connection.updatedAt && (
             <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
               Connection last saved by {connection.updatedBy.email} on{' '}
-              {new Date(connection.updatedAt).toLocaleString()}
+              {formatDateTime(connection.updatedAt, NUMERIC_DATE_TIME)}
             </Typography>
           )}
         </Box>

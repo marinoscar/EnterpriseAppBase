@@ -47,6 +47,7 @@ import {
   formatProgress,
   isCriticalBroadcast,
 } from './broadcastsTable.js';
+import { useDisplayTimeZone } from '../../core/index.js';
 
 interface BroadcastDetailDialogProps {
   open: boolean;
@@ -79,6 +80,7 @@ export function BroadcastDetailDialog({
   onClose,
   channelLabels,
 }: BroadcastDetailDialogProps) {
+  useDisplayTimeZone(); // The schedule and progress times render in the display zone.
   const theme = useTheme();
   // The same `down('sm')` compact-window read `SettingsHub.tsx` and `AppBar.tsx`
   // use — one of the five coupled breakpoint gates CLAUDE.md rule 5 names. A

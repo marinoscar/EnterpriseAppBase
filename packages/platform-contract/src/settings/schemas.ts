@@ -128,6 +128,43 @@ export const themeOptionSchema = z.object({
 export const profileImageSourceSchema: z.ZodEnum<ProfileImageSourceEnum> = z.enum(PROFILE_IMAGE_SOURCES);
 
 /**
+ * The longest IANA time zone id the profile stores (`America/Argentina/ComodRivadavia` is 32).
+ *
+ * @stability experimental
+ */
+export const TIME_ZONE_ID_MAX = 64;
+
+/**
+ * Whether `id` is an IANA time zone the runtime knows: a non-empty string of at
+ * most {@link TIME_ZONE_ID_MAX} characters that `Intl.DateTimeFormat` accepts as
+ * `timeZone`. Framework-free; the same answer in the browser and in Node.
+ *
+ * @param id - the candidate value.
+ * @returns `true` for a valid zone id such as `America/Costa_Rica` or `UTC`.
+ *
+ * @stability experimental
+ */
+export function isValidTimeZone(id: unknown): id is string {
+  if (typeof id !== 'string' || id.length === 0 || id.length > TIME_ZONE_ID_MAX) return false;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: id });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * `profile.timezone`: an IANA time zone id.
+ *
+ * @stability experimental
+ */
+export const timeZoneIdSchema = z
+  .string()
+  .max(TIME_ZONE_ID_MAX)
+  .refine(isValidTimeZone, { message: 'Not an IANA time zone' });
+
+/**
  * `profile` as stored. `imageObjectId` is nullable (no avatar uploaded, or it
  * was removed) and optional only so a PUT body may omit it: the service then
  * keeps the stored id. Whether the id names an avatar the caller owns is
@@ -142,6 +179,8 @@ export const userProfileSettingsSchema = z.object({
   imageSource: profileImageSourceSchema,
   /** The uploaded avatar's object id; `null` when none. */
   imageObjectId: z.string().uuid().nullable().optional(),
+  /** The user's IANA time zone (`America/Costa_Rica`); absent means follow the device. */
+  timezone: timeZoneIdSchema.optional(),
 });
 
 /**
@@ -164,6 +203,8 @@ export const userProfileSettingsPatchSchema = z.object({
   imageSource: profileImageSourceSchema.optional(),
   /** The new avatar object id; `null` clears it. */
   imageObjectId: z.string().uuid().nullable().optional(),
+  /** The new IANA time zone; `null` clears it. */
+  timezone: timeZoneIdSchema.nullable().optional(),
 });
 
 /**

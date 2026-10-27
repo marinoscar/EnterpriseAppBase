@@ -36,6 +36,7 @@
 import { Avatar, Box, Chip, Stack, Typography } from '@mui/material';
 import type { IdentityTableColumn as DataTableColumn, UserSortField } from '../../headless/index.js';
 import type { RoleDescriptor, UserListItem } from '../../headless/index.js';
+import { NUMERIC_DATE, formatDate } from '../../../core/index.js';
 
 /**
  * Persistence key for `user_settings.dataTables`. A constant, never derived
@@ -63,8 +64,9 @@ export function userDisplayName(user: UserListItem): string {
   return user.displayName || user.providerDisplayName || 'No name';
 }
 
-function formatDate(value: string): string {
-  return new Date(value).toLocaleDateString();
+/** The day in the viewer's display zone, as `toLocaleDateString()` wrote it. */
+function formatCreatedDate(value: string): string {
+  return formatDate(value, NUMERIC_DATE);
 }
 
 /**
@@ -175,7 +177,7 @@ export function buildUserColumns(roles: readonly Pick<RoleDescriptor, 'id' | 'la
       priority: 'detail',
       sortable: true, // sortBy=createdAt (the endpoint's default order)
       width: 130,
-      value: (user) => formatDate(user.createdAt),
+      value: (user) => formatCreatedDate(user.createdAt),
     },
     {
       id: 'id',

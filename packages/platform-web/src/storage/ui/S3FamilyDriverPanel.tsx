@@ -50,6 +50,7 @@ import {
 
 import type { StorageSecretStatus } from '../headless/index.js';
 import type { StorageDriverPanelProps } from './storageDriverPanelRegistry.js';
+import { NUMERIC_DATE, formatDate, useDisplayTimeZone } from '../../core/index.js';
 
 /** Mirrors `deriveR2Endpoint` / `R2_ENDPOINT_HOST_SUFFIX` in `@marinoscar/platform-api/storage` (`drivers/s3/s3-config.ts`). */
 const R2_ENDPOINT_HOST_SUFFIX = 'r2.cloudflarestorage.com';
@@ -125,7 +126,7 @@ function secretHelperText(status: StorageSecretStatus): string {
   }
   const which = status.hint ? ` (${status.hint})` : '';
   const when = status.updatedAt
-    ? `, last changed ${new Date(status.updatedAt).toLocaleDateString()}`
+    ? `, last changed ${formatDate(status.updatedAt, NUMERIC_DATE)}`
     : '';
   return `A secret access key is saved${which}${when}. Leave this blank to keep it, or type a new one to replace it.`;
 }
@@ -219,6 +220,7 @@ export function S3FamilyDriverPanel({
   errors,
   canWrite,
 }: StorageDriverPanelProps) {
+  useDisplayTimeZone(); // "last changed" renders in the display zone.
   const endpoint = text(value, 'endpoint');
   const accountId = text(value, 'accountId');
   const forcePathStyle = triState(value);

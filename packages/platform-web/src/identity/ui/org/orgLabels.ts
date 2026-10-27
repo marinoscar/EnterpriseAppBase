@@ -3,6 +3,7 @@
  * API decides which roles exist and who may assign them.
  */
 import type { OrgInviteStatus, OrgMemberStatus, RoleDescriptor } from '../../headless/index.js';
+import { NUMERIC_DATE, formatDate as formatZonedDate } from '../../../core/index.js';
 
 /**
  * A role's label from the API's role list (`GET /api/roles`), or its raw id
@@ -24,9 +25,7 @@ export const INVITE_STATUS_COLOR: Record<OrgInviteStatus, 'info' | 'success' | '
   expired: 'warning',
 };
 
-/** A date as the viewer's locale writes it, or an em dash. */
+/** A date as the viewer's locale writes it, in their display zone, or an em dash. */
 export function formatDate(iso: string | null | undefined): string {
-  if (!iso) return '—';
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString();
+  return formatZonedDate(iso, NUMERIC_DATE);
 }

@@ -25,6 +25,7 @@ import { useOrgInvites, useRoles } from '../../headless/index.js';
 import type { OrgInviteStatus, UseRolesReturn } from '../../headless/index.js';
 import { INVITE_STATUS_COLOR, formatDate, orgRoleLabel } from './orgLabels.js';
 import { InviteMemberDialog } from './InviteMemberDialog.js';
+import { useDisplayTimeZone } from '../../../core/index.js';
 
 type StatusFilter = 'all' | OrgInviteStatus;
 
@@ -52,6 +53,7 @@ export interface OrgInvitesPanelProps {
  * @stability stable
  */
 export function OrgInvitesPanel({ roles: rolesFromPage }: OrgInvitesPanelProps = {}): ReactElement {
+  useDisplayTimeZone(); // The invite dates render in the display zone.
   const ownRoles = useRoles('org', { enabled: rolesFromPage === undefined });
   const roles = rolesFromPage ?? ownRoles;
   const { hasPermission } = usePermissions();

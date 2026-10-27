@@ -67,6 +67,7 @@ import { EMAIL_PATTERN, expiryFromDays, expiryText } from '../internal/format.js
 import { LiveRegion } from '../internal/live-region.js';
 import { useCan } from '../internal/use-can.js';
 import { DEFAULT_LINK_EXPIRY_PRESETS } from './copy.js';
+import { useDisplayTimeZone } from '../../core/index.js';
 
 /**
  * The parts of {@link ShareDialog} an app may replace or add to: the `Title`,
@@ -216,6 +217,7 @@ function linksUnavailable(error: SharingError | null): boolean {
  * @stability experimental
  */
 export function ShareDialog(props: ShareDialogProps): ReactElement {
+  useDisplayTimeZone(); // The expiry dates render in the display zone.
   const { open, onClose, resource, resourceTitle, roles, onChanged, slots, sx, className } = props;
   const allowGroups = props.allowGroups ?? true;
   const allowLinks = props.allowLinks ?? false;

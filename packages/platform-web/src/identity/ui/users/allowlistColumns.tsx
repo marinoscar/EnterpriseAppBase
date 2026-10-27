@@ -39,6 +39,7 @@
 import { Chip, Typography } from '@mui/material';
 import type { AllowlistSortField, IdentityTableColumn as DataTableColumn } from '../../headless/index.js';
 import type { AllowedEmailEntry } from '../../headless/index.js';
+import { NUMERIC_DATE_TIME, formatDateTime } from '../../../core/index.js';
 
 /** Persistence key for `user_settings.dataTables`. */
 export const TABLE_ID = 'admin-allowlist';
@@ -57,8 +58,9 @@ export function isClaimed(entry: AllowedEmailEntry): boolean {
   return Boolean(entry.claimedBy);
 }
 
-function formatDateTime(value: string): string {
-  return new Date(value).toLocaleString();
+/** The moment in the viewer's display zone, as `toLocaleString()` wrote it. */
+function formatAddedAt(value: string): string {
+  return formatDateTime(value, NUMERIC_DATE_TIME);
 }
 
 export function buildAllowlistColumns(): DataTableColumn<AllowedEmailEntry>[] {
@@ -112,7 +114,7 @@ export function buildAllowlistColumns(): DataTableColumn<AllowedEmailEntry>[] {
       priority: 'secondary',
       sortable: true, // sortBy=addedAt (the endpoint's default order)
       minWidth: 180,
-      value: (entry) => formatDateTime(entry.addedAt),
+      value: (entry) => formatAddedAt(entry.addedAt),
     },
     {
       /**

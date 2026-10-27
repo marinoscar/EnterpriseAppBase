@@ -25,6 +25,7 @@ import type { DashboardTile, DashboardUnknownRoutes } from '../../../headless/se
 import { formatTimestamp, formatTileValue, tileChange, tileDirection, type TileChange } from '../../../headless/lib/format.js';
 import { useMetricUnitFormats } from '../../../headless/context/metricUnitFormats.js';
 import { useTelemetryTokens, type TelemetryTokens } from '../../../theme/telemetryTokens.js';
+import { useDisplayTimeZone } from '../../../../core/index.js';
 
 /** The change line's colour per tone: status tokens for good/bad, neutral chrome otherwise. */
 function toneColor(tone: TileChange['tone'], tokens: TelemetryTokens): string {
@@ -190,6 +191,7 @@ export function KpiTiles({
   testId = 'kpi-tiles',
   colors,
 }: KpiTilesProps) {
+  useDisplayTimeZone(); // The timestamps render in the display zone.
   const theme = useTheme();
   const compact = useMediaQuery(theme.breakpoints.down('sm'));
   return (

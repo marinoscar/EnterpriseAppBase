@@ -109,6 +109,7 @@ import type { NotificationChannel } from '../headless/types.js';
 import { useNotificationChannels } from '../headless/useNotificationChannels.js';
 import { useNotificationConfig } from '../headless/useNotificationConfig.js';
 import { channelLabel } from './broadcastsTable.js';
+import { NUMERIC_DATE_TIME, formatDateTime, useDisplayTimeZone } from '../../core/index.js';
 
 /**
  * `sanitizeLink`'s forbidden set, restated from the DTO: C0 controls, space,
@@ -167,6 +168,9 @@ export function BroadcastComposer({
   onSubmit,
   onSendTest,
 }: BroadcastComposerProps) {
+  // The schedule field is wall clock in the display zone, and the resolved
+  // instant renders in it: re-render (and re-resolve) on a zone change.
+  const timeZone = useDisplayTimeZone();
   const theme = useTheme();
   // The `down('sm')` compact-window convention, shared with `SettingsHub.tsx`
   // and `AppBar.tsx` — one of the five coupled gates CLAUDE.md rule 5 names.
@@ -266,14 +270,15 @@ export function BroadcastComposer({
   const trimmedBody = body.trim();
   const trimmedLink = link.trim();
 
-  /** The `min` for the schedule field, computed once per open. */
-  const minSchedule = useMemo(() => (open ? earliestSchedule() : ''), [open]);
+  /** The `min` for the schedule field, computed once per open (and per display zone). */
+  const minSchedule = useMemo(() => (open ? earliestSchedule() : ''), [open, timeZone]);
 
   /**
    * The instant the schedule field resolves to, or `null`.
    *
-   * `datetime-local` is local wall-clock with no zone, so this is the only
-   * place the admin's typing becomes an instant — see `services/broadcasts.ts`.
+   * `datetime-local` is wall-clock with no zone, so this is the only place the
+   * admin's typing becomes an instant, read in their display zone — see
+   * `headless/broadcasts.ts`.
    */
   const scheduledIso = timing === 'later' ? localInputToIso(scheduleInput) : null;
   const scheduleInPast =
@@ -565,7 +570,7 @@ export function BroadcastComposer({
                     helperText={
                       scheduleInPast
                         ? 'Pick a time in the future — the API refuses a past schedule, because a past time is claimable on the very next poll.'
-                        : 'Your local time.'
+                        : `Your time zone (${timeZone}).`
                     }
                   />
                   {/* THE RESOLVED INSTANT, IN BOTH ZONES. A `datetime-local`
@@ -579,7 +584,7 @@ export function BroadcastComposer({
                       color="text.secondary"
                       sx={{ display: 'block', mt: 1 }}
                     >
-                      Sends at {new Date(scheduledIso).toLocaleString()} in your time zone —{' '}
+                      Sends at {formatDateTime(scheduledIso, NUMERIC_DATE_TIME)} in your time zone —{' '}
                       {new Date(scheduledIso).toISOString()} UTC.
                     </Typography>
                   )}
@@ -704,7 +709,7 @@ export function BroadcastComposer({
             </Typography>
             <Typography variant="body2" gutterBottom>
               {scheduledIso
-                ? `It will be sent at ${new Date(scheduledIso).toLocaleString()} (${new Date(scheduledIso).toISOString()} UTC). You can cancel it until then.`
+                ? `It will be sent at ${formatDateTime(scheduledIso, NUMERIC_DATE_TIME)} (${new Date(scheduledIso).toISOString()} UTC). You can cancel it until then.`
                 : 'It will start sending immediately.'}
             </Typography>
             <Typography variant="body2">

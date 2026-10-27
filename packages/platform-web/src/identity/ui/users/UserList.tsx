@@ -32,7 +32,7 @@ import { Alert, Box, Paper, Typography } from '@mui/material';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import BlockIcon from '@mui/icons-material/Block';
 import SecurityIcon from '@mui/icons-material/Security';
-import { useTableSlotColumns } from '../../../core/index.js';
+import { useDisplayTimeZone, useTableSlotColumns } from '../../../core/index.js';
 import type { TableSlots } from '../../../core/index.js';
 import { IdentityTable as DataTable } from '../table.js';
 import type {
@@ -128,7 +128,9 @@ export function UserList({ slots }: UserListProps = {}): ReactElement {
   );
   const offeredRoles = useMemo(() => knownRoles.filter((role) => role.assignable), [knownRoles]);
 
-  const baseColumns = useMemo(() => buildUserColumns(knownRoles), [knownRoles]);
+  // The "Created" column renders in the display zone: rebuild on a zone change.
+  const timeZone = useDisplayTimeZone();
+  const baseColumns = useMemo(() => buildUserColumns(knownRoles), [knownRoles, timeZone]);
   // PP-14.25: the app's table slots. With none, `columns` IS `baseColumns`.
   const columns = useTableSlotColumns<UserListItem, IdentityTableColumn<UserListItem>>(baseColumns, slots);
   const Toolbar = slots?.Toolbar;

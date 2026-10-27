@@ -1,8 +1,8 @@
 /**
  * PP-14.21: an app extends the packaged settings controls with no package edit.
  *
- *   - `profile.timezone` through the profile card's `ExtraFields` slot
- *     (`platform-extensions/settings/TimezoneField.example.tsx`; the API side
+ *   - `profile.pronouns` through the profile card's `ExtraFields` slot
+ *     (`platform-extensions/settings/PronounsField.example.tsx`; the API side
  *     is `extendUserProfile`),
  *   - a theme registered with `registerThemePreference`, offered by the
  *     appearance page from the settings document's `themeOptions`,
@@ -22,7 +22,7 @@ import { OrgSettingsPage, UserAppearancePage, UserProfilePage } from '@marinosca
 import { render, mockAdminUser, mockUser } from '../../utils/test-utils';
 import { server } from '../../mocks/server';
 import { SlowQueryField, registerSlowQueryField } from '../../../platform-extensions/settings/SlowQueryField.example';
-import { TimezoneField } from '../../../platform-extensions/settings/TimezoneField.example';
+import { PronounsField } from '../../../platform-extensions/settings/PronounsField.example';
 
 const API_BASE = '*/api';
 
@@ -53,36 +53,36 @@ function serveUserSettings(initial: Record<string, unknown>) {
   );
 }
 
-describe('the profile card with an app ExtraFields slot (profile.timezone)', () => {
+describe('the profile card with an app ExtraFields slot (profile.pronouns)', () => {
   beforeEach(() => server.resetHandlers());
 
   it('draws the stored time zone, saves it with the display name and clears it with null', async () => {
-    serveUserSettings(document_({}, { timezone: 'Europe/Paris' }));
-    render(<UserProfilePage slots={{ ExtraFields: TimezoneField }} />, { wrapperOptions: { user: mockUser, route: '/settings/profile' } });
+    serveUserSettings(document_({}, { pronouns: 'she/her' }));
+    render(<UserProfilePage slots={{ ExtraFields: PronounsField }} />, { wrapperOptions: { user: mockUser, route: '/settings/profile' } });
 
-    const field = await screen.findByLabelText('Time zone');
-    expect(field).toHaveValue('Europe/Paris');
+    const field = await screen.findByLabelText('Pronouns');
+    expect(field).toHaveValue('she/her');
     const save = screen.getByRole('button', { name: 'Save Changes' });
     expect(save).toBeDisabled();
 
     await userEvent.clear(field);
-    await userEvent.type(field, 'America/New_York');
+    await userEvent.type(field, 'they/them');
     await userEvent.click(save);
     await waitFor(() => expect(patches).toHaveLength(1));
-    expect(patches[0]).toEqual({ profile: { displayName: 'Ada', timezone: 'America/New_York' } });
+    expect(patches[0]).toEqual({ profile: { displayName: 'Ada', pronouns: 'they/them' } });
 
-    await waitFor(() => expect(screen.getByLabelText('Time zone')).toHaveValue('America/New_York'));
-    await userEvent.clear(screen.getByLabelText('Time zone'));
+    await waitFor(() => expect(screen.getByLabelText('Pronouns')).toHaveValue('they/them'));
+    await userEvent.clear(screen.getByLabelText('Pronouns'));
     await userEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
     await waitFor(() => expect(patches).toHaveLength(2));
-    expect(patches[1]).toEqual({ profile: { displayName: 'Ada', timezone: null } });
+    expect(patches[1]).toEqual({ profile: { displayName: 'Ada', pronouns: null } });
   });
 
   it('is the card it always was without the slot', async () => {
-    serveUserSettings(document_({}, { timezone: 'Europe/Paris' }));
+    serveUserSettings(document_({}, { pronouns: 'she/her' }));
     render(<UserProfilePage />, { wrapperOptions: { user: mockUser, route: '/settings/profile' } });
     await screen.findByLabelText('Display Name');
-    expect(screen.queryByLabelText('Time zone')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Pronouns')).not.toBeInTheDocument();
   });
 });
 

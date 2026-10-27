@@ -40,6 +40,7 @@ import { useIdentityApi } from '../../headless/index.js';
 import { AddEmailDialog } from './AddEmailDialog.js';
 import type { AllowedEmailEntry } from '../../headless/index.js';
 import { TABLE_ID, asAllowlistSortField, buildAllowlistColumns } from './allowlistColumns.js';
+import { useDisplayTimeZone } from '../../../core/index.js';
 
 type AllowlistStatus = 'all' | 'pending' | 'claimed';
 
@@ -72,7 +73,9 @@ export function AllowlistTable(): ReactElement {
   const [filters, setFilters] = useState<IdentityTableFilter[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
 
-  const columns = useMemo(() => buildAllowlistColumns(), []);
+  // The "Added" column renders in the display zone: rebuild on a zone change.
+  const timeZone = useDisplayTimeZone();
+  const columns = useMemo(() => buildAllowlistColumns(), [timeZone]);
 
   // --- Query params, flattened to scalars ------------------------------------
   const status = useMemo(() => readStatusFilter(filters), [filters]);

@@ -64,7 +64,9 @@
     "src/shell/ui/index.ts",
     "src/shell/testing/index.ts",
     "src/host/headless/index.ts",
-    "src/host/ui/index.ts"
+    "src/host/ui/index.ts",
+    "src/timezone/headless/index.ts",
+    "src/timezone/ui/index.ts"
   ],
   "out": "docs-api",
   "json": "docs-api/api.json"

@@ -27,13 +27,13 @@ vi.mock('../../../src/settings/headless/profile-image.js', () => ({
   useProfileImageClient: () => ({ upload: vi.fn(), remove: vi.fn(), preview: vi.fn() }),
 }));
 
-function Timezone({ values, onChange, disabled }: ProfileExtraFieldsProps) {
+function Pronouns({ values, onChange, disabled }: ProfileExtraFieldsProps) {
   return (
     <TextField
-      label="Time zone"
-      value={(values.timezone as string | undefined) ?? ''}
+      label="Pronouns"
+      value={(values.pronouns as string | undefined) ?? ''}
       disabled={disabled}
-      onChange={(event) => onChange('timezone', event.target.value)}
+      onChange={(event) => onChange('pronouns', event.target.value)}
     />
   );
 }
@@ -88,52 +88,52 @@ describe('ThemeSettings with registered themes', () => {
 });
 
 describe('ProfileSettings ExtraFields', () => {
-  const profile = { displayName: 'Ada', imageSource: 'none' as const, imageObjectId: null, timezone: 'Europe/Paris' };
+  const profile = { displayName: 'Ada', imageSource: 'none' as const, imageObjectId: null, pronouns: 'she/her' };
 
   it('draws the app field with its stored value and saves only what changed, with the core patch', async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
-    render(<ProfileSettings profile={profile} onSave={onSave} slots={{ ExtraFields: Timezone }} />, noUser);
-    const field = screen.getByLabelText('Time zone');
-    expect(field).toHaveValue('Europe/Paris');
+    render(<ProfileSettings profile={profile} onSave={onSave} slots={{ ExtraFields: Pronouns }} />, noUser);
+    const field = screen.getByLabelText('Pronouns');
+    expect(field).toHaveValue('she/her');
     const save = screen.getByRole('button', { name: 'Save Changes' });
     expect(save).toBeDisabled();
 
     await userEvent.clear(field);
-    await userEvent.type(field, 'UTC');
+    await userEvent.type(field, 'they/them');
     expect(save).toBeEnabled();
     await userEvent.click(save);
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
-    expect(onSave).toHaveBeenCalledWith({ displayName: 'Ada', timezone: 'UTC' });
+    expect(onSave).toHaveBeenCalledWith({ displayName: 'Ada', pronouns: 'they/them' });
   });
 
   it('sends null for a cleared field and nothing for an untouched or unchanged one', async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
-    render(<ProfileSettings profile={profile} onSave={onSave} slots={{ ExtraFields: Timezone }} />, noUser);
-    const field = screen.getByLabelText('Time zone');
+    render(<ProfileSettings profile={profile} onSave={onSave} slots={{ ExtraFields: Pronouns }} />, noUser);
+    const field = screen.getByLabelText('Pronouns');
     // Typing the stored value back leaves nothing to save.
     await userEvent.clear(field);
-    await userEvent.type(field, 'Europe/Paris');
+    await userEvent.type(field, 'she/her');
     expect(screen.getByRole('button', { name: 'Save Changes' })).toBeDisabled();
 
     await userEvent.clear(field);
     await userEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
     await waitFor(() => expect(onSave).toHaveBeenCalled());
-    expect(onSave).toHaveBeenCalledWith({ displayName: 'Ada', timezone: null });
+    expect(onSave).toHaveBeenCalledWith({ displayName: 'Ada', pronouns: null });
   });
 
   it('adopts the saved document and drops the edit marks', async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
-    const { rerender } = render(<ProfileSettings profile={profile} onSave={onSave} slots={{ ExtraFields: Timezone }} />, noUser);
-    await userEvent.clear(screen.getByLabelText('Time zone'));
-    await userEvent.type(screen.getByLabelText('Time zone'), 'UTC');
-    rerender(<ProfileSettings profile={{ ...profile, timezone: 'UTC' }} onSave={onSave} slots={{ ExtraFields: Timezone }} />);
+    const { rerender } = render(<ProfileSettings profile={profile} onSave={onSave} slots={{ ExtraFields: Pronouns }} />, noUser);
+    await userEvent.clear(screen.getByLabelText('Pronouns'));
+    await userEvent.type(screen.getByLabelText('Pronouns'), 'they/them');
+    rerender(<ProfileSettings profile={{ ...profile, pronouns: 'they/them' }} onSave={onSave} slots={{ ExtraFields: Pronouns }} />);
     await waitFor(() => expect(screen.getByRole('button', { name: 'Save Changes' })).toBeDisabled());
-    expect(screen.getByLabelText('Time zone')).toHaveValue('UTC');
+    expect(screen.getByLabelText('Pronouns')).toHaveValue('they/them');
   });
 
   it('renders no extra control without the slot, even when the stored profile has one', () => {
     render(<ProfileSettings profile={profile} onSave={vi.fn()} />, noUser);
-    expect(screen.queryByLabelText('Time zone')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Pronouns')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save Changes' })).toBeDisabled();
   });
 });

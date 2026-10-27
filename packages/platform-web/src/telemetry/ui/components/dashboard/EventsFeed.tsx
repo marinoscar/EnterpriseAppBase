@@ -54,6 +54,7 @@ import type { DashboardLayout } from './DashboardFilterBar.js';
 import { SeverityChip, SeverityChips, SeverityLabel } from './severity.js';
 import { formatRelative, formatTimestamp } from '../../../headless/lib/format.js';
 import { isTraceId } from '../../../headless/lib/traceLink.js';
+import { useDisplayTimeZone } from '../../../../core/index.js';
 
 export const SEARCH_DEBOUNCE_MS = 400;
 
@@ -132,6 +133,7 @@ function EventDialog({
   onClose: () => void;
   onViewTrace?: (traceId: string) => void;
 }) {
+  useDisplayTimeZone(); // The timestamps render in the display zone.
   const titleId = useId();
   return (
     <Dialog open={event !== null} onClose={onClose} fullScreen={fullScreen} fullWidth maxWidth="md" aria-labelledby={titleId}>
@@ -207,6 +209,7 @@ export function EventsFeed({
   onViewTrace,
   now = Date.now(),
 }: EventsFeedProps) {
+  useDisplayTimeZone(); // The timestamps render in the display zone.
   const [selected, setSelected] = useState<DashboardEvent | null>(null);
   const isPhone = layout === 'phone';
   const showService = layout === 'desktop';

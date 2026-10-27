@@ -10,7 +10,7 @@
 //   - `notifications.weeklyDigest`: an org-overridable field on a namespace with an org layer
 //   - `retention` and `jobs` defaults, changed (data form and call form)
 //   - a package-style contribution (`platform-extensions/settings/contribution.ts`)
-//   - `profile.timezone` and the `high-contrast` theme
+//   - `profile.pronouns` (extension) and the `high-contrast` theme (`profile.timezone` is core)
 //
 // and drives them over HTTP. The registries are module-level, so the spec
 // resets the module registry and registers BEFORE the application is built;
@@ -48,8 +48,8 @@ describe('settings extension points (PP-14.21)', () => {
     const { overrideSettingsNamespaceDefaults } = require('@marinoscar/platform-api/settings');
     const { JOBS_STUCK_THRESHOLD_MINUTES } = require('../../../src/platform-extensions/settings/examples/defaults.override');
     overrideSettingsNamespaceDefaults('jobs', { stuckThresholdMinutes: JOBS_STUCK_THRESHOLD_MINUTES });
-    const profile = require('../../../src/platform-extensions/settings/examples/profile-timezone');
-    profile.registerProfileTimezone();
+    const profile = require('../../../src/platform-extensions/settings/examples/profile-pronouns');
+    profile.registerProfilePronouns();
     profile.registerHighContrastTheme();
 
     const app = require('../../helpers/test-app.helper');
@@ -246,7 +246,7 @@ describe('settings extension points (PP-14.21)', () => {
   describe('the core user fields', () => {
     const userValue = (extra: Record<string, unknown> = {}) => ({ theme: 'system', profile: { imageSource: 'none', imageObjectId: null }, ...extra });
 
-    it('stores and returns profile.timezone and lists the registered theme', async () => {
+    it('stores and returns the core timezone and the pronouns extension and lists the registered theme', async () => {
       const user = await helpers.user();
       const row = (value: unknown, version = 1) => ({ id: `settings-${user.id}`, userId: user.id, value, version, updatedAt: new Date() });
       mocks.prismaMock.userSettings.findUnique.mockResolvedValue(row(userValue()));
@@ -256,19 +256,20 @@ describe('settings extension points (PP-14.21)', () => {
       const { body } = await request(server())
         .patch('/api/user-settings')
         .set(helpers.auth(user.accessToken))
-        .send({ theme: 'high-contrast', profile: { timezone: 'Europe/Paris' } })
+        .send({ theme: 'high-contrast', profile: { timezone: 'Europe/Paris', pronouns: 'she/her' } })
         .expect(200);
       expect(body.data.theme).toBe('high-contrast');
-      expect(body.data.profile).toMatchObject({ timezone: 'Europe/Paris', imageSource: 'none', imageObjectId: null });
+      expect(body.data.profile).toMatchObject({ timezone: 'Europe/Paris', pronouns: 'she/her', imageSource: 'none', imageObjectId: null });
       expect(body.data.themeOptions).toEqual([{ id: 'high-contrast', label: 'High contrast' }]);
       expect(mocks.prismaMock.userSettings.update.mock.calls[0][0].data.value.profile.timezone).toBe('Europe/Paris');
     });
 
-    it('rejects an unregistered theme and an oversized timezone', async () => {
+    it('rejects an unregistered theme, an invalid timezone and oversized pronouns', async () => {
       const user = await helpers.user();
       mocks.prismaMock.userSettings.findUnique.mockResolvedValue({ id: 's', userId: user.id, value: userValue(), version: 1, updatedAt: new Date() });
       await request(server()).patch('/api/user-settings').set(helpers.auth(user.accessToken)).send({ theme: 'sepia' }).expect(400);
-      await request(server()).patch('/api/user-settings').set(helpers.auth(user.accessToken)).send({ profile: { timezone: 'x'.repeat(65) } }).expect(400);
+      await request(server()).patch('/api/user-settings').set(helpers.auth(user.accessToken)).send({ profile: { timezone: 'Mars/Olympus' } }).expect(400);
+      await request(server()).patch('/api/user-settings').set(helpers.auth(user.accessToken)).send({ profile: { pronouns: 'x'.repeat(33) } }).expect(400);
     });
 
     it('deletes the timezone with null and keeps it through an unrelated write', async () => {

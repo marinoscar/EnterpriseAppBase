@@ -104,7 +104,7 @@ export interface UserSettingsNamespaceDeclarations {}
  * @example
  * ```ts
  * declare module '@marinoscar/platform-api/settings' {
- *   interface UserProfileSettingsExtensions { timezone?: string }
+ *   interface UserProfileSettingsExtensions { pronouns?: string }
  * }
  * ```
  *

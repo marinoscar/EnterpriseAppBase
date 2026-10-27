@@ -82,7 +82,8 @@
     "host": ["@mui/icons-material", "@mui/material", "react", "react-router-dom"],
     "datatable": ["@mui/icons-material", "@mui/material", "@mui/x-data-grid", "react"],
     "datatable/testing": ["@testing-library/react", "@testing-library/user-event", "vitest", "vitest-axe"],
-    "shell/testing": ["@testing-library/react"]
+    "shell/testing": ["@testing-library/react"],
+    "timezone": ["@mui/icons-material", "@mui/material", "react"]
   },
   "platform-contract": {
     "doctor": ["zod"],

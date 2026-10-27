@@ -1,0 +1,5 @@
+---
+"@marinoscar/platform-web": minor
+---
+
+Add the timezone slice: `@marinoscar/platform-web/timezone/headless` (the display-zone store `getDisplayTimeZone` / `setPreferredTimeZone` / `useDisplayTimeZone`, cached in `localStorage`; the formatters `formatDateTime`, `formatDate`, `formatTime`, `zonedDateKey`, `getTimeZoneOffsetMinutes` and `formatUtcOffset` that default to that zone; the zone catalog `listTimeZones`, `findTimeZone`, `searchTimeZones` and `nearestZone`; the map geometry; and `UserTimeZoneSync`) and `@marinoscar/platform-web/timezone/ui` (`TimeZoneMap`, a dot-matrix world map with the UTC-offset band; `TimeZonePickerDialog`, full screen on a phone; `TimeZoneField`, which lazy-loads the picker). The profile card (`ProfileSettings`, `UserProfilePage`) now draws and saves the core `profile.timezone` (`null` for automatic), and `useUserSettings` pushes it into the store on every load and save (`syncTimeZone`, default `true`). The identity sibling entry also exposes `useOptionalAuth`.

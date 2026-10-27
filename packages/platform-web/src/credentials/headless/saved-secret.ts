@@ -14,6 +14,7 @@
 // =============================================================================
 
 import type { CredentialInfoDto } from '@marinoscar/platform-contract/credentials';
+import { NUMERIC_DATE, formatDate } from '../../core/index.js';
 
 /**
  * What the page knows about the stored secret: the presentation fields of a
@@ -49,7 +50,7 @@ export interface SavedSecretHelperTextOptions {
   /**
    * Formats the last-change date.
    *
-   * @defaultValue `date.toLocaleDateString()`
+   * @defaultValue the numeric date (`toLocaleDateString()`'s fields) in the display time zone
    */
   readonly formatDate?: (date: Date) => string;
 }
@@ -87,7 +88,7 @@ export function savedSecretHelperText(
 
   const which = info.hint ? ` (${info.hint})` : '';
   const date = info.updatedAt ? new Date(info.updatedAt) : null;
-  const format = options.formatDate ?? ((d: Date) => d.toLocaleDateString());
+  const format = options.formatDate ?? ((d: Date) => formatDate(d, NUMERIC_DATE));
   const when = date && !Number.isNaN(date.getTime()) ? `, updated ${format(date)}` : '';
   return `${withArticle(noun)} is saved${which}${when}. Leave this blank to keep it, or type a new one to replace it.`;
 }

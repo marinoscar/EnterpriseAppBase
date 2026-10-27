@@ -8,6 +8,8 @@
 // Pure functions, no markup, so they live in the headless entry.
 // =============================================================================
 
+import { NUMERIC_DATE_TIME, formatDateTime as formatZonedDateTime } from '../../core/index.js';
+
 /**
  * A duration, in the largest unit that still says something: `850 ms`,
  * `1.5 s`, `4m 05s`, `2h 03m`, `3d 4h`.
@@ -41,7 +43,10 @@ export function formatDuration(ms: number | null | undefined): string {
 }
 
 /**
- * A timestamp in the viewer's locale, or an em dash when the API sent `null`.
+ * A timestamp in the viewer's locale and display time zone (the user's
+ * `profile.timezone`, else the device's), or an em dash when the API sent `null`.
+ * A component that renders it calls `useDisplayTimeZone()` so a zone change
+ * re-renders it.
  *
  * @param value - an ISO 8601 timestamp, or `null`.
  * @returns the localized date and time, or an em dash.
@@ -49,7 +54,7 @@ export function formatDuration(ms: number | null | undefined): string {
  * @stability experimental
  */
 export function formatDateTime(value: string | null | undefined): string {
-  return value ? new Date(value).toLocaleString() : '—';
+  return formatZonedDateTime(value, NUMERIC_DATE_TIME);
 }
 
 /**

@@ -82,7 +82,7 @@ import WarningAmberOutlinedIcon from '@mui/icons-material/WarningAmberOutlined';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import VpnKeyOutlinedIcon from '@mui/icons-material/VpnKeyOutlined';
 import { Navigate } from 'react-router-dom';
-import { PageSlotsFrame } from '../../core/index.js';
+import { NUMERIC_DATE_TIME, PageSlotsFrame, formatDateTime, useDisplayTimeZone } from '../../core/index.js';
 import type { PageSlotsBase } from '../../core/index.js';
 import { usePermissions } from '../../identity/index.js';
 import { usePushConfig } from '../headless/usePushConfig.js';
@@ -112,7 +112,7 @@ function privateKeyProvenance(status: {
 }): string {
   if (!status.configured) return 'No private key is stored.';
   const which = status.hint ? ` (${status.hint})` : '';
-  const when = status.updatedAt ? ` on ${new Date(status.updatedAt).toLocaleString()}` : '';
+  const when = status.updatedAt ? ` on ${formatDateTime(status.updatedAt, NUMERIC_DATE_TIME)}` : '';
   const who = status.updatedByUserId ? ` by user ${status.updatedByUserId}` : '';
   return `Private key last set${which}${when}${who}.`;
 }
@@ -189,6 +189,7 @@ export interface PushConfigPageProps {
  * @stability experimental
  */
 export default function PushConfigPage(props: PushConfigPageProps = {}) {
+  useDisplayTimeZone(); // The key and "Last updated" times render in the display zone.
   const { slots } = props;
   const { hasPermission } = usePermissions();
   const {
@@ -501,7 +502,7 @@ export default function PushConfigPage(props: PushConfigPageProps = {}) {
 
           {config.updatedAt && (
             <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-              Last updated {new Date(config.updatedAt).toLocaleString()}
+              Last updated {formatDateTime(config.updatedAt, NUMERIC_DATE_TIME)}
               {config.updatedBy?.email ? ` by ${config.updatedBy.email}` : ''}
             </Typography>
           )}

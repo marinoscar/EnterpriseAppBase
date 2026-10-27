@@ -71,6 +71,7 @@ export {
 } from '@marinoscar/platform-contract/notifications';
 export type { BroadcastStatusName } from '@marinoscar/platform-contract/notifications';
 import type { BroadcastStatusName } from '@marinoscar/platform-contract/notifications';
+import { getDisplayTimeZone, getTimeZoneOffsetMinutes } from '../../core/index.js';
 
 // =============================================================================
 // Response shapes
@@ -332,35 +333,70 @@ export function isBroadcastDeletable(broadcast: Pick<Broadcast, 'status'>): bool
 // `datetime-local` ⇄ ISO-8601
 // =============================================================================
 //
-// A NATIVE `<input type="datetime-local">` VALUE IS LOCAL WALL-CLOCK WITH NO
-// ZONE. The string `"2026-03-08T02:30"` means half past two in the morning
-// wherever the administrator is sitting, and carries nothing that says where
-// that is. The API, correctly, takes an instant. These two functions are the
-// entire bridge between the two representations, and they are separated out
-// here — rather than inlined in the composer — so they can be unit-tested
-// directly, including across a DST boundary, which is the case that breaks
-// every naive implementation.
+// A NATIVE `<input type="datetime-local">` VALUE IS WALL-CLOCK WITH NO ZONE.
+// The string `"2026-03-08T02:30"` means half past two in the morning in SOME
+// zone, and carries nothing that says which. The API, correctly, takes an
+// instant. These two functions are the entire bridge between the two
+// representations, and they are separated out here — rather than inlined in
+// the composer — so they can be unit-tested directly, including across a DST
+// boundary, which is the case that breaks every naive implementation.
+//
+// The zone is the administrator's DISPLAY zone (`getDisplayTimeZone()` of
+// core: their `profile.timezone`, else the device's), not the browser's: every
+// other time on the page renders in it, so the field must too, or a user who
+// chose Tokyo on a laptop set to Paris types 09:00 and schedules 16:00 Tokyo.
+
+/** `YYYY-MM-DDTHH:mm`, optionally with seconds and milliseconds (the shapes a `datetime-local` control produces). */
+const LOCAL_INPUT = /^(\d{4,})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/;
+
+const MINUTE_MS = 60_000;
 
 /**
- * A `datetime-local` value → the ISO-8601 instant the API stores.
+ * A `datetime-local` value, read as wall-clock time in `timeZone` → the
+ * ISO-8601 instant the API stores.
  *
- * `new Date(value)` is correct here and is NOT the loose parse the API's DTO
- * warns about: a string in this exact `YYYY-MM-DDTHH:mm` shape is defined by
- * the ECMAScript specification to be interpreted as LOCAL time (a date-only
- * string would be UTC — the asymmetry is real, and it is why this helper takes
- * the input control's value and nothing else). `toISOString()` then resolves it
- * against the browser's current offset, which is exactly the "what instant did
- * the admin mean by that wall-clock time" question being asked.
+ * The value is parsed field by field (never `new Date(value)`, which would read
+ * it in the browser's zone), then resolved against the zone's offset AT that
+ * moment, so a date either side of a DST change gets its own offset. A wall
+ * clock that occurs twice (the autumn overlap) resolves to the earlier
+ * instant; one that never occurs (the spring gap) moves forward by the gap,
+ * as a native control does: `02:30` on a spring-forward night is `03:30`.
  *
  * Returns `null` for an empty or unparseable value rather than the string
  * `"Invalid Date"`, so a caller cannot post garbage the API will reject with a
  * message about a malformed date the admin never typed.
+ *
+ * @param value - the control's value.
+ * @param timeZone - the zone the wall clock is in; default the display zone.
  */
-export function localInputToIso(value: string): string | null {
-  if (!value) return null;
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return null;
-  return parsed.toISOString();
+export function localInputToIso(value: string, timeZone: string = getDisplayTimeZone()): string | null {
+  const match = value ? LOCAL_INPUT.exec(value) : null;
+  if (!match) return null;
+  const [year, month, day, hours, minutes] = match.slice(1, 6).map(Number) as [number, number, number, number, number];
+  const seconds = Number(match[6] ?? 0);
+  const millis = Number((match[7] ?? '0').padEnd(3, '0'));
+  const wall = new Date(0);
+  wall.setUTCFullYear(year, month - 1, day);
+  wall.setUTCHours(hours, minutes, seconds, millis);
+  // An overflowing field (month 13, February 30th, 25:00) is not a date the admin typed.
+  if (
+    wall.getUTCFullYear() !== year ||
+    wall.getUTCMonth() !== month - 1 ||
+    wall.getUTCDate() !== day ||
+    wall.getUTCHours() !== hours ||
+    wall.getUTCMinutes() !== minutes
+  ) {
+    return null;
+  }
+  const wallMs = wall.getTime();
+  const offsetAt = (ms: number) => getTimeZoneOffsetMinutes(timeZone, new Date(ms)) * MINUTE_MS;
+  const first = wallMs - offsetAt(wallMs);
+  const second = wallMs - offsetAt(first);
+  // Consistent when the offset at the candidate is the one used to reach it.
+  if (offsetAt(first) === wallMs - first) return new Date(first).toISOString();
+  if (offsetAt(second) === wallMs - second) return new Date(second).toISOString();
+  // Neither: the wall clock falls in a spring-forward gap; move forward by it.
+  return new Date(Math.max(first, second)).toISOString();
 }
 
 /** Two digits, zero-padded — the shape every `datetime-local` field expects. */
@@ -369,29 +405,36 @@ function pad(value: number): string {
 }
 
 /**
- * An ISO-8601 instant → the `datetime-local` value that displays it.
+ * An ISO-8601 instant → the `datetime-local` value that displays it in
+ * `timeZone`.
  *
- * ⚠ BUILT FROM THE LOCAL GETTERS, DELIBERATELY. The tempting one-liner —
+ * ⚠ SHIFTED BY THE ZONE'S OFFSET, DELIBERATELY. The tempting one-liner —
  * `new Date(iso).toISOString().slice(0, 16)` — is the classic bug in this
  * conversion: `toISOString` is UTC, so an admin in UTC+2 who scheduled a send
  * for 09:00 reopens the form and reads 07:00, "corrects" it, and moves the
  * broadcast two hours earlier. The offset is invisible in the control, so
- * nothing on screen would have told them.
+ * nothing on screen would have told them. Here the instant is moved by the
+ * zone's offset at that moment and read with the UTC getters, which is the
+ * wall clock in the zone.
  *
- * `getMonth()` is zero-based; `getFullYear()` is padded to four digits so a
- * year before 1000 cannot produce a value the input silently rejects.
- * Round-trips with `localInputToIso` to the minute — seconds are truncated,
- * which is all a minute-resolution control can represent.
+ * The year is padded to four digits so a year before 1000 cannot produce a
+ * value the input silently rejects. Round-trips with `localInputToIso` (same
+ * zone) to the minute — seconds are truncated, which is all a
+ * minute-resolution control can represent.
+ *
+ * @param iso - the instant.
+ * @param timeZone - the zone to display it in; default the display zone.
  */
-export function isoToLocalInput(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return '';
+export function isoToLocalInput(iso: string, timeZone: string = getDisplayTimeZone()): string {
+  const instant = new Date(iso);
+  if (Number.isNaN(instant.getTime())) return '';
+  const date = new Date(instant.getTime() + getTimeZoneOffsetMinutes(timeZone, instant) * MINUTE_MS);
 
-  const year = String(date.getFullYear()).padStart(4, '0');
-  const month = pad(date.getMonth() + 1);
-  const day = pad(date.getDate());
-  const hours = pad(date.getHours());
-  const minutes = pad(date.getMinutes());
+  const year = String(date.getUTCFullYear()).padStart(4, '0');
+  const month = pad(date.getUTCMonth() + 1);
+  const day = pad(date.getUTCDate());
+  const hours = pad(date.getUTCHours());
+  const minutes = pad(date.getUTCMinutes());
 
   return `${year}-${month}-${day}T${hours}:${minutes}`;
 }

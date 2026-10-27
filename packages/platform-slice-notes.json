@@ -230,6 +230,14 @@
         "note": "Web only; imports core only. Its column preferences go through a port that defaults to the user-settings API and can be replaced."
       }
     },
+    "timezone": {
+      "group": "foundation",
+      "gives": "The display time zone (the user's `profile.timezone`, else the device's), date and time formatters that render in it, and the world-map time zone picker the profile page uses.",
+      "standalone": {
+        "level": "with-slices",
+        "note": "Web only; imports core and, for the sign-out reset, identity's optional auth context. The formatters work with no provider; `UserTimeZoneSync` needs a transport to load the user's choice."
+      }
+    },
     "compose": {
       "group": "tooling",
       "gives": "`platform db compose`: assembles the Prisma schema from the platform fragments and the app's own.",

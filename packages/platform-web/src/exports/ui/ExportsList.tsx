@@ -25,6 +25,7 @@ import type { PageSlot, SlotTableColumn, TableSlots } from '../../core/index.js'
 
 import { exportStatusLabel, formatExportSize } from '../headless/client.js';
 import { useExportsClient } from '../headless/hooks.js';
+import { NUMERIC_DATE_TIME, formatDateTime, useDisplayTimeZone } from '../../core/index.js';
 
 /**
  * One column of the exports list: an id, a header (the accessible name of what
@@ -96,7 +97,7 @@ function baseColumns(sources: readonly ExportSourceDescriptor[]): ExportsListCol
       priority: 'primary',
       render: (view) => `${sources.find((source) => source.id === view.source)?.label ?? view.source} (${view.format.toUpperCase()})`,
     },
-    { id: 'created', label: 'Started', priority: 'secondary', render: (view) => new Date(view.createdAt).toLocaleString() },
+    { id: 'created', label: 'Started', priority: 'secondary', render: (view) => formatDateTime(view.createdAt, NUMERIC_DATE_TIME) },
     { id: 'size', label: 'Size', priority: 'secondary', render: (view) => formatExportSize(view.sizeBytes) },
     { id: 'error', label: 'Error', priority: 'secondary', render: (view) => view.error },
     {
@@ -147,7 +148,9 @@ function joined(parts: readonly ReactNode[], separator: string): ReactNode {
 export function ExportsList(props: ExportsListProps): ReactElement {
   const { exports, sources = [], onDownload = defaultDownload, slots } = props;
   const client = useExportsClient();
-  const base = useMemo(() => baseColumns(sources), [sources]);
+  // "Started" renders in the display zone: rebuild on a zone change.
+  const timeZone = useDisplayTimeZone();
+  const base = useMemo(() => baseColumns(sources), [sources, timeZone]);
   const ColumnsSlot = slots?.Columns;
   const columns = useMemo(() => (ColumnsSlot ? ColumnsSlot(base) : base), [base, ColumnsSlot]);
   const RowActions = slots?.RowActions;

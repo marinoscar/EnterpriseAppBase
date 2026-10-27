@@ -64,6 +64,7 @@ import { EMAIL_PATTERN, expiryText, formatDate, humanizeType } from '../internal
 import { LiveRegion } from '../internal/live-region.js';
 import { useCan, useViewerId } from '../internal/use-can.js';
 import { GROUP_ROLE_OPTIONS, groupRoleLabel } from './copy.js';
+import { useDisplayTimeZone } from '../../core/index.js';
 
 /**
  * What {@link GroupDetailPage} passes its `Header` slot: the page-slot
@@ -229,6 +230,7 @@ function memberName(member: GroupMemberDto): string {
  * @stability experimental
  */
 export function GroupDetailPage(props: GroupDetailPageProps): ReactElement {
+  useDisplayTimeZone(); // The expiry dates render in the display zone.
   const params = useParams();
   const groupId = props.groupId ?? params.id;
   const backPath = props.backPath ?? '/settings/groups';

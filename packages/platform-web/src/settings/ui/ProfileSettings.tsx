@@ -28,21 +28,26 @@ import type { ProfileImageSource, UserSettingsResponseBase } from '@marinoscar/p
 import { isPlatformApiError } from '../../core/index.js';
 import { useAuth } from '../../identity/index.js';
 import { FeatureUnavailableNotice } from '../../onboarding/index.js';
+import { TimeZoneField, timeZoneFromProfile } from '../../timezone/index.js';
 import { useProfileImageClient } from '../headless/profile-image.js';
 import type { ProfileImageMutationResponse } from '../headless/profile-image.js';
 import { useStorageStatus } from '../headless/use-storage-status.js';
 import { ImageUpload } from './ImageUpload.js';
 
 /**
- * The profile fields a save may change. Beyond the core three, a field an
- * app added with `extendUserProfile` (`timezone`): `null` deletes it.
+ * The profile fields a save may change. Beyond the core four (the time zone
+ * among them: `null` clears it), a field an app added with `extendUserProfile`
+ * (`pronouns`): `null` deletes it.
  *
  * @stability experimental
  */
-export type ProfilePatch = Partial<UserSettingsResponseBase['profile']> & Record<string, unknown>;
+export type ProfilePatch = Partial<Omit<UserSettingsResponseBase['profile'], 'timezone'>> & {
+  /** The new IANA time zone; `null` clears it (follow the device). */
+  timezone?: string | null;
+} & Record<string, unknown>;
 
 /** The core profile fields; every other key of a stored profile belongs to an app's `extendUserProfile`. */
-const CORE_PROFILE_KEYS: readonly string[] = ['displayName', 'imageSource', 'imageObjectId'];
+const CORE_PROFILE_KEYS: readonly string[] = ['displayName', 'imageSource', 'imageObjectId', 'timezone'];
 
 /**
  * What the `ExtraFields` slot of {@link ProfileSettings} receives: the app's
@@ -84,7 +89,12 @@ export interface ProfileSettingsSlots {
 export interface ProfileSettingsProps {
   /** The stored profile preferences. */
   profile: UserSettingsResponseBase['profile'] & Record<string, unknown>;
-  /** PATCH the changed profile fields (display name and/or picture source). */
+  /**
+   * PATCH the changed profile fields (display name, picture source, time zone).
+   * Save through `useUserSettings` (as `UserProfilePage` does) so the display
+   * zone follows a saved `timezone`; another transport calls
+   * `setPreferredTimeZone` itself after a successful save.
+   */
   onSave: (profile: ProfilePatch) => Promise<void>;
   /**
    * Adopt the settings document the upload/remove endpoints return, so the
@@ -159,6 +169,9 @@ export function ProfileSettings({
   const hasUpload = Boolean(profile.imageObjectId);
 
   const [displayName, setDisplayName] = useState(profile.displayName || '');
+  // `profile.timezone`: an IANA id, or `null` to follow the device.
+  const savedTimeZone = timeZoneFromProfile(profile);
+  const [timeZone, setTimeZone] = useState<string | null>(savedTimeZone);
   // The app's own profile fields (`ExtraFields`): the stored ones, and the
   // edits not saved yet (only the fields the user touched).
   const storedExtras = useMemo(
@@ -239,6 +252,10 @@ export function ProfileSettings({
     setImageSource(savedSource);
   }, [savedSource]);
 
+  useEffect(() => {
+    setTimeZone(savedTimeZone);
+  }, [savedTimeZone]);
+
   // A saved (or replaced) document supersedes the edits.
   useEffect(() => {
     setExtraDraft({});
@@ -262,6 +279,7 @@ export function ProfileSettings({
   const hasChanges =
     displayName !== (profile.displayName || '') ||
     effectiveSource !== savedSource ||
+    timeZone !== savedTimeZone ||
     Object.keys(extraPatch).length > 0;
 
   const isBusy = isSaving || isUploading || isRemoving;
@@ -313,6 +331,11 @@ export function ProfileSettings({
       if (effectiveSource !== savedSource) {
         patch.imageSource = effectiveSource;
       }
+      if (timeZone !== savedTimeZone) {
+        patch.timezone = timeZone;
+      }
+      // The display-zone store follows the saved document: `useUserSettings`
+      // pushes `profile.timezone` on every successful save (`syncTimeZone`).
       await onSave(patch);
       // Refresh user to get the newly resolved profile picture and name
       await refreshUser();
@@ -519,6 +542,9 @@ export function ProfileSettings({
             disabled={disabled}
             fullWidth
           />
+
+          {/* Time zone: every time the app shows is rendered in it. */}
+          <TimeZoneField value={timeZone} onChange={setTimeZone} disabled={controlsDisabled} />
 
           {ExtraFields && (
             <ExtraFields
