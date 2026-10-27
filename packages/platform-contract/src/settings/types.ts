@@ -73,6 +73,8 @@ export interface UserSettingsResponseBase {
     imageSource: ProfileImageSource;
     /** The uploaded avatar's object id, or `null`. */
     imageObjectId: string | null;
+    /** The user's IANA time zone; absent when they follow the device. */
+    timezone?: string;
   };
   /**
    * The themes an app registered on top of light, dark and system; absent

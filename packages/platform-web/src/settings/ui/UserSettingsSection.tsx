@@ -60,8 +60,8 @@ import { LoadingSpinner } from '../internal/LoadingSpinner.js';
 export type UserSettingsUpdate = {
   /** A new theme preference: light, dark, system, or an id an app registered. */
   theme?: ThemePreferenceId;
-  /** New profile fields, the ones an app added with `extendUserProfile` included (`null` deletes one). */
-  profile?: Partial<UserSettingsResponseBase['profile']> & Record<string, unknown>;
+  /** New profile fields, the ones an app added with `extendUserProfile` included (`null` deletes one, `timezone` among them). */
+  profile?: Partial<Omit<UserSettingsResponseBase['profile'], 'timezone'>> & { timezone?: string | null } & Record<string, unknown>;
 };
 
 /**

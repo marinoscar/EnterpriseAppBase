@@ -41,7 +41,9 @@ import { ImageUpload } from './ImageUpload.js';
  *
  * @stability experimental
  */
-export type ProfilePatch = Partial<UserSettingsResponseBase['profile']> & Record<string, unknown>;
+export type ProfilePatch = Partial<Omit<UserSettingsResponseBase['profile'], 'timezone'>> & {
+  timezone?: string | null;
+} & Record<string, unknown>;
 
 /** The core profile fields; every other key of a stored profile belongs to an app's `extendUserProfile`. */
 const CORE_PROFILE_KEYS: readonly string[] = ['displayName', 'imageSource', 'imageObjectId', 'timezone'];
