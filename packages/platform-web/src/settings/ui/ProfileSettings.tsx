@@ -42,6 +42,7 @@ import { ImageUpload } from './ImageUpload.js';
  * @stability experimental
  */
 export type ProfilePatch = Partial<Omit<UserSettingsResponseBase['profile'], 'timezone'>> & {
+  /** The new IANA time zone; `null` clears it (follow the device). */
   timezone?: string | null;
 } & Record<string, unknown>;
 
