@@ -137,7 +137,7 @@ The root `package.json` carries `overrides: { "fastify": "^5" }` because `@nestj
 ## Rename
 
 ```bash
-node scripts/rename.mjs --name "Acme Hub" --repo acme/acme-hub --theme "#c62828" [--cli-name acmectl] [--dry-run]
+node scripts/rename.mjs --name "Kappa Hub" --repo kappa/kappa-hub --theme "#c62828" [--cli-name kappactl] [--dry-run]
 ```
 
 It writes `packages/shared/identity.json`, edits the literal targets nothing can derive (the root `package.json` name, this README, `install.sh`, the two SVG fills, the CI test database, the CLI `bin` key), and re-renders `infra/` with `platform-infra sync`. It never commits.

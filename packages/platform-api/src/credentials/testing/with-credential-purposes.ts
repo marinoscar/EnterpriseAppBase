@@ -30,8 +30,8 @@ export interface TemporaryCredentialPurposes {
  *
  * @example
  * ```ts
- * await withCredentialPurposes({ purposes: [{ purpose: 'acme', owner: 'app', label: 'Acme key', tiers: ['org'] }] }, async () => {
- *   await orgCredentials.setSecret(orgId, 'acme', 'default', 'k-123');
+ * await withCredentialPurposes({ purposes: [{ purpose: 'kappa', owner: 'app', label: 'Org Kappa key', tiers: ['org'] }] }, async () => {
+ *   await orgCredentials.setSecret(orgId, 'kappa', 'default', 'k-123');
  * });
  * ```
  *

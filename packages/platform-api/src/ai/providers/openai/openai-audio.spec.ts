@@ -62,7 +62,7 @@ describe('OpenAI audio port (transcription)', () => {
           model: 'whisper-1',
           audio: { data: AUDIO, mimeType: 'audio/wav', filename: 'meeting.wav' },
           language: 'en',
-          prompt: 'Acme, Zorblax',
+          prompt: 'Org Kappa, Zorblax',
           timestampGranularities: ['segment', 'word'],
         },
         ctx,
@@ -78,7 +78,7 @@ describe('OpenAI audio port (transcription)', () => {
         response_format: 'verbose_json',
         stream: 'false',
         language: 'en',
-        prompt: 'Acme, Zorblax',
+        prompt: 'Org Kappa, Zorblax',
         'timestamp_granularities[]': ['segment', 'word'],
       });
       expect(server.uploads[0].equals(AUDIO)).toBe(true);

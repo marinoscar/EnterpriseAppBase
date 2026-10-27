@@ -1947,7 +1947,7 @@ describe('SystemSettingsService', () => {
               openai: { enabled: true },
               'azure-openai': {
                 enabled: true,
-                baseUrl: 'https://contoso.openai.azure.com',
+                baseUrl: 'https://theta.openai.azure.com',
                 apiVersion: '2025-04-01-preview',
                 apiStyle: 'chat_completions',
                 deployments: { 'gpt-4o': 'prod-4o' },
@@ -1963,7 +1963,7 @@ describe('SystemSettingsService', () => {
 
       expect(result.providers['azure-openai']).toEqual({
         enabled: true,
-        baseUrl: 'https://contoso.openai.azure.com',
+        baseUrl: 'https://theta.openai.azure.com',
         apiVersion: '2025-04-01-preview',
         apiStyle: 'chat_completions',
         deployments: { 'gpt-4o': 'prod-4o' },
@@ -2059,7 +2059,7 @@ describe('SystemSettingsService', () => {
             providers: {
               'azure-openai': {
                 enabled: true,
-                baseUrl: 'https://contoso.openai.azure.com',
+                baseUrl: 'https://theta.openai.azure.com',
                 deployments: { 'gpt-4o': 'prod-4o' },
               },
               'openai-compatible': { baseUrl: 'http://ollama.internal:11434/v1', requiresKey: false },
@@ -2072,7 +2072,7 @@ describe('SystemSettingsService', () => {
       const ai = writtenAi() as any;
       expect(ai.providers['azure-openai']).toEqual({
         enabled: true,
-        baseUrl: 'https://contoso.openai.azure.com',
+        baseUrl: 'https://theta.openai.azure.com',
         apiVersion: undefined,
         apiStyle: undefined,
         deployments: { 'gpt-4o': 'prod-4o' },

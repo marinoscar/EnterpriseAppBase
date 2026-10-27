@@ -118,12 +118,12 @@ describe('Organization settings (/api/org-settings)', () => {
           .patch('/api/org-settings')
           .set(authHeader(admin.accessToken))
           .set('If-Match', '0')
-          .send({ exportPolicy: { enabled: false, maxRows: 50 }, workspaceLabel: { label: 'Acme' } })
+          .send({ exportPolicy: { enabled: false, maxRows: 50 }, workspaceLabel: { label: 'Org Kappa' } })
           .expect(200);
         expect(response.body.data).toMatchObject({
           version: 1,
-          value: { exportPolicy: { enabled: false, maxRows: 50 }, workspaceLabel: { label: 'Acme' } },
-          effective: { exportPolicy: { enabled: false, maxRows: 50 }, workspaceLabel: { label: 'Acme', accent: 'blue' } },
+          value: { exportPolicy: { enabled: false, maxRows: 50 }, workspaceLabel: { label: 'Org Kappa' } },
+          effective: { exportPolicy: { enabled: false, maxRows: 50 }, workspaceLabel: { label: 'Org Kappa', accent: 'blue' } },
         });
         expect(prismaMock.auditEvent.create).toHaveBeenCalledWith({
           data: expect.objectContaining({ action: 'org_settings:patch', orgId: MOCK_DEFAULT_ORG_ID, targetType: 'org_settings' }),

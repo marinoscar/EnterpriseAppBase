@@ -32,7 +32,7 @@ brand colour, and the licence (`mit` or `proprietary` and the holder, or none).
 
 ```bash
 npm run build:packages     # so create can render infra/ with platform-infra
-node scripts/new-project.mjs create --dir ../acme-hub --name "Acme Hub" --repo acme/acme-hub --cli acmectl --theme "#c62828" --license mit --holder "Acme Inc" --dry-run
+node scripts/new-project.mjs create --dir ../kappa-hub --name "Kappa Hub" --repo kappa/kappa-hub --cli kappactl --theme "#c62828" --license mit --holder "Org Kappa" --dry-run
 ```
 
 Show the user the planned edits. Then the same command without `--dry-run`.
@@ -44,7 +44,7 @@ the literal targets, `platform-infra sync`), writes `LICENSE`, resets
 ## Step 2 — get it running
 
 ```bash
-cd ../acme-hub
+cd ../kappa-hub
 npm install                 # the published packages
 npm run setup               # builds the CLI, writes infra/compose/.env
 ```

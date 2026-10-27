@@ -78,8 +78,8 @@ describe('ProviderThrottleService', () => {
     beforeEach(() => {
       // Two types sharing ONE quota, and a third on a different vendor. The
       // shared key is the entire reason the gate is not keyed by job type.
-      service.registerProviderKey('vision.describe', 'acme-vision');
-      service.registerProviderKey('vision.tag', 'acme-vision');
+      service.registerProviderKey('vision.describe', 'kappa-vision');
+      service.registerProviderKey('vision.tag', 'kappa-vision');
       service.registerProviderKey('speech.transcribe', 'other-vendor');
     });
 
@@ -120,8 +120,8 @@ describe('ProviderThrottleService', () => {
 
   describe('trip', () => {
     beforeEach(() => {
-      service.registerProviderKey('vision.describe', 'acme-vision');
-      service.registerProviderKey('vision.tag', 'acme-vision');
+      service.registerProviderKey('vision.describe', 'kappa-vision');
+      service.registerProviderKey('vision.tag', 'kappa-vision');
     });
 
     it('extends a cooldown but never shortens one', async () => {
@@ -148,8 +148,8 @@ describe('ProviderThrottleService', () => {
 
   describe('recordSuccess', () => {
     beforeEach(() => {
-      service.registerProviderKey('vision.describe', 'acme-vision');
-      service.registerProviderKey('vision.tag', 'acme-vision');
+      service.registerProviderKey('vision.describe', 'kappa-vision');
+      service.registerProviderKey('vision.tag', 'kappa-vision');
     });
 
     it('clears the cooldown for every sibling — a success is newer evidence', async () => {
@@ -170,7 +170,7 @@ describe('ProviderThrottleService', () => {
         clock
       );
 
-      capped.registerProviderKey('vision.describe', 'acme-vision');
+      capped.registerProviderKey('vision.describe', 'kappa-vision');
       // A provider asking for an hour must not pin the slot for an hour; the
       // long wait belongs in `scheduled_for`, not in a slot.
       capped.trip('vision.describe', 3_600_000);
@@ -181,7 +181,7 @@ describe('ProviderThrottleService', () => {
     it('falls back to the shipped default when the setting is missing', async () => {
       const defaulted = new ProviderThrottleService(config({}), clock);
 
-      defaulted.registerProviderKey('vision.describe', 'acme-vision');
+      defaulted.registerProviderKey('vision.describe', 'kappa-vision');
       defaulted.trip('vision.describe', 3_600_000);
 
       await expect(defaulted.acquire('vision.describe')).resolves.toBe(900_000);
@@ -190,7 +190,7 @@ describe('ProviderThrottleService', () => {
 
   describe('registerProviderKey', () => {
     it('lets a later registration override an earlier one', () => {
-      service.registerProviderKey('vision.describe', 'acme-vision');
+      service.registerProviderKey('vision.describe', 'kappa-vision');
       service.registerProviderKey('vision.describe', 'replacement-vendor');
 
       expect(service.resolveKey('vision.describe')).toBe('replacement-vendor');
@@ -212,8 +212,8 @@ describe('ProviderThrottleService', () => {
     it('does not resolve until the cooldown has really elapsed', async () => {
       const real = new ProviderThrottleService(config({ 'jobs.rateLimitMaxMs': 900_000 }));
 
-      real.registerProviderKey('vision.describe', 'acme-vision');
-      real.registerProviderKey('vision.tag', 'acme-vision');
+      real.registerProviderKey('vision.describe', 'kappa-vision');
+      real.registerProviderKey('vision.tag', 'kappa-vision');
       real.trip('vision.describe', 30_000);
 
       let resolved = false;
@@ -233,7 +233,7 @@ describe('ProviderThrottleService', () => {
     it('returns immediately when there is no cooldown', async () => {
       const real = new ProviderThrottleService(config({}));
 
-      real.registerProviderKey('vision.describe', 'acme-vision');
+      real.registerProviderKey('vision.describe', 'kappa-vision');
 
       await expect(real.acquire('vision.describe')).resolves.toBe(0);
     });

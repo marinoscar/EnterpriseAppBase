@@ -52,7 +52,7 @@ function sliceSuites() {
       ? { storage: { requiredPrefixIds: isSliceEnabled('db-backup') ? ['database-backups'] : [] } }
       : {}),
     ...(isSliceEnabled('email')
-      ? { email: { samples: { 'org-invitation': { recipientEmail: 'guest@example.test', orgName: 'Acme', roleName: 'viewer' }, 'notes-archived': { count: 2 } } } }
+      ? { email: { samples: { 'org-invitation': { recipientEmail: 'guest@example.test', orgName: 'Org Kappa', roleName: 'viewer' }, 'notes-archived': { count: 2 } } } }
       : {}),
     ...(isSliceEnabled('notifications') ? { notifications: { afterCommitAllowlist: [] } } : {}),
     ...(isSliceEnabled('sharing')

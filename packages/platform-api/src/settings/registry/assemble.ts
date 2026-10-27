@@ -3,7 +3,7 @@
 // =============================================================================
 //
 // The app's manifests used to register "the platform's namespaces, then the
-// app's". A separately installed package (an `@acme/billing-settings`) could
+// app's". A separately installed package (an `@kappa/billing-settings`) could
 // not contribute a namespace without the app listing it by hand. Three things
 // change that, all resolved BEFORE anything is registered so the registry only
 // ever holds the final declarations:
@@ -211,7 +211,7 @@ export function applySettingsDefaultsOverrides(
  */
 export interface SettingsContribution {
   /**
-   * Who contributes (the package name, `@acme/billing-settings`). Unique;
+   * Who contributes (the package name, `@kappa/billing-settings`). Unique;
    * named in every error the contribution causes.
    */
   readonly id: string;
@@ -237,7 +237,7 @@ export interface SettingsContribution {
 export const settingsContributionRegistry = defineRegistry<SettingsContribution>({
   name: 'settings-contributions',
   idOf: (contribution) => contribution.id,
-  // A package name (`@acme/billing-settings`) starts with `@`.
+  // A package name (`@kappa/billing-settings`) starts with `@`.
   idPattern: /^[@A-Za-z0-9][A-Za-z0-9._:/@-]*$/,
   describeDuplicate: (_existing, incoming) =>
     `Settings contribution "${incoming.id}" is already registered: the package was imported twice (two copies of it installed, or two import paths).`,
@@ -271,8 +271,8 @@ export const settingsContributionRegistry = defineRegistry<SettingsContribution>
  *
  * @example
  * ```ts
- * // @acme/billing-settings/src/index.ts
- * registerSettingsContribution({ id: '@acme/billing-settings', system: [BILLING_SYSTEM_SETTINGS] });
+ * // @kappa/billing-settings/src/index.ts
+ * registerSettingsContribution({ id: '@kappa/billing-settings', system: [BILLING_SYSTEM_SETTINGS] });
  * ```
  *
  * @extensionPoint registry

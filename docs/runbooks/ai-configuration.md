@@ -428,7 +428,7 @@ host.
      "defaults": { "allowBackgroundRuns": true },
      "providers": { "azure-openai": {
        "enabled": true,
-       "baseUrl": "https://contoso.openai.azure.com",
+       "baseUrl": "https://theta.openai.azure.com",
        "apiStyle": "responses",
        "deployments": { "gpt-4o": "prod-gpt4o", "text-embedding-3-small": "embed" } } } }'
    ```

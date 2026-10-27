@@ -825,7 +825,7 @@ describe('JobWorker', () => {
 
       const { worker, registry } = makeWorker({}, throttle);
 
-      throttle.registerProviderKey('test.provider', 'acme');
+      throttle.registerProviderKey('test.provider', 'kappa');
       throttle.trip('test.provider', 20_000);
 
       const ran = jest.fn();

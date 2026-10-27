@@ -40,10 +40,10 @@ describe('aiProviderForm', () => {
     it('loads nulls as blanks, deployments as rows, and requiresKey as on', () => {
       expect(toProviderFormValue(azure)).toEqual({
         enabled: true,
-        baseUrl: 'https://contoso.openai.azure.com',
+        baseUrl: 'https://theta.openai.azure.com',
         apiVersion: '2024-10-21',
         apiStyle: '',
-        deployments: [{ modelId: 'gpt-4o', deployment: 'contoso-gpt-4o' }],
+        deployments: [{ modelId: 'gpt-4o', deployment: 'theta-gpt-4o' }],
         requiresKey: true,
       });
       expect(toProviderFormValue({ ...compatible, requiresKey: false }).requiresKey).toBe(false);
@@ -72,11 +72,11 @@ describe('aiProviderForm', () => {
           azure,
           value({
             enabled: true,
-            baseUrl: 'https://contoso.openai.azure.com',
+            baseUrl: 'https://theta.openai.azure.com',
             apiVersion: ' 2024-10-21 ',
             apiStyle: 'chat_completions',
             deployments: [
-              { modelId: 'gpt-4o', deployment: 'contoso-gpt-4o' },
+              { modelId: 'gpt-4o', deployment: 'theta-gpt-4o' },
               { modelId: '', deployment: '' },
             ],
             requiresKey: false, // not an Azure field: never sent
@@ -84,10 +84,10 @@ describe('aiProviderForm', () => {
         ),
       ).toEqual({
         enabled: true,
-        baseUrl: 'https://contoso.openai.azure.com',
+        baseUrl: 'https://theta.openai.azure.com',
         apiVersion: '2024-10-21',
         apiStyle: 'chat_completions',
-        deployments: { 'gpt-4o': 'contoso-gpt-4o' },
+        deployments: { 'gpt-4o': 'theta-gpt-4o' },
       });
       expect(toProviderInput(azure, value())).toEqual({ enabled: false, baseUrl: null });
     });
@@ -106,9 +106,9 @@ describe('aiProviderForm', () => {
         openai: { enabled: false, baseUrl: null },
         'azure-openai': {
           enabled: true,
-          baseUrl: 'https://contoso.openai.azure.com',
+          baseUrl: 'https://theta.openai.azure.com',
           apiVersion: '2024-10-21',
-          deployments: { 'gpt-4o': 'contoso-gpt-4o' },
+          deployments: { 'gpt-4o': 'theta-gpt-4o' },
         },
         'openai-compatible': { enabled: false, baseUrl: null },
       });
@@ -131,7 +131,7 @@ describe('aiProviderForm', () => {
     });
 
     it('Azure endpoints must be https; a compatible server may be http', () => {
-      expect(validateProviderForm(azure, value({ baseUrl: 'http://contoso.openai.azure.com' })).baseUrl).toMatch(
+      expect(validateProviderForm(azure, value({ baseUrl: 'http://theta.openai.azure.com' })).baseUrl).toMatch(
         /https/,
       );
       expect(validateProviderForm(compatible, value({ baseUrl: 'http://ollama:11434/v1' })).baseUrl).toBeUndefined();

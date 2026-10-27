@@ -58,7 +58,7 @@ describe('AiService — transcription', () => {
         storageObjectId: object.id,
         model: HARNESS_TRANSCRIPTION_MODEL,
         language: 'en',
-        prompt: 'Acme',
+        prompt: 'Org Kappa',
         timestampGranularities: ['segment'],
       });
 
@@ -74,7 +74,7 @@ describe('AiService — transcription', () => {
           model: HARNESS_TRANSCRIPTION_MODEL,
           storageObjectId: object.id,
           language: 'en',
-          prompt: 'Acme',
+          prompt: 'Org Kappa',
           timestampGranularities: ['segment'],
         },
       });

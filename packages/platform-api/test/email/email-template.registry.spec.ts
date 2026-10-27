@@ -106,13 +106,13 @@ describe('email template registry', () => {
   it('lets an explicit override win, for both lookups, and lists it for the bootstrap log', async () => {
     const branded: EmailTemplate<unknown> = () => ({ subject: 'Branded', html: '<!doctype html><p>b</p>', text: 'b' });
     await withOpenRegistries(() => {
-      registerEmailTemplate('broadcast', branded as never, { override: true, registrant: 'acme' });
+      registerEmailTemplate('broadcast', branded as never, { override: true, registrant: 'kappa' });
 
       expect(renderEmailTemplate('broadcast', { title: 't', body: 'b' }).subject).toBe('Branded');
       expect(findEmailTemplate('broadcast')?.({ title: 't', body: 'b' }).subject).toBe('Branded');
       // The base registry keeps the platform's renderer and its order.
       expect(emailTemplateRegistry.require('broadcast').render).toBe(PLATFORM_EMAIL_TEMPLATES.broadcast);
-      expect(listEmailTemplateOverrides()).toEqual([{ name: 'broadcast', registrant: 'acme' }]);
+      expect(listEmailTemplateOverrides()).toEqual([{ name: 'broadcast', registrant: 'kappa' }]);
 
       // One override per name.
       expect(registryError(() => registerEmailTemplate('broadcast', branded as never, { override: true })).code).toBe('DUPLICATE_ID');

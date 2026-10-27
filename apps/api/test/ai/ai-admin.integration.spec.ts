@@ -465,7 +465,7 @@ describe('AI Administration Integration', () => {
                   openai: { enabled: true },
                   'azure-openai': {
                     enabled: true,
-                    baseUrl: 'https://contoso.openai.azure.com',
+                    baseUrl: 'https://theta.openai.azure.com',
                     apiVersion: '2024-10-21',
                     apiStyle: 'chat_completions',
                     deployments: { 'gpt-4o': 'prod-4o' },
@@ -485,7 +485,7 @@ describe('AI Administration Integration', () => {
         const persisted = JSON.parse(JSON.stringify(storedAi));
         expect(persisted.providers['azure-openai']).toEqual({
           enabled: true,
-          baseUrl: 'https://contoso.openai.azure.com',
+          baseUrl: 'https://theta.openai.azure.com',
           apiVersion: '2024-10-21',
           apiStyle: 'chat_completions',
           deployments: { 'gpt-4o': 'prod-4o' },
@@ -504,7 +504,7 @@ describe('AI Administration Integration', () => {
       });
 
       it.each([
-        ['a plain-http Azure endpoint', { 'azure-openai': { enabled: false, baseUrl: 'http://contoso.openai.azure.com' } }, 'AI_PROVIDER_SETTINGS_INVALID'],
+        ['a plain-http Azure endpoint', { 'azure-openai': { enabled: false, baseUrl: 'http://theta.openai.azure.com' } }, 'AI_PROVIDER_SETTINGS_INVALID'],
         ['credentials in the URL', { 'openai-compatible': { enabled: false, baseUrl: 'http://u:p@ollama.internal/v1' } }, 'AI_PROVIDER_SETTINGS_INVALID'],
         ['a field the provider does not have', { openai: { enabled: true, requiresKey: false } }, 'AI_PROVIDER_FIELD_UNSUPPORTED'],
         ['enabling without an endpoint', { 'openai-compatible': { enabled: true } }, 'AI_BASE_URL_REQUIRED'],

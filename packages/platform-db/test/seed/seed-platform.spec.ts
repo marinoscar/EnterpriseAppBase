@@ -207,23 +207,23 @@ describe('seedPlatform', () => {
 
   it('leaves a renamed default organization alone instead of creating a second one', async () => {
     const { prisma, calls, tables } = createFakePrisma();
-    tables.organization!.set('acme', { id: 'org-1', name: 'Acme', slug: 'acme', isDefault: true });
+    tables.organization!.set('kappa', { id: 'org-1', name: 'Org Kappa', slug: 'kappa', isDefault: true });
 
     const summary = await seedPlatform(prisma, INPUT);
 
     expect(summary.defaultOrganizationCreated).toBe(false);
     expect(calls.some((c) => c.delegate === 'organization' && c.method === 'upsert')).toBe(false);
-    expect([...tables.organization!.keys()]).toEqual(['acme']);
+    expect([...tables.organization!.keys()]).toEqual(['kappa']);
   });
 
   it('takes the default organization name and slug from the input', async () => {
     const { prisma, calls } = createFakePrisma();
-    await seedPlatform(prisma, { ...INPUT, defaultOrganization: { name: 'Acme', slug: 'acme' } });
+    await seedPlatform(prisma, { ...INPUT, defaultOrganization: { name: 'Org Kappa', slug: 'kappa' } });
 
     expect(calls.find((c) => c.delegate === 'organization' && c.method === 'upsert')!.args).toEqual({
-      where: { slug: 'acme' },
+      where: { slug: 'kappa' },
       update: {},
-      create: { name: 'Acme', slug: 'acme', isDefault: true },
+      create: { name: 'Org Kappa', slug: 'kappa', isDefault: true },
       select: { id: true },
     });
   });

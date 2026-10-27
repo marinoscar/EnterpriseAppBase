@@ -13,7 +13,7 @@ beforeEach(() => {
   app = mkdtempSync(join(tmpdir(), 'platform-infra-cli-'));
   // The app identity the compose, nginx and env fragments are rendered with.
   mkdirSync(join(app, 'packages', 'shared'), { recursive: true });
-  writeFileSync(join(app, 'packages', 'shared', 'identity.json'), JSON.stringify({ productName: 'Acme Hub', cliName: 'acmectl' }));
+  writeFileSync(join(app, 'packages', 'shared', 'identity.json'), JSON.stringify({ productName: 'Kappa Hub', cliName: 'kappactl' }));
   out = [];
   err = [];
 });
@@ -31,7 +31,7 @@ describe('platform-infra command', () => {
     expect(out).toContain('created  infra/nginx/app.d/permissions-policy.conf (app-owned: edit it freely)');
     expect(out).toContain('wrote    infra/platform-infra.lock.json');
     expect(out.at(-1)).toBe('platform-infra sync: 20 written, 0 unchanged, 10 created.');
-    expect(readFileSync(join(app, 'infra/compose/worker.compose.yml'), 'utf8')).toContain('ACMECTL_SERVER_URL');
+    expect(readFileSync(join(app, 'infra/compose/worker.compose.yml'), 'utf8')).toContain('KAPPACTL_SERVER_URL');
   });
 
   it('renders with --identity <file> instead of packages/shared/identity.json', () => {

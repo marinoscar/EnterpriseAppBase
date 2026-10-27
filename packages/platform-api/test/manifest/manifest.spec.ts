@@ -180,7 +180,7 @@ describe('app grants (PP-14.15)', () => {
 
 describe('registerPermissionSet (PP-14.15)', () => {
   const set = {
-    slice: 'acme-reports',
+    slice: 'kappa-reports',
     roles: [{ id: 'analyst', description: 'Runs reports', scope: 'org' as const }],
     permissions: [{ id: 'reports:run', description: 'Run a report', scope: 'org' as const, defaultGrants: ['org_admin', 'analyst'] }],
   };
@@ -197,7 +197,7 @@ describe('registerPermissionSet (PP-14.15)', () => {
 
     const without = manifest.platformPermissionCatalog({ slices: ['identity'] });
     expect(without.permissions.some((entry) => entry.name === 'reports:run')).toBe(false);
-    const selected = manifest.platformPermissionCatalog({ slices: ['identity', 'acme-reports'] });
+    const selected = manifest.platformPermissionCatalog({ slices: ['identity', 'kappa-reports'] });
     expect(selected.permissions.some((entry) => entry.name === 'reports:run')).toBe(true);
 
     manifest.registerPlatformPermissions({ app });
@@ -207,10 +207,10 @@ describe('registerPermissionSet (PP-14.15)', () => {
   it('keeps identity mandatory and refuses a platform slice id, an empty set and a duplicate', () => {
     const { manifest } = isolated();
     expect(() => manifest.registerPermissionSet({ ...set, slice: 'jobs' })).toThrow(/platform slice/);
-    expect(() => manifest.registerPermissionSet({ slice: 'acme-empty' })).toThrow(/roles.*permissions/);
+    expect(() => manifest.registerPermissionSet({ slice: 'kappa-empty' })).toThrow(/roles.*permissions/);
     manifest.registerPermissionSet(set);
-    expect(() => manifest.registerPermissionSet(set)).toThrow(/Duplicate id "acme-reports"/);
-    expect(() => manifest.platformPermissionCatalog({ slices: ['acme-reports'] })).toThrow(/must include 'identity'/);
+    expect(() => manifest.registerPermissionSet(set)).toThrow(/Duplicate id "kappa-reports"/);
+    expect(() => manifest.platformPermissionCatalog({ slices: ['kappa-reports'] })).toThrow(/must include 'identity'/);
   });
 
   it('is frozen once registerPlatformPermissions has consumed it, so a late set fails loudly', () => {

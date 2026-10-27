@@ -26,7 +26,7 @@ describe('OrgSettingsService', () => {
         { name: 'tags', kind: 'other' },
       ]);
       expect(view.effective).toEqual({
-        brandingSample: { label: 'Acme', accent: 'blue', pageSize: 20, showBanner: false, tags: [] },
+        brandingSample: { label: 'Org Kappa', accent: 'blue', pageSize: 20, showBanner: false, tags: [] },
         exportsSample: { enabled: true, maxRows: 10_000 },
       });
     }),
@@ -70,7 +70,7 @@ describe('OrgSettingsService', () => {
       await s.org.patch(ORG_A, { brandingSample: { label: 'A', accent: 'green' }, exportsSample: { maxRows: 3 } }, ADMIN);
       const cleared = await s.org.patch(ORG_A, { brandingSample: { label: null }, exportsSample: null }, ADMIN);
       expect(cleared.value).toEqual({ brandingSample: { accent: 'green' } });
-      expect(cleared.effective).toMatchObject({ exportsSample: { maxRows: 10_000 }, brandingSample: { label: 'Acme', accent: 'green' } });
+      expect(cleared.effective).toMatchObject({ exportsSample: { maxRows: 10_000 }, brandingSample: { label: 'Org Kappa', accent: 'green' } });
     }),
   );
 

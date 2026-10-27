@@ -153,7 +153,7 @@ describe('User data routes', () => {
   describe('/api/admin/orgs/:orgId/offboarding', () => {
     it('is Admin only', async () => {
       const viewer = await createMockViewerUser(context);
-      await request(server()).post(`/api/admin/orgs/${ORG_ID}/offboarding`).set(authHeader(viewer.accessToken)).send({ confirmation: 'acme' }).expect(403);
+      await request(server()).post(`/api/admin/orgs/${ORG_ID}/offboarding`).set(authHeader(viewer.accessToken)).send({ confirmation: 'kappa' }).expect(403);
     });
 
     it('answers 409 OFFBOARDING_REQUIRES_MULTI_ORG in single-organization mode', async () => {
@@ -161,7 +161,7 @@ describe('User data routes', () => {
       const response = await request(server())
         .post(`/api/admin/orgs/${ORG_ID}/offboarding`)
         .set(authHeader(admin.accessToken))
-        .send({ confirmation: 'acme' })
+        .send({ confirmation: 'kappa' })
         .expect(409);
       expect(response.body.details.reason).toBe('OFFBOARDING_REQUIRES_MULTI_ORG');
     });

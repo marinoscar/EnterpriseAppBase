@@ -2,7 +2,7 @@
 // A package outside the platform declares its own permission set (PP-14.15)
 // =============================================================================
 //
-// `@acme/reports`, a package an app installs, enforces `reports:run` and holds
+// `@kappa/reports`, a package an app installs, enforces `reports:run` and holds
 // an `analyst` role. It declares both with `registerPermissionSet` when it is
 // imported, BEFORE the app's permission manifest runs. The manifest registers
 // the set after the platform's own and before the app's, in the seed catalog
@@ -27,9 +27,9 @@ function load(): { core: Core; manifest: Manifest } {
   return loaded!;
 }
 
-/** What `@acme/reports` registers when it is imported. */
-const ACME_REPORTS = {
-  slice: 'acme-reports',
+/** What `@kappa/reports` registers when it is imported. */
+const KAPPA_REPORTS = {
+  slice: 'kappa-reports',
   roles: [{ id: 'analyst', description: 'Runs reports', scope: 'org' as const, label: 'Analyst' }],
   permissions: [
     { id: 'reports:run', description: 'Run a report', scope: 'org' as const, defaultGrants: ['org_admin', 'analyst'] },
@@ -44,7 +44,7 @@ const APP = {
 describe('a package slice registered with registerPermissionSet', () => {
   it('lands after the platform sets and before the app, in the catalog and in the registries', () => {
     const { core, manifest } = load();
-    manifest.registerPermissionSet(ACME_REPORTS);
+    manifest.registerPermissionSet(KAPPA_REPORTS);
 
     const composed = manifest.platformPermissionCatalog({ app: APP });
     expect(composed.roles.map((role) => role.name)).toEqual(['admin', 'contributor', 'viewer', 'org_admin', 'analyst']);
@@ -58,28 +58,28 @@ describe('a package slice registered with registerPermissionSet', () => {
 
   it('is selected by its id like a platform slice, and identity stays mandatory', () => {
     const { manifest } = load();
-    manifest.registerPermissionSet(ACME_REPORTS);
+    manifest.registerPermissionSet(KAPPA_REPORTS);
 
     const names = (slices: string[]) => manifest.platformPermissionCatalog({ slices }).permissions.map((permission) => permission.name);
     expect(names(['identity'])).not.toContain('reports:run');
-    expect(names(['identity', 'acme-reports'])).toContain('reports:run');
-    expect(() => manifest.platformPermissionCatalog({ slices: ['acme-reports'] })).toThrow(/must include 'identity'/);
-    expect(() => manifest.platformPermissionCatalog({ slices: ['identity', 'acme-other'] })).toThrow(/unknown slice\(s\) "acme-other"/);
+    expect(names(['identity', 'kappa-reports'])).toContain('reports:run');
+    expect(() => manifest.platformPermissionCatalog({ slices: ['kappa-reports'] })).toThrow(/must include 'identity'/);
+    expect(() => manifest.platformPermissionCatalog({ slices: ['identity', 'kappa-other'] })).toThrow(/unknown slice\(s\) "kappa-other"/);
   });
 
   it('cannot take a platform slice id, and a late registration fails loudly instead of missing the seed', () => {
     const { manifest } = load();
-    expect(() => manifest.registerPermissionSet({ ...ACME_REPORTS, slice: 'jobs' })).toThrow(/platform slice/);
+    expect(() => manifest.registerPermissionSet({ ...KAPPA_REPORTS, slice: 'jobs' })).toThrow(/platform slice/);
 
-    manifest.registerPermissionSet(ACME_REPORTS);
+    manifest.registerPermissionSet(KAPPA_REPORTS);
     manifest.registerPlatformPermissions();
-    expect(() => manifest.registerPermissionSet({ slice: 'acme-late', roles: [] })).toThrow(/frozen|FROZEN/i);
+    expect(() => manifest.registerPermissionSet({ slice: 'kappa-late', roles: [] })).toThrow(/frozen|FROZEN/i);
   });
 
   it('validates its permissions like any other: a grant to an unregistered role is refused, naming it', () => {
     const { manifest } = load();
     manifest.registerPermissionSet({
-      ...ACME_REPORTS,
+      ...KAPPA_REPORTS,
       permissions: [{ id: 'reports:run', description: 'Run a report', scope: 'org', defaultGrants: ['ghost'] }],
     });
     expect(() => manifest.platformPermissionCatalog()).toThrow(/unknown role "ghost"/);

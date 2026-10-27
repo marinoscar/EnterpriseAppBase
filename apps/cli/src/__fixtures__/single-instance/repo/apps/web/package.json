@@ -2,7 +2,7 @@
   "name": "fixture-web",
   "private": true,
   "dependencies": {
-    "@acme/platform-web": "*",
+    "@kappa/platform-web": "*",
     "@mui/material": "^9.3.0",
     "react": "^19.2.7"
   }

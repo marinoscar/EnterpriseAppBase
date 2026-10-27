@@ -30,7 +30,7 @@ import { resetCliForTests, TEST_CLI_IDENTITY } from './test-support.js';
 // prefix and the systemd unit while the two live-server literals stay put.
 // =============================================================================
 
-const ACME = { name: 'acmectl', displayName: 'Acme CLI', productName: 'Acme', repoSlug: 'acme/acme' };
+const KAPPA = { name: 'kappactl', displayName: 'Kappa CLI', productName: 'Org Kappa', repoSlug: 'kappa/kappa' };
 const BASE: CreateCliOptions = { identity: TEST_CLI_IDENTITY, version: '2.3.4' };
 
 const Screen: ComponentType<TuiScreenProps> = () => null;
@@ -157,30 +157,30 @@ describe('createCli', () => {
 
   it('refuses a second, different identity in one process', () => {
     createCli(BASE);
-    expect(() => createCli({ ...BASE, identity: ACME })).toThrow(/already set/);
+    expect(() => createCli({ ...BASE, identity: KAPPA })).toThrow(/already set/);
   });
 });
 
-describe('createCli with identity { name: "acmectl" }', () => {
+describe('createCli with identity { name: "kappactl" }', () => {
   it('follows the identity in help, the config directory, the env prefix and the systemd unit', async () => {
-    const cli = createCli({ identity: ACME, version: '0.1.0' });
+    const cli = createCli({ identity: KAPPA, version: '0.1.0' });
 
-    expect(cli.program.name()).toBe('acmectl');
-    expect(cli.program.helpInformation()).toMatch(/^Usage: acmectl /);
-    expect(cli.program.helpInformation()).toContain('Acme CLI');
+    expect(cli.program.name()).toBe('kappactl');
+    expect(cli.program.helpInformation()).toMatch(/^Usage: kappactl /);
+    expect(cli.program.helpInformation()).toContain('Kappa CLI');
     expect(await cli.run(['config', '--help'])).toBe(EXIT.OK);
-    expect(written(stdout)).toContain('Usage: acmectl config');
+    expect(written(stdout)).toContain('Usage: kappactl config');
 
-    expect(configDirPath({ home: '/home/u' })).toBe('/home/u/.acmectl');
-    expect(cliIdentity().envPrefix).toBe('ACMECTL_');
-    expect(envVar('TOKEN')).toBe('ACMECTL_TOKEN');
-    expect(serviceUnitName()).toBe('acmectl-node.service');
-    expect(userUnitPath({ home: '/home/u' })).toBe('/home/u/.config/systemd/user/acmectl-node.service');
-    expect(renderUnit({ execPath: '/usr/bin/node', scriptPath: '/opt/acmectl/cli.js' })).toContain('Description=Acme worker node (acmectl)');
+    expect(configDirPath({ home: '/home/u' })).toBe('/home/u/.kappactl');
+    expect(cliIdentity().envPrefix).toBe('KAPPACTL_');
+    expect(envVar('TOKEN')).toBe('KAPPACTL_TOKEN');
+    expect(serviceUnitName()).toBe('kappactl-node.service');
+    expect(userUnitPath({ home: '/home/u' })).toBe('/home/u/.config/systemd/user/kappactl-node.service');
+    expect(renderUnit({ execPath: '/usr/bin/node', scriptPath: '/opt/kappactl/cli.js' })).toContain('Description=Org Kappa worker node (kappactl)');
   });
 
   it('leaves the deploy state file and the proxy sentinel at their live-server values', () => {
-    createCli({ identity: ACME, version: '0.1.0' });
+    createCli({ identity: KAPPA, version: '0.1.0' });
     expect(DEPLOY_STATE_FILENAME).toBe('.appctl-deploy.json');
     expect(PROXY_MANAGED_SENTINEL).toBe('# Managed by appctl deploy');
   });

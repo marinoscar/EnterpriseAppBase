@@ -242,7 +242,7 @@ function readJson(path) {
  *
  * Placeholders that share a value anywhere are merged into one token (the
  * earliest in table order). Without that, a fork whose slug and repository
- * name are both `acme` would turn every `acme` into one token while the base
+ * name are both `kappa` would turn every `kappa` into one token while the base
  * turns its two different values into two, and every such line would read as
  * modified.
  */

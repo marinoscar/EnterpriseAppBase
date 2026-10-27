@@ -145,8 +145,8 @@ describe('AiUsagePage', () => {
 
     expect(screen.getByRole('heading', { name: 'Usage by user' })).toBeInTheDocument();
     const table = screen.getByTestId('admin-ai-usage-breakdown-table');
-    expect(within(table).getByText('dana@acme.test')).toBeInTheDocument();
-    expect(within(table).getByText('lee@acme.test')).toBeInTheDocument();
+    expect(within(table).getByText('dana@kappa.example.test')).toBeInTheDocument();
+    expect(within(table).getByText('lee@kappa.example.test')).toBeInTheDocument();
     expect(mockUseAiUsage).toHaveBeenCalledWith(expect.objectContaining({ groupBy: 'user' }));
     expect(mockUseAiUsage).toHaveBeenCalledWith(expect.objectContaining({ groupBy: 'day' }));
   });
@@ -178,7 +178,7 @@ describe('AiUsagePage', () => {
     await user.click(screen.getByRole('option', { name: 'Organization' }));
     expect(screen.getByRole('heading', { name: 'Usage by organization' })).toBeInTheDocument();
     const table = screen.getByTestId('admin-ai-usage-breakdown-table');
-    expect(within(table).getByText('Acme')).toBeInTheDocument();
+    expect(within(table).getByText('Org Kappa')).toBeInTheDocument();
     expect(within(table).getByText('No organization')).toBeInTheDocument();
     expect(mockUseAiUsage).toHaveBeenLastCalledWith(expect.objectContaining({ groupBy: 'org' }));
   });

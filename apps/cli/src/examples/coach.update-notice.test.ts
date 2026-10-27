@@ -65,7 +65,7 @@ describe('COACH_UPDATE_NOTICE', () => {
 
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(String((fetchImpl as unknown as { mock: { calls: unknown[][] } }).mock.calls[0]?.[0])).toBe(
-      'https://raw.githubusercontent.com/acme/coach/main/apps/cli/package.json',
+      'https://raw.githubusercontent.com/kappa/coach/main/apps/cli/package.json',
     );
     expect(written).toEqual([`appctl 999.0.0 is available (you have ${CLI_VERSION}). Update: git pull && npm ci && npm run build\n`]);
   });

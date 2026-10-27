@@ -2,7 +2,7 @@
 
 This repository is a starting point, never a destination. Forking it and
 keeping the placeholder name for more than a day is the most common way a
-project ends up with "Acme Hub" in its README and the old template name
+project ends up with "Kappa Hub" in its README and the old template name
 baked into a published OpenAPI document, a database backup filename, and a
 dozen other places nobody thought to check. This guide is the complete
 runbook — read it once, end to end, before you run anything.
@@ -46,7 +46,7 @@ runtime read can reach, each with its declared hit count:
 | `apps/cli/package.json` `bin` key (with `--cli-name`) | Read by npm; a test pins it to `cliName` |
 
 ```bash
-node scripts/rename.mjs --name "Acme Hub" --repo oscar/acme-hub [--cli-name acmectl] [--theme '#7c3aed'] [--dry-run]
+node scripts/rename.mjs --name "Kappa Hub" --repo oscar/kappa-hub [--cli-name kappactl] [--theme '#7c3aed'] [--dry-run]
 ```
 
 It re-renders `infra/` with `platform-infra sync` when the packages are
@@ -69,7 +69,7 @@ Pick one of two equivalent routes:
 **Directly:**
 
 ```bash
-node scripts/rename.mjs --name "Acme Hub" --repo oscar/acme-hub --theme '#7c3aed'
+node scripts/rename.mjs --name "Kappa Hub" --repo oscar/kappa-hub --theme '#7c3aed'
 ```
 
 Either way, four things follow the codemod, and none of them are optional
@@ -144,7 +144,7 @@ not after.
 ## Every flag
 
 ```
-node scripts/rename.mjs --name "Acme Hub" [options]
+node scripts/rename.mjs --name "Kappa Hub" [options]
 
   --name <string>        Product display name. The one value most surfaces derive from.
   --repo <owner/name>    GitHub repository slug. Published in the OpenAPI document.
@@ -164,7 +164,7 @@ At least one of --name/--repo/--theme/--background/--tagline/--cli-name is requi
 3-digit shorthand and `rgb()` forms aren't reliably accepted there. `--repo`
 must match `owner/name`. `--cli-name` must be lowercase letters, digits and
 hyphens starting with a letter, because it becomes both a dotfile directory
-(`~/.acmectl/`) and an environment-variable prefix (`ACMECTL_`) — see the
+(`~/.kappactl/`) and an environment-variable prefix (`KAPPACTL_`) — see the
 next section.
 
 A worked example — starting from a fork that has already been through one
@@ -172,11 +172,11 @@ rename (its manifest currently says `"Prior Name"` / `prior/prior-repo`) and
 is being renamed again, with `--dry-run` so nothing is written:
 
 ```bash
-node scripts/rename.mjs --name "Acme Hub" --repo oscar/acme-hub --theme '#7c3aed' --dry-run
+node scripts/rename.mjs --name "Kappa Hub" --repo oscar/kappa-hub --theme '#7c3aed' --dry-run
 ```
 
 ```
-Planned edits (Prior Name -> Acme Hub):
+Planned edits (Prior Name -> Kappa Hub):
 
   ~ README.md  1x  "# Prior Name\n"
   ~ README.md  1x  "A production-grade full-stack application foundation..."
@@ -198,9 +198,9 @@ Planned edits (Prior Name -> Acme Hub):
   ~ apps/web/public/icons/source.svg  1x  "fill=\"#0044cc\""
 
   ~ packages/shared/identity.json  (structured write)
-      productName: "Acme Hub"
+      productName: "Kappa Hub"
       tagline: "A production-grade full-stack application foundation..."
-      repoSlug: "oscar/acme-hub"
+      repoSlug: "oscar/kappa-hub"
       themeColor: "#7c3aed"
       backgroundColor: "#ffffff"
 
@@ -214,7 +214,7 @@ holds, not the fictional values above.)
 ## The binary-name decision
 
 `--cli-name` is deliberately a separate flag from `--name`, not a value
-derived from it. A product called "Acme Hub" may well still ship a binary
+derived from it. A product called "Kappa Hub" may well still ship a binary
 called `appctl` — `git` isn't called `github-cli`, `kubectl` isn't called
 `kubernetes-cli`, and there's no reason a fork's control client should be
 forced to match the product name syllable-for-syllable. `apps/cli/src/branding.ts`
@@ -288,7 +288,7 @@ human, in this order:
 4. **Rename the repository on GitHub, then re-point the local remote:**
 
    ```bash
-   git remote set-url origin https://github.com/oscar/acme-hub.git
+   git remote set-url origin https://github.com/oscar/kappa-hub.git
    ```
 
 5. **Update the OAuth redirect URIs** in the Google Cloud Console (and any
@@ -386,8 +386,8 @@ keeps only its composition, its domain code and its appearance.
 
 ```bash
 npm run build:packages   # lets create render infra/ with this checkout's platform-infra
-node scripts/new-project.mjs create --dir ../acme-hub --name "Acme Hub" --repo oscar/acme-hub \
-  [--cli acmectl] [--theme '#c62828'] [--license mit --holder "Acme Inc"] [--dry-run]
+node scripts/new-project.mjs create --dir ../kappa-hub --name "Kappa Hub" --repo oscar/kappa-hub \
+  [--cli kappactl] [--theme '#c62828'] [--license mit --holder "Org Kappa"] [--dry-run]
 ```
 
 `create`:
@@ -396,7 +396,7 @@ node scripts/new-project.mjs create --dir ../acme-hub --name "Acme Hub" --repo o
 2. copies `starter/` (no `node_modules`, build output or lockfile);
 3. runs the copy's own `scripts/rename.mjs`, which writes `identity.json`,
    sets the [literal targets](#renaming-an-app-started-from-the-starter) and
-   re-renders `infra/` (the worker fragment then carries `ACMECTL_*`);
+   re-renders `infra/` (the worker fragment then carries `KAPPACTL_*`);
 4. writes `LICENSE` when asked;
 5. sets `CHANGELOG.md` to `[Unreleased]` + `[0.1.0]` and every version to `0.1.0`;
 6. runs `git init`, and **never commits**;

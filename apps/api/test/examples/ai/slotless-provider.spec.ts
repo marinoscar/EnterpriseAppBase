@@ -23,7 +23,7 @@ import { closeTestApp, createTestApp, type TestContext } from '../../helpers/tes
 import { resetPrismaMock } from '../../mocks/prisma.mock';
 
 const BASE = '/api/admin/ai';
-const SLOTLESS_ID = 'acme-llm';
+const SLOTLESS_ID = 'kappa-llm';
 
 describe('a registered provider without a settings slot (#921)', () => {
   let context: TestContext;

@@ -50,7 +50,7 @@ export interface EmailToneStyle {
  *
  * @example
  * ```ts
- * EmailModule.forRoot({ appName: 'Acme', layout: { theme: { colors: { brand: '#0f766e' } } } });
+ * EmailModule.forRoot({ appName: 'Org Kappa', layout: { theme: { colors: { brand: '#0f766e' } } } });
  * ```
  *
  * @extensionPoint theme-token

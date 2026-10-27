@@ -37,7 +37,7 @@ import { githubRawManifest, type UpdateNoticeOptions } from '@marinoscar/platfor
 // =============================================================================
 
 /** Where the app's CLI version lives, for `githubRawManifest`. */
-export const COACH_MANIFEST = { repo: 'acme/coach', ref: 'main', path: 'apps/cli/package.json' } as const;
+export const COACH_MANIFEST = { repo: 'kappa/coach', ref: 'main', path: 'apps/cli/package.json' } as const;
 
 /** The update notice of an app whose CLI is released from its repository's default branch. */
 export const COACH_UPDATE_NOTICE: UpdateNoticeOptions = {

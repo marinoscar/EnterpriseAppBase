@@ -46,7 +46,7 @@ export const OVERRIDE_NS: SystemSettingsNamespace = {
   putSchema: brandingStored,
   wirePatchSchema: brandingStored.partial(),
   responseSchema: brandingStored,
-  defaults: { label: 'Acme', accent: 'blue', pageSize: 20, showBanner: false, tags: [] },
+  defaults: { label: 'Org Kappa', accent: 'blue', pageSize: 20, showBanner: false, tags: [] },
   requiredOnPut: false,
   merge: (current, patch) => ({ ...(current as object), ...((patch as object) ?? {}) }),
   org: {

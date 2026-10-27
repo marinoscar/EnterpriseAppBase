@@ -722,7 +722,7 @@ describe('appctl deploy doctor --repo', () => {
       throw new Error(`${argv[0] ?? ''}: command not found`);
     }) as typeof import('../deploy/executor.js').runCommand;
 
-    const result = await runDoctor(['--repo', 'https://github.com/acme/widgets'], [capturingCheck(seen)], {
+    const result = await runDoctor(['--repo', 'https://github.com/kappa/widgets'], [capturingCheck(seen)], {
       runCommand: lsRemoteFails,
     });
 
@@ -730,16 +730,16 @@ describe('appctl deploy doctor --repo', () => {
     // git ls-remote fails (no real network/process in this test), so the
     // clone is judged unable to authenticate -- exactly the state that
     // promotes gh-installed/gh-authenticated to required.
-    expect(seen).toEqual([{ repoUrl: 'https://github.com/acme/widgets', gitCredentialed: false }]);
+    expect(seen).toEqual([{ repoUrl: 'https://github.com/kappa/widgets', gitCredentialed: false }]);
   });
 
   it('leaves gitCredentialed unset for a non-HTTPS-GitHub --repo (never probed)', async () => {
     const seen: Array<{ repoUrl: string | undefined; gitCredentialed: boolean | undefined }> = [];
 
-    const result = await runDoctor(['--repo', 'git@github.com:acme/widgets.git'], [capturingCheck(seen)]);
+    const result = await runDoctor(['--repo', 'git@github.com:kappa/widgets.git'], [capturingCheck(seen)]);
 
     expect(result.error).toBeUndefined();
-    expect(seen).toEqual([{ repoUrl: 'git@github.com:acme/widgets', gitCredentialed: undefined }]);
+    expect(seen).toEqual([{ repoUrl: 'git@github.com:kappa/widgets', gitCredentialed: undefined }]);
   });
 });
 

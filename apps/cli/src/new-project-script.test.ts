@@ -487,10 +487,10 @@ describe('starter/ depends on published platform versions only (issue #741)', ()
 describe('scripts/new-project.mjs create refusals (issue #741)', () => {
   it('--dry-run writes nothing, not even the target directory', () => {
     const parent = mkdtempSync(join(tmpdir(), 'new-project-create-'));
-    const dir = join(parent, 'acme');
+    const dir = join(parent, 'kappa');
     const statusBefore = gitPorcelainStatus();
     try {
-      const result = runCreate(['--dir', dir, '--name', 'Acme Hub', '--repo', 'acme/acme-hub', '--cli', 'acmectl', '--dry-run']);
+      const result = runCreate(['--dir', dir, '--name', 'Kappa Hub', '--repo', 'kappa/kappa-hub', '--cli', 'kappactl', '--dry-run']);
       expect(result.status, result.stderr).toBe(0);
       expect(result.stdout).toMatch(/Planned edits/);
       expect(result.stdout).toMatch(/nothing was written/);
@@ -505,7 +505,7 @@ describe('scripts/new-project.mjs create refusals (issue #741)', () => {
     const dir = mkdtempSync(join(tmpdir(), 'new-project-create-'));
     writeFileSync(join(dir, 'keep.txt'), 'mine');
     try {
-      const result = runCreate(['--dir', dir, '--name', 'Acme Hub', '--repo', 'acme/acme-hub']);
+      const result = runCreate(['--dir', dir, '--name', 'Kappa Hub', '--repo', 'kappa/kappa-hub']);
       expect(result.status).not.toBe(0);
       expect(result.stderr).toMatch(/not empty/);
       expect(readdirSync(dir)).toEqual(['keep.txt']);
@@ -515,17 +515,17 @@ describe('scripts/new-project.mjs create refusals (issue #741)', () => {
   });
 
   it('refuses a --dir inside this repository', () => {
-    const result = runCreate(['--dir', join(REPO_ROOT, 'worktrees', 'never-created'), '--name', 'Acme Hub', '--repo', 'acme/acme-hub', '--dry-run']);
+    const result = runCreate(['--dir', join(REPO_ROOT, 'worktrees', 'never-created'), '--name', 'Kappa Hub', '--repo', 'kappa/kappa-hub', '--dry-run']);
     expect(result.status).not.toBe(0);
     expect(result.stderr).toMatch(/inside this repository/);
   });
 
   it('requires --dir, --name and --repo, and validates the identity', () => {
-    expect(runCreate(['--name', 'Acme Hub', '--repo', 'acme/acme-hub']).stderr).toMatch(/--dir/);
-    expect(runCreate(['--dir', '/tmp/x', '--repo', 'acme/acme-hub']).stderr).toMatch(/--name/);
+    expect(runCreate(['--name', 'Kappa Hub', '--repo', 'kappa/kappa-hub']).stderr).toMatch(/--dir/);
+    expect(runCreate(['--dir', '/tmp/x', '--repo', 'kappa/kappa-hub']).stderr).toMatch(/--name/);
     const parent = mkdtempSync(join(tmpdir(), 'new-project-create-'));
     try {
-      const bad = runCreate(['--dir', join(parent, 'a'), '--name', 'Acme Hub', '--repo', 'acme/acme-hub', '--theme', '#fff', '--dry-run']);
+      const bad = runCreate(['--dir', join(parent, 'a'), '--name', 'Kappa Hub', '--repo', 'kappa/kappa-hub', '--theme', '#fff', '--dry-run']);
       expect(bad.status).not.toBe(0);
       expect(bad.stderr).toMatch(/6-digit hex/);
     } finally {
@@ -541,8 +541,8 @@ describe('scripts/new-project.mjs create (issue #741)', () => {
 
   beforeAll(() => {
     parent = mkdtempSync(join(tmpdir(), 'new-project-create-'));
-    dir = join(parent, 'acme-hub');
-    result = runCreate(['--dir', dir, '--name', EXAMPLE_IDENTITY.name, '--repo', 'acme/acme-hub', '--cli', 'acmectl', '--license', 'mit', '--holder', 'Acme Inc']);
+    dir = join(parent, 'kappa-hub');
+    result = runCreate(['--dir', dir, '--name', EXAMPLE_IDENTITY.name, '--repo', 'kappa/kappa-hub', '--cli', 'kappactl', '--license', 'mit', '--holder', 'Org Kappa']);
   }, CREATE_TIMEOUT_MS);
 
   afterAll(() => {
@@ -564,19 +564,19 @@ describe('scripts/new-project.mjs create (issue #741)', () => {
 
   it('writes the new identity, CLI name included', () => {
     const identity = JSON.parse(readFileSync(join(dir, 'packages', 'shared', 'identity.json'), 'utf8'));
-    expect(identity).toMatchObject({ productName: EXAMPLE_IDENTITY.name, repoSlug: 'acme/acme-hub', cliName: 'acmectl' });
+    expect(identity).toMatchObject({ productName: EXAMPLE_IDENTITY.name, repoSlug: 'kappa/kappa-hub', cliName: 'kappactl' });
     const cli = JSON.parse(readFileSync(join(dir, 'apps', 'cli', 'package.json'), 'utf8')) as { bin: Record<string, string> };
-    expect(Object.keys(cli.bin)).toEqual(['acmectl']);
+    expect(Object.keys(cli.bin)).toEqual(['kappactl']);
     const root = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as { name: string };
-    expect(root.name).toBe('acme-hub');
+    expect(root.name).toBe('kappa-hub');
   });
 
-  it.skipIf(!INFRA_BUILT)('renders the worker fragment with ACMECTL_* (needs `npm run build:packages`)', () => {
+  it.skipIf(!INFRA_BUILT)('renders the worker fragment with KAPPACTL_* (needs `npm run build:packages`)', () => {
     const worker = readFileSync(join(dir, 'infra', 'compose', 'worker.compose.yml'), 'utf8');
-    expect(worker).toMatch(/ACMECTL_TOKEN/);
+    expect(worker).toMatch(/KAPPACTL_TOKEN/);
     expect(worker).not.toMatch(/APPCTL_/);
     const base = readFileSync(join(dir, 'infra', 'compose', 'base.compose.yml'), 'utf8');
-    expect(base).toContain('acme-hub-api');
+    expect(base).toContain('kappa-hub-api');
   });
 
   it.skipIf(!INFRA_BUILT)('leaves no value of the starter identity anywhere in the project', () => {
@@ -590,7 +590,7 @@ describe('scripts/new-project.mjs create (issue #741)', () => {
     for (const manifest of ['package.json', 'apps/api/package.json', 'apps/web/package.json', 'apps/cli/package.json']) {
       expect(JSON.parse(readFileSync(join(dir, manifest), 'utf8')).version).toBe('0.1.0');
     }
-    expect(readFileSync(join(dir, 'LICENSE'), 'utf8')).toMatch(/^MIT License\n\nCopyright \(c\) \d{4} Acme Inc/);
+    expect(readFileSync(join(dir, 'LICENSE'), 'utf8')).toMatch(/^MIT License\n\nCopyright \(c\) \d{4} Org Kappa/);
     expect(readFileSync(join(dir, 'README.md'), 'utf8')).toContain('MIT — see [LICENSE](LICENSE).');
     expect(existsSync(join(dir, '.git'))).toBe(true);
     const commits = runGit(dir, ['rev-list', '--all', '--count']);
@@ -599,7 +599,7 @@ describe('scripts/new-project.mjs create (issue #741)', () => {
 
   it('is idempotent: the copy\'s own rename.mjs with the same arguments changes nothing', () => {
     const before = snapshot(dir);
-    const again = runIn(dir, ['--name', EXAMPLE_IDENTITY.name, '--repo', 'acme/acme-hub', '--cli-name', 'acmectl', '--force'], join(dir, 'scripts', 'rename.mjs'));
+    const again = runIn(dir, ['--name', EXAMPLE_IDENTITY.name, '--repo', 'kappa/kappa-hub', '--cli-name', 'kappactl', '--force'], join(dir, 'scripts', 'rename.mjs'));
     expect(again.status, again.stderr).toBe(0);
     expect(again.stdout).toMatch(/every target already carries the new values/);
     expect(snapshot(dir)).toEqual(before);

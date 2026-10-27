@@ -54,7 +54,7 @@ import {
 // only thing that decides whether they open it. Inbox lists truncate the
 // subject at something like 35–50 characters on a phone, so a prefix eats the
 // front of every announcement and turns "Planned maintenance this Saturday"
-// into "[Acme Portal] Planned maintenan…". An admin who wrote a subject gets
+// into "[Kappa Portal] Planned maintenan…". An admin who wrote a subject gets
 // that subject.
 //
 // -----------------------------------------------------------------------------

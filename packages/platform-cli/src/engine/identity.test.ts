@@ -25,7 +25,7 @@ import {
 // so they keep proving the rule in a fork that renames `appctl`.
 // =============================================================================
 
-const ACME = { name: 'acmectl', displayName: 'Acme CLI', repoSlug: 'acme/acme' };
+const KAPPA = { name: 'kappactl', displayName: 'Kappa CLI', repoSlug: 'kappa/kappa' };
 
 let restore: (() => void) | undefined;
 afterEach(() => {
@@ -35,48 +35,48 @@ afterEach(() => {
 
 describe('resolveCliIdentity', () => {
   it('derives the config directory and env prefix from the name', () => {
-    const resolved = resolveCliIdentity(ACME);
-    expect(resolved.configDirName).toBe('.acmectl');
-    expect(resolved.envPrefix).toBe('ACMECTL_');
-    expect(resolved.productName).toBe('Acme CLI');
+    const resolved = resolveCliIdentity(KAPPA);
+    expect(resolved.configDirName).toBe('.kappactl');
+    expect(resolved.envPrefix).toBe('KAPPACTL_');
+    expect(resolved.productName).toBe('Kappa CLI');
     expect(resolved.configFileName).toBe('config.json');
   });
 
   it('keeps an explicit config directory and env prefix (a migrated app)', () => {
-    const resolved = resolveCliIdentity({ ...ACME, configDirName: '.old', envPrefix: 'OLD_' });
+    const resolved = resolveCliIdentity({ ...KAPPA, configDirName: '.old', envPrefix: 'OLD_' });
     expect(resolved.configDirName).toBe('.old');
     expect(resolved.envPrefix).toBe('OLD_');
   });
 
   it('refuses a name that cannot be a dotfile directory and env prefix', () => {
-    for (const name of ['', 'Acme', 'acme ctl', 'acme.ctl', '1acme']) {
-      expect(() => resolveCliIdentity({ ...ACME, name })).toThrow(/invalid/);
+    for (const name of ['', 'Org Kappa', 'kappa ctl', 'kappa.ctl', '1kappa']) {
+      expect(() => resolveCliIdentity({ ...KAPPA, name })).toThrow(/invalid/);
     }
-    expect(() => resolveCliIdentity({ ...ACME, envPrefix: 'acme-' })).toThrow(/env-var prefix/);
-    expect(() => resolveCliIdentity({ ...ACME, repoSlug: 'nope' })).toThrow(/owner\/repo/);
+    expect(() => resolveCliIdentity({ ...KAPPA, envPrefix: 'kappa-' })).toThrow(/env-var prefix/);
+    expect(() => resolveCliIdentity({ ...KAPPA, repoSlug: 'nope' })).toThrow(/owner\/repo/);
   });
 
   it('never yields a config file name a machine-level gitignore would swallow', () => {
-    expect(resolveCliIdentity(ACME).configFileName).not.toMatch(/^(credentials|secrets)\.json$/);
+    expect(resolveCliIdentity(KAPPA).configFileName).not.toMatch(/^(credentials|secrets)\.json$/);
   });
 });
 
 describe('toEnvPrefix', () => {
   it('uppercases, replaces non-identifier characters and guards a leading digit', () => {
     expect(toEnvPrefix('appctl')).toBe('APPCTL_');
-    expect(toEnvPrefix('acme-cli')).toBe('ACME_CLI_');
+    expect(toEnvPrefix('kappa-cli')).toBe('KAPPA_CLI_');
     expect(toEnvPrefix('9ctl')).toBe('_9CTL_');
   });
 });
 
 describe('accessors', () => {
   it('read the identity at call time, so a replaced identity is seen at once', () => {
-    restore = replaceCliIdentityForTests(ACME);
-    expect(cliName()).toBe('acmectl');
-    expect(cliDisplayName()).toBe('Acme CLI');
-    expect(envPrefix()).toBe('ACMECTL_');
-    expect(envVar('TOKEN')).toBe('ACMECTL_TOKEN');
-    expect(configDirName()).toBe('.acmectl');
+    restore = replaceCliIdentityForTests(KAPPA);
+    expect(cliName()).toBe('kappactl');
+    expect(cliDisplayName()).toBe('Kappa CLI');
+    expect(envPrefix()).toBe('KAPPACTL_');
+    expect(envVar('TOKEN')).toBe('KAPPACTL_TOKEN');
+    expect(configDirName()).toBe('.kappactl');
     expect(configFileName()).toBe('config.json');
   });
 
@@ -89,17 +89,17 @@ describe('accessors', () => {
 describe('setCliIdentity', () => {
   it('is set-once: a different identity throws, the same one is a no-op', () => {
     restore = replaceCliIdentityForTests(undefined);
-    setCliIdentity(ACME, '1.2.3');
-    expect(() => setCliIdentity(ACME, '1.2.3')).not.toThrow();
-    expect(() => setCliIdentity({ ...ACME, name: 'otherctl' }, '1.2.3')).toThrow(/already set/);
-    expect(() => setCliIdentity(ACME, '9.9.9')).toThrow(/already set/);
-    expect(cliIdentity().name).toBe('acmectl');
+    setCliIdentity(KAPPA, '1.2.3');
+    expect(() => setCliIdentity(KAPPA, '1.2.3')).not.toThrow();
+    expect(() => setCliIdentity({ ...KAPPA, name: 'otherctl' }, '1.2.3')).toThrow(/already set/);
+    expect(() => setCliIdentity(KAPPA, '9.9.9')).toThrow(/already set/);
+    expect(cliIdentity().name).toBe('kappactl');
   });
 });
 
 describe('the fixed live-server literals (the deployed-server compatibility contract)', () => {
   it('do not follow the identity', () => {
-    restore = replaceCliIdentityForTests(ACME);
+    restore = replaceCliIdentityForTests(KAPPA);
     expect(DEPLOY_STATE_FILENAME).toBe('.appctl-deploy.json');
     expect(PROXY_MANAGED_SENTINEL).toBe('# Managed by appctl deploy');
   });

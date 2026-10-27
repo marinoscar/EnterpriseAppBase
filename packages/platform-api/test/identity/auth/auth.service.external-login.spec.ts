@@ -355,13 +355,13 @@ describe('AuthService.completeExternalLogin', () => {
     });
 
     it('fails closed when the policy throws, without leaking its message into the error', async () => {
-      const policy: SignInPolicy = { beforeLogin: jest.fn().mockRejectedValue(new Error('claim tenant=acme missing')) };
+      const policy: SignInPolicy = { beforeLogin: jest.fn().mockRejectedValue(new Error('claim tenant=kappa missing')) };
       const harness = await bound(policy);
       await withGithub(async () => {
         const error = await harness.service.completeExternalLogin(profile()).catch((e) => e);
         expect(error).toBeInstanceOf(Error);
         expect(error).not.toBeInstanceOf(AuthLoginDeniedException);
-        expect(String(error.message)).not.toContain('acme');
+        expect(String(error.message)).not.toContain('kappa');
         expect(harness.prisma.user.create).not.toHaveBeenCalled();
       });
     });

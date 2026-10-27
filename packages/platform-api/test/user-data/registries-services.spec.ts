@@ -73,7 +73,7 @@ function services(env: { deploymentMode?: 'self-hosted' | 'saas'; tenancyMode?: 
     user: [{ id: USER }],
     notification: [{ id: 'n1', userId: USER }],
     job: [{ id: 'j-other', type: 'user.data.purge', subjectType: 'user', subjectId: 'someone-else', status: 'pending', payload: {} }],
-    organization: [{ id: ORG, name: 'Acme', slug: 'acme', isDefault: false }, { id: 'def', name: 'Default', slug: 'default', isDefault: true }],
+    organization: [{ id: ORG, name: 'Org Kappa', slug: 'kappa', isDefault: false }, { id: 'def', name: 'Default', slug: 'default', isDefault: true }],
     membership: [],
     invite: [],
   });
@@ -137,22 +137,22 @@ describe('FactoryResetService', () => {
 describe('OrgOffboardingService', () => {
   it('answers 409 in single-organization mode', async () => {
     const { offboard } = services({ tenancyMode: 'single' });
-    await expect(offboard.request(USER, ORG, { confirmation: 'acme' })).rejects.toBeInstanceOf(ConflictException);
+    await expect(offboard.request(USER, ORG, { confirmation: 'kappa' })).rejects.toBeInstanceOf(ConflictException);
     await expect(offboard.summary(ORG)).rejects.toBeInstanceOf(ConflictException);
   });
 
   it('refuses the default organization and a wrong slug', async () => {
     const { offboard } = services();
     await expect(offboard.request(USER, 'def', { confirmation: 'default' })).rejects.toBeInstanceOf(ConflictException);
-    await expect(offboard.request(USER, ORG, { confirmation: 'ACME' })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(offboard.request(USER, ORG, { confirmation: 'KAPPA' })).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('blocks on a failing precondition unless skipExport gives a reason, which the audit records', async () => {
     preconditionPasses = false;
     const { offboard, jobs, audit } = services();
-    await expect(offboard.request(USER, ORG, { confirmation: 'acme' })).rejects.toBeInstanceOf(ConflictException);
+    await expect(offboard.request(USER, ORG, { confirmation: 'kappa' })).rejects.toBeInstanceOf(ConflictException);
     expect(jobs.enqueue).not.toHaveBeenCalled();
-    await offboard.request(USER, ORG, { confirmation: 'acme', userDisposition: 'purge', skipExport: { reason: 'customer exported it' } });
+    await offboard.request(USER, ORG, { confirmation: 'kappa', userDisposition: 'purge', skipExport: { reason: 'customer exported it' } });
     expect(jobs.enqueue).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'org.offboard', subjectType: 'organization', subjectId: ORG, payload: { orgId: ORG, actorUserId: USER, userDisposition: 'purge' } }),
     );

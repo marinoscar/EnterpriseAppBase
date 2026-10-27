@@ -4,21 +4,21 @@ import { createOrgInviteSchema } from '../../../../src/identity/organizations/dt
 
 describe('org administration DTOs (#726)', () => {
   describe('createOrganizationSchema', () => {
-    const valid = { name: '  Acme Corp ', slug: 'acme-corp', firstAdminEmail: 'Boss@Acme.COM' };
+    const valid = { name: '  Org Kappa ', slug: 'kappa', firstAdminEmail: 'Boss@KAPPA.EXAMPLE.TEST' };
 
     it('trims the name and lower-cases the first admin email', () => {
       expect(createOrganizationSchema.parse(valid)).toEqual({
-        name: 'Acme Corp',
-        slug: 'acme-corp',
-        firstAdminEmail: 'boss@acme.com',
+        name: 'Org Kappa',
+        slug: 'kappa',
+        firstAdminEmail: 'boss@kappa.example.test',
       });
     });
 
-    it.each(['a', '-acme', 'acme-', 'ac me', 'acme_corp', 'x'.repeat(64)])('rejects the slug %p', (slug) => {
+    it.each(['a', '-kappa', 'kappa-', 'ac me', 'kappa_org', 'x'.repeat(64)])('rejects the slug %p', (slug) => {
       expect(() => createOrganizationSchema.parse({ ...valid, slug })).toThrow();
     });
 
-    it.each(['ab', 'acme', 'a1-b2', 'x'.repeat(63)])('accepts the slug %p', (slug) => {
+    it.each(['ab', 'kappa', 'a1-b2', 'x'.repeat(63)])('accepts the slug %p', (slug) => {
       expect(createOrganizationSchema.parse({ ...valid, slug }).slug).toBe(slug);
     });
 

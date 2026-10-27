@@ -45,17 +45,17 @@ describe('usePlatformPort (extension ports)', () => {
   interface TranscriptsPort {
     open(id: string): string;
   }
-  const SYMBOL_KEY = Symbol.for('@acme/transcripts/port');
+  const SYMBOL_KEY = Symbol.for('@kappa/transcripts/port');
   const wrap = (host: ReturnType<typeof createTestPlatformHost>) =>
     ({ children }: { children: ReactNode }) => <PlatformHostProvider host={host}>{children}</PlatformHostProvider>;
 
   it('returns the port the app supplied under a string key or a symbol', () => {
     const port: TranscriptsPort = { open: (id) => `opened ${id}` };
     const other = { other: true };
-    const host = createTestPlatformHost({ extensions: { 'acme.transcripts': port, [SYMBOL_KEY]: other } });
+    const host = createTestPlatformHost({ extensions: { 'kappa.transcripts': port, [SYMBOL_KEY]: other } });
 
     const { result } = renderHook(
-      () => ({ byString: usePlatformPort<TranscriptsPort>('acme.transcripts'), bySymbol: usePlatformPort<typeof other>(SYMBOL_KEY) }),
+      () => ({ byString: usePlatformPort<TranscriptsPort>('kappa.transcripts'), bySymbol: usePlatformPort<typeof other>(SYMBOL_KEY) }),
       { wrapper: wrap(host) },
     );
 
@@ -65,12 +65,12 @@ describe('usePlatformPort (extension ports)', () => {
   });
 
   it('throws an error naming the key when the app did not supply the port', () => {
-    const host = createTestPlatformHost({ extensions: { 'acme.other': {} } });
-    expect(() => renderHook(() => usePlatformPort('acme.transcripts'), { wrapper: wrap(host) })).toThrow(
-      /no extension port acme\.transcripts.*host\.extensions\["acme\.transcripts"\]/,
+    const host = createTestPlatformHost({ extensions: { 'kappa.other': {} } });
+    expect(() => renderHook(() => usePlatformPort('kappa.transcripts'), { wrapper: wrap(host) })).toThrow(
+      /no extension port kappa\.transcripts.*host\.extensions\["kappa\.transcripts"\]/,
     );
     expect(() => renderHook(() => usePlatformPort(SYMBOL_KEY), { wrapper: wrap(createTestPlatformHost()) })).toThrow(
-      /no extension port Symbol\(@acme\/transcripts\/port\)/,
+      /no extension port Symbol\(@kappa\/transcripts\/port\)/,
     );
   });
 
@@ -81,10 +81,10 @@ describe('usePlatformPort (extension ports)', () => {
   });
 
   it('throws outside the provider; the optional variant answers undefined there and for a missing port', () => {
-    expect(() => renderHook(() => usePlatformPort('acme.transcripts'))).toThrow(/no PlatformHostProvider/);
-    expect(renderHook(() => useOptionalPlatformPort('acme.transcripts')).result.current).toBeUndefined();
+    expect(() => renderHook(() => usePlatformPort('kappa.transcripts'))).toThrow(/no PlatformHostProvider/);
+    expect(renderHook(() => useOptionalPlatformPort('kappa.transcripts')).result.current).toBeUndefined();
     expect(
-      renderHook(() => useOptionalPlatformPort('acme.transcripts'), { wrapper: wrap(createTestPlatformHost()) }).result.current,
+      renderHook(() => useOptionalPlatformPort('kappa.transcripts'), { wrapper: wrap(createTestPlatformHost()) }).result.current,
     ).toBeUndefined();
   });
 });

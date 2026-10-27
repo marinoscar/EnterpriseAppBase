@@ -97,12 +97,12 @@ describe('push subscription platform (notifications contract)', () => {
 describe('androidIdentity', () => {
   it("derives EvoPath's Gradle defaults from the repository name", async () => {
     const { androidIdentity } = await import('../src/android-app/index.js');
-    expect(androidIdentity({ productName: 'Acme Hub', repoSlug: 'acme/acme-hub' })).toEqual({
-      label: 'Acme Hub',
-      applicationId: 'com.acmehub.android',
-      deepLinkScheme: 'acme-hub-android',
-      storagePrefix: 'acmehub',
-      apkStem: 'acme-hub-android',
+    expect(androidIdentity({ productName: 'Kappa Hub', repoSlug: 'kappa/kappa-hub' })).toEqual({
+      label: 'Kappa Hub',
+      applicationId: 'com.kappahub.android',
+      deepLinkScheme: 'kappa-hub-android',
+      storagePrefix: 'kappahub',
+      apkStem: 'kappa-hub-android',
     });
     expect(androidIdentity({ productName: '!!', repoSlug: 'o/9lives' })).toMatchObject({
       applicationId: 'com.app9lives.android',
@@ -110,12 +110,12 @@ describe('androidIdentity', () => {
       apkStem: 'app-android',
     });
     // The same values identity.gradle.kts derived for this identity (checked with a Gradle run).
-    expect(androidIdentity({ productName: 'Acme Rocket! Pro', repoSlug: 'acme/9Lives-App.v2', android: { storagePrefix: 'legacy_prefix' } })).toEqual({
-      label: 'Acme Rocket! Pro',
+    expect(androidIdentity({ productName: 'Kappa Rocket! Pro', repoSlug: 'kappa/9Lives-App.v2', android: { storagePrefix: 'legacy_prefix' } })).toEqual({
+      label: 'Kappa Rocket! Pro',
       applicationId: 'com.app9livesappv2.android',
       deepLinkScheme: 'app9lives-app.v2-android',
       storagePrefix: 'legacy_prefix',
-      apkStem: 'acme-rocket-pro-android',
+      apkStem: 'kappa-rocket-pro-android',
     });
   });
 

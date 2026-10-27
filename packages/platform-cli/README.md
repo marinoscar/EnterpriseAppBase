@@ -77,7 +77,7 @@ void main();
 
 | Option | Type | Default | Meaning |
 |---|---|---|---|
-| `identity` | `CliIdentity` | required | `name` (lowercase `[a-z0-9-]`, e.g. `appctl`), `displayName` (`Acme CLI`), `repoSlug` (`owner/repo`); optional `productName` (the systemd unit's Description; defaults to `displayName`), `configDirName` (defaults to `.<name>`), `envPrefix` (defaults to `toEnvPrefix(name)`, `APPCTL_`). Set once per process; a different second identity throws. |
+| `identity` | `CliIdentity` | required | `name` (lowercase `[a-z0-9-]`, e.g. `appctl`), `displayName` (`Kappa CLI`), `repoSlug` (`owner/repo`); optional `productName` (the systemd unit's Description; defaults to `displayName`), `configDirName` (defaults to `.<name>`), `envPrefix` (defaults to `toEnvPrefix(name)`, `APPCTL_`). Set once per process; a different second identity throws. |
 | `version` | `string` | required | The app's own version (its `package.json`). |
 | `extraCommands` | `CliCommandRegistration[]` | `[]` | Commands after the built-ins, in order. Same as `registerCliCommand`. |
 | `tuiScreens` | `TuiScreenRegistration[]` | `[]` | Screens in the TUI menu. Same as `registerTuiScreen`. |

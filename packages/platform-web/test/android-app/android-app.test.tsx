@@ -67,10 +67,10 @@ describe('TWA launch helpers', () => {
   });
 
   it('namespaces the keys by prefix', () => {
-    captureTwaLaunch('?source=twa&appVersionCode=3', 'acme');
-    expect(window.sessionStorage.getItem(twaSessionKeys('acme').versionCode)).toBe('3');
+    captureTwaLaunch('?source=twa&appVersionCode=3', 'kappa');
+    expect(window.sessionStorage.getItem(twaSessionKeys('kappa').versionCode)).toBe('3');
     expect(isRunningInTwa()).toBe(false);
-    expect(isRunningInTwa('acme')).toBe(true);
+    expect(isRunningInTwa('kappa')).toBe(true);
   });
 
   it('treats an android-app:// referrer as the TWA', () => {
@@ -85,7 +85,7 @@ describe('TWA launch helpers', () => {
   });
 
   it('shares the Gradle identity rule', () => {
-    expect(androidIdentity({ productName: 'Acme Hub', repoSlug: 'acme/acme-hub' }).applicationId).toBe('com.acmehub.android');
+    expect(androidIdentity({ productName: 'Kappa Hub', repoSlug: 'kappa/kappa-hub' }).applicationId).toBe('com.kappahub.android');
   });
 });
 

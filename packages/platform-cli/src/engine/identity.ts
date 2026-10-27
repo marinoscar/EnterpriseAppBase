@@ -19,7 +19,7 @@
 //   3. the environment-variable prefix, `<NAME>_`.
 //
 // If those three were three settings, a rename would leave a binary called
-// `acmectl` reading `~/.appctl/config.json` and answering to `APPCTL_TOKEN`,
+// `kappactl` reading `~/.appctl/config.json` and answering to `APPCTL_TOKEN`,
 // and nothing would fail.
 //
 // TWO STRINGS NEVER FOLLOW THE NAME. The deploy state file
@@ -41,10 +41,10 @@ export interface CliIdentity {
    * a letter: it becomes a dotfile directory and an env-var prefix.
    */
   name: string;
-  /** Human name for banners and `--help`, e.g. `Acme CLI`. */
+  /** Human name for banners and `--help`, e.g. `Kappa CLI`. */
   displayName: string;
   /**
-   * The product's own name, e.g. `Acme` (the systemd unit's Description).
+   * The product's own name, e.g. `Org Kappa` (the systemd unit's Description).
    * Defaults to `displayName`.
    */
   productName?: string | undefined;
@@ -100,8 +100,8 @@ const NAME_PATTERN = /^[a-z][a-z0-9-]*$/;
 
 /**
  * Turns a CLI name into a legal environment-variable prefix: `appctl` to
- * `APPCTL_`, `acme-cli` to `ACME_CLI_`. A hyphen is illegal in a shell
- * identifier (`export ACME-CLI_TOKEN=x` is a syntax error), and so is a
+ * `APPCTL_`, `kappa-cli` to `KAPPA_CLI_`. A hyphen is illegal in a shell
+ * identifier (`export KAPPA-CLI_TOKEN=x` is a syntax error), and so is a
  * leading digit.
  *
  * @param name - A CLI name.
@@ -219,7 +219,7 @@ export function cliName(): string {
 }
 
 /**
- * The human name for banners, e.g. `Acme CLI`.
+ * The human name for banners, e.g. `Kappa CLI`.
  *
  * @returns `cliIdentity().displayName`.
  * @stability experimental

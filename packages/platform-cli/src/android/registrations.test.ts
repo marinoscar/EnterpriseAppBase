@@ -18,13 +18,13 @@ function program(): Command {
 describe('androidCommand', () => {
   it('lists the merged subcommands', () => {
     const root = program();
-    androidCommand({ identity: { productName: 'Acme Hub', repoSlug: 'acme/acme-hub' } })(root);
+    androidCommand({ identity: { productName: 'Kappa Hub', repoSlug: 'kappa/kappa-hub' } })(root);
     const android = root.commands.find((command) => command.name() === 'android')!;
     expect(android.commands.map((command) => command.name()).sort()).toEqual(
       ['build', 'doctor', 'keystore', 'publish', 'release', 'releases', 'version'],
     );
     expect(android.helpInformation()).toContain('doctor');
-    expect(readAndroidIdentity().applicationId).toBe('com.acmehub.android');
+    expect(readAndroidIdentity().applicationId).toBe('com.kappahub.android');
   });
 
   it('runs `android doctor` without a keystore and reports what is missing', async () => {

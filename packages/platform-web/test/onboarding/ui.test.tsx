@@ -28,7 +28,7 @@ describe('WelcomeDialog', () => {
     const host = hostWith(stateful(response()));
     renderWithOnboarding(host, <WelcomeDialog />);
     const dialog = await screen.findByRole('dialog');
-    expect(dialog).toHaveAccessibleName('Welcome to Acme');
+    expect(dialog).toHaveAccessibleName('Welcome to Org Kappa');
     expect(dialog).toHaveAccessibleDescription(/short checklist/);
     fireEvent.click(within(dialog).getByRole('button', { name: 'Later' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());

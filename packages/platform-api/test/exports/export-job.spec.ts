@@ -91,6 +91,6 @@ describe('ExportsModule options', () => {
     expect(exportFileSlug('My App!')).toBe('my-app');
     expect(exportFileSlug('Évo Path')).toBe('evo-path');
     expect(exportFileSlug('***')).toBe('app');
-    expect(resolveExportsModuleOptions({ datamodel: FIXTURE_DATAMODEL, appSlug: () => 'Acme Corp' }).appSlug()).toBe('acme-corp');
+    expect(resolveExportsModuleOptions({ datamodel: FIXTURE_DATAMODEL, appSlug: () => 'Org Kappa' }).appSlug()).toBe('org-kappa');
   });
 });

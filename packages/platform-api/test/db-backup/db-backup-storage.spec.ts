@@ -14,7 +14,7 @@ import { DatabaseBackupStorageProviderError } from '../../src/db-backup/db-backu
 describe('backup storage keys', () => {
   // The app passes its name through `DbBackupModule.forRoot({ appName })`
   // (#740); a package never imports the app's `APP_NAME`.
-  const FORK_NAME = 'Acme Field Ops';
+  const FORK_NAME = 'Kappa Field Ops';
 
   beforeAll(() => {
     configureBackupNameSlug(FORK_NAME);
@@ -57,7 +57,7 @@ describe('backup storage keys', () => {
     // The slug is DERIVED, so a fork that rebrands gets a rebranded key space
     // and two applications from this template can share one bucket. The
     // assertion is deliberately about derivation, not about a literal.
-    expect(BACKUP_NAME_SLUG).toBe('acme-field-ops');
+    expect(BACKUP_NAME_SLUG).toBe('kappa-field-ops');
     expect(slugifyAppName('  ***  ')).toBe('app');
     expect(BACKUP_KEY_PREFIX).toBe('database-backups/');
   });
