@@ -1,5 +1,11 @@
 # @marinoscar/platform-infra
 
+## 0.1.0-next.18
+
+### Patch Changes
+
+- bca937b: Example names in doc comments, README examples and schema examples are replaced with invented placeholders (Org Kappa, Org Sigma, Org Theta and similar) instead of well-known fictional brands. No behaviour change.
+
 ## 0.1.0-next.17
 
 ## 0.1.0-next.16

@@ -1,5 +1,19 @@
 # @marinoscar/platform-web
 
+## 0.1.0-next.18
+
+### Minor Changes
+
+- 1687d34: Make the user's time zone a core profile setting and render every packaged date in it. Contract: `TIME_ZONE_ID_MAX`, `isValidTimeZone` and `timeZoneIdSchema`; `profile.timezone` (an IANA id, absent means follow the device) on the stored profile, the response and the PATCH body (`null` clears it). API: the user settings service reads, merges and validates it (an invalid zone is a 400), and `timezone` joins `CORE_PROFILE_FIELDS`, so an app that registered `timezone` with `extendUserProfile` must drop that registration (the reference example now adds `pronouns`). Web: the display-zone store and the zone-aware formatters live in `@marinoscar/platform-web/core` (`getDisplayTimeZone`, `setPreferredTimeZone`, `useDisplayTimeZone`, `formatDateTime`, `formatDate`, `formatTime`, `zonedDateKey`, the `NUMERIC_*` presets; `/timezone/headless` re-exports them), and every packaged page (identity, AI, jobs, nodes, db-backup, notifications, storage, email, host, telemetry, exports, android-app, sharing, credentials) formats through them, so times follow the zone the user picked. The broadcast composer's "Send at" input reads and writes the user's zone. Deliberately UTC values (AI usage days, values labelled UTC, values sent to the server) are unchanged. Mount `UserTimeZoneSync` inside `AuthProvider` to load the user's zone at sign-in; without it, times follow the device as before.
+- c507202: Add the timezone slice: `@marinoscar/platform-web/timezone/headless` (the display-zone store `getDisplayTimeZone` / `setPreferredTimeZone` / `useDisplayTimeZone`, cached in `localStorage`; the formatters `formatDateTime`, `formatDate`, `formatTime`, `zonedDateKey`, `getTimeZoneOffsetMinutes` and `formatUtcOffset` that default to that zone; the zone catalog `listTimeZones`, `findTimeZone`, `searchTimeZones` and `nearestZone`; the map geometry; and `UserTimeZoneSync`) and `@marinoscar/platform-web/timezone/ui` (`TimeZoneMap`, a dot-matrix world map with the UTC-offset band; `TimeZonePickerDialog`, full screen on a phone; `TimeZoneField`, which lazy-loads the picker). The profile card (`ProfileSettings`, `UserProfilePage`) now draws and saves the core `profile.timezone` (`null` for automatic), and `useUserSettings` pushes it into the store on every load and save (`syncTimeZone`, default `true`). The identity sibling entry also exposes `useOptionalAuth`.
+
+### Patch Changes
+
+- bca937b: Example names in doc comments, README examples and schema examples are replaced with invented placeholders (Org Kappa, Org Sigma, Org Theta and similar) instead of well-known fictional brands. No behaviour change.
+- Updated dependencies [1687d34]
+- Updated dependencies [bca937b]
+  - @marinoscar/platform-contract@0.1.0-next.18
+
 ## 0.1.0-next.17
 
 ### Patch Changes

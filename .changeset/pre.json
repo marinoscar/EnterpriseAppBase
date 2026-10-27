@@ -75,6 +75,7 @@
     "core-org-scope-rls",
     "core-pluggable-kind",
     "core-principal-membership-status",
+    "core-profile-timezone",
     "core-vocabularies",
     "credentials-slice",
     "db-android-app",
@@ -127,6 +128,7 @@
     "platform-history-v1",
     "rbac-permission-scopes",
     "remove-dead-app-code",
+    "replace-fictional-brand-examples",
     "roles-assignable",
     "scoped-data-access",
     "settings-extension-points",
@@ -170,6 +172,7 @@
     "web-settings-slice",
     "web-sharing-ui",
     "web-shell-slice",
-    "web-storage-slice"
+    "web-storage-slice",
+    "web-timezone-slice"
   ]
 }
