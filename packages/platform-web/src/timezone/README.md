@@ -65,7 +65,6 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 
 | Name | Kind | Signature | When to use | Stability | Example |
 |---|---|---|---|---|---|
-| `useDisplayTimeZone` | hook | `useDisplayTimeZone(): string` | Re-render a component that shows times when the user's zone changes | experimental | [example](../../../../apps/web/src/__tests__/examples/timezone/time-zone.test.tsx) |
 | `UserTimeZoneSync` | component | `UserTimeZoneSync(props: { api?; children? }): ReactElement` | Load the signed-in user's `profile.timezone` into the store once per sign-in, and clear it on sign-out | experimental | [example](../../../../apps/web/src/App.tsx) |
 | `TimeZoneField` | component | `TimeZoneField(props: { value; onChange; disabled?; label? }): ReactElement` | A time zone row in a form of your own; it lazy-loads the picker | experimental | [example](../../../../apps/web/src/__tests__/examples/timezone/time-zone.test.tsx) |
 | `TimeZonePickerDialog` | component | `TimeZonePickerDialog(props: { open; value; onClose; onSelect }): ReactElement` | Open the picker from your own control | experimental | [example](../../../../apps/web/src/__tests__/examples/timezone/time-zone.test.tsx) |
