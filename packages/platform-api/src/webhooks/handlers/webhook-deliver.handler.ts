@@ -157,7 +157,7 @@ export class WebhookDeliverHandler implements JobHandler, OnModuleInit {
         endpoint: 'neutral',
         threshold: this.options.circuitBreakerThreshold,
       });
-      this.count('dead', delivery.eventKey, 0);
+      this.count('dead', delivery.eventKey);
       return;
     }
 
@@ -305,10 +305,11 @@ export class WebhookDeliverHandler implements JobHandler, OnModuleInit {
     return { allowInsecureHttp: this.options.allowInsecureHttp, allowPrivateTargets: this.options.allowPrivateTargets, allowedHosts: this.options.allowedHosts };
   }
 
-  private count(outcome: 'succeeded' | 'failed' | 'dead' | 'blocked', eventKey: string, durationMs: number): void {
+  private count(outcome: 'succeeded' | 'failed' | 'dead' | 'blocked', eventKey: string, durationMs?: number): void {
+    // No attempt ran (undefined) records no duration; a 0 ms attempt is a valid measurement.
     const attributes = { outcome, event_group: eventGroupOf(eventKey) };
     this.metrics?.add(WEBHOOK_DELIVERIES_METRIC, 1, attributes);
-    if (durationMs > 0) this.metrics?.record(WEBHOOK_DELIVERY_DURATION_METRIC, durationMs / 1000, attributes);
+    if (durationMs !== undefined && Number.isFinite(durationMs) && durationMs >= 0) this.metrics?.record(WEBHOOK_DELIVERY_DURATION_METRIC, durationMs / 1000, attributes);
   }
 
   /** After the commit, outside any transaction. */
