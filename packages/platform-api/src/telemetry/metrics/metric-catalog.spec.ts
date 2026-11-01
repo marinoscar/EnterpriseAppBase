@@ -275,6 +275,7 @@ describe('metric catalog baseline (#680)', () => {
       'queue:backupAge',
       'nodes:nodesByHealth',
       'nodes:noEligibleNode',
+      'nodes:nodeBatteryPercent',
       'uptime:httpDuration',
       'uptime:tlsDaysLeft',
       'uptime:nginxRequests',

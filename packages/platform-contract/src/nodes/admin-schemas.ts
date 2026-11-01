@@ -138,15 +138,37 @@ export const adminNodeEventSchema = z.object({
 });
 
 /**
+ * The query of `GET /api/nodes/:id/events` (and the admin twin): newest first,
+ * `type` and `severity` matched for equality.
+ *
+ * @stability experimental
+ */
+export const nodeEventListQuerySchema = z.object({
+  /** Page, from 1. */
+  page: z.coerce.number().int().min(1).default(1),
+  /** Page size, at most 100. */
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  /** Exactly one dotted event type. */
+  type: z.string().max(64).optional(),
+  /** Exactly one severity. */
+  severity: nodeEventSchema.shape.severity.optional(),
+});
+
+/**
  * A page of node events (`page`, `pageSize`, `items`, `total`, `totalPages`).
  *
  * @stability experimental
  */
 export const adminNodeEventListSchema = z.object({
+  /** The page's events, newest first. */
   items: z.array(adminNodeEventSchema),
+  /** Events matching the filters, across all pages. */
   total: z.number().int(),
+  /** The current page, from 1. */
   page: z.number().int(),
+  /** The page size. */
   pageSize: z.number().int(),
+  /** The page count, at least 1. */
   totalPages: z.number().int(),
 });
 
@@ -211,6 +233,12 @@ export const nodeCredentialCreatedSchema = z.object({
  * @stability experimental
  */
 export type AdminNodeEvent = z.output<typeof adminNodeEventSchema>;
+/**
+ * The parsed events-list query.
+ *
+ * @stability experimental
+ */
+export type NodeEventListQuery = z.output<typeof nodeEventListQuerySchema>;
 /**
  * A page of node events.
  *

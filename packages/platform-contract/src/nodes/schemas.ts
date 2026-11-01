@@ -19,8 +19,24 @@ import {
   MAX_NODE_ELIGIBLE_TYPES,
   MAX_NODE_VITALS_EXTRA_KEYS,
   MAX_NODE_VITALS_EXTRA_VALUE,
+  NODE_EVENT_SEVERITIES,
+  NODE_POWER_SOURCES,
   NODE_VITALS_EXTRA_KEY_PATTERN,
 } from './constants.js';
+
+/**
+ * The entries of {@link NODE_EVENT_SEVERITIES}, as `z.enum` sees them.
+ *
+ * @stability experimental
+ */
+export type NodeEventSeverityEnum = { [K in (typeof NODE_EVENT_SEVERITIES)[number]]: K };
+
+/**
+ * The entries of {@link NODE_POWER_SOURCES}, as `z.enum` sees them.
+ *
+ * @stability experimental
+ */
+export type NodePowerSourceEnum = { [K in (typeof NODE_POWER_SOURCES)[number]]: K };
 
 /**
  * The entries of the status a node may report about itself.
@@ -488,7 +504,7 @@ export const nodeHostVitalsSchema = z
 export const nodePowerSchema = z
   .object({
     /** Where power comes from. */
-    source: z.enum(['ac', 'battery', 'unknown']),
+    source: z.enum(NODE_POWER_SOURCES) as z.ZodEnum<NodePowerSourceEnum>,
     /** Battery charge, 0..100. */
     batteryPercent: z.number().min(0).max(100).optional(),
     /** Whether the battery is charging. */
@@ -575,18 +591,32 @@ export type NodePower = z.infer<typeof nodePowerSchema>;
  * @stability experimental
  */
 export const NODE_EVENT_TYPES = {
+  /** The machine switched between AC and battery. */
   POWER_SOURCE_CHANGED: 'power.source_changed',
+  /** The battery fell to the low threshold while on battery. */
   BATTERY_LOW: 'power.battery_low',
+  /** The battery fell to the critical threshold while on battery. */
   BATTERY_CRITICAL: 'power.battery_critical',
+  /** The battery recovered above the low threshold (or AC returned). */
   BATTERY_RECOVERED: 'power.battery_recovered',
+  /** The machine woke from sleep. */
   SLEEP_RESUMED: 'node.sleep_resumed',
+  /** The free space of the state directory fell below the threshold. */
   DISK_LOW: 'node.disk_low',
 } as const;
 
-/** Most events one heartbeat may carry. */
+/**
+ * Most events one heartbeat may carry.
+ *
+ * @stability experimental
+ */
 export const MAX_NODE_EVENTS_PER_HEARTBEAT = 50;
 
-/** Most attribute keys on one event. */
+/**
+ * Most attribute keys on one event.
+ *
+ * @stability experimental
+ */
 export const MAX_NODE_EVENT_ATTRS = 16;
 
 /**
@@ -604,7 +634,7 @@ export const nodeEventSchema = z
       .max(64)
       .regex(/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/, 'Must be a dotted event type'),
     /** How loud it is. */
-    severity: z.enum(['info', 'warning', 'critical']),
+    severity: z.enum(NODE_EVENT_SEVERITIES) as z.ZodEnum<NodeEventSeverityEnum>,
     /** When it happened, on the node's clock (ISO 8601). */
     at: z.iso.datetime({ offset: true }),
     /** Small scalar attributes. */

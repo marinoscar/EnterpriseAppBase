@@ -54,6 +54,7 @@ export type {
   JobsWhere,
   NodeCredential,
   WorkerNode,
+  WorkerNodeEvent,
 } from './data/jobs-db';
 
 // ---- the handler contract and its registry (rung 2) --------------------------------------

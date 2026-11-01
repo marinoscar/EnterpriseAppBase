@@ -353,6 +353,31 @@ describe('NodesService', () => {
       expect(data.capabilities).toEqual({ gpu: true });
     });
 
+    it('hands the heartbeat events to the event recorder AFTER liveness is written, and never fails the heartbeat (#1045)', async () => {
+      (prisma.workerNode.findUnique as jest.Mock).mockResolvedValue(makeNode());
+      const order: string[] = [];
+      (prisma.workerNode.update as jest.Mock).mockImplementation(async ({ data }: any) => {
+        order.push('liveness');
+        return makeNode(data);
+      });
+      const ingest = jest.fn(async () => {
+        order.push('events');
+        return { accepted: 1, dropped: 0 };
+      });
+      (service as any).nodeEvents = { ingest };
+      const events = [{ type: 'power.battery_low', severity: 'warning', at: new Date().toISOString() }];
+
+      await service.heartbeat(USER, NODE_ID, { events } as unknown as HeartbeatNodeDto);
+
+      expect(order).toEqual(['liveness', 'events']);
+      expect(ingest).toHaveBeenCalledWith(expect.objectContaining({ id: NODE_ID }), events);
+
+      // A heartbeat without events never touches the recorder.
+      ingest.mockClear();
+      await service.heartbeat(USER, NODE_ID, {} as HeartbeatNodeDto);
+      expect(ingest).not.toHaveBeenCalled();
+    });
+
     it('persists vitals and stamps lastVitalsAt in the SAME update as liveness', async () => {
       (prisma.workerNode.findUnique as jest.Mock).mockResolvedValue(makeNode());
       const vitals = { cpuPercent: 12.5, slotsUsed: 1, slotsTotal: 2, counters: { claims: 3 } };

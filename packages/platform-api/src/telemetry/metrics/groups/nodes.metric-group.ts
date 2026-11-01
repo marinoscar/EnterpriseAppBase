@@ -2,6 +2,7 @@ import { PLATFORM_METRIC_PRESENTATIONS } from '@marinoscar/platform-contract/tel
 
 import type { MetricGroupDef } from '../metric-group.registry';
 import { APP_FILTERS } from '../metric-catalog.helpers';
+import { NODE_BATTERY_LOW_PCT } from '../../dashboard/telemetry-dashboard.verdict';
 
 /**
  * The `nodes` metric group (app.nodes.*: fleet health and per-node vitals).
@@ -44,6 +45,25 @@ export const NODES_METRIC_GROUP: MetricGroupDef = {
       filters: APP_FILTERS,
       tileAggregate: 'countPositive',
       series: false,
+    },
+    {
+      // A node on battery at or below `NODE_BATTERY_LOW_PCT` degrades the
+      // overall verdict (`verdictInputsFrom`, probe `nodes`). Documentary here,
+      // like every family `verdict`: the rule lives in the verdict.
+      key: 'nodeBatteryPercent',
+      group: 'nodes',
+      label: 'Lowest node battery',
+      table: 'app_nodes_power_battery_percent',
+      kind: 'gauge',
+      unit: '%',
+      groupBy: 'node_name',
+      requiredColumns: ['node_name'],
+      seriesAggregate: 'min',
+      bucketAggregate: 'min',
+      filters: APP_FILTERS,
+      tileAggregate: 'min',
+      series: false,
+      verdict: { degraded: NODE_BATTERY_LOW_PCT, critical: NODE_BATTERY_LOW_PCT, direction: 'below' },
     },
   ],
   tables: [
@@ -119,6 +139,55 @@ export const NODES_METRIC_GROUP: MetricGroupDef = {
           seriesAggregate: 'max',
           over: 'last',
         },
+        // Host (machine) readings, reported by a node that supports them (#1045).
+        {
+          column: 'hostCpuPct',
+          label: 'Host CPU',
+          unit: '%',
+          table: 'app_nodes_host_cpu_utilization',
+          seriesAggregate: 'max',
+          over: 'last',
+        },
+        {
+          column: 'hostMemUsedBytes',
+          label: 'Host memory used',
+          unit: 'bytes',
+          table: 'app_nodes_host_memory_used_bytes',
+          seriesAggregate: 'max',
+          over: 'last',
+        },
+        {
+          column: 'hostMemTotalBytes',
+          label: 'Host memory',
+          unit: 'bytes',
+          table: 'app_nodes_host_memory_total_bytes',
+          seriesAggregate: 'max',
+          over: 'last',
+        },
+        {
+          column: 'hostLoad1',
+          label: 'Load (1 min)',
+          unit: 'load',
+          table: 'app_nodes_host_load1',
+          seriesAggregate: 'max',
+          over: 'last',
+        },
+        {
+          column: 'onBattery',
+          label: 'On battery',
+          unit: 'boolean',
+          table: 'app_nodes_power_on_battery',
+          seriesAggregate: 'max',
+          over: 'last',
+        },
+        {
+          column: 'batteryPct',
+          label: 'Battery',
+          unit: '%',
+          table: 'app_nodes_power_battery_percent',
+          seriesAggregate: 'min',
+          over: 'last',
+        },
       ],
       derived: [
         {
@@ -135,6 +204,14 @@ export const NODES_METRIC_GROUP: MetricGroupDef = {
           unit: '%',
           numerator: 'stateDirFreeBytes',
           denominator: 'stateDirTotalBytes',
+          scale: 100,
+        },
+        {
+          column: 'hostMemPct',
+          label: 'Host memory used',
+          unit: '%',
+          numerator: 'hostMemUsedBytes',
+          denominator: 'hostMemTotalBytes',
           scale: 100,
         },
       ],

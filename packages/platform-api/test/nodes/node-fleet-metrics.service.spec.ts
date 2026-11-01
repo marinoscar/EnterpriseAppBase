@@ -290,6 +290,54 @@ describe('NodeFleetMetrics', () => {
     expect(points(all, 'app.nodes.count').length).toBe(7);
   });
 
+  it('exports host and power gauges when reported and skips each series the node did not report (#1045)', async () => {
+    const withHost = {
+      ...VITALS,
+      host: { cpuPercent: 42.5, loadAvg1: 1.5, memTotalBytes: 16e9, memAvailableBytes: 6e9, memFreeBytes: 1e9 },
+      power: { source: 'battery', batteryPercent: 8 },
+    };
+    const { fleet, reader } = setup({
+      nodes: [
+        node(1, { lastVitals: withHost }),
+        node(2), // pre-#1045 node: process vitals only
+        node(3, { lastVitals: { ...VITALS, host: { memTotalBytes: 8e9, memFreeBytes: 2e9 }, power: { source: 'ac' } } }),
+        node(4, { lastVitals: { ...VITALS, power: { source: 'unknown' } } }),
+      ],
+    });
+    fleet.onModuleInit();
+
+    const all = await collect(reader);
+    const idsOf = (name: string) => points(all, name).map((p) => p.attributes.node_id).sort();
+    const valueOf = (name: string, n: number) => points(all, name).find((p) => p.attributes.node_id === ID(n))?.value;
+
+    expect(idsOf('app.nodes.host.cpu.utilization')).toEqual([ID(1)]);
+    expect(valueOf('app.nodes.host.cpu.utilization', 1)).toBe(42.5);
+    expect(valueOf('app.nodes.host.load1', 1)).toBe(1.5);
+    expect(valueOf('app.nodes.host.memory.total', 1)).toBe(16e9);
+    expect(valueOf('app.nodes.host.memory.available', 1)).toBe(6e9);
+    // used = total - available when available is reported, else total - free.
+    expect(valueOf('app.nodes.host.memory.used', 1)).toBe(10e9);
+    expect(valueOf('app.nodes.host.memory.used', 3)).toBe(6e9);
+    expect(idsOf('app.nodes.host.memory.available')).toEqual([ID(1)]);
+    // on_battery: 1 on battery, 0 on AC, no series for unknown or unreported.
+    expect(valueOf('app.nodes.power.on_battery', 1)).toBe(1);
+    expect(valueOf('app.nodes.power.on_battery', 3)).toBe(0);
+    expect(idsOf('app.nodes.power.on_battery')).toEqual([ID(1), ID(3)]);
+    expect(idsOf('app.nodes.power.battery_percent')).toEqual([ID(1)]);
+    expect(valueOf('app.nodes.power.battery_percent', 1)).toBe(8);
+    // The process-level gauges are unaffected.
+    expect(idsOf('app.nodes.uptime')).toHaveLength(4);
+  });
+
+  it('exportedVitals reads host and power tolerantly: out-of-range or malformed fields are skipped (#1045)', () => {
+    expect(exportedVitals({ host: 'nope', power: [] })).toMatchObject({ hostCpuPercent: undefined, powerOnBattery: undefined });
+    const v = exportedVitals({ host: { cpuPercent: 250, memTotalBytes: 100, memAvailableBytes: 500 }, power: { source: 'battery', batteryPercent: 400 } });
+    expect(v.hostCpuPercent).toBeUndefined();
+    expect(v.hostMemoryUsedBytes).toBeUndefined();
+    expect(v.powerBatteryPercent).toBeUndefined();
+    expect(v.powerOnBattery).toBe(1);
+  });
+
   it('queries nothing while the export gate is closed', async () => {
     const { fleet, reader, prisma, offload, setGate } = setup({ nodes: [node(1)] });
     fleet.onModuleInit();
@@ -418,6 +466,13 @@ describe('NodeFleetMetrics gauge descriptors (#680 baseline)', () => {
         '{event}',
         'Node-reported cumulative counters since the node process started (reset on restart), by counter.',
       ),
+      g('app.nodes.host.cpu.utilization', '{percent}', 'Machine-wide CPU utilisation of the host the node runs on, 0 to 100.'),
+      g('app.nodes.host.memory.used', 'By', 'Physical memory in use on the host (total minus available, or minus free when available is not reported).'),
+      g('app.nodes.host.memory.total', 'By', 'Total physical memory of the host.'),
+      g('app.nodes.host.memory.available', 'By', 'Physical memory available to new work on the host (reclaimable included).'),
+      g('app.nodes.host.load1', '{load}', 'One-minute load average of the host.'),
+      g('app.nodes.power.on_battery', '{state}', '1 when the host runs on battery, 0 when on AC power. Absent while the power source is unknown.'),
+      g('app.nodes.power.battery_percent', '{percent}', 'Battery charge of the host, 0 to 100. Absent on a host without a battery.'),
       g(
         'app.nodes.types.no_eligible_node',
         '{type}',

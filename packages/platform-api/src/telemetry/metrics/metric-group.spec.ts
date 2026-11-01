@@ -382,6 +382,10 @@ describe('computeMetricGroup', () => {
               ['heapLimitBytes', 'node-a', 200, T('21:59')],
               ['stateDirFreeBytes', 'node-a', 10, T('21:59')],
               ['stateDirTotalBytes', 'node-a', 100, T('21:59')],
+              ['hostMemUsedBytes', 'node-a', 6, T('21:59')],
+              ['hostMemTotalBytes', 'node-a', 8, T('21:59')],
+              ['onBattery', 'node-a', 1, T('21:59')],
+              ['batteryPct', 'node-a', 7, T('21:59')],
               ['cpuCores', 'node-b', 1.5, T('21:40')], // stale: older than the newest cpu reading by > 150 s
             ]),
             /UNION ALL/,
@@ -399,8 +403,15 @@ describe('computeMetricGroup', () => {
         'stateDirTotalBytes',
         'slotsUsed',
         'slotsTotal',
+        'hostCpuPct',
+        'hostMemUsedBytes',
+        'hostMemTotalBytes',
+        'hostLoad1',
+        'onBattery',
+        'batteryPct',
         'heapPct',
         'stateDirFreePct',
+        'hostMemPct',
         'lastSeenAt',
       ]);
       expect(nodes.rows[0]).toMatchObject({
@@ -408,7 +419,11 @@ describe('computeMetricGroup', () => {
         cpuCores: 0.5,
         heapPct: 25,
         stateDirFreePct: 10,
+        hostMemPct: 75,
+        onBattery: true,
+        batteryPct: 7,
         rssBytes: null,
+        hostCpuPct: null,
       });
       expect(nodes.rows[0].lastSeenAt).toBe('2026-09-27T21:59:00.000Z');
       expect(nodes.rows[1]).toMatchObject({

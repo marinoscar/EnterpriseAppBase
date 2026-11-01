@@ -62,18 +62,23 @@
 // rule 3).
 // =============================================================================
 
-import { Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe } from '@nestjs/common';
-import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Query } from '@nestjs/common';
+import { ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { Auth } from '../identity/index';
 import { PERMISSIONS, ROLES } from './nodes.constants';
 import { AdminNodeCredentialDto, AdminNodeDto } from './dto/node-admin.dto';
+import { AdminNodeEventListDto, NodeEventListQueryDto } from './dto/node-event.dto';
+import { NodeEventsService } from './node-events.service';
 import { NodesAdminService } from './nodes-admin.service';
 
 @ApiTags('Worker Nodes')
 @Controller('admin/nodes')
 export class NodesAdminController {
-  constructor(private readonly nodes: NodesAdminService) {}
+  constructor(
+    private readonly nodes: NodesAdminService,
+    private readonly events: NodeEventsService
+  ) {}
 
   // ---------------------------------------------------------------------------
   // Literal routes. Nothing parameterised may be declared above this block —
@@ -156,6 +161,29 @@ export class NodesAdminController {
   @ApiResponse({ status: 404, description: 'No such node' })
   async get(@Param('id', ParseUUIDPipe) id: string): Promise<AdminNodeDto> {
     return this.nodes.getNode(id);
+  }
+
+  @Get(':id/events')
+  @Auth({ roles: [ROLES.ADMIN], permissions: [PERMISSIONS.NODES_READ] })
+  @ApiOperation({
+    summary: 'List the events a node reported about itself, whoever owns it',
+    description:
+      'The node event log, newest first, paginated, for any node in the deployment. `404` when ' +
+      'there is no such node; never `403`, because an administrator’s scope is the whole ' +
+      'deployment.',
+  })
+  @ApiParam({ name: 'id', type: String, format: 'uuid' })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'pageSize', required: false, type: Number, description: 'Max 100.' })
+  @ApiQuery({ name: 'type', required: false, type: String, description: 'Exactly one dotted event type.' })
+  @ApiQuery({ name: 'severity', required: false, enum: ['info', 'warning', 'critical'] })
+  @ApiResponse({ status: 200, description: 'A page of events', type: AdminNodeEventListDto })
+  @ApiResponse({ status: 404, description: 'No such node' })
+  async listEvents(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: NodeEventListQueryDto
+  ): Promise<AdminNodeEventListDto> {
+    return this.events.list(id, query);
   }
 
   @Delete(':id')

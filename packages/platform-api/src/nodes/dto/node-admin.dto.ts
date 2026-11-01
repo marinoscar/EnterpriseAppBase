@@ -36,6 +36,8 @@ import type {
   NodeVitalsCounters,
 } from '@marinoscar/platform-contract/nodes';
 
+import { NodeHostVitalsDto, NodePowerDto } from './node-event.dto';
+
 // Each class below `implements` the contract type of the same name
 // (`@marinoscar/platform-contract/nodes`, `admin-schemas.ts`): the Swagger
 // decorators stay here (they are what the generated OpenAPI document is made
@@ -230,6 +232,20 @@ export class NodeVitalsDto implements NodeVitals {
     additionalProperties: { type: 'number' },
   })
   extra?: Record<string, number>;
+
+  /** Machine-level readings (server feature `node_host_vitals`) */
+  @ApiPropertyOptional({
+    description: 'Machine-level readings of the host the node runs on; absent for a node that does not report them',
+    type: NodeHostVitalsDto,
+  })
+  host?: NodeHostVitalsDto;
+
+  /** Power state (server feature `node_host_vitals`) */
+  @ApiPropertyOptional({
+    description: 'Power / battery state of the host; absent for a node that does not report it',
+    type: NodePowerDto,
+  })
+  power?: NodePowerDto;
 }
 
 /**

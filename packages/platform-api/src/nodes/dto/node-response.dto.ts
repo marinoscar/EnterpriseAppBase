@@ -54,6 +54,16 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { type Job, type WorkerNode } from '../../jobs/index';
 
 import { normalizeTraceparent } from '../../jobs/index';
+import { NODE_SERVER_CAPABILITY_HOST_VITALS } from '@marinoscar/platform-contract/nodes';
+
+/**
+ * The optional features this server advertises to a node, on the register and
+ * heartbeat responses. A node sends an optional capability (host vitals, power
+ * state, events) only after it sees the feature here.
+ *
+ * @stability experimental
+ */
+export const NODE_SERVER_FEATURES: readonly string[] = Object.freeze([NODE_SERVER_CAPABILITY_HOST_VITALS]);
 
 /**
  * One worker node, as the fleet sees it.
@@ -150,6 +160,35 @@ export class RegisterNodeResponseDto {
       'something it can read here.',
   })
   reattached!: boolean;
+
+  /** Optional server features. */
+  @ApiProperty({
+    description:
+      'Optional features this server supports, e.g. `node_host_vitals` (host vitals, power state ' +
+      'and node events on the heartbeat). A node sends an optional capability only after it ' +
+      'sees it named here; an older server sends no list at all.',
+    type: [String],
+  })
+  serverFeatures!: string[];
+}
+
+/**
+ * The response to `POST /nodes/:id/heartbeat`: the refreshed node, plus the
+ * features this server supports so an already-registered node (which does not
+ * call register again) learns them.
+ *
+ * @stability experimental
+ */
+export class HeartbeatNodeResponseDto extends WorkerNodeDto {
+  /** Optional server features. */
+  @ApiProperty({
+    description:
+      'Optional features this server supports, e.g. `node_host_vitals`. The same list the ' +
+      'register response carries, repeated here so a node that never re-registers learns it ' +
+      'from its first heartbeat.',
+    type: [String],
+  })
+  serverFeatures!: string[];
 }
 
 /**

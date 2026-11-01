@@ -1,4 +1,4 @@
-import type { VerdictInput } from '../dashboard/telemetry-dashboard.verdict';
+import { NODE_BATTERY_LOW_PCT, type VerdictInput } from '../dashboard/telemetry-dashboard.verdict';
 import type { TelemetryQueryResult } from '../stores/telemetry-store';
 import {
   HOST_TABLES,
@@ -114,6 +114,14 @@ export function verdictProbeSql(
         seriesAggregate: 'max',
         over: 'last',
       }),
+      part(tables, 'onBattery', 'app_nodes_power_on_battery', 'node_name', {
+        seriesAggregate: 'max',
+        over: 'last',
+      }),
+      part(tables, 'battery', 'app_nodes_power_battery_percent', 'node_name', {
+        seriesAggregate: 'min',
+        over: 'last',
+      }),
     ]),
     uptime: uptimeStatusSql(
       tables.get(HTTPCHECK_STATUS_TABLE) ?? null,
@@ -218,10 +226,15 @@ export function verdictInputsFrom(
     const nodes = readings(results.nodes, true);
     const health = nodes.get('health');
     const noEligible = nodes.get('noEligible');
-    if (health || noEligible) {
+    const onBattery = new Set((nodes.get('onBattery') ?? []).filter((r) => r.v >= 1).map((r) => r.k));
+    const lowBattery = (nodes.get('battery') ?? [])
+      .filter((r) => onBattery.has(r.k) && r.v <= NODE_BATTERY_LOW_PCT)
+      .map((r) => ({ name: r.k, batteryPercent: r.v }));
+    if (health || noEligible || lowBattery.length > 0) {
       input.nodes = {
         stale: (health ?? []).filter((r) => r.k === 'stale').reduce((a, r) => a + r.v, 0),
         noEligibleNodeTypes: (noEligible ?? []).filter((r) => r.v >= 1).map((r) => r.k),
+        ...(lowBattery.length > 0 ? { lowBattery } : {}),
       };
     }
   }

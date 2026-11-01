@@ -181,6 +181,8 @@
 import { DynamicModule, Module } from '@nestjs/common';
 
 import { NodesFleetDoctorCheck } from './doctor/nodes-fleet.doctor-check';
+import { NodeEventsPurgeHandler } from './handlers/node-events-purge.handler';
+import { NodeEventsService } from './node-events.service';
 import { NodeFleetPruneHandler } from './handlers/node-fleet-prune.handler';
 import { NodeFleetSweepHandler } from './handlers/node-fleet-sweep.handler';
 import { NodeDataPlaneService } from './node-data-plane.service';
@@ -198,6 +200,7 @@ import { NodesService } from './nodes.service';
 import { NODES_SYSTEM_SETTINGS } from './nodes.system-settings';
 import { ensureSystemSettingsNamespaces, type SystemSettingsNamespace } from '../settings/index';
 import { NodeSecretRevoker } from './ops/node-secret-revoker';
+import { NodeEventsPurgeTask } from './tasks/node-events-purge.task';
 import { NodeOfflinePruneTask } from './tasks/node-offline-prune.task';
 import { NodeSecretSweepTask } from './tasks/node-secret-sweep.task';
 import { NodeStaleOfflineTask } from './tasks/node-stale-offline.task';
@@ -251,6 +254,9 @@ export class NodesModule {
         NodeLifecycleService,
         NodeStaleOfflineTask,
         NodeOfflinePruneTask,
+        NodeEventsPurgeTask,
+        NodeEventsPurgeHandler,
+        NodeEventsService,
         NodeFleetSweepHandler,
         NodeFleetPruneHandler,
         NodeSecretSweepTask,

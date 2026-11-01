@@ -140,6 +140,15 @@ export interface ExportedVitals {
   slotsUsed?: number;
   slotsTotal?: number;
   uptimeSeconds?: number;
+  /** System-wide host CPU, 0..100. */
+  hostCpuPercent?: number;
+  hostMemoryUsedBytes?: number;
+  hostMemoryTotalBytes?: number;
+  hostMemoryAvailableBytes?: number;
+  hostLoad1?: number;
+  /** 1 on battery, 0 on AC; absent when the source is unknown or unreported. */
+  powerOnBattery?: 0 | 1;
+  powerBatteryPercent?: number;
   counters: Array<{ counter: string; value: number }>;
 }
 
@@ -163,6 +172,13 @@ type Gauges = Record<
   | 'slotsTotal'
   | 'uptime'
   | 'counter'
+  | 'hostCpu'
+  | 'hostMemUsed'
+  | 'hostMemTotal'
+  | 'hostMemAvailable'
+  | 'hostLoad1'
+  | 'onBattery'
+  | 'batteryPercent'
   | 'noEligibleNode',
   ObservableGauge
 >;
@@ -189,7 +205,26 @@ export function exportedVitals(raw: unknown): ExportedVitals {
     if (value !== undefined) counters.push({ counter: label, value });
   }
 
+  const host = v.host && typeof v.host === 'object' && !Array.isArray(v.host) ? (v.host as Record<string, unknown>) : {};
+  const power = v.power && typeof v.power === 'object' && !Array.isArray(v.power) ? (v.power as Record<string, unknown>) : {};
+  const memTotal = num(host.memTotalBytes);
+  const memAvailable = num(host.memAvailableBytes);
+  const memFree = num(host.memFreeBytes);
+  const reclaimable = memAvailable ?? memFree;
+  const batteryPercent = num(power.batteryPercent);
+
   return {
+    hostCpuPercent: (() => {
+      const value = num(host.cpuPercent);
+      return value === undefined || value > 100 ? undefined : value;
+    })(),
+    hostMemoryUsedBytes:
+      memTotal !== undefined && reclaimable !== undefined && reclaimable <= memTotal ? memTotal - reclaimable : undefined,
+    hostMemoryTotalBytes: memTotal,
+    hostMemoryAvailableBytes: memAvailable,
+    hostLoad1: num(host.loadAvg1),
+    powerOnBattery: power.source === 'battery' ? 1 : power.source === 'ac' ? 0 : undefined,
+    powerBatteryPercent: batteryPercent === undefined || batteryPercent > 100 ? undefined : batteryPercent,
     cpuUtilization: cpu === undefined ? undefined : cpu / 100,
     memoryRssBytes: num(v.rssBytes),
     heapUsedBytes: num(v.heapUsedBytes),
@@ -282,6 +317,13 @@ export class NodeFleetMetrics implements OnModuleInit {
       slotsTotal: g('nodesSlotsTotal'),
       uptime: g('nodesUptime'),
       counter: g('nodesCounter'),
+      hostCpu: g('nodesHostCpuUtilization'),
+      hostMemUsed: g('nodesHostMemoryUsed'),
+      hostMemTotal: g('nodesHostMemoryTotal'),
+      hostMemAvailable: g('nodesHostMemoryAvailable'),
+      hostLoad1: g('nodesHostLoad1'),
+      onBattery: g('nodesPowerOnBattery'),
+      batteryPercent: g('nodesPowerBatteryPercent'),
       noEligibleNode: g('nodesTypesNoEligibleNode'),
     };
   }
@@ -310,6 +352,13 @@ export class NodeFleetMetrics implements OnModuleInit {
           [gauges.slotsUsed, v.slotsUsed],
           [gauges.slotsTotal, v.slotsTotal],
           [gauges.uptime, v.uptimeSeconds],
+          [gauges.hostCpu, v.hostCpuPercent],
+          [gauges.hostMemUsed, v.hostMemoryUsedBytes],
+          [gauges.hostMemTotal, v.hostMemoryTotalBytes],
+          [gauges.hostMemAvailable, v.hostMemoryAvailableBytes],
+          [gauges.hostLoad1, v.hostLoad1],
+          [gauges.onBattery, v.powerOnBattery],
+          [gauges.batteryPercent, v.powerBatteryPercent],
         ];
         for (const [gauge, value] of pairs) {
           if (value !== undefined) result.observe(gauge, value, attrs);

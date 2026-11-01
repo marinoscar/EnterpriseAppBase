@@ -11,6 +11,8 @@
 // that reads it.
 // =============================================================================
 
+import { NODE_EVENT_TYPES } from '@marinoscar/platform-contract/nodes';
+
 import type { AppMetricAttribute, AppMetricDef } from '../otel-core/index';
 
 /**
@@ -26,6 +28,22 @@ export const NODE_STATUS_VALUES = ['online', 'draining', 'offline', 'disabled'] 
  * @stability stable
  */
 export const NODE_HEALTH_VALUES = ['healthy', 'stale', 'offline'] as const;
+
+/**
+ * The `type` label values of `app.nodes.events`: the event types the platform
+ * knows by name, then `other` for any type an app's node reports. Bounded on
+ * purpose: the wire `type` is an open string, a metric label must not be.
+ *
+ * @stability experimental
+ */
+export const NODE_EVENT_METRIC_TYPES: readonly string[] = [...Object.values(NODE_EVENT_TYPES), 'other'];
+
+/**
+ * The `severity` label values of `app.nodes.events`.
+ *
+ * @stability experimental
+ */
+export const NODE_EVENT_SEVERITY_VALUES = ['info', 'warning', 'critical'] as const;
 
 const free: AppMetricAttribute = { kind: 'free' };
 const oneOf = (...values: string[]): AppMetricAttribute => ({ kind: 'enum', values });
@@ -68,6 +86,14 @@ export const NODES_APP_METRICS: readonly [
   NodesAppMetricDef<'nodesUptime'>,
   NodesAppMetricDef<'nodesCounter'>,
   NodesAppMetricDef<'nodesTypesNoEligibleNode'>,
+  NodesAppMetricDef<'nodesHostCpuUtilization'>,
+  NodesAppMetricDef<'nodesHostMemoryUsed'>,
+  NodesAppMetricDef<'nodesHostMemoryTotal'>,
+  NodesAppMetricDef<'nodesHostMemoryAvailable'>,
+  NodesAppMetricDef<'nodesHostLoad1'>,
+  NodesAppMetricDef<'nodesPowerOnBattery'>,
+  NodesAppMetricDef<'nodesPowerBatteryPercent'>,
+  NodesAppMetricDef<'nodesEvents'>,
 ] = [
   {
     key: 'nodesCount',
@@ -174,5 +200,69 @@ export const NODES_APP_METRICS: readonly [
     description:
       '1 when an offered job type has runnable pending jobs and no healthy online node lists it as eligible.',
     attributes: { job_type: free },
+  },
+  {
+    key: 'nodesHostCpuUtilization',
+    name: 'app.nodes.host.cpu.utilization',
+    kind: 'gauge',
+    unit: '{percent}',
+    description: 'Machine-wide CPU utilisation of the host the node runs on, 0 to 100.',
+    attributes: NODE_ATTRIBUTES,
+  },
+  {
+    key: 'nodesHostMemoryUsed',
+    name: 'app.nodes.host.memory.used',
+    kind: 'gauge',
+    unit: 'By',
+    description: 'Physical memory in use on the host (total minus available, or minus free when available is not reported).',
+    attributes: NODE_ATTRIBUTES,
+  },
+  {
+    key: 'nodesHostMemoryTotal',
+    name: 'app.nodes.host.memory.total',
+    kind: 'gauge',
+    unit: 'By',
+    description: 'Total physical memory of the host.',
+    attributes: NODE_ATTRIBUTES,
+  },
+  {
+    key: 'nodesHostMemoryAvailable',
+    name: 'app.nodes.host.memory.available',
+    kind: 'gauge',
+    unit: 'By',
+    description: 'Physical memory available to new work on the host (reclaimable included).',
+    attributes: NODE_ATTRIBUTES,
+  },
+  {
+    key: 'nodesHostLoad1',
+    name: 'app.nodes.host.load1',
+    kind: 'gauge',
+    unit: '{load}',
+    description: 'One-minute load average of the host.',
+    attributes: NODE_ATTRIBUTES,
+  },
+  {
+    key: 'nodesPowerOnBattery',
+    name: 'app.nodes.power.on_battery',
+    kind: 'gauge',
+    unit: '{state}',
+    description: '1 when the host runs on battery, 0 when on AC power. Absent while the power source is unknown.',
+    attributes: NODE_ATTRIBUTES,
+  },
+  {
+    key: 'nodesPowerBatteryPercent',
+    name: 'app.nodes.power.battery_percent',
+    kind: 'gauge',
+    unit: '{percent}',
+    description: 'Battery charge of the host, 0 to 100. Absent on a host without a battery.',
+    attributes: NODE_ATTRIBUTES,
+  },
+  {
+    key: 'nodesEvents',
+    name: 'app.nodes.events',
+    kind: 'counter',
+    unit: '{event}',
+    description: 'Node-reported events accepted at heartbeat ingestion, by event type (unknown types fold into other) and severity.',
+    attributes: { type: oneOf(...NODE_EVENT_METRIC_TYPES), severity: oneOf(...NODE_EVENT_SEVERITY_VALUES) },
   },
 ];
