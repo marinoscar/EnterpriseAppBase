@@ -1,5 +1,13 @@
 # @marinoscar/platform-api
 
+## 0.1.0-next.21
+
+### Patch Changes
+
+- 3d4b937: Record the `webhookDeliveryDuration` histogram for a delivery attempt that completes in 0 ms. The handler skipped the measurement when the elapsed time was zero; it now skips only when no attempt ran (the endpoint was gone or disabled before sending).
+  - @marinoscar/platform-contract@0.1.0-next.21
+  - @marinoscar/platform-ai-providers@0.1.0-next.21
+
 ## 0.1.0-next.20
 
 ### Minor Changes
