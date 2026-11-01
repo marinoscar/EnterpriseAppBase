@@ -182,6 +182,7 @@
     "webhooks-slice",
     "webhooks-tables",
     "webhooks-web",
+    "webhooks-zero-duration-metric",
     "worker-node-events-table",
     "zone-date-operations-api",
     "zone-date-operations-web"
