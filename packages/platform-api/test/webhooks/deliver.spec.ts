@@ -273,7 +273,10 @@ describe('WebhookDeliverHandler', () => {
     expect(text).not.toContain(secret);
   });
 
-  it('counts the outcome and the duration in the metrics, with bounded labels', async () => {
+  it.each([
+    ['a 0 ms attempt', 0],
+    ['a non-zero attempt', 250],
+  ])('counts the outcome and the duration in the metrics, with bounded labels (%s)', async (_label, elapsedMs) => {
     const kit = createWebhooksTestKit();
     const added: unknown[][] = [];
     const recorded: unknown[][] = [];
@@ -282,10 +285,16 @@ describe('WebhookDeliverHandler', () => {
     const ctx = kit.context('system');
     const created = await kit.endpoints.create(ctx, SYSTEM_BODY);
     const { deliveryId } = await kit.endpoints.test(ctx, created.endpoint.id);
-    await handler.process({ id: 'j', type: handler.type, subjectId: deliveryId, orgId: null } as never);
+    // Pin the clock: the handler reads Date.now() once before and once after the attempt.
+    let calls = 0;
+    const now = jest.spyOn(Date, 'now').mockImplementation(() => 1_000_000 + (calls++ % 2 === 0 ? 0 : elapsedMs));
+    try {
+      await handler.process({ id: 'j', type: handler.type, subjectId: deliveryId, orgId: null } as never);
+    } finally {
+      now.mockRestore();
+    }
     expect(added).toEqual([['webhookDeliveries', 1, { outcome: 'succeeded', event_group: 'webhooks' }]]);
-    expect(recorded[0]![0]).toBe('webhookDeliveryDuration');
-    expect(recorded[0]![2]).toEqual({ outcome: 'succeeded', event_group: 'webhooks' });
+    expect(recorded).toEqual([['webhookDeliveryDuration', elapsedMs / 1000, { outcome: 'succeeded', event_group: 'webhooks' }]]);
   });
 
   it('declares the server-only profile and no node eligibility', () => {
