@@ -17,6 +17,7 @@
 
 import type { PermissionDeclarationMap, RoleDeclarationMap } from '../core/index';
 import { AI_PERMISSIONS } from '../ai/index';
+import { ALERTS_PERMISSIONS } from '../alerts/index';
 import { DB_BACKUP_PERMISSIONS } from '../db-backup/index';
 import { ALLOWLIST_PERMISSIONS, IDENTITY_ROLES, ORGANIZATIONS_PERMISSIONS, USERS_PERMISSIONS } from '../identity/index';
 import { JOBS_PERMISSIONS } from '../jobs/index';
@@ -27,6 +28,7 @@ import { SHARING_PERMISSION_DECLARATIONS } from '../sharing/index';
 import { STORAGE_CONFIG_PERMISSIONS, STORAGE_PERMISSIONS } from '../storage/index';
 import { TELEMETRY_PERMISSION_DECLARATIONS } from '../telemetry/index';
 import { USER_DATA_PERMISSIONS } from '../user-data/index';
+import { ORG_WEBHOOKS_PERMISSIONS, SYSTEM_WEBHOOKS_PERMISSIONS, WEBHOOKS_PERMISSIONS } from '../webhooks/index';
 
 /**
  * The platform slices that declare permissions. Every other platform slice
@@ -50,7 +52,9 @@ export const PLATFORM_PERMISSION_SLICES: readonly [
   'telemetry',
   'sharing',
   'user-data',
-] = ['settings', 'identity', 'storage', 'jobs', 'nodes', 'db-backup', 'notifications', 'ai', 'telemetry', 'sharing', 'user-data'];
+  'webhooks',
+  'alerts',
+] = ['settings', 'identity', 'storage', 'jobs', 'nodes', 'db-backup', 'notifications', 'ai', 'telemetry', 'sharing', 'user-data', 'webhooks', 'alerts'];
 
 /**
  * One platform slice that declares permissions: a member of {@link PLATFORM_PERMISSION_SLICES}.
@@ -118,6 +122,12 @@ export const PLATFORM_PERMISSION_SETS: readonly PlatformPermissionSet[] = Object
   { slice: 'notifications', name: 'ORG_BROADCASTS_PERMISSIONS', permissions: ORG_BROADCASTS_PERMISSIONS },
   // #743: the user-data slice's two Admin-only system permissions.
   { slice: 'user-data', name: 'USER_DATA_PERMISSIONS', permissions: USER_DATA_PERMISSIONS },
+  // #1046: the webhooks slice's three tiers (own, organization, deployment), appended last.
+  { slice: 'webhooks', name: 'WEBHOOKS_PERMISSIONS', permissions: WEBHOOKS_PERMISSIONS },
+  { slice: 'webhooks', name: 'ORG_WEBHOOKS_PERMISSIONS', permissions: ORG_WEBHOOKS_PERMISSIONS },
+  { slice: 'webhooks', name: 'SYSTEM_WEBHOOKS_PERMISSIONS', permissions: SYSTEM_WEBHOOKS_PERMISSIONS },
+  // #1047: the alerts slice's two system permissions.
+  { slice: 'alerts', name: 'ALERTS_PERMISSIONS', permissions: ALERTS_PERMISSIONS },
 ] satisfies PlatformPermissionSet[]);
 
 /**
@@ -143,7 +153,11 @@ export const PLATFORM_PERMISSIONS: typeof SETTINGS_PERMISSIONS &
   typeof SHARING_PERMISSION_DECLARATIONS &
   typeof ORG_SETTINGS_PERMISSIONS &
   typeof ORG_BROADCASTS_PERMISSIONS &
-  typeof USER_DATA_PERMISSIONS = Object.freeze({
+  typeof USER_DATA_PERMISSIONS &
+  typeof WEBHOOKS_PERMISSIONS &
+  typeof ORG_WEBHOOKS_PERMISSIONS &
+  typeof SYSTEM_WEBHOOKS_PERMISSIONS &
+  typeof ALERTS_PERMISSIONS = Object.freeze({
   ...SETTINGS_PERMISSIONS,
   ...USERS_PERMISSIONS,
   ...ALLOWLIST_PERMISSIONS,
@@ -161,4 +175,8 @@ export const PLATFORM_PERMISSIONS: typeof SETTINGS_PERMISSIONS &
   ...ORG_SETTINGS_PERMISSIONS,
   ...ORG_BROADCASTS_PERMISSIONS,
   ...USER_DATA_PERMISSIONS,
+  ...WEBHOOKS_PERMISSIONS,
+  ...ORG_WEBHOOKS_PERMISSIONS,
+  ...SYSTEM_WEBHOOKS_PERMISSIONS,
+  ...ALERTS_PERMISSIONS,
 });

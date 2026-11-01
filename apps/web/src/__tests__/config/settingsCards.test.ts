@@ -556,6 +556,8 @@ describe('the Operations group (#266)', () => {
       'Database Backup',
       'Broadcasts',
       'About',
+      // #1046: appended, the deployment's outbound webhooks.
+      'Webhooks',
     ]);
   });
 
@@ -1005,12 +1007,13 @@ describe('the Observability group (#537)', () => {
     expect(ADMIN_SECTIONS[ADMIN_SECTIONS.length - 3]).toBe(observability);
     expect(ADMIN_SECTIONS[ADMIN_SECTIONS.length - 2]?.label).toBe('Organizations');
     // `Telemetry Dashboard` (#578) was appended after the Explorer, and
-    // `Doctor` (#634) after the Dashboard.
+    // `Doctor` (#634) after the Dashboard, and `Alerts` (#1047) after Doctor.
     expect(observability?.cards.map((card) => card.title)).toEqual([
       'Telemetry',
       'Telemetry Explorer',
       'Telemetry Dashboard',
       'Doctor',
+      'Alerts',
     ]);
   });
 
@@ -1061,10 +1064,11 @@ describe('the Observability group (#537)', () => {
     const dashboard = cards.get('Telemetry Dashboard');
     const allCards = ADMIN_SECTIONS.flatMap((section) => section.cards);
 
-    it('was appended after the Explorer, not inserted — only Doctor (#634) follows it before the Organizations group (#726)', () => {
+    it('was appended after the Explorer, not inserted — only Doctor (#634) and Alerts (#1047) follow it before the Organizations group (#726)', () => {
       const beforeOrgs = allCards.filter((card) => card.feature !== 'orgs' && card.path !== '/admin/settings/factory-reset');
-      expect(beforeOrgs[beforeOrgs.length - 2]).toBe(dashboard);
-      expect(beforeOrgs[beforeOrgs.length - 1]?.title).toBe('Doctor');
+      expect(beforeOrgs[beforeOrgs.length - 3]).toBe(dashboard);
+      expect(beforeOrgs[beforeOrgs.length - 2]?.title).toBe('Doctor');
+      expect(beforeOrgs[beforeOrgs.length - 1]?.title).toBe('Alerts');
       expect(dashboard?.disabled).toBeUndefined();
       expect(dashboard?.alwaysShow).toBeUndefined();
     });
@@ -1112,9 +1116,10 @@ describe('the Observability group (#537)', () => {
       expect(allCards.filter((card) => card.path === doctor?.path)).toHaveLength(1);
     });
 
-    it('is the LAST card of Observability, the last group before Organizations (#726) — appended, not inserted', () => {
+    it('was appended as the last card of Observability (only Alerts, #1047, follows it) — appended, not inserted', () => {
       const beforeOrgs = allCards.filter((card) => card.feature !== 'orgs' && card.path !== '/admin/settings/factory-reset');
-      expect(beforeOrgs[beforeOrgs.length - 1]).toBe(doctor);
+      expect(beforeOrgs[beforeOrgs.length - 2]).toBe(doctor);
+      expect(beforeOrgs[beforeOrgs.length - 1]?.title).toBe('Alerts');
       const owner = ADMIN_SECTIONS.find((section) => section.cards.includes(doctor!));
       expect(owner?.label).toBe('Observability');
     });
@@ -1162,6 +1167,53 @@ describe('the Observability group (#537)', () => {
       expect(
         settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, '/admin/settings/doctor'),
       ).toBe('Doctor');
+    });
+  });
+
+  /**
+   * Issue #1047. The Alerts page is a registry CARD appended after Doctor as
+   * the last card of Observability. Its permission is the exact string the
+   * packaged alerts controller enforces on every read; no `feature`, because
+   * node rules work while telemetry is off.
+   */
+  describe('the Alerts card (#1047)', () => {
+    const alerts = cards.get('Alerts');
+    const allCards = ADMIN_SECTIONS.flatMap((section) => section.cards);
+    const ALERTS_SRC = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../packages/platform-api/src/alerts');
+
+    it('is declared once and routed to /admin/settings/alerts', () => {
+      expect(alerts).toBeDefined();
+      expect(alerts?.path).toBe('/admin/settings/alerts');
+      expect(alerts?.disabled).toBeUndefined();
+      expect(allCards.filter((card) => card.path === alerts?.path)).toHaveLength(1);
+    });
+
+    it('is the LAST card of Observability, the last group before Organizations (#726) — appended, not inserted', () => {
+      const beforeOrgs = allCards.filter((card) => card.feature !== 'orgs' && card.path !== '/admin/settings/factory-reset');
+      expect(beforeOrgs[beforeOrgs.length - 1]).toBe(alerts);
+      expect(ADMIN_SECTIONS.find((section) => section.cards.includes(alerts!))?.label).toBe('Observability');
+    });
+
+    it('is not an alwaysShow escape hatch and carries no feature', () => {
+      expect(alerts?.alwaysShow).toBeUndefined();
+      expect(alerts?.feature).toBeUndefined();
+      expect(titles((permission) => permission === 'alerts:read', { ai: false, telemetry: false })).toEqual(['Alerts']);
+    });
+
+    it('declares the exact permission the alerts controller enforces, and invents none', () => {
+      const controller = readFileSync(resolve(ALERTS_SRC, 'alerts-admin.controller.ts'), 'utf8');
+      const contract = readFileSync(
+        resolve(ALERTS_SRC, '../../../platform-contract/src/alerts/constants.ts'),
+        'utf8',
+      );
+      expect(alerts?.permission).toBe('alerts:read');
+      expect(contract).toContain("READ: 'alerts:read'");
+      expect(controller).toContain("@Get('rules')");
+      expect(controller).toContain('@Auth({ permissions: [ALERT_PERMISSIONS.READ] })');
+    });
+
+    it('resolves its route to its own title', () => {
+      expect(settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, '/admin/settings/alerts')).toBe('Alerts');
     });
   });
 
@@ -1242,7 +1294,7 @@ describe('the Organizations group (#726)', () => {
   it('is APPENDED as the last group, its cards in declaration order (#733 appended the third)', () => {
     // The last APPENDED group: only the pinned Danger Zone (#743) follows it.
     expect(ADMIN_SECTIONS[ADMIN_SECTIONS.length - 2]).toBe(group);
-    expect(group?.cards.map((card) => card.title)).toEqual(['Organization', 'Organizations', 'Organization settings']);
+    expect(group?.cards.map((card) => card.title)).toEqual(['Organization', 'Organizations', 'Organization settings', 'Organization webhooks']);
   });
 
   it('declares Organization settings on org_settings:read, the settings slice controller string, feature orgs (#733)', () => {
@@ -1313,6 +1365,48 @@ describe('the Organizations group (#726)', () => {
     const title = (path: string) => settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, path, ORGS_ON);
     expect(title('/admin/settings/organization')).toBe('Organization');
     expect(title('/admin/settings/organizations')).toBe('Organizations');
+  });
+});
+
+describe('the webhooks cards (#1046)', () => {
+  const all = ADMIN_SECTIONS.flatMap((section) => section.cards);
+  const ORGS_ON = { orgs: true };
+  const titles = (held: string[], features = {}) =>
+    titlesOf(visibleSettingsSections(ADMIN_SECTIONS, (p) => held.includes(p), '', features));
+
+  it('declares the system card on system_webhooks:read and the org card on org_webhooks:read, feature orgs', () => {
+    expect(all.find((card) => card.path === '/admin/settings/webhooks')).toMatchObject({
+      title: 'Webhooks',
+      permission: 'system_webhooks:read',
+    });
+    expect(all.find((card) => card.path === '/admin/settings/webhooks')?.feature).toBeUndefined();
+    expect(all.find((card) => card.path === '/admin/settings/organization-webhooks')).toMatchObject({
+      title: 'Organization webhooks',
+      permission: 'org_webhooks:read',
+      feature: 'orgs',
+    });
+  });
+
+  it('shows each card only to a holder of its own read permission; the org card only in multi-org mode', () => {
+    expect(titles(['system_webhooks:read'])).toEqual(['Webhooks']);
+    expect(titles(['org_webhooks:read'])).toEqual([]);
+    expect(titles(['org_webhooks:read'], ORGS_ON)).toEqual(['Organization webhooks']);
+    expect(titles(['webhooks:read', 'webhooks:write'], ORGS_ON)).toEqual([]);
+  });
+
+  it('titles each route after its own card', () => {
+    const title = (path: string) => settingsPageTitle(ADMIN_SECTIONS, ADMIN_HUB_PATH, ADMIN_HUB_TITLE, path, ORGS_ON);
+    expect(title('/admin/settings/webhooks')).toBe('Webhooks');
+    expect(title('/admin/settings/organization-webhooks')).toBe('Organization webhooks');
+  });
+});
+
+describe('USER_SETTINGS_SECTIONS - Webhooks (#1046)', () => {
+  it('is one card in an Integrations group, on webhooks:read, with no feature', () => {
+    const section = USER_SETTINGS_SECTIONS.find((s) => s.label === 'Integrations');
+    expect(section?.cards.map(({ title, path, permission, feature }) => ({ title, path, permission, feature }))).toEqual([
+      { title: 'Webhooks', path: '/settings/webhooks', permission: 'webhooks:read', feature: undefined },
+    ]);
   });
 });
 
@@ -1409,6 +1503,8 @@ describe('USER_SETTINGS_SECTIONS - Notifications card (issue #126)', () => {
     '/settings/ai': 'ai:use',
     // #731: the org permission the `/api/groups` controller enforces.
     '/settings/groups': 'groups:read',
+    // #1046: the org permission the `/api/webhooks` controller enforces.
+    '/settings/webhooks': 'webhooks:read',
   };
 
   it('only cards listed in PERMISSION_GATED_USER_CARDS declare a permission', () => {
@@ -1437,7 +1533,7 @@ describe('USER_SETTINGS_SECTIONS - Groups card (issue #731)', () => {
   });
 
   it('leaves the existing sections, in order, untouched; later groups (#744 "Your data") append after it, and the Danger Zone (#743) stays last', () => {
-    expect(USER_SETTINGS_SECTIONS.map((section) => section.label)).toEqual(['Account', 'Security', 'Sharing', 'Your data', 'Danger Zone']);
+    expect(USER_SETTINGS_SECTIONS.map((section) => section.label)).toEqual(['Account', 'Security', 'Sharing', 'Your data', 'Integrations', 'Danger Zone']);
   });
 
   it('points at /settings/groups and declares groups:read and no feature', () => {

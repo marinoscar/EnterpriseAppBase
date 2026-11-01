@@ -59,6 +59,10 @@ const ORG_SETTINGS_PERMISSIONS = ['org_settings:read', 'org_settings:write'];
 const ORG_BROADCASTS_PERMISSIONS = ['org_broadcasts:read', 'org_broadcasts:write'];
 /** The AI slice's org permissions (#739), granted to org_admin: declared after the split too. */
 const ORG_AI_PERMISSIONS = ['org_ai_config:read', 'org_ai_config:write'];
+/** The webhooks (#1046) and alerts (#1047) slices' permissions: declared after the split too. */
+const WEBHOOKS_ALERTS_PERMISSIONS = [
+  'webhooks:read', 'webhooks:write', 'org_webhooks:read', 'org_webhooks:write', 'system_webhooks:read', 'system_webhooks:write', 'alerts:read', 'alerts:write',
+];
 const SEED_INPUT = platformSeedInputFrom(SEED_SNAPSHOT, {});
 
 interface LockFile {
@@ -75,7 +79,7 @@ const splitMigrationDir = lock.migrations.find((m) => m.originId === MIGRATION_O
  */
 function preSplitCatalog() {
   const permissions = SEED_INPUT.permissions.filter(
-    (p) => !ORG_PERMISSIONS.includes(p.name) && !LATER_PERMISSIONS.includes(p.name) && !SHARING_PERMISSIONS.includes(p.name) && !ORG_SETTINGS_PERMISSIONS.includes(p.name) && !ORG_BROADCASTS_PERMISSIONS.includes(p.name) && !ORG_AI_PERMISSIONS.includes(p.name),
+    (p) => !ORG_PERMISSIONS.includes(p.name) && !LATER_PERMISSIONS.includes(p.name) && !SHARING_PERMISSIONS.includes(p.name) && !ORG_SETTINGS_PERMISSIONS.includes(p.name) && !ORG_BROADCASTS_PERMISSIONS.includes(p.name) && !ORG_AI_PERMISSIONS.includes(p.name) && !WEBHOOKS_ALERTS_PERMISSIONS.includes(p.name),
   );
   return {
     roles: SEED_INPUT.roles.filter((r) => r.name !== 'org_admin'),
@@ -244,10 +248,10 @@ describeWithDb('system/org role split against real Postgres', () => {
     it.each<UserKey>(['contributor', 'viewer', 'contributorViewer', 'noMembership'])(
       "keeps %s's effective permission set exactly",
       async (key) => {
-        // Plus the sharing grants (#728) the seed after the migration gives
+        // Plus the sharing (#728) and webhooks (#1046) grants the seed after the migration gives
         // the membership role the split assigned (see the table above).
         const role = ({ contributor: 'contributor', viewer: 'viewer', contributorViewer: 'contributor', noMembership: 'contributor' } as Record<string, string>)[key]!;
-        const sharing = SEED_INPUT.roleGrants[role]!.filter((name) => SHARING_PERMISSIONS.includes(name));
+        const sharing = SEED_INPUT.roleGrants[role]!.filter((name) => SHARING_PERMISSIONS.includes(name) || WEBHOOKS_ALERTS_PERMISSIONS.includes(name));
         expect((await effective(key)).permissions.sort()).toEqual([...before.get(key)!, ...sharing].sort());
       },
     );
@@ -261,7 +265,7 @@ describeWithDb('system/org role split against real Postgres', () => {
       // org_broadcasts permissions (#738) its org_admin membership receives, and the org_ai_config
       // permissions (#739).
       expect(access.permissions.sort()).toEqual(
-        [...before.get('admin')!, ...ORG_PERMISSIONS, ...LATER_PERMISSIONS, ...SHARING_PERMISSIONS, ...ORG_SETTINGS_PERMISSIONS, ...ORG_BROADCASTS_PERMISSIONS, ...ORG_AI_PERMISSIONS].sort(),
+        [...before.get('admin')!, ...ORG_PERMISSIONS, ...LATER_PERMISSIONS, ...SHARING_PERMISSIONS, ...ORG_SETTINGS_PERMISSIONS, ...ORG_BROADCASTS_PERMISSIONS, ...ORG_AI_PERMISSIONS, ...WEBHOOKS_ALERTS_PERMISSIONS].sort(),
       );
       expect(access.roles).toEqual(['admin', 'org_admin']);
     });

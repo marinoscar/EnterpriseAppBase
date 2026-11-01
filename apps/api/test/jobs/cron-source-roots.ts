@@ -53,6 +53,12 @@ export const USER_DATA_SLICE_SOURCE_ROOT = join(REPO, 'packages', 'platform-api'
 /** The packaged host slice's source root (#867: the event bus, metrics and maintenance; no cron). */
 export const HOST_SLICE_SOURCE_ROOT = join(REPO, 'packages', 'platform-api', 'src', 'host');
 
+/** The packaged alerts slice's source root (#1047: the evaluation and purge crons, the node-event listener). */
+export const ALERTS_SLICE_SOURCE_ROOT = join(REPO, 'packages', 'platform-api', 'src', 'alerts');
+
+/** The packaged webhooks slice's source root (#1046: the delivery purge cron, the domain-event bridges). */
+export const WEBHOOKS_SLICE_SOURCE_ROOT = join(REPO, 'packages', 'platform-api', 'src', 'webhooks');
+
 /** Every root the rule scans. */
 export const CRON_SOURCE_ROOTS: readonly string[] = [
   API_SOURCE_ROOT,
@@ -67,4 +73,6 @@ export const CRON_SOURCE_ROOTS: readonly string[] = [
   DB_BACKUP_SLICE_SOURCE_ROOT,
   USER_DATA_SLICE_SOURCE_ROOT,
   HOST_SLICE_SOURCE_ROOT,
+  WEBHOOKS_SLICE_SOURCE_ROOT,
+  ALERTS_SLICE_SOURCE_ROOT,
 ];

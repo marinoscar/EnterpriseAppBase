@@ -194,6 +194,22 @@
         "note": "Imports core, identity, jobs, storage, sharing, exports and host. Each model that gains a user relation registers a keep or delete decision."
       }
     },
+    "webhooks": {
+      "group": "feature",
+      "gives": "Outbound signed webhooks: endpoints for a member, an organization or the deployment, an open event catalog, an SSRF-safe delivery job with retries and a circuit breaker, domain-event bridges and a notification channel.",
+      "standalone": {
+        "level": "with-slices",
+        "note": "Imports core, otel-core, identity, credentials, jobs, nodes and notifications. Signing secrets live in the credentials store; the app binds the bypass client for system-scope endpoints."
+      }
+    },
+    "alerts": {
+      "group": "feature",
+      "gives": "Alert rules over telemetry metrics, worker-node events and fleet health, incidents with a pending, firing and resolved state machine, notifications and optional webhooks on a transition, and the admin routes.",
+      "standalone": {
+        "level": "with-slices",
+        "note": "Imports core, otel-core, identity, jobs, nodes, telemetry, notifications and email. The metric and verdict kinds need the telemetry module in `imports`; the node kinds work without a telemetry store."
+      }
+    },
     "manifest": {
       "group": "foundation",
       "gives": "The platform roles, the permission sets every slice declares and the model-ownership inventory the app reads once, instead of listing them slice by slice.",

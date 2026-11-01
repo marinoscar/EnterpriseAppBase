@@ -158,6 +158,14 @@
       "types": "./dist/db-backup/testing/index.d.ts",
       "default": "./dist/db-backup/testing/index.js"
     },
+    "./alerts": {
+      "types": "./dist/alerts/index.d.ts",
+      "default": "./dist/alerts/index.js"
+    },
+    "./alerts/testing": {
+      "types": "./dist/alerts/testing/index.d.ts",
+      "default": "./dist/alerts/testing/index.js"
+    },
     "./android-app": {
       "types": "./dist/android-app/index.d.ts",
       "default": "./dist/android-app/index.js"
@@ -165,6 +173,14 @@
     "./android-app/testing": {
       "types": "./dist/android-app/testing/index.d.ts",
       "default": "./dist/android-app/testing/index.js"
+    },
+    "./webhooks": {
+      "types": "./dist/webhooks/index.d.ts",
+      "default": "./dist/webhooks/index.js"
+    },
+    "./webhooks/testing": {
+      "types": "./dist/webhooks/testing/index.d.ts",
+      "default": "./dist/webhooks/testing/index.js"
     },
     "./user-data": {
       "types": "./dist/user-data/index.d.ts",

@@ -42,6 +42,8 @@ const ALLOWLIST: Record<string, string> = {
     'doctor: the db-backup slice\'s DB_BACKUP_SYSTEM_DATA port (#740): the backup.rls-bypass check\'s read-only row counts',
   'platform/user-data/user-data-db.adapter.ts':
     'purge and admin-aggregate: the user-data slice\'s USER_DATA_DB port (#743): a user\'s purge across every organization, the factory reset, offboarding, and their read-only summaries',
+  'platform/webhooks/webhooks-host.module.ts':
+    'webhooks and retention: the webhooks slice\'s WEBHOOKS_SYSTEM_PRISMA port (#1046): a system-scope endpoint and its deliveries have no organization, so every query on them runs on the bypass client (webhooks), and the delivery purge deletes expired rows across organizations (retention)',
   'platform/sharing/sharing-data.adapter.ts':
     'purge and doctor: the sharing slice\'s user purge (GroupMembershipPurge) and its read-only orphaned-groups check',
 };

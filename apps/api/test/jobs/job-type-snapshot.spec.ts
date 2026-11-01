@@ -67,6 +67,14 @@ const REGISTERED_JOB_TYPES: Readonly<Record<string, string>> = {
   'user.data.purge': 'User data deletion',
   'admin.factory_reset': 'Factory reset',
   'org.offboard': 'Organization offboarding',
+  // The webhooks slice (#1046): server-only, permanent.
+  'webhooks.deliver': 'Webhook delivery',
+  'webhooks.fanout': 'Webhook fan-out',
+  'webhooks.deliveries_purge': 'Webhook delivery purge',
+  // The alerts slice (#1047).
+  'alerts.evaluate': 'Alert evaluation',
+  'alerts.evaluate_event': 'Alert evaluation (node event)',
+  'alerts.incidents_purge': 'Alert incident purge',
 };
 
 /**

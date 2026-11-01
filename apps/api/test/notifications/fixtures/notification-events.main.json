@@ -48,13 +48,13 @@
       "email",
       "browser",
       "push",
-      "webhook"
+      "http_post"
     ],
     "declaredChannels": [
       "email",
       "browser",
       "push",
-      "webhook"
+      "http_post"
     ],
     "defaultEnabled": true,
     "mandatory": false
@@ -62,18 +62,18 @@
   {
     "key": "admin.broadcast_critical",
     "label": "Important announcements",
-    "description": "Messages an administrator has marked as important \u2014 service interruptions, security notices and anything else everyone needs to see. These cannot be turned off.",
+    "description": "Messages an administrator has marked as important — service interruptions, security notices and anything else everyone needs to see. These cannot be turned off.",
     "channels": [
       "email",
       "browser",
       "push",
-      "webhook"
+      "http_post"
     ],
     "declaredChannels": [
       "email",
       "browser",
       "push",
-      "webhook"
+      "http_post"
     ],
     "defaultEnabled": true,
     "mandatory": true
@@ -155,11 +155,13 @@
     "description": "Sent when a group admin invites your email address to join a group in your organization.",
     "channels": [
       "email",
-      "browser"
+      "browser",
+      "webhook"
     ],
     "declaredChannels": [
       "email",
-      "browser"
+      "browser",
+      "webhook"
     ],
     "defaultEnabled": true,
     "mandatory": false
@@ -170,11 +172,13 @@
     "description": "Sent when someone in your organization shares an item with you or changes your role on it.",
     "channels": [
       "email",
-      "browser"
+      "browser",
+      "webhook"
     ],
     "declaredChannels": [
       "email",
-      "browser"
+      "browser",
+      "webhook"
     ],
     "defaultEnabled": true,
     "mandatory": false
@@ -185,11 +189,13 @@
     "description": "Sent when a data export you asked for is ready to download.",
     "channels": [
       "browser",
-      "push"
+      "push",
+      "webhook"
     ],
     "declaredChannels": [
       "browser",
-      "push"
+      "push",
+      "webhook"
     ],
     "defaultEnabled": true,
     "mandatory": false
@@ -200,11 +206,60 @@
     "description": "Sent when a data export you asked for could not be created.",
     "channels": [
       "browser",
-      "push"
+      "push",
+      "webhook"
     ],
     "declaredChannels": [
       "browser",
+      "push",
+      "webhook"
+    ],
+    "defaultEnabled": true,
+    "mandatory": false
+  },
+  {
+    "key": "alerts.alert_fired",
+    "label": "Alert fired",
+    "description": "Sent to administrators who can view alerts when an alert rule starts firing.",
+    "channels": [
+      "email",
+      "browser",
       "push"
+    ],
+    "declaredChannels": [
+      "email",
+      "browser",
+      "push"
+    ],
+    "defaultEnabled": true,
+    "mandatory": false
+  },
+  {
+    "key": "alerts.alert_resolved",
+    "label": "Alert resolved",
+    "description": "Sent to administrators who can view alerts when a firing alert clears.",
+    "channels": [
+      "email",
+      "browser"
+    ],
+    "declaredChannels": [
+      "email",
+      "browser"
+    ],
+    "defaultEnabled": true,
+    "mandatory": false
+  },
+  {
+    "key": "webhooks.endpoint_disabled",
+    "label": "Webhook endpoint disabled",
+    "description": "Sent to the owner of a webhook endpoint when it is switched off after repeated failures or a 410 Gone.",
+    "channels": [
+      "email",
+      "browser"
+    ],
+    "declaredChannels": [
+      "email",
+      "browser"
     ],
     "defaultEnabled": true,
     "mandatory": false
@@ -214,10 +269,10 @@
     "label": "Webhook test message",
     "description": "A message sent to your webhook handle when an administrator checks that the webhook channel works.",
     "channels": [
-      "webhook"
+      "http_post"
     ],
     "declaredChannels": [
-      "webhook"
+      "http_post"
     ],
     "defaultEnabled": true,
     "mandatory": false

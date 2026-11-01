@@ -80,8 +80,11 @@ export async function signWebhookPayload(input: SignWebhookPayloadInput): Promis
  * @stability experimental
  */
 export interface VerifyWebhookSignatureInput {
+  /** One signing secret (`whsec_...`). */
   secret?: string;
+  /** Several secrets, for a rotation overlap. */
   secrets?: readonly string[];
+  /** The `webhook-id` header value. */
   id: string;
   /** The `webhook-timestamp` header value. */
   timestamp: number | string;

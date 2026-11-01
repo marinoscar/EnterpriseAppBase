@@ -66,7 +66,11 @@
     "src/host/headless/index.ts",
     "src/host/ui/index.ts",
     "src/timezone/headless/index.ts",
-    "src/timezone/ui/index.ts"
+    "src/timezone/ui/index.ts",
+    "src/webhooks/headless/index.ts",
+    "src/webhooks/ui/index.ts",
+    "src/alerts/headless/index.ts",
+    "src/alerts/ui/index.ts"
   ],
   "out": "docs-api",
   "json": "docs-api/api.json"

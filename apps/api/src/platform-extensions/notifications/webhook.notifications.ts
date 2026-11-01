@@ -32,13 +32,20 @@ import type {
   NotificationRegistration,
 } from '@marinoscar/platform-api/notifications';
 
-/** The channel id. A channel id is persisted in preferences and delivery rows: never rename it. */
-export const WEBHOOK_CHANNEL_ID = 'webhook';
+/**
+ * The channel id. A channel id is persisted in preferences and delivery rows: never rename it.
+ *
+ * `http_post`, not `webhook`: the id `webhook` belongs to the webhooks slice's own channel
+ * (`@marinoscar/platform-api/webhooks`, #1046), which forwards a member's notifications to
+ * their signed webhook endpoints. This worked example keeps the extension recipe (a channel
+ * of the app's own, one URL, per-user handles) under a name of its own.
+ */
+export const WEBHOOK_CHANNEL_ID = 'http_post';
 
 /** The channel's registry entry. */
 export const WEBHOOK_NOTIFICATION_CHANNEL: NotificationChannelDef = {
   id: WEBHOOK_CHANNEL_ID,
-  label: 'Webhook',
+  label: 'HTTP POST',
   description: 'A JSON POST to the webhook endpoint this application is configured with, addressed to the user\'s handle.',
   userConfigurable: true,
 };

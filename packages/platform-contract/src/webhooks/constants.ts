@@ -7,6 +7,15 @@
 // =============================================================================
 
 /**
+ * The entries type `z.enum` builds for a list of values, named so the API
+ * reference shows one type instead of an anonymous object per property.
+ *
+ * @typeParam V - the values.
+ * @stability experimental
+ */
+export type WebhookEnumEntries<V extends string> = { readonly [K in V]: K };
+
+/**
  * Who owns an endpoint: a `user` (their own, inside the active organization),
  * an `org` (shared by the organization's administrators) or the `system`
  * (the deployment; administrators only).
@@ -46,11 +55,17 @@ export type WebhookDeliveryStatus = (typeof WEBHOOK_DELIVERY_STATUSES)[number];
  * @stability experimental
  */
 export const WEBHOOK_PERMISSIONS = {
+  /** View your own endpoints and their deliveries. */
   READ: 'webhooks:read',
+  /** Manage your own endpoints. */
   WRITE: 'webhooks:write',
+  /** View the organization's endpoints and deliveries. */
   ORG_READ: 'org_webhooks:read',
+  /** Manage the organization's endpoints. */
   ORG_WRITE: 'org_webhooks:write',
+  /** View the deployment's endpoints and deliveries. */
   SYSTEM_READ: 'system_webhooks:read',
+  /** Manage the deployment's endpoints. */
   SYSTEM_WRITE: 'system_webhooks:write',
 } as const;
 
@@ -102,12 +117,19 @@ export const WEBHOOK_DEFAULT_TOLERANCE_SECONDS = 300;
  * @stability experimental
  */
 export const WEBHOOK_ERROR_CODES = {
+  /** The endpoint does not exist, or is not the caller's to see (404). */
   WEBHOOK_NOT_FOUND: 'WEBHOOK_NOT_FOUND',
+  /** The delivery does not exist for this endpoint (404). */
   WEBHOOK_DELIVERY_NOT_FOUND: 'WEBHOOK_DELIVERY_NOT_FOUND',
+  /** The URL is malformed or not http(s) (400). */
   WEBHOOK_URL_INVALID: 'WEBHOOK_URL_INVALID',
+  /** The URL targets a host the egress policy refuses (400). */
   WEBHOOK_URL_FORBIDDEN: 'WEBHOOK_URL_FORBIDDEN',
+  /** A subscription names an event that is not registered (400). */
   WEBHOOK_EVENT_UNKNOWN: 'WEBHOOK_EVENT_UNKNOWN',
+  /** The owner may not subscribe to an event (403). */
   WEBHOOK_EVENT_NOT_PERMITTED: 'WEBHOOK_EVENT_NOT_PERMITTED',
+  /** The owner already has the most endpoints allowed (409). */
   WEBHOOK_LIMIT_REACHED: 'WEBHOOK_LIMIT_REACHED',
 } as const;
 

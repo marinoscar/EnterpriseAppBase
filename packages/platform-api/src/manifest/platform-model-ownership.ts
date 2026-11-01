@@ -117,6 +117,13 @@ const BASE_MODEL_OWNERSHIP: readonly ModelOwnershipDef[] = [
   { model: 'WorkerNode', kind: 'system', rationale: 'A deployment-wide worker node.' },
   { model: 'NodeCredential', kind: 'system', rationale: 'A deployment-wide worker-node credential.' },
   { model: 'WorkerNodeEvent', kind: 'system', rationale: 'An event a deployment-wide worker node reported about itself; cascades with the node.' },
+  {
+    model: 'AlertRule',
+    kind: 'system',
+    orgReference: 'orgId',
+    rationale: 'A deployment-wide alert rule over the deployment telemetry and fleet. org_id is reserved (always NULL in v1) and is not a foreign key, so there is no policy.',
+  },
+  { model: 'AlertIncident', kind: 'system', rationale: 'One deployment-wide alert rule breached for one label set; cascades with its rule.' },
   { model: 'JobStatsRollup', kind: 'system', rationale: 'Deployment-wide queue statistics.' },
   { model: 'JobNodeSecret', kind: 'system', rationale: 'The handle of a credential brokered to a node for one job; never material.' },
   { model: 'NotificationBroadcast', kind: 'system', rationale: 'An administrator broadcast to the deployment. Organisation targeting is #738.' },

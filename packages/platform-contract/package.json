@@ -200,6 +200,26 @@
         "default": "./dist/cjs/user-data/index.js"
       }
     },
+    "./alerts": {
+      "import": {
+        "types": "./dist/esm/alerts/index.d.ts",
+        "default": "./dist/esm/alerts/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/alerts/index.d.ts",
+        "default": "./dist/cjs/alerts/index.js"
+      }
+    },
+    "./webhooks": {
+      "import": {
+        "types": "./dist/esm/webhooks/index.d.ts",
+        "default": "./dist/esm/webhooks/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/webhooks/index.d.ts",
+        "default": "./dist/cjs/webhooks/index.js"
+      }
+    },
     "./timezone": {
       "import": {
         "types": "./dist/esm/timezone/index.d.ts",

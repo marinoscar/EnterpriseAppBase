@@ -59,7 +59,7 @@ Standalone: **Yes** means the slice imports and runs with the foundation slices 
 | [`android-app`](#android-app) | The server half of the Android companion: trusted apps and Digital Asset Links, hosted APK releases with signed downloads, the `android_app` push channel and the admin page. | API, Web, Contract | `core`, `doctor`, `identity`, `notifications`, `settings`, `storage` | With slices |
 | [`user-data`](#user-data) | Deleting data: per-user data reset with scopes, the admin factory reset and organization offboarding, driven by registered categories and a relation-ordered purge planner. | API, Web, Contract | `core`, `doctor`, `exports`, `host`, `identity`, `jobs`, `otel-core`, `sharing`, `storage` | With slices |
 | [`webhooks`](#webhooks) | Outbound signed webhooks: endpoints for a member, an organization or the deployment, an open event catalog, an SSRF-safe delivery job with retries and a circuit breaker, domain-event bridges and a notification channel. | API, Web, Contract | `core`, `credentials`, `datatable`, `email`, `identity`, `jobs`, `nodes`, `notifications`, `otel-core` | With slices |
-| [`alerts`](#alerts) | Alert rules over telemetry metrics, worker-node events and fleet health, incidents with a pending, firing and resolved state machine, notifications and optional webhooks on a transition, and the admin routes. | API, Contract | `core`, `doctor`, `email`, `identity`, `jobs`, `nodes`, `notifications`, `otel-core`, `telemetry` | With slices |
+| [`alerts`](#alerts) | Alert rules over telemetry metrics, worker-node events and fleet health, incidents with a pending, firing and resolved state machine, notifications and optional webhooks on a transition, and the admin routes. | API, Web, Contract | `core`, `datatable`, `doctor`, `email`, `identity`, `jobs`, `nodes`, `notifications`, `otel-core`, `telemetry` | With slices |
 | [`openai`](#openai) | The OpenAI wire family as a framework-free adapter: OpenAI, OpenAI-compatible and Azure OpenAI (`createOpenAiAdapter`), with the redirect and family guards. | AI providers | `core` | Yes |
 | [`anthropic`](#anthropic) | The Anthropic Messages API adapter (`createAnthropicAdapter`), stateless, without Nest. | AI providers | `core` | Yes |
 | [`gemini`](#gemini) | The Google Gemini adapter (`createGeminiAdapter`): generateContent and embeddings, without Nest. | AI providers | `core` | Yes |
@@ -664,11 +664,14 @@ None.
 | Part | Import paths | Depends on (slices) | Install beyond the required peers | README |
 |---|---|---|---|---|
 | API (`platform-api`) | `/alerts`, `/alerts/testing` | `core`, `doctor`, `otel-core`, `identity`, `jobs`, `nodes`, `telemetry`, `notifications`, `email` | `@nestjs/config`, `@nestjs/event-emitter`, `@nestjs/jwt`, `@nestjs/passport`, `@nestjs/schedule`, `@prisma/client-runtime-utils`, `fastify`, `passport` | [README](../packages/platform-api/src/alerts/README.md) |
+| Web (`platform-web`) | `/alerts/headless`, `/alerts/ui` | `core`, `datatable` | `@mui/icons-material`, `@mui/x-data-grid`, `react-router-dom` | [README](../packages/platform-web/src/alerts/README.md) |
 | Contract (`platform-contract`) | `/alerts` | none | none | [README](../packages/platform-contract/src/alerts/README.md) |
 
 **Admin and settings cards.**
 
-None.
+| Card | Route | Permission | Feature gate | Declared by |
+|---|---|---|---|---|
+| Alerts | `/admin/settings/alerts` | none | none | the package (data the app spreads into its registry) |
 
 **Permissions it adds.** `alerts:{read,write}`
 

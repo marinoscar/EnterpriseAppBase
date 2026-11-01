@@ -200,6 +200,28 @@ const GettingStartedPage = lazy(() =>
 const AndroidAppPage = lazy(() =>
   import('@marinoscar/platform-web/android-app/ui').then((m) => ({ default: m.AndroidAppPage })),
 );
+// Webhooks (#1046): one packaged page, routed once per scope.
+const WebhooksPage = lazy(() =>
+  import('@marinoscar/platform-web/webhooks/ui').then((m) => ({ default: m.WebhooksPage })),
+);
+// Alerts (#1047): the packaged page, and the firing banner the telemetry
+// dashboard shows in its `BeforeContent` slot (telemetry does not depend on
+// alerts; the app joins them here).
+const AlertsPage = lazy(() =>
+  import('@marinoscar/platform-web/alerts/ui').then((m) => ({ default: m.AlertsPage })),
+);
+const FiringAlertsBanner = lazy(() =>
+  import('@marinoscar/platform-web/alerts/ui').then((m) => ({ default: m.FiringAlertsBanner })),
+);
+/** The telemetry dashboard's `BeforeContent` slot: the firing alerts, if any. */
+function DashboardAlertsBanner() {
+  return (
+    <Suspense fallback={null}>
+      <FiringAlertsBanner />
+    </Suspense>
+  );
+}
+const TELEMETRY_DASHBOARD_SLOTS = { BeforeContent: DashboardAlertsBanner };
 
 // Test login page (development only)
 const TestLoginPage = import.meta.env.PROD
@@ -848,7 +870,7 @@ function AppRoutes() {
                         fallback={<Navigate to="/" replace />}
                       >
                         <RequireTelemetryEnabled>
-                          <TelemetryDashboardPage />
+                          <TelemetryDashboardPage slots={TELEMETRY_DASHBOARD_SLOTS} />
                         </RequireTelemetryEnabled>
                       </RequirePermission>
                     }
@@ -871,6 +893,23 @@ function AppRoutes() {
                         fallback={<Navigate to="/" replace />}
                       >
                         <DoctorPage />
+                      </RequirePermission>
+                    }
+                  />
+                  {/* Issue #1047. The `Alerts` card's route: `alerts:read`, the
+                      string every read route of `/api/admin/alerts` enforces
+                      (`ALERT_PERMISSIONS`; written as a literal because the
+                      registry tests read this file). Writes are gated inside
+                      the page. NOT behind `RequireTelemetryEnabled`: node rules
+                      work while telemetry is off. */}
+                  <Route
+                    path="/admin/settings/alerts"
+                    element={
+                      <RequirePermission
+                        permission="alerts:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <AlertsPage />
                       </RequirePermission>
                     }
                   />
@@ -970,6 +1009,50 @@ function AppRoutes() {
                       the caller's own data (`user_settings:read`, which every
                       role holds); an org admin also sees `org-data`. */}
                   <Route path="/settings/data-export" element={<DataExportPage />} />
+                  {/* Issue #1046. The three `Webhooks` cards' routes, each gated on
+                      the exact `:read` string its card declares and its
+                      controller enforces (`WEBHOOK_PERMISSIONS`; written as
+                      literals because the registry tests read this file):
+                      `webhooks:read` (`/api/webhooks`, the caller's own),
+                      `system_webhooks:read` (`/api/admin/webhooks`) and
+                      `org_webhooks:read` (`/api/org/webhooks`, multi-org only,
+                      like the other organization cards). Writes are gated
+                      inside the page. */}
+                  <Route
+                    path="/settings/webhooks"
+                    element={
+                      <RequirePermission
+                        permission="webhooks:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <WebhooksPage scope="user" />
+                      </RequirePermission>
+                    }
+                  />
+                  <Route
+                    path="/admin/settings/webhooks"
+                    element={
+                      <RequirePermission
+                        permission="system_webhooks:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <WebhooksPage scope="system" />
+                      </RequirePermission>
+                    }
+                  />
+                  <Route
+                    path="/admin/settings/organization-webhooks"
+                    element={
+                      <RequirePermission
+                        permission="org_webhooks:read"
+                        fallback={<Navigate to="/" replace />}
+                      >
+                        <RequireMultiOrg>
+                          <WebhooksPage scope="org" />
+                        </RequireMultiOrg>
+                      </RequirePermission>
+                    }
+                  />
                   {/* Issue #746. The `Android app` card's route:
                       `system_settings:read`, the string
                       `GET /api/admin/android-app` enforces (the packaged

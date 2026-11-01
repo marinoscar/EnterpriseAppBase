@@ -52,6 +52,9 @@ describe('email extension points (reference app)', () => {
       'org-invitation',
       'group-invitation',
       'shared-with-you',
+      'alert-fired',
+      'alert-resolved',
+      'webhook-endpoint-disabled',
     ]);
     expect(renderEmailTemplate('user-welcome', { recipientEmail: 'a@example.test', roles: [] }).subject).toBe(`Welcome to ${APP_NAME}`);
   });

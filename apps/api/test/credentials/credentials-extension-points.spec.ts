@@ -48,10 +48,12 @@ describe('the app registers its credential purposes', () => {
       email_ses: 'email:system',
       push_vapid: 'notifications:system',
       telemetry_greptime: 'telemetry:system',
+      webhook_signing: 'webhooks:system+org',
     });
     expect(APP_CREDENTIAL_PURPOSES).toEqual([]);
     expect(APP_USER_CREDENTIAL_PURPOSES).toEqual([]);
-    expect(userCredentialPurposeRegistry.ids()).toEqual([]);
+    // The webhooks slice's own tier (#1046); the app adds none.
+    expect(userCredentialPurposeRegistry.ids()).toEqual(['webhook_signing']);
   });
 });
 

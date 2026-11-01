@@ -22,7 +22,9 @@
     "src/db-backup/index.ts",
     "src/android-app/index.ts",
     "src/user-data/index.ts",
-    "src/timezone/index.ts"
+    "src/timezone/index.ts",
+    "src/alerts/index.ts",
+    "src/webhooks/index.ts"
   ],
   "out": "docs-api",
   "json": "docs-api/api.json"

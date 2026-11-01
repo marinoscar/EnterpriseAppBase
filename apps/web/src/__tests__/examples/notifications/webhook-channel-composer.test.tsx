@@ -3,7 +3,7 @@
  * composer, the preferences matrix and the admin Notifications page with no web
  * code.
  *
- * The reference app registers `webhook`
+ * The reference app registers `http_post`
  * (apps/api/src/platform-extensions/notifications/) with
  * `registerNotificationChannel` and puts it on the broadcast events. The API
  * describes every channel in `GET /api/notifications/channels`; the packaged
@@ -42,15 +42,15 @@ describe('the webhook channel in the notification pages (#928)', () => {
 
     await user.click(await screen.findByRole('button', { name: /new broadcast/i }));
 
-    expect(await screen.findByRole('checkbox', { name: 'Webhook' })).not.toBeChecked();
+    expect(await screen.findByRole('checkbox', { name: 'HTTP POST' })).not.toBeChecked();
     // The platform's own channels keep their wording and their defaults.
     expect(screen.getByRole('checkbox', { name: 'In-app' })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: 'Email' })).toBeChecked();
     // `android_app` is registered but the broadcast events do not declare it.
     expect(screen.queryByRole('checkbox', { name: 'Android app' })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('checkbox', { name: 'Webhook' }));
-    expect(screen.getByRole('checkbox', { name: 'Webhook' })).toBeChecked();
+    await user.click(screen.getByRole('checkbox', { name: 'HTTP POST' }));
+    expect(screen.getByRole('checkbox', { name: 'HTTP POST' })).toBeChecked();
   });
 
   it('lists the channel in the preferences matrix of an event that declares it', async () => {
@@ -62,8 +62,8 @@ describe('the webhook channel in the notification pages (#928)', () => {
               key: 'admin.broadcast',
               label: 'Announcements',
               description: 'Occasional messages an administrator sends to everyone using this application.',
-              channels: ['email', 'browser', 'push', 'webhook'],
-              declaredChannels: ['email', 'browser', 'push', 'webhook'],
+              channels: ['email', 'browser', 'push', 'http_post'],
+              declaredChannels: ['email', 'browser', 'push', 'http_post'],
               defaultEnabled: true,
               mandatory: false,
             },
@@ -73,7 +73,7 @@ describe('the webhook channel in the notification pages (#928)', () => {
     );
     render(<UserNotificationsPage />, { wrapperOptions: { user: mockAdminUser } });
 
-    expect(await screen.findByRole('switch', { name: 'Webhook notifications for Announcements' })).toBeChecked();
+    expect(await screen.findByRole('switch', { name: 'HTTP POST notifications for Announcements' })).toBeChecked();
     expect(screen.getByRole('switch', { name: 'Email notifications for Announcements' })).toBeInTheDocument();
   });
 
@@ -93,7 +93,7 @@ describe('the webhook channel in the notification pages (#928)', () => {
     );
     render(<NotificationSettingsPage />, { wrapperOptions: { user: mockAdminUser } });
 
-    expect(await screen.findByRole('switch', { name: 'Deliver Webhook notifications' })).toBeChecked();
+    expect(await screen.findByRole('switch', { name: 'Deliver HTTP POST notifications' })).toBeChecked();
     // The platform channels have no switch here: Email and Push have pages of their own.
     await waitFor(() => expect(screen.getByText('Delivery channels')).toBeInTheDocument());
     expect(screen.queryByRole('switch', { name: 'Deliver Email notifications' })).not.toBeInTheDocument();

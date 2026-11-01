@@ -63,6 +63,7 @@ export const PLATFORM_CREDENTIAL_OWNERS: readonly string[] = Object.freeze([
   'credentials',
   'sharing',
   'doctor',
+  'webhooks',
 ]);
 
 /**

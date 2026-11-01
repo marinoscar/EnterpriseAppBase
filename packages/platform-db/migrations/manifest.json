@@ -394,5 +394,13 @@
     "sha256": "8f719dc380610f61133612a52921fa6d89ee21957635372c2bc4bdc69d4c0a92",
     "since": "1.0.0",
     "slice": "webhooks"
+  },
+  {
+    "dir": "0040_add_alerts",
+    "id": "0040_add_alerts",
+    "requires": [],
+    "sha256": "ec4af7e5123ecd8bb6faf3505893cb2efab4d793dae84a98d8b7f26f2dff3776",
+    "since": "1.0.0",
+    "slice": "alerts"
   }
 ]

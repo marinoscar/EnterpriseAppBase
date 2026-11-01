@@ -319,6 +319,17 @@ export const mockPermissions = {
     name: 'org_broadcasts:write',
     description: 'Compose, schedule, cancel and send notification broadcasts to the active organization',
   },
+  // The webhooks slice (#1046): `webhooks:*` on every org role (a member's own endpoints),
+  // `org_webhooks:*` on org_admin, `system_webhooks:*` on the system admin.
+  webhooksRead: { id: randomUUID(), name: 'webhooks:read', description: 'View your own webhook endpoints and their deliveries' },
+  webhooksWrite: { id: randomUUID(), name: 'webhooks:write', description: 'Create, change, delete, rotate and test your own webhook endpoints' },
+  orgWebhooksRead: { id: randomUUID(), name: 'org_webhooks:read', description: "View the active organization's webhook endpoints and their deliveries" },
+  orgWebhooksWrite: { id: randomUUID(), name: 'org_webhooks:write', description: "Create, change, delete, rotate and test the active organization's webhook endpoints" },
+  systemWebhooksRead: { id: randomUUID(), name: 'system_webhooks:read', description: "View the deployment's webhook endpoints and their deliveries" },
+  systemWebhooksWrite: { id: randomUUID(), name: 'system_webhooks:write', description: "Create, change, delete, rotate and test the deployment's webhook endpoints" },
+  // The alerts slice (#1047). SYSTEM scope, admin only.
+  alertsRead: { id: randomUUID(), name: 'alerts:read', description: 'View alert rules, incidents and the firing summary' },
+  alertsWrite: { id: randomUUID(), name: 'alerts:write', description: 'Create, edit and delete alert rules; test them; acknowledge incidents' },
   // The user-data slice (#743, PP-9.1). SYSTEM scope, admin only.
   systemFactoryReset: {
     id: randomUUID(),
@@ -698,6 +709,14 @@ export const rolePermissionsMap = {
     mockPermissions.orgBroadcastsWrite,
     mockPermissions.orgAiConfigRead,
     mockPermissions.orgAiConfigWrite,
+    mockPermissions.webhooksRead,
+    mockPermissions.webhooksWrite,
+    mockPermissions.orgWebhooksRead,
+    mockPermissions.orgWebhooksWrite,
+    mockPermissions.systemWebhooksRead,
+    mockPermissions.systemWebhooksWrite,
+    mockPermissions.alertsRead,
+    mockPermissions.alertsWrite,
   ],
   contributor: [
     mockPermissions.userSettingsRead,
@@ -710,6 +729,8 @@ export const rolePermissionsMap = {
     mockPermissions.groupsWrite,
     mockPermissions.sharingRead,
     mockPermissions.sharingWrite,
+    mockPermissions.webhooksRead,
+    mockPermissions.webhooksWrite,
   ],
   // #499 — deliberately NO `aiUse` here, unlike Contributor above. Viewer is
   // the DEFAULT role every new user lands in, so a fixture that granted it
@@ -727,6 +748,8 @@ export const rolePermissionsMap = {
     mockPermissions.storageRead,
     mockPermissions.groupsRead,
     mockPermissions.sharingRead,
+    mockPermissions.webhooksRead,
+    mockPermissions.webhooksWrite,
   ],
 };
 
@@ -753,6 +776,10 @@ const ORG_SCOPED_PERMISSIONS = new Set([
   'org_broadcasts:write',
   'org_ai_config:read',
   'org_ai_config:write',
+  'webhooks:read',
+  'webhooks:write',
+  'org_webhooks:read',
+  'org_webhooks:write',
 ]);
 
 /**

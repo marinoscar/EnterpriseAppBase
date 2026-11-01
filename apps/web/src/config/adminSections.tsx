@@ -61,6 +61,11 @@ import { jobsAdminSections } from '@marinoscar/platform-web/jobs/ui';
 import { setupGuideSettingsPage } from '@marinoscar/platform-web/onboarding/ui';
 // Android app (#746; a packaged page: card and icon from its descriptor).
 import { androidAppSettingsPage } from '@marinoscar/platform-web/android-app/ui';
+// Webhooks (#1046): the system card (Operations) and the organization card
+// (Organizations), from the webhooks slice as data.
+import { webhooksAdminSections } from '@marinoscar/platform-web/webhooks/ui';
+// Alerts (#1047): the Observability card, from the alerts slice as data.
+import { alertsAdminCards } from '@marinoscar/platform-web/alerts/ui';
 
 // The card and section TYPES and the helpers every surface runs over this
 // registry (`visibleSettingsSections`, `settingsPageTitle`, `isFeatureEnabled`)
@@ -430,6 +435,13 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
         path: '/admin/settings/about',
         permission: 'system_settings:read',
       },
+      // Issue #1046. `Webhooks`, APPENDED: the deployment's outbound webhook
+      // endpoints and their deliveries, the webhooks slice's card as data.
+      // `system_webhooks:read` is the SYSTEM permission the packaged
+      // `/api/admin/webhooks` controller enforces (`WEBHOOK_PERMISSIONS`);
+      // writes (`system_webhooks:write`) are gated inside the page.
+      // OPERATIONS, NOT GENERAL: deliveries are work dispatched and watched.
+      ...webhooksAdminSections.operations,
     ],
   },
   {
@@ -554,6 +566,13 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
         ...doctorSettingsPage.card,
         Icon: doctorSettingsPage.Icon,
       },
+      // Issue #1047. `Alerts`, APPENDED after Doctor (append-only): alert
+      // rules and their incidents, the alerts slice's card as data.
+      // `alerts:read` is the SYSTEM permission every read route of the
+      // packaged `/api/admin/alerts` controller enforces (`ALERT_PERMISSIONS`);
+      // writes (`alerts:write`) are gated inside the page. NO `feature`: node
+      // rules work while telemetry is off.
+      ...alertsAdminCards,
     ],
   },
   /**
@@ -606,6 +625,12 @@ export const ADMIN_SECTIONS: SettingsSectionDef[] = [
         permission: 'org_settings:read',
         feature: 'orgs',
       },
+      // Issue #1046. `Organization webhooks`, APPENDED: the active
+      // organization's outbound webhook endpoints. `org_webhooks:read`, the
+      // ORG permission (`org_admin`) the packaged `/api/org/webhooks`
+      // controller enforces; `feature: 'orgs'` like its neighbours. Writes
+      // (`org_webhooks:write`) are gated inside the page.
+      ...webhooksAdminSections.organizations,
     ],
   },
   // Issue #743 (PP-9.1). `Danger Zone`, PINNED LAST: the one documented

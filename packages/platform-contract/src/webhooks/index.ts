@@ -23,7 +23,7 @@ export {
   WEBHOOK_SIGNATURE_VERSION,
   WEBHOOK_URL_MAX,
 } from './constants.js';
-export type { WebhookDeliveryStatus, WebhookErrorCode, WebhookScope } from './constants.js';
+export type { WebhookDeliveryStatus, WebhookEnumEntries, WebhookErrorCode, WebhookScope } from './constants.js';
 export {
   createWebhookEndpointSchema,
   rotateWebhookSecretResponseSchema,

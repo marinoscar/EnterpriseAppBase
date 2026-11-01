@@ -123,6 +123,8 @@ const MIGRATIONS_AT_288 = [
   '20261101003924_add_worker_node_events',
   // #1046: webhook_endpoints and webhook_deliveries (outbound webhooks; the four operational events still need nothing).
   '20261101044654_add_webhooks',
+  // #1047: alert_rules and alert_incidents (alerts slice).
+  '20261101050011_add_alerts',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

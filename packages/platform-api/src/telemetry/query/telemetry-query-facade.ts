@@ -172,7 +172,7 @@ export interface QueryFacadeOptions {
  */
 export function createQueryFacade(
   service: TelemetryQueryService,
-  userId: string,
+  userId: string | null,
   options: QueryFacadeOptions,
 ): TelemetryQueryFacade {
   const budget = options.maxStatements ?? FACADE_MAX_STATEMENTS;

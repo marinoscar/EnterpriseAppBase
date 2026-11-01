@@ -48,9 +48,11 @@ Events the platform registers (`registry/builtin-events.ts`):
 | `nodes.node.offline` | `system` | A worker node goes offline |
 | `nodes.node.event` | `system` | A worker node reports an event (power change, low battery, ...) |
 | `jobs.job.failed` | `system` | A job failed for good. A `webhooks.*` job never raises it |
+| `alerts.alert.fired` | `system` | An alert rule started firing and has its webhook flag on. Group `Alerts`, permission `system_webhooks:read`. Registered by the reference app, not the platform |
+| `alerts.alert.resolved` | `system` | A firing alert cleared. Same registration |
 | `notification.<eventKey>` | `user` | The notification bridge ([§2.3](#23-the-notification-bridge)) |
 
-The alerts slice raises `alerts.alert.fired` and `alerts.alert.resolved` through an optional port ([alerts.md §2.8](alerts.md#28-dispatch)).
+The alerts slice raises `alerts.alert.fired` and `alerts.alert.resolved` through an optional port ([alerts.md §2.8](alerts.md#28-dispatch)); the platform does not register them. The reference app binds the port to `WebhooksService.emit` and registers both events (`apps/api/src/platform/alerts/alerts-webhooks.adapter.ts`), so a fork that mounts only one of the two slices carries no dependency on the other.
 
 A subscription is an exact key, a group wildcard (`nodes.*`) or `*` (everything the subscriber is permitted). At most 100 subscriptions per endpoint. `GET .../events` returns only the entries the caller may subscribe to at that scope.
 

@@ -68,6 +68,8 @@ describe('USER_SETTINGS_SECTIONS - Notifications card (issue #126)', () => {
     '/settings/ai': 'ai:use',
     // #731: the org permission the `/api/groups` controller enforces.
     '/settings/groups': 'groups:read',
+    // #1046: the org permission the `/api/webhooks` controller enforces.
+    '/settings/webhooks': 'webhooks:read',
   };
 
   it('only cards listed in PERMISSION_GATED_USER_CARDS declare a permission', () => {
@@ -96,7 +98,7 @@ describe('USER_SETTINGS_SECTIONS - Groups card (issue #731)', () => {
   });
 
   it('leaves the existing sections, in order, untouched; later groups (#744 "Your data") go before the pinned Danger Zone (#743)', () => {
-    expect(USER_SETTINGS_SECTIONS.map((section) => section.label)).toEqual(['Account', 'Security', 'Sharing', 'Your data', 'Danger Zone']);
+    expect(USER_SETTINGS_SECTIONS.map((section) => section.label)).toEqual(['Account', 'Security', 'Sharing', 'Your data', 'Integrations', 'Danger Zone']);
   });
 
   it('points at /settings/groups and declares groups:read and no feature', () => {

@@ -155,9 +155,9 @@ describe('permission registry', () => {
       expect(permissionRegistry.ids()).toEqual(Object.values(PERMISSIONS));
     });
 
-    it('declares 51 permissions and 4 roles, each exactly once', () => {
-      expect(permissionRegistry.size).toBe(51);
-      expect(new Set(Object.values(PERMISSIONS)).size).toBe(51);
+    it('declares 59 permissions and 4 roles, each exactly once', () => {
+      expect(permissionRegistry.size).toBe(59);
+      expect(new Set(Object.values(PERMISSIONS)).size).toBe(59);
       expect(roleRegistry.size).toBe(4);
     });
   });
@@ -213,6 +213,11 @@ describe('permission registry', () => {
         // Org-targeted broadcasts (#738).
         'org_broadcasts:read',
         'org_broadcasts:write',
+        // Outbound webhooks (#1046): a member's own endpoints, and the organization's.
+        'webhooks:read',
+        'webhooks:write',
+        'org_webhooks:read',
+        'org_webhooks:write',
       ]);
     });
 
@@ -247,8 +252,10 @@ describe('permission registry', () => {
         'groups:write',
         'sharing:read',
         'sharing:write',
+        'webhooks:read',
+        'webhooks:write',
       ]);
-      expect(catalog.rolePermissions.viewer).toEqual(['user_settings:read', 'user_settings:write', 'storage:read', 'groups:read', 'sharing:read']);
+      expect(catalog.rolePermissions.viewer).toEqual(['user_settings:read', 'user_settings:write', 'storage:read', 'groups:read', 'sharing:read', 'webhooks:read', 'webhooks:write']);
     });
 
     it('keeps admin + org_admin equal to what admin alone held before the split, plus the four org_* permissions', () => {

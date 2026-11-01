@@ -71,12 +71,20 @@ import { DEFAULT_NODES_POLICY, readJobSecretBrokerEnabled, type NodesPolicy } fr
  * silently thereafter, which is the exact bug this issue exists to prevent,
  * reintroduced one layer up. `status` is operator/administrative state;
  * `health` is a function of the clock, computed at read time.
+ *
+ * @stability experimental
  */
 export type NodeHealth = 'healthy' | 'stale' | 'offline';
 
-/** The subset of a `WorkerNode` row a health verdict is a function of. */
+/**
+ * The subset of a `WorkerNode` row a health verdict is a function of.
+ *
+ * @stability experimental
+ */
 export interface NodeHealthInput {
+  /** The node's administrative status (`online`, `draining`, `offline`, `disabled`). */
   status: string;
+  /** The last heartbeat, or `null` when it never sent one. */
   lastHeartbeatAt: Date | null;
 }
 
@@ -112,6 +120,13 @@ export interface NodeHealthInput {
  *
  * PURE, and takes `now` explicitly, so the fleet page and the crons can be
  * pinned to one instant in a test rather than racing the wall clock.
+ *
+ * @param node - the node's `status` and last heartbeat.
+ * @param staleHeartbeatSeconds - the stale window.
+ * @param now - the instant to judge at.
+ * @returns the derived health.
+ *
+ * @stability experimental
  */
 export function deriveNodeHealth(
   node: NodeHealthInput,

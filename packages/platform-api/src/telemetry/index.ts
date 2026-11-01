@@ -214,8 +214,10 @@ export { isMetricUnit, metricUnitIds, metricUnitRegistry, registerMetricUnit } f
 export type { MetricUnitDef } from './metrics/metric-unit.registry';
 
 // ---- the guarded query facade (what a panel's `data` and an assistant tool's `run` receive; PP-14.18) ----
-export { FACADE_DEFAULT_ROWS, FACADE_MAX_ROWS, FACADE_MAX_STATEMENTS, TelemetryFacadeLimitError } from './query/telemetry-query-facade';
-export type { TelemetryFacadeResult, TelemetryQueryFacade, TelemetrySqlBuilders } from './query/telemetry-query-facade';
+export { FACADE_DEFAULT_ROWS, FACADE_MAX_ROWS, FACADE_MAX_STATEMENTS, TelemetryFacadeLimitError, createQueryFacade } from './query/telemetry-query-facade';
+export type { QueryFacadeOptions, TelemetryFacadeResult, TelemetryQueryFacade, TelemetrySqlBuilders } from './query/telemetry-query-facade';
+export { TelemetryDashboardService } from './dashboard/telemetry-dashboard.service';
+export type { DashboardPanelScope } from './dashboard/telemetry-dashboard.service';
 
 // ---- dashboard panels (rung 2; PP-14.18) ----------------------------------------------
 // `api` and `logs` register through `registerDashboardPanel` like an app's panel.
