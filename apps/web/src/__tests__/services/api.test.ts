@@ -1,7 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { server } from '../mocks/server';
-import { api, ApiError } from '../../services/api';
+import {
+  api,
+  ApiError,
+} from '../../services/api';
 
 describe('ApiService', () => {
   beforeEach(() => {
@@ -211,6 +214,200 @@ describe('ApiService', () => {
       const result = await api.delete('/test/123');
 
       expect(result).toEqual({ deleted: '123' });
+    });
+  });
+
+  describe('postFormData (#367)', () => {
+    it('should POST the FormData body without a hand-set Content-Type', async () => {
+      let contentTypeHeader: string | null = null;
+      let rawBody = '';
+
+      server.use(
+        http.post('*/api/upload', async ({ request }) => {
+          contentTypeHeader = request.headers.get('Content-Type');
+          // Not `await request.formData()`: on Node 24, undici's multipart
+          // parser asserts every parsed field is either a USVString or an
+          // undici-realm `File`. The `File` this test constructs is jsdom's
+          // (this test file's global, since these are jsdom-environment
+          // vitest tests) — a different realm — so that assertion throws
+          // (`webidl.is.File(value)` is falsy) and MSW turns it into a 500.
+          // Node 22's undici was more lenient. This is a test-harness
+          // cross-realm interop bug, not app behavior, so read the raw body
+          // instead and assert on what's realm-independent: the
+          // Content-Type header and the raw multipart part header.
+          rawBody = await request.text();
+          return HttpResponse.json({ data: { ok: true } });
+        }),
+      );
+
+      const formData = new FormData();
+      formData.append('file', new File(['bytes'], 'a.png', { type: 'image/png' }));
+
+      const result = await api.postFormData('/upload', formData);
+
+      expect(result).toEqual({ ok: true });
+      // The client must never hand-set `application/json` over a multipart
+      // body — the browser/undici writes its own `multipart/form-data;
+      // boundary=…` header, and a literal JSON type would break server parsing.
+      expect(contentTypeHeader).not.toBeNull();
+      expect(contentTypeHeader).not.toBe('application/json');
+      expect(contentTypeHeader).toMatch(/^multipart\/form-data; boundary=/);
+      // Realm-independent structural check: a `file` part with this field
+      // name reached the server at all. See the note above for why this
+      // doesn't go through `request.formData()`. Deliberately not asserting
+      // on filename or byte content: constructing the `File` via jsdom (this
+      // test file's global) and sending it through undici's `fetch` already
+      // loses both by the time the request leaves the client — the filename
+      // becomes the generic `"blob"` and the body content becomes the
+      // literal text `undefined` — so those fields aren't reliable to assert
+      // on across environments, only the field's presence is.
+      expect(rawBody).toContain('Content-Disposition: form-data; name="file"');
+    });
+
+    it('should include the auth header on a FormData request', async () => {
+      let authHeader: string | null = null;
+
+      server.use(
+        http.post('*/api/upload', ({ request }) => {
+          authHeader = request.headers.get('Authorization');
+          return HttpResponse.json({ data: {} });
+        }),
+      );
+
+      api.setAccessToken('test-token');
+      await api.postFormData('/upload', new FormData());
+
+      expect(authHeader).toBe('Bearer test-token');
+    });
+
+    it('should refresh the token and retry a FormData request on 401', async () => {
+      let callCount = 0;
+      let lastAuthHeader: string | null = null;
+
+      server.use(
+        http.post('*/api/upload', ({ request }) => {
+          callCount++;
+          lastAuthHeader = request.headers.get('Authorization');
+          if (callCount === 1) {
+            return new HttpResponse(null, { status: 401 });
+          }
+          return HttpResponse.json({ data: { ok: true } });
+        }),
+        http.post('*/api/auth/refresh', () => {
+          return HttpResponse.json({ accessToken: 'refreshed-token', expiresIn: 900 });
+        }),
+      );
+
+      api.setAccessToken('expired-token');
+      const result = await api.postFormData('/upload', new FormData());
+
+      expect(result).toEqual({ ok: true });
+      expect(callCount).toBe(2);
+      expect(lastAuthHeader).toBe('Bearer refreshed-token');
+    });
+  });
+
+  // MSW/undici's `Response.blob()` in this environment can return an instance
+  // of Node's OWN `buffer.Blob`, a different realm/constructor than jsdom's
+  // global `Blob` — so `toBeInstanceOf(Blob)` is unreliable here even though
+  // the value genuinely behaves like one. Duck-type instead.
+  function isBlobLike(value: unknown): value is Blob {
+    return (
+      typeof value === 'object' &&
+      value !== null &&
+      typeof (value as Blob).size === 'number' &&
+      typeof (value as Blob).text === 'function' &&
+      typeof (value as Blob).arrayBuffer === 'function'
+    );
+  }
+
+  describe('getBlob (#367)', () => {
+    it('should return the response body as a Blob, not parsed JSON', async () => {
+      server.use(
+        http.get('*/api/user-settings/profile-image', () => {
+          // A raw `Blob` body throws inside undici's `Response` construction in
+          // this environment (`extractBody`/`object.stream is not a function`);
+          // a plain string body with an explicit Content-Type produces the same
+          // client-side `Blob` via `response.blob()` without that crash.
+          return new HttpResponse('image-bytes', {
+            headers: { 'Content-Type': 'image/png' },
+          });
+        }),
+      );
+
+      const result = await api.getBlob('/user-settings/profile-image');
+
+      expect(isBlobLike(result)).toBe(true);
+      expect(result.type).toBe('image/png');
+      expect(await result.text()).toBe('image-bytes');
+    });
+
+    it('should send the bearer token on a getBlob request', async () => {
+      let authHeader: string | null = null;
+
+      server.use(
+        http.get('*/api/user-settings/profile-image', ({ request }) => {
+          authHeader = request.headers.get('Authorization');
+          return new HttpResponse('bytes', {
+            headers: { 'Content-Type': 'image/png' },
+          });
+        }),
+      );
+
+      api.setAccessToken('test-token');
+      await api.getBlob('/user-settings/profile-image');
+
+      expect(authHeader).toBe('Bearer test-token');
+    });
+
+    it('should refresh the token and retry a getBlob request on 401, returning a Blob', async () => {
+      let callCount = 0;
+      let lastAuthHeader: string | null = null;
+
+      server.use(
+        http.get('*/api/user-settings/profile-image', ({ request }) => {
+          callCount++;
+          lastAuthHeader = request.headers.get('Authorization');
+          if (callCount === 1) {
+            return new HttpResponse(null, { status: 401 });
+          }
+          return new HttpResponse('retried-bytes', {
+            headers: { 'Content-Type': 'image/png' },
+          });
+        }),
+        http.post('*/api/auth/refresh', () => {
+          return HttpResponse.json({ accessToken: 'refreshed-token', expiresIn: 900 });
+        }),
+      );
+
+      api.setAccessToken('expired-token');
+      const result = await api.getBlob('/user-settings/profile-image');
+
+      expect(isBlobLike(result)).toBe(true);
+      expect(await result.text()).toBe('retried-bytes');
+      expect(callCount).toBe(2);
+      expect(lastAuthHeader).toBe('Bearer refreshed-token');
+    });
+
+    it('should throw an ApiError (not return a Blob) on a 404 error body', async () => {
+      server.use(
+        http.get('*/api/user-settings/profile-image', () => {
+          return HttpResponse.json(
+            { message: 'No uploaded picture', code: 'NOT_FOUND' },
+            { status: 404 },
+          );
+        }),
+      );
+
+      await expect(api.getBlob('/user-settings/profile-image')).rejects.toThrow(ApiError);
+
+      try {
+        await api.getBlob('/user-settings/profile-image');
+      } catch (error) {
+        expect(error).toBeInstanceOf(ApiError);
+        expect((error as ApiError).status).toBe(404);
+        expect((error as ApiError).message).toBe('No uploaded picture');
+      }
     });
   });
 

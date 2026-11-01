@@ -1,0 +1,15 @@
+{
+  // The notifications slice's tests (issue #738) were moved from the
+  // reference app's suite, which compiles without `noUncheckedIndexedAccess`;
+  // like test/telemetry they keep that one relaxation (`calls[0][0]` style
+  // assertions) and every other rule of the package's tsconfig.json.
+  // `npm run typecheck` runs it.
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "noUncheckedIndexedAccess": false,
+    // `process` for the DST suite that pins a time zone.
+    "types": ["node"]
+  },
+  "include": ["./**/*", "../setup.ts", "../viewport.ts", "../identity/harness.tsx"],
+  "exclude": []
+}

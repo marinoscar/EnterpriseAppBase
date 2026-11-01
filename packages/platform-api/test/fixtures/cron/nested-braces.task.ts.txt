@@ -1,0 +1,25 @@
+import { Cron } from '@nestjs/schedule';
+
+export class NestedBracesTask {
+  constructor(private readonly jobs: any, private readonly prisma: any) {}
+
+  @Cron('0 6 * * *')
+  async tick(): Promise<void> {
+    const label = `due-${JSON.stringify({ a: { b: 1 } })}`;
+    if (label) {
+      for (const item of [1, 2]) {
+        if (item > 1) {
+          await this.jobs.enqueue(`housekeeping.${item}`, { payload: { deep: { deeper: true } } });
+        }
+      }
+    }
+    // The inline work sits AFTER several closed inner blocks: a lazy match
+    // would have stopped at the first closing brace and never seen it.
+    await this.prisma.token.updateMany({ data: { revoked: true } });
+  }
+
+  /** Not a cron: its deleteMany must never be attributed to the cron above. */
+  async manual(): Promise<void> {
+    await this.prisma.token.deleteMany({});
+  }
+}

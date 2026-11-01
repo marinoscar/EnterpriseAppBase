@@ -1,15 +1,23 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { AuthService } from '../../src/auth/auth.service';
-import { AllowlistService } from '../../src/allowlist/allowlist.service';
+import { IDENTITY_APP_PORTS, IDENTITY_BUS_PORTS } from '../helpers/identity-ports.helper';
+import { NotificationsService } from '../notifications/support/notifications';
+import {
+  AuthService,
+  AllowlistService,
+  AdminBootstrapService,
+  GoogleProfile,
+  PrincipalCache,
+  OrganizationsService,
+  TenancyService,
+} from '@marinoscar/platform-api/identity';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { AdminBootstrapService } from '../../src/common/services/admin-bootstrap.service';
 import { ForbiddenException } from '@nestjs/common';
 import { resetPrismaMock, prismaMock } from '../mocks/prisma.mock';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import { createMockUserWithRelations, mockRoles } from '../fixtures/test-data.factory';
-import { GoogleProfile } from '../../src/auth/strategies/google.strategy';
+import { EVENT_BUS, InProcessEventBus } from '@marinoscar/platform-api/host';
 
 describe('Auth Service - Allowlist Enforcement', () => {
   let authService: AuthService;
@@ -41,12 +49,36 @@ describe('Auth Service - Allowlist Enforcement', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        // The identity slice's host ports, bound to the app's adapters (#727).
+        ...IDENTITY_APP_PORTS, ...IDENTITY_BUS_PORTS,
         AuthService,
         AllowlistService,
         AdminBootstrapService,
+        // PP-1.12 (#683): the JWT principal cache and the bus it invalidates on.
+        PrincipalCache,
+        // PP-6.1 (#721): new users join the default org (mocked rows in setupBaseMocks).
+        OrganizationsService,
+        // PP-6.2 (#722): the tenancy mode (single, from the stub ConfigService).
+        TenancyService,
+        { provide: EVENT_BUS, useValue: new InProcessEventBus() },
         { provide: PrismaService, useValue: prismaMock },
         { provide: JwtService, useValue: { sign: jest.fn(() => 'mock-jwt-token'), signAsync: jest.fn(() => 'mock-jwt-token') } },
         { provide: ConfigService, useValue: mockConfigService },
+        // #128 wired real notification triggers into this service. The
+        // dispatcher is mocked here because these tests are about the
+        // service's own behaviour, not about delivery — and because `notify`
+        // is contracted never to throw, a stub that resolves is a faithful
+        // stand-in. The containment property itself (a send failure does not
+        // roll back the triggering action) is asserted with a REAL dispatcher
+        // and a failing provider in
+        // notifications/notification-failure-containment.spec.ts.
+        {
+          provide: NotificationsService,
+          useValue: {
+            notify: jest.fn().mockResolvedValue(undefined),
+            notifyAddress: jest.fn().mockResolvedValue(undefined),
+          },
+        },
       ],
     }).compile();
 
@@ -60,6 +92,10 @@ describe('Auth Service - Allowlist Enforcement', () => {
       }
       if (where.name === 'admin') {
         return { ...mockRoles.admin, userRoles: [] } as any;
+      }
+      // PP-6.3 (#723): the initial administrator's default-org membership role.
+      if (where.name === 'org_admin') {
+        return mockRoles.org_admin as any;
       }
       return null;
     });

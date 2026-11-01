@@ -1,0 +1,121 @@
+// =============================================================================
+// Typed failures of a telemetry store (issue #534, epic #528; PP-14.11)
+// =============================================================================
+//
+// What `TelemetryStore.query` throws on purpose. One base class so a caller
+// (the status service, the explorer's query service, the assistant's tools) can
+// catch "anything the telemetry store did" in one clause and map the subclasses
+// to its own response. A store an app registers throws these same classes (they
+// are exported by `@marinoscar/platform-api/telemetry`), so the explorer maps
+// its failures to the same HTTP responses. NONE OF THESE MESSAGES CARRIES A CREDENTIAL: they are built from
+// fixed text plus, for `TelemetryQueryFailedError`, the server's own error
+// message, which GreptimeDB builds from the SQL it was given — never from the
+// connection's password.
+// =============================================================================
+
+/** Base of every error a telemetry store throws on purpose.
+ *
+ * @stability experimental
+ */
+export class TelemetryStoreError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = new.target.name;
+  }
+}
+
+/**
+ * The connection this call needs is not configured — neither saved at
+ * /admin/settings/telemetry nor supplied by the `GREPTIME_*` deployment
+ * default, or the admin login missing for an admin call. Not a fault: a
+ * deployment without a telemetry store is a supported state.
+ *
+ * @stability experimental
+ */
+export class TelemetryNotConfiguredError extends TelemetryStoreError {
+  /**
+   * @param role - which login was missing (`reader` for every store but the built-in one).
+   * @param message - replaces the GreptimeDB wording, for a store that is not GreptimeDB.
+   */
+  constructor(
+    /** Which login the call needed. */
+    readonly role: 'reader' | 'admin',
+    message?: string,
+  ) {
+    super(
+      message ??
+        (role === 'admin'
+          ? 'The GreptimeDB admin connection is not configured. Set the admin user and password at ' +
+            '/admin/settings/telemetry (or GREPTIME_ADMIN_USER / GREPTIME_ADMIN_PASSWORD as the deployment default).'
+          : 'GreptimeDB is not configured. Configure the connection at /admin/settings/telemetry ' +
+            '(or GREPTIME_HOST / GREPTIME_READER_USER / GREPTIME_READER_PASSWORD as the deployment default).'),
+    );
+  }
+}
+
+/**
+ * The statement did not finish within `timeoutMs`. Enforced CLIENT-SIDE: the
+ * read-only user cannot `SET statement_timeout`, and GreptimeDB ignores the
+ * startup parameter (spike #529). The connection that ran it has already been
+ * destroyed when this is thrown; the server may still be finishing the query.
+ *
+ * @stability experimental
+ */
+export class TelemetryQueryTimeoutError extends TelemetryStoreError {
+  constructor(
+    /** The ceiling that was exceeded, in milliseconds. */
+    readonly timeoutMs: number,
+  ) {
+    super(`The telemetry query did not finish within ${timeoutMs} ms and was abandoned.`);
+  }
+}
+
+/**
+ * The SQL string produced more than one result set. The simple query
+ * protocol runs every statement in a multi-statement string (spike #529), so
+ * the client refuses to hand such a result back; the explorer's guard (#535)
+ * should reject the text before it is ever sent.
+ *
+ * @stability experimental
+ */
+export class TelemetryMultiStatementError extends TelemetryStoreError {
+  constructor() {
+    super('Exactly one SQL statement may be executed per telemetry query.');
+  }
+}
+
+/**
+ * GreptimeDB (or the network) refused or failed the statement.
+ *
+ * `origin` tells the two apart: `server` is GreptimeDB answering with an
+ * error (bad SQL, permission refused — the caller's statement is at fault and
+ * the message is safe to show), `connection` is the store not answering at
+ * all (refused/reset socket, failed authentication handshake).
+ *
+ * @stability experimental
+ */
+export class TelemetryQueryFailedError extends TelemetryStoreError {
+  constructor(
+    message: string,
+    /** SQLSTATE when the server supplied one (or a Node error code for a socket failure). */
+    readonly code?: string,
+    /** `server` (the store answered with an error) or `connection` (it did not answer). */
+    readonly origin: 'server' | 'connection' = 'server',
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * The caller's `AbortSignal` fired while the statement was in flight (the
+ * assistant's client disconnected, issue #536). Like a timeout, the
+ * connection that ran it has already been destroyed; the server may still be
+ * finishing the query.
+ *
+ * @stability experimental
+ */
+export class TelemetryQueryAbortedError extends TelemetryStoreError {
+  constructor() {
+    super('The telemetry query was cancelled.');
+  }
+}

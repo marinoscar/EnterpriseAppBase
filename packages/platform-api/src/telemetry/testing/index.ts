@@ -1,0 +1,64 @@
+// `@marinoscar/platform-api/telemetry/testing`: test fixtures and seams of the
+// telemetry slice (issue #703), for an app's own tests. Never import it from
+// production code. Documented in ../README.md.
+
+export {
+  APP_ACTIVITY_METRIC_TAGS,
+  APP_SAMPLE_METRIC_TAGS,
+  VERIFIED_METRIC_TAGS,
+  appActivityMetricSchema,
+  appSampleMetricSchema,
+  metricCatalogSchema,
+  metricTableSchema,
+} from './metric-schema.fixture';
+export { COACH_METRIC_GROUP, COACH_METRIC_GROUP_ID } from './coach-metric-group.fixture';
+// The guarded query facade over a query service of your own (a recording stub): what a dashboard
+// panel's `data` and an assistant tool's `run` receive, for testing them (PP-14.18).
+export { createQueryFacade } from '../query/telemetry-query-facade';
+export type { QueryFacadeOptions } from '../query/telemetry-query-facade';
+export { assistantMetricWindow, NODE_FLAGS } from '../assistant/telemetry-assistant.metrics';
+export { buildTelemetryAssistantInstructions } from '../assistant/telemetry-assistant.service';
+export type { MetricGroupWindow } from '../metrics/metric-group';
+
+// The telemetry conformance suite (PP-4.6): importing this entry registers the
+// `telemetry` suite with `runPlatformConformance` (@marinoscar/platform-api/testing).
+export {
+  CONFORMANCE_SECRETS,
+  TELEMETRY_CRON_FILE,
+  bootStubApp,
+  checkBootsWithoutTelemetry,
+  checkCronCoverage,
+  checkDoctorReadOnly,
+  checkFacadeSurface,
+  checkMetricGroups,
+  checkMetricGroupsOnEmptySchema,
+  checkNoSecretsInResponses,
+  checkRegisteredExtensions,
+  checkRoutePermissions,
+  discoverDoctorChecks,
+  discoverRoutes,
+  telemetryConformanceSuite,
+} from './conformance';
+export type {
+  ComputeMetricGroup,
+  ComputedMetricGroup,
+  ConformanceSecrets,
+  CreateConformanceApp,
+  RegisteredExtensions,
+  StubAppInput,
+  TelemetryConformanceOptions,
+  TelemetryRoute,
+} from './conformance';
+export { createStubTelemetryPorts } from './stub-ports';
+export type { StubTelemetryPortsOptions, StubTelemetryPortsState } from './stub-ports';
+
+// The telemetry store conformance kit (PP-14.11): run it on a store you register.
+export { describeTelemetryStoreConformance } from './store-conformance';
+export type {
+  TelemetryStoreConformanceHarness,
+  TelemetryStoreConformanceOptions,
+  TelemetryStoreConformanceScenario,
+  TelemetryStoreFixture,
+  TelemetryStoreTimeoutScenario,
+  TelemetryStoreUnconfiguredScenario,
+} from './store-conformance';

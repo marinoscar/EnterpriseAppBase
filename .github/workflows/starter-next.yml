@@ -1,0 +1,65 @@
+name: Starter (@next)
+
+# Weekly: the starter, and a project `new-project.mjs create` makes from it,
+# installed against the platform packages PUBLISHED on the `next` dist-tag
+# (the CI `starter` job in ci.yml covers packed tarballs on every change).
+# Skipped, with a log line saying why, until the release pipeline (#691)
+# publishes for real: NPM_PUBLISH_ENABLED is 'true' and `next` resolves.
+
+on:
+  schedule:
+    - cron: '17 5 * * 1'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  starter-next:
+    name: Starter against @next
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - id: gate
+        name: Is @next published?
+        env:
+          NPM_PUBLISH_ENABLED: ${{ vars.NPM_PUBLISH_ENABLED }}
+        run: |
+          if [ "$NPM_PUBLISH_ENABLED" != "true" ]; then
+            msg="Skipped: the platform release pipeline (#691) still runs in dry-run mode (NPM_PUBLISH_ENABLED is not 'true'), so nothing is published on @next."
+          elif ! v=$(npm view @marinoscar/platform-api@next version 2>/dev/null) || [ -z "$v" ]; then
+            msg="Skipped: @marinoscar/platform-api@next is not on the npm registry yet."
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "Testing the starter against @marinoscar/platform-*@next ($v)." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "run=false" >> "$GITHUB_OUTPUT"
+          echo "$msg"
+          echo "$msg" >> "$GITHUB_STEP_SUMMARY"
+
+      # The packages are built only so `create` can render infra/ with this
+      # checkout's platform-infra; the starter itself installs @next.
+      - if: steps.gate.outputs.run == 'true'
+        run: npm ci
+      - if: steps.gate.outputs.run == 'true'
+        run: npm run build:packages
+
+      - if: steps.gate.outputs.run == 'true'
+        name: Starter against @next
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: node scripts/starter-smoke.mjs --from registry next
+
+      - if: steps.gate.outputs.run == 'true'
+        name: Created project against @next
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: node scripts/starter-smoke.mjs --from registry next --create

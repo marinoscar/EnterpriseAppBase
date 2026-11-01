@@ -1,0 +1,15 @@
+import { Cron } from '@nestjs/schedule';
+
+export class TwoCronsTask {
+  constructor(private readonly jobs: any, private readonly prisma: any) {}
+
+  @Cron('0 1 * * *')
+  async first(): Promise<void> {
+    await this.jobs.enqueue('housekeeping.first');
+  }
+
+  @Cron('0 2 * * *')
+  async second(): Promise<void> {
+    await this.prisma.$executeRaw`DELETE FROM sessions`;
+  }
+}

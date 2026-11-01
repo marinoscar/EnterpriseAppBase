@@ -1,0 +1,7 @@
+---
+"@marinoscar/platform-cli": patch
+---
+
+An app now chooses which manifests the deploy `version` step writes: `createCli({ deploy: { versionedManifests } })` (type `CreateCliDeployOptions`). The list was closed (`apps/api`, `apps/web`, `apps/cli`, `packages/shared`), so an app whose CLI keeps its own version had it overwritten by every release; a production `chore(release): 1.2.3` moved such a CLI from 1.10.7 to 1.2.3. Default: the same four, so an app that does not set the option is unchanged.
+
+The first listed manifest is the version source: `currentVersion` reads it (so the suggested patch bump and the forward-only check follow it), `writeVersion` writes only the listed manifests, and the `package-lock.json` workspace update touches only the listed workspaces, textually and in the same single commit as before. A manifest left out and its lockfile entry are byte for byte untouched, and the step's journal line now names the files it wrote (`wrote 1.2.3 to apps/api/package.json, ..., package-lock.json and committed`) instead of a count. The list is validated when the CLI is built: at least one entry, repository-relative POSIX paths ending in `package.json` under a directory, no `..`, no duplicates, no root manifest; `createCli` throws a `UsageError` otherwise. `runVersionStep` also takes an optional `manifests` for a caller that holds its own list. Docs: the CLI README, the deploy README, `docs/specs/vps-deploy.md`, `docs/EXTENDING.md` and a new runbook section, "An app whose CLI keeps its own version".

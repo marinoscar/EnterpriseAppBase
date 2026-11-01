@@ -1,0 +1,291 @@
+// =============================================================================
+// SharingModule.forRoot options (issues #728, #729, #730): rung 1
+// =============================================================================
+//
+// Merged over the defaults below and frozen. No environment variable: an app
+// passes everything here (spec, "Configuration").
+// =============================================================================
+
+import { Logger, type ModuleMetadata } from '@nestjs/common';
+
+import { definePlatformHost, type PlatformHost, type Principal } from '../core/index';
+
+/**
+ * Injection token of the resolved, frozen {@link ResolvedSharingModuleOptions}.
+ *
+ * @stability experimental
+ */
+export const SHARING_OPTIONS: unique symbol = Symbol.for('@marinoscar/platform/sharing/OPTIONS');
+
+/**
+ * The group options.
+ *
+ * @stability experimental
+ */
+export interface SharingGroupsOptions {
+  /** Max groups one user may create per organization (abuse bound). Default 100. */
+  maxGroupsPerCreator?: number;
+  /** Max members per group. Default 1000. */
+  maxMembersPerGroup?: number;
+  /** Default invite lifetime in days; `null` = no expiry. Default 14. */
+  inviteTtlDays?: number | null;
+  /**
+   * Accept matching pending invites automatically when a user signs up.
+   * Default false. Status: experimental. A no-op (with a startup warning) until
+   * the identity slice emits a user-created event.
+   */
+  autoAcceptInvitesOnSignup?: boolean;
+  /**
+   * How long a principal's group memberships are cached, in seconds; `0`
+   * turns the cache off. Default 30, the principal cache's default
+   * (`AUTH_PRINCIPAL_CACHE_TTL_SECONDS`); an app usually passes the same value.
+   * Every membership change invalidates the entry here and, through the event
+   * bus, on every other replica, so the TTL is only the backstop.
+   */
+  membershipCacheTtlSeconds?: number;
+}
+
+/**
+ * The grant options (#729).
+ *
+ * @stability experimental
+ */
+export interface SharingGrantsOptions {
+  /**
+   * Days a revoked or expired grant is kept (for the audit trail and the
+   * owner's history) before `sharing.grants.prune` deletes it. Default 90.
+   */
+  retentionDays?: number;
+}
+
+/**
+ * The link-share options (#730).
+ *
+ * @stability experimental
+ */
+export interface SharingLinksOptions {
+  /**
+   * The application's public origin, read when a link URL is built
+   * (`${appUrl}/s#<token>`). The reference app passes its `APP_URL`; without
+   * it the URL is root-relative (`/s#<token>`).
+   */
+  appUrl?: () => string | undefined;
+  /** Max lifetime of a link in days; `null` = unlimited. Default 365. */
+  maxTtlDays?: number | null;
+  /** Default lifetime when the caller sends none; `null` = no expiry. Default 30. */
+  defaultTtlDays?: number | null;
+  /** Max ACTIVE links per record (on top of the type's `maxGrantsPerResource`). Default 20. */
+  maxActivePerResource?: number;
+  /** Failed public resolutions allowed per client IP per 10 minutes before `429`. Default 30. */
+  maxMissesPerIp?: number;
+}
+
+/**
+ * The options of `SharingModule.forRoot`.
+ *
+ * @stability experimental
+ */
+export interface SharingModuleOptions {
+  /** The app's access decorators (`definePlatformHost`): a group route is never public. */
+  host: PlatformHost;
+  /** Modules that provide the host ports (`SHARING_DATA`, and optionally the bus, emitter, notifier, tenancy and jobs). */
+  imports?: ModuleMetadata['imports'];
+  /** Group limits and behaviour. */
+  groups?: SharingGroupsOptions;
+  /** Grant retention (#729). */
+  grants?: SharingGrantsOptions;
+  /** Link shares (#730). */
+  links?: SharingLinksOptions;
+  /**
+   * Reads the caller's principal from the framework request. Default:
+   * `request.principal` (set by the reference app's authentication guard).
+   */
+  principal?: (request: unknown) => Principal | undefined;
+}
+
+/**
+ * The options after defaults, validated and frozen.
+ *
+ * @stability experimental
+ */
+export interface ResolvedSharingModuleOptions {
+  /** The validated host. */
+  readonly host: PlatformHost;
+  /** The host-port modules. */
+  readonly imports: NonNullable<ModuleMetadata['imports']>;
+  /** Group limits and behaviour, every field set. */
+  readonly groups: {
+    /** Max groups one user may create per organization. */
+    readonly maxGroupsPerCreator: number;
+    /** Max members per group. */
+    readonly maxMembersPerGroup: number;
+    /** Invite lifetime in days, or `null` for no expiry. */
+    readonly inviteTtlDays: number | null;
+    /** Experimental; a no-op until the identity slice emits a user-created event. */
+    readonly autoAcceptInvitesOnSignup: boolean;
+    /** Membership cache TTL in seconds; `0` is off. */
+    readonly membershipCacheTtlSeconds: number;
+  };
+  /** Grant retention, every field set. */
+  readonly grants: {
+    /** Days a revoked or expired grant is kept before the prune job deletes it. */
+    readonly retentionDays: number;
+  };
+  /** Link shares, every field set (#730). */
+  readonly links: {
+    /** The public origin, or `undefined` (root-relative URLs). */
+    readonly appUrl: () => string | undefined;
+    /** Max lifetime in days, or `null` for unlimited. */
+    readonly maxTtlDays: number | null;
+    /** Default lifetime in days, or `null` for no expiry. */
+    readonly defaultTtlDays: number | null;
+    /** Max active links per record. */
+    readonly maxActivePerResource: number;
+    /** Failed resolutions per client IP per window before 429. */
+    readonly maxMissesPerIp: number;
+    /** The miss window, in milliseconds (10 minutes). */
+    readonly missWindowMs: number;
+  };
+  /** The principal resolver. */
+  readonly principal: (request: unknown) => Principal | undefined;
+}
+
+/**
+ * The defaults {@link resolveSharingModuleOptions} applies.
+ *
+ * @stability experimental
+ */
+export const SHARING_GROUP_DEFAULTS: ResolvedSharingModuleOptions['groups'] = Object.freeze({
+  maxGroupsPerCreator: 100,
+  maxMembersPerGroup: 1000,
+  inviteTtlDays: 14,
+  autoAcceptInvitesOnSignup: false,
+  membershipCacheTtlSeconds: 30,
+});
+
+/**
+ * The grant defaults {@link resolveSharingModuleOptions} applies.
+ *
+ * @stability experimental
+ */
+export const SHARING_GRANT_DEFAULTS: ResolvedSharingModuleOptions['grants'] = Object.freeze({ retentionDays: 90 });
+
+/**
+ * The link-share defaults {@link resolveSharingModuleOptions} applies (#730).
+ *
+ * @stability experimental
+ */
+export const SHARING_LINK_DEFAULTS: Omit<ResolvedSharingModuleOptions['links'], 'appUrl'> = Object.freeze({
+  maxTtlDays: 365,
+  defaultTtlDays: 30,
+  maxActivePerResource: 20,
+  maxMissesPerIp: 30,
+  missWindowMs: 10 * 60_000,
+});
+
+/**
+ * The default principal resolver: `request.principal` when it is an object
+ * with a string `userId`.
+ *
+ * @param request - the framework request.
+ * @returns the principal, or `undefined`.
+ *
+ * @stability experimental
+ */
+export function defaultSharingPrincipal(request: unknown): Principal | undefined {
+  if (request === null || typeof request !== 'object') return undefined;
+  const principal = (request as { principal?: unknown }).principal;
+  if (principal === null || typeof principal !== 'object') return undefined;
+  return typeof (principal as { userId?: unknown }).userId === 'string' ? (principal as Principal) : undefined;
+}
+
+function fail(why: string): never {
+  throw new Error(`SharingModule.forRoot: ${why}.`);
+}
+
+function positiveInteger(value: unknown, name: string, fallback: number, allowZero = false, section = 'groups'): number {
+  if (value === undefined) return fallback;
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < (allowZero ? 0 : 1)) {
+    fail(`\`${section}.${name}\` must be ${allowZero ? 'a non-negative' : 'a positive'} integer, not ${JSON.stringify(value)}`);
+  }
+  return value;
+}
+
+/**
+ * Validates `options` and applies the defaults.
+ *
+ * @param options - what the app passed to `forRoot`.
+ * @returns the resolved, frozen options.
+ * @throws Error naming the bad option.
+ *
+ * @stability experimental
+ */
+export function resolveSharingModuleOptions(options: SharingModuleOptions): ResolvedSharingModuleOptions {
+  if (options === null || typeof options !== 'object') fail('options are required ({ host, imports })');
+  if (!options.host) fail("`host` is required (the app's definePlatformHost(...)): a group route is never public");
+  const host = definePlatformHost(options.host);
+  const groups = options.groups ?? {};
+  if (groups === null || typeof groups !== 'object') fail('`groups` must be an object');
+
+  let inviteTtlDays: number | null = SHARING_GROUP_DEFAULTS.inviteTtlDays;
+  if (groups.inviteTtlDays === null) inviteTtlDays = null;
+  else if (groups.inviteTtlDays !== undefined) inviteTtlDays = positiveInteger(groups.inviteTtlDays, 'inviteTtlDays', 14);
+
+  if (groups.autoAcceptInvitesOnSignup !== undefined && typeof groups.autoAcceptInvitesOnSignup !== 'boolean') {
+    fail('`groups.autoAcceptInvitesOnSignup` must be a boolean');
+  }
+  const grants = options.grants ?? {};
+  if (grants === null || typeof grants !== 'object') fail('`grants` must be an object');
+  const links = options.links ?? {};
+  if (links === null || typeof links !== 'object') fail('`links` must be an object');
+  const ttl = (value: number | null | undefined, name: string, fallback: number | null): number | null =>
+    value === null ? null : value === undefined ? fallback : positiveInteger(value, name, 1, false, 'links');
+  const maxTtlDays = ttl(links.maxTtlDays, 'maxTtlDays', SHARING_LINK_DEFAULTS.maxTtlDays);
+  const defaultTtlDays = ttl(links.defaultTtlDays, 'defaultTtlDays', SHARING_LINK_DEFAULTS.defaultTtlDays);
+  if (maxTtlDays !== null && (defaultTtlDays === null || defaultTtlDays > maxTtlDays)) {
+    fail('`links.defaultTtlDays` must be a lifetime within `links.maxTtlDays` (not `null` while a maximum is set)');
+  }
+  if (links.appUrl !== undefined && typeof links.appUrl !== 'function') fail('`links.appUrl` must be a function returning the public origin');
+  const principal = options.principal ?? defaultSharingPrincipal;
+  if (typeof principal !== 'function') fail('`principal` must be a function');
+
+  const resolved: ResolvedSharingModuleOptions = {
+    host,
+    imports: [...(options.imports ?? [])],
+    groups: Object.freeze({
+      maxGroupsPerCreator: positiveInteger(groups.maxGroupsPerCreator, 'maxGroupsPerCreator', SHARING_GROUP_DEFAULTS.maxGroupsPerCreator),
+      maxMembersPerGroup: positiveInteger(groups.maxMembersPerGroup, 'maxMembersPerGroup', SHARING_GROUP_DEFAULTS.maxMembersPerGroup),
+      inviteTtlDays,
+      autoAcceptInvitesOnSignup: groups.autoAcceptInvitesOnSignup ?? false,
+      membershipCacheTtlSeconds: positiveInteger(
+        groups.membershipCacheTtlSeconds,
+        'membershipCacheTtlSeconds',
+        SHARING_GROUP_DEFAULTS.membershipCacheTtlSeconds,
+        true,
+      ),
+    }),
+    grants: Object.freeze({
+      retentionDays: positiveInteger(grants.retentionDays, 'retentionDays', SHARING_GRANT_DEFAULTS.retentionDays, false, 'grants'),
+    }),
+    links: Object.freeze({
+      appUrl: links.appUrl ?? (() => undefined),
+      maxTtlDays,
+      defaultTtlDays,
+      maxActivePerResource: positiveInteger(links.maxActivePerResource, 'maxActivePerResource', SHARING_LINK_DEFAULTS.maxActivePerResource, false, 'links'),
+      maxMissesPerIp: positiveInteger(links.maxMissesPerIp, 'maxMissesPerIp', SHARING_LINK_DEFAULTS.maxMissesPerIp, false, 'links'),
+      missWindowMs: SHARING_LINK_DEFAULTS.missWindowMs,
+    }),
+    principal,
+  };
+
+  if (resolved.groups.autoAcceptInvitesOnSignup) {
+    // The identity slice emits no user-created event yet (#721, #727): there
+    // is nothing to hook. Documented as experimental; a seam request tracks it.
+    new Logger('SharingModule').warn(
+      '`groups.autoAcceptInvitesOnSignup` is on, but the identity slice emits no user-created event yet: ' +
+        'the option has no effect. Invitees accept their invites from GET /api/groups/invites/mine.',
+    );
+  }
+
+  return Object.freeze(resolved);
+}

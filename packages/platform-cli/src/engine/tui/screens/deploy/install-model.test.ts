@@ -1,0 +1,763 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { describe, expect, it } from 'vitest';
+
+import { parseEnvExample, type EnvVarSpec } from '../../../deploy/env-spec.js';
+import { deployRootFor } from '../../../deploy/layout.js';
+import { DEPLOY_STATE_VERSION, type DeployState } from '../../../deploy/state.js';
+import {
+  appName,
+  decideResume,
+  EMPTY_SEED,
+  envAnswers,
+  existingDeploymentNote,
+  installFields,
+  reconcileSeed,
+  seedFor,
+  validateAppName,
+  validatePort,
+  type Seed,
+} from './install-model.js';
+
+function makeAppsRoot(): string {
+  return mkdtempSync(join(tmpdir(), 'appctl-install-model-'));
+}
+
+function writeDeploymentEnv(appsRoot: string, name: string, contents: string): void {
+  const deployRoot = deployRootFor(appsRoot, name);
+  mkdirSync(deployRoot, { recursive: true });
+  writeFileSync(join(deployRoot, '.env'), contents.endsWith('\n') ? contents : `${contents}\n`);
+}
+
+/**
+ * A template exercising exactly the keys these tests care about. Real
+ * `EnvVarSpec`s, parsed the same way `loadSpecs` in `install.tsx` parses a real
+ * `.env.example` -- not hand-built objects that could drift from what the
+ * parser actually produces.
+ */
+const TEMPLATE = [
+  '# ------------------------------------------------------------',
+  '# Application',
+  '# ------------------------------------------------------------',
+  'APP_URL=http://localhost:3535',
+  '',
+  '# ------------------------------------------------------------',
+  '# Database',
+  '# ------------------------------------------------------------',
+  'POSTGRES_HOST=localhost',
+  'POSTGRES_PASSWORD=postgres',
+  '',
+  '# ------------------------------------------------------------',
+  '# JWT / session',
+  '# ------------------------------------------------------------',
+  'JWT_SECRET=changeme-changeme-changeme-changeme',
+  'COOKIE_SECRET=changeme-changeme-changeme-changeme',
+  '',
+  '# ------------------------------------------------------------',
+  '# Credential encryption',
+  '# ------------------------------------------------------------',
+  'SECRETS_ENCRYPTION_KEY=',
+  '',
+  '# ------------------------------------------------------------',
+  '# Uploads',
+  '# ------------------------------------------------------------',
+  'ALLOWED_MIME_TYPES=image/png,image/jpeg',
+  '',
+  '# ------------------------------------------------------------',
+  '# OAuth (Microsoft)',
+  '# ------------------------------------------------------------',
+  'MICROSOFT_CLIENT_ID=',
+  'MICROSOFT_CLIENT_SECRET=',
+  '',
+  '# ------------------------------------------------------------',
+  '# Email (Amazon SES)',
+  '# ------------------------------------------------------------',
+  'SES_REGION=',
+  '',
+  '# ------------------------------------------------------------',
+  '# Observability',
+  '# ------------------------------------------------------------',
+  'GREPTIME_HOST=localhost',
+  'OTEL_ENABLED=false',
+  'GREPTIME_WRITER_PASSWORD=change-me-writer',
+  '',
+  '# ------------------------------------------------------------',
+  '# Stack agent',
+  '# ------------------------------------------------------------',
+  'STACK_AGENT_TOKEN=',
+].join('\n');
+
+function specs(): EnvVarSpec[] {
+  return parseEnvExample(TEMPLATE);
+}
+
+// =============================================================================
+// 1. THE ONE WORTH THE ISSUE ON ITS OWN: a re-run must not mint fresh secrets
+// =============================================================================
+//
+// `env-wizard.ts`'s generate-mode branch only fires on a BLANK answer. So the
+// entire re-install-safety property reduces to one fact: the placeholder an
+// operator would see on a re-run must be byte-identical to what is already on
+// disk, for every key the wizard would otherwise offer to regenerate. A
+// placeholder that drifted even one byte from disk -- a trailing newline eaten,
+// a re-encoding, a stale cache -- would be invisible in the UI and catastrophic
+// for `SECRETS_ENCRYPTION_KEY`: every credential already encrypted under the
+// old key becomes permanently undecryptable the moment a NEW key is written.
+// =============================================================================
+
+describe('the byte-identical prefill that stops a re-install regenerating secrets', () => {
+  const JWT_SECRET_ON_DISK = 'disk-jwt-Rz3!p_Qo8x==secret-value-do-not-touch';
+  const COOKIE_SECRET_ON_DISK = 'disk-cookie-9wA#secret==value-do-not-touch';
+  const SECRETS_ENCRYPTION_KEY_ON_DISK = 'disk-encryption-KEYVALUE+/==base64ish';
+
+  function seedForFixture(): { appsRoot: string; seed: Seed } {
+    const appsRoot = makeAppsRoot();
+    writeDeploymentEnv(
+      appsRoot,
+      'prod',
+      [
+        'APP_URL=https://prod.example.com',
+        `JWT_SECRET=${JWT_SECRET_ON_DISK}`,
+        `COOKIE_SECRET=${COOKIE_SECRET_ON_DISK}`,
+        `SECRETS_ENCRYPTION_KEY=${SECRETS_ENCRYPTION_KEY_ON_DISK}`,
+        'POSTGRES_PASSWORD=real-prod-password',
+      ].join('\n'),
+    );
+    return { appsRoot, seed: seedFor(appsRoot, 'prod') };
+  }
+
+  it('installFields placeholders for JWT_SECRET and COOKIE_SECRET are byte-identical to disk, and prefilled is true', () => {
+    // These two are `essential: true` in env-metadata.ts, so `installFields`
+    // asks about them directly -- this is the field-level half of the
+    // mechanism the header comment describes.
+    const { seed } = seedForFixture();
+    const fields = installFields(specs(), seed);
+
+    const jwt = fields.find((field) => field.key === 'JWT_SECRET');
+    const cookie = fields.find((field) => field.key === 'COOKIE_SECRET');
+
+    expect(jwt?.placeholder).toBe(JWT_SECRET_ON_DISK);
+    expect(jwt?.prefilled).toBe(true);
+    expect(cookie?.placeholder).toBe(COOKIE_SECRET_ON_DISK);
+    expect(cookie?.prefilled).toBe(true);
+
+    // Not merely equal-looking: literally the same bytes as what `readFileSync`
+    // would hand back, with no re-encoding in between.
+    expect(Buffer.from(jwt?.placeholder ?? '', 'utf8').equals(Buffer.from(JWT_SECRET_ON_DISK, 'utf8'))).toBe(true);
+    expect(Buffer.from(cookie?.placeholder ?? '', 'utf8').equals(Buffer.from(COOKIE_SECRET_ON_DISK, 'utf8'))).toBe(true);
+  });
+
+  // ⚠ UPDATED FOR #586 -- `SECRETS_ENCRYPTION_KEY` has no `essential: true` in
+  // env-metadata.ts, but `installFields` now asks `shouldAsk` (the same rule
+  // `env-wizard.ts` enforces non-interactively) rather than an essential-only
+  // filter. `shouldAsk` says yes for a SECRET with nothing usable already, so
+  // on a genuinely blank seed the key IS turned into a question (see the "3."
+  // section below for that case in full).
+  //
+  // This fixture seeds a REAL value for the key, so `shouldAsk` still says no
+  // (a secret with something usable already is not re-asked) and the field
+  // stays absent here -- the re-install case, not the first-install one.
+  // Protecting it further, verified against the real code in install.ts, is a
+  // second, independent mechanism that this file does not own: `runInstall`
+  // reads the deployment's `.env` off disk itself and merges it under whatever
+  // the TUI submitted, so an unasked key simply survives untouched. `seedFor`
+  // is still the correct, byte-identical read of that same file -- it is the
+  // value `runInstall`'s own onDisk merge depends on being right -- so that is
+  // what this test pins.
+  it('seedFor reads SECRETS_ENCRYPTION_KEY byte-identical from disk, and installFields does not re-ask for it when a real value is already seeded', () => {
+    const { seed } = seedForFixture();
+
+    expect(seed.values.get('SECRETS_ENCRYPTION_KEY')).toBe(SECRETS_ENCRYPTION_KEY_ON_DISK);
+
+    const fields = installFields(specs(), seed);
+    expect(fields.some((field) => field.key === 'SECRETS_ENCRYPTION_KEY')).toBe(false);
+  });
+
+  it('ADVERSARIAL: if installFields stopped using the seed at all, this test goes red', () => {
+    // This is the assertion the task calls out for deliberate breakage. Recorded
+    // here so the adversarial run is reproducible: comment out the `seeded`
+    // lookup in `installFields` (`placeholder: seeded ?? spec.defaultValue` ->
+    // `placeholder: spec.defaultValue`) and this fails because the placeholder
+    // becomes the template default instead of the disk value. See the final
+    // report for the actual red/green run.
+    const { seed } = seedForFixture();
+    const fields = installFields(specs(), seed);
+    const jwt = fields.find((field) => field.key === 'JWT_SECRET');
+
+    expect(jwt?.placeholder).not.toBe('changeme-changeme-changeme-changeme');
+    expect(jwt?.placeholder).toBe(JWT_SECRET_ON_DISK);
+  });
+});
+
+// =============================================================================
+// 2. Seed retraction: a changed name must never carry a neighbour's values
+// =============================================================================
+
+describe('reconcileSeed: retracts the seed the moment the name stops matching', () => {
+  const seed: Seed = { name: 'alpha', values: new Map([['POSTGRES_PASSWORD', 'alpha-secret']]) };
+
+  it('keeps the seed when the name still matches', () => {
+    expect(reconcileSeed(seed, 'alpha')).toBe(seed);
+  });
+
+  it('retracts to the empty seed when the name differs', () => {
+    expect(reconcileSeed(seed, 'beta')).toEqual(EMPTY_SEED);
+  });
+
+  it('retracts to the empty seed when the name becomes undefined', () => {
+    expect(reconcileSeed(seed, undefined)).toEqual(EMPTY_SEED);
+  });
+
+  // ===========================================================================
+  // THE INTEGRATION POINT THAT MATTERS: two real deployments, two real
+  // `.env` files, one apps root. Resolving deployment A must never surface
+  // deployment B's password, whichever order they were seeded in.
+  // ===========================================================================
+  it('fields built from a retracted seed carry the TEMPLATE default, never a neighbouring deployment\'s value', () => {
+    const appsRoot = makeAppsRoot();
+    writeDeploymentEnv(appsRoot, 'alpha', 'POSTGRES_PASSWORD=alpha-only-password\n');
+    writeDeploymentEnv(appsRoot, 'beta', 'POSTGRES_PASSWORD=beta-only-password\n');
+
+    // The operator is midway through naming "alpha" and its seed has loaded...
+    const alphaSeed = seedFor(appsRoot, 'alpha');
+    expect(alphaSeed.values.get('POSTGRES_PASSWORD')).toBe('alpha-only-password');
+
+    // ...then retypes the name field to "beta". `reconcileSeed` runs on every
+    // keystroke, exactly as install.tsx's `onChange` does.
+    const retracted = reconcileSeed(alphaSeed, 'beta');
+    expect(retracted).toEqual(EMPTY_SEED);
+
+    // Only once the seed is retracted does the screen fetch the RIGHT one.
+    const betaSeed = seedFor(appsRoot, 'beta');
+    const betaFields = installFields(specs(), betaSeed);
+    const betaPassword = betaFields.find((field) => field.key === 'POSTGRES_PASSWORD');
+
+    expect(betaPassword?.placeholder).toBe('beta-only-password');
+    expect(betaPassword?.placeholder).not.toBe('alpha-only-password');
+    expect(betaPassword?.prefilled).toBe(true);
+
+    // And the defect this test exists to catch: fields built straight from the
+    // STALE alpha seed (the bug this screen used to have, if `reconcileSeed`
+    // were skipped) would carry alpha's password into a beta install.
+    const stillWrongFields = installFields(specs(), alphaSeed);
+    const stillWrongPassword = stillWrongFields.find((field) => field.key === 'POSTGRES_PASSWORD');
+    expect(stillWrongPassword?.placeholder).toBe('alpha-only-password');
+    expect(stillWrongPassword?.placeholder).not.toBe(betaPassword?.placeholder);
+
+    // A field built from the genuinely EMPTY seed (post-retraction, before a
+    // fresh `seedFor` runs) falls back to the template's own default, never to
+    // either neighbour's value.
+    const emptyFields = installFields(specs(), EMPTY_SEED);
+    const emptyPassword = emptyFields.find((field) => field.key === 'POSTGRES_PASSWORD');
+    expect(emptyPassword?.placeholder).toBe('postgres'); // the template default
+    expect(emptyPassword?.prefilled).toBe(false);
+  });
+});
+
+// =============================================================================
+// 3. installFields: which keys are asked, mirroring shouldAsk (#586)
+// =============================================================================
+//
+// Before the fix, this file's own loop asked only `metadata.essential === true`
+// keys. That silently skipped `SECRETS_ENCRYPTION_KEY` (secret, not essential)
+// on every FIRST install -- there was no seed yet to protect it, and the
+// non-interactive wizard underneath still refused to leave it blank. These
+// tests pin the replacement rule: the same `shouldAsk` env-wizard.ts uses.
+// =============================================================================
+
+describe('installFields: a fresh install asks for more than just the essential keys', () => {
+  it('still includes the essential fields, unchanged', () => {
+    const fields = installFields(specs(), EMPTY_SEED);
+    expect(fields.some((field) => field.key === 'POSTGRES_HOST')).toBe(true);
+    expect(fields.some((field) => field.key === 'JWT_SECRET')).toBe(true);
+    expect(fields.some((field) => field.key === 'COOKIE_SECRET')).toBe(true);
+  });
+
+  it('now includes SECRETS_ENCRYPTION_KEY on a blank seed, even though it carries no essential:true', () => {
+    const fields = installFields(specs(), EMPTY_SEED);
+    const field = fields.find((f) => f.key === 'SECRETS_ENCRYPTION_KEY');
+    expect(field).toBeDefined();
+  });
+
+  it('does NOT include SECRETS_ENCRYPTION_KEY when the seed already carries a real value for it', () => {
+    const seed: Seed = {
+      name: 'prod',
+      values: new Map([['SECRETS_ENCRYPTION_KEY', 'a-real-encryption-key-already-on-disk']]),
+    };
+    const fields = installFields(specs(), seed);
+    expect(fields.some((field) => field.key === 'SECRETS_ENCRYPTION_KEY')).toBe(false);
+  });
+});
+
+describe('installFields: generated placeholders for a blank generate-mode secret', () => {
+  it('a generate-mode field with no real seeded value is generated: true, prefilled: false, with a plausible generated placeholder', () => {
+    const fields = installFields(specs(), EMPTY_SEED);
+    const key = fields.find((field) => field.key === 'SECRETS_ENCRYPTION_KEY');
+
+    expect(key?.generated).toBe(true);
+    expect(key?.prefilled).toBe(false);
+    // base64-32: decodes to exactly 32 bytes, round-trips cleanly.
+    const decoded = Buffer.from(key?.placeholder ?? '', 'base64');
+    expect(decoded.length).toBe(32);
+    expect(decoded.toString('base64').replace(/=+$/, '')).toBe(
+      (key?.placeholder ?? '').replace(/=+$/, ''),
+    );
+  });
+
+  it('two independent calls generate two different placeholders (a fresh draw, not a fixed default)', () => {
+    const first = installFields(specs(), EMPTY_SEED).find((f) => f.key === 'SECRETS_ENCRYPTION_KEY');
+    const second = installFields(specs(), EMPTY_SEED).find((f) => f.key === 'SECRETS_ENCRYPTION_KEY');
+    expect(first?.placeholder).not.toBe(second?.placeholder);
+  });
+
+  it('essential + generate-mode fields (JWT_SECRET, COOKIE_SECRET) are also generated on a blank seed', () => {
+    const fields = installFields(specs(), EMPTY_SEED);
+    const jwt = fields.find((field) => field.key === 'JWT_SECRET');
+    const cookie = fields.find((field) => field.key === 'COOKIE_SECRET');
+
+    expect(jwt?.generated).toBe(true);
+    expect(jwt?.prefilled).toBe(false);
+    expect(Buffer.from(jwt?.placeholder ?? '', 'base64').length).toBe(32);
+
+    expect(cookie?.generated).toBe(true);
+    expect(cookie?.prefilled).toBe(false);
+    expect(Buffer.from(cookie?.placeholder ?? '', 'base64').length).toBe(32);
+  });
+
+  it('REGRESSION GUARD: the same field, with a real value seeded, is prefilled: true, generated falsy, and the placeholder is exactly the seeded value', () => {
+    const seed: Seed = {
+      name: 'prod',
+      values: new Map([['JWT_SECRET', 'disk-jwt-Rz3!p_Qo8x==secret-value-do-not-touch']]),
+    };
+    const fields = installFields(specs(), seed);
+    const jwt = fields.find((field) => field.key === 'JWT_SECRET');
+
+    expect(jwt?.prefilled).toBe(true);
+    expect(jwt?.generated).toBeFalsy();
+    expect(jwt?.placeholder).toBe('disk-jwt-Rz3!p_Qo8x==secret-value-do-not-touch');
+  });
+});
+
+describe('installFields: autoGenerate keys are never asked about, seeded or not, all or not', () => {
+  it('GREPTIME_WRITER_PASSWORD (observability, autoGenerate) is never in the field list', () => {
+    expect(
+      installFields(specs(), EMPTY_SEED).some((field) => field.key === 'GREPTIME_WRITER_PASSWORD'),
+    ).toBe(false);
+    expect(
+      installFields(specs(), EMPTY_SEED, { all: true }).some(
+        (field) => field.key === 'GREPTIME_WRITER_PASSWORD',
+      ),
+    ).toBe(false);
+  });
+
+  it('STACK_AGENT_TOKEN (no group, autoGenerate) is never in the field list', () => {
+    expect(installFields(specs(), EMPTY_SEED).some((field) => field.key === 'STACK_AGENT_TOKEN')).toBe(
+      false,
+    );
+    expect(
+      installFields(specs(), EMPTY_SEED, { all: true }).some((field) => field.key === 'STACK_AGENT_TOKEN'),
+    ).toBe(false);
+  });
+});
+
+describe('installFields: the --all toggle (issue #586, step reorder)', () => {
+  it('without all, a non-essential/non-secret ungrouped key (ALLOWED_MIME_TYPES) is not asked', () => {
+    expect(
+      installFields(specs(), EMPTY_SEED).some((field) => field.key === 'ALLOWED_MIME_TYPES'),
+    ).toBe(false);
+  });
+
+  it('with all: true, that same key IS asked', () => {
+    expect(
+      installFields(specs(), EMPTY_SEED, { all: true }).some(
+        (field) => field.key === 'ALLOWED_MIME_TYPES',
+      ),
+    ).toBe(true);
+  });
+
+  it('a non-observability grouped key (MICROSOFT_CLIENT_ID) is never asked, all or not', () => {
+    expect(
+      installFields(specs(), EMPTY_SEED).some((field) => field.key === 'MICROSOFT_CLIENT_ID'),
+    ).toBe(false);
+    expect(
+      installFields(specs(), EMPTY_SEED, { all: true }).some(
+        (field) => field.key === 'MICROSOFT_CLIENT_ID',
+      ),
+    ).toBe(false);
+  });
+
+  it('a non-observability grouped SECRET (MICROSOFT_CLIENT_SECRET, group: microsoft-oauth) is never asked, all or not', () => {
+    // Proves the group exclusion runs before the "secret with nothing usable"
+    // branch of shouldAsk would otherwise have picked it up.
+    expect(
+      installFields(specs(), EMPTY_SEED).some((field) => field.key === 'MICROSOFT_CLIENT_SECRET'),
+    ).toBe(false);
+    expect(
+      installFields(specs(), EMPTY_SEED, { all: true }).some(
+        (field) => field.key === 'MICROSOFT_CLIENT_SECRET',
+      ),
+    ).toBe(false);
+  });
+
+  it('an observability-grouped, non-autoGenerate key (GREPTIME_HOST) is asked only with all: true', () => {
+    expect(installFields(specs(), EMPTY_SEED).some((field) => field.key === 'GREPTIME_HOST')).toBe(
+      false,
+    );
+    expect(
+      installFields(specs(), EMPTY_SEED, { all: true }).some((field) => field.key === 'GREPTIME_HOST'),
+    ).toBe(true);
+  });
+
+  it('same for another observability key (OTEL_ENABLED)', () => {
+    expect(installFields(specs(), EMPTY_SEED).some((field) => field.key === 'OTEL_ENABLED')).toBe(
+      false,
+    );
+    expect(
+      installFields(specs(), EMPTY_SEED, { all: true }).some((field) => field.key === 'OTEL_ENABLED'),
+    ).toBe(true);
+  });
+});
+
+// =============================================================================
+// 4. decideResume: the fourth resume condition
+// =============================================================================
+
+function baseState(overrides: Partial<DeployState> = {}): DeployState {
+  return {
+    version: DEPLOY_STATE_VERSION,
+    repoUrl: 'https://example.com/repo.git',
+    ref: 'main',
+    commitSha: 'abc123',
+    bindPort: 3535,
+    deployRoot: '/opt/infra/apps/demo',
+    installedAt: '2026-01-01T00:00:00.000Z',
+    lastDeployedAt: '2026-01-01T00:00:00.000Z',
+    lastCommand: 'install',
+    appctlVersion: '1.0.0',
+    ...overrides,
+  };
+}
+
+describe('decideResume: every branch, and every branch names why', () => {
+  it('no state at all: never resume', () => {
+    const decision = decideResume({
+      state: undefined,
+      answers: new Map(),
+      onDisk: new Map(),
+    });
+    expect(decision.resume).toBe(false);
+    expect(decision.reason.length).toBeGreaterThan(0);
+  });
+
+  // ⚠ THE REGRESSION THIS BRANCH ORDER EXISTS TO PREVENT. Every state file
+  // written before `lastOutcome` was introduced has it ABSENT, and every one
+  // of those runs succeeded -- that is the only way the file came to exist
+  // without ever recording a failure. `state.lastOutcome !== 'failure'` is
+  // true for `undefined`, so this correctly refuses to resume; the WRONG
+  // implementation here would test `!== 'success'`, which is also true for
+  // `undefined` but for the opposite, catastrophic reason: it would treat
+  // every already-serving deployment in the field as a failed attempt and
+  // offer to resume over it, skipping every real step.
+  it('lastOutcome absent (a state file written before the field existed): never resume', () => {
+    const state = baseState(); // lastOutcome intentionally not set
+    expect(state.lastOutcome).toBeUndefined();
+
+    const decision = decideResume({ state, answers: new Map(), onDisk: new Map() });
+    expect(decision.resume).toBe(false);
+    expect(decision.reason.length).toBeGreaterThan(0);
+  });
+
+  it('lastOutcome success: never resume', () => {
+    const state = baseState({ lastOutcome: 'success' });
+    const decision = decideResume({ state, answers: new Map(), onDisk: new Map() });
+    expect(decision.resume).toBe(false);
+    expect(decision.reason.length).toBeGreaterThan(0);
+  });
+
+  it('lastOutcome failure but no completed steps recorded (absent): never resume', () => {
+    const state = baseState({ lastOutcome: 'failure' }); // completedSteps absent
+    const decision = decideResume({ state, answers: new Map(), onDisk: new Map() });
+    expect(decision.resume).toBe(false);
+    expect(decision.reason.length).toBeGreaterThan(0);
+  });
+
+  it('lastOutcome failure with an explicitly empty completedSteps array: never resume', () => {
+    const state = baseState({ lastOutcome: 'failure', completedSteps: [] });
+    const decision = decideResume({ state, answers: new Map(), onDisk: new Map() });
+    expect(decision.resume).toBe(false);
+    expect(decision.reason.length).toBeGreaterThan(0);
+  });
+
+  it('lastOutcome failure, steps recorded, answers still match the file: resume', () => {
+    const state = baseState({
+      lastOutcome: 'failure',
+      completedSteps: ['environment', 'build'],
+      lastFailedStep: 'migrate',
+    });
+    const onDisk = new Map([
+      ['POSTGRES_PASSWORD', 'unchanged-password'],
+      ['JWT_SECRET', 'unchanged-jwt'],
+    ]);
+    // The common, Enter-through-the-defaults path: the collected answers are
+    // exactly what prefilling handed back.
+    const answers = new Map(onDisk);
+
+    const decision = decideResume({ state, answers, onDisk });
+    expect(decision.resume).toBe(true);
+    expect(decision.reason.length).toBeGreaterThan(0);
+    expect(decision.reason).toContain('migrate');
+  });
+
+  // ===========================================================================
+  // THE CASE THE CONDITION EXISTS FOR. An operator who fixed the thing that
+  // actually failed must have that correction reach the run, not be silently
+  // dropped because the environment step was already marked done.
+  // ===========================================================================
+  it('lastOutcome failure, steps recorded, ONE answer differs: refuse, and NAME the differing key', () => {
+    const state = baseState({
+      lastOutcome: 'failure',
+      completedSteps: ['environment', 'build'],
+      lastFailedStep: 'migrate',
+    });
+    const onDisk = new Map([
+      ['POSTGRES_PASSWORD', 'old-wrong-password'],
+      ['JWT_SECRET', 'unchanged-jwt'],
+    ]);
+    const answers = new Map([
+      ['POSTGRES_PASSWORD', 'corrected-password'], // the operator's fix
+      ['JWT_SECRET', 'unchanged-jwt'],
+    ]);
+
+    const decision = decideResume({ state, answers, onDisk });
+
+    expect(decision.resume).toBe(false);
+    expect(decision.reason.length).toBeGreaterThan(0);
+    expect(decision.reason).toContain('POSTGRES_PASSWORD');
+    // The key that did NOT change must not be blamed.
+    expect(decision.reason).not.toContain('JWT_SECRET');
+  });
+
+  it('lastOutcome failure, steps recorded, ALL answers differ: names every differing key', () => {
+    const state = baseState({
+      lastOutcome: 'failure',
+      completedSteps: ['environment'],
+    });
+    const onDisk = new Map([
+      ['A_KEY', 'old-a'],
+      ['B_KEY', 'old-b'],
+    ]);
+    const answers = new Map([
+      ['A_KEY', 'new-a'],
+      ['B_KEY', 'new-b'],
+    ]);
+
+    const decision = decideResume({ state, answers, onDisk });
+    expect(decision.resume).toBe(false);
+    expect(decision.reason).toContain('A_KEY');
+    expect(decision.reason).toContain('B_KEY');
+  });
+
+  it('ADVERSARIAL: if decideResume stopped comparing answers to disk, this test goes red', () => {
+    // The deliberate breakage for this test: replace the `changed` computation
+    // with an empty array (as if the comparison were skipped entirely) and the
+    // corrected-password case above would wrongly resume, silently discarding
+    // the operator's fix. See the final report for the actual red/green run.
+    const state = baseState({
+      lastOutcome: 'failure',
+      completedSteps: ['environment', 'build'],
+      lastFailedStep: 'migrate',
+    });
+    const onDisk = new Map([['POSTGRES_PASSWORD', 'old-wrong-password']]);
+    const answers = new Map([['POSTGRES_PASSWORD', 'corrected-password']]);
+
+    const decision = decideResume({ state, answers, onDisk });
+    expect(decision.resume).toBe(false);
+  });
+
+  // ===========================================================================
+  // THE ACTUAL #589 REGRESSION. A first attempt that dies INSIDE the
+  // environment step itself never gets `environment` into `completedSteps`,
+  // and never writes anything real to disk either -- so a freshly-collected
+  // answer set can never match the (empty or stale) file. Refusing here, as
+  // the old unconditional comparison did, forces the operator to re-answer
+  // the entire wizard only to be refused again at the very last moment.
+  // ===========================================================================
+  it('#589: lastOutcome failure, environment never completed, answers differ wildly from disk: resume anyway', () => {
+    const state = baseState({
+      lastOutcome: 'failure',
+      completedSteps: ['preflight', 'checkout'],
+      lastFailedStep: 'environment',
+    });
+    // The real-world shape: nothing made it to disk, so onDisk is empty, while
+    // the operator's freshly-collected answers are a full set.
+    const onDisk = new Map<string, string>();
+    const answers = new Map([
+      ['POSTGRES_PASSWORD', 'brand-new-password'],
+      ['JWT_SECRET', 'brand-new-jwt'],
+    ]);
+
+    const decision = decideResume({ state, answers, onDisk });
+
+    expect(decision.resume).toBe(true);
+    expect(decision.reason.length).toBeGreaterThan(0);
+    expect(decision.reason).toContain('environment');
+  });
+});
+
+// =============================================================================
+// 4b. existingDeploymentNote: the confirm screen's "something is already here"
+// =============================================================================
+
+describe('existingDeploymentNote', () => {
+  function makeRoot(): string {
+    return mkdtempSync(join(tmpdir(), 'appctl-existing-note-'));
+  }
+
+  /** repo/.git as a directory, exactly the marker `isDeployment` looks for. */
+  function addCheckout(root: string): void {
+    mkdirSync(join(root, 'repo', '.git'), { recursive: true });
+  }
+
+  function addEnv(root: string, contents = 'APP_BIND_PORT=3535\n'): void {
+    writeFileSync(join(root, '.env'), contents);
+  }
+
+  it('undefined when resume is true, even with a state and real evidence on disk', () => {
+    const root = makeRoot();
+    addCheckout(root);
+    addEnv(root);
+
+    expect(existingDeploymentNote(root, baseState(), true)).toBeUndefined();
+  });
+
+  it('undefined when resume is false, no state, and no deployment evidence at all', () => {
+    const root = makeRoot(); // empty: no repo/.git, no .env
+
+    expect(existingDeploymentNote(root, undefined, false)).toBeUndefined();
+  });
+
+  it('a note mentioning the deploy root when resume is false and a state is recorded', () => {
+    const root = makeRoot(); // no evidence on disk needed: `state` alone is enough
+
+    const note = existingDeploymentNote(root, baseState({ deployRoot: root }), false);
+
+    expect(note).toBeDefined();
+    expect(note).toContain(root);
+  });
+
+  it('a note mentioning the deploy root when resume is false, no state, but isDeployment is true', () => {
+    const root = makeRoot();
+    addCheckout(root);
+    addEnv(root);
+
+    const note = existingDeploymentNote(root, undefined, false);
+
+    expect(note).toBeDefined();
+    expect(note).toContain(root);
+  });
+});
+
+// =============================================================================
+// 5. The name as two variables
+// =============================================================================
+
+describe('appName: resolved is undefined until an operator actually names one', () => {
+  it('empty input: resolved is undefined, display is the fallback', () => {
+    const name = appName('', 'fallback-name');
+    expect(name.resolved).toBeUndefined();
+    expect(name.display).toBe('fallback-name');
+  });
+
+  it('whitespace-only input: resolved is still undefined', () => {
+    // ⚠ A placeholder may reach a LABEL; it must never reach a path, an
+    // existence check or a port probe. Treating "   " as a real name here
+    // would let a stray space silently become a resolved deployment name and
+    // survive as far as `seedFor` / `deployRootFor`, which is precisely the
+    // upstream defect this file's header calls out (a port conflict gated on
+    // an app literally named after a fallback display string).
+    const name = appName('   ', 'fallback-name');
+    expect(name.resolved).toBeUndefined();
+    expect(name.display).toBe('fallback-name');
+  });
+
+  it('real input: resolved and display both carry it, trimmed', () => {
+    const name = appName('  myapp  ', 'fallback-name');
+    expect(name.resolved).toBe('myapp');
+    expect(name.display).toBe('myapp');
+  });
+});
+
+// =============================================================================
+// 6. envAnswers, validatePort, validateAppName
+// =============================================================================
+
+describe('envAnswers: strips screen fields, keeps everything else', () => {
+  it('drops every __-prefixed key and keeps the rest untouched', () => {
+    const answers = new Map([
+      ['__domain', 'app.example.com'],
+      ['__port', '3535'],
+      ['JWT_SECRET', 'a-secret'],
+      ['POSTGRES_PASSWORD', 'a-password'],
+    ]);
+
+    const result = envAnswers(answers);
+
+    expect(result).toEqual(
+      new Map([
+        ['JWT_SECRET', 'a-secret'],
+        ['POSTGRES_PASSWORD', 'a-password'],
+      ]),
+    );
+  });
+
+  it('is empty when every answer is a screen field', () => {
+    expect(envAnswers(new Map([['__name', 'x']]))).toEqual(new Map());
+  });
+
+  it('is unchanged when nothing is a screen field', () => {
+    const answers = new Map([['A', '1'], ['B', '2']]);
+    expect(envAnswers(answers)).toEqual(answers);
+  });
+});
+
+describe('validatePort', () => {
+  it('accepts ports in range', () => {
+    expect(validatePort('1')).toBeUndefined();
+    expect(validatePort('3535')).toBeUndefined();
+    expect(validatePort('65535')).toBeUndefined();
+  });
+
+  it('rejects out-of-range and non-integer values', () => {
+    expect(validatePort('0')).toBeDefined();
+    expect(validatePort('65536')).toBeDefined();
+    expect(validatePort('-1')).toBeDefined();
+    expect(validatePort('3535.5')).toBeDefined();
+    expect(validatePort('not-a-port')).toBeDefined();
+    expect(validatePort('')).toBeDefined();
+  });
+});
+
+describe('validateAppName: refuses anything that would escape the apps root', () => {
+  it('accepts an ordinary directory-safe name', () => {
+    expect(validateAppName('my-app_1.2')).toBeUndefined();
+    expect(validateAppName('demo')).toBeUndefined();
+  });
+
+  it('rejects a name of just ".." (the classic path-traversal segment)', () => {
+    // Paths are built from this value with a plain `join`, so a name that
+    // resolves to a traversal segment must never reach it.
+    expect(validateAppName('..')).toBeDefined();
+  });
+
+  it('rejects a name containing a "/" (would escape the apps root outright)', () => {
+    expect(validateAppName('../etc')).toBeDefined();
+    expect(validateAppName('a/b')).toBeDefined();
+    expect(validateAppName('/etc/passwd')).toBeDefined();
+  });
+
+  it('rejects an empty name', () => {
+    expect(validateAppName('')).toBeDefined();
+  });
+});

@@ -1,0 +1,153 @@
+// =============================================================================
+// AI platform permissions (issue #676, PP-1.4)
+// =============================================================================
+//
+// Pure data: this module's permissions and their default role grants. Has no
+// side effect; the app's permission manifest registers it, and the app's
+// `PERMISSIONS` derives from it. After a change, run
+// `npm run catalog:permissions --workspace=api` in the reference app and
+// commit the regenerated `prisma/catalog/permissions.json`.
+// =============================================================================
+
+import type { PermissionDeclaration } from '../core/index';
+
+/**
+ * One permission this slice declares: core's `PermissionDeclaration`, the
+ * entry type of the permission registry (`registerPermissions`).
+ *
+ * @typeParam Id - the permission string.
+ *
+ * @stability stable
+ */
+export type AiPermissionDeclaration<Id extends string = string> = PermissionDeclaration<Id>;
+
+/**
+ * The AI slice's permissions, keyed by the `PERMISSIONS` constant name the
+ * reference app derives from them:
+ *
+ * - `ai_config:read` / `ai_config:write` (system): the deployment-wide `ai`
+ *   policy, the deployment's provider keys, the model catalogue and the
+ *   deployment-wide usage report.
+ * - `ai:use` (org): call AI.
+ * - `org_ai_config:read` / `org_ai_config:write` (org, #739): one
+ *   organization's own provider keys (`/api/admin/ai/org-keys`), its usage
+ *   report and its `ai` org-settings layer.
+ *
+ * @example
+ * ```ts
+ * registerPermissions(AI_PERMISSIONS);
+ * ```
+ *
+ * @stability stable
+ */
+export const AI_PERMISSIONS: {
+  /** `ai_config:read`. */
+  readonly AI_CONFIG_READ: AiPermissionDeclaration<'ai_config:read'>;
+  /** `ai_config:write`. */
+  readonly AI_CONFIG_WRITE: AiPermissionDeclaration<'ai_config:write'>;
+  /** `ai:use`. */
+  readonly AI_USE: AiPermissionDeclaration<'ai:use'>;
+  /** `org_ai_config:read`. */
+  readonly ORG_AI_CONFIG_READ: AiPermissionDeclaration<'org_ai_config:read'>;
+  /** `org_ai_config:write`. */
+  readonly ORG_AI_CONFIG_WRITE: AiPermissionDeclaration<'org_ai_config:write'>;
+} = {
+  // AI platform (issue #423, epic #419, umbrella #418).
+  //
+  // THREE PERMISSIONS, NOT TWO, and the split matters: `ai_config:*` and
+  // `ai:use` answer completely different questions, at completely different
+  // blast radii.
+  //
+  // `ai_config:read`/`ai_config:write` gate the DEPLOYMENT-WIDE policy — the
+  // `ai` system-settings namespace: whether AI is enabled at all, the key
+  // policy, per-provider configuration and the caps every call is bound by.
+  // Same reasoning as `storage_config:*`, `push:*`, `broadcasts:*` and
+  // `nodes:*` above, none of which are folded into `system_settings:*`: a
+  // wrong or malicious change here reaches every user of the deployment at
+  // once (turning AI on/off for everyone, redirecting every call to a
+  // different `baseUrl`), which is a materially different act from an
+  // ordinary settings edit and gets its own controller-enforced permission
+  // rather than mirroring one nothing in that controller checks.
+  //
+  // `ai:use` is the OPPOSITE axis: may THIS CALLER invoke AI at all, using
+  // THEIR OWN saved key (`UserAiKey`)? It changes nothing about anyone else's
+  // access, touches no deployment-wide configuration, and costs this
+  // deployment nothing it did not already agree to when the caller saved
+  // their own key — the same shape `storage:read`/`storage:write` grant
+  // ordinary object access while `storage_config:*` gates who may repoint the
+  // whole bucket. A Contributor or a Viewer holding `ai:use` can call a model
+  // with their own credential; neither can touch whether AI is enabled for
+  // anyone else, or under which policy.
+  //
+  // Folding `ai:use` into `ai_config:read` (or granting it alongside) would
+  // hand every ordinary user of this application a policy-reading permission
+  // gated Admin-only everywhere else in this file; folding `ai_config:*` into
+  // `ai:use` would let every user who may call AI with their own key also
+  // flip the switch for the entire deployment. Neither substitution is safe,
+  // which is exactly why `storage:*`/`storage_config:*` refused it first.
+  //
+  // #423, epic #419 — ADMIN gets all three AI permissions: the two
+  // deployment-wide config ones (same "narrow, operational surface" posture
+  // as `storage_config:*`/`push:*`/`broadcasts:*`/`nodes:*` above) AND
+  // `ai:use`, since an administrator should not need a second grant to use
+  // a capability they can also configure.
+  AI_CONFIG_READ: {
+    id: 'ai_config:read',
+    description: 'View the deployment-wide AI platform policy',
+    scope: 'system',
+    defaultGrants: ['admin'],
+  },
+  AI_CONFIG_WRITE: {
+    id: 'ai_config:write',
+    description:
+      'Change whether AI is enabled, the key policy, per-provider configuration and the deployment-wide defaults',
+    scope: 'system',
+    defaultGrants: ['admin'],
+  },
+  AI_USE: {
+    id: 'ai:use',
+    description: 'Call AI models using a saved key',
+    scope: 'org',
+    defaultGrants: [
+      // Issue #723: `ai:use` is ORG scope, so the organization administrator
+      // holds it, not the system `admin` role. A system administrator keeps it
+      // through the `org_admin` role on their membership (the migration moves
+      // the grant), so nobody loses it.
+      'org_admin',
+      // #423, epic #419 — `ai:use` only, never `ai_config:*`: a Contributor may
+      // call AI with their own saved key, and has no say over whether AI is
+      // enabled for anyone else or under which policy.
+      'contributor',
+      // #499 — deliberately NO `'viewer'` here, unlike Contributor above. Viewer
+      // is the DEFAULT role every new user lands in (see `ROLES` above and
+      // `AuthService`'s allowlist-driven bootstrap), so seeding `ai:use` onto
+      // it meant every fresh signup could call AI with no explicit grant. That
+      // is fine under `byok` (no key, no calls succeed) but wrong under
+      // `byok_with_org_fallback`: a brand-new Viewer would silently spend the
+      // deployment's own org key the first time they touched an AI surface,
+      // with no administrator having decided that person should be able to.
+      // An administrator who wants a specific Viewer (or all of them) to use
+      // AI grants it back explicitly — a `role_permissions` row for
+      // `('viewer', 'ai:use')` — or promotes the account to Contributor, which
+      // already carries the grant.
+    ],
+  },
+  // #739 — ONE ORGANIZATION'S AI configuration: its own provider keys
+  // (`org_credentials`, purpose `ai`), its usage report and the `ai` org layer
+  // of `/api/org-settings` (which can only tighten the deployment's policy).
+  // Org scope, held through the `org_admin` membership role: an organization
+  // administrator manages what their organization pays for, and nothing of
+  // any other organization or of the deployment.
+  ORG_AI_CONFIG_READ: {
+    id: 'org_ai_config:read',
+    description: "View this organization's AI keys, usage and AI policy overrides",
+    scope: 'org',
+    defaultGrants: ['org_admin'],
+  },
+  ORG_AI_CONFIG_WRITE: {
+    id: 'org_ai_config:write',
+    description: "Set or remove this organization's AI provider keys and tighten its AI policy",
+    scope: 'org',
+    defaultGrants: ['org_admin'],
+  },
+};

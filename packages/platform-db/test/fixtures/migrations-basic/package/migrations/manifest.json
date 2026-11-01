@@ -1,0 +1,30 @@
+[
+  {
+    "dir": "0001_initial",
+    "id": "0001_initial",
+    "requires": [],
+    "sha256": "049df5dee9f89c866987d701e596e76ff6132aed6ef8bfa500add1f0195a7639",
+    "since": "0.1.0",
+    "slice": "core"
+  },
+  {
+    "dir": "0002_add_orgs",
+    "id": "0002_add_orgs",
+    "requires": [
+      "core"
+    ],
+    "sha256": "aea507c2bf5e51fc4af6aaf76a966ce61a9bd53bb450b2ae42b05bf06588eef3",
+    "since": "0.1.0",
+    "slice": "orgs"
+  },
+  {
+    "dir": "0003_add_org_slug_index",
+    "id": "0003_add_org_slug_index",
+    "requires": [
+      "orgs"
+    ],
+    "sha256": "b1fc3ba15379fe84502248afcd527162a0cf0b77be1b92b93251d38179feb5f5",
+    "since": "0.1.0",
+    "slice": "orgs"
+  }
+]

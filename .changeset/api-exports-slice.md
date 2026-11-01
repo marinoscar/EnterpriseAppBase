@@ -1,0 +1,5 @@
+---
+"@marinoscar/platform-api": minor
+---
+
+Add `@marinoscar/platform-api/exports` and `/exports/testing` (#744): `ExportsModule.forRoot({ datamodel, appSlug, retentionDays, downloadUrlTtlSeconds, maxInFlightPerSubject, jobProfile, purgeProfile, platformSources, legacyJobTypes, imports })`, the export source and writer registries (`registerExportSource`, `registerExportWriter`), the `user-data` and `org-data` sources driven by the user-owned and ownership registries with a default redaction rule, the `json`, `csv` (zip) and `xlsx` streaming writers, the CSV helpers (`UTF8_BOM`, `csvField`, `neutralizeFormula`, `csvRecord`, `csvCell`), the `Exporter` / `ExporterRegistry` document primitives with `optionsSchemaFor` and `hashExportRequest`, the server-only `export.run` and `export.purge` jobs, `/api/exports`, the `EXPORTS_SYSTEM_DATA` and `EXPORTS_NOTIFIER` ports, the `export.ready` / `export.failed` events, the three export metrics and the `exports` conformance suite (secret egress). Core gains the `export` system access reason.
