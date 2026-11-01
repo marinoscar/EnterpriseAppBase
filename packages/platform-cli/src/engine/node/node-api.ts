@@ -58,7 +58,15 @@ export interface RegisterNodeResult {
    * and got a reattach has a name collision to resolve.
    */
   reattached: boolean;
+  /**
+   * Optional server features (#1045), e.g. `node_host_vitals`. Absent from an
+   * older server, in which case the CLI sends no host vitals, power or events.
+   */
+  serverFeatures?: string[] | undefined;
 }
+
+/** The server feature that enables `vitals.host`, `vitals.power` and heartbeat `events`. */
+export const SERVER_FEATURE_HOST_VITALS = 'node_host_vitals';
 
 /** One entry of `GET /nodes/job-types`. */
 export interface NodeJobType {
@@ -220,6 +228,43 @@ export interface NodeVitals {
    * sanitized by `sanitizeExtraVitals` before they get here.
    */
   extra?: Record<string, number> | undefined;
+  /** Machine-level readings (#1045); only for a server advertising `node_host_vitals`. */
+  host?: NodeHostVitals | undefined;
+  /** Power / battery state (#1045); same gate as `host`. */
+  power?: NodePower | undefined;
+}
+
+/** Machine-level readings. Mirrors the contract's `nodeHostVitalsSchema`. */
+export interface NodeHostVitals {
+  cpuPercent?: number | undefined;
+  cpuCount?: number | undefined;
+  loadAvg1?: number | undefined;
+  loadAvg5?: number | undefined;
+  loadAvg15?: number | undefined;
+  memTotalBytes?: number | undefined;
+  memFreeBytes?: number | undefined;
+  memAvailableBytes?: number | undefined;
+  osRelease?: string | undefined;
+  arch?: string | undefined;
+  uptimeSeconds?: number | undefined;
+}
+
+/** Power state. Mirrors the contract's `nodePowerSchema`. */
+export interface NodePower {
+  source: 'ac' | 'battery' | 'unknown';
+  batteryPercent?: number | undefined;
+  charging?: boolean | undefined;
+  timeRemainingSeconds?: number | undefined;
+  lowPowerMode?: boolean | undefined;
+}
+
+/** One node event. Mirrors the contract's `nodeEventSchema`. */
+export interface NodeEvent {
+  type: string;
+  severity: 'info' | 'warning' | 'critical';
+  /** ISO 8601, the node's clock. */
+  at: string;
+  attrs?: Record<string, string | number | boolean> | undefined;
 }
 
 export interface HeartbeatRequest {
@@ -231,6 +276,8 @@ export interface HeartbeatRequest {
    * refuse a key it does not know. See `NodeEngine.beat`.
    */
   vitals?: NodeVitals | undefined;
+  /** Events since the last heartbeat (#1045), at most 50; only for a server advertising `node_host_vitals`. */
+  events?: NodeEvent[] | undefined;
 }
 
 export interface ClaimRequest {

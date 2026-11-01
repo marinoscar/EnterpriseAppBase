@@ -1,7 +1,8 @@
 import { cliName } from '../identity.js';
 import { HttpNodeApi, type NodeApi } from './node-api.js';
-import { registerNode } from './enrollment.js';
-import { NodeEngine } from './node-engine.js';
+import { readMachineInfo, registerNode } from './enrollment.js';
+import { createHostTelemetry } from './host-telemetry.js';
+import { DEFAULT_HEARTBEAT_MS, NodeEngine } from './node-engine.js';
 import type { NodeEngineEvent } from './node-events.js';
 import { NodeLogger, readLogTail, formatLogRecord } from './logger.js';
 import { startDaemonHost, type DaemonHost } from './daemon.js';
@@ -144,6 +145,7 @@ export async function startNode(options: StartNodeOptions = {}): Promise<Started
   // fail because `GET /nodes/job-types` was briefly unavailable — the server
   // re-checks every claim against its own registry regardless.
   let nodeId = config.nodeId;
+  let serverFeatures: readonly string[] | undefined;
   if (nodeId === undefined) {
     const registered = await registerNode({
       api,
@@ -153,10 +155,30 @@ export async function startNode(options: StartNodeOptions = {}): Promise<Started
       ...(options.capabilities !== undefined ? { capabilities: options.capabilities } : {}),
     });
     nodeId = registered.node.id;
+    serverFeatures = registered.serverFeatures;
     logger.info(registered.reattached ? 'reattached to node' : 'registered node', {
       nodeId,
       name: registered.node.name,
     });
+  }
+
+  else if (options.vitals !== false) {
+    // An already-registered node never calls register again, so it would never
+    // learn what the server supports. Re-register (idempotent on owner+name,
+    // reattaches) purely to read `serverFeatures`; any failure leaves them
+    // unknown, which means no host vitals, power or events (#1045).
+    try {
+      const reattached = await api.register({
+        name: config.node.name,
+        ...readMachineInfo(),
+        eligibleTypes: config.node.eligibleTypes,
+        concurrency: config.node.concurrency,
+        ...(options.capabilities !== undefined ? { capabilities: options.capabilities } : {}),
+      });
+      serverFeatures = reattached.serverFeatures;
+    } catch {
+      serverFeatures = undefined;
+    }
   }
 
   let host: DaemonHost | undefined;
@@ -183,6 +205,9 @@ export async function startNode(options: StartNodeOptions = {}): Promise<Started
     tmpDir: nodeTmpDir(pathCtx),
     capabilities: { ...(options.capabilities ?? {}), probe: { ...probe } },
     ...(vitals !== undefined ? { collectVitals: (input) => vitals.collect(input) } : {}),
+    ...(vitals !== undefined && serverFeatures !== undefined
+      ? { serverFeatures, hostTelemetry: createHostTelemetry({ heartbeatMs: DEFAULT_HEARTBEAT_MS }) }
+      : {}),
     persistConcurrency: (value) => {
       saveNodeConfig({ node: { concurrency: value } }, { ...pathCtx, degradeOnFailure: true });
     },
