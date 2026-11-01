@@ -39,7 +39,7 @@ import { Box, Stack, Tooltip, Typography } from '@mui/material';
 import type { ReactElement } from 'react';
 
 import { formatDuration } from '../headless/index.js';
-import type { NodeVitals, WorkerNode } from '../headless/index.js';
+import type { NodeHostVitals, NodeVitals, WorkerNode } from '../headless/index.js';
 import { formatBytes } from '../internal/format-bytes.js';
 import { formatRelativeTime } from '../internal/relative-time.js';
 
@@ -91,6 +91,49 @@ export function formatUptime(seconds: number | undefined): string {
 export function formatEventLoopDelay(ms: number | undefined): string {
   if (ms === undefined || !Number.isFinite(ms)) return '—';
   return `${ms < 10 ? ms.toFixed(1) : Math.round(ms)} ms`;
+}
+
+// -----------------------------------------------------------------------------
+// Host (machine-level) vitals, #1045. `vitals.host` is the MACHINE the node runs
+// on, not the node process: its CPU is system-wide (0..100), its memory the
+// machine's. Every field optional, and absent is still not zero.
+// -----------------------------------------------------------------------------
+
+/** System-wide CPU (0..100), or "—". Never above 100, unlike the process figure. */
+export function formatHostCpu(host: NodeHostVitals | undefined): string {
+  const cpu = host?.cpuPercent;
+  if (cpu === undefined || !Number.isFinite(cpu)) return '—';
+  const text = `${cpu < 10 ? cpu.toFixed(1) : Math.round(cpu)}%`;
+  return host?.cpuCount !== undefined ? `${text} of ${host.cpuCount} ${host.cpuCount === 1 ? 'core' : 'cores'}` : text;
+}
+
+/**
+ * The machine's memory in use: total minus AVAILABLE (reclaimable caches count
+ * as free), falling back to total minus free on a host that reports no
+ * "available" figure. `null` when the total or both remainders are missing.
+ */
+export function hostMemoryUsage(host: NodeHostVitals | undefined): { used: number; total: number; fraction: number } | null {
+  if (!host) return null;
+  const total = host.memTotalBytes;
+  const remaining = host.memAvailableBytes ?? host.memFreeBytes;
+  if (total === undefined || remaining === undefined || !(total > 0) || !Number.isFinite(remaining)) return null;
+  const used = Math.min(total, Math.max(0, total - remaining));
+  return { used, total, fraction: used / total };
+}
+
+/** "0.52 · 0.61 · 0.70" (1, 5 and 15 minutes); a missing one reads "—"; all missing reads "—". */
+export function formatLoadAverages(host: NodeHostVitals | undefined): string {
+  const loads = [host?.loadAvg1, host?.loadAvg5, host?.loadAvg15];
+  if (loads.every((load) => load === undefined || !Number.isFinite(load))) return '—';
+  return loads.map((load) => (load === undefined || !Number.isFinite(load) ? '—' : load.toFixed(2))).join(' · ');
+}
+
+/** "6.8.0-45-generic (x64)", either half alone, or "—". */
+export function formatHostOs(host: NodeHostVitals | undefined): string {
+  const os = host?.osRelease?.trim();
+  const arch = host?.arch?.trim();
+  if (os && arch) return `${os} (${arch})`;
+  return os || arch || '—';
 }
 
 /** Free fraction of the state directory's filesystem, or `null` when unknown. */

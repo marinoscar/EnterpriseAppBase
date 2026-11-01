@@ -40,6 +40,23 @@ describe('createNodesApi', () => {
     expect(client.delete.mock.calls).toEqual([['/admin/nodes/n1'], ['/admin/nodes/credentials/c1']]);
   });
 
+  it('reads a node\'s events from GET /admin/nodes/:id/events, sending only the query members that are set', async () => {
+    const client = fakeClient();
+    const api = createNodesApi(client);
+    await api.listNodeEvents('node-1');
+    await api.listNodeEvents('node-1', { page: 2, pageSize: 20 });
+    await api.listNodeEvents('node-1', { type: 'power.battery_low', severity: 'warning' });
+    await api.listNodeEvents('a/b', { page: 1, pageSize: 5, type: 'node.disk_low', severity: 'critical' });
+
+    expect(client.get.mock.calls).toEqual([
+      ['/admin/nodes/node-1/events'],
+      ['/admin/nodes/node-1/events?page=2&pageSize=20'],
+      ['/admin/nodes/node-1/events?type=power.battery_low&severity=warning'],
+      // The id is path-encoded: a crafted id cannot walk to another route.
+      ['/admin/nodes/a%2Fb/events?page=1&pageSize=5&type=node.disk_low&severity=critical'],
+    ]);
+  });
+
   it('exposes exactly the members the jobs client carries for the fleet', () => {
     const client = fakeClient();
     const nodes = Object.keys(createNodesApi(client)).sort();

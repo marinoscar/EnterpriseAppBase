@@ -24,10 +24,14 @@ import type { z } from 'zod';
 import type {
   AdminNode,
   AdminNodeCredential,
+  AdminNodeEvent,
+  AdminNodeEventList,
   NodeCredentialCreated,
   NodeHealth,
+  NodeHostVitals,
   NodeJobCounts,
   NodeOwner,
+  NodePower,
   NodeStatus,
   NodeVitals,
   NodeVitalsCounters,
@@ -37,14 +41,17 @@ import type {
 export {
   MAX_NODE_CREDENTIAL_DAYS,
   MAX_NODE_CREDENTIAL_NAME_LENGTH,
+  NODE_EVENT_TYPES,
   NODE_HEALTHS,
   NODE_STATUSES,
 } from '@marinoscar/platform-contract/nodes';
 export type {
   NodeCredentialCreated,
   NodeHealth,
+  NodeHostVitals,
   NodeJobCounts,
   NodeOwner,
+  NodePower,
   NodeStatus,
   NodeVitals,
   NodeVitalsCounters,
@@ -57,6 +64,47 @@ export type {
  * @stability experimental
  */
 export type WorkerNode = AdminNode;
+
+/**
+ * One stored node event as `GET /api/admin/nodes/:id/events` returns it
+ * (`adminNodeEventSchema`, #1045): a power change, a low battery, a wake from
+ * sleep, a low disk. `type` is an OPEN dotted string (`NODE_EVENT_TYPES` names
+ * the platform's own); `occurredAt` is the node's clock, `receivedAt` the server's.
+ *
+ * @stability experimental
+ */
+export type WorkerNodeEvent = AdminNodeEvent;
+
+/**
+ * A page of node events (`adminNodeEventListSchema`), newest first.
+ *
+ * @stability experimental
+ */
+export type WorkerNodeEventList = AdminNodeEventList;
+
+/**
+ * How loud a node event is: `info`, `warning` or `critical`.
+ *
+ * @stability experimental
+ */
+export type NodeEventSeverity = AdminNodeEvent['severity'];
+
+/**
+ * The query `GET /api/admin/nodes/:id/events` takes. Every member optional; an absent
+ * one is left out of the query string (the API's defaults apply).
+ *
+ * @stability experimental
+ */
+export interface NodeEventsQuery {
+  /** 1-based page. */
+  page?: number;
+  /** Events per page. */
+  pageSize?: number;
+  /** Only events of this exact type (`power.battery_low`). */
+  type?: string;
+  /** Only events of this severity. */
+  severity?: NodeEventSeverity;
+}
 
 /**
  * One credential as `GET /api/admin/nodes/credentials` returns it

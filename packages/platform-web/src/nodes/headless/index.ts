@@ -9,6 +9,7 @@ export type { NodesApi } from './api.js';
 export {
   MAX_NODE_CREDENTIAL_DAYS,
   MAX_NODE_CREDENTIAL_NAME_LENGTH,
+  NODE_EVENT_TYPES,
   NODE_HEALTHS,
   NODE_STATUSES,
   nodeCredentialStatus,
@@ -18,14 +19,25 @@ export type {
   NodeCredential,
   NodeCredentialCreated,
   NodeCredentialStatus,
+  NodeEventSeverity,
+  NodeEventsQuery,
   NodeHealth,
+  NodeHostVitals,
   NodeJobCounts,
   NodeOwner,
+  NodePower,
   NodeStatus,
   NodeVitals,
   NodeVitalsCounters,
   WorkerNode,
+  WorkerNodeEvent,
+  WorkerNodeEventList,
 } from './types.js';
+export { MAX_NODE_EVENT_SUMMARY_ATTRS, humanizeNodeEventType, nodeEventLabel, nodeEventSummary } from './node-events.js';
+export { NODE_BATTERY_CRITICAL_PERCENT, NODE_BATTERY_WARNING_PERCENT, describeNodePower } from './power.js';
+export type { NodePowerDescription } from './power.js';
+export { useNodeEvents } from './use-node-events.js';
+export type { UseNodeEventsResult } from './use-node-events.js';
 export { formatDateTime, formatDuration, shortId } from './format.js';
 export { formatNodeVital, nodeVitalFor, nodeVitalRows, registerNodeVital, registeredNodeVitals } from './node-vitals.js';
 export type { NodeVitalDef, NodeVitalRow, NodeVitalUnit } from './node-vitals.js';

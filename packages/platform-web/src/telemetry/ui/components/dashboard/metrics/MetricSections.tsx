@@ -68,6 +68,22 @@ const problemsFirst = (a: Row, b: Row) =>
   Number(b.up === false || b.noEligibleNode === true) - Number(a.up === false || a.noEligibleNode === true);
 
 /**
+ * A `status` column's cell as the boolean `StatusCell` draws: a boolean as is,
+ * and a 0/1 FLAG as false/true (a gauge such as a node's `on_battery` arrives as
+ * a number), then flipped when the presentation says `invert`. Anything else
+ * (another number, text, `null`) is not a status and reads "—".
+ *
+ * @param value - the row's cell.
+ * @param invert - the presentation's `invert` (read `false` as good).
+ * @returns `true` for good, `false` for bad, `null` for no reading.
+ */
+export function statusCellValue(value: DashboardMetricTable['rows'][number][string] | undefined, invert: boolean): boolean | null {
+  const flag = typeof value === 'boolean' ? value : value === 1 ? true : value === 0 ? false : null;
+  if (flag === null) return null;
+  return invert ? !flag : flag;
+}
+
+/**
  * A presentation column as the table component's column spec: a bar, a
  * status or a fraction replaces the unit-formatted cell, and a column the
  * response lacks is skipped (`requires`).
@@ -97,10 +113,9 @@ function columnSpec(column: PresentationColumn): MetricTableColumnSpec {
         ...label,
         requires: [column.key],
         render: (row) => {
-          const value = row[column.key];
           return (
             <StatusCell
-              ok={display.invert ? (typeof value === 'boolean' ? !value : null) : (value ?? null)}
+              ok={statusCellValue(row[column.key], display.invert === true)}
               okText={display.okText}
               badText={display.badText}
             />
