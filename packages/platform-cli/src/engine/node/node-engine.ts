@@ -235,6 +235,8 @@ export class NodeEngine {
   private readonly hostTelemetry: HostTelemetry | undefined;
   /** Cleared for the process when the server refuses a beat carrying host fields. */
   private hostEnabled: boolean;
+  /** Set once the server refuses host fields; never re-enabled in this process. */
+  private hostRefused = false;
   private readonly eventQueue = new NodeEventQueue();
   private readonly powerPollIntervalMs: number;
   private powerPollHandle: unknown;
@@ -787,13 +789,31 @@ export class NodeEngine {
     this.heartbeatHandle = this.scheduler.setInterval(() => {
       void this.beat();
     }, this.heartbeatIntervalMs);
-    if (this.hostEnabled && this.hostTelemetry !== undefined) {
-      // A plug/unplug is worth reporting within seconds, not a heartbeat later.
-      this.powerPollHandle = this.scheduler.setInterval(() => {
-        void this.pollPower();
-      }, this.powerPollIntervalMs);
-    }
+    this.ensurePowerPoll();
     void this.beat();
+  }
+
+  /** A plug/unplug is worth reporting within seconds, not a heartbeat later. */
+  private ensurePowerPoll(): void {
+    if (this.powerPollHandle !== undefined || !this.hostEnabled || this.hostTelemetry === undefined) return;
+    this.powerPollHandle = this.scheduler.setInterval(() => {
+      void this.pollPower();
+    }, this.powerPollIntervalMs);
+  }
+
+  /**
+   * Learns the server's features from a heartbeat response (an already
+   * registered node never calls register again). The first heartbeat carries
+   * plain vitals; once the response advertises `node_host_vitals`, later ones
+   * carry host, power and events.
+   */
+  private learnServerFeatures(response: { serverFeatures?: readonly string[] | undefined } | undefined): void {
+    const features = response?.serverFeatures;
+    if (!Array.isArray(features) || this.hostTelemetry === undefined || this.hostRefused) return;
+    if (features.includes(SERVER_FEATURE_HOST_VITALS) && !this.hostEnabled) {
+      this.hostEnabled = true;
+      if (this.heartbeatHandle !== undefined) this.ensurePowerPoll();
+    }
   }
 
   /**
@@ -865,12 +885,13 @@ export class NodeEngine {
 
     try {
       try {
-        await this.api.heartbeat(this.nodeId, full(vitals, events));
+        this.learnServerFeatures(await this.api.heartbeat(this.nodeId, full(vitals, events)));
       } catch (error) {
         const refused = error instanceof ApiError && error.status === 400;
         if (refused && carriesHostFields) {
           // The server advertised the feature but refused the body: stop sending host fields for this process.
           this.hostEnabled = false;
+          this.hostRefused = true;
           this.eventQueue.requeue(events);
           events = [];
           const { host: _host, power: _power, ...plain } = vitals ?? {};

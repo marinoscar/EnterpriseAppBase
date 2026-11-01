@@ -36,6 +36,11 @@ export interface WorkerNode {
   capabilities: unknown;
   registeredAt: string;
   lastHeartbeatAt: string | null;
+  /**
+   * Optional server features (#1045), also returned by the heartbeat so an
+   * already-registered node learns them without re-registering.
+   */
+  serverFeatures?: string[] | undefined;
 }
 
 /** `POST /nodes/register`. */

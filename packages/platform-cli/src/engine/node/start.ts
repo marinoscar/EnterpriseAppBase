@@ -1,6 +1,6 @@
 import { cliName } from '../identity.js';
 import { HttpNodeApi, type NodeApi } from './node-api.js';
-import { readMachineInfo, registerNode } from './enrollment.js';
+import { registerNode } from './enrollment.js';
 import { createHostTelemetry } from './host-telemetry.js';
 import { DEFAULT_HEARTBEAT_MS, NodeEngine } from './node-engine.js';
 import type { NodeEngineEvent } from './node-events.js';
@@ -162,25 +162,6 @@ export async function startNode(options: StartNodeOptions = {}): Promise<Started
     });
   }
 
-  else if (options.vitals !== false) {
-    // An already-registered node never calls register again, so it would never
-    // learn what the server supports. Re-register (idempotent on owner+name,
-    // reattaches) purely to read `serverFeatures`; any failure leaves them
-    // unknown, which means no host vitals, power or events (#1045).
-    try {
-      const reattached = await api.register({
-        name: config.node.name,
-        ...readMachineInfo(),
-        eligibleTypes: config.node.eligibleTypes,
-        concurrency: config.node.concurrency,
-        ...(options.capabilities !== undefined ? { capabilities: options.capabilities } : {}),
-      });
-      serverFeatures = reattached.serverFeatures;
-    } catch {
-      serverFeatures = undefined;
-    }
-  }
-
   let host: DaemonHost | undefined;
 
   // The vitals provider (#605). The watchdog is built AFTER the engine (its
@@ -205,8 +186,14 @@ export async function startNode(options: StartNodeOptions = {}): Promise<Started
     tmpDir: nodeTmpDir(pathCtx),
     capabilities: { ...(options.capabilities ?? {}), probe: { ...probe } },
     ...(vitals !== undefined ? { collectVitals: (input) => vitals.collect(input) } : {}),
-    ...(vitals !== undefined && serverFeatures !== undefined
-      ? { serverFeatures, hostTelemetry: createHostTelemetry({ heartbeatMs: DEFAULT_HEARTBEAT_MS }) }
+    // The engine learns the server's features from the register response (a
+    // fresh registration) or from any heartbeat response (an already-registered
+    // node never re-registers: that would overwrite server-stored settings).
+    ...(vitals !== undefined
+      ? {
+          ...(serverFeatures !== undefined ? { serverFeatures } : {}),
+          hostTelemetry: createHostTelemetry({ heartbeatMs: DEFAULT_HEARTBEAT_MS }),
+        }
       : {}),
     persistConcurrency: (value) => {
       saveNodeConfig({ node: { concurrency: value } }, { ...pathCtx, degradeOnFailure: true });
