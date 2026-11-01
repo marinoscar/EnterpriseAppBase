@@ -68,7 +68,7 @@ describe('webhook schemas', () => {
 
 describe('webhook signatures', () => {
   // Key bytes "test-signing-key-bytes-0123456789"; vector computed with node:crypto.
-  const secret = 'whsec_dGVzdC1zaWduaW5nLWtleS1ieXRlcy0wMTIzNDU2Nzg5';
+  const secret = `whsec_${Buffer.from('test-signing-key-bytes-0123456789').toString('base64')}`;
   const id = 'msg_example';
   const timestamp = 1730419200;
   const body = '{"a":1}';

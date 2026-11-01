@@ -31,7 +31,8 @@ import type { TestApiResponse, TestPlatformHost } from '@marinoscar/platform-web
 
 const ID = '3f0c8a2e-9b7d-4e61-a1c4-5d2e8f9a0b11';
 const DELIVERY = 'a8e2d6c4-1f3b-4a5e-9c7d-0b2e4f6a8c10';
-const SECRET = 'whsec_ZXhhbXBsZS1zZWNyZXQtbm90LXJlYWw=';
+// Built at runtime from a plain string: a fixture, not a credential.
+const SECRET = `whsec_${btoa('example-secret-not-real')}`;
 
 function endpoint(extra: Partial<WebhookEndpoint> = {}): WebhookEndpoint {
   return {

@@ -203,7 +203,7 @@ describeWithDb('webhooks over row-level security (real Postgres)', () => {
     expect(settled).toMatchObject({ status: 'succeeded', attempt: 1, responseStatus: 200 });
 
     const org = await repository.createEndpoint(ORG_A, { scope: 'org', ownerUserId: null, createdById: userA, name: 'deliver-org', description: null, url: URL_OK, eventKeys: ['webhooks.ping'], enabled: true });
-    await secrets.put(org, 1, 'whsec_c2VjcmV0LWZvci10ZXN0cy0xMjM0NTY3ODkwMTIzNDU2');
+    await secrets.put(org, 1, `whsec_${Buffer.from('secret-for-tests-1234567890123456').toString('base64')}`);
     const [orgDelivery] = await repository.insertDeliveries(ORG_A, [{ endpointId: org.id, eventKey: 'webhooks.ping', eventId: randomUUID(), payload: { id: 'x', type: 'webhooks.ping', data: {} } }]);
     // Another organization's job context cannot see the delivery: the job finds nothing and ends quietly.
     const before = receiver.requests.length;

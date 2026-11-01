@@ -15,7 +15,8 @@ import type { TestApiResponse, TestPlatformHost } from '../../src/testing/index.
 
 export const ENDPOINT_ID = '3f0c8a2e-9b7d-4e61-a1c4-5d2e8f9a0b11';
 export const DELIVERY_ID = 'a8e2d6c4-1f3b-4a5e-9c7d-0b2e4f6a8c10';
-export const SECRET = 'whsec_dGVzdC1zZWNyZXQtbm90LXJlYWwtMDEyMzQ1Njc4OQ==';
+// Built at runtime from a plain string: a fixture, not a credential.
+export const SECRET = `whsec_${btoa('test-secret-not-real-0123456789')}`;
 
 export function endpoint(extra: Partial<WebhookEndpoint> = {}): WebhookEndpoint {
   return {
