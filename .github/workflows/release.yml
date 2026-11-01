@@ -254,16 +254,19 @@ jobs:
 
   # After a real publish (issue #697): install the published version from the
   # registry into the consumer smoke projects (tests/consumer-smoke/run.mjs,
-  # temp directory outside the repository, install retried for up to two
-  # minutes while the registry propagates), build, boot and render them, and
+  # temp directory outside the repository), build, boot and render them, and
   # verify registry signatures and provenance attestations with
-  # `npm audit signatures`. Read-only: it holds no publish credential.
+  # `npm audit signatures`. The registry and its CDN lag a fresh publish, so
+  # run.mjs first polls `npm view <pkg>@<version> --prefer-online` for all
+  # seven packages with backoff (up to 10 minutes), then retries the install
+  # for up to two minutes. Read-only: it holds no publish credential.
   registry-smoke:
     name: Registry smoke
     needs: publish
     if: vars.NPM_PUBLISH_ENABLED == 'true' && needs.publish.result == 'success'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 10 minutes of registry wait plus the four consumer projects.
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:

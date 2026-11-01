@@ -17,8 +17,10 @@
 //   --from pack       npm pack the six workspaces (built first with
 //                     `npm run build:packages`) into a temp dir. The default.
 //   --from tarballs   use the `marinoscar-platform-*.tgz` files in <dir>.
-//   --from registry   install <version|tag> from the npm registry (retries the
-//                     install for up to 2 minutes for registry propagation).
+//   --from registry   install <version|tag> from the npm registry. First waits
+//                     (up to 10 minutes, backing off) until every platform
+//                     package resolves that version (`npm view --prefer-online`),
+//                     then retries the install for up to 2 minutes.
 //   --from release    install the tarballs attached to the GitHub release
 //                     `platform-v<version>` of --repo (default: the
 //                     repository in packages/platform-api/package.json).
@@ -34,6 +36,7 @@ import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, realpathSyn
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { waitForRegistry } from './registry-wait.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, '..', '..');
@@ -46,6 +49,8 @@ const INSTALL_TIMEOUT_MS = 5 * 60_000;
 const STEP_TIMEOUT_MS = 10 * 60_000;
 const REGISTRY_RETRY_MS = 2 * 60_000;
 const REGISTRY_RETRY_INTERVAL_MS = 15_000;
+const REGISTRY_WAIT_MS = 10 * 60_000;
+const VIEW_TIMEOUT_MS = 60_000;
 
 const USAGE = `Usage: node tests/consumer-smoke/run.mjs [--project api|api-slim|web|ai-providers|all]
          [--from pack | --from tarballs <dir> | --from registry <version|tag> | --from release <version>]
@@ -207,12 +212,32 @@ function copyProject(project) {
   return tmp;
 }
 
+/** The version `npm view <name>@<spec> version` resolves, bypassing the local cache; null when the registry does not serve it. */
+function npmView(name, spec) {
+  const result = spawnSync(NPM, ['view', `${name}@${spec}`, 'version', '--json', '--prefer-online'], {
+    env: cleanEnv(),
+    encoding: 'utf8',
+    timeout: VIEW_TIMEOUT_MS,
+    shell: process.platform === 'win32',
+  });
+  if (result.status !== 0 || !result.stdout?.trim()) return null;
+  try {
+    const parsed = JSON.parse(result.stdout);
+    // A spec matching several versions answers an array; take the highest (last).
+    const version = Array.isArray(parsed) ? parsed.at(-1) : parsed;
+    return typeof version === 'string' ? version : null;
+  } catch {
+    return null;
+  }
+}
+
 async function install(dir, opts) {
   const args = ['install', '--no-audit', '--no-fund'];
   if (opts.from !== 'registry') {
     run(NPM, args, dir, { timeout: INSTALL_TIMEOUT_MS });
     return;
   }
+  args.push('--prefer-online');
   const deadline = Date.now() + REGISTRY_RETRY_MS;
   for (let attempt = 1; ; attempt += 1) {
     if (run(NPM, args, dir, { timeout: INSTALL_TIMEOUT_MS, allowFail: true })) return;
@@ -274,6 +299,9 @@ async function main() {
       specs = releaseSpecs(opts.source, opts.repo ?? defaultRepo());
     } else {
       specs = Object.fromEntries(PLATFORM_PACKAGES.map((p) => [`${PLATFORM_PREFIX}${p}`, opts.source]));
+      // Right after a publish the registry and its CDN may not serve the new
+      // version yet; wait for all seven before the first install.
+      await waitForRegistry({ packages: Object.keys(specs), spec: opts.source, view: npmView, timeoutMs: REGISTRY_WAIT_MS, log });
     }
     for (const project of projects) await smoke(project, opts, specs);
     log(`PASS: ${projects.join(', ')} (from ${opts.from}${opts.source ? ` ${opts.source}` : ''})`);
