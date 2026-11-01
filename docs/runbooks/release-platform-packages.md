@@ -21,7 +21,7 @@ This flow is separate from the app release: `deploy.yml` and `v*` tags keep vers
 1. A pull request that changes a platform package adds a changeset (`npx changeset`). `changeset-check` fails it otherwise.
 2. When it merges, `release.yml` runs on `main`. The `version` job sees pending changesets and opens (or updates) the **Version Packages** pull request, titled `chore(release): version platform packages`. It bumps all seven `package.json` versions in lockstep, writes each `CHANGELOG.md` and refreshes `package-lock.json`.
 3. When the Version Packages pull request merges, `release.yml` runs again. No changesets are pending now, so the `gate` job decides between a real publish and a dry run.
-4. The real publish waits in the protected `npm-publish` environment for a reviewer's approval, then publishes with `npx changeset publish` (pre mode puts it on `next`) and pushes the git tag `platform-v<version>`. The `registry-smoke` job then installs that version from npm into the consumer smoke and verifies provenance.
+4. The real publish waits in the protected `npm-publish` environment for a reviewer's approval, then publishes with `npx changeset publish` (pre mode puts it on `next`) and pushes the git tag `platform-v<version>`. The `registry-smoke` job then waits until all seven packages resolve that version on npm (`npm view --prefer-online`, backing off, up to 10 minutes), installs it into the consumer smoke and verifies provenance.
 5. Independently of npm, the `github-release` job attaches the seven `npm pack` tarballs to the GitHub release `platform-v<version>` (the [interim channel](#install-from-a-github-release)), once per version.
 
 ```mermaid
@@ -129,7 +129,7 @@ To upgrade, change the version in every URL. To move to npm once the owner has c
 |---|---|---|
 | `pack-smoke` (`packages.yml`) | `npm pack` tarballs | pushes to `main`, pull requests that touch the packages |
 | `github-release` (`release.yml`) | tarballs, then the release URLs | once per final version |
-| `registry-smoke` (`release.yml`) | the published version, plus `npm audit signatures` | after a real publish |
+| `registry-smoke` (`release.yml`) | the published version, plus `npm audit signatures`; waits up to 10 minutes for the registry to serve it first | after a real publish |
 | Locally | `npm run smoke:consumer` (packs first), or `node tests/consumer-smoke/run.mjs --from tarballs <dir>`, `--from registry <version>`, `--from release <version>` | before a release, when changing a package's manifest |
 
 The smoke needs Node 24 (npm 11). A failure names the step: the install (a missing dependency or a wrong `exports` target), the build (types that do not resolve under `NodeNext` or `bundler`), the tests (behaviour), or the single-instance check (a peer installed twice).
@@ -210,7 +210,8 @@ node tests/consumer-smoke/run.mjs --from registry next --audit-signatures # afte
 | `changeset-check` fails | Add a changeset (`npx changeset`, or `npx changeset --empty` for no release impact) |
 | `pack-smoke` or the smoke in `github-release` fails at `npm install` | A dependency the package needs at run time is a `devDependency`, or an `exports`/`files` entry points at a file not in the tarball; `node scripts/check-package-pack.mjs` names the second |
 | The smoke fails the single-instance check | A peer is installed twice in the consumer; the report names both copies. Align the peer range, or make a peer the package does not import optional (`peerDependenciesMeta`), as `fastify` is in `@marinoscar/platform-api` |
-| `registry-smoke` fails at `npm install` after 2 minutes | The registry has not propagated the version yet; re-run the job |
+| `registry-smoke` fails with `the registry did not serve <pkg>@<v> within 600 s` | That package never appeared on npm after the publish: check the `publish` job log and the package page on npmjs.com; if it is there now, re-run the job |
+| `registry-smoke` fails at `npm install` after 2 minutes | Every package resolved, but the install still failed: read the npm error (a dependency of the package, not the platform packages themselves) |
 | `github-release` summary says `release platform-v<v> already exists` | Expected on every push after the first for that version; run the workflow by hand to re-upload the assets |
 | `npm install` of a release URL fails with 404 | The release or the asset does not exist for that version; check *Releases* on GitHub and that every URL carries the same version |
 

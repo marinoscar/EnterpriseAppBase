@@ -45,7 +45,7 @@ node tests/consumer-smoke/run.mjs --from registry next --audit-signatures   # a 
 node tests/consumer-smoke/run.mjs --from release 0.1.0-next.0               # the tarballs on GitHub release platform-v0.1.0-next.0
 ```
 
-`run.mjs` copies the project to `os.tmpdir()` (refusing a directory inside the repository), rewrites the platform dependency specs (a tarball path, a registry version or a release URL; for tarball and release installs, `overrides` pin any platform package another one depends on to the same source), clears the inherited `npm_*` workspace state and `NODE_PATH`, runs `npm install` (5 minutes at most; registry installs retry for 2 minutes while the registry propagates), `npm run build`, `npm test` and the single-instance check, then deletes the directory unless `--keep`. Exit 0 pass, 1 a step failed, 2 usage error.
+`run.mjs` copies the project to `os.tmpdir()` (refusing a directory inside the repository), rewrites the platform dependency specs (a tarball path, a registry version or a release URL; for tarball and release installs, `overrides` pin any platform package another one depends on to the same source), clears the inherited `npm_*` workspace state and `NODE_PATH`, runs `npm install` (5 minutes at most; for a registry install it first waits, up to 10 minutes with backoff, until all seven packages resolve the version through `npm view --prefer-online` (`registry-wait.mjs`, tested by `node --test tests/consumer-smoke/registry-wait.test.mjs`), then retries the install for 2 minutes), `npm run build`, `npm test` and the single-instance check, then deletes the directory unless `--keep`. Exit 0 pass, 1 a step failed, 2 usage error.
 
 ## In CI
 

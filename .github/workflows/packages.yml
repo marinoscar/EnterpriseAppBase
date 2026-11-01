@@ -207,6 +207,10 @@ jobs:
           cache: 'npm'
 
       - if: steps.scope.outputs.run == 'true'
+        name: Consumer smoke helper tests
+        run: node --test tests/consumer-smoke/registry-wait.test.mjs
+
+      - if: steps.scope.outputs.run == 'true'
         run: npm ci
 
       - if: steps.scope.outputs.run == 'true'
