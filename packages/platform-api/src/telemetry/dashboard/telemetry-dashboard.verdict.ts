@@ -33,7 +33,8 @@
 //   memory utilization >= 90 % degraded, >= 97 % critical  (worst host)
 //   DB connections     >= 80 % degraded, >= 95 % critical  of max_connections
 //   oldest pending job >= 10 min degraded, >= 30 min critical (worst job type)
-//   worker nodes       any stale node degraded; a node-offered job type with
+//   worker nodes       any stale node degraded; a node on battery at <= 10 %
+//                      degraded; a node-offered job type with
 //                      pending work and no eligible node critical
 //   TLS certificate    < 14 days degraded, < 7 days critical (soonest URL)
 //   uptime check       latest check failed degraded; every check in the
@@ -44,6 +45,15 @@
 // =============================================================================
 
 import { VERDICT_LEVELS, type VerdictLevel } from '@marinoscar/platform-contract/telemetry';
+
+/**
+ * A worker node running on battery at or below this charge (percent) degrades
+ * the verdict (#1045). A constant rather than a threshold option: the rule is
+ * "a machine about to die", not a tunable load level.
+ *
+ * @stability experimental
+ */
+export const NODE_BATTERY_LOW_PCT = 10;
 
 // THE THRESHOLDS ARE OPTIONS (#703). `DEFAULT_VERDICT_THRESHOLDS` are the
 // values above; an app deep-merges its own over them with
@@ -293,6 +303,13 @@ export interface VerdictInput {
     stale: number;
     /** Node-offered job types with pending work and no eligible node. */
     noEligibleNodeTypes: readonly string[];
+    /** Nodes running on battery at or below 10 %, with their charge (worker nodes that report power). */
+    lowBattery?: ReadonlyArray<{
+      /** The node's name. */
+      name: string;
+      /** Its battery charge, percent. */
+      batteryPercent: number;
+    }>;
   } | null;
   /** Soonest certificate expiry (days) and its URL. */
   tls?: {
@@ -483,6 +500,15 @@ function infrastructureRules(input: VerdictInput, fire: Fire, t: VerdictThreshol
     }
     if (input.nodes.stale > 0) {
       fire('degraded', `${input.nodes.stale} worker node(s) stale (missed heartbeats)`);
+    }
+    const lowBattery = input.nodes.lowBattery ?? [];
+    if (lowBattery.length > 0) {
+      const lowest = lowBattery.reduce((a, b) => (b.batteryPercent < a.batteryPercent ? b : a));
+      fire(
+        'degraded',
+        `${lowBattery.length} worker node(s) on battery at or below ${NODE_BATTERY_LOW_PCT} %` +
+          offender('node', `${lowest.name} (${formatNumber(lowest.batteryPercent)} %)`),
+      );
     }
   }
 

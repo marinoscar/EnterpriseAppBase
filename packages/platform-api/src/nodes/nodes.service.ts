@@ -156,6 +156,7 @@ import {
   NodeJobResultDto,
   RegisterNodeDto,
 } from './dto/node-control-plane.dto';
+import { NodeEventsService } from './node-events.service';
 import { NodeSettlementLedger } from './node-settlement-ledger';
 
 /**
@@ -291,7 +292,10 @@ export class NodesService {
     // no new argument; in the application Nest injects the one shared
     // instance the relay reads.
     @Optional()
-    private readonly settlements: NodeSettlementLedger = new NodeSettlementLedger()
+    private readonly settlements: NodeSettlementLedger = new NodeSettlementLedger(),
+    // Persists the heartbeat's `events` (#1045). Optional so the suites that
+    // construct this service by hand need no new argument.
+    @Optional() private readonly nodeEvents?: NodeEventsService
   ) {}
 
   // ===========================================================================
@@ -508,7 +512,7 @@ export class NodesService {
 
     const now = new Date();
 
-    return this.prisma.workerNode.update({
+    const updated = await this.prisma.workerNode.update({
       where: { id: node.id },
       data: {
         lastHeartbeatAt: now,
@@ -525,6 +529,14 @@ export class NodesService {
           : { lastVitals: dto.vitals as JobsInputJsonValue, lastVitalsAt: now }),
       },
     });
+
+    // The heartbeat's `events` (#1045) are recorded AFTER liveness is, and can
+    // never fail it: `ingest` swallows its own errors.
+    if (dto.events !== undefined && dto.events.length > 0) {
+      await this.nodeEvents?.ingest(updated, dto.events);
+    }
+
+    return updated;
   }
 
   // ===========================================================================

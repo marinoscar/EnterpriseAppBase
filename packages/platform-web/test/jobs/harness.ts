@@ -25,6 +25,7 @@ const JOBS_API_MEMBERS: readonly (keyof JobsApi)[] = [
   'getNodeCredentials',
   'createNodeCredential',
   'revokeNodeCredential',
+  'listNodeEvents',
 ];
 
 export function fakeJobsApi(): FakeJobsApi {

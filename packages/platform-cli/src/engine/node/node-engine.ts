@@ -5,11 +5,22 @@ import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
-import type { ClaimToken, HeartbeatRequest, NodeApi, NodeJobAssignment, NodeVitals, NodeVitalsCounters } from './node-api.js';
+import {
+  SERVER_FEATURE_HOST_VITALS,
+  type ClaimToken,
+  type HeartbeatRequest,
+  type NodeApi,
+  type NodeEvent,
+  type NodeJobAssignment,
+  type NodeVitals,
+  type NodeVitalsCounters,
+} from './node-api.js';
 import type { ActiveJob, HistoryEntry, NodeCounters, NodeEngineEvent, NodeSnapshot } from './node-events.js';
 import type { ExecutorRegistry } from './executors/index.js';
 import { defaultExecutorRegistry } from './executors/registry.js';
 import { MissingJobInputError, ProviderRateLimitError } from './node-errors.js';
+import type { HostTelemetry } from './host-telemetry.js';
+import { NodeEventQueue } from './node-events-queue.js';
 import { sanitizeExtraVitals, type EngineVitalsInput } from './node-vitals.js';
 import { ApiError } from '../errors.js';
 import { JobSpanRecorder, NodeSpanRelay, type NodeSpanSink } from '../../telemetry/index.js';
@@ -106,6 +117,16 @@ export interface NodeEngineOptions {
    * one beat, never the beat.
    */
   collectVitals?: ((input: EngineVitalsInput) => NodeVitals) | undefined;
+  /**
+   * Machine-level telemetry (#1045): host vitals, power and events. Used ONLY
+   * when `serverFeatures` includes `node_host_vitals`; otherwise the heartbeat
+   * is exactly what it was before.
+   */
+  hostTelemetry?: HostTelemetry | undefined;
+  /** The `serverFeatures` of the register response (absent from an older server). */
+  serverFeatures?: readonly string[] | undefined;
+  /** How often power is re-read between heartbeats, to catch a plug/unplug quickly. Default 10 s. */
+  powerPollIntervalMs?: number | undefined;
   /**
    * Whether to relay per-job phase spans to the server (#608). Default on;
    * it is a no-op when `api` has no `telemetry` method, and it turns itself
@@ -211,6 +232,16 @@ export class NodeEngine {
    * heartbeat that carried vitals with a 400 — see `beat()`.
    */
   private vitalsEnabled: boolean;
+  private readonly hostTelemetry: HostTelemetry | undefined;
+  /** Cleared for the process when the server refuses a beat carrying host fields. */
+  private hostEnabled: boolean;
+  /** Set once the server refuses host fields; never re-enabled in this process. */
+  private hostRefused = false;
+  private readonly eventQueue = new NodeEventQueue();
+  private readonly powerPollIntervalMs: number;
+  private powerPollHandle: unknown;
+  private lastExtraBeatMs: number | undefined;
+  private lastDiskFree: { freeBytes?: number | undefined; totalBytes?: number | undefined } | undefined;
   /** The span relay (#608), or `undefined` when disabled by option. */
   private readonly spanRelay: NodeSpanRelay | undefined;
 
@@ -234,6 +265,9 @@ export class NodeEngine {
     this.capabilities = options.capabilities;
     this.collectVitals = options.collectVitals;
     this.vitalsEnabled = options.collectVitals !== undefined;
+    this.hostTelemetry = options.hostTelemetry;
+    this.hostEnabled = options.hostTelemetry !== undefined && (options.serverFeatures ?? []).includes(SERVER_FEATURE_HOST_VITALS);
+    this.powerPollIntervalMs = options.powerPollIntervalMs ?? 10_000;
     this.startedAtMs = this.now();
     this.spanRelay =
       options.relaySpans === false
@@ -313,6 +347,10 @@ export class NodeEngine {
     await this.drain();
     await this.flushSpans();
 
+    if (this.powerPollHandle !== undefined) {
+      this.scheduler.clearInterval(this.powerPollHandle);
+      this.powerPollHandle = undefined;
+    }
     if (this.heartbeatHandle !== undefined) {
       this.scheduler.clearInterval(this.heartbeatHandle);
       this.heartbeatHandle = undefined;
@@ -751,7 +789,53 @@ export class NodeEngine {
     this.heartbeatHandle = this.scheduler.setInterval(() => {
       void this.beat();
     }, this.heartbeatIntervalMs);
+    this.ensurePowerPoll();
     void this.beat();
+  }
+
+  /** A plug/unplug is worth reporting within seconds, not a heartbeat later. */
+  private ensurePowerPoll(): void {
+    if (this.powerPollHandle !== undefined || !this.hostEnabled || this.hostTelemetry === undefined) return;
+    this.powerPollHandle = this.scheduler.setInterval(() => {
+      void this.pollPower();
+    }, this.powerPollIntervalMs);
+  }
+
+  /**
+   * Learns the server's features from a heartbeat response (an already
+   * registered node never calls register again). The first heartbeat carries
+   * plain vitals; once the response advertises `node_host_vitals`, later ones
+   * carry host, power and events.
+   */
+  private learnServerFeatures(response: { serverFeatures?: readonly string[] | undefined } | undefined): void {
+    const features = response?.serverFeatures;
+    if (!Array.isArray(features) || this.hostTelemetry === undefined || this.hostRefused) return;
+    if (features.includes(SERVER_FEATURE_HOST_VITALS) && !this.hostEnabled) {
+      this.hostEnabled = true;
+      if (this.heartbeatHandle !== undefined) this.ensurePowerPoll();
+    }
+  }
+
+  /**
+   * Re-read power between heartbeats. Events go to the queue; a power SOURCE
+   * change also fires one extra heartbeat (debounced to one per 5 s).
+   */
+  private async pollPower(): Promise<void> {
+    if (!this.hostEnabled || this.hostTelemetry === undefined) return;
+    try {
+      const snapshot = await this.hostTelemetry.collect({ disk: this.lastDiskFree, fresh: true });
+      if (snapshot.events.length === 0) return;
+      this.eventQueue.push(snapshot.events);
+      if (snapshot.events.some((event) => event.type === 'power.source_changed')) {
+        const nowMs = this.now();
+        if (this.lastExtraBeatMs === undefined || nowMs - this.lastExtraBeatMs >= 5_000) {
+          this.lastExtraBeatMs = nowMs;
+          void this.beat();
+        }
+      }
+    } catch {
+      // best-effort
+    }
   }
 
   /**
@@ -774,22 +858,65 @@ export class NodeEngine {
       concurrency: this.concurrency,
       ...(this.capabilities !== undefined ? { capabilities: this.capabilities } : {}),
     };
-    const vitals = this.vitalsEnabled ? this.sampleVitals() : undefined;
+    let vitals = this.vitalsEnabled ? this.sampleVitals() : undefined;
+    let events: NodeEvent[] = [];
+
+    if (this.hostEnabled && this.hostTelemetry !== undefined) {
+      const disk = { freeBytes: vitals?.stateDirFreeBytes, totalBytes: vitals?.stateDirTotalBytes };
+      this.lastDiskFree = disk;
+      try {
+        const snapshot = await this.hostTelemetry.collect({ disk });
+        this.eventQueue.push(snapshot.events);
+        if (vitals !== undefined || this.collectVitals === undefined) {
+          vitals = { ...(vitals ?? {}), host: snapshot.host, ...(snapshot.power !== undefined ? { power: snapshot.power } : {}) };
+        }
+      } catch {
+        // best-effort: the heartbeat goes without host fields
+      }
+      events = this.eventQueue.drain();
+    }
+    const withHost = vitals !== undefined && (vitals.host !== undefined || vitals.power !== undefined);
+    const carriesHostFields = withHost || events.length > 0;
+    const full = (v: NodeVitals | undefined, ev: NodeEvent[]): HeartbeatRequest => ({
+      ...base,
+      ...(v !== undefined ? { vitals: v } : {}),
+      ...(ev.length > 0 ? { events: ev } : {}),
+    });
 
     try {
       try {
-        await this.api.heartbeat(this.nodeId, vitals !== undefined ? { ...base, vitals } : base);
+        this.learnServerFeatures(await this.api.heartbeat(this.nodeId, full(vitals, events)));
       } catch (error) {
-        if (vitals === undefined || !(error instanceof ApiError) || error.status !== 400) throw error;
-        if (this.vitalsEnabled) {
-          this.vitalsEnabled = false;
+        const refused = error instanceof ApiError && error.status === 400;
+        if (refused && carriesHostFields) {
+          // The server advertised the feature but refused the body: stop sending host fields for this process.
+          this.hostEnabled = false;
+          this.hostRefused = true;
+          this.eventQueue.requeue(events);
+          events = [];
+          const { host: _host, power: _power, ...plain } = vitals ?? {};
+          vitals = vitals === undefined ? undefined : plain;
           this.emit({ kind: 'vitals-disabled', at: this.iso(), error: messageOf(error) });
+          try {
+            await this.api.heartbeat(this.nodeId, full(vitals, []));
+          } catch (second) {
+            if (vitals === undefined || !(second instanceof ApiError) || second.status !== 400) throw second;
+            this.vitalsEnabled = false;
+            await this.api.heartbeat(this.nodeId, base);
+          }
+        } else {
+          if (vitals === undefined || !(error instanceof ApiError) || error.status !== 400) throw error;
+          if (this.vitalsEnabled) {
+            this.vitalsEnabled = false;
+            this.emit({ kind: 'vitals-disabled', at: this.iso(), error: messageOf(error) });
+          }
+          await this.api.heartbeat(this.nodeId, base);
         }
-        await this.api.heartbeat(this.nodeId, base);
       }
       this.lastHeartbeatMs = this.now();
       this.emit({ kind: 'heartbeat', at: this.iso(), concurrency: this.concurrency });
     } catch (error) {
+      this.eventQueue.requeue(events);
       this.loopCounters.heartbeatFailures += 1;
       this.emit({ kind: 'heartbeat-failed', at: this.iso(), error: messageOf(error) });
     }

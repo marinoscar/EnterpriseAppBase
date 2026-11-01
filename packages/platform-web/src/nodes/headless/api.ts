@@ -16,10 +16,21 @@
 //
 // `GET /admin/nodes` returns the whole fleet as a bare array, not a page: a
 // fleet is tens of machines, and the page tallies its health verdicts.
+//
+// A node's events (#1045) ARE paged (`GET /admin/nodes/:id/events`): a laptop node
+// on battery reports a change every few minutes, and a timeline only ever
+// needs the newest screenful.
 // =============================================================================
 
 import type { PlatformApiClient } from '../../core/index.js';
-import type { CreateNodeCredentialInput, NodeCredential, NodeCredentialCreated, WorkerNode } from './types.js';
+import type {
+  CreateNodeCredentialInput,
+  NodeCredential,
+  NodeCredentialCreated,
+  NodeEventsQuery,
+  WorkerNode,
+  WorkerNodeEventList,
+} from './types.js';
 
 /**
  * Every call the worker-node page and hooks make. `createNodesApi` builds one
@@ -41,6 +52,22 @@ export interface NodesApi {
   createNodeCredential(input: CreateNodeCredentialInput): Promise<NodeCredentialCreated>;
   /** `DELETE /admin/nodes/credentials/:id`: effective on the node's next request; one-way. */
   revokeNodeCredential(id: string): Promise<void>;
+  /** `GET /admin/nodes/:id/events`: a page of the node's events, newest first (`nodes:read`). */
+  listNodeEvents(nodeId: string, query?: NodeEventsQuery): Promise<WorkerNodeEventList>;
+}
+
+/**
+ * `GET /admin/nodes/:id/events`'s query string: only the members that are set, in a
+ * fixed order (page, pageSize, type, severity), so a request is byte-stable.
+ */
+function nodeEventsQueryString(query: NodeEventsQuery): string {
+  const params = new URLSearchParams();
+  if (query.page !== undefined) params.set('page', String(query.page));
+  if (query.pageSize !== undefined) params.set('pageSize', String(query.pageSize));
+  if (query.type) params.set('type', query.type);
+  if (query.severity) params.set('severity', query.severity);
+  const text = params.toString();
+  return text ? `?${text}` : '';
 }
 
 /**
@@ -73,5 +100,7 @@ export function createNodesApi(client: PlatformApiClient): NodesApi {
     revokeNodeCredential: async (id) => {
       await client.delete<void>(`/admin/nodes/credentials/${id}`);
     },
+    listNodeEvents: (nodeId, query = {}) =>
+      client.get<WorkerNodeEventList>(`/admin/nodes/${encodeURIComponent(nodeId)}/events${nodeEventsQueryString(query)}`),
   };
 }

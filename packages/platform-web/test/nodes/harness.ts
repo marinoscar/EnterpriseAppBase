@@ -15,6 +15,7 @@ const NODES_API_MEMBERS: readonly (keyof NodesApi)[] = [
   'getNodeCredentials',
   'createNodeCredential',
   'revokeNodeCredential',
+  'listNodeEvents',
 ];
 
 export function fakeNodesApi(): FakeNodesApi {

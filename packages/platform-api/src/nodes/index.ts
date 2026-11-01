@@ -6,7 +6,7 @@
 
 // ---- the modules and options (rung 1) --------------------------------------------------
 export { NodesModule } from './nodes.module';
-export { NODES_OPTIONS, resolveNodesModuleOptions } from './nodes.options';
+export { DEFAULT_NODE_EVENTS_RETENTION_DAYS, NODES_OPTIONS, resolveNodesModuleOptions } from './nodes.options';
 export type { NodesModuleOptions, ResolvedNodesModuleOptions } from './nodes.options';
 export { NODES_SYSTEM_SETTINGS, mergeNodesSettings } from './nodes.system-settings';
 export { NodeCredentialModule } from './node-credential.module';
@@ -39,10 +39,20 @@ export type { BuiltinNodeSpanName, NodeSpanName } from './dto/node-telemetry.dto
 
 // ---- events (rung 4) -------------------------------------------------------------------------
 export { NODE_OFFLINE_EVENT, NodeOfflineEvent } from './events/node-offline.event';
+export { NODE_EVENT_REPORTED, NodeEventReportedEvent } from './events/node-event.event';
 
 // ---- services ----------------------------------------------------------------------------------
 export { CREDENTIAL_OWNER_SELECT, NODE_TOKEN_PREFIX, NodeCredentialService } from './node-credential.service';
 export { NodesService } from './nodes.service';
+export {
+  NODE_EVENTS_PER_HOUR,
+  NODE_EVENT_MAX_AGE_MS,
+  NODE_EVENT_MAX_FUTURE_MS,
+  NodeEventRateLimiter,
+  NodeEventsService,
+} from './node-events.service';
+export type { NodeEventIngestOutcome } from './node-events.service';
+export { NODE_EVENTS_PURGE_TYPE, NodeEventsPurgeHandler } from './handlers/node-events-purge.handler';
 export { NodeLifecycleService } from './node-lifecycle.service';
 export { NODE_OUTPUT_KEY_PREFIX, NodeDataPlaneService } from './node-data-plane.service';
 export { NodeSecretBrokerService, SECRET_CLOCK_SKEW_ALLOWANCE_MS } from './node-secret-broker.service';
@@ -77,8 +87,11 @@ export type {
   NodeVitalsCountersDto,
   NodeVitalsDto,
 } from './dto/node-admin.dto';
+export { NODE_SERVER_FEATURES } from './dto/node-response.dto';
+export type { AdminNodeEventDto, AdminNodeEventListDto, NodeHostVitalsDto, NodePowerDto } from './dto/node-event.dto';
 export type {
   ClaimJobsResponseDto,
+  HeartbeatNodeResponseDto,
   JobSettlementResponseDto,
   NodeJobAssignmentDto,
   NodeJobDto,
@@ -89,7 +102,13 @@ export type {
 export type { NodeCredentialCreatedResponseDto, NodeCredentialListItemDto } from './dto/node-credential-response.dto';
 
 // ---- metrics, permissions ----------------------------------------------------------------------
-export { NODES_APP_METRICS, NODE_HEALTH_VALUES, NODE_STATUS_VALUES } from './nodes.metrics';
+export {
+  NODES_APP_METRICS,
+  NODE_EVENT_METRIC_TYPES,
+  NODE_EVENT_SEVERITY_VALUES,
+  NODE_HEALTH_VALUES,
+  NODE_STATUS_VALUES,
+} from './nodes.metrics';
 export type { NodesAppMetricDef } from './nodes.metrics';
 export { NODES_PERMISSIONS } from './nodes.permissions';
 export type { NodesPermissionDeclaration } from './nodes.permissions';

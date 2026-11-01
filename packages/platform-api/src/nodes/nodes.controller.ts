@@ -89,8 +89,9 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
 } from '@nestjs/common';
-import { ApiBody, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiBody, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { Auth, CurrentUser } from '../identity/index';
 import { PERMISSIONS } from './nodes.constants';
@@ -104,7 +105,9 @@ import {
 } from './dto/node-control-plane.dto';
 import {
   ClaimJobsResponseDto,
+  HeartbeatNodeResponseDto,
   JobSettlementResponseDto,
+  NODE_SERVER_FEATURES,
   RegisterNodeResponseDto,
   RenewLeaseResponseDto,
   toNodeJobAssignment,
@@ -123,7 +126,9 @@ import {
   NodeJobSecretResponseDto,
 } from './dto/node-job-secret.dto';
 import { NodeTelemetryDto, NodeTelemetryResponseDto } from './dto/node-telemetry.dto';
+import { AdminNodeEventListDto, NodeEventListQueryDto } from './dto/node-event.dto';
 import { NodeDataPlaneService } from './node-data-plane.service';
+import { NodeEventsService } from './node-events.service';
 import { NodeSecretBrokerService } from './node-secret-broker.service';
 import { NodeTelemetryService } from './node-telemetry.service';
 import { NodesService } from './nodes.service';
@@ -135,7 +140,8 @@ export class NodesController {
     private readonly nodes: NodesService,
     private readonly dataPlane: NodeDataPlaneService,
     private readonly secrets: NodeSecretBrokerService,
-    private readonly telemetry: NodeTelemetryService
+    private readonly telemetry: NodeTelemetryService,
+    private readonly events: NodeEventsService
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -164,7 +170,7 @@ export class NodesController {
   ): Promise<RegisterNodeResponseDto> {
     const { node, reattached } = await this.nodes.register(userId, dto);
 
-    return { node: toWorkerNodeDto(node), reattached };
+    return { node: toWorkerNodeDto(node), reattached, serverFeatures: [...NODE_SERVER_FEATURES] };
   }
 
   @Get('job-types')
@@ -225,6 +231,34 @@ export class NodesController {
     return toWorkerNodeDto(await this.nodes.getNode(userId, id));
   }
 
+  @Get(':id/events')
+  @Auth({ permissions: [PERMISSIONS.NODES_READ] })
+  @ApiOperation({
+    summary: 'List the events a worker node reported about itself',
+    description:
+      'The node event log (power source changes, low battery, wake from sleep, disk low), ' +
+      'newest first, paginated. Answers exactly like `GET /nodes/:id`: the caller\'s own node ' +
+      'only; a node that does not exist is `404`, one that belongs to somebody else is `403`. ' +
+      'Events are the node\'s self-report: untrusted, bounded and retained for a limited time.',
+  })
+  @ApiParam({ name: 'id', type: String, format: 'uuid' })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'pageSize', required: false, type: Number, description: 'Max 100.' })
+  @ApiQuery({ name: 'type', required: false, type: String, description: 'Exactly one dotted event type.' })
+  @ApiQuery({ name: 'severity', required: false, enum: ['info', 'warning', 'critical'] })
+  @ApiResponse({ status: 200, description: 'A page of events', type: AdminNodeEventListDto })
+  @ApiResponse({ status: 403, description: 'The node belongs to another user' })
+  @ApiResponse({ status: 404, description: 'No such node' })
+  async listEvents(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: NodeEventListQueryDto,
+    @CurrentUser('id') userId: string
+  ): Promise<AdminNodeEventListDto> {
+    const node = await this.nodes.getNode(userId, id);
+
+    return this.events.list(node.id, query);
+  }
+
   // ---------------------------------------------------------------------------
   // The node's own lifecycle
   // ---------------------------------------------------------------------------
@@ -262,17 +296,23 @@ export class NodesController {
       '`offline`: `draining` and `disabled` are operator decisions, and a heartbeat can never ' +
       'clear either of them. An optional `vitals` snapshot (strict, bounded, self-reported) ' +
       'replaces the stored `lastVitals` and stamps `lastVitalsAt`; omitting it leaves both ' +
-      'untouched. An unknown or out-of-range vital is a 400 for the whole heartbeat.',
+      'untouched. An unknown or out-of-range vital is a 400 for the whole heartbeat. A node ' +
+      'whose register or heartbeat response advertises `node_host_vitals` in `serverFeatures` ' +
+      'may also send `vitals.host`, `vitals.power` and `events` (at most 50, persisted to the ' +
+      'node event log; more than 120 per node per hour are dropped).',
   })
   @ApiParam({ name: 'id', type: String, format: 'uuid' })
-  @ApiResponse({ status: 200, description: 'The refreshed node', type: WorkerNodeDto })
+  @ApiResponse({ status: 200, description: 'The refreshed node, plus `serverFeatures`', type: HeartbeatNodeResponseDto })
   @ApiResponse({ status: 400, description: 'The body failed validation (including `vitals`)' })
   async heartbeat(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: HeartbeatNodeDto,
     @CurrentUser('id') userId: string
-  ): Promise<WorkerNodeDto> {
-    return toWorkerNodeDto(await this.nodes.heartbeat(userId, id, dto));
+  ): Promise<HeartbeatNodeResponseDto> {
+    // `serverFeatures` is added beside the node fields, so a client that reads
+    // only the node keeps working; a node that never re-registers learns what
+    // this server supports from here.
+    return { ...toWorkerNodeDto(await this.nodes.heartbeat(userId, id, dto)), serverFeatures: [...NODE_SERVER_FEATURES] };
   }
 
   // ---------------------------------------------------------------------------

@@ -329,6 +329,34 @@ describe.each(IMPLEMENTATIONS)('%s', (_name, computeVerdict) => {
         });
       });
 
+      it('is degraded by a node on battery at or below 10 %, naming the lowest', () => {
+        expect(
+          computeVerdict(
+            input({
+              nodes: {
+                stale: 0,
+                noEligibleNodeTypes: [],
+                lowBattery: [
+                  { name: 'laptop-a', batteryPercent: 9 },
+                  { name: 'laptop-b', batteryPercent: 4 },
+                ],
+              },
+            }),
+          ),
+        ).toEqual({
+          level: 'degraded',
+          reasons: ['2 worker node(s) on battery at or below 10 % — node: laptop-b (4 %)'],
+        });
+      });
+
+      it('a low battery never outranks a critical node rule', () => {
+        expect(
+          computeVerdict(
+            input({ nodes: { stale: 0, noEligibleNodeTypes: ['export.csv'], lowBattery: [{ name: 'a', batteryPercent: 2 }] } }),
+          ).level,
+        ).toBe('critical');
+      });
+
       it('is critical when a node-offered type has pending work and no eligible node, naming it', () => {
         expect(
           computeVerdict(input({ nodes: { stale: 0, noEligibleNodeTypes: ['report.pdf', 'export.csv'] } })),

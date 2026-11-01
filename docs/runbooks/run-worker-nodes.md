@@ -401,6 +401,62 @@ warning (`server refused heartbeat vitals; not sending them again this
 process`). The node stays online; upgrade the server and restart the worker to
 get vitals back.
 
+### 8.2.1 Laptops, battery and node events
+
+A worker on a laptop also reports the machine's host vitals (system CPU,
+memory, load), its power state (AC or battery, charge, charging) and a few
+events. The worker sends them only after the server advertised
+`node_host_vitals`; against an older server it sends plain vitals. Every probe
+is best-effort: one that cannot read the machine is left out, and a failed
+probe never delays a heartbeat. The probe reads `/sys/class/power_supply` on
+Linux, `pmset -g batt` on macOS and `Win32_Battery` through PowerShell on
+Windows (2 s timeout each, cached for 30 s). A desktop without a battery
+reports no battery charge.
+
+| Event | Severity | Meaning |
+|---|---|---|
+| `power.source_changed` | warning on battery, else info | The machine switched between AC and battery |
+| `power.battery_low` | warning | On battery, below 20 % |
+| `power.battery_critical` | critical | On battery, below 10 %; the machine may stop soon |
+| `power.battery_recovered` | info | Charge climbed 5 points above the threshold, or AC returned |
+| `node.sleep_resumed` | info | The machine woke from sleep; `gapSeconds` says for how long it was silent |
+| `node.disk_low` | warning | The state directory has less than 5 % free (re-arms above 10 %) |
+
+A node that starts on a low battery announces nothing until the state changes.
+Events queue on the worker (200 at most) while the server is unreachable.
+
+**What to do.**
+
+- **A laptop worker keeps going offline.** Look for `node.sleep_resumed` just before the gap. Disable sleep while on AC power, or accept that the node is offline during sleep: held jobs return through the lease reaper.
+- **`power.battery_critical`.** Plug the machine in or stop the worker cleanly; the dashboard verdict is already degraded at 10 % or less on battery.
+- **`node.disk_low`.** Free space in `APPCTL_STATE_DIR` before the next job downloads its input.
+
+**Where to see them.** The Worker Nodes page shows the power badge and, in a
+node's vitals dialog, the Host machine section and the events timeline. The
+routes are `GET /api/nodes/{id}/events` (your own node) and
+`GET /api/admin/nodes/{id}/events` (any node), both `nodes:read`.
+
+**Limits and retention.** The server accepts at most 120 events per node per
+hour and drops the rest. It replaces a reported time older than 24 hours or
+more than 5 minutes ahead with the time it received the event. The daily
+`nodes.node_events_purge` job deletes events older than 30 days; a fork changes
+that with `NodesModule.forRoot({ nodeEventsRetentionDays })`.
+
+**Test it without unplugging a laptop (test-only).** Set
+`PLATFORM_NODE_POWER_FIXTURE` to the path of a JSON file before starting the
+worker. Every power read then returns that file's content instead of probing,
+and the file is re-read each time. Edit it to flip the state:
+
+```bash
+echo '{"source":"battery","batteryPercent":8,"charging":false}' > /tmp/power.json
+PLATFORM_NODE_POWER_FIXTURE=/tmp/power.json appctl node start
+echo '{"source":"ac","batteryPercent":60,"charging":true}' > /tmp/power.json
+```
+
+The first read is the baseline. The next changes produce the events above
+within a heartbeat or two. This variable is for tests only; never set it in
+production.
+
 ### 8.3 Job spans sent to the server
 
 After each job settles, the worker sends the server the timing of the job's

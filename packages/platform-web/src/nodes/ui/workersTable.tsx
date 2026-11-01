@@ -99,6 +99,7 @@ import type {
 // whose timestamps are formatted differently from the queue page an operator
 // just came from has the same problem in a worse place.
 import { formatDateTime, shortId } from '../headless/index.js';
+import { NodePowerBadge } from './NodePowerBadge.js';
 import { NodeVitalsCell, vitalsSummaryText } from './workerVitals.js';
 
 type DataTableColumn<Row> = NodesTableColumn<Row>;
@@ -324,9 +325,25 @@ export function buildWorkerNodeColumns(now: Date): DataTableColumn<WorkerNode>[]
       value: (node) => `${node.name} (${node.hostname})`,
       render: (node) => (
         <Stack sx={{ minWidth: 0 }}>
-          <Typography variant="body2" noWrap>
-            {node.name}
-          </Typography>
+          {node.lastVitals?.power ? (
+            // The power badge (#1045) rides on the name line, so it reaches the
+            // grid, the expander and the phone card without a new column (and
+            // a node that reports no power keeps the markup it always had).
+            <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', minWidth: 0 }}>
+              <Typography variant="body2" noWrap>
+                {node.name}
+              </Typography>
+              <NodePowerBadge
+                power={node.lastVitals.power}
+                stale={node.health !== 'healthy'}
+                data-testid={`node-power-${node.id}`}
+              />
+            </Stack>
+          ) : (
+            <Typography variant="body2" noWrap>
+              {node.name}
+            </Typography>
+          )}
           <Typography variant="caption" color="text.secondary" noWrap>
             {node.hostname}
           </Typography>

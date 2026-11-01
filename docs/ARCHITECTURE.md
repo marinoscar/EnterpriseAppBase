@@ -217,7 +217,7 @@ A job type is one `JobHandler` class that self-registers from `onModuleInit()`. 
 
 A worker node is an `appctl node` process on another machine that executes node-eligible job types. It authenticates with a `nod_` credential that can reach only `/api/nodes/*`, registers, heartbeats, claims jobs under a lease, and posts a validated result back for the server to persist. Input and output bytes move directly between the node and object storage through presigned URLs. A job that needs a database connection (the backup) gets a short-lived, job-scoped credential from a secret broker; the server records the credential's handle, never its material.
 
-Whether a structurally eligible type is actually offered to nodes is a runtime decision made at claim time (a deployment-wide broker switch, the feature's own setting, and the broker's capability probe). `JOBS_WORKER_MODE=system` claims exactly the complement, so the API and the fleet partition the queue. Health is derived from `lastHeartbeatAt`; `nodes.fleet.sweep` marks silent nodes offline and `nodes.fleet.prune` forgets old ones.
+Whether a structurally eligible type is actually offered to nodes is a runtime decision made at claim time (a deployment-wide broker switch, the feature's own setting, and the broker's capability probe). `JOBS_WORKER_MODE=system` claims exactly the complement, so the API and the fleet partition the queue. Health is derived from `lastHeartbeatAt`; `nodes.fleet.sweep` marks silent nodes offline and `nodes.fleet.prune` forgets old ones. A heartbeat may also carry host vitals, power state and node events (negotiated through `serverFeatures`); events land in `worker_node_events`, are announced as the `nodes.node.event` domain event, and `nodes.node_events_purge` ages them out ([worker-nodes.md](specs/worker-nodes.md#host-vitals-power-and-node-events)).
 
 - **Code:** `packages/platform-api/src/nodes/` (`@marinoscar/platform-api/nodes`), `packages/platform-cli/src/engine/node/`, `infra/compose/worker.compose.yml`
 - **UI:** `/admin/settings/workers` (packaged page, `@marinoscar/platform-web/nodes/ui`, #881; was `jobs/ui` since #854)
@@ -492,6 +492,7 @@ The schema is composed from per-slice fragments in `packages/platform-db/schema/
 | Jobs | `JobStatsRollup` | `job_stats_rollup` | Lifetime per-type counts and durations |
 | Nodes | `WorkerNode` | `worker_nodes` | Registered worker nodes, declared types and concurrency |
 | Nodes | `NodeCredential` | `node_credentials` | Hashed `nod_` credentials |
+| Nodes | `WorkerNodeEvent` | `worker_node_events` | Events a node reported about itself (open `type`, `severity`, `attrs`, node and server clocks); cascades with the node; no RLS |
 | Nodes | `JobNodeSecret` | `job_node_secrets` | Handle (never material) of a per-job brokered credential |
 | Backup | `DatabaseBackupRun` | `database_backup_runs` | One row per backup or restore attempt, own heartbeat |
 | AI | `AiModel` | `ai_models` | Model catalog per `(provider, modelId)`, capabilities, enablement |
@@ -643,7 +644,7 @@ Separate permission families (`push:*`, `nodes:*`, `storage_config:*`, `ai_confi
 
 ### 8.1 Job-type inventory
 
-All 34 registered job types (pinned by `apps/api/test/jobs/job-type-snapshot.spec.ts`: a type string is permanent). Handler paths are relative to `apps/api/src/` unless they name a package. A type is node-eligible when its handler carries both `nodeResultSchema` and `persistNodeResult`. The label is the handler's own `readonly label` (#734; it replaced the closed `JOB_TYPE_LABELS` map) and is what `GET /api/admin/jobs` serves as `typeLabel`; an unlabelled type shows its type string.
+All 35 registered job types (pinned by `apps/api/test/jobs/job-type-snapshot.spec.ts`: a type string is permanent). Handler paths are relative to `apps/api/src/` unless they name a package. A type is node-eligible when its handler carries both `nodeResultSchema` and `persistNodeResult`. The label is the handler's own `readonly label` (#734; it replaced the closed `JOB_TYPE_LABELS` map) and is what `GET /api/admin/jobs` serves as `typeLabel`; an unlabelled type shows its type string.
 
 | Type | Label | Handler | What it does | Node-eligible |
 |---|---|---|---|:-:|
@@ -661,6 +662,7 @@ All 34 registered job types (pinned by `apps/api/test/jobs/job-type-snapshot.spe
 | `auth.token.cleanup` | Token cleanup | `packages/platform-api/src/identity/auth/handlers/token-cleanup.handler.ts` (the identity slice) | Deletes expired or revoked refresh tokens and expired PATs | No |
 | `nodes.fleet.sweep` | Fleet sweep | `packages/platform-api/src/nodes/handlers/node-fleet-sweep.handler.ts` (the nodes slice) | Marks nodes with stale heartbeats offline | No |
 | `nodes.fleet.prune` | Fleet prune | `packages/platform-api/src/nodes/handlers/node-fleet-prune.handler.ts` (the nodes slice) | Forgets nodes offline longer than `nodes.offlineRetentionDays` | No |
+| `nodes.node_events_purge` | Node events purge | `packages/platform-api/src/nodes/handlers/node-events-purge.handler.ts` (the nodes slice) | Deletes `worker_node_events` rows older than `nodeEventsRetentionDays` (default 30) | No |
 | `admin.broadcast.start` | Broadcast start | `packages/platform-api/src/notifications/broadcasts/handlers/broadcast-start.handler.ts` (the notifications slice) | Starts a broadcast: freezes the audience, enqueues the first chunk | No |
 | `admin.broadcast.chunk` | Broadcast delivery | `packages/platform-api/src/notifications/broadcasts/handlers/broadcast-chunk.handler.ts` (the notifications slice) | Delivers one page of recipients, enqueues its successor | No |
 | `notifications.inbox.purge` | Notification inbox purge | `notifications/retention/notification-inbox-purge.handler.ts` | Deletes `notifications` inbox rows past `retention.notifications`, in batches; daily at 01:00 | No |

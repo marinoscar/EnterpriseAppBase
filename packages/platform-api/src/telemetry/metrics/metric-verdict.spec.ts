@@ -86,6 +86,29 @@ describe('verdictInputsFrom', () => {
     expect(input.nodes).toEqual({ stale: 2, noEligibleNodeTypes: ['export.csv'] });
   });
 
+  it('lists nodes on battery at or below 10 % (a node on AC, or above 10 %, is not low)', () => {
+    const input = verdictInputsFrom(
+      {
+        nodes: latest([
+          ['health', 'healthy', 3, FRESH],
+          ['onBattery', 'laptop-a', 1, FRESH],
+          ['battery', 'laptop-a', 8, FRESH],
+          ['onBattery', 'laptop-b', 0, FRESH],
+          ['battery', 'laptop-b', 4, FRESH], // on AC while low: charging
+          ['onBattery', 'laptop-c', 1, FRESH],
+          ['battery', 'laptop-c', 55, FRESH],
+          ['battery', 'desktop-d', 3, FRESH], // never reported a source
+        ]),
+      },
+      NOW
+    );
+    expect(input.nodes).toEqual({
+      stale: 0,
+      noEligibleNodeTypes: [],
+      lowBattery: [{ name: 'laptop-a', batteryPercent: 8 }],
+    });
+  });
+
   it('lists fresh failing uptime targets, and an empty list when all pass', () => {
     const status = (rows: unknown[][]) =>
       result(['k', 'last_at', 'last_ok_at', 'checks', 'ok_checks', 'ok_now', 'code'], rows);

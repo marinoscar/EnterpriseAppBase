@@ -353,6 +353,29 @@ export interface JobNodeSecret {
   revokedAt: Date | null;
 }
 
+/**
+ * One `worker_node_events` row: an event a worker node reported about itself
+ * (power source change, low battery, wake from sleep).
+ *
+ * @stability experimental
+ */
+export interface WorkerNodeEvent {
+  /** The row id. */
+  id: string;
+  /** The node that reported it. */
+  nodeId: string;
+  /** Dotted type, e.g. `power.battery_low`. */
+  type: string;
+  /** `info`, `warning` or `critical`. */
+  severity: string;
+  /** Small scalar attributes, or `null`. */
+  attrs: JobsJsonValue | null;
+  /** When it happened, on the node's clock (clamped by the server). */
+  occurredAt: Date;
+  /** When the server received it. */
+  receivedAt: Date;
+}
+
 // ---- delegates ----------------------------------------------------------------------
 
 /**
@@ -385,6 +408,8 @@ export interface JobsDelegate<Row> {
   deleteMany(args?: JobsQueryArgs): Promise<JobsBatchPayload>;
   /** `count`. */
   count(args?: JobsQueryArgs): Promise<number>;
+  /** `createMany`. */
+  createMany(args: JobsQueryArgs): Promise<JobsBatchPayload>;
   /** `groupBy`: each row holds the `by` fields and the requested aggregates. */
   groupBy(args: JobsQueryArgs): Promise<JobsGroupByRow[]>;
 }
@@ -422,6 +447,8 @@ export interface JobsTx {
   jobStatsRollup: JobsDelegate<JobStatsRollup>;
   /** `worker_nodes`. */
   workerNode: JobsDelegate<WorkerNode>;
+  /** `worker_node_events`. */
+  workerNodeEvent: JobsDelegate<WorkerNodeEvent>;
   /** `node_credentials`. */
   nodeCredential: JobsDelegate<NodeCredential>;
   /** `job_node_secrets`. */

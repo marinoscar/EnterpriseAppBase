@@ -19,8 +19,24 @@ import {
   MAX_NODE_ELIGIBLE_TYPES,
   MAX_NODE_VITALS_EXTRA_KEYS,
   MAX_NODE_VITALS_EXTRA_VALUE,
+  NODE_EVENT_SEVERITIES,
+  NODE_POWER_SOURCES,
   NODE_VITALS_EXTRA_KEY_PATTERN,
 } from './constants.js';
+
+/**
+ * The entries of {@link NODE_EVENT_SEVERITIES}, as `z.enum` sees them.
+ *
+ * @stability experimental
+ */
+export type NodeEventSeverityEnum = { [K in (typeof NODE_EVENT_SEVERITIES)[number]]: K };
+
+/**
+ * The entries of {@link NODE_POWER_SOURCES}, as `z.enum` sees them.
+ *
+ * @stability experimental
+ */
+export type NodePowerSourceEnum = { [K in (typeof NODE_POWER_SOURCES)[number]]: K };
 
 /**
  * The entries of the status a node may report about itself.
@@ -368,6 +384,9 @@ const MAX_VITALS_UPTIME_SECONDS = 10 * 365 * 24 * 60 * 60;
 /** Cap on a reported version banner (`v24.3.0`, `pg_dump (PostgreSQL) 16.4`). */
 const MAX_VITALS_VERSION_LENGTH = 64;
 
+/** Ceiling on a battery time estimate: 7 days. */
+const MAX_POWER_TIME_REMAINING_SECONDS = 7 * 24 * 60 * 60;
+
 /**
  * A finite, non-negative number no larger than `max`. (Zod 4's `z.number()`
  * already refuses `NaN` and `Infinity`; JSON cannot carry them anyway.)
@@ -443,6 +462,61 @@ export const nodeVitalsExtraSchema = z
   });
 
 /**
+ * Machine-level (host) readings, sent only to a server that advertised
+ * {@link NODE_SERVER_CAPABILITY_HOST_VITALS}. Every field optional, closed and
+ * bounded; `cpuPercent` here is SYSTEM-wide (0..100), unlike the process-level
+ * `cpuPercent` on the vitals object.
+ *
+ * @stability experimental
+ */
+export const nodeHostVitalsSchema = z
+  .object({
+    /** System-wide CPU utilisation over the last interval, 0..100. */
+    cpuPercent: z.number().min(0).max(100).optional(),
+    /** Logical CPU count. */
+    cpuCount: z.number().int().min(1).max(4096).optional(),
+    /** 1-minute load average. */
+    loadAvg1: z.number().min(0).max(10_000).optional(),
+    /** 5-minute load average. */
+    loadAvg5: z.number().min(0).max(10_000).optional(),
+    /** 15-minute load average. */
+    loadAvg15: z.number().min(0).max(10_000).optional(),
+    /** Total physical memory, in bytes. */
+    memTotalBytes: boundedInt(MAX_VITALS_MEMORY_BYTES).optional(),
+    /** Free physical memory, in bytes. */
+    memFreeBytes: boundedInt(MAX_VITALS_MEMORY_BYTES).optional(),
+    /** Memory available to new work (reclaimable included), in bytes. */
+    memAvailableBytes: boundedInt(MAX_VITALS_MEMORY_BYTES).optional(),
+    /** The OS release string. */
+    osRelease: z.string().max(128).optional(),
+    /** The CPU architecture (`x64`, `arm64`). */
+    arch: z.string().max(32).optional(),
+    /** Seconds since the machine booted. */
+    uptimeSeconds: boundedNumber(MAX_VITALS_UPTIME_SECONDS).optional(),
+  })
+  .strict();
+
+/**
+ * Power state of the machine the node runs on.
+ *
+ * @stability experimental
+ */
+export const nodePowerSchema = z
+  .object({
+    /** Where power comes from. */
+    source: z.enum(NODE_POWER_SOURCES) as z.ZodEnum<NodePowerSourceEnum>,
+    /** Battery charge, 0..100. */
+    batteryPercent: z.number().min(0).max(100).optional(),
+    /** Whether the battery is charging. */
+    charging: z.boolean().optional(),
+    /** Estimated seconds of battery left (at most 7 days). */
+    timeRemainingSeconds: z.number().int().min(0).max(MAX_POWER_TIME_REMAINING_SECONDS).optional(),
+    /** Whether the OS low-power / battery-saver mode is on. */
+    lowPowerMode: z.boolean().optional(),
+  })
+  .strict();
+
+/**
  * A node's health snapshot, carried on its heartbeat; closed and bounded.
  *
  * @stability experimental
@@ -479,6 +553,10 @@ export const nodeVitalsSchema = z
     pgDumpVersion: vitalsVersion.optional(),
     /** App-defined numeric vitals; see {@link nodeVitalsExtraSchema}. */
     extra: nodeVitalsExtraSchema.optional(),
+    /** Machine-level readings (server feature `node_host_vitals`). */
+    host: nodeHostVitalsSchema.optional(),
+    /** Power / battery state (server feature `node_host_vitals`). */
+    power: nodePowerSchema.optional(),
   })
   .strict();
 
@@ -488,6 +566,93 @@ export const nodeVitalsSchema = z
  * @stability experimental
  */
 export type NodeVitals = z.infer<typeof nodeVitalsSchema>;
+/**
+ * The parsed host vitals.
+ *
+ * @stability experimental
+ */
+export type NodeHostVitals = z.infer<typeof nodeHostVitalsSchema>;
+/**
+ * The parsed power state.
+ *
+ * @stability experimental
+ */
+export type NodePower = z.infer<typeof nodePowerSchema>;
+
+// =============================================================================
+// Node events (heartbeat `events`)
+// =============================================================================
+
+/**
+ * Event types the platform's CLI emits. The `type` field itself stays an OPEN
+ * dotted string (an app's node may report its own); these are only the names
+ * the platform knows how to label.
+ *
+ * @stability experimental
+ */
+export const NODE_EVENT_TYPES = {
+  /** The machine switched between AC and battery. */
+  POWER_SOURCE_CHANGED: 'power.source_changed',
+  /** The battery fell to the low threshold while on battery. */
+  BATTERY_LOW: 'power.battery_low',
+  /** The battery fell to the critical threshold while on battery. */
+  BATTERY_CRITICAL: 'power.battery_critical',
+  /** The battery recovered above the low threshold (or AC returned). */
+  BATTERY_RECOVERED: 'power.battery_recovered',
+  /** The machine woke from sleep. */
+  SLEEP_RESUMED: 'node.sleep_resumed',
+  /** The free space of the state directory fell below the threshold. */
+  DISK_LOW: 'node.disk_low',
+} as const;
+
+/**
+ * Most events one heartbeat may carry.
+ *
+ * @stability experimental
+ */
+export const MAX_NODE_EVENTS_PER_HEARTBEAT = 50;
+
+/**
+ * Most attribute keys on one event.
+ *
+ * @stability experimental
+ */
+export const MAX_NODE_EVENT_ATTRS = 16;
+
+/**
+ * One event a node observed about itself (power change, low battery, wake from
+ * sleep). `at` is the node's clock and is display-only; the server stamps its
+ * own `receivedAt`.
+ *
+ * @stability experimental
+ */
+export const nodeEventSchema = z
+  .object({
+    /** A dotted lower-case type, e.g. `power.battery_low`. Open, not an enum. */
+    type: z
+      .string()
+      .max(64)
+      .regex(/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/, 'Must be a dotted event type'),
+    /** How loud it is. */
+    severity: z.enum(NODE_EVENT_SEVERITIES) as z.ZodEnum<NodeEventSeverityEnum>,
+    /** When it happened, on the node's clock (ISO 8601). */
+    at: z.iso.datetime({ offset: true }),
+    /** Small scalar attributes. */
+    attrs: z
+      .record(z.string().max(64), z.union([z.string().max(256), z.number(), z.boolean()]))
+      .refine((attrs) => Object.keys(attrs).length <= MAX_NODE_EVENT_ATTRS, {
+        message: `At most ${MAX_NODE_EVENT_ATTRS} attributes`,
+      })
+      .optional(),
+  })
+  .strict();
+
+/**
+ * The parsed node event.
+ *
+ * @stability experimental
+ */
+export type NodeEvent = z.infer<typeof nodeEventSchema>;
 /**
  * The parsed vitals counters.
  *
@@ -540,6 +705,29 @@ export const registerNodeSchema = z.object({
   capabilities: capabilities.optional(),
 });
 
+/**
+ * The server features a register response may advertise in `serverFeatures`.
+ * A node sends an optional capability only when the server named it; an older
+ * server sends no list at all.
+ *
+ * @stability experimental
+ */
+export const NODE_SERVER_CAPABILITY_HOST_VITALS = 'node_host_vitals';
+
+/**
+ * The register response's feature advertisement. The rest of the response
+ * (`node`, `reattached`) is the API's DTO; this schema names only the field the
+ * contract owns, so it is `.passthrough()`.
+ *
+ * @stability experimental
+ */
+export const registerNodeResponseSchema = z
+  .object({
+    /** Optional server features (see {@link NODE_SERVER_CAPABILITY_HOST_VITALS}). */
+    serverFeatures: z.array(z.string().max(64)).max(32).optional(),
+  })
+  .passthrough();
+
 // =============================================================================
 // POST /nodes/:id/heartbeat
 // =============================================================================
@@ -573,6 +761,12 @@ export const heartbeatNodeSchema = z.object({
    * what every node that predates vitals sends. See "Vitals" above.
    */
   vitals: nodeVitalsSchema.optional(),
+
+  /**
+   * Events observed since the last heartbeat (power, sleep, disk). Sent only
+   * when the server advertised `node_host_vitals` at registration.
+   */
+  events: z.array(nodeEventSchema).max(MAX_NODE_EVENTS_PER_HEARTBEAT).optional(),
 });
 
 // =============================================================================

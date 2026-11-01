@@ -16,7 +16,9 @@ import { Button, Chip, Stack, Typography } from '@mui/material';
 import {
   nodeCredentialStatus,
   useNodeActions,
+  nodeEventLabel,
   useNodeCredentials,
+  useNodeEvents,
   useWorkerNode,
   useWorkerNodes,
 } from '@marinoscar/platform-web/nodes/headless';
@@ -38,6 +40,15 @@ export function FleetHealthSummary() {
 export function NodeHealthChip({ nodeId }: { nodeId: string }) {
   const { node, isLoading, error } = useWorkerNode(nodeId);
   return <SummaryChip label={node ? `${node.name}: ${node.health}` : 'Unknown node'} isLoading={isLoading} error={error} />;
+}
+
+/** A node's latest critical event, for a node's own page (`useNodeEvents`, #1045). */
+export function LatestCriticalNodeEventChip({ nodeId }: { nodeId: string }) {
+  const { events, isLoading, error } = useNodeEvents(nodeId, { pageSize: 1, severity: 'critical' });
+  const latest = events[0];
+  return (
+    <SummaryChip label={latest ? nodeEventLabel(latest.type) : 'No critical events'} isLoading={isLoading} error={error} />
+  );
 }
 
 /** Node credentials that can still authenticate (`useNodeCredentials`). */

@@ -78,7 +78,7 @@ A node may report `online` or `offline` about itself. It can never report or cle
 
 **Vitals (#604).** A heartbeat may carry an optional `vitals` snapshot: `cpuPercent`, `rssBytes`, `heapUsedBytes`, `heapLimitBytes`, `eventLoopDelayP99Ms`, `stateDirFreeBytes`, `stateDirTotalBytes`, `slotsUsed`, `slotsTotal`, `uptimeSeconds`, a `counters` object (`claims`, `emptyPolls`, `claimFailures`, `succeeded`, `failed`, `rateLimited`, `leaseRenewals`, `leaseRenewFailures`, `heartbeatFailures`, `watchdogTrips`), and the version banners `cliVersion`, `nodeVersion`, `pgDumpVersion`. The values are untrusted, so `nodeVitalsSchema` (`node-control-plane.dto.ts`) is strict at both levels (an unknown key is a `400`), every field is optional, every number is non-negative with a ceiling (CPU ≤ 12800%, memory ≤ 1 PiB, disk ≤ 2^64, slots ≤ `MAX_NODE_CONCURRENCY`, counters are integers ≤ 1e12), and each version is ≤ 64 version-shaped characters. The ceilings are deliberately generous: an out-of-range value fails the whole heartbeat, and a node whose heartbeats fail goes stale. When present, the snapshot replaces `last_vitals` and `last_vitals_at` is stamped with the heartbeat's server time, in the same single update; when absent, both are left untouched. The row written is always the path id after the ownership check. **App vitals (`vitals.extra`).** One more optional member of the same snapshot: a bounded `key -> number` bag an executor or the node's app reports beyond the closed fields. At most 16 keys, each matching `^[a-z][a-z0-9_.]{1,47}$`, each a finite number within +/-1e15; no strings and no nesting, so it stays the closed, unbounded-write-free surface the rest of the snapshot is (a bad key, a 17th key or a non-number fails the heartbeat like any out-of-range vital). The CLI drops what would not pass before sending (`sanitizeExtraVitals`) and collects the bag from each executor's optional `vitals()` at heartbeat time (cheap and synchronous; never a spawned process). The fleet page prints it in an "App vitals" table, wording each key through the web app's `registerNodeVital({ key, label, unit })` (an unregistered key still shows, by its key). It is stored verbatim with the snapshot, never exported as a metric and never read by a scheduling decision. An API that predates `extra` refuses a heartbeat that carries it with a `400`, which the CLI answers by retrying without vitals and not sending them again for that process (the existing vitals fallback), so upgrade the API first. The fleet page also lists the node's reported `capabilities` (the probe's satisfied keys and version banners) as a read-only, bounded list of plain text.
 
-Vitals are display-only (the admin fleet read exposes `lastVitals`/`lastVitalsAt`); the node-facing `WorkerNodeDto` does not echo them, and no scheduling decision reads them.
+Vitals include the optional `host` and `power` parts ([Host vitals, power and node events](#host-vitals-power-and-node-events)). Vitals are display-only (the admin fleet read exposes `lastVitals`/`lastVitalsAt`); the node-facing `WorkerNodeDto` does not echo them, and no scheduling decision reads them.
 
 `POST /api/nodes/{id}/deregister` marks the node `offline`. It does **not** requeue held jobs: nothing proves the work stopped. Held jobs return through the lease reaper, the same path a crashed node takes.
 
@@ -255,6 +255,62 @@ The body never carries a node id, trace id, span id or parent. Anything outside 
 
 The CLI side is `NodeSpanRelay` and `JobSpanRecorder` in `@marinoscar/platform-cli/telemetry` (`packages/platform-cli/src/telemetry/node-span-relay.ts`, moved there from `packages/platform-cli/src/engine/node/` by #706), which `packages/platform-cli/src/engine/node/node-engine.ts` uses. `NodeEngine` records download, execute (with `attempt`), and submit (the result or the failure report). It records `job.secret` around the executor's `api.jobSecret`, and `job.upload` where an executor calls `context.phase` (the backup executor times its streamed PUT, with `bytes`). An errored phase's `errorType` is the error's class name, plus an HTTP status (`ApiError.409`) or a string `code` (`Error.ECONNREFUSED`). The engine queues a job's spans after the job settles and never awaits the send. The relay sends one request at a time in batches of at most 50, and keeps at most 500 queued spans, dropping the oldest first. `stop()` flushes the queue. On a `404` (an older server) the relay turns itself off for the rest of the process and logs `telemetry-disabled` once. On `400`, `403`, `429` or a network error it drops the batch silently. No environment variable controls it; `NodeEngine`'s `relaySpans: false` is the programmatic switch.
 
+### Host vitals, power and node events
+
+A node also reports the machine it runs on, its power state and a few events about itself. All of it is self-reported, display-only and optional.
+
+**Handshake.** The server names optional features in `serverFeatures` (`NODE_SERVER_FEATURES`) on the register response and on every heartbeat response. The feature is `node_host_vitals` (`NODE_SERVER_CAPABILITY_HOST_VITALS` in `@marinoscar/platform-contract/nodes`). A node sends `vitals.host`, `vitals.power` and `events` only after it has seen that name. It learns it from the register response or, against a server that advertised it late, from the next heartbeat response. An older server sends no list, so the node sends plain vitals as before.
+
+**Schema bounds.** `vitals.host` and `vitals.power` sit inside the closed `vitals` object; every field is optional and bounded.
+
+| Part | Fields |
+|---|---|
+| `vitals.host` | `cpuPercent` (system-wide, 0–100), `cpuCount`, `loadAvg1`/`loadAvg5`/`loadAvg15`, `memTotalBytes`, `memFreeBytes`, `memAvailableBytes`, `osRelease` (≤128 chars), `arch` (≤32), `uptimeSeconds` |
+| `vitals.power` | `source` (`ac`, `battery`, `unknown`), `batteryPercent` (0–100), `charging`, `timeRemainingSeconds` (≤7 days), `lowPowerMode` |
+| `events[]` | At most 50 per heartbeat. Each has `type` (open dotted lower-case string, ≤64), `severity` (`info`, `warning`, `critical`), `at` (ISO 8601, the node's clock) and `attrs` (≤16 scalar keys) |
+
+The CLI clamps every reading to these bounds before sending (a heartbeat the server refuses costs the node its liveness signal).
+
+**Probe strategies.** The CLI reads the machine with a fixed source per OS (`packages/platform-cli/src/engine/node/power-probe.ts`). It uses `execFile` with fixed arguments, never a shell.
+
+| OS | Source |
+|---|---|
+| Linux | `/sys/class/power_supply` |
+| macOS | `pmset -g batt` |
+| Windows | PowerShell `Get-CimInstance Win32_Battery` |
+
+Each command has a 2 s timeout and each result is cached for 30 s. A probe that cannot tell returns nothing and the heartbeat omits `power`; nothing throws. Host vitals come from the Node.js `os` module.
+
+**Event types.** The platform's CLI emits these (`NODE_EVENT_TYPES`). The `type` field stays open, so an app's node may report its own.
+
+| Type | Severity | When |
+|---|---|---|
+| `power.source_changed` | warning on battery, else info | The machine switched between AC and battery |
+| `power.battery_low` | warning | On battery, charge fell below 20 % |
+| `power.battery_critical` | critical | On battery, charge fell below 10 % |
+| `power.battery_recovered` | info | Charge climbed back, or AC returned |
+| `node.sleep_resumed` | info | The wall-clock gap between observations exceeded 3 heartbeat intervals |
+| `node.disk_low` | warning | Free space of the state directory fell below 5 % |
+
+**Hysteresis.** The watcher (`power-watcher.ts`) is edge-triggered. The first observation is a baseline and emits nothing. A battery threshold re-arms only after the charge climbs 5 points above it. `node.disk_low` re-arms above 10 % free. Events wait in a bounded queue (200, oldest dropped) while the server is unreachable and are requeued after a failed heartbeat.
+
+**Ingestion** (`NodeEventsService.ingest`). The order is fixed:
+
+1. Rate cap: at most 120 accepted events per node per hour (in memory, per replica). The excess is dropped and counted, never an error.
+2. Clamp: an `occurredAt` outside `[now - 24h, now + 5m]` is replaced by the server's `receivedAt`.
+3. Write one `createMany` into `worker_node_events`.
+4. After the write, outside any transaction: the `app.nodes.events` counter, a `node.event` span, a structured log line (info for `info`, warn otherwise) and one `nodes.node.event` domain event per row (`NODE_EVENT_REPORTED`).
+
+Ingestion swallows its own errors. A heartbeat never fails because of its events. The span carries `node.id`, `node.name`, `node.event.type` (a known type, else `other`) and `node.event.severity`; `attrs` never reach a span or a metric label. A listener of `nodes.node.event` must obey the `on-event-no-io` rule.
+
+**Reads.** `GET /api/nodes/{id}/events` (the owner's node, `nodes:read`) and `GET /api/admin/nodes/{id}/events` (any node, `nodes:read`) return a page, newest first. Filters: one exact `type` and `severity`; `page` and `pageSize` (at most 100).
+
+**Retention.** The daily `NodeEventsPurgeTask` (04:00) enqueues the `nodes.node_events_purge` job, which deletes rows older than `nodeEventsRetentionDays` by `receivedAt`. Set it with `NodesModule.forRoot({ nodeEventsRetentionDays })` (whole days, 1–3650, default 30). `tasks.nodeEventsPurge: false` switches the cron off for a process. The job is server-only.
+
+**Metrics and verdict.** Eight gauges and counters (`app.nodes.host.*`, `app.nodes.power.*`, `app.nodes.events`) are listed in [telemetry.md](telemetry.md). A node on battery at or below 10 % degrades the overall verdict.
+
+**Trust model unchanged.** The node reports through its existing `nod_` credential and the same heartbeat route. It holds no collector credentials and sends no telemetry to a store. Every value and event is untrusted and bounded, and no scheduling decision reads it.
+
 ### Fleet sweep and prune
 
 A crashed node never deregisters, so without a sweep its row stays `online` forever and retention (which selects `offline`) never reaches it. The two jobs are a pair with an order. Both crons only decide whether work is due and enqueue; the handlers in `packages/platform-api/src/nodes/handlers/` do the work.
@@ -302,6 +358,8 @@ UPDATE worker_nodes SET status = 'offline'
 | `nodes.offlineRetentionDays` | `30` | How long an offline node's row is kept (1–3650) |
 | `nodes.jobSecretBrokerEnabled` | `false` | Whether any per-job credential may be brokered to a node |
 
+Event retention is a module option, not a setting: `NodesModule.forRoot({ nodeEventsRetentionDays })` (default 30).
+
 `databaseBackup.nodeOffloadEnabled` (default `false`) additionally gates `db.backup.run`; see [database-backup.md](database-backup.md).
 
 ### Environment variables
@@ -327,8 +385,9 @@ CLI-side settings (`APPCTL_*`, including `APPCTL_HEAP_LIMIT_MB`) are documented 
 | `GET /api/nodes/job-types` | Node-eligible types with result JSON Schemas | `nodes:read` |
 | `GET /api/nodes` | List the caller's nodes | `nodes:read` |
 | `GET /api/nodes/{id}` | One node | `nodes:read` |
+| `GET /api/nodes/{id}/events` | The node's reported events, newest first, paged | `nodes:read` |
 | `POST /api/nodes/{id}/deregister` | Mark offline; held jobs are not requeued | `nodes:write` |
-| `POST /api/nodes/{id}/heartbeat` | Liveness, optional `status`/`concurrency`/`capabilities`/`vitals` | `nodes:write` |
+| `POST /api/nodes/{id}/heartbeat` | Liveness, optional `status`/`concurrency`/`capabilities`/`vitals`/`events`; answers with `serverFeatures` | `nodes:write` |
 | `POST /api/nodes/{id}/claim` | Claim up to `concurrency` jobs under a lease | `nodes:write` |
 | `POST /api/nodes/{id}/jobs/{jobId}/renew` | Extend the lease | `nodes:write` |
 | `POST /api/nodes/{id}/jobs/{jobId}/download-url` | Signed GET for the job's input | `nodes:write` |
@@ -354,6 +413,7 @@ The listing is `nodes:read`, not a bare `@Auth()` like the PAT listing: it is fl
 |---|---|---|
 | `GET /api/admin/nodes` | Every node, with owner email and derived health | `nodes:read` |
 | `GET /api/admin/nodes/{id}` | One node | `nodes:read` |
+| `GET /api/admin/nodes/{id}/events` | Any node's reported events, newest first, paged | `nodes:read` |
 | `DELETE /api/admin/nodes/{id}` | Delete the node; its jobs are unclaimed, not deleted | `nodes:write` |
 | `GET /api/admin/nodes/credentials` | Every node credential, with owner | `nodes:read` |
 | `DELETE /api/admin/nodes/credentials/{id}` | Revoke any credential | `nodes:write` |
@@ -383,6 +443,10 @@ Do not add a `nodeEligible` flag; eligibility is derived. Do not make an `ai.*` 
 |---|---|
 | `packages/platform-api/test/identity/auth/guards/jwt-auth.guard.spec.ts` | Allowlist, prefix-boundary paths, route check before `validateToken` (spy), untouched `pat_`/JWT branches |
 | `packages/platform-api/src/nodes/node-object-store.spec.ts` | The data plane uses only the two `NodeObjectStore` methods; a store failure propagates |
+| `packages/platform-api/test/nodes/node-events.service.spec.ts` | Rate cap, `occurredAt` clamp, write order, observers never fail ingestion |
+| `packages/platform-api/test/nodes/nodes.controller-events.spec.ts` | The events routes: ownership, paging, filters |
+| `packages/platform-api/test/nodes/handlers/node-events-purge.handler.spec.ts` | Retention deletes by `receivedAt` |
+| `packages/platform-cli/src/engine/node/power-probe.test.ts`, `power-watcher.test.ts`, `host-telemetry-engine.test.ts` | Probe parsers, hysteresis, the handshake gate |
 | `apps/api/test/nodes/node-offline-event.integration.spec.ts` | `nodes.node.offline` reaches the app's notifier after the sweep's write; nobody is notified for no change or a failed write |
 | `apps/api/test/nodes/node-credential.integration.spec.ts` | `403` for a `nod_` token on `/api/users`, `/api/admin/jobs`, `/api/node-credentials` with an admin owner; RBAC; show-once; `lastUsedAt` stamped on allowed routes |
 | `packages/platform-api/test/nodes/node-credential.service.spec.ts` | Four rejection paths; `expiresAt: null` group |
@@ -464,6 +528,7 @@ End to end, following [Running worker nodes](../runbooks/run-worker-nodes.md):
 - Epic #345: #348 `deriveOutputKey`; #349 per-job secret broker; #351/#352 `db.backup.run` on nodes; #353 fleet crons converted to queue jobs.
 - #364: claim token on the node control plane. #477: claim-conditional settle writes.
 - #604: node vitals on the heartbeat (`last_vitals`, `last_vitals_at`).
+- #1045: host vitals, power state and node events (`worker_node_events`, `nodes.node.event`, `nodes.node_events_purge`).
 - #606: fleet metrics (`app.nodes.*` gauges).
 - #607: `traceparent` on each claim assignment.
 - #608: span relay (`POST /api/nodes/{id}/telemetry`), node phase spans in the CLI.

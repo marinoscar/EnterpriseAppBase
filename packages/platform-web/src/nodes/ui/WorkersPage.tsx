@@ -117,6 +117,7 @@ import {
 import type { NodesTableColumn, NodesTableRowAction, WorkerNode } from '../headless/index.js';
 import { WORKER_NODES_PAGE_DESCRIPTION as PAGE_DESCRIPTION, WORKER_NODES_PAGE_TITLE as PAGE_TITLE } from './copy.js';
 import { NodeCredentials } from './NodeCredentials.js';
+import { NodeEventsTimeline } from './NodeEventsTimeline.js';
 import { NodeVitalsDialog } from './NodeVitalsDialog.js';
 import type { NodeVitalsPanelSlotProps } from './NodeVitalsDialog.js';
 import { DefaultPageHeader } from './PageHeader.js';
@@ -520,6 +521,7 @@ export function WorkersPage(props: WorkersPageProps = {}): ReactElement {
           now={renderedAt}
           onClose={() => setVitalsNodeId(null)}
           VitalsPanel={slots?.VitalsPanel}
+          Events={NodeEventsTimeline}
         />
 
         <NodeCredentials

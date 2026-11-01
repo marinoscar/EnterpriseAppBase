@@ -567,6 +567,15 @@ describe('AppMetricsService baseline (#680)', () => {
       eventBusPublished: 'app.event_bus.published',
       eventBusDelivered: 'app.event_bus.delivered',
       eventBusReconnects: 'app.event_bus.reconnects',
+      // Added after the baseline (node host and power telemetry, #1045).
+      nodesEvents: 'app.nodes.events',
+      nodesHostCpuUtilization: 'app.nodes.host.cpu.utilization',
+      nodesHostMemoryUsed: 'app.nodes.host.memory.used',
+      nodesHostMemoryTotal: 'app.nodes.host.memory.total',
+      nodesHostMemoryAvailable: 'app.nodes.host.memory.available',
+      nodesHostLoad1: 'app.nodes.host.load1',
+      nodesPowerOnBattery: 'app.nodes.power.on_battery',
+      nodesPowerBatteryPercent: 'app.nodes.power.battery_percent',
     });
     expect(Object.keys(APP_METRIC_NAMES).slice(0, 31)).toEqual(Object.keys(BASELINE_APP_METRIC_NAMES));
   });
@@ -628,6 +637,8 @@ describe('AppMetricsService baseline (#680)', () => {
         },
       },
       { kind: 'counter', name: 'app.notifications.deliveries', options: { description: 'Notification delivery attempts, by channel, event and outcome.', unit: '{delivery}' } },
+      // Added after the baseline (node host and power telemetry, #1045).
+      { kind: 'counter', name: 'app.nodes.events', options: { description: 'Node-reported events accepted at heartbeat ingestion, by event type (unknown types fold into other) and severity.', unit: '{event}' } },
       // Added after the baseline (the event bus, PP-1.11 follow-up).
       { kind: 'counter', name: 'app.event_bus.published', options: { description: 'Messages published on the event bus, by adapter, channel and outcome.', unit: '{message}' } },
       {

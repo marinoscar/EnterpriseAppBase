@@ -116,6 +116,7 @@ const BASE_MODEL_OWNERSHIP: readonly ModelOwnershipDef[] = [
   { model: 'DatabaseBackupRun', kind: 'system', rationale: 'A deployment-wide database backup or restore record.' },
   { model: 'WorkerNode', kind: 'system', rationale: 'A deployment-wide worker node.' },
   { model: 'NodeCredential', kind: 'system', rationale: 'A deployment-wide worker-node credential.' },
+  { model: 'WorkerNodeEvent', kind: 'system', rationale: 'An event a deployment-wide worker node reported about itself; cascades with the node.' },
   { model: 'JobStatsRollup', kind: 'system', rationale: 'Deployment-wide queue statistics.' },
   { model: 'JobNodeSecret', kind: 'system', rationale: 'The handle of a credential brokered to a node for one job; never material.' },
   { model: 'NotificationBroadcast', kind: 'system', rationale: 'An administrator broadcast to the deployment. Organisation targeting is #738.' },

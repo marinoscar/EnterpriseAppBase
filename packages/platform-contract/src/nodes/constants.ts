@@ -50,6 +50,20 @@ export const MAX_NODE_CREDENTIAL_NAME_LENGTH = 100;
 export const NODE_STATUSES = ['online', 'draining', 'offline', 'disabled'] as const;
 
 /**
+ * How loud a node event is (`nodeEventSchema.severity`).
+ *
+ * @stability experimental
+ */
+export const NODE_EVENT_SEVERITIES = ['info', 'warning', 'critical'] as const;
+
+/**
+ * Where a node's host draws power from (`nodePowerSchema.source`).
+ *
+ * @stability experimental
+ */
+export const NODE_POWER_SOURCES = ['ac', 'battery', 'unknown'] as const;
+
+/**
  * `AdminNode.health`: DERIVED liveness, computed at read time and never
  * stored. Read alongside `status`, never instead of it.
  *

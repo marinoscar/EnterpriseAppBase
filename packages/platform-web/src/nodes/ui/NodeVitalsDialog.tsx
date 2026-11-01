@@ -37,11 +37,11 @@ import {
   useMediaQuery,
   useTheme,
 } from '@mui/material';
-import type { ReactNode } from 'react';
+import type { ComponentType, ReactNode } from 'react';
 import { useId } from 'react';
 import { useDisplayTimeZone } from '../../core/index.js';
 import type { PageSlot } from '../../core/index.js';
-import { formatDateTime, nodeCapabilityItems, nodeVitalRows } from '../headless/index.js';
+import { describeNodePower, formatDateTime, nodeCapabilityItems, nodeVitalRows } from '../headless/index.js';
 import type { NodeVitalsCounters, WorkerNode } from '../headless/index.js';
 import {
   areVitalsStale,
@@ -49,13 +49,18 @@ import {
   formatBytes,
   formatCpu,
   formatEventLoopDelay,
+  formatHostCpu,
+  formatHostOs,
+  formatLoadAverages,
   formatOptionalBytes,
   formatPercent,
   formatUptime,
   formatVitalsReported,
+  hostMemoryUsage,
   isLowDisk,
   ratio,
 } from './workerVitals.js';
+import { NodePowerBadge } from './NodePowerBadge.js';
 
 interface NodeVitalsDialogProps {
   /** The row to show, or `null` when closed. */
@@ -65,6 +70,12 @@ interface NodeVitalsDialogProps {
   onClose: () => void;
   /** The page's `slots.VitalsPanel`: extra content after the vitals. */
   VitalsPanel?: PageSlot<NodeVitalsPanelSlotProps>;
+  /**
+   * The node's events section (#1045), drawn for every open node. The page
+   * passes `NodeEventsTimeline`; left out, the dialog reads no events (it needs
+   * no nodes client of its own).
+   */
+  Events?: ComponentType<{ nodeId: string; now: Date }>;
 }
 
 /**
@@ -145,7 +156,7 @@ function formatCount(value: number | undefined): string {
   return value === undefined ? '—' : value.toLocaleString();
 }
 
-export function NodeVitalsDialog({ node, now, onClose, VitalsPanel }: NodeVitalsDialogProps) {
+export function NodeVitalsDialog({ node, now, onClose, VitalsPanel, Events }: NodeVitalsDialogProps) {
   useDisplayTimeZone(); // "Vitals reported" renders in the display zone.
   const theme = useTheme();
   // The same `down('sm')` compact-window read the settings UI uses (CLAUDE.md
@@ -166,6 +177,12 @@ export function NodeVitalsDialog({ node, now, onClose, VitalsPanel }: NodeVitals
   // both self-reported and bounded, both printed as plain text.
   const extraRows = vitals ? nodeVitalRows(vitals.extra) : [];
   const capabilities = node ? nodeCapabilityItems(node.capabilities) : [];
+  // The machine the node runs on (#1045): only drawn when the node sent it, so
+  // an older CLI's dialog is unchanged.
+  const host = vitals?.host;
+  const power = vitals?.power;
+  const hostMemory = hostMemoryUsage(host);
+  const showHost = host !== undefined || (power !== undefined && power.source !== 'unknown');
 
   return (
     <Dialog
@@ -249,6 +266,51 @@ export function NodeVitalsDialog({ node, now, onClose, VitalsPanel }: NodeVitals
               <Field label="Uptime">{formatUptime(vitals.uptimeSeconds)}</Field>
             </Stack>
 
+            {showHost && (
+              <Box component="section" aria-labelledby={`${titleId}-host`} data-testid="node-host-vitals">
+                <Typography variant="subtitle2" component="h3" id={`${titleId}-host`} gutterBottom>
+                  Host machine
+                </Typography>
+                {host && (
+                  <Stack direction="row" spacing={3} useFlexGap sx={{ flexWrap: 'wrap', mb: 2 }}>
+                    <Meter
+                      label="Host CPU"
+                      fraction={host.cpuPercent !== undefined ? host.cpuPercent / 100 : null}
+                      text={formatHostCpu(host)}
+                    />
+                    <Meter
+                      label="Host memory used"
+                      fraction={hostMemory?.fraction ?? null}
+                      text={
+                        hostMemory
+                          ? `${formatBytes(hostMemory.used)} of ${formatBytes(hostMemory.total)} (${formatPercent(
+                              hostMemory.fraction
+                            )})`
+                          : formatOptionalBytes(host.memTotalBytes)
+                      }
+                    />
+                  </Stack>
+                )}
+                <Stack direction="row" spacing={2} useFlexGap sx={{ flexWrap: 'wrap' }}>
+                  {host && (
+                    <>
+                      <Field label="Load average (1, 5, 15 min)">{formatLoadAverages(host)}</Field>
+                      <Field label="Operating system">{formatHostOs(host)}</Field>
+                      <Field label="Host uptime">{formatUptime(host.uptimeSeconds)}</Field>
+                    </>
+                  )}
+                  {power && power.source !== 'unknown' && (
+                    <Field label="Power">
+                      <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }} data-testid="node-vitals-power">
+                        <NodePowerBadge power={power} decorative />
+                        <span>{describeNodePower(power)?.label}</span>
+                      </Stack>
+                    </Field>
+                  )}
+                </Stack>
+              </Box>
+            )}
+
             <Stack direction="row" spacing={2} useFlexGap sx={{ flexWrap: 'wrap' }}>
               <Field label="CLI version">{vitals.cliVersion ?? '—'}</Field>
               <Field label="Node.js version">{vitals.nodeVersion ?? '—'}</Field>
@@ -330,6 +392,12 @@ export function NodeVitalsDialog({ node, now, onClose, VitalsPanel }: NodeVitals
                 </li>
               ))}
             </Box>
+          </Box>
+        )}
+
+        {node && Events && (
+          <Box sx={{ mt: vitals || capabilities.length > 0 ? 3 : 2 }}>
+            <Events nodeId={node.id} now={now} />
           </Box>
         )}
 

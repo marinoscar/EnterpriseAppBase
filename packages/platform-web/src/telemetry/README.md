@@ -132,6 +132,8 @@ The web half of the telemetry conformance suite is **check 7, permission parity*
 
 ## Upgrade notes
 
+#1045: a metric table column whose presentation `display` is `status` now reads a `0`/`1` number as `false`/`true` (before `invert`), so a gauge flag such as a node's `on_battery` can be drawn as "AC" / "Battery" by the server's presentation alone. Any other number still reads "—"; a boolean is unchanged.
+
 1.0: first release; moved from the app with no change to behaviour, texts, test ids or colours. Delete the app's own copies, import from the two entries, pass `api` to `TelemetryConfigProvider` when it sits above the platform host, mount `TelemetryWebAdaptersProvider`, and add `postBlob` and `postSse` to the app's `PlatformApiClient`. Service functions became methods of `TelemetryClient` with the same names.
 
 | Old app path (`apps/web/src/`) | Import from `@marinoscar/platform-web` |

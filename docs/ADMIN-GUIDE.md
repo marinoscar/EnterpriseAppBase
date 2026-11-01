@@ -259,6 +259,9 @@ Every long-running activity (backups, exports, resets, broadcasts, AI runs) is a
 4. To run jobs on other machines, open Worker Nodes and create a node credential.
 5. On the machine, run `appctl node enroll`, `appctl node register`, `appctl node doctor` and `appctl node start --daemon`.
 6. The page shows each node, its vitals and its credentials; revoke a credential to cut a node off.
+7. A node on a machine with a battery shows a power badge beside its name: `AC`, or the charge with a warning colour at 20 % or less and an error colour at 10 % or less. The badge is also its tooltip and accessible label. It is display only; a node on battery is not marked unhealthy.
+8. Open a node's vitals to see the Host machine section (system CPU, memory, load, operating system, host uptime) and the Events timeline: power changes, low battery, wake from sleep and low disk, newest first, with a Load more button.
+9. The telemetry dashboard turns degraded when a node is on battery at 10 % or less.
 
 AI jobs always run on the server and never on a node.
 
