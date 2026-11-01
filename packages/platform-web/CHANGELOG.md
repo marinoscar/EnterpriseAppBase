@@ -1,5 +1,20 @@
 # @marinoscar/platform-web
 
+## 0.1.0-next.20
+
+### Minor Changes
+
+- 64fc8fc: Add the alerts web slice (#1047): `@marinoscar/platform-web/alerts/headless` (`createAlertsApi`, `useAlertRules`, `useAlertRule`, `useAlertKinds`, `useAlertIncidents`, `useAlertIncident`, `useAlertSummary` polled every 30 seconds, `useAlertMetricCatalog`, `useAlertMutations`, the rule editor's draft model and alerts in words) and `@marinoscar/platform-web/alerts/ui` (`AlertsPage` with Rules and Incidents tabs, `AlertRuleDialog` with a form per built-in kind and a dry-run Test, `AlertRuleTestResult`, `AlertIncidentDrawer`, `FiringAlertsBanner` for the telemetry dashboard's `BeforeContent` slot, and the `alertsAdminCards` Observability card, `alerts:read`). Starter rules show "Built-in" and cannot be deleted from the UI.
+- c9b5944: Worker Nodes page: a power badge per node (AC or battery with percent and charging state), a "Host machine" section in the vitals dialog (host CPU, memory, load, OS, power) and a paginated node events timeline backed by `useNodeEvents` / `NodesApi.listNodeEvents`. The telemetry metric table now renders 0/1 status gauges. Apps with their own `NodesApi` implementation must add `listNodeEvents`.
+- 5016783: Add the `webhooks` slice (issue #1046): `@marinoscar/platform-web/webhooks/headless` (`createWebhooksApi` for the `user`, `org` and `system` scopes, the endpoint, delivery and event catalog hooks, `useWebhookMutations`, the event picker's wildcard model and status helpers) and `@marinoscar/platform-web/webhooks/ui` (`WebhooksPage` with its create and edit dialog, grouped event picker, one-time secret dialog, deliveries table, delivery drawer with Redeliver and the "Verifying signatures" panel, plus the settings cards as data `webhooksUserSettingsSections` and `webhooksAdminSections`).
+
+### Patch Changes
+
+- Updated dependencies [7b5796f]
+- Updated dependencies [6949b6b]
+- Updated dependencies [f3b9700]
+  - @marinoscar/platform-contract@0.1.0-next.20
+
 ## 0.1.0-next.19
 
 ### Minor Changes

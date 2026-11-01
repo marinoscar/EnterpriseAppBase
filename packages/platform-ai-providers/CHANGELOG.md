@@ -1,5 +1,7 @@
 # @marinoscar/platform-ai-providers
 
+## 0.1.0-next.20
+
 ## 0.1.0-next.19
 
 ## 0.1.0-next.18

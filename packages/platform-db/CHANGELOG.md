@@ -1,5 +1,16 @@
 # @marinoscar/platform-db
 
+## 0.1.0-next.20
+
+### Minor Changes
+
+- 7b5796f: Add the `alerts` slice (#1047). `@marinoscar/platform-contract/alerts` carries the wire shapes (rules, the configs of the built-in kinds, incidents, the dry-run response, the kind catalog, the summary). `@marinoscar/platform-api/alerts` adds `AlertsModule.forRoot`, the open rule-kind registry (`registerAlertRuleKind`) with the `metric_threshold`, `node_event`, `verdict`, `node_offline` and `telemetry_unavailable` kinds, the pending/firing/resolved state machine, the `alerts.evaluate`, `alerts.evaluate_event` and `alerts.incidents_purge` server-only jobs, notifications on a transition with an optional webhook port (`ALERTS_WEBHOOK_EMITTER`), eight disabled starter rules, the `/api/admin/alerts` routes behind the new `alerts:read` and `alerts:write` permissions, and the `alerts` conformance suite (`@marinoscar/platform-api/alerts/testing`). The telemetry slice now exports `TelemetryDashboardService` and `createQueryFacade`, accepts a `null` (system) user and an `alert` query source, and the nodes slice exports `deriveNodeHealth`. `@marinoscar/platform-db` adds migration `0040_add_alerts` (`alert_rules`, `alert_incidents` and the raw-SQL partial unique index `alert_incidents_open_uniq_idx`).
+- ad3f525: Add the `webhooks` slice schema (#1046): `WebhookEndpoint` (`webhook_endpoints`) and `WebhookDelivery` (`webhook_deliveries`), with the `WebhookScope` and `WebhookDeliveryStatus` enums and back-relations on `User` and `Organization`. Both tables are org-owned with a nullable `org_id` (NULL only for a system-scope endpoint) under FORCEd `webhook_endpoints_org_isolation` and `webhook_deliveries_org_isolation` policies (listed in `RLS_POLICIES`). Endpoints cascade with their owning user and organization, deliveries with their endpoint. Migration `0039_add_webhooks`.
+
+### Patch Changes
+
+- f4ce36e: Add the `worker_node_events` table (`WorkerNodeEvent`, jobs/nodes slice, #1045): events a worker node reports about itself, with an open `type`, a `severity`, optional JSON `attrs`, the node's `occurred_at` and the server's `received_at`. Cascades with `worker_nodes`; no row-level security. Migration `0038_add_worker_node_events`; apply it with `npm run db:sync`, then `prisma:migrate`.
+
 ## 0.1.0-next.19
 
 ## 0.1.0-next.18

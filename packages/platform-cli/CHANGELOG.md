@@ -1,5 +1,19 @@
 # @marinoscar/platform-cli
 
+## 0.1.0-next.20
+
+### Minor Changes
+
+- 6949b6b: Worker nodes report host vitals, power state and events (#1045). Contract: `vitals.host` and `vitals.power`, heartbeat `events` (at most 50, `nodeEventSchema`, `NODE_EVENT_TYPES`), `serverFeatures` / `NODE_SERVER_CAPABILITY_HOST_VITALS` (`node_host_vitals`), the admin event list schemas and `nodeEventListQuerySchema`; the nodes telemetry presentation gains host CPU, host memory, load, power source and battery columns. API: `POST /api/nodes/register` and `POST /api/nodes/:id/heartbeat` advertise `serverFeatures` (the heartbeat repeats it beside the node fields, so a node that never re-registers learns it); heartbeat `events` are persisted to `worker_node_events` (occurredAt clamped to [now-24h, now+5m], at most 120 events per node per hour, the excess dropped and logged) and announced after the write as the `nodes.node.event` domain event (`NODE_EVENT_REPORTED`, `NodeEventReportedEvent`), an `app.nodes.events` counter, a bounded `node.event` span and a log line; `GET /api/nodes/:id/events` (`nodes:read`, same 404/403 answers as `GET /api/nodes/:id`) and `GET /api/admin/nodes/:id/events` (Admin role, `nodes:read`) list them; new gauges `app.nodes.host.cpu.utilization`, `app.nodes.host.memory.used|total|available`, `app.nodes.host.load1`, `app.nodes.power.on_battery` and `app.nodes.power.battery_percent` (a series is skipped when the node did not report the field); the telemetry `nodes` group shows them per node and a node on battery at 10 % or less degrades the dashboard verdict; the daily `nodes.node_events_purge` job (enqueued by `NodeEventsPurgeTask`, kept for `NodesModule.forRoot({ nodeEventsRetentionDays })`, default 30 days, switch `tasks.nodeEventsPurge`) deletes old events. The jobs slice's `JobsTx` gains the `workerNodeEvent` delegate. DB: migration `0038_add_worker_node_events` (already shipped with the table). CLI: the node samples host CPU, load and memory, probes power per OS, turns transitions into events and sends them only after the server advertises `node_host_vitals`, learned from the register response or from any heartbeat response; an already-registered node no longer re-registers on start.
+
+### Patch Changes
+
+- Updated dependencies [7b5796f]
+- Updated dependencies [6949b6b]
+- Updated dependencies [f3b9700]
+  - @marinoscar/platform-contract@0.1.0-next.20
+  - @marinoscar/platform-infra@0.1.0-next.20
+
 ## 0.1.0-next.19
 
 ### Patch Changes
