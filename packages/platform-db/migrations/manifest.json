@@ -375,5 +375,13 @@
     "sha256": "4b7047703bacab08af629004ff569e250869355acd03795f17d1b1e5b277c5e6",
     "since": "1.0.0",
     "slice": "sharing"
+  },
+  {
+    "dir": "0038_add_worker_node_events",
+    "id": "0038_add_worker_node_events",
+    "requires": [],
+    "sha256": "5775b304027a1cb77b30707093fd6be26290fd49df695f4d850e149fe265b196",
+    "since": "1.0.0",
+    "slice": "jobs"
   }
 ]

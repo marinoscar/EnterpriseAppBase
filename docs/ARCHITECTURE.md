@@ -492,6 +492,7 @@ The schema is composed from per-slice fragments in `packages/platform-db/schema/
 | Jobs | `JobStatsRollup` | `job_stats_rollup` | Lifetime per-type counts and durations |
 | Nodes | `WorkerNode` | `worker_nodes` | Registered worker nodes, declared types and concurrency |
 | Nodes | `NodeCredential` | `node_credentials` | Hashed `nod_` credentials |
+| Nodes | `WorkerNodeEvent` | `worker_node_events` | Events a node reported about itself (open `type`, `severity`, `attrs`, node and server clocks); cascades with the node; no RLS |
 | Nodes | `JobNodeSecret` | `job_node_secrets` | Handle (never material) of a per-job brokered credential |
 | Backup | `DatabaseBackupRun` | `database_backup_runs` | One row per backup or restore attempt, own heartbeat |
 | AI | `AiModel` | `ai_models` | Model catalog per `(provider, modelId)`, capabilities, enablement |
