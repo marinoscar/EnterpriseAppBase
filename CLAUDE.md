@@ -6,7 +6,7 @@ Claude Code loads the shared rules above (project overview, structure, every MAN
 
 ## MANDATORY: No real people, companies or user material
 
-Never use real people, companies or material a user shares as examples, fixtures or test data; use invented placeholders. Rule and exemptions: [AGENTS.md](AGENTS.md#mandatory-no-real-people-companies-or-user-material).
+**CRITICAL:** never use a real person, company, brand or email address (including the user's own) anywhere: source code, tests, fixtures, seeds, mocks, snapshots, comments, docs; nor material a user shares. Use invented placeholders (`@example.test`). Rule and exemptions: [AGENTS.md](AGENTS.md#mandatory-no-real-people-companies-or-user-material).
 
 ## Cloud sessions
 

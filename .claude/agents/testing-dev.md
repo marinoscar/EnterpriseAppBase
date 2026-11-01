@@ -53,3 +53,4 @@ cd tests/e2e && npm test
 - New behaviour is covered at the cheapest tier that proves it; database semantics at the `*.db.spec.ts` tier.
 - No tripwire was loosened, skipped or given a hand-written list.
 - You report which tiers you ran and which you could not run (and why).
+- **CRITICAL, test data: fixtures, seeds, mocks, snapshots, e2e and visual tests never contain a real person, company, brand or email address (not the user's own).** Use `Person A`, `Org Alpha`, `user@example.test`; a unique address per run derives from the placeholder domain: [rule](../../docs/AI-ASSISTANTS.md#no-real-people-companies-or-user-material).

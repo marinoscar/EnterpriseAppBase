@@ -77,3 +77,4 @@ Never run a git command that changes state: pull, merge, rebase, push, commit, c
 - One task at a time. When it is done, stop and report: files changed, commands run, results, anything you could not verify.
 - The main agent owns state-changing git (commit, checkout, merge, rebase, push, worktree). Never run them; read-only `git status`, `git diff`, `git log` are fine.
 - Never invent a path, route, permission or script. `ls` or `grep` it first.
+- **CRITICAL: never use a real person, company or email address (including the user's own) in code, tests, fixtures, comments or docs.** Use placeholders (`@example.test`): [rule](../../docs/AI-ASSISTANTS.md#no-real-people-companies-or-user-material).

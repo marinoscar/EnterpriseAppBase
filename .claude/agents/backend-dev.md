@@ -45,3 +45,4 @@ npm run openapi:dump && npm run openapi:lint  # repo root: regenerate and lint o
 - `npm run typecheck` and `npm test` pass in `apps/api`, including the conformance suites in `apps/api/test/conformance.spec.ts` (the AI tripwires, `cron-enqueue-only`, `on-event-no-io`).
 - New behaviour has tests in the same or the next commit.
 - A new permission, table, job type or route group is flagged for `docs-dev` so ARCHITECTURE and the owning spec stay current.
+- **CRITICAL: never use a real person, company or email address (including the user's own) in code, tests, fixtures, comments or docs.** Use placeholders (`@example.test`): [rule](../../docs/AI-ASSISTANTS.md#no-real-people-companies-or-user-material).

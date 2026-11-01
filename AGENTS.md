@@ -1,18 +1,18 @@
 # AGENTS.md
 
-Shared rules for AI assistants working on this codebase (loaded by OpenCode, and by Claude Code through `CLAUDE.md`). Area rules live in nested `AGENTS.md` files: `apps/api`, `apps/web`, `packages/platform-api`, `packages/platform-db`. How the tools share files: [docs/AI-ASSISTANTS.md](docs/AI-ASSISTANTS.md).
+Shared rules for AI assistants (loaded by OpenCode, and by Claude Code through `CLAUDE.md`). Area rules live in nested `AGENTS.md` files: `apps/api`, `apps/web`, `packages/platform-api`, `packages/platform-db`. How the tools share files: [docs/AI-ASSISTANTS.md](docs/AI-ASSISTANTS.md).
 
 ## Project overview
 
-This repository is a template: teams fork it to get a production-grade foundation for an enterprise web app.
+This repository is a template: teams fork it for a production-grade enterprise web app foundation.
 Stack: React 19 + MUI (web), NestJS 11 on Fastify + Prisma 7 + Zod (API), PostgreSQL 16, Commander + ink (`appctl` CLI), Nginx same-origin, OpenTelemetry + Pino, Docker Compose, Node 24.
-Start at [README.md](README.md) and [docs/README.md](docs/README.md) (index, with a "Doc map by task").
+Start at [README.md](README.md) and [docs/README.md](docs/README.md) (index and "Doc map by task").
 
 ## Repository structure
 
 ```
 apps/api/           NestJS API: src/, test/, prisma/ (fragments/ hand-edited, schema/ GENERATED, migrations/, seed)
-                    src/platform/<slice>/ binds each packaged slice
+                    src/platform/<slice>/ binds each slice
 apps/web/           React app (identity UI is @marinoscar/platform-web/identity)
 apps/cli/           `appctl` over @marinoscar/platform-cli
 apps/stack-agent/, apps/android/   VPS sidecar; reference Android shell
@@ -27,7 +27,7 @@ scripts/, tests/    rename.mjs, new-project.mjs, platform-drift.mjs; tests/e2e, 
 
 ## Where to read more
 
-Full index: [docs/README.md](docs/README.md). The most used:
+Index: [docs/README.md](docs/README.md). Most used:
 
 - Architecture, permission matrix, tables, job types, settings pages: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (permissions: §7)
 - Security design, credential kinds, RLS: [docs/SECURITY-ARCHITECTURE.md](docs/SECURITY-ARCHITECTURE.md) (RLS: §18)
@@ -47,9 +47,13 @@ Full index: [docs/README.md](docs/README.md). The most used:
 
 ## MANDATORY: No real people, companies or user material
 
-- **Never reuse material a user shares** (documents, notes, transcripts, screenshots) anywhere in the repo, issues, PRs or commits.
-- **No real people, companies, organizations or products as examples.** Use invented placeholders (`Person A`, `Org Alpha`, `Product X`, `@example.test`). Exempt only: named vendor integrations and legal/authorship metadata.
-- Detail and the full placeholder list: [docs/AI-ASSISTANTS.md](docs/AI-ASSISTANTS.md#no-real-people-companies-or-user-material).
+**CRITICAL, no exceptions beyond those below.** Applies to code, tests, fixtures, seeds, mocks, snapshots, e2e/visual tests, comments, docs, issues, PRs and commits.
+
+- **Never a real person, company, organization, product or brand name, and never a real email address** (not the user's, nor one from conversation, git config or environment; no real domain). Use `Person A`, `Org Alpha`, `Product X`, `@example.test` (`example.com`/`.org` also occur). Phones, addresses, IDs: obviously fake.
+- **Never reuse material a user shares** (documents, notes, transcripts, screenshots).
+- Exempt only: named vendor integrations and legal/authorship metadata.
+- **Before you finish:** grep your diff for real-looking names, emails and domains; fix any.
+- Detail: [docs/AI-ASSISTANTS.md](docs/AI-ASSISTANTS.md#no-real-people-companies-or-user-material).
 
 ## MANDATORY: Issue-Driven Development
 
@@ -68,7 +72,7 @@ The main checkout stays on `main`. Every feature or fix is developed in a Git wo
 - All development and commits happen inside the worktree. To finish: commit, then `git worktree remove worktrees/<short-name>`; the branch remains for the PR.
 - Never work on a feature in the main checkout. One worktree per branch; reuse an existing one.
 - **Exception**: when the environment has already put you on a designated branch, work there.
-- Do not open PRs unless asked.
+- No PRs unless asked.
 
 ## MANDATORY: Commit rules
 
@@ -118,7 +122,7 @@ Design: [docs/specs/job-queue.md](docs/specs/job-queue.md#all-long-running-work-
 
 ## MANDATORY: AI Platform Rules
 
-Design: [docs/specs/ai-platform.md](docs/specs/ai-platform.md). Recipe: [packages/platform-api/src/ai/README.md](packages/platform-api/src/ai/README.md). Operators: [docs/runbooks/ai-configuration.md](docs/runbooks/ai-configuration.md).
+Design: [docs/specs/ai-platform.md](docs/specs/ai-platform.md). Recipe: [ai README](packages/platform-api/src/ai/README.md). Operators: [docs/runbooks/ai-configuration.md](docs/runbooks/ai-configuration.md).
 
 1. **Never import a provider SDK outside `packages/platform-ai-providers/src/<provider>/` (the lean package `@marinoscar/platform-ai-providers`; `platform-api/src/ai/providers/<provider>/` holds only Nest subclasses), or outside a provider folder an app declares to the `ai-no-sdk-leak` suite (`providerDirs`) for a provider it registered with `registerAiProvider`.** The app configures AI once (`apps/api/src/platform/ai/ai.config.ts`). A feature imports `AiModule`, injects `AiService` and calls `AiService.forUser(userId, { orgId, feature })`, never an SDK client. A new provider's SDK gets its own boundary spec.
 2. **Never call AI from the browser; keys never leave the server.** Every provider call is server-side, under a key `AiKeyResolver` resolved for that call (user BYOK, organization, or deployment key), held only between resolution and the adapter call. No route, log line, span, `AiError`, `ai_usage_events` row or `ai_runs.request` row carries key material. The one exception: a realtime session's **ephemeral** provider secret, returned only by `POST /api/ai/realtime/sessions`.
@@ -189,12 +193,12 @@ npm run test:run --workspace=web            # also cli; typecheck: npm run typec
 npm run openapi:dump && npm run openapi:lint
 ```
 
-App: http://localhost:3535; API reference: http://localhost:3535/api/docs.
+App: http://localhost:3535; API docs: /api/docs.
 
 ## Testing requirements
 
-- Unit tests for isolated logic; integration tests for API + RBAC flows; real-database tests (`*.db.spec.ts`) where mocked Prisma cannot prove the behaviour; frontend component and hook tests; mock OAuth in CI. Details: [docs/TESTING.md](docs/TESTING.md).
+- Unit tests for logic; integration tests for API + RBAC flows; real-database tests (`*.db.spec.ts`) where mocked Prisma cannot prove it; frontend component and hook tests; mock OAuth in CI. Details: [docs/TESTING.md](docs/TESTING.md).
 
 ## Subagents
 
-Delegate development work to the matching agent in `.opencode/agents/` (OpenCode) or `.claude/agents/` (Claude Code): `backend-dev`, `frontend-dev`, `database-dev`, `testing-dev`, `docs-dev`, `ops-dev` (container rebuilds, migrations, typecheck). Multi-domain work runs them in sequence (database, backend, frontend, testing, docs). Do not write controllers, services, components, Prisma schema, migrations, tests or docs directly; reading, planning and simple commands are fine. `ops-dev` never performs state-changing git operations; the main agent does those.
+Delegate development to the matching agent in `.opencode/agents/` or `.claude/agents/`: `backend-dev`, `frontend-dev`, `database-dev`, `testing-dev`, `docs-dev`, `ops-dev` (container rebuilds, migrations, typecheck). Multi-domain work runs them in sequence (database to docs). Do not write controllers, services, components, schema, migrations, tests or docs directly; reading, planning and simple commands are fine. `ops-dev` never performs state-changing git operations; the main agent does those.

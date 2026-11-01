@@ -93,3 +93,4 @@ npm run openapi:dump                                                            
 - Every path, route, permission, env var and command you wrote was verified in the code.
 - No fact you touched now lives in two places; no issue number sits outside a spec's History.
 - New or renamed docs are listed in [`docs/README.md`](../../docs/README.md).
+- **CRITICAL: never use a real person, company or email address (including the user's own) in code, tests, fixtures, comments or docs.** Use placeholders (`@example.test`): [rule](../../docs/AI-ASSISTANTS.md#no-real-people-companies-or-user-material).

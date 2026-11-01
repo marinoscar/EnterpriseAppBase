@@ -58,3 +58,4 @@ If asked, do not attempt it and do not substitute a "safer-sounding" command. Re
 - The requested command ran in the right directory, and its outcome (success or the exact error) is reported.
 - No application code was edited and no state-changing git command was run.
 - Any unnecessary rebuild was flagged before running it.
+- **CRITICAL: never use a real person, company or email address (including the user's own) in code, tests, fixtures, comments or docs.** Use placeholders (`@example.test`): [rule](../../docs/AI-ASSISTANTS.md#no-real-people-companies-or-user-material).

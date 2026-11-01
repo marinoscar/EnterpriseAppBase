@@ -41,3 +41,4 @@ cd apps/web && npm run build
 - Registry tests pass: `apps/web/src/__tests__/conformance.test.ts` (the `settings-*` suites, including `settings-ai-cards` for AI cards) and `apps/web/src/__tests__/config/`.
 - New components and hooks have tests in the same or the next commit.
 - The page works at phone width (below `sm`) and at desktop width.
+- **CRITICAL: never use a real person, company or email address (including the user's own) in code, tests, fixtures, comments or docs.** Use placeholders (`@example.test`): [rule](../../docs/AI-ASSISTANTS.md#no-real-people-companies-or-user-material).

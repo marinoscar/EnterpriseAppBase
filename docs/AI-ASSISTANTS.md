@@ -187,12 +187,15 @@ OpenCode differs between versions (for example in how nested `AGENTS.md` files a
 
 ## No real people, companies or user material
 
-The root `AGENTS.md` carries the short rule; this is the full text.
+The root `AGENTS.md` carries the short rule; this is the full text. It is **critical**: it applies with no exception beyond the two listed below, to every file an assistant writes: source code, tests, fixtures, seeds, mocks, snapshots, e2e and visual tests, evaluation sets, prompts, code comments, docs, issue and PR text, commit messages.
 
 - **Material a user shares is never reused.** Never use the content of documents, notes, transcripts, screenshots or any other material the user shares with an assistant, or anything derived from it (names, numbers, quotes, structure that identifies it), in code, tests, fixtures, evaluation sets, prompts, documentation, examples, issues, pull requests or commit messages. Shared material is used only to diagnose the problem in the conversation.
-- **No real names as examples.** Never use the name of a real person, or a real company, organization, product or brand, as an example anywhere in the repository: code comments, prompts, test data, fixtures, evaluation scenarios, docs, issue and PR text. Use clearly invented placeholders: `Person A`, `Avery Example`, `Org Alpha`, `Org Beta`, `Product X`, `Project P1`, and `@example.test` email addresses. Do not borrow well-known fictional brands either (Contoso, Acme, Northwind, Initech).
+- **No real names.** Never use the name of a real person, or a real company, organization, product or brand, anywhere in the repository. Use clearly invented placeholders: `Person A`, `Avery Example`, `Org Alpha`, `Org Beta`, `Product X`, `Project P1`. Do not borrow well-known fictional brands either (Contoso, Acme, Northwind, Initech).
+- **No real email addresses.** Never write a real address: not the user's own, not one seen in the conversation, `git config`, the environment, a commit author or a log. Never put a real domain in an address. The default is `@example.test`; the reserved `example.com`, `example.org` and `example.net` (RFC 2606) also appear in the repository and are acceptable. A test that needs a distinct address per run derives it from the placeholder domain (for example `user-${n}@example.test`).
+- **No other personal identifiers.** Phone numbers, street addresses, government or payment identifiers, IP addresses of real hosts and account names get obviously fake values (for example a phone number in a reserved fictional range, `192.0.2.x` addresses, `Example Street 1`).
 - **Exempt, and only these:** a real vendor or service a feature integrates by name (for example a provider adapter calling that vendor's API, its SDK package names, its documented endpoints), and legal or authorship metadata (package `author`, copyright lines, code-signing publisher name).
-- **Fix what you find.** When you find a real name used as an example, replace it with a placeholder in the same change, or open a follow-up if it changes recorded snapshots.
+- **Before you finish:** grep your diff for real-looking names, email addresses and domains, for example `git diff main | grep -E '^\+' | grep -E '@[A-Za-z0-9.-]+\.[a-z]{2,}'` and check every hit is a placeholder domain. Read the added strings in fixtures and test data once more for personal names.
+- **Fix what you find.** When you find a real name or address used as an example, replace it with a placeholder in the same change, or open a follow-up if it changes recorded snapshots.
 
 ## 6. Maintenance
 

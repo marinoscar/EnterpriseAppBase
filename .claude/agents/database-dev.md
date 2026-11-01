@@ -46,3 +46,4 @@ cd apps/api && npm run test:db                                         # real-Po
 - `npm run prisma:generate` and `npm run typecheck` pass in `apps/api`.
 - Locking, uniqueness or index behaviour is covered by a `*.db.spec.ts` suite.
 - A new model or permission is flagged for `docs-dev` so the ARCHITECTURE table list and matrix stay current.
+- **CRITICAL: never use a real person, company or email address (including the user's own) in code, tests, fixtures, comments or docs.** Use placeholders (`@example.test`): [rule](../../docs/AI-ASSISTANTS.md#no-real-people-companies-or-user-material).

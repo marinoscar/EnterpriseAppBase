@@ -84,3 +84,4 @@ cd apps/cli && npm run typecheck && npm run test:run
 - One task at a time. When it is done, stop and report: files changed, commands run, results, anything you could not verify.
 - The main agent owns state-changing git (commit, checkout, merge, rebase, push, worktree). Never run them; read-only `git status`, `git diff`, `git log` are fine.
 - Never invent a path, route, permission or script. `ls` or `grep` it first.
+- **CRITICAL, test data: fixtures, seeds, mocks, snapshots, e2e and visual tests never contain a real person, company, brand or email address (not the user's own).** Use `Person A`, `Org Alpha`, `user@example.test`; a unique address per run derives from the placeholder domain: [rule](../../docs/AI-ASSISTANTS.md#no-real-people-companies-or-user-material).
