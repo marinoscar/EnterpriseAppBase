@@ -49,7 +49,7 @@ function sentenceCase(text: string): string {
 
 /**
  * A dotted event type as words: the last segment is the event, the ones before
- * it its area (`transcode.queue_full` -> "Transcode: queue full").
+ * it its area (`transcode.queue_full` to "Transcode: queue full").
  *
  * @param type - the event's dotted type.
  * @returns the humanized text; the input itself when it has no segments.
