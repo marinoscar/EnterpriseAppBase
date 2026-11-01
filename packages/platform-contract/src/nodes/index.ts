@@ -19,6 +19,8 @@ export {
 // ---- ./admin-schemas.ts: the admin fleet's response shapes (#881)
 export {
   adminNodeCredentialSchema,
+  adminNodeEventListSchema,
+  adminNodeEventSchema,
   adminNodeSchema,
   nodeCredentialCreatedSchema,
   nodeCredentialListItemSchema,
@@ -28,6 +30,8 @@ export {
 export type {
   AdminNode,
   AdminNodeCredential,
+  AdminNodeEvent,
+  AdminNodeEventList,
   NodeCredentialCreated,
   NodeCredentialListItem,
   NodeHealth,
@@ -42,6 +46,14 @@ export {
   claimTokenField,
   createNodeCredentialSchema,
   heartbeatNodeSchema,
+  MAX_NODE_EVENTS_PER_HEARTBEAT,
+  MAX_NODE_EVENT_ATTRS,
+  NODE_EVENT_TYPES,
+  NODE_SERVER_CAPABILITY_HOST_VITALS,
+  nodeEventSchema,
+  nodeHostVitalsSchema,
+  nodePowerSchema,
+  registerNodeResponseSchema,
   nodeDownloadUrlSchema,
   nodeJobFailureSchema,
   nodeJobResultSchema,
@@ -54,6 +66,9 @@ export {
   renewLeaseSchema,
 } from './schemas.js';
 export type {
+  NodeEvent,
+  NodeHostVitals,
+  NodePower,
   NodeReportedStatusEnum,
   NodeVitals,
   NodeVitalsCounters,

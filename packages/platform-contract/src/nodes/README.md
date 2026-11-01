@@ -91,3 +91,5 @@ New in this version: the request schemas moved here from `@marinoscar/platform-a
 - [Package README](../../README.md)
 - [The API slice](../../../platform-api/src/nodes/README.md)
 - [Contract conventions](../../../../docs/PACKAGES.md#contract-conventions)
+
+Host vitals, power and events (#1045): `nodeVitalsSchema` gains optional `host` (`nodeHostVitalsSchema`: system CPU, load, memory, OS) and `power` (`nodePowerSchema`: source, battery, charging); `heartbeatNodeSchema` gains `events` (`nodeEventSchema`, at most `MAX_NODE_EVENTS_PER_HEARTBEAT` = 50; the `type` is an open dotted string, `NODE_EVENT_TYPES` names the platform's own). A node sends these only when the register response carries `NODE_SERVER_CAPABILITY_HOST_VITALS` (`node_host_vitals`) in `serverFeatures` (`registerNodeResponseSchema`); an older server sends none and the CLI omits all three. `adminNodeEventSchema` and `adminNodeEventListSchema` are the shapes of `GET /api/nodes/:id/events`.

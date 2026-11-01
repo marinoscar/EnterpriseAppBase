@@ -22,7 +22,7 @@
 import { z } from 'zod';
 
 import { NODE_HEALTHS, NODE_STATUSES } from './constants.js';
-import { nodeVitalsSchema } from './schemas.js';
+import { nodeEventSchema, nodeVitalsSchema } from './schemas.js';
 
 /**
  * The entries of {@link NODE_STATUSES}, as `z.enum` sees them.
@@ -116,6 +116,41 @@ export const adminNodeSchema = z.object({
 });
 
 /**
+ * One stored node event as `GET /api/nodes/:id/events` returns it.
+ *
+ * @stability experimental
+ */
+export const adminNodeEventSchema = z.object({
+  /** The event id (UUID). */
+  id: z.string(),
+  /** The node it belongs to. */
+  nodeId: z.string(),
+  /** Dotted type, e.g. `power.battery_low`. */
+  type: nodeEventSchema.shape.type,
+  /** How loud it is. */
+  severity: nodeEventSchema.shape.severity,
+  /** The node's scalar attributes, `{}` when none. */
+  attrs: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
+  /** When it happened on the node's clock (ISO 8601). */
+  occurredAt: z.string(),
+  /** When the server received it (ISO 8601). */
+  receivedAt: z.string(),
+});
+
+/**
+ * A page of node events (`page`, `pageSize`, `items`, `total`, `totalPages`).
+ *
+ * @stability experimental
+ */
+export const adminNodeEventListSchema = z.object({
+  items: z.array(adminNodeEventSchema),
+  total: z.number().int(),
+  page: z.number().int(),
+  pageSize: z.number().int(),
+  totalPages: z.number().int(),
+});
+
+/**
  * One credential as `GET /api/admin/nodes/credentials` returns it
  * (`AdminNodeCredentialDto`). No `token`, no hash; revoked credentials are
  * included and carry `revokedAt` (the audit trail).
@@ -170,6 +205,18 @@ export const nodeCredentialCreatedSchema = z.object({
   createdAt: z.string(),
 });
 
+/**
+ * One stored node event.
+ *
+ * @stability experimental
+ */
+export type AdminNodeEvent = z.output<typeof adminNodeEventSchema>;
+/**
+ * A page of node events.
+ *
+ * @stability experimental
+ */
+export type AdminNodeEventList = z.output<typeof adminNodeEventListSchema>;
 /**
  * One admin node.
  *
