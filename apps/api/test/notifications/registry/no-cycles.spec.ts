@@ -33,8 +33,8 @@ describe('notification registry: no import cycles', () => {
   it('the app barrel (src/platform/notifications) loads first with every export defined', () => {
     const mod = loadFirst<typeof import('../../../src/platform/notifications')>('../../../src/platform/notifications');
 
-    expect(mod.NOTIFICATION_CHANNELS).toEqual(['email', 'browser', 'push', 'android_app', 'webhook']);
-    expect(mod.NOTIFICATION_EVENTS.length).toBe(15);
+    expect(mod.NOTIFICATION_CHANNELS).toEqual(['email', 'browser', 'push', 'android_app', 'webhook', 'http_post']);
+    expect(mod.NOTIFICATION_EVENTS.length).toBe(18);
     expect(mod.NOTIFICATION_EVENTS.find((event) => event.key === 'user.welcome')?.label).toBe('Welcome');
   });
 
@@ -69,17 +69,17 @@ describe('notification registry: no import cycles', () => {
   it('the registry barrel loads first and is filled', () => {
     const mod = loadFirst<typeof import('../support/notifications')>('../support/notifications');
 
-    expect(mod.notificationChannelRegistry.ids()).toEqual(['email', 'browser', 'push', 'android_app', 'webhook']);
-    expect(mod.notificationEventRegistry.size).toBe(15);
-    expect(mod.emailTemplateRegistry.size).toBe(12);
-    expect(mod.eventEmailTemplateRegistry.size).toBe(12);
-    expect(mod.eventBrowserTemplateRegistry.size).toBe(10);
+    expect(mod.notificationChannelRegistry.ids()).toEqual(['email', 'browser', 'push', 'android_app', 'webhook', 'http_post']);
+    expect(mod.notificationEventRegistry.size).toBe(18);
+    expect(mod.emailTemplateRegistry.size).toBe(15);
+    expect(mod.eventEmailTemplateRegistry.size).toBe(15);
+    expect(mod.eventBrowserTemplateRegistry.size).toBe(13);
   });
 
   it('the browser channel loads first with its exports defined', () => {
     const mod = loadFirst<typeof import('../support/notifications')>('../support/notifications');
 
-    expect(Object.keys(mod.EVENT_BROWSER_TEMPLATES)).toHaveLength(10);
+    expect(Object.keys(mod.EVENT_BROWSER_TEMPLATES)).toHaveLength(13);
     expect(typeof mod.sanitizeLink).toBe('function');
     expect(typeof mod.BrowserNotificationChannel).toBe('function');
   });

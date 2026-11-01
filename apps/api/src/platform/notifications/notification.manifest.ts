@@ -54,6 +54,13 @@ import { USERS_NOTIFICATIONS } from '../../identity-extensions/notifications/use
 import { ORGANIZATIONS_NOTIFICATIONS } from '../../identity-extensions/notifications/organizations.notifications';
 import { SHARING_NOTIFICATIONS } from '../sharing/sharing.notifications';
 import { EXPORTS_NOTIFICATIONS } from '../exports/exports.notifications';
+import { ALERTS_NOTIFICATIONS, registerAlertsEmailTemplates } from '@marinoscar/platform-api/alerts';
+import {
+  WEBHOOKS_NOTIFICATIONS,
+  WEBHOOK_NOTIFICATION_CHANNEL,
+  registerWebhooksEmailTemplates,
+  withWebhookChannel,
+} from '@marinoscar/platform-api/webhooks';
 import {
   BROADCASTS_NOTIFICATIONS,
   NODES_NOTIFICATIONS,
@@ -69,6 +76,12 @@ registerPlatformNotificationChannels();
 // The Android companion's channel (#746): Web Push to the Android app's
 // subscriptions only, covered by `push`. Its sender comes with AndroidAppModule.
 registerAndroidAppNotificationChannel();
+// The webhooks slice's channel (#1046): a member's notifications, forwarded to
+// their own webhook endpoints. Its sender comes with WebhooksModule. Events
+// opt in with `withWebhookChannel` below (the exports and sharing events, which
+// are about the member's own data); security, operational and broadcast events
+// stay off it, and an app adds the channel to its own with the same helper.
+registerNotificationChannels([WEBHOOK_NOTIFICATION_CHANNEL]);
 registerNotificationChannels(APP_NOTIFICATION_CHANNELS);
 
 // 3-4. Email templates (the registry lives in @marinoscar/platform-api/email
@@ -79,6 +92,10 @@ registerNotificationChannels(APP_NOTIFICATION_CHANNELS);
 configureEmailRendering(EMAIL_MODULE_OPTIONS);
 registerPlatformEmailTemplates();
 registerEmailTemplates(SLICE_EMAIL_TEMPLATES);
+// The alerts slice's two (#1047).
+registerAlertsEmailTemplates();
+// The webhooks slice's one (#1046).
+registerWebhooksEmailTemplates();
 registerEmailTemplates(APP_EMAIL_TEMPLATES);
 
 // 5. Platform notifications, in the order the preferences matrix shows them.
@@ -93,8 +110,12 @@ registerNotifications(OPS_NOTIFICATIONS);
 registerNotifications(NODES_NOTIFICATIONS);
 registerNotifications(DB_BACKUP_NOTIFICATIONS);
 registerNotifications(ORGANIZATIONS_NOTIFICATIONS);
-registerNotifications(SHARING_NOTIFICATIONS);
-registerNotifications(EXPORTS_NOTIFICATIONS);
+registerNotifications(withWebhookChannel(SHARING_NOTIFICATIONS));
+registerNotifications(withWebhookChannel(EXPORTS_NOTIFICATIONS));
+registerNotifications(ALERTS_NOTIFICATIONS);
+// The webhooks slice's `webhooks.endpoint_disabled` (#1046): sent to the owner of
+// a switched-off endpoint, by email and in the bell.
+registerNotifications(WEBHOOKS_NOTIFICATIONS);
 
 // 6. App notifications, last.
 registerNotifications(APP_NOTIFICATIONS);

@@ -89,6 +89,15 @@
       "reason": "At most one current Android APK release deployment-wide: a constant-expression partial unique index Prisma cannot express. Make-current clears the old flag and sets the new one in one transaction; the index arbitrates concurrent calls (the loser gets 409), never a findFirst pre-check.",
       "doc": "docs/specs/native-companion-architecture.md",
       "createdIn": "0033_add_android_app"
+    },
+    {
+      "name": "alert_incidents_open_uniq_idx",
+      "table": "alert_incidents",
+      "unique": true,
+      "definition": "CREATE UNIQUE INDEX alert_incidents_open_uniq_idx ON public.alert_incidents USING btree (rule_id, labels_key) WHERE ((state)::text = ANY ((ARRAY['pending'::character varying, 'firing'::character varying])::text[]))",
+      "reason": "At most one OPEN (pending or firing) incident per alert rule and label set; a partial unique index Prisma cannot express. The evaluator creates incidents and treats the unique violation as 'already open', so two overlapping evaluations leave one incident.",
+      "doc": "docs/specs/platform-packages.md",
+      "createdIn": "0040_add_alerts"
     }
   ]
 }

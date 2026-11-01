@@ -28,6 +28,8 @@ Slices (each a subpath export with its own README):
 | `@marinoscar/platform-contract/notifications` | The inbox, events, push subscription, Web Push configuration and broadcast shapes, and the `notifications` settings namespaces | [src/notifications/README.md](src/notifications/README.md) |
 | `@marinoscar/platform-contract/android-app` | The trusted-app, Digital Asset Links, APK release and test-notification shapes | [src/android-app/README.md](src/android-app/README.md) |
 | `@marinoscar/platform-contract/user-data` | The user deletion, factory reset and organization offboarding shapes, with their confirmation phrases | [src/user-data/README.md](src/user-data/README.md) |
+| `@marinoscar/platform-contract/alerts` | Alert wire shapes, `experimental`: rules and the per-kind configs of the built-in kinds, incidents, the dry-run response, the kind catalog, the dashboard summary and the `alerts.alert.*` webhook data (#1047) | [src/alerts/README.md](src/alerts/README.md) |
+| `@marinoscar/platform-contract/webhooks` | Webhook wire shapes, `experimental`: endpoints, deliveries, the event catalog, the envelope, the `webhook-*` header names, error codes and the Standard Webhooks `signWebhookPayload` / `verifyWebhookSignature` helpers (#1046) | [src/webhooks/README.md](src/webhooks/README.md) |
 
 The root entry exports only `PLATFORM_PACKAGE`; schemas are reached through their slice's subpath, so a consumer loads only the slices it uses.
 
@@ -167,3 +169,5 @@ Build and import problems common to every platform package are in [DEVELOPMENT.m
 - [Settings slice](src/settings/README.md)
 - [Onboarding slice](src/onboarding/README.md)
 - [Exports slice](src/exports/README.md)
+- [Alerts slice](src/alerts/README.md)
+- [Webhooks slice](src/webhooks/README.md)

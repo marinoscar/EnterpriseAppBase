@@ -16,6 +16,10 @@ export { RegistryFreezeService } from './registry/registry-freeze.service';
 // free like the registry. The conformance kit is `@marinoscar/platform-api/core/testing`.
 export * from './pluggable/index';
 
+// Public-address classification (issue #1046): the gate an outbound request an
+// end user can aim (a webhook) runs every resolved address through.
+export { isBlockedAddress, isBlockedIpv4, isBlockedIpv6 } from './net/ip-classify';
+
 // The host ports (issue #696): the access port (`definePlatformHost`), the
 // DI-time ports (`AUDIT_SINK`, `SYSTEM_SETTINGS_STORE`, `PLATFORM_PRISMA`) and
 // `PlatformHostModule`, which binds them. Every packaged slice reuses them.

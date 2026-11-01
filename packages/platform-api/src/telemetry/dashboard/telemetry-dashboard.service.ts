@@ -407,6 +407,30 @@ class StatementRunner {
   }
 }
 
+/**
+ * The resolved window and validated filters a dashboard panel reads under.
+ *
+ * @stability experimental
+ */
+export interface DashboardPanelScope {
+  /** The resolved window. */
+  window: DashboardPanelWindow;
+  /** The validated `service` and `instance` filters. */
+  filters: {
+    /** Only this service. */
+    service?: string;
+    /** Only this instance. */
+    instance?: string;
+  };
+}
+
+/**
+ * The dashboard's reads (summary with the verdict, series, tops, metric groups,
+ * events). Exported so another slice (alerts) can evaluate the verdict
+ * in-process; a `null` user is the system itself (its audit rows have no actor).
+ *
+ * @stability experimental
+ */
 @Injectable()
 export class TelemetryDashboardService {
   private readonly logger = new Logger(TelemetryDashboardService.name);
@@ -428,16 +452,19 @@ export class TelemetryDashboardService {
     @Optional() @Inject(TELEMETRY_SQL_DIALECT) private readonly dialect: TelemetrySqlDialect = GREPTIME_SQL_DIALECT,
   ) {}
 
-  async summary(userId: string, query: TelemetryDashboardQuery): Promise<TelemetryDashboardSummary> {
+  /** The summary read: the health verdict, the fixed tiles and the runtime tiles. A `null` user is the system itself (an in-process caller such as the alerts slice). */
+  async summary(userId: string | null, query: TelemetryDashboardQuery): Promise<TelemetryDashboardSummary> {
     return this.cached(userId, 'summary', query, {}, (ctx) => this.computeSummary(ctx));
   }
 
+  /** The `api` or `logs` time series over the window. */
   async timeseries(userId: string, query: TelemetryDashboardTimeseriesQuery): Promise<TelemetryDashboardTimeseries> {
     return this.cached(userId, 'timeseries', query, { panel: query.panel }, (ctx) =>
       this.computeTimeseries(ctx, query.panel),
     );
   }
 
+  /** The top routes, errors or similar tables over the window. */
   async top(userId: string, query: TelemetryDashboardTopQuery): Promise<TelemetryDashboardTop> {
     return this.cached(userId, 'top', query, { kind: query.kind }, (ctx) => this.computeTop(ctx, query.kind));
   }
@@ -447,6 +474,7 @@ export class TelemetryDashboardService {
     return this.cached(userId, 'metrics', query, { group: query.group }, (ctx) => this.computeMetrics(ctx, query.group));
   }
 
+  /** The recent events page (traces and logs) with its cursor. */
   async events(userId: string, query: TelemetryDashboardEventsQuery): Promise<TelemetryDashboardEvents> {
     // Validated before the cache, so a malformed cursor is a 400 every time.
     const cursor = query.cursor ? decodeCursor(query.cursor) : null;
@@ -472,10 +500,10 @@ export class TelemetryDashboardService {
   async panelScope(
     userId: string,
     query: TelemetryDashboardQuery,
-  ): Promise<{ window: DashboardPanelWindow; filters: { service?: string; instance?: string } }> {
+  ): Promise<DashboardPanelScope> {
     const policy = await requireQueryablePolicy(this.store, this.settings);
     const window = resolveWindow(query);
-    const scope: { window: DashboardPanelWindow; filters: { service?: string; instance?: string } } = {
+    const scope: DashboardPanelScope = {
       window: {
         from: window.from,
         to: window.to,
@@ -501,6 +529,7 @@ export class TelemetryDashboardService {
     return scope;
   }
 
+  /** The service, instance and host values seen in the window, for the dashboard filters. */
   async filters(userId: string, query: TelemetryDashboardQuery): Promise<TelemetryDashboardFilters> {
     const policy = await requireQueryablePolicy(this.store, this.settings);
     const window = resolveWindow(query);
@@ -526,7 +555,7 @@ export class TelemetryDashboardService {
 
   /** Preconditions, window, result cache, audit. */
   private async cached<T extends { sql: string | string[]; truncated: boolean }>(
-    userId: string,
+    userId: string | null,
     route: DashboardRoute,
     query: CommonQuery & { service?: string; instance?: string; host?: string },
     extra: Record<string, string>,
@@ -562,7 +591,7 @@ export class TelemetryDashboardService {
 
   /** Runs `work`, then writes the audit row (for a failure too) and logs the outcome. */
   private async audited<T extends { sql: string | string[]; truncated: boolean }>(
-    userId: string,
+    userId: string | null,
     route: DashboardRoute,
     params: Record<string, unknown>,
     started: number,
@@ -593,7 +622,7 @@ export class TelemetryDashboardService {
   }
 
   private async audit(
-    userId: string,
+    userId: string | null,
     route: DashboardRoute,
     params: Record<string, unknown>,
     meta: Record<string, unknown>,

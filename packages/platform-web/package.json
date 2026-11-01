@@ -271,6 +271,22 @@
       "types": "./dist/timezone/ui/index.d.ts",
       "default": "./dist/timezone/ui/index.js"
     },
+    "./webhooks/headless": {
+      "types": "./dist/webhooks/headless/index.d.ts",
+      "default": "./dist/webhooks/headless/index.js"
+    },
+    "./webhooks/ui": {
+      "types": "./dist/webhooks/ui/index.d.ts",
+      "default": "./dist/webhooks/ui/index.js"
+    },
+    "./alerts/headless": {
+      "types": "./dist/alerts/headless/index.d.ts",
+      "default": "./dist/alerts/headless/index.js"
+    },
+    "./alerts/ui": {
+      "types": "./dist/alerts/ui/index.d.ts",
+      "default": "./dist/alerts/ui/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

@@ -32,7 +32,7 @@ const USER_ID = 'user-1';
 
 function sender(overrides: Partial<NotificationChannelSender>): jest.Mocked<NotificationChannelSender> {
   return {
-    channel: 'webhook',
+    channel: 'http_post',
     deliver: jest.fn().mockResolvedValue({ success: true, messageId: 'm-1' }),
     ...overrides,
   } as jest.Mocked<NotificationChannelSender>;
@@ -80,7 +80,7 @@ describe('NotificationsService resolves a recipient per channel (PP-14.10)', () 
 
     await service.notifyNow(EVENT, USER_ID, { by: 'Ada' });
 
-    expect(createdRow()).toMatchObject({ channel: 'webhook', recipient: '#ops-alerts', userId: USER_ID });
+    expect(createdRow()).toMatchObject({ channel: 'http_post', recipient: '#ops-alerts', userId: USER_ID });
     expect(JSON.stringify(createdRow())).not.toContain('secret-destination');
     expect(webhook.deliver).toHaveBeenCalledWith(expect.objectContaining({ data: { by: 'Ada' } }), 'secret-destination');
   });
@@ -161,8 +161,8 @@ describe('NotificationsService resolves a recipient per channel (PP-14.10)', () 
       await (await build(webhook, source)).notifyNow(EVENT, USER_ID, {});
 
       await expect(context().handle()).resolves.toEqual({ to: 'U-1', display: '@ada' });
-      expect(source.handleFor).toHaveBeenCalledWith(USER_ID, 'webhook');
-      expect(context().channel).toBe('webhook');
+      expect(source.handleFor).toHaveBeenCalledWith(USER_ID, 'http_post');
+      expect(context().channel).toBe('http_post');
       expect(context().event.key).toBe(EVENT);
     });
 

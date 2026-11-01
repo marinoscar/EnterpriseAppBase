@@ -221,6 +221,22 @@ const BASE_USER_OWNED_MODELS: readonly UserOwnedModelDef[] = [
 ];
 
 /**
+ * The webhooks slice's model with a foreign key to `User` (#1046). Deliveries
+ * have no `User` key; they cascade with their endpoint.
+ */
+const WEBHOOKS_USER_OWNED_MODELS: readonly UserOwnedModelDef[] = [
+  {
+    model: 'WebhookEndpoint',
+    ownerField: 'ownerUserId',
+    ownerRelation: 'owner',
+    purge: 'delete',
+    export: 'include',
+    rationale:
+      "The user's own outbound webhook destinations. Deleting the user deletes the endpoint (Cascade) and, through it, its deliveries. The signing secret lives in the credentials store and is never a column.",
+  },
+];
+
+/**
  * Every platform model with a foreign key to `User`, with its role, purge and
  * export policy, in registration order: the base inventory, then the sharing,
  * settings, credentials and android-app slices' own entries.
@@ -237,6 +253,8 @@ export const PLATFORM_USER_OWNED_MODELS: readonly UserOwnedModelDef[] = Object.f
   ...CREDENTIALS_USER_OWNED_MODELS,
   // The android-app slice's release table.
   ...ANDROID_APP_USER_OWNED_MODELS,
+  // The webhooks slice's endpoint table (#1046).
+  ...WEBHOOKS_USER_OWNED_MODELS,
 ]);
 
 /**

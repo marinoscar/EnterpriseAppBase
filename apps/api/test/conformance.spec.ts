@@ -86,6 +86,11 @@ import { runPlatformConformance } from '@marinoscar/platform-api/testing';
 import '@marinoscar/platform-api/ai/testing';
 import '@marinoscar/platform-api/jobs/testing';
 import '@marinoscar/platform-api/doctor/testing';
+// The webhooks slice's suite (#1046): `webhooks`.
+import '@marinoscar/platform-api/webhooks/testing';
+// The alerts slice's suite (#1047): `alerts`.
+import '@marinoscar/platform-api/alerts/testing';
+import { RAW_SQL_INDEXES } from '@marinoscar/platform-db';
 // The app's own AI providers (registers `example-transcribe`): the SDK-leak suite reads
 // the registered definitions' `sdkPackages`, and each AI suite discovers its routes.
 import '../src/app-registrations/ai';
@@ -159,6 +164,8 @@ runPlatformConformance({
         'ops/node-offline-notifier.ts',
         'ops/job-failure-notifier.ts',
         'broadcasts/broadcast-failure.listener.ts',
+        // The webhooks slice's bridges (#1046): each listener only enqueues a webhooks.fanout job.
+        'listeners/webhook-event.listeners.ts',
       ],
     },
 
@@ -166,6 +173,15 @@ runPlatformConformance({
     // Suite id: `doctor-read-only`. The checks are DISCOVERED from the booted app's
     // registry; the floor is a vacuity guard, not a list.
     doctorReadOnly: { fixture: doctorConformanceFixture, minChecks: 30 },
+
+    // The webhooks slice (#1046): exact route permissions, signing and rotation,
+    // the egress guard (private targets, DNS rebinding), secrecy, nothing sent
+    // inline, and visibility across owners and organizations.
+    webhooks: {},
+
+    // The alerts slice (#1047): routes, kinds, starter rules, the one-open-incident
+    // index, idempotent evaluation, dispatch after the committed write.
+    alerts: { rawSqlIndexNames: RAW_SQL_INDEXES.map((index) => index.name) },
 
     // ---- the AI platform's invariants (CLAUDE.md AI rules 1 to 4) ------------
     // The five that boot the app take the fixture (./conformance/ai-fixture.ts):

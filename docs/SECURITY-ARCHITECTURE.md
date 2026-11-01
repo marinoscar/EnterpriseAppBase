@@ -1665,7 +1665,11 @@ registry (`PLATFORM_MODEL_OWNERSHIP` of `@marinoscar/platform-api/manifest`,
 (#733, an organization's settings overrides, declared by
 `@marinoscar/platform-api/settings`), and the credentials slice's
 `OrgCredential` (#735, declared by `@marinoscar/platform-api/credentials`;
-policy `org_credentials_org_isolation`). Each carries `org_id`, has
+policy `org_credentials_org_isolation`), and the webhooks slice's
+`WebhookEndpoint` and `WebhookDelivery` (#1046; policies
+`webhook_endpoints_org_isolation` and `webhook_deliveries_org_isolation`;
+`org_id` is nullable like `ai_usage_events`, NULL only for a system-scope
+endpoint, whose rows only the system client sees). Each carries `org_id`, has
 `ENABLE` and `FORCE ROW LEVEL SECURITY`, and one policy named in
 `packages/platform-db/rls-policies.json` (`RLS_POLICIES`). `AuditEvent` has a
 nullable `org_id` and no policy yet (`org-optional`). `Job` (#734) is

@@ -2,10 +2,10 @@
   "$comment": "Captured from the database the PRE-change prisma/seed.ts produced (issue #712, PP-5.5): roles, permissions and role_permissions by name, the global system_settings row, and the row counts. seed-platform.db.spec.ts proves the registry-driven seed writes exactly this. Do not regenerate it to make a test pass: when seeded data changes on purpose, edit it here in the same commit so the change shows in review. Edited on purpose by issue #723 (PP-6.3): the org_admin role, the four org_* permissions, admin's org grants moved to org_admin, and the scoped role descriptions. Edited on purpose by issue #726 (PP-6.7): the two system permissions organizations:read and organizations:write, granted to admin. Edited on purpose by issue #728 (PP-7.1): the three org permissions groups:read (every org role), groups:write (org_admin, contributor) and groups:admin (org_admin). Edited on purpose by issue #729 (PP-7.2): the three org permissions sharing:read (every org role), sharing:write (org_admin, contributor) and sharing:admin (org_admin). Edited on purpose by issue #733 (PP-8.1): the two org permissions org_settings:read and org_settings:write, granted to org_admin. Edited on purpose by issue #738 (PP-8.5): the two org permissions org_broadcasts:read and org_broadcasts:write, granted to org_admin. Edited on purpose by issue #743 (PP-9.1): the two system permissions system:factory_reset and orgs:offboard, granted to admin. Edited on purpose by issue #925 (PP-14.7): the storage namespace is stored as { provider, drivers } (one entry per built-in driver, all empty / not configured) instead of the flat bucket, region, endpoint, accountId, accessKeyId and forcePathStyle fields; legacy flat rows still load through the read-time adapter, but the seed writes the new shape.",
   "counts": {
     "roles": 4,
-    "permissions": 51,
+    "permissions": 59,
     "allowedEmails": 1,
     "systemSettings": 1,
-    "rolePermissions": 65
+    "rolePermissions": 77
   },
   "roles": [
     {
@@ -37,6 +37,14 @@
     {
       "name": "ai_config:write",
       "description": "Change whether AI is enabled, the key policy, per-provider configuration and the deployment-wide defaults"
+    },
+    {
+      "name": "alerts:read",
+      "description": "View alert rules, incidents and the firing summary"
+    },
+    {
+      "name": "alerts:write",
+      "description": "Create, edit and delete alert rules; test them; acknowledge incidents"
     },
     {
       "name": "allowlist:read",
@@ -135,6 +143,14 @@
       "description": "Modify the active organization's settings overrides"
     },
     {
+      "name": "org_webhooks:read",
+      "description": "View the active organization's webhook endpoints and their deliveries"
+    },
+    {
+      "name": "org_webhooks:write",
+      "description": "Create, change, delete, rotate and test the active organization's webhook endpoints"
+    },
+    {
       "name": "organizations:read",
       "description": "List the deployment's organizations and their member counts"
     },
@@ -203,6 +219,14 @@
       "description": "Modify system settings"
     },
     {
+      "name": "system_webhooks:read",
+      "description": "View the deployment's webhook endpoints and their deliveries"
+    },
+    {
+      "name": "system_webhooks:write",
+      "description": "Create, change, delete, rotate and test the deployment's webhook endpoints"
+    },
+    {
       "name": "telemetry:query",
       "description": "Run SQL, export and use the AI assistant against telemetry"
     },
@@ -229,12 +253,22 @@
     {
       "name": "users:write",
       "description": "Modify user accounts"
+    },
+    {
+      "name": "webhooks:read",
+      "description": "View your own webhook endpoints and their deliveries"
+    },
+    {
+      "name": "webhooks:write",
+      "description": "Create, change, delete, rotate and test your own webhook endpoints"
     }
   ],
   "rolePermissions": {
     "admin": [
       "ai_config:read",
       "ai_config:write",
+      "alerts:read",
+      "alerts:write",
       "allowlist:read",
       "allowlist:write",
       "broadcasts:read",
@@ -258,6 +292,8 @@
       "system:factory_reset",
       "system_settings:read",
       "system_settings:write",
+      "system_webhooks:read",
+      "system_webhooks:write",
       "telemetry:query",
       "telemetry:read",
       "telemetry:write",
@@ -273,7 +309,9 @@
       "storage:read",
       "storage:write",
       "user_settings:read",
-      "user_settings:write"
+      "user_settings:write",
+      "webhooks:read",
+      "webhooks:write"
     ],
     "org_admin": [
       "ai:use",
@@ -290,20 +328,26 @@
       "org_members:write",
       "org_settings:read",
       "org_settings:write",
+      "org_webhooks:read",
+      "org_webhooks:write",
       "sharing:admin",
       "sharing:read",
       "sharing:write",
       "storage:read",
       "storage:write",
       "user_settings:read",
-      "user_settings:write"
+      "user_settings:write",
+      "webhooks:read",
+      "webhooks:write"
     ],
     "viewer": [
       "groups:read",
       "sharing:read",
       "storage:read",
       "user_settings:read",
-      "user_settings:write"
+      "user_settings:write",
+      "webhooks:read",
+      "webhooks:write"
     ]
   },
   "systemSettings": {

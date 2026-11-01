@@ -52,6 +52,7 @@ describe('the shipped package', () => {
       ['grants_active_group_uniq_idx', true],
       ['grants_active_ref_uniq_idx', true],
       ['android_app_releases_one_current_uniq_idx', true],
+      ['alert_incidents_open_uniq_idx', true],
     ]);
     for (const index of RAW_SQL_INDEXES) {
       expect(['docs/specs/job-queue.md', 'docs/specs/database-backup.md', 'docs/specs/platform-packages.md', 'docs/specs/native-companion-architecture.md']).toContain(index.doc);

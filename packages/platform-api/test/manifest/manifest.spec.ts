@@ -44,10 +44,10 @@ const scopeOf = (catalog: PermissionCatalog, scope: 'system' | 'org') =>
 describe('the platform permission sets', () => {
   const catalog = platformPermissionCatalog();
 
-  it('compose into one catalog: four roles, 51 permissions, each once', () => {
+  it('compose into one catalog: four roles, 59 permissions, each once', () => {
     expect(catalog.roles.map((role) => role.name)).toEqual(['admin', 'contributor', 'viewer', 'org_admin']);
-    expect(catalog.permissions).toHaveLength(51);
-    expect(new Set(catalog.permissions.map((entry) => entry.name)).size).toBe(51);
+    expect(catalog.permissions).toHaveLength(59);
+    expect(new Set(catalog.permissions.map((entry) => entry.name)).size).toBe(59);
   });
 
   it('list the permissions in set order, then key order', () => {

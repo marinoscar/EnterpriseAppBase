@@ -49,6 +49,8 @@ describe('model ownership vs prisma/schema/', () => {
     'WorkerNode',
     'NodeCredential',
     'WorkerNodeEvent',
+    'AlertRule',
+    'AlertIncident',
     'JobStatsRollup',
     'JobNodeSecret',
     'NotificationBroadcast',
@@ -64,6 +66,8 @@ describe('model ownership vs prisma/schema/', () => {
     'UserCredential',
     'OrgCredential',
     'AndroidAppRelease',
+    'WebhookEndpoint',
+    'WebhookDelivery',
     ]);
     expect(modelOwnershipRegistry.list()).toEqual([...PLATFORM_MODEL_OWNERSHIP]);
   });
@@ -74,7 +78,7 @@ describe('model ownership vs prisma/schema/', () => {
     expect(modelNames.filter((m) => !registered.includes(m))).toEqual([]);
   });
 
-  it('lists exactly the ten org models, the org-optional AuditEvent and Job, and the user and system rest', () => {
+  it('lists exactly the twelve org models, the org-optional AuditEvent and Job, and the user and system rest', () => {
     expect(modelsOfKind('org').map((d) => d.model).sort()).toEqual([
       'AiRun',
       'AiUsageEvent',
@@ -86,6 +90,8 @@ describe('model ownership vs prisma/schema/', () => {
       'OrgSettings',
       'StorageObject',
       'StorageObjectChunk',
+      'WebhookDelivery',
+      'WebhookEndpoint',
     ]);
     expect(modelsOfKind('org-optional').map((d) => d.model)).toEqual(['AuditEvent', 'Job']);
     expect(modelsOfKind('user').map((d) => d.model).sort()).toEqual([
@@ -118,11 +124,11 @@ describe('model ownership vs prisma/schema/', () => {
     }
   });
 
-  it('declares the org field required on the three NOT NULL tables and optional on usage events, audit and jobs', () => {
+  it('declares the org field required on the three NOT NULL tables and optional on usage events, webhooks, audit and jobs', () => {
     const optional = (name: string): boolean => datamodel.find((m) => m.name === name)!.fields.find((f) => f.name === 'orgId')!.isOptional;
 
     expect(['StorageObject', 'StorageObjectChunk', 'AiRun'].map(optional)).toEqual([false, false, false]);
-    expect(['AiUsageEvent', 'AuditEvent', 'Job'].map(optional)).toEqual([true, true, true]);
+    expect(['AiUsageEvent', 'WebhookEndpoint', 'WebhookDelivery', 'AuditEvent', 'Job'].map(optional)).toEqual([true, true, true, true, true]);
   });
 
   it('keeps the org-owned models together: a reference between two of them is a composite key', () => {

@@ -31,6 +31,8 @@ Status: pre-release (the current channel and how to install it: the [release run
 - `@marinoscar/platform-web/host/headless` and `@marinoscar/platform-web/host/ui`: the About page, the admin Maintenance page and the public maintenance screen, with the maintenance recogniser and block store, `createHostApi` and the `useAbout`, `useMaintenance` and `useMaintenanceBlock` hooks (#891). [README](src/host/README.md).
 - `@marinoscar/platform-web/datatable/headless`, `@marinoscar/platform-web/datatable/ui` and `@marinoscar/platform-web/datatable/testing`: the responsive `DataTable` (desktop grid, tablet expander, phone cards) with its filters, view bar, CSV export and bulk actions, the layout-preference port `DataTablePreferencesPort`, and the jsdom layout stubs and conformance suite (#897). [README](src/datatable/README.md).
 - `@marinoscar/platform-web/timezone/headless` and `@marinoscar/platform-web/timezone/ui`: the display time zone (the user's `profile.timezone`, else the device's) with its store, `useDisplayTimeZone` and `UserTimeZoneSync`, the formatters that render in it (`formatDateTime`, `formatDate`, `formatTime`, `zonedDateKey`), the zone catalog, and the world-map picker (`TimeZoneMap`, `TimeZonePickerDialog`, `TimeZoneField`). [README](src/timezone/README.md).
+- `@marinoscar/platform-web/webhooks/headless` and `@marinoscar/platform-web/webhooks/ui`: outbound webhooks for the `user`, `org` and `system` scopes: `createWebhooksApi`, the endpoint, delivery and event catalog hooks, the event picker's wildcard model, and `WebhooksPage` with its create and edit dialog, one-time secret dialog, deliveries table and delivery drawer, plus the settings cards as data (`webhooksUserSettingsSections`, `webhooksAdminSections`) (#1046). [README](src/webhooks/README.md).
+- `@marinoscar/platform-web/alerts/headless` and `@marinoscar/platform-web/alerts/ui`: alert rules and incidents: `createAlertsApi`, the rule, kind, incident, summary and metric-catalog hooks, the rule editor's draft model, and `AlertsPage` (Rules and Incidents tabs) with the rule editor, the dry-run result and the incident drawer, `FiringAlertsBanner` for the telemetry dashboard, plus the admin card as data (`alertsAdminCards`) (#1047). [README](src/alerts/README.md).
 
 ## Install and peer dependencies
 
@@ -54,10 +56,10 @@ Optional peers, installed for the slices that need them:
 
 | Package | Range | Needed by |
 |---|---|---|
-| `@mui/icons-material` | `^9.1.0` | every slice with a `/ui` entry (`doctor`, `identity`, `settings`, `sharing`, `onboarding`, `email`, `nodes`, `jobs`, `storage`, `notifications`, `exports`, `ai`, `db-backup`, `android-app`, `user-data`, `shell`, `host`, `datatable`, `telemetry`, `timezone`) |
-| `react-router-dom` | `^7.17.0` | the same slices, except `exports`, `datatable` and `timezone` |
+| `@mui/icons-material` | `^9.1.0` | every slice with a `/ui` entry (`doctor`, `identity`, `settings`, `sharing`, `onboarding`, `email`, `nodes`, `jobs`, `storage`, `notifications`, `exports`, `ai`, `db-backup`, `android-app`, `user-data`, `shell`, `host`, `datatable`, `telemetry`, `timezone`, `webhooks`, `alerts`) |
+| `react-router-dom` | `^7.17.0` | the same slices, except `exports`, `datatable`, `timezone` and `webhooks` |
 | `zod` | `^4.4.3` | `nodes`, `jobs` (and the app's own use of `@marinoscar/platform-contract`) |
-| `@mui/x-data-grid` | `^9.10.1` | `datatable/ui` and, since the AI lists use it, `ai/ui`; `telemetry/ui` |
+| `@mui/x-data-grid` | `^9.10.1` | `datatable/ui` and, since the AI lists use it, `ai/ui`; `telemetry/ui`; `webhooks/ui`; `alerts/ui` |
 | `@mui/x-charts` | `^9.14.0` | `telemetry/ui` (#704) |
 | `@uiw/react-codemirror` | `^4.25.12` | `telemetry/ui` |
 | `@codemirror/lang-sql` | `^6.10.0` | `telemetry/ui` |

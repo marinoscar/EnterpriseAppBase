@@ -44,7 +44,7 @@ import { TelemetryHttpError } from './telemetry-query.errors';
  *
  * @stability experimental
  */
-export type TelemetryQuerySource = 'explorer' | 'assistant' | 'export' | 'panel';
+export type TelemetryQuerySource = 'explorer' | 'assistant' | 'export' | 'panel' | 'alert';
 
 /**
  * How `TelemetryQueryService.run` runs one statement.
@@ -66,6 +66,7 @@ export const TELEMETRY_QUERY_AUDIT_ACTIONS: Record<TelemetryQuerySource, string>
   export: 'telemetry:export',
   assistant: 'telemetry:assistant_query',
   panel: 'telemetry:panel_query',
+  alert: 'telemetry:alert_query',
 };
 
 /** How much of the SQL text an audit row keeps. */
@@ -148,7 +149,7 @@ export class TelemetryQueryService {
    * Runs one read-only statement for `userId`. Throws `TelemetryHttpError`
    * (see `telemetry-query.errors.ts`) for every expected failure.
    */
-  async run(userId: string, sql: string, opts: TelemetryQueryRunOptions = {}): Promise<TelemetryQueryRunResult> {
+  async run(userId: string | null, sql: string, opts: TelemetryQueryRunOptions = {}): Promise<TelemetryQueryRunResult> {
     const source = opts.source ?? 'explorer';
 
     // Preconditions are not audited: nothing was attempted against the store.
@@ -211,6 +212,9 @@ export class TelemetryQueryService {
     }
 
     // Outside the try: a failed audit write is a 500, not a "failed query".
+    // The alert evaluator reads every minute as the system itself: only its failures leave an audit row.
+    if (source === 'alert') return outcome;
+
     await this.audit(userId, source, sql, {
       rowCount: outcome.rowCount,
       truncated: outcome.truncated,
@@ -221,7 +225,7 @@ export class TelemetryQueryService {
   }
 
   private async audit(
-    userId: string,
+    userId: string | null,
     source: TelemetryQuerySource,
     sql: string,
     meta: { rowCount: number; truncated: boolean; elapsedMs: number; error?: string; reason?: string },

@@ -113,10 +113,11 @@ describe('packaged telemetry cards', () => {
   const observability = ADMIN_SECTIONS.find((section) => section.label === 'Observability');
   const cards = [...ADMIN_SECTIONS, ...USER_SETTINGS_SECTIONS].flatMap((section) => section.cards);
 
-  it('sit in the Observability section, in their order, before the Doctor card', () => {
+  it('sit in the Observability section, in their order, before the Doctor card (Alerts, #1047, appended after it)', () => {
     expect(observability?.cards.map((card) => card.path)).toEqual([
       ...telemetryAdminCards.map((card) => card.path),
       doctorSettingsPage.card.path,
+      '/admin/settings/alerts',
     ]);
   });
 

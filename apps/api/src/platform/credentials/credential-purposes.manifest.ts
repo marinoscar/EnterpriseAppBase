@@ -23,12 +23,16 @@ import { SES_CREDENTIAL_PURPOSE_DEF } from '@marinoscar/platform-api/email';
 import { SMTP_CREDENTIAL_PURPOSE_DEF } from '@marinoscar/platform-api/email';
 import { PUSH_VAPID_CREDENTIAL_PURPOSE_DEF } from '@marinoscar/platform-api/notifications';
 import { STORAGE_CREDENTIAL_PURPOSE_DEF } from '@marinoscar/platform-api/storage';
+import { WEBHOOK_SIGNING_CREDENTIAL_PURPOSE_DEF, WEBHOOK_SIGNING_USER_CREDENTIAL_PURPOSE_DEF } from '@marinoscar/platform-api/webhooks';
 
 registerCredentialPurpose(AI_CREDENTIAL_PURPOSE_DEF);
 registerCredentialPurpose(STORAGE_CREDENTIAL_PURPOSE_DEF);
 registerCredentialPurpose(SMTP_CREDENTIAL_PURPOSE_DEF);
 registerCredentialPurpose(SES_CREDENTIAL_PURPOSE_DEF);
 registerCredentialPurpose(PUSH_VAPID_CREDENTIAL_PURPOSE_DEF);
+// Webhook signing secrets (#1046): the deployment's and an organization's tier, then a member's own.
+registerCredentialPurpose(WEBHOOK_SIGNING_CREDENTIAL_PURPOSE_DEF);
+registerUserCredentialPurpose(WEBHOOK_SIGNING_USER_CREDENTIAL_PURPOSE_DEF);
 // The telemetry slice is packaged but sits beside credentials in the slice
 // graph (it reaches the store through its TELEMETRY_CREDENTIAL_STORE port), so
 // the app declares its purpose for it.

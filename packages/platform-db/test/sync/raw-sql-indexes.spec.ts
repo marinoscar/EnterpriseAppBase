@@ -8,8 +8,9 @@ const PACKAGE_LIST = join(__dirname, '..', '..', 'raw-sql-indexes.json');
 describe('raw-sql-indexes.json', () => {
   const indexes = readPackageRawSqlIndexes(PACKAGE_LIST);
 
-  it('lists exactly the ten raw-SQL indexes, each with a reason and the migration that creates it', () => {
+  it('lists exactly the eleven raw-SQL indexes, each with a reason and the migration that creates it', () => {
     expect(indexes.map((i) => i.name).sort()).toEqual([
+      'alert_incidents_open_uniq_idx',
       'android_app_releases_one_current_uniq_idx',
       'database_backup_runs_active_uniq_idx',
       'grants_active_group_uniq_idx',

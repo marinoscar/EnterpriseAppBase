@@ -55,7 +55,7 @@ describe('NotificationRecipient.timeZone', () => {
     prisma.notificationDelivery.create.mockResolvedValue({ id: 'd-1' } as never);
     prisma.notificationDelivery.update.mockResolvedValue({} as never);
     webhook = {
-      channel: 'webhook',
+      channel: 'http_post',
       resolveTo: jest.fn().mockReturnValue('hook:user-1'),
       deliver: jest.fn().mockResolvedValue({ success: true, messageId: 'm-1' }),
     } as unknown as jest.Mocked<NotificationChannelSender>;

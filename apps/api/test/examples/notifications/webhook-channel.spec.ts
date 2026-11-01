@@ -170,10 +170,10 @@ describe('the webhook channel in the reference app (PP-14.10)', () => {
 
       const channels: Array<{ id: string; label: string; criticalCapable: boolean; broadcastDefault: boolean; order: number }> =
         response.body.data;
-      expect(channels.map((channel) => channel.id)).toEqual(['email', 'browser', 'push', 'android_app', 'webhook']);
-      expect(channels.map((channel) => channel.order)).toEqual([0, 1, 2, 3, 4]);
-      expect(channels.find((channel) => channel.id === 'webhook')).toMatchObject({
-        label: 'Webhook',
+      expect(channels.map((channel) => channel.id)).toEqual(['email', 'browser', 'push', 'android_app', 'webhook', 'http_post']);
+      expect(channels.map((channel) => channel.order)).toEqual([0, 1, 2, 3, 4, 5]);
+      expect(channels.find((channel) => channel.id === 'http_post')).toMatchObject({
+        label: 'HTTP POST',
         criticalCapable: false,
         broadcastCapable: true,
         broadcastDefault: false,
@@ -199,9 +199,9 @@ describe('the webhook channel in the reference app (PP-14.10)', () => {
       const byKey = new Map<string, { channels: string[]; declaredChannels: string[] }>(
         response.body.data.map((event: { key: string; channels: string[]; declaredChannels: string[] }) => [event.key, event]),
       );
-      expect(byKey.get('admin.broadcast')?.channels).toContain('webhook');
-      expect(byKey.get('admin.broadcast_critical')?.channels).toContain('webhook');
-      expect(byKey.get(WEBHOOK_TEST_EVENT.key)?.channels).toEqual(['webhook']);
+      expect(byKey.get('admin.broadcast')?.channels).toContain('http_post');
+      expect(byKey.get('admin.broadcast_critical')?.channels).toContain('http_post');
+      expect(byKey.get(WEBHOOK_TEST_EVENT.key)?.channels).toEqual(['http_post']);
       // The platform events that did not opt in are untouched.
       expect(byKey.get('user.welcome')?.channels).toEqual(['email']);
     });
@@ -224,7 +224,7 @@ describe('the webhook channel in the reference app (PP-14.10)', () => {
       await request(context.app.getHttpServer())
         .patch('/api/system-settings')
         .set(authHeader(admin.accessToken))
-        .send({ notifications: { channels: { webhook: { enabled: false }, browser: { enabled: false } } } })
+        .send({ notifications: { channels: { http_post: { enabled: false }, browser: { enabled: false } } } })
         .expect(200);
 
       const written = (prismaMock.systemSettings.update.mock.calls[0]![0] as { data: { value: { notifications: unknown } } }).data.value
@@ -232,12 +232,12 @@ describe('the webhook channel in the reference app (PP-14.10)', () => {
       expect(written).toEqual({
         browserEnabled: false,
         disabledEvents: [],
-        channels: { webhook: { enabled: false }, browser: { enabled: false } },
+        channels: { http_post: { enabled: false }, browser: { enabled: false } },
       });
     });
 
     it('drops the channel from the events a user sees once it is switched off, and keeps the others', async () => {
-      storePolicy({ browserEnabled: true, disabledEvents: [], channels: { webhook: { enabled: false } } });
+      storePolicy({ browserEnabled: true, disabledEvents: [], channels: { http_post: { enabled: false } } });
       const viewer = await createMockViewerUser(context);
       const response = await request(context.app.getHttpServer())
         .get('/api/notifications/events')
@@ -247,16 +247,16 @@ describe('the webhook channel in the reference app (PP-14.10)', () => {
       const broadcast = response.body.data.find((event: { key: string }) => event.key === 'admin.broadcast');
       expect(broadcast.channels).toEqual(['email', 'browser', 'push']);
       // The unfiltered capability stays, so the admin page can still list it.
-      expect(broadcast.declaredChannels).toContain('webhook');
+      expect(broadcast.declaredChannels).toContain('http_post');
     });
 
     it('delivers nothing over a channel an administrator switched off, even for a critical event', async () => {
       mockRecipients();
       settings.configure(ENDPOINT);
       handles.set('user-1', HANDLE);
-      storePolicy({ browserEnabled: true, disabledEvents: [], channels: { webhook: { enabled: false } } });
+      storePolicy({ browserEnabled: true, disabledEvents: [], channels: { http_post: { enabled: false } } });
 
-      await notifications.notifyNow('admin.broadcast_critical', 'user-1', { title: 'T', body: 'B', critical: true }, { channels: ['webhook'] });
+      await notifications.notifyNow('admin.broadcast_critical', 'user-1', { title: 'T', body: 'B', critical: true }, { channels: ['http_post'] });
 
       expect(fake.calls).toEqual([]);
       expect(prismaMock.notificationDelivery.create).not.toHaveBeenCalled();
@@ -279,10 +279,10 @@ describe('the webhook channel in the reference app (PP-14.10)', () => {
       const response = await request(context.app.getHttpServer())
         .post('/api/admin/broadcasts')
         .set(authHeader(admin.accessToken))
-        .send({ ...body, channels: ['webhook'] })
+        .send({ ...body, channels: ['http_post'] })
         .expect(201);
 
-      expect(response.body.data.broadcast.channels).toEqual(['webhook']);
+      expect(response.body.data.broadcast.channels).toEqual(['http_post']);
     });
 
     it('delivers its title and body to a user who has a handle, through the platform event', async () => {
@@ -318,7 +318,7 @@ describe('the webhook channel in the reference app (PP-14.10)', () => {
       const response = await request(context.app.getHttpServer())
         .post('/api/admin/broadcasts')
         .set(authHeader(admin.accessToken))
-        .send({ ...body, channels: ['webhook'], critical: true })
+        .send({ ...body, channels: ['http_post'], critical: true })
         .expect(400);
 
       expect(response.body.details.issues).toEqual([
@@ -340,7 +340,7 @@ describe('the webhook channel in the reference app (PP-14.10)', () => {
       await request(context.app.getHttpServer())
         .post('/api/admin/broadcasts')
         .set(authHeader(admin.accessToken))
-        .send({ ...body, channels: ['browser', 'webhook'], critical: true })
+        .send({ ...body, channels: ['browser', 'http_post'], critical: true })
         .expect(201);
     });
   });

@@ -17,6 +17,8 @@ import { credentialsModules } from './platform/credentials/credentials.config';
 import { EmailModule } from './platform/email/email.config';
 import { BroadcastsModule } from './platform/notifications/notifications.config';
 import { NotificationsModule } from './platform/notifications/notifications.config';
+import { alertsModule } from './platform/alerts/alerts.config';
+import { webhooksModule } from './platform/webhooks/webhooks.config';
 import { JobsModule } from './platform/jobs/jobs.config';
 import { ExamplesModule } from './examples/examples.module';
 import { DbBackupModule } from './platform/db-backup/db-backup.config';
@@ -238,6 +240,17 @@ import configuration from './config/configuration';
 
     // The Android companion (#746): trusted apps, assetlinks, APK releases.
     androidAppModule,
+
+    // Alerts (#1047): rules over telemetry metrics, node events and fleet
+    // health, incidents and their notifications (`/api/admin/alerts`), from
+    // `@marinoscar/platform-api/alerts`. Binding: `platform/alerts/alerts.config.ts`.
+    alertsModule,
+
+    // Outbound webhooks (#1046): signed deliveries of platform events to
+    // endpoints a member, an organization or the deployment registers
+    // (`/api/webhooks`, `/api/org/webhooks`, `/api/admin/webhooks`), from
+    // `@marinoscar/platform-api/webhooks`. Binding: `platform/webhooks/webhooks.config.ts`.
+    webhooksModule,
 
     // User data (#743, epic #668): the per-user deletion with scopes
     // (`/api/user-data/*`, `user.data.purge`), the admin factory reset

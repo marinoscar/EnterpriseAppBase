@@ -1,6 +1,6 @@
 // What the reference API serves from `GET /api/notifications/channels`
 // (PP-14.10): the platform's channels, the Android app's, and the app's own
-// `webhook` example (apps/api/src/platform-extensions/notifications/).
+// `http_post` example (apps/api/src/platform-extensions/notifications/).
 
 export interface ChannelDescriptorFixture {
   id: string;
@@ -56,8 +56,8 @@ export const referenceChannels: ChannelDescriptorFixture[] = [
     order: 3,
   },
   {
-    id: 'webhook',
-    label: 'Webhook',
+    id: 'http_post',
+    label: 'HTTP POST',
     description: "A JSON POST to the webhook endpoint this application is configured with, addressed to the user's handle.",
     userConfigurable: true,
     criticalCapable: false,

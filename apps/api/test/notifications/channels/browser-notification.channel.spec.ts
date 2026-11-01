@@ -93,6 +93,38 @@ const SAMPLE_PAYLOADS: Record<string, unknown> = {
     triggeredBy: 'ops@example.com',
     preRestoreBackupId: 'run-pre',
   },
+  // The alerts slice (#1047) and the webhooks slice (#1046).
+  'alerts.alert_fired': {
+    incidentId: 'inc-1',
+    ruleId: 'rule-1',
+    ruleName: 'Node offline',
+    severity: 'critical',
+    state: 'fired',
+    summary: 'Node builder-1 is offline.',
+    labels: { 'node.name': 'builder-1' },
+    value: null,
+    firedAt: new Date('2026-01-01T00:00:00.000Z'),
+    resolvedAt: null,
+  },
+  'alerts.alert_resolved': {
+    incidentId: 'inc-1',
+    ruleId: 'rule-1',
+    ruleName: 'Node offline',
+    severity: 'critical',
+    state: 'resolved',
+    summary: 'Node builder-1 is back.',
+    labels: { 'node.name': 'builder-1' },
+    value: null,
+    firedAt: new Date('2026-01-01T00:00:00.000Z'),
+    resolvedAt: new Date('2026-01-01T00:10:00.000Z'),
+  },
+  'webhooks.endpoint_disabled': {
+    endpointId: 'ep-1',
+    endpointName: 'Ops receiver',
+    scope: 'user',
+    reason: 'circuit_open',
+    host: 'receiver.example.test',
+  },
 };
 
 function contextFor(

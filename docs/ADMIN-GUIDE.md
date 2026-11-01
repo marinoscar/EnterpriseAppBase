@@ -31,15 +31,18 @@ Developers extending the platform start at [README.md](README.md) instead.
 | Operations | Database Backup | `/admin/settings/db-backup` | `db_backup:read` |
 | Operations | Broadcasts | `/admin/settings/broadcasts` | `broadcasts:read` or `org_broadcasts:read` |
 | Operations | About | `/admin/settings/about` | `system_settings:read` |
+| Operations | Webhooks | `/admin/settings/webhooks` | `system_webhooks:read` |
 | AI | AI | `/admin/settings/ai` | `ai_config:read` |
 | AI | AI Models, AI Usage | `/admin/settings/ai/models`, `/admin/settings/ai/usage` | `ai_config:read`, hidden while AI is off |
 | AI | Organization AI keys | `/admin/settings/ai/organization-keys` | `org_ai_config:read`, hidden while AI is off |
 | Observability | Telemetry | `/admin/settings/telemetry` | `telemetry:read` |
 | Observability | Telemetry Explorer, Telemetry Dashboard | `/admin/settings/telemetry/explorer`, `/admin/settings/telemetry/dashboard` | `telemetry:query`, hidden while telemetry is off |
 | Observability | Doctor | `/admin/settings/doctor` | `system_settings:read` |
+| Observability | Alerts | the Alerts page of the Observability group | `alerts:read` |
 | Organizations | Organization | `/admin/settings/organization` | `org_members:read`, multi-org mode only |
 | Organizations | Organizations | `/admin/settings/organizations` | `organizations:read`, multi-org mode only |
 | Organizations | Organization settings | `/admin/settings/organization-settings` | `org_settings:read`, multi-org mode only |
+| Organizations | Organization webhooks | `/admin/settings/organization-webhooks` | `org_webhooks:read`, multi-org mode only |
 | Danger Zone | Factory reset | `/admin/settings/factory-reset` | `system:factory_reset` |
 
 ### User hub (`/settings`)
@@ -54,6 +57,7 @@ No user card declares a permission, apart from the ones noted. Every signed-in u
 | Security | Access Tokens | `/settings/tokens` | Personal access tokens: [personal-access-tokens.md](personal-access-tokens.md) |
 | Security | AI Keys | `/settings/ai` | `ai:use`, hidden while AI is off |
 | Sharing | Groups | `/settings/groups` | `groups:read` |
+| Integrations | Webhooks | `/settings/webhooks` | `webhooks:read` |
 | Your data | Download your data | `/settings/data-export` | |
 | Danger Zone | Delete my data | `/settings/danger-zone` | |
 
@@ -266,6 +270,38 @@ Every long-running activity (backups, exports, resets, broadcasts, AI runs) is a
 AI jobs always run on the server and never on a node.
 
 Procedures: [runbooks/run-worker-nodes.md](runbooks/run-worker-nodes.md), [runbooks/node-job-secrets.md](runbooks/node-job-secrets.md). Design: [specs/job-queue.md](specs/job-queue.md), [specs/worker-nodes.md](specs/worker-nodes.md).
+
+## Webhooks
+
+- **Where:** your own, `/settings/webhooks`; the organization's, `/admin/settings/organization-webhooks` (multi-org mode); the deployment's, `/admin/settings/webhooks`.
+- **Who:** `webhooks:read` / `webhooks:write` (every organization role, for your own endpoints); `org_webhooks:read` / `org_webhooks:write` (organization administrators); `system_webhooks:read` / `system_webhooks:write` (administrators).
+
+A webhook sends events to another system as signed HTTP requests.
+
+1. Open the page for your scope and add an endpoint: a name, a public `https` URL and the events it receives (single events, a group such as `nodes.*`, or everything).
+2. Copy the signing secret from the dialog; it is shown once.
+3. Press Test and check the delivery log for `succeeded`.
+4. Your own endpoints receive your notifications for the events you switch the Webhooks column on for in Notifications. Organization endpoints receive organization events; deployment endpoints receive node, job and alert events.
+5. Open an endpoint to read its deliveries, redeliver a failed one, rotate the secret (the old one keeps working for 24 hours) or disable it.
+6. The platform switches an endpoint off after 20 failures in a row, when the receiver answers 410, or when its owner loses access, and tells the owner. Enable it again after fixing the cause.
+
+Procedures: [runbooks/webhooks.md](runbooks/webhooks.md). Design: [specs/webhooks.md](specs/webhooks.md).
+
+## Alerts
+
+- **Where:** the Alerts page in the Observability group.
+- **Who:** `alerts:read` to look, `alerts:write` to change rules and acknowledge incidents (administrators).
+
+Alerts notify administrators when something starts and stops being wrong.
+
+1. Open Alerts. Eight starter rules are listed, all off: nodes on battery, battery low, host CPU high, host memory low, node offline, job failure spike, telemetry verdict critical, telemetry unavailable.
+2. Test a rule to see what it would report now, then switch it on.
+3. Create your own metric rule: pick a metric, an aggregation, a window, a comparator and a threshold; set how long it must hold (`for`) and the cooldown.
+4. When a rule fires, administrators are notified by email, in the browser and by push, according to their preferences, and deployment webhooks can receive the same event.
+5. Open Incidents to see what is firing or recently resolved, and acknowledge one to show that someone has it.
+6. With telemetry off, metric and verdict rules pause and keep their last state; node event and offline rules keep working.
+
+Procedures: [runbooks/alerts.md](runbooks/alerts.md). Design: [specs/alerts.md](specs/alerts.md).
 
 ## Doctor
 

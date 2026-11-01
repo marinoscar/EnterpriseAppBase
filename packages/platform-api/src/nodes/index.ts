@@ -53,7 +53,8 @@ export {
 } from './node-events.service';
 export type { NodeEventIngestOutcome } from './node-events.service';
 export { NODE_EVENTS_PURGE_TYPE, NodeEventsPurgeHandler } from './handlers/node-events-purge.handler';
-export { NodeLifecycleService } from './node-lifecycle.service';
+export { NodeLifecycleService, deriveNodeHealth } from './node-lifecycle.service';
+export type { NodeHealth, NodeHealthInput } from './node-lifecycle.service';
 export { NODE_OUTPUT_KEY_PREFIX, NodeDataPlaneService } from './node-data-plane.service';
 export { NodeSecretBrokerService, SECRET_CLOCK_SKEW_ALLOWANCE_MS } from './node-secret-broker.service';
 export { NodesAdminService, OWNER_SELECT } from './nodes-admin.service';

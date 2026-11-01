@@ -103,6 +103,15 @@ const BASELINE_PERMISSIONS = [
   // The user-data slice (#743, PP-9.1): Admin-only system permissions.
   { name: 'system:factory_reset', description: 'Factory reset: delete every other user and all application data, keeping configuration and backups', scope: 'system' },
   { name: 'orgs:offboard', description: 'Offboard an organization: delete it with all its data, members and invitations', scope: 'system' },
+  // The webhooks slice (#1046).
+  { name: 'webhooks:read', description: 'View your own webhook endpoints and their deliveries', scope: 'org' },
+  { name: 'webhooks:write', description: 'Create, change, delete, rotate and test your own webhook endpoints', scope: 'org' },
+  { name: 'org_webhooks:read', description: "View the active organization's webhook endpoints and their deliveries", scope: 'org' },
+  { name: 'org_webhooks:write', description: "Create, change, delete, rotate and test the active organization's webhook endpoints", scope: 'org' },
+  { name: 'system_webhooks:read', description: "View the deployment's webhook endpoints and their deliveries", scope: 'system' },
+  { name: 'system_webhooks:write', description: "Create, change, delete, rotate and test the deployment's webhook endpoints", scope: 'system' },
+  { name: 'alerts:read', description: 'View alert rules, incidents and the firing summary', scope: 'system' },
+  { name: 'alerts:write', description: 'Create, edit and delete alert rules; test them; acknowledge incidents', scope: 'system' },
 ];
 
 const BASELINE_ROLE_GRANTS: Record<string, string[]> = {
@@ -137,6 +146,10 @@ const BASELINE_ROLE_GRANTS: Record<string, string[]> = {
     'organizations:write',
     'system:factory_reset',
     'orgs:offboard',
+    'system_webhooks:read',
+    'system_webhooks:write',
+    'alerts:read',
+    'alerts:write',
   ],
   contributor: [
     'user_settings:read',
@@ -148,6 +161,8 @@ const BASELINE_ROLE_GRANTS: Record<string, string[]> = {
     'groups:write',
     'sharing:read',
     'sharing:write',
+    'webhooks:read',
+    'webhooks:write',
   ],
   viewer: [
     'user_settings:read',
@@ -155,6 +170,8 @@ const BASELINE_ROLE_GRANTS: Record<string, string[]> = {
     'storage:read',
     'groups:read',
     'sharing:read',
+    'webhooks:read',
+    'webhooks:write',
   ],
   org_admin: [
     'user_settings:read',
@@ -178,6 +195,10 @@ const BASELINE_ROLE_GRANTS: Record<string, string[]> = {
     'org_settings:write',
     'org_broadcasts:read',
     'org_broadcasts:write',
+    'webhooks:read',
+    'webhooks:write',
+    'org_webhooks:read',
+    'org_webhooks:write',
   ],
 };
 

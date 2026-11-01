@@ -28,6 +28,8 @@ import { groupsSettingsPage } from '@marinoscar/platform-web/sharing/ui';
 // Getting started (#745; a packaged page: card and icon from its descriptor).
 import { gettingStartedSettingsPage } from '@marinoscar/platform-web/onboarding/ui';
 import { dataExportSettingsPage } from '@marinoscar/platform-web/exports/ui';
+// Webhooks (#1046): the per-user card, from the webhooks slice as data.
+import { webhooksUserSettingsSections } from '@marinoscar/platform-web/webhooks/ui';
 import type { SettingsSectionDef } from '@marinoscar/platform-web/settings/ui';
 import { DANGER_ZONE_GROUP_LABEL } from '@marinoscar/platform-web/user-data/headless';
 import { dangerZoneSettingsPage } from '@marinoscar/platform-web/user-data/ui';
@@ -135,6 +137,15 @@ export const USER_SETTINGS_SECTIONS: SettingsSectionDef[] = [
   {
     label: 'Your data',
     cards: [{ ...dataExportSettingsPage.card, Icon: dataExportSettingsPage.Icon }],
+  },
+  // #1046: `Integrations`, APPENDED before the pinned Danger Zone. The
+  // caller's own outbound webhook endpoints. `webhooks:read` is the exact
+  // string `/api/webhooks` enforces: an ORG permission every org role holds by
+  // default, but a grant a deployment can withhold (like `ai:use`), so the
+  // card mirrors it. Writes (`webhooks:write`) are gated inside the page.
+  {
+    label: 'Integrations',
+    cards: [...webhooksUserSettingsSections.integrations],
   },
   {
     // Issue #743 (PP-9.1). `Danger Zone`, PINNED LAST: the one documented

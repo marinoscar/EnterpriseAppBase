@@ -131,6 +131,8 @@ describeWithDb('platform seed against a migrated scratch database (real Postgres
       'org_members:write',
       'org_settings:read',
       'org_settings:write',
+      'org_webhooks:read',
+      'org_webhooks:write',
       'sharing:admin',
       'sharing:read',
       'sharing:write',
@@ -138,6 +140,8 @@ describeWithDb('platform seed against a migrated scratch database (real Postgres
       'storage:write',
       'user_settings:read',
       'user_settings:write',
+      'webhooks:read',
+      'webhooks:write',
     ]);
   });
 
@@ -169,8 +173,9 @@ describeWithDb('platform seed against a migrated scratch database (real Postgres
     // the two org_settings:* permissions, granted to org_admin. #738: the two
     // org_broadcasts:* permissions, granted to org_admin. #739: the two
     // org_ai_config:* permissions, granted to org_admin. #743: the two system
-    // permissions system:factory_reset and orgs:offboard, granted to admin.
-    for (const line of ['✓ Seeded 4 roles', '✓ Seeded 51 permissions', '✓ Seeded 65 role-permission mappings', '✓ Seeded default system settings', `✓ Added ${INITIAL_ADMIN} to allowlist`]) {
+    // permissions system:factory_reset and orgs:offboard, granted to admin. #1046 and
+    // #1047: eight webhooks:* and alerts:* permissions, 12 grants in all.
+    for (const line of ['✓ Seeded 4 roles', '✓ Seeded 59 permissions', '✓ Seeded 77 role-permission mappings', '✓ Seeded default system settings', `✓ Added ${INITIAL_ADMIN} to allowlist`]) {
       expect(firstRun).toContain(line);
     }
   });

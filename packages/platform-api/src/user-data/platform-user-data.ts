@@ -79,6 +79,8 @@ export const PLATFORM_USER_DATA_MODELS: readonly UserDataModelHint[] = Object.fr
   { model: 'PersonalAccessToken', category: 'credentials' },
   { model: 'DeviceCode', category: 'credentials' },
   { model: 'UserCredential', category: 'credentials' },
+  // The webhooks slice (#1046): the member's own endpoints go with their signing secrets (UserCredential).
+  { model: 'WebhookEndpoint', category: 'credentials' },
   { model: 'UserSettings', category: 'settings' },
   { model: 'UserIdentity', keep: 'Account state: the user keeps signing in with it.' },
   { model: 'UserRole', keep: "Access model: the user keeps their role." },

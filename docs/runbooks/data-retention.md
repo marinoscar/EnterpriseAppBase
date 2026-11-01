@@ -17,6 +17,8 @@ Every control below is a system setting, changed at runtime through `PATCH /api/
 | `nodes.offlineRetentionDays` | 30 days | Worker-node records offline longer than the window | `nodes.fleet.prune` | Daily, 03:00 |
 | `databaseBackup.retentionCount` (alias `databaseBackup.retention.count`), and optionally `databaseBackup.retention.maxAgeDays` | 7 backups; no age bound | Backup archives and their runs beyond the newest N, and ordinary archives older than the age bound (the newest completed one is never deleted), with their mirror copies (plus the pre-restore age rule) | `db.backup.sweep` | Every 10 minutes, with the backup scheduler |
 | `telemetry.retentionDays` | 30 days | GreptimeDB data, through the database's TTL (telemetry itself ships off) | `telemetry.retention.apply` | Daily, 04:00, and after every telemetry settings save |
+| `deliveryRetentionDays` (`WebhooksModule.forRoot` option) | 30 days | Webhook delivery rows (`webhook_deliveries`) older than the window | `webhooks.deliveries_purge` | Daily, 04:17 |
+| `incidentRetentionDays` (`AlertsModule.forRoot` option) | 90 days | Resolved alert incidents (`alert_incidents`) older than the window; open incidents are never deleted | `alerts.incidents_purge` | Daily, 03:17 |
 
 The four `retention.*` policies each take `{ "enabled": boolean, "days": 1–3650 }`. An app can register more (its own tables join the same nightly run, off by default and with bounds of its own); they appear under `retention.<key>` in the same document. All times are the API server's local time (UTC in the shipped containers).
 

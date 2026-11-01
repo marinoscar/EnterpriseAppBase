@@ -237,6 +237,7 @@ export class TelemetryModule {
         TelemetrySettingsService,
         TelemetryQueryService,
         TelemetrySchemaService,
+        TelemetryDashboardService,
         MetricGroupRegistry,
         DefaultVerdictPolicy,
         VERDICT_POLICY,

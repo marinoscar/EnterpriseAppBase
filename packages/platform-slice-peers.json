@@ -53,6 +53,8 @@
     "db-backup": ["@nestjs/common", "@nestjs/config", "@nestjs/schedule", "@nestjs/swagger", "@prisma/client-runtime-utils", "nestjs-zod"],
     "android-app": ["@nestjs/common", "@nestjs/swagger", "fastify", "nestjs-zod", "zod"],
     "user-data": ["@nestjs/common", "@nestjs/core", "@nestjs/swagger", "@opentelemetry/api", "nestjs-zod", "zod"],
+    "webhooks": ["@nestjs/common", "@nestjs/event-emitter", "@nestjs/schedule", "@nestjs/swagger", "@opentelemetry/api", "nestjs-zod", "zod"],
+    "alerts": ["@nestjs/common", "@nestjs/config", "@nestjs/event-emitter", "@nestjs/schedule", "@nestjs/swagger", "@opentelemetry/api", "nestjs-zod", "zod"],
     "manifest": [],
     "host": ["@nestjs/common", "@nestjs/config", "@nestjs/core", "@nestjs/jwt", "@nestjs/swagger", "@nestjs/terminus", "@opentelemetry/api", "fastify", "nestjs-zod", "rxjs", "zod"],
     "ai/testing": ["supertest"],
@@ -83,7 +85,9 @@
     "datatable": ["@mui/icons-material", "@mui/material", "@mui/x-data-grid", "react"],
     "datatable/testing": ["@testing-library/react", "@testing-library/user-event", "vitest", "vitest-axe"],
     "shell/testing": ["@testing-library/react"],
-    "timezone": ["@mui/icons-material", "@mui/material", "react"]
+    "timezone": ["@mui/icons-material", "@mui/material", "react"],
+    "webhooks": ["@mui/icons-material", "@mui/material", "react"],
+    "alerts": ["@mui/icons-material", "@mui/material", "react", "react-router-dom"]
   },
   "platform-contract": {
     "doctor": ["zod"],
@@ -92,6 +96,7 @@
     "identity": ["zod"],
     "settings": ["zod"],
     "timezone": [],
+    "webhooks": ["zod"],
     "credentials": ["zod"],
     "onboarding": ["zod"],
     "email": ["zod"],
@@ -103,7 +108,8 @@
     "ai": ["zod"],
     "db-backup": ["zod"],
     "android-app": ["zod"],
-    "user-data": ["zod"]
+    "user-data": ["zod"],
+    "alerts": ["zod"]
   },
   "platform-db": {
     "compose": [],

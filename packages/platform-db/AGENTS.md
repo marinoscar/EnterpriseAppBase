@@ -28,7 +28,7 @@ At most ONE open PR may carry the `pp:migration` label; a second rebases and re-
 
 ## Row-level security
 
-- `org` tables force RLS on `org_id`: `storage_objects`, `storage_object_chunks`, `ai_runs`, `ai_usage_events`, `groups`, `group_members`, `group_invites`, `grants`, `org_settings`, `org_credentials`. New policy: add to `rls-policies.json` (intentional drift).
+- `org` tables force RLS on `org_id`: `storage_objects`, `storage_object_chunks`, `ai_runs`, `ai_usage_events`, `groups`, `group_members`, `group_invites`, `grants`, `org_settings`, `org_credentials`, `webhook_endpoints`, `webhook_deliveries`. New policy: add to `rls-policies.json` (intentional drift).
 - A link between two org-owned tables is a composite foreign key including `org_id`.
 - `jobs` has no RLS.
 - A back-relation onto a platform model is an `extend model` block in the app's fragment.

@@ -1,5 +1,7 @@
 import { groupInvitationBrowserTemplate, sharedWithYouBrowserTemplate } from '@marinoscar/platform-api/sharing';
 import { exportFailedBrowserTemplate, exportReadyBrowserTemplate } from '@marinoscar/platform-api/exports';
+import { alertBrowserTemplate } from '@marinoscar/platform-api/alerts';
+import { webhookEndpointDisabledBrowserTemplate } from '@marinoscar/platform-api/webhooks';
 import { RegistryError, withTemporaryEntries } from '@marinoscar/platform-api/core';
 import { NOTIFICATION_MAX_EVENT_KEY_LENGTH } from '../../../src/common/schemas/user-settings-namespaces.schema';
 import {
@@ -70,6 +72,10 @@ const PLATFORM_EVENT_KEYS = [
   // The exports slice (#744).
   'export.ready',
   'export.failed',
+  // The alerts slice (#1047) and the webhooks slice (#1046).
+  'alerts.alert_fired',
+  'alerts.alert_resolved',
+  'webhooks.endpoint_disabled',
   // The reference app's own webhook example (PP-14.10), registered from
   // `app-registrations/notifications.ts`.
   'example.webhook_test',
@@ -120,7 +126,7 @@ describe('notification registries (#678)', () => {
 
   describe('platform entries, in order', () => {
     it('registers the three platform channels in the old literal order, then the Android app channel (#746) and the app\'s webhook example', () => {
-      expect(notificationChannelRegistry.ids()).toEqual(['email', 'browser', 'push', 'android_app', 'webhook']);
+      expect(notificationChannelRegistry.ids()).toEqual(['email', 'browser', 'push', 'android_app', 'webhook', 'http_post']);
     });
 
     it('registers the nine platform events in the old array order, then org.invitation (#726), groups.invitation (#728), sharing.shared_with_you (#729) and export.ready / export.failed (#744)', () => {
@@ -141,6 +147,10 @@ describe('notification registries (#678)', () => {
         'org-invitation',
         'group-invitation',
         'shared-with-you',
+        // The alerts slice (#1047) and the webhooks slice (#1046).
+        'alert-fired',
+        'alert-resolved',
+        'webhook-endpoint-disabled',
       ]);
       for (const [name, render] of Object.entries(PLATFORM_EMAIL_TEMPLATES)) {
         expect(emailTemplateRegistry.require(name).render).toBe(render);
@@ -161,6 +171,9 @@ describe('notification registries (#678)', () => {
         'org.invitation': 'org-invitation',
         'groups.invitation': 'group-invitation',
         'sharing.shared_with_you': 'shared-with-you',
+        'alerts.alert_fired': 'alert-fired',
+        'alerts.alert_resolved': 'alert-resolved',
+        'webhooks.endpoint_disabled': 'webhook-endpoint-disabled',
       });
     });
 
@@ -176,6 +189,9 @@ describe('notification registries (#678)', () => {
         'sharing.shared_with_you': sharedWithYouBrowserTemplate,
         'export.ready': exportReadyBrowserTemplate,
         'export.failed': exportFailedBrowserTemplate,
+        'alerts.alert_fired': alertBrowserTemplate,
+        'alerts.alert_resolved': alertBrowserTemplate,
+        'webhooks.endpoint_disabled': webhookEndpointDisabledBrowserTemplate,
       });
     });
 
