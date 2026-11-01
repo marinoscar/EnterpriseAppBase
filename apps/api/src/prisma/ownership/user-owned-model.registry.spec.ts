@@ -32,6 +32,8 @@ describe('the app fills userOwnedModelRegistry', () => {
     'UserCredential', 'Credential', 'OrgCredential',
     // android-app (#746)
     'AndroidAppRelease',
+    // webhooks (#1046)
+    'WebhookEndpoint',
   ];
 
   it('registers the packaged platform inventory in the baseline order, then the (empty) app list', () => {
@@ -40,12 +42,12 @@ describe('the app fills userOwnedModelRegistry', () => {
     expect(userOwnedModelRegistry.list()).toEqual([...PLATFORM_USER_OWNED_MODELS, ...APP_USER_OWNED_MODELS]);
   });
 
-  it('holds 33 models and 40 User foreign keys (the sharing slice adds 4 and 8: groups #728, grants #729; settings 1 and 1, #733; org credentials 1 and 1, #735; android-app 1 and 1, #746)', () => {
+  it('holds 34 models and 41 User foreign keys (the sharing slice adds 4 and 8: groups #728, grants #729; settings 1 and 1, #733; org credentials 1 and 1, #735; android-app 1 and 1, #746; webhooks 1 and 1, #1046)', () => {
     const fields = userOwnedModelRegistry
       .list()
       .flatMap((def) => [...(def.ownerField ? [def.ownerField] : []), ...(def.actorFields ?? [])]);
-    expect(userOwnedModelRegistry.size).toBe(33);
-    expect(fields).toHaveLength(40);
+    expect(userOwnedModelRegistry.size).toBe(34);
+    expect(fields).toHaveLength(41);
   });
 
   it('gives every entry a non-empty rationale', () => {

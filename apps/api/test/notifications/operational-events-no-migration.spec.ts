@@ -121,6 +121,8 @@ const MIGRATIONS_AT_288 = [
   '20261013214001_open_sharing_vocabularies',
   // #1045: worker_node_events (node power, sleep and disk events; the four operational events still need nothing).
   '20261101003924_add_worker_node_events',
+  // #1046: webhook_endpoints and webhook_deliveries (outbound webhooks; the four operational events still need nothing).
+  '20261101044654_add_webhooks',
 ];
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'prisma', 'migrations');

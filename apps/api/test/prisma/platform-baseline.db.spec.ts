@@ -406,8 +406,8 @@ describeWithDb('platform db baseline against real Postgres', () => {
       // and 0032_add_broadcast_target_org (#738) one more, and 0033_add_android_app (#746) one more,
       // and 0034_open_job_reason (#937) one more, and 0035_ai_usage_feature (#935) one more,
       // and 0036_add_app_metadata (#945) one more, and 0037_open_sharing_vocabularies (#967) one more,
-      // and 0038_add_worker_node_events (#1045) one more.
-      expect(dry.stdout).toContain('37 matched, 1 unmatched, 1 app-only');
+      // and 0038_add_worker_node_events (#1045) and 0039_add_webhooks (#1046) one more each.
+      expect(dry.stdout).toContain('38 matched, 1 unmatched, 1 app-only');
       expect(dry.stdout).toContain('platform:0017_revoke_viewer_ai_use -> 20260927000000_revoke_viewer_ai_use  [normalised, localSha256 recorded]');
       expect(dry.stdout).toMatch(/platform:0020_add_worker_node_vitals -> 20260929090000_worker_node_vitals\s+\[sha256\]/);
       expect(dry.stdout).toContain('would resolve --applied 20260929090001_add_job_trace_context (installed first)');

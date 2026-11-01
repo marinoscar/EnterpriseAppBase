@@ -136,9 +136,31 @@ const BASE_MODEL_OWNERSHIP: readonly ModelOwnershipDef[] = [
 ];
 
 /**
+ * The webhooks slice's two org tables (#1046). Both carry a nullable `org_id`
+ * (NULL only for a `system`-scope endpoint and its deliveries) under forced
+ * row-level security, like `AiUsageEvent`.
+ */
+const WEBHOOKS_MODEL_OWNERSHIP: readonly ModelOwnershipDef[] = [
+  {
+    model: 'WebhookEndpoint',
+    kind: 'org',
+    orgField: 'orgId',
+    rationale:
+      "An organization's (or a member's) outbound webhook destination. The column stays nullable so a system-scope endpoint, which belongs to no organization, can exist; the policy then shows such a row to the system client only.",
+  },
+  {
+    model: 'WebhookDelivery',
+    kind: 'org',
+    orgField: 'orgId',
+    rationale:
+      "One event's delivery to one endpoint, carrying the event body. Carries the endpoint's org_id (a policy cannot join through its parent); NULL for a system-scope endpoint's deliveries, visible to the system client only.",
+  },
+];
+
+/**
  * Every platform model's ownership kind (`org`, `org-optional`, `user` or
  * `system`), in registration order: the base inventory, then the sharing,
- * settings, credentials and android-app slices' own classifications.
+ * settings, credentials, android-app and webhooks slices' own classifications.
  *
  * @stability experimental
  */
@@ -152,6 +174,8 @@ export const PLATFORM_MODEL_OWNERSHIP: readonly ModelOwnershipDef[] = Object.fre
   ...CREDENTIALS_MODEL_OWNERSHIP,
   // The android-app slice's release table.
   ...ANDROID_APP_MODEL_OWNERSHIP,
+  // The webhooks slice's two org tables (#1046).
+  ...WEBHOOKS_MODEL_OWNERSHIP,
 ]);
 
 /**

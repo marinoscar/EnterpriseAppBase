@@ -383,5 +383,16 @@
     "sha256": "5775b304027a1cb77b30707093fd6be26290fd49df695f4d850e149fe265b196",
     "since": "1.0.0",
     "slice": "jobs"
+  },
+  {
+    "dir": "0039_add_webhooks",
+    "id": "0039_add_webhooks",
+    "requires": [
+      "identity"
+    ],
+    "rls": true,
+    "sha256": "8f719dc380610f61133612a52921fa6d89ee21957635372c2bc4bdc69d4c0a92",
+    "since": "1.0.0",
+    "slice": "webhooks"
   }
 ]

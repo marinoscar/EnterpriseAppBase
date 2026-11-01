@@ -232,6 +232,12 @@
       "originId": "platform:0038_add_worker_node_events",
       "sha256": "5775b304027a1cb77b30707093fd6be26290fd49df695f4d850e149fe265b196",
       "since": "1.0.0"
+    },
+    {
+      "localDir": "20261101044724_add_webhooks",
+      "originId": "platform:0039_add_webhooks",
+      "sha256": "8f719dc380610f61133612a52921fa6d89ee21957635372c2bc4bdc69d4c0a92",
+      "since": "1.0.0"
     }
   ],
   "platformVersion": "0.1.0-next.19",
