@@ -35,11 +35,11 @@ Find the right doc without loading the whole index. Read a doc by section (grep 
 | Make a job run on a worker node | [specs/worker-nodes.md](specs/worker-nodes.md) |
 | Use AI or add an AI provider | [specs/ai-platform.md](specs/ai-platform.md), [ai README](../packages/platform-api/src/ai/README.md) |
 | Add a notification | [notifications README](../packages/platform-api/src/notifications/README.md), [specs/browser-notifications.md](specs/browser-notifications.md) |
+| Send events to other systems (webhooks) or alert on metrics and nodes | [specs/webhooks.md](specs/webhooks.md), [specs/alerts.md](specs/alerts.md), [runbooks/webhooks.md](runbooks/webhooks.md), [runbooks/alerts.md](runbooks/alerts.md) |
 | Add a Doctor check | [specs/doctor.md](specs/doctor.md#4-extending-it-in-a-fork) |
 | Extend a slice from an app or package | [EXTENDING.md](EXTENDING.md) |
 | Find which package carries a slice | [SLICES.md](SLICES.md) |
-| Document a package | [AI-ASSISTANTS.md](AI-ASSISTANTS.md) | How Claude Code and OpenCode share the repository rules: `AGENTS.md` files, `CLAUDE.md` imports, agents folders and context budgets |
-| [PACKAGES.md](PACKAGES.md) |
+| Document a package | [PACKAGES.md](PACKAGES.md) |
 | Rename or start a new app | [RENAMING.md](RENAMING.md) |
 | Adopt the platform packages in a fork | [ADOPTING-THE-PLATFORM.md](ADOPTING-THE-PLATFORM.md) |
 | Deploy or operate | [Runbooks](#runbooks) |
@@ -80,6 +80,8 @@ Find the right doc without loading the whole index. Read a doc by section (grep 
 | [specs/data-export.md](specs/data-export.md) | Data export: export sources and writers, the `user-data` and `org-data` exports, signed downloads, expiry, redaction and the secret-egress proof | you add an export source or format, or change what a user or organization export contains |
 | [specs/onboarding.md](specs/onboarding.md) | First-run onboarding: the welcome dialog, the derived Setup guide and Get started checklists, the step and fact registries, activation metrics and feature notices | you add an onboarding step, a fact, an activation milestone or a feature notice |
 | [specs/user-data-reset.md](specs/user-data-reset.md) | User data reset, factory reset and organization offboarding: the registry-driven per-user deletion with scopes, the delete order from the schema, the three jobs, the Danger Zone and factory reset pages | you add a model with an owner column (its keep-or-delete hint), a category, a scope, a factory reset step or an offboarding precondition |
+| [specs/webhooks.md](specs/webhooks.md) | Outbound signed webhooks: scopes, the event catalog and notification bridge, Standard Webhooks signing and rotation, delivery job with retries and circuit breaker, the SSRF guard | you add a webhook event, or change delivery, signing or the egress policy |
+| [specs/alerts.md](specs/alerts.md) | Alert rules over metrics, node events and fleet health: rule kinds, starter rules, the incident state machine, evaluation, dispatch | you add a rule kind or change how incidents fire and resolve |
 | [specs/telemetry.md](specs/telemetry.md) | GreptimeDB-backed telemetry, the Telemetry Explorer and the Telemetry Dashboard | you change telemetry ingest, storage, querying or the dashboard |
 | [specs/user-credentials.md](specs/user-credentials.md) | Encrypted per-user credentials | you add a bring-your-own-key credential type |
 | [specs/vps-deploy.md](specs/vps-deploy.md) | `appctl deploy` to a single VPS | you change the deploy commands or the deployed layout |
@@ -120,6 +122,8 @@ Find the right doc without loading the whole index. Read a doc by section (grep 
 | [runbooks/multi-org.md](runbooks/multi-org.md) | Running in multi-organization mode: setting `TENANCY_MODE=multi`, creating the first organization, inviting its administrator, managing members and invitations |
 | [runbooks/android-app.md](runbooks/android-app.md) | Installing the Android app, trusting its signing key so it opens full screen, pairing a native capability, Android troubleshooting |
 | [runbooks/android-release.md](runbooks/android-release.md) | Releasing an APK: keystore, versioning, `appctl android release`, the terminal menu, the deploy step, the web upload, CI, rollback |
+| [runbooks/webhooks.md](runbooks/webhooks.md) | Registering a webhook endpoint, verifying signatures, rotating a secret, reading the delivery log, redelivering, recovering a disabled endpoint, allowing a private receiver |
+| [runbooks/alerts.md](runbooks/alerts.md) | Enabling the starter alert rules, creating and testing a metric rule, acknowledging incidents, tuning for and cooldown, telemetry-off behaviour |
 | [runbooks/factory-reset.md](runbooks/factory-reset.md) | Factory resetting a deployment (backup first, run, verify, recover) and offboarding an organization |
 
 ## Developer recipes in the code
@@ -146,6 +150,8 @@ READMEs that live next to the code they describe.
 | [../packages/platform-cli/src/telemetry/README.md](../packages/platform-cli/src/telemetry/README.md) | Telemetry CLI slice: the worker span relay and the deploy wizard's env metadata |
 | [../packages/platform-infra/src/telemetry/README.md](../packages/platform-infra/src/telemetry/README.md) | Telemetry infra slice: the compose files, the collector configuration, its app overlay and `platform-infra sync` |
 | [../packages/platform-web/src/sharing/README.md](../packages/platform-web/src/sharing/README.md) | Sharing UI slice: the hooks, the share dialog, the group pages, the public `/s` page and `registerLinkRenderer`; the fragment-token rules |
+| [../packages/platform-api/src/webhooks/README.md](../packages/platform-api/src/webhooks/README.md) | Webhooks, API slice: `forRoot` options, `registerWebhookEvent`, `WebhooksService.emit`, the `webhook` notification channel, the egress guard and the conformance suite (web: [../packages/platform-web/src/webhooks/README.md](../packages/platform-web/src/webhooks/README.md); contract: [../packages/platform-contract/src/webhooks/README.md](../packages/platform-contract/src/webhooks/README.md)) |
+| [../packages/platform-api/src/alerts/README.md](../packages/platform-api/src/alerts/README.md) | Alerts, API slice: `forRoot` options, `registerAlertRuleKind`, the built-in kinds, the starter rules, `ALERTS_WEBHOOK_EMITTER` and the conformance suite (contract: [../packages/platform-contract/src/alerts/README.md](../packages/platform-contract/src/alerts/README.md)) |
 | [../packages/platform-api/src/sharing/README.md](../packages/platform-api/src/sharing/README.md) | Sharing, API slice: groups, grants, `AccessPolicy`, the list helpers, link shares and the public-route pattern; a tested example per extension point (`apps/api/test/examples/sharing/`), the conformance suite and the kvox and MemoriaHub migration recipes; start here to make a table shareable |
 | [../packages/platform-contract/src/sharing/README.md](../packages/platform-contract/src/sharing/README.md) | Sharing wire shapes: the group, grant and link schemas, `LINK_TOKEN_HEADER` and `buildLinkUrl` |
 | [../packages/](../packages/) (`platform-*/README.md`) | The `@marinoscar/platform-*` packages: one README per package; layout and commands in [DEVELOPMENT.md § Platform packages](DEVELOPMENT.md#platform-packages) |

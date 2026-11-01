@@ -452,6 +452,17 @@ The plumbing every slice assumes is around it, packaged so an app mounts it with
 - **Doctor:** `core.event-bus`, `maintenance.mode`
 - **Read more:** [host README](../packages/platform-api/src/host/README.md), [specs/maintenance-mode.md](specs/maintenance-mode.md), [API.md](API.md)
 
+### 5.27 Webhooks and alerts (`@marinoscar/platform-api/webhooks`, `/alerts`)
+
+Two slices that tell the outside world, and administrators, what the deployment is doing.
+
+- **Webhooks.** A member, an organization or the deployment registers an HTTPS endpoint and subscribes it to events from an open catalog (`registerWebhookEvent`, plus `notification.<eventKey>` for forwarded notifications). Each event becomes a signed Standard Webhooks request sent by the `webhooks.deliver` job, with retries, a circuit breaker and an SSRF-safe egress guard. Two org tables under row-level security with a nullable `org_id` (NULL = deployment).
+- **Alerts.** Deployment-level rules (metric thresholds, worker-node events, offline nodes, the telemetry verdict, store availability) are evaluated every minute by `alerts.evaluate`; incidents move through `pending`, `firing` and `resolved`; each transition notifies the holders of `alerts:read` and may emit an `alerts.alert.*` webhook through an optional port.
+- **Code:** `packages/platform-api/src/webhooks/`, `packages/platform-api/src/alerts/` (wiring in `apps/api/src/platform/webhooks/` and `apps/api/src/platform/alerts/`)
+- **Routes:** `/api/webhooks`, `/api/org/webhooks`, `/api/admin/webhooks`, `/api/admin/alerts`
+- **Permissions:** `webhooks:*`, `org_webhooks:*`, `system_webhooks:*`, `alerts:read/write` ([§7.2](#72-permission-matrix))
+- **Read more:** [specs/webhooks.md](specs/webhooks.md), [specs/alerts.md](specs/alerts.md), [runbooks/webhooks.md](runbooks/webhooks.md), [runbooks/alerts.md](runbooks/alerts.md), [webhooks README](../packages/platform-api/src/webhooks/README.md), [alerts README](../packages/platform-api/src/alerts/README.md)
+
 ---
 
 ## 6. Data architecture
@@ -506,6 +517,8 @@ The schema is composed from per-slice fragments in `packages/platform-db/schema/
 | Android | `AndroidAppRelease` | `android_app_releases` | The APKs a deployment hosts (package, version, signing and file SHA-256, `size_bytes` BigInt, storage key under `android-releases/`), unique per `(package_name, version_code)`, at most one `is_current` (#746) |
 | Webhooks | `WebhookEndpoint` | `webhook_endpoints` | An outbound destination URL (`scope` user, org or system; `event_keys` exact, trailing-wildcard or `*`; `secret_version` and `previous_secret_until` for rotation overlap, the signing secret itself lives in `credentials`; failure counters and `disabled_reason`). Nullable `org_id` (NULL only for `system` scope, visible to the system client only); cascades with the owning user and the organization; `org`, row-level security forced (#1046) |
 | Webhooks | `WebhookDelivery` | `webhook_deliveries` | One event to one endpoint (`id` is the `webhook-id` header, stable across retries; `event_key`, `event_id`, redacted `payload` JSON, `status` pending/delivering/succeeded/failed/dead, attempt, response status and snippet, `error_code`, next attempt), unique per `(endpoint_id, event_id)`; carries the endpoint's nullable `org_id`; cascades with the endpoint; `org`, row-level security forced (#1046) |
+| Alerts | `AlertRule` | `alert_rules` | A deployment-level alert rule (open `kind`, `severity`, kind-validated `config` JSON, `for_seconds`, `cooldown_seconds`, `notify_channels`, `webhook`; `key` unique on a seeded starter rule; reserved nullable `org_id`); no RLS |
+| Alerts | `AlertIncident` | `alert_incidents` | One rule breached for one label set (`labels_key`, `state` pending/firing/resolved, times, `last_value`, acknowledgement); cascades with the rule; at most one open per rule and labels (raw-SQL `alert_incidents_open_uniq_idx`); no RLS |
 
 Conventions: UUID primary keys, `timestamptz` timestamps, JSONB for extensible shapes, cascade deletes from `users` where the data belongs to the user. Users are deactivated, not deleted.
 
@@ -513,7 +526,7 @@ Ownership is declared, not implied. Every model with a foreign key to `User` (33
 
 Every model also has an **ownership kind**, registered in the model ownership registry (the platform's classification is `PLATFORM_MODEL_OWNERSHIP` of `@marinoscar/platform-api/manifest`, #866, registered with the app's by `registerPlatformModelOwnership()`; the mechanism is `modelOwnershipRegistry` in `@marinoscar/platform-api/core`): `org` (NOT NULL `org_id`, row-level security forced: `StorageObject`, `StorageObjectChunk`, `AiRun`, and the sharing slice's `Group`, `GroupMember`, `GroupInvite`, `Grant`), `org-optional` (nullable `org_id`; `AiUsageEvent` has a policy too, and a row without an organization is visible to the system client only; `AuditEvent` has none yet; `Job` has none by design, because the claim is one cross-organization statement, #734), `user` (personal, `forUser` scope) and `system` (deployment-wide). An identity table that merely references an organization (`Membership`, `Invite`, org-bound tokens) declares `orgReference`. `org_id` foreign keys are `Restrict` for storage and AI runs and `SetNull` for usage, audit and job history, and the upload-chunk link to its object is the composite `(object_id, org_id)`, as the group-member and group-invite links to their group are `(group_id, org_id)` and a group grant's link to its group is `(grantee_group_id, org_id)`. The eight policies are listed in `RLS_POLICIES` (`packages/platform-db/rls-policies.json`) and are intentional drift like the raw-SQL indexes: Prisma cannot express them, `platform db drift` asserts them, and `apps/api/test/tenancy/rls-coverage.db.spec.ts` fails on an `org` table without one or an `org_id` column nobody classified. The API must connect as an ordinary role, or none of it applies. See [SECURITY-ARCHITECTURE.md §18](SECURITY-ARCHITECTURE.md#18-tenant-isolation-rls).
 
-Eight unique indexes exist only in hand-written migration SQL because Prisma cannot express a partial unique index: `jobs_active_dedup_uniq_idx` (job deduplication while `pending`/`running`), `database_backup_runs_active_uniq_idx` (at most one active backup run), `organizations_default_uniq_idx` (exactly one default organization), `group_invites_pending_uniq_idx` (one pending invite per group and address), `grants_active_user_uniq_idx` and `grants_active_group_uniq_idx` (one active grant per resource and user or group), `grants_active_ref_uniq_idx` (one active grant per resource, app grantee kind and reference), `android_app_releases_one_current_uniq_idx` (at most one current Android APK release), plus the non-unique partial `jobs_attempts_gt1_idx` and `jobs_succeeded_duration_idx`. This is intentional schema drift. Do not add a `@@unique` to the models to "fix" it. The ten are listed in `RAW_SQL_INDEXES` in `@marinoscar/platform-db`; its tripwire fails on an unlisted partial or expression index and on a fragment that redeclares one.
+Nine unique indexes exist only in hand-written migration SQL because Prisma cannot express a partial unique index: `jobs_active_dedup_uniq_idx` (job deduplication while `pending`/`running`), `database_backup_runs_active_uniq_idx` (at most one active backup run), `organizations_default_uniq_idx` (exactly one default organization), `group_invites_pending_uniq_idx` (one pending invite per group and address), `grants_active_user_uniq_idx` and `grants_active_group_uniq_idx` (one active grant per resource and user or group), `grants_active_ref_uniq_idx` (one active grant per resource, app grantee kind and reference), `android_app_releases_one_current_uniq_idx` (at most one current Android APK release), `alert_incidents_open_uniq_idx` (one open alert incident per rule and label set), plus the non-unique partial `jobs_attempts_gt1_idx` and `jobs_succeeded_duration_idx`. This is intentional schema drift. Do not add a `@@unique` to the models to "fix" it. The eleven are listed in `RAW_SQL_INDEXES` in `@marinoscar/platform-db`; its tripwire fails on an unlisted partial or expression index and on a fragment that redeclares one.
 
 Migrations are installed from `@marinoscar/platform-db`. The base's 22 migrations are the package's platform history v1 (`packages/platform-db/migrations/0001_initial` to `0022_add_retention_created_at_indexes`, with a manifest of hashes); `0023_add_organizations` is the first migration appended after it, followed by `0024_split_system_org_roles`, `0025_org_scoped_rls` (`org_id` on the tenant tables and the row-level security policies) and `0026_add_groups` (the sharing slice's tables, #728); `apps/api/prisma/migrations/` holds the installed copies under their original directory names, and `apps/api/prisma/platform.lock` maps each package id to its directory and records the hash. `npm run db:check` proves the copies are byte-identical, `db:check:database` compares the `_prisma_migrations` ledger, and `db:drift` proves the history equals the composed schema and the raw-SQL indexes exist. See the [platform-db README](../packages/platform-db/README.md#platform-history-v1).
 
@@ -629,6 +642,14 @@ This is the single home for the matrix. Source: each permission's `defaultGrants
 | `org_broadcasts:write` | org | | ✓ | | | Compose, schedule, test, cancel, resume and delete broadcasts to the caller's active organization's members; the target is forced, any other `targetOrgId` is a 422 (#738) |
 | `system:factory_reset` | system | ✓ | | | | `/api/admin/factory-reset/*` and `/admin/settings/factory-reset`: erase every other user and all application data (`@marinoscar/platform-api/user-data`, #743). Never granted for holding `system_settings:write` |
 | `orgs:offboard` | system | ✓ | | | | `/api/admin/orgs/:orgId/offboarding/*`: delete an organization with its data, members and invitations (multi-org mode, #743) |
+| `alerts:read` | system | ✓ | | | | `GET /api/admin/alerts/*` (rules, kinds, incidents, summary): view alert rules and incidents (`@marinoscar/platform-api/alerts`, #1047) |
+| `alerts:write` | system | ✓ | | | | `POST`/`PATCH`/`DELETE /api/admin/alerts/rules`, `POST .../rules/:id/test`, `POST .../incidents/:id/acknowledge`: edit rules, dry-run them, acknowledge incidents (#1047) |
+| `webhooks:read` | org | | ✓ | ✓ | ✓ | `GET /api/webhooks/*`: a member's own webhook endpoints and their deliveries; another member's endpoint is a 404 (`@marinoscar/platform-api/webhooks`, #1046) |
+| `webhooks:write` | org | | ✓ | ✓ | ✓ | `POST`/`PATCH`/`DELETE /api/webhooks`, `rotate-secret`, `test`, `redeliver`: manage one's own endpoints (#1046) |
+| `org_webhooks:read` | org | | ✓ | | | `GET /api/org/webhooks/*`: the active organization's shared endpoints and deliveries (#1046) |
+| `org_webhooks:write` | org | | ✓ | | | `POST`/`PATCH`/`DELETE /api/org/webhooks`, `rotate-secret`, `test`, `redeliver`: manage the organization's endpoints (#1046) |
+| `system_webhooks:read` | system | ✓ | | | | `GET /api/admin/webhooks/*`: the deployment's endpoints (node and job events) and deliveries (#1046) |
+| `system_webhooks:write` | system | ✓ | | | | `POST`/`PATCH`/`DELETE /api/admin/webhooks`, `rotate-secret`, `test`, `redeliver`: manage the deployment's endpoints (#1046) |
 
 **App grants.** The matrix lists the platform's four roles. An app role holds permissions through `role_permissions` like any other: the `defaultGrants` of the app's own permissions, and, for a PLATFORM permission, `registerPlatformPermissions({ app: { grants: [{ role: 'support', permissions: ['users:read'] }] } })`. Each grant is validated at import time (the role and the permission exist, their scopes match, the permission does not already grant it by default, and the target is not a platform role), lands in the catalog's `rolePermissions` and is written by the seed; the principal factory reads those rows, so the seed and the guards cannot disagree. The four platform columns above never change because an app registered a grant. See [the manifest README](../packages/platform-api/src/manifest/README.md).
 
@@ -646,7 +667,7 @@ Separate permission families (`push:*`, `nodes:*`, `storage_config:*`, `ai_confi
 
 ### 8.1 Job-type inventory
 
-All 35 registered job types (pinned by `apps/api/test/jobs/job-type-snapshot.spec.ts`: a type string is permanent). Handler paths are relative to `apps/api/src/` unless they name a package. A type is node-eligible when its handler carries both `nodeResultSchema` and `persistNodeResult`. The label is the handler's own `readonly label` (#734; it replaced the closed `JOB_TYPE_LABELS` map) and is what `GET /api/admin/jobs` serves as `typeLabel`; an unlabelled type shows its type string.
+All 41 registered job types (pinned by `apps/api/test/jobs/job-type-snapshot.spec.ts`: a type string is permanent). Handler paths are relative to `apps/api/src/` unless they name a package. A type is node-eligible when its handler carries both `nodeResultSchema` and `persistNodeResult`. The label is the handler's own `readonly label` (#734; it replaced the closed `JOB_TYPE_LABELS` map) and is what `GET /api/admin/jobs` serves as `typeLabel`; an unlabelled type shows its type string.
 
 | Type | Label | Handler | What it does | Node-eligible |
 |---|---|---|---|:-:|
@@ -665,6 +686,12 @@ All 35 registered job types (pinned by `apps/api/test/jobs/job-type-snapshot.spe
 | `nodes.fleet.sweep` | Fleet sweep | `packages/platform-api/src/nodes/handlers/node-fleet-sweep.handler.ts` (the nodes slice) | Marks nodes with stale heartbeats offline | No |
 | `nodes.fleet.prune` | Fleet prune | `packages/platform-api/src/nodes/handlers/node-fleet-prune.handler.ts` (the nodes slice) | Forgets nodes offline longer than `nodes.offlineRetentionDays` | No |
 | `nodes.node_events_purge` | Node events purge | `packages/platform-api/src/nodes/handlers/node-events-purge.handler.ts` (the nodes slice) | Deletes `worker_node_events` rows older than `nodeEventsRetentionDays` (default 30) | No |
+| `webhooks.deliver` | Webhook delivery | `packages/platform-api/src/webhooks/handlers/webhook-deliver.handler.ts` (the webhooks slice) | One signed HTTP delivery attempt to an endpoint; a failed attempt schedules its own retry; server-only because it reads the signing secret | No |
+| `webhooks.fanout` | Webhook fan-out | `packages/platform-api/src/webhooks/handlers/webhook-fanout.handler.ts` (the webhooks slice) | Turns one emitted event into a delivery row and a `webhooks.deliver` job per matching endpoint | No |
+| `webhooks.deliveries_purge` | Webhook delivery purge | `packages/platform-api/src/webhooks/handlers/webhook-purge.handler.ts` (the webhooks slice) | Deletes deliveries past `deliveryRetentionDays` (default 30) | No |
+| `alerts.evaluate` | Alert evaluation | `packages/platform-api/src/alerts/handlers/alerts-evaluate.handler.ts` (the alerts slice) | Evaluates every enabled alert rule and applies the incident state machine; queued every minute | No |
+| `alerts.evaluate_event` | Alert evaluation (node event) | `packages/platform-api/src/alerts/handlers/alerts-evaluate-event.handler.ts` (the alerts slice) | Evaluates the event-driven alert rules a reported node event can change | No |
+| `alerts.incidents_purge` | Alert incident purge | `packages/platform-api/src/alerts/handlers/alerts-incidents-purge.handler.ts` (the alerts slice) | Deletes resolved alert incidents past `incidentRetentionDays` (default 90) | No |
 | `admin.broadcast.start` | Broadcast start | `packages/platform-api/src/notifications/broadcasts/handlers/broadcast-start.handler.ts` (the notifications slice) | Starts a broadcast: freezes the audience, enqueues the first chunk | No |
 | `admin.broadcast.chunk` | Broadcast delivery | `packages/platform-api/src/notifications/broadcasts/handlers/broadcast-chunk.handler.ts` (the notifications slice) | Delivers one page of recipients, enqueues its successor | No |
 | `notifications.inbox.purge` | Notification inbox purge | `notifications/retention/notification-inbox-purge.handler.ts` | Deletes `notifications` inbox rows past `retention.notifications`, in batches; daily at 01:00 | No |
@@ -749,6 +776,7 @@ Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/
 | `/admin/settings/db-backup` | Database Backup | Operations | `db_backup:read` | |
 | `/admin/settings/broadcasts` | Broadcasts | Operations | any of `broadcasts:read`, `org_broadcasts:read` | |
 | `/admin/settings/about` | About | Operations | `system_settings:read` | |
+| `/admin/settings/webhooks` | Webhooks | Operations | `system_webhooks:read` (system) | |
 | `/admin/settings/ai` | AI | AI | `ai_config:read` | none (the page that turns AI on) |
 | `/admin/settings/ai/models` | AI Models | AI | `ai_config:read` | `ai` |
 | `/admin/settings/ai/usage` | AI Usage | AI | `ai_config:read` | `ai` |
@@ -760,6 +788,7 @@ Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/
 | `/admin/settings/organization` | Organization | Organizations | `org_members:read` (org) | `orgs` (multi-org mode) |
 | `/admin/settings/organizations` | Organizations | Organizations | `organizations:read` (system) | `orgs` (multi-org mode) |
 | `/admin/settings/organization-settings` | Organizations | Organization settings | `org_settings:read` (org; writes `org_settings:write`) | `orgs` (multi-org mode) |
+| `/admin/settings/organization-webhooks` | Organization webhooks | Organizations | `org_webhooks:read` (org) | `orgs` (multi-org mode) |
 | `/admin/settings/factory-reset` | Factory reset | Danger Zone (last) | `system:factory_reset` (system) | none (shows why it is off in `DEPLOYMENT_MODE=saas`) |
 | `/settings/profile` | Profile | Account | | |
 | `/settings/appearance` | Appearance | Account | | |
@@ -769,6 +798,7 @@ Every settings page, from `apps/web/src/config/adminSections.tsx` and `apps/web/
 | `/settings/ai` | AI Keys | Security | `ai:use` | `ai` |
 | `/settings/groups` | Groups (and `/settings/groups/:id`, the group's page) | Sharing | `groups:read` (org) | |
 | `/settings/data-export` | Download your data | Your data | | |
+| `/settings/webhooks` | Webhooks | Integrations | `webhooks:read` (org) | |
 | `/settings/danger-zone` | Delete my data | Danger Zone (last) | | none (stays reachable while AI is off: the deletion also removes AI keys and runs) |
 
 Cards gate reachability; pages gate their own write controls (for example, a `jobs:read` holder without `jobs:write` sees disabled retry buttons). The Users & Allowlist page keeps two tabs because they are parallel views of one question; `allowlist:read` gates the Allowlist tab's content. The Organization page (#726) follows the same precedent: Members and Invites are parallel views of "who belongs to this organization", and `org_invites:read` gates the Invites tab. Both organization cards exist only when `/api/auth/me` reports `tenancyMode: 'multi'` (the `orgs` feature); an organization's own administrator, who holds no system permission, reaches the Console through `org_members:read` and sees only the Organization card. The AppBar's organization switcher (`OrgSwitcher` of `@marinoscar/platform-web/identity/ui`) appears in multi-org mode for a user with two or more active memberships.

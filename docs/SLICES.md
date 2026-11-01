@@ -38,7 +38,7 @@ Standalone: **Yes** means the slice imports and runs with the foundation slices 
 | [`doctor`](#doctor) | The admin Doctor: a read-only check registry every slice adds its checks to, the report, the support bundle and the Doctor page. | API, Web, Contract | `core` | With slices |
 | [`otel-core`](#otel-core) | The OpenTelemetry SDK behind a runtime export gate, the metric name registry and the `@Trace()` decorator, so a service emits traces and metrics without owning an exporter. | API | `core` | Yes |
 | [`telemetry`](#telemetry) | Observability for the app: the runtime-configured GreptimeDB connection, the SQL explorer, the AI assistant, the dashboard with its health verdict and metric groups, and the retention job. | API, Web, Contract, CLI, Infra | `core`, `credentials`, `doctor`, `otel-core`, `settings` | With app ports |
-| [`manifest`](#manifest) | The platform roles, the permission sets every slice declares and the model-ownership inventory the app reads once, instead of listing them slice by slice. | API | `ai`, `android-app`, `core`, `credentials`, `db-backup`, `identity`, `jobs`, `nodes`, `notifications`, `settings`, `sharing`, `storage`, `telemetry`, `user-data` | With slices |
+| [`manifest`](#manifest) | The platform roles, the permission sets every slice declares and the model-ownership inventory the app reads once, instead of listing them slice by slice. | API | `ai`, `alerts`, `android-app`, `core`, `credentials`, `db-backup`, `identity`, `jobs`, `nodes`, `notifications`, `settings`, `sharing`, `storage`, `telemetry`, `user-data`, `webhooks` | With slices |
 | [`host`](#host) | The host core: the event bus, maintenance mode with its guard, the response envelope, the exception filter, request ids, health, CORS, the OpenAPI document and the About page. | API, Web | `core`, `db-backup`, `doctor`, `identity`, `nodes`, `otel-core`, `settings` | With slices |
 | [`shell`](#shell) | The web app shell: layout, app bar, navigation rail with Console mode, bottom navigation, user menu and the shell theme. | Web | `core`, `identity`, `settings` | With slices |
 | [`datatable`](#datatable) | The responsive `DataTable`: a virtualized grid on desktop and cards on phones, with sort, filter, selection, CSV export and per-user column preferences. | Web | `core` | Yes |
@@ -58,6 +58,8 @@ Standalone: **Yes** means the slice imports and runs with the foundation slices 
 | [`db-backup`](#db-backup) | Database backup and restore: streamed `pg_dump` into object storage, schedule and retention, the guarded in-app restore and the admin page. | API, Web, Contract | `core`, `doctor`, `email`, `identity`, `jobs`, `otel-core`, `settings`, `storage` | With slices |
 | [`android-app`](#android-app) | The server half of the Android companion: trusted apps and Digital Asset Links, hosted APK releases with signed downloads, the `android_app` push channel and the admin page. | API, Web, Contract | `core`, `doctor`, `identity`, `notifications`, `settings`, `storage` | With slices |
 | [`user-data`](#user-data) | Deleting data: per-user data reset with scopes, the admin factory reset and organization offboarding, driven by registered categories and a relation-ordered purge planner. | API, Web, Contract | `core`, `doctor`, `exports`, `host`, `identity`, `jobs`, `otel-core`, `sharing`, `storage` | With slices |
+| [`webhooks`](#webhooks) | Outbound signed webhooks: endpoints for a member, an organization or the deployment, an open event catalog, an SSRF-safe delivery job with retries and a circuit breaker, domain-event bridges and a notification channel. | API, Web, Contract | `core`, `credentials`, `datatable`, `email`, `identity`, `jobs`, `nodes`, `notifications`, `otel-core` | With slices |
+| [`alerts`](#alerts) | Alert rules over telemetry metrics, worker-node events and fleet health, incidents with a pending, firing and resolved state machine, notifications and optional webhooks on a transition, and the admin routes. | API, Contract | `core`, `doctor`, `email`, `identity`, `jobs`, `nodes`, `notifications`, `otel-core`, `telemetry` | With slices |
 | [`openai`](#openai) | The OpenAI wire family as a framework-free adapter: OpenAI, OpenAI-compatible and Azure OpenAI (`createOpenAiAdapter`), with the redirect and family guards. | AI providers | `core` | Yes |
 | [`anthropic`](#anthropic) | The Anthropic Messages API adapter (`createAnthropicAdapter`), stateless, without Nest. | AI providers | `core` | Yes |
 | [`gemini`](#gemini) | The Google Gemini adapter (`createGeminiAdapter`): generateContent and embeddings, without Nest. | AI providers | `core` | Yes |
@@ -195,7 +197,7 @@ None.
 
 | Part | Import paths | Depends on (slices) | Install beyond the required peers | README |
 |---|---|---|---|---|
-| API (`platform-api`) | `/manifest` | `core`, `identity`, `settings`, `credentials`, `sharing`, `storage`, `jobs`, `nodes`, `notifications`, `ai`, `telemetry`, `db-backup`, `android-app`, `user-data` | `@nestjs/config`, `@nestjs/event-emitter`, `@nestjs/jwt`, `@nestjs/passport`, `@nestjs/schedule`, `@nestjs/terminus`, `@prisma/client-runtime-utils`, `fastify`, `passport` | [README](../packages/platform-api/src/manifest/README.md) |
+| API (`platform-api`) | `/manifest` | `core`, `identity`, `settings`, `credentials`, `sharing`, `storage`, `jobs`, `nodes`, `notifications`, `ai`, `telemetry`, `db-backup`, `android-app`, `user-data`, `webhooks`, `alerts` | `@nestjs/config`, `@nestjs/event-emitter`, `@nestjs/jwt`, `@nestjs/passport`, `@nestjs/schedule`, `@nestjs/terminus`, `@prisma/client-runtime-utils`, `fastify`, `passport` | [README](../packages/platform-api/src/manifest/README.md) |
 
 **Admin and settings cards.**
 
@@ -203,7 +205,7 @@ None.
 
 **Permissions it adds.** none declared by this slice
 
-**Standalone (With slices).** Imports every declaring slice, so it pulls in the whole permission surface. Use it when the app mounts most slices; skip it when the app mounts one. Transitive slice dependencies in API: `ai`, `android-app`, `core`, `credentials`, `db-backup`, `doctor`, `email`, `exports`, `host`, `identity`, `jobs`, `nodes`, `notifications`, `otel-core`, `settings`, `sharing`, `storage`, `telemetry`, `user-data`.
+**Standalone (With slices).** Imports every declaring slice, so it pulls in the whole permission surface. Use it when the app mounts most slices; skip it when the app mounts one. Transitive slice dependencies in API: `ai`, `alerts`, `android-app`, `core`, `credentials`, `db-backup`, `doctor`, `email`, `exports`, `host`, `identity`, `jobs`, `nodes`, `notifications`, `otel-core`, `settings`, `sharing`, `storage`, `telemetry`, `user-data`, `webhooks`.
 
 ### host
 
@@ -628,6 +630,49 @@ None.
 **Permissions it adds.** `system:factory_reset`, `orgs:offboard`
 
 **Standalone (With slices).** Imports core, identity, jobs, storage, sharing, exports and host. Each model that gains a user relation registers a keep or delete decision. Transitive slice dependencies in API: `core`, `credentials`, `db-backup`, `doctor`, `email`, `exports`, `host`, `identity`, `jobs`, `nodes`, `otel-core`, `settings`, `sharing`, `storage`.
+
+### webhooks
+
+**What it gives you.** Outbound signed webhooks: endpoints for a member, an organization or the deployment, an open event catalog, an SSRF-safe delivery job with retries and a circuit breaker, domain-event bridges and a notification channel.
+
+**What it is** (from its README). Outbound, signed webhooks: a member, an organization or the deployment registers an HTTPS endpoint, subscribes it to events from an open catalog, and the platform POSTs each event to it as a signed JSON envelope through the job queue, with retries, a circuit breaker and an SSRF-safe egress guard.
+
+| Part | Import paths | Depends on (slices) | Install beyond the required peers | README |
+|---|---|---|---|---|
+| API (`platform-api`) | `/webhooks`, `/webhooks/testing` | `core`, `otel-core`, `identity`, `credentials`, `email`, `jobs`, `nodes`, `notifications` | `@nestjs/config`, `@nestjs/event-emitter`, `@nestjs/jwt`, `@nestjs/passport`, `@nestjs/schedule`, `@prisma/client-runtime-utils`, `fastify`, `passport` | [README](../packages/platform-api/src/webhooks/README.md) |
+| Web (`platform-web`) | `/webhooks/headless`, `/webhooks/ui` | `core`, `datatable` | `@mui/icons-material`, `@mui/x-data-grid` | [README](../packages/platform-web/src/webhooks/README.md) |
+| Contract (`platform-contract`) | `/webhooks` | none | none | [README](../packages/platform-contract/src/webhooks/README.md) |
+
+**Admin and settings cards.**
+
+| Card | Route | Permission | Feature gate | Declared by |
+|---|---|---|---|---|
+| Organization webhooks | `/admin/settings/organization-webhooks` | none | none | the package (data the app spreads into its registry) |
+| Webhooks | `/admin/settings/webhooks` | none | none | the package (data the app spreads into its registry) |
+| Webhooks | `/settings/webhooks` | none | none | the package (data the app spreads into its registry) |
+
+**Permissions it adds.** `webhooks:{read,write}` (org), `org_webhooks:{read,write}` (org), `system_webhooks:{read,write}`
+
+**Standalone (With slices).** Imports core, otel-core, identity, credentials, jobs, nodes and notifications. Signing secrets live in the credentials store; the app binds the bypass client for system-scope endpoints. Transitive slice dependencies in API: `core`, `credentials`, `doctor`, `email`, `identity`, `jobs`, `nodes`, `notifications`, `otel-core`, `settings`.
+
+### alerts
+
+**What it gives you.** Alert rules over telemetry metrics, worker-node events and fleet health, incidents with a pending, firing and resolved state machine, notifications and optional webhooks on a transition, and the admin routes.
+
+**What it is** (from its README). The alerts slice: alert rules over telemetry metrics, worker-node events and fleet health; incidents with a `pending`, `firing` and `resolved` state machine; a notification to the holders of `alerts:read` and an optional webhook on every transition; and the admin routes under `/api/admin/alerts`.
+
+| Part | Import paths | Depends on (slices) | Install beyond the required peers | README |
+|---|---|---|---|---|
+| API (`platform-api`) | `/alerts`, `/alerts/testing` | `core`, `doctor`, `otel-core`, `identity`, `jobs`, `nodes`, `telemetry`, `notifications`, `email` | `@nestjs/config`, `@nestjs/event-emitter`, `@nestjs/jwt`, `@nestjs/passport`, `@nestjs/schedule`, `@prisma/client-runtime-utils`, `fastify`, `passport` | [README](../packages/platform-api/src/alerts/README.md) |
+| Contract (`platform-contract`) | `/alerts` | none | none | [README](../packages/platform-contract/src/alerts/README.md) |
+
+**Admin and settings cards.**
+
+None.
+
+**Permissions it adds.** `alerts:{read,write}`
+
+**Standalone (With slices).** Imports core, otel-core, identity, jobs, nodes, telemetry, notifications and email. The metric and verdict kinds need the telemetry module in `imports`; the node kinds work without a telemetry store. Transitive slice dependencies in API: `core`, `credentials`, `doctor`, `email`, `identity`, `jobs`, `nodes`, `notifications`, `otel-core`, `settings`, `telemetry`.
 
 ### openai
 
