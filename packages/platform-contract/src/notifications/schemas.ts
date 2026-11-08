@@ -32,6 +32,7 @@ import {
   NOTIFICATION_CHANNEL_ID_PATTERN,
   NOTIFICATION_EVENT_KEY_PATTERN,
   NOTIFICATION_MAX_EVENT_KEY_LENGTH,
+  NOTIFICATION_STREAM_REASONS,
   PUSH_TEST_CONFIG_SOURCES,
   PUSH_TEST_OVERALL,
   PUSH_TEST_SEND_STATUSES,
@@ -39,7 +40,7 @@ import {
   ROTATE_CONFIRMATION,
   PUSH_SUBSCRIPTION_PLATFORMS,
 } from './constants.js';
-import type { BroadcastStatusName, PushSubscriptionPlatform, PushTestConfigSource, PushTestOverall, PushTestSendStatus } from './constants.js';
+import type { BroadcastStatusName, NotificationStreamReason, PushSubscriptionPlatform, PushTestConfigSource, PushTestOverall, PushTestSendStatus } from './constants.js';
 
 // ---- keys ---------------------------------------------------------------------------
 
@@ -338,6 +339,14 @@ const booleanQuerySchema: z.ZodEnum<BooleanQueryEnum> = z.enum(['true', 'false']
  */
 export type PushSubscriptionPlatformEnum = { [K in PushSubscriptionPlatform]: K };
 
+/**
+ * The stream frame reasons, as `z.enum` types them.
+ *
+ * @stability experimental
+ */
+export type NotificationStreamReasonEnum = { [K in NotificationStreamReason]: K };
+
+const notificationStreamReasonSchema: z.ZodEnum<NotificationStreamReasonEnum> = z.enum(NOTIFICATION_STREAM_REASONS);
 const pushSubscriptionPlatformSchema: z.ZodEnum<PushSubscriptionPlatformEnum> = z.enum(PUSH_SUBSCRIPTION_PLATFORMS);
 
 // ---- /api/notifications --------------------------------------------------------------
@@ -466,6 +475,17 @@ export const notificationSchema = z.object({
   readAt: z.iso.datetime().nullable(),
   /** Creation time (ISO 8601). */
   createdAt: z.iso.datetime(),
+  /**
+   * The occurrence count of a STATE or COUNTED row (`data.count`); null for a
+   * plain row. Absent from an older server.
+   */
+  count: z.number().int().min(0).nullable().optional(),
+  /** The scope the row belongs to (a group, an organization), or null. Not authorization. */
+  scopeId: z.string().nullable().optional(),
+  /** When the user dismissed it (ISO 8601), or null. A dismissed row is not listed. */
+  dismissedAt: z.iso.datetime().nullable().optional(),
+  /** Last refresh (ISO 8601): the rolling-window anchor of a COUNTED row. */
+  updatedAt: z.iso.datetime().optional(),
 });
 
 /**
@@ -551,6 +571,18 @@ export const notificationStreamEventSchema = z.object({
   toast: z.boolean(),
   /** Whether this dispatch also sent Web Push. */
   pushed: z.boolean(),
+  /** The occurrence count of a STATE or COUNTED row; absent for a plain row. */
+  count: z.number().int().min(0).nullable().optional(),
+  /** The scope of a STATE or COUNTED row, or null. */
+  scopeId: z.string().nullable().optional(),
+  /** Last refresh (ISO 8601); differs from `createdAt` for a refreshed row. */
+  updatedAt: z.string().optional(),
+  /**
+   * Why the frame was sent: `created` (a new row), `incremented` (a COUNTED
+   * row grew) or `reunread` (a STATE row grew past what was last read).
+   * Absent from an older server: treat as `created`.
+   */
+  reason: notificationStreamReasonSchema.optional(),
 });
 
 /**

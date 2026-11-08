@@ -99,6 +99,20 @@ export const MAX_DISABLED_NOTIFICATION_EVENTS = NOTIFICATION_MAX_EVENTS_PER_CHAN
 export const NOTIFICATION_SSE_EVENT = 'notification';
 
 /**
+ * Why a stream frame was sent (`NotificationStreamEventPayload.reason`).
+ *
+ * @stability stable
+ */
+export const NOTIFICATION_STREAM_REASONS = ['created', 'incremented', 'reunread'] as const;
+
+/**
+ * One of {@link NOTIFICATION_STREAM_REASONS}.
+ *
+ * @stability stable
+ */
+export type NotificationStreamReason = (typeof NOTIFICATION_STREAM_REASONS)[number];
+
+/**
  * The generic VAPID subject a delivery falls back to when none is configured.
  *
  * @stability stable
