@@ -10,3 +10,5 @@ export {
   nodesConformanceSuite,
 } from './conformance';
 export type { NodeAppRoute, NodeAppRouteDiscovery, NodesConformanceOptions } from './conformance';
+export { nodeCredentialCacheConformanceSuite } from './node-credential-cache';
+export type { NodeCredentialCacheConformanceOptions } from './node-credential-cache';

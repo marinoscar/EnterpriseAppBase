@@ -100,7 +100,12 @@ export type {
   InMemoryAiObjectStore,
 } from './in-memory-ai-storage';
 // The conformance suites.
-export { aiJobsServerOnlySuite, findAiJobsMissingFromServerOnly, findNodeEligibleAiJobs } from './conformance/ai-jobs-server-only.suite';
+export {
+  aiJobsServerOnlySuite,
+  findAiJobsMissingFromServerOnly,
+  findNodeEligibleAiJobs,
+  nodeDeliveryNonCompliance,
+} from './conformance/ai-jobs-server-only.suite';
 export type { AiJobsServerOnlyOptions, JobHandlerView, JobRegistryView } from './conformance/ai-jobs-server-only.suite';
 export { aiKeyPolicySuite, keysSeenBy } from './conformance/ai-key-policy.suite';
 export type { AiKeyPolicyOptions } from './conformance/ai-key-policy.suite';
