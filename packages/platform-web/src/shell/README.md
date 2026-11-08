@@ -120,14 +120,14 @@ An app proves the wiring in its own CI with the `shell-local-host` web conforman
 
 | Option | Type | Default | Meaning |
 |---|---|---|---|
-| `destinations` | `readonly ShellDestination[]` | required | `{ key, label, compactLabel, Icon, path, permission?, anyPermission?, pinned?, feature?, badge?, group?, external?, onClick? }`, in navigation order. `permission` is the exact string the API enforces; `pinned` puts it at the rail's foot. The bottom bar draws four tabs; with more destinations visible it draws three and a More sheet (`maxItems`). See [Destination fields](#destination-fields). |
+| `destinations` | `readonly ShellDestination[]` | required | `{ key, label, compactLabel, Icon, path, permission?, anyPermission?, pinned?, feature?, badge?, group?, external?, onClick?, contextPane? }`, in navigation order. `permission` is the exact string the API enforces; `pinned` puts it at the rail's foot. The bottom bar draws four tabs; with more destinations visible it draws three and a More sheet (`maxItems`). See [Destination fields](#destination-fields). |
 | `destinationRoutes` | `Record<key, readonly string[]>` | each `path` | The prefixes each destination owns (lights up on). |
 | `settingsSurfaces` | `readonly ShellSettingsSurface[]` | none | `{ sections, hubPath, hubTitle }` the compact AppBar drills into, in resolution order. |
 | `console` | `ShellConsole` | none | `{ prefix, sections, back? }`: the rail's Console mode. `back` defaults to `{ label: 'Back to library', path: '/' }`. |
 | `homePath` | `string` | `'/'` | Where the brand goes; the destination at it is left out of the user menu. |
 | `useRailPreference` | `() => ShellRailPreference` | `useShellRailPreference` | The desktop rail's collapse preference, as a stable hook reference. |
 
-`ShellLayout` props: `navigation`, `brand`, and the slots `appBar`, `rail`, `bottomNav` (default: the packaged surface for `navigation`), `banners` (inside `<main>`, above the page), `overlays` (after the bottom bar), `children` (default `<Outlet />`). `ShellAppBar` props: `navigation`, `brand`, `actions` (both treatments), `wideActions` (outside the drill-down), `userMenu` (default `ShellUserMenu`). `ShellUserMenu` props: `navigation`, `items(close)`, `footer`, `logoutLabel` (default `'Logout'`), `hideSignOut` and `hideOrgSwitcher` (default `true` when the auth context's `mode` is `'local'`, else `false`), `extraItems` (`ShellUserMenuItem[]`, default none; see [Running in a local host](#running-in-a-local-single-user-no-api-host)). `ShellBottomNav` props: `navigation`, `maxItems` (default 4, at least 2); destinations marked `pinned` are drawn last on the bar (last in its More sheet when it overflows). `ShellThemeProvider` and `ShellRoot` props: `themes: { light, dark, ...modes }` (extra keys are theme modes by id, see [Theme modes](#theme-modes)), `storageKey` (default `'theme_mode'`). `createShellTheme(mode, { palette?, extend? })`. No environment variable.
+`ShellLayout` props: `navigation`, `brand`, and the slots `appBar`, `rail`, `bottomNav` (default: the packaged surface for `navigation`), `banners` (inside `<main>`, above the page; not drawn in full bleed), `mainVariant` (`'padded'` default, or `'full-bleed'`; see [Full-bleed pages](#full-bleed-pages)), `overlays` (after the bottom bar), `children` (default `<Outlet />`). `ShellAppBar` props: `navigation`, `brand`, `actions` (both treatments), `wideActions` (outside the drill-down), `userMenu` (default `ShellUserMenu`). `ShellUserMenu` props: `navigation`, `items(close)`, `footer`, `logoutLabel` (default `'Logout'`), `hideSignOut` and `hideOrgSwitcher` (default `true` when the auth context's `mode` is `'local'`, else `false`), `extraItems` (`ShellUserMenuItem[]`, default none; see [Running in a local host](#running-in-a-local-single-user-no-api-host)). `ShellBottomNav` props: `navigation`, `maxItems` (default 4, at least 2); destinations marked `pinned` are drawn last on the bar (last in its More sheet when it overflows). `ShellThemeProvider` and `ShellRoot` props: `themes: { light, dark, ...modes }` (extra keys are theme modes by id, see [Theme modes](#theme-modes)), `storageKey` (default `'theme_mode'`). `createShellTheme(mode, { palette?, extend? })`. No environment variable.
 
 ## Extension-point catalog
 
@@ -148,9 +148,53 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | `registerThemeMode` | registry | `registerThemeMode(definition: { id; label; theme }): void` | Add a theme mode (a high-contrast theme, a brand skin) the shell can resolve and restore; pair it with `registerThemePreference` on the API so the Appearance page offers it | experimental | [example](../../../../apps/web/src/platform-extensions/shell/high-contrast.theme.ts) |
 | `ShellPreferencesPort` | option | `{ read(): ShellPreferences \| Promise<ShellPreferences>; write(patch: Partial<ShellPreferences>): void \| Promise<void> }` | Say where a host with no `/user-settings` API keeps the shell's per-viewer preferences (the rail's collapse) | experimental | [example](../../../../apps/web/src/__tests__/examples/shell/local-host.test.tsx) |
 | `ShellPreferencesProvider` | component | `ShellPreferencesProvider(props: { port: ShellPreferencesPort; children }): ReactElement` | Mount the preferences port once, around the shell, so the rail preference reads and writes through it | experimental | [example](../../../../apps/web/src/__tests__/examples/shell/local-host.test.tsx) |
+| `useShellMainVariant` | hook | `useShellMainVariant(variant: 'padded' \| 'full-bleed'): void` | Draw `<main>` edge to edge (no side or top padding, no banners) while a map, a full-screen viewer or a canvas page is mounted, without remounting the shell; resets on unmount | experimental | [example](../../../../apps/web/src/__tests__/examples/shell/layout-variants.test.tsx) |
+| `ShellContextPane` | slot | `ShellDestination.contextPane?: ComponentType<{ activeDestination: string; pathname: string }>` | Show what is inside the active destination (a list of collections, of review queues) in a second column beside the expanded rail, so a desktop user never drills down | experimental | [example](../../../../apps/web/src/__tests__/examples/shell/layout-variants.test.tsx) |
+| `shellLayoutVariantsSuite` | registry | `WebConformanceSuite` | Prove a full-bleed page keeps the bottom-bar clearance and the context pane follows the expanded rail only; registered with `webConformanceSuites` and run by `runPlatformWebConformance` | experimental | [example](../../../../apps/web/src/__tests__/conformance.test.ts) |
 | `shellLocalHostSuite` | registry | `WebConformanceSuite` | Prove a local host (no API) renders the shell chrome and never calls the API; registered with `webConformanceSuites` and run by `runPlatformWebConformance` | experimental | [example](../../../../apps/web/src/__tests__/conformance.test.ts) |
 
-Supporting exports (experimental): `ShellRoot` (`ShellThemeProvider` plus MUI's `ThemeProvider` and `CssBaseline`), `useShellTheme` (throws outside the provider), `useOptionalShellTheme`, `shellPalette`, `shellComponentOverrides`, `owns`, `isDestinationVisible`, `isExternalUrl`, `groupDestinationRuns`, `listThemeModes`, `isBuiltinThemeMode`, `BUILTIN_SHELL_THEME_MODES`, `resolveActiveDestination`, `shellDestinationRoutes`, `RAIL_WIDTH_COLLAPSED` (56), `RAIL_WIDTH_EXPANDED` (220), and the types `ShellDestination`, `ShellIcon`, `ShellIconProps`, `ShellSettingsSurface`, `ShellConsole`, `ShellConsoleBack`, `ShellRailPreference`, `ShellProvider`, `ShellProviderProps`, `ShellThemes`, `ShellThemeMode` (open: `'light' | 'dark' | 'system' | (string & {})`), `ShellThemeModeDefinition`, `ShellDestinationRun`, `ShellBottomNavProps`, `ShellThemeContextValue`, `ShellThemeOptions` and every props type.
+Supporting exports (experimental): `ShellRoot` (`ShellThemeProvider` plus MUI's `ThemeProvider` and `CssBaseline`), `useShellTheme` (throws outside the provider), `useOptionalShellTheme`, `shellPalette`, `shellComponentOverrides`, `owns`, `isDestinationVisible`, `isExternalUrl`, `groupDestinationRuns`, `listThemeModes`, `isBuiltinThemeMode`, `BUILTIN_SHELL_THEME_MODES`, `resolveActiveDestination`, `shellDestinationRoutes`, `RAIL_WIDTH_COLLAPSED` (56), `RAIL_WIDTH_EXPANDED` (220), `CONTEXT_PANE_WIDTH` (240), and the types `ShellMainVariant`, `ShellContextPane`, `ShellContextPaneProps`, `ShellDestination`, `ShellIcon`, `ShellIconProps`, `ShellSettingsSurface`, `ShellConsole`, `ShellConsoleBack`, `ShellRailPreference`, `ShellProvider`, `ShellProviderProps`, `ShellThemes`, `ShellThemeMode` (open: `'light' | 'dark' | 'system' | (string & {})`), `ShellThemeModeDefinition`, `ShellDestinationRun`, `ShellBottomNavProps`, `ShellThemeContextValue`, `ShellThemeOptions` and every props type.
+
+### Full-bleed pages
+
+`ShellLayout`'s `<main>` is padded (24px on every side) and draws `banners` above the page. A page that renders edge to edge (a map, a full-screen viewer, a canvas) asks for `'full-bleed'`: no horizontal or top padding and no banners. Two ways:
+
+- per page, with the hook (the shell is not remounted, so the rail, the AppBar and any context pane keep their state; the request is reset when the page unmounts, and it wins over the prop):
+
+  ```tsx
+  import { useShellMainVariant } from '@marinoscar/platform-web/shell/ui';
+
+  function MapPage() {
+    useShellMainVariant('full-bleed');
+    return <MapCanvas />;
+  }
+  ```
+
+- per layout route, with the prop: `<Route element={<ShellLayout navigation={NAV} mainVariant="full-bleed" />}>`.
+
+**Not a breakpoint gate.** Full bleed keeps gate 3, `pb: { xs: 10, sm: 3 }`, in both variants, so a full-bleed page on a phone still clears the fixed bottom bar; never cancel `<main>`'s padding with negative margins, which would couple a page to the gates. In full bleed `<main>` is also a column flex container, so the page can `flexGrow: 1` to fill it. `<main>` carries `data-main-variant` (`padded` or `full-bleed`) for tests and visual baselines.
+
+### Context pane
+
+A destination may declare `contextPane`, a component rendered as a 240px column (`CONTEXT_PANE_WIDTH`) beside the rail while that destination is active and visible to the viewer. It receives `{ activeDestination, pathname }` (`activeDestination` is a plain `string`, so a typed `ShellNavigation<K>` stays assignable to `ShellNavigation`).
+
+```tsx
+function CollectionsPane({ pathname }: ShellContextPaneProps) {
+  return <CollectionList selectedPath={pathname} />;
+}
+
+const APP_NAVIGATION: ShellNavigation<'home' | 'collections'> = {
+  destinations: [
+    { key: 'home', label: 'Home', compactLabel: 'Home', Icon: HomeIcon, path: '/' },
+    { key: 'collections', label: 'Collections', compactLabel: 'Collections', Icon: CollectionsIcon, path: '/collections', contextPane: CollectionsPane },
+  ],
+};
+```
+
+- **Shown only beside the EXPANDED rail**: the rail's own `expanded` boolean (`up('lg')` and not collapsed), so it follows the collapse toggle. No new `useMediaQuery`: it is not a breakpoint gate, and the five coupled gates did not move. Hidden at the medium (collapsed) rail, when the desktop rail is collapsed, in Console mode, and below `sm` (no rail is mounted there).
+- **Stays mounted** across route changes inside the destination: only `<main>` changes. Pass a module-level component (a stable reference).
+- **Focus order**: rail, pane, main. The pane is an `<aside>` (a `complementary` landmark) named by the destination's `label`, sticky below the AppBar with its own scroll, and `minWidth: 0` like every flex level of the shell.
+- Drawn by `ShellNavigationRail`, so an app that replaces the `rail` slot draws its own (or renders `ShellNavigationRail`, which brings the pane with it).
 
 ### Destination fields
 
@@ -183,8 +227,8 @@ Declares none. The surfaces show a destination only when the viewer holds its `p
 
 ## UI
 
-- **Components:** `ShellLayout` (the route element), `ShellAppBar`, `ShellNavigationRail` (collapsed 56px at `sm`–`lg`, expanded 220px at `lg` and up, Console mode, a desktop-only collapse toggle with `aria-expanded`), `ShellBottomNav` (compact labels, full accessible names), `ShellUserMenu`, `ShellThemeProvider`, `ShellRoot`.
-- **Slots:** the AppBar's `brand`, `actions`, `wideActions` and `userMenu`; the user menu's `items` and `footer`; the layout's `appBar`, `rail`, `bottomNav`, `banners` and `overlays`; `ShellProviders`' list.
+- **Components:** `ShellLayout` (the route element), `ShellAppBar`, `ShellNavigationRail` (collapsed 56px at `sm`–`lg`, expanded 220px at `lg` and up, Console mode, the active destination's `contextPane` beside the expanded rail, a desktop-only collapse toggle with `aria-expanded`), `ShellBottomNav` (compact labels, full accessible names), `ShellUserMenu`, `ShellThemeProvider`, `ShellRoot`.
+- **Slots:** the AppBar's `brand`, `actions`, `wideActions` and `userMenu`; the user menu's `items` and `footer`; the layout's `appBar`, `rail`, `bottomNav`, `banners` and `overlays`, and a destination's `contextPane`; `ShellProviders`' list.
 - **Theme:** `createShellTheme` (Inter, 600-weight headings, 8px radius, no-uppercase buttons, a flat AppBar with a hairline border); the app's `palette` changes merge into it and `extend` adds token contracts (the telemetry slice's `withTelemetryTokens`).
 - **Accessibility:** `<nav>` landmarks named "Main navigation" / "Console navigation", `aria-current="page"` on the active row, a visible focus outline on every rail control, tooltips only where the label is abbreviated, `prefers-reduced-motion` honoured by the rail's width transition.
 
@@ -202,9 +246,13 @@ Every permission check here only chooses what to draw; the route guards and the 
 
 ## Conformance suite
 
+`shell-layout-variants` (web suite, owner slice `shell`; issue #1080): builds its own tree and takes no options. At 599px a full-bleed page drops the padding and banners but still clears the bottom bar (gate 3); at 1200px a destination's `contextPane` renders beside the expanded rail, and not at 900px (medium rail), with the rail collapsed or in Console mode; the pane stays mounted across a route change inside its destination. Every app that imports `@marinoscar/platform-web/shell/testing` runs it.
+
 `shell-local-host` (web suite, owner slice `shell`; issue #997): a host with one local user and no API renders `ShellRoot` > `PlatformHostProvider` > `LocalIdentityProvider` > `ShellPreferencesProvider` > `ShellLayout` (app bar, rail, bottom bar, user menu) with zero calls to the host's `api`, destinations follow the local permissions, the rail preference survives a remount through the port, and the user menu shows no sign-out and no organization switcher. It takes the host's `navigation` and local `permissions` under `suites['shell-local-host']`, or an argued `{ skip: 'reason' }` (a host with a server skips it); see the [testing README](../testing/README.md#conformance-suite). Besides it, the reference app's `Layout`, `AppBar`, `NavigationRail`, `BottomNav`, `UserMenu` and `destinations` tests run every surface through its bindings (exactly one navigation surface at every width, the gate-3 padding, route ownership against `App.tsx`), and `tests/visual` pins the pixels; the settings slice's suites cover the registries the shell reads.
 
 ## Upgrade notes
+
+#1080 (additive, minor): `ShellLayout` gains `mainVariant` and `useShellMainVariant` (full-bleed pages), `ShellDestination` gains `contextPane` (drawn by `ShellNavigationRail` beside the expanded rail), and `@marinoscar/platform-web/shell/testing` registers the `shell-layout-variants` suite. The defaults render what they did, except that `<main>` now carries `data-main-variant="padded"`. The five breakpoint gates did not move.
 
 #997 (additive, minor): local host mode. `usePermissions` falls back to `PlatformHost.viewer` when no `AuthContext` is mounted; `AuthContextValue` gains an optional `mode`; `ShellPreferencesPort` and its provider are new; `ShellUserMenu` gains `hideSignOut`, `hideOrgSwitcher` and `extraItems`. **One ordering change for existing apps:** `ShellBottomNav` renders destinations marked `pinned` after the non-pinned ones (before, they appeared in declaration order); an app whose pinned destinations were already declared last sees no change. With an `AuthContext` and no `ShellPreferencesProvider`, every other surface renders as before.
 

@@ -129,6 +129,8 @@ Five places in the shell decide, independently, whether the viewport is "compact
 
 `ShellLayout` only mounts the bottom bar (its `bottomNav` slot, default `ShellBottomNav`) when `!showRail`; gate 2 is belt and braces so the bar's output never appears at the wrong width. An app that replaces the `rail` or `bottomNav` slot keeps gates 1 and 3, which stay in `ShellLayout`.
 
+Neither of the two layout affordances of #1080 is a gate: `ShellLayout`'s `mainVariant` / `useShellMainVariant('full-bleed')` drops `<main>`'s side and top padding but keeps gate 3, and a destination's `contextPane` follows the rail's own `lg` medium/expanded split (its existing `expanded` boolean), with no new breakpoint read ([shell README](../../packages/platform-web/src/shell/README.md#full-bleed-pages)).
+
 The boundary is `sm` (600px), never `md` (900px). 600px is Material 3's compact/medium window-class boundary, and M3 specifies a permanent rail, not a bottom bar, from medium upward. Gating at 900px hands the phone treatment to an iPad in portrait (768px), an iPad Pro 11" (834px), an unfolded foldable, and a phone in landscape.
 
 ### Accessibility requirements
