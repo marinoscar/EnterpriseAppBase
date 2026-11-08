@@ -6,6 +6,9 @@ import {
   UploadPart,
   SignedUrlOptions,
   SignedPutUrlOptions,
+  StoragePartUploadMode,
+  StoredPart,
+  UploadedPart,
 } from './storage-provider.types';
 
 /**
@@ -252,4 +255,58 @@ export interface StorageProvider {
    * @returns Bucket name
    */
   getBucket(): string;
+  // ===========================================================================
+  // Optional multipart extensions (all absent on a plain presigned driver)
+  // ===========================================================================
+  //
+  // Additive: a provider that implements none of these behaves exactly as
+  // before (presigned part URLs; upload status from the chunk rows). A driver
+  // WITHOUT presigned URLs (a local disk, an in-process store) sets
+  // `partUploadMode: 'proxied'` and implements `uploadPart`, and the objects
+  // API serves its parts through `PUT /api/storage/objects/:id/upload/parts/:n`.
+  // They are read from the provider that holds the object's row (see
+  // `StorageProviderRouter`), never from the `ResolvingStorageProvider` wrapper
+  // (whose own members cannot answer synchronously for an async configuration).
+
+  /**
+   * How a client uploads part N. Absent or `'presigned'` means
+   * {@link StorageProvider.getSignedUploadUrl} (today's behaviour);
+   * `'proxied'` means the API's own part route and {@link StorageProvider.uploadPart}.
+   */
+  readonly partUploadMode?: StoragePartUploadMode;
+
+  /**
+   * The parts the BACKEND holds for an in-flight upload, so `GET :id/upload/status`
+   * reflects what really arrived: a client that uploads parts straight to S3
+   * never reports each one to the API, and a crashed client would otherwise see
+   * an empty list and re-send everything. Absent means status falls back to the
+   * recorded chunk rows.
+   *
+   * @throws MultipartSessionNotFoundError when the backend does not know the upload.
+   */
+  listUploadedParts?(key: string, uploadId: string): Promise<UploadedPart[]>;
+
+  /**
+   * Stores one part streamed through the API; required when `partUploadMode` is
+   * `'proxied'`. MUST NOT BUFFER `body`: write it to the backend as it arrives
+   * (the platform already bounds it to `size` bytes and errors the stream when
+   * the body is short or long, so a failed write must discard the part and
+   * keep none of it). Re-sending a part replaces it.
+   *
+   * @param key - the object key.
+   * @param uploadId - the id `initMultipartUpload` returned.
+   * @param partNumber - 1-based part number.
+   * @param body - the part's bytes, as a stream.
+   * @param size - the exact byte length the part must have.
+   * @returns the part's ETag (an MD5 digest, quoted or not).
+   * @throws PartSizeMismatchError when the stream does not carry `size` bytes.
+   * @throws MultipartSessionNotFoundError when the backend does not know the upload.
+   */
+  uploadPart?(
+    key: string,
+    uploadId: string,
+    partNumber: number,
+    body: Readable,
+    size: number,
+  ): Promise<StoredPart>;
 }

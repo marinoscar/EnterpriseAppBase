@@ -33,7 +33,7 @@ import { TestContext, createTestApp, closeTestApp } from '../helpers/test-app.he
 import { resetPrismaMock } from '../mocks/prisma.mock';
 import { setupBaseMocks } from '../fixtures/mock-setup.helper';
 import { createMockTestUser, authHeader } from '../helpers/auth-mock.helper';
-import { STORAGE_PROVIDER } from '@marinoscar/platform-api/storage';
+import { installMockStorageProvider } from '../helpers/mock-storage-provider.helper';
 import { createMockStorageProvider } from '../mocks/storage-provider.mock';
 
 interface StorageRoute {
@@ -72,12 +72,7 @@ describe('Storage objects RBAC matrix — every /api/storage/objects* route x ev
     const mockStorageProvider = createMockStorageProvider();
     context = await createTestApp({ useMockDatabase: true });
 
-    const storageProviderToken = context.module.get(STORAGE_PROVIDER, { strict: false });
-    if (storageProviderToken) {
-      // `kind` is a getter on the real provider (it answers from the settings snapshot): leave it be.
-      const { kind: _kind, ...methods } = mockStorageProvider;
-      Object.assign(storageProviderToken, methods);
-    }
+    installMockStorageProvider(context, mockStorageProvider);
 
     const document = createOpenApiDocument(context.app) as unknown as MutableDocument;
     routes = [];

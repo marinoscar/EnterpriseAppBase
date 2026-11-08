@@ -40,7 +40,10 @@ import { DatabaseBackupRunnerService } from '@marinoscar/platform-api/db-backup'
 import { ExportRunHandler } from '@marinoscar/platform-api/exports';
 import { JobsService } from '@marinoscar/platform-api/jobs';
 import {
+  MultipartPartsMissingError,
+  MultipartSessionNotFoundError,
   ObjectsService,
+  PartSizeMismatchError,
   STORAGE_PROVIDER,
   StorageConfigService,
   ResolvingStorageProvider,
@@ -141,6 +144,83 @@ describe('local-fs signed URLs', () => {
 });
 
 // ---- 3 to 6. the real application ---------------------------------------------------
+
+// ---- 2b. resumable uploads through the API's part route -------------------------------
+
+describe('local-fs resumable uploads (partUploadMode: proxied)', () => {
+  const provider = () => new LocalFsStorageProvider(kitDirectory);
+  const part = (bytes: number, fill: number) => Readable.from([Buffer.alloc(bytes, fill)]);
+
+  it('declares API-proxied parts', () => {
+    expect(provider().partUploadMode).toBe('proxied');
+  });
+
+  it('stores parts, reports what is on disk, and completes them in order into one object', async () => {
+    const store = provider();
+    const key = 'uploads/org/1/resumable.bin';
+    const { uploadId } = await store.initMultipartUpload(key, { mimeType: 'application/x-test', metadata: { origin: 'spec' } });
+
+    const second = await store.uploadPart(key, uploadId, 2, part(3, 2), 3);
+    const first = await store.uploadPart(key, uploadId, 1, part(4, 1), 4);
+    // Re-sending a part replaces it.
+    await store.uploadPart(key, uploadId, 2, part(3, 2), 3);
+
+    expect(await store.listUploadedParts(key, uploadId)).toEqual([
+      { partNumber: 1, size: 4, eTag: first.eTag },
+      { partNumber: 2, size: 3, eTag: second.eTag },
+    ]);
+
+    await store.completeMultipartUpload(key, uploadId, [
+      { partNumber: 1, eTag: `"${first.eTag}"` },
+      { partNumber: 2, eTag: second.eTag },
+    ]);
+
+    expect((await collect(await store.download(key))).toString('hex')).toBe('01010101020202');
+    expect(await store.getMetadata(key)).toEqual({ origin: 'spec' });
+    await expect(store.listUploadedParts(key, uploadId)).rejects.toBeInstanceOf(MultipartSessionNotFoundError);
+    await store.delete(key);
+  });
+
+  it('keeps nothing of a part that is the wrong size', async () => {
+    const store = provider();
+    const key = 'uploads/org/1/short.bin';
+    const { uploadId } = await store.initMultipartUpload(key, { mimeType: 'application/octet-stream' });
+
+    await expect(store.uploadPart(key, uploadId, 1, part(2, 1), 4)).rejects.toBeInstanceOf(PartSizeMismatchError);
+    await expect(store.uploadPart(key, uploadId, 1, part(9, 1), 4)).rejects.toMatchObject({ exceeded: true });
+    expect(await store.listUploadedParts(key, uploadId)).toEqual([]);
+    await store.abortMultipartUpload(key, uploadId);
+  });
+
+  it('refuses to complete with a missing or mismatching part, naming it, and keeps the session', async () => {
+    const store = provider();
+    const key = 'uploads/org/1/incomplete.bin';
+    const { uploadId } = await store.initMultipartUpload(key, { mimeType: 'application/octet-stream' });
+    const one = await store.uploadPart(key, uploadId, 1, part(2, 1), 2);
+
+    const error = await store
+      .completeMultipartUpload(key, uploadId, [
+        { partNumber: 1, eTag: one.eTag },
+        { partNumber: 2, eTag: 'nope' },
+      ])
+      .catch((e) => e);
+    expect(error).toBeInstanceOf(MultipartPartsMissingError);
+    expect(error.partNumbers).toEqual([2]);
+
+    await expect(store.completeMultipartUpload(key, uploadId, [{ partNumber: 1, eTag: 'wrong' }])).rejects.toBeInstanceOf(MultipartPartsMissingError);
+    expect(await store.exists(key)).toBe(false);
+    expect(await store.listUploadedParts(key, uploadId)).toHaveLength(1);
+    await store.abortMultipartUpload(key, uploadId);
+  });
+
+  it('treats an unknown or non-UUID upload id as a lost session, never a path', async () => {
+    const store = provider();
+    for (const uploadId of ['../../objects', 'not-a-uuid', '00000000-0000-4000-8000-000000000000']) {
+      await expect(store.listUploadedParts('k', uploadId)).rejects.toBeInstanceOf(MultipartSessionNotFoundError);
+      await expect(store.uploadPart('k', uploadId, 1, part(1, 1), 1)).rejects.toBeInstanceOf(MultipartSessionNotFoundError);
+    }
+  });
+});
 
 describe('local-fs, selected by an administrator, serves every storage consumer', () => {
   let context: TestContext;

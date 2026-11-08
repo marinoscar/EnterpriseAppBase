@@ -12,7 +12,7 @@ import {
   createMockViewerUser,
   authHeader,
 } from '../helpers/auth-mock.helper';
-import { STORAGE_PROVIDER } from '@marinoscar/platform-api/storage';
+import { installMockStorageProvider } from '../helpers/mock-storage-provider.helper';
 import { createMockStorageProvider } from '../mocks/storage-provider.mock';
 import { AVATARS_KEY_PREFIX } from '@marinoscar/platform-api/storage';
 import { AVATAR_PURPOSE } from '@marinoscar/platform-api/storage';
@@ -44,12 +44,7 @@ describe('Storage Integration', () => {
     context = await createTestApp({ useMockDatabase: true });
 
     // Override storage provider with mock
-    const storageProviderToken = context.module.get(STORAGE_PROVIDER, { strict: false });
-    if (storageProviderToken) {
-      // `kind` is a getter on the real provider (it answers from the settings snapshot): leave it be.
-      const { kind: _kind, ...methods } = mockStorageProvider;
-      Object.assign(storageProviderToken, methods);
-    }
+    installMockStorageProvider(context, mockStorageProvider);
   });
 
   afterAll(async () => {
@@ -100,6 +95,7 @@ describe('Storage Integration', () => {
         partSize: expect.any(Number),
         totalParts: expect.any(Number),
         presignedUrls: expect.any(Array),
+        partUploadAuth: 'none',
       });
     });
 
@@ -751,12 +747,7 @@ describe('Storage Integration — upload limits (#519)', () => {
     mockStorageProvider = createMockStorageProvider();
     context = await createTestApp({ useMockDatabase: true });
 
-    const storageProviderToken = context.module.get(STORAGE_PROVIDER, { strict: false });
-    if (storageProviderToken) {
-      // `kind` is a getter on the real provider (it answers from the settings snapshot): leave it be.
-      const { kind: _kind, ...methods } = mockStorageProvider;
-      Object.assign(storageProviderToken, methods);
-    }
+    installMockStorageProvider(context, mockStorageProvider);
   });
 
   afterAll(async () => {

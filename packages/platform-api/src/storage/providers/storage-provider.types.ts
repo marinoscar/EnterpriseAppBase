@@ -95,3 +95,110 @@ export interface MultipartUploadInit {
   /** The object key. */
   key: string;
 }
+
+/**
+ * One part of an in-flight multipart upload as the storage backend holds it.
+ *
+ * @stability experimental
+ */
+export interface UploadedPart {
+  /** The part number (1-10000). */
+  partNumber: number;
+  /** The part's size in bytes, as the backend stores it. */
+  size: number;
+  /** The part's ETag, quoted or not exactly as the backend reports it; compare with {@link normalizeEtag}. */
+  eTag: string;
+}
+
+/**
+ * The result of storing one part through the API.
+ *
+ * @stability experimental
+ */
+export interface StoredPart {
+  /** The part's ETag (an MD5 digest, quoted or not). */
+  eTag: string;
+}
+
+/**
+ * How a client gets a part to the backend (see `StorageProvider.partUploadMode`).
+ *
+ *  - `presigned`: the provider signs a URL the client PUTs to directly.
+ *  - `proxied`: the provider has no signed URLs; the bytes go through the API's
+ *    part route into `StorageProvider.uploadPart`.
+ *
+ * @stability experimental
+ */
+export type StoragePartUploadMode = 'presigned' | 'proxied';
+
+/**
+ * A part body did not have the size the upload requires. Throw it from
+ * `StorageProvider.uploadPart` when the stream ends short or runs long; the
+ * objects API answers 400 `PART_SIZE_MISMATCH`.
+ *
+ * @stability experimental
+ */
+export class PartSizeMismatchError extends Error {
+  /**
+   * @param partNumber - the part.
+   * @param expectedSize - the exact byte count the part must have.
+   * @param receivedSize - the bytes seen before the mismatch was detected.
+   * @param exceeded - true when the body was cut off for running past `expectedSize`.
+   */
+  constructor(
+    readonly partNumber: number,
+    readonly expectedSize: number,
+    readonly receivedSize: number,
+    readonly exceeded: boolean,
+  ) {
+    super(
+      exceeded
+        ? `Part ${partNumber} is larger than the expected ${expectedSize} bytes`
+        : `Part ${partNumber} has ${receivedSize} bytes, expected ${expectedSize}`,
+    );
+    this.name = 'PartSizeMismatchError';
+  }
+}
+
+/**
+ * The backend no longer knows the multipart session (completed, aborted or
+ * garbage-collected). Throw it from `listUploadedParts` / `uploadPart` /
+ * `completeMultipartUpload`; the objects API answers 409 `UPLOAD_SESSION_INVALID`.
+ *
+ * @stability experimental
+ */
+export class MultipartSessionNotFoundError extends Error {
+  /** @param uploadId - the unknown session. */
+  constructor(readonly uploadId: string) {
+    super(`Multipart upload ${uploadId} does not exist`);
+    this.name = 'MultipartSessionNotFoundError';
+  }
+}
+
+/**
+ * `completeMultipartUpload` found parts missing or whose bytes do not match the
+ * ETag the client sent. Nothing is written; the objects API answers 409
+ * `UPLOAD_PARTS_MISSING` with the numbers so the client re-sends only those.
+ *
+ * @stability experimental
+ */
+export class MultipartPartsMissingError extends Error {
+  /** @param partNumbers - the missing or mismatching parts. */
+  constructor(readonly partNumbers: number[]) {
+    super(`Multipart upload is missing or has corrupt part(s): ${partNumbers.join(', ')}`);
+    this.name = 'MultipartPartsMissingError';
+  }
+}
+
+/**
+ * An ETag without its surrounding quotes, so a client's `"abc"` and a backend's
+ * `abc` compare equal.
+ *
+ * @param eTag - an ETag, quoted or not.
+ * @returns the bare value.
+ *
+ * @stability experimental
+ */
+export function normalizeEtag(eTag: string): string {
+  return eTag.replace(/^"+|"+$/g, '');
+}

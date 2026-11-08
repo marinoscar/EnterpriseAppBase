@@ -295,13 +295,45 @@ export class StorageConfigService implements OnModuleInit {
     options: { fresh?: boolean } = {},
   ): Promise<StorageConfigResolution> {
     const policy = await this.readPolicy(options);
-    const driver = getStorageDriver(policy.provider);
+
+    return this.resolveFrom(policy, policy.provider);
+  }
+
+  /**
+   * The configuration of ONE driver, active or not, or the fields it is missing.
+   *
+   * What per-row routing reads: an object recorded on `r2` stays readable after
+   * an administrator switches the active driver to `s3`, because the router
+   * resolves `r2` here (its `storage.drivers.r2` settings plus ITS secrets, read
+   * from the credential address the driver declares) instead of asking for "the
+   * configuration in force". Same completeness rules and same secret handling as
+   * {@link resolve}: the secrets are read now and never cached.
+   *
+   * ⚠ DRIVERS THAT SHARE A CREDENTIAL ADDRESS SHARE ITS SECRET. The three
+   * built-in S3 flavours keep their secret access key at `(storage, default)`
+   * (one slot), so for them a non-active flavour is resolved with whichever key
+   * is stored there. A driver an app registers without `credentialAddress` keeps
+   * its secrets at `storage_<id>`, fully isolated per driver.
+   *
+   * @param providerId - a registered driver id.
+   * @param options - `fresh: true` bypasses the settings cache.
+   * @returns the same union as {@link resolve}, for that driver.
+   */
+  async resolveDriver(
+    providerId: string,
+    options: { fresh?: boolean } = {},
+  ): Promise<StorageConfigResolution> {
+    return this.resolveFrom(await this.readPolicy(options), providerId);
+  }
+
+  private async resolveFrom(policy: SystemStorageValue, providerId: string): Promise<StorageConfigResolution> {
+    const driver = getStorageDriver(providerId);
 
     if (!driver) {
-      return { configured: false, provider: policy.provider, missing: ['driver'] };
+      return { configured: false, provider: providerId, missing: ['driver'] };
     }
 
-    const settings = policy.drivers[policy.provider] ?? {};
+    const settings = policy.drivers[providerId] ?? {};
     // Read on EVERY resolve, cached nowhere. See the file header — this is the
     // line that makes a key rotation take effect on the next call.
     const secrets = await this.readSecrets(driver);
@@ -309,7 +341,7 @@ export class StorageConfigService implements OnModuleInit {
     const missing = missingStorageFields(driver, settings, present);
 
     if (missing.length > 0) {
-      return { configured: false, provider: policy.provider, missing };
+      return { configured: false, provider: providerId, missing };
     }
 
     const location = storageLocationOf(driver, settings);
@@ -317,7 +349,7 @@ export class StorageConfigService implements OnModuleInit {
     return {
       configured: true,
       config: {
-        provider: policy.provider,
+        provider: providerId,
         bucket: location.bucket,
         region: location.region ?? '',
         // Absent, not empty: see `ResolvedStorageConfig.endpoint`.

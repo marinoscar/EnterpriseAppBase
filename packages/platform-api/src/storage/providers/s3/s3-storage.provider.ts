@@ -10,6 +10,7 @@ import {
   UploadPartCommand,
   CompleteMultipartUploadCommand,
   AbortMultipartUploadCommand,
+  ListPartsCommand,
   NotFound,
   type S3ClientConfig,
 } from '@aws-sdk/client-s3';
@@ -25,6 +26,9 @@ import {
   UploadPart,
   SignedUrlOptions,
   SignedPutUrlOptions,
+  StoragePartUploadMode,
+  UploadedPart,
+  MultipartSessionNotFoundError,
 } from '../storage-provider.types';
 
 /**
@@ -269,6 +273,9 @@ export class S3StorageProvider implements StorageProvider {
    */
   readonly kind: StorageProviderKind;
 
+  /** S3 signs part URLs: clients PUT parts straight to the backend. */
+  readonly partUploadMode: StoragePartUploadMode = 'presigned';
+
   /**
    * Alias of {@link S3StorageProvider.kind}, kept for existing callers.
    *
@@ -434,6 +441,44 @@ export class S3StorageProvider implements StorageProvider {
       );
       throw error;
     }
+  }
+
+  /**
+   * The parts S3 holds for an in-flight multipart upload (`ListParts`,
+   * paginated). Lets `GET :id/upload/status` report what actually arrived: a
+   * client PUTs parts straight to S3 and never tells the API about each one.
+   */
+  async listUploadedParts(key: string, uploadId: string): Promise<UploadedPart[]> {
+    const parts: UploadedPart[] = [];
+    let marker: string | undefined;
+
+    try {
+      for (;;) {
+        const page = await this.s3Client.send(
+          new ListPartsCommand({
+            Bucket: this.bucket,
+            Key: key,
+            UploadId: uploadId,
+            PartNumberMarker: marker,
+          }),
+        );
+
+        for (const part of page.Parts ?? []) {
+          if (part.PartNumber === undefined) continue;
+          parts.push({ partNumber: part.PartNumber, size: part.Size ?? 0, eTag: part.ETag ?? '' });
+        }
+
+        if (!page.IsTruncated || !page.NextPartNumberMarker) break;
+        marker = page.NextPartNumberMarker;
+      }
+    } catch (error) {
+      if ((error as { name?: string } | null)?.name === 'NoSuchUpload') {
+        throw new MultipartSessionNotFoundError(uploadId);
+      }
+      throw error;
+    }
+
+    return parts;
   }
 
   /**

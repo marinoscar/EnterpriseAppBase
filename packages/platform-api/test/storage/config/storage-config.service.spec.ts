@@ -368,4 +368,65 @@ describe('StorageConfigService', () => {
       expect(credentials.getSecret).not.toHaveBeenCalled();
     });
   });
+
+  describe('resolveDriver: a driver that is not the active one', () => {
+    const twoDrivers = (): SystemStorageValue =>
+      STORAGE_SYSTEM_SETTINGS.read(
+        {
+          provider: 'toy-store',
+          drivers: {
+            's3': { bucket: 'old-bucket', region: 'us-east-1', endpoint: '', accountId: '', accessKeyId: 'AKIAOLD', forcePathStyle: null },
+            'toy-store': { directory: '/data/active' },
+          },
+        },
+        { asPlainObject: (value: unknown) => (typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined) } as never,
+      );
+
+    beforeEach(() => {
+      systemSettings.getStoragePolicy.mockResolvedValue(twoDrivers());
+    });
+
+    it('resolves a non-active driver from ITS settings and its own secret address', async () => {
+      credentials.getSecret.mockResolvedValue('old-secret');
+
+      const resolution = await service.resolveDriver('s3');
+
+      expect(resolution).toMatchObject({
+        configured: true,
+        config: { provider: 's3', bucket: 'old-bucket', settings: { accessKeyId: 'AKIAOLD' }, secrets: { secretAccessKey: 'old-secret' } },
+      });
+      expect(credentials.getSecret).toHaveBeenCalledWith(STORAGE_CREDENTIAL_PURPOSE, STORAGE_CREDENTIAL_NAME);
+    });
+
+    it('keeps an app driver\'s secrets at its own purpose, whichever driver is active', async () => {
+      credentials.getSecret.mockResolvedValue('toy-token');
+
+      expect(await service.resolveDriver('toy-store')).toMatchObject({ configured: true, config: { secrets: { token: 'toy-token' } } });
+      expect(credentials.getSecret).toHaveBeenCalledWith('storage_toy-store', 'token');
+    });
+
+    it('does not move the synchronous kind/bucket snapshots off the active driver', async () => {
+      await service.resolve();
+      await service.resolveDriver('s3');
+
+      expect(service.lastKnownProvider()).toBe('toy-store');
+      expect(service.lastKnownBucket()).toBe('/data/active');
+    });
+
+    it('is "not configured" for an unregistered id or a driver missing a secret', async () => {
+      expect(await service.resolveDriver('gone')).toEqual({ configured: false, provider: 'gone', missing: ['driver'] });
+
+      credentials.getSecret.mockResolvedValue(null);
+      expect(await service.resolveDriver('s3')).toMatchObject({ configured: false, provider: 's3' });
+    });
+
+    it('shares the settings cache with resolve and honours fresh', async () => {
+      await service.resolve();
+      await service.resolveDriver('s3');
+      expect(systemSettings.getStoragePolicy).toHaveBeenCalledTimes(1);
+
+      await service.resolveDriver('s3', { fresh: true });
+      expect(systemSettings.getStoragePolicy).toHaveBeenCalledTimes(2);
+    });
+  });
 });

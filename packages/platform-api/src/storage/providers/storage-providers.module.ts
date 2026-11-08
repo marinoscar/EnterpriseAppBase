@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { CredentialsModule } from '../../credentials/index';
 import { StorageConfigService } from '../config/storage-config.service';
 import { ResolvingStorageProvider } from './resolving-storage.provider';
+import { StorageProviderRouter } from './storage-provider-router';
 import { STORAGE_PROVIDER_BINDING } from './storage-provider.binding';
 import { STORAGE_PROVIDER, type StorageProvider } from './storage-provider.interface';
 
@@ -71,6 +72,7 @@ import { STORAGE_PROVIDER, type StorageProvider } from './storage-provider.inter
   providers: [
     StorageConfigService,
     ResolvingStorageProvider,
+    StorageProviderRouter,
     {
       provide: STORAGE_PROVIDER,
       useFactory: (binding: StorageProvider | undefined, resolving: ResolvingStorageProvider): StorageProvider =>
@@ -78,6 +80,6 @@ import { STORAGE_PROVIDER, type StorageProvider } from './storage-provider.inter
       inject: [{ token: STORAGE_PROVIDER_BINDING, optional: true }, ResolvingStorageProvider],
     },
   ],
-  exports: [STORAGE_PROVIDER, StorageConfigService],
+  exports: [STORAGE_PROVIDER, StorageConfigService, StorageProviderRouter],
 })
 export class StorageProvidersModule {}

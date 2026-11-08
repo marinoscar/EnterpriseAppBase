@@ -11,8 +11,16 @@ export {
   SignedUrlOptions,
   SignedPutUrlOptions,
   MultipartUploadInit,
+  UploadedPart,
+  StoragePartUploadMode,
+  PartSizeMismatchError,
+  MultipartSessionNotFoundError,
+  MultipartPartsMissingError,
+  normalizeEtag,
 } from './storage-provider.types';
 export { StorageProvidersModule } from './storage-providers.module';
+export { StorageProviderRouter } from './storage-provider-router';
+export type { StorageLocation } from './storage-provider-router';
 export { ResolvingStorageProvider } from './resolving-storage.provider';
 export {
   S3StorageProvider,

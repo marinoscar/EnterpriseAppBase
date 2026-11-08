@@ -1,6 +1,7 @@
 import {
   Controller,
   Post,
+  Put,
   Get,
   Delete,
   Patch,
@@ -10,6 +11,9 @@ import {
   Req,
   BadRequestException,
   ParseUUIDPipe,
+  ParseIntPipe,
+  Res,
+  UnsupportedMediaTypeException,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
@@ -22,7 +26,8 @@ import {
   ApiParam,
   ApiQuery,
 } from '@nestjs/swagger';
-import { FastifyRequest } from 'fastify';
+import { Readable } from 'node:stream';
+import { FastifyReply, FastifyRequest } from 'fastify';
 import { ZodValidationPipe } from 'nestjs-zod';
 
 import { Auth, CurrentOrg, CurrentUser, type RequestUser } from '../../identity/index';
@@ -58,6 +63,12 @@ import {
   DownloadUrlResponseDto,
 } from './dto/download-url-response.dto';
 import { asMultipart } from '../multipart';
+import {
+  UPLOAD_ERROR_REASONS,
+  getPartUrlsSchema,
+  type GetPartUrlsDto,
+} from '@marinoscar/platform-contract/storage';
+import { GetPartUrlsBodyDto, GetPartUrlsResponseDto } from './dto/get-part-urls.dto';
 
 /**
  * The `/api/storage/objects` routes (`storage:read|write`, `storage:delete_any`).
@@ -271,7 +282,9 @@ export class ObjectsController {
     description: 'Check progress of a resumable upload',
   })
   @ApiParam({ name: 'id', type: String, format: 'uuid', description: 'Object ID' })
-  @ApiDataResponse(UploadStatusResponseDto, { description: 'Upload status retrieved' })
+  @ApiDataResponse(UploadStatusResponseDto, {
+    description: 'Upload status retrieved; `uploadedParts` is what the storage backend holds, so a resuming client skips them',
+  })
   async getUploadStatus(
     @Param('id', ParseUUIDPipe) objectId: string,
     @CurrentUser('id') userId: string,
@@ -279,6 +292,83 @@ export class ObjectsController {
   ): Promise<{ data: UploadStatusResponseDto }> {
     const result = await this.objectsService.getUploadStatus(objectId, userId, orgId);
     return { data: result };
+  }
+
+  /**
+   * More part URLs for an upload in progress
+   */
+  @Post(':id/upload/part-urls')
+  @Auth({ permissions: [PERMISSIONS.STORAGE_WRITE] })
+  @ApiOperation({
+    summary: 'Get more part URLs',
+    description:
+      '`upload/init` returns at most 10 part URLs; ask for more here, at most 100 part numbers per call. ' +
+      'The response says how to authenticate the PUT to them: `partUploadAuth: "none"` for presigned provider ' +
+      'URLs (send no Authorization header), `"bearer"` for this API\'s own part route.',
+  })
+  @ApiParam({ name: 'id', type: String, format: 'uuid', description: 'Object ID' })
+  @ApiBody({ type: GetPartUrlsBodyDto })
+  @ApiDataResponse(GetPartUrlsResponseDto, { description: 'Part URLs minted' })
+  @ApiResponse({ status: 400, description: 'Upload not in progress, or a part number out of range (details.reason)' })
+  @ApiResponse({ status: 404, description: 'Upload not found (also for another user\'s upload)' })
+  async getPartUrls(
+    @Param('id', ParseUUIDPipe) objectId: string,
+    @Body(new ZodValidationPipe(getPartUrlsSchema)) dto: GetPartUrlsDto,
+    @CurrentUser('id') userId: string,
+    @CurrentOrg() orgId: string,
+  ): Promise<{ data: GetPartUrlsResponseDto }> {
+    return { data: await this.objectsService.getPartUrls(objectId, dto, userId, orgId) };
+  }
+
+  /**
+   * One multipart part, streamed through the API (drivers without presigned URLs)
+   */
+  @Put(':id/upload/parts/:partNumber')
+  @Auth({ permissions: [PERMISSIONS.STORAGE_WRITE] })
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Upload one part through the API',
+    description:
+      'Only for an upload whose storage driver has no presigned URLs (`partUploadAuth: "bearer"`). Send the ' +
+      'raw bytes of the part (any content type; the body is streamed to the driver and never buffered) with the ' +
+      'usual `Authorization: Bearer` credential. Each part except the last must be exactly `partSize` bytes. ' +
+      'Idempotent: re-sending a part replaces it. Answers like S3: an empty body and the part\'s quoted ETag header.',
+  })
+  @ApiConsumes('application/octet-stream')
+  @ApiParam({ name: 'id', type: String, format: 'uuid', description: 'Object ID' })
+  @ApiParam({ name: 'partNumber', type: Number, description: 'Part number, 1..totalParts' })
+  @ApiResponse({ status: 200, description: 'Part stored. Empty body; the ETag header carries the quoted MD5' })
+  @ApiResponse({
+    status: 400,
+    description:
+      'details.reason UPLOAD_NOT_ACTIVE, PART_OUT_OF_RANGE, PART_SIZE_MISMATCH, or PRESIGNED_PARTS_REQUIRED (the driver takes presigned URLs)',
+  })
+  @ApiResponse({ status: 404, description: 'Upload not found (also for another user\'s upload)' })
+  @ApiResponse({ status: 409, description: 'details.reason UPLOAD_SESSION_INVALID: abort and re-initialise' })
+  async uploadPart(
+    @Param('id', ParseUUIDPipe) objectId: string,
+    @Param('partNumber', ParseIntPipe) partNumber: number,
+    @Req() req: FastifyRequest,
+    @Res() reply: FastifyReply,
+    @CurrentUser('id') userId: string,
+    @CurrentOrg() orgId: string,
+  ): Promise<void> {
+    // `registerStoragePartBodyParser` hands the body over as the unread request
+    // stream. Anything else means a JSON or text parser already consumed it.
+    if (!(req.body instanceof Readable)) {
+      throw new UnsupportedMediaTypeException({
+        message: 'Send the part as raw bytes (Content-Type: application/octet-stream)',
+        details: { reason: UPLOAD_ERROR_REASONS.RAW_BODY_REQUIRED },
+      });
+    }
+
+    const lengthHeader = req.headers['content-length'];
+    const declaredLength = typeof lengthHeader === 'string' && /^\d+$/.test(lengthHeader) ? Number(lengthHeader) : undefined;
+
+    const { eTag } = await this.objectsService.uploadPart(objectId, partNumber, userId, orgId, req.body, declaredLength);
+
+    // Exactly like an S3 presigned part PUT: 200, empty body, quoted ETag.
+    void reply.status(HttpStatus.OK).header('ETag', eTag).send();
   }
 
   /**
@@ -293,6 +383,12 @@ export class ObjectsController {
   @ApiParam({ name: 'id', type: String, format: 'uuid', description: 'Object ID' })
   @ApiBody({ type: CompleteUploadBodyDto })
   @ApiDataResponse(ObjectResponseDto, { description: 'Upload completed successfully' })
+  @ApiResponse({
+    status: 409,
+    description:
+      `details.reason ${UPLOAD_ERROR_REASONS.UPLOAD_PARTS_MISSING} (re-send details.partNumbers, then complete again) ` +
+      `or ${UPLOAD_ERROR_REASONS.UPLOAD_SESSION_INVALID} (the backend lost the session: abort and re-initialise)`,
+  })
   async completeUpload(
     @Param('id', ParseUUIDPipe) objectId: string,
     @Body(new ZodValidationPipe(completeUploadSchema)) dto: CompleteUploadDto,

@@ -33,10 +33,22 @@ export type {
   MultipartUploadInit,
   SignedPutUrlOptions,
   SignedUrlOptions,
+  StoragePartUploadMode,
+  StoredPart,
   StorageUploadOptions,
   StorageUploadResult,
   UploadPart,
+  UploadedPart,
 } from './providers/storage-provider.types';
+export {
+  MultipartPartsMissingError,
+  MultipartSessionNotFoundError,
+  PartSizeMismatchError,
+  normalizeEtag,
+} from './providers/storage-provider.types';
+export { StorageProviderRouter } from './providers/storage-provider-router';
+export type { StorageLocation } from './providers/storage-provider-router';
+export { registerStoragePartBodyParser } from './objects/part-body-parser';
 export { ResolvingStorageProvider } from './providers/resolving-storage.provider';
 export { DEFAULT_S3_PART_SIZE, S3StorageProvider, buildS3ClientConfig } from './providers/s3/s3-storage.provider';
 export type { S3StorageProviderConfig } from './providers/s3/s3-storage.provider';

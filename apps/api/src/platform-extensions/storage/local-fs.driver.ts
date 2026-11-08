@@ -7,14 +7,21 @@ import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
 import { deriveSigningKey } from '@marinoscar/platform-api/core';
-import type {
-  SignedPutUrlOptions,
-  SignedUrlOptions,
-  StorageDriverDefinition,
-  StorageDriverTestResult,
-  StorageProvider,
-  StorageUploadOptions,
-  StorageUploadResult,
+import {
+  MultipartPartsMissingError,
+  MultipartSessionNotFoundError,
+  PartSizeMismatchError,
+  normalizeEtag,
+  type SignedPutUrlOptions,
+  type SignedUrlOptions,
+  type StorageDriverDefinition,
+  type StorageDriverTestResult,
+  type StoragePartUploadMode,
+  type StorageProvider,
+  type StorageUploadOptions,
+  type StorageUploadResult,
+  type UploadPart,
+  type UploadedPart,
 } from '@marinoscar/platform-api/storage';
 import { z } from 'zod';
 
@@ -42,6 +49,8 @@ import { z } from 'zod';
 //   <directory>/objects/<key>          the bytes (keys keep their `/` as folders)
 //   <directory>/.meta/<key>.json       the content type and the object's metadata
 //   <directory>/.tmp/<uuid>            uploads in flight, renamed into place when complete
+//   <directory>/.parts/<uploadId>/     a resumable upload in flight: one file per part
+//                                      (`<n>`, with its MD5 beside it in `<n>.etag`)
 //
 // Writes are streamed (`pipeline` into a temp file, then one `rename`), so an
 // upload is never held in memory and a reader never sees half an object.
@@ -55,10 +64,18 @@ import { z } from 'zod';
 // README of the example). The app mounts no such route by default: the driver is
 // OFF until selected, and a route nothing needs would be surface for nothing.
 //
-// NOT SUPPORTED, DECLARED RATHER THAN HIDDEN: browser-direct multipart uploads
-// (`initMultipartUpload`, `getSignedUploadUrl`, ...) and signed PUT URLs need a
-// route that accepts parts; they raise a clear error. Server-side uploads (profile
-// images, exports, backups, node output) use `upload` and are fully supported.
+// RESUMABLE UPLOADS, THROUGH THE API. A disk has no presigned URLs, so the driver
+// declares `partUploadMode: 'proxied'`: `upload/init` and `upload/part-urls` hand
+// the client the API's own part route (`partUploadAuth: 'bearer'`), the platform
+// streams each part into `uploadPart` (bounded to the exact part size, never
+// buffered), and `listUploadedParts` reports the part files on disk so a client
+// that crashed mid-upload resumes from what really arrived. `completeMultipartUpload`
+// concatenates the parts into the object in one streamed pass. The app must call
+// `registerStoragePartBodyParser` in `main.ts` for the part route to receive its body.
+//
+// NOT SUPPORTED, DECLARED RATHER THAN HIDDEN: signed PUT URLs (`getSignedPutUrl`)
+// raise a clear error. Server-side uploads (profile images, exports, backups, node
+// output) use `upload` and are fully supported.
 // =============================================================================
 
 /** The signing domain of this driver's URLs. A label, permanent in practice (links live minutes). */
@@ -142,8 +159,11 @@ interface ObjectMeta {
 }
 
 function unsupported(operation: string): never {
-  throw new Error(`The local-fs storage driver does not support ${operation}: it needs a route that accepts the parts. Server-side uploads (upload) are supported.`);
+  throw new Error(`The local-fs storage driver does not support ${operation}. Server-side uploads (upload) are supported.`);
 }
+
+/** A multipart upload id is one of ours (a UUID), never a path. */
+const UPLOAD_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /**
  * The `StorageProvider` of the `local-fs` driver: objects as files under one directory.
@@ -151,9 +171,13 @@ function unsupported(operation: string): never {
 export class LocalFsStorageProvider implements StorageProvider {
   readonly kind = LOCAL_FS_DRIVER_ID;
 
+  /** No presigned URLs on a disk: parts come through the API's part route. */
+  readonly partUploadMode: StoragePartUploadMode = 'proxied';
+
   private readonly objects: string;
   private readonly meta: string;
   private readonly tmp: string;
+  private readonly parts: string;
 
   constructor(
     private readonly directory: string,
@@ -162,6 +186,7 @@ export class LocalFsStorageProvider implements StorageProvider {
     this.objects = join(directory, 'objects');
     this.meta = join(directory, '.meta');
     this.tmp = join(directory, '.tmp');
+    this.parts = join(directory, '.parts');
   }
 
   /** The folder the objects live in; also what `getBucket()` reports. */
@@ -249,21 +274,108 @@ export class LocalFsStorageProvider implements StorageProvider {
     return (await this.readMeta(key)).mimeType;
   }
 
-  // Browser-direct uploads need a route that accepts parts: not supported here.
-  initMultipartUpload(): Promise<never> {
-    return unsupported('browser multipart uploads (initMultipartUpload)');
+  // ---- resumable uploads, through the API ----------------------------------------
+
+  private partsDirOf(uploadId: string): string {
+    if (!UPLOAD_ID_PATTERN.test(uploadId)) throw new MultipartSessionNotFoundError(uploadId);
+    return join(this.parts, uploadId);
   }
 
+  async initMultipartUpload(key: string, options: StorageUploadOptions): Promise<{ uploadId: string; key: string }> {
+    this.pathOf(key);
+    const uploadId = randomUUID();
+    const directory = join(this.parts, uploadId);
+    await mkdir(directory, { recursive: true });
+    await writeFile(join(directory, 'upload.json'), JSON.stringify({ key, mimeType: options.mimeType, metadata: options.metadata ?? {} }));
+    return { uploadId, key };
+  }
+
+  /** Never called: parts go through the API (`partUploadMode: 'proxied'`). */
   getSignedUploadUrl(): Promise<never> {
-    return unsupported('browser multipart uploads (getSignedUploadUrl)');
+    return unsupported('presigned part URLs (parts are uploaded through the API)');
   }
 
-  completeMultipartUpload(): Promise<never> {
-    return unsupported('browser multipart uploads (completeMultipartUpload)');
+  async uploadPart(_key: string, uploadId: string, partNumber: number, body: Readable, size: number): Promise<{ eTag: string }> {
+    const directory = this.partsDirOf(uploadId);
+    if (!(await stat(join(directory, 'upload.json')).catch(() => null))) throw new MultipartSessionNotFoundError(uploadId);
+
+    const staged = join(directory, `${partNumber}.tmp`);
+    const digest = createHash('md5');
+    let received = 0;
+    const counting = new Transform({
+      transform(chunk, _encoding, callback) {
+        received += (chunk as Buffer).length;
+        digest.update(chunk);
+        callback(null, chunk);
+      },
+    });
+
+    try {
+      // Streamed to a temp file: a part that fails (or is short) leaves nothing behind.
+      await pipeline(body, counting, createWriteStream(staged));
+      if (received !== size) throw new PartSizeMismatchError(partNumber, size, received, received > size);
+      const eTag = digest.digest('hex');
+      await writeFile(join(directory, `${partNumber}.etag`), eTag);
+      await rename(staged, join(directory, String(partNumber)));
+      return { eTag };
+    } catch (error) {
+      await rm(staged, { force: true });
+      throw error;
+    }
   }
 
-  abortMultipartUpload(): Promise<never> {
-    return unsupported('browser multipart uploads (abortMultipartUpload)');
+  async listUploadedParts(_key: string, uploadId: string): Promise<UploadedPart[]> {
+    const directory = this.partsDirOf(uploadId);
+    const entries = await readdir(directory).catch(() => null);
+    if (entries === null) throw new MultipartSessionNotFoundError(uploadId);
+
+    const held: UploadedPart[] = [];
+    for (const name of entries.filter((entry) => /^\d+$/.test(entry))) {
+      const info = await stat(join(directory, name));
+      const eTag = await readFile(join(directory, `${name}.etag`), 'utf8').catch(() => '');
+      held.push({ partNumber: Number(name), size: info.size, eTag });
+    }
+    return held.sort((a, b) => a.partNumber - b.partNumber);
+  }
+
+  async completeMultipartUpload(key: string, uploadId: string, parts: UploadPart[]): Promise<StorageUploadResult> {
+    const directory = this.partsDirOf(uploadId);
+    const held = new Map((await this.listUploadedParts(key, uploadId)).map((part) => [part.partNumber, part]));
+    const ordered = [...parts].sort((a, b) => a.partNumber - b.partNumber);
+
+    const missing = ordered.filter((part) => held.get(part.partNumber)?.eTag !== normalizeEtag(part.eTag)).map((part) => part.partNumber);
+    if (missing.length > 0) throw new MultipartPartsMissingError(missing);
+
+    const target = this.pathOf(key);
+    const info = JSON.parse(await readFile(join(directory, 'upload.json'), 'utf8')) as { mimeType?: string; metadata?: Record<string, string> };
+    await mkdir(this.tmp, { recursive: true });
+    await mkdir(dirname(target), { recursive: true });
+
+    // One streamed pass over the part files, in order: never the whole object in memory.
+    const staged = join(this.tmp, randomUUID());
+    try {
+      await pipeline(
+        Readable.from(
+          (async function* () {
+            for (const part of ordered) yield* createReadStream(join(directory, String(part.partNumber)));
+          })(),
+        ),
+        createWriteStream(staged),
+      );
+      await rename(staged, target);
+    } catch (error) {
+      await rm(staged, { force: true });
+      throw error;
+    }
+
+    await this.writeMeta(key, { mimeType: info.mimeType ?? 'application/octet-stream', metadata: info.metadata ?? {} });
+    await rm(directory, { recursive: true, force: true });
+
+    return { key, bucket: this.directory, location: `file://${target}` };
+  }
+
+  async abortMultipartUpload(_key: string, uploadId: string): Promise<void> {
+    await rm(this.partsDirOf(uploadId), { recursive: true, force: true });
   }
 
   getSignedPutUrl(_key: string, _options?: SignedPutUrlOptions): Promise<never> {
