@@ -107,6 +107,15 @@
       "reason": "At most one LIVE foldable (STATE or COUNTED) notification per user and dedup key; a partial unique index Prisma cannot express. The writer serializes on an advisory lock and treats a unique violation as 'already live', so concurrent producers leave one row.",
       "doc": "docs/specs/platform-packages.md",
       "createdIn": "0041_notifications_state_counted"
+    },
+    {
+      "name": "storage_migration_runs_active_uniq_idx",
+      "table": "storage_migration_runs",
+      "unique": true,
+      "definition": "CREATE UNIQUE INDEX storage_migration_runs_active_uniq_idx ON public.storage_migration_runs USING btree ((true)) WHERE (status = ANY (ARRAY['pending'::\"StorageMigrationRunStatus\", 'running'::\"StorageMigrationRunStatus\"]))",
+      "reason": "At most one pending or running storage provider migration run deployment-wide: a constant-expression partial unique index Prisma cannot express. A concurrent second start loses on the index (409 with details.activeRunId), never a findFirst pre-check.",
+      "doc": "docs/specs/storage-providers.md",
+      "createdIn": "0042_add_storage_migrations"
     }
   ]
 }
