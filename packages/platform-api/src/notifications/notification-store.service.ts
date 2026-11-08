@@ -95,14 +95,21 @@ export class NotificationStoreService {
     query: NotificationListQueryDto,
   ): Promise<NotificationListResponse> {
     const { page, pageSize, unreadOnly } = query;
+    // `status` is the richer spelling; the older `unreadOnly` flag maps onto it.
+    const status = query.status ?? (unreadOnly ? 'unread' : 'all');
 
     // `userId` is in the where clause, not applied afterwards. See the header.
-    // A dismissed row is "stop showing me this": never listed (issue #1077).
-    const where = {
-      userId,
-      dismissedAt: null,
-      ...(unreadOnly ? { readAt: null } : {}),
-    };
+    // A dismissed row is "stop showing me this": listed only when asked for by
+    // `status=dismissed`, never by the other three (issue #1077, #1090).
+    const where =
+      status === 'dismissed'
+        ? { userId, dismissedAt: { not: null } }
+        : {
+            userId,
+            dismissedAt: null,
+            ...(status === 'unread' ? { readAt: null } : {}),
+            ...(status === 'read' ? { readAt: { not: null } } : {}),
+          };
 
     const [items, total] = await (this.prisma as unknown as NotificationsBatchTransaction).$transaction([
       this.prisma.notification.findMany({
@@ -242,6 +249,28 @@ export class NotificationStoreService {
     }
 
     return this.unreadCount(userId);
+  }
+
+  /**
+   * Dismiss every live notification of this user, optionally only those of one
+   * scope (issue #1090), and report how many were dismissed and the badge.
+   *
+   * Dismissal implies read, as for {@link dismiss}. `updated_at` is set
+   * explicitly: the raw statement bypasses Prisma's `@updatedAt`, and a COUNTED
+   * row's rolling window is anchored on it.
+   */
+  async dismissAll(userId: string, scopeId?: string): Promise<{ dismissed: number; unreadCount: number }> {
+    const dismissed = scopeId
+      ? await this.prisma.$executeRaw`
+          UPDATE notifications
+          SET dismissed_at = now(), read_at = COALESCE(read_at, now()), updated_at = now()
+          WHERE user_id = ${userId}::uuid AND scope_id = ${scopeId}::uuid AND dismissed_at IS NULL`
+      : await this.prisma.$executeRaw`
+          UPDATE notifications
+          SET dismissed_at = now(), read_at = COALESCE(read_at, now()), updated_at = now()
+          WHERE user_id = ${userId}::uuid AND dismissed_at IS NULL`;
+
+    return { dismissed, unreadCount: await this.unreadCount(userId) };
   }
 }
 

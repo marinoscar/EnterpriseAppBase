@@ -32,7 +32,9 @@ import {
   NOTIFICATION_CHANNEL_ID_PATTERN,
   NOTIFICATION_EVENT_KEY_PATTERN,
   NOTIFICATION_MAX_EVENT_KEY_LENGTH,
+  NOTIFICATION_LIST_STATUSES,
   NOTIFICATION_STREAM_REASONS,
+  NOTIFICATION_SYNC_REASONS,
   PUSH_TEST_CONFIG_SOURCES,
   PUSH_TEST_OVERALL,
   PUSH_TEST_SEND_STATUSES,
@@ -40,7 +42,7 @@ import {
   ROTATE_CONFIRMATION,
   PUSH_SUBSCRIPTION_PLATFORMS,
 } from './constants.js';
-import type { BroadcastStatusName, NotificationStreamReason, PushSubscriptionPlatform, PushTestConfigSource, PushTestOverall, PushTestSendStatus } from './constants.js';
+import type { BroadcastStatusName, NotificationListStatus, NotificationStreamReason, NotificationSyncReason, PushSubscriptionPlatform, PushTestConfigSource, PushTestOverall, PushTestSendStatus } from './constants.js';
 
 // ---- keys ---------------------------------------------------------------------------
 
@@ -340,11 +342,29 @@ const booleanQuerySchema: z.ZodEnum<BooleanQueryEnum> = z.enum(['true', 'false']
 export type PushSubscriptionPlatformEnum = { [K in PushSubscriptionPlatform]: K };
 
 /**
+ * The list statuses, as `z.enum` types them.
+ *
+ * @stability experimental
+ */
+export type NotificationListStatusEnum = { [K in NotificationListStatus]: K };
+
+/**
+ * The sync frame reasons, as `z.enum` types them.
+ *
+ * @stability experimental
+ */
+export type NotificationSyncReasonEnum = { [K in NotificationSyncReason]: K };
+
+/**
  * The stream frame reasons, as `z.enum` types them.
  *
  * @stability experimental
  */
 export type NotificationStreamReasonEnum = { [K in NotificationStreamReason]: K };
+
+const notificationListStatusSchema: z.ZodEnum<NotificationListStatusEnum> = z.enum(NOTIFICATION_LIST_STATUSES);
+
+const notificationSyncReasonSchema: z.ZodEnum<NotificationSyncReasonEnum> = z.enum(NOTIFICATION_SYNC_REASONS);
 
 const notificationStreamReasonSchema: z.ZodEnum<NotificationStreamReasonEnum> = z.enum(NOTIFICATION_STREAM_REASONS);
 const pushSubscriptionPlatformSchema: z.ZodEnum<PushSubscriptionPlatformEnum> = z.enum(PUSH_SUBSCRIPTION_PLATFORMS);
@@ -509,6 +529,12 @@ export const notificationListQuerySchema = z.object({
   unreadOnly: booleanQuerySchema
     .default('false')
     .transform((value) => value === 'true'),
+  /**
+   * Which rows to list: `all` (default; live rows), `unread`, `read` or
+   * `dismissed`. `unreadOnly=true` is the older spelling of `unread`; when
+   * both are sent, `status` wins.
+   */
+  status: notificationListStatusSchema.optional(),
 });
 
 /**
@@ -545,6 +571,61 @@ export const unreadCountSchema = z.object({
  * @stability stable
  */
 export type UnreadCountResponse = z.infer<typeof unreadCountSchema>;
+
+/**
+ * `POST /api/notifications/dismiss-all` body: an optional scope.
+ *
+ * @stability stable
+ */
+export const dismissAllNotificationsSchema = z.object({
+  /** Only the rows of this scope (a STATE or COUNTED row's `scopeId`); omit for every live row. */
+  scopeId: z.string().uuid().optional(),
+});
+
+/**
+ * The `dismiss-all` body.
+ *
+ * @stability stable
+ */
+export type DismissAllNotificationsRequest = z.infer<typeof dismissAllNotificationsSchema>;
+
+/**
+ * `POST /api/notifications/dismiss-all` response: how many rows were
+ * dismissed, and the caller's resulting unread count.
+ *
+ * @stability stable
+ */
+export const dismissAllResultSchema = z.object({
+  /** Rows dismissed by this call. */
+  dismissed: z.number().int().min(0),
+  /** The caller's unread count afterwards. */
+  unreadCount: z.number().int().min(0),
+});
+
+/**
+ * The `dismiss-all` response.
+ *
+ * @stability stable
+ */
+export type DismissAllResult = z.infer<typeof dismissAllResultSchema>;
+
+/**
+ * One `event: sync` frame of the notification stream: refetch the list and the
+ * unread count. Carries no row.
+ *
+ * @stability stable
+ */
+export const notificationSyncFrameSchema = z.object({
+  /** Why it was sent; informational (the response to every reason is the same refetch). */
+  reason: notificationSyncReasonSchema,
+});
+
+/**
+ * One `sync` frame.
+ *
+ * @stability stable
+ */
+export type NotificationSyncFrame = z.infer<typeof notificationSyncFrameSchema>;
 
 /**
  * One frame of `GET /api/notifications/stream` (`event: notification`).

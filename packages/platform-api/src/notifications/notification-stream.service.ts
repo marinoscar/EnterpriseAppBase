@@ -9,6 +9,12 @@ import {
 import { Observable, type Subscriber } from 'rxjs';
 
 import {
+  NOTIFICATION_STREAM_REASONS,
+  NOTIFICATION_SYNC_REASONS,
+  type NotificationSyncReason,
+} from '@marinoscar/platform-contract/notifications';
+
+import {
   NOTIFICATIONS_EVENT_BUS,
   NOTIFICATION_STREAM_BUS_CHANNEL,
   NOTIFICATION_STREAM_INLINE_LIMIT_BYTES,
@@ -216,6 +222,15 @@ export interface NotificationStreamEvent {
 export const NOTIFICATION_SSE_EVENT = 'notification';
 
 /**
+ * SSE `event:` name of a `sync` frame (issue #1090): the user read, dismissed or
+ * deleted rows in one tab, so their other tabs refetch the list and the unread
+ * count. The frame's `data` is `{ reason }`; it carries no row.
+ *
+ * @stability experimental
+ */
+export const NOTIFICATION_SSE_SYNC_EVENT = 'sync';
+
+/**
  * How often an idle connection is sent a comment line.
  *
  * WHY A HEARTBEAT AT ALL: an SSE connection that sends nothing is
@@ -275,7 +290,10 @@ export { NOTIFICATION_STREAM_BUS_CHANNEL };
   *
   * @stability experimental
  */
-export type NotificationStreamBusMessage = NotificationStreamInlineMessage | NotificationStreamRefMessage;
+export type NotificationStreamBusMessage =
+  | NotificationStreamInlineMessage
+  | NotificationStreamRefMessage
+  | NotificationStreamSyncMessage;
 
 /**
  * A bus message carrying the whole frame.
@@ -306,11 +324,36 @@ export interface NotificationStreamRefMessage {
     toast: boolean;
     /** Whether this dispatch also sent Web Push. */
     pushed: boolean;
+    /** Why the frame was sent (issue #1090: preserved on the by-reference path). */
+    reason?: NotificationStreamEvent['reason'];
   };
+}
+
+/**
+ * A bus message telling the user's tabs on other replicas to refetch (issue
+ * #1090): the `sync` frame. Carries no row.
+ *
+ * @stability experimental
+ */
+export interface NotificationStreamSyncMessage {
+  /** The user whose tabs refetch. */
+  userId: string;
+  /** Always `true`; the discriminator against the two row-carrying shapes. */
+  sync: true;
+  /** Why it was sent. */
+  reason: NotificationSyncReason;
 }
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value !== '';
+}
+
+function isSyncReason(value: unknown): value is NotificationSyncReason {
+  return typeof value === 'string' && (NOTIFICATION_SYNC_REASONS as readonly string[]).includes(value);
+}
+
+function isStreamReason(value: unknown): value is NonNullable<NotificationStreamEvent['reason']> {
+  return typeof value === 'string' && (NOTIFICATION_STREAM_REASONS as readonly string[]).includes(value);
 }
 
 function isStreamEvent(value: unknown): value is NotificationStreamEvent {
@@ -342,6 +385,12 @@ export function parseNotificationStreamBusMessage(raw: unknown): NotificationStr
   const message = raw as Record<string, unknown>;
   if (!isNonEmptyString(message.userId)) return null;
 
+  if ('sync' in message) {
+    return message.sync === true && isSyncReason(message.reason)
+      ? { userId: message.userId, sync: true, reason: message.reason }
+      : null;
+  }
+
   if ('event' in message) {
     return isStreamEvent(message.event) ? { userId: message.userId, event: message.event } : null;
   }
@@ -356,7 +405,12 @@ export function parseNotificationStreamBusMessage(raw: unknown): NotificationStr
   ) {
     return {
       userId: message.userId,
-      ref: { notificationId: ref.notificationId, toast: ref.toast, pushed: ref.pushed },
+      ref: {
+        notificationId: ref.notificationId,
+        toast: ref.toast,
+        pushed: ref.pushed,
+        ...(isStreamReason(ref.reason) ? { reason: ref.reason } : {}),
+      },
     };
   }
 
@@ -527,6 +581,28 @@ export class NotificationStreamService implements OnModuleInit, OnModuleDestroy 
   }
 
   /**
+   * Tell every tab this user has open, on every replica, to refetch the list
+   * and the unread count (the `sync` frame, issue #1090).
+   *
+   * Sent after the user reads, dismisses or deletes rows: their OTHER tabs hold
+   * a stale list, and the table (not a frame) is the truth, so the frame
+   * carries no row and the response to it is the same refetch a reconnect does.
+   * Never throws, like {@link publish}.
+   *
+   * @param userId - the AUTHENTICATED principal's id.
+   * @param reason - why; informational.
+   * @returns how many connections on THIS replica it was written to.
+   */
+  publishSync(userId: string, reason: NotificationSyncReason): number {
+    const delivered = this.deliverSyncLocal(userId, reason);
+    if (this.bus) {
+      const message: NotificationStreamSyncMessage = { userId, sync: true, reason };
+      void this.bus.publish(NOTIFICATION_STREAM_BUS_CHANNEL, message);
+    }
+    return delivered;
+  }
+
+  /**
    * The full event when it fits in a bus envelope, a reference when it does
    * not. See "OVERSIZE EVENTS TRAVEL BY REFERENCE" in the header.
    */
@@ -534,7 +610,15 @@ export class NotificationStreamService implements OnModuleInit, OnModuleDestroy 
     const full: NotificationStreamBusMessage = { userId, event };
     if (!this.exceedsInlineLimit(full)) return full;
 
-    return { userId, ref: { notificationId: event.id, toast: event.toast, pushed: event.pushed } };
+    return {
+      userId,
+      ref: {
+        notificationId: event.id,
+        toast: event.toast,
+        pushed: event.pushed,
+        ...(event.reason ? { reason: event.reason } : {}),
+      },
+    };
   }
 
   /**
@@ -563,6 +647,11 @@ export class NotificationStreamService implements OnModuleInit, OnModuleDestroy 
       return;
     }
 
+    if ('sync' in message) {
+      this.deliverSyncLocal(message.userId, message.reason);
+      return;
+    }
+
     if ('event' in message) {
       this.deliverLocal(message.userId, message.event);
       return;
@@ -584,18 +673,32 @@ export class NotificationStreamService implements OnModuleInit, OnModuleDestroy 
    */
   private async resolveReference(
     userId: string,
-    ref: { notificationId: string; toast: boolean; pushed: boolean },
+    ref: NotificationStreamRefMessage['ref'],
   ): Promise<NotificationStreamEvent | null> {
     if (!this.prisma) return null;
 
     try {
       const row = await this.prisma.notification.findFirst({
         where: { id: ref.notificationId, userId },
-        select: { id: true, eventKey: true, title: true, body: true, link: true, createdAt: true },
+        select: {
+          id: true,
+          eventKey: true,
+          title: true,
+          body: true,
+          link: true,
+          createdAt: true,
+          updatedAt: true,
+          scopeId: true,
+          data: true,
+        },
       });
 
       if (!row) return null;
 
+      // The by-reference path rebuilds the SAME frame the inline path would
+      // have carried (issue #1090): `count`, `scopeId` and `updatedAt` come
+      // from the row, `reason` from the reference.
+      const count = (row.data as { count?: unknown } | null)?.count;
       return {
         id: row.id,
         eventKey: row.eventKey,
@@ -605,6 +708,10 @@ export class NotificationStreamService implements OnModuleInit, OnModuleDestroy 
         createdAt: row.createdAt.toISOString(),
         toast: ref.toast,
         pushed: ref.pushed,
+        ...(typeof count === 'number' ? { count } : {}),
+        ...(row.scopeId ? { scopeId: row.scopeId } : {}),
+        ...(row.updatedAt ? { updatedAt: row.updatedAt.toISOString() } : {}),
+        ...(ref.reason ? { reason: ref.reason } : {}),
       };
     } catch (err) {
       this.logger.debug(
@@ -643,6 +750,25 @@ export class NotificationStreamService implements OnModuleInit, OnModuleDestroy 
       }
     }
 
+    return delivered;
+  }
+
+  /** Writes one `sync` frame into ONE user's bucket on THIS replica. */
+  private deliverSyncLocal(userId: string, reason: NotificationSyncReason): number {
+    const bucket = this.subscribers.get(userId);
+    if (!bucket || bucket.size === 0) return 0;
+
+    let delivered = 0;
+    for (const observer of bucket) {
+      try {
+        observer.next({ type: NOTIFICATION_SSE_SYNC_EVENT, data: { reason } });
+        delivered += 1;
+      } catch (err) {
+        this.logger.debug(
+          `Dropping a sync write for user ${userId}: ${err instanceof Error ? err.message : 'unknown error'}`,
+        );
+      }
+    }
     return delivered;
   }
 

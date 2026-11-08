@@ -158,14 +158,18 @@ export type {
 } from './channels/push-payload';
 
 // ---- the stream --------------------------------------------------------------------------
-export { HEARTBEAT_INTERVAL_MS, NOTIFICATION_SSE_EVENT, parseNotificationStreamBusMessage } from './notification-stream.service';
+export { HEARTBEAT_INTERVAL_MS, NOTIFICATION_SSE_EVENT, NOTIFICATION_SSE_SYNC_EVENT, parseNotificationStreamBusMessage } from './notification-stream.service';
 export type {
   NotificationStreamBusMessage,
   NotificationStreamEvent,
   NotificationStreamInlineMessage,
   NotificationStreamRefMessage,
+  NotificationStreamSyncMessage,
   SseMessage,
 } from './notification-stream.service';
+
+// ---- dismiss-on-disable (issue #1090) ---------------------------------------------------
+export { dismissEventsForUser, dismissEventsGlobally, dismissibleEventKeys, inboxDisabledEventKeys } from './notification-dismissal';
 
 // ---- Web Push configuration ----------------------------------------------------------------
 export { PUSH_CONFIG_KEY, PushConfigService } from './push-config.service';

@@ -5,17 +5,23 @@
 
 import { createZodDto } from 'nestjs-zod';
 import {
+  dismissAllNotificationsSchema,
+  dismissAllResultSchema,
   notificationListQuerySchema,
   notificationSchema,
   unreadCountSchema,
 } from '@marinoscar/platform-contract/notifications';
 
 export {
+  dismissAllNotificationsSchema,
+  dismissAllResultSchema,
   notificationListQuerySchema,
   notificationSchema,
   unreadCountSchema,
 } from '@marinoscar/platform-contract/notifications';
 export type {
+  DismissAllNotificationsRequest,
+  DismissAllResult,
   NotificationListResponse,
   NotificationResponse,
   UnreadCountResponse,
@@ -43,3 +49,17 @@ export class NotificationListQueryDto extends createZodDto(notificationListQuery
  * @stability stable
  */
 export class UnreadCountDto extends createZodDto(unreadCountSchema) {}
+
+/**
+ * `POST /api/notifications/dismiss-all` body.
+ *
+ * @stability stable
+ */
+export class DismissAllNotificationsDto extends createZodDto(dismissAllNotificationsSchema) {}
+
+/**
+ * `POST /api/notifications/dismiss-all` response.
+ *
+ * @stability stable
+ */
+export class DismissAllResultDto extends createZodDto(dismissAllResultSchema) {}
