@@ -102,6 +102,7 @@ import { registerBuiltinStorageDriverPanels } from './builtinStorageDriverPanels
 import { StorageGenericDriverPanel } from './StorageGenericDriverPanel.js';
 import { getStorageDriverPanel, getStorageDriverPanelValidator } from './storageDriverPanelRegistry.js';
 import { StorageSwitchConfirmDialog } from './StorageSwitchConfirmDialog.js';
+import { StorageMigrationPanel } from './StorageMigrationPanel.js';
 
 // The three built-in drivers draw their bespoke panel through the same registry
 // an app uses (PP-14.7, #925); every other driver is drawn by
@@ -899,6 +900,16 @@ export default function StorageConfigPage(props: StorageConfigPageProps = {}) {
               </Typography>
             )}
           </Alert>
+        )}
+
+        {/* Copy-only provider migration (#1093): copy, verify, repoint, leave
+            the source. Its own panel and hook; writes gated on canWrite. */}
+        {config && (
+          <StorageMigrationPanel
+            drivers={descriptors.map((d) => ({ id: d.id, label: d.label }))}
+            activeProvider={config.provider}
+            canWrite={canWrite}
+          />
         )}
 
         </PageSlotsFrame>
