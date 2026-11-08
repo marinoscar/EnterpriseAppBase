@@ -92,6 +92,8 @@ describeWithDb('claimPendingForEmail (real Postgres, ordinary role)', () => {
     expect(sharing.events.filter((e) => e.name === 'sharing.group.invite_auto_accepted')).toHaveLength(2);
     // Claimed once: a second call finds nothing.
     expect(await sharing.invites.claimPendingForEmail(carol, 'carol@example.test')).toEqual({ joined: [], upgraded: [], skipped: [] });
+    // Leave no open invite behind for the later tests.
+    await sharing.invites.revoke(asAlice(ORG_A), groupA, danaInvite);
   });
 
   it('upgrades an existing member and never downgrades one', async () => {
@@ -124,6 +126,7 @@ describeWithDb('claimPendingForEmail (real Postgres, ordinary role)', () => {
     expect(await sharing.invites.claimPendingForEmail(carol, 'dana@example.test')).toEqual({ joined: [], upgraded: [], skipped: [] });
     expect((await inviteRow(open)).rows[0]!.accepted_at).toBeNull();
     expect(await sharing.invites.claimPendingForUser(carol)).toEqual({ joined: [], upgraded: [], skipped: [] });
+    await sharing.invites.revoke(asAlice(ORG_A), group, open); // leave no open invite behind
   });
 
   it('claims each user\'s invites independently, in the organization each belongs to', async () => {
