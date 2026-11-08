@@ -28,16 +28,31 @@ import { isWritable } from './capabilities.js';
 
 export type StepOutcome = 'skipped' | 'installed' | 'failed' | 'unsupported';
 
+/**
+ * The operating system an install step runs on.
+ *
+ * @stability experimental
+ */
 export interface DistroInfo {
   /** `ubuntu`, `debian`, `alpine`, `darwin`, `win32`, or `unknown`. */
   id: string;
+  /** `VERSION_ID` from `/etc/os-release`, when known. */
   versionId: string | undefined;
+  /** The package-manager family; `unknown` means a step reports `unsupported`. */
   family: 'debian' | 'rhel' | 'alpine' | 'darwin' | 'windows' | 'unknown';
 }
 
+/**
+ * What an install step is handed.
+ *
+ * @stability experimental
+ */
 export interface InstallContext {
+  /** The detected operating system. */
   distro: DistroInfo;
+  /** True under `--dry-run`: `install` must not mutate. */
   dryRun: boolean;
+  /** The worker state directory. */
   stateDir: string;
   /** Runs a command to completion with inherited stdio; rejects on a non-zero exit. */
   run: (command: string, args: string[]) => void | Promise<void>;
@@ -47,11 +62,19 @@ export interface InstallContext {
    * never for changing anything.
    */
   capture: (command: string, args: string[]) => Promise<string>;
+  /** Writes a line to the install output. */
   log: (message: string) => void;
 }
 
+/**
+ * One thing `node install-deps` can check and install.
+ *
+ * @stability experimental
+ */
 export interface InstallStep {
+  /** A stable id, the value `--only` takes. */
   id: string;
+  /** Shown in the report. */
   label: string;
   /** Escalation is declared up front so the plan can announce it. */
   requiresSudo?: boolean | undefined;
@@ -76,6 +99,10 @@ export interface StepResult {
  * Best effort by construction: a distro nobody anticipated yields `unknown`,
  * and every step that cares reports `unsupported` rather than guessing a
  * package manager and running it.
+ *
+ * @param options - test seams: the platform and the `os-release` text.
+ * @returns the distro id, version and package-manager family.
+ * @stability experimental
  */
 export function detectDistro(options?: { platform?: NodeJS.Platform | undefined; osRelease?: string | undefined }): DistroInfo {
   const plat = options?.platform ?? process.platform;

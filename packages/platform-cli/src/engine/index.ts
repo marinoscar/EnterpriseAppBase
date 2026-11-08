@@ -577,6 +577,7 @@ export type {
   CapabilityGap,
   CapabilityProbe,
   CapabilityProbeContext,
+  CapabilityProbeEntry,
   CapabilityProbeDefinition,
   CapabilityProbeResult,
   CapabilityState,

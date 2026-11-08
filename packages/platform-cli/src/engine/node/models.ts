@@ -68,8 +68,11 @@ export type ModelStatus = 'ok' | 'missing' | 'corrupt';
  * @stability experimental
  */
 export interface ModelVerification {
+  /** The model's id. */
   id: string;
+  /** `ok`, `missing` or `corrupt`. */
   status: ModelStatus;
+  /** Where the file is (or would be). */
   path: string;
   /** Why, when not `ok`. */
   detail?: string | undefined;
@@ -273,13 +276,17 @@ export function withheldTypesFor(verdicts: readonly ModelVerification[], declare
  * @stability experimental
  */
 export interface ModelPullResult {
+  /** The model's id. */
   id: string;
   /** `present`: already valid, nothing fetched. `downloaded`: fetched and verified. `failed`: see `detail`. */
   outcome: 'present' | 'downloaded' | 'failed';
+  /** The file's size in bytes. */
   bytes?: number | undefined;
+  /** How long the pull took, in milliseconds. */
   durationMs?: number | undefined;
   /** Whether a partial file was continued with a range request. */
   resumed?: boolean | undefined;
+  /** Why a pull failed. */
   detail?: string | undefined;
 }
 
@@ -289,6 +296,7 @@ export interface ModelPullResult {
  * @stability experimental
  */
 export interface PullModelsOptions {
+  /** The directory models are stored in. */
   modelsDir: string;
   /** Pull only these ids. Unknown ids are an error. */
   ids?: readonly string[] | undefined;
@@ -298,9 +306,11 @@ export interface PullModelsOptions {
   declared?: readonly ModelArtifact[] | undefined;
   /** Attempts per model for network failures, resuming a partial file between them. Default 3. */
   attempts?: number | undefined;
+  /** Receives one line per download and result. */
   log?: ((message: string) => void) | undefined;
-  /** Test seams. */
+  /** Test seam for the HTTP client. */
   fetch?: typeof fetch | undefined;
+  /** Test seam for the wait between retries. */
   sleep?: ((ms: number) => Promise<void>) | undefined;
 }
 

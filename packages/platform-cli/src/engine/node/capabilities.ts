@@ -286,6 +286,7 @@ export type CapabilityState = 'available' | 'installed' | 'missing';
  * @stability experimental
  */
 export interface CapabilityProbeResult {
+  /** How well the capability works here. */
   status: CapabilityState;
   /** One line explaining the status. Cut to 200 printable characters. */
   detail?: string | undefined;
@@ -325,6 +326,16 @@ export interface CapabilityProbeDefinition {
    * the cache.
    */
   cacheMs?: number | undefined;
+}
+
+/**
+ * One probe's outcome as recorded in {@link CapabilityProbe.probes}.
+ *
+ * @stability experimental
+ */
+export interface CapabilityProbeEntry extends CapabilityProbeResult {
+  /** The probe's label, as `node doctor` shows it. */
+  label: string;
 }
 
 const CAPABILITY_KEY_PATTERN = /^[a-z][a-z0-9-]{0,31}:[A-Za-z0-9@][A-Za-z0-9@/._+-]{0,127}$/;
@@ -396,7 +407,11 @@ export function listCapabilityProbes(): CapabilityProbeDefinition[] {
   return [...capabilityProbes.values()];
 }
 
-/** Options of {@link moduleCapability}. */
+/**
+ * Options of {@link moduleCapability}.
+ *
+ * @stability experimental
+ */
 export interface ModuleCapabilityOptions {
   /** Shown by `node doctor`. Default `npm module <name>`. */
   label?: string | undefined;
@@ -481,7 +496,11 @@ function readModuleVersion(name: string, resolvedEntry: string): string | undefi
   }
 }
 
-/** Options of {@link httpServiceCapability}. */
+/**
+ * Options of {@link httpServiceCapability}.
+ *
+ * @stability experimental
+ */
 export interface HttpServiceCapabilityOptions {
   /** The service id; the key is `service:<id>`. */
   id: string;
@@ -621,7 +640,7 @@ export interface CapabilityProbe {
    * keyed by capability key. Absent when none is registered. Only `available`
    * entries are in {@link CapabilityProbe.capabilities}.
    */
-  probes?: Record<string, { label: string } & CapabilityProbeResult> | undefined;
+  probes?: Record<string, CapabilityProbeEntry> | undefined;
   /** Flat set of satisfied capability keys — what the self-test compares against. */
   capabilities: Capability[];
 }
@@ -675,7 +694,7 @@ export async function probeCapabilities(options?: {
   const definitions = options?.probes ?? listCapabilityProbes();
   const env = options?.env ?? process.env;
   const settled = await Promise.all(definitions.map((definition) => runCapabilityProbe(definition, env, options?.useCache === true)));
-  const probes: Record<string, { label: string } & CapabilityProbeResult> = {};
+  const probes: Record<string, CapabilityProbeEntry> = {};
   definitions.forEach((definition, index) => {
     const result = settled[index] as CapabilityProbeResult;
     probes[definition.key] = { label: definition.label, ...result };
