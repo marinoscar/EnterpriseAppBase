@@ -12,6 +12,8 @@ export {
 } from './navigation.js';
 export type {
   ShellConsole,
+  ShellContextPane,
+  ShellContextPaneProps,
   ShellConsoleBack,
   ShellDestination,
   ShellDestinationRun,
@@ -27,6 +29,8 @@ export {
   useOptionalShellPreferencesPort,
 } from './preferences.js';
 export type { ShellPreferences, ShellPreferencesPort, ShellPreferencesProviderProps } from './preferences.js';
+export { useShellMainVariant } from './main-variant.js';
+export type { ShellMainVariant } from './main-variant.js';
 export { useShellRailPreference } from './rail-preference.js';
 export type { ShellRailPreferenceOptions, UseShellRailPreferenceResult } from './rail-preference.js';
 export {

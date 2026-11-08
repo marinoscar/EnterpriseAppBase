@@ -24,6 +24,7 @@ import type { WebConformanceSuite, WebConformanceTestApi } from '../../testing/i
 import { ShellPreferencesProvider, createLocalStorageShellPreferencesPort } from '../headless/index.js';
 import type { ShellIconProps, ShellNavigation } from '../headless/index.js';
 import { ShellLayout, ShellRoot } from '../ui/index.js';
+import { installMatchMedia } from './match-media.js';
 
 const WIDE = 1400;
 const NARROW = 400;
@@ -38,35 +39,6 @@ const NAVIGATION: ShellNavigation = {
     { key: 'tools', label: 'Tools', compactLabel: 'Tools', Icon, path: '/tools', pinned: true },
   ],
 };
-
-/** A `window.matchMedia` that answers min/max-width queries against `width`. */
-function installMatchMedia(width: number): () => void {
-  const original = Object.getOwnPropertyDescriptor(window, 'matchMedia');
-  const evaluate = (query: string): boolean => {
-    const mins = [...query.matchAll(/\(min-width:\s*([\d.]+)px\)/g)].map((m) => parseFloat(m[1] ?? '0'));
-    const maxs = [...query.matchAll(/\(max-width:\s*([\d.]+)px\)/g)].map((m) => parseFloat(m[1] ?? '0'));
-    if (mins.length === 0 && maxs.length === 0) return false;
-    return mins.every((min) => width >= min) && maxs.every((max) => width <= max);
-  };
-  Object.defineProperty(window, 'matchMedia', {
-    configurable: true,
-    writable: true,
-    value: (query: string) => ({
-      matches: evaluate(query),
-      media: query,
-      onchange: null,
-      addEventListener: () => undefined,
-      removeEventListener: () => undefined,
-      addListener: () => undefined,
-      removeListener: () => undefined,
-      dispatchEvent: () => false,
-    }),
-  });
-  return () => {
-    if (original) Object.defineProperty(window, 'matchMedia', original);
-    else delete (window as unknown as { matchMedia?: unknown }).matchMedia;
-  };
-}
 
 /** A transport that records every call and rejects it. */
 function createSpyApi(): { api: PlatformApiClient; calls: string[] } {
