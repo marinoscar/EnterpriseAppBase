@@ -506,6 +506,7 @@ The schema is composed from per-slice fragments in `packages/platform-db/schema/
 | Nodes | `WorkerNode` | `worker_nodes` | Registered worker nodes, declared types and concurrency |
 | Nodes | `NodeCredential` | `node_credentials` | Hashed `nod_` credentials |
 | Nodes | `WorkerNodeEvent` | `worker_node_events` | Events a node reported about itself (open `type`, `severity`, `attrs`, node and server clocks); cascades with the node; no RLS |
+| Nodes | `NodeCredentialIssuance` | `node_credential_issuances` | Audit of a provider credential delivered to a node (#1083, opt-in): purpose, non-secret version, job (`SET NULL`), issue and expiry times; no material column; cascades with the node; no RLS |
 | Nodes | `JobNodeSecret` | `job_node_secrets` | Handle (never material) of a per-job brokered credential |
 | Backup | `DatabaseBackupRun` | `database_backup_runs` | One row per backup or restore attempt, own heartbeat |
 | AI | `AiModel` | `ai_models` | Model catalog per `(provider, modelId)`, capabilities, enablement |
@@ -688,6 +689,7 @@ All 41 registered job types (pinned by `apps/api/test/jobs/job-type-snapshot.spe
 | `nodes.fleet.sweep` | Fleet sweep | `packages/platform-api/src/nodes/handlers/node-fleet-sweep.handler.ts` (the nodes slice) | Marks nodes with stale heartbeats offline | No |
 | `nodes.fleet.prune` | Fleet prune | `packages/platform-api/src/nodes/handlers/node-fleet-prune.handler.ts` (the nodes slice) | Forgets nodes offline longer than `nodes.offlineRetentionDays` | No |
 | `nodes.node_events_purge` | Node events purge | `packages/platform-api/src/nodes/handlers/node-events-purge.handler.ts` (the nodes slice) | Deletes `worker_node_events` rows older than `nodeEventsRetentionDays` (default 30) | No |
+| `nodes.credential_issuances_purge` | Node credential issuances purge | `packages/platform-api/src/nodes/handlers/node-credential-issuances-purge.handler.ts` (the nodes slice) | Deletes `node_credential_issuances` rows older than `credentialIssuancesRetentionDays` (default 30) | No |
 | `webhooks.deliver` | Webhook delivery | `packages/platform-api/src/webhooks/handlers/webhook-deliver.handler.ts` (the webhooks slice) | One signed HTTP delivery attempt to an endpoint; a failed attempt schedules its own retry; server-only because it reads the signing secret | No |
 | `webhooks.fanout` | Webhook fan-out | `packages/platform-api/src/webhooks/handlers/webhook-fanout.handler.ts` (the webhooks slice) | Turns one emitted event into a delivery row and a `webhooks.deliver` job per matching endpoint | No |
 | `webhooks.deliveries_purge` | Webhook delivery purge | `packages/platform-api/src/webhooks/handlers/webhook-purge.handler.ts` (the webhooks slice) | Deletes deliveries past `deliveryRetentionDays` (default 30) | No |
