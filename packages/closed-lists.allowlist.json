@@ -415,6 +415,11 @@
       "file": "packages/platform-contract/src/storage/objects-init-upload.ts",
       "symbol": "z.enum(PART_UPLOAD_AUTH_MODES)",
       "reason": "wire enum over PART_UPLOAD_AUTH_MODES, which stays closed"
+    },
+    {
+      "file": "packages/platform-cli/src/engine/node/executors/index.ts",
+      "symbol": "JobInputMode",
+      "reason": "how the engine delivers a job's input (none, a temp file, or a presigned URL); the engine branches on each mode, so it is a protocol switch, not an implementation id"
     }
   ]
 }

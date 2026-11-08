@@ -8,7 +8,7 @@ The TUI's screen registry: the menu lists the platform's screens and every scree
 
 Since RETRO-G1.2 (#1066) every screen also reads one shared app context: `useTuiApp()` returns the `session` (logged in, server URL, identity; never the token), `nav` (a push/pop stack), `selection` (an app-defined chip such as an active project), `theme` (colour tokens and glyphs, colourless under `NO_COLOR` / `--no-color`) and `appState` (data an app loads once). The TUI also starts on consoles where `process.stdin` cannot enter raw mode, by reading the controlling terminal (`/dev/tty`).
 
-Not in scope: the platform screens' components (internal) and ink building blocks such as `Frame`: a screen is an ordinary ink component the app writes.
+The ink building blocks and a small component kit ship on the second subpath, `@marinoscar/platform-cli/tui/ui` (see [Component kit](#component-kit-tuiui)). Not in scope: the platform screens' own components (internal): a screen is an ordinary ink component the app writes.
 
 ## Install and peer dependencies
 
@@ -114,6 +114,20 @@ The extension ladder and a recipe per extension: [docs/EXTENDING.md](../../../..
 | `registerTuiStateLoader` | registry | `registerTuiStateLoader<T>(loader: TuiStateLoaderRegistration<T>): void` | Load app data once for every screen (a database handle, update info), read with `useTuiState(id)` | experimental | [example](../../../../apps/cli/src/examples/build-info.tui-state.ts) |
 | `registerTuiScreenSection` | registry | `registerTuiScreenSection(screenId: string, section: ComponentType<TuiSectionProps> \| { id: string; load: () => Promise<ComponentType<TuiSectionProps>> }, options?: { id?: string }): void` | Add an ink section below the `node` or `deploy` screen's list (a fleet note, a release hint); a section that throws shows a notice and the screen keeps working | experimental | [example](../../../../apps/cli/src/examples/fleet-note.tui-section.tsx) |
 
+### Component kit (`tui/ui`)
+
+`@marinoscar/platform-cli/tui/ui` is the only part of this slice that loads ink (RETRO-G1.4, #1068). It is app-neutral and reads colours from `useTuiTheme()`, so it is monochrome under `NO_COLOR` and narrows below 56 and 30 columns. Reference: [`ui/README.md`](ui/README.md).
+
+| Name | Kind | Signature | When to use | Stability |
+|---|---|---|---|---|
+| `EventLog` | component | `EventLog<K>({ events, kinds, maxVisible?, title? })` | A rolling log of finished, skipped and failed items | experimental |
+| `SegmentMeter` / `allocateMeterCells` | component | `SegmentMeter<C>({ segments, total, width? })` | A one-row progress bar over categories; the pure rounding is exported for tests | experimental |
+| `MeterLegend` | component | `MeterLegend<C>({ segments, total })` | Swatches, counts and shares for the meter's categories | experimental |
+| `StatusLine` | component | `StatusLine({ title, items, done?, durationMs? })` | A header with an elapsed clock and a running or done mark | experimental |
+| `ActiveItems` | component | `ActiveItems({ items, maxVisible?, title? })` | Mini progress bars for what is in flight | experimental |
+| `RunSummary` | component | `RunSummary({ title, stats, durationMs, failures?, footer? })` | The end-of-run panel with a failures list | experimental |
+| `Frame`, `KeyHints`, `Field`, `ErrorNotice`, `ScrollBox`, `useTerminalSize`, `formatDuration` | building blocks | see `ui/README.md` | The platform screens' own chrome, for app screens that should match | experimental |
+
 ## Data
 
 None, beyond one optional key. A selection registered with `persist: 'config'` stores the chosen item's key under `tui.selection.<id>` in the CLI config file (`~/.<cli>/config.json`, mode 0600), never on the server. `login` replaces the file, so a login clears it and the first item is chosen again.
@@ -145,6 +159,8 @@ None. `menu.registry.test.tsx` in the package pins the built-in order and the re
 ## Upgrade notes
 
 0.x (RETRO-G1.1): additive: `registerTuiMenuNode`, `createCli({ tuiMenu })` and the menu-tree helpers. With no menu nodes the root menu is the same list; Esc on the root menu no longer quits (use `q` or the Quit line).
+
+0.x (RETRO-G1.4): additive subpath `@marinoscar/platform-cli/tui/ui` (component kit and the promoted screen building blocks); the built-in `node` screen now shows its totals as a meter and its recent jobs as an event log.
 
 0.x (RETRO-G1.2): `TuiScreenProps` gains optional `params`; `onDone` now pops the stack, which for a screen opened from the menu is the same as before. A redirected stdin with a usable `/dev/tty` no longer refuses the TUI. Additive: `useTuiApp`, `registerTuiSelection`, `registerTuiStateLoader`, `defaultTuiTheme`, `createCli({ tuiTheme, tuiSelections, tuiStateLoaders })`.
 

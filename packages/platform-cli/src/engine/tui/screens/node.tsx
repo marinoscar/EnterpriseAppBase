@@ -24,6 +24,7 @@ import { useTuiTheme } from '../context.js';
 import { textColor } from '../theme.js';
 import { ScrollBox } from '../scroll-box.js';
 import { TuiScreenSections } from '../screen-sections.js';
+import { EventLog, MeterLegend, SegmentMeter, type TuiLogEvent, type TuiMeterSegment } from '../ui/index.js';
 
 // =============================================================================
 // The worker node screen  (issue #279, epic #254)
@@ -303,6 +304,7 @@ function DashboardView({
   const snapshot = state?.snapshot;
 
   const lines = useMemo(() => (state?.events ?? []).map(describeEvent), [state?.events]);
+  const recent = useMemo(() => recentJobs(state?.events ?? []), [state?.events]);
 
   if (state === undefined || (!state.connected && !state.everConnected)) {
     return (
@@ -336,18 +338,21 @@ function DashboardView({
             <Field label="Concurrency" value={String(snapshot.concurrency)} />
             <Field label="Types" value={snapshot.eligibleTypes.join(', ') || '(none)'} />
             <Field
-              label="Totals"
-              value={
-                `${snapshot.counters.succeeded} ok · ${snapshot.counters.failed} failed · ` +
-                `${snapshot.counters.rateLimited} rate-limited of ${snapshot.counters.claimed} claimed`
-              }
-            />
-            <Field
               label="Heartbeat"
               value={snapshot.heartbeatAgeMs === null ? 'never' : `${Math.round(snapshot.heartbeatAgeMs / 1000)}s ago`}
             />
           </Box>
         ) : null}
+
+        {snapshot !== undefined && snapshot.counters.claimed > 0 ? (
+          <Box flexDirection="column">
+            <Text bold>Totals</Text>
+            <SegmentMeter segments={totalsSegments(snapshot.counters)} total={snapshot.counters.claimed} />
+            <MeterLegend segments={totalsSegments(snapshot.counters)} total={snapshot.counters.claimed} />
+          </Box>
+        ) : null}
+
+        {recent.length > 0 ? <EventLog events={recent} kinds={RECENT_JOB_KINDS} maxVisible={5} title="Recent jobs" /> : null}
 
         {snapshot !== undefined && snapshot.activeJobs.length > 0 ? (
           <Box flexDirection="column">
@@ -368,6 +373,53 @@ function DashboardView({
       </Box>
     </Frame>
   );
+}
+
+// -----------------------------------------------------------------------------
+// The totals meter and the recent-jobs log (the component kit, `../ui`)
+// -----------------------------------------------------------------------------
+
+type RecentJobKind = 'succeeded' | 'failed' | 'rate-limited';
+
+const RECENT_JOB_KINDS = {
+  succeeded: { glyph: '✓', tone: 'success' },
+  failed: { glyph: '✗', tone: 'error' },
+  'rate-limited': { glyph: '⏳', tone: 'warning' },
+} as const;
+
+/** The claimed jobs split by outcome; whatever is left of `claimed` is still running or queued. */
+function totalsSegments(counters: {
+  claimed: number;
+  succeeded: number;
+  failed: number;
+  rateLimited: number;
+}): TuiMeterSegment[] {
+  const settled = counters.succeeded + counters.failed + counters.rateLimited;
+  return [
+    { id: 'ok', label: 'ok', count: counters.succeeded, tone: 'success', done: true },
+    { id: 'failed', count: counters.failed, tone: 'error', done: true },
+    { id: 'rate-limited', count: counters.rateLimited, tone: 'warning', done: true },
+    { id: 'in progress', count: Math.max(0, counters.claimed - settled), tone: 'primary' },
+  ];
+}
+
+/** The newest job outcomes, oldest first. */
+function recentJobs(events: DashboardState['events']): TuiLogEvent<RecentJobKind>[] {
+  const out: TuiLogEvent<RecentJobKind>[] = [];
+  events.forEach((event, index) => {
+    if (event.kind === 'job-succeeded') {
+      out.push({ id: `${index}:${event.jobId}`, kind: 'succeeded', text: `${event.type} ${event.jobId}`, detail: formatDuration(event.durationMs) });
+    } else if (event.kind === 'job-failed') {
+      out.push({
+        id: `${index}:${event.jobId}`,
+        kind: event.rateLimited ? 'rate-limited' : 'failed',
+        text: `${event.type} ${event.jobId}`,
+        detail: event.error,
+        retrying: event.willRetry,
+      });
+    }
+  });
+  return out.slice(-5);
 }
 
 // -----------------------------------------------------------------------------

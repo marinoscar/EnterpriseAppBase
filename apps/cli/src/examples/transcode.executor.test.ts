@@ -21,6 +21,10 @@ function context(overrides: Partial<JobExecutionContext> = {}): { context: JobEx
     job: { id: 'job-1', type: 'example.transcode', subjectType: null, subjectId: null, priority: 0, attempts: 1, startedAt: '', leaseExpiresAt: '' },
     params: {},
     inputPath: '/tmp/in.mp4',
+    inputUrl: undefined,
+    refreshInputUrl: async () => {
+      throw new Error('no input url');
+    },
     input: undefined,
     api: {} as never,
     nodeId: 'node-1',

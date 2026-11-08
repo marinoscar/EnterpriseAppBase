@@ -43,6 +43,10 @@
       "types": "./dist/tui/index.d.ts",
       "default": "./dist/tui/index.js"
     },
+    "./tui/ui": {
+      "types": "./dist/tui/ui/index.d.ts",
+      "default": "./dist/tui/ui/index.js"
+    },
     "./deploy": {
       "types": "./dist/deploy/index.d.ts",
       "default": "./dist/deploy/index.js"
@@ -97,6 +101,7 @@
   "devDependencies": {
     "@types/node": "^22.15.32",
     "@types/react": "^19.2.18",
+    "ink-testing-library": "^4.0.0",
     "react": "^19.2.8",
     "typescript": "^6.0.3",
     "vitest": "^4.1.8"
