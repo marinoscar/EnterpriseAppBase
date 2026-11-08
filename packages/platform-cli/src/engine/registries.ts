@@ -19,6 +19,7 @@ import { resetRuntimeStateForTests } from './node/runtime-state.js';
 import { freezeNodeExecutorRegistry, resetNodeExecutorRegistryForTests } from './node/executors/registry.js';
 import { freezeTuiAppRegistries, resetTuiAppRegistriesForTests } from './tui/app-registry.js';
 import { resetTuiThemeForTests } from './tui/theme.js';
+import { freezeTuiMenuRegistry, resetTuiMenuRegistryForTests } from './tui/menu-registry.js';
 import { freezeTuiSectionRegistry, resetTuiSectionRegistryForTests } from './tui/section-registry.js';
 import { freezeTuiScreenRegistry, resetTuiScreenRegistryForTests } from './tui/screen-registry.js';
 import { resetUpdateNoticeForTests } from './update-notice-options.js';
@@ -38,6 +39,7 @@ import { resetUpdateNoticeForTests } from './update-notice-options.js';
 
 /** Freezes every CLI registry; `createCli` calls it last. */
 export function freezeCliRegistries(by: string): void {
+  freezeTuiMenuRegistry(by);
   freezeCommandRegistry(by);
   freezeEnvSpecRegistry(by);
   freezeEnvGroupRegistry(by);
@@ -57,6 +59,7 @@ export function freezeCliRegistries(by: string): void {
 export function resetCliRegistriesForTests(): void {
   resetPlatformRegistrationsForTests();
   resetTuiScreenRegistryForTests();
+  resetTuiMenuRegistryForTests();
   resetTuiSectionRegistryForTests();
   resetTuiAppRegistriesForTests();
   resetTuiThemeForTests();
