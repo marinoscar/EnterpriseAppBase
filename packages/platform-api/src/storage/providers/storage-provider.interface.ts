@@ -1,5 +1,7 @@
 import { Readable } from 'node:stream';
 import {
+  StorageSizeUnsupportedError,
+  StorageDeleteManyResult,
   StorageUploadOptions,
   StorageUploadResult,
   MultipartUploadInit,
@@ -309,4 +311,90 @@ export interface StorageProvider {
     body: Readable,
     size: number,
   ): Promise<StoredPart>;
+
+  // ===========================================================================
+  // Optional bulk delete and size probe (#1124)
+  // ===========================================================================
+  //
+  // Additive: a provider without them is served by `deleteStorageKeys` (one
+  // `delete` per key) and has no size probe. Call through the helpers, not
+  // directly, so an app provider that implements neither keeps working.
+
+  /**
+   * Deletes many keys in as few backend calls as the backend allows (S3
+   * `DeleteObjects`: up to 1,000 keys per call). A key that does not exist is
+   * deleted, as with {@link StorageProvider.delete}. NEVER THROWS FOR A
+   * PER-KEY FAILURE: the key is reported in `failed`; it throws only when the
+   * request itself fails. Prefer {@link deleteStorageKeys}, which falls back to
+   * `delete` per key on a provider without this method.
+   *
+   * @param keys - the keys to delete.
+   * @returns which keys were deleted and which failed.
+   */
+  deleteMany?(keys: readonly string[]): Promise<StorageDeleteManyResult>;
+
+  /**
+   * The object's size in bytes from a metadata request (S3 `HeadObject`), so a
+   * caller can verify an object without downloading it. `null` when the object
+   * does not exist.
+   *
+   * @param key - the object key.
+   * @returns the byte length, or `null` when absent.
+   */
+  size?(key: string): Promise<number | null>;
+}
+
+/**
+ * Deletes `keys` through `provider` (#1124): its `deleteMany` when it has one,
+ * else one `delete` per key (a per-key failure is reported, never thrown, and
+ * the rest still run). An empty list makes no call.
+ *
+ * @param provider - the provider holding the keys.
+ * @param keys - the keys to delete (duplicates are removed).
+ * @returns which keys were deleted and which failed.
+ *
+ * @example
+ * ```ts
+ * const { failed } = await deleteStorageKeys(storage, rows.map((row) => row.storageKey));
+ * ```
+ *
+ * @extensionPoint hook
+ * @stability experimental
+ */
+export async function deleteStorageKeys(provider: StorageProvider, keys: readonly string[]): Promise<StorageDeleteManyResult> {
+  const unique = [...new Set(keys)];
+  if (unique.length === 0) return { deleted: [], failed: [] };
+  if (typeof provider.deleteMany === 'function') return provider.deleteMany(unique);
+
+  const result: StorageDeleteManyResult = { deleted: [], failed: [] };
+  for (const key of unique) {
+    try {
+      await provider.delete(key);
+      result.deleted.push(key);
+    } catch (error) {
+      result.failed.push({ key, message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  return result;
+}
+
+/**
+ * The size of `key` in bytes through `provider`'s `size` probe (#1124), `null`
+ * when the object is absent, or `undefined` when the provider has no probe
+ * (the caller then decides whether to download).
+ *
+ * @param provider - the provider holding the key.
+ * @param key - the object key.
+ * @returns the byte length, `null` when absent, `undefined` when unsupported.
+ *
+ * @stability experimental
+ */
+export async function storageObjectSize(provider: StorageProvider, key: string): Promise<number | null | undefined> {
+  if (typeof provider.size !== 'function') return undefined;
+  try {
+    return await provider.size(key);
+  } catch (error) {
+    if (error instanceof StorageSizeUnsupportedError) return undefined;
+    throw error;
+  }
 }

@@ -50,7 +50,7 @@ import { Injectable } from '@nestjs/common';
 import type { Readable, Writable } from 'node:stream';
 import { PassThrough } from 'node:stream';
 
-import type { StorageConfigService, StorageProvider } from '../storage/index';
+import type { StorageConfigService, StorageProvider, StorageProviderRouter } from '../storage/index';
 
 /**
  * Injection token of the primary {@link BackupTarget}: where every archive is
@@ -122,6 +122,36 @@ export interface BackupTargetObject {
 }
 
 /**
+ * Where a run's archive was written, as the run recorded it
+ * (`database_backup_runs.storage_provider` and `.bucket`) (#1121). Passed to
+ * {@link BackupTarget.openRead}, {@link BackupTarget.delete} and
+ * {@link BackupTarget.signedDownloadUrl} for a run's archive, so a target
+ * serves a backup taken before the active provider (or bucket) changed from
+ * where it really is, without looking the run up by key. `null` fields mean
+ * the run recorded none (a run from before the column existed).
+ *
+ * @stability experimental
+ */
+export interface BackupObjectLocation {
+  /** The target id the run recorded (`storage_provider`), or `null`. */
+  readonly provider: string | null;
+  /** The location the run recorded (`bucket`), or `null`. */
+  readonly bucket: string | null;
+}
+
+/**
+ * The {@link BackupObjectLocation} a run recorded (#1121).
+ *
+ * @param run - anything carrying the run's `storageProvider` and `bucket`.
+ * @returns the location to pass to the target.
+ *
+ * @stability experimental
+ */
+export function recordedLocationOf(run: { storageProvider?: string | null; bucket?: string | null }): BackupObjectLocation {
+  return { provider: run.storageProvider ?? null, bucket: run.bucket ?? null };
+}
+
+/**
  * Options of {@link BackupTarget.signedDownloadUrl}.
  *
  * @stability experimental
@@ -181,16 +211,20 @@ export interface BackupTarget {
    * Opens a streaming read of the object `key`.
    *
    * @param key - the key.
+   * @param location - for a run's archive, where the run recorded it was
+   *   written (#1121); absent for a key with no run (the conformance kit, a
+   *   just-written object). A target with one fixed location may ignore it.
    * @returns the readable stream.
    * @throws when the object does not exist.
    */
-  openRead(key: string): Promise<Readable>;
+  openRead(key: string, location?: BackupObjectLocation): Promise<Readable>;
   /**
    * Deletes the object `key`. A missing key is not an error.
    *
    * @param key - the key.
+   * @param location - for a run's archive, the run's recorded location (#1121); see {@link BackupTarget.openRead}.
    */
-  delete(key: string): Promise<void>;
+  delete(key: string, location?: BackupObjectLocation): Promise<void>;
   /**
    * Lists the objects under `prefix`, in no particular order.
    *
@@ -205,9 +239,10 @@ export interface BackupTarget {
    *
    * @param key - the key.
    * @param options - the expiry and the file name.
+   * @param location - the run's recorded location (#1121); see {@link BackupTarget.openRead}.
    * @returns the URL.
    */
-  signedDownloadUrl?(key: string, options: BackupSignedUrlOptions): Promise<string>;
+  signedDownloadUrl?(key: string, options: BackupSignedUrlOptions, location?: BackupObjectLocation): Promise<string>;
 }
 
 /**
@@ -216,6 +251,11 @@ export interface BackupTarget {
  * existed. `id` is the provider's `kind`, `location` its bucket, `refresh`
  * re-reads the `storage` settings the default provider answers `kind` from, and
  * `signedDownloadUrl` is the provider's signed GET.
+ *
+ * Given a run's recorded location (#1121) and a `StorageProviderRouter`, it
+ * reads, deletes and signs through the provider the run's archive is on (its
+ * recorded driver and bucket), not the active one, so a backup taken before an
+ * administrator switched drivers stays downloadable, restorable and prunable.
  *
  * The storage provider interface has no listing; `list` uses the provider's
  * `list` when it has one and otherwise throws a clear error (nothing in the
@@ -229,11 +269,19 @@ export class StorageProviderBackupTarget implements BackupTarget {
   /**
    * @param storage - the active storage provider.
    * @param storageConfig - when present, refreshed before `id` is read (the default provider's `kind` follows the `storage` settings).
+   * @param router - when present, a run's recorded location is resolved through it (#1121).
    */
   constructor(
     private readonly storage: StorageProvider,
     private readonly storageConfig?: Pick<StorageConfigService, 'activeProvider'>,
+    private readonly router?: Pick<StorageProviderRouter, 'forLocation'>,
   ) {}
+
+  /** The provider holding an object at `location`: the routed one when known, else the active one. */
+  private async providerAt(location: BackupObjectLocation | undefined): Promise<StorageProvider> {
+    if (!this.router || !location?.provider) return this.storage;
+    return this.router.forLocation({ provider: location.provider, bucket: location.bucket ?? '' });
+  }
 
   /** The provider's kind (`s3`, `r2`, `s3compatible` or an app driver's id). */
   get id(): string {
@@ -267,12 +315,12 @@ export class StorageProviderBackupTarget implements BackupTarget {
     return { stream, done };
   }
 
-  openRead(key: string): Promise<Readable> {
-    return this.storage.download(key);
+  async openRead(key: string, location?: BackupObjectLocation): Promise<Readable> {
+    return (await this.providerAt(location)).download(key);
   }
 
-  delete(key: string): Promise<void> {
-    return this.storage.delete(key);
+  async delete(key: string, location?: BackupObjectLocation): Promise<void> {
+    return (await this.providerAt(location)).delete(key);
   }
 
   async *list(prefix: string): AsyncIterable<BackupTargetObject> {
@@ -288,8 +336,8 @@ export class StorageProviderBackupTarget implements BackupTarget {
     }
   }
 
-  signedDownloadUrl(key: string, options: BackupSignedUrlOptions): Promise<string> {
-    return this.storage.getSignedDownloadUrl(key, {
+  async signedDownloadUrl(key: string, options: BackupSignedUrlOptions, location?: BackupObjectLocation): Promise<string> {
+    return (await this.providerAt(location)).getSignedDownloadUrl(key, {
       expiresIn: options.expiresInSeconds,
       responseContentDisposition: `attachment; filename="${options.filename}"`,
     });

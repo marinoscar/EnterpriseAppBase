@@ -70,10 +70,13 @@ jest.mock('@aws-sdk/client-s3', () => {
           case 'HeadObjectCommand': {
             const entry = mockStore.get(Key);
             if (!entry) throw mockNotFound();
-            return { Metadata: entry.metadata };
+            return { Metadata: entry.metadata, ContentLength: entry.body.length };
           }
           case 'DeleteObjectCommand':
             mockStore.delete(Key);
+            return {};
+          case 'DeleteObjectsCommand':
+            for (const object of cmd.input.Delete.Objects as Array<{ Key: string }>) mockStore.delete(object.Key);
             return {};
           case 'ListObjectsV2Command':
             return {
@@ -90,6 +93,7 @@ jest.mock('@aws-sdk/client-s3', () => {
     PutObjectCommand: command('PutObjectCommand'),
     GetObjectCommand: command('GetObjectCommand'),
     DeleteObjectCommand: command('DeleteObjectCommand'),
+    DeleteObjectsCommand: command('DeleteObjectsCommand'),
     HeadObjectCommand: command('HeadObjectCommand'),
     CopyObjectCommand: command('CopyObjectCommand'),
     CreateMultipartUploadCommand: command('CreateMultipartUploadCommand'),

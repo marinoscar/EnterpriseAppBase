@@ -76,6 +76,8 @@ The API slice's `storage` suite (`@marinoscar/platform-api/storage/testing`) sca
 
 ## Upgrade notes
 
+#1124: additive. `storageConfigResponseSchema` gains the optional `secretStatuses` (`{ <driverId>: { <secretName>: storageSecretStatusSchema } }`): each storage driver keeps its own credential address, so the admin view reports every driver's masked secret status, not only the active one's. `storageSecretStatusSchema`'s fields are unchanged.
+
 #1093: additive. New `startStorageMigrationSchema` (`{ sourceProvider, targetProvider }`, driver ids that differ), `storageMigrationRunSchema`, `storageMigrationListQuerySchema`, `storageMigrationRunListSchema` and their types, and the zod-free `STORAGE_MIGRATION_RUN_STATUSES`, `STORAGE_MIGRATION_ACTIVE_RUN_STATUSES` and `STORAGE_MIGRATION_ITEM_STATUSES`.
 
 #1079: `initUploadResponseSchema` gains the required `partUploadAuth` (`none` | `bearer`) and its `presignedUrls[].url` is a plain non-empty string (for `bearer` it is the API's part route, which may be root-relative); new `getPartUrlsSchema` / `getPartUrlsResponseSchema` (the `POST :id/upload/part-urls` body and payload), `partUrlSchema`, `PART_UPLOAD_AUTH_MODES`, `INIT_UPLOAD_PART_URL_BATCH`, `PART_URLS_MAX_PER_CALL` and `UPLOAD_ERROR_REASONS`. `uploadStatusResponseSchema.uploadedParts` now means the parts the storage backend holds.

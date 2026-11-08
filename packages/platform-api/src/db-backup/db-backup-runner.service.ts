@@ -52,6 +52,7 @@ import {
   DB_BACKUP_TARGET,
   StorageProviderBackupTarget,
   isStorageBackedTarget,
+  recordedLocationOf,
   type BackupTarget,
 } from './backup-target';
 import { DbBackupEvents, eventBytes } from './db-backup-events';
@@ -2049,7 +2050,7 @@ export class DatabaseBackupRunnerService {
     let tocEntries: number;
 
     try {
-      const stored = await this.target.openRead(run.storageKey);
+      const stored = await this.target.openRead(run.storageKey, recordedLocationOf(run));
       tocEntries = await this.engine.readTocEntryCount(stored);
     } catch (error) {
       await this.failNodeRun(run, toError(error));

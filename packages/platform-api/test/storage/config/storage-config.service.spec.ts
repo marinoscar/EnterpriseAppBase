@@ -152,13 +152,23 @@ describe('StorageConfigService', () => {
       expect(credentials.getSecret).toHaveBeenCalledTimes(3);
     });
 
-    it('is looked up at the storage credential address', async () => {
+    it('is looked up at the driver\'s own credential address (#1124)', async () => {
       await service.resolve();
 
-      expect(credentials.getSecret).toHaveBeenCalledWith(
-        STORAGE_CREDENTIAL_PURPOSE,
-        STORAGE_CREDENTIAL_NAME,
+      expect(credentials.getSecret).toHaveBeenCalledWith(STORAGE_CREDENTIAL_PURPOSE, 's3');
+      expect(credentials.getSecret).not.toHaveBeenCalledWith(STORAGE_CREDENTIAL_PURPOSE, STORAGE_CREDENTIAL_NAME);
+    });
+
+    it('falls back to the shared storage/default slot when the driver\'s own is empty', async () => {
+      credentials.getSecret.mockImplementation(async (_purpose: string, name: string) =>
+        name === STORAGE_CREDENTIAL_NAME ? 'legacy-secret' : null,
       );
+
+      const resolution = await service.resolve();
+
+      expect(resolution.configured && resolution.config.secrets.secretAccessKey).toBe('legacy-secret');
+      expect(credentials.getSecret).toHaveBeenCalledWith(STORAGE_CREDENTIAL_PURPOSE, 's3');
+      expect(credentials.getSecret).toHaveBeenCalledWith(STORAGE_CREDENTIAL_PURPOSE, STORAGE_CREDENTIAL_NAME);
     });
 
     it('resolveActiveConfig also re-reads the secret on every call', async () => {
@@ -395,7 +405,7 @@ describe('StorageConfigService', () => {
         configured: true,
         config: { provider: 's3', bucket: 'old-bucket', settings: { accessKeyId: 'AKIAOLD' }, secrets: { secretAccessKey: 'old-secret' } },
       });
-      expect(credentials.getSecret).toHaveBeenCalledWith(STORAGE_CREDENTIAL_PURPOSE, STORAGE_CREDENTIAL_NAME);
+      expect(credentials.getSecret).toHaveBeenCalledWith(STORAGE_CREDENTIAL_PURPOSE, 's3');
     });
 
     it('keeps an app driver\'s secrets at its own purpose, whichever driver is active', async () => {

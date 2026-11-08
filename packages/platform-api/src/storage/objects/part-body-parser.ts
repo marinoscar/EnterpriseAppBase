@@ -1,3 +1,4 @@
+import { UnsupportedMediaTypeException } from '@nestjs/common';
 import type { FastifyInstance } from 'fastify';
 
 /** The part route, as Fastify names it (`routeOptions.url`), under any global prefix. */
@@ -37,10 +38,12 @@ export function registerStoragePartBodyParser(instance: FastifyInstance): void {
       return;
     }
 
-    const error = new Error(`Unsupported Media Type: ${String(request.headers['content-type'])}`) as Error & {
-      statusCode: number;
-      code: string;
-    };
+    // An HttpException (#1124), so the app's exception filter answers 415
+    // UNSUPPORTED_MEDIA_TYPE rather than mapping an unknown error to a 500;
+    // `statusCode` and `code` stay for Fastify's own error handler.
+    const error = new UnsupportedMediaTypeException(
+      `Unsupported Media Type: ${String(request.headers['content-type'])}`,
+    ) as UnsupportedMediaTypeException & { statusCode: number; code: string };
     error.statusCode = 415;
     error.code = 'FST_ERR_CTP_INVALID_MEDIA_TYPE';
     done(error, undefined);

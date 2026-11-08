@@ -562,7 +562,8 @@ describe('StorageConnectionTestService', () => {
 
       const result = await service.test(input({ secretAccessKey: '' }), 'admin-1');
 
-      expect(credentials.getSecret).toHaveBeenCalledWith('storage', 'default');
+      // Its own address first (#1124); `storage/default` is only the read fallback.
+      expect(credentials.getSecret).toHaveBeenCalledWith('storage', 's3');
       expect(result.usedStoredSecret).toBe(true);
     });
 

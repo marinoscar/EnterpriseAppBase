@@ -8,6 +8,8 @@ import {
   checkOrgScopedKeys,
   checkStorageKeyPrefixes,
   checkStorageSettingsSchemas,
+  checkStorageDriverCredentials,
+  checkStorageProviderExtensions,
   storageConformanceSuite,
 } from '../../src/storage/testing/index';
 import { conformanceSuites } from '../../src/testing/index';
@@ -53,5 +55,12 @@ describe('storage conformance suite', () => {
   it('finds no secret-named field in the storage schemas', () => {
     expect(checkStorageSettingsSchemas()).toEqual([]);
   });
-});
 
+  it('keeps every driver on its own credential address, and two S3-family drivers on their own keys (#1124)', async () => {
+    expect(await checkStorageDriverCredentials()).toEqual([]);
+  });
+
+  it('checks the bulk delete fallback, optional processors and the 415 part parser (#1124)', async () => {
+    expect(await checkStorageProviderExtensions()).toEqual([]);
+  });
+});

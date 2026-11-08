@@ -22,7 +22,7 @@
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 
 import { JobHandlerRegistry, type Job, type JobExecutionProfile, type JobHandler } from '../../jobs/index';
-import { STORAGE_PROVIDER, type StorageProvider } from '../../storage/index';
+import { STORAGE_PROVIDER, deleteStorageKeys, type StorageProvider } from '../../storage/index';
 import { EXPORT_PURGE_BATCH, EXPORT_PURGE_JOB_TYPE, EXPORTS_STORAGE_ROOT } from '../exports.constants';
 import { EXPORTS_OPTIONS, type ResolvedExportsModuleOptions } from '../exports.options';
 import { EXPORTS_SYSTEM_DATA, type ExportsSystemData } from '../ports';
@@ -113,9 +113,25 @@ export class ExportPurgeHandler implements JobHandler, OnModuleInit {
       })) as Array<{ id: string; storageKey: string }>;
       if (batch.length === 0) break;
 
+      // The bytes in one bulk call where the provider has `deleteMany` (#1124),
+      // else one `delete` per key; a key that fails keeps its row.
+      let failures: Map<string, string>;
+      try {
+        const result = await deleteStorageKeys(this.storage, batch.map((object) => object.storageKey));
+        failures = new Map(result.failed.map((failure) => [failure.key, failure.message]));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        failures = new Map(batch.map((object) => [object.storageKey, message]));
+      }
+
       for (const object of batch) {
+        const failure = failures.get(object.storageKey);
+        if (failure !== undefined) {
+          failedIds.push(object.id);
+          this.logger.warn(`Could not delete expired export object ${object.id}: ${failure}`);
+          continue;
+        }
         try {
-          await this.storage.delete(object.storageKey);
           await db.storageObject.deleteMany({ where: { id: object.id } });
           deleted += 1;
         } catch (error) {

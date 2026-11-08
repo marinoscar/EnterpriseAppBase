@@ -178,6 +178,42 @@ describe('app grants (PP-14.15)', () => {
   });
 });
 
+describe('widened platform grants (#1124)', () => {
+  const app = { platformGrants: { 'storage:write': ['viewer', 'contributor'] } };
+
+  it('add a platform role to a platform permission, in the catalog and in the registries', () => {
+    const baseline = platformPermissionCatalog();
+    const { core, manifest } = isolated();
+    const composed = manifest.platformPermissionCatalog({ app });
+    manifest.registerPlatformPermissions({ app });
+
+    expect(baseline.rolePermissions.viewer).not.toContain('storage:write');
+    expect(composed.rolePermissions.viewer).toContain('storage:write');
+    // `contributor` already holds it by default: skipped, not an error, and not duplicated.
+    expect(composed.rolePermissions.contributor.filter((id) => id === 'storage:write')).toHaveLength(1);
+    expect(core.buildPermissionCatalog()).toEqual(composed);
+    expect(core.roleGrantRegistry.ids()).toEqual(['viewer|storage:write']);
+  });
+
+  it('are additive: every other role and every permission stays as declared', () => {
+    const baseline = platformPermissionCatalog();
+    const widened = platformPermissionCatalog({ app });
+    for (const role of ['admin', 'contributor', 'org_admin']) {
+      expect(widened.rolePermissions[role]).toEqual(baseline.rolePermissions[role]);
+    }
+    expect(widened.permissions).toEqual(baseline.permissions);
+    expect(widened.rolePermissions.viewer).toEqual(
+      baseline.permissions.map((p) => p.name).filter((name) => name === 'storage:write' || baseline.rolePermissions.viewer.includes(name)),
+    );
+  });
+
+  it('refuse an unknown permission, an unknown role and a scope mismatch', () => {
+    expect(() => platformPermissionCatalog({ app: { platformGrants: { 'ghost:read': ['viewer'] } } })).toThrow(/unknown permission "ghost:read"/);
+    expect(() => platformPermissionCatalog({ app: { platformGrants: { 'storage:write': ['ghost'] } } })).toThrow(/unknown role "ghost"/);
+    expect(() => platformPermissionCatalog({ app: { platformGrants: { 'storage:delete_any': ['viewer'] } } })).toThrow(/own scope/);
+  });
+});
+
 describe('registerPermissionSet (PP-14.15)', () => {
   const set = {
     slice: 'kappa-reports',

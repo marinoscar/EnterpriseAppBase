@@ -10,6 +10,8 @@ export { default, default as StorageConfigPage } from './StorageConfigPage.js';
 export type { StorageConfigPageProps, StorageConfigPageSlots } from './StorageConfigPage.js';
 export { StorageSwitchConfirmDialog } from './StorageSwitchConfirmDialog.js';
 export { StorageMigrationPanel } from './StorageMigrationPanel.js';
+export { StorageDriverCredentialsPanel } from './StorageDriverCredentialsPanel.js';
+export type { StorageDriverCredentialsPanelProps } from './StorageDriverCredentialsPanel.js';
 export type { StorageMigrationDriverOption, StorageMigrationPanelProps } from './StorageMigrationPanel.js';
 export type { StorageSwitchConfirmDialogProps } from './StorageSwitchConfirmDialog.js';
 export {

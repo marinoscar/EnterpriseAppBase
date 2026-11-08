@@ -103,6 +103,7 @@ import { StorageGenericDriverPanel } from './StorageGenericDriverPanel.js';
 import { getStorageDriverPanel, getStorageDriverPanelValidator } from './storageDriverPanelRegistry.js';
 import { StorageSwitchConfirmDialog } from './StorageSwitchConfirmDialog.js';
 import { StorageMigrationPanel } from './StorageMigrationPanel.js';
+import { StorageDriverCredentialsPanel } from './StorageDriverCredentialsPanel.js';
 
 // The three built-in drivers draw their bespoke panel through the same registry
 // an app uses (PP-14.7, #925); every other driver is drawn by
@@ -745,6 +746,21 @@ export default function StorageConfigPage(props: StorageConfigPageProps = {}) {
               </Box>
             </Box>
           </Paper>
+        )}
+
+        {/* EVERY OTHER CONFIGURED DRIVER'S SECRETS (#1124): each driver keeps
+            its own key, and a driver still holding rows must stay readable
+            after the switch, so its key is saved here without switching. */}
+        {ready && config && (
+          <StorageDriverCredentialsPanel
+            config={config}
+            descriptors={descriptors}
+            exclude={[id]}
+            canWrite={canWrite}
+            isSaving={isSaving}
+            save={(input) => save(input)}
+            onSaved={(label) => setSavedMessage(`${label} credentials saved`)}
+          />
         )}
 
         {/* THE DIAGNOSTIC SURFACE, persistent and dismissible rather than a

@@ -156,6 +156,8 @@ export function verifyLocalFsToken(token: string, nowSeconds: number = Math.floo
 interface ObjectMeta {
   mimeType: string;
   metadata: Record<string, string>;
+  /** The `Cache-Control` the object was written with (#1124), when one was asked for. */
+  cacheControl?: string;
 }
 
 function unsupported(operation: string): never {
@@ -230,7 +232,11 @@ export class LocalFsStorageProvider implements StorageProvider {
       throw error;
     }
 
-    const meta: ObjectMeta = { mimeType: options.mimeType, metadata: { ...(options.metadata ?? {}) } };
+    const meta: ObjectMeta = {
+      mimeType: options.mimeType,
+      metadata: { ...(options.metadata ?? {}) },
+      ...(options.cacheControl ? { cacheControl: options.cacheControl } : {}),
+    };
     await this.writeMeta(key, meta);
 
     return { key, bucket: this.directory, location: `file://${target}`, eTag: `"${digest.digest('hex')}"` };
@@ -250,6 +256,12 @@ export class LocalFsStorageProvider implements StorageProvider {
 
   async exists(key: string): Promise<boolean> {
     return (await stat(this.pathOf(key)).catch(() => null))?.isFile() === true;
+  }
+
+  /** The object's size from the file system, `null` when absent (#1124). */
+  async size(key: string): Promise<number | null> {
+    const info = await stat(this.pathOf(key)).catch(() => null);
+    return info?.isFile() ? info.size : null;
   }
 
   async getMetadata(key: string): Promise<Record<string, string> | null> {
@@ -274,6 +286,11 @@ export class LocalFsStorageProvider implements StorageProvider {
     return (await this.readMeta(key)).mimeType;
   }
 
+  /** The `Cache-Control` recorded when the object was written, for whatever serves its bytes; `null` when none (#1124). */
+  async cacheControlOf(key: string): Promise<string | null> {
+    return (await this.readMeta(key)).cacheControl ?? null;
+  }
+
   // ---- resumable uploads, through the API ----------------------------------------
 
   private partsDirOf(uploadId: string): string {
@@ -286,7 +303,10 @@ export class LocalFsStorageProvider implements StorageProvider {
     const uploadId = randomUUID();
     const directory = join(this.parts, uploadId);
     await mkdir(directory, { recursive: true });
-    await writeFile(join(directory, 'upload.json'), JSON.stringify({ key, mimeType: options.mimeType, metadata: options.metadata ?? {} }));
+    await writeFile(
+      join(directory, 'upload.json'),
+      JSON.stringify({ key, mimeType: options.mimeType, metadata: options.metadata ?? {}, cacheControl: options.cacheControl }),
+    );
     return { uploadId, key };
   }
 
@@ -347,7 +367,11 @@ export class LocalFsStorageProvider implements StorageProvider {
     if (missing.length > 0) throw new MultipartPartsMissingError(missing);
 
     const target = this.pathOf(key);
-    const info = JSON.parse(await readFile(join(directory, 'upload.json'), 'utf8')) as { mimeType?: string; metadata?: Record<string, string> };
+    const info = JSON.parse(await readFile(join(directory, 'upload.json'), 'utf8')) as {
+      mimeType?: string;
+      metadata?: Record<string, string>;
+      cacheControl?: string;
+    };
     await mkdir(this.tmp, { recursive: true });
     await mkdir(dirname(target), { recursive: true });
 
@@ -368,7 +392,11 @@ export class LocalFsStorageProvider implements StorageProvider {
       throw error;
     }
 
-    await this.writeMeta(key, { mimeType: info.mimeType ?? 'application/octet-stream', metadata: info.metadata ?? {} });
+    await this.writeMeta(key, {
+      mimeType: info.mimeType ?? 'application/octet-stream',
+      metadata: info.metadata ?? {},
+      ...(info.cacheControl ? { cacheControl: info.cacheControl } : {}),
+    });
     await rm(directory, { recursive: true, force: true });
 
     return { key, bucket: this.directory, location: `file://${target}` };
@@ -398,7 +426,11 @@ export class LocalFsStorageProvider implements StorageProvider {
   private async readMeta(key: string): Promise<ObjectMeta> {
     try {
       const parsed = JSON.parse(await readFile(this.metaPathOf(key), 'utf8')) as Partial<ObjectMeta>;
-      return { mimeType: parsed.mimeType ?? 'application/octet-stream', metadata: parsed.metadata ?? {} };
+      return {
+        mimeType: parsed.mimeType ?? 'application/octet-stream',
+        metadata: parsed.metadata ?? {},
+        ...(typeof parsed.cacheControl === 'string' ? { cacheControl: parsed.cacheControl } : {}),
+      };
     } catch {
       return { mimeType: 'application/octet-stream', metadata: {} };
     }

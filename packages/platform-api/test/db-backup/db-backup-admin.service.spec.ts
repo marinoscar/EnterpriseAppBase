@@ -1333,7 +1333,7 @@ describe('DatabaseBackupAdminService with the schedule policy and targets (PP-14
       expect(signedDownloadUrl).toHaveBeenCalledWith(run().storageKey, {
         expiresInSeconds: BACKUP_DOWNLOAD_URL_EXPIRY_SECONDS,
         filename: 'app-20260907T020000Z-run.dump',
-      });
+      }, { provider: 's3', bucket: 'backups' });
     });
 
     it('answers a 400 naming the target when it cannot sign', async () => {

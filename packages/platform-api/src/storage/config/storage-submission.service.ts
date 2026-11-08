@@ -25,7 +25,7 @@ import { SystemSettingsService } from '../../settings/index';
 import {
   getStorageDriver,
   storageLocationOf,
-  storageSecretAddress,
+  readStorageDriverSecret,
   type StorageDriverContext,
   type StorageDriverDefinition,
   type StorageDriverLocation,
@@ -91,8 +91,7 @@ export class StorageSubmissionService {
     // must not have to re-paste a credential they may not have to hand.
     const secret = async (name: string): Promise<string | null> => {
       const value =
-        typed[name] ??
-        (await this.credentials.getSecret(storageSecretAddress(driver, name).purpose, storageSecretAddress(driver, name).name));
+        typed[name] ?? (await readStorageDriverSecret(this.credentials, driver, name));
       if (value) resolved.set(name, value);
       return value ?? null;
     };

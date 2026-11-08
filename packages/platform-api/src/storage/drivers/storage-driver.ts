@@ -123,6 +123,26 @@ export interface StorageSecretAddress {
   name: string;
   /** The non-secret label stored beside the credential (default: the secret's declared label). */
   label?: string;
+  /**
+   * Older addresses to READ when nothing is stored at this one, most recent
+   * first (#1124). Writes always go to `purpose`/`name`; a fallback is never
+   * written. The built-in S3 family keeps each flavour's key at
+   * `(storage, <driverId>)` and falls back to the shared `(storage, default)`
+   * slot every deployment before #1124 used, so no stored key has to move.
+   */
+  fallbacks?: readonly StorageSecretLocation[];
+}
+
+/**
+ * One `(purpose, name)` pair in the credential store.
+ *
+ * @stability experimental
+ */
+export interface StorageSecretLocation {
+  /** The credential purpose. */
+  purpose: string;
+  /** The name within the purpose. */
+  name: string;
 }
 
 /**
@@ -315,7 +335,10 @@ export interface StorageDriverDefinition<S extends StorageDriverSettings = Stora
   secrets?: readonly PluggableSecretSpec[];
   /**
    * Where the driver's secrets live when it must not use `storage_<id>` (the
-   * built-in S3 family keeps its secret access key at `(storage, default)`).
+   * built-in S3 family keeps each flavour's secret access key at
+   * `(storage, <driverId>)`, falling back to the shared `(storage, default)`).
+   * Return `fallbacks` to keep reading an older address until a new value is
+   * saved.
    * The purpose is then the caller's to register. `label` is the non-secret
    * label stored beside the credential (default: the secret's declared label).
    */
@@ -521,6 +544,74 @@ export function storageSecretAddress(
   name: string,
 ): StorageSecretAddress {
   return driver.credentialAddress ? driver.credentialAddress(name) : { purpose: storageDriverCredentialPurpose(driver.id), name };
+}
+
+/**
+ * Every address `driver`'s secret `name` is READ from, in order: the address it
+ * is written to, then its {@link StorageSecretAddress.fallbacks} (#1124). The
+ * first one holding a value wins.
+ *
+ * @param driver - a registered driver.
+ * @param name - one of the secrets it declares.
+ * @returns the addresses, primary first; never empty.
+ * @stability experimental
+ */
+export function storageSecretReadAddresses(
+  driver: Pick<StorageDriverDefinition<any>, 'id' | 'credentialAddress'>,
+  name: string,
+): readonly StorageSecretLocation[] {
+  const address = storageSecretAddress(driver, name);
+  const seen = new Set<string>();
+  const out: StorageSecretLocation[] = [];
+  for (const candidate of [address, ...(address.fallbacks ?? [])]) {
+    const key = `${candidate.purpose}\u0000${candidate.name}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ purpose: candidate.purpose, name: candidate.name });
+  }
+  return out;
+}
+
+/**
+ * Reads `driver`'s secret `name`: the primary address, then each fallback, the
+ * first stored value winning (#1124). `null` when none holds one.
+ *
+ * @param credentials - anything with the credential store's `getSecret`.
+ * @param driver - a registered driver.
+ * @param name - one of the secrets it declares.
+ * @stability experimental
+ */
+export async function readStorageDriverSecret(
+  credentials: { getSecret(purpose: string, name: string): Promise<string | null> },
+  driver: Pick<StorageDriverDefinition<any>, 'id' | 'credentialAddress'>,
+  name: string,
+): Promise<string | null> {
+  for (const address of storageSecretReadAddresses(driver, name)) {
+    const value = await credentials.getSecret(address.purpose, address.name);
+    if (value) return value;
+  }
+  return null;
+}
+
+/**
+ * The masked description of `driver`'s secret `name` from the first address
+ * that holds one (primary, then fallbacks), or `null` (#1124). Never decrypts.
+ *
+ * @param credentials - anything with the credential store's `describe`.
+ * @param driver - a registered driver.
+ * @param name - one of the secrets it declares.
+ * @stability experimental
+ */
+export async function describeStorageDriverSecret<T>(
+  credentials: { describe(purpose: string, name: string): Promise<T | null> },
+  driver: Pick<StorageDriverDefinition<any>, 'id' | 'credentialAddress'>,
+  name: string,
+): Promise<T | null> {
+  for (const address of storageSecretReadAddresses(driver, name)) {
+    const info = await credentials.describe(address.purpose, address.name);
+    if (info) return info;
+  }
+  return null;
 }
 
 /**

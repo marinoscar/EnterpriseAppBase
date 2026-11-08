@@ -398,3 +398,47 @@ describe('StorageConfigPage — an app\'s own panel and the edge cases', () => {
     expect(saveButton()).toBeDisabled();
   });
 });
+
+describe('per-driver credentials (#1124)', () => {
+  const twoProviders = () =>
+    storageConfigFixture({
+      drivers: builtinDrivers({
+        r2: { bucket: 'new-objects', accountId: 'acct123', region: '', endpoint: '', accessKeyId: 'AKIAR2', forcePathStyle: null },
+      }),
+      secretStatuses: {
+        s3: { secretAccessKey: { configured: true, hint: '••••s3s3', updatedAt: null, updatedByUserId: null } },
+        r2: { secretAccessKey: { configured: false, hint: null, updatedAt: null, updatedByUserId: null } },
+        s3compatible: { secretAccessKey: { configured: false, hint: null, updatedAt: null, updatedByUserId: null } },
+      },
+    });
+
+  it('saves another configured driver\'s secret without switching the active driver', async () => {
+    const user = userEvent.setup();
+    const { save } = setHook(twoProviders());
+    const { container } = render(<StorageConfigPage />);
+
+    const section = screen.getByTestId('storage-driver-credentials-r2');
+    expect(within(section).getByText(/Nothing is saved for this provider yet/)).toBeInTheDocument();
+    expect(screen.queryByTestId('storage-driver-credentials-s3')).not.toBeInTheDocument();
+
+    await user.type(screen.getByTestId('storage-driver-secret-r2-secretAccessKey'), TYPED_SECRET);
+    expect(container.textContent).not.toContain(TYPED_SECRET);
+    await user.click(screen.getByTestId('storage-driver-credentials-save-r2'));
+
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0]![0]).toEqual({ provider: 's3', secrets: { r2: { secretAccessKey: TYPED_SECRET } } });
+  });
+
+  it('shows the selected driver\'s OWN stored key in its form, not the active one\'s', async () => {
+    const user = userEvent.setup();
+    setHook(twoProviders());
+    render(<StorageConfigPage />);
+
+    // The main form comes first; the other providers' credentials follow it.
+    expect(screen.getAllByLabelText(/Secret access key/)[0]).toHaveAttribute('placeholder', '••••s3s3');
+    await user.click(radio('Cloudflare R2'));
+    expect(screen.getAllByLabelText(/Secret access key/)[0]).toHaveAttribute('placeholder', '');
+    // The driver being edited above is not listed twice.
+    expect(screen.queryByTestId('storage-driver-credentials-r2')).not.toBeInTheDocument();
+  });
+});

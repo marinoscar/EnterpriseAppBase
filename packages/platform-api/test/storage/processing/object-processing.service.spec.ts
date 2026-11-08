@@ -346,6 +346,26 @@ describe('ObjectProcessingService', () => {
       });
     });
 
+    it('keeps the object ready when only an OPTIONAL processor fails, recording its error (#1124)', async () => {
+      (mockProcessor2 as { optional?: boolean }).optional = true;
+      mockProcessor2.process.mockRejectedValue(new Error('probe could not read the container'));
+      mockPrisma.storageObject.findUnique.mockResolvedValue({ ...mockStorageObject, metadata: null } as any);
+      mockPrisma.storageObject.update.mockResolvedValue({} as any);
+
+      await expect(service.run(mockStorageObject as any)).resolves.toBe('ready');
+
+      const data = mockPrisma.storageObject.update.mock.calls[0][0].data as any;
+      expect(data.status).toBe('ready');
+      expect(data.metadata._processing).toEqual(
+        expect.objectContaining({ processor1: { key1: 'value1' }, processor2_error: 'probe could not read the container' }),
+      );
+      expect(data.metadata).not.toHaveProperty('_processingFailed');
+
+      // A REQUIRED processor's failure still fails the object.
+      mockProcessor1.process.mockResolvedValue({ success: false, error: 'thumbnail failed' });
+      await expect(service.run(mockStorageObject as any)).resolves.toBe('failed');
+    });
+
     it('should continue processing even when one processor throws', async () => {
       mockProcessor1.process.mockRejectedValue(new Error('Processor 1 crashed'));
 

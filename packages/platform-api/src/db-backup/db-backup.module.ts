@@ -1,6 +1,6 @@
 import { DynamicModule, Injectable, Inject, Module, Optional, type Provider } from '@nestjs/common';
 
-import { STORAGE_PROVIDER, StorageConfigService, StorageProvidersModule, type StorageProvider } from '../storage/index';
+import { STORAGE_PROVIDER, StorageConfigService, StorageProviderRouter, StorageProvidersModule, type StorageProvider } from '../storage/index';
 import {
   DB_BACKUP_MIRROR_TARGETS,
   DB_BACKUP_TARGET,
@@ -351,9 +351,9 @@ export class DbBackupModule {
           ? { provide: DB_BACKUP_TARGET, ...resolved.target }
           : {
               provide: DB_BACKUP_TARGET,
-              useFactory: (storage: StorageProvider, storageConfig: StorageConfigService) =>
-                new StorageProviderBackupTarget(storage, storageConfig),
-              inject: [STORAGE_PROVIDER, StorageConfigService],
+              useFactory: (storage: StorageProvider, storageConfig: StorageConfigService, router: StorageProviderRouter) =>
+                new StorageProviderBackupTarget(storage, storageConfig, router),
+              inject: [STORAGE_PROVIDER, StorageConfigService, StorageProviderRouter],
             }) as Provider,
         // The mirrors: one token each (module-scoped), collected into one array.
         ...resolved.mirrorTargets.map(

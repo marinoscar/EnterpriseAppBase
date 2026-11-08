@@ -174,6 +174,12 @@ export interface StorageConfigView {
   missing: MissingStorageConfigField[];
   /** The masked status of the active driver's first declared secret (the built-ins': the secret access key). */
   secretStatus: StorageSecretStatus;
+  /**
+   * The masked status of every driver's declared secrets, by driver id and
+   * secret name (#1124: each driver keeps its own credential address). Absent
+   * from an API older than #1124; read it through {@link storageSecretStatusOf}.
+   */
+  secretStatuses?: Record<string, Record<string, StorageSecretStatus>>;
   /** Bumped on every write. Pass back as `If-Match` on the next `PUT`. */
   version: number;
   /** When it was last written (ISO), or `null`. */
@@ -524,4 +530,30 @@ export function createStorageConfigClient(api: PlatformApiClient): StorageConfig
     /** The `provisionBucket` field. */
     provisionBucket: (input) => api.post<StorageBucketProvisionResult>(`${BASE}/bucket`, input),
   };
+}
+
+/**
+ * The masked status of `driverId`'s secret `name` (#1124): the per-driver
+ * `secretStatuses` when the API sent them; else, for the active driver, the
+ * legacy `secretStatus`; else the descriptor's `hasValue` with no hint.
+ *
+ * @param config - the loaded configuration.
+ * @param driverId - a driver id.
+ * @param name - one of its declared secrets (default `secretAccessKey`).
+ * @returns the status; `configured: false` when nothing says one is stored.
+ *
+ * @stability experimental
+ */
+export function storageSecretStatusOf(
+  config: Pick<StorageConfigView, 'provider' | 'secretStatus' | 'secretStatuses' | 'descriptors'>,
+  driverId: string,
+  name = 'secretAccessKey',
+): StorageSecretStatus {
+  const direct = config.secretStatuses?.[driverId]?.[name];
+  if (direct) return direct;
+  if (driverId === config.provider && config.secretStatuses === undefined) return config.secretStatus;
+  const field = config.descriptors
+    ?.find((entry) => entry.id === driverId)
+    ?.fields.find((candidate) => candidate.kind === 'secret' && candidate.name === name);
+  return { configured: field?.kind === 'secret' && field.hasValue, hint: null, updatedAt: null, updatedByUserId: null };
 }

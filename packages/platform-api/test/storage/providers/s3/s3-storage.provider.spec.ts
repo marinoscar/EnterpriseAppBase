@@ -84,6 +84,7 @@ jest.mock('@aws-sdk/client-s3', () => ({
   }),
   GetObjectCommand: commandMock('GetObjectCommand'),
   DeleteObjectCommand: commandMock('DeleteObjectCommand'),
+  DeleteObjectsCommand: commandMock('DeleteObjectsCommand'),
   HeadObjectCommand: commandMock('HeadObjectCommand'),
   CopyObjectCommand: commandMock('CopyObjectCommand'),
   CreateMultipartUploadCommand: commandMock('CreateMultipartUploadCommand'),
@@ -686,6 +687,28 @@ describe('S3StorageProvider', () => {
       expect(result).toMatchObject({ key: 'key.txt', bucket: 'my-bucket' });
     });
 
+    it('stores the cacheControl the caller asked for, on a simple and a multipart upload (#1124)', async () => {
+      uploadDoneMock.mockResolvedValueOnce({ ETag: '"e"' });
+      const built = fromSettings();
+      const cacheControl = 'public, max-age=31536000, immutable';
+
+      await built.upload('thumbs/a.jpg', Readable.from(['data']), { mimeType: 'image/jpeg', cacheControl });
+      expect(uploadConstructorMock).toHaveBeenCalledWith(
+        expect.objectContaining({ params: expect.objectContaining({ CacheControl: cacheControl }) }),
+      );
+
+      s3SendMock.mockResolvedValueOnce({ UploadId: 'up-1' });
+      await built.initMultipartUpload('thumbs/b.jpg', { mimeType: 'image/jpeg', cacheControl });
+      expect(sentCommandInput()).toMatchObject({ CacheControl: cacheControl });
+    });
+
+    it('sends no CacheControl when none was asked for', async () => {
+      uploadDoneMock.mockResolvedValueOnce({ ETag: '"e"' });
+      await fromSettings().upload('a.txt', Readable.from(['data']), { mimeType: 'text/plain' });
+      const params = (uploadConstructorMock.mock.calls[0][0] as { params: Record<string, unknown> }).params;
+      expect(params).not.toHaveProperty('CacheControl');
+    });
+
     it('fails an init that returns no UploadId', async () => {
       s3SendMock.mockResolvedValueOnce({});
       const built = fromSettings();
@@ -803,6 +826,35 @@ describe('S3StorageProvider', () => {
       s3SendMock.mockReset();
       s3SendMock.mockRejectedValueOnce(new Error('boom'));
       await expect(fromSettings({ bucket: 'my-bucket' }).listUploadedParts('k', 'up-1')).rejects.toThrow('boom');
+    });
+  });
+
+  describe('deleteMany and size (#1124)', () => {
+    it('deletes in DeleteObjects batches of at most 1,000 keys and reports per-key errors', async () => {
+      const keys = Array.from({ length: 2001 }, (_, index) => `k/${index}`);
+      s3SendMock
+        .mockResolvedValueOnce({ Errors: [{ Key: 'k/5', Code: 'AccessDenied', Message: 'denied' }] })
+        .mockResolvedValueOnce({})
+        .mockResolvedValueOnce({});
+
+      const result = await fromSettings({ bucket: 'my-bucket' }).deleteMany([...keys, 'k/0']);
+
+      expect(s3SendMock).toHaveBeenCalledTimes(3);
+      const sizes = s3SendMock.mock.calls.map((call) => (call[0] as { input: { Delete: { Objects: unknown[] } } }).input.Delete.Objects.length);
+      expect(sizes).toEqual([1000, 1000, 1]);
+      expect((s3SendMock.mock.calls[0][0] as { __command: string; input: Record<string, unknown> })).toMatchObject({
+        __command: 'DeleteObjectsCommand',
+        input: { Bucket: 'my-bucket', Delete: { Quiet: true } },
+      });
+      expect(result.failed).toEqual([{ key: 'k/5', message: 'AccessDenied: denied' }]);
+      expect(result.deleted).toHaveLength(2000);
+    });
+
+    it('size reads ContentLength from HeadObject, null when absent', async () => {
+      s3SendMock.mockResolvedValueOnce({ ContentLength: 1234 });
+      expect(await fromSettings().size('a')).toBe(1234);
+      s3SendMock.mockRejectedValueOnce(new MockNotFound());
+      expect(await fromSettings().size('b')).toBeNull();
     });
   });
 });

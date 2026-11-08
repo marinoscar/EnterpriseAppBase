@@ -2131,7 +2131,11 @@ describe('the restore reads the archive through the backup target', () => {
 
     await runRestore(h);
 
-    expect(openRead).toHaveBeenCalledWith(backupRow().storageKey);
+    // With the run's recorded location (#1121), so the target needs no second lookup.
+    expect(openRead).toHaveBeenCalledWith(backupRow().storageKey, {
+      provider: backupRow().storageProvider,
+      bucket: backupRow().bucket,
+    });
     expect(h.exitProcess).toHaveBeenCalledTimes(1);
   });
 });

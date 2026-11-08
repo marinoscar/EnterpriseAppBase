@@ -44,6 +44,24 @@ describe('registerStoragePartBodyParser', () => {
     await app.close();
   });
 
+  it('rejects an unknown content type with an HttpException, so the exception filter answers 415, not 500 (#1124)', async () => {
+    const app = Fastify();
+    registerStoragePartBodyParser(app);
+    let thrown: unknown;
+    app.setErrorHandler((error, _request, reply) => {
+      thrown = error;
+      void reply.status(error instanceof UnsupportedMediaTypeException ? error.getStatus() : 500).send({});
+    });
+    app.put('/api/other', async () => ({ ok: true }));
+    await app.ready();
+
+    const res = await app.inject({ method: 'PUT', url: '/api/other', headers: { 'content-type': 'application/x-unknown' }, payload: Buffer.alloc(8) });
+
+    expect(res.statusCode).toBe(415);
+    expect(thrown).toBeInstanceOf(UnsupportedMediaTypeException);
+    await app.close();
+  });
+
   it('leaves the JSON parser alone', async () => {
     const app = await build();
     const res = await app.inject({ method: 'POST', url: '/api/json', payload: { a: 1 } });

@@ -177,7 +177,10 @@ describe('StorageConfigAdminService', () => {
       // ⚠ The negative assertion that matters: an admin READ has no business
       // holding plaintext, so the plaintext-yielding method is never called.
       expect(credentials.getSecret).not.toHaveBeenCalled();
-      expect(credentials.describe).toHaveBeenCalledWith('storage', 'default');
+      expect(credentials.describe).toHaveBeenCalledWith('storage', 's3');
+      // Every driver's own masked status (#1124).
+      expect(result.secretStatuses?.r2?.secretAccessKey).toEqual(result.secretStatus);
+      expect(result.secretStatuses?.['toy-store']?.token?.configured).toBe(true);
       expect(JSON.stringify(result)).not.toContain('credential present');
     });
 
@@ -298,12 +301,34 @@ describe('StorageConfigAdminService', () => {
     it('a non-blank value rotates the credential, with the label and the actor', async () => {
       await service.replace(body({ secretAccessKey: 'brand-new-secret' }), 'admin-1');
 
+      // The driver's OWN address (#1124), never the shared fallback slot.
       expect(credentials.setSecret).toHaveBeenCalledWith(
         'storage',
-        'default',
+        's3',
         'brand-new-secret',
-        { label: 'Storage secret access key', updatedByUserId: 'admin-1' },
+        { label: 'Storage secret access key (s3)', updatedByUserId: 'admin-1' },
       );
+    });
+
+    it('stores another driver\'s secret at ITS address without switching the active driver (#1124)', async () => {
+      await service.replace({ provider: 's3', secrets: { r2: { secretAccessKey: 'r2-secret' } } } as UpdateStorageConfigInput, 'admin-1');
+
+      expect(credentials.setSecret).toHaveBeenCalledTimes(1);
+      expect(credentials.setSecret).toHaveBeenCalledWith('storage', 'r2', 'r2-secret', {
+        label: 'Storage secret access key (r2)',
+        updatedByUserId: 'admin-1',
+      });
+      expect(systemSettings.patchSettings).toHaveBeenCalledWith({ storage: { provider: 's3' } }, 'admin-1', undefined);
+      const data = prisma.auditEvent.create.mock.calls[0][0].data;
+      expect(data.meta.secretsRotated).toEqual(['r2.secretAccessKey']);
+      expect(JSON.stringify(data)).not.toContain('r2-secret');
+    });
+
+    it('refuses a secret for an unregistered driver (400)', async () => {
+      await expect(
+        service.replace({ provider: 's3', secrets: { 'azure-blob': { key: 'x' } } } as UpdateStorageConfigInput, 'admin-1'),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(credentials.setSecret).not.toHaveBeenCalled();
     });
 
     it('never puts the submitted secret in the audit row — only whether one was written', async () => {

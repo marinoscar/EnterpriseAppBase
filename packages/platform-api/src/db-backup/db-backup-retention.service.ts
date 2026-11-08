@@ -12,6 +12,8 @@ import {
   DB_BACKUP_MIRROR_TARGETS,
   DB_BACKUP_TARGET,
   StorageProviderBackupTarget,
+  recordedLocationOf,
+  type BackupObjectLocation,
   type BackupTarget,
 } from './backup-target';
 import { resolveBackupRetention } from './db-backup.system-settings';
@@ -251,7 +253,7 @@ export class DatabaseBackupRetentionService {
       // granularity of whole backups.
       orderBy: { createdAt: 'desc' },
       skip: resolveBackupRetention(policy).count,
-      select: { id: true, storageKey: true, createdAt: true },
+      select: { id: true, storageKey: true, createdAt: true, storageProvider: true, bucket: true },
     });
 
     // ⚠ OLDEST FIRST. `findMany` handed them back newest-first (it had to —
@@ -262,7 +264,7 @@ export class DatabaseBackupRetentionService {
     // first means an interrupted prune still leaves the newest N-ish intact,
     // which is the property retention exists to provide.
     for (const run of [...victims].reverse()) {
-      if (await this.deleteRun(run.id, run.storageKey)) {
+      if (await this.deleteRun(run.id, run.storageKey, recordedLocationOf(run))) {
         result.prunedByCount += 1;
       } else {
         result.keptAfterFailedDelete += 1;
@@ -296,13 +298,13 @@ export class DatabaseBackupRetentionService {
         createdAt: { lt: cutoff },
       },
       orderBy: { createdAt: 'asc' },
-      select: { id: true, storageKey: true },
+      select: { id: true, storageKey: true, storageProvider: true, bucket: true },
     });
 
     // Already oldest-first from the query — there is no `skip` here to force
     // the other order, so the safe order is simply the natural one.
     for (const run of victims) {
-      if (await this.deleteRun(run.id, run.storageKey)) {
+      if (await this.deleteRun(run.id, run.storageKey, recordedLocationOf(run))) {
         result.prunedByAge += 1;
       } else {
         result.keptAfterFailedDelete += 1;
@@ -341,11 +343,11 @@ export class DatabaseBackupRetentionService {
         ...(newest?.id ? { id: { not: newest.id } } : {}),
       },
       orderBy: { createdAt: 'asc' },
-      select: { id: true, storageKey: true },
+      select: { id: true, storageKey: true, storageProvider: true, bucket: true },
     });
 
     for (const run of victims) {
-      if (await this.deleteRun(run.id, run.storageKey)) {
+      if (await this.deleteRun(run.id, run.storageKey, recordedLocationOf(run))) {
         result.prunedByMaxAge += 1;
       } else {
         result.keptAfterFailedDelete += 1;
@@ -375,9 +377,9 @@ export class DatabaseBackupRetentionService {
    * re-prunable, while an object whose row is gone is invisible and billed
    * forever.
    */
-  private async deleteRun(runId: string, storageKey: string): Promise<boolean> {
+  private async deleteRun(runId: string, storageKey: string, location?: BackupObjectLocation): Promise<boolean> {
     try {
-      await this.target.delete(storageKey);
+      await this.target.delete(storageKey, location);
     } catch (error) {
       this.logger.warn(
         `Retention could not delete the backup object "${storageKey}"; keeping run ` +
