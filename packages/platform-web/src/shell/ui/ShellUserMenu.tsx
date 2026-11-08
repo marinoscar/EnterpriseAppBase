@@ -7,6 +7,11 @@
 // from the navigation table (the home destination is dropped: the brand
 // already goes there), then the app's `items`, then sign-out, then the app's
 // `footer` (the reference app's version line: a label, not a menu item).
+//
+// Issue #1109: the avatar's image can come from the host (`avatarSrc`, for an
+// avatar served by an authenticated proxy rather than `profileImageUrl`) or be
+// drawn by the host outright (`renderAvatar`), and the destination rows can be
+// dropped (`showDestinations: false`) for an app whose rail already lists them.
 // =============================================================================
 
 import { Avatar, Box, Divider, IconButton, ListItemIcon, ListItemText, Menu, MenuItem, Typography } from '@mui/material';
@@ -16,6 +21,7 @@ import type { MouseEvent, ReactElement, ReactNode } from 'react';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 
 import { useAuth, usePermissions } from '../../identity/index.js';
+import type { AuthUser } from '../../identity/index.js';
 import { useSettingsFeatures } from '../../settings/index.js';
 import { isDestinationVisible } from '../headless/navigation.js';
 import type { ShellDestination, ShellNavigation } from '../headless/navigation.js';
@@ -76,6 +82,26 @@ export interface ShellUserMenuProps {
   hideOrgSwitcher?: boolean;
   /** Rows rendered above sign-out, after the destinations and `items`. */
   extraItems?: ShellUserMenuItem[];
+  /**
+   * The avatar image's URL, in place of the signed-in user's
+   * `profileImageUrl` (issue #1109): an app whose avatar is served by an
+   * authenticated proxy, or carries a cache-busting version, resolves the URL
+   * itself. `null` draws the initials with no image. Ignored when
+   * `renderAvatar` is given.
+   */
+  avatarSrc?: string | null;
+  /**
+   * Draws the avatar inside the menu button, replacing the default MUI
+   * `Avatar` (issue #1109). Given the signed-in user and the initials the
+   * default would show. Keep it about 32px square: the AppBar is sized for it.
+   */
+  renderAvatar?: (user: AuthUser, initials: string) => ReactNode;
+  /**
+   * List the navigation destinations as menu rows. Default `true`. An app
+   * whose rail and bottom bar already reach every destination passes `false`
+   * so the menu holds only its own `items`, `extraItems` and sign-out.
+   */
+  showDestinations?: boolean;
 }
 
 /** One destination's row. A component of its own so the destination's `badge` (which may call hooks) has a stable hook order. */
@@ -116,6 +142,9 @@ export function ShellUserMenu({
   hideSignOut,
   hideOrgSwitcher,
   extraItems,
+  avatarSrc,
+  renderAvatar,
+  showDestinations = true,
 }: ShellUserMenuProps): ReactElement | null {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const { user, logout, mode } = useAuth();
@@ -151,9 +180,11 @@ export function ShellUserMenu({
   if (!user) return null;
 
   // Home is dropped: the brand in the AppBar already routes there.
-  const menuDestinations = navigation.destinations.filter(
-    (destination) => destination.path !== homePath && isDestinationVisible(destination, hasPermission, features),
-  );
+  const menuDestinations = showDestinations
+    ? navigation.destinations.filter(
+        (destination) => destination.path !== homePath && isDestinationVisible(destination, hasPermission, features),
+      )
+    : [];
 
   const initials =
     user.displayName
@@ -172,13 +203,18 @@ export function ShellUserMenu({
         aria-haspopup="true"
         aria-expanded={open ? 'true' : undefined}
       >
-        <Avatar
-          src={user.profileImageUrl || undefined}
-          alt={user.displayName || user.email}
-          sx={{ width: 32, height: 32, fontSize: '0.875rem' }}
-        >
-          {initials}
-        </Avatar>
+        {renderAvatar ? (
+          renderAvatar(user, initials)
+        ) : (
+          <Avatar
+            // `undefined` (not given) falls back to the user's own image; `null` means none.
+            src={(avatarSrc === undefined ? user.profileImageUrl : avatarSrc) || undefined}
+            alt={user.displayName || user.email}
+            sx={{ width: 32, height: 32, fontSize: '0.875rem' }}
+          >
+            {initials}
+          </Avatar>
+        )}
       </IconButton>
 
       <Menu

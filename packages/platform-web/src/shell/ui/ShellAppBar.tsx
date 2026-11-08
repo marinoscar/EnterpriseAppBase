@@ -6,9 +6,10 @@
 // Two treatments, chosen by window class AND route. Below `sm` on a settings
 // route the brand is replaced by a back arrow and the resolved page title (the
 // DRILL-DOWN); everywhere else the brand, the actions, the theme toggle and
-// the user menu. The app fills the slots: `brand`, `actions` (both
-// treatments: the notification bell), `wideActions` (dropped in the
-// drill-down: an organization switcher) and `userMenu`.
+// the user menu. The app fills the slots: `brand`, `leadingActions` (beside
+// the brand, dropped in the drill-down with it: a group switcher chip, issue
+// #1109), `actions` (both treatments: the notification bell), `wideActions`
+// (dropped in the drill-down: an organization switcher) and `userMenu`.
 // =============================================================================
 
 import { AppBar as MuiAppBar, Box, IconButton, Toolbar, Typography, useMediaQuery, useTheme } from '@mui/material';
@@ -68,6 +69,13 @@ export interface ShellAppBarProps {
   /** The brand: the app's name or a logo. Clicking it goes home. */
   brand: ReactNode;
   /**
+   * Beside the brand, after it (issue #1109): a group or workspace switcher
+   * chip. Outside the brand's click target, so choosing it never goes home.
+   * Dropped in the drill-down, as the brand is: the back arrow and the page
+   * title own that space.
+   */
+  leadingActions?: ReactNode;
+  /**
    * Actions in BOTH treatments, before the theme toggle (the notification
    * bell: on a settings screen it is still the only way into the centre).
    */
@@ -90,7 +98,14 @@ export interface ShellAppBarProps {
  * @extensionPoint slot
  * @stability experimental
  */
-export function ShellAppBar({ navigation, brand, actions, wideActions, userMenu }: ShellAppBarProps): ReactElement {
+export function ShellAppBar({
+  navigation,
+  brand,
+  leadingActions,
+  actions,
+  wideActions,
+  userMenu,
+}: ShellAppBarProps): ReactElement {
   const theme = useTheme();
   const navigate = useNavigate();
   const { pathname } = useLocation();
@@ -155,6 +170,14 @@ export function ShellAppBar({ navigation, brand, actions, wideActions, userMenu 
           >
             {brand}
           </Typography>
+        )}
+
+        {/* Beside the brand and gone with it in the drill-down. `minWidth: 0`
+            so a long chip label ellipsizes instead of widening the toolbar. */}
+        {!drillDown && leadingActions !== undefined && leadingActions !== null && (
+          <Box data-shell-leading-actions sx={{ display: 'flex', alignItems: 'center', ml: 1.5, minWidth: 0 }}>
+            {leadingActions}
+          </Box>
         )}
 
         {/* The flexible spacer: the only growable item, so the trailing

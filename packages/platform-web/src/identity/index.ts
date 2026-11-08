@@ -8,6 +8,7 @@
 
 export { useAuth, useOptionalAuth, usePermissions, LocalIdentityProvider } from './headless/index.js';
 export type {
+  AuthUser,
   IdentityDataTableProps,
   IdentityTableColumn,
   IdentityTableFilter,

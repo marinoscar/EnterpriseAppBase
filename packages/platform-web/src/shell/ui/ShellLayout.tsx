@@ -16,10 +16,12 @@
 // =============================================================================
 
 import { Box, useMediaQuery, useTheme } from '@mui/material';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 import { Outlet } from 'react-router-dom';
 
+import { ShellContextPaneContext } from '../headless/context-pane.js';
+import type { ShellContextPaneState } from '../headless/context-pane.js';
 import { ShellMainVariantContext } from '../headless/main-variant.js';
 import type { ShellMainVariant } from '../headless/main-variant.js';
 import type { ShellNavigation } from '../headless/navigation.js';
@@ -124,56 +126,66 @@ export function ShellLayout(props: ShellLayoutProps): ReactElement {
   const mainVariant: ShellMainVariant = requestedVariant ?? props.mainVariant ?? 'padded';
   const fullBleed = mainVariant === 'full-bleed';
 
+  // The context pane the rail drew (issue #1109): the rail reports it, a page
+  // reads it with `useShellContextPaneVisible`. Not a breakpoint read.
+  const [visiblePaneKey, setVisiblePaneKey] = useState<string | null>(null);
+  const contextPane = useMemo<ShellContextPaneState>(
+    () => ({ visibleKey: visiblePaneKey, report: setVisiblePaneKey }),
+    [visiblePaneKey],
+  );
+
   const appBar = props.appBar ?? <ShellAppBar navigation={required(props.navigation, 'appBar')} brand={props.brand} />;
 
   return (
-    <Box
-      sx={{
-        display: 'flex',
-        flexDirection: 'column',
-        // The shell is the ONLY owner of viewport height: pages must not nest
-        // their own 100vh inside it. `100dvh` tracks mobile browser chrome;
-        // `100vh` is the fallback.
-        minHeight: '100vh',
-        '@supports (min-height: 100dvh)': { minHeight: '100dvh' },
-        backgroundColor: theme.palette.background.default,
-      }}
-    >
-      {appBar}
-      {/* `minWidth: 0` on the ROW as well as on `<main>`: a runaway intrinsic
-          width propagates through every flex level that omits it. */}
-      <Box sx={{ display: 'flex', flexGrow: 1, minWidth: 0 }}>
-        {/* Focus order follows visual order: rail (and its context pane), then main. */}
-        {showRail && (props.rail ?? <ShellNavigationRail navigation={required(props.navigation, 'rail')} />)}
-        <Box
-          component="main"
-          sx={{
-            flexGrow: 1,
-            // Load-bearing: a flex item's `min-width` defaults to its
-            // min-content width, so without this a wide table widens the
-            // whole shell past the viewport.
-            minWidth: 0,
-            // Full bleed drops the sides and the top only; the bottom is gate 3
-            // in both variants, so a full-bleed page still clears the bar.
-            p: fullBleed ? 0 : 3,
-            // Clears the fixed bottom bar, which only exists below `sm`: the
-            // same breakpoint the bottom bar gates on (gate 3).
-            pb: { xs: 10, sm: 3 },
-            ...(fullBleed ? { display: 'flex', flexDirection: 'column' } : {}),
-          }}
-          data-main-variant={mainVariant}
-        >
-          <ShellMainVariantContext.Provider value={setRequestedVariant}>
-            {!fullBleed && props.banners}
-            {props.children ?? <Outlet />}
-          </ShellMainVariantContext.Provider>
+    <ShellContextPaneContext.Provider value={contextPane}>
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          // The shell is the ONLY owner of viewport height: pages must not nest
+          // their own 100vh inside it. `100dvh` tracks mobile browser chrome;
+          // `100vh` is the fallback.
+          minHeight: '100vh',
+          '@supports (min-height: 100dvh)': { minHeight: '100dvh' },
+          backgroundColor: theme.palette.background.default,
+        }}
+      >
+        {appBar}
+        {/* `minWidth: 0` on the ROW as well as on `<main>`: a runaway intrinsic
+            width propagates through every flex level that omits it. */}
+        <Box sx={{ display: 'flex', flexGrow: 1, minWidth: 0 }}>
+          {/* Focus order follows visual order: rail (and its context pane), then main. */}
+          {showRail && (props.rail ?? <ShellNavigationRail navigation={required(props.navigation, 'rail')} />)}
+          <Box
+            component="main"
+            sx={{
+              flexGrow: 1,
+              // Load-bearing: a flex item's `min-width` defaults to its
+              // min-content width, so without this a wide table widens the
+              // whole shell past the viewport.
+              minWidth: 0,
+              // Full bleed drops the sides and the top only; the bottom is gate 3
+              // in both variants, so a full-bleed page still clears the bar.
+              p: fullBleed ? 0 : 3,
+              // Clears the fixed bottom bar, which only exists below `sm`: the
+              // same breakpoint the bottom bar gates on (gate 3).
+              pb: { xs: 10, sm: 3 },
+              ...(fullBleed ? { display: 'flex', flexDirection: 'column' } : {}),
+            }}
+            data-main-variant={mainVariant}
+          >
+            <ShellMainVariantContext.Provider value={setRequestedVariant}>
+              {!fullBleed && props.banners}
+              {props.children ?? <Outlet />}
+            </ShellMainVariantContext.Provider>
+          </Box>
         </Box>
+        {/* Mounted only where it renders. The bottom bar also gates itself on
+            `down('sm')`; `!showRail` is the exact complement of the rail's
+            gate, so there is no width with two navs and none with zero. */}
+        {!showRail && (props.bottomNav ?? <ShellBottomNav navigation={required(props.navigation, 'bottomNav')} />)}
+        {props.overlays}
       </Box>
-      {/* Mounted only where it renders. The bottom bar also gates itself on
-          `down('sm')`; `!showRail` is the exact complement of the rail's
-          gate, so there is no width with two navs and none with zero. */}
-      {!showRail && (props.bottomNav ?? <ShellBottomNav navigation={required(props.navigation, 'bottomNav')} />)}
-      {props.overlays}
-    </Box>
+    </ShellContextPaneContext.Provider>
   );
 }
