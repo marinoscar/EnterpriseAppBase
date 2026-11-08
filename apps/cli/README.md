@@ -1215,6 +1215,7 @@ its entries, so it cannot drift the way a hand-typed copy would. Run
 | `APPCTL_MEMORY_THRESHOLD` | heapUsed/heapLimit fraction at which the valve fires. Default ~0.9. |
 | `APPCTL_HEAP_SNAPSHOTS` | `false` to disable ALL THREE heap-snapshot paths. |
 | `APPCTL_NATIVE_THREADS` | Thread cap for native image/codec libraries (libvips and the like), per pipeline. A positive whole number; unset means half the cores, between 1 and 4. Handed to every registered worker runtime hook. |
+| `APPCTL_MODELS_DIR` | Directory model artifacts are stored in and verified against. Unset means `<state dir>/models`. A container mounts a baked-in or shared volume here. |
 <!-- GENERATED:WORKER_ENV_TABLE:END -->
 
 With `APPCTL_SERVER_URL` and `APPCTL_TOKEN` set and no config file at all, the
