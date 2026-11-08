@@ -25,6 +25,7 @@ export {
   workerEnv,
   resolveNativeThreads,
   setMemoryValveExitCode,
+  resolveInputMode,
 } from '../engine/index.js';
 export type {
   WorkerEnvKey,
@@ -45,6 +46,7 @@ export type {
   ExecutorNodeApi,
   JobExecutionContext,
   JobExecutor,
+  JobInputMode,
   JobSecret,
   NodeJob,
   UploadUrlResult,

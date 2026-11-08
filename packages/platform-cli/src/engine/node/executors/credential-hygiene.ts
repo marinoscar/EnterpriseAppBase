@@ -8,7 +8,7 @@ import { NodeLogger } from '../logger.js';
 import type { JobSecret, NodeApi, UploadUrlResult } from '../node-api.js';
 import { workerEnv } from '../worker-env.js';
 
-import type { JobExecutionContext, JobExecutor } from './index.js';
+import { resolveInputMode, type JobExecutionContext, type JobExecutor } from './index.js';
 
 // =============================================================================
 // "A node never persists a job-scoped credential", as a reusable check  (#715)
@@ -120,6 +120,7 @@ export async function checkExecutorCredentialHygiene(
 ): Promise<CredentialHygieneReport> {
   const marker = `conformance-credential-${randomUUID()}`;
   const signature = `X-Amz-Signature=conformance-${randomUUID()}`;
+  const inputSignature = `X-Amz-Signature=conformance-input-${randomUUID()}`;
   const root = mkdtempSync(join(tmpdir(), 'platform-cli-credential-'));
   const stateDir = join(root, 'state');
   const home = join(root, 'home');
@@ -166,10 +167,16 @@ export async function checkExecutorCredentialHygiene(
     },
   });
 
+  const inputMode = resolveInputMode(executor);
   let inputPath: string | undefined;
-  if (executor.requiresInput) {
+  let inputUrl: string | undefined;
+  if (inputMode === 'download') {
     inputPath = join(root, 'input.bin');
     writeFileSync(inputPath, 'conformance input\n');
+  } else if (inputMode === 'url') {
+    // The URL is a bearer capability, so it carries a unique signature the
+    // scan below looks for, exactly like the upload URL's.
+    inputUrl = `https://bucket.invalid/conformance/input?${inputSignature}`;
   }
 
   const controller = new AbortController();
@@ -186,7 +193,12 @@ export async function checkExecutorCredentialHygiene(
     },
     params: options.params ?? {},
     inputPath,
-    input: inputPath === undefined ? undefined : { objectId: 'conformance-input', size: '18', mimeType: 'application/octet-stream' },
+    inputUrl,
+    refreshInputUrl: async () => {
+      if (inputUrl === undefined) throw new Error('This job has no input URL to refresh.');
+      return inputUrl;
+    },
+    input: inputMode === 'none' ? undefined : { objectId: 'conformance-input', size: '18', mimeType: 'application/octet-stream' },
     api,
     nodeId: 'conformance-node',
     claimToken: randomUUID(),
@@ -232,6 +244,7 @@ export async function checkExecutorCredentialHygiene(
         const where = file === logPath ? 'the node log' : `${file.startsWith(home) ? 'HOME' : 'the state directory'}: ${file.slice(root.length + 1)}`;
         if (text.includes(marker)) findings.push(`the credential was written to ${where}`);
         if (text.includes(signature)) findings.push(`the signed upload URL was written to ${where}`);
+        if (text.includes(inputSignature)) findings.push(`the signed input URL was written to ${where}`);
       }
     }
     let serialised = '';
@@ -241,6 +254,8 @@ export async function checkExecutorCredentialHygiene(
       serialised = String(result);
     }
     if (serialised.includes(marker)) findings.push('the credential is in the result the node reports to the server');
+    if (serialised.includes(inputSignature)) findings.push('the signed input URL is in the result the node reports to the server');
+    if (error?.includes(inputSignature) === true) findings.push('the signed input URL is in the error message the node reports and logs');
     if (error?.includes(marker) === true) findings.push('the credential is in the error message the node reports and logs');
   } finally {
     rmSync(root, { recursive: true, force: true });

@@ -32,6 +32,7 @@ import { textColor } from './theme.js';
  * refusal — a user in a tmux split or an 80-column window halved is a normal
  * case, and a TUI that says "your terminal is too small" to someone who can
  * plainly see text on it is a TUI they stop using.
+ * @stability experimental
  */
 export const NARROW_COLUMNS = 56;
 
@@ -40,6 +41,7 @@ export const NARROW_COLUMNS = 56;
  *
  * Thirty is about the width of a phone-sized SSH session. There is no useful
  * layout left at this size, only content, so that is all that is drawn.
+ * @stability experimental
  */
 export const TINY_COLUMNS = 30;
 
@@ -56,8 +58,15 @@ export const TINY_COLUMNS = 30;
 const FALLBACK_COLUMNS = 80;
 const FALLBACK_ROWS = 24;
 
+/**
+ * The terminal size and the width tier it falls in.
+ *
+ * @stability experimental
+ */
 export interface TerminalSize {
+  /** Width in cells (80 when the terminal will not say). */
   columns: number;
+  /** Height in rows (24 when the terminal will not say). */
   rows: number;
   /** `columns < NARROW_COLUMNS`. Drop borders and side padding. */
   narrow: boolean;
@@ -78,6 +87,7 @@ export interface TerminalSize {
  * The listener is removed on unmount. `process.stdout` is a long-lived emitter
  * shared with the whole runtime, so a leaked listener here outlives the UI and
  * fires against unmounted components for the rest of the process's life.
+ * @stability experimental
  */
 export function useTerminalSize(): TerminalSize {
   const { stdout } = useStdout();
@@ -160,11 +170,17 @@ export function useIsMounted(): () => boolean {
 // Chrome
 // -----------------------------------------------------------------------------
 
+/**
+ * Props of {@link Frame}.
+ *
+ * @stability experimental
+ */
 export interface FrameProps {
   /** Screen name, shown in the header. */
   title: string;
   /** Key hints for the bottom line, e.g. `['↑↓ move', 'enter select']`. */
   hints?: string[];
+  /** The screen content. */
   children: ReactNode;
 }
 
@@ -183,6 +199,7 @@ export interface FrameProps {
  * so the right-hand edge wraps onto the next line and every frame ends with a
  * row of orphaned box characters. Letting the box size itself and constraining
  * only the CONTENT is what keeps the frame intact at every width.
+ * @stability experimental
  */
 export function Frame({ title, hints, children }: FrameProps): ReactNode {
   const { narrow, tiny } = useTerminalSize();
@@ -236,6 +253,7 @@ export function Frame({ title, hints, children }: FrameProps): ReactNode {
  *
  * Separators are dropped when narrow: at that width the hints wrap, and a
  * wrapped line beginning with a lone dot reads as corruption.
+ * @stability experimental
  */
 export function KeyHints({ hints }: { hints: string[] }): ReactNode {
   const { narrow } = useTerminalSize();
@@ -262,6 +280,7 @@ export function KeyHints({ hints }: { hints: string[] }): ReactNode {
  * ink measures a Box in cells and these labels are ASCII — padding is exact,
  * one flex node cheaper per row, and immune to the width-collapse described in
  * `Frame`.
+ * @stability experimental
  */
 export function Field({
   label,
@@ -296,6 +315,7 @@ const FIELD_LABEL_WIDTH = 10;
  * diagnosis. The messages this CLI produces already carry their own remedy
  * (see errors.ts), so `hint` is for the extra sentence a SCREEN can add and the
  * error itself cannot — "press r to try again".
+ * @stability experimental
  */
 export function ErrorNotice({
   message,

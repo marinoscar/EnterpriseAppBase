@@ -1467,7 +1467,7 @@ describe('NodeEngine — span relay', () => {
     const spans = batches[0] ?? [];
     expect(spans.map((s) => s.name)).toEqual(['job.download', 'job.execute', 'job.submit']);
     expect(spans.every((s) => s.jobId === 'sum' && s.status === 'ok')).toBe(true);
-    expect(spans[0]?.attributes).toEqual({ bytes: payload.length });
+    expect(spans[0]?.attributes).toEqual({ bytes: payload.length, inputMode: 'download' });
     expect(spans[1]?.attributes).toEqual({ attempt: 2 });
     // Sent AFTER the submission, never before it.
     expect(rec.results).toHaveLength(1);

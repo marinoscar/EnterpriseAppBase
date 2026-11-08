@@ -8,6 +8,7 @@ import { pipeline } from 'node:stream/promises';
 import {
   SERVER_FEATURE_HOST_VITALS,
   type ClaimToken,
+  type DownloadUrlResult,
   type HeartbeatRequest,
   type NodeApi,
   type NodeEvent,
@@ -16,7 +17,7 @@ import {
   type NodeVitalsCounters,
 } from './node-api.js';
 import type { ActiveJob, HistoryEntry, NodeCounters, NodeEngineEvent, NodeSnapshot } from './node-events.js';
-import type { ExecutorRegistry } from './executors/index.js';
+import { resolveInputMode, type ExecutorRegistry } from './executors/index.js';
 import { defaultExecutorRegistry } from './executors/registry.js';
 import { MissingJobInputError, ProviderRateLimitError } from './node-errors.js';
 import type { HostTelemetry } from './host-telemetry.js';
@@ -566,14 +567,34 @@ export class NodeEngine {
       const executor = this.executors.require(job.type);
 
       let input: { objectId: string; size: string; mimeType: string } | undefined;
-      if (executor.requiresInput) {
+      let inputUrl: string | undefined;
+      let refreshInputUrl: () => Promise<string> = async () => {
+        throw new Error(`Job ${job.id} (${job.type}) does not use input: 'url'; there is no input URL to refresh.`);
+      };
+      const inputMode = resolveInputMode(executor);
+      if (inputMode === 'download') {
         const resolved = await spans.phase(
           'job.download',
           () => this.downloadInput(job.id, job.type, claimToken),
-          (downloaded) => ({ bytes: Number(downloaded.meta.size) }),
+          (downloaded) => ({ bytes: Number(downloaded.meta.size), inputMode: 'download' }),
         );
         inputPath = resolved.path;
         input = resolved.meta;
+        this.emit({
+          kind: 'job-input',
+          at: this.iso(),
+          jobId: job.id,
+          objectId: resolved.meta.objectId,
+          bytes: resolved.meta.size,
+        });
+      } else if (inputMode === 'url') {
+        // Nothing is downloaded: the span times only the URL request, and
+        // carries no byte count because no byte moved.
+        const holder = new InputUrlHolder(() => this.requestInputUrl(job.id, job.type, claimToken), () => this.now());
+        const resolved = await spans.phase('job.download', () => holder.first(), () => ({ inputMode: 'url' }));
+        inputUrl = resolved.url;
+        input = resolved.meta;
+        refreshInputUrl = () => holder.refresh();
         this.emit({
           kind: 'job-input',
           at: this.iso(),
@@ -587,6 +608,8 @@ export class NodeEngine {
         job,
         params,
         inputPath,
+        inputUrl,
+        refreshInputUrl,
         input,
         // The same API, with `jobSecret` timed as the `job.secret` phase.
         api: withSecretSpan(this.api, spans),
@@ -710,6 +733,25 @@ export class NodeEngine {
   }
 
   /**
+   * Asks the server for the job's presigned input URL. Shared by both input
+   * modes; a failure or an empty URL is the named `MissingJobInputError`.
+   * The URL is a bearer capability: it is never put in an error message.
+   */
+  private async requestInputUrl(jobId: string, type: string, claimToken: ClaimToken): Promise<DownloadUrlResult> {
+    let signed;
+    try {
+      signed = await this.api.downloadUrl(this.nodeId, jobId, claimToken);
+    } catch (error) {
+      throw new MissingJobInputError(jobId, type, messageOf(error));
+    }
+
+    if (signed?.url === undefined || signed.url.length === 0) {
+      throw new MissingJobInputError(jobId, type, 'the server returned an empty URL');
+    }
+    return signed;
+  }
+
+  /**
    * Stream the job's input to a temp file.
    *
    * A `requiresInput` type with no download URL fails with a NAMED error here
@@ -721,16 +763,7 @@ export class NodeEngine {
     type: string,
     claimToken: ClaimToken,
   ): Promise<{ path: string; meta: { objectId: string; size: string; mimeType: string } }> {
-    let signed;
-    try {
-      signed = await this.api.downloadUrl(this.nodeId, jobId, claimToken);
-    } catch (error) {
-      throw new MissingJobInputError(jobId, type, messageOf(error));
-    }
-
-    if (signed?.url === undefined || signed.url.length === 0) {
-      throw new MissingJobInputError(jobId, type, 'the server returned an empty URL');
-    }
+    const signed = await this.requestInputUrl(jobId, type, claimToken);
 
     await mkdir(this.tmpDir, { recursive: true, mode: 0o700 });
     // Randomised, not job-id-derived: two attempts of the same job on the same
@@ -1029,5 +1062,47 @@ async function safeUnlink(path: string): Promise<void> {
   } catch {
     // Best effort. A file we cannot remove is a disk-space problem to log,
     // never a reason to fail a job that already succeeded.
+  }
+}
+
+/** Refresh the input URL once it has less than this long left. */
+const INPUT_URL_REFRESH_WINDOW_MS = 60_000;
+
+/**
+ * Holds a job's presigned input URL for `input: 'url'` mode and re-requests it
+ * shortly before it expires. Single-flight: concurrent `refresh()` calls share
+ * one request. The URL never leaves this object except as a return value.
+ */
+class InputUrlHolder {
+  private current: DownloadUrlResult | undefined;
+  private inflight: Promise<string> | undefined;
+
+  constructor(
+    private readonly request: () => Promise<DownloadUrlResult>,
+    private readonly now: () => number,
+  ) {}
+
+  async first(): Promise<{ url: string; meta: { objectId: string; size: string; mimeType: string } }> {
+    const signed = await this.request();
+    this.current = signed;
+    return { url: signed.url, meta: { objectId: signed.objectId, size: signed.size, mimeType: signed.mimeType } };
+  }
+
+  refresh(): Promise<string> {
+    const held = this.current;
+    if (held !== undefined) {
+      const expiresMs = Date.parse(held.expiresAt);
+      // An unparseable expiry is treated as expired: asking again is safe.
+      if (Number.isFinite(expiresMs) && expiresMs - this.now() > INPUT_URL_REFRESH_WINDOW_MS) return Promise.resolve(held.url);
+    }
+    this.inflight ??= this.request()
+      .then((signed) => {
+        this.current = signed;
+        return signed.url;
+      })
+      .finally(() => {
+        this.inflight = undefined;
+      });
+    return this.inflight;
   }
 }

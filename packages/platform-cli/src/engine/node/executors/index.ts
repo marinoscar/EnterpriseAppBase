@@ -81,7 +81,23 @@ export interface JobExecutionContext {
    * NAMED error rather than passing an empty path through.
    */
   inputPath: string | undefined;
-  /** The input object's metadata, when there was one. */
+  /**
+   * The presigned GET for the input object, in `input: 'url'` mode only
+   * (`undefined` otherwise). A BEARER CAPABILITY: pass it to the tool that
+   * reads it and never log it, put it in a span or return it in a result.
+   * It expires; call {@link JobExecutionContext.refreshInputUrl} for a fresh
+   * one on a long job instead of holding this one.
+   */
+  inputUrl: string | undefined;
+  /**
+   * A fresh presigned GET for the input, in `input: 'url'` mode only. Returns
+   * the held URL while it has more than 60 seconds left and otherwise asks the
+   * server again (single-flight: concurrent callers share one request).
+   * Throws `MissingJobInputError` when it cannot get one. In any other mode it
+   * rejects, because there is no input URL to refresh.
+   */
+  refreshInputUrl(): Promise<string>;
+  /** The input object's metadata, when there was one (`download` and `url` modes). */
   input:
     | {
         /** The input object's id. */
@@ -131,6 +147,27 @@ export interface JobExecutionContext {
 }
 
 /**
+ * How a job's input object reaches its executor.
+ *
+ * @stability experimental
+ */
+export type JobInputMode = 'none' | 'download' | 'url';
+
+/**
+ * The input mode an executor declares, resolving the older `requiresInput`
+ * spelling.
+ *
+ * @param executor - The executor.
+ * @returns `'download'` for `requiresInput: true`, `'none'` for `false` or
+ *   neither field, otherwise `input` itself.
+ * @stability experimental
+ */
+export function resolveInputMode(executor: Pick<JobExecutor, 'input' | 'requiresInput'>): JobInputMode {
+  if (executor.input !== undefined) return executor.input;
+  return executor.requiresInput === true ? 'download' : 'none';
+}
+
+/**
  * One job type this machine can run.
  *
  * @stability experimental
@@ -147,14 +184,27 @@ export interface JobExecutor {
   /** The job type, as the server's handler declares it (permanent once jobs exist). */
   readonly type: string;
   /**
-   * Whether the engine should fetch a download URL and stream the input to a
-   * temp file before calling `execute`.
-   *
-   * Declared rather than inferred, so a type that needs an input and did not
-   * get one fails with a named error at the top of the job instead of an
-   * opaque filesystem error somewhere inside it.
+   * The older spelling of {@link JobExecutor.input}: `true` is
+   * `input: 'download'`, `false` is `input: 'none'`. Still supported. Declare
+   * exactly one of `requiresInput` and `input`.
    */
-  readonly requiresInput: boolean;
+  readonly requiresInput?: boolean | undefined;
+  /**
+   * How the job's input object reaches `execute`, declared rather than
+   * inferred, so a type that needs an input and did not get one fails with a
+   * named error at the top of the job instead of an opaque error inside it.
+   *
+   * - `'none'`: no input object.
+   * - `'download'`: the engine streams it to a temp file (`context.inputPath`).
+   * - `'url'`: the engine hands over a presigned URL (`context.inputUrl`) and
+   *   downloads NOTHING. For a tool that range-seeks the object (ffmpeg,
+   *   ffprobe) and needs only the bytes around each seek point, so a multi-GB
+   *   video costs megabytes. Not every container is seekable (a non-faststart
+   *   MP4 needs its tail first): fall back to downloading inside `execute`.
+   *
+   * Declare exactly one of `input` and `requiresInput`.
+   */
+  readonly input?: JobInputMode | undefined;
   /**
    * Runs the job: returns the result the server's `nodeResultSchema` expects,
    * throws to fail it.
