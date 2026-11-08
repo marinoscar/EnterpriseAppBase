@@ -653,10 +653,73 @@ Delivery semantics:
   bytes (Postgres limits a `NOTIFY` payload to 8,000). A body within the
   channel's 2,000-character cap can still exceed that in UTF-8 bytes, so when
   the full event does not fit the bus carries `{ userId, ref: { notificationId,
-  toast, pushed } }`. The receiving replica reads the row with **both** `id` and
-  `userId` in the `where`, so a forged or mistaken reference can never surface
-  another user's notification, and drops it silently if the row is gone. The
-  publishing replica still delivers the full event to its own connections.
+  toast, pushed, reason? } }`. The receiving replica reads the row with **both**
+  `id` and `userId` in the `where`, so a forged or mistaken reference can never
+  surface another user's notification, and drops it silently if the row is gone.
+  It rebuilds the same frame the inline path would have carried: `count`,
+  `scopeId` and `updatedAt` come from the row, `reason` from the reference
+  (#1090). The publishing replica still delivers the full event to its own
+  connections.
+- **A `sync` frame crosses the bus as `{ userId, sync: true, reason }`.** It
+  carries no row, so it is never oversize; see [2.14](#214-inbox-rows-that-fold-dismissal-and-the-sync-frame).
+
+### 2.14 Inbox rows that fold, dismissal and the `sync` frame
+
+*Issues #1077, #1090.*
+
+`notify()` appends one inbox row per call. `notifyState` and `notifyCounted`
+keep one row instead (see the notifications README). They add these columns to
+`notifications`, all nullable or defaulted:
+
+| Column | Meaning |
+|---|---|
+| `data` (JSONB) | `count`, and `countAtRead` once the row was read (the re-unread rule compares against it) |
+| `scope_id` (UUID) | The scope the row belongs to (a group, an organization); not authorization |
+| `dismissed_at` | "Stop showing me this", distinct from `read_at`; a dismissed row leaves the list and the unread count |
+| `updated_at` | The COUNTED window anchor and a STATE row's refresh time; every raw `UPDATE` sets it explicitly |
+| `dedup_key` | `state:<event>:<scope>` or `counted:<event>:<scope>[:<match>]`; `NULL` for a plain row |
+
+One raw-SQL partial unique index, `notifications_live_dedup_uniq_idx`
+(`UNIQUE (user_id, dedup_key) WHERE dismissed_at IS NULL AND dedup_key IS NOT
+NULL`), is what makes a second live row impossible. It is intentional schema
+drift, listed in `raw-sql-indexes.json`; never replace it with `@@unique`.
+
+**Dismiss-all and the dismissed listing.** `POST /api/notifications/dismiss-all`
+dismisses every live row of the caller (dismissal implies read), optionally only
+those of one `scopeId`, and answers `{ dismissed, unreadCount }`.
+`GET /api/notifications?status=dismissed` is the only listing that returns
+dismissed rows; `all`, `unread` and `read` never do. `status` wins over the older
+`unreadOnly` flag.
+
+**Dismiss-on-disable.** Turning an event off means "stop showing me this", not
+"stop showing me this except for the eleven already there". For a STATE row it is
+the only way out: the reconcile that would drain it is gated on the same
+preference, so the row would nag forever. Two hooks, both run **inside the
+settings write's own transaction**, after the settings row is written and before
+commit, so either both commit or neither does:
+
+- *Per user.* The `notifications` user namespace's `onWrite` dismisses the live
+  rows of every event the user switched off for the in-app inbox (the `browser`
+  channel), skipping a mandatory event and any key the registry does not know.
+- *Deployment-wide.* The `notifications` system namespace's `onWrite` dismisses
+  the live rows, for every user, of every non-mandatory event in
+  `disabledEvents`.
+
+Re-enabling an event restores nothing: a dismissed row stays dismissed and the
+producer raises a fresh one on its next occurrence. The hooks are idempotent and
+run whenever the namespace changed, so each save also heals a stale row. The
+mechanism is the settings slice's namespace `onWrite` hook
+(`write-hooks.ts`): a settings write whose namespaces declare no hook, or did not
+change, is the plain single write, with no transaction opened.
+
+**The `sync` frame.** When the caller reads, dismisses or dismisses-all in one
+tab, the server publishes `event: sync`, `data: { "reason": "read" | "read-all" |
+"dismissed" | "dismissed-all" | "deleted" }` to that user's connections on every
+replica. It carries no row: the table is the truth, and the response is the same
+refetch a (re)connect does. A deployment-wide dismissal publishes no frame (the
+affected users are not known to the settings write); their tabs refetch on the
+next reconnect or action. There is no hard-delete route in the platform, so
+`deleted` is reserved for an app that adds one.
 
 ## 3. Configuration and permissions
 
@@ -696,11 +759,13 @@ See [ARCHITECTURE.md](../ARCHITECTURE.md) for the full permission matrix.
 | `GET /api/notifications/events` | Registry events, each with `channels` (policy-filtered, for the preferences matrix) and `declaredChannels` (unfiltered, so the admin policy page keeps listing a suppressed event) | authenticated |
 | `GET /api/notifications/channels` | Every registered channel: label, description, `userConfigurable`, `criticalCapable`, `broadcastCapable`, `broadcastDefault`, `order` | authenticated |
 | `GET /api/notifications/config` | `browserEnabled`, `pushEnabled`, `vapidPublicKey` | authenticated |
-| `GET /api/notifications/stream` | SSE stream of new inbox rows, each with `toast` and `pushed` | authenticated |
-| `GET /api/notifications` | Caller's inbox, paginated (`page`, `pageSize`, `unreadOnly`) | authenticated |
+| `GET /api/notifications/stream` | SSE stream of new inbox rows (`event: notification`, each with `toast` and `pushed`) and `event: sync` frames (refetch) | authenticated |
+| `GET /api/notifications` | Caller's inbox, paginated (`page`, `pageSize`, `status` = `all`, `unread`, `read` or `dismissed`; `unreadOnly` is the older spelling of `unread`) | authenticated |
 | `GET /api/notifications/unread-count` | Unread count | authenticated |
 | `POST /api/notifications/:id/read` | Mark one read | authenticated |
 | `POST /api/notifications/read-all` | Mark all read | authenticated |
+| `POST /api/notifications/:id/dismiss` | Dismiss one (idempotent; another user's id is a 404) | authenticated |
+| `POST /api/notifications/dismiss-all` | Dismiss every live row, optionally one `scopeId`; `{ dismissed, unreadCount }` | authenticated |
 | `POST /api/notifications/push/subscriptions` | Register (upsert) a push subscription; 409 with no active key pair | authenticated |
 | `DELETE /api/notifications/push/subscriptions` | Remove a push subscription; 204, 404 if not the caller's | authenticated |
 | `GET /api/admin/push-config` | Config plus masked `privateKeyStatus` | `push:read` |
@@ -887,3 +952,4 @@ the app closed; iOS Safari in a tab (install panel) and installed (push).
   channel forwards the template's inline `attachments`; the app's `sw.ts`
   registers the package's handlers (`registerNotificationServiceWorkerHandlers`);
   the `NotificationBell` has slots.
+- Issue #1090 (follow-up to #1077): dismiss-on-disable per user and deployment-wide in the settings write's transaction, `POST /api/notifications/dismiss-all`, the `status=dismissed` listing, the `sync` stream frame, and the by-reference stream path keeping `count`, `scopeId`, `updatedAt` and `reason`.
