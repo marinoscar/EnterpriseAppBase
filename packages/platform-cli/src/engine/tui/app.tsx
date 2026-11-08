@@ -6,7 +6,10 @@ import { TuiAppProvider, useTuiApp, type TuiAppProviderProps } from './context.j
 import { useTerminalSize } from './layout.js';
 import { textColor } from './theme.js';
 import type { TuiScreenProps, TuiScreenRegistration } from './screen-registry.js';
+import { listTuiMenuNodes } from './menu-registry.js';
+import { buildTuiMenuTree, tuiMenuItemLabel, tuiRouteRequiresLogin } from './menu-tree.js';
 import { MenuScreen } from './screens/menu.js';
+import { NotLoggedIn } from './screens/not-logged-in.js';
 
 // =============================================================================
 // The app root  (issue #145, epic #110)
@@ -61,7 +64,7 @@ export function App(props: Omit<TuiAppProviderProps, 'children'> = {}): ReactNod
 
 /** Renders the top frame of the navigation stack and nothing else. */
 export function Router(): ReactNode {
-  const { nav, theme } = useTuiApp();
+  const { nav, theme, session } = useTuiApp();
   const { columns } = useTerminalSize();
   const { exit } = useApp();
 
@@ -110,7 +113,23 @@ export function Router(): ReactNode {
   // The built-in screens and every app screen (`registerTuiScreen`, #715).
   const registration = allTuiScreens().find((screen) => screen.route === frame.route);
   const Screen = registration === undefined ? undefined : screenComponent(registration);
-  if (Screen !== undefined) {
+  if (Screen !== undefined && registration !== undefined) {
+    // THE LOGIN GATE (RETRO-G1.1): one guard here for every menu entry that
+    // requires a login, so no screen carries its own. Presentation only; the
+    // server still authorises every call the screen makes.
+    if (!session.loggedIn) {
+      const tree = buildTuiMenuTree(listTuiMenuNodes(), allTuiScreens());
+      if (tuiRouteRequiresLogin(frame.route, tree)) {
+        const entry = tree.entries.find((candidate) => candidate.route === frame.route);
+        return (
+          <NotLoggedIn
+            title={entry === undefined ? frame.route : tuiMenuItemLabel(entry, undefined, { loggedIn: false })}
+            onLogin={() => nav.push('login')}
+            onBack={pop}
+          />
+        );
+      }
+    }
     return (
       <Suspense fallback={<Text dimColor>Loading…</Text>}>
         <Screen onDone={pop} params={frame.params} />

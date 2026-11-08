@@ -24,6 +24,7 @@ import type { JobExecutor } from './node/executors/index.js';
 import { registerNodeExecutor } from './node/executors/registry.js';
 import { buildProgram, run, type RunOptions } from './program.js';
 import { freezeCliRegistries } from './registries.js';
+import { registerTuiMenuNode, type TuiMenuNode } from './tui/menu-registry.js';
 import { registerTuiScreen, type TuiScreenRegistration } from './tui/screen-registry.js';
 import { registerTuiSelection, registerTuiStateLoader, type TuiSelectionRegistration, type TuiStateLoaderRegistration } from './tui/app-registry.js';
 import { setTuiThemeOverrides, type TuiThemeOverrides } from './tui/theme.js';
@@ -111,6 +112,8 @@ export interface CreateCliOptions {
   extraCommands?: readonly CliCommandRegistration[] | undefined;
   /** Screens added to the TUI menu. Same as `registerTuiScreen`. */
   tuiScreens?: readonly TuiScreenRegistration[] | undefined;
+  /** Sections and entries of the TUI menu tree. Same as `registerTuiMenuNode`. */
+  tuiMenu?: readonly TuiMenuNode[] | undefined;
   /** Colour tokens, brand hues and glyphs of the TUI. Colour is still off under `NO_COLOR`. */
   tuiTheme?: TuiThemeOverrides | undefined;
   /** Selections shown as a chip in the TUI header. Same as `registerTuiSelection`. */
@@ -199,6 +202,7 @@ export function createCli(options: CreateCliOptions): CliInstance {
   for (const [key, annotation] of Object.entries(options.envAnnotations ?? {})) annotateEnvKey(key, annotation);
   for (const command of options.extraCommands ?? []) registerCliCommand(command);
   for (const screen of options.tuiScreens ?? []) registerTuiScreen(screen);
+  for (const node of options.tuiMenu ?? []) registerTuiMenuNode(node);
   for (const { screen, id, component, load } of options.tuiSections ?? []) {
     registerTuiScreenSection(screen, component ?? { id, load: load as NonNullable<typeof load> }, { id });
   }
