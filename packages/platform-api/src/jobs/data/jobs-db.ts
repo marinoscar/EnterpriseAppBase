@@ -7,7 +7,7 @@
 // package is built, type-checked and tested before any app's `prisma
 // generate`, and works with any app that composed the `jobs` fragment of
 // `@marinoscar/platform-db` (`Job`, `JobStatsRollup`, `WorkerNode`,
-// `NodeCredential`, `JobNodeSecret`).
+// `NodeCredential`, `JobNodeSecret`, `NodeCredentialIssuance`).
 //
 // THE CLIENT ARRIVES THROUGH THE CORE PORT `PLATFORM_PRISMA` and is seen as
 // {@link JobsPrisma}. Every delegate method takes Prisma's arguments untyped
@@ -354,6 +354,30 @@ export interface JobNodeSecret {
 }
 
 /**
+ * One `node_credential_issuances` row (#1083): the audit of a provider
+ * credential delivered to a node. It has no column able to hold the
+ * credential itself; `version` is a non-secret rotation marker.
+ *
+ * @stability experimental
+ */
+export interface NodeCredentialIssuance {
+  /** The row id. */
+  id: string;
+  /** The node it was delivered to. */
+  nodeId: string;
+  /** The purpose id (`ai:openai`). */
+  purpose: string;
+  /** The non-secret rotation marker returned to the node. */
+  version: string;
+  /** The job it was delivered for, or `null` once that job was purged. */
+  jobId: string | null;
+  /** Issue time. */
+  issuedAt: Date;
+  /** When the node must have deleted its cached copy. */
+  expiresAt: Date;
+}
+
+/**
  * One `worker_node_events` row: an event a worker node reported about itself
  * (power source change, low battery, wake from sleep).
  *
@@ -453,6 +477,8 @@ export interface JobsTx {
   nodeCredential: JobsDelegate<NodeCredential>;
   /** `job_node_secrets`. */
   jobNodeSecret: JobsDelegate<JobNodeSecret>;
+  /** `node_credential_issuances` (#1083). */
+  nodeCredentialIssuance: JobsDelegate<NodeCredentialIssuance>;
   /** A tagged-template (or `Sql`) raw query. */
   $queryRaw<T = unknown>(query: TemplateStringsArray | JobsRawSql, ...values: unknown[]): Promise<T>;
   /** A tagged-template (or `Sql`) raw statement; resolves to the affected row count. */

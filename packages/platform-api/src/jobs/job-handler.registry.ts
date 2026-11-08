@@ -63,6 +63,7 @@
 // =============================================================================
 
 import { Injectable, Logger } from '@nestjs/common';
+import { NODE_CREDENTIAL_PURPOSE_ID_PATTERN } from '@marinoscar/platform-contract/nodes';
 
 import { JobHandler } from './job-handler.interface';
 import { recordHandlerLabel } from './job-type-label';
@@ -106,6 +107,15 @@ export class JobHandlerRegistry {
    * @stability stable
    */
   register(handler: JobHandler): void {
+    for (const purpose of handler.nodeCredentialPurposes ?? []) {
+      if (typeof purpose !== 'string' || !NODE_CREDENTIAL_PURPOSE_ID_PATTERN.test(purpose)) {
+        throw new Error(
+          `Job handler "${handler.type}" declares node credential purpose ${JSON.stringify(purpose)}, ` +
+            `which is not a purpose id (<namespace>:<name>, e.g. "ai:openai").`,
+        );
+      }
+    }
+
     const existing = this.handlers.get(handler.type);
 
     if (existing) {

@@ -53,9 +53,26 @@ export type {
   JobsUpdateData,
   JobsWhere,
   NodeCredential,
+  NodeCredentialIssuance,
   WorkerNode,
   WorkerNodeEvent,
 } from './data/jobs-db';
+
+// ---- provider-credential delivery to nodes (#1083, rung 2) -------------------------------------
+export {
+  DEFAULT_NODE_CREDENTIAL_DELIVERY,
+  nodeCredentialPurposeRegistry,
+  readNodeCredentialDeliveryPolicy,
+  registerNodeCredentialPurpose,
+  undeliverableReason,
+} from './node-credential-purpose';
+export type {
+  NodeCredentialDeliveryPolicy,
+  NodeCredentialPurposeDefinition,
+  NodeCredentialPurposeId,
+  NodeCredentialResolveContext,
+  ResolvedNodeCredential,
+} from './node-credential-purpose';
 
 // ---- the handler contract and its registry (rung 2) --------------------------------------
 export { JOB_HANDLER } from './job-handler.interface';
