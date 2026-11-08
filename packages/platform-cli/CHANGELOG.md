@@ -1,5 +1,13 @@
 # @marinoscar/platform-cli
 
+## 0.1.0-next.28
+
+### Patch Changes
+
+- Updated dependencies [2cc3691]
+  - @marinoscar/platform-contract@0.1.0-next.28
+  - @marinoscar/platform-infra@0.1.0-next.28
+
 ## 0.1.0-next.27
 
 ### Minor Changes
