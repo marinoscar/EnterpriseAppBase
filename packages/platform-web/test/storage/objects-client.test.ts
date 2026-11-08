@@ -51,7 +51,8 @@ describe('createStorageObjectsClient', () => {
   it('calls the resumable-upload, download, delete and status routes', async () => {
     const host = createTestPlatformHost({
       responses: {
-        'POST /storage/objects/upload/init': { objectId: 'o1', uploadId: 'u1', partSize: 5, totalParts: 1, presignedUrls: [] },
+        'POST /storage/objects/upload/init': { objectId: 'o1', uploadId: 'u1', partSize: 5, totalParts: 1, presignedUrls: [], partUploadAuth: 'none' },
+        'POST /storage/objects/o1/upload/part-urls': { presignedUrls: [{ partNumber: 2, url: '/api/storage/objects/o1/upload/parts/2' }], partUploadAuth: 'bearer' },
         'GET /storage/objects/o1/upload/status': { objectId: 'o1', status: 'pending', uploadedParts: [], totalParts: 1, uploadedBytes: '0', totalBytes: '5' },
         'POST /storage/objects/o1/upload/complete': object('ready'),
         'DELETE /storage/objects/o1/upload/abort': null,
@@ -63,6 +64,7 @@ describe('createStorageObjectsClient', () => {
     const client = createStorageObjectsClient(host.api);
 
     await client.initUpload({ name: 'a.bin', size: 5, mimeType: 'application/octet-stream' });
+    await expect(client.partUrls('o1', { partNumbers: [2] })).resolves.toMatchObject({ partUploadAuth: 'bearer' });
     await client.uploadStatus('o1');
     await client.completeUpload('o1', { parts: [{ partNumber: 1, eTag: '"e"' }] });
     await client.abortUpload('o1');
@@ -72,6 +74,7 @@ describe('createStorageObjectsClient', () => {
 
     expect(host.requests.map((r) => `${r.method} ${r.path}`)).toEqual([
       'POST /storage/objects/upload/init',
+      'POST /storage/objects/o1/upload/part-urls',
       'GET /storage/objects/o1/upload/status',
       'POST /storage/objects/o1/upload/complete',
       'DELETE /storage/objects/o1/upload/abort',
@@ -79,6 +82,7 @@ describe('createStorageObjectsClient', () => {
       'DELETE /storage/objects/o1',
       'GET /storage/status',
     ]);
-    expect(host.requests[2]!.body).toEqual({ parts: [{ partNumber: 1, eTag: '"e"' }] });
+    expect(host.requests[1]!.body).toEqual({ partNumbers: [2] });
+    expect(host.requests[3]!.body).toEqual({ parts: [{ partNumber: 1, eTag: '"e"' }] });
   });
 });

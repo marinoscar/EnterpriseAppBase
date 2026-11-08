@@ -8,6 +8,8 @@
 import type {
   CompleteUploadDto,
   DownloadUrlResponse,
+  GetPartUrlsDto,
+  GetPartUrlsResponse,
   InitUploadDto,
   InitUploadResponse,
   ObjectResponse,
@@ -101,7 +103,13 @@ export interface StorageObjectsClient {
   upload(file: Blob, filename?: string): Promise<StorageObject>;
   /** `POST /storage/objects/upload/init`: opens a resumable upload; returns presigned part URLs. */
   initUpload(input: InitUploadDto): Promise<InitUploadResponse>;
-  /** `GET /storage/objects/:id/upload/status`: the parts uploaded so far, for a resume. */
+  /**
+   * `POST /storage/objects/:id/upload/part-urls`: more part URLs (`init` returns at most 10; at most 100
+   * part numbers per call). The response's `partUploadAuth` says how to PUT to them: `none` (presigned,
+   * send no `Authorization` header) or `bearer` (this API's part route, send the caller's credential).
+   */
+  partUrls(id: string, input: GetPartUrlsDto): Promise<GetPartUrlsResponse>;
+  /** `GET /storage/objects/:id/upload/status`: the parts the storage backend already holds, for a resume. */
   uploadStatus(id: string): Promise<UploadStatusResponse>;
   /** `POST /storage/objects/:id/upload/complete`: completes it from the parts' ETags. */
   completeUpload(id: string, input: CompleteUploadDto): Promise<StorageObject>;
@@ -152,6 +160,7 @@ export function createStorageObjectsClient(api: StorageObjectsTransport): Storag
       return api.postFormData<StorageObject>(OBJECTS, formData);
     },
     initUpload: (input) => api.post<InitUploadResponse>(`${OBJECTS}/upload/init`, input),
+    partUrls: (objectId, input) => api.post<GetPartUrlsResponse>(`${OBJECTS}/${id(objectId)}/upload/part-urls`, input),
     uploadStatus: (objectId) => api.get<UploadStatusResponse>(`${OBJECTS}/${id(objectId)}/upload/status`),
     completeUpload: (objectId, input) => api.post<StorageObject>(`${OBJECTS}/${id(objectId)}/upload/complete`, input),
     abortUpload: async (objectId) => {

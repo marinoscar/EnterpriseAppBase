@@ -43,8 +43,25 @@ export { completeUploadSchema } from './schemas.js';
 export type { CompleteUploadDto } from './schemas.js';
 export { downloadUrlResponseSchema } from './schemas.js';
 export type { DownloadUrlResponse } from './schemas.js';
-export { initUploadResponseSchema, initUploadSchema } from './schemas.js';
-export type { InitUploadDto, InitUploadResponse } from './schemas.js';
+export {
+  INIT_UPLOAD_PART_URL_BATCH,
+  PART_UPLOAD_AUTH_MODES,
+  PART_URLS_MAX_PER_CALL,
+  UPLOAD_ERROR_REASONS,
+  getPartUrlsResponseSchema,
+  getPartUrlsSchema,
+  initUploadResponseSchema,
+  initUploadSchema,
+  partUrlSchema,
+} from './schemas.js';
+export type {
+  GetPartUrlsDto,
+  GetPartUrlsResponse,
+  InitUploadDto,
+  InitUploadResponse,
+  PartUploadAuth,
+  UploadErrorReason,
+} from './schemas.js';
 export { objectListQuerySchema } from './schemas.js';
 export type { ObjectListQueryDto, ObjectListResponse } from './schemas.js';
 export { objectResponseSchema, uploadStatusResponseSchema } from './schemas.js';

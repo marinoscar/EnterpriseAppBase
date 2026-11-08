@@ -1,6 +1,6 @@
 # @marinoscar/platform-contract/storage
 
-The wire contract of the storage slice (issue #736, PP-8.3), as zod schemas with their inferred types, plus the zod-free value lists: the `storage` system-settings namespace (`systemStorageSchema` and its partial, the PUT and PATCH branches `storageSettingsSchema` / `storageSettingsPatchSchema`, the GET branch `storageResponseSchema`), the objects API and `GET /api/storage/status`, and the storage-config admin routes (save, connection test, bucket provisioning). `@marinoscar/platform-api/storage` wraps them as DTOs; `@marinoscar/platform-web/storage` reads their types and value lists. It depends on no other slice (`packages/platform-slices.json`).
+The wire contract of the storage slice (issue #736, PP-8.3), as zod schemas with their inferred types, plus the zod-free value lists: the `storage` system-settings namespace (`systemStorageSchema` and its partial, the PUT and PATCH branches `storageSettingsSchema` / `storageSettingsPatchSchema`, the GET branch `storageResponseSchema`), the objects API and `GET /api/storage/status` (the resumable upload included: `PART_UPLOAD_AUTH_MODES` and the `partUploadAuth` of the init and part-urls payloads, `getPartUrlsSchema` and `getPartUrlsResponseSchema`, `INIT_UPLOAD_PART_URL_BATCH` and `PART_URLS_MAX_PER_CALL`, and the `details.reason` values `UPLOAD_ERROR_REASONS`), and the storage-config admin routes (save, connection test, bucket provisioning). `@marinoscar/platform-api/storage` wraps them as DTOs; `@marinoscar/platform-web/storage` reads their types and value lists. It depends on no other slice (`packages/platform-slices.json`).
 
 ## Purpose and scope
 
@@ -75,6 +75,8 @@ The secret access key is not representable in the stored settings, the GET branc
 The API slice's `storage` suite (`@marinoscar/platform-api/storage/testing`) scans `systemStorageSchema`, `storageResponseSchema` and `storageConfigResponseSchema` for secret-named fields; see its README.
 
 ## Upgrade notes
+
+#1079: `initUploadResponseSchema` gains the required `partUploadAuth` (`none` | `bearer`) and its `presignedUrls[].url` is a plain non-empty string (for `bearer` it is the API's part route, which may be root-relative); new `getPartUrlsSchema` / `getPartUrlsResponseSchema` (the `POST :id/upload/part-urls` body and payload), `partUrlSchema`, `PART_UPLOAD_AUTH_MODES`, `INIT_UPLOAD_PART_URL_BATCH`, `PART_URLS_MAX_PER_CALL` and `UPLOAD_ERROR_REASONS`. `uploadStatusResponseSchema.uploadedParts` now means the parts the storage backend holds.
 
 New in this version. The shapes are unchanged from the reference app's `common/schemas/` and `storage/**/dto/`; the OpenAPI document was identical until PP-14.7 (#925). The objects list query's `status` and the object responses' `status` enumerate `STORAGE_OBJECT_STATUSES` in the fragment's order.
 

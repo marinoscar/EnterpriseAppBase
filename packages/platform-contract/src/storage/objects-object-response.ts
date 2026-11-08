@@ -41,7 +41,7 @@ export const uploadStatusResponseSchema = z.object({
   objectId: z.uuid(),
   /** The status. */
   status: (z.enum(STORAGE_OBJECT_STATUSES) as z.ZodEnum<StorageEnum<typeof STORAGE_OBJECT_STATUSES>>),
-  /** Part numbers already uploaded, so a resuming client knows what to skip. */
+  /** Part numbers the storage backend already holds (S3 ListParts, or the parts on disk), so a resuming client knows what to skip. */
   uploadedParts: z.array(z.number().int()),
   /** How many parts the upload has. */
   totalParts: z.number().int(),
